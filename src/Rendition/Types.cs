@@ -71,6 +71,27 @@ public struct DirectionalLight
     public bool CastsShadow;
 }
 
+/// <summary>A glowing rectangle in the environment, such as a studio softbox.</summary>
+public struct EnvironmentPanel
+{
+    /// <summary>Points from the centre of the scene towards the panel.</summary>
+    public Vector3 Direction;
+
+    /// <summary>Half the panel's size at a distance of one from the scene's centre.</summary>
+    public float HalfWidth;
+    public float HalfHeight;
+    public Vector3 Radiance;
+}
+
+/// <summary>The surroundings that surfaces reflect: three bands of colour plus up to eight panels.</summary>
+public ref struct EnvironmentDescription
+{
+    public Vector3 Ceiling;
+    public Vector3 Horizon;
+    public Vector3 Floor;
+    public ReadOnlySpan<EnvironmentPanel> Panels;
+}
+
 /// <summary>The part of the world covered by the shadow map.</summary>
 public struct ShadowSettings
 {
@@ -97,7 +118,9 @@ public ref struct FrameView
     public ReadOnlySpan<DirectionalLight> Lights;
 
     public ShadowSettings Shadows;
-    public Vector3 AmbientRadiance;
+
+    /// <summary>Scales the light and reflections from the environment.</summary>
+    public float EnvironmentIntensity;
 
     /// <summary>Shown where nothing was drawn.</summary>
     public Vector3 BackgroundRadiance;

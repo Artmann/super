@@ -16,7 +16,9 @@ What exists today:
   depth, using reversed-Z depth
 - A shadow pass that renders depth from the key light
 - A lighting pass with Cook-Torrance GGX shading, up to eight directional lights,
-  soft contact-hardening shadows, flat ambient and a fade into the background
+  soft contact-hardening shadows, studio reflections and a fade into the background
+- A generated environment, baked by a compute shader into cube maps, that gives
+  surfaces their reflections and soft fill light
 - A tonemap pass that takes HDR colour to the screen with ACES filmic
 - Two frames in flight and window resize handling
 - GLSL shaders compiled to SPIR-V at build time
@@ -25,9 +27,8 @@ What exists today:
 - A small public API: `Renderer.CreateModel`, `CreateMesh`, `CreateTexture`,
   `CreateMaterial` and `Render(in FrameView, ReadOnlySpan<DrawItem>)`
 
-Planned next, in order: studio reflections, car
-materials and glass, then ambient occlusion, bloom and anti-aliasing. Custom
-shaders come after that.
+Planned next, in order: car materials and glass, then ambient occlusion, bloom and
+anti-aliasing. Custom shaders come after that.
 
 Decisions, the G-buffer layout and known simplifications are in
 [docs/design.md](docs/design.md).

@@ -82,6 +82,38 @@ unsafe
         camera = new OrbitCamera { Yaw = 0f, Pitch = 0.33f, Distance = 3.7f };
     }
 
+    // The studio the car reflects, with a softbox lined up with each of the three lights.
+    renderer.SetEnvironment(new EnvironmentDescription
+    {
+        Ceiling = new Vector3(0.2f, 0.2f, 0.21f),
+        Horizon = new Vector3(0.42f, 0.42f, 0.44f),
+        Floor = new Vector3(0.3f, 0.3f, 0.31f),
+        Panels = (EnvironmentPanel[])
+        [
+            new()
+            {
+                Direction = new Vector3(0.1f, 1f, 0.05f),
+                HalfWidth = 0.9f,
+                HalfHeight = 1.7f,
+                Radiance = new Vector3(5.5f, 5.4f, 5.2f),
+            },
+            new()
+            {
+                Direction = new Vector3(-0.8f, 0.35f, 0.5f),
+                HalfWidth = 0.7f,
+                HalfHeight = 0.35f,
+                Radiance = new Vector3(1.4f, 1.5f, 1.7f),
+            },
+            new()
+            {
+                Direction = new Vector3(-0.15f, 0.45f, -0.9f),
+                HalfWidth = 1.1f,
+                HalfHeight = 0.25f,
+                Radiance = new Vector3(3.5f, 3.5f, 3.7f),
+            },
+        ],
+    });
+
     float wheelSteps = 0f;
     GlfwCallbacks.ScrollCallback onScroll = (_, _, y) => wheelSteps += (float)y;
     glfw.SetScrollCallback(window, onScroll);
@@ -140,7 +172,7 @@ unsafe
             CameraPosition = camera.Position,
             Lights = lights,
             Shadows = new ShadowSettings { Center = new Vector3(0f, 0.5f, 0f), Radius = 5f, LightAngle = 0.12f },
-            AmbientRadiance = new Vector3(0.22f, 0.23f, 0.24f),
+            EnvironmentIntensity = 1f,
             BackgroundRadiance = new Vector3(0.47f, 0.47f, 0.485f),
             BackgroundFadeStart = 12f,
             BackgroundFadeEnd = 40f,

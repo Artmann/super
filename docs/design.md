@@ -63,6 +63,18 @@ Two frames can be in flight. Render targets are shared between frames, and
 pipeline barriers order the access; per-frame state is limited to command
 buffers, sync objects and the uniform buffer.
 
+## Environment lighting
+
+`Renderer.SetEnvironment` describes the surroundings as colour bands plus up to
+eight glowing panels, and a compute shader bakes that into two cube maps. One holds
+a blurred reflection per roughness step and the other the soft light on matte
+surfaces. Lighting then needs a single lookup per pixel. It's generated rather than
+loaded from a photo, so a game can describe its own space and the softboxes can
+line up with the lights. Baking waits for the GPU, so it belongs in loading.
+
+Panels appear only in reflections. The direct lights already provide their diffuse
+light, and baking it too would count that light twice and overexpose the scene.
+
 ## Known simplifications to revisit
 
 - Each buffer and image gets its own `vkAllocateMemory`. Replace with a
@@ -79,4 +91,5 @@ buffers, sync objects and the uniform buffer.
 - Only directional lights so far. Point and spot lights come later.
 - Only one light casts shadows, so the others shine through objects. Ambient
   occlusion will ground the car.
-- Flat ambient. Image-based lighting comes next.
+- Environment light isn't blocked by nearby objects, and the environment is
+  treated as infinitely far away. Ambient occlusion will cover the worst of it.

@@ -29,6 +29,7 @@ public sealed unsafe class Renderer : IDisposable
     private readonly Frame[] _frames = new Frame[FramesInFlight];
     private readonly List<Mesh> _meshes = [];
     private readonly ResourceTable _resources;
+    private readonly EnvironmentMap _environment;
 
     private readonly DescriptorPool _descriptorPool;
     private readonly DescriptorSetLayout _frameSetLayout;
@@ -83,13 +84,13 @@ public sealed unsafe class Renderer : IDisposable
 
         _frameSetLayout = CreateSetLayout(
             DescriptorType.UniformBuffer, 1, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit);
-        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 5, ShaderStageFlags.FragmentBit);
+        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 7, ShaderStageFlags.FragmentBit);
         _tonemapSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit);
 
         var poolSizes = stackalloc DescriptorPoolSize[]
         {
             new(DescriptorType.UniformBuffer, FramesInFlight),
-            new(DescriptorType.CombinedImageSampler, 6),
+            new(DescriptorType.CombinedImageSampler, 8),
         };
         var poolInfo = new DescriptorPoolCreateInfo
         {
@@ -108,6 +109,14 @@ public sealed unsafe class Renderer : IDisposable
         _resources = new ResourceTable(_context);
         _shadowPass = new ShadowPass(_context, _frameSetLayout, _resources);
 
+        _environment = new EnvironmentMap(_context);
+        SetEnvironment(new EnvironmentDescription
+        {
+            Ceiling = new Vector3(0.5f),
+            Horizon = new Vector3(0.4f),
+            Floor = new Vector3(0.2f),
+        });
+
         _lightingSet = AllocateSet(_lightingSetLayout);
         _tonemapSet = AllocateSet(_tonemapSetLayout);
         WriteTargetDescriptors();
@@ -123,6 +132,13 @@ public sealed unsafe class Renderer : IDisposable
         var indexBuffer = GpuBuffer.CreateDeviceLocal(_context, indices, BufferUsageFlags.IndexBufferBit);
         _meshes.Add(new Mesh(vertexBuffer, indexBuffer, (uint)indices.Length));
         return new MeshHandle(_meshes.Count - 1);
+    }
+
+    /// <summary>Replaces what surfaces reflect. Waits for the GPU, so call this while loading.</summary>
+    public void SetEnvironment(in EnvironmentDescription environment)
+    {
+        _api.DeviceWaitIdle(_context.Device).Check();
+        _environment.Bake(environment);
     }
 
     public TextureHandle CreateTexture(TextureData data) => _resources.AddTexture(data);
@@ -284,6 +300,7 @@ public sealed unsafe class Renderer : IDisposable
         _lightingPass.Dispose();
         _gBufferPass.Dispose();
         _shadowPass.Dispose();
+        _environment.Dispose();
         _resources.Dispose();
 
         foreach (var mesh in _meshes)
@@ -385,8 +402,7 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->ViewProjection = viewProjection;
         uniforms->InverseViewProjection = inverse;
         uniforms->CameraPosition = new Vector4(view.CameraPosition, 1f);
-        uniforms->AmbientRadiance = new Vector4(view.AmbientRadiance, 0f);
-        uniforms->BackgroundRadiance = new Vector4(view.BackgroundRadiance, 0f);
+        uniforms->BackgroundRadiance = new Vector4(view.BackgroundRadiance, view.EnvironmentIntensity);
 
         // Moving points two shadow map texels off their surface stops them shadowing themselves.
         float normalOffset = view.Shadows.Radius * 4f / ShadowPass.Resolution;
@@ -518,22 +534,24 @@ public sealed unsafe class Renderer : IDisposable
             new(_sampler, _gBuffer.Depth.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_sampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_shadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_environment.Sampler, _environment.Reflections, ImageLayout.ShaderReadOnlyOptimal),
+            new(_environment.Sampler, _environment.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
             new(_sampler, _gBuffer.Hdr.View, ImageLayout.ShaderReadOnlyOptimal),
         };
-        var writes = stackalloc WriteDescriptorSet[6];
-        for (int i = 0; i < 6; i++)
+        var writes = stackalloc WriteDescriptorSet[8];
+        for (int i = 0; i < 8; i++)
         {
             writes[i] = new WriteDescriptorSet
             {
                 SType = StructureType.WriteDescriptorSet,
-                DstSet = i < 5 ? _lightingSet : _tonemapSet,
-                DstBinding = i < 5 ? (uint)i : 0,
+                DstSet = i < 7 ? _lightingSet : _tonemapSet,
+                DstBinding = i < 7 ? (uint)i : 0,
                 DescriptorCount = 1,
                 DescriptorType = DescriptorType.CombinedImageSampler,
                 PImageInfo = &images[i],
             };
         }
 
-        _api.UpdateDescriptorSets(_context.Device, 6, writes, 0, null);
+        _api.UpdateDescriptorSets(_context.Device, 8, writes, 0, null);
     }
 }

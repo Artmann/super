@@ -14,7 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Shader Include="Shaders\*.vert;Shaders\*.frag" />
+    <Shader Include="Shaders\*.vert;Shaders\*.frag;Shaders\*.comp" />
     <ShaderDependency Include="Shaders\*.glsl" />
     <None Include="@(Shader->'$(ShaderOutputDir)%(Filename)%(Extension).spv')"
           Link="shaders\%(Filename)%(Extension)"

@@ -9,6 +9,8 @@ layout(set = 1, binding = 1) uniform sampler2D normalRoughnessAoTexture;
 layout(set = 1, binding = 2) uniform sampler2D depthTexture;
 layout(set = 1, binding = 3) uniform sampler2D shadowDepthTexture;
 layout(set = 1, binding = 4) uniform sampler2DShadow shadowCompareTexture;
+layout(set = 1, binding = 5) uniform samplerCube reflectionTexture;
+layout(set = 1, binding = 6) uniform samplerCube irradianceTexture;
 
 layout(location = 0) out vec4 outColor;
 
@@ -16,6 +18,7 @@ const float PI = 3.14159265359;
 const float GOLDEN_ANGLE = 2.39996323;
 const int BLOCKER_SAMPLES = 16;
 const int SHADOW_SAMPLES = 24;
+const float REFLECTION_LODS = 5.0; // Must match ReflectionMips in Vulkan/EnvironmentMap.cs.
 
 vec3 octahedralDecode(vec2 e) {
     vec3 n = vec3(e, 1.0 - abs(e.x) - abs(e.y));
@@ -41,6 +44,14 @@ float visibilitySmithGgx(float nDotV, float nDotL, float alpha) {
 
 vec3 fresnelSchlick(float vDotH, vec3 f0) {
     return f0 + (1.0 - f0) * pow(1.0 - vDotH, 5.0);
+}
+
+// How much of the reflected environment reaches the eye, split into a scale and a
+// bias on f0. A curve fit by Lazarov and Karis, so no lookup texture is needed.
+vec2 environmentBrdf(float roughness, float nDotV) {
+    vec4 r = roughness * vec4(-1.0, -0.0275, -0.572, 0.022) + vec4(1.0, 0.0425, 1.04, -0.04);
+    float a = min(r.x * r.x, exp(-9.28 * nDotV * log(2.0))) * r.x + r.y;
+    return vec2(-1.04, 1.04) * a + r.zw;
 }
 
 // Scatters samples evenly over a disc. The per-pixel rotation turns banding into fine grain.
@@ -126,7 +137,12 @@ void main() {
     float alpha = roughness * roughness;
     vec3 f0 = mix(vec3(0.04), baseColor, metallic);
 
-    vec3 color = frame.ambientRadiance.rgb * mix(baseColor, f0, metallic) * ao;
+    vec2 brdf = environmentBrdf(roughness, nDotV);
+    vec3 reflectedLight = textureLod(reflectionTexture, reflect(-v, n), roughness * REFLECTION_LODS).rgb;
+    vec3 environmentSpecular = reflectedLight * (f0 * brdf.x + brdf.y);
+    vec3 environmentDiffuse = texture(irradianceTexture, n).rgb * baseColor * (1.0 - metallic);
+    vec3 color = (environmentDiffuse + environmentSpecular) * frame.backgroundRadiance.a * ao;
+
     for (int i = 0; i < frame.lightCount; i++) {
         vec3 l = frame.lights[i].direction.xyz;
         float nDotL = max(dot(n, l), 0.0);

@@ -144,6 +144,31 @@ internal static unsafe class PipelineFactory
         return pipeline;
     }
 
+    public static Pipeline CreateCompute(VulkanContext context, string shader, PipelineLayout layout)
+    {
+        var api = context.Api;
+        var module = LoadShader(context, shader);
+        nint entryPoint = SilkMarshal.StringToPtr("main");
+        var createInfo = new ComputePipelineCreateInfo
+        {
+            SType = StructureType.ComputePipelineCreateInfo,
+            Stage = new PipelineShaderStageCreateInfo
+            {
+                SType = StructureType.PipelineShaderStageCreateInfo,
+                Stage = ShaderStageFlags.ComputeBit,
+                Module = module,
+                PName = (byte*)entryPoint,
+            },
+            Layout = layout,
+        };
+
+        Pipeline pipeline;
+        api.CreateComputePipelines(context.Device, default, 1, &createInfo, null, &pipeline).Check();
+        SilkMarshal.Free(entryPoint);
+        api.DestroyShaderModule(context.Device, module, null);
+        return pipeline;
+    }
+
     private static ShaderModule LoadShader(VulkanContext context, string name)
     {
         byte[] code = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "shaders", name + ".spv"));

@@ -28,7 +28,8 @@ internal struct FrameUniforms
     public Matrix4x4 InverseViewProjection;
     public Matrix4x4 ShadowMatrix;
     public Vector4 CameraPosition;
-    public Vector4 AmbientRadiance;
+
+    /// <summary>rgb: background; a: environment intensity.</summary>
     public Vector4 BackgroundRadiance;
 
     /// <summary>x, y: background fade start and end; z: shadow light angle; w: normal offset.</summary>
