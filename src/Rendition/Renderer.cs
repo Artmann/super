@@ -34,17 +34,26 @@ public sealed unsafe class Renderer : IDisposable
     private readonly DescriptorPool _descriptorPool;
     private readonly DescriptorSetLayout _frameSetLayout;
     private readonly DescriptorSetLayout _lightingSetLayout;
-    private readonly DescriptorSetLayout _tonemapSetLayout;
+    private readonly DescriptorSetLayout _twoTextureSetLayout;
+    private readonly DescriptorSetLayout _oneTextureSetLayout;
+    private readonly DescriptorSet _aoSet;
+    private readonly DescriptorSet _aoBlurSet;
     private readonly DescriptorSet _lightingSet;
     private readonly DescriptorSet _tonemapSet;
+    private readonly DescriptorSet _fxaaSet;
     private readonly Sampler _sampler;
+    private readonly Sampler _linearSampler;
     private readonly Sampler _shadowSampler;
 
     private readonly ShadowPass _shadowPass;
     private readonly GBufferPass _gBufferPass;
+    private readonly FullscreenPass _aoPass;
+    private readonly FullscreenPass _aoBlurPass;
     private readonly FullscreenPass _lightingPass;
     private readonly TransparentPass _transparentPass;
+    private readonly BloomPass _bloomPass;
     private readonly FullscreenPass _tonemapPass;
+    private readonly FullscreenPass _fxaaPass;
 
     private Swapchain _swapchain;
     private GBuffer _gBuffer;
@@ -75,6 +84,9 @@ public sealed unsafe class Renderer : IDisposable
         };
         _api.CreateSampler(_context.Device, &samplerInfo, null, out _sampler).Check();
 
+        var linearSamplerInfo = samplerInfo with { MagFilter = Filter.Linear, MinFilter = Filter.Linear };
+        _api.CreateSampler(_context.Device, &linearSamplerInfo, null, out _linearSampler).Check();
+
         // Reversed-Z: a point is lit when it is at least as near the light as the map says.
         var shadowSamplerInfo = samplerInfo with
         {
@@ -87,18 +99,19 @@ public sealed unsafe class Renderer : IDisposable
 
         _frameSetLayout = CreateSetLayout(
             DescriptorType.UniformBuffer, 1, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit);
-        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 8, ShaderStageFlags.FragmentBit);
-        _tonemapSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit);
+        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 9, ShaderStageFlags.FragmentBit);
+        _twoTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 2, ShaderStageFlags.FragmentBit);
+        _oneTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit);
 
         var poolSizes = stackalloc DescriptorPoolSize[]
         {
             new(DescriptorType.UniformBuffer, FramesInFlight),
-            new(DescriptorType.CombinedImageSampler, 9),
+            new(DescriptorType.CombinedImageSampler, 16),
         };
         var poolInfo = new DescriptorPoolCreateInfo
         {
             SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = FramesInFlight + 2,
+            MaxSets = FramesInFlight + 5,
             PoolSizeCount = 2,
             PPoolSizes = poolSizes,
         };
@@ -120,14 +133,21 @@ public sealed unsafe class Renderer : IDisposable
             Floor = new Vector3(0.2f),
         });
 
+        _aoSet = AllocateSet(_twoTextureSetLayout);
+        _aoBlurSet = AllocateSet(_twoTextureSetLayout);
         _lightingSet = AllocateSet(_lightingSetLayout);
-        _tonemapSet = AllocateSet(_tonemapSetLayout);
+        _tonemapSet = AllocateSet(_twoTextureSetLayout);
+        _fxaaSet = AllocateSet(_oneTextureSetLayout);
+        _bloomPass = new BloomPass(_context, _linearSampler, _gBuffer.Hdr.View, _gBuffer.Extent);
         WriteTargetDescriptors();
 
         _gBufferPass = new GBufferPass(_context, _frameSetLayout, _resources);
+        _aoPass = new FullscreenPass(_context, "ao.frag", GBuffer.AoFormat, [_frameSetLayout, _twoTextureSetLayout]);
+        _aoBlurPass = new FullscreenPass(_context, "ao_blur.frag", GBuffer.AoFormat, [_twoTextureSetLayout]);
         _lightingPass = new FullscreenPass(_context, "lighting.frag", GBuffer.HdrFormat, [_frameSetLayout, _lightingSetLayout]);
         _transparentPass = new TransparentPass(_context, _frameSetLayout, _resources, _environment);
-        _tonemapPass = new FullscreenPass(_context, "tonemap.frag", _swapchain.Format, [_tonemapSetLayout]);
+        _tonemapPass = new FullscreenPass(_context, "tonemap.frag", GBuffer.LdrFormat, [_twoTextureSetLayout]);
+        _fxaaPass = new FullscreenPass(_context, "fxaa.frag", _swapchain.Format, [_oneTextureSetLayout]);
     }
 
     public MeshHandle CreateMesh(ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices)
@@ -334,9 +354,13 @@ public sealed unsafe class Renderer : IDisposable
     {
         _api.DeviceWaitIdle(_context.Device).Check();
 
+        _fxaaPass.Dispose();
         _tonemapPass.Dispose();
+        _bloomPass.Dispose();
         _transparentPass.Dispose();
         _lightingPass.Dispose();
+        _aoBlurPass.Dispose();
+        _aoPass.Dispose();
         _gBufferPass.Dispose();
         _shadowPass.Dispose();
         _environment.Dispose();
@@ -356,10 +380,12 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         _api.DestroyDescriptorPool(_context.Device, _descriptorPool, null);
-        _api.DestroyDescriptorSetLayout(_context.Device, _tonemapSetLayout, null);
+        _api.DestroyDescriptorSetLayout(_context.Device, _oneTextureSetLayout, null);
+        _api.DestroyDescriptorSetLayout(_context.Device, _twoTextureSetLayout, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _lightingSetLayout, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _frameSetLayout, null);
         _api.DestroySampler(_context.Device, _shadowSampler, null);
+        _api.DestroySampler(_context.Device, _linearSampler, null);
         _api.DestroySampler(_context.Device, _sampler, null);
         _gBuffer.Dispose();
         _swapchain.Dispose();
@@ -416,8 +442,18 @@ public sealed unsafe class Renderer : IDisposable
             ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, colorStage, colorWrite, sampledStage, sampledAccess);
         _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
             ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, depthStages, depthWrite, sampledStage, sampledAccess);
-        _api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, sampledStage, sampledAccess, colorStage, colorWrite);
+
+        ReadOnlySpan<DescriptorSet> aoSets = [frameSet, _aoSet];
+        _api.BeginColorTarget(cmd, targets.Ao.Image);
+        _aoPass.Record(cmd, targets.Ao.View, extent, aoSets);
+        _api.EndColorTarget(cmd, targets.Ao.Image);
+
+        ReadOnlySpan<DescriptorSet> aoBlurSets = [_aoBlurSet];
+        _api.BeginColorTarget(cmd, targets.AoBlurred.Image);
+        _aoBlurPass.Record(cmd, targets.AoBlurred.View, extent, aoBlurSets);
+        _api.EndColorTarget(cmd, targets.AoBlurred.Image);
+
+        _api.BeginColorTarget(cmd, targets.Hdr.Image);
 
         ReadOnlySpan<DescriptorSet> lightingSets = [frameSet, _lightingSet];
         _lightingPass.Record(cmd, targets.Hdr.View, extent, lightingSets);
@@ -431,13 +467,20 @@ public sealed unsafe class Renderer : IDisposable
             AccessFlags2.DepthStencilAttachmentReadBit);
         _transparentPass.Record(cmd, targets, frameSet, draws, _meshes);
 
-        _api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, colorStage, colorWrite, sampledStage, sampledAccess);
+        _api.EndColorTarget(cmd, targets.Hdr.Image);
+
+        _bloomPass.Record(cmd);
+
+        ReadOnlySpan<DescriptorSet> tonemapSets = [_tonemapSet];
+        _api.BeginColorTarget(cmd, targets.Ldr.Image);
+        _tonemapPass.Record(cmd, targets.Ldr.View, extent, tonemapSets);
+        _api.EndColorTarget(cmd, targets.Ldr.Image);
+
         _api.Transition(cmd, swapchainImage, ImageAspectFlags.ColorBit,
             ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, colorStage, AccessFlags2.None, colorStage, colorWrite);
 
-        ReadOnlySpan<DescriptorSet> tonemapSets = [_tonemapSet];
-        _tonemapPass.Record(cmd, _swapchain.Views[imageIndex], extent, tonemapSets);
+        ReadOnlySpan<DescriptorSet> fxaaSets = [_fxaaSet];
+        _fxaaPass.Record(cmd, _swapchain.Views[imageIndex], extent, fxaaSets);
 
         if (_capture is not null)
         {
@@ -535,6 +578,7 @@ public sealed unsafe class Renderer : IDisposable
         _swapchain.Dispose();
         _swapchain = new Swapchain(_context, width, height);
         _gBuffer = new GBuffer(_context, _swapchain.Extent);
+        _bloomPass.Resize(_gBuffer.Hdr.View, _gBuffer.Extent);
         WriteTargetDescriptors();
     }
 
@@ -622,32 +666,54 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>Points the fullscreen passes at the current render targets.</summary>
     private void WriteTargetDescriptors()
     {
-        var images = stackalloc DescriptorImageInfo[]
-        {
+        var depth = new DescriptorImageInfo(_sampler, _gBuffer.Depth.View, ImageLayout.ShaderReadOnlyOptimal);
+        var normal = new DescriptorImageInfo(_sampler, _gBuffer.Normal.View, ImageLayout.ShaderReadOnlyOptimal);
+
+        WriteImages(_aoSet, [depth, normal]);
+        WriteImages(_aoBlurSet,
+        [
+            new(_sampler, _gBuffer.Ao.View, ImageLayout.ShaderReadOnlyOptimal),
+            depth,
+        ]);
+        WriteImages(_lightingSet,
+        [
             new(_sampler, _gBuffer.BaseColor.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_sampler, _gBuffer.Normal.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_sampler, _gBuffer.Depth.View, ImageLayout.ShaderReadOnlyOptimal),
+            normal,
+            depth,
             new(_sampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_shadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_environment.Sampler, _environment.Reflections, ImageLayout.ShaderReadOnlyOptimal),
             new(_environment.Sampler, _environment.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
             new(_sampler, _gBuffer.Emissive.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_sampler, _gBuffer.AoBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
+        ]);
+        WriteImages(_tonemapSet,
+        [
             new(_sampler, _gBuffer.Hdr.View, ImageLayout.ShaderReadOnlyOptimal),
-        };
-        var writes = stackalloc WriteDescriptorSet[9];
-        for (int i = 0; i < 9; i++)
-        {
-            writes[i] = new WriteDescriptorSet
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = i < 8 ? _lightingSet : _tonemapSet,
-                DstBinding = i < 8 ? (uint)i : 0,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.CombinedImageSampler,
-                PImageInfo = &images[i],
-            };
-        }
+            new(_linearSampler, _bloomPass.Result, ImageLayout.ShaderReadOnlyOptimal),
+        ]);
+        WriteImages(_fxaaSet, [new(_linearSampler, _gBuffer.Ldr.View, ImageLayout.ShaderReadOnlyOptimal)]);
+    }
 
-        _api.UpdateDescriptorSets(_context.Device, 9, writes, 0, null);
+    private void WriteImages(DescriptorSet set, ReadOnlySpan<DescriptorImageInfo> images)
+    {
+        var writes = stackalloc WriteDescriptorSet[images.Length];
+        fixed (DescriptorImageInfo* imagesPtr = images)
+        {
+            for (int i = 0; i < images.Length; i++)
+            {
+                writes[i] = new WriteDescriptorSet
+                {
+                    SType = StructureType.WriteDescriptorSet,
+                    DstSet = set,
+                    DstBinding = (uint)i,
+                    DescriptorCount = 1,
+                    DescriptorType = DescriptorType.CombinedImageSampler,
+                    PImageInfo = &imagesPtr[i],
+                };
+            }
+
+            _api.UpdateDescriptorSets(_context.Device, (uint)images.Length, writes, 0, null);
+        }
     }
 }

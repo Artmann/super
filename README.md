@@ -21,7 +21,8 @@ What exists today:
   surfaces their reflections and soft fill light
 - A forward pass that blends glass over the lit image
 - Car paint clearcoat, and surfaces that give off light
-- A tonemap pass that takes HDR colour to the screen with ACES filmic
+- Ambient occlusion, bloom and FXAA anti-aliasing
+- A tonemap pass that takes HDR colour to display colour with ACES filmic
 - Two frames in flight and window resize handling
 - GLSL shaders compiled to SPIR-V at build time
 - Bindless textures and materials, normal mapping, cut-out and two-sided surfaces
@@ -29,7 +30,7 @@ What exists today:
 - A small public API: `Renderer.CreateModel`, `CreateMesh`, `CreateTexture`,
   `CreateMaterial` and `Render(in FrameView, ReadOnlySpan<DrawItem>)`
 
-Planned next, in order: ambient occlusion, bloom and anti-aliasing. Custom shaders come after that.
+Planned next: custom shaders.
 
 Decisions, the G-buffer layout and known simplifications are in
 [docs/design.md](docs/design.md).

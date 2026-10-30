@@ -33,9 +33,13 @@ Editor, physics, audio, game logic, non-Windows platforms.
 ```
 ShadowPass    scene geometry   -> depth from the key light (4096 x 4096)
 GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, depth
+AoPass        fullscreen       -> ambient occlusion from depth and normals
+AoBlurPass    fullscreen       -> the same with the grain averaged away
 LightingPass  fullscreen       -> HDR colour (Cook-Torrance GGX PBR)
 TransparentPass  glass         -> blended over HDR colour, forward shaded
-TonemapPass   fullscreen       -> swapchain (ACES filmic, sRGB)
+BloomPass     fullscreen x 9   -> glow, by shrinking and regrowing the image
+TonemapPass   fullscreen       -> display colour (ACES filmic, sRGB)
+FxaaPass      fullscreen       -> swapchain, with edges smoothed
 ```
 
 G-buffer layout:
@@ -90,6 +94,21 @@ without writing to it. Its reflection stays at full strength however clear the g
 is, and only its tint is scaled by opacity. The colour is premultiplied so the
 blend can express that.
 
+## Post-processing
+
+Ambient occlusion darkens creases and contact areas by checking how much of the
+nearby screen rises above each point. It reduces environment light, plus the
+direct lights that have no shadow map of their own. It only knows what the camera
+sees, so the floor deep under a car stays light from a low angle.
+
+Bloom has no brightness threshold. Every pixel gives away a small share of its
+light, so only really bright things show a visible glow. That's physically closer
+to how a lens scatters light, and nothing pops as a surface crosses a threshold.
+
+Anti-aliasing is FXAA, which works on the finished image and costs one pass. It runs
+after tonemapping because it judges edges by how they look on screen. Temporal
+anti-aliasing would look better and handle shimmer, but needs motion vectors.
+
 ## Verification without a window
 
 `--check` and `--screenshot` create the GLFW window hidden, so they never take focus.
@@ -112,7 +131,10 @@ nothing but a null check for the feature.
 - One shadow map covering a fixed area. Large outdoor scenes will need cascades
   that follow the camera.
 - Only directional lights so far. Point and spot lights come later.
-- Only one light casts shadows, so the others shine through objects. Ambient
-  occlusion will ground the car.
-- Environment light isn't blocked by nearby objects, and the environment is
-  treated as infinitely far away. Ambient occlusion will cover the worst of it.
+- Only one light casts shadows, so the others shine through objects, held back only
+  by ambient occlusion.
+- The environment is treated as infinitely far away, and ambient occlusion is all
+  that blocks it.
+- The ambient occlusion radius and strength, and the bloom strength, are constants in
+  their shaders. A game will want to set them per scene.
+- FXAA can't remove shimmer on thin moving detail. That needs temporal anti-aliasing.

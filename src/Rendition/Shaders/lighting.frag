@@ -2,6 +2,7 @@
 #extension GL_GOOGLE_include_directive : require
 #include "common.glsl"
 #include "brdf.glsl"
+#include "sampling.glsl"
 
 layout(location = 0) in vec2 inUv;
 
@@ -13,10 +14,10 @@ layout(set = 1, binding = 4) uniform sampler2DShadow shadowCompareTexture;
 layout(set = 1, binding = 5) uniform samplerCube reflectionTexture;
 layout(set = 1, binding = 6) uniform samplerCube irradianceTexture;
 layout(set = 1, binding = 7) uniform sampler2D emissiveClearcoatTexture;
+layout(set = 1, binding = 8) uniform sampler2D ambientOcclusionTexture;
 
 layout(location = 0) out vec4 outColor;
 
-const float GOLDEN_ANGLE = 2.39996323;
 const int BLOCKER_SAMPLES = 16;
 const int SHADOW_SAMPLES = 24;
 
@@ -24,26 +25,6 @@ const int SHADOW_SAMPLES = 24;
 const float CLEARCOAT_ROUGHNESS = 0.06;
 const vec3 CLEARCOAT_F0 = vec3(0.04);
 
-vec3 octahedralDecode(vec2 e) {
-    vec3 n = vec3(e, 1.0 - abs(e.x) - abs(e.y));
-    if (n.z < 0.0) {
-        vec2 signs = vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
-        n.xy = (1.0 - abs(n.yx)) * signs;
-    }
-    return normalize(n);
-}
-
-
-// Scatters samples evenly over a disc. The per-pixel rotation turns banding into fine grain.
-vec2 diskSample(int index, int count, float rotation) {
-    float radius = sqrt((float(index) + 0.5) / float(count));
-    float angle = float(index) * GOLDEN_ANGLE + rotation;
-    return radius * vec2(cos(angle), sin(angle));
-}
-
-float interleavedGradientNoise(vec2 pixel) {
-    return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
-}
 
 // Soft shadow that is sharp where an object touches the surface and blurs with
 // distance, like a real studio light. Returns 1 for fully lit.
@@ -106,7 +87,8 @@ void main() {
     float metallic = baseColorMetallic.a;
     vec3 n = octahedralDecode(normalRoughnessAo.xy);
     float roughness = clamp(normalRoughnessAo.z, 0.045, 1.0);
-    float ao = normalRoughnessAo.w;
+    float screenAo = texture(ambientOcclusionTexture, inUv).r;
+    float ao = normalRoughnessAo.w * screenAo;
     vec4 emissiveClearcoat = texture(emissiveClearcoatTexture, inUv);
     float clearcoat = emissiveClearcoat.a;
 
@@ -154,7 +136,9 @@ void main() {
             lit = lit * (1.0 - coatF) + coatHighlight * coatF;
         }
 
-        float visibility = frame.lights[i].direction.w > 0.5 ? shadowVisibility(position, n, l) : 1.0;
+        // A light without a shadow map would shine through everything, so nearby
+        // surfaces are all that can block it.
+        float visibility = frame.lights[i].direction.w > 0.5 ? shadowVisibility(position, n, l) : screenAo;
         color += lit * frame.lights[i].radiance.rgb * nDotL * visibility;
     }
 
