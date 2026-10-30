@@ -9,6 +9,7 @@ layout(location = 2) in vec2 inUv;
 
 layout(location = 0) out vec4 outBaseColorMetallic;
 layout(location = 1) out vec4 outNormalRoughnessAo;
+layout(location = 2) out vec4 outEmissiveClearcoat;
 
 // Maps a unit vector onto the [-1, 1] square so a normal fits in two channels.
 vec2 octahedralEncode(vec3 n) {
@@ -39,4 +40,7 @@ void main() {
 
     outBaseColorMetallic = vec4(baseColor.rgb, material.metallic * surface.r);
     outNormalRoughnessAo = vec4(octahedralEncode(normal), material.roughness * surface.g, 1.0);
+
+    vec3 emissive = texture(textures[material.emissiveTexture], inUv).rgb * material.emissive.rgb;
+    outEmissiveClearcoat = vec4(emissive, material.clearcoat);
 }

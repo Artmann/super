@@ -25,8 +25,9 @@ internal sealed unsafe class ResourceTable : IDisposable
         public uint BaseColorTexture;
         public uint NormalTexture;
         public uint SurfaceTexture;
-        private readonly float _padding0;
-        private readonly float _padding1;
+        public uint EmissiveTexture;
+        public float Clearcoat;
+        public Vector4 Emissive;
     }
 
     private readonly VulkanContext _context;
@@ -175,6 +176,9 @@ internal sealed unsafe class ResourceTable : IDisposable
             BaseColorTexture = (uint)(material.BaseColorTexture ?? _white).Index,
             NormalTexture = (uint)(material.NormalTexture ?? _flatNormal).Index,
             SurfaceTexture = (uint)(material.SurfaceTexture ?? _white).Index,
+            EmissiveTexture = (uint)(material.EmissiveTexture ?? _white).Index,
+            Clearcoat = material.Clearcoat,
+            Emissive = new Vector4(material.Emissive, 0f),
         };
         _materialFlags[_materialCount] = material.Flags;
         return new MaterialHandle(_materialCount++);

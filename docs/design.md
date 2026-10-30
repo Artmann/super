@@ -32,8 +32,9 @@ Editor, physics, audio, game logic, non-Windows platforms.
 
 ```
 ShadowPass    scene geometry   -> depth from the key light (4096 x 4096)
-GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, depth
+GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, depth
 LightingPass  fullscreen       -> HDR colour (Cook-Torrance GGX PBR)
+TransparentPass  glass         -> blended over HDR colour, forward shaded
 TonemapPass   fullscreen       -> swapchain (ACES filmic, sRGB)
 ```
 
@@ -43,6 +44,7 @@ G-buffer layout:
 | --- | --- | --- |
 | 0 | `R8G8B8A8_SRGB` | base colour, metallic |
 | 1 | `R16G16B16A16_SFLOAT` | octahedral normal (xy), roughness, AO |
+| 2 | `R16G16B16A16_SFLOAT` | emissive colour, clearcoat |
 | depth | `D32_SFLOAT` | reversed-Z, position is reconstructed from it |
 
 Games talk to the renderer with plain structs: `Renderer.Render(in FrameView,
@@ -75,6 +77,26 @@ line up with the lights. Baking waits for the GPU, so it belongs in loading.
 Panels appear only in reflections. The direct lights already provide their diffuse
 light, and baking it too would count that light twice and overexpose the scene.
 
+## Paint and glass
+
+Clearcoat adds a second, very smooth reflection on top of the surface, like the
+lacquer on a car, and dims what's underneath by the light it reflects. Its roughness
+and strength of reflection are fixed in `lighting.frag`, so the G-buffer stores only
+how much coat a surface has.
+
+The G-buffer holds one surface per pixel, so glass can't go through it. Glass is
+shaded as it's drawn, after lighting, and tests against the depth of the opaque scene
+without writing to it. Its reflection stays at full strength however clear the glass
+is, and only its tint is scaled by opacity. The colour is premultiplied so the
+blend can express that.
+
+## Verification without a window
+
+`--check` and `--screenshot` create the GLFW window hidden, so they never take focus.
+Vulkan still renders and presents to it. `Renderer.Capture` copies the finished
+frame into a CPU-readable buffer that exists only for that call, so `Render` pays
+nothing but a null check for the feature.
+
 ## Known simplifications to revisit
 
 - Each buffer and image gets its own `vkAllocateMemory`. Replace with a
@@ -83,9 +105,10 @@ light, and baking it too would count that light twice and overexpose the scene.
   far less GPU memory.
 - The table holds at most 1024 textures and 1024 materials, and resources can't be
   removed yet.
-- `CreateModel` skips parts marked `Transparent` until the transparency pass exists.
+- Transparent draws aren't sorted, so overlapping glass can blend in the wrong order.
+  Glass also casts no shadow and shows no refraction.
 - The car's surface map channels are an educated guess, because the model has no
-  documentation. Confirm them by eye once reflections exist.
+  documentation. The paint's metalness is set to 0.2 by eye.
 - One shadow map covering a fixed area. Large outdoor scenes will need cascades
   that follow the camera.
 - Only directional lights so far. Point and spot lights come later.

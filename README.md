@@ -19,6 +19,8 @@ What exists today:
   soft contact-hardening shadows, studio reflections and a fade into the background
 - A generated environment, baked by a compute shader into cube maps, that gives
   surfaces their reflections and soft fill light
+- A forward pass that blends glass over the lit image
+- Car paint clearcoat, and surfaces that give off light
 - A tonemap pass that takes HDR colour to the screen with ACES filmic
 - Two frames in flight and window resize handling
 - GLSL shaders compiled to SPIR-V at build time
@@ -27,8 +29,7 @@ What exists today:
 - A small public API: `Renderer.CreateModel`, `CreateMesh`, `CreateTexture`,
   `CreateMaterial` and `Render(in FrameView, ReadOnlySpan<DrawItem>)`
 
-Planned next, in order: car materials and glass, then ambient occlusion, bloom and
-anti-aliasing. Custom shaders come after that.
+Planned next, in order: ambient occlusion, bloom and anti-aliasing. Custom shaders come after that.
 
 Decisions, the G-buffer layout and known simplifications are in
 [docs/design.md](docs/design.md).
@@ -79,4 +80,15 @@ dotnet run -c Release --project src/Rendition.Sample -- --check
 ```
 
 Renders 900 frames after a warm-up and exits non-zero if the renderer allocated
-any managed memory or produced any validation message.
+any managed memory or produced any validation message. It also resizes the window
+during the warm-up.
+
+To save a picture, use `--screenshot`. The camera can be placed with `--yaw`,
+`--pitch` and `--distance`.
+
+```
+dotnet run -c Release --project src/Rendition.Sample -- --screenshot shot.png --model assets/cooked/ford-gt.rmodel --yaw -2.4
+```
+
+Both run with validation on and never show a window, so they can run in the
+background while you work.

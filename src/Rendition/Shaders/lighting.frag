@@ -1,6 +1,7 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
 #include "common.glsl"
+#include "brdf.glsl"
 
 layout(location = 0) in vec2 inUv;
 
@@ -11,14 +12,17 @@ layout(set = 1, binding = 3) uniform sampler2D shadowDepthTexture;
 layout(set = 1, binding = 4) uniform sampler2DShadow shadowCompareTexture;
 layout(set = 1, binding = 5) uniform samplerCube reflectionTexture;
 layout(set = 1, binding = 6) uniform samplerCube irradianceTexture;
+layout(set = 1, binding = 7) uniform sampler2D emissiveClearcoatTexture;
 
 layout(location = 0) out vec4 outColor;
 
-const float PI = 3.14159265359;
 const float GOLDEN_ANGLE = 2.39996323;
 const int BLOCKER_SAMPLES = 16;
 const int SHADOW_SAMPLES = 24;
-const float REFLECTION_LODS = 5.0; // Must match ReflectionMips in Vulkan/EnvironmentMap.cs.
+
+// The clear lacquer over car paint is very smooth and reflects like glass.
+const float CLEARCOAT_ROUGHNESS = 0.06;
+const vec3 CLEARCOAT_F0 = vec3(0.04);
 
 vec3 octahedralDecode(vec2 e) {
     vec3 n = vec3(e, 1.0 - abs(e.x) - abs(e.y));
@@ -29,30 +33,6 @@ vec3 octahedralDecode(vec2 e) {
     return normalize(n);
 }
 
-float distributionGgx(float nDotH, float alpha) {
-    float a2 = alpha * alpha;
-    float d = nDotH * nDotH * (a2 - 1.0) + 1.0;
-    return a2 / (PI * d * d);
-}
-
-float visibilitySmithGgx(float nDotV, float nDotL, float alpha) {
-    float a2 = alpha * alpha;
-    float v = nDotL * sqrt(nDotV * nDotV * (1.0 - a2) + a2);
-    float l = nDotV * sqrt(nDotL * nDotL * (1.0 - a2) + a2);
-    return 0.5 / max(v + l, 1e-5);
-}
-
-vec3 fresnelSchlick(float vDotH, vec3 f0) {
-    return f0 + (1.0 - f0) * pow(1.0 - vDotH, 5.0);
-}
-
-// How much of the reflected environment reaches the eye, split into a scale and a
-// bias on f0. A curve fit by Lazarov and Karis, so no lookup texture is needed.
-vec2 environmentBrdf(float roughness, float nDotV) {
-    vec4 r = roughness * vec4(-1.0, -0.0275, -0.572, 0.022) + vec4(1.0, 0.0425, 1.04, -0.04);
-    float a = min(r.x * r.x, exp(-9.28 * nDotV * log(2.0))) * r.x + r.y;
-    return vec2(-1.04, 1.04) * a + r.zw;
-}
 
 // Scatters samples evenly over a disc. The per-pixel rotation turns banding into fine grain.
 vec2 diskSample(int index, int count, float rotation) {
@@ -127,6 +107,8 @@ void main() {
     vec3 n = octahedralDecode(normalRoughnessAo.xy);
     float roughness = clamp(normalRoughnessAo.z, 0.045, 1.0);
     float ao = normalRoughnessAo.w;
+    vec4 emissiveClearcoat = texture(emissiveClearcoatTexture, inUv);
+    float clearcoat = emissiveClearcoat.a;
 
     vec4 clip = vec4(inUv * 2.0 - 1.0, depth, 1.0);
     vec4 world = frame.inverseViewProjection * clip;
@@ -141,7 +123,17 @@ void main() {
     vec3 reflectedLight = textureLod(reflectionTexture, reflect(-v, n), roughness * REFLECTION_LODS).rgb;
     vec3 environmentSpecular = reflectedLight * (f0 * brdf.x + brdf.y);
     vec3 environmentDiffuse = texture(irradianceTexture, n).rgb * baseColor * (1.0 - metallic);
-    vec3 color = (environmentDiffuse + environmentSpecular) * frame.backgroundRadiance.a * ao;
+    vec3 environmentLight = environmentDiffuse + environmentSpecular;
+
+    // The coat reflects first and what it lets through lights the layers below.
+    float coatAlpha = CLEARCOAT_ROUGHNESS * CLEARCOAT_ROUGHNESS;
+    vec3 coatFresnel = fresnelSchlick(nDotV, CLEARCOAT_F0) * clearcoat;
+    if (clearcoat > 0.0) {
+        vec3 coatReflection = textureLod(reflectionTexture, reflect(-v, n), CLEARCOAT_ROUGHNESS * REFLECTION_LODS).rgb;
+        environmentLight = environmentLight * (1.0 - coatFresnel) + coatReflection * coatFresnel;
+    }
+
+    vec3 color = environmentLight * frame.backgroundRadiance.a * ao + emissiveClearcoat.rgb;
 
     for (int i = 0; i < frame.lightCount; i++) {
         vec3 l = frame.lights[i].direction.xyz;
@@ -155,8 +147,15 @@ void main() {
         vec3 specular = distributionGgx(max(dot(n, h), 0.0), alpha) * visibilitySmithGgx(nDotV, nDotL, alpha) * f;
         vec3 diffuse = (1.0 - f) * (1.0 - metallic) * baseColor / PI;
 
+        vec3 lit = diffuse + specular;
+        if (clearcoat > 0.0) {
+            vec3 coatF = fresnelSchlick(max(dot(v, h), 0.0), CLEARCOAT_F0) * clearcoat;
+            float coatHighlight = distributionGgx(max(dot(n, h), 0.0), coatAlpha) * visibilitySmithGgx(nDotV, nDotL, coatAlpha);
+            lit = lit * (1.0 - coatF) + coatHighlight * coatF;
+        }
+
         float visibility = frame.lights[i].direction.w > 0.5 ? shadowVisibility(position, n, l) : 1.0;
-        color += (diffuse + specular) * frame.lights[i].radiance.rgb * nDotL * visibility;
+        color += lit * frame.lights[i].radiance.rgb * nDotL * visibility;
     }
 
     // Distant surfaces melt into the background, which hides the horizon of a studio floor.

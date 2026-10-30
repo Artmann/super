@@ -27,16 +27,21 @@ decision changes.
 
 ## Verifying a change
 
-Build, then run both:
+Build, then run these. Neither opens a visible window, so they don't interrupt the
+owner:
 
 ```
 dotnet run -c Release --project src/Rendition.Sample -- --check
-dotnet run -c Release --project src/Rendition.Sample -- --validate
+dotnet run -c Release --project src/Rendition.Sample -- --screenshot shot.png
 ```
 
-`--check` must exit 0 with 0 bytes allocated and 0 validation messages. It can't
-tell whether the picture is right, so look at the running window or a screenshot
-too. Test resizing after changing render targets or the swapchain.
+`--check` must exit 0 with 0 bytes allocated and 0 validation messages. It also
+resizes the hidden window during warmup. It can't tell whether the picture is
+right, so read the screenshot too. Add `--model <file>`, `--yaw`, `--pitch` and
+`--distance` to choose what it shows.
+
+Never show a window or take focus while verifying. `--validate` opens a real window
+and runs until it's closed, so it's only for the owner to use by hand.
 
 If `VULKAN_SDK` is missing from the shell, read it from the machine environment:
 `$env:VULKAN_SDK = [Environment]::GetEnvironmentVariable('VULKAN_SDK','Machine')`

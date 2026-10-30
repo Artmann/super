@@ -43,11 +43,14 @@ public sealed unsafe class Renderer : IDisposable
     private readonly ShadowPass _shadowPass;
     private readonly GBufferPass _gBufferPass;
     private readonly FullscreenPass _lightingPass;
+    private readonly TransparentPass _transparentPass;
     private readonly FullscreenPass _tonemapPass;
 
     private Swapchain _swapchain;
     private GBuffer _gBuffer;
     private int _frameIndex;
+    private GpuBuffer? _capture;
+    private bool _captureRecorded;
 
     /// <summary>Vulkan validation messages so far. Always zero when validation is off.</summary>
     public int ValidationErrors => _context.ValidationErrors;
@@ -84,13 +87,13 @@ public sealed unsafe class Renderer : IDisposable
 
         _frameSetLayout = CreateSetLayout(
             DescriptorType.UniformBuffer, 1, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit);
-        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 7, ShaderStageFlags.FragmentBit);
+        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 8, ShaderStageFlags.FragmentBit);
         _tonemapSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit);
 
         var poolSizes = stackalloc DescriptorPoolSize[]
         {
             new(DescriptorType.UniformBuffer, FramesInFlight),
-            new(DescriptorType.CombinedImageSampler, 8),
+            new(DescriptorType.CombinedImageSampler, 9),
         };
         var poolInfo = new DescriptorPoolCreateInfo
         {
@@ -123,6 +126,7 @@ public sealed unsafe class Renderer : IDisposable
 
         _gBufferPass = new GBufferPass(_context, _frameSetLayout, _resources);
         _lightingPass = new FullscreenPass(_context, "lighting.frag", GBuffer.HdrFormat, [_frameSetLayout, _lightingSetLayout]);
+        _transparentPass = new TransparentPass(_context, _frameSetLayout, _resources, _environment);
         _tonemapPass = new FullscreenPass(_context, "tonemap.frag", _swapchain.Format, [_tonemapSetLayout]);
     }
 
@@ -145,10 +149,7 @@ public sealed unsafe class Renderer : IDisposable
 
     public MaterialHandle CreateMaterial(in Material material) => _resources.AddMaterial(material);
 
-    /// <summary>
-    /// Uploads a cooked model and returns one draw per opaque part. Transparent parts
-    /// are left out until the renderer has a transparency pass.
-    /// </summary>
+    /// <summary>Uploads a cooked model and returns one draw per part.</summary>
     public DrawItem[] CreateModel(ModelData model)
     {
         var textures = new TextureHandle[model.Textures.Length];
@@ -170,6 +171,9 @@ public sealed unsafe class Renderer : IDisposable
                 BaseColorTexture = source.BaseColorTexture >= 0 ? textures[source.BaseColorTexture] : null,
                 NormalTexture = source.NormalTexture >= 0 ? textures[source.NormalTexture] : null,
                 SurfaceTexture = source.SurfaceTexture >= 0 ? textures[source.SurfaceTexture] : null,
+                Emissive = source.Emissive,
+                EmissiveTexture = source.EmissiveTexture >= 0 ? textures[source.EmissiveTexture] : null,
+                Clearcoat = source.Clearcoat,
                 Flags = source.Flags,
             });
         }
@@ -178,17 +182,14 @@ public sealed unsafe class Renderer : IDisposable
         var draws = new List<DrawItem>(model.Parts.Length);
         foreach (ref readonly var part in model.Parts.AsSpan())
         {
-            if ((model.Materials[part.Material].Flags & MaterialFlags.Transparent) == 0)
+            draws.Add(new DrawItem
             {
-                draws.Add(new DrawItem
-                {
-                    Mesh = mesh,
-                    FirstIndex = part.FirstIndex,
-                    IndexCount = part.IndexCount,
-                    Material = materials[part.Material],
-                    Transform = Matrix4x4.Identity,
-                });
-            }
+                Mesh = mesh,
+                FirstIndex = part.FirstIndex,
+                IndexCount = part.IndexCount,
+                Material = materials[part.Material],
+                Transform = Matrix4x4.Identity,
+            });
         }
 
         return draws.ToArray();
@@ -292,11 +293,49 @@ public sealed unsafe class Renderer : IDisposable
         _frameIndex = (_frameIndex + 1) % FramesInFlight;
     }
 
+    /// <summary>
+    /// Renders a frame and also returns it as RGBA bytes, row by row from the top. It
+    /// works on a hidden window. Allocates and waits for the GPU, so it isn't for the game loop.
+    /// </summary>
+    public byte[] Capture(in FrameView view, ReadOnlySpan<DrawItem> draws, out int width, out int height)
+    {
+        if ((uint)view.Width != _swapchain.Extent.Width || (uint)view.Height != _swapchain.Extent.Height)
+        {
+            Resize((uint)view.Width, (uint)view.Height);
+        }
+
+        width = (int)_swapchain.Extent.Width;
+        height = (int)_swapchain.Extent.Height;
+        int size = width * height * 4;
+        using var capture = GpuBuffer.CreateHostVisible(_context, (ulong)size, BufferUsageFlags.TransferDstBit);
+
+        _capture = capture;
+        _captureRecorded = false;
+        Render(view, draws);
+        _capture = null;
+        _api.DeviceWaitIdle(_context.Device).Check();
+
+        if (!_captureRecorded)
+        {
+            throw new InvalidOperationException("The window changed while capturing, so no frame was rendered.");
+        }
+
+        var pixels = new ReadOnlySpan<byte>(capture.Mapped, size).ToArray();
+        for (int i = 0; i < size; i += 4)
+        {
+            (pixels[i], pixels[i + 2]) = (pixels[i + 2], pixels[i]); // The swapchain stores BGRA.
+            pixels[i + 3] = 255;
+        }
+
+        return pixels;
+    }
+
     public void Dispose()
     {
         _api.DeviceWaitIdle(_context.Device).Check();
 
         _tonemapPass.Dispose();
+        _transparentPass.Dispose();
         _lightingPass.Dispose();
         _gBufferPass.Dispose();
         _shadowPass.Dispose();
@@ -361,8 +400,10 @@ public sealed unsafe class Renderer : IDisposable
             ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, sampledStage, sampledAccess, colorStage, colorWrite);
         _api.Transition(cmd, targets.Normal.Image, ImageAspectFlags.ColorBit,
             ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, sampledStage, sampledAccess, colorStage, colorWrite);
+        _api.Transition(cmd, targets.Emissive.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, sampledStage, sampledAccess, colorStage, colorWrite);
         _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
-            ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, sampledStage, sampledAccess, depthStages,
+            ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, depthStages, AccessFlags2.DepthStencilAttachmentReadBit, depthStages,
             depthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
 
         _gBufferPass.Record(cmd, targets, frameSet, draws, _meshes);
@@ -370,6 +411,8 @@ public sealed unsafe class Renderer : IDisposable
         _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
             ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, colorStage, colorWrite, sampledStage, sampledAccess);
         _api.Transition(cmd, targets.Normal.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, colorStage, colorWrite, sampledStage, sampledAccess);
+        _api.Transition(cmd, targets.Emissive.Image, ImageAspectFlags.ColorBit,
             ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, colorStage, colorWrite, sampledStage, sampledAccess);
         _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
             ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, depthStages, depthWrite, sampledStage, sampledAccess);
@@ -379,6 +422,15 @@ public sealed unsafe class Renderer : IDisposable
         ReadOnlySpan<DescriptorSet> lightingSets = [frameSet, _lightingSet];
         _lightingPass.Record(cmd, targets.Hdr.View, extent, lightingSets);
 
+        // Glass blends over the lit image and is hidden by whatever stands in front of it.
+        _api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, colorStage, colorWrite, colorStage,
+            colorWrite | AccessFlags2.ColorAttachmentReadBit);
+        _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
+            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal, sampledStage, sampledAccess, depthStages,
+            AccessFlags2.DepthStencilAttachmentReadBit);
+        _transparentPass.Record(cmd, targets, frameSet, draws, _meshes);
+
         _api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
             ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, colorStage, colorWrite, sampledStage, sampledAccess);
         _api.Transition(cmd, swapchainImage, ImageAspectFlags.ColorBit,
@@ -387,9 +439,52 @@ public sealed unsafe class Renderer : IDisposable
         ReadOnlySpan<DescriptorSet> tonemapSets = [_tonemapSet];
         _tonemapPass.Record(cmd, _swapchain.Views[imageIndex], extent, tonemapSets);
 
+        if (_capture is not null)
+        {
+            RecordCapture(cmd, swapchainImage, extent, _capture);
+            return;
+        }
+
         _api.Transition(cmd, swapchainImage, ImageAspectFlags.ColorBit,
             ImageLayout.ColorAttachmentOptimal, ImageLayout.PresentSrcKhr, colorStage, colorWrite,
             PipelineStageFlags2.None, AccessFlags2.None);
+    }
+
+    /// <summary>Copies the finished frame into a buffer the CPU can read, then readies it for display.</summary>
+    private void RecordCapture(CommandBuffer cmd, Image swapchainImage, Extent2D extent, GpuBuffer capture)
+    {
+        _api.Transition(cmd, swapchainImage, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferSrcOptimal,
+            PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.ColorAttachmentWriteBit,
+            PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit);
+
+        var region = new BufferImageCopy
+        {
+            ImageSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
+            ImageExtent = new Extent3D(extent.Width, extent.Height, 1),
+        };
+        _api.CmdCopyImageToBuffer(cmd, swapchainImage, ImageLayout.TransferSrcOptimal, capture.Handle, 1, &region);
+
+        var hostBarrier = new MemoryBarrier2
+        {
+            SType = StructureType.MemoryBarrier2,
+            SrcStageMask = PipelineStageFlags2.CopyBit,
+            SrcAccessMask = AccessFlags2.TransferWriteBit,
+            DstStageMask = PipelineStageFlags2.HostBit,
+            DstAccessMask = AccessFlags2.HostReadBit,
+        };
+        var dependency = new DependencyInfo
+        {
+            SType = StructureType.DependencyInfo,
+            MemoryBarrierCount = 1,
+            PMemoryBarriers = &hostBarrier,
+        };
+        _api.CmdPipelineBarrier2(cmd, &dependency);
+
+        _api.Transition(cmd, swapchainImage, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferSrcOptimal, ImageLayout.PresentSrcKhr,
+            PipelineStageFlags2.CopyBit, AccessFlags2.None, PipelineStageFlags2.None, AccessFlags2.None);
+        _captureRecorded = true;
     }
 
     /// <summary>Returns whether a light casts a shadow this frame.</summary>
@@ -536,22 +631,23 @@ public sealed unsafe class Renderer : IDisposable
             new(_shadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_environment.Sampler, _environment.Reflections, ImageLayout.ShaderReadOnlyOptimal),
             new(_environment.Sampler, _environment.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
+            new(_sampler, _gBuffer.Emissive.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_sampler, _gBuffer.Hdr.View, ImageLayout.ShaderReadOnlyOptimal),
         };
-        var writes = stackalloc WriteDescriptorSet[8];
-        for (int i = 0; i < 8; i++)
+        var writes = stackalloc WriteDescriptorSet[9];
+        for (int i = 0; i < 9; i++)
         {
             writes[i] = new WriteDescriptorSet
             {
                 SType = StructureType.WriteDescriptorSet,
-                DstSet = i < 7 ? _lightingSet : _tonemapSet,
-                DstBinding = i < 7 ? (uint)i : 0,
+                DstSet = i < 8 ? _lightingSet : _tonemapSet,
+                DstBinding = i < 8 ? (uint)i : 0,
                 DescriptorCount = 1,
                 DescriptorType = DescriptorType.CombinedImageSampler,
                 PImageInfo = &images[i],
             };
         }
 
-        _api.UpdateDescriptorSets(_context.Device, 8, writes, 0, null);
+        _api.UpdateDescriptorSets(_context.Device, 9, writes, 0, null);
     }
 }

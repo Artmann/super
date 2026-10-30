@@ -29,7 +29,7 @@ public enum MaterialFlags
     /// <summary>Thin surfaces seen from both sides, such as grilles.</summary>
     TwoSided = 1,
 
-    /// <summary>Needs the transparency pass. Not drawn until that pass exists.</summary>
+    /// <summary>Glass and the like: blended over the scene. BaseColor.W sets how much tint it adds.</summary>
     Transparent = 2,
 }
 
@@ -49,6 +49,13 @@ public struct Material
     public TextureHandle? BaseColorTexture;
     public TextureHandle? NormalTexture;
     public TextureHandle? SurfaceTexture;
+
+    /// <summary>Light the surface gives off. Multiplies its texture, so zero means none.</summary>
+    public Vector3 Emissive;
+    public TextureHandle? EmissiveTexture;
+
+    /// <summary>Strength of a clear glossy layer over the surface, such as car lacquer. 0 to 1.</summary>
+    public float Clearcoat;
     public MaterialFlags Flags;
 }
 

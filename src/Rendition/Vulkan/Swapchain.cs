@@ -49,7 +49,7 @@ internal sealed unsafe class Swapchain : IDisposable
             ImageColorSpace = surfaceFormat.ColorSpace,
             ImageExtent = Extent,
             ImageArrayLayers = 1,
-            ImageUsage = ImageUsageFlags.ColorAttachmentBit,
+            ImageUsage = ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, // Transfer: Renderer.Capture.
             ImageSharingMode = SharingMode.Exclusive,
             PreTransform = capabilities.CurrentTransform,
             CompositeAlpha = CompositeAlphaFlagsKHR.OpaqueBitKhr,

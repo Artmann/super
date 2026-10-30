@@ -13,6 +13,9 @@ struct Material {
     uint baseColorTexture;
     uint normalTexture;
     uint surfaceTexture;
+    uint emissiveTexture;
+    float clearcoat;
+    vec4 emissive; // rgb
 };
 
 layout(set = 1, binding = 0) uniform sampler2D textures[];

@@ -16,11 +16,14 @@ layout(push_constant) uniform Draw {
 layout(location = 0) out vec3 outNormal;
 layout(location = 1) out vec4 outTangent;
 layout(location = 2) out vec2 outUv;
+layout(location = 3) out vec3 outPosition;
 
 void main() {
     mat3 model = mat3(draw.model);
     outNormal = transpose(inverse(model)) * inNormal;
     outTangent = vec4(model * inTangent.xyz, inTangent.w);
     outUv = inUv;
-    gl_Position = frame.viewProjection * draw.model * vec4(inPosition, 1.0);
+    vec4 position = draw.model * vec4(inPosition, 1.0);
+    outPosition = position.xyz;
+    gl_Position = frame.viewProjection * position;
 }

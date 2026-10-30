@@ -20,6 +20,20 @@ internal static unsafe class SceneDraws
 
     public static PushConstantRange PushRange => new(PushStages, 0, (uint)sizeof(DrawConstants));
 
+    public static readonly VertexInputBindingDescription[] VertexBindings =
+    [
+        new(0, (uint)sizeof(Vertex), VertexInputRate.Vertex),
+    ];
+
+    public static readonly VertexInputAttributeDescription[] VertexAttributes =
+    [
+        new(0, 0, Format.R32G32B32Sfloat, (uint)Marshal.OffsetOf<Vertex>(nameof(Vertex.Position))),
+        new(1, 0, Format.R32G32B32Sfloat, (uint)Marshal.OffsetOf<Vertex>(nameof(Vertex.Normal))),
+        new(2, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<Vertex>(nameof(Vertex.Tangent))),
+        new(3, 0, Format.R32G32Sfloat, (uint)Marshal.OffsetOf<Vertex>(nameof(Vertex.Uv))),
+    ];
+
+    /// <summary>Draws either the opaque or the transparent items, in the given order.</summary>
     public static void Record(
         Vk api,
         CommandBuffer cmd,
@@ -28,13 +42,20 @@ internal static unsafe class SceneDraws
         Pipeline twoSidedPipeline,
         ResourceTable resources,
         ReadOnlySpan<DrawItem> draws,
-        List<Mesh> meshes)
+        List<Mesh> meshes,
+        bool transparent = false)
     {
         var boundPipeline = default(Pipeline);
         int boundMesh = -1;
         foreach (ref readonly var draw in draws)
         {
-            var pipeline = (resources.GetFlags(draw.Material) & MaterialFlags.TwoSided) != 0
+            var flags = resources.GetFlags(draw.Material);
+            if ((flags & MaterialFlags.Transparent) != 0 != transparent)
+            {
+                continue;
+            }
+
+            var pipeline = (flags & MaterialFlags.TwoSided) != 0
                 ? twoSidedPipeline
                 : culledPipeline;
             if (pipeline.Handle != boundPipeline.Handle)

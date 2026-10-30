@@ -1,12 +1,12 @@
 {
   "targetLength": 4.64,
   "materials": [
-    { "match": "Paint_Material", "surface": "OEM_FordGT05Heritage_1_MaterialOpacity.png", "metallic": 1, "roughness": 1 },
+    { "match": "Paint_Material", "surface": "OEM_FordGT05Heritage_1_MaterialOpacity.png", "metallic": 0.2, "roughness": 1, "clearcoat": 1 },
     { "match": "BadgeA", "surface": "Ford_GT_2005_BadgeA_MaterialOpacity.png", "metallic": 1, "roughness": 1 },
     { "match": "EngineA", "surface": "Ford_GT_2005_EngineA_MaterialOpacity.png", "metallic": 1, "roughness": 1 },
     { "match": "InteriorA", "surface": "Ford_GT_2005_InteriorA_MaterialOpacity.png", "metallic": 1, "roughness": 1 },
     { "match": "Wheel1A", "surface": "Ford_GT_2005_Wheel1A_Material.png", "metallic": 1, "roughness": 1 },
-    { "match": "LightA", "surface": "Ford_GT_2005_LightA_Material.png", "metallic": 1, "roughness": 1 },
+    { "match": "LightA", "surface": "Ford_GT_2005_LightA_Material.png", "metallic": 1, "roughness": 1, "emissive": "Ford_GT_2005_LightA_Emissive.png", "emissiveColor": [2, 2, 2] },
     { "match": "Grille1A", "surface": "Ford_GT_2005_Grille1A_MaterialOpacity.png", "metallic": 1, "roughness": 1, "alphaCutoff": 0.5, "twoSided": true },
     { "match": "Grille2A", "surface": "Ford_GT_2005_Grille2A_MaterialOpacity.png", "metallic": 1, "roughness": 1, "alphaCutoff": 0.5, "twoSided": true },
     { "match": "Grille3A", "surface": "Ford_GT_2005_Grille3A_Material.png", "metallic": 1, "roughness": 1, "twoSided": true },
@@ -20,9 +20,9 @@
     { "match": "Base_Material", "color": [0.02, 0.02, 0.02], "roughness": 0.8 },
     { "match": "CalliperGloss", "metallic": 0.2, "roughness": 0.3 },
     { "match": "Color_caliper", "color": [0.6, 0.6, 0.6], "metallic": 0.2, "roughness": 0.3 },
-    { "match": "Window", "transparent": true },
-    { "match": "glass_light", "transparent": true },
-    { "match": "red_glass", "transparent": true },
-    { "match": "orange_glass", "transparent": true }
+    { "match": "Window", "color": [0.02, 0.025, 0.03], "opacity": 0.45, "roughness": 0.05, "transparent": true, "twoSided": true },
+    { "match": "glass_light", "color": [0.9, 0.9, 0.9], "opacity": 0.08, "roughness": 0.05, "transparent": true },
+    { "match": "red_glass", "color": [0.5, 0.01, 0.01], "opacity": 0.7, "roughness": 0.1, "transparent": true },
+    { "match": "orange_glass", "color": [0.8, 0.28, 0.02], "opacity": 0.7, "roughness": 0.1, "transparent": true }
   ]
 }

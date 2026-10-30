@@ -14,6 +14,9 @@ internal ref struct PipelineDescription
     public ReadOnlySpan<VertexInputBindingDescription> VertexBindings;
     public ReadOnlySpan<VertexInputAttributeDescription> VertexAttributes;
     public bool TwoSided;
+
+    /// <summary>Blends premultiplied colour and leaves depth alone.</summary>
+    public bool Transparent;
 }
 
 internal static unsafe class PipelineFactory
@@ -70,7 +73,7 @@ internal static unsafe class PipelineFactory
         {
             SType = StructureType.PipelineDepthStencilStateCreateInfo,
             DepthTestEnable = hasDepth,
-            DepthWriteEnable = hasDepth,
+            DepthWriteEnable = hasDepth && !description.Transparent,
             DepthCompareOp = CompareOp.Greater, // Reversed-Z: nearer surfaces have larger depth.
         };
 
@@ -80,6 +83,13 @@ internal static unsafe class PipelineFactory
         {
             blendAttachments[i] = new PipelineColorBlendAttachmentState
             {
+                BlendEnable = description.Transparent,
+                SrcColorBlendFactor = BlendFactor.One,
+                DstColorBlendFactor = BlendFactor.OneMinusSrcAlpha,
+                ColorBlendOp = BlendOp.Add,
+                SrcAlphaBlendFactor = BlendFactor.One,
+                DstAlphaBlendFactor = BlendFactor.OneMinusSrcAlpha,
+                AlphaBlendOp = BlendOp.Add,
                 ColorWriteMask = ColorComponentFlags.RBit | ColorComponentFlags.GBit
                     | ColorComponentFlags.BBit | ColorComponentFlags.ABit,
             };

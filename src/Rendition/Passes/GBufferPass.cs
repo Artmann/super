@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
 using Rendition.Vulkan;
 
@@ -30,26 +29,15 @@ internal sealed unsafe class GBufferPass : IDisposable
         };
         context.Api.CreatePipelineLayout(context.Device, &layoutInfo, null, out _layout).Check();
 
-        ReadOnlySpan<VertexInputBindingDescription> bindings =
-        [
-            new(0, (uint)sizeof(Vertex), VertexInputRate.Vertex),
-        ];
-        ReadOnlySpan<VertexInputAttributeDescription> attributes =
-        [
-            new(0, 0, Format.R32G32B32Sfloat, (uint)Marshal.OffsetOf<Vertex>(nameof(Vertex.Position))),
-            new(1, 0, Format.R32G32B32Sfloat, (uint)Marshal.OffsetOf<Vertex>(nameof(Vertex.Normal))),
-            new(2, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<Vertex>(nameof(Vertex.Tangent))),
-            new(3, 0, Format.R32G32Sfloat, (uint)Marshal.OffsetOf<Vertex>(nameof(Vertex.Uv))),
-        ];
         var description = new PipelineDescription
         {
             VertexShader = "gbuffer.vert",
             FragmentShader = "gbuffer.frag",
             Layout = _layout,
-            ColorFormats = [GBuffer.BaseColorFormat, GBuffer.NormalFormat],
+            ColorFormats = [GBuffer.BaseColorFormat, GBuffer.NormalFormat, GBuffer.EmissiveFormat],
             DepthFormat = GBuffer.DepthFormat,
-            VertexBindings = bindings,
-            VertexAttributes = attributes,
+            VertexBindings = SceneDraws.VertexBindings,
+            VertexAttributes = SceneDraws.VertexAttributes,
         };
         _culledPipeline = PipelineFactory.Create(context, description);
         description.TwoSided = true;
@@ -65,9 +53,10 @@ internal sealed unsafe class GBufferPass : IDisposable
     {
         var api = _context.Api;
 
-        var colorAttachments = stackalloc RenderingAttachmentInfo[2];
+        var colorAttachments = stackalloc RenderingAttachmentInfo[3];
         colorAttachments[0] = ColorAttachment(targets.BaseColor.View);
         colorAttachments[1] = ColorAttachment(targets.Normal.View);
+        colorAttachments[2] = ColorAttachment(targets.Emissive.View);
         var depthAttachment = new RenderingAttachmentInfo
         {
             SType = StructureType.RenderingAttachmentInfo,
@@ -82,7 +71,7 @@ internal sealed unsafe class GBufferPass : IDisposable
             SType = StructureType.RenderingInfo,
             RenderArea = new Rect2D(default, targets.Extent),
             LayerCount = 1,
-            ColorAttachmentCount = 2,
+            ColorAttachmentCount = 3,
             PColorAttachments = colorAttachments,
             PDepthAttachment = &depthAttachment,
         };

@@ -152,15 +152,23 @@ static unsafe ModelMaterial ImportMaterial(
 
     rule ??= new MaterialRule();
     var flags = (rule.TwoSided ? MaterialFlags.TwoSided : 0) | (rule.Transparent ? MaterialFlags.Transparent : 0);
+    var emissive = rule.EmissiveColor is { Length: 3 } e
+        ? new Vector3(e[0], e[1], e[2])
+        : rule.Emissive != null ? Vector3.One : Vector3.Zero;
     return new ModelMaterial
     {
-        BaseColor = rule.Color is { Length: 3 } c ? new Vector4(c[0], c[1], c[2], 1f) : Vector4.One,
+        BaseColor = rule.Color is { Length: 3 } c
+            ? new Vector4(c[0], c[1], c[2], rule.Opacity)
+            : new Vector4(1f, 1f, 1f, rule.Opacity),
         Metallic = rule.Metallic,
         Roughness = rule.Roughness,
         AlphaCutoff = rule.AlphaCutoff,
         BaseColorTexture = textures.Add(rule.BaseColor ?? linkedColor, TextureKind.Color),
         NormalTexture = textures.Add(rule.Normal ?? linkedNormal, TextureKind.Linear, isNormalMap: true),
         SurfaceTexture = textures.Add(rule.Surface, TextureKind.Linear),
+        Emissive = emissive,
+        EmissiveTexture = textures.Add(rule.Emissive, TextureKind.Color),
+        Clearcoat = rule.Clearcoat,
         Flags = flags,
     };
 }

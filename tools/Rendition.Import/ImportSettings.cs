@@ -22,7 +22,18 @@ public sealed class MaterialRule
     /// <summary>Red is metalness, green is roughness, alpha is opacity.</summary>
     public string? Surface { get; set; }
 
+    /// <summary>Texture of the light the surface gives off.</summary>
+    public string? Emissive { get; set; }
+
+    /// <summary>Multiplies the emissive texture. Without a texture it's the glow itself.</summary>
+    public float[]? EmissiveColor { get; set; }
+
     public float[]? Color { get; set; }
+
+    /// <summary>How much tint a transparent material adds.</summary>
+    public float Opacity { get; set; } = 1f;
+
+    public float Clearcoat { get; set; }
     public float Metallic { get; set; } = 0f;
     public float Roughness { get; set; } = 0.6f;
     public float AlphaCutoff { get; set; }

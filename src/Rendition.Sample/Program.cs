@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Rendition;
@@ -7,14 +8,19 @@ using Silk.NET.GLFW;
 
 // --check runs a fixed number of frames with validation on, then fails if the
 // renderer produced Vulkan errors or allocated managed memory while rendering.
+// --screenshot <file.png> saves one frame, with validation on, then quits.
+// Neither of those shows a window, so they can run while someone works.
 // --model <file> shows a cooked model instead of the spinning cube.
+// --yaw, --pitch and --distance <number> place the camera.
 bool check = args.Contains("--check");
-bool validation = check || args.Contains("--validate");
-int modelArgument = Array.IndexOf(args, "--model");
-string? modelPath = modelArgument >= 0 ? args[modelArgument + 1] : null;
+string? screenshotPath = StringOption(args, "--screenshot");
+bool hidden = check || screenshotPath is not null;
+bool validation = hidden || args.Contains("--validate");
+string? modelPath = StringOption(args, "--model");
 
 const int warmupFrames = 240;
 const int checkFrames = 900;
+const int screenshotFrame = 3;
 
 unsafe
 {
@@ -25,6 +31,7 @@ unsafe
     }
 
     glfw.WindowHint(WindowHintClientApi.ClientApi, ClientApi.NoApi);
+    glfw.WindowHint(WindowHintBool.Visible, !hidden);
     var window = glfw.CreateWindow(1280, 720, "Rendition", null, null);
     glfw.GetFramebufferSize(window, out int width, out int height);
 
@@ -54,7 +61,7 @@ unsafe
             IndexCount = (uint)Ground.Indices.Length,
             Material = renderer.CreateMaterial(new Material
             {
-                BaseColor = new Vector4(0.3f, 0.3f, 0.31f, 1f),
+                BaseColor = new Vector4(0.42f, 0.42f, 0.43f, 1f),
                 Roughness = 0.9f,
             }),
             Transform = Matrix4x4.Identity,
@@ -82,6 +89,10 @@ unsafe
         camera = new OrbitCamera { Yaw = 0f, Pitch = 0.33f, Distance = 3.7f };
     }
 
+    camera.Yaw = NumberOption(args, "--yaw", camera.Yaw);
+    camera.Pitch = NumberOption(args, "--pitch", camera.Pitch);
+    camera.Distance = NumberOption(args, "--distance", camera.Distance);
+
     // The studio the car reflects, with a softbox lined up with each of the three lights.
     renderer.SetEnvironment(new EnvironmentDescription
     {
@@ -93,9 +104,9 @@ unsafe
             new()
             {
                 Direction = new Vector3(0.1f, 1f, 0.05f),
-                HalfWidth = 0.9f,
-                HalfHeight = 1.7f,
-                Radiance = new Vector3(5.5f, 5.4f, 5.2f),
+                HalfWidth = 0.55f,
+                HalfHeight = 1.0f,
+                Radiance = new Vector3(3.5f, 3.45f, 3.3f),
             },
             new()
             {
@@ -125,7 +136,7 @@ unsafe
         new()
         {
             Direction = new Vector3(0.35f, 0.85f, 0.4f),
-            Radiance = new Vector3(4.1f, 4f, 3.8f),
+            Radiance = new Vector3(2.8f, 2.75f, 2.6f),
             CastsShadow = true,
         },
         new() { Direction = new Vector3(-0.8f, 0.35f, 0.5f), Radiance = new Vector3(0.65f, 0.72f, 0.82f) },
@@ -140,6 +151,18 @@ unsafe
 
     while (!glfw.WindowShouldClose(window) && glfw.GetKey(window, Keys.Escape) != (int)InputAction.Press)
     {
+        // Resizing allocates, so --check tries it during warmup, before it starts counting.
+        if (check)
+        {
+            switch (frame)
+            {
+                case 60: glfw.SetWindowSize(window, 800, 600); break;
+                case 120: glfw.SetWindowSize(window, 1600, 500); break;
+                case 180: glfw.SetWindowSize(window, 300, 900); break;
+                case 210: glfw.SetWindowSize(window, 1280, 720); break;
+            }
+        }
+
         glfw.PollEvents();
         glfw.GetFramebufferSize(window, out width, out height);
 
@@ -178,6 +201,13 @@ unsafe
             BackgroundFadeEnd = 40f,
         };
 
+        if (screenshotPath is not null && frame == screenshotFrame)
+        {
+            byte[] pixels = renderer.Capture(view, draws, out int capturedWidth, out int capturedHeight);
+            PngFile.Write(screenshotPath, pixels, capturedWidth, capturedHeight);
+            break;
+        }
+
         renderer.Render(view, draws);
         frame++;
 
@@ -208,8 +238,23 @@ unsafe
         return allocated == 0 && validationErrors == 0 ? 0 : 1;
     }
 
+    if (screenshotPath is not null)
+    {
+        Console.WriteLine($"{screenshotPath}: {validationErrors} validation messages");
+        return validationErrors == 0 ? 0 : 1;
+    }
+
     return 0;
 }
+
+static string? StringOption(string[] args, string name)
+{
+    int index = Array.IndexOf(args, name);
+    return index >= 0 ? args[index + 1] : null;
+}
+
+static float NumberOption(string[] args, string name, float fallback) =>
+    StringOption(args, name) is { } text ? float.Parse(text, CultureInfo.InvariantCulture) : fallback;
 
 static unsafe string[] GetInstanceExtensions(Glfw glfw)
 {
