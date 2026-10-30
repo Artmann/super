@@ -7,8 +7,11 @@ using Silk.NET.GLFW;
 
 // --check runs a fixed number of frames with validation on, then fails if the
 // renderer produced Vulkan errors or allocated managed memory while rendering.
+// --model <file> shows a cooked model instead of the spinning cube.
 bool check = args.Contains("--check");
 bool validation = check || args.Contains("--validate");
+int modelArgument = Array.IndexOf(args, "--model");
+string? modelPath = modelArgument >= 0 ? args[modelArgument + 1] : null;
 
 const int warmupFrames = 240;
 const int checkFrames = 900;
@@ -41,45 +44,81 @@ unsafe
         EnableValidation = validation,
     });
 
-    var cube = renderer.CreateMesh(Cube.Vertices, Cube.Indices);
-
-    var cameraPosition = new Vector3(0f, 1.2f, 3.5f);
-    var viewMatrix = Matrix4x4.CreateLookAt(cameraPosition, Vector3.Zero, Vector3.UnitY);
-    var draws = new DrawItem[1];
-    draws[0].Mesh = cube;
-    draws[0].Material = new Material
+    DrawItem[] draws;
+    OrbitCamera camera;
+    if (modelPath is not null)
     {
-        BaseColor = new Vector3(0.9f, 0.55f, 0.2f),
-        Metallic = 0.9f,
-        Roughness = 0.35f,
-    };
+        draws = renderer.CreateModel(ModelData.Read(modelPath));
+        camera = new OrbitCamera { Target = new Vector3(0f, 0.5f, 0f), Yaw = 0.7f, Pitch = 0.3f, Distance = 7f };
+    }
+    else
+    {
+        var material = renderer.CreateMaterial(new Material
+        {
+            BaseColor = new Vector4(0.9f, 0.55f, 0.2f, 1f),
+            Metallic = 0.9f,
+            Roughness = 0.35f,
+        });
+        draws =
+        [
+            new DrawItem
+            {
+                Mesh = renderer.CreateMesh(Cube.Vertices, Cube.Indices),
+                IndexCount = (uint)Cube.Indices.Length,
+                Material = material,
+            },
+        ];
+        camera = new OrbitCamera { Yaw = 0f, Pitch = 0.33f, Distance = 3.7f };
+    }
+
+    float wheelSteps = 0f;
+    GlfwCallbacks.ScrollCallback onScroll = (_, _, y) => wheelSteps += (float)y;
+    glfw.SetScrollCallback(window, onScroll);
 
     var clock = Stopwatch.StartNew();
     int frame = 0;
     long allocatedAtWarmup = 0;
+    bool dragging = false;
+    double lastX = 0, lastY = 0;
 
     while (!glfw.WindowShouldClose(window) && glfw.GetKey(window, Keys.Escape) != (int)InputAction.Press)
     {
         glfw.PollEvents();
         glfw.GetFramebufferSize(window, out width, out height);
 
-        float time = (float)clock.Elapsed.TotalSeconds;
-        draws[0].Transform = Matrix4x4.CreateRotationY(time * 0.8f) * Matrix4x4.CreateRotationX(time * 0.5f);
+        glfw.GetCursorPos(window, out double x, out double y);
+        bool buttonDown = glfw.GetMouseButton(window, (int)MouseButton.Left) == (int)InputAction.Press;
+        if (buttonDown && dragging)
+        {
+            camera.Orbit((float)(x - lastX), (float)(y - lastY));
+        }
+
+        dragging = buttonDown;
+        lastX = x;
+        lastY = y;
+        camera.Zoom(wheelSteps);
+        wheelSteps = 0f;
+
+        if (modelPath is null)
+        {
+            float time = (float)clock.Elapsed.TotalSeconds;
+            draws[0].Transform = Matrix4x4.CreateRotationY(time * 0.8f) * Matrix4x4.CreateRotationX(time * 0.5f);
+        }
 
         var view = new FrameView
         {
             Width = width,
             Height = height,
-            View = viewMatrix,
+            View = camera.View,
             Projection = Projection.PerspectiveInfiniteReversedZ(
-                MathF.PI / 3f, width / (float)Math.Max(height, 1), 0.1f),
-            CameraPosition = cameraPosition,
+                MathF.PI / 4f, width / (float)Math.Max(height, 1), 0.1f),
+            CameraPosition = camera.Position,
             Sun = new DirectionalLight
             {
                 Direction = Vector3.Normalize(new Vector3(0.5f, 0.8f, 0.6f)),
                 Radiance = new Vector3(3.5f, 3.3f, 3.0f),
             },
-            AmbientRadiance = new Vector3(0.12f, 0.14f, 0.18f),
+            AmbientRadiance = new Vector3(0.45f, 0.48f, 0.55f),
         };
 
         renderer.Render(view, draws);
@@ -102,6 +141,7 @@ unsafe
     int validationErrors = renderer.ValidationErrors;
 
     renderer.Dispose();
+    GC.KeepAlive(onScroll);
     glfw.DestroyWindow(window);
     glfw.Terminate();
 

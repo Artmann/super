@@ -28,6 +28,7 @@ public sealed unsafe class Renderer : IDisposable
     private readonly Vk _api;
     private readonly Frame[] _frames = new Frame[FramesInFlight];
     private readonly List<Mesh> _meshes = [];
+    private readonly ResourceTable _resources;
 
     private readonly DescriptorPool _descriptorPool;
     private readonly DescriptorSetLayout _frameSetLayout;
@@ -96,7 +97,8 @@ public sealed unsafe class Renderer : IDisposable
             _frames[i] = CreateFrame();
         }
 
-        _gBufferPass = new GBufferPass(_context, _frameSetLayout);
+        _resources = new ResourceTable(_context);
+        _gBufferPass = new GBufferPass(_context, _frameSetLayout, _resources);
         _lightingPass = new FullscreenPass(_context, "lighting.frag", GBuffer.HdrFormat, [_frameSetLayout, _lightingSetLayout]);
         _tonemapPass = new FullscreenPass(_context, "tonemap.frag", _swapchain.Format, [_tonemapSetLayout]);
     }
@@ -107,6 +109,59 @@ public sealed unsafe class Renderer : IDisposable
         var indexBuffer = GpuBuffer.CreateDeviceLocal(_context, indices, BufferUsageFlags.IndexBufferBit);
         _meshes.Add(new Mesh(vertexBuffer, indexBuffer, (uint)indices.Length));
         return new MeshHandle(_meshes.Count - 1);
+    }
+
+    public TextureHandle CreateTexture(TextureData data) => _resources.AddTexture(data);
+
+    public MaterialHandle CreateMaterial(in Material material) => _resources.AddMaterial(material);
+
+    /// <summary>
+    /// Uploads a cooked model and returns one draw per opaque part. Transparent parts
+    /// are left out until the renderer has a transparency pass.
+    /// </summary>
+    public DrawItem[] CreateModel(ModelData model)
+    {
+        var textures = new TextureHandle[model.Textures.Length];
+        for (int i = 0; i < textures.Length; i++)
+        {
+            textures[i] = CreateTexture(model.Textures[i]);
+        }
+
+        var materials = new MaterialHandle[model.Materials.Length];
+        for (int i = 0; i < materials.Length; i++)
+        {
+            ref readonly var source = ref model.Materials[i];
+            materials[i] = CreateMaterial(new Material
+            {
+                BaseColor = source.BaseColor,
+                Metallic = source.Metallic,
+                Roughness = source.Roughness,
+                AlphaCutoff = source.AlphaCutoff,
+                BaseColorTexture = source.BaseColorTexture >= 0 ? textures[source.BaseColorTexture] : null,
+                NormalTexture = source.NormalTexture >= 0 ? textures[source.NormalTexture] : null,
+                SurfaceTexture = source.SurfaceTexture >= 0 ? textures[source.SurfaceTexture] : null,
+                Flags = source.Flags,
+            });
+        }
+
+        var mesh = CreateMesh(model.Vertices, model.Indices);
+        var draws = new List<DrawItem>(model.Parts.Length);
+        foreach (ref readonly var part in model.Parts.AsSpan())
+        {
+            if ((model.Materials[part.Material].Flags & MaterialFlags.Transparent) == 0)
+            {
+                draws.Add(new DrawItem
+                {
+                    Mesh = mesh,
+                    FirstIndex = part.FirstIndex,
+                    IndexCount = part.IndexCount,
+                    Material = materials[part.Material],
+                    Transform = Matrix4x4.Identity,
+                });
+            }
+        }
+
+        return draws.ToArray();
     }
 
     public void Render(in FrameView view, ReadOnlySpan<DrawItem> draws)
@@ -214,6 +269,7 @@ public sealed unsafe class Renderer : IDisposable
         _tonemapPass.Dispose();
         _lightingPass.Dispose();
         _gBufferPass.Dispose();
+        _resources.Dispose();
 
         foreach (var mesh in _meshes)
         {

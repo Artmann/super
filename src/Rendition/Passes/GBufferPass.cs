@@ -8,32 +8,34 @@ namespace Rendition.Passes;
 /// <summary>Writes surface properties for every visible pixel. No lighting happens here.</summary>
 internal sealed unsafe class GBufferPass : IDisposable
 {
-    /// <summary>Must match the Draw block in the gbuffer shaders.</summary>
+    /// <summary>Must match the Draw block in Shaders/gbuffer.vert and gbuffer.frag.</summary>
     [StructLayout(LayoutKind.Sequential)]
     private struct DrawConstants
     {
         public Matrix4x4 Model;
-        public Vector4 BaseColor;
-        public float Metallic;
-        public float Roughness;
+        public int Material;
     }
 
     private const ShaderStageFlags PushStages = ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit;
 
     private readonly VulkanContext _context;
+    private readonly ResourceTable _resources;
     private readonly PipelineLayout _layout;
-    private readonly Pipeline _pipeline;
+    private readonly Pipeline _culledPipeline;
+    private readonly Pipeline _twoSidedPipeline;
 
-    public GBufferPass(VulkanContext context, DescriptorSetLayout frameSetLayout)
+    public GBufferPass(VulkanContext context, DescriptorSetLayout frameSetLayout, ResourceTable resources)
     {
         _context = context;
+        _resources = resources;
 
+        var setLayouts = stackalloc DescriptorSetLayout[] { frameSetLayout, resources.Layout };
         var pushRange = new PushConstantRange(PushStages, 0, (uint)sizeof(DrawConstants));
         var layoutInfo = new PipelineLayoutCreateInfo
         {
             SType = StructureType.PipelineLayoutCreateInfo,
-            SetLayoutCount = 1,
-            PSetLayouts = &frameSetLayout,
+            SetLayoutCount = 2,
+            PSetLayouts = setLayouts,
             PushConstantRangeCount = 1,
             PPushConstantRanges = &pushRange,
         };
@@ -47,8 +49,10 @@ internal sealed unsafe class GBufferPass : IDisposable
         [
             new(0, 0, Format.R32G32B32Sfloat, (uint)Marshal.OffsetOf<Vertex>(nameof(Vertex.Position))),
             new(1, 0, Format.R32G32B32Sfloat, (uint)Marshal.OffsetOf<Vertex>(nameof(Vertex.Normal))),
+            new(2, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<Vertex>(nameof(Vertex.Tangent))),
+            new(3, 0, Format.R32G32Sfloat, (uint)Marshal.OffsetOf<Vertex>(nameof(Vertex.Uv))),
         ];
-        _pipeline = PipelineFactory.Create(context, new PipelineDescription
+        var description = new PipelineDescription
         {
             VertexShader = "gbuffer.vert",
             FragmentShader = "gbuffer.frag",
@@ -57,7 +61,10 @@ internal sealed unsafe class GBufferPass : IDisposable
             DepthFormat = GBuffer.DepthFormat,
             VertexBindings = bindings,
             VertexAttributes = attributes,
-        });
+        };
+        _culledPipeline = PipelineFactory.Create(context, description);
+        description.TwoSided = true;
+        _twoSidedPipeline = PipelineFactory.Create(context, description);
     }
 
     public void Record(
@@ -65,7 +72,7 @@ internal sealed unsafe class GBufferPass : IDisposable
         GBuffer targets,
         DescriptorSet frameSet,
         ReadOnlySpan<DrawItem> draws,
-        IReadOnlyList<Mesh> meshes)
+        List<Mesh> meshes)
     {
         var api = _context.Api;
 
@@ -92,26 +99,37 @@ internal sealed unsafe class GBufferPass : IDisposable
         };
 
         api.CmdBeginRendering(cmd, &rendering);
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipeline);
         api.SetFullViewport(cmd, targets.Extent);
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 1, &frameSet, 0, null);
 
+        var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set };
+        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
+
+        var boundPipeline = default(Pipeline);
+        int boundMesh = -1;
         foreach (ref readonly var draw in draws)
         {
-            var mesh = meshes[draw.Mesh.Index];
-            var constants = new DrawConstants
+            var pipeline = (_resources.GetFlags(draw.Material) & MaterialFlags.TwoSided) != 0
+                ? _twoSidedPipeline
+                : _culledPipeline;
+            if (pipeline.Handle != boundPipeline.Handle)
             {
-                Model = draw.Transform,
-                BaseColor = new Vector4(draw.Material.BaseColor, 1f),
-                Metallic = draw.Material.Metallic,
-                Roughness = draw.Material.Roughness,
-            };
-            var vertexBuffer = mesh.Vertices.Handle;
-            ulong offset = 0;
+                api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, pipeline);
+                boundPipeline = pipeline;
+            }
+
+            if (draw.Mesh.Index != boundMesh)
+            {
+                var mesh = meshes[draw.Mesh.Index];
+                var vertexBuffer = mesh.Vertices.Handle;
+                ulong offset = 0;
+                api.CmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
+                api.CmdBindIndexBuffer(cmd, mesh.Indices.Handle, 0, IndexType.Uint32);
+                boundMesh = draw.Mesh.Index;
+            }
+
+            var constants = new DrawConstants { Model = draw.Transform, Material = draw.Material.Index };
             api.CmdPushConstants(cmd, _layout, PushStages, 0, (uint)sizeof(DrawConstants), &constants);
-            api.CmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
-            api.CmdBindIndexBuffer(cmd, mesh.Indices.Handle, 0, IndexType.Uint32);
-            api.CmdDrawIndexed(cmd, mesh.IndexCount, 1, 0, 0, 0);
+            api.CmdDrawIndexed(cmd, draw.IndexCount, 1, draw.FirstIndex, 0, 0);
         }
 
         api.CmdEndRendering(cmd);
@@ -119,7 +137,8 @@ internal sealed unsafe class GBufferPass : IDisposable
 
     public void Dispose()
     {
-        _context.Api.DestroyPipeline(_context.Device, _pipeline, null);
+        _context.Api.DestroyPipeline(_context.Device, _twoSidedPipeline, null);
+        _context.Api.DestroyPipeline(_context.Device, _culledPipeline, null);
         _context.Api.DestroyPipelineLayout(_context.Device, _layout, null);
     }
 

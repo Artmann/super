@@ -4,27 +4,61 @@ using System.Runtime.InteropServices;
 namespace Rendition;
 
 [StructLayout(LayoutKind.Sequential)]
-public struct Vertex(Vector3 position, Vector3 normal)
+public struct Vertex(Vector3 position, Vector3 normal, Vector4 tangent, Vector2 uv)
 {
     public Vector3 Position = position;
     public Vector3 Normal = normal;
+
+    /// <summary>xyz is the tangent; w is the handedness of the bitangent.</summary>
+    public Vector4 Tangent = tangent;
+
+    public Vector2 Uv = uv;
 }
 
 public readonly record struct MeshHandle(int Index);
 
-/// <summary>Constant PBR surface parameters. Textures will extend this later.</summary>
+public readonly record struct TextureHandle(int Index);
+
+public readonly record struct MaterialHandle(int Index);
+
+[Flags]
+public enum MaterialFlags
+{
+    None = 0,
+
+    /// <summary>Thin surfaces seen from both sides, such as grilles.</summary>
+    TwoSided = 1,
+
+    /// <summary>Needs the transparency pass. Not drawn until that pass exists.</summary>
+    Transparent = 2,
+}
+
+/// <summary>
+/// PBR surface parameters. Constants multiply their textures. The surface texture
+/// holds metalness in red, roughness in green and opacity in alpha.
+/// </summary>
 public struct Material
 {
-    public Vector3 BaseColor;
+    public Vector4 BaseColor;
     public float Metallic;
     public float Roughness;
+
+    /// <summary>Pixels with opacity below this are cut out. 0 keeps every pixel.</summary>
+    public float AlphaCutoff;
+
+    public TextureHandle? BaseColorTexture;
+    public TextureHandle? NormalTexture;
+    public TextureHandle? SurfaceTexture;
+    public MaterialFlags Flags;
 }
 
 public struct DrawItem
 {
     public MeshHandle Mesh;
+    public uint FirstIndex;
+    public uint IndexCount;
+    public MaterialHandle Material;
     public Matrix4x4 Transform;
-    public Material Material;
 }
 
 public struct DirectionalLight

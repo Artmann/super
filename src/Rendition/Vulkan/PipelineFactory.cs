@@ -13,6 +13,7 @@ internal ref struct PipelineDescription
     public Format DepthFormat;
     public ReadOnlySpan<VertexInputBindingDescription> VertexBindings;
     public ReadOnlySpan<VertexInputAttributeDescription> VertexAttributes;
+    public bool TwoSided;
 }
 
 internal static unsafe class PipelineFactory
@@ -56,7 +57,7 @@ internal static unsafe class PipelineFactory
         {
             SType = StructureType.PipelineRasterizationStateCreateInfo,
             PolygonMode = PolygonMode.Fill,
-            CullMode = hasDepth ? CullModeFlags.BackBit : CullModeFlags.None,
+            CullMode = hasDepth && !description.TwoSided ? CullModeFlags.BackBit : CullModeFlags.None,
             FrontFace = FrontFace.CounterClockwise,
             LineWidth = 1f,
         };

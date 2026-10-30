@@ -1,0 +1,28 @@
+{
+  "targetLength": 4.64,
+  "materials": [
+    { "match": "Paint_Material", "surface": "OEM_FordGT05Heritage_1_MaterialOpacity.png", "metallic": 1, "roughness": 1 },
+    { "match": "BadgeA", "surface": "Ford_GT_2005_BadgeA_MaterialOpacity.png", "metallic": 1, "roughness": 1 },
+    { "match": "EngineA", "surface": "Ford_GT_2005_EngineA_MaterialOpacity.png", "metallic": 1, "roughness": 1 },
+    { "match": "InteriorA", "surface": "Ford_GT_2005_InteriorA_MaterialOpacity.png", "metallic": 1, "roughness": 1 },
+    { "match": "Wheel1A", "surface": "Ford_GT_2005_Wheel1A_Material.png", "metallic": 1, "roughness": 1 },
+    { "match": "LightA", "surface": "Ford_GT_2005_LightA_Material.png", "metallic": 1, "roughness": 1 },
+    { "match": "Grille1A", "surface": "Ford_GT_2005_Grille1A_MaterialOpacity.png", "metallic": 1, "roughness": 1, "alphaCutoff": 0.5, "twoSided": true },
+    { "match": "Grille2A", "surface": "Ford_GT_2005_Grille2A_MaterialOpacity.png", "metallic": 1, "roughness": 1, "alphaCutoff": 0.5, "twoSided": true },
+    { "match": "Grille3A", "surface": "Ford_GT_2005_Grille3A_Material.png", "metallic": 1, "roughness": 1, "twoSided": true },
+    { "match": "Grille4A", "surface": "Ford_GT_2005_Grille4A_Material.png", "metallic": 1, "roughness": 1, "twoSided": true },
+    { "match": "Grille5A", "surface": "Ford_GT_2005_Grille5A_Material.png", "metallic": 1, "roughness": 1, "twoSided": true },
+    { "match": "Grille6A", "surface": "Ford_GT_2005_Grille6A_MaterialOpacity.png", "metallic": 1, "roughness": 1, "alphaCutoff": 0.5, "twoSided": true },
+    { "match": "Grille7A", "surface": "Ford_GT_2005_Grille7A_MaterialOpacity.png", "metallic": 1, "roughness": 1, "alphaCutoff": 0.5, "twoSided": true },
+    { "match": "Carbon1", "roughness": 0.4 },
+    { "match": "Coloured", "roughness": 0.5 },
+    { "match": "ManufacturerPlateA", "metallic": 0.8, "roughness": 0.4 },
+    { "match": "Base_Material", "color": [0.02, 0.02, 0.02], "roughness": 0.8 },
+    { "match": "CalliperGloss", "metallic": 0.2, "roughness": 0.3 },
+    { "match": "Color_caliper", "color": [0.6, 0.6, 0.6], "metallic": 0.2, "roughness": 0.3 },
+    { "match": "Window", "transparent": true },
+    { "match": "glass_light", "transparent": true },
+    { "match": "red_glass", "transparent": true },
+    { "match": "orange_glass", "transparent": true }
+  ]
+}

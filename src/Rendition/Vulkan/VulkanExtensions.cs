@@ -23,7 +23,8 @@ internal static unsafe class VulkanExtensions
         PipelineStageFlags2 sourceStage,
         AccessFlags2 sourceAccess,
         PipelineStageFlags2 destinationStage,
-        AccessFlags2 destinationAccess)
+        AccessFlags2 destinationAccess,
+        uint mipCount = 1)
     {
         var barrier = new ImageMemoryBarrier2
         {
@@ -37,7 +38,7 @@ internal static unsafe class VulkanExtensions
             SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
             DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
             Image = image,
-            SubresourceRange = new ImageSubresourceRange(aspect, 0, 1, 0, 1),
+            SubresourceRange = new ImageSubresourceRange(aspect, 0, mipCount, 0, 1),
         };
         var dependency = new DependencyInfo
         {

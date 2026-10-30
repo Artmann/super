@@ -6,8 +6,8 @@ rendering in a window and nothing else.
 
 ## Status
 
-The first milestone is done: a rotating PBR cube drawn through the real deferred
-pipeline, with no managed allocations per frame and no Vulkan validation
+The renderer draws a textured, 192,000-triangle car model through the real
+deferred pipeline, with no managed allocations per frame and no Vulkan validation
 messages.
 
 What exists today:
@@ -19,10 +19,14 @@ What exists today:
 - A tonemap pass that takes HDR colour to the screen with ACES filmic
 - Two frames in flight and window resize handling
 - GLSL shaders compiled to SPIR-V at build time
-- A small public API: `Renderer.CreateMesh` and
-  `Renderer.Render(in FrameView, ReadOnlySpan<DrawItem>)`
+- Bindless textures and materials, normal mapping, cut-out and two-sided surfaces
+- An import tool that cooks FBX models and their textures into a `.rmodel` file
+- A small public API: `Renderer.CreateModel`, `CreateMesh`, `CreateTexture`,
+  `CreateMaterial` and `Render(in FrameView, ReadOnlySpan<DrawItem>)`
 
-Planned next, in order: lighting, textures, post-processing, custom shaders.
+Planned next, in order: three-point lighting with shadows, studio reflections, car
+materials and glass, then ambient occlusion, bloom and anti-aliasing. Custom
+shaders come after that.
 
 Decisions, the G-buffer layout and known simplifications are in
 [docs/design.md](docs/design.md).
@@ -35,7 +39,9 @@ Decisions, the G-buffer layout and known simplifications are in
 | `src/Rendition/Passes` | The render passes and their shared targets |
 | `src/Rendition/Vulkan` | Device, swapchain, buffer and pipeline helpers |
 | `src/Rendition/Shaders` | GLSL source |
-| `src/Rendition.Sample` | The window and the rotating cube |
+| `src/Rendition.Sample` | The window, orbit camera, model viewer and rotating cube |
+| `tools/Rendition.Import` | Converts models to `.rmodel` |
+| `assets` | Per-model import rules. Source and cooked models stay out of git |
 
 ## Requirements
 
@@ -52,6 +58,17 @@ dotnet run -c Release --project src/Rendition.Sample
 ```
 
 Press Esc to quit. Add `-- --validate` to turn on Vulkan validation.
+
+To view a model, cook it once and pass it to the sample. Drag to orbit and scroll
+to zoom.
+
+```
+dotnet run -c Release --project tools/Rendition.Import -- assets/source/ford-gt/FINAL_MODEL_05H.fbx assets/ford-gt.materials.json assets/cooked/ford-gt.rmodel
+dotnet run -c Release --project src/Rendition.Sample -- --model assets/cooked/ford-gt.rmodel
+```
+
+The `assets/cooked` folder must exist first. The car's source files aren't in git,
+so copy them into `assets/source/ford-gt`.
 
 ## Check
 

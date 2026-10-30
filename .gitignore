@@ -3,3 +3,5 @@ obj/
 .vs/
 *.user
 *.spv
+assets/source/
+assets/cooked/

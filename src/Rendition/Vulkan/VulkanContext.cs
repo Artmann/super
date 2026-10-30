@@ -258,17 +258,31 @@ internal sealed unsafe class VulkanContext : IDisposable
             QueueCount = 1,
             PQueuePriorities = &priority,
         };
+        var features = new PhysicalDeviceFeatures
+        {
+            SamplerAnisotropy = true,
+            ShaderSampledImageArrayDynamicIndexing = true,
+        };
+        var features12 = new PhysicalDeviceVulkan12Features
+        {
+            SType = StructureType.PhysicalDeviceVulkan12Features,
+            RuntimeDescriptorArray = true,
+            DescriptorBindingPartiallyBound = true,
+        };
         var features13 = new PhysicalDeviceVulkan13Features
         {
             SType = StructureType.PhysicalDeviceVulkan13Features,
+            PNext = &features12,
             DynamicRendering = true,
             Synchronization2 = true,
+            ShaderDemoteToHelperInvocation = true,
         };
         nint extensionNames = SilkMarshal.StringArrayToPtr([KhrSwapchain.ExtensionName]);
         var createInfo = new DeviceCreateInfo
         {
             SType = StructureType.DeviceCreateInfo,
             PNext = &features13,
+            PEnabledFeatures = &features,
             QueueCreateInfoCount = 1,
             PQueueCreateInfos = &queueInfo,
             EnabledExtensionCount = 1,

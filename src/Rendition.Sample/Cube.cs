@@ -23,10 +23,11 @@ internal static class Cube
         for (int i = 0; i < faces.Length; i++)
         {
             var (normal, u, v) = faces[i];
-            vertices[i * 4 + 0] = new Vertex((normal - u - v) * 0.5f, normal);
-            vertices[i * 4 + 1] = new Vertex((normal + u - v) * 0.5f, normal);
-            vertices[i * 4 + 2] = new Vertex((normal + u + v) * 0.5f, normal);
-            vertices[i * 4 + 3] = new Vertex((normal - u + v) * 0.5f, normal);
+            var tangent = new Vector4(u, 1f);
+            vertices[i * 4 + 0] = new Vertex((normal - u - v) * 0.5f, normal, tangent, new Vector2(0f, 1f));
+            vertices[i * 4 + 1] = new Vertex((normal + u - v) * 0.5f, normal, tangent, new Vector2(1f, 1f));
+            vertices[i * 4 + 2] = new Vertex((normal + u + v) * 0.5f, normal, tangent, new Vector2(1f, 0f));
+            vertices[i * 4 + 3] = new Vertex((normal - u + v) * 0.5f, normal, tangent, new Vector2(0f, 0f));
         }
 
         return vertices;

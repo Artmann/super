@@ -1,13 +1,30 @@
 #version 460
+#extension GL_EXT_nonuniform_qualifier : require
 
 layout(location = 0) in vec3 inNormal;
+layout(location = 1) in vec4 inTangent;
+layout(location = 2) in vec2 inUv;
 
 layout(push_constant) uniform Draw {
     mat4 model;
+    int material;
+} draw;
+
+// Must match GpuMaterial in Vulkan/ResourceTable.cs.
+struct Material {
     vec4 baseColor;
     float metallic;
     float roughness;
-} draw;
+    float alphaCutoff;
+    uint baseColorTexture;
+    uint normalTexture;
+    uint surfaceTexture;
+};
+
+layout(set = 1, binding = 0) uniform sampler2D textures[];
+layout(std430, set = 1, binding = 1) readonly buffer Materials {
+    Material materials[];
+};
 
 layout(location = 0) out vec4 outBaseColorMetallic;
 layout(location = 1) out vec4 outNormalRoughnessAo;
@@ -23,6 +40,22 @@ vec2 octahedralEncode(vec3 n) {
 }
 
 void main() {
-    outBaseColorMetallic = vec4(draw.baseColor.rgb, draw.metallic);
-    outNormalRoughnessAo = vec4(octahedralEncode(normalize(inNormal)), draw.roughness, 1.0);
+    Material material = materials[draw.material];
+
+    vec4 surface = texture(textures[material.surfaceTexture], inUv);
+    if (surface.a < material.alphaCutoff) {
+        discard;
+    }
+
+    vec4 baseColor = texture(textures[material.baseColorTexture], inUv) * material.baseColor;
+
+    // Moves the normal map out of the surface's own tangent space into world space.
+    vec3 n = normalize(gl_FrontFacing ? inNormal : -inNormal);
+    vec3 t = normalize(inTangent.xyz - n * dot(n, inTangent.xyz));
+    vec3 b = cross(n, t) * inTangent.w;
+    vec3 mapped = texture(textures[material.normalTexture], inUv).xyz * 2.0 - 1.0;
+    vec3 normal = normalize(t * mapped.x + b * mapped.y + n * mapped.z);
+
+    outBaseColorMetallic = vec4(baseColor.rgb, material.metallic * surface.r);
+    outNormalRoughnessAo = vec4(octahedralEncode(normal), material.roughness * surface.g, 1.0);
 }

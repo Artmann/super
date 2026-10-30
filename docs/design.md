@@ -25,6 +25,8 @@ Editor, physics, audio, game logic, non-Windows platforms.
 | Window | Silk.NET.GLFW | Small and portable; the renderer never depends on it directly |
 | Shaders | GLSL compiled to SPIR-V by `glslc` at build time | No compiler in the shipped game; runtime loading of `.spv` leaves room for custom shaders |
 | Math | System.Numerics | SIMD-accelerated value types |
+| Model import | Separate tool using Assimp, writing our own `.rmodel` | The game loads a fast flat file and never ships an FBX parser |
+| Textures and materials | One global descriptor set indexed by material | Adding materials adds no binding work per draw |
 
 ## Frame structure
 
@@ -43,8 +45,14 @@ G-buffer layout:
 | depth | `D32_SFLOAT` | reversed-Z, position is reconstructed from it |
 
 Games talk to the renderer with plain structs: `Renderer.Render(in FrameView,
-ReadOnlySpan<DrawItem>)`. Meshes are created up front and referenced by a
-`MeshHandle`.
+ReadOnlySpan<DrawItem>)`. Meshes, textures and materials are created up front and
+referenced by handles. A `DrawItem` is an index range of a mesh plus a material,
+so one model shares a vertex buffer across its parts.
+
+Model files often link only colour and normal maps. Each model has an
+`assets/<name>.materials.json` that connects the remaining textures and sets
+material values. The surface texture holds metalness in red, roughness in green
+and opacity in alpha.
 
 Two frames can be in flight. Render targets are shared between frames, and
 pipeline barriers order the access; per-frame state is limited to command
@@ -54,6 +62,12 @@ buffers, sync objects and the uniform buffer.
 
 - Each buffer and image gets its own `vkAllocateMemory`. Replace with a
   sub-allocator (VMA or our own) before scene sizes grow.
-- Materials are constants in push constants. Textures come next.
+- Textures are uncompressed RGBA8 with mips. Block compression (BC7) would use
+  far less GPU memory.
+- The table holds at most 1024 textures and 1024 materials, and resources can't be
+  removed yet.
+- `CreateModel` skips parts marked `Transparent` until the transparency pass exists.
+- The car's surface map channels are an educated guess, because the model has no
+  documentation. Confirm them by eye once reflections exist.
 - One directional light plus flat ambient. A light list and image-based
   lighting come with the lighting milestone.
