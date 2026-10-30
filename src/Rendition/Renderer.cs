@@ -37,7 +37,9 @@ public sealed unsafe class Renderer : IDisposable
     private readonly DescriptorSet _lightingSet;
     private readonly DescriptorSet _tonemapSet;
     private readonly Sampler _sampler;
+    private readonly Sampler _shadowSampler;
 
+    private readonly ShadowPass _shadowPass;
     private readonly GBufferPass _gBufferPass;
     private readonly FullscreenPass _lightingPass;
     private readonly FullscreenPass _tonemapPass;
@@ -69,15 +71,25 @@ public sealed unsafe class Renderer : IDisposable
         };
         _api.CreateSampler(_context.Device, &samplerInfo, null, out _sampler).Check();
 
+        // Reversed-Z: a point is lit when it is at least as near the light as the map says.
+        var shadowSamplerInfo = samplerInfo with
+        {
+            MagFilter = Filter.Linear,
+            MinFilter = Filter.Linear,
+            CompareEnable = true,
+            CompareOp = CompareOp.GreaterOrEqual,
+        };
+        _api.CreateSampler(_context.Device, &shadowSamplerInfo, null, out _shadowSampler).Check();
+
         _frameSetLayout = CreateSetLayout(
             DescriptorType.UniformBuffer, 1, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit);
-        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 3, ShaderStageFlags.FragmentBit);
+        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 5, ShaderStageFlags.FragmentBit);
         _tonemapSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit);
 
         var poolSizes = stackalloc DescriptorPoolSize[]
         {
             new(DescriptorType.UniformBuffer, FramesInFlight),
-            new(DescriptorType.CombinedImageSampler, 4),
+            new(DescriptorType.CombinedImageSampler, 6),
         };
         var poolInfo = new DescriptorPoolCreateInfo
         {
@@ -88,16 +100,18 @@ public sealed unsafe class Renderer : IDisposable
         };
         _api.CreateDescriptorPool(_context.Device, &poolInfo, null, out _descriptorPool).Check();
 
-        _lightingSet = AllocateSet(_lightingSetLayout);
-        _tonemapSet = AllocateSet(_tonemapSetLayout);
-        WriteTargetDescriptors();
-
         for (int i = 0; i < FramesInFlight; i++)
         {
             _frames[i] = CreateFrame();
         }
 
         _resources = new ResourceTable(_context);
+        _shadowPass = new ShadowPass(_context, _frameSetLayout, _resources);
+
+        _lightingSet = AllocateSet(_lightingSetLayout);
+        _tonemapSet = AllocateSet(_tonemapSetLayout);
+        WriteTargetDescriptors();
+
         _gBufferPass = new GBufferPass(_context, _frameSetLayout, _resources);
         _lightingPass = new FullscreenPass(_context, "lighting.frag", GBuffer.HdrFormat, [_frameSetLayout, _lightingSetLayout]);
         _tonemapPass = new FullscreenPass(_context, "tonemap.frag", _swapchain.Format, [_tonemapSetLayout]);
@@ -197,7 +211,7 @@ public sealed unsafe class Renderer : IDisposable
 
         _api.ResetFences(_context.Device, 1, &fence).Check();
 
-        WriteUniforms(frame.Uniforms, view);
+        bool castsShadow = WriteUniforms(frame.Uniforms, view);
 
         _api.ResetCommandPool(_context.Device, frame.CommandPool, 0).Check();
         var cmd = frame.CommandBuffer;
@@ -207,7 +221,7 @@ public sealed unsafe class Renderer : IDisposable
             Flags = CommandBufferUsageFlags.OneTimeSubmitBit,
         };
         _api.BeginCommandBuffer(cmd, &beginInfo).Check();
-        RecordFrame(cmd, frame.Set, imageIndex, draws);
+        RecordFrame(cmd, frame.Set, imageIndex, draws, castsShadow);
         _api.EndCommandBuffer(cmd).Check();
 
         var renderFinished = _swapchain.RenderFinished[imageIndex];
@@ -269,6 +283,7 @@ public sealed unsafe class Renderer : IDisposable
         _tonemapPass.Dispose();
         _lightingPass.Dispose();
         _gBufferPass.Dispose();
+        _shadowPass.Dispose();
         _resources.Dispose();
 
         foreach (var mesh in _meshes)
@@ -288,13 +303,19 @@ public sealed unsafe class Renderer : IDisposable
         _api.DestroyDescriptorSetLayout(_context.Device, _tonemapSetLayout, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _lightingSetLayout, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _frameSetLayout, null);
+        _api.DestroySampler(_context.Device, _shadowSampler, null);
         _api.DestroySampler(_context.Device, _sampler, null);
         _gBuffer.Dispose();
         _swapchain.Dispose();
         _context.Dispose();
     }
 
-    private void RecordFrame(CommandBuffer cmd, DescriptorSet frameSet, uint imageIndex, ReadOnlySpan<DrawItem> draws)
+    private void RecordFrame(
+        CommandBuffer cmd,
+        DescriptorSet frameSet,
+        uint imageIndex,
+        ReadOnlySpan<DrawItem> draws,
+        bool castsShadow)
     {
         var targets = _gBuffer;
         var extent = targets.Extent;
@@ -309,6 +330,15 @@ public sealed unsafe class Renderer : IDisposable
         const PipelineStageFlags2 depthStages =
             PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit;
         const AccessFlags2 depthWrite = AccessFlags2.DepthStencilAttachmentWriteBit;
+
+        // Runs without draws when nothing casts a shadow: the lighting pass still binds the map.
+        var shadowMap = _shadowPass.Target.Image;
+        _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
+            ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, sampledStage, sampledAccess, depthStages,
+            depthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
+        _shadowPass.Record(cmd, frameSet, castsShadow ? draws : [], _meshes);
+        _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
+            ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, depthStages, depthWrite, sampledStage, sampledAccess);
 
         _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
             ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, sampledStage, sampledAccess, colorStage, colorWrite);
@@ -345,19 +375,46 @@ public sealed unsafe class Renderer : IDisposable
             PipelineStageFlags2.None, AccessFlags2.None);
     }
 
-    private static void WriteUniforms(GpuBuffer buffer, in FrameView view)
+    /// <summary>Returns whether a light casts a shadow this frame.</summary>
+    private static bool WriteUniforms(GpuBuffer buffer, in FrameView view)
     {
         var viewProjection = view.View * view.Projection;
         Matrix4x4.Invert(viewProjection, out var inverse);
-        *(FrameUniforms*)buffer.Mapped = new FrameUniforms
+
+        var uniforms = (FrameUniforms*)buffer.Mapped;
+        uniforms->ViewProjection = viewProjection;
+        uniforms->InverseViewProjection = inverse;
+        uniforms->CameraPosition = new Vector4(view.CameraPosition, 1f);
+        uniforms->AmbientRadiance = new Vector4(view.AmbientRadiance, 0f);
+        uniforms->BackgroundRadiance = new Vector4(view.BackgroundRadiance, 0f);
+
+        // Moving points two shadow map texels off their surface stops them shadowing themselves.
+        float normalOffset = view.Shadows.Radius * 4f / ShadowPass.Resolution;
+        uniforms->Parameters = new Vector4(
+            view.BackgroundFadeStart, view.BackgroundFadeEnd, view.Shadows.LightAngle, normalOffset);
+
+        int count = Math.Min(view.Lights.Length, FrameUniforms.MaxLights);
+        uniforms->LightCount = count;
+        bool castsShadow = false;
+        for (int i = 0; i < count; i++)
         {
-            ViewProjection = viewProjection,
-            InverseViewProjection = inverse,
-            CameraPosition = new Vector4(view.CameraPosition, 1f),
-            LightDirection = new Vector4(Vector3.Normalize(view.Sun.Direction), 0f),
-            LightRadiance = new Vector4(view.Sun.Radiance, 0f),
-            AmbientRadiance = new Vector4(view.AmbientRadiance, 0f),
-        };
+            ref readonly var light = ref view.Lights[i];
+            var direction = Vector3.Normalize(light.Direction);
+            bool casts = !castsShadow && light.CastsShadow && view.Shadows.Radius > 0f;
+            if (casts)
+            {
+                uniforms->ShadowMatrix = ShadowPass.CreateMatrix(direction, view.Shadows.Center, view.Shadows.Radius);
+                castsShadow = true;
+            }
+
+            uniforms->Lights[i] = new GpuLight
+            {
+                Direction = new Vector4(direction, casts ? 1f : 0f),
+                Radiance = new Vector4(light.Radiance, 0f),
+            };
+        }
+
+        return castsShadow;
     }
 
     private void Resize(uint width, uint height)
@@ -459,22 +516,24 @@ public sealed unsafe class Renderer : IDisposable
             new(_sampler, _gBuffer.BaseColor.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_sampler, _gBuffer.Normal.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_sampler, _gBuffer.Depth.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_sampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_shadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_sampler, _gBuffer.Hdr.View, ImageLayout.ShaderReadOnlyOptimal),
         };
-        var writes = stackalloc WriteDescriptorSet[4];
-        for (int i = 0; i < 4; i++)
+        var writes = stackalloc WriteDescriptorSet[6];
+        for (int i = 0; i < 6; i++)
         {
             writes[i] = new WriteDescriptorSet
             {
                 SType = StructureType.WriteDescriptorSet,
-                DstSet = i < 3 ? _lightingSet : _tonemapSet,
-                DstBinding = i < 3 ? (uint)i : 0,
+                DstSet = i < 5 ? _lightingSet : _tonemapSet,
+                DstBinding = i < 5 ? (uint)i : 0,
                 DescriptorCount = 1,
                 DescriptorType = DescriptorType.CombinedImageSampler,
                 PImageInfo = &images[i],
             };
         }
 
-        _api.UpdateDescriptorSets(_context.Device, 4, writes, 0, null);
+        _api.UpdateDescriptorSets(_context.Device, 6, writes, 0, null);
     }
 }

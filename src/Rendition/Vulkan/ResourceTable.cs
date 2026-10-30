@@ -14,7 +14,7 @@ internal sealed unsafe class ResourceTable : IDisposable
     private const uint MaxTextures = 1024;
     private const int MaxMaterials = 1024;
 
-    /// <summary>Must match the Material struct in Shaders/gbuffer.frag.</summary>
+    /// <summary>Must match the Material struct in Shaders/material.glsl.</summary>
     [StructLayout(LayoutKind.Sequential)]
     private struct GpuMaterial
     {

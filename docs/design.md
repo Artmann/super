@@ -31,6 +31,7 @@ Editor, physics, audio, game logic, non-Windows platforms.
 ## Frame structure
 
 ```
+ShadowPass    scene geometry   -> depth from the key light (4096 x 4096)
 GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, depth
 LightingPass  fullscreen       -> HDR colour (Cook-Torrance GGX PBR)
 TonemapPass   fullscreen       -> swapchain (ACES filmic, sRGB)
@@ -54,6 +55,10 @@ Model files often link only colour and normal maps. Each model has an
 material values. The surface texture holds metalness in red, roughness in green
 and opacity in alpha.
 
+Shadows blur with distance from the object casting them: the lighting pass finds
+how far away the blocker is, then widens its sampling to match. The game says
+which area the shadow map covers through `FrameView.Shadows`.
+
 Two frames can be in flight. Render targets are shared between frames, and
 pipeline barriers order the access; per-frame state is limited to command
 buffers, sync objects and the uniform buffer.
@@ -69,5 +74,9 @@ buffers, sync objects and the uniform buffer.
 - `CreateModel` skips parts marked `Transparent` until the transparency pass exists.
 - The car's surface map channels are an educated guess, because the model has no
   documentation. Confirm them by eye once reflections exist.
-- One directional light plus flat ambient. A light list and image-based
-  lighting come with the lighting milestone.
+- One shadow map covering a fixed area. Large outdoor scenes will need cascades
+  that follow the camera.
+- Only directional lights so far. Point and spot lights come later.
+- Only one light casts shadows, so the others shine through objects. Ambient
+  occlusion will ground the car.
+- Flat ambient. Image-based lighting comes next.

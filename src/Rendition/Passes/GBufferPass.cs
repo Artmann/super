@@ -1,4 +1,3 @@
-using System.Numerics;
 using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
 using Rendition.Vulkan;
@@ -8,16 +7,6 @@ namespace Rendition.Passes;
 /// <summary>Writes surface properties for every visible pixel. No lighting happens here.</summary>
 internal sealed unsafe class GBufferPass : IDisposable
 {
-    /// <summary>Must match the Draw block in Shaders/gbuffer.vert and gbuffer.frag.</summary>
-    [StructLayout(LayoutKind.Sequential)]
-    private struct DrawConstants
-    {
-        public Matrix4x4 Model;
-        public int Material;
-    }
-
-    private const ShaderStageFlags PushStages = ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit;
-
     private readonly VulkanContext _context;
     private readonly ResourceTable _resources;
     private readonly PipelineLayout _layout;
@@ -30,7 +19,7 @@ internal sealed unsafe class GBufferPass : IDisposable
         _resources = resources;
 
         var setLayouts = stackalloc DescriptorSetLayout[] { frameSetLayout, resources.Layout };
-        var pushRange = new PushConstantRange(PushStages, 0, (uint)sizeof(DrawConstants));
+        var pushRange = SceneDraws.PushRange;
         var layoutInfo = new PipelineLayoutCreateInfo
         {
             SType = StructureType.PipelineLayoutCreateInfo,
@@ -104,33 +93,7 @@ internal sealed unsafe class GBufferPass : IDisposable
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set };
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
 
-        var boundPipeline = default(Pipeline);
-        int boundMesh = -1;
-        foreach (ref readonly var draw in draws)
-        {
-            var pipeline = (_resources.GetFlags(draw.Material) & MaterialFlags.TwoSided) != 0
-                ? _twoSidedPipeline
-                : _culledPipeline;
-            if (pipeline.Handle != boundPipeline.Handle)
-            {
-                api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, pipeline);
-                boundPipeline = pipeline;
-            }
-
-            if (draw.Mesh.Index != boundMesh)
-            {
-                var mesh = meshes[draw.Mesh.Index];
-                var vertexBuffer = mesh.Vertices.Handle;
-                ulong offset = 0;
-                api.CmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
-                api.CmdBindIndexBuffer(cmd, mesh.Indices.Handle, 0, IndexType.Uint32);
-                boundMesh = draw.Mesh.Index;
-            }
-
-            var constants = new DrawConstants { Model = draw.Transform, Material = draw.Material.Index };
-            api.CmdPushConstants(cmd, _layout, PushStages, 0, (uint)sizeof(DrawConstants), &constants);
-            api.CmdDrawIndexed(cmd, draw.IndexCount, 1, draw.FirstIndex, 0, 0);
-        }
+        SceneDraws.Record(api, cmd, _layout, _culledPipeline, _twoSidedPipeline, _resources, draws, meshes);
 
         api.CmdEndRendering(cmd);
     }

@@ -66,18 +66,45 @@ public struct DirectionalLight
     /// <summary>Unit vector pointing from the surface towards the light.</summary>
     public Vector3 Direction;
     public Vector3 Radiance;
+
+    /// <summary>The renderer draws one shadow map, for the first light that sets this.</summary>
+    public bool CastsShadow;
+}
+
+/// <summary>The part of the world covered by the shadow map.</summary>
+public struct ShadowSettings
+{
+    public Vector3 Center;
+    public float Radius;
+
+    /// <summary>
+    /// Apparent size of the light: 0 gives hard shadows, larger values blur them
+    /// faster with distance from the object casting them.
+    /// </summary>
+    public float LightAngle;
 }
 
 /// <summary>Everything the renderer needs to know about one frame except the draws.</summary>
-public struct FrameView
+public ref struct FrameView
 {
     public int Width;
     public int Height;
     public Matrix4x4 View;
     public Matrix4x4 Projection;
     public Vector3 CameraPosition;
-    public DirectionalLight Sun;
+
+    /// <summary>At most eight are used.</summary>
+    public ReadOnlySpan<DirectionalLight> Lights;
+
+    public ShadowSettings Shadows;
     public Vector3 AmbientRadiance;
+
+    /// <summary>Shown where nothing was drawn.</summary>
+    public Vector3 BackgroundRadiance;
+
+    /// <summary>Surfaces melt into the background between these distances. Equal values turn it off.</summary>
+    public float BackgroundFadeStart;
+    public float BackgroundFadeEnd;
 }
 
 public static class Projection

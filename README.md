@@ -14,8 +14,9 @@ What exists today:
 
 - A G-buffer pass that writes base colour, metallic, normal, roughness, AO and
   depth, using reversed-Z depth
-- A lighting pass with Cook-Torrance GGX shading, one directional light and flat
-  ambient
+- A shadow pass that renders depth from the key light
+- A lighting pass with Cook-Torrance GGX shading, up to eight directional lights,
+  soft contact-hardening shadows, flat ambient and a fade into the background
 - A tonemap pass that takes HDR colour to the screen with ACES filmic
 - Two frames in flight and window resize handling
 - GLSL shaders compiled to SPIR-V at build time
@@ -24,7 +25,7 @@ What exists today:
 - A small public API: `Renderer.CreateModel`, `CreateMesh`, `CreateTexture`,
   `CreateMaterial` and `Render(in FrameView, ReadOnlySpan<DrawItem>)`
 
-Planned next, in order: three-point lighting with shadows, studio reflections, car
+Planned next, in order: studio reflections, car
 materials and glass, then ambient occlusion, bloom and anti-aliasing. Custom
 shaders come after that.
 

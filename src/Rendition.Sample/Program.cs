@@ -48,7 +48,18 @@ unsafe
     OrbitCamera camera;
     if (modelPath is not null)
     {
-        draws = renderer.CreateModel(ModelData.Read(modelPath));
+        var floor = new DrawItem
+        {
+            Mesh = renderer.CreateMesh(Ground.Vertices, Ground.Indices),
+            IndexCount = (uint)Ground.Indices.Length,
+            Material = renderer.CreateMaterial(new Material
+            {
+                BaseColor = new Vector4(0.3f, 0.3f, 0.31f, 1f),
+                Roughness = 0.9f,
+            }),
+            Transform = Matrix4x4.Identity,
+        };
+        draws = [.. renderer.CreateModel(ModelData.Read(modelPath)), floor];
         camera = new OrbitCamera { Target = new Vector3(0f, 0.5f, 0f), Yaw = 0.7f, Pitch = 0.3f, Distance = 7f };
     }
     else
@@ -74,6 +85,20 @@ unsafe
     float wheelSteps = 0f;
     GlfwCallbacks.ScrollCallback onScroll = (_, _, y) => wheelSteps += (float)y;
     glfw.SetScrollCallback(window, onScroll);
+
+    // Three-point lighting: a strong key from above, a soft fill on the opposite side to
+    // lift the shadows, and a rim from behind to separate the car from the backdrop.
+    DirectionalLight[] lights =
+    [
+        new()
+        {
+            Direction = new Vector3(0.35f, 0.85f, 0.4f),
+            Radiance = new Vector3(4.1f, 4f, 3.8f),
+            CastsShadow = true,
+        },
+        new() { Direction = new Vector3(-0.8f, 0.35f, 0.5f), Radiance = new Vector3(0.65f, 0.72f, 0.82f) },
+        new() { Direction = new Vector3(-0.15f, 0.45f, -0.9f), Radiance = new Vector3(1.6f, 1.6f, 1.68f) },
+    ];
 
     var clock = Stopwatch.StartNew();
     int frame = 0;
@@ -113,12 +138,12 @@ unsafe
             Projection = Projection.PerspectiveInfiniteReversedZ(
                 MathF.PI / 4f, width / (float)Math.Max(height, 1), 0.1f),
             CameraPosition = camera.Position,
-            Sun = new DirectionalLight
-            {
-                Direction = Vector3.Normalize(new Vector3(0.5f, 0.8f, 0.6f)),
-                Radiance = new Vector3(3.5f, 3.3f, 3.0f),
-            },
-            AmbientRadiance = new Vector3(0.45f, 0.48f, 0.55f),
+            Lights = lights,
+            Shadows = new ShadowSettings { Center = new Vector3(0f, 0.5f, 0f), Radius = 5f, LightAngle = 0.12f },
+            AmbientRadiance = new Vector3(0.22f, 0.23f, 0.24f),
+            BackgroundRadiance = new Vector3(0.47f, 0.47f, 0.485f),
+            BackgroundFadeStart = 12f,
+            BackgroundFadeEnd = 40f,
         };
 
         renderer.Render(view, draws);

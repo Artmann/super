@@ -1,30 +1,11 @@
 #version 460
 #extension GL_EXT_nonuniform_qualifier : require
+#extension GL_GOOGLE_include_directive : require
+#include "material.glsl"
 
 layout(location = 0) in vec3 inNormal;
 layout(location = 1) in vec4 inTangent;
 layout(location = 2) in vec2 inUv;
-
-layout(push_constant) uniform Draw {
-    mat4 model;
-    int material;
-} draw;
-
-// Must match GpuMaterial in Vulkan/ResourceTable.cs.
-struct Material {
-    vec4 baseColor;
-    float metallic;
-    float roughness;
-    float alphaCutoff;
-    uint baseColorTexture;
-    uint normalTexture;
-    uint surfaceTexture;
-};
-
-layout(set = 1, binding = 0) uniform sampler2D textures[];
-layout(std430, set = 1, binding = 1) readonly buffer Materials {
-    Material materials[];
-};
 
 layout(location = 0) out vec4 outBaseColorMetallic;
 layout(location = 1) out vec4 outNormalRoughnessAo;
