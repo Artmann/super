@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Silk.NET.Vulkan" Version="2.23.0" />
+    <PackageReference Include="Silk.NET.Vulkan.Extensions.EXT" Version="2.23.0" />
+    <PackageReference Include="Silk.NET.Vulkan.Extensions.KHR" Version="2.23.0" />
+  </ItemGroup>
+
+  <!-- Compiles every GLSL shader to SPIR-V and ships it next to the assembly. -->
+  <PropertyGroup>
+    <Glslc Condition="'$(VULKAN_SDK)' != ''">$(VULKAN_SDK)\Bin\glslc.exe</Glslc>
+    <Glslc Condition="'$(Glslc)' == ''">glslc</Glslc>
+    <ShaderOutputDir>$(MSBuildProjectDirectory)\$(IntermediateOutputPath)shaders\</ShaderOutputDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Shader Include="Shaders\*.vert;Shaders\*.frag" />
+    <ShaderDependency Include="Shaders\*.glsl" />
+    <None Include="@(Shader->'$(ShaderOutputDir)%(Filename)%(Extension).spv')"
+          Link="shaders\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          Visible="false" />
+  </ItemGroup>
+
+  <Target Name="CompileShaders"
+          BeforeTargets="AssignTargetPaths"
+          Inputs="@(Shader);@(ShaderDependency)"
+          Outputs="@(Shader->'$(ShaderOutputDir)%(Filename)%(Extension).spv')">
+    <MakeDir Directories="$(ShaderOutputDir)" />
+    <Exec Command="&quot;$(Glslc)&quot; --target-env=vulkan1.3 -O -Werror &quot;%(Shader.FullPath)&quot; -o &quot;$(ShaderOutputDir)%(Shader.Filename)%(Shader.Extension).spv&quot;" />
+  </Target>
+
+</Project>
