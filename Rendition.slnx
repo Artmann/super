@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Rendition.Sample/Rendition.Sample.csproj" />
+    <Project Path="src/Rendition/Rendition.csproj" />
+  </Folder>
+</Solution>
