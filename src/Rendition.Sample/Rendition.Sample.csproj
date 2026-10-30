@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Rendition\Rendition.csproj" />
+    <PackageReference Include="Silk.NET.GLFW" Version="2.23.0" />
+  </ItemGroup>
+
+</Project>
