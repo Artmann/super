@@ -139,6 +139,11 @@ Bloom has no brightness threshold. Every pixel gives away a small share of its
 light, so only really bright things show a visible glow. That's physically closer
 to how a lens scatters light, and nothing pops as a surface crosses a threshold.
 
+Tonemapping uses Stephen Hill's fit of the ACES film transform rather than the
+simpler Narkowicz curve. It works in ACES's own colour space, so very bright colours
+fade towards white instead of shifting hue. `ACES_EXPOSURE` in `tonemap.frag` keeps
+the scene as bright as the lighting was balanced for.
+
 Anti-aliasing is FXAA, which works on the finished image and costs one pass. It runs
 after tonemapping because it judges edges by how they look on screen. Temporal
 anti-aliasing would look better and handle shimmer, but needs motion vectors.

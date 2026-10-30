@@ -9,9 +9,26 @@ layout(location = 0) out vec4 outColor;
 
 const float BLOOM_STRENGTH = 0.05;
 
-// Krzysztof Narkowicz's fit of the ACES filmic curve.
-vec3 acesFilmic(vec3 x) {
-    return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+// ACES expects its input about this much brighter than our lights produce. Middle
+// grey would otherwise come out far too dark.
+const float ACES_EXPOSURE = 1.0 / 0.6;
+
+// Into and out of the colour space the ACES curve works in, written column by column.
+const mat3 ACES_INPUT = mat3(
+    0.59719, 0.07600, 0.02840,
+    0.35458, 0.90834, 0.13383,
+    0.04823, 0.01566, 0.83777);
+const mat3 ACES_OUTPUT = mat3(
+    1.60475, -0.10208, -0.00327,
+    -0.53108, 1.10813, -0.07276,
+    -0.07367, -0.00605, 1.07602);
+
+// Stephen Hill's fit of the ACES film transform. Working in the ACES colour space lets
+// very bright colours fade towards white without shifting hue.
+vec3 acesFilmic(vec3 color) {
+    vec3 x = ACES_INPUT * color * ACES_EXPOSURE;
+    x = (x * (x + 0.0245786) - 0.000090537) / (x * (0.983729 * x + 0.4329510) + 0.238081);
+    return clamp(ACES_OUTPUT * x, 0.0, 1.0);
 }
 
 void main() {
