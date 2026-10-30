@@ -61,7 +61,7 @@ unsafe
             IndexCount = (uint)Ground.Indices.Length,
             Material = renderer.CreateMaterial(new Material
             {
-                BaseColor = new Vector4(0.42f, 0.42f, 0.43f, 1f),
+                BaseColor = new Vector4(0.52f, 0.52f, 0.53f, 1f),
                 Roughness = 0.9f,
             }),
             Transform = Matrix4x4.Identity,
@@ -136,11 +136,11 @@ unsafe
         new()
         {
             Direction = new Vector3(0.35f, 0.85f, 0.4f),
-            Radiance = new Vector3(2.8f, 2.75f, 2.6f),
+            Radiance = new Vector3(2.2f, 2.16f, 2.05f),
             CastsShadow = true,
         },
         new() { Direction = new Vector3(-0.8f, 0.35f, 0.5f), Radiance = new Vector3(0.65f, 0.72f, 0.82f) },
-        new() { Direction = new Vector3(-0.15f, 0.45f, -0.9f), Radiance = new Vector3(1.6f, 1.6f, 1.68f) },
+        new() { Direction = new Vector3(-0.15f, 0.45f, -0.9f), Radiance = new Vector3(1.2f, 1.2f, 1.26f) },
     ];
 
     var clock = Stopwatch.StartNew();
@@ -195,7 +195,7 @@ unsafe
             CameraPosition = camera.Position,
             Lights = lights,
             Shadows = new ShadowSettings { Center = new Vector3(0f, 0.5f, 0f), Radius = 5f, LightAngle = 0.12f },
-            EnvironmentIntensity = 1f,
+            EnvironmentIntensity = 0.85f,
             BackgroundRadiance = new Vector3(0.47f, 0.47f, 0.485f),
             BackgroundFadeStart = 12f,
             BackgroundFadeEnd = 40f,

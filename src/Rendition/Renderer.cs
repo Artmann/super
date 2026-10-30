@@ -34,6 +34,7 @@ public sealed unsafe class Renderer : IDisposable
     private readonly DescriptorPool _descriptorPool;
     private readonly DescriptorSetLayout _frameSetLayout;
     private readonly DescriptorSetLayout _lightingSetLayout;
+    private readonly DescriptorSetLayout _aoSetLayout;
     private readonly DescriptorSetLayout _twoTextureSetLayout;
     private readonly DescriptorSetLayout _oneTextureSetLayout;
     private readonly DescriptorSet _aoSet;
@@ -100,13 +101,14 @@ public sealed unsafe class Renderer : IDisposable
         _frameSetLayout = CreateSetLayout(
             DescriptorType.UniformBuffer, 1, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit);
         _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 9, ShaderStageFlags.FragmentBit);
+        _aoSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 3, ShaderStageFlags.FragmentBit);
         _twoTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 2, ShaderStageFlags.FragmentBit);
         _oneTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit);
 
         var poolSizes = stackalloc DescriptorPoolSize[]
         {
             new(DescriptorType.UniformBuffer, FramesInFlight),
-            new(DescriptorType.CombinedImageSampler, 16),
+            new(DescriptorType.CombinedImageSampler, 17),
         };
         var poolInfo = new DescriptorPoolCreateInfo
         {
@@ -133,7 +135,7 @@ public sealed unsafe class Renderer : IDisposable
             Floor = new Vector3(0.2f),
         });
 
-        _aoSet = AllocateSet(_twoTextureSetLayout);
+        _aoSet = AllocateSet(_aoSetLayout);
         _aoBlurSet = AllocateSet(_twoTextureSetLayout);
         _lightingSet = AllocateSet(_lightingSetLayout);
         _tonemapSet = AllocateSet(_twoTextureSetLayout);
@@ -142,7 +144,7 @@ public sealed unsafe class Renderer : IDisposable
         WriteTargetDescriptors();
 
         _gBufferPass = new GBufferPass(_context, _frameSetLayout, _resources);
-        _aoPass = new FullscreenPass(_context, "ao.frag", GBuffer.AoFormat, [_frameSetLayout, _twoTextureSetLayout]);
+        _aoPass = new FullscreenPass(_context, "ao.frag", GBuffer.AoFormat, [_frameSetLayout, _aoSetLayout]);
         _aoBlurPass = new FullscreenPass(_context, "ao_blur.frag", GBuffer.AoFormat, [_twoTextureSetLayout]);
         _lightingPass = new FullscreenPass(_context, "lighting.frag", GBuffer.HdrFormat, [_frameSetLayout, _lightingSetLayout]);
         _transparentPass = new TransparentPass(_context, _frameSetLayout, _resources, _environment);
@@ -382,6 +384,7 @@ public sealed unsafe class Renderer : IDisposable
         _api.DestroyDescriptorPool(_context.Device, _descriptorPool, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _oneTextureSetLayout, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _twoTextureSetLayout, null);
+        _api.DestroyDescriptorSetLayout(_context.Device, _aoSetLayout, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _lightingSetLayout, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _frameSetLayout, null);
         _api.DestroySampler(_context.Device, _shadowSampler, null);
@@ -669,7 +672,9 @@ public sealed unsafe class Renderer : IDisposable
         var depth = new DescriptorImageInfo(_sampler, _gBuffer.Depth.View, ImageLayout.ShaderReadOnlyOptimal);
         var normal = new DescriptorImageInfo(_sampler, _gBuffer.Normal.View, ImageLayout.ShaderReadOnlyOptimal);
 
-        WriteImages(_aoSet, [depth, normal]);
+        var shadowDepth = new DescriptorImageInfo(_sampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal);
+
+        WriteImages(_aoSet, [depth, normal, shadowDepth]);
         WriteImages(_aoBlurSet,
         [
             new(_sampler, _gBuffer.Ao.View, ImageLayout.ShaderReadOnlyOptimal),
@@ -680,7 +685,7 @@ public sealed unsafe class Renderer : IDisposable
             new(_sampler, _gBuffer.BaseColor.View, ImageLayout.ShaderReadOnlyOptimal),
             normal,
             depth,
-            new(_sampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
+            shadowDepth,
             new(_shadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_environment.Sampler, _environment.Reflections, ImageLayout.ShaderReadOnlyOptimal),
             new(_environment.Sampler, _environment.Irradiance, ImageLayout.ShaderReadOnlyOptimal),

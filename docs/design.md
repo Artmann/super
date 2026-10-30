@@ -99,7 +99,10 @@ blend can express that.
 Ambient occlusion darkens creases and contact areas by checking how much of the
 nearby screen rises above each point. It reduces environment light, plus the
 direct lights that have no shadow map of their own. It only knows what the camera
-sees, so the floor deep under a car stays light from a low angle.
+sees, so it can't tell that a car's underside hangs over the floor. To cover that, the
+same pass searches a wide area of the shadow map for anything above an upward-facing
+point. The result is a soft shadow under and around objects, and it costs no extra
+render pass. It works only inside the area the shadow map covers.
 
 Bloom has no brightness threshold. Every pixel gives away a small share of its
 light, so only really bright things show a visible glow. That's physically closer
@@ -127,7 +130,8 @@ nothing but a null check for the feature.
 - Transparent draws aren't sorted, so overlapping glass can blend in the wrong order.
   Glass also casts no shadow and shows no refraction.
 - The car's surface map channels are an educated guess, because the model has no
-  documentation. The paint's metalness is set to 0.2 by eye.
+  documentation. The paint's metalness is set to 0.2 by eye. Its normal maps were
+  measured: they use the green direction the renderer expects.
 - One shadow map covering a fixed area. Large outdoor scenes will need cascades
   that follow the camera.
 - Only directional lights so far. Point and spot lights come later.

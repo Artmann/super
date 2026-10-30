@@ -8,6 +8,7 @@ layout(location = 0) in vec2 inUv;
 
 layout(set = 1, binding = 0) uniform sampler2D depthTexture;
 layout(set = 1, binding = 1) uniform sampler2D normalRoughnessAoTexture;
+layout(set = 1, binding = 2) uniform sampler2D shadowDepthTexture;
 
 layout(location = 0) out vec4 outOcclusion;
 
@@ -16,9 +17,32 @@ const float STRENGTH = 0.9;
 const float BIAS = 0.02;
 const int SAMPLES = 24;
 
+// Share of the shadow map to search around a point, and how close a blocker can be
+// before it counts as the surface itself.
+const float OVERHEAD_RADIUS = 0.08;
+const float OVERHEAD_BIAS = 0.02;
+const float OVERHEAD_STRENGTH = 0.75;
+const int OVERHEAD_SAMPLES = 16;
+
 vec3 worldPosition(vec2 uv, float depth) {
     vec4 world = frame.inverseViewProjection * vec4(uv * 2.0 - 1.0, depth, 1.0);
     return world.xyz / world.w;
+}
+
+// The camera can't see the underside of a car, but the light can. The shadow map
+// shows how much stands over a point, which dims the soft light reaching the ground.
+float overheadOcclusion(vec3 position, vec3 n, float rotation) {
+    vec4 projected = frame.shadowMatrix * vec4(position + n * frame.parameters.w, 1.0);
+    vec2 uv = projected.xy * 0.5 + 0.5;
+    float blocked = 0.0;
+    for (int i = 0; i < OVERHEAD_SAMPLES; i++) {
+        vec2 sampleUv = uv + diskSample(i, OVERHEAD_SAMPLES, rotation) * OVERHEAD_RADIUS;
+        bool insideMap = all(greaterThan(sampleUv, vec2(0.0))) && all(lessThan(sampleUv, vec2(1.0)));
+        if (insideMap && texture(shadowDepthTexture, sampleUv).r > projected.z + OVERHEAD_BIAS) {
+            blocked += 1.0;
+        }
+    }
+    return blocked / float(OVERHEAD_SAMPLES) * max(n.y, 0.0);
 }
 
 // Alchemy ambient obscurance (McGuire et al.): nearby surfaces that rise above this
@@ -57,5 +81,6 @@ void main() {
     }
 
     float scale = STRENGTH * 5.0 / (radiusSquared * radiusSquared * radiusSquared * float(SAMPLES));
-    outOcclusion = vec4(max(1.0 - sum * scale, 0.0));
+    float occlusion = max(1.0 - sum * scale, 0.0);
+    outOcclusion = vec4(occlusion * (1.0 - OVERHEAD_STRENGTH * overheadOcclusion(position, n, rotation)));
 }
