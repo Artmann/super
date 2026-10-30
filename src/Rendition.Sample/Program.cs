@@ -12,11 +12,13 @@ using Silk.NET.GLFW;
 // Neither of those shows a window, so they can run while someone works.
 // --model <file> shows a cooked model instead of the spinning cube.
 // --yaw, --pitch and --distance <number> place the camera.
+// --glow draws the cube with a custom surface shader.
 bool check = args.Contains("--check");
 string? screenshotPath = StringOption(args, "--screenshot");
 bool hidden = check || screenshotPath is not null;
 bool validation = hidden || args.Contains("--validate");
 string? modelPath = StringOption(args, "--model");
+bool glow = args.Contains("--glow");
 
 const int warmupFrames = 240;
 const int checkFrames = 900;
@@ -76,6 +78,8 @@ unsafe
             BaseColor = new Vector4(0.9f, 0.55f, 0.2f, 1f),
             Metallic = 0.9f,
             Roughness = 0.35f,
+            Shader = glow ? renderer.CreateSurfaceShader(LoadShader("glow_bands.frag")) : null,
+            ShaderParameters = new Vector4(4f, 1.2f, 0.3f, 3f),
         });
         draws =
         [
@@ -179,9 +183,9 @@ unsafe
         camera.Zoom(wheelSteps);
         wheelSteps = 0f;
 
+        float time = (float)clock.Elapsed.TotalSeconds;
         if (modelPath is null)
         {
-            float time = (float)clock.Elapsed.TotalSeconds;
             draws[0].Transform = Matrix4x4.CreateRotationY(time * 0.8f) * Matrix4x4.CreateRotationX(time * 0.5f);
         }
 
@@ -193,6 +197,7 @@ unsafe
             Projection = Projection.PerspectiveInfiniteReversedZ(
                 MathF.PI / 4f, width / (float)Math.Max(height, 1), 0.1f),
             CameraPosition = camera.Position,
+            Time = time,
             Lights = lights,
             Shadows = new ShadowSettings { Center = new Vector3(0f, 0.5f, 0f), Radius = 5f, LightAngle = 0.12f },
             EnvironmentIntensity = 0.85f,
@@ -246,6 +251,9 @@ unsafe
 
     return 0;
 }
+
+static byte[] LoadShader(string name) =>
+    File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "shaders", name + ".spv"));
 
 static string? StringOption(string[] args, string name)
 {

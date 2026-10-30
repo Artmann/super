@@ -9,8 +9,7 @@ internal sealed unsafe class GBufferPass : IDisposable
     private readonly VulkanContext _context;
     private readonly ResourceTable _resources;
     private readonly PipelineLayout _layout;
-    private readonly Pipeline _culledPipeline;
-    private readonly Pipeline _twoSidedPipeline;
+    private readonly List<PipelineVariants> _pipelines = [];
 
     public GBufferPass(VulkanContext context, DescriptorSetLayout frameSetLayout, ResourceTable resources)
     {
@@ -29,19 +28,30 @@ internal sealed unsafe class GBufferPass : IDisposable
         };
         context.Api.CreatePipelineLayout(context.Device, &layoutInfo, null, out _layout).Check();
 
+        // The first entry is the standard shader, which materials use by default.
+        AddShader(null);
+    }
+
+    public int ShaderCount => _pipelines.Count;
+
+    /// <summary>Adds a surface shader. No code means the standard one.</summary>
+    public SurfaceShaderHandle AddShader(byte[]? code)
+    {
         var description = new PipelineDescription
         {
             VertexShader = "gbuffer.vert",
             FragmentShader = "gbuffer.frag",
+            FragmentCode = code,
             Layout = _layout,
             ColorFormats = [GBuffer.BaseColorFormat, GBuffer.NormalFormat, GBuffer.EmissiveFormat],
             DepthFormat = GBuffer.DepthFormat,
             VertexBindings = SceneDraws.VertexBindings,
             VertexAttributes = SceneDraws.VertexAttributes,
         };
-        _culledPipeline = PipelineFactory.Create(context, description);
+        var culled = PipelineFactory.Create(_context, description);
         description.TwoSided = true;
-        _twoSidedPipeline = PipelineFactory.Create(context, description);
+        _pipelines.Add(new PipelineVariants(culled, PipelineFactory.Create(_context, description)));
+        return new SurfaceShaderHandle(_pipelines.Count - 1);
     }
 
     public void Record(
@@ -82,15 +92,19 @@ internal sealed unsafe class GBufferPass : IDisposable
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set };
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
 
-        SceneDraws.Record(api, cmd, _layout, _culledPipeline, _twoSidedPipeline, _resources, draws, meshes);
+        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes);
 
         api.CmdEndRendering(cmd);
     }
 
     public void Dispose()
     {
-        _context.Api.DestroyPipeline(_context.Device, _twoSidedPipeline, null);
-        _context.Api.DestroyPipeline(_context.Device, _culledPipeline, null);
+        foreach (var variants in _pipelines)
+        {
+            _context.Api.DestroyPipeline(_context.Device, variants.TwoSided, null);
+            _context.Api.DestroyPipeline(_context.Device, variants.Culled, null);
+        }
+
         _context.Api.DestroyPipelineLayout(_context.Device, _layout, null);
     }
 

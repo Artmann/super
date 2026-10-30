@@ -16,6 +16,7 @@ struct Material {
     uint emissiveTexture;
     float clearcoat;
     vec4 emissive; // rgb
+    vec4 shaderParameters;
 };
 
 layout(set = 1, binding = 0) uniform sampler2D textures[];

@@ -23,7 +23,7 @@ Editor, physics, audio, game logic, non-Windows platforms.
 | Graphics API | Vulkan 1.3 minimum | Dynamic rendering and synchronization2 remove boilerplate; leaves Linux open |
 | Bindings | Silk.NET.Vulkan | Thin, no per-call allocations |
 | Window | Silk.NET.GLFW | Small and portable; the renderer never depends on it directly |
-| Shaders | GLSL compiled to SPIR-V by `glslc` at build time | No compiler in the shipped game; runtime loading of `.spv` leaves room for custom shaders |
+| Shaders | GLSL compiled to SPIR-V by `glslc` at build time | No compiler in the shipped game; a game compiles its custom shaders the same way |
 | Math | System.Numerics | SIMD-accelerated value types |
 | Model import | Separate tool using Assimp, writing our own `.rmodel` | The game loads a fast flat file and never ships an FBX parser |
 | Textures and materials | One global descriptor set indexed by material | Adding materials adds no binding work per draw |
@@ -94,6 +94,37 @@ without writing to it. Its reflection stays at full strength however clear the g
 is, and only its tint is scaled by opacity. The colour is premultiplied so the
 blend can express that.
 
+## Custom shaders
+
+A surface shader is a game's own fragment shader for the G-buffer pass. It decides
+what a surface is made of (colour, metalness, roughness, normal, glow), and lighting,
+shadows and post-processing treat the result like any other surface. A shader can't
+change how light behaves, which keeps every material consistent and keeps the benefit
+of deferred rendering.
+
+```glsl
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "surface.glsl"
+
+void main() {
+    Surface surface = materialSurface();
+    surface.emissive += materials[draw.material].shaderParameters.rgb * sin(frame.time);
+    writeSurface(surface);
+}
+```
+
+`materialSurface()` gives the surface the material's textures and values describe, so
+a shader only changes what it cares about. A shader can also read `inUv`, `inPosition`
+and `frame`, and `shaderParameters` holds four numbers per material. A game compiles
+the shader with `glslc`, with `src/Rendition/Shaders` on the include path, and passes
+the result to `Renderer.CreateSurfaceShader`, then sets `Material.Shader`. Importing
+`src/Shaders.targets` does the compiling. `src/Rendition.Sample/Shaders/glow_bands.frag`
+is a working example, shown by `--glow`.
+
+Each shader adds a pair of pipelines to the G-buffer pass, built while loading. Picking
+one in `Render` is an array lookup, so it allocates nothing.
+
 ## Post-processing
 
 Ambient occlusion darkens creases and contact areas by checking how much of the
@@ -142,3 +173,6 @@ nothing but a null check for the feature.
 - The ambient occlusion radius and strength, and the bloom strength, are constants in
   their shaders. A game will want to set them per scene.
 - FXAA can't remove shimmer on thin moving detail. That needs temporal anti-aliasing.
+- Custom shaders replace only the G-buffer fragment shader. Shadows still use the
+  material's standard cut-out, so a shader that discards extra pixels leaves the full
+  shadow. Glass can't use one, and vertices can't be moved by one yet.

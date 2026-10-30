@@ -21,6 +21,8 @@ public readonly record struct TextureHandle(int Index);
 
 public readonly record struct MaterialHandle(int Index);
 
+public readonly record struct SurfaceShaderHandle(int Index);
+
 [Flags]
 public enum MaterialFlags
 {
@@ -57,6 +59,12 @@ public struct Material
     /// <summary>Strength of a clear glossy layer over the surface, such as car lacquer. 0 to 1.</summary>
     public float Clearcoat;
     public MaterialFlags Flags;
+
+    /// <summary>Replaces the standard surface shader. Transparent materials can't use one yet.</summary>
+    public SurfaceShaderHandle? Shader;
+
+    /// <summary>Four numbers for the shader to use however it likes, as shaderParameters.</summary>
+    public Vector4 ShaderParameters;
 }
 
 public struct DrawItem
@@ -120,6 +128,9 @@ public ref struct FrameView
     public Matrix4x4 View;
     public Matrix4x4 Projection;
     public Vector3 CameraPosition;
+
+    /// <summary>Seconds. Reaches shaders as frame.time, for animated surfaces.</summary>
+    public float Time;
 
     /// <summary>At most eight are used.</summary>
     public ReadOnlySpan<DirectionalLight> Lights;

@@ -12,5 +12,6 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 backgroundRadiance; // rgb: background; a: environment intensity
     vec4 parameters;         // x, y: background fade start, end; z: shadow light angle; w: normal offset
     int lightCount;
+    float time;              // Seconds, as set by the game.
     Light lights[8];
 } frame;

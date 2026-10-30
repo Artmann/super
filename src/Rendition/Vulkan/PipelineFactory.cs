@@ -8,6 +8,9 @@ internal ref struct PipelineDescription
 {
     public string VertexShader;
     public string FragmentShader;
+
+    /// <summary>Compiled code to use instead of <see cref="FragmentShader"/>.</summary>
+    public byte[]? FragmentCode;
     public PipelineLayout Layout;
     public ReadOnlySpan<Format> ColorFormats;
     public Format DepthFormat;
@@ -25,7 +28,9 @@ internal static unsafe class PipelineFactory
     {
         var api = context.Api;
         var vertexModule = LoadShader(context, description.VertexShader);
-        var fragmentModule = LoadShader(context, description.FragmentShader);
+        var fragmentModule = description.FragmentCode is { } code
+            ? CreateModule(context, code)
+            : LoadShader(context, description.FragmentShader);
         nint entryPoint = SilkMarshal.StringToPtr("main");
 
         var stages = stackalloc PipelineShaderStageCreateInfo[2];
@@ -179,9 +184,11 @@ internal static unsafe class PipelineFactory
         return pipeline;
     }
 
-    private static ShaderModule LoadShader(VulkanContext context, string name)
+    private static ShaderModule LoadShader(VulkanContext context, string name) =>
+        CreateModule(context, File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "shaders", name + ".spv")));
+
+    private static ShaderModule CreateModule(VulkanContext context, byte[] code)
     {
-        byte[] code = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "shaders", name + ".spv"));
         fixed (byte* ptr = code)
         {
             var createInfo = new ShaderModuleCreateInfo

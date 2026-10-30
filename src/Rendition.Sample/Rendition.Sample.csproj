@@ -9,4 +9,6 @@
     <PackageReference Include="Silk.NET.GLFW" Version="2.23.0" />
   </ItemGroup>
 
+  <Import Project="..\Shaders.targets" />
+
 </Project>

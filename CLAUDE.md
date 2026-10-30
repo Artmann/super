@@ -11,7 +11,8 @@ decision changes.
   in plain words.
 - Scope is rendering in a window. No editor, physics, audio or game logic. Only
   Windows for now, but keep Linux possible.
-- Roadmap order: lighting, textures, post-processing, custom shaders.
+- The first roadmap is done: lighting, textures, post-processing, custom shaders.
+  `docs/design.md` lists what to revisit next.
 
 ## Rules
 

@@ -15,8 +15,7 @@ internal sealed unsafe class TransparentPass : IDisposable
     private readonly DescriptorPool _pool;
     private readonly DescriptorSet _environmentSet;
     private readonly PipelineLayout _layout;
-    private readonly Pipeline _culledPipeline;
-    private readonly Pipeline _twoSidedPipeline;
+    private readonly List<PipelineVariants> _pipelines = [];
 
     public TransparentPass(
         VulkanContext context,
@@ -105,9 +104,9 @@ internal sealed unsafe class TransparentPass : IDisposable
             VertexAttributes = SceneDraws.VertexAttributes,
             Transparent = true,
         };
-        _culledPipeline = PipelineFactory.Create(context, description);
+        var culled = PipelineFactory.Create(context, description);
         description.TwoSided = true;
-        _twoSidedPipeline = PipelineFactory.Create(context, description);
+        _pipelines.Add(new PipelineVariants(culled, PipelineFactory.Create(context, description)));
     }
 
     public void Record(
@@ -151,7 +150,7 @@ internal sealed unsafe class TransparentPass : IDisposable
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set, _environmentSet };
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 3, sets, 0, null);
 
-        SceneDraws.Record(api, cmd, _layout, _culledPipeline, _twoSidedPipeline, _resources, draws, meshes, transparent: true);
+        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, transparent: true);
 
         api.CmdEndRendering(cmd);
     }
@@ -159,8 +158,8 @@ internal sealed unsafe class TransparentPass : IDisposable
     public void Dispose()
     {
         var api = _context.Api;
-        api.DestroyPipeline(_context.Device, _twoSidedPipeline, null);
-        api.DestroyPipeline(_context.Device, _culledPipeline, null);
+        api.DestroyPipeline(_context.Device, _pipelines[0].TwoSided, null);
+        api.DestroyPipeline(_context.Device, _pipelines[0].Culled, null);
         api.DestroyPipelineLayout(_context.Device, _layout, null);
         api.DestroyDescriptorPool(_context.Device, _pool, null);
         api.DestroyDescriptorSetLayout(_context.Device, _environmentLayout, null);

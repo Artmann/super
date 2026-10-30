@@ -15,8 +15,7 @@ internal sealed unsafe class ShadowPass : IDisposable
     private readonly VulkanContext _context;
     private readonly ResourceTable _resources;
     private readonly PipelineLayout _layout;
-    private readonly Pipeline _culledPipeline;
-    private readonly Pipeline _twoSidedPipeline;
+    private readonly List<PipelineVariants> _pipelines = [];
 
     public readonly RenderTarget Target;
 
@@ -57,9 +56,9 @@ internal sealed unsafe class ShadowPass : IDisposable
             VertexBindings = bindings,
             VertexAttributes = attributes,
         };
-        _culledPipeline = PipelineFactory.Create(context, description);
+        var culled = PipelineFactory.Create(context, description);
         description.TwoSided = true;
-        _twoSidedPipeline = PipelineFactory.Create(context, description);
+        _pipelines.Add(new PipelineVariants(culled, PipelineFactory.Create(context, description)));
     }
 
     /// <summary>
@@ -103,15 +102,15 @@ internal sealed unsafe class ShadowPass : IDisposable
 
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set };
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
-        SceneDraws.Record(api, cmd, _layout, _culledPipeline, _twoSidedPipeline, _resources, draws, meshes);
+        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes);
 
         api.CmdEndRendering(cmd);
     }
 
     public void Dispose()
     {
-        _context.Api.DestroyPipeline(_context.Device, _twoSidedPipeline, null);
-        _context.Api.DestroyPipeline(_context.Device, _culledPipeline, null);
+        _context.Api.DestroyPipeline(_context.Device, _pipelines[0].TwoSided, null);
+        _context.Api.DestroyPipeline(_context.Device, _pipelines[0].Culled, null);
         _context.Api.DestroyPipelineLayout(_context.Device, _layout, null);
         Target.Dispose();
     }

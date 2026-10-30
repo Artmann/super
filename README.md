@@ -27,10 +27,10 @@ What exists today:
 - GLSL shaders compiled to SPIR-V at build time
 - Bindless textures and materials, normal mapping, cut-out and two-sided surfaces
 - An import tool that cooks FBX models and their textures into a `.rmodel` file
+- Custom surface shaders that a game can write and attach to a material
 - A small public API: `Renderer.CreateModel`, `CreateMesh`, `CreateTexture`,
-  `CreateMaterial` and `Render(in FrameView, ReadOnlySpan<DrawItem>)`
-
-Planned next: custom shaders.
+  `CreateMaterial`, `CreateSurfaceShader` and
+  `Render(in FrameView, ReadOnlySpan<DrawItem>)`
 
 Decisions, the G-buffer layout and known simplifications are in
 [docs/design.md](docs/design.md).
@@ -44,6 +44,7 @@ Decisions, the G-buffer layout and known simplifications are in
 | `src/Rendition/Vulkan` | Device, swapchain, buffer and pipeline helpers |
 | `src/Rendition/Shaders` | GLSL source |
 | `src/Rendition.Sample` | The window, orbit camera, model viewer and rotating cube |
+| `src/Rendition.Sample/Shaders` | An example custom surface shader, shown with `--glow` |
 | `tools/Rendition.Import` | Converts models to `.rmodel` |
 | `assets` | Per-model import rules. Source and cooked models stay out of git |
 

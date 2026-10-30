@@ -5,6 +5,9 @@ using Rendition.Vulkan;
 
 namespace Rendition.Passes;
 
+/// <summary>The pipelines of one shader, for one-sided and two-sided materials.</summary>
+internal readonly record struct PipelineVariants(Pipeline Culled, Pipeline TwoSided);
+
 /// <summary>Issues the draws for a pass that renders scene geometry.</summary>
 internal static unsafe class SceneDraws
 {
@@ -33,13 +36,16 @@ internal static unsafe class SceneDraws
         new(3, 0, Format.R32G32Sfloat, (uint)Marshal.OffsetOf<Vertex>(nameof(Vertex.Uv))),
     ];
 
-    /// <summary>Draws either the opaque or the transparent items, in the given order.</summary>
+    /// <summary>
+    /// Draws either the opaque or the transparent items, in the given order. A pass with
+    /// one entry in <paramref name="pipelines"/> draws everything with it. Otherwise each
+    /// material picks its surface shader.
+    /// </summary>
     public static void Record(
         Vk api,
         CommandBuffer cmd,
         PipelineLayout layout,
-        Pipeline culledPipeline,
-        Pipeline twoSidedPipeline,
+        List<PipelineVariants> pipelines,
         ResourceTable resources,
         ReadOnlySpan<DrawItem> draws,
         List<Mesh> meshes,
@@ -55,9 +61,8 @@ internal static unsafe class SceneDraws
                 continue;
             }
 
-            var pipeline = (flags & MaterialFlags.TwoSided) != 0
-                ? twoSidedPipeline
-                : culledPipeline;
+            var variants = pipelines[pipelines.Count > 1 ? resources.GetShader(draw.Material) : 0];
+            var pipeline = (flags & MaterialFlags.TwoSided) != 0 ? variants.TwoSided : variants.Culled;
             if (pipeline.Handle != boundPipeline.Handle)
             {
                 api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, pipeline);

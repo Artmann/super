@@ -28,6 +28,7 @@ internal sealed unsafe class ResourceTable : IDisposable
         public uint EmissiveTexture;
         public float Clearcoat;
         public Vector4 Emissive;
+        public Vector4 ShaderParameters;
     }
 
     private readonly VulkanContext _context;
@@ -35,6 +36,7 @@ internal sealed unsafe class ResourceTable : IDisposable
     private readonly DescriptorPool _pool;
     private readonly GpuBuffer _materials;
     private readonly MaterialFlags[] _materialFlags = new MaterialFlags[MaxMaterials];
+    private readonly int[] _materialShaders = new int[MaxMaterials];
     private readonly List<GpuTexture> _textures = [];
     private readonly TextureHandle _white;
     private readonly TextureHandle _flatNormal;
@@ -131,6 +133,8 @@ internal sealed unsafe class ResourceTable : IDisposable
 
     public MaterialFlags GetFlags(MaterialHandle material) => _materialFlags[material.Index];
 
+    public int GetShader(MaterialHandle material) => _materialShaders[material.Index];
+
     /// <summary>Waits for the GPU, so call this while loading rather than during a frame.</summary>
     public TextureHandle AddTexture(TextureData data)
     {
@@ -179,8 +183,10 @@ internal sealed unsafe class ResourceTable : IDisposable
             EmissiveTexture = (uint)(material.EmissiveTexture ?? _white).Index,
             Clearcoat = material.Clearcoat,
             Emissive = new Vector4(material.Emissive, 0f),
+            ShaderParameters = material.ShaderParameters,
         };
         _materialFlags[_materialCount] = material.Flags;
+        _materialShaders[_materialCount] = material.Shader?.Index ?? 0;
         return new MaterialHandle(_materialCount++);
     }
 

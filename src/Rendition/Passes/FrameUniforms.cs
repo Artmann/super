@@ -36,7 +36,7 @@ internal struct FrameUniforms
     public Vector4 Parameters;
 
     public int LightCount;
-    private readonly int _padding0;
+    public float Time;
     private readonly int _padding1;
     private readonly int _padding2;
     public GpuLightArray Lights;

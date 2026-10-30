@@ -169,7 +169,39 @@ public sealed unsafe class Renderer : IDisposable
 
     public TextureHandle CreateTexture(TextureData data) => _resources.AddTexture(data);
 
-    public MaterialHandle CreateMaterial(in Material material) => _resources.AddMaterial(material);
+    /// <summary>
+    /// Adds a surface shader from compiled SPIR-V. It decides how a material's surface
+    /// looks and is lit like any other. See docs/design.md for how to write one. This is
+    /// slow, so call it while loading.
+    /// </summary>
+    public SurfaceShaderHandle CreateSurfaceShader(byte[] spirv)
+    {
+        const uint spirvMagic = 0x07230203;
+        if (spirv.Length < 20 || spirv.Length % sizeof(uint) != 0 || BitConverter.ToUInt32(spirv, 0) != spirvMagic)
+        {
+            throw new ArgumentException("This is not compiled SPIR-V code.", nameof(spirv));
+        }
+
+        return _gBufferPass.AddShader(spirv);
+    }
+
+    public MaterialHandle CreateMaterial(in Material material)
+    {
+        if (material.Shader is { } shader)
+        {
+            if (shader.Index <= 0 || shader.Index >= _gBufferPass.ShaderCount)
+            {
+                throw new ArgumentException("The material's shader does not exist.", nameof(material));
+            }
+
+            if ((material.Flags & MaterialFlags.Transparent) != 0)
+            {
+                throw new ArgumentException("Transparent materials can't use a surface shader yet.", nameof(material));
+            }
+        }
+
+        return _resources.AddMaterial(material);
+    }
 
     /// <summary>Uploads a cooked model and returns one draw per part.</summary>
     public DrawItem[] CreateModel(ModelData model)
@@ -552,6 +584,7 @@ public sealed unsafe class Renderer : IDisposable
 
         int count = Math.Min(view.Lights.Length, FrameUniforms.MaxLights);
         uniforms->LightCount = count;
+        uniforms->Time = view.Time;
         bool castsShadow = false;
         for (int i = 0; i < count; i++)
         {
