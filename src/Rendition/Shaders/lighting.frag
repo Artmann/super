@@ -15,6 +15,8 @@ layout(set = 1, binding = 5) uniform samplerCube reflectionTexture;
 layout(set = 1, binding = 6) uniform samplerCube irradianceTexture;
 layout(set = 1, binding = 7) uniform sampler2D emissiveClearcoatTexture;
 layout(set = 1, binding = 8) uniform sampler2D ambientOcclusionTexture;
+layout(set = 1, binding = 9) uniform sampler2D historyTexture;
+layout(set = 1, binding = 10) uniform samplerCubeArray probeTexture;
 
 layout(location = 0) out vec4 outColor;
 
@@ -25,6 +27,16 @@ const int SHADOW_SAMPLES = 24;
 const float CLEARCOAT_ROUGHNESS = 0.06;
 const vec3 CLEARCOAT_F0 = vec3(0.04);
 
+// How reflected rays walk through the depth buffer. Steps grow with distance, because
+// far away precision matters less. Metres, except for the growth.
+const int TRACE_STEPS = 56;
+const int TRACE_REFINE_STEPS = 5;
+const float TRACE_FIRST_STEP = 0.02;
+const float TRACE_GROWTH = 1.07;
+const float TRACE_DISTANCE = 12.0;
+const float TRACE_THICKNESS = 0.25;
+const float TRACE_MAX_ROUGHNESS = 0.45;
+const float TRACE_MAX_RADIANCE = 16.0;
 
 // Soft shadow that is sharp where an object touches the surface and blurs with
 // distance, like a real studio light. Returns 1 for fully lit.
@@ -43,7 +55,7 @@ float shadowVisibility(vec3 position, vec3 n, vec3 l) {
     // so a slope's bias is simply the sample offset times the slope.
     float slope = min(sqrt(1.0 - nDotL * nDotL) / nDotL, 2.0);
     float texel = 1.0 / float(textureSize(shadowDepthTexture, 0).x);
-    float rotation = interleavedGradientNoise(gl_FragCoord.xy) * 2.0 * PI;
+    float rotation = frameNoise(gl_FragCoord.xy, frame.frameNumber) * 2.0 * PI;
     float searchRadius = max(lightAngle * 0.2, 2.0 * texel);
 
     // Reversed-Z: blockers sit nearer the light, which means a larger depth.
@@ -71,11 +83,126 @@ float shadowVisibility(vec3 position, vec3 n, vec3 l) {
     return visibility / float(SHADOW_SAMPLES);
 }
 
+// Looks up what the room's probes saw in a direction, or the studio where there is no
+// probe. The ray runs on to the box, so the lookup matches where it really lands.
+vec3 sampleReflection(vec3 position, vec3 direction, float lod) {
+    vec3 sum = vec3(0.0);
+    float covered = 0.0;
+    for (int i = 0; i < frame.probeCount && covered < 1.0; i++) {
+        vec3 boxMin = frame.probes[i].boxMin.xyz;
+        vec3 boxMax = frame.probes[i].boxMax.xyz;
+        vec3 margins = min(position - boxMin, boxMax - position);
+        float margin = min(margins.x, min(margins.y, margins.z));
+        if (margin <= 0.0) {
+            continue;
+        }
+
+        vec3 exits = max((boxMax - position) / direction, (boxMin - position) / direction);
+        vec3 hit = position + direction * min(exits.x, min(exits.y, exits.z));
+        vec3 local = hit - frame.probes[i].position.xyz;
+
+        // Faces are stored the way a camera sees them, which mirrors the cube along z.
+        vec3 seen = textureLod(probeTexture, vec4(local.x, local.y, -local.z, float(i)), lod).rgb;
+
+        float weight = clamp(margin / max(frame.probes[i].position.w, 1e-3), 0.0, 1.0) * (1.0 - covered);
+        sum += seen * weight;
+        covered += weight;
+    }
+
+    // Probes hold the scene at full strength, but the caller scales for the studio.
+    vec3 scene = sum / max(frame.backgroundRadiance.a, 1e-3);
+    return scene + textureLod(reflectionTexture, direction, lod).rgb * (1.0 - covered);
+}
+
+// Tilts a mirror reflection the way a slightly rough surface scatters it. One random
+// tilt per pixel per frame turns into a smooth blur once frames are averaged.
+vec3 scatterReflection(vec3 v, vec3 n, float alpha, vec2 random) {
+    float cosTheta = sqrt((1.0 - random.y) / (1.0 + (alpha * alpha - 1.0) * random.y));
+    float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
+    float phi = 2.0 * PI * random.x;
+    vec3 tangent = normalize(cross(abs(n.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), n));
+    vec3 bitangent = cross(n, tangent);
+    vec3 h = tangent * sinTheta * cos(phi) + bitangent * sinTheta * sin(phi) + n * cosTheta;
+    vec3 direction = reflect(-v, h);
+    return dot(direction, n) > 0.0 ? direction : reflect(-v, n);
+}
+
+// How far a point is behind what the camera sees there. Clip z is the same everywhere
+// and reversed-Z stores clip z / w, so dividing recovers the distance of the stored surface.
+float depthGap(vec4 clip, out vec2 uv) {
+    uv = clip.xy / clip.w * 0.5 + 0.5;
+    float stored = texture(depthTexture, uv).r;
+    return stored > 0.0 ? clip.w - clip.z / stored : -1.0;
+}
+
+// Screen-space reflection: walks along the ray until it passes behind something the
+// camera sees, then reads that spot from the previous finished frame. rgb is the colour
+// and a is how far to trust it, since rays leaving the screen know nothing.
+vec4 traceReflection(vec3 position, vec3 n, vec3 direction, float noise) {
+    if (frame.historyValid == 0) {
+        return vec4(0.0);
+    }
+
+    vec3 start = position + n * 0.01;
+    float stepLength = TRACE_FIRST_STEP;
+    float last = 0.0;
+    float travelled = stepLength * (0.5 + noise);
+    for (int i = 0; i < TRACE_STEPS && travelled < TRACE_DISTANCE; i++) {
+        vec4 clip = frame.viewProjection * vec4(start + direction * travelled, 1.0);
+        if (clip.w <= 0.0) {
+            break;
+        }
+
+        vec2 uv;
+        float gap = depthGap(clip, uv);
+        if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+            break;
+        }
+
+        if (gap > 0.0 && gap < max(TRACE_THICKNESS, stepLength * 2.0)) {
+            float nearer = last;
+            float farther = travelled;
+            for (int j = 0; j < TRACE_REFINE_STEPS; j++) {
+                float middle = 0.5 * (nearer + farther);
+                if (depthGap(frame.viewProjection * vec4(start + direction * middle, 1.0), uv) > 0.0) {
+                    farther = middle;
+                } else {
+                    nearer = middle;
+                }
+            }
+
+            // Hitting the back of a surface means the ray slipped through the depth buffer.
+            depthGap(frame.viewProjection * vec4(start + direction * farther, 1.0), uv);
+            vec3 hitNormal = octahedralDecode(texture(normalRoughnessAoTexture, uv).xy);
+            if (dot(hitNormal, direction) < 0.0) {
+                vec4 previous = frame.previousViewProjection * vec4(start + direction * farther, 1.0);
+                vec2 historyUv = previous.xy / previous.w * 0.5 + 0.5;
+                vec2 edges = smoothstep(vec2(0.0), vec2(0.06), min(historyUv, 1.0 - historyUv));
+                float trust = edges.x * edges.y * (1.0 - smoothstep(0.7, 1.0, farther / TRACE_DISTANCE));
+                return vec4(min(texture(historyTexture, historyUv).rgb, vec3(TRACE_MAX_RADIANCE)), trust);
+            }
+        }
+
+        last = travelled;
+        stepLength *= TRACE_GROWTH;
+        travelled += stepLength;
+    }
+
+    return vec4(0.0);
+}
+
 void main() {
     float depth = texture(depthTexture, inUv).r;
 
     // Reversed-Z: a depth of 0 is the far plane, so nothing was drawn here.
     if (depth == 0.0) {
+        if (frame.showEnvironment == 1) {
+            vec4 ahead = frame.inverseViewProjection * vec4(inUv * 2.0 - 1.0, 1.0, 1.0);
+            vec3 direction = normalize(ahead.xyz / ahead.w - frame.cameraPosition.xyz);
+            outColor = vec4(textureLod(reflectionTexture, direction, 0.0).rgb * frame.backgroundRadiance.a, 1.0);
+            return;
+        }
+
         outColor = vec4(frame.backgroundRadiance.rgb, 1.0);
         return;
     }
@@ -102,7 +229,23 @@ void main() {
     vec3 f0 = mix(vec3(0.04), baseColor, metallic);
 
     vec2 brdf = environmentBrdf(roughness, nDotV);
-    vec3 reflectedLight = textureLod(reflectionTexture, reflect(-v, n), roughness * REFLECTION_LODS).rgb;
+    vec3 reflectedLight = sampleReflection(position, reflect(-v, n), roughness * REFLECTION_LODS);
+
+    // Coated surfaces are traced for their mirror-like coat, which then serves both layers.
+    float traceStrength = clearcoat > 0.0 ? 1.0 : 1.0 - smoothstep(TRACE_MAX_ROUGHNESS * 0.5, TRACE_MAX_ROUGHNESS, roughness);
+    vec4 traced = vec4(0.0);
+    if (traceStrength > 0.0) {
+        // Two independent numbers per pixel, each visiting new values every frame.
+        vec2 random = fract(vec2(
+            interleavedGradientNoise(gl_FragCoord.xy) + float(frame.frameNumber % 64) * 0.7548777,
+            interleavedGradientNoise(gl_FragCoord.yx + 47.0) + float(frame.frameNumber % 64) * 0.5698403));
+        float scatter = clearcoat > 0.0 ? CLEARCOAT_ROUGHNESS * CLEARCOAT_ROUGHNESS : alpha;
+        traced = traceReflection(position, n, scatterReflection(v, n, scatter, random), random.x);
+        traced.rgb /= max(frame.backgroundRadiance.a, 1e-3);
+        traced.a *= traceStrength;
+    }
+
+    reflectedLight = mix(reflectedLight, traced.rgb, traced.a);
     vec3 environmentSpecular = reflectedLight * (f0 * brdf.x + brdf.y);
     vec3 environmentDiffuse = texture(irradianceTexture, n).rgb * baseColor * (1.0 - metallic);
     vec3 environmentLight = environmentDiffuse + environmentSpecular;
@@ -111,7 +254,8 @@ void main() {
     float coatAlpha = CLEARCOAT_ROUGHNESS * CLEARCOAT_ROUGHNESS;
     vec3 coatFresnel = fresnelSchlick(nDotV, CLEARCOAT_F0) * clearcoat;
     if (clearcoat > 0.0) {
-        vec3 coatReflection = textureLod(reflectionTexture, reflect(-v, n), CLEARCOAT_ROUGHNESS * REFLECTION_LODS).rgb;
+        vec3 coatReflection = sampleReflection(position, reflect(-v, n), CLEARCOAT_ROUGHNESS * REFLECTION_LODS);
+        coatReflection = mix(coatReflection, traced.rgb, traced.a);
         environmentLight = environmentLight * (1.0 - coatFresnel) + coatReflection * coatFresnel;
     }
 

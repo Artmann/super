@@ -35,11 +35,12 @@ ShadowPass    scene geometry   -> depth from the key light (4096 x 4096)
 GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, depth
 AoPass        fullscreen       -> ambient occlusion from depth and normals
 AoBlurPass    fullscreen       -> the same with the grain averaged away
-LightingPass  fullscreen       -> HDR colour (Cook-Torrance GGX PBR)
+LightingPass  fullscreen       -> HDR colour (Cook-Torrance GGX PBR, traced reflections, probes)
 TransparentPass  glass         -> blended over HDR colour, forward shaded
+TaaPass       fullscreen       -> this frame blended with history, then copied to history
 BloomPass     fullscreen x 9   -> glow, by shrinking and regrowing the image
-TonemapPass   fullscreen       -> display colour (ACES filmic, sRGB)
-FxaaPass      fullscreen       -> swapchain, with edges smoothed
+TonemapPass   fullscreen       -> display colour (ACES filmic, colour grade)
+FinishPass    fullscreen       -> swapchain, with sharpening, vignette, grain and dither
 ```
 
 G-buffer layout:
@@ -80,6 +81,22 @@ line up with the lights. Baking waits for the GPU, so it belongs in loading.
 
 Panels appear only in reflections. The direct lights already provide their diffuse
 light, and baking it too would count that light twice and overexpose the scene.
+
+## Reflections
+
+A reflection comes from the most accurate source that can answer. First, a ray walks
+through the depth buffer (screen-space reflection) and reads what it hits from the
+previous finished frame. Slightly rough surfaces tilt the ray at random per pixel and
+per frame, and temporal anti-aliasing averages that into a blur. Rays that leave the
+screen fall back to a reflection probe, and without a probe to the studio.
+
+A probe is a cube map captured from one spot by `Renderer.CaptureReflectionProbe`,
+using the normal scene passes, then blurred per roughness step. It waits for the GPU,
+so it belongs in loading. Each probe has a box for the space it describes, and a
+reflected ray runs on to that box before the lookup, so reflections line up with where
+they really land instead of sliding as the camera moves. Up to four probes blend at
+their box edges. The sample leaves the car out of its probe, because the probe sits
+inside the car, and captures only the floor and the shadow on it.
 
 ## Paint and glass
 
@@ -144,9 +161,17 @@ simpler Narkowicz curve. It works in ACES's own colour space, so very bright col
 fade towards white instead of shifting hue. `ACES_EXPOSURE` in `tonemap.frag` keeps
 the scene as bright as the lighting was balanced for.
 
-Anti-aliasing is FXAA, which works on the finished image and costs one pass. It runs
-after tonemapping because it judges edges by how they look on screen. Temporal
-anti-aliasing would look better and handle shimmer, but needs motion vectors.
+Anti-aliasing is temporal. The camera shifts by less than a pixel each frame, and each
+pixel blends with where that surface was last frame, so many samples build up per
+pixel. It also smooths the grain from soft shadows, ambient occlusion and rough
+reflections. Colours are blended in a squeezed range so bright pixels don't dominate,
+and history is pulled back into the range of nearby colours so old images don't trail
+behind. It runs before bloom and tonemapping, on HDR colour. It replaced FXAA, which
+couldn't remove shimmer.
+
+`FrameView.Post` holds the look of the image: exposure, contrast and saturation in the
+tonemap pass, then sharpening, vignette and film grain in the finish pass. Grain and
+dither also hide the steps an 8-bit screen would show in slow gradients.
 
 ## Verification without a window
 
@@ -177,7 +202,13 @@ nothing but a null check for the feature.
   that blocks it.
 - The ambient occlusion radius and strength, and the bloom strength, are constants in
   their shaders. A game will want to set them per scene.
-- FXAA can't remove shimmer on thin moving detail. That needs temporal anti-aliasing.
+- Temporal anti-aliasing follows the camera only, with no motion per object, so moving
+  objects rely on the colour clamp and can show rough edges. Skinned or animated games
+  will need motion vectors from the G-buffer pass.
+- Screen-space reflections only know what is on screen, and read last frame's image.
+  Glass still reflects the studio, not probes or traced rays.
+- Probes are captured once and don't update. They affect reflections only, not
+  soft diffuse light, and a scene gets at most four.
 - Custom shaders replace only the G-buffer fragment shader. Shadows still use the
   material's standard cut-out, so a shader that discards extra pixels leaves the full
   shadow. Glass can't use one, and vertices can't be moved by one yet.

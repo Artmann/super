@@ -20,7 +20,7 @@ const int SAMPLES = 24;
 // Share of the shadow map to search around a point, and how close a blocker can be
 // before it counts as the surface itself.
 const float OVERHEAD_RADIUS = 0.08;
-const float OVERHEAD_BIAS = 0.02;
+const float OVERHEAD_BIAS = 0.008;
 const float OVERHEAD_STRENGTH = 0.75;
 const int OVERHEAD_SAMPLES = 16;
 
@@ -34,11 +34,18 @@ vec3 worldPosition(vec2 uv, float depth) {
 float overheadOcclusion(vec3 position, vec3 n, float rotation) {
     vec4 projected = frame.shadowMatrix * vec4(position + n * frame.parameters.w, 1.0);
     vec2 uv = projected.xy * 0.5 + 0.5;
+
+    // The light rarely looks straight down, so a surface's depth changes across the map.
+    // Following its slope stops a flat floor from counting as its own blocker.
+    vec3 facing = mat3(frame.shadowMatrix) * n;
+    vec2 slope = -facing.xy * 0.5 / (sign(facing.z) * max(abs(facing.z), 0.02));
+
     float blocked = 0.0;
     for (int i = 0; i < OVERHEAD_SAMPLES; i++) {
-        vec2 sampleUv = uv + diskSample(i, OVERHEAD_SAMPLES, rotation) * OVERHEAD_RADIUS;
+        vec2 offset = diskSample(i, OVERHEAD_SAMPLES, rotation) * OVERHEAD_RADIUS;
+        vec2 sampleUv = uv + offset;
         bool insideMap = all(greaterThan(sampleUv, vec2(0.0))) && all(lessThan(sampleUv, vec2(1.0)));
-        if (insideMap && texture(shadowDepthTexture, sampleUv).r > projected.z + OVERHEAD_BIAS) {
+        if (insideMap && texture(shadowDepthTexture, sampleUv).r > projected.z + dot(offset, slope) + OVERHEAD_BIAS) {
             blocked += 1.0;
         }
     }
@@ -64,7 +71,7 @@ void main() {
     vec2 size = vec2(textureSize(depthTexture, 0));
     float screenRadius = min(length((edge.xy / edge.w * 0.5 + 0.5 - inUv) * size), size.y * 0.25);
 
-    float rotation = interleavedGradientNoise(gl_FragCoord.xy) * 2.0 * PI;
+    float rotation = frameNoise(gl_FragCoord.xy, frame.frameNumber) * 2.0 * PI;
     float radiusSquared = RADIUS * RADIUS;
     float sum = 0.0;
     for (int i = 0; i < SAMPLES; i++) {

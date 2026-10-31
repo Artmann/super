@@ -22,7 +22,9 @@ bool glow = args.Contains("--glow");
 
 const int warmupFrames = 240;
 const int checkFrames = 900;
-const int screenshotFrame = 3;
+
+// Anti-aliasing builds up over several frames, so a screenshot waits for it to settle.
+const int screenshotFrame = 48;
 
 unsafe
 {
@@ -54,6 +56,7 @@ unsafe
     });
 
     DrawItem[] draws;
+    DrawItem[] probeDraws = [];
     OrbitCamera camera;
     if (modelPath is not null)
     {
@@ -63,12 +66,13 @@ unsafe
             IndexCount = (uint)Ground.Indices.Length,
             Material = renderer.CreateMaterial(new Material
             {
-                BaseColor = new Vector4(0.52f, 0.52f, 0.53f, 1f),
-                Roughness = 0.9f,
+                BaseColor = new Vector4(0.13f, 0.13f, 0.14f, 1f),
+                Roughness = 0.26f,
             }),
             Transform = Matrix4x4.Identity,
         };
         draws = [.. renderer.CreateModel(ModelData.Read(modelPath)), floor];
+        probeDraws = [floor];
         camera = new OrbitCamera { Target = new Vector3(0f, 0.5f, 0f), Yaw = 0.7f, Pitch = 0.3f, Distance = 7f };
     }
     else
@@ -124,7 +128,7 @@ unsafe
                 Direction = new Vector3(-0.15f, 0.45f, -0.9f),
                 HalfWidth = 1.1f,
                 HalfHeight = 0.25f,
-                Radiance = new Vector3(3.5f, 3.5f, 3.7f),
+                Radiance = new Vector3(1.9f, 1.9f, 2.0f),
             },
         ],
     });
@@ -144,7 +148,7 @@ unsafe
             CastsShadow = true,
         },
         new() { Direction = new Vector3(-0.8f, 0.35f, 0.5f), Radiance = new Vector3(0.65f, 0.72f, 0.82f) },
-        new() { Direction = new Vector3(-0.15f, 0.45f, -0.9f), Radiance = new Vector3(1.2f, 1.2f, 1.26f) },
+        new() { Direction = new Vector3(-0.15f, 0.45f, -0.9f), Radiance = new Vector3(0.55f, 0.55f, 0.58f) },
     ];
 
     var clock = Stopwatch.StartNew();
@@ -201,10 +205,30 @@ unsafe
             Lights = lights,
             Shadows = new ShadowSettings { Center = new Vector3(0f, 0.5f, 0f), Radius = 5f, LightAngle = 0.12f },
             EnvironmentIntensity = 0.85f,
-            BackgroundRadiance = new Vector3(0.47f, 0.47f, 0.485f),
-            BackgroundFadeStart = 12f,
-            BackgroundFadeEnd = 40f,
+            BackgroundRadiance = new Vector3(0.15f, 0.15f, 0.16f),
+            BackgroundFadeStart = 9f,
+            BackgroundFadeEnd = 26f,
+            Post = new PostSettings { Contrast = 0.08f, Saturation = 0.1f, Vignette = 0.3f, Sharpen = 0.4f, Grain = 0.006f },
         };
+
+        // The car sees the floor and the shadow it casts there. It leaves itself out of
+        // the picture, because the probe sits inside it. The room has a floor but no real
+        // walls, so the box only needs to be accurate at the bottom.
+        if (probeDraws.Length > 0)
+        {
+            renderer.CaptureReflectionProbe(
+                new ReflectionProbe
+                {
+                    Position = new Vector3(0f, 0.6f, 0f),
+                    BoxMin = new Vector3(-200f, -0.02f, -200f),
+                    BoxMax = new Vector3(200f, 200f, 200f),
+                    BlendDistance = 0.01f,
+                },
+                view,
+                probeDraws,
+                draws);
+            probeDraws = [];
+        }
 
         if (screenshotPath is not null && frame == screenshotFrame)
         {

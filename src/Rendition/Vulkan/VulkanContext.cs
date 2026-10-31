@@ -261,6 +261,7 @@ internal sealed unsafe class VulkanContext : IDisposable
         var features = new PhysicalDeviceFeatures
         {
             SamplerAnisotropy = true,
+            ImageCubeArray = true,
             ShaderSampledImageArrayDynamicIndexing = true,
         };
         var features12 = new PhysicalDeviceVulkan12Features

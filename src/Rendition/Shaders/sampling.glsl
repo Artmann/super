@@ -13,6 +13,11 @@ float interleavedGradientNoise(vec2 pixel) {
     return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
 }
 
+// Changes every frame, so temporal anti-aliasing averages the grain away.
+float frameNoise(vec2 pixel, int frameNumber) {
+    return interleavedGradientNoise(pixel + 5.588238 * float(frameNumber % 64));
+}
+
 vec3 octahedralDecode(vec2 e) {
     vec3 n = vec3(e, 1.0 - abs(e.x) - abs(e.y));
     if (n.z < 0.0) {

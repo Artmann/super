@@ -20,6 +20,13 @@ internal sealed class GBuffer : IDisposable
     public readonly RenderTarget Emissive;
     public readonly RenderTarget Depth;
     public readonly RenderTarget Hdr;
+
+    /// <summary>The lit image with anti-aliasing applied.</summary>
+    public readonly RenderTarget Resolved;
+
+    /// <summary>Last frame's Resolved, for anti-aliasing and reflections.</summary>
+    public readonly RenderTarget History;
+
     public readonly RenderTarget Ao;
     public readonly RenderTarget AoBlurred;
     public readonly RenderTarget Ldr;
@@ -31,7 +38,9 @@ internal sealed class GBuffer : IDisposable
         Normal = new RenderTarget(context, NormalFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         Emissive = new RenderTarget(context, EmissiveFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         Depth = new RenderTarget(context, DepthFormat, extent, ImageUsageFlags.DepthStencilAttachmentBit, ImageAspectFlags.DepthBit);
-        Hdr = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
+        Hdr = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
+        Resolved = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
+        History = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.TransferDstBit, ImageAspectFlags.ColorBit);
         Ao = new RenderTarget(context, AoFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         AoBlurred = new RenderTarget(context, AoFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         Ldr = new RenderTarget(context, LdrFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
@@ -44,6 +53,8 @@ internal sealed class GBuffer : IDisposable
         Emissive.Dispose();
         Depth.Dispose();
         Hdr.Dispose();
+        Resolved.Dispose();
+        History.Dispose();
         Ao.Dispose();
         AoBlurred.Dispose();
         Ldr.Dispose();

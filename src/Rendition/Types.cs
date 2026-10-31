@@ -23,6 +23,8 @@ public readonly record struct MaterialHandle(int Index);
 
 public readonly record struct SurfaceShaderHandle(int Index);
 
+public readonly record struct ReflectionProbeHandle(int Index);
+
 [Flags]
 public enum MaterialFlags
 {
@@ -107,6 +109,43 @@ public ref struct EnvironmentDescription
     public ReadOnlySpan<EnvironmentPanel> Panels;
 }
 
+/// <summary>
+/// A spot where the real scene is photographed in all directions, so nearby surfaces
+/// reflect it. The box is the room around it: reflections land on its walls and floor
+/// instead of infinitely far away, which keeps them lined up with the scene.
+/// </summary>
+public struct ReflectionProbe
+{
+    public Vector3 Position;
+    public Vector3 BoxMin;
+    public Vector3 BoxMax;
+
+    /// <summary>The probe fades out over this distance inside its box.</summary>
+    public float BlendDistance;
+}
+
+/// <summary>The look of the finished picture. Leaving a value at zero leaves that part unchanged.</summary>
+public struct PostSettings
+{
+    /// <summary>Brightness in photographic stops: +1 is twice as bright.</summary>
+    public float Exposure;
+
+    /// <summary>Added contrast. 0.1 is a gentle boost; negative values flatten the picture.</summary>
+    public float Contrast;
+
+    /// <summary>Added colour. 0.1 is a gentle boost; -1 is black and white.</summary>
+    public float Saturation;
+
+    /// <summary>How much the corners darken, from 0 to 1.</summary>
+    public float Vignette;
+
+    /// <summary>Crispness restored after anti-aliasing, from 0 to 1.</summary>
+    public float Sharpen;
+
+    /// <summary>Strength of film grain. 0.01 is subtle.</summary>
+    public float Grain;
+}
+
 /// <summary>The part of the world covered by the shadow map.</summary>
 public struct ShadowSettings
 {
@@ -146,6 +185,8 @@ public ref struct FrameView
     /// <summary>Surfaces melt into the background between these distances. Equal values turn it off.</summary>
     public float BackgroundFadeStart;
     public float BackgroundFadeEnd;
+
+    public PostSettings Post;
 }
 
 public static class Projection

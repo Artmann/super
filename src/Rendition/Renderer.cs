@@ -13,6 +13,17 @@ namespace Rendition;
 public sealed unsafe class Renderer : IDisposable
 {
     private const int FramesInFlight = 2;
+    private const int JitterSteps = 16;
+
+    private const PipelineStageFlags2 SampledStage = PipelineStageFlags2.FragmentShaderBit;
+    private const AccessFlags2 SampledAccess = AccessFlags2.ShaderSampledReadBit;
+    private const PipelineStageFlags2 ColorStage = PipelineStageFlags2.ColorAttachmentOutputBit;
+    private const AccessFlags2 ColorWrite = AccessFlags2.ColorAttachmentWriteBit;
+    private const PipelineStageFlags2 DepthStages =
+        PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit;
+    private const AccessFlags2 DepthWrite = AccessFlags2.DepthStencilAttachmentWriteBit;
+
+    private static readonly Vector2[] Jitter = CreateJitter();
 
     private struct Frame
     {
@@ -30,18 +41,20 @@ public sealed unsafe class Renderer : IDisposable
     private readonly List<Mesh> _meshes = [];
     private readonly ResourceTable _resources;
     private readonly EnvironmentMap _environment;
+    private readonly ReflectionProbes _probes;
 
     private readonly DescriptorPool _descriptorPool;
     private readonly DescriptorSetLayout _frameSetLayout;
     private readonly DescriptorSetLayout _lightingSetLayout;
-    private readonly DescriptorSetLayout _aoSetLayout;
+    private readonly DescriptorSetLayout _threeTextureSetLayout;
     private readonly DescriptorSetLayout _twoTextureSetLayout;
     private readonly DescriptorSetLayout _oneTextureSetLayout;
     private readonly DescriptorSet _aoSet;
     private readonly DescriptorSet _aoBlurSet;
     private readonly DescriptorSet _lightingSet;
+    private readonly DescriptorSet _taaSet;
     private readonly DescriptorSet _tonemapSet;
-    private readonly DescriptorSet _fxaaSet;
+    private readonly DescriptorSet _finishSet;
     private readonly Sampler _sampler;
     private readonly Sampler _linearSampler;
     private readonly Sampler _shadowSampler;
@@ -52,15 +65,19 @@ public sealed unsafe class Renderer : IDisposable
     private readonly FullscreenPass _aoBlurPass;
     private readonly FullscreenPass _lightingPass;
     private readonly TransparentPass _transparentPass;
+    private readonly FullscreenPass _taaPass;
     private readonly BloomPass _bloomPass;
     private readonly FullscreenPass _tonemapPass;
-    private readonly FullscreenPass _fxaaPass;
+    private readonly FullscreenPass _finishPass;
 
     private Swapchain _swapchain;
     private GBuffer _gBuffer;
     private int _frameIndex;
     private GpuBuffer? _capture;
     private bool _captureRecorded;
+    private int _frameNumber;
+    private bool _historyReady;
+    private Matrix4x4 _previousViewProjection;
 
     /// <summary>Vulkan validation messages so far. Always zero when validation is off.</summary>
     public int ValidationErrors => _context.ValidationErrors;
@@ -100,20 +117,20 @@ public sealed unsafe class Renderer : IDisposable
 
         _frameSetLayout = CreateSetLayout(
             DescriptorType.UniformBuffer, 1, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit);
-        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 9, ShaderStageFlags.FragmentBit);
-        _aoSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 3, ShaderStageFlags.FragmentBit);
+        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 11, ShaderStageFlags.FragmentBit);
+        _threeTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 3, ShaderStageFlags.FragmentBit);
         _twoTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 2, ShaderStageFlags.FragmentBit);
         _oneTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit);
 
         var poolSizes = stackalloc DescriptorPoolSize[]
         {
             new(DescriptorType.UniformBuffer, FramesInFlight),
-            new(DescriptorType.CombinedImageSampler, 17),
+            new(DescriptorType.CombinedImageSampler, 22),
         };
         var poolInfo = new DescriptorPoolCreateInfo
         {
             SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = FramesInFlight + 5,
+            MaxSets = FramesInFlight + 6,
             PoolSizeCount = 2,
             PPoolSizes = poolSizes,
         };
@@ -134,22 +151,25 @@ public sealed unsafe class Renderer : IDisposable
             Horizon = new Vector3(0.4f),
             Floor = new Vector3(0.2f),
         });
+        _probes = new ReflectionProbes(_context, _environment.Sampler);
 
-        _aoSet = AllocateSet(_aoSetLayout);
+        _aoSet = AllocateSet(_threeTextureSetLayout);
         _aoBlurSet = AllocateSet(_twoTextureSetLayout);
         _lightingSet = AllocateSet(_lightingSetLayout);
+        _taaSet = AllocateSet(_threeTextureSetLayout);
         _tonemapSet = AllocateSet(_twoTextureSetLayout);
-        _fxaaSet = AllocateSet(_oneTextureSetLayout);
-        _bloomPass = new BloomPass(_context, _linearSampler, _gBuffer.Hdr.View, _gBuffer.Extent);
+        _finishSet = AllocateSet(_oneTextureSetLayout);
+        _bloomPass = new BloomPass(_context, _linearSampler, _gBuffer.Resolved.View, _gBuffer.Extent);
         WriteTargetDescriptors();
 
         _gBufferPass = new GBufferPass(_context, _frameSetLayout, _resources);
-        _aoPass = new FullscreenPass(_context, "ao.frag", GBuffer.AoFormat, [_frameSetLayout, _aoSetLayout]);
+        _aoPass = new FullscreenPass(_context, "ao.frag", GBuffer.AoFormat, [_frameSetLayout, _threeTextureSetLayout]);
         _aoBlurPass = new FullscreenPass(_context, "ao_blur.frag", GBuffer.AoFormat, [_twoTextureSetLayout]);
         _lightingPass = new FullscreenPass(_context, "lighting.frag", GBuffer.HdrFormat, [_frameSetLayout, _lightingSetLayout]);
         _transparentPass = new TransparentPass(_context, _frameSetLayout, _resources, _environment);
-        _tonemapPass = new FullscreenPass(_context, "tonemap.frag", GBuffer.LdrFormat, [_twoTextureSetLayout]);
-        _fxaaPass = new FullscreenPass(_context, "fxaa.frag", _swapchain.Format, [_oneTextureSetLayout]);
+        _taaPass = new FullscreenPass(_context, "taa.frag", GBuffer.HdrFormat, [_frameSetLayout, _threeTextureSetLayout]);
+        _tonemapPass = new FullscreenPass(_context, "tonemap.frag", GBuffer.LdrFormat, [_frameSetLayout, _twoTextureSetLayout]);
+        _finishPass = new FullscreenPass(_context, "finish.frag", _swapchain.Format, [_frameSetLayout, _oneTextureSetLayout]);
     }
 
     public MeshHandle CreateMesh(ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices)
@@ -168,6 +188,91 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     public TextureHandle CreateTexture(TextureData data) => _resources.AddTexture(data);
+
+    /// <summary>
+    /// Photographs the scene from a probe, so surfaces in its box reflect what is really
+    /// there. A probe usually sits inside an object, so <paramref name="visible"/> should
+    /// leave that object out while <paramref name="shadowCasters"/> keeps it, which still
+    /// puts its shadow in the picture. The view supplies the lights and shadow settings.
+    /// This takes a moment and waits for the GPU, so call it while loading.
+    /// </summary>
+    public ReflectionProbeHandle CaptureReflectionProbe(
+        in ReflectionProbe probe,
+        in FrameView view,
+        ReadOnlySpan<DrawItem> visible,
+        ReadOnlySpan<DrawItem> shadowCasters)
+    {
+        const float probeNear = 0.05f;
+
+        // The camera directions behind each cube face. A cube map is mirrored compared
+        // with a camera, so z swaps here and lookups swap it back in lighting.frag.
+        ReadOnlySpan<(Vector3 Forward, Vector3 Up)> faces =
+        [
+            (Vector3.UnitX, Vector3.UnitY),
+            (-Vector3.UnitX, Vector3.UnitY),
+            (Vector3.UnitY, Vector3.UnitZ),
+            (-Vector3.UnitY, -Vector3.UnitZ),
+            (-Vector3.UnitZ, Vector3.UnitY),
+            (Vector3.UnitZ, Vector3.UnitY),
+        ];
+
+        _api.DeviceWaitIdle(_context.Device).Check();
+
+        // The passes are bound to the current targets, so small ones stand in for a while.
+        var screenTargets = _gBuffer;
+        _gBuffer = new GBuffer(_context, new Extent2D(ReflectionProbes.FaceSize, ReflectionProbes.FaceSize));
+        WriteTargetDescriptors();
+        _historyReady = false;
+
+        ref Frame frame = ref _frames[_frameIndex];
+        var fence = frame.InFlight;
+        var faceView = view;
+        faceView.CameraPosition = probe.Position;
+        faceView.Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 2f, 1f, probeNear);
+        faceView.BackgroundFadeStart = 0f;
+        faceView.BackgroundFadeEnd = 0f;
+
+        for (int face = 0; face < faces.Length; face++)
+        {
+            faceView.View = Matrix4x4.CreateLookAt(probe.Position, probe.Position + faces[face].Forward, faces[face].Up);
+            bool castsShadow = WriteUniforms(frame.Uniforms, faceView, Matrix4x4.Identity, Vector2.Zero, 0, false, capturingProbe: true);
+
+            _api.ResetCommandPool(_context.Device, frame.CommandPool, 0).Check();
+            var cmd = frame.CommandBuffer;
+            var beginInfo = new CommandBufferBeginInfo
+            {
+                SType = StructureType.CommandBufferBeginInfo,
+                Flags = CommandBufferUsageFlags.OneTimeSubmitBit,
+            };
+            _api.BeginCommandBuffer(cmd, &beginInfo).Check();
+            RecordScene(cmd, frame.Set, visible, castsShadow ? shadowCasters : []);
+            _probes.RecordFace(cmd, _gBuffer.Hdr.Image, face);
+            _api.EndCommandBuffer(cmd).Check();
+
+            _api.ResetFences(_context.Device, 1, &fence).Check();
+            var commandInfo = new CommandBufferSubmitInfo
+            {
+                SType = StructureType.CommandBufferSubmitInfo,
+                CommandBuffer = cmd,
+            };
+            var submit = new SubmitInfo2
+            {
+                SType = StructureType.SubmitInfo2,
+                CommandBufferInfoCount = 1,
+                PCommandBufferInfos = &commandInfo,
+            };
+            _api.QueueSubmit2(_context.Queue, 1, &submit, fence).Check();
+            _api.WaitForFences(_context.Device, 1, &fence, true, ulong.MaxValue).Check();
+        }
+
+        var handle = _probes.Add(probe);
+
+        _gBuffer.Dispose();
+        _gBuffer = screenTargets;
+        WriteTargetDescriptors();
+        _historyReady = false;
+        return handle;
+    }
 
     /// <summary>
     /// Adds a surface shader from compiled SPIR-V. It decides how a material's surface
@@ -282,7 +387,14 @@ public sealed unsafe class Renderer : IDisposable
 
         _api.ResetFences(_context.Device, 1, &fence).Check();
 
-        bool castsShadow = WriteUniforms(frame.Uniforms, view);
+        // A shift of less than a pixel, different every frame, lets anti-aliasing gather
+        // detail from between the pixels.
+        var viewProjection = view.View * view.Projection;
+        var shift = Jitter[_frameNumber % JitterSteps] * 2f / new Vector2(view.Width, view.Height);
+        var previous = _historyReady ? _previousViewProjection : viewProjection;
+        bool castsShadow = WriteUniforms(frame.Uniforms, view, previous, shift, _frameNumber, _historyReady, capturingProbe: false);
+        _previousViewProjection = viewProjection;
+        _frameNumber++;
 
         _api.ResetCommandPool(_context.Device, frame.CommandPool, 0).Check();
         var cmd = frame.CommandBuffer;
@@ -388,15 +500,17 @@ public sealed unsafe class Renderer : IDisposable
     {
         _api.DeviceWaitIdle(_context.Device).Check();
 
-        _fxaaPass.Dispose();
+        _finishPass.Dispose();
         _tonemapPass.Dispose();
         _bloomPass.Dispose();
+        _taaPass.Dispose();
         _transparentPass.Dispose();
         _lightingPass.Dispose();
         _aoBlurPass.Dispose();
         _aoPass.Dispose();
         _gBufferPass.Dispose();
         _shadowPass.Dispose();
+        _probes.Dispose();
         _environment.Dispose();
         _resources.Dispose();
 
@@ -416,7 +530,7 @@ public sealed unsafe class Renderer : IDisposable
         _api.DestroyDescriptorPool(_context.Device, _descriptorPool, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _oneTextureSetLayout, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _twoTextureSetLayout, null);
-        _api.DestroyDescriptorSetLayout(_context.Device, _aoSetLayout, null);
+        _api.DestroyDescriptorSetLayout(_context.Device, _threeTextureSetLayout, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _lightingSetLayout, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _frameSetLayout, null);
         _api.DestroySampler(_context.Device, _shadowSampler, null);
@@ -438,45 +552,113 @@ public sealed unsafe class Renderer : IDisposable
         var extent = targets.Extent;
         var swapchainImage = _swapchain.Images[imageIndex];
 
+        RecordScene(cmd, frameSet, draws, castsShadow ? draws : []);
+
+        ReadOnlySpan<DescriptorSet> taaSets = [frameSet, _taaSet];
+        _api.BeginColorTarget(cmd, targets.Resolved.Image);
+        _taaPass.Record(cmd, targets.Resolved.View, extent, taaSets);
+        RecordHistoryCopy(cmd, targets);
+
+        _bloomPass.Record(cmd);
+
+        ReadOnlySpan<DescriptorSet> tonemapSets = [frameSet, _tonemapSet];
+        _api.BeginColorTarget(cmd, targets.Ldr.Image);
+        _tonemapPass.Record(cmd, targets.Ldr.View, extent, tonemapSets);
+        _api.EndColorTarget(cmd, targets.Ldr.Image);
+
+        _api.Transition(cmd, swapchainImage, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, ColorStage, AccessFlags2.None, ColorStage, ColorWrite);
+
+        ReadOnlySpan<DescriptorSet> finishSets = [frameSet, _finishSet];
+        _finishPass.Record(cmd, _swapchain.Views[imageIndex], extent, finishSets);
+
+        if (_capture is not null)
+        {
+            RecordCapture(cmd, swapchainImage, extent, _capture);
+            return;
+        }
+
+        _api.Transition(cmd, swapchainImage, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.PresentSrcKhr, ColorStage, ColorWrite,
+            PipelineStageFlags2.None, AccessFlags2.None);
+    }
+
+    /// <summary>Keeps this frame for the next one, and leaves it ready to sample.</summary>
+    private void RecordHistoryCopy(CommandBuffer cmd, GBuffer targets)
+    {
+        _api.Transition(cmd, targets.Resolved.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferSrcOptimal, ColorStage, ColorWrite,
+            PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit);
+        _api.Transition(cmd, targets.History.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.TransferDstOptimal, SampledStage, SampledAccess,
+            PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit);
+
+        var region = new ImageCopy
+        {
+            SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
+            DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
+            Extent = new Extent3D(targets.Extent.Width, targets.Extent.Height, 1),
+        };
+        _api.CmdCopyImage(cmd, targets.Resolved.Image, ImageLayout.TransferSrcOptimal,
+            targets.History.Image, ImageLayout.TransferDstOptimal, 1, &region);
+
+        _api.Transition(cmd, targets.History.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
+            PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit, SampledStage, SampledAccess);
+        _api.Transition(cmd, targets.Resolved.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal,
+            PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit, SampledStage, SampledAccess);
+        _historyReady = true;
+    }
+
+    /// <summary>Draws and lights the scene into the HDR target, for frames and probe captures alike.</summary>
+    private void RecordScene(
+        CommandBuffer cmd,
+        DescriptorSet frameSet,
+        ReadOnlySpan<DrawItem> draws,
+        ReadOnlySpan<DrawItem> shadowCasters)
+    {
+        var targets = _gBuffer;
+        var extent = targets.Extent;
+
+        // The lighting pass binds history even before there is any.
+        if (!_historyReady)
+        {
+            _api.Transition(cmd, targets.History.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
+        }
+
         // Targets are shared between frames in flight, so each first use waits for the
         // previous frame's sampling to finish. Contents are discarded via Undefined.
-        const PipelineStageFlags2 sampledStage = PipelineStageFlags2.FragmentShaderBit;
-        const AccessFlags2 sampledAccess = AccessFlags2.ShaderSampledReadBit;
-        const PipelineStageFlags2 colorStage = PipelineStageFlags2.ColorAttachmentOutputBit;
-        const AccessFlags2 colorWrite = AccessFlags2.ColorAttachmentWriteBit;
-        const PipelineStageFlags2 depthStages =
-            PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit;
-        const AccessFlags2 depthWrite = AccessFlags2.DepthStencilAttachmentWriteBit;
-
         // Runs without draws when nothing casts a shadow: the lighting pass still binds the map.
         var shadowMap = _shadowPass.Target.Image;
         _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
-            ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, sampledStage, sampledAccess, depthStages,
-            depthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
-        _shadowPass.Record(cmd, frameSet, castsShadow ? draws : [], _meshes);
+            ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, SampledStage, SampledAccess, DepthStages,
+            DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
+        _shadowPass.Record(cmd, frameSet, shadowCasters, _meshes);
         _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
-            ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, depthStages, depthWrite, sampledStage, sampledAccess);
+            ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess);
 
         _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, sampledStage, sampledAccess, colorStage, colorWrite);
+            ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, SampledStage, SampledAccess, ColorStage, ColorWrite);
         _api.Transition(cmd, targets.Normal.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, sampledStage, sampledAccess, colorStage, colorWrite);
+            ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, SampledStage, SampledAccess, ColorStage, ColorWrite);
         _api.Transition(cmd, targets.Emissive.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, sampledStage, sampledAccess, colorStage, colorWrite);
+            ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, SampledStage, SampledAccess, ColorStage, ColorWrite);
         _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
-            ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, depthStages, AccessFlags2.DepthStencilAttachmentReadBit, depthStages,
-            depthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
+            ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, DepthStages, AccessFlags2.DepthStencilAttachmentReadBit, DepthStages,
+            DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
 
         _gBufferPass.Record(cmd, targets, frameSet, draws, _meshes);
 
         _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, colorStage, colorWrite, sampledStage, sampledAccess);
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, ColorStage, ColorWrite, SampledStage, SampledAccess);
         _api.Transition(cmd, targets.Normal.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, colorStage, colorWrite, sampledStage, sampledAccess);
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, ColorStage, ColorWrite, SampledStage, SampledAccess);
         _api.Transition(cmd, targets.Emissive.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, colorStage, colorWrite, sampledStage, sampledAccess);
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, ColorStage, ColorWrite, SampledStage, SampledAccess);
         _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
-            ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, depthStages, depthWrite, sampledStage, sampledAccess);
+            ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess);
 
         ReadOnlySpan<DescriptorSet> aoSets = [frameSet, _aoSet];
         _api.BeginColorTarget(cmd, targets.Ao.Image);
@@ -495,37 +677,14 @@ public sealed unsafe class Renderer : IDisposable
 
         // Glass blends over the lit image and is hidden by whatever stands in front of it.
         _api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, colorStage, colorWrite, colorStage,
-            colorWrite | AccessFlags2.ColorAttachmentReadBit);
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
+            ColorWrite | AccessFlags2.ColorAttachmentReadBit);
         _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
-            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal, sampledStage, sampledAccess, depthStages,
+            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal, SampledStage, SampledAccess, DepthStages,
             AccessFlags2.DepthStencilAttachmentReadBit);
         _transparentPass.Record(cmd, targets, frameSet, draws, _meshes);
 
         _api.EndColorTarget(cmd, targets.Hdr.Image);
-
-        _bloomPass.Record(cmd);
-
-        ReadOnlySpan<DescriptorSet> tonemapSets = [_tonemapSet];
-        _api.BeginColorTarget(cmd, targets.Ldr.Image);
-        _tonemapPass.Record(cmd, targets.Ldr.View, extent, tonemapSets);
-        _api.EndColorTarget(cmd, targets.Ldr.Image);
-
-        _api.Transition(cmd, swapchainImage, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, colorStage, AccessFlags2.None, colorStage, colorWrite);
-
-        ReadOnlySpan<DescriptorSet> fxaaSets = [_fxaaSet];
-        _fxaaPass.Record(cmd, _swapchain.Views[imageIndex], extent, fxaaSets);
-
-        if (_capture is not null)
-        {
-            RecordCapture(cmd, swapchainImage, extent, _capture);
-            return;
-        }
-
-        _api.Transition(cmd, swapchainImage, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.PresentSrcKhr, colorStage, colorWrite,
-            PipelineStageFlags2.None, AccessFlags2.None);
     }
 
     /// <summary>Copies the finished frame into a buffer the CPU can read, then readies it for display.</summary>
@@ -566,14 +725,34 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>Returns whether a light casts a shadow this frame.</summary>
-    private static bool WriteUniforms(GpuBuffer buffer, in FrameView view)
+    private bool WriteUniforms(
+        GpuBuffer buffer,
+        in FrameView view,
+        in Matrix4x4 previousViewProjection,
+        Vector2 shift,
+        int frameNumber,
+        bool historyValid,
+        bool capturingProbe)
     {
-        var viewProjection = view.View * view.Projection;
+        var viewProjection = view.View * view.Projection * Matrix4x4.CreateTranslation(shift.X, shift.Y, 0f);
         Matrix4x4.Invert(viewProjection, out var inverse);
 
         var uniforms = (FrameUniforms*)buffer.Mapped;
         uniforms->ViewProjection = viewProjection;
         uniforms->InverseViewProjection = inverse;
+        uniforms->PreviousViewProjection = previousViewProjection;
+        uniforms->FrameNumber = frameNumber;
+        uniforms->HistoryValid = historyValid ? 1 : 0;
+        uniforms->ShowEnvironment = capturingProbe ? 1 : 0;
+        uniforms->Grade = new Vector4(
+            MathF.Pow(2f, view.Post.Exposure), 1f + view.Post.Contrast, 1f + view.Post.Saturation, view.Post.Vignette);
+        uniforms->Finish = new Vector4(view.Post.Sharpen, view.Post.Grain, shift.X, shift.Y);
+        uniforms->ProbeCount = 0;
+        if (!capturingProbe)
+        {
+            _probes.CopyToUniforms(uniforms);
+        }
+
         uniforms->CameraPosition = new Vector4(view.CameraPosition, 1f);
         uniforms->BackgroundRadiance = new Vector4(view.BackgroundRadiance, view.EnvironmentIntensity);
 
@@ -614,8 +793,34 @@ public sealed unsafe class Renderer : IDisposable
         _swapchain.Dispose();
         _swapchain = new Swapchain(_context, width, height);
         _gBuffer = new GBuffer(_context, _swapchain.Extent);
-        _bloomPass.Resize(_gBuffer.Hdr.View, _gBuffer.Extent);
+        _bloomPass.Resize(_gBuffer.Resolved.View, _gBuffer.Extent);
         WriteTargetDescriptors();
+        _historyReady = false;
+    }
+
+    /// <summary>Halton points spread the shifts evenly over a pixel, in fractions of a pixel.</summary>
+    private static Vector2[] CreateJitter()
+    {
+        static float Halton(int index, int radix)
+        {
+            float result = 0f;
+            float fraction = 1f;
+            for (; index > 0; index /= radix)
+            {
+                fraction /= radix;
+                result += fraction * (index % radix);
+            }
+
+            return result;
+        }
+
+        var shifts = new Vector2[JitterSteps];
+        for (int i = 0; i < JitterSteps; i++)
+        {
+            shifts[i] = new Vector2(Halton(i + 1, 2) - 0.5f, Halton(i + 1, 3) - 0.5f);
+        }
+
+        return shifts;
     }
 
     private Frame CreateFrame()
@@ -724,13 +929,23 @@ public sealed unsafe class Renderer : IDisposable
             new(_environment.Sampler, _environment.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
             new(_sampler, _gBuffer.Emissive.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_sampler, _gBuffer.AoBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_linearSampler, _gBuffer.History.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_environment.Sampler, _probes.View, ImageLayout.ShaderReadOnlyOptimal),
+        ]);
+
+        // Glass has just used depth for testing, and it stays in that layout.
+        WriteImages(_taaSet,
+        [
+            new(_sampler, _gBuffer.Hdr.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_linearSampler, _gBuffer.History.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_sampler, _gBuffer.Depth.View, ImageLayout.DepthReadOnlyOptimal),
         ]);
         WriteImages(_tonemapSet,
         [
-            new(_sampler, _gBuffer.Hdr.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_sampler, _gBuffer.Resolved.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_linearSampler, _bloomPass.Result, ImageLayout.ShaderReadOnlyOptimal),
         ]);
-        WriteImages(_fxaaSet, [new(_linearSampler, _gBuffer.Ldr.View, ImageLayout.ShaderReadOnlyOptimal)]);
+        WriteImages(_finishSet, [new(_linearSampler, _gBuffer.Ldr.View, ImageLayout.ShaderReadOnlyOptimal)]);
     }
 
     private void WriteImages(DescriptorSet set, ReadOnlySpan<DescriptorImageInfo> images)
