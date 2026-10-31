@@ -10,39 +10,81 @@ public sealed class TextureCooker(string sourceDirectory)
 {
     private readonly List<TextureData> _textures = [];
     private readonly Dictionary<string, int> _indices = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, byte[]> _embedded = [];
 
     public int Count => _textures.Count;
 
     public TextureData[] ToArray() => _textures.ToArray();
 
+    /// <summary>Registers an encoded image stored inside the model file, under the name its materials use.</summary>
+    public void AddEmbedded(string name, byte[] encoded) => _embedded[name] = encoded;
+
     /// <summary>Returns the index of the cooked texture, or -1 if there is none.</summary>
-    public int Add(string? fileName, TextureKind kind, bool isNormalMap = false)
+    public int Add(
+        string? fileName,
+        TextureKind kind,
+        bool isNormalMap = false,
+        bool isGltfSurface = false,
+        bool flipGreen = false)
     {
         if (fileName is null)
         {
             return -1;
         }
 
-        string key = $"{fileName}|{kind}";
+        string key = $"{fileName}|{kind}|{isGltfSurface}|{flipGreen}";
         if (_indices.TryGetValue(key, out int existing))
         {
             return existing;
         }
 
-        string path = Path.Combine(sourceDirectory, fileName);
-        if (!File.Exists(path))
+        if (!_embedded.TryGetValue(fileName, out byte[]? encoded))
         {
-            Console.WriteLine($"  warning: missing texture {fileName}");
-            return -1;
+            string path = Path.Combine(sourceDirectory, fileName);
+            if (!File.Exists(path))
+            {
+                Console.WriteLine($"  warning: missing texture {fileName}");
+                return -1;
+            }
+
+            encoded = File.ReadAllBytes(path);
         }
 
-        using var stream = File.OpenRead(path);
-        var image = ImageResult.FromStream(stream, ColorComponents.RedGreenBlueAlpha);
+        var image = ImageResult.FromMemory(encoded, ColorComponents.RedGreenBlueAlpha);
+        if (isGltfSurface)
+        {
+            ConvertGltfSurface(image.Data);
+        }
+
+        if (flipGreen)
+        {
+            FlipGreen(image.Data);
+        }
+
         var mips = BuildMips(image.Data, image.Width, image.Height, kind, isNormalMap);
 
         _textures.Add(new TextureData { Width = image.Width, Height = image.Height, Kind = kind, Mips = mips });
         _indices[key] = _textures.Count - 1;
         return _textures.Count - 1;
+    }
+
+    // glTF keeps metalness in blue and has no opacity here. Ours is metalness in red and
+    // opacity in alpha, while roughness is in green for both.
+    private static void ConvertGltfSurface(byte[] pixels)
+    {
+        for (int i = 0; i < pixels.Length; i += 4)
+        {
+            pixels[i] = pixels[i + 2];
+            pixels[i + 3] = 255;
+        }
+    }
+
+    private static void FlipGreen(byte[] pixels)
+    {
+        for (int i = 1; i < pixels.Length; i += 4)
+        {
+            pixels[i] = (byte)(255 - pixels[i]);
+        }
     }
 
     private static byte[][] BuildMips(byte[] top, int width, int height, TextureKind kind, bool isNormalMap)

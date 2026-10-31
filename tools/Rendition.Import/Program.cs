@@ -17,6 +17,7 @@ if (args.Length != 3)
 
 string modelPath = Path.GetFullPath(args[0]);
 string sourceDirectory = Path.GetDirectoryName(modelPath)!;
+bool isGltf = Path.GetExtension(modelPath).ToLowerInvariant() is ".glb" or ".gltf";
 var settings = JsonSerializer.Deserialize<ImportSettings>(
     File.ReadAllText(args[1]), new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
 
@@ -43,9 +44,19 @@ unsafe
         return 1;
     }
 
+    // Materials refer to images stored inside the file as "*0", "*1" and so on.
+    for (uint i = 0; i < scene->MNumTextures; i++)
+    {
+        var embedded = scene->MTextures[i];
+        if (embedded->MHeight == 0) // A height of 0 means the width is the size of an encoded image.
+        {
+            textures.AddEmbedded($"*{i}", new ReadOnlySpan<byte>(embedded->PcData, (int)embedded->MWidth).ToArray());
+        }
+    }
+
     for (uint i = 0; i < scene->MNumMaterials; i++)
     {
-        materials.Add(ImportMaterial(assimp, scene->MMaterials[i], settings, textures));
+        materials.Add(ImportMaterial(assimp, scene->MMaterials[i], settings, textures, isGltf));
     }
 
     for (uint m = 0; m < scene->MNumMeshes; m++)
@@ -138,17 +149,25 @@ static void Normalize(Vertex[] vertices, float targetLength)
 }
 
 static unsafe ModelMaterial ImportMaterial(
-    Assimp assimp, Silk.NET.Assimp.Material* source, ImportSettings settings, TextureCooker textures)
+    Assimp assimp, Silk.NET.Assimp.Material* source, ImportSettings settings, TextureCooker textures, bool isGltf)
 {
     AssimpString name;
     assimp.GetMaterialString(source, Assimp.MaterialNameBase, 0, 0, &name);
     string materialName = name.AsString;
 
-    string? linkedColor = GetTexture(assimp, source, TextureType.Diffuse);
+    string? linkedColor = GetTexture(assimp, source, TextureType.Diffuse) ?? GetTexture(assimp, source, TextureType.BaseColor);
     string? linkedNormal = GetTexture(assimp, source, TextureType.Normals) ?? GetTexture(assimp, source, TextureType.Height);
 
+    // Only glTF defines these values and the combined metal and roughness texture.
+    string? linkedSurface = isGltf
+        ? GetTexture(assimp, source, TextureType.Unknown) ?? GetTexture(assimp, source, TextureType.Metalness)
+        : null;
+    float[]? fileColor = isGltf ? GetFloats(assimp, source, "$clr.base", 4) : null;
+    float[]? fileMetallic = isGltf ? GetFloats(assimp, source, "$mat.metallicFactor", 1) : null;
+    float[]? fileRoughness = isGltf ? GetFloats(assimp, source, "$mat.roughnessFactor", 1) : null;
+
     var rule = settings.Materials.FirstOrDefault(r => materialName.Contains(r.Match, StringComparison.OrdinalIgnoreCase));
-    Console.WriteLine($"{materialName}: color={linkedColor ?? "-"} normal={linkedNormal ?? "-"} rule={rule?.Match ?? "(none)"}");
+    Console.WriteLine($"{materialName}: color={linkedColor ?? "-"} normal={linkedNormal ?? "-"} surface={linkedSurface ?? "-"} rule={rule?.Match ?? "(none)"}");
 
     rule ??= new MaterialRule();
     var flags = (rule.TwoSided ? MaterialFlags.TwoSided : 0) | (rule.Transparent ? MaterialFlags.Transparent : 0);
@@ -159,18 +178,32 @@ static unsafe ModelMaterial ImportMaterial(
     {
         BaseColor = rule.Color is { Length: 3 } c
             ? new Vector4(c[0], c[1], c[2], rule.Opacity)
-            : new Vector4(1f, 1f, 1f, rule.Opacity),
-        Metallic = rule.Metallic,
-        Roughness = rule.Roughness,
+            : fileColor is { } f ? new Vector4(f[0], f[1], f[2], f[3]) : new Vector4(1f, 1f, 1f, rule.Opacity),
+        Metallic = rule.Metallic ?? fileMetallic?[0] ?? 0f,
+        Roughness = rule.Roughness ?? fileRoughness?[0] ?? 0.6f,
         AlphaCutoff = rule.AlphaCutoff,
         BaseColorTexture = textures.Add(rule.BaseColor ?? linkedColor, TextureKind.Color),
-        NormalTexture = textures.Add(rule.Normal ?? linkedNormal, TextureKind.Linear, isNormalMap: true),
-        SurfaceTexture = textures.Add(rule.Surface, TextureKind.Linear),
+        NormalTexture = textures.Add(rule.Normal ?? linkedNormal, TextureKind.Linear, isNormalMap: true, flipGreen: rule.FlipNormalGreen),
+        SurfaceTexture = rule.Surface is not null
+            ? textures.Add(rule.Surface, TextureKind.Linear)
+            : textures.Add(linkedSurface, TextureKind.Linear, isGltfSurface: true),
         Emissive = emissive,
         EmissiveTexture = textures.Add(rule.Emissive, TextureKind.Color),
         Clearcoat = rule.Clearcoat,
         Flags = flags,
     };
+}
+
+static unsafe float[]? GetFloats(Assimp assimp, Silk.NET.Assimp.Material* material, string key, uint count)
+{
+    var values = new float[count];
+    uint read = count;
+    fixed (float* pointer = values)
+    {
+        return assimp.GetMaterialFloatArray(material, key, 0, 0, pointer, &read) == Return.Success && read == count
+            ? values
+            : null;
+    }
 }
 
 static unsafe string? GetTexture(Assimp assimp, Silk.NET.Assimp.Material* material, TextureType type)

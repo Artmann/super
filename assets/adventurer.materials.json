@@ -1,0 +1,6 @@
+{
+  "targetLength": 1.7,
+  "materials": [
+    { "match": "tripo", "flipNormalGreen": true }
+  ]
+}

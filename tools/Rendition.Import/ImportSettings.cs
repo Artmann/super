@@ -19,6 +19,9 @@ public sealed class MaterialRule
     public string? BaseColor { get; set; }
     public string? Normal { get; set; }
 
+    /// <summary>Inverts the normal map's green channel, for maps made with the opposite "up".</summary>
+    public bool FlipNormalGreen { get; set; }
+
     /// <summary>Red is metalness, green is roughness, alpha is opacity.</summary>
     public string? Surface { get; set; }
 
@@ -34,8 +37,13 @@ public sealed class MaterialRule
     public float Opacity { get; set; } = 1f;
 
     public float Clearcoat { get; set; }
-    public float Metallic { get; set; } = 0f;
-    public float Roughness { get; set; } = 0.6f;
+
+    /// <summary>Overrides the value in the model file, if it has one. The default is 0.</summary>
+    public float? Metallic { get; set; }
+
+    /// <summary>Overrides the value in the model file, if it has one. The default is 0.6.</summary>
+    public float? Roughness { get; set; }
+
     public float AlphaCutoff { get; set; }
     public bool TwoSided { get; set; }
     public bool Transparent { get; set; }

@@ -25,7 +25,7 @@ Editor, physics, audio, game logic, non-Windows platforms.
 | Window | Silk.NET.GLFW | Small and portable; the renderer never depends on it directly |
 | Shaders | GLSL compiled to SPIR-V by `glslc` at build time | No compiler in the shipped game; a game compiles its custom shaders the same way |
 | Math | System.Numerics | SIMD-accelerated value types |
-| Model import | Separate tool using Assimp, writing our own `.rmodel` | The game loads a fast flat file and never ships an FBX parser |
+| Model import | Separate tool using Assimp, writing our own `.rmodel` | The game loads a fast flat file and never ships an FBX or glTF parser |
 | Textures and materials | One global descriptor set indexed by material | Adding materials adds no binding work per draw |
 
 ## Frame structure
@@ -61,6 +61,13 @@ Model files often link only colour and normal maps. Each model has an
 `assets/<name>.materials.json` that connects the remaining textures and sets
 material values. The surface texture holds metalness in red, roughness in green
 and opacity in alpha.
+
+glTF files (`.glb`, `.gltf`) carry more of this themselves, so the importer reads their
+embedded images, the link to their metal and roughness texture, and their colour,
+metal and roughness values. glTF keeps metalness in blue, so the importer moves it to
+red. A rule in the materials file still wins over the model file. The renderer has one
+UV set, and the importer keeps the first. That's fine for the adventurer model, whose four
+sets are identical.
 
 Shadows blur with distance from the object casting them: the lighting pass finds
 how far away the blocker is, then widens its sampling to match. The game says
@@ -193,6 +200,15 @@ nothing but a null check for the feature.
 - The car's surface map channels are an educated guess, because the model has no
   documentation. The paint's metalness is set to 0.2 by eye. Its normal maps were
   measured: they use the green direction the renderer expects.
+- The adventurer model's tangents run opposite to what glTF specifies, while its normal map
+  follows the specification, so its materials file sets `flipNormalGreen`. The map
+  favours that direction about 2 to 1 across the texture, which is good evidence but
+  not proof, and the two directions look almost the same on screen.
+- The importer doesn't read glTF emissive maps, cut-outs, glass or two-sided flags yet.
+  Set those in the materials file. It flattens models into a single pose, so skeletons
+  and animation aren't supported.
+- The adventurer model has 929,000 triangles, which suits a showcase more than a game. A
+  game character would need a reduced version and levels of detail.
 - One shadow map covering a fixed area. Large outdoor scenes will need cascades
   that follow the camera.
 - Only directional lights so far. Point and spot lights come later.

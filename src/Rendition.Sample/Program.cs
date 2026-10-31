@@ -71,9 +71,24 @@ unsafe
             }),
             Transform = Matrix4x4.Identity,
         };
-        draws = [.. renderer.CreateModel(ModelData.Read(modelPath)), floor];
+        var model = ModelData.Read(modelPath);
+        draws = [.. renderer.CreateModel(model), floor];
         probeDraws = [floor];
-        camera = new OrbitCamera { Target = new Vector3(0f, 0.5f, 0f), Yaw = 0.7f, Pitch = 0.3f, Distance = 7f };
+
+        // Frames the model by its size, so a person and a car both fill the window.
+        var size = Vector3.Zero;
+        foreach (ref readonly var vertex in model.Vertices.AsSpan())
+        {
+            size = Vector3.Max(size, Vector3.Abs(vertex.Position));
+        }
+
+        camera = new OrbitCamera
+        {
+            Target = new Vector3(0f, size.Y * 0.5f, 0f),
+            Yaw = 0.7f,
+            Pitch = 0.3f,
+            Distance = 3f * MathF.Max(size.X, MathF.Max(size.Y * 0.5f, size.Z)),
+        };
     }
     else
     {

@@ -6,8 +6,8 @@ rendering in a window and nothing else.
 
 ## Status
 
-The renderer draws a textured, 192,000-triangle car model through the real
-deferred pipeline, with no managed allocations per frame and no Vulkan validation
+The renderer draws a textured, 192,000-triangle car and a 929,000-triangle character
+through the real deferred pipeline, with no managed allocations per frame and no Vulkan validation
 messages.
 
 What exists today:
@@ -28,7 +28,8 @@ What exists today:
 - Two frames in flight and window resize handling
 - GLSL shaders compiled to SPIR-V at build time
 - Bindless textures and materials, normal mapping, cut-out and two-sided surfaces
-- An import tool that cooks FBX models and their textures into a `.rmodel` file
+- An import tool that cooks FBX and glTF models and their textures into a `.rmodel`
+  file
 - Custom surface shaders that a game can write and attach to a material
 - A small public API: `Renderer.CreateModel`, `CreateMesh`, `CreateTexture`,
   `CreateMaterial`, `CreateSurfaceShader` and
@@ -76,6 +77,16 @@ dotnet run -c Release --project src/Rendition.Sample -- --model assets/cooked/fo
 
 The `assets/cooked` folder must exist first. The car's source files aren't in git,
 so copy them into `assets/source/ford-gt`.
+
+The character works the same way, from a `.glb` copied into `assets/source/adventurer`:
+
+```
+dotnet run -c Release --project tools/Rendition.Import -- assets/source/adventurer/adventurer.glb assets/adventurer.materials.json assets/cooked/adventurer.rmodel
+dotnet run -c Release --project src/Rendition.Sample -- --model assets/cooked/adventurer.rmodel --yaw 1.5
+```
+
+That model is [a character model](https://sketchfab.com/3d-models/592c2f0cfaf4407bab3ef40dfc095eb1)
+by Otto Rossi, under CC-BY-4.0. Credit the author if you share it or pictures of it.
 
 ## Check
 
