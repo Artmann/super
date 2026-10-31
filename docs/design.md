@@ -1,8 +1,43 @@
+# Super design
+
+Super is a C# game engine used as a library, with no editor. Rendition is its
+renderer and stays a separate project. `README.md` describes the engine as a user
+would meet it. This file records the reasons behind it, then Rendition's design.
+
+## Engine decisions
+
+These are decided but not built yet, apart from the project layout.
+
+| Area | Choice | Why |
+| --- | --- | --- |
+| Projects | `Super`, optional `Super.Ecs` and `Super.Testing`, and `Rendition`, which knows nothing of the others | Each layer stays usable without those above it |
+| Structure | Game code is plain classes behind `IGame`, with no built-in scheduler | The game's author owns the logic and the order it runs in |
+| Time | `Update` runs on fixed ticks, `Draw` once per displayed frame and blends between ticks | Repeatable simulation, whatever the frame rate |
+| Drawing | Views are plain functions of state, called every frame | Nothing to keep in sync, and loading needs no special cases |
+| View memory | Kept by Super under a key. A new key goes straight to its target | A loaded game appears finished, with no animations replaying |
+| Virtual tree | None, unlike React and SwiftUI | Games redraw most things each frame, so comparing trees gains little and allocates |
+| Hierarchy | Flat, with attachment by transform or bone | Colony and dungeon games have thousands of independent things and little nesting |
+| Unchanging objects | `View.Cached`, keyed by a version number | Static worlds aren't described again each frame |
+| Dependency injection | `Microsoft.Extensions.DependencyInjection`, resolved at startup only | Familiar, makes fakes one line, and costs nothing per frame |
+| Global state | None | Many headless games can share one process |
+| Randomness | `GameRandom` with named streams from one seed | A new roll in one system doesn't disturb another |
+| Content | JSON read by `System.Text.Json` into records, loaded up front | No extra library, and data errors surface at load time |
+| Saves and levels | JSON early on, expected to be replaced | Easy to read and repair during development |
+| Physics | Left out of the first version | Must run in ticks and repeat exactly, and the target games need little |
+
+The rule for dividing data: if gameplay cares, it's state; if only the eyes care, it's
+view. Views read state and never write it, so animation can't change a simulation's
+outcome. Repeatability is promised for the same build on the same kind of CPU, because
+floating point results can differ between CPU types.
+
+Rendition needs work to support this: keys passed through to per-object motion
+vectors, skeletal animation in the importer and the vertex shader, a particle pass,
+and a check of how it copes with many thousands of draws.
+
 # Rendition design
 
-Rendition is the graphics foundation of a future game engine: a deferred, PBR
-renderer in modern .NET, generic enough for any 3D game. It only does rendering
-and owns nothing beyond the window it draws into.
+Rendition is a deferred, PBR renderer in modern .NET, generic enough for any 3D game.
+It only does rendering and owns nothing beyond the window it draws into.
 
 ## Goals
 
@@ -13,7 +48,8 @@ and owns nothing beyond the window it draws into.
 
 ## Non-goals (for now)
 
-Editor, physics, audio, game logic, non-Windows platforms.
+Editor, physics, audio, game logic and non-Windows platforms. Rendition keeps to
+rendering. Game-facing features belong in Super.
 
 ## Decisions
 

@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Super/Super.csproj" />
+    <Project Path="src/Super.Ecs/Super.Ecs.csproj" />
+    <Project Path="src/Super.Testing/Super.Testing.csproj" />
+    <Project Path="src/Rendition/Rendition.csproj" />
+    <Project Path="src/Rendition.Sample/Rendition.Sample.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Rendition.Import/Rendition.Import.csproj" />
+  </Folder>
+</Solution>
