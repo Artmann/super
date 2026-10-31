@@ -69,6 +69,18 @@ public sealed class ProfilingTests
     }
 
     [Fact]
+    public void The_report_ranks_models_by_their_triangles()
+    {
+        ModelCost[] models = [new("small", 100, 10), new("big", 2, 1000)];
+
+        string report = ProfileReport.Write(Run([]) with { Models = models, DrawnTriangles = (1234, 56) });
+
+        Assert.Contains("102 models, 3,000 triangles", report);
+        Assert.Contains("1,234 triangles for the camera, 56 for shadows", report);
+        Assert.True(report.IndexOf("big") < report.IndexOf("small"));
+    }
+
+    [Fact]
     public void The_sampler_finds_a_busy_function_by_name()
     {
         string folder = Directory.CreateTempSubdirectory("super-profile").FullName;

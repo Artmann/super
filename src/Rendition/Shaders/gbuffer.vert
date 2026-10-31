@@ -23,7 +23,11 @@ layout(location = 3) out vec3 outPosition;
 
 void main() {
     mat3 model = mat3(draw.model);
-    outNormal = transpose(inverse(model)) * inNormal;
+    // The cofactor matrix is the inverse transpose times the determinant. The size doesn't
+    // matter, because the fragment shader normalizes, but the sign keeps mirrored models
+    // right. This avoids inverting a matrix for every vertex.
+    mat3 cofactor = mat3(cross(model[1], model[2]), cross(model[2], model[0]), cross(model[0], model[1]));
+    outNormal = cofactor * inNormal * sign(dot(model[0], cofactor[0]));
     outTangent = vec4(model * inTangent.xyz, inTangent.w);
     outUv = inUv;
     vec3 swum = swim(inPosition, draw.swimAmplitude, draw.swimBodyLength, draw.swimPhase);

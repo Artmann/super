@@ -12,6 +12,9 @@ internal static class Seabed
     private const int TextureSize = 512;
     private const float TextureRepeat = 0.25f; // Times per metre.
 
+    /// <summary>No point on the seabed is higher than this, the sum of the waves in <see cref="Height"/>.</summary>
+    public const float Highest = 3.6f;
+
     public static float Height(float x, float z) =>
         2.2f * MathF.Sin(x * 0.045f + 1f) * MathF.Cos(z * 0.038f)
         + 1.1f * MathF.Sin(x * 0.11f + z * 0.07f)

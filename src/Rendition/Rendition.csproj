@@ -6,6 +6,10 @@
     <PackageReference Include="Silk.NET.Vulkan.Extensions.KHR" Version="2.23.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Super.Tests" />
+  </ItemGroup>
+
   <Import Project="..\Shaders.targets" />
 
 </Project>

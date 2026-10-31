@@ -100,6 +100,14 @@ ReadOnlySpan<DrawItem>)`. Meshes, textures and materials are created up front an
 referenced by handles. A `DrawItem` is an index range of a mesh plus a material,
 so one model shares a vertex buffer across its parts.
 
+Models and meshes from `CreateModel` and `CreateDrawItem` also carry a bounding sphere
+and up to four simpler versions, made while loading. Vertices that share a grid cell and
+face the same way merge into one of them, so a simpler version is only another index
+range, with no new vertices. Each frame, the camera and the shadow map each skip what
+they can't see and pick the simplest version that strays by at most 1 pixel on screen
+or 2 texels in the shadow map. `DrawItem`s written by hand have neither, and always draw
+in full.
+
 Model files often link only colour and normal maps. Each model has an
 `assets/<name>.materials.json` that connects the remaining textures and sets
 material values. The surface texture holds metalness in red, roughness in green

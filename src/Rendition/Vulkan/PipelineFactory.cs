@@ -7,7 +7,9 @@ namespace Rendition.Vulkan;
 internal ref struct PipelineDescription
 {
     public string VertexShader;
-    public string FragmentShader;
+
+    /// <summary>Null for a pass that only writes depth, which lets the GPU skip shading.</summary>
+    public string? FragmentShader;
 
     /// <summary>Compiled code to use instead of <see cref="FragmentShader"/>.</summary>
     public byte[]? FragmentCode;
@@ -28,9 +30,17 @@ internal static unsafe class PipelineFactory
     {
         var api = context.Api;
         var vertexModule = LoadShader(context, description.VertexShader);
-        var fragmentModule = description.FragmentCode is { } code
-            ? CreateModule(context, code)
-            : LoadShader(context, description.FragmentShader);
+        ShaderModule fragmentModule = default;
+        if (description.FragmentCode is { } code)
+        {
+            fragmentModule = CreateModule(context, code);
+        }
+        else if (description.FragmentShader is { } fragmentShader)
+        {
+            fragmentModule = LoadShader(context, fragmentShader);
+        }
+
+        bool hasFragment = fragmentModule.Handle != 0;
         nint entryPoint = SilkMarshal.StringToPtr("main");
 
         var stages = stackalloc PipelineShaderStageCreateInfo[2];
@@ -138,7 +148,7 @@ internal static unsafe class PipelineFactory
             {
                 SType = StructureType.GraphicsPipelineCreateInfo,
                 PNext = &rendering,
-                StageCount = 2,
+                StageCount = hasFragment ? 2u : 1u,
                 PStages = stages,
                 PVertexInputState = &vertexInput,
                 PInputAssemblyState = &inputAssembly,
@@ -155,7 +165,11 @@ internal static unsafe class PipelineFactory
 
         SilkMarshal.Free(entryPoint);
         api.DestroyShaderModule(context.Device, vertexModule, null);
-        api.DestroyShaderModule(context.Device, fragmentModule, null);
+        if (hasFragment)
+        {
+            api.DestroyShaderModule(context.Device, fragmentModule, null);
+        }
+
         return pipeline;
     }
 

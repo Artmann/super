@@ -37,6 +37,7 @@ internal sealed unsafe class ResourceTable : IDisposable
     private readonly GpuBuffer _materials;
     private readonly MaterialFlags[] _materialFlags = new MaterialFlags[MaxMaterials];
     private readonly int[] _materialShaders = new int[MaxMaterials];
+    private readonly bool[] _materialCutouts = new bool[MaxMaterials];
     private readonly List<GpuTexture> _textures = [];
     private readonly TextureHandle _white;
     private readonly TextureHandle _flatNormal;
@@ -135,6 +136,9 @@ internal sealed unsafe class ResourceTable : IDisposable
 
     public int GetShader(MaterialHandle material) => _materialShaders[material.Index];
 
+    /// <summary>Whether the material's texture cuts holes in it.</summary>
+    public bool HasCutouts(MaterialHandle material) => _materialCutouts[material.Index];
+
     /// <summary>Waits for the GPU, so call this while loading rather than during a frame.</summary>
     public TextureHandle AddTexture(TextureData data)
     {
@@ -207,6 +211,7 @@ internal sealed unsafe class ResourceTable : IDisposable
         };
         _materialFlags[index] = material.Flags;
         _materialShaders[index] = material.Shader?.Index ?? 0;
+        _materialCutouts[index] = material.AlphaCutoff > 0f;
     }
 
     public void Dispose()

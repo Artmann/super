@@ -25,6 +25,9 @@ public readonly record struct SurfaceShaderHandle(int Index);
 
 public readonly record struct ReflectionProbeHandle(int Index);
 
+/// <summary>Bounds and simpler versions for a <see cref="DrawItem"/>. The default stands for none.</summary>
+public readonly record struct DetailHandle(int Index);
+
 [Flags]
 public enum MaterialFlags
 {
@@ -85,6 +88,14 @@ public struct DrawItem
     public MaterialHandle Material;
     public Matrix4x4 Transform;
     public SwimMotion Swim;
+
+    /// <summary>
+    /// Lets the renderer skip this draw when it's out of view, and use a simpler version
+    /// when it's small on screen. <see cref="Renderer.CreateModel"/> and
+    /// <see cref="Renderer.CreateDrawItem"/> fill this in. Without it, the draw always
+    /// happens in full.
+    /// </summary>
+    public DetailHandle Detail;
 }
 
 public struct DirectionalLight

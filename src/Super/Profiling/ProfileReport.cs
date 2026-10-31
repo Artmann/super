@@ -10,6 +10,12 @@ internal readonly record struct ProfiledFrame(
     public double Total => Update + Draw + Render;
 }
 
+/// <summary>What one model adds to a frame.</summary>
+internal readonly record struct ModelCost(string Name, int Copies, long TrianglesEach)
+{
+    public long Triangles => Copies * TrianglesEach;
+}
+
 /// <summary>Everything a profile run measured.</summary>
 internal sealed record ProfileRun(
     string Title,
@@ -19,7 +25,9 @@ internal sealed record ProfileRun(
     int Height,
     IReadOnlyList<ProfiledFrame> Frames,
     IReadOnlyDictionary<string, double> GpuMilliseconds,
-    IReadOnlyList<string[]> Stacks);
+    IReadOnlyList<string[]> Stacks,
+    IReadOnlyList<ModelCost>? Models = null,
+    (long Camera, long Shadows) DrawnTriangles = default);
 
 /// <summary>Writes a profile as plain text, short enough to read in one go, by a person or an agent.</summary>
 internal static class ProfileReport
@@ -33,6 +41,7 @@ internal static class ProfileReport
         var text = new StringBuilder();
         WriteSummary(text, run);
         WriteGpu(text, run);
+        WriteModels(text, run.Models ?? [], run.DrawnTriangles);
         WriteFunctions(text, run.Stacks);
         WriteStacks(text, run.Stacks);
         return text.ToString();
@@ -108,6 +117,25 @@ internal static class ProfileReport
         foreach (var (name, milliseconds) in run.GpuMilliseconds.OrderByDescending(pass => pass.Value))
         {
             Line(text, $"  {name,-18} {milliseconds,7:0.00} ms  {milliseconds / total,4:P0}");
+        }
+
+        Line(text);
+    }
+
+    private static void WriteModels(StringBuilder text, IReadOnlyList<ModelCost> models, (long Camera, long Shadows) drawn)
+    {
+        if (models.Count == 0)
+        {
+            return;
+        }
+
+        long total = models.Sum(model => model.Triangles);
+        Line(text, $"Scene: {models.Sum(model => model.Copies):N0} models, {total:N0} triangles at full detail");
+        Line(text, $"Drawn after culling and detail: {drawn.Camera:N0} triangles for the camera, {drawn.Shadows:N0} for shadows");
+        foreach (var model in models.OrderByDescending(model => model.Triangles))
+        {
+            double share = (double)model.Triangles / total;
+            Line(text, $"  {share,4:P0}  {model.Copies,6:N0} x {model.TrianglesEach,10:N0}  {model.Name}");
         }
 
         Line(text);

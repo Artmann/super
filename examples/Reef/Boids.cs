@@ -8,7 +8,8 @@ namespace Reef;
 /// Schooling. Each fish looks only at nearby fish: it keeps its distance, matches their
 /// heading and drifts towards their middle. A grid finds the neighbours, so the cost
 /// grows with the number of fish rather than with its square. The grid and its arrays
-/// are allocated once, so ticks allocate nothing.
+/// are allocated once. Fish decide on all cores from the same snapshot, then move in
+/// order, so the result doesn't depend on how the work was shared out.
 /// </summary>
 internal sealed class Boids
 {
@@ -24,6 +25,7 @@ internal sealed class Boids
     private const float SurfaceClearance = 3f;
     private const float MaxTurn = 7f; // Metres per second per second.
     private const float TargetReached = 8f;
+    private const int FishPerBatch = 256;
     public const float StrokesPerMetre = 2.4f;
 
     private readonly World _world;
@@ -32,11 +34,15 @@ internal sealed class Boids
     private readonly Vector3[] _schoolTargets;
     private readonly Vector3[] _positions;
     private readonly Vector3[] _velocities;
+    private readonly Vector3[] _pushes;
     private readonly int[] _schools;
+    private readonly int[] _species;
     private readonly int[] _nextInCell;
     private readonly int[] _firstInCell;
     private readonly int _columns;
     private readonly int _layers;
+    private readonly Action<int> _steerBatch;
+    private int _fishThisTick;
 
     public Boids(World world, ReefSettings settings, RandomStream random, int schoolCount)
     {
@@ -52,12 +58,15 @@ internal sealed class Boids
         int fish = settings.Species.Sum(species => species.Count);
         _positions = new Vector3[fish];
         _velocities = new Vector3[fish];
+        _pushes = new Vector3[fish];
         _schools = new int[fish];
+        _species = new int[fish];
         _nextInCell = new int[fish];
 
         _columns = (int)(settings.Radius * 2f / NeighbourCell) + 3;
         _layers = (int)(settings.SurfaceHeight / NeighbourCell) + 3;
         _firstInCell = new int[_columns * _columns * _layers];
+        _steerBatch = SteerBatch;
     }
 
     public void Update(float seconds)
@@ -69,6 +78,7 @@ internal sealed class Boids
             _positions[count] = row.First.Value;
             _velocities[count] = row.Second.Value;
             _schools[count] = row.Third.School;
+            _species[count] = row.Third.Species;
             int cell = CellOf(row.First.Value);
             _nextInCell[count] = _firstInCell[cell];
             _firstInCell[cell] = count;
@@ -77,13 +87,16 @@ internal sealed class Boids
 
         MoveTargets();
 
+        _fishThisTick = count;
+        Parallel.For(0, (count + FishPerBatch - 1) / FishPerBatch, _steerBatch);
+
         int index = 0;
         foreach (var row in _world.Query<Position, Velocity, Fish, PreviousPosition>())
         {
             var species = _settings.Species[row.Third.Species];
             row.Fourth = new PreviousPosition(row.First.Value, row.Second.Value);
 
-            var push = Steer(index, species);
+            var push = _pushes[index];
             float length = push.Length();
             if (length > MaxTurn)
             {
@@ -99,6 +112,15 @@ internal sealed class Boids
             row.First.Value = Keep(row.First.Value + velocity * seconds);
             row.Third.Phase += limited * seconds * StrokesPerMetre / species.Length;
             index++;
+        }
+    }
+
+    private void SteerBatch(int batch)
+    {
+        int end = Math.Min((batch + 1) * FishPerBatch, _fishThisTick);
+        for (int fish = batch * FishPerBatch; fish < end; fish++)
+        {
+            _pushes[fish] = Steer(fish, _settings.Species[_species[fish]]);
         }
     }
 
@@ -176,10 +198,14 @@ internal sealed class Boids
             push -= new Vector3(position.X, 0f, position.Z) / sideways * outside * BoundsWeight;
         }
 
-        float ground = Seabed.Height(position.X, position.Z) + GroundClearance;
-        if (position.Y < ground)
+        // Most fish are too high to need the seabed's exact height.
+        if (position.Y < Seabed.Highest + GroundClearance)
         {
-            push.Y += (ground - position.Y) * BoundsWeight * 2f;
+            float ground = Seabed.Height(position.X, position.Z) + GroundClearance;
+            if (position.Y < ground)
+            {
+                push.Y += (ground - position.Y) * BoundsWeight * 2f;
+            }
         }
 
         float ceiling = _settings.SurfaceHeight - SurfaceClearance;
@@ -201,7 +227,12 @@ internal sealed class Boids
             position.Z *= _settings.Radius / sideways;
         }
 
-        position.Y = Math.Clamp(position.Y, Seabed.Height(position.X, position.Z) + 0.3f, _settings.SurfaceHeight - 0.5f);
+        if (position.Y < Seabed.Highest + 0.3f)
+        {
+            position.Y = MathF.Max(position.Y, Seabed.Height(position.X, position.Z) + 0.3f);
+        }
+
+        position.Y = MathF.Min(position.Y, _settings.SurfaceHeight - 0.5f);
         return position;
     }
 

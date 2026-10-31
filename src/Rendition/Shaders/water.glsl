@@ -3,7 +3,7 @@
 // Needs common.glsl and sampling.glsl.
 
 const float NOTHING_DRAWN_DISTANCE = 1000.0;
-const int SHAFT_STEPS = 14;
+const int SHAFT_STEPS = 8;
 
 // The shafts are a blurred, larger version of the pattern on the floor.
 const float SHAFT_PATTERN_SCALE = 0.3;

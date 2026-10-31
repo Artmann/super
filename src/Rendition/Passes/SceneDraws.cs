@@ -40,7 +40,8 @@ internal static unsafe class SceneDraws
     /// <summary>
     /// Draws either the opaque or the transparent items, in the given order. A pass with
     /// one entry in <paramref name="pipelines"/> draws everything with it. Otherwise each
-    /// material picks its surface shader.
+    /// material picks its surface shader. Materials without cut-out holes use
+    /// <paramref name="solid"/> when it's given.
     /// </summary>
     public static void Record(
         Vk api,
@@ -50,7 +51,8 @@ internal static unsafe class SceneDraws
         ResourceTable resources,
         ReadOnlySpan<DrawItem> draws,
         List<Mesh> meshes,
-        bool transparent = false)
+        bool transparent = false,
+        PipelineVariants? solid = null)
     {
         var boundPipeline = default(Pipeline);
         int boundMesh = -1;
@@ -62,7 +64,9 @@ internal static unsafe class SceneDraws
                 continue;
             }
 
-            var variants = pipelines[pipelines.Count > 1 ? resources.GetShader(draw.Material) : 0];
+            var variants = solid is { } solidVariants && !resources.HasCutouts(draw.Material)
+                ? solidVariants
+                : pipelines[pipelines.Count > 1 ? resources.GetShader(draw.Material) : 0];
             var pipeline = (flags & MaterialFlags.TwoSided) != 0 ? variants.TwoSided : variants.Culled;
             if (pipeline.Handle != boundPipeline.Handle)
             {

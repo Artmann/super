@@ -36,8 +36,10 @@ What exists today:
 - An import tool that cooks FBX and glTF models and their textures into a `.rmodel`
   file
 - Custom surface shaders that a game can write and attach to a material
-- A small public API: `Renderer.CreateModel`, `CreateMesh`, `CreateTexture`,
-  `CreateMaterial`, `UpdateMaterial`, `CreateSurfaceShader` and
+- Automatic culling and simpler versions of distant models, for the camera and for
+  shadows
+- A small public API: `Renderer.CreateModel`, `CreateDrawItem`, `CreateMesh`,
+  `CreateTexture`, `CreateMaterial`, `UpdateMaterial`, `CreateSurfaceShader` and
   `Render(in FrameView, ReadOnlySpan<DrawItem>)`
 
 Decisions, the G-buffer layout and known simplifications are in

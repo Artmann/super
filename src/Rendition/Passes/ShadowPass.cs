@@ -16,6 +16,7 @@ internal sealed unsafe class ShadowPass : IDisposable
     private readonly ResourceTable _resources;
     private readonly PipelineLayout _layout;
     private readonly List<PipelineVariants> _pipelines = [];
+    private readonly PipelineVariants _solid;
 
     public readonly RenderTarget Target;
 
@@ -59,6 +60,13 @@ internal sealed unsafe class ShadowPass : IDisposable
         var culled = PipelineFactory.Create(context, description);
         description.TwoSided = true;
         _pipelines.Add(new PipelineVariants(culled, PipelineFactory.Create(context, description)));
+
+        // Most materials have no holes, so nothing needs to run for their pixels.
+        description.FragmentShader = null;
+        description.TwoSided = false;
+        var solidCulled = PipelineFactory.Create(context, description);
+        description.TwoSided = true;
+        _solid = new PipelineVariants(solidCulled, PipelineFactory.Create(context, description));
     }
 
     /// <summary>
@@ -102,13 +110,15 @@ internal sealed unsafe class ShadowPass : IDisposable
 
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set };
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
-        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes);
+        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, solid: _solid);
 
         api.CmdEndRendering(cmd);
     }
 
     public void Dispose()
     {
+        _context.Api.DestroyPipeline(_context.Device, _solid.TwoSided, null);
+        _context.Api.DestroyPipeline(_context.Device, _solid.Culled, null);
         _context.Api.DestroyPipeline(_context.Device, _pipelines[0].TwoSided, null);
         _context.Api.DestroyPipeline(_context.Device, _pipelines[0].Culled, null);
         _context.Api.DestroyPipelineLayout(_context.Device, _layout, null);

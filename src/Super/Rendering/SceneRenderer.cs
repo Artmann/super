@@ -1,5 +1,6 @@
 using System.Numerics;
 using Rendition;
+using Super.Profiling;
 using Super.Ui;
 
 namespace Super;
@@ -26,12 +27,8 @@ internal sealed class SceneRenderer : IDisposable
     public SceneRenderer(RendererOptions options)
     {
         _renderer = new Renderer(options);
-        var cube = _renderer.CreateMesh(Cube.Vertices, Cube.Indices);
         _defaultMaterial = _renderer.CreateMaterial(CreateMaterial(new Vector3(0.7f)));
-        _models.Add(
-        [
-            new DrawItem { Mesh = cube, IndexCount = (uint)Cube.Indices.Length, Material = _defaultMaterial },
-        ]);
+        _models.Add([_renderer.CreateDrawItem(Cube.Vertices, Cube.Indices, _defaultMaterial)]);
         _renderer.SetEnvironment(new EnvironmentDescription
         {
             Ceiling = new Vector3(0.45f, 0.5f, 0.6f),
@@ -51,6 +48,8 @@ internal sealed class SceneRenderer : IDisposable
 
     public double WaitMilliseconds => _renderer.WaitMilliseconds;
 
+    public (long Camera, long Shadows) DrawnTriangles => _renderer.DrawnTriangles;
+
     public void Render(View view, Content content, int width, int height, float time)
     {
         Prepare(content, view);
@@ -63,6 +62,25 @@ internal sealed class SceneRenderer : IDisposable
         Prepare(content, view);
         int count = PrepareDraws(view);
         return _renderer.Capture(CreateFrame(view, width, height, time), _draws.AsSpan(0, count), out capturedWidth, out capturedHeight);
+    }
+
+    /// <summary>Adds up what the view drew, model by model.</summary>
+    internal List<ModelCost> CountModels(View view, Content content)
+    {
+        var copies = new Dictionary<int, int>();
+        foreach (ref readonly var draw in view.Drawn)
+        {
+            copies[draw.Model.Index] = copies.GetValueOrDefault(draw.Model.Index) + 1;
+        }
+
+        var costs = new List<ModelCost>();
+        foreach (var (model, count) in copies)
+        {
+            string name = model > 0 && content.Items[model - 1] is string path ? path : model > 0 ? "generated mesh" : "cube";
+            costs.Add(new ModelCost(name, count, _models[model].Sum(part => (long)part.IndexCount) / 3));
+        }
+
+        return costs;
     }
 
     public void Dispose() => _renderer.Dispose();
@@ -171,15 +189,7 @@ internal sealed class SceneRenderer : IDisposable
             Roughness = mesh.Roughness,
             BaseColorTexture = texture,
         });
-        return
-        [
-            new DrawItem
-            {
-                Mesh = _renderer.CreateMesh(mesh.Vertices, mesh.Indices),
-                IndexCount = (uint)mesh.Indices.Length,
-                Material = material,
-            },
-        ];
+        return [_renderer.CreateDrawItem(mesh.Vertices, mesh.Indices, material)];
     }
 
     private int PrepareDraws(View view)

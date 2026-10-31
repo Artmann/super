@@ -160,7 +160,7 @@ internal sealed unsafe class GameWindow : IDisposable
         }
 
         _glfw.GetFramebufferSize(_window, out int width, out int height);
-        var run = new ProfileRun(title, seed, firstTick, width, height, measured, gpu, stacks);
+        var run = new ProfileRun(title, seed, firstTick, width, height, measured, gpu, stacks, _scene.CountModels(host.View, host.Content), _scene.DrawnTriangles);
         File.WriteAllText(path, ProfileReport.Write(run));
     }
 

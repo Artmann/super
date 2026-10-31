@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
 using Rendition.Passes;
 using Rendition.Vulkan;
@@ -39,7 +40,12 @@ public sealed unsafe class Renderer : IDisposable
     private readonly VulkanContext _context;
     private readonly Vk _api;
     private readonly Frame[] _frames = new Frame[FramesInFlight];
+    // How far a simpler model may stray. Shadows are soft, so they can afford more.
+    private const float CameraDetailError = 1f;
+    private const float ShadowDetailError = 2f;
+
     private readonly List<Mesh> _meshes = [];
+    private readonly List<PartDetail> _details = [default];
     private readonly ResourceTable _resources;
     private readonly EnvironmentMap _environment;
     private readonly ReflectionProbes _probes;
@@ -95,6 +101,13 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>How long the last frame waited for the GPU to finish earlier work and for the display, while <see cref="MeasureGpu"/> is on.</summary>
     public double WaitMilliseconds { get; private set; }
+
+    /// <summary>Triangles in the last frame's camera and shadow passes, while <see cref="MeasureGpu"/> is on.</summary>
+    public (long Camera, long Shadows) DrawnTriangles { get; private set; }
+
+    private DrawItem[] _cameraDraws = [];
+    private DrawItem[] _shadowDraws = [];
+    private Matrix4x4 _shadowMatrix;
 
     public Renderer(RendererOptions options)
     {
@@ -195,6 +208,16 @@ public sealed unsafe class Renderer : IDisposable
         var indexBuffer = GpuBuffer.CreateDeviceLocal(_context, indices, BufferUsageFlags.IndexBufferBit);
         _meshes.Add(new Mesh(vertexBuffer, indexBuffer, (uint)indices.Length));
         return new MeshHandle(_meshes.Count - 1);
+    }
+
+    /// <summary>
+    /// Uploads a mesh as one draw that the renderer can skip when it's out of view, and
+    /// simplify when it's small on screen.
+    /// </summary>
+    public DrawItem CreateDrawItem(ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices, MaterialHandle material)
+    {
+        ModelPart[] parts = [new ModelPart { IndexCount = (uint)indices.Length }];
+        return CreateDetailedMesh(vertices, indices, parts, [material])[0];
     }
 
     /// <summary>Replaces what surfaces reflect. Waits for the GPU, so call this while loading.</summary>
@@ -380,21 +403,35 @@ public sealed unsafe class Renderer : IDisposable
             });
         }
 
-        var mesh = CreateMesh(model.Vertices, model.Indices);
-        var draws = new List<DrawItem>(model.Parts.Length);
-        foreach (ref readonly var part in model.Parts.AsSpan())
+        return CreateDetailedMesh(model.Vertices, model.Indices, model.Parts, materials);
+    }
+
+    private DrawItem[] CreateDetailedMesh(
+        ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices, ReadOnlySpan<ModelPart> parts, ReadOnlySpan<MaterialHandle> materials)
+    {
+        var allIndices = new List<uint>(indices.ToArray());
+        var draws = new DrawItem[parts.Length];
+        for (int i = 0; i < parts.Length; i++)
         {
-            draws.Add(new DrawItem
+            ref readonly var part = ref parts[i];
+            _details.Add(MeshDetail.Build(vertices, indices.Slice((int)part.FirstIndex, (int)part.IndexCount), allIndices));
+            draws[i] = new DrawItem
             {
-                Mesh = mesh,
                 FirstIndex = part.FirstIndex,
                 IndexCount = part.IndexCount,
                 Material = materials[part.Material],
                 Transform = Matrix4x4.Identity,
-            });
+                Detail = new DetailHandle(_details.Count - 1),
+            };
         }
 
-        return draws.ToArray();
+        var mesh = CreateMesh(vertices, CollectionsMarshal.AsSpan(allIndices));
+        foreach (ref var draw in draws.AsSpan())
+        {
+            draw.Mesh = mesh;
+        }
+
+        return draws;
     }
 
     public void Render(in FrameView view, ReadOnlySpan<DrawItem> draws)
@@ -450,6 +487,7 @@ public sealed unsafe class Renderer : IDisposable
         bool castsShadow = WriteUniforms(frame.Uniforms, view, previous, shift, _frameNumber, _historyReady, capturingProbe: false);
         _previousViewProjection = viewProjection;
         _frameNumber++;
+        var (cameraCount, shadowCount) = SelectDraws(view, viewProjection, draws, castsShadow);
 
         _api.ResetCommandPool(_context.Device, frame.CommandPool, 0).Check();
         var cmd = frame.CommandBuffer;
@@ -465,7 +503,7 @@ public sealed unsafe class Renderer : IDisposable
             _gpuTimer.Begin(cmd, _frameIndex);
         }
 
-        RecordFrame(cmd, frame.Set, imageIndex, draws, castsShadow, overlayQuads);
+        RecordFrame(cmd, frame.Set, imageIndex, _cameraDraws.AsSpan(0, cameraCount), _shadowDraws.AsSpan(0, shadowCount), overlayQuads);
         _gpuTimer.End();
         _api.EndCommandBuffer(cmd).Check();
 
@@ -525,6 +563,47 @@ public sealed unsafe class Renderer : IDisposable
     /// Renders a frame and also returns it as RGBA bytes, row by row from the top. It
     /// works on a hidden window. Allocates and waits for the GPU, so it isn't for the game loop.
     /// </summary>
+    /// <summary>Leaves out what each pass can't see, and swaps in simpler models where nobody will notice.</summary>
+    private (int Camera, int Shadows) SelectDraws(
+        in FrameView view, in Matrix4x4 viewProjection, ReadOnlySpan<DrawItem> draws, bool castsShadow)
+    {
+        if (_cameraDraws.Length < draws.Length)
+        {
+            _cameraDraws = new DrawItem[draws.Length * 2];
+            _shadowDraws = new DrawItem[draws.Length * 2];
+        }
+
+        float focalPixels = MathF.Abs(view.Projection.M22) * view.Height / 2f;
+        var camera = new DetailView(viewProjection, view.CameraPosition, focalPixels, 0f, CameraDetailError);
+        int cameraCount = DrawSelection.Select(camera, draws, _details, _cameraDraws);
+
+        int shadowCount = 0;
+        if (castsShadow)
+        {
+            float texelsPerUnit = ShadowPass.Resolution / (2f * view.Shadows.Radius);
+            var shadow = new DetailView(_shadowMatrix, view.CameraPosition, 0f, texelsPerUnit, ShadowDetailError);
+            shadowCount = DrawSelection.Select(shadow, draws, _details, _shadowDraws);
+        }
+
+        if (MeasureGpu)
+        {
+            DrawnTriangles = (CountTriangles(_cameraDraws.AsSpan(0, cameraCount)), CountTriangles(_shadowDraws.AsSpan(0, shadowCount)));
+        }
+
+        return (cameraCount, shadowCount);
+    }
+
+    private static long CountTriangles(ReadOnlySpan<DrawItem> draws)
+    {
+        long indices = 0;
+        foreach (ref readonly var draw in draws)
+        {
+            indices += draw.IndexCount;
+        }
+
+        return indices / 3;
+    }
+
     public byte[] Capture(in FrameView view, ReadOnlySpan<DrawItem> draws, out int width, out int height)
     {
         if ((uint)view.Width != _swapchain.Extent.Width || (uint)view.Height != _swapchain.Extent.Height)
@@ -611,14 +690,14 @@ public sealed unsafe class Renderer : IDisposable
         DescriptorSet frameSet,
         uint imageIndex,
         ReadOnlySpan<DrawItem> draws,
-        bool castsShadow,
+        ReadOnlySpan<DrawItem> shadowCasters,
         int overlayQuads)
     {
         var targets = _gBuffer;
         var extent = targets.Extent;
         var swapchainImage = _swapchain.Images[imageIndex];
 
-        RecordScene(cmd, frameSet, draws, castsShadow ? draws : []);
+        RecordScene(cmd, frameSet, draws, shadowCasters);
 
         ReadOnlySpan<DescriptorSet> taaSets = [frameSet, _taaSet];
         _api.BeginColorTarget(cmd, targets.Resolved.Image);
@@ -861,7 +940,8 @@ public sealed unsafe class Renderer : IDisposable
             bool casts = !castsShadow && light.CastsShadow && view.Shadows.Radius > 0f;
             if (casts)
             {
-                uniforms->ShadowMatrix = ShadowPass.CreateMatrix(direction, view.Shadows.Center, view.Shadows.Radius);
+                _shadowMatrix = ShadowPass.CreateMatrix(direction, view.Shadows.Center, view.Shadows.Radius);
+                uniforms->ShadowMatrix = _shadowMatrix;
                 castsShadow = true;
             }
 

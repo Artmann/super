@@ -583,6 +583,12 @@ GPU: 6.98 ms per frame
   G-buffer              2.57 ms   37%
   ...
 
+Scene: 6,465 models, 12,432,284 triangles at full detail
+Drawn after culling and detail: 5,663,912 triangles for the camera, 4,201,244 for shadows
+   80%   6,000 x      1,656  reef/tilapia.rmodel
+   12%     240 x      5,989  reef/tuna.rmodel
+  ...
+
    Self   Total  Function
  73.8%   79.7%  Rendition.Renderer.Render
  17.8%   18.1%  Reef.Boids.Update
