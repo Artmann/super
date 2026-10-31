@@ -540,6 +540,7 @@ agents. None of these show a window.
 dotnet run --project MyColony -- --headless --seed 42 --ticks 20000 --json
 dotnet run --project MyColony -- --seed 42 --ticks 6000 --screenshot day-200.png
 dotnet run --project MyColony -- --seed 42 --ticks 6000 --record day-200.mp4 --seconds 20 --fps 60 --size 1920x1080
+dotnet run -c Release --project MyColony -- --seed 42 --ticks 6000 --profile day-200.txt --frames 60
 ```
 
 `--json` prints a result a script can read:
@@ -555,8 +556,53 @@ and `--size` to the game's window size. It needs a GPU, and
 [ffmpeg](https://ffmpeg.org) on the PATH (`winget install Gyan.FFmpeg`). A video runs
 as fast as the machine can make it, and the same seed gives the same frames.
 
-Today `--seed`, `--screenshot`, `--record` and `--size` work, and `--ticks` works
-alongside `--screenshot` and `--record`. `--headless` and `--json` are still to come.
+`--profile` shows where a game spends its time. See [Profiling](#profiling).
+
+Today `--seed`, `--screenshot`, `--record`, `--profile` and `--size` work, and `--ticks`
+works alongside those three. `--headless` and `--json` are still to come.
+
+## Profiling
+
+`--profile` plays to `--ticks`, then measures `--frames` frames (60 by default) and
+writes a short text report. The game needs no setup, and game and engine code appear
+in the same call stacks. Use a Release build, because Debug timings mean very little.
+
+```
+Reef: seed 7, from tick 360, 1280x720, 60 frames
+
+Frame: 13.1 ms on average (76 fps), fastest 1.1, slowest 27.9
+  Update       2.47 ms  (30 ticks in all)
+  Draw         0.19 ms  (the game's Draw, and the interface)
+  Render      10.49 ms  (of which 9.47 ms waiting for the GPU and the display)
+  Allocated     792 bytes per frame
+
+Limited by the GPU: CPU busy 3.7 ms, GPU busy 7.0 ms per frame, enough for about 143 fps.
+
+GPU: 6.98 ms per frame
+  Shadows               2.62 ms   37%
+  G-buffer              2.57 ms   37%
+  ...
+
+   Self   Total  Function
+ 73.8%   79.7%  Rendition.Renderer.Render
+ 17.8%   18.1%  Reef.Boids.Update
+  ...
+```
+
+After that come the most common call stacks. To compare before and after a change, use
+the same `--seed`, `--ticks` and `--size`, so both runs measure the same moment.
+
+- **Busy times are the numbers to trust.** The frame time includes waiting for the
+  display, so it can stay near the screen's refresh rate however light the game is.
+- **Waiting counts as time in the function table.** That's why `Renderer.Render` leads
+  it above. Look past it to the functions doing work.
+- **Native code shows up as the C# call that entered it.** The samples stop at the
+  managed code, so time inside the GPU driver lands on the function that called it.
+- **A profile run differs a little from a normal one.** It's a hidden window with
+  Vulkan validation off, and it asks the GPU for timestamps.
+
+A `.nettrace` file lands next to the report. Open it in
+[PerfView](https://github.com/microsoft/perfview) to dig further.
 
 ## Screenshots and videos from code
 

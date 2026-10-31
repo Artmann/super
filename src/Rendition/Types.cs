@@ -245,6 +245,9 @@ public struct OverlayQuad
     public Vector4 Color;
 }
 
+/// <summary>How long one render pass took on the GPU.</summary>
+public readonly record struct GpuPassTime(string Name, double Milliseconds);
+
 public static class Projection
 {
     /// <summary>

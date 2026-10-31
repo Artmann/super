@@ -42,6 +42,15 @@ internal sealed class SceneRenderer : IDisposable
 
     public int ValidationErrors => _renderer.ValidationErrors;
 
+    public bool MeasureGpu
+    {
+        set => _renderer.MeasureGpu = value;
+    }
+
+    public ReadOnlySpan<GpuPassTime> GpuTimes => _renderer.GpuTimes;
+
+    public double WaitMilliseconds => _renderer.WaitMilliseconds;
+
     public void Render(View view, Content content, int width, int height, float time)
     {
         Prepare(content, view);

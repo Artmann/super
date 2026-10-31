@@ -14,9 +14,13 @@ internal sealed record GameArguments(
     double? Seconds = null,
     int FramesPerSecond = GameArguments.DefaultFramesPerSecond,
     int? Width = null,
-    int? Height = null)
+    int? Height = null,
+    string? ProfilePath = null,
+    int Frames = GameArguments.DefaultProfileFrames)
 {
     public const int DefaultFramesPerSecond = 60;
+
+    public const int DefaultProfileFrames = 60;
 
     public static GameArguments Parse(ReadOnlySpan<string> args)
     {
@@ -28,6 +32,8 @@ internal sealed record GameArguments(
         int framesPerSecond = DefaultFramesPerSecond;
         int? width = null;
         int? height = null;
+        string? profilePath = null;
+        int? frames = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -54,6 +60,12 @@ internal sealed record GameArguments(
                 case "--size":
                     (width, height) = Size(args, ++i);
                     break;
+                case "--profile":
+                    profilePath = Value(args, ++i, "--profile");
+                    break;
+                case "--frames":
+                    frames = (int)Number(args, ++i, "--frames");
+                    break;
             }
         }
 
@@ -62,14 +74,24 @@ internal sealed record GameArguments(
             throw new ArgumentException("--ticks can't be negative.");
         }
 
-        if (ticks is not null && screenshotPath is null && recordPath is null)
+        if (ticks is not null && screenshotPath is null && recordPath is null && profilePath is null)
         {
-            throw new ArgumentException("--ticks needs --screenshot or --record, because those are the only runs without a window so far.");
+            throw new ArgumentException("--ticks needs --screenshot, --record or --profile, because those are the only runs without a window so far.");
         }
 
-        if (screenshotPath is not null && recordPath is not null)
+        if ((screenshotPath is not null ? 1 : 0) + (recordPath is not null ? 1 : 0) + (profilePath is not null ? 1 : 0) > 1)
         {
-            throw new ArgumentException("--screenshot and --record can't run together.");
+            throw new ArgumentException("--screenshot, --record and --profile can't run together.");
+        }
+
+        if (frames is not null && profilePath is null)
+        {
+            throw new ArgumentException("--frames needs --profile.");
+        }
+
+        if (frames <= 0)
+        {
+            throw new ArgumentException("--frames must be above zero.");
         }
 
         if (recordPath is not null && seconds is null)
@@ -92,7 +114,8 @@ internal sealed record GameArguments(
             throw new ArgumentException("--fps must be above zero.");
         }
 
-        return new GameArguments(seed, ticks, screenshotPath, recordPath, seconds, framesPerSecond, width, height);
+        return new GameArguments(
+            seed, ticks, screenshotPath, recordPath, seconds, framesPerSecond, width, height, profilePath, frames ?? DefaultProfileFrames);
     }
 
     private static double PositiveSeconds(ReadOnlySpan<string> args, int index)

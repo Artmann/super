@@ -30,6 +30,7 @@ What exists today:
 - An overlay of flat textured quads drawn over the finished picture, for text and
   interfaces. Fill `FrameView.Overlay` and call `Renderer.SetOverlayAtlas`
 - Two frames in flight and window resize handling
+- GPU timing for each render pass, switched on with `Renderer.MeasureGpu`
 - GLSL shaders compiled to SPIR-V at build time
 - Bindless textures and materials, normal mapping, cut-out and two-sided surfaces
 - An import tool that cooks FBX and glTF models and their textures into a `.rmodel`

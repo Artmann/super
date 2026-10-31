@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Numerics;
 using Silk.NET.Vulkan;
 using Rendition.Passes;
@@ -71,6 +72,7 @@ public sealed unsafe class Renderer : IDisposable
     private readonly FullscreenPass _finishPass;
     private readonly OverlayPass _overlayPass;
     private readonly DescriptorSet _overlaySet;
+    private readonly GpuTimer _gpuTimer;
     private GpuTexture? _overlayAtlas;
 
     private Swapchain _swapchain;
@@ -84,6 +86,15 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>Vulkan validation messages so far. Always zero when validation is off.</summary>
     public int ValidationErrors => _context.ValidationErrors;
+
+    /// <summary>Times the render passes. Off by default, because reading the times costs a little.</summary>
+    public bool MeasureGpu { get; set; }
+
+    /// <summary>Times from the newest finished frame, while <see cref="MeasureGpu"/> is on. Empty if the GPU can't time passes.</summary>
+    public ReadOnlySpan<GpuPassTime> GpuTimes => _gpuTimer.Times;
+
+    /// <summary>How long the last frame waited for the GPU to finish earlier work and for the display, while <see cref="MeasureGpu"/> is on.</summary>
+    public double WaitMilliseconds { get; private set; }
 
     public Renderer(RendererOptions options)
     {
@@ -175,6 +186,7 @@ public sealed unsafe class Renderer : IDisposable
         _tonemapPass = new FullscreenPass(_context, "tonemap.frag", GBuffer.LdrFormat, [_frameSetLayout, _twoTextureSetLayout]);
         _finishPass = new FullscreenPass(_context, "finish.frag", _swapchain.Format, [_frameSetLayout, _oneTextureSetLayout]);
         _overlayPass = new OverlayPass(_context, _swapchain.Format, _oneTextureSetLayout, FramesInFlight);
+        _gpuTimer = new GpuTimer(_context, FramesInFlight);
     }
 
     public MeshHandle CreateMesh(ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices)
@@ -399,6 +411,7 @@ public sealed unsafe class Renderer : IDisposable
 
         ref Frame frame = ref _frames[_frameIndex];
         var fence = frame.InFlight;
+        long waitStart = Stopwatch.GetTimestamp();
         _api.WaitForFences(_context.Device, 1, &fence, true, ulong.MaxValue).Check();
 
         var swapchainHandle = _swapchain.Handle;
@@ -414,6 +427,17 @@ public sealed unsafe class Renderer : IDisposable
         if (acquired != Result.SuboptimalKhr)
         {
             acquired.Check();
+        }
+
+        bool timed = MeasureGpu && _gpuTimer.IsSupported;
+        if (MeasureGpu)
+        {
+            WaitMilliseconds = Stopwatch.GetElapsedTime(waitStart).TotalMilliseconds;
+        }
+
+        if (timed)
+        {
+            _gpuTimer.Collect(_frameIndex);
         }
 
         _api.ResetFences(_context.Device, 1, &fence).Check();
@@ -436,7 +460,13 @@ public sealed unsafe class Renderer : IDisposable
         };
         _api.BeginCommandBuffer(cmd, &beginInfo).Check();
         int overlayQuads = _overlayAtlas is null ? 0 : _overlayPass.Upload(_frameIndex, view.Overlay);
+        if (timed)
+        {
+            _gpuTimer.Begin(cmd, _frameIndex);
+        }
+
         RecordFrame(cmd, frame.Set, imageIndex, draws, castsShadow, overlayQuads);
+        _gpuTimer.End();
         _api.EndCommandBuffer(cmd).Check();
 
         var renderFinished = _swapchain.RenderFinished[imageIndex];
@@ -532,6 +562,7 @@ public sealed unsafe class Renderer : IDisposable
     {
         _api.DeviceWaitIdle(_context.Device).Check();
 
+        _gpuTimer.Dispose();
         _overlayPass.Dispose();
         _overlayAtlas?.Dispose();
         _finishPass.Dispose();
@@ -593,24 +624,30 @@ public sealed unsafe class Renderer : IDisposable
         _api.BeginColorTarget(cmd, targets.Resolved.Image);
         _taaPass.Record(cmd, targets.Resolved.View, extent, taaSets);
         RecordHistoryCopy(cmd, targets);
+        _gpuTimer.Mark(cmd);
 
         _bloomPass.Record(cmd);
+        _gpuTimer.Mark(cmd);
 
         ReadOnlySpan<DescriptorSet> tonemapSets = [frameSet, _tonemapSet];
         _api.BeginColorTarget(cmd, targets.Ldr.Image);
         _tonemapPass.Record(cmd, targets.Ldr.View, extent, tonemapSets);
         _api.EndColorTarget(cmd, targets.Ldr.Image);
+        _gpuTimer.Mark(cmd);
 
         _api.Transition(cmd, swapchainImage, ImageAspectFlags.ColorBit,
             ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, ColorStage, AccessFlags2.None, ColorStage, ColorWrite);
 
         ReadOnlySpan<DescriptorSet> finishSets = [frameSet, _finishSet];
         _finishPass.Record(cmd, _swapchain.Views[imageIndex], extent, finishSets);
+        _gpuTimer.Mark(cmd);
 
         if (overlayQuads > 0)
         {
             _overlayPass.Record(cmd, _swapchain.Views[imageIndex], extent, _overlaySet, _frameIndex, overlayQuads);
         }
+
+        _gpuTimer.Mark(cmd);
 
         if (_capture is not null)
         {
@@ -678,6 +715,7 @@ public sealed unsafe class Renderer : IDisposable
         _shadowPass.Record(cmd, frameSet, shadowCasters, _meshes);
         _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
             ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess);
+        _gpuTimer.Mark(cmd);
 
         _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
             ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, SampledStage, SampledAccess, ColorStage, ColorWrite);
@@ -699,21 +737,25 @@ public sealed unsafe class Renderer : IDisposable
             ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, ColorStage, ColorWrite, SampledStage, SampledAccess);
         _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
             ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess);
+        _gpuTimer.Mark(cmd);
 
         ReadOnlySpan<DescriptorSet> aoSets = [frameSet, _aoSet];
         _api.BeginColorTarget(cmd, targets.Ao.Image);
         _aoPass.Record(cmd, targets.Ao.View, extent, aoSets);
         _api.EndColorTarget(cmd, targets.Ao.Image);
+        _gpuTimer.Mark(cmd);
 
         ReadOnlySpan<DescriptorSet> aoBlurSets = [_aoBlurSet];
         _api.BeginColorTarget(cmd, targets.AoBlurred.Image);
         _aoBlurPass.Record(cmd, targets.AoBlurred.View, extent, aoBlurSets);
         _api.EndColorTarget(cmd, targets.AoBlurred.Image);
+        _gpuTimer.Mark(cmd);
 
         _api.BeginColorTarget(cmd, targets.Hdr.Image);
 
         ReadOnlySpan<DescriptorSet> lightingSets = [frameSet, _lightingSet];
         _lightingPass.Record(cmd, targets.Hdr.View, extent, lightingSets);
+        _gpuTimer.Mark(cmd);
 
         // Glass blends over the lit image and is hidden by whatever stands in front of it.
         _api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
@@ -725,6 +767,7 @@ public sealed unsafe class Renderer : IDisposable
         _transparentPass.Record(cmd, targets, frameSet, draws, _meshes);
 
         _api.EndColorTarget(cmd, targets.Hdr.Image);
+        _gpuTimer.Mark(cmd);
     }
 
     /// <summary>Copies the finished frame into a buffer the CPU can read, then readies it for display.</summary>

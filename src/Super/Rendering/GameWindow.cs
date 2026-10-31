@@ -1,8 +1,10 @@
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Rendition;
 using Silk.NET.Core.Native;
 using Silk.NET.GLFW;
+using Super.Profiling;
 
 namespace Super;
 
@@ -16,11 +18,16 @@ internal sealed unsafe class GameWindow : IDisposable
 
     private const int RecordingSettleFrames = 16;
 
+    /// <summary>Frames played before measuring, so results don't include .NET still warming up.</summary>
+    private const int ProfileWarmupFrames = 120;
+
+    private const int ProfileFramesPerSecond = 60;
+
     private readonly Glfw _glfw;
     private readonly WindowHandle* _window;
     private readonly SceneRenderer _scene;
 
-    public GameWindow(string title, int windowWidth, int windowHeight, bool hidden)
+    public GameWindow(string title, int windowWidth, int windowHeight, bool hidden, bool validate)
     {
         _glfw = Glfw.GetApi();
         if (!_glfw.Init())
@@ -48,7 +55,7 @@ internal sealed unsafe class GameWindow : IDisposable
             CreateSurface = CreateSurface,
             Width = width,
             Height = height,
-            EnableValidation = hidden,
+            EnableValidation = validate,
         });
     }
 
@@ -125,11 +132,79 @@ internal sealed unsafe class GameWindow : IDisposable
         return _scene.ValidationErrors;
     }
 
+    /// <summary>Plays the given number of ticks, then measures some frames and writes a report.</summary>
+    public void Profile<TGame>(GameHost<TGame> host, string title, int seed, long ticks, int frames, int ticksPerSecond, string path)
+        where TGame : class, IGame
+    {
+        PlayTo(host, ticks);
+        var clock = new FixedStepClock(ticksPerSecond);
+        double step = 1.0 / ProfileFramesPerSecond;
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+
+        _scene.MeasureGpu = true;
+        var warmup = new ProfiledFrame[ProfileWarmupFrames];
+        var gpu = new Dictionary<string, double>();
+        MeasureFrames(host, clock, step, warmup, gpu);
+        gpu.Clear();
+
+        long firstTick = host.Time.Tick;
+        var measured = new ProfiledFrame[frames];
+        var sampler = CpuSampler.Start(Path.ChangeExtension(path, ".nettrace"));
+        MeasureFrames(host, clock, step, measured, gpu);
+        var stacks = sampler.Stop(nameof(MeasureFrames));
+        _scene.MeasureGpu = false;
+
+        foreach (string pass in gpu.Keys)
+        {
+            gpu[pass] /= frames;
+        }
+
+        _glfw.GetFramebufferSize(_window, out int width, out int height);
+        var run = new ProfileRun(title, seed, firstTick, width, height, measured, gpu, stacks);
+        File.WriteAllText(path, ProfileReport.Write(run));
+    }
+
     public void Dispose()
     {
         _scene.Dispose();
         _glfw.DestroyWindow(_window);
         _glfw.Terminate();
+    }
+
+    /// <summary>The profiler keeps only stacks that pass through here, so it mustn't be inlined.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private void MeasureFrames<TGame>(GameHost<TGame> host, FixedStepClock clock, double step, ProfiledFrame[] frames, Dictionary<string, double> gpu)
+        where TGame : class, IGame
+    {
+        float time = (float)host.Time.TotalSeconds;
+        for (int frame = 0; frame < frames.Length; frame++)
+        {
+            long allocated = GC.GetAllocatedBytesForCurrentThread();
+            long start = Stopwatch.GetTimestamp();
+            int due = clock.Advance(step);
+            for (int i = 0; i < due; i++)
+            {
+                host.Tick();
+            }
+
+            long ticked = Stopwatch.GetTimestamp();
+            Draw(host, clock.Blend);
+            long drawn = Stopwatch.GetTimestamp();
+            Show(host, time + (float)(frame * step));
+            long shown = Stopwatch.GetTimestamp();
+
+            frames[frame] = new ProfiledFrame(
+                due,
+                Stopwatch.GetElapsedTime(start, ticked).TotalMilliseconds,
+                Stopwatch.GetElapsedTime(ticked, drawn).TotalMilliseconds,
+                Stopwatch.GetElapsedTime(drawn, shown).TotalMilliseconds,
+                _scene.WaitMilliseconds,
+                GC.GetAllocatedBytesForCurrentThread() - allocated);
+            foreach (ref readonly var pass in _scene.GpuTimes)
+            {
+                gpu[pass.Name] = gpu.GetValueOrDefault(pass.Name) + pass.Milliseconds;
+            }
+        }
     }
 
     private void PlayTo<TGame>(GameHost<TGame> host, long ticks)

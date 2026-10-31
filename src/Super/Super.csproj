@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Diagnostics.NETCore.Client" Version="0.2.750501" />
+    <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="4.0.0" />
     <PackageReference Include="StbTrueTypeSharp" Version="1.26.13" />
     <ProjectReference Include="..\Rendition\Rendition.csproj" />
     <ProjectReference Include="..\Super.Random\Super.Random.csproj" />

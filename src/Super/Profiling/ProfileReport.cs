@@ -1,0 +1,163 @@
+using System.Globalization;
+using System.Text;
+
+namespace Super.Profiling;
+
+/// <summary>One measured frame, in milliseconds.</summary>
+internal readonly record struct ProfiledFrame(
+    int Ticks, double Update, double Draw, double Render, double Waiting, long AllocatedBytes)
+{
+    public double Total => Update + Draw + Render;
+}
+
+/// <summary>Everything a profile run measured.</summary>
+internal sealed record ProfileRun(
+    string Title,
+    int Seed,
+    long Tick,
+    int Width,
+    int Height,
+    IReadOnlyList<ProfiledFrame> Frames,
+    IReadOnlyDictionary<string, double> GpuMilliseconds,
+    IReadOnlyList<string[]> Stacks);
+
+/// <summary>Writes a profile as plain text, short enough to read in one go, by a person or an agent.</summary>
+internal static class ProfileReport
+{
+    private const int FunctionsShown = 20;
+    private const int StacksShown = 8;
+    private const int StackDepthShown = 14;
+
+    public static string Write(ProfileRun run)
+    {
+        var text = new StringBuilder();
+        WriteSummary(text, run);
+        WriteGpu(text, run);
+        WriteFunctions(text, run.Stacks);
+        WriteStacks(text, run.Stacks);
+        return text.ToString();
+    }
+
+    /// <summary>Counts how many samples each function was running in, and was anywhere on the stack for.</summary>
+    internal static List<(string Name, int Self, int Total)> Functions(IReadOnlyList<string[]> stacks)
+    {
+        var self = new Dictionary<string, int>();
+        var total = new Dictionary<string, int>();
+        foreach (var stack in stacks)
+        {
+            self[stack[^1]] = self.GetValueOrDefault(stack[^1]) + 1;
+            foreach (string name in stack.Distinct())
+            {
+                total[name] = total.GetValueOrDefault(name) + 1;
+            }
+        }
+
+        return total
+            .Select(pair => (pair.Key, self.GetValueOrDefault(pair.Key), pair.Value))
+            .OrderByDescending(function => function.Item2)
+            .ThenByDescending(function => function.Value)
+            .ThenBy(function => function.Key, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private static void WriteSummary(StringBuilder text, ProfileRun run)
+    {
+        var frames = run.Frames;
+        var sorted = frames.Select(frame => frame.Total).Order().ToArray();
+        double total = sorted.Average();
+        double waiting = frames.Average(frame => frame.Waiting);
+        Line(text, $"{run.Title}: seed {run.Seed}, from tick {run.Tick:N0}, {run.Width}x{run.Height}, {frames.Count} frames");
+        Line(text);
+        Line(text, $"Frame: {total:0.0} ms on average ({1000.0 / total:0} fps), fastest {sorted[0]:0.0}, slowest {sorted[^1]:0.0}");
+        Line(text, $"  Update    {frames.Average(frame => frame.Update),7:0.00} ms  ({frames.Sum(frame => frame.Ticks)} ticks in all)");
+        Line(text, $"  Draw      {frames.Average(frame => frame.Draw),7:0.00} ms  (the game's Draw, and the interface)");
+        Line(text, $"  Render    {frames.Average(frame => frame.Render),7:0.00} ms  (of which {waiting:0.00} ms waiting for the GPU and the display)");
+        Line(text, $"  Allocated {frames.Average(frame => frame.AllocatedBytes),7:N0} bytes per frame");
+        Line(text);
+        WriteLimit(text, total - waiting, run.GpuMilliseconds.Values.Sum());
+        Line(text);
+    }
+
+    /// <summary>
+    /// Compares time spent working. Waiting says little, because a frame also waits for the
+    /// display, even with nothing left to do.
+    /// </summary>
+    private static void WriteLimit(StringBuilder text, double cpu, double gpu)
+    {
+        if (gpu == 0.0)
+        {
+            Line(text, $"CPU busy {cpu:0.0} ms per frame. Without GPU times, there's no telling which side is the limit.");
+            return;
+        }
+
+        string limit = gpu > cpu ? "GPU" : "CPU";
+        Line(text, $"Limited by the {limit}: CPU busy {cpu:0.0} ms, GPU busy {gpu:0.0} ms per frame, enough for about {1000.0 / Math.Max(cpu, gpu):0} fps.");
+    }
+
+    private static void WriteGpu(StringBuilder text, ProfileRun run)
+    {
+        if (run.GpuMilliseconds.Count == 0)
+        {
+            Line(text, "GPU: this GPU can't time its passes.");
+            Line(text);
+            return;
+        }
+
+        double total = run.GpuMilliseconds.Values.Sum();
+        Line(text, $"GPU: {total:0.00} ms per frame");
+        foreach (var (name, milliseconds) in run.GpuMilliseconds.OrderByDescending(pass => pass.Value))
+        {
+            Line(text, $"  {name,-18} {milliseconds,7:0.00} ms  {milliseconds / total,4:P0}");
+        }
+
+        Line(text);
+    }
+
+    private static void WriteFunctions(StringBuilder text, IReadOnlyList<string[]> stacks)
+    {
+        if (stacks.Count == 0)
+        {
+            Line(text, "CPU: no samples were collected.");
+            return;
+        }
+
+        Line(text, $"CPU: {stacks.Count:N0} samples of the game's thread. Waiting counts as time, so waits for the GPU and the display show up, mostly as Renderer.Render.");
+        Line(text, "Self is time in the function itself, and total includes what it calls.");
+        Line(text);
+        Line(text, "   Self   Total  Function");
+        foreach (var (name, self, total) in Functions(stacks).Take(FunctionsShown))
+        {
+            Line(text, $"{Share(self, stacks.Count)}  {Share(total, stacks.Count)}  {name}");
+        }
+
+        Line(text);
+    }
+
+    private static void WriteStacks(StringBuilder text, IReadOnlyList<string[]> stacks)
+    {
+        var groups = stacks
+            .GroupBy(stack => string.Join('\n', stack))
+            .OrderByDescending(group => group.Count())
+            .ThenBy(group => group.Key, StringComparer.Ordinal)
+            .Take(StacksShown);
+        foreach (var group in groups)
+        {
+            Line(text, $"{Share(group.Count(), stacks.Count).Trim()} of samples:");
+            string[] stack = group.First();
+            foreach (string name in stack.TakeLast(StackDepthShown))
+            {
+                Line(text, $"  {name}");
+            }
+
+            Line(text);
+        }
+    }
+
+    private static string Share(int part, int whole) =>
+        ((double)part / whole).ToString("0.0%", CultureInfo.InvariantCulture).PadLeft(6);
+
+    private static void Line(StringBuilder text, FormattableString line) =>
+        text.Append(line.ToString(CultureInfo.InvariantCulture)).Append('\n');
+
+    private static void Line(StringBuilder text, string line = "") => text.Append(line).Append('\n');
+}

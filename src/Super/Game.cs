@@ -19,9 +19,19 @@ public static class Game
         Console.WriteLine($"seed {seed}");
 
         using var host = new GameHost<TGame>(seed, options.TicksPerSecond, services);
-        bool hidden = arguments.ScreenshotPath is not null || arguments.RecordPath is not null;
+        bool hidden = arguments.ScreenshotPath is not null || arguments.RecordPath is not null || arguments.ProfilePath is not null;
+
+        // Validation would swamp the timings, so a profile runs without it.
+        bool validate = hidden && arguments.ProfilePath is null;
         using var window = new GameWindow(
-            options.Title, arguments.Width ?? options.Width, arguments.Height ?? options.Height, hidden);
+            options.Title, arguments.Width ?? options.Width, arguments.Height ?? options.Height, hidden, validate);
+
+        if (arguments.ProfilePath is { } report)
+        {
+            window.Profile(host, options.Title, seed, arguments.Ticks ?? 0, arguments.Frames, options.TicksPerSecond, report);
+            Console.WriteLine($"{report}: {arguments.Frames} frames");
+            return;
+        }
 
         if (arguments.ScreenshotPath is { } path)
         {

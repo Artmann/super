@@ -32,6 +32,20 @@ public class GameArgumentsTests
     }
 
     [Fact]
+    public void Reads_a_profile()
+    {
+        var arguments = GameArguments.Parse(["--seed", "7", "--ticks", "300", "--profile", "reef.txt", "--frames", "120"]);
+
+        Assert.Equal(new GameArguments(7, 300, null, ProfilePath: "reef.txt", Frames: 120), arguments);
+    }
+
+    [Fact]
+    public void Profiles_default_to_60_frames()
+    {
+        Assert.Equal(60, GameArguments.Parse(["--profile", "reef.txt"]).Frames);
+    }
+
+    [Fact]
     public void Leaves_the_games_own_options_alone()
     {
         Assert.Equal(new GameArguments(42, null, null), GameArguments.Parse(["--god-mode", "--seed", "42"]));
@@ -53,6 +67,11 @@ public class GameArgumentsTests
     [InlineData("--record", "clip.mp4", "--seconds", "1", "--fps", "99999999999")]
     [InlineData("--record", "clip.mp4", "--seconds", "1", "--screenshot", "a.png")]
     [InlineData("--seconds", "1")]
+    [InlineData("--frames", "60")]
+    [InlineData("--profile", "reef.txt", "--frames", "0")]
+    [InlineData("--profile", "reef.txt", "--frames", "99999999999")]
+    [InlineData("--profile", "reef.txt", "--screenshot", "a.png")]
+    [InlineData("--profile", "reef.txt", "--record", "clip.mp4", "--seconds", "1")]
     [InlineData("--size", "big", "--screenshot", "a.png")]
     [InlineData("--size", "0x10", "--screenshot", "a.png")]
     public void Explains_a_bad_command_line(params string[] args)
