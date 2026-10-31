@@ -18,6 +18,7 @@ internal sealed class GameHost<TGame> : IDisposable
         services.AddSingleton(time);
         services.AddSingleton(new GameRandom(seed));
         services.AddSingleton<Content>();
+        services.AddSingleton<GameCapture>();
         services.AddSingleton<TGame>();
 
         // This comes last so a game or a test can replace any of the above.
@@ -27,6 +28,7 @@ internal sealed class GameHost<TGame> : IDisposable
         Time = time;
         Seed = seed;
         Content = _services.GetRequiredService<Content>();
+        Capture = _services.GetRequiredService<GameCapture>();
         Game = _services.GetRequiredService<TGame>();
         ((IGame)Game).Load();
     }
@@ -36,6 +38,8 @@ internal sealed class GameHost<TGame> : IDisposable
     public GameTime Time { get; }
 
     public Content Content { get; }
+
+    public GameCapture Capture { get; }
 
     public int Seed { get; }
 

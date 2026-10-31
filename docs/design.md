@@ -225,10 +225,16 @@ dither also hide the steps an 8-bit screen would show in slow gradients.
 
 ## Verification without a window
 
-`--check` and `--screenshot` create the GLFW window hidden, so they never take focus.
+`--check`, `--screenshot` and `--record` create the GLFW window hidden, so they never
+take focus.
 Vulkan still renders and presents to it. `Renderer.Capture` copies the finished
 frame into a CPU-readable buffer that exists only for that call, so `Render` pays
 nothing but a null check for the feature.
+
+Videos are built from those same frames. `GameCapture` pipes them as raw RGBA to an
+ffmpeg process, and the game steps a fixed `1 / fps` per frame while recording, so
+the output doesn't depend on how fast the machine is. Waiting on the GPU for each
+frame is slow, but it's only paid while capturing.
 
 ## Known simplifications to revisit
 

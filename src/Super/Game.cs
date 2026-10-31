@@ -19,12 +19,23 @@ public static class Game
         Console.WriteLine($"seed {seed}");
 
         using var host = new GameHost<TGame>(seed, options.TicksPerSecond, services);
-        using var window = new GameWindow(options, hidden: arguments.ScreenshotPath is not null);
+        bool hidden = arguments.ScreenshotPath is not null || arguments.RecordPath is not null;
+        using var window = new GameWindow(
+            options.Title, arguments.Width ?? options.Width, arguments.Height ?? options.Height, hidden);
 
         if (arguments.ScreenshotPath is { } path)
         {
             int problems = window.Screenshot(host, arguments.Ticks ?? 0, path);
             Console.WriteLine($"{path}: {problems} validation messages");
+            Environment.ExitCode = problems == 0 ? 0 : 1;
+            return;
+        }
+
+        if (arguments.RecordPath is { } video)
+        {
+            int frames = (int)Math.Round(arguments.Seconds!.Value * arguments.FramesPerSecond);
+            int problems = window.Record(host, arguments.Ticks ?? 0, video, frames, arguments.FramesPerSecond, options.TicksPerSecond);
+            Console.WriteLine($"{video}: {frames} frames, {problems} validation messages");
             Environment.ExitCode = problems == 0 ? 0 : 1;
             return;
         }

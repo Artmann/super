@@ -380,6 +380,7 @@ agents. None of these show a window.
 ```
 dotnet run --project MyColony -- --headless --seed 42 --ticks 20000 --json
 dotnet run --project MyColony -- --seed 42 --ticks 6000 --screenshot day-200.png
+dotnet run --project MyColony -- --seed 42 --ticks 6000 --record day-200.mp4 --seconds 20 --fps 60 --size 1920x1080
 ```
 
 `--json` prints a result a script can read:
@@ -390,8 +391,41 @@ dotnet run --project MyColony -- --seed 42 --ticks 6000 --screenshot day-200.png
 
 `--screenshot` renders the real picture of that exact moment, so it needs a GPU.
 
-Today `--seed` and `--screenshot` work, and `--ticks` works alongside `--screenshot`.
-`--headless` and `--json` are still to come.
+`--record` plays to `--ticks`, then saves `--seconds` of video. `--fps` defaults to 60
+and `--size` to the game's window size. It needs a GPU, and
+[ffmpeg](https://ffmpeg.org) on the PATH (`winget install Gyan.FFmpeg`). A video runs
+as fast as the machine can make it, and the same seed gives the same frames.
+
+Today `--seed`, `--screenshot`, `--record` and `--size` work, and `--ticks` works
+alongside `--screenshot` and `--record`. `--headless` and `--json` are still to come.
+
+## Screenshots and videos from code
+
+Ask for `GameCapture` in your constructor and call it from anywhere in the game:
+
+```csharp
+internal sealed class MyColony(GameCapture capture) : IGame
+{
+    public void OnRaidStarted()
+    {
+        capture.Screenshot("raid.png");
+        capture.StartRecording("raid.mp4", framesPerSecond: 60);
+    }
+
+    public void OnRaidEnded() => capture.StopRecording();
+
+    // Load, Update and Draw as usual.
+}
+```
+
+- Pictures come straight from the renderer, so other windows and overlays can't end
+  up in them.
+- `Screenshot` saves the next frame as a PNG. Folders are created for you.
+- While recording, each frame moves the game on by exactly one video frame. Instead
+  of a stuttering video you get a game that may run slowly until `StopRecording`.
+- `StopRecording` waits for the file to be finished. Closing the game finishes it too.
+- Resizing the window ends the recording, and the video stops at that point.
+- In a headless test there's nothing to capture, so these calls do nothing.
 
 ## Using an ECS
 

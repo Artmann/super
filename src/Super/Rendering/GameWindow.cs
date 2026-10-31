@@ -14,11 +14,13 @@ internal sealed unsafe class GameWindow : IDisposable
 
     private const int ScreenshotPlayedTicks = 120;
 
+    private const int RecordingSettleFrames = 16;
+
     private readonly Glfw _glfw;
     private readonly WindowHandle* _window;
     private readonly SceneRenderer _scene;
 
-    public GameWindow(GameOptions options, bool hidden)
+    public GameWindow(string title, int windowWidth, int windowHeight, bool hidden)
     {
         _glfw = Glfw.GetApi();
         if (!_glfw.Init())
@@ -28,7 +30,11 @@ internal sealed unsafe class GameWindow : IDisposable
 
         _glfw.WindowHint(WindowHintClientApi.ClientApi, ClientApi.NoApi);
         _glfw.WindowHint(WindowHintBool.Visible, !hidden);
-        _window = _glfw.CreateWindow(options.Width, options.Height, options.Title, null, null);
+
+        // Windows shrinks a window whose title bar would push it past the screen's height,
+        // and a hidden window should come out at exactly the size that was asked for.
+        _glfw.WindowHint(WindowHintBool.Decorated, !hidden);
+        _window = _glfw.CreateWindow(windowWidth, windowHeight, title, null, null);
         if (_window is null)
         {
             _glfw.Terminate();
@@ -53,27 +59,80 @@ internal sealed unsafe class GameWindow : IDisposable
         var clock = new FixedStepClock(ticksPerSecond);
         var realTime = Stopwatch.StartNew();
         double last = 0;
+        double played = 0;
 
         while (!_glfw.WindowShouldClose(_window))
         {
             _glfw.PollEvents();
 
             double now = realTime.Elapsed.TotalSeconds;
-            int ticks = clock.Advance(now - last);
+            double step = host.Capture.IsRecording ? 1.0 / host.Capture.FramesPerSecond : now - last;
             last = now;
+            played += step;
+
+            int ticks = clock.Advance(step);
             for (int i = 0; i < ticks; i++)
             {
                 host.Tick();
             }
 
             host.Draw(clock.Blend);
-            _glfw.GetFramebufferSize(_window, out int width, out int height);
-            _scene.Render(host.View, host.Content, width, height, (float)now);
+            Show(host, (float)played);
         }
     }
 
     /// <summary>Plays the given number of ticks and saves the picture. Returns the validation message count.</summary>
     public int Screenshot<TGame>(GameHost<TGame> host, long ticks, string path)
+        where TGame : class, IGame
+    {
+        PlayTo(host, ticks);
+        host.Draw(1f);
+        float time = (float)host.Time.TotalSeconds;
+        Settle(host, time, ScreenshotSettleFrames);
+
+        host.Capture.Screenshot(path);
+        Show(host, time);
+        return _scene.ValidationErrors;
+    }
+
+    /// <summary>Plays the given number of ticks, then saves a video. Returns the validation message count.</summary>
+    public int Record<TGame>(GameHost<TGame> host, long ticks, string path, int frames, int framesPerSecond, int ticksPerSecond)
+        where TGame : class, IGame
+    {
+        PlayTo(host, ticks);
+
+        // Blending from 0 means the first frame of the video carries straight on from here.
+        host.Draw(0f);
+        float start = (float)host.Time.TotalSeconds;
+        Settle(host, start, RecordingSettleFrames);
+
+        var clock = new FixedStepClock(ticksPerSecond);
+        double step = 1.0 / framesPerSecond;
+        host.Capture.StartRecording(path, framesPerSecond);
+        for (int frame = 0; frame < frames; frame++)
+        {
+            int due = clock.Advance(step);
+            for (int i = 0; i < due; i++)
+            {
+                host.Tick();
+            }
+
+            host.Draw(clock.Blend);
+            Show(host, start + (float)(frame * step));
+        }
+
+        host.Capture.StopRecording();
+        return _scene.ValidationErrors;
+    }
+
+    public void Dispose()
+    {
+        _scene.Dispose();
+        _glfw.DestroyWindow(_window);
+        _glfw.Terminate();
+    }
+
+    private void PlayTo<TGame>(GameHost<TGame> host, long ticks)
         where TGame : class, IGame
     {
         _glfw.GetFramebufferSize(_window, out int width, out int height);
@@ -89,24 +148,33 @@ internal sealed unsafe class GameWindow : IDisposable
                 _scene.Render(host.View, host.Content, width, height, (float)host.Time.TotalSeconds);
             }
         }
+    }
 
-        float time = (float)host.Time.TotalSeconds;
-        host.Draw(1f);
-        for (int i = 0; i < ScreenshotSettleFrames; i++)
+    private void Settle<TGame>(GameHost<TGame> host, float time, int frames)
+        where TGame : class, IGame
+    {
+        _glfw.GetFramebufferSize(_window, out int width, out int height);
+        for (int i = 0; i < frames; i++)
         {
             _scene.Render(host.View, host.Content, width, height, time);
         }
-
-        byte[] pixels = _scene.Capture(host.View, host.Content, width, height, time, out int capturedWidth, out int capturedHeight);
-        PngFile.Write(path, pixels, capturedWidth, capturedHeight);
-        return _scene.ValidationErrors;
     }
 
-    public void Dispose()
+    /// <summary>Puts the last Draw on screen, and hands it to the capture if that wants it.</summary>
+    private void Show<TGame>(GameHost<TGame> host, float time)
+        where TGame : class, IGame
     {
-        _scene.Dispose();
-        _glfw.DestroyWindow(_window);
-        _glfw.Terminate();
+        _glfw.GetFramebufferSize(_window, out int width, out int height);
+
+        // A minimized window has no pixels to read.
+        if (!host.Capture.WantsFrame || width == 0 || height == 0)
+        {
+            _scene.Render(host.View, host.Content, width, height, time);
+            return;
+        }
+
+        byte[] pixels = _scene.Capture(host.View, host.Content, width, height, time, out int capturedWidth, out int capturedHeight);
+        host.Capture.Accept(pixels, capturedWidth, capturedHeight);
     }
 
     private ulong CreateSurface(nint instance)

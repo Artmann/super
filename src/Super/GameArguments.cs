@@ -6,13 +6,28 @@ namespace Super;
 /// The options every Super game understands. Anything else on the command line is
 /// left for the game to read.
 /// </summary>
-internal sealed record GameArguments(int? Seed, long? Ticks, string? ScreenshotPath)
+internal sealed record GameArguments(
+    int? Seed,
+    long? Ticks,
+    string? ScreenshotPath,
+    string? RecordPath = null,
+    double? Seconds = null,
+    int FramesPerSecond = GameArguments.DefaultFramesPerSecond,
+    int? Width = null,
+    int? Height = null)
 {
+    public const int DefaultFramesPerSecond = 60;
+
     public static GameArguments Parse(ReadOnlySpan<string> args)
     {
         int? seed = null;
         long? ticks = null;
         string? screenshotPath = null;
+        string? recordPath = null;
+        double? seconds = null;
+        int framesPerSecond = DefaultFramesPerSecond;
+        int? width = null;
+        int? height = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -27,6 +42,18 @@ internal sealed record GameArguments(int? Seed, long? Ticks, string? ScreenshotP
                 case "--screenshot":
                     screenshotPath = Value(args, ++i, "--screenshot");
                     break;
+                case "--record":
+                    recordPath = Value(args, ++i, "--record");
+                    break;
+                case "--seconds":
+                    seconds = PositiveSeconds(args, ++i);
+                    break;
+                case "--fps":
+                    framesPerSecond = (int)Number(args, ++i, "--fps");
+                    break;
+                case "--size":
+                    (width, height) = Size(args, ++i);
+                    break;
             }
         }
 
@@ -35,21 +62,65 @@ internal sealed record GameArguments(int? Seed, long? Ticks, string? ScreenshotP
             throw new ArgumentException("--ticks can't be negative.");
         }
 
-        if (ticks is not null && screenshotPath is null)
+        if (ticks is not null && screenshotPath is null && recordPath is null)
         {
-            throw new ArgumentException("--ticks needs --screenshot, because that's the only run without a window so far.");
+            throw new ArgumentException("--ticks needs --screenshot or --record, because those are the only runs without a window so far.");
         }
 
-        return new GameArguments(seed, ticks, screenshotPath);
+        if (screenshotPath is not null && recordPath is not null)
+        {
+            throw new ArgumentException("--screenshot and --record can't run together.");
+        }
+
+        if (recordPath is not null && seconds is null)
+        {
+            throw new ArgumentException("--record needs --seconds.");
+        }
+
+        if (recordPath is not null && !recordPath.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("--record needs a path ending in .mp4.");
+        }
+
+        if (seconds is not null && recordPath is null)
+        {
+            throw new ArgumentException("--seconds needs --record.");
+        }
+
+        if (framesPerSecond <= 0)
+        {
+            throw new ArgumentException("--fps must be above zero.");
+        }
+
+        return new GameArguments(seed, ticks, screenshotPath, recordPath, seconds, framesPerSecond, width, height);
+    }
+
+    private static double PositiveSeconds(ReadOnlySpan<string> args, int index)
+    {
+        string text = Value(args, index, "--seconds");
+        return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double seconds) && seconds > 0 && double.IsFinite(seconds)
+            ? seconds
+            : throw new ArgumentException($"--seconds needs a number above zero, not '{text}'.");
+    }
+
+    private static (int Width, int Height) Size(ReadOnlySpan<string> args, int index)
+    {
+        string text = Value(args, index, "--size");
+        string[] parts = text.Split('x');
+        return parts.Length == 2
+            && int.TryParse(parts[0], CultureInfo.InvariantCulture, out int width) && width > 0
+            && int.TryParse(parts[1], CultureInfo.InvariantCulture, out int height) && height > 0
+                ? (width, height)
+                : throw new ArgumentException($"--size needs a size like 1920x1080, not '{text}'.");
     }
 
     private static long Number(ReadOnlySpan<string> args, int index, string name)
     {
         string text = Value(args, index, name);
-        if (name == "--seed")
+        if (name != "--ticks")
         {
-            return int.TryParse(text, CultureInfo.InvariantCulture, out int seed)
-                ? seed
+            return int.TryParse(text, CultureInfo.InvariantCulture, out int small)
+                ? small
                 : throw new ArgumentException($"{name} needs a whole number, not '{text}'.");
         }
 
