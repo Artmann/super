@@ -292,6 +292,22 @@ public sealed unsafe class Renderer : IDisposable
 
     public MaterialHandle CreateMaterial(in Material material)
     {
+        ValidateMaterial(material);
+        return _resources.AddMaterial(material);
+    }
+
+    /// <summary>
+    /// Changes an existing material, for things that change colour during play. Unlike
+    /// <see cref="CreateMaterial"/>, this doesn't use up one of the limited material slots.
+    /// </summary>
+    public void UpdateMaterial(MaterialHandle handle, in Material material)
+    {
+        ValidateMaterial(material);
+        _resources.UpdateMaterial(handle, material);
+    }
+
+    private void ValidateMaterial(in Material material)
+    {
         if (material.Shader is { } shader)
         {
             if (shader.Index <= 0 || shader.Index >= _gBufferPass.ShaderCount)
@@ -304,8 +320,6 @@ public sealed unsafe class Renderer : IDisposable
                 throw new ArgumentException("Transparent materials can't use a surface shader yet.", nameof(material));
             }
         }
-
-        return _resources.AddMaterial(material);
     }
 
     /// <summary>Uploads a cooked model and returns one draw per part.</summary>

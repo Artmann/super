@@ -171,7 +171,27 @@ internal sealed unsafe class ResourceTable : IDisposable
         }
 
         // Earlier frames only read earlier slots, so this write needs no synchronization.
-        ((GpuMaterial*)_materials.Mapped)[_materialCount] = new GpuMaterial
+        WriteMaterial(_materialCount, material);
+        return new MaterialHandle(_materialCount++);
+    }
+
+    /// <summary>
+    /// Changes a material in place. A frame still on the GPU may see the new values,
+    /// which at worst shows them one frame early.
+    /// </summary>
+    public void UpdateMaterial(MaterialHandle handle, in Material material)
+    {
+        if (handle.Index < 0 || handle.Index >= _materialCount)
+        {
+            throw new ArgumentException("The material does not exist.", nameof(handle));
+        }
+
+        WriteMaterial(handle.Index, material);
+    }
+
+    private void WriteMaterial(int index, in Material material)
+    {
+        ((GpuMaterial*)_materials.Mapped)[index] = new GpuMaterial
         {
             BaseColor = material.BaseColor,
             Metallic = material.Metallic,
@@ -185,9 +205,8 @@ internal sealed unsafe class ResourceTable : IDisposable
             Emissive = new Vector4(material.Emissive, 0f),
             ShaderParameters = material.ShaderParameters,
         };
-        _materialFlags[_materialCount] = material.Flags;
-        _materialShaders[_materialCount] = material.Shader?.Index ?? 0;
-        return new MaterialHandle(_materialCount++);
+        _materialFlags[index] = material.Flags;
+        _materialShaders[index] = material.Shader?.Index ?? 0;
     }
 
     public void Dispose()

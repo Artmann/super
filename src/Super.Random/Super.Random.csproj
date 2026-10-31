@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The types live in the Super namespace, so `using Super;` is all a game needs,
+       and a Super.Random namespace can't hide System.Random. -->
+  <PropertyGroup>
+    <RootNamespace>Super</RootNamespace>
+  </PropertyGroup>
+
+</Project>

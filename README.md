@@ -4,9 +4,11 @@ A C# game engine you use as a library. There's no editor and no scene file forma
 You write a normal .NET program, and Super gives you the window, the game loop,
 a modern 3D renderer and the building blocks that take time to get right.
 
-> **Status:** Super is at the design stage. [Rendition](src/Rendition/README.md), the
-> renderer, works today. Everything else in this document describes the engine we're
-> building, and the code samples show the intended API, which doesn't exist yet.
+> **Status:** Super is early. [Rendition](src/Rendition/README.md), the renderer, works
+> today. So do the game loop, the window, `GameRandom`, `HeadlessGame` and `[Seeds]`,
+> which the [ColorCube example](examples/ColorCube) shows. Everything else in this
+> document describes the engine we're building, and much of its code shows an intended
+> API that doesn't exist yet.
 
 - **You own the game.** Your state lives in your own classes. Super never asks you to
   inherit from a base object or fit your game into its world.
@@ -59,7 +61,8 @@ display can run faster or slower than the simulation.
 
 | Package | What it gives you | Depends on |
 | --- | --- | --- |
-| `Super` | Window, game loop, input, views, content, random numbers | `Rendition` |
+| `Super` | Window, game loop, input, views, content | `Rendition`, `Super.Random` |
+| `Super.Random` | Seeded random numbers. Usable alone | Nothing else here |
 | `Super.Ecs` | An optional entity component system | `Super` |
 | `Super.Testing` | Headless runs, seeded tests and run logs | `Super` |
 | `Rendition` | The renderer. Usable alone, with no engine | Nothing else here |
@@ -298,8 +301,20 @@ class Weather(GameRandom random)
 Each stream has its own sequence, so adding a dice roll to combat won't change the
 weather. To replay a game exactly, use the same seed.
 
-Streams have the things games reach for, such as `Between`, `Chance`, `Pick`,
-`Shuffle` and `PickWeighted`.
+Streams have the things games reach for:
+
+| Method | What you get |
+| --- | --- |
+| `Between(1, 6)` | A whole number, including both ends, so this is a die |
+| `Between(0.5f, 2f)` | A decimal number in that range |
+| `Float()` | A number from 0 up to, but not including, 1 |
+| `Chance(0.05f)` | True 5% of the time |
+| `Bool()`, `Sign()` | A coin flip, or either -1 or 1 |
+| `Pick(items)`, `Shuffle(items)` | A random item, or a random order |
+| `PickWeighted(items, item => item.Weight)` | A random item, where bigger weights come up more |
+| `Normal(mean, deviation)` | A bell curve, for values that vary but rarely go wild |
+| `Angle()`, `Direction2D()`, `Direction3D()` | A random way to face |
+| `InsideCircle(radius)`, `InsideSphere(radius)` | A random point in that shape |
 
 ## Testing
 
@@ -375,6 +390,9 @@ dotnet run --project MyColony -- --seed 42 --ticks 6000 --screenshot day-200.png
 
 `--screenshot` renders the real picture of that exact moment, so it needs a GPU.
 
+Today `--seed` and `--screenshot` work, and `--ticks` works alongside `--screenshot`.
+`--headless` and `--json` are still to come.
+
 ## Using an ECS
 
 ECS suits games with thousands of similar things, like a colony sim's workers, animals
@@ -427,6 +445,19 @@ Super isn't on NuGet yet. To work on it, clone this repository and build the sol
 
 ```
 dotnet build Super.slnx -c Release
+```
+
+To run the tests, which need no window or GPU:
+
+```
+dotnet test Super.slnx -c Release
+```
+
+To see a game running, try the example, a spinning cube that changes to a random color
+at random times:
+
+```
+dotnet run -c Release --project examples/ColorCube
 ```
 
 To see what the renderer can do today, run the sample:

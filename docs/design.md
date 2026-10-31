@@ -6,11 +6,16 @@ would meet it. This file records the reasons behind it, then Rendition's design.
 
 ## Engine decisions
 
-These are decided but not built yet, apart from the project layout.
+These are decided. The game loop, window, randomness and headless runs are built; the
+rest is not yet.
 
 | Area | Choice | Why |
 | --- | --- | --- |
-| Projects | `Super`, optional `Super.Ecs` and `Super.Testing`, and `Rendition`, which knows nothing of the others | Each layer stays usable without those above it |
+| Projects | `Super`, `Super.Random`, optional `Super.Ecs` and `Super.Testing`, and `Rendition`, which knows nothing of the others | Each layer stays usable without those above it |
+| Namespaces | `Super.Random` keeps its types in the `Super` namespace | `using Super;` is enough, and it can't hide `System.Random` |
+| Random generator | xoshiro256**, with streams seeded by hashing their name with FNV-1a | Fast and well tested. `string.GetHashCode` changes between runs, so it can't be used. A test pins the sequence, because changing it breaks every recorded seed |
+| Per-draw color | Each key that asks for a color owns one material, recolored in place | The renderer has 1024 material slots, so one per color would run out. Until draws carry their own color, a game has at most that many colored keys |
+| Falling behind | The clock drops time beyond 0.25 seconds of backlog | Trying to catch up after a stall would slow a struggling game further |
 | Structure | Game code is plain classes behind `IGame`, with no built-in scheduler | The game's author owns the logic and the order it runs in |
 | Time | `Update` runs on fixed ticks, `Draw` once per displayed frame and blends between ticks | Repeatable simulation, whatever the frame rate |
 | Drawing | Views are plain functions of state, called every frame | Nothing to keep in sync, and loading needs no special cases |

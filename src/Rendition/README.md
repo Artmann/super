@@ -34,7 +34,7 @@ What exists today:
   file
 - Custom surface shaders that a game can write and attach to a material
 - A small public API: `Renderer.CreateModel`, `CreateMesh`, `CreateTexture`,
-  `CreateMaterial`, `CreateSurfaceShader` and
+  `CreateMaterial`, `UpdateMaterial`, `CreateSurfaceShader` and
   `Render(in FrameView, ReadOnlySpan<DrawItem>)`
 
 Decisions, the G-buffer layout and known simplifications are in

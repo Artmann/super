@@ -2,6 +2,20 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Rendition\Rendition.csproj" />
+    <ProjectReference Include="..\Super.Random\Super.Random.csproj" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.8" />
+    <PackageReference Include="Silk.NET.GLFW" Version="2.23.0" />
+  </ItemGroup>
+
+  <!-- The sample's cube and PNG writer, shared rather than copied. -->
+  <ItemGroup>
+    <Compile Include="..\Rendition.Sample\Cube.cs" Link="Rendering\Cube.cs" />
+    <Compile Include="..\Rendition.Sample\PngFile.cs" Link="Rendering\PngFile.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Super.Testing" />
+    <InternalsVisibleTo Include="Super.Tests" />
   </ItemGroup>
 
 </Project>
