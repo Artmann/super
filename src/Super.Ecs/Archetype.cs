@@ -62,6 +62,9 @@ internal sealed class Archetype
 
     public Column<T> Column<T>(int type) => (Column<T>)_columns[type]!;
 
+    /// <summary>The column for a component this archetype may not have. A type of -1 means it was never registered.</summary>
+    public Column<T>? ColumnOrNull<T>(int type) => type >= 0 ? _columns[type] as Column<T> : null;
+
     public int AddRow(Entity entity)
     {
         if (Count == Entities.Length)

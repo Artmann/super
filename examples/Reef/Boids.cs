@@ -73,13 +73,13 @@ internal sealed class Boids
     {
         Array.Fill(_firstInCell, -1);
         int count = 0;
-        foreach (var row in _world.Query<Position, Velocity, Fish>())
+        foreach (var row in _world.Query<Transform, Velocity, Fish>())
         {
-            _positions[count] = row.First.Value;
+            _positions[count] = row.First.Position;
             _velocities[count] = row.Second.Value;
             _schools[count] = row.Third.School;
             _species[count] = row.Third.Species;
-            int cell = CellOf(row.First.Value);
+            int cell = CellOf(row.First.Position);
             _nextInCell[count] = _firstInCell[cell];
             _firstInCell[cell] = count;
             count++;
@@ -91,11 +91,9 @@ internal sealed class Boids
         Parallel.For(0, (count + FishPerBatch - 1) / FishPerBatch, _steerBatch);
 
         int index = 0;
-        foreach (var row in _world.Query<Position, Velocity, Fish, PreviousPosition>())
+        foreach (var row in _world.Query<Transform, Velocity, Fish, Swim>())
         {
             var species = _settings.Species[row.Third.Species];
-            row.Fourth = new PreviousPosition(row.First.Value, row.Second.Value);
-
             var push = _pushes[index];
             float length = push.Length();
             if (length > MaxTurn)
@@ -109,8 +107,8 @@ internal sealed class Boids
             velocity = speed > 0f ? velocity * (limited / speed) : Vector3.UnitZ * limited;
 
             row.Second.Value = velocity;
-            row.First.Value = Keep(row.First.Value + velocity * seconds);
-            row.Third.Phase += limited * seconds * StrokesPerMetre / species.Length;
+            row.First = Transform.Facing(Keep(row.First.Position + velocity * seconds), velocity / limited, species.Length);
+            row.Fourth.Phase += limited * seconds * StrokesPerMetre / species.Length;
             index++;
         }
     }
@@ -240,7 +238,7 @@ internal sealed class Boids
     {
         // A school heads somewhere new on reaching its goal, using the first member as its stand-in.
         Span<bool> checkedSchool = stackalloc bool[_schoolTargets.Length];
-        foreach (var row in _world.Query<Position, Fish>())
+        foreach (var row in _world.Query<Transform, Fish>())
         {
             int school = row.Second.School;
             if (checkedSchool[school])
@@ -249,7 +247,7 @@ internal sealed class Boids
             }
 
             checkedSchool[school] = true;
-            if (Vector3.DistanceSquared(row.First.Value, _schoolTargets[school]) < TargetReached * TargetReached)
+            if (Vector3.DistanceSquared(row.First.Position, _schoolTargets[school]) < TargetReached * TargetReached)
             {
                 _schoolTargets[school] = PickTarget();
             }

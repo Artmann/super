@@ -9,7 +9,8 @@ namespace Reef;
 /// <summary>A wide view of thousands of schooling fish over a coral reef.</summary>
 internal sealed class ReefGame(World world, ReefSettings settings, GameRandom random, GameTime time, Content content, GameStats stats) : IGame
 {
-    private const float SwimAmplitude = 0.09f; // Of the model's length.
+    private const float SwimAmplitude = 0.09f; // Of the model's length, which the transform scales to the real one.
+    private const int SeabedKey = -1; // Entity IDs count up from 0.
     private const float CameraOrbitSeconds = 240f;
     private const float CameraDistance = 52f;
     private const float CameraHeight = 9f;
@@ -61,38 +62,8 @@ internal sealed class ReefGame(World world, ReefSettings settings, GameRandom ra
         view.Water(Water);
         view.Finish(new PostSettings { Contrast = 0.12f, Saturation = 0.12f, Vignette = 0.4f, Sharpen = 0.35f });
 
-        view.Model(0, _seabed, Matrix4x4.Identity);
-        foreach (var row in world.Query<Scenery>())
-        {
-            view.Model(row.Entity.Id, row.First.Model, row.First.Transform);
-        }
-
-        float blend = view.Blend;
-        foreach (var row in world.Query<Position, Velocity, Fish, PreviousPosition>())
-        {
-            var position = Vector3.Lerp(row.Fourth.Position, row.First.Value, blend);
-            var velocity = Vector3.Lerp(row.Fourth.Velocity, row.Second.Value, blend);
-            var kind = settings.Species[row.Third.Species];
-            float speed = velocity.Length();
-            float phase = row.Third.Phase + speed * time.TickSeconds * blend * Boids.StrokesPerMetre / kind.Length;
-            view.Model(
-                row.Entity.Id,
-                _fishModels[row.Third.Species],
-                FishTransform(position, velocity / speed, kind.Length),
-                new SwimMotion(SwimAmplitude, 1f, phase));
-        }
-    }
-
-    private static Matrix4x4 FishTransform(Vector3 position, Vector3 forward, float length)
-    {
-        var side = Vector3.Cross(Vector3.UnitY, forward);
-        side = side.LengthSquared() > 1e-5f ? Vector3.Normalize(side) : Vector3.UnitX;
-        var up = Vector3.Cross(forward, side);
-        return new Matrix4x4(
-            side.X * length, side.Y * length, side.Z * length, 0f,
-            up.X * length, up.Y * length, up.Z * length, 0f,
-            forward.X * length, forward.Y * length, forward.Z * length, 0f,
-            position.X, position.Y, position.Z, 1f);
+        view.Model(SeabedKey, _seabed, Matrix4x4.Identity);
+        view.Models(world);
     }
 
     private int SpawnFish(RandomStream stream)
@@ -117,10 +88,12 @@ internal sealed class ReefGame(World world, ReefSettings settings, GameRandom ra
                 var velocity = stream.Direction3D() * details.MinSpeed;
 
                 var entity = world.Create();
-                world.Add(entity, new Position(position));
+                world.Add(entity, Transform.Facing(position, velocity, details.Length));
                 world.Add(entity, new Velocity(velocity));
-                world.Add(entity, new PreviousPosition(position, velocity));
-                world.Add(entity, new Fish(kind, firstSchool + school, stream.Angle()));
+                world.Add(entity, new Fish(kind, firstSchool + school));
+                world.Add(entity, new Model(_fishModels[kind]));
+                world.Add(entity, new Swim(SwimAmplitude, 1f, stream.Angle()));
+                world.Add(entity, new Smoothed());
             }
 
             firstSchool += details.Schools;
@@ -148,9 +121,12 @@ internal sealed class ReefGame(World world, ReefSettings settings, GameRandom ra
 
     private void AddScenery(ModelRef model, Vector2 spot, float scale, RandomStream stream)
     {
-        var transform = Matrix4x4.CreateScale(scale)
-            * Matrix4x4.CreateRotationY(stream.Angle())
-            * Matrix4x4.CreateTranslation(spot.X, Seabed.Height(spot.X, spot.Y) - 0.15f, spot.Y);
-        world.Add(world.Create(), new Scenery(model, transform));
+        var transform = new Transform(
+            new Vector3(spot.X, Seabed.Height(spot.X, spot.Y) - 0.15f, spot.Y),
+            Quaternion.CreateFromAxisAngle(Vector3.UnitY, stream.Angle()),
+            new Vector3(scale));
+        var entity = world.Create();
+        world.Add(entity, transform);
+        world.Add(entity, new Model(model));
     }
 }

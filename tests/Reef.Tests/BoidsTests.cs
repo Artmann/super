@@ -65,9 +65,9 @@ public class BoidsTests
     private static bool Healthy(ReefGame game)
     {
         var settings = game.Settings;
-        foreach (var row in game.World.Query<Position, Velocity, Fish>())
+        foreach (var row in game.World.Query<Transform, Velocity, Fish>())
         {
-            var position = row.First.Value;
+            var position = row.First.Position;
             var species = settings.Species[row.Third.Species];
             float speed = row.Second.Value.Length();
             float sideways = new Vector2(position.X, position.Z).Length();
@@ -87,9 +87,9 @@ public class BoidsTests
     private static List<Vector3> Positions(ReefGame game)
     {
         var positions = new List<Vector3>();
-        foreach (var row in game.World.Query<Position>())
+        foreach (var row in game.World.Query<Transform>())
         {
-            positions.Add(row.First.Value);
+            positions.Add(row.First.Position);
         }
 
         return positions;
@@ -98,18 +98,18 @@ public class BoidsTests
     private static float AverageGapToSchoolCentre(ReefGame game)
     {
         var sums = new Dictionary<int, (Vector3 Sum, int Count)>();
-        foreach (var row in game.World.Query<Position, Fish>())
+        foreach (var row in game.World.Query<Transform, Fish>())
         {
             sums.TryGetValue(row.Second.School, out var school);
-            sums[row.Second.School] = (school.Sum + row.First.Value, school.Count + 1);
+            sums[row.Second.School] = (school.Sum + row.First.Position, school.Count + 1);
         }
 
         float gaps = 0f;
         int fish = 0;
-        foreach (var row in game.World.Query<Position, Fish>())
+        foreach (var row in game.World.Query<Transform, Fish>())
         {
             var school = sums[row.Second.School];
-            gaps += Vector3.Distance(row.First.Value, school.Sum / school.Count);
+            gaps += Vector3.Distance(row.First.Position, school.Sum / school.Count);
             fish++;
         }
 

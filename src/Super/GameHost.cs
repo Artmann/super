@@ -14,6 +14,7 @@ internal sealed class GameHost<TGame> : IDisposable
     private const int DefaultScreenHeight = 720;
 
     private readonly ServiceProvider _services;
+    private readonly ITickHook[] _hooks;
 
     public GameHost(int seed, int ticksPerSecond, Action<IServiceCollection>? configure)
     {
@@ -36,6 +37,7 @@ internal sealed class GameHost<TGame> : IDisposable
         Capture = _services.GetRequiredService<GameCapture>();
         Stats = _services.GetRequiredService<GameStats>();
         Game = _services.GetRequiredService<TGame>();
+        _hooks = _services.GetServices<ITickHook>().ToArray();
         ((IGame)Game).Load();
     }
 
@@ -62,6 +64,11 @@ internal sealed class GameHost<TGame> : IDisposable
 
     public void Tick()
     {
+        foreach (var hook in _hooks)
+        {
+            hook.BeforeUpdate();
+        }
+
         Game.Update(Time);
         Time.Tick++;
     }

@@ -135,6 +135,9 @@ public sealed partial class World
         return id;
     }
 
+    /// <summary>The type's ID, or -1 if no entity has ever had it. Unlike TypeId, this registers nothing.</summary>
+    internal int TypeIdOrMissing<T>() => _componentTypes.TryGetValue(typeof(T), out int id) ? id : -1;
+
     internal void BeginIteration() => _iterating++;
 
     internal void EndIteration() => _iterating--;

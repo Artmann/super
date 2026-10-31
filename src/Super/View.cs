@@ -63,6 +63,10 @@ public sealed class View
     public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color = null) =>
         _models.Add(new ModelDraw(key, model, transform, color));
 
+    /// <summary>Draws a model with both a color and a swimming motion.</summary>
+    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim) =>
+        _models.Add(new ModelDraw(key, model, transform, color, swim));
+
     /// <summary>
     /// Draws a model that bends as it swims. Its head must face +z. Unlike a color, this
     /// costs nothing extra, so every fish can have its own.

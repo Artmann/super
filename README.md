@@ -689,9 +689,49 @@ class Sheep(World world, Content content)
 Each row's `First`, `Second` and so on are references into the world, so changing them
 changes the entity, and a query allocates nothing. Queries take up to four components.
 
+### Drawing entities
+
+Most entities are drawn the same way: a model at a transform, keyed by the entity's ID.
+Rather than write that loop in every game, give entities Super's own components and let
+`view.Models(world)` do it:
+
+```csharp
+var sheep = world.Create();
+world.Add(sheep, Transform.At(new Vector3(3f, 0f, 1f)));
+world.Add(sheep, new Model(content.Model("sheep.rmodel")));
+world.Add(sheep, new Smoothed());
+
+var bell = world.Create();
+world.Add(bell, Transform.At(new Vector3(0f, 0.8f, 0.5f), scale: 0.2f));
+world.Add(bell, new Model(content.Model("bell.rmodel")));
+world.Add(bell, new Parent(sheep));
+
+public void Draw(View view)
+{
+    view.Camera(...);
+    view.Sun(...);
+    view.Models(world);
+}
+```
+
+| Component | What it does |
+| --- | --- |
+| `Transform` | Position, rotation and scale. `Transform.At` and `Transform.Facing` build common ones |
+| `Model` | A `ModelRef`, and an optional color that replaces the model's own |
+| `Smoothed` | Blends the entity between ticks. Super remembers last tick's transform for you |
+| `Parent` | Counts the entity's transform from another entity's, so an attached thing follows |
+| `Swim` | Bends the model like a swimming fish, with the phase blended too when `Smoothed` |
+
+`Smoothed` is why Reef no longer keeps a `PreviousPosition` component: the world
+takes a copy before each `Update`, and an entity's first frame shows it exactly where
+it is, so a loaded save doesn't glide into place. These components are only data. A
+system that moves things writes `Transform`, and `Models` is a plain call you make in
+`Draw`, next to anything you still describe by hand. Entities without `Model` aren't
+drawn, so gameplay-only things cost nothing here.
+
 Views work the same either way. You can also skip this package and use plain lists,
 or a different ECS library. The [Reef example](examples/Reef) uses it for thousands of
-schooling fish.
+schooling fish, and its `Draw` is a camera, a sun, the seabed and `view.Models(world)`.
 
 ## Getting started
 

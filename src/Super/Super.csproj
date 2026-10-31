@@ -25,6 +25,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Super.Testing" />
     <InternalsVisibleTo Include="Super.Tests" />
+    <InternalsVisibleTo Include="Super.Ecs.Tests" />
   </ItemGroup>
 
 </Project>
