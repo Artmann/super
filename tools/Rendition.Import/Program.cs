@@ -183,7 +183,7 @@ static unsafe ModelMaterial ImportMaterial(
         Roughness = rule.Roughness ?? fileRoughness?[0] ?? 0.6f,
         AlphaCutoff = rule.AlphaCutoff,
         BaseColorTexture = textures.Add(rule.BaseColor ?? linkedColor, TextureKind.Color),
-        NormalTexture = textures.Add(rule.Normal ?? linkedNormal, TextureKind.Linear, isNormalMap: true, flipGreen: rule.FlipNormalGreen),
+        NormalTexture = textures.Add(rule.NoNormalMap ? null : rule.Normal ?? linkedNormal, TextureKind.Linear, isNormalMap: true),
         SurfaceTexture = rule.Surface is not null
             ? textures.Add(rule.Surface, TextureKind.Linear)
             : textures.Add(linkedSurface, TextureKind.Linear, isGltfSurface: true),

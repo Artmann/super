@@ -99,7 +99,7 @@ any managed memory or produced any validation message. It also resizes the windo
 during the warm-up.
 
 To save a picture, use `--screenshot`. The camera can be placed with `--yaw`,
-`--pitch` and `--distance`.
+`--pitch`, `--distance` and `--height`.
 
 ```
 dotnet run -c Release --project src/Rendition.Sample -- --screenshot shot.png --model assets/cooked/ford-gt.rmodel --yaw -2.4

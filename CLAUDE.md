@@ -38,8 +38,8 @@ dotnet run -c Release --project src/Rendition.Sample -- --screenshot shot.png
 
 `--check` must exit 0 with 0 bytes allocated and 0 validation messages. It also
 resizes the hidden window during warmup. It can't tell whether the picture is
-right, so read the screenshot too. Add `--model <file>`, `--yaw`, `--pitch` and
-`--distance` to choose what it shows.
+right, so read the screenshot too. Add `--model <file>`, `--yaw`, `--pitch`,
+`--distance` and `--height` to choose what it shows.
 
 Never show a window or take focus while verifying. `--validate` opens a real window
 and runs until it's closed, so it's only for the owner to use by hand.

@@ -24,15 +24,14 @@ public sealed class TextureCooker(string sourceDirectory)
         string? fileName,
         TextureKind kind,
         bool isNormalMap = false,
-        bool isGltfSurface = false,
-        bool flipGreen = false)
+        bool isGltfSurface = false)
     {
         if (fileName is null)
         {
             return -1;
         }
 
-        string key = $"{fileName}|{kind}|{isGltfSurface}|{flipGreen}";
+        string key = $"{fileName}|{kind}|{isGltfSurface}";
         if (_indices.TryGetValue(key, out int existing))
         {
             return existing;
@@ -56,11 +55,6 @@ public sealed class TextureCooker(string sourceDirectory)
             ConvertGltfSurface(image.Data);
         }
 
-        if (flipGreen)
-        {
-            FlipGreen(image.Data);
-        }
-
         var mips = BuildMips(image.Data, image.Width, image.Height, kind, isNormalMap);
 
         _textures.Add(new TextureData { Width = image.Width, Height = image.Height, Kind = kind, Mips = mips });
@@ -76,14 +70,6 @@ public sealed class TextureCooker(string sourceDirectory)
         {
             pixels[i] = pixels[i + 2];
             pixels[i + 3] = 255;
-        }
-    }
-
-    private static void FlipGreen(byte[] pixels)
-    {
-        for (int i = 1; i < pixels.Length; i += 4)
-        {
-            pixels[i] = (byte)(255 - pixels[i]);
         }
     }
 

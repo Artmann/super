@@ -34,6 +34,9 @@ vec3 worldPosition(vec2 uv, float depth) {
 float overheadOcclusion(vec3 position, vec3 n, float rotation) {
     vec4 projected = frame.shadowMatrix * vec4(position + n * frame.parameters.w, 1.0);
     vec2 uv = projected.xy * 0.5 + 0.5;
+    if (projected.z <= 0.0 || projected.z >= 1.0) {
+        return 0.0;
+    }
 
     // The light rarely looks straight down, so a surface's depth changes across the map.
     // Following its slope stops a flat floor from counting as its own blocker.
@@ -45,7 +48,11 @@ float overheadOcclusion(vec3 position, vec3 n, float rotation) {
         vec2 offset = diskSample(i, OVERHEAD_SAMPLES, rotation) * OVERHEAD_RADIUS;
         vec2 sampleUv = uv + offset;
         bool insideMap = all(greaterThan(sampleUv, vec2(0.0))) && all(lessThan(sampleUv, vec2(1.0)));
-        if (insideMap && texture(shadowDepthTexture, sampleUv).r > projected.z + dot(offset, slope) + OVERHEAD_BIAS) {
+
+        // The map holds 0 where nothing was drawn. Near its far limit the surface's expected
+        // depth can dip below that, and empty space must not count as a blocker.
+        float surfaceDepth = max(projected.z + dot(offset, slope) + OVERHEAD_BIAS, 0.0);
+        if (insideMap && texture(shadowDepthTexture, sampleUv).r > surfaceDepth) {
             blocked += 1.0;
         }
     }

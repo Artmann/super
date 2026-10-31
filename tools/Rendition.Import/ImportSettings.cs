@@ -19,8 +19,8 @@ public sealed class MaterialRule
     public string? BaseColor { get; set; }
     public string? Normal { get; set; }
 
-    /// <summary>Inverts the normal map's green channel, for maps made with the opposite "up".</summary>
-    public bool FlipNormalGreen { get; set; }
+    /// <summary>Ignores the normal map linked in the model file, for maps that do more harm than good.</summary>
+    public bool NoNormalMap { get; set; }
 
     /// <summary>Red is metalness, green is roughness, alpha is opacity.</summary>
     public string? Surface { get; set; }

@@ -47,7 +47,7 @@ float shadowVisibility(vec3 position, vec3 n, vec3 l) {
     vec4 projected = frame.shadowMatrix * vec4(position + n * frame.parameters.w * (1.0 - nDotL), 1.0);
     vec2 uv = projected.xy * 0.5 + 0.5;
     float depth = projected.z;
-    if (uv.x <= 0.0 || uv.x >= 1.0 || uv.y <= 0.0 || uv.y >= 1.0) {
+    if (uv.x <= 0.0 || uv.x >= 1.0 || uv.y <= 0.0 || uv.y >= 1.0 || depth <= 0.0 || depth >= 1.0) {
         return 1.0;
     }
 

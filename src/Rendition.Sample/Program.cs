@@ -11,7 +11,7 @@ using Silk.NET.GLFW;
 // --screenshot <file.png> saves one frame, with validation on, then quits.
 // Neither of those shows a window, so they can run while someone works.
 // --model <file> shows a cooked model instead of the spinning cube.
-// --yaw, --pitch and --distance <number> place the camera.
+// --yaw, --pitch, --distance and --height <number> place the camera.
 // --glow draws the cube with a custom surface shader.
 bool check = args.Contains("--check");
 string? screenshotPath = StringOption(args, "--screenshot");
@@ -58,6 +58,8 @@ unsafe
     DrawItem[] draws;
     DrawItem[] probeDraws = [];
     OrbitCamera camera;
+    float shadowRadius = 5f;
+    float shadowHeight = 0.5f;
     if (modelPath is not null)
     {
         var floor = new DrawItem
@@ -89,6 +91,10 @@ unsafe
             Pitch = 0.3f,
             Distance = 3f * MathF.Max(size.X, MathF.Max(size.Y * 0.5f, size.Z)),
         };
+
+        // A shadow map spread over less ground gives a smaller model sharper shadows.
+        shadowRadius = 2.15f * MathF.Max(size.X, MathF.Max(size.Y * 0.5f, size.Z));
+        shadowHeight = size.Y * 0.5f;
     }
     else
     {
@@ -115,6 +121,7 @@ unsafe
     camera.Yaw = NumberOption(args, "--yaw", camera.Yaw);
     camera.Pitch = NumberOption(args, "--pitch", camera.Pitch);
     camera.Distance = NumberOption(args, "--distance", camera.Distance);
+    camera.Target.Y = NumberOption(args, "--height", camera.Target.Y);
 
     // The studio the car reflects, with a softbox lined up with each of the three lights.
     renderer.SetEnvironment(new EnvironmentDescription
@@ -218,7 +225,7 @@ unsafe
             CameraPosition = camera.Position,
             Time = time,
             Lights = lights,
-            Shadows = new ShadowSettings { Center = new Vector3(0f, 0.5f, 0f), Radius = 5f, LightAngle = 0.12f },
+            Shadows = new ShadowSettings { Center = new Vector3(0f, shadowHeight, 0f), Radius = shadowRadius, LightAngle = 0.12f },
             EnvironmentIntensity = 0.85f,
             BackgroundRadiance = new Vector3(0.15f, 0.15f, 0.16f),
             BackgroundFadeStart = 9f,

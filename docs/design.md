@@ -71,7 +71,9 @@ sets are identical.
 
 Shadows blur with distance from the object casting them: the lighting pass finds
 how far away the blocker is, then widens its sampling to match. The game says
-which area the shadow map covers through `FrameView.Shadows`.
+which area the shadow map covers through `FrameView.Shadows`. A smaller area gives
+sharper shadows, so the sample fits it to the model. Anything outside the area, in
+depth as well as sideways, counts as lit.
 
 Two frames can be in flight. Render targets are shared between frames, and
 pipeline barriers order the access; per-frame state is limited to command
@@ -200,10 +202,9 @@ nothing but a null check for the feature.
 - The car's surface map channels are an educated guess, because the model has no
   documentation. The paint's metalness is set to 0.2 by eye. Its normal maps were
   measured: they use the green direction the renderer expects.
-- The adventurer model's tangents run opposite to what glTF specifies, while its normal map
-  follows the specification, so its materials file sets `flipNormalGreen`. The map
-  favours that direction about 2 to 1 across the texture, which is good evidence but
-  not proof, and the two directions look almost the same on screen.
+- The adventurer model doesn't use its normal map. The map creases the skin, most
+  visibly on the face, whichever way up it's read, and adds almost nothing to the
+  clothing, so its materials file sets `noNormalMap`.
 - The importer doesn't read glTF emissive maps, cut-outs, glass or two-sided flags yet.
   Set those in the materials file. It flattens models into a single pose, so skeletons
   and animation aren't supported.
