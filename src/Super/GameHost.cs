@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Super.Ui;
 
 namespace Super;
 
@@ -9,6 +10,9 @@ namespace Super;
 internal sealed class GameHost<TGame> : IDisposable
     where TGame : class, IGame
 {
+    private const int DefaultScreenWidth = 1280;
+    private const int DefaultScreenHeight = 720;
+
     private readonly ServiceProvider _services;
 
     public GameHost(int seed, int ticksPerSecond, Action<IServiceCollection>? configure)
@@ -19,6 +23,7 @@ internal sealed class GameHost<TGame> : IDisposable
         services.AddSingleton(new GameRandom(seed));
         services.AddSingleton<Content>();
         services.AddSingleton<GameCapture>();
+        services.AddSingleton<GameStats>();
         services.AddSingleton<TGame>();
 
         // This comes last so a game or a test can replace any of the above.
@@ -29,6 +34,7 @@ internal sealed class GameHost<TGame> : IDisposable
         Seed = seed;
         Content = _services.GetRequiredService<Content>();
         Capture = _services.GetRequiredService<GameCapture>();
+        Stats = _services.GetRequiredService<GameStats>();
         Game = _services.GetRequiredService<TGame>();
         ((IGame)Game).Load();
     }
@@ -43,7 +49,16 @@ internal sealed class GameHost<TGame> : IDisposable
 
     public int Seed { get; }
 
+    public GameStats Stats { get; }
+
     public View View { get; } = new();
+
+    public UiTree Ui { get; } = new();
+
+    /// <summary>The size the interface lays itself out in, in pixels. The window keeps this up to date.</summary>
+    public int ScreenWidth { get; set; } = DefaultScreenWidth;
+
+    public int ScreenHeight { get; set; } = DefaultScreenHeight;
 
     public void Tick()
     {
@@ -55,6 +70,13 @@ internal sealed class GameHost<TGame> : IDisposable
     {
         View.Begin(blend);
         Game.Draw(View);
+
+        // The interface runs outside the measurement, so a stats panel reports the game
+        // and not itself.
+        Stats.EndFrame();
+        Ui.Update(((IGame)Game).Ui, ScreenWidth, ScreenHeight);
+        View.Ui = Ui;
+        Stats.Resume();
     }
 
     public void Dispose() => _services.Dispose();

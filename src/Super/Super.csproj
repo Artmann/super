@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <PackageReference Include="StbTrueTypeSharp" Version="1.26.13" />
     <ProjectReference Include="..\Rendition\Rendition.csproj" />
     <ProjectReference Include="..\Super.Random\Super.Random.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.8" />
@@ -11,6 +12,12 @@
   <ItemGroup>
     <Compile Include="..\Rendition.Sample\Cube.cs" Link="Rendering\Cube.cs" />
     <Compile Include="..\Rendition.Sample\PngFile.cs" Link="Rendering\PngFile.cs" />
+  </ItemGroup>
+
+  <!-- Built in, so text works on a fresh checkout and in tests with no files around. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Ui\Fonts\Inter-Regular.ttf" LogicalName="Inter-Regular.ttf" />
+    <EmbeddedResource Include="Ui\Fonts\Inter-Bold.ttf" LogicalName="Inter-Bold.ttf" />
   </ItemGroup>
 
   <ItemGroup>

@@ -2,11 +2,12 @@ using System.Numerics;
 using Rendition;
 using Super;
 using Super.Ecs;
+using Super.Ui;
 
 namespace Reef;
 
 /// <summary>A wide view of thousands of schooling fish over a coral reef.</summary>
-internal sealed class ReefGame(World world, ReefSettings settings, GameRandom random, GameTime time, Content content) : IGame
+internal sealed class ReefGame(World world, ReefSettings settings, GameRandom random, GameTime time, Content content, GameStats stats) : IGame
 {
     private const float SwimAmplitude = 0.09f; // Of the model's length.
     private const float CameraOrbitSeconds = 240f;
@@ -43,6 +44,10 @@ internal sealed class ReefGame(World world, ReefSettings settings, GameRandom ra
         int schools = SpawnFish(random.Stream("fish"));
         _boids = new Boids(world, settings, random.Stream("schools"), schools);
     }
+
+    public UiView? Ui => new StatsPanel(stats.Latest, settings.Species.Sum(kind => kind.Count))
+        .Padding(16f)
+        .Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity, alignment: Alignment.TopLeading);
 
     public void Update(GameTime gameTime) => _boids.Update(gameTime.TickSeconds);
 

@@ -20,7 +20,9 @@ rest is not yet.
 | Time | `Update` runs on fixed ticks, `Draw` once per displayed frame and blends between ticks | Repeatable simulation, whatever the frame rate |
 | Drawing | Views are plain functions of state, called every frame | Nothing to keep in sync, and loading needs no special cases |
 | View memory | Kept by Super under a key. A new key goes straight to its target | A loaded game appears finished, with no animations replaying |
-| Virtual tree | None, unlike React and SwiftUI | Games redraw most things each frame, so comparing trees gains little and allocates |
+| Virtual tree for the world | None, unlike React and SwiftUI | Games redraw most things each frame, so comparing trees gains little and allocates |
+| Virtual tree for interfaces | Yes, with SwiftUI's layout and React's hook-style state | Interfaces are trees that mostly stay the same, so skipping unchanged parts pays. They can allocate a little, and live apart from the render path |
+| Interface code | CPU only, in `Super.Ui`. Rendition only sees textured quads | Layout and text run for real in headless tests, and Rendition stays usable alone |
 | Hierarchy | Flat, with attachment by transform or bone | Colony and dungeon games have thousands of independent things and little nesting |
 | Unchanging objects | `View.Cached`, keyed by a version number | Static worlds aren't described again each frame |
 | Dependency injection | `Microsoft.Extensions.DependencyInjection`, resolved at startup only | Familiar, makes fakes one line, and costs nothing per frame |

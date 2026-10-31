@@ -27,6 +27,8 @@ What exists today:
 - Temporal anti-aliasing, ambient occlusion and bloom
 - Colour grading, sharpening, vignette, film grain and dithering
 - A tonemap pass that takes HDR colour to display colour with ACES filmic
+- An overlay of flat textured quads drawn over the finished picture, for text and
+  interfaces. Fill `FrameView.Overlay` and call `Renderer.SetOverlayAtlas`
 - Two frames in flight and window resize handling
 - GLSL shaders compiled to SPIR-V at build time
 - Bindless textures and materials, normal mapping, cut-out and two-sided surfaces

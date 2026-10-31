@@ -1,5 +1,6 @@
 using System.Numerics;
 using Rendition;
+using Super.Ui;
 
 namespace Super;
 
@@ -20,6 +21,7 @@ internal sealed class SceneRenderer : IDisposable
 
     private DrawItem[] _draws = new DrawItem[64];
     private Vector3 _bakedWater;
+    private int _uploadedAtlas;
 
     public SceneRenderer(RendererOptions options)
     {
@@ -122,6 +124,20 @@ internal sealed class SceneRenderer : IDisposable
                 Floor = water.DeepColor,
             });
             _bakedWater = water.ShallowColor;
+        }
+
+        // Only a character that hasn't been drawn before brings this here.
+        // Games with no interface never get here, and never load the fonts.
+        if (view.Ui is { Quads.IsEmpty: false } ui && ui.Atlas.Version != _uploadedAtlas)
+        {
+            _renderer.SetOverlayAtlas(new TextureData
+            {
+                Width = GlyphAtlas.Size,
+                Height = GlyphAtlas.Size,
+                Kind = TextureKind.Linear,
+                Mips = [ui.Atlas.Pixels],
+            });
+            _uploadedAtlas = ui.Atlas.Version;
         }
     }
 
@@ -233,6 +249,7 @@ internal sealed class SceneRenderer : IDisposable
             BackgroundRadiance = new Vector3(0.15f, 0.16f, 0.18f),
             Post = view.Post,
             Water = view.WaterSettings,
+            Overlay = view.Ui is { } ui ? ui.Quads : [],
         };
     }
 

@@ -6,7 +6,8 @@ a modern 3D renderer and the building blocks that take time to get right.
 
 > **Status:** Super is early. [Rendition](src/Rendition/README.md), the renderer, works
 > today. So do the game loop, the window, `GameRandom`, `HeadlessGame` and `[Seeds]`,
-> which the [ColorCube example](examples/ColorCube) shows. Everything else in this
+> which the [ColorCube example](examples/ColorCube) shows, and the ECS, capture tools and
+> interfaces, which the [Reef example](examples/Reef) shows. Everything else in this
 > document describes the engine we're building, and much of its code shows an intended
 > API that doesn't exist yet.
 
@@ -44,14 +45,15 @@ class Spinner(Content content) : IGame
 }
 ```
 
-`StartWindowsGameLoop` opens the window and runs until it closes. Your game has three
-methods, and two of them are required:
+`StartWindowsGameLoop` opens the window and runs until it closes. Your game has four
+members, and two of them are required:
 
 | Method | When it runs | What it's for |
 | --- | --- | --- |
 | `Load()` | Once, optional | Build the starting world |
 | `Update(GameTime)` | A fixed number of times per second, 30 by default | Change game state |
 | `Draw(View)` | Once per displayed frame | Describe what's on screen. It only reads state |
+| `Ui` | Once per displayed frame, optional | Describe the [interface](#interfaces) on top. It only reads state |
 
 Keeping `Update` and `Draw` apart is the most important idea in Super. `Update` is the
 game. `Draw` only looks at it, so the game can run with no screen at all, and the
@@ -61,7 +63,7 @@ display can run faster or slower than the simulation.
 
 | Package | What it gives you | Depends on |
 | --- | --- | --- |
-| `Super` | Window, game loop, input, views, content | `Rendition`, `Super.Random` |
+| `Super` | Window, game loop, input, views, interfaces, content | `Rendition`, `Super.Random` |
 | `Super.Random` | Seeded random numbers. Usable alone | Nothing else here |
 | `Super.Ecs` | An optional entity component system | `Super` |
 | `Super.Testing` | Headless runs, seeded tests and run logs | `Super` |
@@ -236,6 +238,143 @@ view.Sky(content.Environment("environments/overcast"));
 view.Post(new PostSettings { Exposure = 0.2f, Vignette = 0.3f, Sharpen = 0.4f });
 ```
 
+## Interfaces
+
+Worlds are flat lists, redrawn every frame. Interfaces are the opposite: they're trees,
+and most of a tree stays the same from one frame to the next. So `Super.Ui` works like
+SwiftUI. You describe the interface with small records, and Super works out what changed.
+
+```csharp
+using Super;
+using Super.Ui;
+
+record StatRow(string Label, string Value) : UiView
+{
+    public override UiView Body => new HStack(Spacing: 24f)
+    {
+        new Text(Label).Foreground(UiColor.Hex(0x9FD3E0)),
+        new Spacer(),
+        new Text(Value).MonospacedDigit(),
+    };
+}
+
+record ColonyPanel(int Workers, int Wood) : UiView
+{
+    public override UiView Body => new VStack(HorizontalAlignment.Leading, Spacing: 4f)
+    {
+        new Text("Colony").Bold().FontSize(16f),
+        new StatRow("Workers", $"{Workers}"),
+        new StatRow("Wood", $"{Wood}"),
+    }
+    .Padding(12f)
+    .Background(UiColor.Hex(0x06202C, 0.72f))
+    .FixedSize();
+}
+
+class MyColony(Colony colony) : IGame
+{
+    public UiView? Ui => new ColonyPanel(colony.Workers.Count, colony.Wood)
+        .Padding(16f)
+        .Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity, alignment: Alignment.TopLeading);
+
+    // Update and Draw as usual.
+}
+```
+
+A component is a record with a `Body`. `ColonyPanel` and `StatRow` are components, and
+you use your own exactly like the built-in ones. Super reads `Ui` every frame, so always
+describe the whole interface and let Super find the differences.
+
+| View | What it does |
+| --- | --- |
+| `Text("Hello")` | Text. It wraps at spaces when it's offered too little width |
+| `VStack`, `HStack` | Children top to bottom, or left to right |
+| `ZStack` | Children on top of each other, the last one in front |
+| `Spacer()` | Pushes its neighbors apart along the stack |
+
+Modifiers wrap a view, so their order matters. `.Padding(8f).Background(color)` colors
+the padding too, and `.Background(color).Padding(8f)` doesn't.
+
+| Modifier | What it does |
+| --- | --- |
+| `.Padding(all)`, `.Padding(horizontal, vertical)` | Adds room around the view |
+| `.Frame(width, height, maxWidth, maxHeight, alignment)` | Fixes the size, or lets the view stretch |
+| `.FixedSize()` | Uses the size the view would like, whatever it's offered |
+| `.Background(color)` | Fills the view's area |
+| `.Foreground(color)`, `.FontSize(pixels)`, `.Bold()` | Styles text here and everywhere inside |
+| `.MonospacedDigit()` | Gives digits one width, so changing numbers don't jiggle |
+| `.Id(key)` | Names a view among its siblings |
+
+### Layout
+
+Layout works like SwiftUI's, and does what flexbox does:
+
+1. A parent offers its child some space.
+2. The child picks its own size. The parent has to accept the answer.
+3. The parent places the child, using its alignment.
+
+Stacks share their space out starting with the least flexible child, and spacers go
+last. To make something grow like `flex-grow`, give it `.Frame(maxWidth:
+UiExtensions.Infinity)`. To pin something to a corner, wrap it in a frame that fills the
+screen, as `MyColony` does above. The top of the tree is centered otherwise.
+
+### State
+
+Most interfaces only show game state. For anything the interface owns itself, such as
+which tab is selected, use `UseState`. Super keeps the value for as long as that view
+stays in the tree:
+
+```csharp
+record Tabs : UiView
+{
+    public override UiView Body
+    {
+        get
+        {
+            var selected = UseState(0);
+            return new Text($"Tab {selected.Value}");
+        }
+    }
+}
+```
+
+Reading `Value` during `Body` signs that component up for changes, and setting it runs
+only the components that read it. Call `UseState` the same number of times and in the
+same order on each run. Hand a `State<T>` to a child to let the child use it too.
+
+There's nothing to set it with yet, because the interface can't take input. The rule is
+the same as for views: if gameplay cares, it's game state, and it belongs in your own
+classes, not in `UseState`.
+
+### How it stays cheap
+
+This is a virtual tree, like React's and SwiftUI's. The records are cheap descriptions
+that live for moments. Behind them sits a tree of long-lived nodes, which hold state and
+layout. Each frame, the reconciler walks the new description against those nodes:
+
+- A record that equals the last one is skipped, with everything inside it.
+- If nothing changed, there's no layout and no drawing work. The panel in Reef only
+  redoes its work twice a second, when its numbers change.
+- A view keeps its state while it stays in the same place with the same type. A
+  different type in that place starts fresh.
+- `show ? view : null` keeps its slot when it's null, so what follows doesn't move.
+  In a list that changes, use `.Id(item.Id)`, like a `key` in React, so rows keep their
+  state as they move.
+
+The default font is [Inter](https://rsms.me/inter/), built into `Super.dll`, so text
+works with no files around.
+
+### Showing how the game runs
+
+Ask for `GameStats` in your constructor and read `Latest`, which updates twice a second.
+It holds the frame rate, frame time, bytes allocated per frame on the game's thread, heap
+size and garbage collections. Work done for the interface isn't counted, so a stats panel
+doesn't report itself. Reef's panel is in
+[StatsPanel.cs](examples/Reef/StatsPanel.cs).
+
+These numbers come from the real clock, so only show them. If they reach `Update`, a seed
+stops repeating.
+
 ## Content: JSON files
 
 Put JSON in your project's `content` folder. Describe its shape with a C# record, then
@@ -351,6 +490,8 @@ parallel, so this fits in a pull request check, and any crash fails the build.
 - **Fakes** take one line. Swap any service, as with `IWeather` above.
 - **`run.Input`** plays scripted key presses and clicks.
 - **`run.Drawn`** lists what `Draw` would have shown.
+- **`run.ShownText`** lists the text the interface showed and where it landed. Layout
+  and fonts are real in a headless run, so a test can check that a label fits.
 
 A failure tells you how to get it back:
 
@@ -498,7 +639,8 @@ at random times:
 dotnet run -c Release --project examples/ColorCube
 ```
 
-The Reef example is a wide underwater view of 6,240 fish schooling over coral. Its models
+The Reef example is a wide underwater view of 6,240 fish schooling over coral, with a
+live stats panel in the corner. Its models
 aren't in this repository because they aren't covered by the license and have their own
 terms ([CREDITS.md](CREDITS.md)). With them in `assets/source/reef`, cook each one, then run it:
 
@@ -528,6 +670,8 @@ Models are cooked into a fast format by the import tool. The
 - **Physics.** Not in the first version. Gameplay physics has to give repeatable
   results, so the engine needs choosing carefully. Until then, write your own movement
   code in `Update`, as in the ball example.
+- **Interactive interfaces.** The interface draws text and colored rectangles. It has no
+  input yet, so there are no buttons, and it can't show images.
 - **Audio.** `view.Play` in the examples needs an audio package that isn't designed yet.
 - **Other platforms.** Windows only for now, with Linux kept possible.
 

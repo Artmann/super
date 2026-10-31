@@ -69,6 +69,9 @@ public sealed unsafe class Renderer : IDisposable
     private readonly BloomPass _bloomPass;
     private readonly FullscreenPass _tonemapPass;
     private readonly FullscreenPass _finishPass;
+    private readonly OverlayPass _overlayPass;
+    private readonly DescriptorSet _overlaySet;
+    private GpuTexture? _overlayAtlas;
 
     private Swapchain _swapchain;
     private GBuffer _gBuffer;
@@ -125,12 +128,12 @@ public sealed unsafe class Renderer : IDisposable
         var poolSizes = stackalloc DescriptorPoolSize[]
         {
             new(DescriptorType.UniformBuffer, FramesInFlight),
-            new(DescriptorType.CombinedImageSampler, 22),
+            new(DescriptorType.CombinedImageSampler, 23),
         };
         var poolInfo = new DescriptorPoolCreateInfo
         {
             SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = FramesInFlight + 6,
+            MaxSets = FramesInFlight + 7,
             PoolSizeCount = 2,
             PPoolSizes = poolSizes,
         };
@@ -159,6 +162,7 @@ public sealed unsafe class Renderer : IDisposable
         _taaSet = AllocateSet(_threeTextureSetLayout);
         _tonemapSet = AllocateSet(_twoTextureSetLayout);
         _finishSet = AllocateSet(_oneTextureSetLayout);
+        _overlaySet = AllocateSet(_oneTextureSetLayout);
         _bloomPass = new BloomPass(_context, _linearSampler, _gBuffer.Resolved.View, _gBuffer.Extent);
         WriteTargetDescriptors();
 
@@ -170,6 +174,7 @@ public sealed unsafe class Renderer : IDisposable
         _taaPass = new FullscreenPass(_context, "taa.frag", GBuffer.HdrFormat, [_frameSetLayout, _threeTextureSetLayout]);
         _tonemapPass = new FullscreenPass(_context, "tonemap.frag", GBuffer.LdrFormat, [_frameSetLayout, _twoTextureSetLayout]);
         _finishPass = new FullscreenPass(_context, "finish.frag", _swapchain.Format, [_frameSetLayout, _oneTextureSetLayout]);
+        _overlayPass = new OverlayPass(_context, _swapchain.Format, _oneTextureSetLayout, FramesInFlight);
     }
 
     public MeshHandle CreateMesh(ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices)
@@ -188,6 +193,18 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     public TextureHandle CreateTexture(TextureData data) => _resources.AddTexture(data);
+
+    /// <summary>
+    /// Replaces the image that <see cref="FrameView.Overlay"/> quads read from. Only its
+    /// alpha is used. Waits for the GPU, so it isn't for every frame.
+    /// </summary>
+    public void SetOverlayAtlas(TextureData data)
+    {
+        _api.DeviceWaitIdle(_context.Device).Check();
+        _overlayAtlas?.Dispose();
+        _overlayAtlas = new GpuTexture(_context, data);
+        WriteImages(_overlaySet, [new(_linearSampler, _overlayAtlas.View, ImageLayout.ShaderReadOnlyOptimal)]);
+    }
 
     /// <summary>
     /// Photographs the scene from a probe, so surfaces in its box reflect what is really
@@ -418,7 +435,8 @@ public sealed unsafe class Renderer : IDisposable
             Flags = CommandBufferUsageFlags.OneTimeSubmitBit,
         };
         _api.BeginCommandBuffer(cmd, &beginInfo).Check();
-        RecordFrame(cmd, frame.Set, imageIndex, draws, castsShadow);
+        int overlayQuads = _overlayAtlas is null ? 0 : _overlayPass.Upload(_frameIndex, view.Overlay);
+        RecordFrame(cmd, frame.Set, imageIndex, draws, castsShadow, overlayQuads);
         _api.EndCommandBuffer(cmd).Check();
 
         var renderFinished = _swapchain.RenderFinished[imageIndex];
@@ -514,6 +532,8 @@ public sealed unsafe class Renderer : IDisposable
     {
         _api.DeviceWaitIdle(_context.Device).Check();
 
+        _overlayPass.Dispose();
+        _overlayAtlas?.Dispose();
         _finishPass.Dispose();
         _tonemapPass.Dispose();
         _bloomPass.Dispose();
@@ -560,7 +580,8 @@ public sealed unsafe class Renderer : IDisposable
         DescriptorSet frameSet,
         uint imageIndex,
         ReadOnlySpan<DrawItem> draws,
-        bool castsShadow)
+        bool castsShadow,
+        int overlayQuads)
     {
         var targets = _gBuffer;
         var extent = targets.Extent;
@@ -585,6 +606,11 @@ public sealed unsafe class Renderer : IDisposable
 
         ReadOnlySpan<DescriptorSet> finishSets = [frameSet, _finishSet];
         _finishPass.Record(cmd, _swapchain.Views[imageIndex], extent, finishSets);
+
+        if (overlayQuads > 0)
+        {
+            _overlayPass.Record(cmd, _swapchain.Views[imageIndex], extent, _overlaySet, _frameIndex, overlayQuads);
+        }
 
         if (_capture is not null)
         {

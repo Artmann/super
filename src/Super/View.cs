@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Rendition;
+using Super.Ui;
 
 namespace Super;
 
@@ -33,6 +34,7 @@ public sealed class View
     internal UnderwaterSettings WaterSettings { get; private set; }
     internal PostSettings Post { get; private set; }
     internal float ShadowRadius { get; private set; }
+    internal UiTree? Ui { get; set; }
 
     /// <summary>Everything drawn so far this frame.</summary>
     public ReadOnlySpan<ModelDraw> Drawn => CollectionsMarshal.AsSpan(_models);

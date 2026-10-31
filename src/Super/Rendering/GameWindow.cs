@@ -76,7 +76,7 @@ internal sealed unsafe class GameWindow : IDisposable
                 host.Tick();
             }
 
-            host.Draw(clock.Blend);
+            Draw(host, clock.Blend);
             Show(host, (float)played);
         }
     }
@@ -86,7 +86,7 @@ internal sealed unsafe class GameWindow : IDisposable
         where TGame : class, IGame
     {
         PlayTo(host, ticks);
-        host.Draw(1f);
+        Draw(host, 1f);
         float time = (float)host.Time.TotalSeconds;
         Settle(host, time, ScreenshotSettleFrames);
 
@@ -102,7 +102,7 @@ internal sealed unsafe class GameWindow : IDisposable
         PlayTo(host, ticks);
 
         // Blending from 0 means the first frame of the video carries straight on from here.
-        host.Draw(0f);
+        Draw(host, 0f);
         float start = (float)host.Time.TotalSeconds;
         Settle(host, start, RecordingSettleFrames);
 
@@ -117,7 +117,7 @@ internal sealed unsafe class GameWindow : IDisposable
                 host.Tick();
             }
 
-            host.Draw(clock.Blend);
+            Draw(host, clock.Blend);
             Show(host, start + (float)(frame * step));
         }
 
@@ -144,7 +144,7 @@ internal sealed unsafe class GameWindow : IDisposable
             host.Tick();
             if (i >= ticks - ScreenshotPlayedTicks)
             {
-                host.Draw(1f);
+                Draw(host, 1f);
                 _scene.Render(host.View, host.Content, width, height, (float)host.Time.TotalSeconds);
             }
         }
@@ -158,6 +158,16 @@ internal sealed unsafe class GameWindow : IDisposable
         {
             _scene.Render(host.View, host.Content, width, height, time);
         }
+    }
+
+    /// <summary>Runs the game's Draw with the interface laid out for the window as it is now.</summary>
+    private void Draw<TGame>(GameHost<TGame> host, float blend)
+        where TGame : class, IGame
+    {
+        _glfw.GetFramebufferSize(_window, out int width, out int height);
+        host.ScreenWidth = width;
+        host.ScreenHeight = height;
+        host.Draw(blend);
     }
 
     /// <summary>Puts the last Draw on screen, and hands it to the capture if that wants it.</summary>

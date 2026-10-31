@@ -3,6 +3,12 @@
 The code in this repository is under the MIT license (see [LICENSE](LICENSE)).
 That license does not cover the assets below, which belong to their authors.
 
+## Fonts
+
+- [Inter](https://github.com/rsms/inter) is Copyright 2016 The Inter Project Authors and
+  is licensed under the [SIL Open Font License 1.1](src/Super/Ui/Fonts/LICENSE.txt). It's
+  built into `Super.dll`.
+
 ## Reef example
 
 - ["Tuna Fish"](https://skfb.ly/ovCAZ) by GoldenZtuff is licensed under

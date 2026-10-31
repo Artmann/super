@@ -226,6 +226,23 @@ public ref struct FrameView
     public PostSettings Post;
 
     public UnderwaterSettings Water;
+
+    /// <summary>Flat rectangles drawn last, over everything, in order. Needs <see cref="Renderer.SetOverlayAtlas"/>.</summary>
+    public ReadOnlySpan<OverlayQuad> Overlay;
+}
+
+/// <summary>
+/// A flat rectangle on the screen, in pixels from the top left. The atlas gives each
+/// pixel's alpha, and color gives the rest, in sRGB as written in an image editor.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct OverlayQuad
+{
+    public Vector2 Position;
+    public Vector2 Size;
+    public Vector2 UvMin;
+    public Vector2 UvMax;
+    public Vector4 Color;
 }
 
 public static class Projection

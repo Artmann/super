@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Super.Ui;
 
 namespace Super.Testing;
 
@@ -32,6 +33,9 @@ public sealed class HeadlessRun<TGame> : IDisposable
 
     /// <summary>What the last Draw would have shown.</summary>
     public IReadOnlyList<ModelDraw> Drawn => _host.View.Drawn.ToArray();
+
+    /// <summary>The text the interface showed in the last Draw, with where it landed.</summary>
+    public IReadOnlyList<ShownText> ShownText => _host.Ui.ShownText;
 
     /// <summary>Adds a rule that's checked after every tick, so a problem is caught when it happens.</summary>
     public void Invariant(string name, Func<TGame, bool> holds) => _invariants.Add((name, holds));
