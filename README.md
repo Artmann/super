@@ -558,8 +558,19 @@ as fast as the machine can make it, and the same seed gives the same frames.
 
 `--profile` shows where a game spends its time. See [Profiling](#profiling).
 
-Today `--seed`, `--screenshot`, `--record`, `--profile` and `--size` work, and `--ticks`
-works alongside those three. `--headless` and `--json` are still to come.
+`--no-vsync` stops waiting for the display, so a game draws as fast as the machine can
+and the frame rate shows what it can really do. Fast movement may tear, and displays
+that can't run this way keep vsync on. Unlike the options above, it's for playing the
+game in its window, so it can't be combined with them. `--profile` already reports the
+frame rate the machine could reach.
+
+```
+dotnet run -c Release --project MyColony -- --no-vsync
+```
+
+Today `--seed`, `--screenshot`, `--record`, `--profile`, `--size` and `--no-vsync` work,
+and `--ticks` works alongside `--screenshot`, `--record` and `--profile`. `--headless`
+and `--json` are still to come.
 
 ## Profiling
 

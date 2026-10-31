@@ -17,7 +17,7 @@ internal sealed unsafe class Swapchain : IDisposable
     /// <summary>One per image: presentation holds it until that same image comes back.</summary>
     public readonly Semaphore[] RenderFinished;
 
-    public Swapchain(VulkanContext context, uint width, uint height)
+    public Swapchain(VulkanContext context, uint width, uint height, bool disableVsync)
     {
         _context = context;
         var api = context.Api;
@@ -53,7 +53,7 @@ internal sealed unsafe class Swapchain : IDisposable
             ImageSharingMode = SharingMode.Exclusive,
             PreTransform = capabilities.CurrentTransform,
             CompositeAlpha = CompositeAlphaFlagsKHR.OpaqueBitKhr,
-            PresentMode = PresentModeKHR.FifoKhr,
+            PresentMode = disableVsync ? ChoosePresentMode(AvailablePresentModes()) : PresentModeKHR.FifoKhr,
             Clipped = true,
         };
         context.SwapchainApi.CreateSwapchain(context.Device, &createInfo, null, out Handle).Check();
@@ -93,6 +93,33 @@ internal sealed unsafe class Swapchain : IDisposable
         }
 
         _context.SwapchainApi.DestroySwapchain(_context.Device, Handle, null);
+    }
+
+    /// <summary>
+    /// The mode for running without vsync. Immediate shows each frame at once, Mailbox
+    /// swaps in the newest one at each refresh, and Fifo is the only mode every display has.
+    /// </summary>
+    internal static PresentModeKHR ChoosePresentMode(ReadOnlySpan<PresentModeKHR> available)
+    {
+        if (available.Contains(PresentModeKHR.ImmediateKhr))
+        {
+            return PresentModeKHR.ImmediateKhr;
+        }
+
+        return available.Contains(PresentModeKHR.MailboxKhr) ? PresentModeKHR.MailboxKhr : PresentModeKHR.FifoKhr;
+    }
+
+    private PresentModeKHR[] AvailablePresentModes()
+    {
+        uint count = 0;
+        _context.SurfaceApi.GetPhysicalDeviceSurfacePresentModes(_context.PhysicalDevice, _context.Surface, &count, null).Check();
+        var modes = new PresentModeKHR[count];
+        fixed (PresentModeKHR* ptr = modes)
+        {
+            _context.SurfaceApi.GetPhysicalDeviceSurfacePresentModes(_context.PhysicalDevice, _context.Surface, &count, ptr).Check();
+        }
+
+        return modes;
     }
 
     private SurfaceFormatKHR ChooseFormat()

@@ -32,6 +32,21 @@ public class GameArgumentsTests
     }
 
     [Fact]
+    public void Reads_no_vsync()
+    {
+        Assert.True(GameArguments.Parse(["--no-vsync"]).NoVsync);
+        Assert.False(GameArguments.Parse([]).NoVsync);
+    }
+
+    [Fact]
+    public void No_vsync_is_only_for_playing_in_a_window()
+    {
+        Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--no-vsync", "--profile", "reef.txt"]));
+        Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--no-vsync", "--screenshot", "day.png"]));
+        Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--no-vsync", "--record", "clip.mp4", "--seconds", "1"]));
+    }
+
+    [Fact]
     public void Reads_a_profile()
     {
         var arguments = GameArguments.Parse(["--seed", "7", "--ticks", "300", "--profile", "reef.txt", "--frames", "120"]);

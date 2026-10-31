@@ -288,4 +288,10 @@ public sealed class RendererOptions
     public required int Width { get; init; }
     public required int Height { get; init; }
     public bool EnableValidation { get; init; }
+
+    /// <summary>
+    /// Draws as fast as the machine can instead of waiting for the display. Frames may
+    /// tear. Displays that can't do this keep vsync on.
+    /// </summary>
+    public bool DisableVsync { get; init; }
 }

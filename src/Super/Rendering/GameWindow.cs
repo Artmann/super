@@ -27,7 +27,7 @@ internal sealed unsafe class GameWindow : IDisposable
     private readonly WindowHandle* _window;
     private readonly SceneRenderer _scene;
 
-    public GameWindow(string title, int windowWidth, int windowHeight, bool hidden, bool validate)
+    public GameWindow(string title, int windowWidth, int windowHeight, bool hidden, bool validate, bool disableVsync)
     {
         _glfw = Glfw.GetApi();
         if (!_glfw.Init())
@@ -56,6 +56,7 @@ internal sealed unsafe class GameWindow : IDisposable
             Width = width,
             Height = height,
             EnableValidation = validate,
+            DisableVsync = disableVsync,
         });
     }
 

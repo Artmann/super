@@ -16,7 +16,8 @@ internal sealed record GameArguments(
     int? Width = null,
     int? Height = null,
     string? ProfilePath = null,
-    int Frames = GameArguments.DefaultProfileFrames)
+    int Frames = GameArguments.DefaultProfileFrames,
+    bool NoVsync = false)
 {
     public const int DefaultFramesPerSecond = 60;
 
@@ -34,6 +35,7 @@ internal sealed record GameArguments(
         int? height = null;
         string? profilePath = null;
         int? frames = null;
+        bool noVsync = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -66,6 +68,9 @@ internal sealed record GameArguments(
                 case "--frames":
                     frames = (int)Number(args, ++i, "--frames");
                     break;
+                case "--no-vsync":
+                    noVsync = true;
+                    break;
             }
         }
 
@@ -82,6 +87,12 @@ internal sealed record GameArguments(
         if ((screenshotPath is not null ? 1 : 0) + (recordPath is not null ? 1 : 0) + (profilePath is not null ? 1 : 0) > 1)
         {
             throw new ArgumentException("--screenshot, --record and --profile can't run together.");
+        }
+
+        // Presenting to a hidden window is slow, so the numbers would be misleading.
+        if (noVsync && (screenshotPath is not null || recordPath is not null || profilePath is not null))
+        {
+            throw new ArgumentException("--no-vsync only works when playing in a window, so it can't run with --screenshot, --record or --profile.");
         }
 
         if (frames is not null && profilePath is null)
@@ -115,7 +126,7 @@ internal sealed record GameArguments(
         }
 
         return new GameArguments(
-            seed, ticks, screenshotPath, recordPath, seconds, framesPerSecond, width, height, profilePath, frames ?? DefaultProfileFrames);
+            seed, ticks, screenshotPath, recordPath, seconds, framesPerSecond, width, height, profilePath, frames ?? DefaultProfileFrames, noVsync);
     }
 
     private static double PositiveSeconds(ReadOnlySpan<string> args, int index)

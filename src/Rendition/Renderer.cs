@@ -38,6 +38,7 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     private readonly VulkanContext _context;
+    private readonly bool _disableVsync;
     private readonly Vk _api;
     private readonly Frame[] _frames = new Frame[FramesInFlight];
     // How far a simpler model may stray. Shadows are soft, so they can afford more.
@@ -114,7 +115,8 @@ public sealed unsafe class Renderer : IDisposable
         _context = new VulkanContext(options);
         _api = _context.Api;
 
-        _swapchain = new Swapchain(_context, (uint)options.Width, (uint)options.Height);
+        _disableVsync = options.DisableVsync;
+        _swapchain = new Swapchain(_context, (uint)options.Width, (uint)options.Height, _disableVsync);
         _gBuffer = new GBuffer(_context, _swapchain.Extent);
 
         var samplerInfo = new SamplerCreateInfo
@@ -960,7 +962,7 @@ public sealed unsafe class Renderer : IDisposable
         _api.DeviceWaitIdle(_context.Device).Check();
         _gBuffer.Dispose();
         _swapchain.Dispose();
-        _swapchain = new Swapchain(_context, width, height);
+        _swapchain = new Swapchain(_context, width, height, _disableVsync);
         _gBuffer = new GBuffer(_context, _swapchain.Extent);
         _bloomPass.Resize(_gBuffer.Resolved.View, _gBuffer.Extent);
         WriteTargetDescriptors();

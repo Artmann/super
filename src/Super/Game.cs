@@ -24,7 +24,7 @@ public static class Game
         // Validation would swamp the timings, so a profile runs without it.
         bool validate = hidden && arguments.ProfilePath is null;
         using var window = new GameWindow(
-            options.Title, arguments.Width ?? options.Width, arguments.Height ?? options.Height, hidden, validate);
+            options.Title, arguments.Width ?? options.Width, arguments.Height ?? options.Height, hidden, validate, arguments.NoVsync);
 
         if (arguments.ProfilePath is { } report)
         {
