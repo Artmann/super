@@ -68,7 +68,7 @@ internal sealed unsafe class GameWindow : IDisposable
 
             host.Draw(clock.Blend);
             _glfw.GetFramebufferSize(_window, out int width, out int height);
-            _scene.Render(host.View, width, height, (float)now);
+            _scene.Render(host.View, host.Content, width, height, (float)now);
         }
     }
 
@@ -86,7 +86,7 @@ internal sealed unsafe class GameWindow : IDisposable
             if (i >= ticks - ScreenshotPlayedTicks)
             {
                 host.Draw(1f);
-                _scene.Render(host.View, width, height, (float)host.Time.TotalSeconds);
+                _scene.Render(host.View, host.Content, width, height, (float)host.Time.TotalSeconds);
             }
         }
 
@@ -94,10 +94,10 @@ internal sealed unsafe class GameWindow : IDisposable
         host.Draw(1f);
         for (int i = 0; i < ScreenshotSettleFrames; i++)
         {
-            _scene.Render(host.View, width, height, time);
+            _scene.Render(host.View, host.Content, width, height, time);
         }
 
-        byte[] pixels = _scene.Capture(host.View, width, height, time, out int capturedWidth, out int capturedHeight);
+        byte[] pixels = _scene.Capture(host.View, host.Content, width, height, time, out int capturedWidth, out int capturedHeight);
         PngFile.Write(path, pixels, capturedWidth, capturedHeight);
         return _scene.ValidationErrors;
     }

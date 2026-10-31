@@ -61,6 +61,18 @@ internal struct FrameUniforms
     /// <summary>x: sharpening; y: grain; zw: this frame's anti-aliasing shift.</summary>
     public Vector4 Finish;
 
+    /// <summary>rgb: light lost per metre; a: 1 when the view is underwater.</summary>
+    public Vector4 WaterAbsorption;
+
+    /// <summary>rgb: colour of the water looking up; a: height of the surface.</summary>
+    public Vector4 WaterShallow;
+
+    /// <summary>rgb: colour of the water looking down; a: strength of the light shafts.</summary>
+    public Vector4 WaterDeep;
+
+    /// <summary>x: strength of the caustics; y: how small they are; z: reach of the shafts.</summary>
+    public Vector4 WaterLight;
+
     public int LightCount;
     public float Time;
     public int FrameNumber;

@@ -2,6 +2,9 @@
 layout(push_constant) uniform Draw {
     mat4 model;
     int material;
+    float swimAmplitude;
+    float swimBodyLength;
+    float swimPhase;
 } draw;
 
 // Must match GpuMaterial in Vulkan/ResourceTable.cs.

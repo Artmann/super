@@ -9,8 +9,11 @@
   </Folder>
   <Folder Name="/examples/">
     <Project Path="examples/ColorCube/ColorCube.csproj" />
+    <Project Path="examples/Reef/Reef.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Reef.Tests/Reef.Tests.csproj" />
+    <Project Path="tests/Super.Ecs.Tests/Super.Ecs.Tests.csproj" />
     <Project Path="tests/Super.Random.Tests/Super.Random.Tests.csproj" />
     <Project Path="tests/Super.Tests/Super.Tests.csproj" />
   </Folder>

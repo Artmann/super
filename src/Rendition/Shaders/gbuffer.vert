@@ -11,6 +11,9 @@ layout(location = 3) in vec2 inUv;
 layout(push_constant) uniform Draw {
     mat4 model;
     int material;
+    float swimAmplitude;
+    float swimBodyLength;
+    float swimPhase;
 } draw;
 
 layout(location = 0) out vec3 outNormal;
@@ -23,7 +26,8 @@ void main() {
     outNormal = transpose(inverse(model)) * inNormal;
     outTangent = vec4(model * inTangent.xyz, inTangent.w);
     outUv = inUv;
-    vec4 position = draw.model * vec4(inPosition, 1.0);
+    vec3 swum = swim(inPosition, draw.swimAmplitude, draw.swimBodyLength, draw.swimPhase);
+    vec4 position = draw.model * vec4(swum, 1.0);
     outPosition = position.xyz;
     gl_Position = frame.viewProjection * position;
 }

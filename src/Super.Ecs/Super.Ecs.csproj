@@ -4,4 +4,8 @@
     <ProjectReference Include="..\Super\Super.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Super.Ecs.Tests" />
+  </ItemGroup>
+
 </Project>

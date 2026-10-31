@@ -1,0 +1,6 @@
+{
+  "targetLength": 3.0,
+  "materials": [
+    { "match": "Material.002", "twoSided": true, "roughness": 0.8 }
+  ]
+}

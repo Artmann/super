@@ -1,0 +1,9 @@
+{
+  "targetLength": 9.0,
+  "materials": [
+    { "match": "M_coral_01", "baseColor": "coralV1_diff.png", "normal": "coral_normal.png", "roughness": 0.75 },
+    { "match": "M_coral_02", "baseColor": "coralV2_diff.png", "normal": "coral_normal.png", "roughness": 0.75 },
+    { "match": "M_coral_03", "baseColor": "Big_coral_V2_Diff.png", "normal": "Big_coral_normal.png", "roughness": 0.75 },
+    { "match": "M_coral", "baseColor": "Big_coral_Diff.png", "normal": "Big_coral_normal.png", "roughness": 0.75 }
+  ]
+}

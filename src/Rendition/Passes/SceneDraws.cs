@@ -19,6 +19,7 @@ internal static unsafe class SceneDraws
     {
         public Matrix4x4 Model;
         public int Material;
+        public SwimMotion Swim;
     }
 
     public static PushConstantRange PushRange => new(PushStages, 0, (uint)sizeof(DrawConstants));
@@ -79,7 +80,7 @@ internal static unsafe class SceneDraws
                 boundMesh = draw.Mesh.Index;
             }
 
-            var constants = new DrawConstants { Model = draw.Transform, Material = draw.Material.Index };
+            var constants = new DrawConstants { Model = draw.Transform, Material = draw.Material.Index, Swim = draw.Swim };
             api.CmdPushConstants(cmd, layout, PushStages, 0, (uint)sizeof(DrawConstants), &constants);
             api.CmdDrawIndexed(cmd, draw.IndexCount, 1, draw.FirstIndex, 0, 0);
         }

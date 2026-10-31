@@ -9,11 +9,15 @@ layout(location = 1) in vec2 inUv;
 layout(push_constant) uniform Draw {
     mat4 model;
     int material;
+    float swimAmplitude;
+    float swimBodyLength;
+    float swimPhase;
 } draw;
 
 layout(location = 0) out vec2 outUv;
 
 void main() {
     outUv = inUv;
-    gl_Position = frame.shadowMatrix * draw.model * vec4(inPosition, 1.0);
+    vec3 swum = swim(inPosition, draw.swimAmplitude, draw.swimBodyLength, draw.swimPhase);
+    gl_Position = frame.shadowMatrix * draw.model * vec4(swum, 1.0);
 }

@@ -1,0 +1,6 @@
+{
+  "targetLength": 1.0,
+  "materials": [
+    { "match": "material", "roughness": 0.45 }
+  ]
+}

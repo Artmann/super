@@ -69,6 +69,14 @@ public struct Material
     public Vector4 ShaderParameters;
 }
 
+/// <summary>
+/// Bends a model in a wave from head to tail. Its head must face +z. Amplitude is how far
+/// the tail swings and BodyLength the model's length, both in the model's own units.
+/// Raise Phase, in radians, steadily to swim. All zeros leave the model still.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly record struct SwimMotion(float Amplitude, float BodyLength, float Phase);
+
 public struct DrawItem
 {
     public MeshHandle Mesh;
@@ -76,6 +84,7 @@ public struct DrawItem
     public uint IndexCount;
     public MaterialHandle Material;
     public Matrix4x4 Transform;
+    public SwimMotion Swim;
 }
 
 public struct DirectionalLight
@@ -146,6 +155,34 @@ public struct PostSettings
     public float Grain;
 }
 
+/// <summary>Puts the camera underwater. Leaving Absorption at zero means there's no water.</summary>
+public struct UnderwaterSettings
+{
+    /// <summary>Red, green and blue light lost per metre. Red should be the largest, as in the sea.</summary>
+    public Vector3 Absorption;
+
+    /// <summary>The water's colour looking up towards the surface.</summary>
+    public Vector3 ShallowColor;
+
+    /// <summary>The water's colour looking down.</summary>
+    public Vector3 DeepColor;
+
+    /// <summary>Height of the water's surface.</summary>
+    public float SurfaceHeight;
+
+    /// <summary>How much the moving net of light brightens sunlit surfaces. 1 doubles them at its peaks.</summary>
+    public float CausticStrength;
+
+    /// <summary>How many nets of light fit in a metre. 0.2 makes each about five metres wide.</summary>
+    public float CausticScale;
+
+    /// <summary>Brightness of the hazy shafts of light.</summary>
+    public float ShaftStrength;
+
+    /// <summary>How far from the camera shafts are drawn, in metres.</summary>
+    public float ShaftDistance;
+}
+
 /// <summary>The part of the world covered by the shadow map.</summary>
 public struct ShadowSettings
 {
@@ -187,6 +224,8 @@ public ref struct FrameView
     public float BackgroundFadeEnd;
 
     public PostSettings Post;
+
+    public UnderwaterSettings Water;
 }
 
 public static class Projection

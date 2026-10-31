@@ -3,6 +3,7 @@
 #include "common.glsl"
 #include "brdf.glsl"
 #include "sampling.glsl"
+#include "water.glsl"
 
 layout(location = 0) in vec2 inUv;
 
@@ -196,6 +197,13 @@ void main() {
 
     // Reversed-Z: a depth of 0 is the far plane, so nothing was drawn here.
     if (depth == 0.0) {
+        if (isUnderwater()) {
+            vec4 ahead = frame.inverseViewProjection * vec4(inUv * 2.0 - 1.0, 1.0, 1.0);
+            vec3 direction = normalize(ahead.xyz / ahead.w - frame.cameraPosition.xyz);
+            outColor = vec4(throughWater(vec3(0.0), frame.cameraPosition.xyz + direction * NOTHING_DRAWN_DISTANCE), 1.0);
+            return;
+        }
+
         if (frame.showEnvironment == 1) {
             vec4 ahead = frame.inverseViewProjection * vec4(inUv * 2.0 - 1.0, 1.0, 1.0);
             vec3 direction = normalize(ahead.xyz / ahead.w - frame.cameraPosition.xyz);
@@ -283,7 +291,12 @@ void main() {
         // A light without a shadow map would shine through everything, so nearby
         // surfaces are all that can block it.
         float visibility = frame.lights[i].direction.w > 0.5 ? shadowVisibility(position, n, l) : screenAo;
-        color += lit * frame.lights[i].radiance.rgb * nDotL * visibility;
+        color += lit * sunlightReaching(position, l, i) * nDotL * visibility;
+    }
+
+    if (isUnderwater()) {
+        outColor = vec4(throughWater(color, position), 1.0);
+        return;
     }
 
     // Distant surfaces melt into the background, which hides the horizon of a studio floor.

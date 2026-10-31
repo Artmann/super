@@ -409,29 +409,33 @@ class Movement(World world)
 {
     public void Update(GameTime time)
     {
-        foreach (var (position, velocity) in world.Query<Position, Velocity>())
+        foreach (var row in world.Query<Position, Velocity>())
         {
-            position.Value += velocity.Value * time.TickSeconds;
+            row.First.Value += row.Second.Value * time.TickSeconds;
         }
     }
 }
 
 class Sheep(World world, Content content)
 {
-    readonly ModelRef model = content.Model("models/sheep");
+    readonly ModelRef model = content.Model("sheep.rmodel");
 
     public void Draw(View view)
     {
-        foreach (var (entity, position) in world.QueryWithEntity<Position>())
+        foreach (var row in world.Query<Position>())
         {
-            view.Model(entity.Id, model, Matrix4x4.CreateTranslation(position.Value));
+            view.Model(row.Entity.Id, model, Matrix4x4.CreateTranslation(row.First.Value));
         }
     }
 }
 ```
 
+Each row's `First`, `Second` and so on are references into the world, so changing them
+changes the entity, and a query allocates nothing. Queries take up to four components.
+
 Views work the same either way. You can also skip this package and use plain lists,
-or a different ECS library.
+or a different ECS library. The [Reef example](examples/Reef) uses it for thousands of
+schooling fish.
 
 ## Getting started
 
@@ -458,6 +462,18 @@ at random times:
 
 ```
 dotnet run -c Release --project examples/ColorCube
+```
+
+The Reef example is a wide underwater view of 6,240 fish schooling over coral. Its models
+aren't in this repository because they aren't covered by the license and have their own
+terms ([CREDITS.md](CREDITS.md)). With them in `assets/source/reef`, cook each one, then run it:
+
+```
+dotnet run -c Release --project tools/Rendition.Import -- assets/source/reef/tuna/TUNAFBX.fbx assets/reef-tuna.materials.json assets/cooked/reef/tuna.rmodel
+dotnet run -c Release --project tools/Rendition.Import -- assets/source/reef/tilapia/tillapia_buttikoferi_fish.glb assets/reef-tilapia.materials.json assets/cooked/reef/tilapia.rmodel
+dotnet run -c Release --project tools/Rendition.Import -- assets/source/reef/coral/coral.glb assets/reef-coral.materials.json assets/cooked/reef/coral.rmodel
+dotnet run -c Release --project tools/Rendition.Import -- assets/source/reef/softcoral/Corals.fbx assets/reef-softcoral.materials.json assets/cooked/reef/softcoral.rmodel
+dotnet run -c Release --project examples/Reef
 ```
 
 To see what the renderer can do today, run the sample:

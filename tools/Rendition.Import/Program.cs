@@ -108,6 +108,7 @@ unsafe
 }
 
 var vertexArray = vertices.ToArray();
+Rotate(vertexArray, settings.RotateY);
 Normalize(vertexArray, settings.TargetLength);
 
 new ModelData
@@ -124,6 +125,18 @@ Console.WriteLine(
     $"{parts.Count} parts, {materials.Count} materials, {textures.Count} textures, " +
     $"{new FileInfo(args[2]).Length / (1024 * 1024)} MB");
 return 0;
+
+static void Rotate(Vertex[] vertices, float degrees)
+{
+    var turn = Matrix4x4.CreateRotationY(degrees * MathF.PI / 180f);
+    foreach (ref var vertex in vertices.AsSpan())
+    {
+        vertex.Position = Vector3.Transform(vertex.Position, turn);
+        vertex.Normal = Vector3.TransformNormal(vertex.Normal, turn);
+        var tangent = Vector3.TransformNormal(new Vector3(vertex.Tangent.X, vertex.Tangent.Y, vertex.Tangent.Z), turn);
+        vertex.Tangent = new Vector4(tangent, vertex.Tangent.W);
+    }
+}
 
 // Scales the model to real-world metres, centres it, and stands it on y = 0.
 static void Normalize(Vertex[] vertices, float targetLength)

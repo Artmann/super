@@ -6,6 +6,9 @@ public sealed class ImportSettings
     /// <summary>Real-world size of the model's longest axis in metres; 0 keeps the source scale.</summary>
     public float TargetLength { get; set; }
 
+    /// <summary>Turns the model around the vertical axis, in degrees, so it faces the way a game expects.</summary>
+    public float RotateY { get; set; }
+
     public List<MaterialRule> Materials { get; set; } = [];
 }
 

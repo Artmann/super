@@ -775,6 +775,12 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->Parameters = new Vector4(
             view.BackgroundFadeStart, view.BackgroundFadeEnd, view.Shadows.LightAngle, normalOffset);
 
+        ref readonly var water = ref view.Water;
+        uniforms->WaterAbsorption = new Vector4(water.Absorption, water.Absorption != Vector3.Zero ? 1f : 0f);
+        uniforms->WaterShallow = new Vector4(water.ShallowColor, water.SurfaceHeight);
+        uniforms->WaterDeep = new Vector4(water.DeepColor, water.ShaftStrength);
+        uniforms->WaterLight = new Vector4(water.CausticStrength, water.CausticScale, water.ShaftDistance, 0f);
+
         int count = Math.Min(view.Lights.Length, FrameUniforms.MaxLights);
         uniforms->LightCount = count;
         uniforms->Time = view.Time;
