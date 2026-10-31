@@ -302,12 +302,12 @@ internal sealed record FixedSizeModifier(UiView Child) : Modifier(Child)
     internal override UiSize Measure(UiNode node, Proposal proposal) => Inner(node).Measure(new Proposal(null, null));
 }
 
-internal sealed record BackgroundModifier(UiView Child, UiColor Color) : Modifier(Child)
+internal sealed record BackgroundModifier(UiView Child, Color Color) : Modifier(Child)
 {
     internal override void Emit(UiNode node, UiTree tree) => tree.AddRectangle(node.Frame, Color);
 }
 
-internal sealed record StyleModifier(UiView Child, float? Size = null, bool? Bold = null, UiColor? Color = null, bool? MonospacedDigits = null)
+internal sealed record StyleModifier(UiView Child, float? Size = null, bool? Bold = null, Color? Color = null, bool? MonospacedDigits = null)
     : Modifier(Child)
 {
     internal override TextStyle Inherit(TextStyle style) => new(

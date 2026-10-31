@@ -8,7 +8,7 @@ internal sealed record StatRow(string Label, string Value) : UiView
 {
     public override UiView Body => new HStack(Spacing: 24f)
     {
-        new Text(Label).Foreground(UiColor.Hex(0x9FD3E0)),
+        new Text(Label).Foreground(Color.Hex("#9FD3E0")),
         new Spacer(),
         new Text(Value).MonospacedDigit(),
     };
@@ -30,6 +30,6 @@ internal sealed record StatsPanel(FrameStats Stats, int Fish) : UiView
         new StatRow("Fish", $"{Fish:N0}"),
     }
     .Padding(12f)
-    .Background(UiColor.Hex(0x06202C, 0.72f))
+    .Background(Color.Hex("#06202C", 0.72f))
     .FixedSize();
 }

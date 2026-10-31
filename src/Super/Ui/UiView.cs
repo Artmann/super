@@ -48,18 +48,6 @@ public abstract record PrimitiveView : UiView
     internal virtual TextStyle Inherit(TextStyle style) => style;
 }
 
-/// <summary>A color in sRGB from 0 to 1, as written in an image editor.</summary>
-public readonly record struct UiColor(float R, float G, float B, float A = 1f)
-{
-    public static UiColor White { get; } = new(1f, 1f, 1f);
-
-    public static UiColor Black { get; } = new(0f, 0f, 0f);
-
-    /// <summary>Reads a color written as 0xRRGGBB.</summary>
-    public static UiColor Hex(int rgb, float alpha = 1f) =>
-        new(((rgb >> 16) & 0xFF) / 255f, ((rgb >> 8) & 0xFF) / 255f, (rgb & 0xFF) / 255f, alpha);
-}
-
 public enum HorizontalAlignment
 {
     Leading,
@@ -108,9 +96,9 @@ public readonly record struct UiRect(float X, float Y, float Width, float Height
 internal readonly record struct Proposal(float? Width, float? Height);
 
 /// <summary>How text looks. It flows down the tree, so a style set on a stack reaches all the text inside.</summary>
-internal readonly record struct TextStyle(float Size, bool Bold, UiColor Color, bool MonospacedDigits)
+internal readonly record struct TextStyle(float Size, bool Bold, Color Color, bool MonospacedDigits)
 {
-    public static TextStyle Default { get; } = new(14f, false, UiColor.White, false);
+    public static TextStyle Default { get; } = new(14f, false, Color.White, false);
 }
 
 internal static class AlignmentFractions

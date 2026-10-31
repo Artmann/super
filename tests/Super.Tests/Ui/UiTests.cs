@@ -104,7 +104,7 @@ public sealed class UiTests
     [Fact]
     public void A_spacer_doesnt_widen_a_vstack()
     {
-        var tree = Show(new VStack { new Text("a"), new Spacer() }.Background(UiColor.Black).FixedSize());
+        var tree = Show(new VStack { new Text("a"), new Spacer() }.Background(Color.Black).FixedSize());
 
         Assert.Equal(Find(tree, "a").Frame.Width, tree.Quads[0].Size.X, Close);
     }
@@ -138,8 +138,8 @@ public sealed class UiTests
     [Fact]
     public void Padding_goes_around_a_background_or_inside_it_depending_on_order()
     {
-        var inside = Show(new Text("a").Padding(10f).Background(UiColor.Black));
-        var outside = Show(new Text("a").Background(UiColor.Black).Padding(10f));
+        var inside = Show(new Text("a").Padding(10f).Background(Color.Black));
+        var outside = Show(new Text("a").Background(Color.Black).Padding(10f));
 
         Assert.Equal(outside.Quads[0].Size.X + 20f, inside.Quads[0].Size.X, Close);
     }
@@ -158,7 +158,7 @@ public sealed class UiTests
         var plain = new UiTree();
         plain.Update(new VStack { new Text("a") }, 800, 600);
         var styled = new UiTree();
-        styled.Update(new VStack { new Text("a") }.FontSize(30f).Foreground(UiColor.Hex(0xFF0000)), 800, 600);
+        styled.Update(new VStack { new Text("a") }.FontSize(30f).Foreground(Color.Hex("#FF0000")), 800, 600);
 
         Assert.True(Find(styled, "a").Frame.Height > Find(plain, "a").Frame.Height);
         Assert.Equal(1f, styled.Quads[0].Color.X);

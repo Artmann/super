@@ -27,10 +27,10 @@ public static class UiExtensions
     public static UiView FixedSize(this UiView view) => new FixedSizeModifier(view);
 
     /// <summary>Fills the view's whole area behind it.</summary>
-    public static UiView Background(this UiView view, UiColor color) => new BackgroundModifier(view, color);
+    public static UiView Background(this UiView view, Color color) => new BackgroundModifier(view, color);
 
     /// <summary>Colors the text in this view, and in everything inside it.</summary>
-    public static UiView Foreground(this UiView view, UiColor color) => new StyleModifier(view, Color: color);
+    public static UiView Foreground(this UiView view, Color color) => new StyleModifier(view, Color: color);
 
     /// <summary>Sets the size of the text in this view, and in everything inside it, in pixels.</summary>
     public static UiView FontSize(this UiView view, float size) => new StyleModifier(view, Size: size);

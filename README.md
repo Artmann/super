@@ -252,7 +252,7 @@ record StatRow(string Label, string Value) : UiView
 {
     public override UiView Body => new HStack(Spacing: 24f)
     {
-        new Text(Label).Foreground(UiColor.Hex(0x9FD3E0)),
+        new Text(Label).Foreground(Color.Hex("#9FD3E0")),
         new Spacer(),
         new Text(Value).MonospacedDigit(),
     };
@@ -267,7 +267,7 @@ record ColonyPanel(int Workers, int Wood) : UiView
         new StatRow("Wood", $"{Wood}"),
     }
     .Padding(12f)
-    .Background(UiColor.Hex(0x06202C, 0.72f))
+    .Background(Color.Hex("#06202C", 0.72f))
     .FixedSize();
 }
 
@@ -304,6 +304,24 @@ the padding too, and `.Background(color).Padding(8f)` doesn't.
 | `.Foreground(color)`, `.FontSize(pixels)`, `.Bold()` | Styles text here and everywhere inside |
 | `.MonospacedDigit()` | Gives digits one width, so changing numbers don't jiggle |
 | `.Id(key)` | Names a view among its siblings |
+
+### Colors
+
+`Color` takes whichever notation you like, and each one takes an optional alpha:
+
+```csharp
+Color.Hex("#06202C", 0.72f);        // also #RGB, #RGBA and #RRGGBBAA
+Color.Rgb(6, 32, 44);               // 0 to 255
+Color.Hsl(198f, 0.76f, 0.1f);       // hue in degrees, the rest 0 to 1
+Color.Oklch(0.72f, 0.12f, 210f);    // lightness 0 to 1, chroma 0 to about 0.4, hue in degrees
+Color.White with { A = 0.5f };      // change just the opacity
+```
+
+Oklch is the best one for building a palette, because colors with the same lightness
+look equally bright. A color too vivid for a screen gets clipped.
+
+`Color` is for interfaces. 3D colors and lights stay as `Vector3`, because they're
+linear and a bright light can go well past 1.
 
 ### Layout
 

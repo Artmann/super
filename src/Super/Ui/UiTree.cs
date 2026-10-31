@@ -39,13 +39,13 @@ public sealed class UiTree
         }
     }
 
-    internal void AddRectangle(UiRect frame, UiColor color)
+    internal void AddRectangle(UiRect frame, Color color)
     {
         var uv = Atlas.SolidUv;
         AddQuad(frame, uv, uv, color);
     }
 
-    internal void AddQuad(UiRect frame, Vector2 uvMin, Vector2 uvMax, UiColor color)
+    internal void AddQuad(UiRect frame, Vector2 uvMin, Vector2 uvMax, Color color)
     {
         _quads.Add(new OverlayQuad
         {
