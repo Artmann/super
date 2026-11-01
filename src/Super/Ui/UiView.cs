@@ -40,7 +40,13 @@ public abstract record PrimitiveView : UiView
 
     internal abstract void Place(UiNode node, UiRect frame);
 
+    /// <summary>Draws this view, behind its children.</summary>
     internal virtual void Emit(UiNode node, UiTree tree)
+    {
+    }
+
+    /// <summary>Runs after the children, to end what Emit began and draw anything in front of them.</summary>
+    internal virtual void EmitAfter(UiNode node, UiTree tree)
     {
     }
 
@@ -80,6 +86,25 @@ public readonly record struct UiSize(float Width, float Height);
 public readonly record struct UiRect(float X, float Y, float Width, float Height)
 {
     public UiSize Size => new(Width, Height);
+
+    public float Right => X + Width;
+
+    public float Bottom => Y + Height;
+
+    public bool Contains(float x, float y) => x >= X && x < Right && y >= Y && y < Bottom;
+
+    /// <summary>Whether the two share any area. An empty rectangle shares none.</summary>
+    internal bool Overlaps(UiRect other) =>
+        Width > 0f && Height > 0f && other.Width > 0f && other.Height > 0f
+        && X < other.Right && other.X < Right && Y < other.Bottom && other.Y < Bottom;
+
+    /// <summary>The area both share. It has no size if they don't overlap.</summary>
+    internal UiRect Intersect(UiRect other)
+    {
+        float left = Math.Max(X, other.X);
+        float top = Math.Max(Y, other.Y);
+        return new UiRect(left, top, Math.Max(Math.Min(Right, other.Right) - left, 0f), Math.Max(Math.Min(Bottom, other.Bottom) - top, 0f));
+    }
 
     /// <summary>Puts something of the given size inside this rectangle.</summary>
     internal UiRect Align(UiSize size, Alignment alignment)

@@ -16,10 +16,18 @@ public sealed class UiTree
 {
     private readonly List<OverlayQuad> _quads = [];
     private readonly List<ShownText> _shownText = [];
+    private readonly List<Clip?> _clips = [];
+    private readonly List<float> _opacities = [];
     private GlyphAtlas? _atlas;
     private UiNode? _root;
     private int _width;
     private int _height;
+    private Clip? _clip;
+    private float _opacity = 1f;
+    private bool _layoutWanted;
+#if !DEBUG
+    private bool _reportedTooManyQuads;
+#endif
 
     public IReadOnlyList<ShownText> ShownText => _shownText;
 
@@ -30,34 +38,120 @@ public sealed class UiTree
     /// <summary>Shows this description at this size. Pass null to show nothing.</summary>
     public void Update(UiView? view, int width, int height)
     {
-        bool changed = Reconcile(view) | width != _width | height != _height;
+        bool changed = Reconcile(view) | width != _width | height != _height | _layoutWanted;
         _width = width;
         _height = height;
         if (changed)
         {
+            _layoutWanted = false;
             Layout();
         }
     }
 
-    internal void AddRectangle(UiRect frame, Color color)
+    /// <summary>Asks for layout on the next update, for what changes without a new description.</summary>
+    internal void RequestLayout() => _layoutWanted = true;
+
+    /// <summary>Draws a filled rectangle, rounded and bordered if asked to be.</summary>
+    internal void AddBox(UiRect frame, Color? fill, float radius, float borderWidth, Color border)
     {
         var uv = Atlas.SolidUv;
-        AddQuad(frame, uv, uv, color);
+        var color = fill ?? default;
+        Add(frame, new OverlayQuad
+        {
+            UvMin = uv,
+            UvMax = uv,
+            Color = Faded(color),
+            BorderColor = Faded(border),
+            BorderWidth = borderWidth,
+            CornerRadius = radius,
+        });
     }
 
     internal void AddQuad(UiRect frame, Vector2 uvMin, Vector2 uvMax, Color color)
     {
-        _quads.Add(new OverlayQuad
-        {
-            Position = new Vector2(frame.X, frame.Y),
-            Size = new Vector2(frame.Width, frame.Height),
-            UvMin = uvMin,
-            UvMax = uvMax,
-            Color = new Vector4(color.R, color.G, color.B, color.A),
-        });
+        Add(frame, new OverlayQuad { UvMin = uvMin, UvMax = uvMax, Color = Faded(color) });
     }
 
-    internal void AddText(string text, UiRect frame) => _shownText.Add(new ShownText(text, frame));
+    internal void AddText(string text, UiRect frame)
+    {
+        if (_clip is not { } clip || clip.Rect.Overlaps(frame))
+        {
+            _shownText.Add(new ShownText(text, frame));
+        }
+    }
+
+    /// <summary>
+    /// Everything until the matching <see cref="PopClip"/> stays inside this rectangle.
+    /// A quad has room for one clip, so nested ones intersect and keep the innermost
+    /// radius that's set.
+    /// </summary>
+    internal void PushClip(UiRect rectangle, float radius)
+    {
+        _clips.Add(_clip);
+        _clip = _clip is { } outer
+            ? new Clip(outer.Rect.Intersect(rectangle), radius > 0f ? radius : outer.Radius)
+            : new Clip(rectangle, radius);
+    }
+
+    internal void PopClip()
+    {
+        _clip = _clips[^1];
+        _clips.RemoveAt(_clips.Count - 1);
+    }
+
+    /// <summary>Multiplies everything until the matching <see cref="PopOpacity"/>.</summary>
+    internal void PushOpacity(float opacity)
+    {
+        _opacities.Add(_opacity);
+        _opacity *= opacity;
+    }
+
+    internal void PopOpacity()
+    {
+        _opacity = _opacities[^1];
+        _opacities.RemoveAt(_opacities.Count - 1);
+    }
+
+    private Vector4 Faded(Color color) => new(color.R, color.G, color.B, color.A * _opacity);
+
+    private void Add(UiRect frame, OverlayQuad quad)
+    {
+        // A long list costs what's on screen, not what's in it.
+        if (_clip is { } clip && !clip.Rect.Overlaps(frame))
+        {
+            return;
+        }
+
+        if (_quads.Count >= OverlayQuad.MaxPerFrame)
+        {
+            ReportTooManyQuads();
+            return;
+        }
+
+        quad.Position = new Vector2(frame.X, frame.Y);
+        quad.Size = new Vector2(frame.Width, frame.Height);
+        if (_clip is { } active)
+        {
+            quad.Clip = new Vector4(active.Rect.X, active.Rect.Y, active.Rect.Width, active.Rect.Height);
+            quad.ClipRadius = active.Radius;
+        }
+
+        _quads.Add(quad);
+    }
+
+    private void ReportTooManyQuads()
+    {
+        string message = $"This interface draws more than {OverlayQuad.MaxPerFrame} quads, and each character of text is one. The rest won't show.";
+#if DEBUG
+        throw new InvalidOperationException(message);
+#else
+        if (!_reportedTooManyQuads)
+        {
+            _reportedTooManyQuads = true;
+            Console.Error.WriteLine(message);
+        }
+#endif
+    }
 
     private bool Reconcile(UiView? view)
     {
@@ -94,4 +188,6 @@ public sealed class UiTree
         _root.Place(screen.Align(_root.Measure(new Proposal(_width, _height)), Alignment.Center));
         _root.Emit();
     }
+
+    private readonly record struct Clip(UiRect Rect, float Radius);
 }

@@ -14,7 +14,7 @@ namespace Rendition.Passes;
 internal sealed unsafe class OverlayPass : IDisposable
 {
     /// <summary>Quads past this are dropped. Each character of text is one quad.</summary>
-    public const int MaxQuads = 8192;
+    public const int MaxQuads = OverlayQuad.MaxPerFrame;
 
     private readonly VulkanContext _context;
     private readonly ResourceTable _resources;

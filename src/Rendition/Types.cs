@@ -251,6 +251,9 @@ public ref struct FrameView
 [StructLayout(LayoutKind.Sequential)]
 public struct OverlayQuad
 {
+    /// <summary>How many fit in one frame. Past this they aren't drawn.</summary>
+    public const int MaxPerFrame = 8192;
+
     public Vector2 Position;
     public Vector2 Size;
     public Vector2 UvMin;

@@ -36,6 +36,17 @@ internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view)
 
     public UiRect Frame { get; private set; }
 
+    /// <summary>How far a scroll view has moved. It's kept here so it survives new descriptions.</summary>
+    public float ScrollOffset { get; set; }
+
+    /// <summary>The length of a scroll view's content, from its last layout.</summary>
+    public float ContentLength { get; set; }
+
+    /// <summary>The length of a scroll view's window on its content, from its last layout.</summary>
+    public float ViewportLength { get; set; }
+
+    public float MaxScroll => Math.Max(ContentLength - ViewportLength, 0f);
+
     /// <summary>
     /// Brings this node up to date with a view. Equal views stop here, which is what makes
     /// redescribing the whole interface cheap. Returns whether anything changed.
@@ -136,6 +147,8 @@ internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view)
         {
             child?.Emit();
         }
+
+        (View as PrimitiveView)?.EmitAfter(this, Tree);
     }
 
     public void ForgetLayout()

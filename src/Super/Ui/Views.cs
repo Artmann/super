@@ -338,12 +338,31 @@ internal sealed record BoxModifier(UiView Child) : Modifier(Child)
 
     internal override void Place(UiNode node, UiRect frame) => Inner(node).Place(Margin.Shrink(frame));
 
+    private bool Clips => Radius > 0f;
+
     internal override void Emit(UiNode node, UiTree tree)
     {
-        if (Fill is { } fill)
+        tree.PushOpacity(Alpha);
+        var box = BoxOf(node);
+        if (Fill is not null || BorderWidth > 0f)
         {
-            tree.AddRectangle(BoxOf(node), fill);
+            tree.AddBox(box, Fill, Radius, BorderWidth, BorderColor);
         }
+
+        if (Clips)
+        {
+            tree.PushClip(box, Radius);
+        }
+    }
+
+    internal override void EmitAfter(UiNode node, UiTree tree)
+    {
+        if (Clips)
+        {
+            tree.PopClip();
+        }
+
+        tree.PopOpacity();
     }
 }
 
