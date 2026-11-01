@@ -23,6 +23,7 @@ public sealed class HeadlessRun<TGame> : IDisposable
     internal HeadlessRun(int seed, Action<IServiceCollection>? services)
     {
         _host = new GameHost<TGame>(seed, DefaultTicksPerSecond, services);
+        Input = new ScriptedInput(_host.Input, _host.GetService);
     }
 
     public TGame Game => _host.Game;
@@ -30,6 +31,9 @@ public sealed class HeadlessRun<TGame> : IDisposable
     public GameTime Time => _host.Time;
 
     public int Seed => _host.Seed;
+
+    /// <summary>Key presses, clicks and actions to play. They land on the next tick.</summary>
+    public ScriptedInput Input { get; }
 
     /// <summary>What the last Draw would have shown.</summary>
     public IReadOnlyList<ModelDraw> Drawn => _host.View.Drawn.ToArray();
@@ -45,6 +49,7 @@ public sealed class HeadlessRun<TGame> : IDisposable
     {
         for (long i = 0; i < count; i++)
         {
+            Input.Play(_host.Time.Tick);
             _host.Tick();
             foreach (var (name, holds) in _invariants)
             {

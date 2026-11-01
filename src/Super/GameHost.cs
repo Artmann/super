@@ -23,6 +23,8 @@ internal sealed class GameHost<TGame> : IDisposable
         services.AddSingleton(time);
         services.AddSingleton(new GameRandom(seed));
         services.AddSingleton<Content>();
+        services.AddSingleton<Input>();
+        services.AddSingleton(typeof(Actions<>));
         services.AddSingleton<GameCapture>();
         services.AddSingleton<GameStats>();
         services.AddSingleton<TGame>();
@@ -34,6 +36,7 @@ internal sealed class GameHost<TGame> : IDisposable
         Time = time;
         Seed = seed;
         Content = _services.GetRequiredService<Content>();
+        Input = _services.GetRequiredService<Input>();
         Capture = _services.GetRequiredService<GameCapture>();
         Stats = _services.GetRequiredService<GameStats>();
         Game = _services.GetRequiredService<TGame>();
@@ -46,6 +49,8 @@ internal sealed class GameHost<TGame> : IDisposable
     public GameTime Time { get; }
 
     public Content Content { get; }
+
+    public Input Input { get; }
 
     public GameCapture Capture { get; }
 
@@ -62,14 +67,21 @@ internal sealed class GameHost<TGame> : IDisposable
 
     public int ScreenHeight { get; set; } = DefaultScreenHeight;
 
+    /// <summary>Looks a service up for the test harness. Games get theirs injected instead.</summary>
+    internal object GetService(Type type) => _services.GetRequiredService(type);
+
     public void Tick()
     {
+        // Input is only readable during Update, so the screen can't depend on it.
+        Input.Readable = true;
+        Input.Roll();
         foreach (var hook in _hooks)
         {
             hook.BeforeUpdate();
         }
 
         Game.Update(Time);
+        Input.Readable = false;
         Time.Tick++;
     }
 
