@@ -27,6 +27,13 @@ public struct Smoothed
 public record struct Parent(Entity Value);
 
 /// <summary>
+/// Ties an entity to a state, so it's destroyed on leaving that state. Anything without
+/// this carries through. A parent's children aren't included, so tag them too.
+/// </summary>
+public record struct ScopedTo<TState>(TState State)
+    where TState : struct, Enum;
+
+/// <summary>
 /// Bends the model in a wave from head to tail as it's drawn. The head must face +z.
 /// Amplitude and BodyLength are in the model's own units, and Phase, in radians, should
 /// rise steadily in Update. With <see cref="Smoothed"/>, the phase blends between ticks too.

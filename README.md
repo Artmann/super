@@ -851,6 +851,7 @@ public void Draw(View view)
 | `Smoothed` | Blends the entity between ticks. Super remembers last tick's transform for you |
 | `Parent` | Counts the entity's transform from another entity's, so an attached thing follows |
 | `Swim` | Bends the model like a swimming fish, with the phase blended too when `Smoothed` |
+| `ScopedTo<T>` | Destroys the entity when that game state ends |
 
 `Smoothed` is why Reef no longer keeps a `PreviousPosition` component: the world
 takes a copy before each `Update`, and an entity's first frame shows it exactly where
@@ -862,6 +863,30 @@ drawn, so gameplay-only things cost nothing here.
 Views work the same either way. You can also skip this package and use plain lists,
 or a different ECS library. The [Reef example](examples/Reef) uses it for thousands of
 schooling fish, and its `Draw` is a camera, a sun, the seabed and `view.Models(world)`.
+
+### Entities that belong to a state
+
+Most entities in a [game state](#game-states) should go when it ends, so tag them with
+`ScopedTo`. They're destroyed when the state ends, after its `OnExit` callbacks, and
+everything untagged carries through to the next state.
+
+```csharp
+screen.OnEnter(Screen.House, () =>
+{
+    var door = world.Create();
+    world.Add(door, Transform.At(new Vector3(0f, 0f, 4f)));
+    world.Add(door, new Model(_doorModel));
+    world.Add(door, new ScopedTo<Screen>(Screen.House));
+
+    // The player isn't tagged, so they walk in with their inventory intact.
+    world.Add(_player, Transform.At(new Vector3(0f, 0f, 3f)));
+});
+```
+
+A `Smoothed` entity moved in `OnEnter` appears at its new place, without gliding there.
+
+Destroying an entity doesn't destroy its children, so tag those too. A child left behind
+draws at its own transform, as if its parent were the world.
 
 ## Getting started
 
