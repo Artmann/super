@@ -252,14 +252,15 @@ public TextureArrayRef TextureArray(params ReadOnlySpan<TextureRef> layers);
 public ModelRef Mesh(GeneratedMesh mesh);
 
 /// <summary>Whether this one thing is ready to draw. Always true without a window.</summary>
-public bool IsLoaded(ModelRef model);
+/// (Shipped as IsReady, because Content already had an IsLoaded property for the whole load.)
+public bool IsReady(ModelRef model);
 
 /// <summary>Lets go of a mesh or texture. The window frees it; naming it again later makes a new one.</summary>
 public void Unload(ModelRef model);
 public void Unload(TextureRef texture);
 ```
 
-Shaders come from `shaders/<name>.spv` beside the program. The game project imports
+Shaders come from `shaders/<name>.frag.spv` beside the program. The game project imports
 `src/Shaders.targets`, which already compiles `Shaders\*.frag` with Rendition's
 include folder. `content.Shader("terrain")` reads the file in the loader's prepare
 step and `Renderer.CreateSurfaceShader` validates it. In headless runs nothing is read.
@@ -314,7 +315,7 @@ afterwards throws with its name, which is a game bug worth surfacing. Indices ar
 reused. Shaders and texture arrays can't be unloaded in this phase; they're few and
 shared.
 
-`Content.IsLoaded(model)` is per item, set by the loader as each finishes. The
+`Content.IsReady(model)` is per item, set by the loader as each finishes. The
 example only draws chunks that answer true, so a chunk still preparing on the
 background thread never blocks the frame through `ContentLoader.Get`. Without a
 window everything is loaded at once, so it's always true there.
@@ -387,7 +388,7 @@ Screenshots come from `--screenshot` as always, never the desktop.
 - Shadow layers are 2048. Reef and the car sample get cascades to keep their look.
 - Terrain chunks are culled but never simplified, which avoids cracks.
 - Creating meshes and textures during play never waits on the GPU; uploads ride the
-  next frame's command buffer. `Content.IsLoaded(ModelRef)` lets a game draw only
+  next frame's command buffer. `Content.IsReady(ModelRef)` lets a game draw only
   what's ready.
 - `EnvironmentMap`, `ReflectionProbes` and `RenderTarget` move onto `GpuMemory` with
   everything else, so one allocator owns all device memory.

@@ -132,9 +132,13 @@ public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Inp
         view.Shadows(40f, 3);
         view.Finish(new PostSettings { Contrast = 0.08f, Saturation = 0.08f, Vignette = 0.25f });
 
+        // A chunk still being prepared on the loading thread is skipped rather than waited for.
         foreach (var (key, chunk) in _chunks)
         {
-            view.Model(DrawKey(key), chunk.Model, Matrix4x4.Identity);
+            if (content.IsReady(chunk.Model))
+            {
+                view.Model(DrawKey(key), chunk.Model, Matrix4x4.Identity);
+            }
         }
     }
 

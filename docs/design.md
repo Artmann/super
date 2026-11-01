@@ -131,8 +131,12 @@ sets are identical.
 Shadows blur with distance from the object casting them: the lighting pass finds
 how far away the blocker is, then widens its sampling to match. The game says
 which area the shadow map covers through `FrameView.Shadows`. A smaller area gives
-sharper shadows, so the sample fits it to the model. Anything outside the area, in
-depth as well as sideways, counts as lit.
+sharper shadows, so the sample fits it to the model. A wide outdoor scene asks for up
+to four cascades: each covers three times the radius of the one before, all centred on
+the target, and the lighting pass picks the first cascade a point falls inside. The
+shadow pass draws each cascade into its own layer of the same depth image, with its
+own culling and detail choice. Anything outside the last cascade, in depth as well as
+sideways, counts as lit.
 
 Two frames can be in flight. Render targets are shared between frames, and
 pipeline barriers order the access; per-frame state is limited to command
@@ -194,14 +198,20 @@ of deferred rendering.
 
 void main() {
     Surface surface = materialSurface();
-    surface.emissive += materials[draw.material].shaderParameters.rgb * sin(frame.time);
+    surface.emissive += materials[draw.material].shaderParameters[0].rgb * sin(frame.time);
     writeSurface(surface);
 }
 ```
 
 `materialSurface()` gives the surface the material's textures and values describe, so
 a shader only changes what it cares about. A shader can also read `inUv`, `inPosition`
-and `frame`, and `shaderParameters` holds four numbers per material. A game compiles
+and `frame`. Each material carries eight `vec4`s in `shaderParameters`, four textures
+read with `shaderTexture(slot, uv)` and four texture arrays read with
+`shaderLayer(slot, uv, layer)`, where a fractional layer blends two layers. Unset slots
+read white. A texture array comes from `Renderer.CreateTextureArray`, which stacks
+same-sized images with the same mip count. Terrain uses this: one array of ground
+colours, one of their normal maps, a splat texture in a slot and thresholds in the
+parameters, as `examples/Terrain/Shaders/terrain.frag` shows. A game compiles
 the shader with `glslc`, with `src/Rendition/Shaders` on the include path, and passes
 the result to `Renderer.CreateSurfaceShader`, then sets `Material.Shader`. Importing
 `src/Shaders.targets` does the compiling. `src/Rendition.Sample/Shaders/glow_bands.frag`
@@ -275,8 +285,8 @@ frame is slow, but it's only paid while capturing.
   and animation aren't supported.
 - The adventurer model has 929,000 triangles, which suits a showcase more than a game. A
   game character would need a reduced version and levels of detail.
-- One shadow map covering a fixed area. Large outdoor scenes will need cascades
-  that follow the camera.
+- Shadow cascades are centred on the camera's target rather than fitted to the view
+  frustum, so some of each map covers ground behind the camera.
 - Only directional lights so far. Point and spot lights come later.
 - Only one light casts shadows, so the others shine through objects, held back only
   by ambient occlusion.

@@ -238,6 +238,31 @@ view.Sky(content.Environment("environments/overcast"));
 view.Post(new PostSettings { Exposure = 0.2f, Vignette = 0.3f, Sharpen = 0.4f });
 ```
 
+### Meshes made by code
+
+A mesh built in code, such as ground from a height function, is handed over with
+`content.Mesh`. Its `Surface` says how it looks: a colour and roughness, textures named
+through `content.Texture`, and optionally a surface shader named through
+`content.Shader` with its parameters, textures and texture arrays.
+
+```csharp
+var splat = content.Texture(SplatFor(chunk), TextureKind.Linear);
+var ground = content.Mesh(field.Chunk(chunk.X, chunk.Z, 32, new Surface
+{
+    Shader = content.Shader("terrain"),
+    Parameters = [new Vector4(snowHeight, snowFade, rockSteepness, rockFade)],
+    ShaderTextures = [splat],
+    ShaderArrays = [groundColors, groundNormals],
+}, uvPerMetre: 0.125f));
+```
+
+`Super.Terrain.Heightfield` builds chunk meshes from a height function on a shared
+grid, so neighbouring chunks meet exactly. A chunk the player has left is let go with
+`content.Unload`, which frees it after the frames in flight, and `content.IsReady` says
+whether a chunk is on the GPU yet, so a game can skip one still loading instead of
+waiting. The shader is `Shaders/<name>.frag` in the game project, compiled by importing
+`src/Shaders.targets`. The [Terrain example](examples/Terrain) does all of this.
+
 ## Interfaces
 
 Worlds are flat lists, redrawn every frame. Interfaces are the opposite: they're trees,
@@ -1019,6 +1044,14 @@ at random times:
 ```
 dotnet run -c Release --project examples/ColorCube
 dotnet run -c Release --project examples/Rooms
+```
+
+The Terrain example is endless hills made from noise, textured by height and slope
+with a surface shader, that load around the camera as you fly with WASD, the mouse,
+Space and Shift:
+
+```
+dotnet run -c Release --project examples/Terrain
 ```
 
 The Reef example is a wide underwater view of 6,240 fish schooling over coral, with a
