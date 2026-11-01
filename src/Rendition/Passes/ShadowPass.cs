@@ -85,7 +85,7 @@ internal sealed unsafe class ShadowPass : IDisposable
         return view * projection;
     }
 
-    public void Record(CommandBuffer cmd, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, List<Mesh> meshes)
+    public void Record(CommandBuffer cmd, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, List<Mesh?> meshes)
     {
         var api = _context.Api;
         var depthAttachment = new RenderingAttachmentInfo

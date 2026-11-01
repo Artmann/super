@@ -19,6 +19,9 @@ public readonly record struct MeshHandle(int Index);
 
 public readonly record struct TextureHandle(int Index);
 
+/// <summary>A stack of same-sized images that shaders index by layer.</summary>
+public readonly record struct TextureArrayHandle(int Index);
+
 public readonly record struct MaterialHandle(int Index);
 
 public readonly record struct SurfaceShaderHandle(int Index);

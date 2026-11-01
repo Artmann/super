@@ -8,6 +8,9 @@ internal sealed class Mesh(GpuBuffer vertices, GpuBuffer indices, uint indexCoun
     public GpuBuffer Indices { get; } = indices;
     public uint IndexCount { get; } = indexCount;
 
+    /// <summary>The detail entries made for this mesh's parts, freed with it.</summary>
+    public int[] Details { get; set; } = [];
+
     public void Dispose()
     {
         Vertices.Dispose();

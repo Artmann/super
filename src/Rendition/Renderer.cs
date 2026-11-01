@@ -45,8 +45,26 @@ public sealed unsafe class Renderer : IDisposable
     private const float CameraDetailError = 1f;
     private const float ShadowDetailError = 2f;
 
-    private readonly List<Mesh> _meshes = [];
+    private readonly List<Mesh?> _meshes = [];
+    private readonly Stack<int> _freeMeshes = [];
     private readonly List<PartDetail> _details = [default];
+    private readonly Stack<int> _freeDetails = [];
+
+    /// <summary>
+    /// What's been destroyed while a frame might still read it. Slot i holds what was
+    /// queued while frame slot i was the last one submitted; its fence says when the
+    /// GPU is done with all of it. See docs/design.md on destroying resources.
+    /// </summary>
+    private sealed class DestroyedSlot
+    {
+        public readonly List<Mesh> Meshes = [];
+        public readonly List<int> Textures = [];
+        public readonly List<int> Materials = [];
+        public readonly List<IDisposable> Others = [];
+    }
+
+    private readonly DestroyedSlot[] _destroyed = [.. Enumerable.Range(0, FramesInFlight).Select(_ => new DestroyedSlot())];
+    private readonly List<int> _destroyScratch = [];
     private readonly ResourceTable _resources;
     private readonly EnvironmentMap _environment;
     private readonly ReflectionProbes _probes;
@@ -208,8 +226,138 @@ public sealed unsafe class Renderer : IDisposable
     {
         var vertexBuffer = GpuBuffer.CreateDeviceLocal(_context, vertices, BufferUsageFlags.VertexBufferBit);
         var indexBuffer = GpuBuffer.CreateDeviceLocal(_context, indices, BufferUsageFlags.IndexBufferBit);
-        _meshes.Add(new Mesh(vertexBuffer, indexBuffer, (uint)indices.Length));
+        return AddMesh(new Mesh(vertexBuffer, indexBuffer, (uint)indices.Length));
+    }
+
+    private MeshHandle AddMesh(Mesh mesh)
+    {
+        if (_freeMeshes.Count > 0)
+        {
+            int slot = _freeMeshes.Pop();
+            _meshes[slot] = mesh;
+            return new MeshHandle(slot);
+        }
+
+        _meshes.Add(mesh);
         return new MeshHandle(_meshes.Count - 1);
+    }
+
+    /// <summary>
+    /// Lets go of a mesh and its detail entries. Returns at once; the memory comes back
+    /// two frames later, when no frame in flight can read it. Drawing with the handle
+    /// after this is a caller mistake that isn't checked.
+    /// </summary>
+    public void DestroyMesh(MeshHandle mesh)
+    {
+        if (mesh.Index < 0 || mesh.Index >= _meshes.Count || _meshes[mesh.Index] is not { } live)
+        {
+            throw new ArgumentException("The mesh does not exist.", nameof(mesh));
+        }
+
+        _meshes[mesh.Index] = null;
+        _freeMeshes.Push(mesh.Index);
+        Destroying().Meshes.Add(live);
+    }
+
+    /// <summary>
+    /// Lets go of a texture. Its slot reads as white until something new takes it, so a
+    /// material that still names it draws white rather than crashing.
+    /// </summary>
+    public void DestroyTexture(TextureHandle texture)
+    {
+        if (_resources.IsBuiltIn(texture) || !_resources.IsLive(texture))
+        {
+            throw new ArgumentException("The texture does not exist.", nameof(texture));
+        }
+
+        Destroying().Textures.Add(texture.Index);
+    }
+
+    /// <summary>Lets go of a material slot. Draws that still use it are a caller mistake.</summary>
+    public void DestroyMaterial(MaterialHandle material)
+    {
+        if (material.Index < 0 || material.Index >= ResourceTable.MaxMaterials)
+        {
+            throw new ArgumentException("The material does not exist.", nameof(material));
+        }
+
+        Destroying().Materials.Add(material.Index);
+    }
+
+    /// <summary>
+    /// Destroys everything <see cref="CreateModel"/> or <see cref="CreateDrawItem"/> made
+    /// for these parts: their mesh, their materials and the textures those name.
+    /// </summary>
+    public void DestroyModel(ReadOnlySpan<DrawItem> parts)
+    {
+        if (parts.IsEmpty)
+        {
+            return;
+        }
+
+        var slot = Destroying();
+        _destroyScratch.Clear();
+        foreach (ref readonly var part in parts)
+        {
+            if (_destroyScratch.Contains(part.Material.Index))
+            {
+                continue;
+            }
+
+            _destroyScratch.Add(part.Material.Index);
+            foreach (int texture in _resources.TexturesOf(part.Material))
+            {
+                var handle = new TextureHandle(texture);
+                if (texture >= 0 && !_resources.IsBuiltIn(handle) && _resources.IsLive(handle)
+                    && !slot.Textures.Contains(texture))
+                {
+                    slot.Textures.Add(texture);
+                }
+            }
+
+            slot.Materials.Add(part.Material.Index);
+        }
+
+        DestroyMesh(parts[0].Mesh);
+    }
+
+    /// <summary>The slot whose fence covers the frame most recently submitted.</summary>
+    private DestroyedSlot Destroying() => _destroyed[(_frameIndex + FramesInFlight - 1) % FramesInFlight];
+
+    /// <summary>Frees what was queued against a frame slot, once its fence has signalled.</summary>
+    private void ReleaseDestroyed(int frameSlot)
+    {
+        var slot = _destroyed[frameSlot];
+        foreach (var mesh in slot.Meshes)
+        {
+            foreach (int detail in mesh.Details)
+            {
+                _details[detail] = default;
+                _freeDetails.Push(detail);
+            }
+
+            mesh.Dispose();
+        }
+
+        foreach (int texture in slot.Textures)
+        {
+            _resources.ReleaseTexture(texture);
+        }
+
+        foreach (int material in slot.Materials)
+        {
+            _resources.ReleaseMaterial(material);
+        }
+
+        foreach (var other in slot.Others)
+        {
+            other.Dispose();
+        }
+
+        slot.Meshes.Clear();
+        slot.Textures.Clear();
+        slot.Materials.Clear();
+        slot.Others.Clear();
     }
 
     /// <summary>
@@ -413,27 +561,43 @@ public sealed unsafe class Renderer : IDisposable
     {
         var allIndices = new List<uint>(indices.ToArray());
         var draws = new DrawItem[parts.Length];
+        var details = new int[parts.Length];
         for (int i = 0; i < parts.Length; i++)
         {
             ref readonly var part = ref parts[i];
-            _details.Add(MeshDetail.Build(vertices, indices.Slice((int)part.FirstIndex, (int)part.IndexCount), allIndices));
+            var detail = MeshDetail.Build(vertices, indices.Slice((int)part.FirstIndex, (int)part.IndexCount), allIndices);
+            details[i] = AddDetail(detail);
             draws[i] = new DrawItem
             {
                 FirstIndex = part.FirstIndex,
                 IndexCount = part.IndexCount,
                 Material = materials[part.Material],
                 Transform = Matrix4x4.Identity,
-                Detail = new DetailHandle(_details.Count - 1),
+                Detail = new DetailHandle(details[i]),
             };
         }
 
         var mesh = CreateMesh(vertices, CollectionsMarshal.AsSpan(allIndices));
+        _meshes[mesh.Index]!.Details = details;
         foreach (ref var draw in draws.AsSpan())
         {
             draw.Mesh = mesh;
         }
 
         return draws;
+    }
+
+    private int AddDetail(in PartDetail detail)
+    {
+        if (_freeDetails.Count > 0)
+        {
+            int slot = _freeDetails.Pop();
+            _details[slot] = detail;
+            return slot;
+        }
+
+        _details.Add(detail);
+        return _details.Count - 1;
     }
 
     public void Render(in FrameView view, ReadOnlySpan<DrawItem> draws)
@@ -452,6 +616,7 @@ public sealed unsafe class Renderer : IDisposable
         var fence = frame.InFlight;
         long waitStart = Stopwatch.GetTimestamp();
         _api.WaitForFences(_context.Device, 1, &fence, true, ulong.MaxValue).Check();
+        ReleaseDestroyed(_frameIndex);
 
         var swapchainHandle = _swapchain.Handle;
         uint imageIndex = 0;
@@ -642,6 +807,10 @@ public sealed unsafe class Renderer : IDisposable
     public void Dispose()
     {
         _api.DeviceWaitIdle(_context.Device).Check();
+        for (int slot = 0; slot < FramesInFlight; slot++)
+        {
+            ReleaseDestroyed(slot);
+        }
 
         _gpuTimer.Dispose();
         _overlayPass.Dispose();
@@ -662,7 +831,7 @@ public sealed unsafe class Renderer : IDisposable
 
         foreach (var mesh in _meshes)
         {
-            mesh.Dispose();
+            mesh?.Dispose();
         }
 
         foreach (ref var frame in _frames.AsSpan())

@@ -50,7 +50,7 @@ internal static unsafe class SceneDraws
         List<PipelineVariants> pipelines,
         ResourceTable resources,
         ReadOnlySpan<DrawItem> draws,
-        List<Mesh> meshes,
+        List<Mesh?> meshes,
         bool transparent = false,
         PipelineVariants? solid = null)
     {
@@ -76,7 +76,7 @@ internal static unsafe class SceneDraws
 
             if (draw.Mesh.Index != boundMesh)
             {
-                var mesh = meshes[draw.Mesh.Index];
+                var mesh = meshes[draw.Mesh.Index]!;
                 var vertexBuffer = mesh.Vertices.Handle;
                 ulong offset = 0;
                 api.CmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);

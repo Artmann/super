@@ -11,8 +11,8 @@ namespace Rendition.Vulkan;
 /// </summary>
 internal sealed unsafe class ResourceTable : IDisposable
 {
-    private const uint MaxTextures = 1024;
-    private const int MaxMaterials = 1024;
+    public const uint MaxTextures = 1024;
+    public const int MaxMaterials = 1024;
 
     /// <summary>Must match the Material struct in Shaders/material.glsl.</summary>
     [StructLayout(LayoutKind.Sequential)]
@@ -38,10 +38,16 @@ internal sealed unsafe class ResourceTable : IDisposable
     private readonly MaterialFlags[] _materialFlags = new MaterialFlags[MaxMaterials];
     private readonly int[] _materialShaders = new int[MaxMaterials];
     private readonly bool[] _materialCutouts = new bool[MaxMaterials];
-    private readonly List<GpuTexture> _textures = [];
+    private readonly int[] _materialTextures = new int[MaxMaterials * TexturesPerMaterial];
+    private readonly List<GpuTexture?> _textures = [];
+    private readonly Stack<int> _freeTextures = [];
+    private readonly Stack<int> _freeMaterials = [];
     private readonly TextureHandle _white;
     private readonly TextureHandle _flatNormal;
     private int _materialCount;
+
+    /// <summary>Texture slots a material can name: base colour, normal, surface, emissive.</summary>
+    public const int TexturesPerMaterial = 4;
 
     public readonly DescriptorSetLayout Layout;
     public readonly DescriptorSet Set;
@@ -73,8 +79,11 @@ internal sealed unsafe class ResourceTable : IDisposable
             new(1, DescriptorType.StorageBuffer, 1, ShaderStageFlags.FragmentBit),
         };
 
-        // Most of the texture array stays empty, which Vulkan only allows when told so.
-        var bindingFlags = stackalloc DescriptorBindingFlags[] { DescriptorBindingFlags.PartiallyBoundBit, 0 };
+        // Most of the texture array stays empty, which Vulkan only allows when told so, and
+        // slots no frame in flight uses may be written while the set is bound.
+        const DescriptorBindingFlags sparse =
+            DescriptorBindingFlags.PartiallyBoundBit | DescriptorBindingFlags.UpdateUnusedWhilePendingBit;
+        var bindingFlags = stackalloc DescriptorBindingFlags[] { sparse, 0 };
         var flagsInfo = new DescriptorSetLayoutBindingFlagsCreateInfo
         {
             SType = StructureType.DescriptorSetLayoutBindingFlagsCreateInfo,
@@ -139,36 +148,86 @@ internal sealed unsafe class ResourceTable : IDisposable
     /// <summary>Whether the material's texture cuts holes in it.</summary>
     public bool HasCutouts(MaterialHandle material) => _materialCutouts[material.Index];
 
-    /// <summary>Waits for the GPU, so call this while loading rather than during a frame.</summary>
-    public TextureHandle AddTexture(TextureData data)
+    /// <summary>
+    /// Takes a slot for a texture and points it at the image. The slot is free in every
+    /// frame in flight, which is what lets the set be written while bound.
+    /// </summary>
+    public TextureHandle AddTexture(GpuTexture texture)
     {
-        if (_textures.Count == MaxTextures)
+        int slot;
+        if (_freeTextures.Count > 0)
         {
-            throw new InvalidOperationException($"The renderer holds at most {MaxTextures} textures.");
+            slot = _freeTextures.Pop();
+            _textures[slot] = texture;
+        }
+        else
+        {
+            if (_textures.Count == MaxTextures)
+            {
+                texture.Dispose();
+                throw new InvalidOperationException($"The renderer holds at most {MaxTextures} textures.");
+            }
+
+            slot = _textures.Count;
+            _textures.Add(texture);
         }
 
-        _context.Api.DeviceWaitIdle(_context.Device).Check();
+        WriteTextureDescriptor(slot, texture);
+        return new TextureHandle(slot);
+    }
 
-        var texture = new GpuTexture(_context, data);
+    /// <summary>Waits for the GPU, so call this while loading rather than during a frame.</summary>
+    public TextureHandle AddTexture(TextureData data) => AddTexture(new GpuTexture(_context, data));
+
+    /// <summary>Whether the handle is one of the table's own textures, which can't be destroyed.</summary>
+    public bool IsBuiltIn(TextureHandle texture) => texture == _white || texture == _flatNormal;
+
+    public bool IsLive(TextureHandle texture) =>
+        texture.Index >= 0 && texture.Index < _textures.Count && _textures[texture.Index] is not null;
+
+    /// <summary>
+    /// Frees a texture's slot once no frame can read it, pointing the slot at white so
+    /// a stale material draws something harmless.
+    /// </summary>
+    public void ReleaseTexture(int slot)
+    {
+        var texture = _textures[slot];
+        if (texture is null)
+        {
+            return;
+        }
+
+        texture.Dispose();
+        _textures[slot] = null;
+        WriteTextureDescriptor(slot, _textures[_white.Index]!);
+        _freeTextures.Push(slot);
+    }
+
+    private void WriteTextureDescriptor(int slot, GpuTexture texture)
+    {
         var imageInfo = new DescriptorImageInfo(_sampler, texture.View, ImageLayout.ShaderReadOnlyOptimal);
         var write = new WriteDescriptorSet
         {
             SType = StructureType.WriteDescriptorSet,
             DstSet = Set,
             DstBinding = 0,
-            DstArrayElement = (uint)_textures.Count,
+            DstArrayElement = (uint)slot,
             DescriptorCount = 1,
             DescriptorType = DescriptorType.CombinedImageSampler,
             PImageInfo = &imageInfo,
         };
         _context.Api.UpdateDescriptorSets(_context.Device, 1, &write, 0, null);
-
-        _textures.Add(texture);
-        return new TextureHandle(_textures.Count - 1);
     }
 
     public MaterialHandle AddMaterial(in Material material)
     {
+        if (_freeMaterials.Count > 0)
+        {
+            int slot = _freeMaterials.Pop();
+            WriteMaterial(slot, material);
+            return new MaterialHandle(slot);
+        }
+
         if (_materialCount == MaxMaterials)
         {
             throw new InvalidOperationException($"The renderer holds at most {MaxMaterials} materials.");
@@ -178,6 +237,13 @@ internal sealed unsafe class ResourceTable : IDisposable
         WriteMaterial(_materialCount, material);
         return new MaterialHandle(_materialCount++);
     }
+
+    /// <summary>Lets a material slot be reused. Call once no frame in flight reads it.</summary>
+    public void ReleaseMaterial(int slot) => _freeMaterials.Push(slot);
+
+    /// <summary>The texture slots a material names, or -1 where it uses a built-in one.</summary>
+    public ReadOnlySpan<int> TexturesOf(MaterialHandle material) =>
+        _materialTextures.AsSpan(material.Index * TexturesPerMaterial, TexturesPerMaterial);
 
     /// <summary>
     /// Changes a material in place. A frame still on the GPU may see the new values,
@@ -212,13 +278,19 @@ internal sealed unsafe class ResourceTable : IDisposable
         _materialFlags[index] = material.Flags;
         _materialShaders[index] = material.Shader?.Index ?? 0;
         _materialCutouts[index] = material.AlphaCutoff > 0f;
+
+        var owned = _materialTextures.AsSpan(index * TexturesPerMaterial, TexturesPerMaterial);
+        owned[0] = material.BaseColorTexture?.Index ?? -1;
+        owned[1] = material.NormalTexture?.Index ?? -1;
+        owned[2] = material.SurfaceTexture?.Index ?? -1;
+        owned[3] = material.EmissiveTexture?.Index ?? -1;
     }
 
     public void Dispose()
     {
         foreach (var texture in _textures)
         {
-            texture.Dispose();
+            texture?.Dispose();
         }
 
         _materials.Dispose();

@@ -59,7 +59,7 @@ internal sealed unsafe class GBufferPass : IDisposable
         GBuffer targets,
         DescriptorSet frameSet,
         ReadOnlySpan<DrawItem> draws,
-        List<Mesh> meshes)
+        List<Mesh?> meshes)
     {
         var api = _context.Api;
 
