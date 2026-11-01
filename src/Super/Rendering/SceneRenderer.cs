@@ -123,7 +123,8 @@ internal sealed class SceneRenderer : IDisposable
 
     private static byte[] LoadShader(string name)
     {
-        string path = Path.Combine(AppContext.BaseDirectory, "shaders", name + ".spv");
+        // Shaders.targets keeps the source extension, so Shaders/terrain.frag becomes shaders/terrain.frag.spv.
+        string path = Path.Combine(AppContext.BaseDirectory, "shaders", name + ".frag.spv");
         if (!File.Exists(path))
         {
             throw new FileNotFoundException(
