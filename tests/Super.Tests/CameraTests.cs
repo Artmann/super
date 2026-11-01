@@ -223,8 +223,6 @@ public class CameraTests
         var view = new View();
         view.Begin(0f);
         view.Camera(new Camera(Vector3.UnitY, Vector3.UnitX, 1f));
-        Assert.Equal(Vector3.UnitY, view.CameraPosition);
-        Assert.Equal(Vector3.UnitX, view.CameraTarget);
-        Assert.Equal(1f, view.CameraFieldOfView);
+        Assert.Equal(new Camera(Vector3.UnitY, Vector3.UnitX, 1f), view.Shot);
     }
 }
