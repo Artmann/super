@@ -98,14 +98,15 @@ unsafe
     }
     else
     {
-        var material = renderer.CreateMaterial(new Material
+        var glowing = new Material
         {
             BaseColor = new Vector4(0.9f, 0.55f, 0.2f, 1f),
             Metallic = 0.9f,
             Roughness = 0.35f,
             Shader = glow ? renderer.CreateSurfaceShader(LoadShader("glow_bands.frag")) : null,
-            ShaderParameters = new Vector4(4f, 1.2f, 0.3f, 3f),
-        });
+        };
+        glowing.ShaderParameters[0] = new Vector4(4f, 1.2f, 0.3f, 3f);
+        var material = renderer.CreateMaterial(glowing);
         draws =
         [
             new DrawItem

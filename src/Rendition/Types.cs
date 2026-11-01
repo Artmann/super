@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Rendition;
@@ -71,8 +72,38 @@ public struct Material
     /// <summary>Replaces the standard surface shader. Transparent materials can't use one yet.</summary>
     public SurfaceShaderHandle? Shader;
 
-    /// <summary>Four numbers for the shader to use however it likes, as shaderParameters.</summary>
-    public Vector4 ShaderParameters;
+    /// <summary>Numbers for a surface shader to use however it likes, as shaderParameters[i].</summary>
+    public ShaderParameters ShaderParameters;
+
+    /// <summary>Textures for a surface shader, read with shaderTexture(i, uv). Unset ones read white.</summary>
+    public ShaderTextures ShaderTextures;
+
+    /// <summary>Texture arrays for a surface shader, read with shaderLayer(i, uv, layer). Unset ones read white.</summary>
+    public ShaderArrays ShaderArrays;
+}
+
+/// <summary>Eight vectors a surface shader can read as shaderParameters[0] to [7].</summary>
+[InlineArray(Length)]
+public struct ShaderParameters
+{
+    public const int Length = 8;
+    private Vector4 _element;
+}
+
+/// <summary>Four texture slots a surface shader can read with shaderTexture(0..3, uv).</summary>
+[InlineArray(Length)]
+public struct ShaderTextures
+{
+    public const int Length = 4;
+    private TextureHandle? _element;
+}
+
+/// <summary>Four texture array slots a surface shader can read with shaderLayer(0..3, uv, layer).</summary>
+[InlineArray(Length)]
+public struct ShaderArrays
+{
+    public const int Length = 4;
+    private TextureArrayHandle? _element;
 }
 
 /// <summary>

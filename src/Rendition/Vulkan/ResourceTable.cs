@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
 
@@ -12,12 +13,19 @@ namespace Rendition.Vulkan;
 internal sealed unsafe class ResourceTable : IDisposable
 {
     public const uint MaxTextures = 1024;
+    public const uint MaxTextureArrays = 256;
     public const int MaxMaterials = 1024;
 
-    /// <summary>Must match the Material struct in Shaders/material.glsl.</summary>
+    /// <summary>Must match the Material struct in Shaders/material.glsl, laid out as std430.</summary>
     [StructLayout(LayoutKind.Sequential)]
-    private struct GpuMaterial
+    internal struct GpuMaterial
     {
+        [InlineArray(Rendition.ShaderTextures.Length)]
+        public struct TextureSlots
+        {
+            private uint _element;
+        }
+
         public Vector4 BaseColor;
         public float Metallic;
         public float Roughness;
@@ -28,7 +36,9 @@ internal sealed unsafe class ResourceTable : IDisposable
         public uint EmissiveTexture;
         public float Clearcoat;
         public Vector4 Emissive;
-        public Vector4 ShaderParameters;
+        public Rendition.ShaderParameters ShaderParameters;
+        public TextureSlots ShaderTextures;
+        public TextureSlots ShaderArrays;
     }
 
     private readonly VulkanContext _context;
@@ -40,14 +50,20 @@ internal sealed unsafe class ResourceTable : IDisposable
     private readonly bool[] _materialCutouts = new bool[MaxMaterials];
     private readonly int[] _materialTextures = new int[MaxMaterials * TexturesPerMaterial];
     private readonly List<GpuTexture?> _textures = [];
+    private readonly List<GpuTexture?> _textureArrays = [];
     private readonly Stack<int> _freeTextures = [];
+    private readonly Stack<int> _freeTextureArrays = [];
     private readonly Stack<int> _freeMaterials = [];
     private readonly TextureHandle _white;
     private readonly TextureHandle _flatNormal;
+    private readonly TextureArrayHandle _whiteArray;
     private int _materialCount;
 
-    /// <summary>Texture slots a material can name: base colour, normal, surface, emissive.</summary>
-    public const int TexturesPerMaterial = 4;
+    /// <summary>
+    /// Texture slots a material can name: base colour, normal, surface, emissive, then
+    /// the four shader textures.
+    /// </summary>
+    public const int TexturesPerMaterial = 4 + ShaderTextures.Length;
 
     public readonly DescriptorSetLayout Layout;
     public readonly DescriptorSet Set;
@@ -77,31 +93,32 @@ internal sealed unsafe class ResourceTable : IDisposable
         {
             new(0, DescriptorType.CombinedImageSampler, MaxTextures, ShaderStageFlags.FragmentBit),
             new(1, DescriptorType.StorageBuffer, 1, ShaderStageFlags.FragmentBit),
+            new(2, DescriptorType.CombinedImageSampler, MaxTextureArrays, ShaderStageFlags.FragmentBit),
         };
 
-        // Most of the texture array stays empty, which Vulkan only allows when told so, and
+        // Most of the texture arrays stay empty, which Vulkan only allows when told so, and
         // slots no frame in flight uses may be written while the set is bound.
         const DescriptorBindingFlags sparse =
             DescriptorBindingFlags.PartiallyBoundBit | DescriptorBindingFlags.UpdateUnusedWhilePendingBit;
-        var bindingFlags = stackalloc DescriptorBindingFlags[] { sparse, 0 };
+        var bindingFlags = stackalloc DescriptorBindingFlags[] { sparse, 0, sparse };
         var flagsInfo = new DescriptorSetLayoutBindingFlagsCreateInfo
         {
             SType = StructureType.DescriptorSetLayoutBindingFlagsCreateInfo,
-            BindingCount = 2,
+            BindingCount = 3,
             PBindingFlags = bindingFlags,
         };
         var layoutInfo = new DescriptorSetLayoutCreateInfo
         {
             SType = StructureType.DescriptorSetLayoutCreateInfo,
             PNext = &flagsInfo,
-            BindingCount = 2,
+            BindingCount = 3,
             PBindings = bindings,
         };
         api.CreateDescriptorSetLayout(context.Device, &layoutInfo, null, out Layout).Check();
 
         var poolSizes = stackalloc DescriptorPoolSize[]
         {
-            new(DescriptorType.CombinedImageSampler, MaxTextures),
+            new(DescriptorType.CombinedImageSampler, MaxTextures + MaxTextureArrays),
             new(DescriptorType.StorageBuffer, 1),
         };
         var poolInfo = new DescriptorPoolCreateInfo
@@ -139,6 +156,7 @@ internal sealed unsafe class ResourceTable : IDisposable
 
         _white = AddTexture(SolidTexture(255, 255, 255));
         _flatNormal = AddTexture(SolidTexture(128, 128, 255));
+        _whiteArray = AddTextureArray(new GpuTexture(context, [SolidTexture(255, 255, 255)]));
     }
 
     public MaterialFlags GetFlags(MaterialHandle material) => _materialFlags[material.Index];
@@ -172,8 +190,33 @@ internal sealed unsafe class ResourceTable : IDisposable
             _textures.Add(texture);
         }
 
-        WriteTextureDescriptor(slot, texture);
+        WriteTextureDescriptor(0, slot, texture);
         return new TextureHandle(slot);
+    }
+
+    /// <summary>Takes a slot for a texture array, the same way as <see cref="AddTexture(GpuTexture)"/>.</summary>
+    public TextureArrayHandle AddTextureArray(GpuTexture texture)
+    {
+        int slot;
+        if (_freeTextureArrays.Count > 0)
+        {
+            slot = _freeTextureArrays.Pop();
+            _textureArrays[slot] = texture;
+        }
+        else
+        {
+            if (_textureArrays.Count == MaxTextureArrays)
+            {
+                texture.Dispose();
+                throw new InvalidOperationException($"The renderer holds at most {MaxTextureArrays} texture arrays.");
+            }
+
+            slot = _textureArrays.Count;
+            _textureArrays.Add(texture);
+        }
+
+        WriteTextureDescriptor(2, slot, texture);
+        return new TextureArrayHandle(slot);
     }
 
     /// <summary>Waits for the GPU, so call this while loading rather than during a frame.</summary>
@@ -184,6 +227,12 @@ internal sealed unsafe class ResourceTable : IDisposable
 
     public bool IsLive(TextureHandle texture) =>
         texture.Index >= 0 && texture.Index < _textures.Count && _textures[texture.Index] is not null;
+
+    /// <summary>Whether the handle is the table's own white array, which can't be destroyed.</summary>
+    public bool IsBuiltIn(TextureArrayHandle array) => array == _whiteArray;
+
+    public bool IsLive(TextureArrayHandle array) =>
+        array.Index >= 0 && array.Index < _textureArrays.Count && _textureArrays[array.Index] is not null;
 
     /// <summary>
     /// Frees a texture's slot once no frame can read it, pointing the slot at white so
@@ -199,18 +248,33 @@ internal sealed unsafe class ResourceTable : IDisposable
 
         texture.Dispose();
         _textures[slot] = null;
-        WriteTextureDescriptor(slot, _textures[_white.Index]!);
+        WriteTextureDescriptor(0, slot, _textures[_white.Index]!);
         _freeTextures.Push(slot);
     }
 
-    private void WriteTextureDescriptor(int slot, GpuTexture texture)
+    /// <summary>Frees a texture array's slot the same way as <see cref="ReleaseTexture"/>.</summary>
+    public void ReleaseTextureArray(int slot)
+    {
+        var texture = _textureArrays[slot];
+        if (texture is null)
+        {
+            return;
+        }
+
+        texture.Dispose();
+        _textureArrays[slot] = null;
+        WriteTextureDescriptor(2, slot, _textureArrays[_whiteArray.Index]!);
+        _freeTextureArrays.Push(slot);
+    }
+
+    private void WriteTextureDescriptor(uint binding, int slot, GpuTexture texture)
     {
         var imageInfo = new DescriptorImageInfo(_sampler, texture.View, ImageLayout.ShaderReadOnlyOptimal);
         var write = new WriteDescriptorSet
         {
             SType = StructureType.WriteDescriptorSet,
             DstSet = Set,
-            DstBinding = 0,
+            DstBinding = binding,
             DstArrayElement = (uint)slot,
             DescriptorCount = 1,
             DescriptorType = DescriptorType.CombinedImageSampler,
@@ -261,7 +325,8 @@ internal sealed unsafe class ResourceTable : IDisposable
 
     private void WriteMaterial(int index, in Material material)
     {
-        ((GpuMaterial*)_materials.Mapped)[index] = new GpuMaterial
+        ref var gpu = ref ((GpuMaterial*)_materials.Mapped)[index];
+        gpu = new GpuMaterial
         {
             BaseColor = material.BaseColor,
             Metallic = material.Metallic,
@@ -275,6 +340,12 @@ internal sealed unsafe class ResourceTable : IDisposable
             Emissive = new Vector4(material.Emissive, 0f),
             ShaderParameters = material.ShaderParameters,
         };
+        for (int i = 0; i < ShaderTextures.Length; i++)
+        {
+            gpu.ShaderTextures[i] = (uint)(material.ShaderTextures[i] ?? _white).Index;
+            gpu.ShaderArrays[i] = (uint)(material.ShaderArrays[i] ?? _whiteArray).Index;
+        }
+
         _materialFlags[index] = material.Flags;
         _materialShaders[index] = material.Shader?.Index ?? 0;
         _materialCutouts[index] = material.AlphaCutoff > 0f;
@@ -284,6 +355,10 @@ internal sealed unsafe class ResourceTable : IDisposable
         owned[1] = material.NormalTexture?.Index ?? -1;
         owned[2] = material.SurfaceTexture?.Index ?? -1;
         owned[3] = material.EmissiveTexture?.Index ?? -1;
+        for (int i = 0; i < ShaderTextures.Length; i++)
+        {
+            owned[4 + i] = material.ShaderTextures[i]?.Index ?? -1;
+        }
     }
 
     public void Dispose()
@@ -291,6 +366,11 @@ internal sealed unsafe class ResourceTable : IDisposable
         foreach (var texture in _textures)
         {
             texture?.Dispose();
+        }
+
+        foreach (var array in _textureArrays)
+        {
+            array?.Dispose();
         }
 
         _materials.Dispose();

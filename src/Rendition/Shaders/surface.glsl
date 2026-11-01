@@ -58,6 +58,17 @@ Surface materialSurface() {
     return surface;
 }
 
+// The material's shader texture in the given slot, 0 to 3. Unset slots read white.
+vec4 shaderTexture(int slot, vec2 uv) {
+    return texture(textures[materials[draw.material].shaderTextures[slot]], uv);
+}
+
+// One layer of the material's shader texture array in the given slot, 0 to 3. Layers
+// blend when the layer number is fractional. Unset slots read white.
+vec4 shaderLayer(int slot, vec2 uv, float layer) {
+    return texture(textureArrays[materials[draw.material].shaderArrays[slot]], vec3(uv, layer));
+}
+
 void writeSurface(Surface surface) {
     outBaseColorMetallic = vec4(surface.baseColor, surface.metallic);
     outNormalRoughnessAo = vec4(octahedralEncode(surface.normal), surface.roughness, 1.0);

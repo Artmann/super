@@ -30,13 +30,16 @@ internal sealed unsafe class GpuTexture : IDisposable
 
     /// <summary>A 2D array of same-sized layers, filled right away. Waits for the GPU.</summary>
     public GpuTexture(VulkanContext context, ReadOnlySpan<TextureData> layers)
-        : this(context, layers[0].Width, layers[0].Height, layers[0].Kind, (uint)layers[0].Mips.Length, (uint)layers.Length)
+        : this(context, layers[0].Width, layers[0].Height, layers[0].Kind, (uint)layers[0].Mips.Length, (uint)layers.Length, true)
     {
         Upload(layers);
     }
 
-    /// <summary>An empty texture. Fill it with <see cref="RecordUpload"/>.</summary>
-    public GpuTexture(VulkanContext context, int width, int height, TextureKind kind, uint mipCount, uint layers)
+    /// <summary>
+    /// An empty texture. Fill it with <see cref="RecordUpload"/>. An array is sampled as
+    /// one even with a single layer, which the view type has to say.
+    /// </summary>
+    public GpuTexture(VulkanContext context, int width, int height, TextureKind kind, uint mipCount, uint layers, bool array = false)
     {
         _context = context;
         Width = width;
@@ -70,7 +73,7 @@ internal sealed unsafe class GpuTexture : IDisposable
         {
             SType = StructureType.ImageViewCreateInfo,
             Image = _image,
-            ViewType = layers > 1 ? ImageViewType.Type2DArray : ImageViewType.Type2D,
+            ViewType = array || layers > 1 ? ImageViewType.Type2DArray : ImageViewType.Type2D,
             Format = format,
             SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, mipCount, 0, layers),
         };

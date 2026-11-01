@@ -19,10 +19,13 @@ struct Material {
     uint emissiveTexture;
     float clearcoat;
     vec4 emissive; // rgb
-    vec4 shaderParameters;
+    vec4 shaderParameters[8];
+    uint shaderTextures[4];
+    uint shaderArrays[4];
 };
 
 layout(set = 1, binding = 0) uniform sampler2D textures[];
+layout(set = 1, binding = 2) uniform sampler2DArray textureArrays[];
 layout(std430, set = 1, binding = 1) readonly buffer Materials {
     Material materials[];
 };

@@ -59,6 +59,7 @@ public sealed unsafe class Renderer : IDisposable
     {
         public readonly List<Mesh> Meshes = [];
         public readonly List<int> Textures = [];
+        public readonly List<int> TextureArrays = [];
         public readonly List<int> Materials = [];
         public readonly List<IDisposable> Others = [];
     }
@@ -281,6 +282,17 @@ public sealed unsafe class Renderer : IDisposable
         Destroying().Textures.Add(texture.Index);
     }
 
+    /// <summary>Lets go of a texture array. Its slot reads as white until something new takes it.</summary>
+    public void DestroyTextureArray(TextureArrayHandle array)
+    {
+        if (_resources.IsBuiltIn(array) || !_resources.IsLive(array))
+        {
+            throw new ArgumentException("The texture array does not exist.", nameof(array));
+        }
+
+        Destroying().TextureArrays.Add(array.Index);
+    }
+
     /// <summary>Lets go of a material slot. Draws that still use it are a caller mistake.</summary>
     public void DestroyMaterial(MaterialHandle material)
     {
@@ -352,6 +364,11 @@ public sealed unsafe class Renderer : IDisposable
             _resources.ReleaseTexture(texture);
         }
 
+        foreach (int array in slot.TextureArrays)
+        {
+            _resources.ReleaseTextureArray(array);
+        }
+
         foreach (int material in slot.Materials)
         {
             _resources.ReleaseMaterial(material);
@@ -364,6 +381,7 @@ public sealed unsafe class Renderer : IDisposable
 
         slot.Meshes.Clear();
         slot.Textures.Clear();
+        slot.TextureArrays.Clear();
         slot.Materials.Clear();
         slot.Others.Clear();
     }
@@ -394,6 +412,37 @@ public sealed unsafe class Renderer : IDisposable
         var texture = new GpuTexture(_context, data.Width, data.Height, data.Kind, (uint)data.Mips.Length, 1);
         _uploads.Add(texture.CreateStaging([data]), texture);
         return _resources.AddTexture(texture);
+    }
+
+    /// <summary>
+    /// Stacks same-sized images into one texture that shaders read by layer, uploaded the
+    /// same way as <see cref="CreateTexture"/>. Every layer must have the first layer's
+    /// size, kind and mip count.
+    /// </summary>
+    public TextureArrayHandle CreateTextureArray(ReadOnlySpan<TextureData> layers)
+    {
+        if (layers.IsEmpty)
+        {
+            throw new ArgumentException("A texture array needs at least one layer.", nameof(layers));
+        }
+
+        var first = layers[0];
+        for (int i = 1; i < layers.Length; i++)
+        {
+            var layer = layers[i];
+            if (layer.Width != first.Width || layer.Height != first.Height || layer.Kind != first.Kind
+                || layer.Mips.Length != first.Mips.Length)
+            {
+                throw new ArgumentException(
+                    $"Layer {i} is {layer.Width}x{layer.Height} {layer.Kind} with {layer.Mips.Length} mips, " +
+                    $"but layer 0 is {first.Width}x{first.Height} {first.Kind} with {first.Mips.Length} mips.",
+                    nameof(layers));
+            }
+        }
+
+        var texture = new GpuTexture(_context, first.Width, first.Height, first.Kind, (uint)first.Mips.Length, (uint)layers.Length, true);
+        _uploads.Add(texture.CreateStaging(layers), texture);
+        return _resources.AddTextureArray(texture);
     }
 
     /// <summary>
@@ -538,6 +587,19 @@ public sealed unsafe class Renderer : IDisposable
             if ((material.Flags & MaterialFlags.Transparent) != 0)
             {
                 throw new ArgumentException("Transparent materials can't use a surface shader yet.", nameof(material));
+            }
+        }
+
+        for (int i = 0; i < ShaderTextures.Length; i++)
+        {
+            if (material.ShaderTextures[i] is { } texture && !_resources.IsLive(texture))
+            {
+                throw new ArgumentException($"The material's shader texture {i} does not exist.", nameof(material));
+            }
+
+            if (material.ShaderArrays[i] is { } array && !_resources.IsLive(array))
+            {
+                throw new ArgumentException($"The material's shader texture array {i} does not exist.", nameof(material));
             }
         }
     }
