@@ -960,6 +960,7 @@ at random times:
 
 ```
 dotnet run -c Release --project examples/ColorCube
+dotnet run -c Release --project examples/Rooms
 ```
 
 The Reef example is a wide underwater view of 6,240 fish schooling over coral, with a
@@ -973,7 +974,6 @@ dotnet run -c Release --project tools/Rendition.Import -- assets/source/reef/til
 dotnet run -c Release --project tools/Rendition.Import -- assets/source/reef/coral/coral.glb assets/reef-coral.materials.json assets/cooked/reef/coral.rmodel
 dotnet run -c Release --project tools/Rendition.Import -- assets/source/reef/softcoral/Corals.fbx assets/reef-softcoral.materials.json assets/cooked/reef/softcoral.rmodel
 dotnet run -c Release --project examples/Reef
-dotnet run -c Release --project examples/Rooms
 ```
 
 To see what the renderer can do today, run the sample:
