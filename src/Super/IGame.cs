@@ -24,4 +24,7 @@ public interface IGame
     /// what changed, so describe all of it each time. It only reads state, like Draw.
     /// </summary>
     UiView? Ui => null;
+
+    /// <summary>Input to play by name with <c>--script</c>, read once after <see cref="Load"/>.</summary>
+    IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>();
 }

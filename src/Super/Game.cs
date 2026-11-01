@@ -19,6 +19,7 @@ public static class Game
         Console.WriteLine($"seed {seed}");
 
         using var host = new GameHost<TGame>(seed, options.TicksPerSecond, services);
+        host.Script = FindScript<TGame>(host, arguments.ScriptName);
         bool hidden = arguments.ScreenshotPath is not null || arguments.RecordPath is not null || arguments.ProfilePath is not null;
 
         // Validation would swamp the timings, so a profile runs without it.
@@ -51,5 +52,19 @@ public static class Game
         }
 
         window.Run(host, options.TicksPerSecond);
+    }
+
+    private static InputScript? FindScript<TGame>(GameHost<TGame> host, string? name)
+        where TGame : class, IGame
+    {
+        if (name is null)
+        {
+            return null;
+        }
+
+        var scripts = ((IGame)host.Game).Scripts;
+        return scripts.TryGetValue(name, out var script)
+            ? script
+            : throw new ArgumentException($"There's no script named '{name}'. This game has: {string.Join(", ", scripts.Keys)}.");
     }
 }

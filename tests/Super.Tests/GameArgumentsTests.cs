@@ -17,6 +17,18 @@ public class GameArgumentsTests
     }
 
     [Fact]
+    public void Reads_a_script()
+    {
+        Assert.Equal("craft", GameArguments.Parse(["--script", "craft"]).ScriptName);
+    }
+
+    [Fact]
+    public void A_script_needs_a_name()
+    {
+        Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--script"]));
+    }
+
+    [Fact]
     public void Reads_a_recording()
     {
         var arguments = GameArguments.Parse(

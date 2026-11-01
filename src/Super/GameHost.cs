@@ -18,6 +18,9 @@ internal sealed class GameHost<TGame> : IDisposable
     private readonly StateChanges _changes;
     private readonly UiPointer _pointer;
 
+    /// <summary>When set, this is the player. Each tick plays what's due on it.</summary>
+    public InputScript? Script { get; set; }
+
     public GameHost(int seed, int ticksPerSecond, Action<IServiceCollection>? configure)
     {
         var time = new GameTime(ticksPerSecond);
@@ -83,6 +86,8 @@ internal sealed class GameHost<TGame> : IDisposable
 
     public void Tick()
     {
+        Script?.Play(Time.Tick, Input);
+
         // Only here, so all of a tick and the Draw after it see one version of the data.
         if (Content.ReloadWanted)
         {

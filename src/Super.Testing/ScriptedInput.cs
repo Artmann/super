@@ -12,10 +12,9 @@ public sealed class ScriptedInput
 {
     private readonly Input _input;
     private readonly Func<Type, object> _resolve;
-    private readonly List<(long Tick, Action<Input> Apply)> _tape = [];
+    private readonly InputScript _tape = new();
     private readonly float[] _axes = [0f, 0f, 0f, 0f, -1f, -1f];
     private readonly bool[] _buttons = new bool[15];
-    private long _nextTick;
 
     internal ScriptedInput(Input input, Func<Type, object> resolve)
     {
@@ -136,21 +135,9 @@ public sealed class ScriptedInput
     }
 
     /// <summary>Feeds everything due on this tick into the game's input, just before the tick rolls.</summary>
-    internal void Play(long tick)
-    {
-        _nextTick = tick + 1;
-        for (int i = 0; i < _tape.Count; i++)
-        {
-            if (_tape[i].Tick <= tick)
-            {
-                _tape[i].Apply(_input);
-                _tape.RemoveAt(i);
-                i--;
-            }
-        }
-    }
+    internal void Play(long tick) => _tape.Play(tick, _input);
 
-    private void Queue(Action<Input> apply, long ticksFromNow = 0) => _tape.Add((_nextTick + ticksFromNow, apply));
+    private void Queue(Action<Input> apply, long ticksFromNow = 0) => _tape.Then(apply, ticksFromNow);
 
     private Actions<TControl> Actions<TControl>()
         where TControl : struct, Enum =>

@@ -80,7 +80,10 @@ internal sealed unsafe class GameWindow : IDisposable
         var realTime = Stopwatch.StartNew();
         double last = 0;
         double played = 0;
-        ListenForInput(host.Input);
+        if (host.Script is null)
+        {
+            ListenForInput(host.Input);
+        }
 
         // Only here can a player see a loading screen, and only here may real time decide its length.
         host.Content.Streaming = true;
@@ -237,6 +240,13 @@ internal sealed unsafe class GameWindow : IDisposable
         for (long i = 0; i < ticks; i++)
         {
             host.Tick();
+
+            // A script aims at what's on screen, so the interface has to be laid out as it plays.
+            if (host.Script is not null)
+            {
+                Draw(host, 1f);
+            }
+
             if (i >= ticks - ScreenshotPlayedTicks)
             {
                 Draw(host, 1f);
