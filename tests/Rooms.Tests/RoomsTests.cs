@@ -82,7 +82,7 @@ public class RoomsTests
         Into(run, Screen.House);
 
         var pixel = new Vector2(760f, 300f);
-        var spot = run.Game.Camera.Ray(pixel, new Vector2(1280f, 720f)).Ground()!.Value;
+        var spot = run.Game.Camera.Ray(pixel, run.ScreenSize).Ground()!.Value;
         run.Input.Click(MouseButton.Left, pixel);
         run.Ticks(120);
         Assert.True(Vector3.Distance(spot, Player(run)) < 0.01f, $"Expected {spot}, got {Player(run)}");

@@ -1,3 +1,4 @@
+using System.Numerics;
 using Microsoft.Extensions.DependencyInjection;
 using Super.Ui;
 
@@ -24,6 +25,9 @@ public sealed class HeadlessRun<TGame> : IDisposable
     {
         _host = new GameHost<TGame>(seed, DefaultTicksPerSecond, services);
         Input = new ScriptedInput(_host.Input, _host.GetService);
+
+        // So there is something to look at before the first tick, as there is in the window.
+        _host.Draw(1f);
     }
 
     public TGame Game => _host.Game;
@@ -31,6 +35,9 @@ public sealed class HeadlessRun<TGame> : IDisposable
     public GameTime Time => _host.Time;
 
     public int Seed => _host.Seed;
+
+    /// <summary>The size the interface lays itself out in, in pixels.</summary>
+    public Vector2 ScreenSize => new(_host.ScreenWidth, _host.ScreenHeight);
 
     /// <summary>Key presses, clicks and actions to play. They land on the next tick.</summary>
     public ScriptedInput Input { get; }
@@ -58,7 +65,10 @@ public sealed class HeadlessRun<TGame> : IDisposable
     /// <summary>Adds a rule that's checked after every tick, so a problem is caught when it happens.</summary>
     public void Invariant(string name, Func<TGame, bool> holds) => _invariants.Add((name, holds));
 
-    /// <summary>Plays this many ticks, with a Draw after each one.</summary>
+    /// <summary>Draws without ticking, part of the way between the last tick and the next, as a fast display would.</summary>
+    public void Frame(float blend) => _host.Draw(blend);
+
+    /// <summary>Plays this many ticks, with a Draw after each one at the end of the tick.</summary>
     public void Ticks(long count)
     {
         for (long i = 0; i < count; i++)

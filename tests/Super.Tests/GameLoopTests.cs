@@ -83,11 +83,35 @@ public class GameLoopTests
     public void Every_tick_is_drawn_and_Drawn_holds_only_the_last_frame()
     {
         using var run = HeadlessGame.Create<Counter>(1);
+        int drawnByCreate = run.Game.Draws;
 
         run.Ticks(5);
 
-        Assert.Equal(5, run.Game.Draws);
-        Assert.Equal(5, Assert.Single(run.Drawn).Key);
+        Assert.Equal(drawnByCreate + 5, run.Game.Draws);
+        Assert.Equal(drawnByCreate + 5, Assert.Single(run.Drawn).Key);
+    }
+
+    [Fact]
+    public void Creating_a_game_draws_once_so_there_is_something_to_see()
+    {
+        using var run = HeadlessGame.Create<Counter>(1);
+
+        Assert.Equal(1, run.Game.Draws);
+        Assert.Single(run.Drawn);
+        Assert.Empty(run.Game.TicksSeen);
+    }
+
+    [Fact]
+    public void A_frame_draws_without_ticking()
+    {
+        using var run = HeadlessGame.Create<Counter>(1);
+        run.Ticks(2);
+
+        run.Frame(0.5f);
+
+        Assert.Equal(2, run.Time.Tick);
+        Assert.Equal(2, run.Game.TicksSeen.Count);
+        Assert.Equal(4, run.Game.Draws);
     }
 
     [Fact]

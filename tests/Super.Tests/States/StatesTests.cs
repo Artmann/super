@@ -188,8 +188,7 @@ public class StatesTests
     [Fact]
     public void Changing_state_in_draw_throws()
     {
-        using var run = HeadlessGame.Create<SetsInDraw>(1);
-        var error = Assert.Throws<InvalidOperationException>(() => run.Ticks(1));
+        var error = Assert.Throws<InvalidOperationException>(() => HeadlessGame.Create<SetsInDraw>(1));
         Assert.Contains("can't change in Draw", error.Message);
     }
 

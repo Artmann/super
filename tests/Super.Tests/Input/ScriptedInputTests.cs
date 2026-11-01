@@ -145,8 +145,7 @@ public class ScriptedInputTests
     [Fact]
     public void Reading_input_in_draw_throws()
     {
-        using var run = HeadlessGame.Create<ReadsInDraw>(1);
-        var error = Assert.Throws<InvalidOperationException>(() => run.Ticks(1));
+        var error = Assert.Throws<InvalidOperationException>(() => HeadlessGame.Create<ReadsInDraw>(1));
         Assert.Contains("only be read in Update", error.Message);
     }
 
