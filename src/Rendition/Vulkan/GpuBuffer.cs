@@ -39,24 +39,39 @@ internal sealed unsafe class GpuBuffer : IDisposable
     public static GpuBuffer CreateHostVisible(VulkanContext context, ulong size, BufferUsageFlags usage) =>
         new(context, size, usage, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
 
-    /// <summary>Creates a device-local buffer and fills it through a temporary staging buffer.</summary>
+    /// <summary>Creates a device-local buffer and fills it through a temporary staging buffer. Waits for the GPU.</summary>
     public static GpuBuffer CreateDeviceLocal<T>(VulkanContext context, ReadOnlySpan<T> data, BufferUsageFlags usage)
         where T : unmanaged
     {
-        ulong size = (ulong)(data.Length * sizeof(T));
-        using var staging = CreateHostVisible(context, size, BufferUsageFlags.TransferSrcBit);
-        data.CopyTo(new Span<T>(staging.Mapped, data.Length));
-
-        var buffer = new GpuBuffer(
-            context, size, usage | BufferUsageFlags.TransferDstBit, MemoryPropertyFlags.DeviceLocalBit);
-        var source = staging.Handle;
-        var destination = buffer.Handle;
-        context.SubmitAndWait(cmd =>
+        var buffer = CreateDeviceLocalStaged(context, data, usage, out var staging);
+        using (staging)
         {
-            var region = new BufferCopy(0, 0, size);
-            context.Api.CmdCopyBuffer(cmd, source, destination, 1, &region);
-        });
+            context.SubmitAndWait(cmd => buffer.RecordUpload(cmd, staging));
+        }
+
         return buffer;
+    }
+
+    /// <summary>
+    /// Creates a device-local buffer and a filled staging buffer for it, without copying
+    /// yet. Record the copy with <see cref="RecordUpload"/> and dispose the staging buffer
+    /// once that work is done.
+    /// </summary>
+    public static GpuBuffer CreateDeviceLocalStaged<T>(
+        VulkanContext context, ReadOnlySpan<T> data, BufferUsageFlags usage, out GpuBuffer staging)
+        where T : unmanaged
+    {
+        ulong size = (ulong)(data.Length * sizeof(T));
+        staging = CreateHostVisible(context, size, BufferUsageFlags.TransferSrcBit);
+        data.CopyTo(new Span<T>(staging.Mapped, data.Length));
+        return new GpuBuffer(context, size, usage | BufferUsageFlags.TransferDstBit, MemoryPropertyFlags.DeviceLocalBit);
+    }
+
+    /// <summary>Records the copy of a staging buffer's whole contents into this one.</summary>
+    public void RecordUpload(CommandBuffer cmd, GpuBuffer staging)
+    {
+        var region = new BufferCopy(0, 0, Size);
+        _context.Api.CmdCopyBuffer(cmd, staging.Handle, Handle, 1, &region);
     }
 
     public void Dispose()

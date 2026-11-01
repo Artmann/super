@@ -2,30 +2,58 @@ using Silk.NET.Vulkan;
 
 namespace Rendition.Vulkan;
 
-/// <summary>A sampled image with a full mip chain, uploaded once at load time.</summary>
+/// <summary>
+/// A sampled image with a full mip chain and one or more layers. Its bytes arrive through
+/// a staging buffer, either at once with <see cref="Upload"/> or on a later command buffer
+/// through <see cref="CreateStaging"/> and <see cref="RecordUpload"/>.
+/// </summary>
 internal sealed unsafe class GpuTexture : IDisposable
 {
+    private const int BytesPerTexel = 4;
+
     private readonly VulkanContext _context;
     private readonly Image _image;
     private readonly GpuAllocation _allocation;
 
     public readonly ImageView View;
+    public readonly int Width;
+    public readonly int Height;
+    public readonly uint MipCount;
+    public readonly uint Layers;
 
+    /// <summary>A single 2D texture, filled right away. Waits for the GPU.</summary>
     public GpuTexture(VulkanContext context, TextureData data)
+        : this(context, data.Width, data.Height, data.Kind, (uint)data.Mips.Length, 1)
+    {
+        Upload([data]);
+    }
+
+    /// <summary>A 2D array of same-sized layers, filled right away. Waits for the GPU.</summary>
+    public GpuTexture(VulkanContext context, ReadOnlySpan<TextureData> layers)
+        : this(context, layers[0].Width, layers[0].Height, layers[0].Kind, (uint)layers[0].Mips.Length, (uint)layers.Length)
+    {
+        Upload(layers);
+    }
+
+    /// <summary>An empty texture. Fill it with <see cref="RecordUpload"/>.</summary>
+    public GpuTexture(VulkanContext context, int width, int height, TextureKind kind, uint mipCount, uint layers)
     {
         _context = context;
+        Width = width;
+        Height = height;
+        MipCount = mipCount;
+        Layers = layers;
         var api = context.Api;
-        var format = data.Kind == TextureKind.Color ? Format.R8G8B8A8Srgb : Format.R8G8B8A8Unorm;
-        uint mipCount = (uint)data.Mips.Length;
+        var format = kind == TextureKind.Color ? Format.R8G8B8A8Srgb : Format.R8G8B8A8Unorm;
 
         var imageInfo = new ImageCreateInfo
         {
             SType = StructureType.ImageCreateInfo,
             ImageType = ImageType.Type2D,
             Format = format,
-            Extent = new Extent3D((uint)data.Width, (uint)data.Height, 1),
+            Extent = new Extent3D((uint)width, (uint)height, 1),
             MipLevels = mipCount,
-            ArrayLayers = 1,
+            ArrayLayers = layers,
             Samples = SampleCountFlags.Count1Bit,
             Tiling = ImageTiling.Optimal,
             Usage = ImageUsageFlags.SampledBit | ImageUsageFlags.TransferDstBit,
@@ -42,13 +70,11 @@ internal sealed unsafe class GpuTexture : IDisposable
         {
             SType = StructureType.ImageViewCreateInfo,
             Image = _image,
-            ViewType = ImageViewType.Type2D,
+            ViewType = layers > 1 ? ImageViewType.Type2DArray : ImageViewType.Type2D,
             Format = format,
-            SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, mipCount, 0, 1),
+            SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, mipCount, 0, layers),
         };
         api.CreateImageView(context.Device, &viewInfo, null, out View).Check();
-
-        Upload(data);
     }
 
     public void Dispose()
@@ -58,51 +84,80 @@ internal sealed unsafe class GpuTexture : IDisposable
         _context.Memory.Free(_allocation);
     }
 
-    private void Upload(TextureData data)
+    /// <summary>
+    /// Fills a staging buffer with every layer's mips in order, laid out as
+    /// <see cref="RecordUpload"/> expects. Each layer must match this texture's size and mips.
+    /// </summary>
+    public GpuBuffer CreateStaging(ReadOnlySpan<TextureData> layers)
     {
-        ulong totalSize = 0;
-        foreach (byte[] mip in data.Mips)
-        {
-            totalSize += (ulong)mip.Length;
-        }
-
-        using var staging = GpuBuffer.CreateHostVisible(_context, totalSize, BufferUsageFlags.TransferSrcBit);
-        var regions = new BufferImageCopy[data.Mips.Length];
+        var staging = GpuBuffer.CreateHostVisible(_context, StagingSize(), BufferUsageFlags.TransferSrcBit);
         ulong offset = 0;
-        for (int level = 0; level < data.Mips.Length; level++)
+        foreach (var layer in layers)
         {
-            byte[] mip = data.Mips[level];
-            mip.CopyTo(new Span<byte>((byte*)staging.Mapped + offset, mip.Length));
-            regions[level] = new BufferImageCopy
+            foreach (byte[] mip in layer.Mips)
             {
-                BufferOffset = offset,
-                ImageSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, (uint)level, 0, 1),
-                ImageExtent = new Extent3D(
-                    (uint)Math.Max(data.Width >> level, 1), (uint)Math.Max(data.Height >> level, 1), 1),
-            };
-            offset += (ulong)mip.Length;
+                mip.CopyTo(new Span<byte>((byte*)staging.Mapped + offset, mip.Length));
+                offset += (ulong)mip.Length;
+            }
         }
 
+        return staging;
+    }
+
+    /// <summary>
+    /// Records the copy from a staging buffer made by <see cref="CreateStaging"/>, leaving
+    /// the image ready for fragment shaders to sample. Allocates nothing.
+    /// </summary>
+    public void RecordUpload(CommandBuffer cmd, GpuBuffer staging)
+    {
         var api = _context.Api;
-        var image = _image;
-        var source = staging.Handle;
-        uint mipCount = (uint)data.Mips.Length;
-        _context.SubmitAndWait(cmd =>
+        api.Transition(cmd, _image, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.TransferDstOptimal,
+            PipelineStageFlags2.None, AccessFlags2.None,
+            PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit, MipCount, 0, 0, Layers);
+
+        int regionCount = (int)(MipCount * Layers);
+        var regions = stackalloc BufferImageCopy[regionCount];
+        ulong offset = 0;
+        int region = 0;
+        for (uint layer = 0; layer < Layers; layer++)
         {
-            api.Transition(cmd, image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.TransferDstOptimal,
-                PipelineStageFlags2.None, AccessFlags2.None,
-                PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit, mipCount);
-
-            fixed (BufferImageCopy* regionsPtr = regions)
+            for (uint level = 0; level < MipCount; level++)
             {
-                api.CmdCopyBufferToImage(cmd, source, image, ImageLayout.TransferDstOptimal, mipCount, regionsPtr);
+                uint width = (uint)Math.Max(Width >> (int)level, 1);
+                uint height = (uint)Math.Max(Height >> (int)level, 1);
+                regions[region++] = new BufferImageCopy
+                {
+                    BufferOffset = offset,
+                    ImageSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, level, layer, 1),
+                    ImageExtent = new Extent3D(width, height, 1),
+                };
+                offset += width * height * BytesPerTexel;
             }
+        }
 
-            api.Transition(cmd, image, ImageAspectFlags.ColorBit,
-                ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
-                PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit,
-                PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit, mipCount);
-        });
+        api.CmdCopyBufferToImage(cmd, staging.Handle, _image, ImageLayout.TransferDstOptimal, (uint)regionCount, regions);
+
+        api.Transition(cmd, _image, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
+            PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit,
+            PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit, MipCount, 0, 0, Layers);
+    }
+
+    private ulong StagingSize()
+    {
+        ulong perLayer = 0;
+        for (int level = 0; level < MipCount; level++)
+        {
+            perLayer += (ulong)(Math.Max(Width >> level, 1) * Math.Max(Height >> level, 1) * BytesPerTexel);
+        }
+
+        return perLayer * Layers;
+    }
+
+    private void Upload(ReadOnlySpan<TextureData> layers)
+    {
+        using var staging = CreateStaging(layers);
+        _context.SubmitAndWait(cmd => RecordUpload(cmd, staging));
     }
 }

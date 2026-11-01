@@ -65,6 +65,7 @@ public sealed unsafe class Renderer : IDisposable
 
     private readonly DestroyedSlot[] _destroyed = [.. Enumerable.Range(0, FramesInFlight).Select(_ => new DestroyedSlot())];
     private readonly List<int> _destroyScratch = [];
+    private readonly UploadQueue _uploads;
     private readonly ResourceTable _resources;
     private readonly EnvironmentMap _environment;
     private readonly ReflectionProbes _probes;
@@ -132,6 +133,7 @@ public sealed unsafe class Renderer : IDisposable
     {
         _context = new VulkanContext(options);
         _api = _context.Api;
+        _uploads = new UploadQueue(_context);
 
         _disableVsync = options.DisableVsync;
         _swapchain = new Swapchain(_context, (uint)options.Width, (uint)options.Height, _disableVsync);
@@ -222,10 +224,16 @@ public sealed unsafe class Renderer : IDisposable
         _gpuTimer = new GpuTimer(_context, FramesInFlight);
     }
 
+    /// <summary>
+    /// Hands a mesh's bytes to the next frame's command buffer rather than waiting for
+    /// the GPU, so it can be drawn in that same frame.
+    /// </summary>
     public MeshHandle CreateMesh(ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices)
     {
-        var vertexBuffer = GpuBuffer.CreateDeviceLocal(_context, vertices, BufferUsageFlags.VertexBufferBit);
-        var indexBuffer = GpuBuffer.CreateDeviceLocal(_context, indices, BufferUsageFlags.IndexBufferBit);
+        var vertexBuffer = GpuBuffer.CreateDeviceLocalStaged(_context, vertices, BufferUsageFlags.VertexBufferBit, out var vertexStaging);
+        _uploads.Add(vertexStaging, vertexBuffer);
+        var indexBuffer = GpuBuffer.CreateDeviceLocalStaged(_context, indices, BufferUsageFlags.IndexBufferBit, out var indexStaging);
+        _uploads.Add(indexStaging, indexBuffer);
         return AddMesh(new Mesh(vertexBuffer, indexBuffer, (uint)indices.Length));
     }
 
@@ -377,7 +385,16 @@ public sealed unsafe class Renderer : IDisposable
         _environment.Bake(environment);
     }
 
-    public TextureHandle CreateTexture(TextureData data) => _resources.AddTexture(data);
+    /// <summary>
+    /// Hands a texture's bytes to the next frame's command buffer rather than waiting for
+    /// the GPU, so it can be sampled in that same frame.
+    /// </summary>
+    public TextureHandle CreateTexture(TextureData data)
+    {
+        var texture = new GpuTexture(_context, data.Width, data.Height, data.Kind, (uint)data.Mips.Length, 1);
+        _uploads.Add(texture.CreateStaging([data]), texture);
+        return _resources.AddTexture(texture);
+    }
 
     /// <summary>
     /// Replaces the image that <see cref="FrameView.Overlay"/> quads read from. Only its
@@ -419,6 +436,7 @@ public sealed unsafe class Renderer : IDisposable
         ];
 
         _api.DeviceWaitIdle(_context.Device).Check();
+        _uploads.Flush();
 
         // The passes are bound to the current targets, so small ones stand in for a while.
         var screenTargets = _gBuffer;
@@ -664,6 +682,7 @@ public sealed unsafe class Renderer : IDisposable
             Flags = CommandBufferUsageFlags.OneTimeSubmitBit,
         };
         _api.BeginCommandBuffer(cmd, &beginInfo).Check();
+        _uploads.Record(cmd, _destroyed[_frameIndex].Others);
         int overlayQuads = _overlayAtlas is null ? 0 : _overlayPass.Upload(_frameIndex, view.Overlay);
         if (timed)
         {
@@ -807,6 +826,7 @@ public sealed unsafe class Renderer : IDisposable
     public void Dispose()
     {
         _api.DeviceWaitIdle(_context.Device).Check();
+        _uploads.Discard();
         for (int slot = 0; slot < FramesInFlight; slot++)
         {
             ReleaseDestroyed(slot);
