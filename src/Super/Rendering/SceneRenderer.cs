@@ -18,7 +18,7 @@ internal sealed class SceneRenderer : IDisposable
     private readonly Dictionary<int, ColoredMaterial> _coloredMaterials = [];
 
     /// <summary>The parts of each model, by <see cref="ModelRef.Index"/>.</summary>
-    private readonly List<DrawItem[]> _models = [];
+    private readonly ContentLoader<DrawItem[]> _models;
 
     private DrawItem[] _draws = new DrawItem[64];
     private Vector3 _bakedWater;
@@ -28,7 +28,8 @@ internal sealed class SceneRenderer : IDisposable
     {
         _renderer = new Renderer(options);
         _defaultMaterial = _renderer.CreateMaterial(CreateMaterial(new Vector3(0.7f)));
-        _models.Add([_renderer.CreateDrawItem(Cube.Vertices, Cube.Indices, _defaultMaterial)]);
+        _models = new ContentLoader<DrawItem[]>(
+            [_renderer.CreateDrawItem(Cube.Vertices, Cube.Indices, _defaultMaterial)], PrepareItem, Upload);
         _renderer.SetEnvironment(new EnvironmentDescription
         {
             Ceiling = new Vector3(0.45f, 0.5f, 0.6f),
@@ -53,14 +54,14 @@ internal sealed class SceneRenderer : IDisposable
     public void Render(View view, Content content, int width, int height, float time)
     {
         Prepare(content, view);
-        int count = PrepareDraws(view);
+        int count = PrepareDraws(view, content);
         _renderer.Render(CreateFrame(view, width, height, time), _draws.AsSpan(0, count));
     }
 
     public byte[] Capture(View view, Content content, int width, int height, float time, out int capturedWidth, out int capturedHeight)
     {
         Prepare(content, view);
-        int count = PrepareDraws(view);
+        int count = PrepareDraws(view, content);
         return _renderer.Capture(CreateFrame(view, width, height, time), _draws.AsSpan(0, count), out capturedWidth, out capturedHeight);
     }
 
@@ -77,7 +78,7 @@ internal sealed class SceneRenderer : IDisposable
         foreach (var (model, count) in copies)
         {
             string name = model > 0 && content.Items[model - 1] is string path ? path : model > 0 ? "generated mesh" : "cube";
-            costs.Add(new ModelCost(name, count, _models[model].Sum(part => (long)part.IndexCount) / 3));
+            costs.Add(new ModelCost(name, count, _models.Get(model, content).Sum(part => (long)part.IndexCount) / 3));
         }
 
         return costs;
@@ -135,10 +136,7 @@ internal sealed class SceneRenderer : IDisposable
 
     private void Prepare(Content content, View view)
     {
-        while (_models.Count <= content.Items.Count)
-        {
-            _models.Add(Load(content.Items[_models.Count - 1]));
-        }
+        _models.Update(content);
 
         // Surfaces pick up the color of the water around them.
         var water = view.WaterSettings;
@@ -168,20 +166,31 @@ internal sealed class SceneRenderer : IDisposable
         }
     }
 
-    private DrawItem[] Load(object item)
+    /// <summary>The part of loading that needs no GPU, so it runs on a background thread.</summary>
+    private static object PrepareItem(object item)
     {
         if (item is string path)
         {
-            return _renderer.CreateModel(ModelData.Read(FindCooked(path)));
+            return ModelData.Read(FindCooked(path));
         }
 
         var mesh = (GeneratedMesh)item;
+        return new PreparedMesh(mesh, BuildMips(mesh.Texture));
+    }
+
+    private DrawItem[] Upload(object prepared)
+    {
+        if (prepared is not PreparedMesh(var mesh, var mips))
+        {
+            return _renderer.CreateModel((ModelData)prepared);
+        }
+
         var texture = _renderer.CreateTexture(new TextureData
         {
             Width = mesh.Texture.Size,
             Height = mesh.Texture.Size,
             Kind = TextureKind.Color,
-            Mips = BuildMips(mesh.Texture),
+            Mips = mips,
         });
         var material = _renderer.CreateMaterial(new Material
         {
@@ -192,12 +201,12 @@ internal sealed class SceneRenderer : IDisposable
         return [_renderer.CreateDrawItem(mesh.Vertices, mesh.Indices, material)];
     }
 
-    private int PrepareDraws(View view)
+    private int PrepareDraws(View view, Content content)
     {
         int count = 0;
         foreach (ref readonly var draw in view.Drawn)
         {
-            var parts = _models[draw.Model.Index];
+            var parts = _models.Get(draw.Model.Index, content);
             if (count + parts.Length > _draws.Length)
             {
                 Array.Resize(ref _draws, (count + parts.Length) * 2);
@@ -273,4 +282,6 @@ internal sealed class SceneRenderer : IDisposable
     }
 
     private readonly record struct ColoredMaterial(MaterialHandle Handle, Vector3 Color);
+
+    private sealed record PreparedMesh(GeneratedMesh Mesh, byte[][] Mips);
 }

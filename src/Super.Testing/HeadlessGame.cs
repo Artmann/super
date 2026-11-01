@@ -40,6 +40,12 @@ public sealed class HeadlessRun<TGame> : IDisposable
         where TState : struct, Enum =>
         (States<TState>)_host.GetService(typeof(States<TState>));
 
+    /// <summary>Keeps <see cref="Content.IsLoaded"/> false, so a test can look at a loading screen.</summary>
+    public void HoldLoading() => _host.Content.Held = true;
+
+    /// <summary>Lets a held load finish, as if everything arrived at once.</summary>
+    public void FinishLoading() => _host.Content.Held = false;
+
     /// <summary>What the last Draw would have shown.</summary>
     public IReadOnlyList<ModelDraw> Drawn => _host.View.Drawn.ToArray();
 

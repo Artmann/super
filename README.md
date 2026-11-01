@@ -520,6 +520,49 @@ paused in any area without a state for each combination.
 In tests, `run.States<Screen>()` shows where the game is, and can jump there directly so
 a test doesn't have to play through the menu.
 
+### Loading screens
+
+A loading screen is another state that watches `Content`. Name what the next area needs
+on entering, then move on when it's ready.
+
+```csharp
+screen.OnEnter(Screen.Loading, () => _houseModel = content.Model("models/house"));
+
+// In Update.
+if (screen.Is(Screen.Loading) && content.IsLoaded)
+{
+    screen.Set(Screen.House);
+}
+
+// In Draw or Ui.
+new Text($"Loading {content.Progress:P0}")
+```
+
+Files are read on background threads and sent to the GPU one per frame, so the screen
+keeps moving. `Progress` runs from 0 to 1 over everything named since the last time
+loading finished, so a second loading screen starts from 0 again.
+
+You don't need a loading screen. A model that's drawn before it's ready is waited for, so
+nothing ever pops in. The game just pauses on that frame.
+
+Only the interactive window takes real time to load. Headless runs, `--screenshot`,
+`--record` and `--profile` report everything loaded at once, because disk speed mustn't
+change which tick a seed leaves the loading screen on. To test a loading screen, hold it
+open:
+
+```csharp
+run.HoldLoading();
+run.Ticks(30);
+Assert.True(run.States<Screen>().Is(Screen.Loading));
+
+run.FinishLoading();
+run.Ticks(1);
+Assert.True(run.States<Screen>().Is(Screen.House));
+```
+
+A file that can't be read throws on the main thread, on the frame the problem is found.
+Content is never unloaded yet, so memory only grows as a game names more of it.
+
 ## Content: JSON files
 
 Put JSON in your project's `content` folder. Describe its shape with a C# record, then
