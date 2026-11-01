@@ -49,5 +49,8 @@ public sealed class State<T> : IWatchedState
         }
     }
 
+    /// <summary>How many places are signed up for changes. Tests use it to check a removed view lets go.</summary>
+    internal int ReaderCount => _readers.Count;
+
     void IWatchedState.Forget(UiNode reader) => _readers.Remove(reader);
 }

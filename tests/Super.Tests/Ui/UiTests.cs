@@ -96,9 +96,14 @@ public sealed class UiTests
     public void Showing_nothing_draws_nothing()
     {
         var tree = new UiTree();
+        tree.Update(new Text("hello").Background(Color.Black), 800, 600);
+        Assert.False(tree.Quads.IsEmpty);
+        Assert.NotEmpty(tree.ShownText);
+
         tree.Update(null, 800, 600);
 
         Assert.True(tree.Quads.IsEmpty);
+        Assert.Empty(tree.ShownText);
     }
 
     [Fact]
@@ -149,6 +154,7 @@ public sealed class UiTests
     {
         var tree = Show(new ZStack(Alignment.TopLeading) { new Text("back"), new Text("front") });
 
+        Assert.Equal(Find(tree, "back").Frame.X, Find(tree, "front").Frame.X, Close);
         Assert.Equal(Find(tree, "back").Frame.Y, Find(tree, "front").Frame.Y, Close);
     }
 
@@ -302,12 +308,11 @@ public sealed class UiTests
         var tree = new UiTree();
         tree.Update(new Stateful(holder, 1), 800, 600);
         var state = holder.State!;
+        Assert.Equal(1, state.ReaderCount);
+
         tree.Update(null, 800, 600);
 
-        state.Value = 3;
-        tree.Update(null, 800, 600);
-
-        Assert.Empty(tree.ShownText);
+        Assert.Equal(0, state.ReaderCount);
     }
 
     [Fact]
