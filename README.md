@@ -384,7 +384,9 @@ can't rotate. For a top-down view with perspective, use `FollowCamera` with an `
 straight up.
 
 Orthographic views widen their shadows to cover the screen, so shadows get softer as you
-zoom out.
+zoom out. A wide perspective world keeps sharp shadows near the camera with cascades:
+`view.Shadows(40f, cascades: 3)` draws three maps, each covering three times the radius
+of the one before.
 
 ### Particles
 
@@ -435,8 +437,10 @@ var ground = content.Mesh(field.Chunk(chunk.X, chunk.Z, 32, new Surface
 grid, so neighbouring chunks meet exactly. A chunk the player has left is let go with
 `content.Unload`, which frees it after the frames in flight, and `content.IsReady` says
 whether a chunk is on the GPU yet, so a game can skip one still loading instead of
-waiting. The shader is `Shaders/<name>.frag` in the game project, compiled by importing
-`src/Shaders.targets`. The [Terrain example](examples/Terrain) does all of this.
+waiting. Textures are unloaded the same way, after every mesh that names them; a texture
+array keeps its own copy of each layer, so the single layers can go as soon as the
+array is named. The shader is `Shaders/<name>.frag` in the game project, compiled by
+importing `src/Shaders.targets`. The [Terrain example](examples/Terrain) does all of this.
 
 ## Interfaces
 
@@ -765,7 +769,8 @@ Assert.True(run.States<Screen>().Is(Screen.House));
 ```
 
 A file that can't be read throws on the main thread, on the frame the problem is found.
-Content is never unloaded yet, so memory only grows as a game names more of it.
+Meshes and textures can be let go with `content.Unload` once a game is done with them;
+everything else stays for the life of the game.
 
 ## Content: JSON files
 
