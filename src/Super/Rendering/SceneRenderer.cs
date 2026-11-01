@@ -326,20 +326,21 @@ internal sealed class SceneRenderer : IDisposable
             };
         }
 
+        var shot = view.Shot;
+        float aspect = width / (float)Math.Max(height, 1);
         return new FrameView
         {
             Width = width,
             Height = height,
-            View = Matrix4x4.CreateLookAt(view.CameraPosition, view.CameraTarget, Vector3.UnitY),
-            Projection = Projection.PerspectiveInfiniteReversedZ(
-                view.CameraFieldOfView, width / (float)Math.Max(height, 1), 0.1f),
-            CameraPosition = view.CameraPosition,
+            View = Matrix4x4.CreateLookAt(shot.Position, shot.Target, shot.Up),
+            Projection = shot.Matrix(aspect),
+            CameraPosition = shot.Eye,
             Time = time,
             Lights = _lights.AsSpan(0, lightCount),
             Shadows = new ShadowSettings
             {
-                Center = view.CameraTarget,
-                Radius = view.ShadowRadius,
+                Center = shot.Target,
+                Radius = shot.ShadowRadius(view.ShadowRadius, aspect),
                 Cascades = view.ShadowCascades,
                 LightAngle = 0.12f,
             },

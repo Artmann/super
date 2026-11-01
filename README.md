@@ -168,6 +168,15 @@ you pass. The first time Super sees a key, the value goes straight to its target
 when a player loads a save, open boxes are simply open, with no animation and no creak.
 When `IsOpen` changes during play, the lid swings.
 
+`view.Animate` eases from where the value is to the target over the seconds you ask for,
+and follows game time, so the frame rate doesn't change it. `view.Changed` is true on the
+one frame a value differs from last frame. Both work with any number of things, and a
+running game allocates nothing for them once each key has been seen.
+
+Memory lasts as long as you keep drawing. If a frame doesn't ask for a key, Super forgets
+it, so a box that comes back into view appears finished instead of replaying. Don't call
+`Animate` only while something is moving, or it will never move.
+
 Worlds in Super are flat: a list of things you draw, not a tree of nodes. To attach one
 thing to another, multiply their transforms, or ask for a bone on the parent's pose:
 
@@ -182,13 +191,19 @@ A key names something across frames, like a `key` in React. Super uses it for vi
 memory, and to tell the renderer where an object was last frame, which keeps moving
 things crisp. Use a stable ID from your game, and the same one every frame.
 
+View memory also belongs to the line of code asking, like the order of hooks in React. So
+a lid and a latch on one box can both use the box's ID, and a box and a tree with the same
+ID can't get mixed up. Two calls from one line with one key share their memory, so give
+each its own key.
+
 ### Things that rarely change
 
 A city might have 50,000 walls. Describing them all 60 times a second is wasteful, so
-wrap them in `Cached`. It runs your function again only when the version changes:
+wrap them in `Cached`. It runs your function again only when the version changes. The
+key says which chunk this is, and your `Update` adds one to the version when a wall moves:
 
 ```csharp
-view.Cached(chunk.Version, chunk, static (chunk, view) =>
+view.Cached(chunk.Id, chunk.Version, chunk, static (chunk, view) =>
 {
     foreach (ref readonly var wall in chunk.Walls)
     {
@@ -196,6 +211,10 @@ view.Cached(chunk.Version, chunk, static (chunk, view) =>
     }
 });
 ```
+
+`Cached` keeps models and nothing else, so lights, the camera and anything that animates
+go outside it. It saves your code describing them, but the models still reach the
+renderer each frame.
 
 ### State or view?
 
@@ -215,6 +234,158 @@ ticks to keep motion smooth at any frame rate:
 view.Model(ball.Id, ballModel, view.Smooth(ball.PreviousTransform, ball.Transform));
 ```
 
+### Cameras and clicking
+
+`view.Camera` takes a position and a target, which is all a fixed camera needs. To click
+on things, keep a `Camera` in your game, because `Update` has to know it too. Input can
+only be read in `Update`, so that's where a click turns into a place in the world:
+
+```csharp
+readonly Camera camera = new(new Vector3(0, 12, 12), Vector3.Zero);
+
+public void Update(GameTime time)
+{
+    if (input.Pressed(MouseButton.Left))
+    {
+        var ray = input.MouseRay(camera);
+
+        // A tile: where the line through the cursor meets the ground.
+        if (ray.Ground() is { } spot)
+        {
+            selectedTile = map.TileAt(spot);
+        }
+
+        // A colonist: the nearest one the line goes through.
+        foreach (ref readonly var colonist in colonists)
+        {
+            if (ray.HitsBall(colonist.Position, 0.5f) is { } distance && distance < nearest)
+            {
+                nearest = distance;
+                selected = colonist.Id;
+            }
+        }
+    }
+}
+
+public void Draw(View view) => view.Camera(camera);
+```
+
+`ray.Ground(height)` gives a point, while `ray.HitsBall` and `ray.HitsBox(min, max)` give a
+distance, so you can keep the closest. A miss gives nothing. Super doesn't go through your
+things for you, since only your game knows what can be clicked, and it tests these simple
+shapes, not a model's triangles.
+
+Two helpers save writing the same camera in every game. Keep one in your game, step it
+once a tick in `Update`, and draw `At(view.Blend)` so it moves smoothly at any frame rate:
+
+```csharp
+readonly OrbitCamera orbit = new() { Distance = 12f };
+readonly FollowCamera follow = new() { Offset = new Vector3(0, 8, 10), Lag = 0.2f };
+
+public void Update(GameTime time)
+{
+    // Circles a target. Yaw, Pitch, Distance and its limits can be set directly.
+    orbit.Turn(input.MouseDelta * 0.005f);
+    orbit.Zoom(input.Scroll);
+    orbit.Update(tower.Position);
+
+    // Trails behind a target. Lag is about how many seconds behind it stays.
+    follow.Update(player.Position, time.TickSeconds);
+}
+
+public void Draw(View view) => view.Camera(follow.At(view.Blend));
+```
+
+The first update puts a camera straight in place. If its target teleports, call
+`follow.Jump()` so the camera doesn't slide across the map. For clicking, pass
+`follow.Current` to `input.MouseRay`.
+
+A camera is perspective unless you say otherwise. An orthographic camera has no
+perspective, so things keep their size however far away they are. You give it how many
+world units the screen shows from bottom to top:
+
+```csharp
+var flat = Camera.Orthographic(new Vector3(0, 20, 20), Vector3.Zero, size: 30f);
+```
+
+`Shift` makes a camera asymmetric. It slides the picture without turning the camera, in
+half screens, and works with either kind. This keeps a character in the middle of what's
+left beside a side panel:
+
+```csharp
+var beside = camera with { Shift = new Vector2(0.5f, 0f) };
+```
+
+Clicking works the same with all of them, because `input.MouseRay` asks the camera.
+
+Four more helpers cover the usual kinds of game. They all work like the two above, with
+`Update` once a tick and `At(view.Blend)` in `Draw`.
+
+**Third person.** `BoomCamera` sits on an arm behind the character, and the arm shortens
+when something is in the way. Super doesn't know your walls, so you test the arm against
+them and pass in how far along it you hit something:
+
+```csharp
+readonly BoomCamera boom = new() { Length = 6f, Shoulder = 0.5f };
+
+public void Update(GameTime time)
+{
+    boom.Turn(input.MouseDelta * 0.005f);
+    boom.Zoom(input.Scroll);
+    var walk = boom.Walk(actions.Vector(Control.Move));
+
+    var arm = boom.Arm(player.Position);
+    boom.Update(player.Position, time.TickSeconds, blockedAt: arm.HitsBox(wall.Min, wall.Max));
+}
+```
+
+The arm pulls in at once, so the camera never shows the inside of a wall, and eases back
+out once the way is clear. With several walls, pass the nearest hit. `Walk` turns a stick
+into a direction on the ground, so forward goes where the camera faces.
+
+**First person.** `FirstPersonCamera` looks out from `EyeHeight` above the feet:
+
+```csharp
+readonly FirstPersonCamera eyes = new();
+
+public void Update(GameTime time)
+{
+    eyes.Turn(input.MouseDelta * 0.003f);
+    var walk = eyes.Walk(actions.Vector(Control.Move));
+    eyes.Update(player.Position);
+}
+```
+
+`Walk` stays level wherever you look, so looking up doesn't slow you down.
+
+**Top-down and isometric.** `TopDownCamera` looks straight down and `IsometricCamera` looks
+down at the true isometric angle. Both are orthographic, and zooming changes `Size`:
+
+```csharp
+readonly IsometricCamera iso = new() { Size = 24f };
+
+public void Update(GameTime time)
+{
+    iso.Zoom(input.Scroll);
+
+    // A tiny step for each key held, or follow something with iso.Update(player.Position, seconds).
+    iso.Pan(actions.Vector(Control.Move) * 20f * time.TickSeconds);
+    iso.Update(time.TickSeconds);
+
+    if (input.Pressed(Key.Q))
+    {
+        iso.Turn(1);
+    }
+}
+```
+
+`Turn` walks an isometric camera around by quarter turns, easing there. A top-down camera
+can't rotate. For a top-down view with perspective, use `FollowCamera` with an `Offset`
+straight up.
+
+Orthographic views widen their shadows to cover the screen, so shadows get softer as you
+zoom out.
+
 ### Particles
 
 Particles are worked out from when they started rather than fired and forgotten, so
@@ -226,6 +397,10 @@ if (tree.FellAt is { } fellAt)
     view.Particles(tree.Id, dust, tree.Position, age: view.SecondsSince(fellAt));
 }
 ```
+
+`FellAt` is `time.Tick` from the `Update` where the tree fell. `view.SecondsSince` works
+today for anything that plays out from a moment in time. `view.Particles` doesn't exist
+yet.
 
 ### Materials and the look of the picture
 
@@ -1079,7 +1254,13 @@ Models are cooked into a fast format by the import tool. The
 ## What's not here yet
 
 - **Animation and particles.** The API above is the plan, but Rendition can't play
-  skeletons or draw particles yet.
+  skeletons or draw particles yet. `view.Animate` moves numbers, which you can use on
+  a transform, but `AnimationRef` and `view.Bone` don't exist.
+- **Picking by shape.** Clicks are tested against balls, boxes and the ground, not a
+  model's triangles.
+- **Some camera moves.** A camera can't roll, and asymmetric views are a shift, so head
+  tracking and tiled displays can't be done yet. Underwater views are wrong under an
+  orthographic camera.
 - **Large numbers of objects.** Rendition's efficiency with many thousands of objects
   still has to be measured and improved.
 - **Physics.** Not in the first version. Gameplay physics has to give repeatable

@@ -833,8 +833,8 @@ public sealed unsafe class Renderer : IDisposable
             }
         }
 
-        float focalPixels = MathF.Abs(view.Projection.M22) * view.Height / 2f;
-        var camera = new DetailView(viewProjection, view.CameraPosition, focalPixels, 0f, CameraDetailError);
+        var (pixelsAtOneUnit, pixelsPerUnit) = Projection.PixelScale(view.Projection, view.Height);
+        var camera = new DetailView(viewProjection, view.CameraPosition, pixelsAtOneUnit, pixelsPerUnit, CameraDetailError);
         int cameraCount = DrawSelection.Select(camera, draws, _details, _cameraDraws);
 
         int shadowCount = 0;

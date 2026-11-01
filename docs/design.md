@@ -6,7 +6,7 @@ would meet it. This file records the reasons behind it, then Rendition's design.
 
 ## Engine decisions
 
-These are decided. The game loop, window, randomness, input, game states, JSON content and headless runs are built;
+These are decided. The game loop, window, randomness, input, game states, JSON content, cameras, picking, view memory and headless runs are built;
 the rest is not yet.
 
 | Area | Choice | Why |
@@ -19,12 +19,16 @@ the rest is not yet.
 | Structure | Game code is plain classes behind `IGame`, with no built-in scheduler | The game's author owns the logic and the order it runs in |
 | Time | `Update` runs on fixed ticks, `Draw` once per displayed frame and blends between ticks | Repeatable simulation, whatever the frame rate |
 | Drawing | Views are plain functions of state, called every frame | Nothing to keep in sync, and loading needs no special cases |
-| View memory | Kept by Super under a key. A new key goes straight to its target | A loaded game appears finished, with no animations replaying |
+| View memory | Kept by Super under a key and the calling line. A new key goes straight to its target, and a key not drawn for a frame is forgotten | A loaded game appears finished, with no animations replaying, and memory can't grow forever |
 | Virtual tree for the world | None, unlike React and SwiftUI | Games redraw most things each frame, so comparing trees gains little and allocates |
 | Virtual tree for interfaces | Yes, with SwiftUI's layout and React's hook-style state | Interfaces are trees that mostly stay the same, so skipping unchanged parts pays. They can allocate a little, and live apart from the render path |
 | Interface code | CPU only, in `Super.Ui`. Rendition only sees textured quads | Layout and text run for real in headless tests, and Rendition stays usable alone |
 | Hierarchy | Flat, with attachment by transform or bone | Colony and dungeon games have thousands of independent things and little nesting |
-| Unchanging objects | `View.Cached`, keyed by a version number | Static worlds aren't described again each frame |
+| Cameras | A `Camera` is a plain value the game keeps, since picking happens in `Update` and showing in `Draw` | Input can only be read in `Update`, so the camera can't belong to `Draw` alone |
+| Camera kinds | Perspective by default, orthographic with `Size`, asymmetric with `Shift` in half screens | A shift keeps working when the window changes shape, which fixed frustum edges wouldn't |
+| Camera boom | The game tests `BoomCamera.Arm` against its own walls and passes in the distance | Super has no physics, and this needs no delegate |
+| Orthographic shading | Super gives the renderer an eye far behind the camera | Shaders keep one way of finding the view direction |
+| Unchanging objects | `View.Cached`, by key and version number | Static worlds aren't described again each frame |
 | Dependency injection | `Microsoft.Extensions.DependencyInjection`, resolved at startup only | Familiar, makes fakes one line, and costs nothing per frame |
 | Global state | None | Many headless games can share one process |
 | Randomness | `GameRandom` with named streams from one seed | A new roll in one system doesn't disturb another |

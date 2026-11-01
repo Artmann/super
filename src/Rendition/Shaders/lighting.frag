@@ -150,12 +150,24 @@ vec3 scatterReflection(vec3 v, vec3 n, float alpha, vec2 random) {
     return dot(direction, n) > 0.0 ? direction : reflect(-v, n);
 }
 
-// How far a point is behind what the camera sees there. Clip z is the same everywhere
-// and reversed-Z stores clip z / w, so dividing recovers the distance of the stored surface.
+// How far a point is behind what the camera sees there. Under perspective, clip z is the
+// same everywhere and reversed-Z stores clip z / w, so dividing recovers the distance of
+// the stored surface. Under orthographic, w is always 1 and depth is even, so the
+// difference only needs scaling by how much depth one world unit is worth.
 float depthGap(vec4 clip, out vec2 uv) {
     uv = clip.xy / clip.w * 0.5 + 0.5;
     float stored = texture(depthTexture, uv).r;
-    return stored > 0.0 ? clip.w - clip.z / stored : -1.0;
+    if (stored <= 0.0) {
+        return -1.0;
+    }
+
+    mat4 m = frame.viewProjection;
+    bool parallel = m[0][3] == 0.0 && m[1][3] == 0.0 && m[2][3] == 0.0;
+    if (parallel) {
+        return (stored - clip.z) / length(vec3(m[0][2], m[1][2], m[2][2]));
+    }
+
+    return clip.w - clip.z / stored;
 }
 
 // Screen-space reflection: walks along the ray until it passes behind something the

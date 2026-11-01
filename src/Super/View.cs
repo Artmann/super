@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Rendition;
 using Super.Ui;
@@ -26,10 +27,15 @@ public sealed class View
 {
     private readonly List<ModelDraw> _models = [];
     private readonly List<SunLight> _suns = [];
+    private readonly ViewMemory _memory = new();
+    private long _frame;
+    private long _tick;
+    private float _tickSeconds;
 
-    internal Vector3 CameraPosition { get; private set; }
-    internal Vector3 CameraTarget { get; private set; }
-    internal float CameraFieldOfView { get; private set; }
+    internal Camera Shot { get; private set; }
+    /// <summary>The time on screen, which sits between the last tick and the next.</summary>
+    private double Now => (_tick - 1 + (double)Blend) * _tickSeconds;
+
     internal ReadOnlySpan<SunLight> Suns => CollectionsMarshal.AsSpan(_suns);
     internal UnderwaterSettings WaterSettings { get; private set; }
     internal PostSettings Post { get; private set; }
@@ -47,12 +53,11 @@ public sealed class View
     public float Blend { get; private set; }
 
     /// <summary>Places the camera. Field of view is the vertical angle in radians.</summary>
-    public void Camera(Vector3 position, Vector3 lookAt, float fieldOfView = MathF.PI / 4f)
-    {
-        CameraPosition = position;
-        CameraTarget = lookAt;
-        CameraFieldOfView = fieldOfView;
-    }
+    public void Camera(Vector3 position, Vector3 lookAt, float fieldOfView = MathF.PI / 4f) =>
+        Shot = new Camera(position, lookAt, fieldOfView);
+
+    /// <summary>Places a camera your game keeps, so Update can pick with the same one.</summary>
+    public void Camera(in Camera camera) => Shot = camera;
 
     /// <summary>
     /// Adds a sun. The direction points from the ground towards it, and needn't be one
@@ -108,9 +113,91 @@ public sealed class View
     /// </summary>
     public Matrix4x4 Smooth(in Matrix4x4 previous, in Matrix4x4 current) => Matrix4x4.Lerp(previous, current, Blend);
 
-    /// <summary>Clears the last frame, keeping its memory so a running game allocates nothing here.</summary>
-    internal void Begin(float blend)
+    /// <summary>
+    /// Moves a number towards a target over this many seconds, easing in and out, and gives
+    /// its value now. The key names it across frames. The first time a key is seen, or the
+    /// first time after a frame that didn't draw it, the value is simply the target, so a
+    /// loaded game appears finished. Two calls in different places can share a key.
+    /// </summary>
+    public float Animate(
+        int key,
+        float target,
+        float seconds,
+        [CallerFilePath] string file = "",
+        [CallerLineNumber] int line = 0)
     {
+        double now = Now;
+        ref var motion = ref _memory.Motions.Touch(new MemorySite(key, file, line), _frame, out bool isNew);
+        if (isNew)
+        {
+            motion = new ViewMotion(target, target, now, seconds);
+        }
+        else if (motion.To != target)
+        {
+            motion = new ViewMotion(motion.At(now), target, now, seconds);
+        }
+
+        return motion.At(now);
+    }
+
+    /// <summary>
+    /// Whether a value differs from the one this call saw last frame. It's never true for
+    /// a key seen for the first time, so loading a game plays no sounds.
+    /// </summary>
+    public bool Changed<T>(
+        int key,
+        T value,
+        [CallerFilePath] string file = "",
+        [CallerLineNumber] int line = 0)
+    {
+        ref var last = ref _memory.Kind<T>().Touch(new MemorySite(key, file, line), _frame, out bool isNew);
+        bool changed = !isNew && !EqualityComparer<T>.Default.Equals(last, value);
+        last = value;
+        return changed;
+    }
+
+    /// <summary>
+    /// How long ago something happened, given the <see cref="GameTime.Tick"/> your Update
+    /// saved at that moment. It's worked out from game time, so it needs no memory.
+    /// </summary>
+    public float SecondsSince(long tick) => MathF.Max((_tick - 1 - tick + Blend) * _tickSeconds, 0f);
+
+    /// <summary>
+    /// Runs a function that draws models, then replays them without calling it again until
+    /// the version changes. Only models are kept, so put lights and the camera outside it,
+    /// along with anything that moves or uses Animate.
+    /// </summary>
+    public void Cached<TData>(
+        int key,
+        long version,
+        TData data,
+        Action<TData, View> draw,
+        [CallerFilePath] string file = "",
+        [CallerLineNumber] int line = 0)
+    {
+        ref var slot = ref _memory.Recordings.Touch(new MemorySite(key, file, line), _frame, out bool isNew);
+        var recording = slot ??= new ViewRecording();
+        if (!isNew && recording.Version == version)
+        {
+            _models.AddRange(CollectionsMarshal.AsSpan(recording.Models));
+            return;
+        }
+
+        int start = _models.Count;
+        draw(data, this);
+        recording.Version = version;
+        recording.Models.Clear();
+        recording.Models.AddRange(CollectionsMarshal.AsSpan(_models)[start..]);
+    }
+
+    /// <summary>Clears the last frame, keeping its memory so a running game allocates nothing here.</summary>
+    internal void Begin(float blend, long tick = 0, float tickSeconds = 0f)
+    {
+        // What the last frame didn't draw goes now, before this frame can touch it.
+        _memory.Forget(_frame);
+        _frame++;
+        _tick = tick;
+        _tickSeconds = tickSeconds;
         Blend = blend;
         _models.Clear();
         _suns.Clear();
