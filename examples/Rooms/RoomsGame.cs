@@ -28,6 +28,9 @@ public enum Control
 /// <summary>Something to pick up outside. It's scoped, so those left behind go when the player does.</summary>
 public record struct Coin;
 
+/// <summary>What a coin is like, from content/coins. Save the file while playing to change it.</summary>
+public record CoinKind(string Id, int Value, float Size);
+
 /// <summary>A menu, a loading screen, and two areas with one player walking between them.</summary>
 public class RoomsGame(World world, Content content, GameRandom random, States<Screen> screen, Actions<Control> actions) : IGame
 {
@@ -46,6 +49,7 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
     private static readonly Vector3 DoorColor = new(0.2f, 0.5f, 0.8f);
     private static readonly Vector3 CoinColor = new(1f, 0.8f, 0.1f);
 
+    private readonly Catalog<CoinKind> _coins = content.LoadAll<CoinKind>("coins");
     private readonly RandomStream _coinSpots = random.Stream("coins");
     private readonly List<Entity> _collected = [];
     private ModelRef? _grass;
@@ -165,7 +169,7 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
         {
             float x = _coinSpots.Float() * 2f * (OutsideSize - 1f) - (OutsideSize - 1f);
             float z = _coinSpots.Float() * 2f * (OutsideSize - 3f) - (OutsideSize - 5f);
-            var coin = Scoped(Transform.At(new Vector3(x, 0f, z), 0.4f), CoinColor);
+            var coin = Scoped(Transform.At(new Vector3(x, 0f, z), _coins["gold"].Size), CoinColor);
             world.Add(coin, new Coin());
         }
 
@@ -221,7 +225,7 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
         foreach (var coin in _collected)
         {
             world.Destroy(coin);
-            Coins++;
+            Coins += _coins["gold"].Value;
         }
 
         _collected.Clear();

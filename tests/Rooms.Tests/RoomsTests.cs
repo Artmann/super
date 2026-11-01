@@ -169,6 +169,17 @@ public class RoomsTests
     }
 
     [Fact]
+    public void A_coin_is_worth_what_its_file_says()
+    {
+        var files = new MemoryContent { ["coins/gold.json"] = """{ "id": "gold", "value": 5, "size": 0.4 }""" };
+        using var run = HeadlessGame.Create<RoomsGame>(3, services => services.AddSuperEcs().AddContentFiles(files));
+        Into(run, Screen.Outside);
+        WalkTo(run, run.Game.CoinPositions()[0]);
+        Assert.Equal(0, run.Game.Coins % 5);
+        Assert.InRange(run.Game.Coins, 5, 5 * RoomsGame.CoinsOutside);
+    }
+
+    [Fact]
     public void The_same_seed_replays_the_same_coins()
     {
         using var first = Start(9);

@@ -1,0 +1,7 @@
+// Change these while the game runs, then walk back outside.
+{
+  "$schema": "../.schemas/coins.schema.json",
+  "id": "gold",
+  "value": 1,
+  "size": 0.4,
+}

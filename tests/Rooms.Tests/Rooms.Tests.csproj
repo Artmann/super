@@ -16,4 +16,9 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!-- The game reads the same files in its tests. -->
+  <ItemGroup>
+    <None Include="..\..\examples\Rooms\content\**\*.json" Exclude="..\..\examples\Rooms\content\.schemas\**" LinkBase="content" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

@@ -12,4 +12,9 @@
     <InternalsVisibleTo Include="Rooms.Tests" />
   </ItemGroup>
 
+  <!-- Published beside the program. Run from source, the game finds this folder itself, and that keeps live reload on. -->
+  <ItemGroup>
+    <Content Include="content\**\*.json" Exclude="content\.schemas\**" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
