@@ -94,9 +94,9 @@ internal sealed class SceneRenderer : IDisposable
 
     private static string FindCooked(string path)
     {
-        for (var folder = new DirectoryInfo(AppContext.BaseDirectory); folder is not null; folder = folder.Parent)
+        foreach (string folder in ContentFolder.Upward())
         {
-            string candidate = Path.Combine(folder.FullName, CookedFolder, path);
+            string candidate = Path.Combine(folder, CookedFolder, path);
             if (File.Exists(candidate))
             {
                 return candidate;

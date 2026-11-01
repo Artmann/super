@@ -10,17 +10,26 @@ public sealed record GeneratedTexture(int Size, byte[] Pixels);
 public sealed record GeneratedMesh(Vertex[] Vertices, uint[] Indices, GeneratedTexture Texture, float Roughness);
 
 /// <summary>
-/// Names what a game wants to draw. It touches no GPU and reads no files, so games run
-/// the same with no window. The window loads what's named here in the background, and a
-/// loading screen watches <see cref="IsLoaded"/> and <see cref="Progress"/>. Headless runs,
-/// screenshots, recordings and profiles report everything loaded at once, so the speed of
-/// a disk can't change what a seed does.
+/// Names what a game wants to draw, and reads its JSON files. It touches no GPU, so games
+/// run the same with no window. The window loads what's named here in the background, and
+/// a loading screen watches <see cref="IsLoaded"/> and <see cref="Progress"/>. Headless
+/// runs, screenshots, recordings and profiles report everything loaded at once, so the
+/// speed of a disk can't change what a seed does.
 /// </summary>
 public sealed class Content
 {
     private readonly List<object> _items = [];
+    private readonly Dictionary<string, ModelRef> _models = [];
+    private readonly Dictionary<(Type Type, string Folder), ICatalog> _catalogs = [];
+    private readonly ContentReader _reader;
     private int _loaded;
     private int _batchStart;
+
+    /// <summary>Reads JSON from the given files, or from the content folder if there are none.</summary>
+    public Content(IContentFiles? files = null)
+    {
+        _reader = new ContentReader(this, files ?? new ContentFolder());
+    }
 
     internal IReadOnlyList<object> Items => _items;
 
@@ -50,11 +59,40 @@ public sealed class Content
         }
     }
 
-    /// <summary>Names a cooked model, by its path inside assets/cooked.</summary>
-    public ModelRef Model(string path) => Add(path);
+    /// <summary>Names a cooked model, by its path inside assets/cooked. Naming it again gives the same one.</summary>
+    public ModelRef Model(string path)
+    {
+        if (!_models.TryGetValue(path, out var model))
+        {
+            model = Add(path);
+            _models.Add(path, model);
+        }
+
+        return model;
+    }
 
     /// <summary>Hands over a surface made by code.</summary>
     public ModelRef Mesh(GeneratedMesh mesh) => Add(mesh);
+
+    /// <summary>
+    /// Reads every JSON file under a folder of the content folder, one record per file.
+    /// Anything wrong stops here with a <see cref="ContentException"/> listing every
+    /// problem. Loading the same folder again hands back the same catalog.
+    /// </summary>
+    public Catalog<T> LoadAll<T>(string folder)
+        where T : notnull
+    {
+        if (_catalogs.TryGetValue((typeof(T), folder), out var known))
+        {
+            return (Catalog<T>)known;
+        }
+
+        _reader.RequireId(typeof(T));
+        var catalog = new Catalog<T>(folder);
+        Load([catalog]);
+        _catalogs.Add((typeof(T), folder), catalog);
+        return catalog;
+    }
 
     /// <summary>Counts one more item as ready. The window calls this as it finishes each one.</summary>
     internal void ItemLoaded()
@@ -63,6 +101,41 @@ public sealed class Content
         if (_loaded == _items.Count)
         {
             _batchStart = _loaded;
+        }
+    }
+
+    /// <summary>Reads catalogs all or nothing, so a mistake in one leaves every one of them as it was.</summary>
+    private void Load(ICatalog[] catalogs)
+    {
+        var problems = new List<string>();
+        foreach (var catalog in catalogs)
+        {
+            catalog.Check(_reader, problems);
+        }
+
+        if (problems.Count == 0)
+        {
+            foreach (var catalog in catalogs)
+            {
+                catalog.Build(_reader, problems);
+            }
+        }
+
+        foreach (var catalog in catalogs)
+        {
+            if (problems.Count > 0)
+            {
+                catalog.Drop();
+            }
+            else
+            {
+                catalog.Commit();
+            }
+        }
+
+        if (problems.Count > 0)
+        {
+            throw new ContentException(problems);
         }
     }
 

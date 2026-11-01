@@ -23,6 +23,7 @@ internal sealed class GameHost<TGame> : IDisposable
         var services = new ServiceCollection();
         services.AddSingleton(time);
         services.AddSingleton(new GameRandom(seed));
+        services.AddSingleton<IContentFiles, ContentFolder>();
         services.AddSingleton<Content>();
         services.AddSingleton<Input>();
         services.AddSingleton(typeof(Actions<>));
