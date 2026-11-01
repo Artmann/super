@@ -181,21 +181,24 @@ public class StatesTests
     [Fact]
     public void A_loop_of_changes_throws()
     {
-        Assert.Throws<InvalidOperationException>(() => HeadlessGame.Create<Loop>(1));
+        var error = Assert.Throws<InvalidOperationException>(() => HeadlessGame.Create<Loop>(1));
+        Assert.Contains("probably looping", error.Message);
     }
 
     [Fact]
     public void Changing_state_in_draw_throws()
     {
         using var run = HeadlessGame.Create<SetsInDraw>(1);
-        Assert.Throws<InvalidOperationException>(() => run.Ticks(1));
+        var error = Assert.Throws<InvalidOperationException>(() => run.Ticks(1));
+        Assert.Contains("can't change in Draw", error.Message);
     }
 
     [Fact]
     public void Enter_callbacks_cannot_read_input()
     {
         using var run = HeadlessGame.Create<ReadsInputOnEnter>(1);
-        Assert.Throws<InvalidOperationException>(() => run.Ticks(1));
+        var error = Assert.Throws<InvalidOperationException>(() => run.Ticks(1));
+        Assert.Contains("only be read in Update", error.Message);
     }
 
     [Fact]

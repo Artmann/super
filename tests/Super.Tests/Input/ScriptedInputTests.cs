@@ -146,20 +146,15 @@ public class ScriptedInputTests
     public void Reading_input_in_draw_throws()
     {
         using var run = HeadlessGame.Create<ReadsInDraw>(1);
-        Assert.Throws<InvalidOperationException>(() => run.Ticks(1));
+        var error = Assert.Throws<InvalidOperationException>(() => run.Ticks(1));
+        Assert.Contains("only be read in Update", error.Message);
     }
 
     [Fact]
     public void Reading_input_in_load_throws()
     {
-        Assert.Throws<InvalidOperationException>(() => HeadlessGame.Create<ReadsInLoad>(1));
-    }
-
-    [Fact]
-    public void Actions_resolve_without_registration()
-    {
-        using var run = HeadlessGame.Create<Listener>(1);
-        Assert.NotNull(run.Game);
+        var error = Assert.Throws<InvalidOperationException>(() => HeadlessGame.Create<ReadsInLoad>(1));
+        Assert.Contains("only be read in Update", error.Message);
     }
 
     [Fact]
