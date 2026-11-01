@@ -243,8 +243,10 @@ public ref struct FrameView
 }
 
 /// <summary>
-/// A flat rectangle on the screen, in pixels from the top left. The atlas gives each
-/// pixel's alpha, and color gives the rest, in sRGB as written in an image editor.
+/// A rectangle on the screen, in pixels from the top left, which can be rounded, bordered
+/// and clipped. The atlas gives each pixel's alpha and color gives the rest, in sRGB as
+/// written in an image editor. With <see cref="TextureIndex"/> set, a texture gives the
+/// pixels and color tints them. A default value for any of these changes nothing.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 public struct OverlayQuad
@@ -254,6 +256,24 @@ public struct OverlayQuad
     public Vector2 UvMin;
     public Vector2 UvMax;
     public Vector4 Color;
+
+    /// <summary>The line drawn inside the edge, in sRGB. Needs <see cref="BorderWidth"/>.</summary>
+    public Vector4 BorderColor;
+
+    /// <summary>Only what's inside this is drawn: x, y, width, height in pixels. No width means no clip.</summary>
+    public Vector4 Clip;
+
+    public float CornerRadius;
+    public float BorderWidth;
+
+    /// <summary>Rounds the corners of <see cref="Clip"/>.</summary>
+    public float ClipRadius;
+
+    /// <summary>Zero reads the atlas. Anything else comes from <see cref="For"/>.</summary>
+    public int TextureIndex;
+
+    /// <summary>The value of <see cref="TextureIndex"/> that draws this texture.</summary>
+    public static int For(TextureHandle texture) => texture.Index + 1;
 }
 
 /// <summary>How long one render pass took on the GPU.</summary>

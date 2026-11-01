@@ -55,6 +55,9 @@ unsafe
         EnableValidation = validation,
     });
 
+    renderer.SetOverlayAtlas(SolidAtlas());
+    OverlayQuad[] overlay = OverlayQuads(OverlayQuad.For(renderer.CreateTexture(Checkerboard())));
+
     DrawItem[] draws;
     DrawItem[] probeDraws = [];
     OrbitCamera camera;
@@ -231,6 +234,7 @@ unsafe
             BackgroundFadeStart = 9f,
             BackgroundFadeEnd = 26f,
             Post = new PostSettings { Contrast = 0.08f, Saturation = 0.1f, Vignette = 0.3f, Sharpen = 0.4f, Grain = 0.006f },
+            Overlay = overlay,
         };
 
         // The car sees the floor and the shadow it casts there. It leaves itself out of
@@ -300,6 +304,93 @@ unsafe
 
 static byte[] LoadShader(string name) =>
     File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "shaders", name + ".spv"));
+
+// Gives --check and --screenshot something of everything an overlay quad can do.
+static TextureData SolidAtlas()
+{
+    return new TextureData { Width = 1, Height = 1, Kind = TextureKind.Linear, Mips = [[255, 255, 255, 255]] };
+}
+
+static TextureData Checkerboard()
+{
+    byte[] pixels = new byte[4 * 4 * 4];
+    for (int i = 0; i < 16; i++)
+    {
+        bool light = ((i % 4) + (i / 4)) % 2 == 0;
+        pixels[i * 4] = (byte)(light ? 240 : 40);
+        pixels[i * 4 + 1] = (byte)(light ? 200 : 90);
+        pixels[i * 4 + 2] = (byte)(light ? 60 : 160);
+        pixels[i * 4 + 3] = 255;
+    }
+
+    byte[] Average(int count)
+    {
+        byte[] mip = new byte[count * 4];
+        for (int i = 0; i < mip.Length; i += 4)
+        {
+            mip[i] = 140;
+            mip[i + 1] = 145;
+            mip[i + 2] = 110;
+            mip[i + 3] = 255;
+        }
+
+        return mip;
+    }
+
+    return new TextureData { Width = 4, Height = 4, Kind = TextureKind.Color, Mips = [pixels, Average(4), Average(1)] };
+}
+
+static OverlayQuad[] OverlayQuads(int image)
+{
+    var panel = new Vector4(0.1f, 0.12f, 0.16f, 0.85f);
+    var gold = new Vector4(0.95f, 0.75f, 0.3f, 1f);
+    var clip = new Vector4(40f, 40f, 240f, 120f);
+    return
+    [
+        // Rounded, with a border.
+        new OverlayQuad
+        {
+            Position = new Vector2(30f, 30f),
+            Size = new Vector2(260f, 140f),
+            Color = panel,
+            BorderColor = gold,
+            BorderWidth = 2f,
+            CornerRadius = 16f,
+        },
+
+        // An image, rounded, inside a clip.
+        new OverlayQuad
+        {
+            Position = new Vector2(50f, 50f),
+            Size = new Vector2(100f, 100f),
+            UvMax = Vector2.One,
+            Color = Vector4.One,
+            CornerRadius = 12f,
+            Clip = clip,
+            TextureIndex = image,
+        },
+
+        // A tinted image, cut off by a rounded clip.
+        new OverlayQuad
+        {
+            Position = new Vector2(220f, 70f),
+            Size = new Vector2(120f, 60f),
+            UvMax = Vector2.One,
+            Color = new Vector4(0.6f, 0.9f, 1f, 1f),
+            Clip = clip,
+            ClipRadius = 24f,
+            TextureIndex = image,
+        },
+
+        // A square quad from the atlas, as text and plain rectangles are.
+        new OverlayQuad
+        {
+            Position = new Vector2(30f, 180f),
+            Size = new Vector2(260f, 6f),
+            Color = gold,
+        },
+    ];
+}
 
 static string? StringOption(string[] args, string name)
 {

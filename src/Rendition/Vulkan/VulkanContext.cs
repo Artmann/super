@@ -269,6 +269,7 @@ internal sealed unsafe class VulkanContext : IDisposable
             SType = StructureType.PhysicalDeviceVulkan12Features,
             RuntimeDescriptorArray = true,
             DescriptorBindingPartiallyBound = true,
+            ShaderSampledImageArrayNonUniformIndexing = true,
         };
         var features13 = new PhysicalDeviceVulkan13Features
         {
