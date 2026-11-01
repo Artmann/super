@@ -291,19 +291,47 @@ describe the whole interface and let Super find the differences.
 | `VStack`, `HStack` | Children top to bottom, or left to right |
 | `ZStack` | Children on top of each other, the last one in front |
 | `Spacer()` | Pushes its neighbors apart along the stack |
+| `Image(content.Image("icon"), ImageFit.Contain)` | An image, stretched, fitted (`Contain`) or filling (`Cover`), with an optional tint |
+| `ScrollView()` | Scrolls what's inside it with the wheel or a draggable bar. Give it a height, or it grows to fit |
+| `ListView<T>(items, row, selected, onSelect)` | A scrolling list of rows you can hover and pick |
+| `Grid(columns, columnGap, rowGap)` | Children in equal columns, wrapping onto new rows |
+| `Pressable(look => view, onClick)` | Anything clickable, drawn from whether it's hovered or pressed |
+| `Button("Craft", onClick, Disabled: true)` | A ready-made `Pressable` with a label |
 
-Modifiers wrap a view, so their order matters. `.Padding(8f).Background(color)` colors
-the padding too, and `.Background(color).Padding(8f)` doesn't.
+Modifiers wrap a view, so their order usually matters.
 
 | Modifier | What it does |
 | --- | --- |
-| `.Padding(all)`, `.Padding(horizontal, vertical)` | Adds room around the view |
-| `.Frame(width, height, maxWidth, maxHeight, alignment)` | Fixes the size, or lets the view stretch |
+| `.Padding(all)`, `.Padding(horizontal, vertical)`, `.Padding(top, trailing, bottom, leading)` | Adds room around the view |
+| `.Margin(...)` | The same, but outside the view's background |
+| `.Frame(width, height, maxWidth, maxHeight, alignment, minWidth, minHeight)` | Fixes the size, or lets the view stretch |
 | `.FixedSize()` | Uses the size the view would like, whatever it's offered |
 | `.Background(color)` | Fills the view's area |
+| `.Border(width, color)` | Draws a line inside the view's edge, following its corners |
+| `.CornerRadius(radius)` | Rounds the background, border and image, and clips what's inside |
+| `.Opacity(value)` | Fades the view and everything inside it |
 | `.Foreground(color)`, `.FontSize(pixels)`, `.Bold()` | Styles text here and everywhere inside |
 | `.MonospacedDigit()` | Gives digits one width, so changing numbers don't jiggle |
 | `.Id(key)` | Names a view among its siblings |
+| `.OnClick(action)` | Runs on a left click |
+| `.Tooltip(view)` | Shows a view near the cursor after a short hover |
+| `.Draggable(payload, preview)`, `.DropTarget<T>(onDrop, canDrop)` | Lets the mouse carry a value from one view to another |
+| `.IgnoresPointer()` | Lets the mouse through, like CSS's `pointer-events: none` |
+
+Five modifiers written next to each other make one box, in any order, as in CSS:
+
+| Written | Result |
+| --- | --- |
+| `.Background(c).Margin(8f)` or `.Margin(8f).Background(c)` | Same thing: the margin is never filled |
+| `.Border(1f, c).CornerRadius(6f)` or the reverse | Same thing: the border follows the corners |
+| `.Margin(4f).Margin(4f)` | Margins in one box add up, to 8 |
+| `.Padding(12f).Background(c)` | Padding comes first, so the background fills it |
+| `.Background(c).Padding(12f)` | Padding comes after, so it stays outside the background |
+| `.Background(c).Padding(1f).CornerRadius(8f)` | Padding ends the box, so that background stays square |
+
+`Background`, `Border`, `CornerRadius`, `Opacity` and `Margin` are the five. `Padding` and
+`Frame` go by order and end the box. Gaps are the `Spacing` on a stack and the gaps on a
+`Grid`.
 
 ### Colors
 
@@ -360,9 +388,29 @@ Reading `Value` during `Body` signs that component up for changes, and setting i
 only the components that read it. Call `UseState` the same number of times and in the
 same order on each run. Hand a `State<T>` to a child to let the child use it too.
 
-There's nothing to set it with yet, because the interface can't take input. The rule is
-the same as for views: if gameplay cares, it's game state, and it belongs in your own
-classes, not in `UseState`.
+The rule is the same as for views: if gameplay cares, it's game state, and it belongs in
+your own classes, not in `UseState`.
+
+### The mouse
+
+Clicks, drops and list picks run just before `Update`, on the tick they happened, so
+they can change game state and replay with a seed. Hover, press and scrolling follow the
+mouse every frame, however slowly the game ticks.
+
+```csharp
+new Button("Craft", () => bag.Craft(recipe), Disabled: !bag.Has(recipe));
+
+new Pressable(look => Slot(stack).Background(look.Hovered ? hover : fill))
+    .Draggable(slotNumber, new Image(icon).Frame(56f, 56f))
+    .DropTarget<int>(from => bag.Move(from, slotNumber));
+```
+
+A press that moves off a button and lets go there doesn't click. While the mouse is over
+the interface, `Input.MouseOverUi` is true, so a game can leave those clicks alone. To
+have a panel let clicks through to the game, as a stats readout should, use
+`.IgnoresPointer()`.
+
+[The crafting bench](examples/Crafting/CraftingGame.cs) uses all of this.
 
 ### How it stays cheap
 
@@ -378,6 +426,10 @@ layout. Each frame, the reconciler walks the new description against those nodes
 - `show ? view : null` keeps its slot when it's null, so what follows doesn't move.
   In a list that changes, use `.Id(item.Id)`, like a `key` in React, so rows keep their
   state as they move.
+- A lambda that captures a variable is a new object each run, so a record holding one
+  never equals the last. That view and its parents are laid out again every frame. For a
+  screen with a few hundred views that's fine. For something always on screen in a tight
+  budget, keep the delegate in a field, so it stays equal.
 
 The default font is [Inter](https://rsms.me/inter/), built into `Super.dll`, so text
 works with no files around.
@@ -803,9 +855,27 @@ frame rate the machine could reach.
 dotnet run -c Release --project MyColony -- --no-vsync
 ```
 
-Today `--seed`, `--screenshot`, `--record`, `--profile`, `--size` and `--no-vsync` work,
-and `--ticks` works alongside `--screenshot`, `--record` and `--profile`. `--headless`
-and `--json` are still to come.
+`--script` plays a named list of mouse moves, clicks and drags, so a screenshot can show
+a tooltip or a drag in progress. A game lists its scripts in `IGame.Scripts`, and asking
+for a name it doesn't have lists the ones it does:
+
+```csharp
+public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
+{
+    ["tooltip"] = new InputScript().MoveMouse(SlotCenter(2)).Wait(30),
+};
+```
+
+```
+dotnet run --project examples/Crafting -- --script tooltip --ticks 40 --screenshot tooltip.png
+```
+
+Set `--ticks` past the end of the script. While a script plays, the window ignores real
+input.
+
+Today `--seed`, `--screenshot`, `--record`, `--profile`, `--script`, `--size` and
+`--no-vsync` work, and `--ticks` works alongside `--screenshot`, `--record` and
+`--profile`. `--headless` and `--json` are still to come.
 
 ## Profiling
 
@@ -1052,9 +1122,8 @@ Models are cooked into a fast format by the import tool. The
 - **Physics.** Not in the first version. Gameplay physics has to give repeatable
   results, so the engine needs choosing carefully. Until then, write your own movement
   code in `Update`, as in the ball example.
-- **Interactive interfaces.** The interface draws text and colored rectangles. Input
-  exists, but the interface doesn't take clicks yet, so there are no buttons, and it
-  can't show images.
+- **Typing in interfaces.** The interface takes the mouse, but there are no text inputs,
+  and it can't be used with a keyboard or gamepad yet.
 - **Audio.** `view.Play` in the examples needs an audio package that isn't designed yet.
 - **Saved games.** `saves.Write` and `saves.Read` above are the plan.
 - **Mods.** A mod should be a folder of JSON that adds or replaces entries by id, but only
