@@ -38,10 +38,40 @@ public class BoidsTests
         using var first = Start(1);
         using var second = Start(2);
 
+        // Different seeds already spawn the fish apart, which would make this true at once.
+        // Putting the second reef's fish where the first's are leaves only the swimming to differ.
+        CopyFishFrom(first.Game, second.Game);
+        Assert.Equal(FishPositions(first.Game), FishPositions(second.Game));
+
         first.Ticks(30);
         second.Ticks(30);
 
-        Assert.NotEqual(Positions(first.Game), Positions(second.Game));
+        Assert.NotEqual(FishPositions(first.Game), FishPositions(second.Game));
+    }
+
+    [Fact]
+    public void A_fish_heading_for_the_edge_is_steered_round_and_not_just_stopped_at_it()
+    {
+        using var run = Start(1);
+        float radius = run.Game.Settings.Radius;
+        var swimmer = default(Entity);
+        foreach (var row in run.Game.World.Query<Transform, Velocity, Fish>())
+        {
+            row.First.Position = new Vector3(radius - 4f, 15f, 0f);
+            row.Second.Value = new Vector3(3f, 0f, 0f);
+            swimmer = row.Entity;
+            break;
+        }
+
+        float farthest = 0f;
+        for (int i = 0; i < 300; i++)
+        {
+            run.Ticks(1);
+            var position = run.Game.World.Get<Transform>(swimmer).Position;
+            farthest = MathF.Max(farthest, new Vector2(position.X, position.Z).Length());
+        }
+
+        Assert.True(farthest < radius - 1f, $"The fish reached {farthest} of {radius}.");
     }
 
     [Fact]
@@ -82,6 +112,34 @@ public class BoidsTests
         }
 
         return true;
+    }
+
+    private static void CopyFishFrom(ReefGame source, ReefGame target)
+    {
+        var fish = new List<(Transform Transform, Velocity Velocity)>();
+        foreach (var row in source.World.Query<Transform, Velocity, Fish>())
+        {
+            fish.Add((row.First, row.Second));
+        }
+
+        int index = 0;
+        foreach (var row in target.World.Query<Transform, Velocity, Fish>())
+        {
+            row.First = fish[index].Transform;
+            row.Second = fish[index].Velocity;
+            index++;
+        }
+    }
+
+    private static List<Vector3> FishPositions(ReefGame game)
+    {
+        var positions = new List<Vector3>();
+        foreach (var row in game.World.Query<Transform, Fish>())
+        {
+            positions.Add(row.First.Position);
+        }
+
+        return positions;
     }
 
     private static List<Vector3> Positions(ReefGame game)
