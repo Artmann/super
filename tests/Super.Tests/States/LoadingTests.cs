@@ -37,7 +37,7 @@ public class LoadingTests
                     Gates[(string)item].Task.Wait();
                     return item;
                 },
-                prepared =>
+                (prepared, _) =>
                 {
                     Uploaded.Add((string)prepared);
                     return (string)prepared;
@@ -109,11 +109,11 @@ public class LoadingTests
         Assert.False(content.IsLoaded);
         Assert.Equal(0f, content.Progress);
 
-        content.ItemLoaded();
+        content.ItemLoaded(1);
         Assert.False(content.IsLoaded);
         Assert.Equal(0.5f, content.Progress);
 
-        content.ItemLoaded();
+        content.ItemLoaded(2);
         Assert.True(content.IsLoaded);
         Assert.Equal(1f, content.Progress);
     }
@@ -123,7 +123,7 @@ public class LoadingTests
     {
         var content = new Content { Streaming = true };
         content.Model("a");
-        content.ItemLoaded();
+        content.ItemLoaded(1);
 
         content.Model("b");
         Assert.False(content.IsLoaded);
@@ -227,7 +227,7 @@ public class LoadingTests
     {
         var content = new Content();
         var uploaded = new List<object>();
-        var loader = new ContentLoader<string>("cube", item => item, prepared =>
+        var loader = new ContentLoader<string>("cube", item => item, (prepared, _) =>
         {
             uploaded.Add(prepared);
             return "done";

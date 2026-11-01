@@ -40,6 +40,7 @@ internal sealed class GameHost<TGame> : IDisposable
         Time = time;
         Seed = seed;
         Content = _services.GetRequiredService<Content>();
+        View.Content = Content;
         Input = _services.GetRequiredService<Input>();
         Capture = _services.GetRequiredService<GameCapture>();
         Stats = _services.GetRequiredService<GameStats>();

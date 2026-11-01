@@ -13,15 +13,6 @@ public enum TextureKind
     Linear,
 }
 
-/// <summary>An RGBA8 texture with a full mip chain, largest level first.</summary>
-public sealed class TextureData
-{
-    public required int Width { get; init; }
-    public required int Height { get; init; }
-    public required TextureKind Kind { get; init; }
-    public required byte[][] Mips { get; init; }
-}
-
 /// <summary>A material as stored in a model file. Texture fields index <see cref="ModelData.Textures"/>, -1 for none.</summary>
 public struct ModelMaterial
 {

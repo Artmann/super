@@ -37,6 +37,9 @@ public sealed class View
     internal int ShadowCascades { get; private set; }
     internal UiTree? Ui { get; set; }
 
+    /// <summary>What the game named, so drawing something it unloaded fails where the mistake is.</summary>
+    internal Content? Content { get; set; }
+
     /// <summary>Everything drawn so far this frame.</summary>
     public ReadOnlySpan<ModelDraw> Drawn => CollectionsMarshal.AsSpan(_models);
 
@@ -62,18 +65,25 @@ public sealed class View
     /// A color replaces the model's own, as red, green and blue from 0 to 1.
     /// </summary>
     public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color = null) =>
-        _models.Add(new ModelDraw(key, model, transform, color));
-
-    /// <summary>Draws a model with both a color and a swimming motion.</summary>
-    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim) =>
-        _models.Add(new ModelDraw(key, model, transform, color, swim));
+        Model(key, model, transform, color, default);
 
     /// <summary>
     /// Draws a model that bends as it swims. Its head must face +z. Unlike a color, this
     /// costs nothing extra, so every fish can have its own.
     /// </summary>
     public void Model(int key, ModelRef model, Matrix4x4 transform, SwimMotion swim) =>
-        _models.Add(new ModelDraw(key, model, transform, null, swim));
+        Model(key, model, transform, null, swim);
+
+    /// <summary>Draws a model with both a color and a swimming motion.</summary>
+    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim)
+    {
+        if (Content is { } content && content.IsUnloaded(model.Index))
+        {
+            throw new InvalidOperationException($"Model {model.Index} was unloaded, so it can't be drawn.");
+        }
+
+        _models.Add(new ModelDraw(key, model, transform, color, swim));
+    }
 
     /// <summary>Puts the whole view underwater.</summary>
     public void Water(in UnderwaterSettings settings) => WaterSettings = settings;

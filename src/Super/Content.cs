@@ -1,13 +1,25 @@
-using System.Numerics;
+using System.Runtime.InteropServices;
 using Rendition;
 
 namespace Super;
 
-/// <summary>A picture made by code, as RGBA bytes row by row. It must be square.</summary>
-public sealed record GeneratedTexture(int Size, byte[] Pixels);
+/// <summary>Names a fragment shader. <see cref="Content.Shader"/> hands these out.</summary>
+public readonly record struct ShaderRef(int Index);
 
-/// <summary>A surface made by code rather than loaded from a file, such as generated ground.</summary>
-public sealed record GeneratedMesh(Vertex[] Vertices, uint[] Indices, GeneratedTexture Texture, float Roughness);
+/// <summary>Names a texture. <see cref="Content.Texture(string, TextureKind, bool)"/> hands these out.</summary>
+public readonly record struct TextureRef(int Index);
+
+/// <summary>Names a stack of same-sized textures. <see cref="Content.TextureArray"/> hands these out.</summary>
+public readonly record struct TextureArrayRef(int Index);
+
+/// <summary>A shader the game named, read from shaders/&lt;name&gt;.spv beside the program.</summary>
+internal sealed record ShaderItem(string Name);
+
+/// <summary>A texture the game named: a PNG in the content folder, or pixels made in code.</summary>
+internal sealed record TextureItem(string? Path, GeneratedTexture? Generated, IContentFiles Files, TextureKind Kind, bool NormalMap);
+
+/// <summary>A texture array the game named, from textures named before it.</summary>
+internal sealed record TextureArrayItem(TextureItem[] Layers);
 
 /// <summary>
 /// Names what a game wants to draw, and reads its JSON files. It touches no GPU, so games
@@ -21,7 +33,12 @@ public sealed class Content
     private static readonly TimeSpan ReloadQuietTime = TimeSpan.FromMilliseconds(100);
 
     private readonly List<object> _items = [];
+    private readonly List<bool> _itemLoaded = [];
+    private readonly HashSet<int> _unloaded = [];
+    private readonly List<int> _pendingUnloads = [];
     private readonly Dictionary<string, ModelRef> _models = [];
+    private readonly Dictionary<string, ShaderRef> _shaders = [];
+    private readonly Dictionary<(string Path, TextureKind Kind, bool NormalMap), TextureRef> _textures = [];
     private readonly Dictionary<(Type Type, string Folder), ICatalog> _catalogs = [];
     private readonly List<ContentReference> _waiting = [];
     private readonly ContentReader _reader;
@@ -88,8 +105,152 @@ public sealed class Content
         return model;
     }
 
-    /// <summary>Hands over a surface made by code.</summary>
-    public ModelRef Mesh(GeneratedMesh mesh) => Add(mesh);
+    /// <summary>
+    /// Hands over a surface made by code. Anything its surface names must have been named
+    /// first, which also means it's loaded first.
+    /// </summary>
+    public ModelRef Mesh(GeneratedMesh mesh)
+    {
+        var surface = mesh.Surface;
+        RequireTexture(surface.ColorTexture, nameof(surface.ColorTexture));
+        RequireTexture(surface.NormalTexture, nameof(surface.NormalTexture));
+        RequireTexture(surface.SurfaceTexture, nameof(surface.SurfaceTexture));
+        if (surface.Shader is { } shader)
+        {
+            Require<ShaderItem>(shader.Index, nameof(surface.Shader), "shader");
+        }
+
+        RequireCount(surface.Parameters.Length, Surface.MaxParameters, nameof(surface.Parameters));
+        RequireCount(surface.ShaderTextures.Length, Surface.MaxShaderTextures, nameof(surface.ShaderTextures));
+        RequireCount(surface.ShaderArrays.Length, Surface.MaxShaderTextures, nameof(surface.ShaderArrays));
+        for (int i = 0; i < surface.ShaderTextures.Length; i++)
+        {
+            RequireTexture(surface.ShaderTextures[i], $"{nameof(surface.ShaderTextures)}[{i}]");
+        }
+
+        for (int i = 0; i < surface.ShaderArrays.Length; i++)
+        {
+            Require<TextureArrayItem>(surface.ShaderArrays[i].Index, $"{nameof(surface.ShaderArrays)}[{i}]", "texture array");
+        }
+
+        return Add(mesh);
+    }
+
+    /// <summary>
+    /// Names a fragment shader compiled from the game's Shaders folder, by file name
+    /// without extension. Naming it again gives the same one.
+    /// </summary>
+    public ShaderRef Shader(string name)
+    {
+        if (!_shaders.TryGetValue(name, out var shader))
+        {
+            shader = new ShaderRef(Add(new ShaderItem(name)).Index);
+            _shaders.Add(name, shader);
+        }
+
+        return shader;
+    }
+
+    /// <summary>
+    /// Names a PNG by its path inside the content folder. Naming it the same way again
+    /// gives the same one. A normal map keeps its mips unit length.
+    /// </summary>
+    public TextureRef Texture(string path, TextureKind kind = TextureKind.Color, bool normalMap = false)
+    {
+        if (!_textures.TryGetValue((path, kind, normalMap), out var texture))
+        {
+            texture = new TextureRef(Add(new TextureItem(path, null, _files, kind, normalMap)).Index);
+            _textures.Add((path, kind, normalMap), texture);
+        }
+
+        return texture;
+    }
+
+    /// <summary>Names an image made in code. Each call makes a new one.</summary>
+    public TextureRef Texture(GeneratedTexture texture, TextureKind kind = TextureKind.Color, bool normalMap = false) =>
+        new(Add(new TextureItem(null, texture, _files, kind, normalMap)).Index);
+
+    /// <summary>
+    /// Stacks textures named before into one array that a shader indexes by layer. All
+    /// must be the same size.
+    /// </summary>
+    public TextureArrayRef TextureArray(params ReadOnlySpan<TextureRef> layers)
+    {
+        if (layers.IsEmpty)
+        {
+            throw new ArgumentException("A texture array needs at least one layer.", nameof(layers));
+        }
+
+        var items = new TextureItem[layers.Length];
+        for (int i = 0; i < layers.Length; i++)
+        {
+            items[i] = Require<TextureItem>(layers[i].Index, $"{nameof(layers)}[{i}]", "texture");
+        }
+
+        return new TextureArrayRef(Add(new TextureArrayItem(items)).Index);
+    }
+
+    /// <summary>
+    /// Whether this one model is ready to draw. Always true without a window, and false
+    /// once it's unloaded.
+    /// </summary>
+    public bool IsReady(ModelRef model)
+    {
+        if (model.Index == 0)
+        {
+            return true;
+        }
+
+        RequireNamed(model.Index, nameof(model));
+        return !_unloaded.Contains(model.Index) && !Held && (!Streaming || _itemLoaded[model.Index - 1]);
+    }
+
+    /// <summary>
+    /// Lets go of a mesh or model. The window frees it, and drawing it afterwards fails.
+    /// Naming the same file again later makes a new one.
+    /// </summary>
+    public void Unload(ModelRef model)
+    {
+        if (model.Index == 0)
+        {
+            throw new ArgumentException("The built-in cube can't be unloaded.", nameof(model));
+        }
+
+        RequireNamed(model.Index, nameof(model));
+        object item = _items[model.Index - 1];
+        if (item is not (string or GeneratedMesh))
+        {
+            throw new ArgumentException($"{nameof(model)} names {model.Index}, which is not a model.", nameof(model));
+        }
+
+        MarkUnloaded(model.Index, nameof(model));
+        if (item is string path)
+        {
+            _models.Remove(path);
+        }
+    }
+
+    /// <summary>
+    /// Lets go of a texture. The window frees it, and a mesh named afterwards can't use
+    /// it. Naming the same file again later makes a new one.
+    /// </summary>
+    public void Unload(TextureRef texture)
+    {
+        var item = Require<TextureItem>(texture.Index, nameof(texture), "texture", allowUnloaded: true);
+        MarkUnloaded(texture.Index, nameof(texture));
+        if (item.Path is { } path)
+        {
+            _textures.Remove((path, item.Kind, item.NormalMap));
+        }
+    }
+
+    /// <summary>Whether an item was let go. Cheap, so drawing can ask every frame.</summary>
+    internal bool IsUnloaded(int index) => _unloaded.Count > 0 && _unloaded.Contains(index);
+
+    /// <summary>Items let go since the window last looked. Indices into the loader, not <see cref="Items"/>.</summary>
+    internal ReadOnlySpan<int> PendingUnloads => CollectionsMarshal.AsSpan(_pendingUnloads);
+
+    internal void ClearPendingUnloads() => _pendingUnloads.Clear();
 
     /// <summary>
     /// Reads every JSON file under a folder of the content folder, one record per file.
@@ -204,8 +365,9 @@ public sealed class Content
     }
 
     /// <summary>Counts one more item as ready. The window calls this as it finishes each one.</summary>
-    internal void ItemLoaded()
+    internal void ItemLoaded(int index)
     {
+        _itemLoaded[index - 1] = true;
         _loaded++;
         if (_loaded == _items.Count)
         {
@@ -282,8 +444,60 @@ public sealed class Content
     private ModelRef Add(object item)
     {
         _items.Add(item);
+        _itemLoaded.Add(false);
 
         // Index 0 is the built-in cube.
         return new ModelRef(_items.Count);
+    }
+
+    private void MarkUnloaded(int index, string field)
+    {
+        if (!_unloaded.Add(index))
+        {
+            throw new ArgumentException($"{field} names {index}, which was already unloaded.", field);
+        }
+
+        _pendingUnloads.Add(index);
+    }
+
+    private void RequireTexture(TextureRef? texture, string field)
+    {
+        if (texture is { } named)
+        {
+            Require<TextureItem>(named.Index, field, "texture");
+        }
+    }
+
+    private void RequireNamed(int index, string field)
+    {
+        if (index < 1 || index > _items.Count)
+        {
+            throw new ArgumentException($"{field} names {index}, but nothing was named with that index.", field);
+        }
+    }
+
+    private T Require<T>(int index, string field, string kind, bool allowUnloaded = false)
+        where T : class
+    {
+        RequireNamed(index, field);
+        if (_items[index - 1] is not T item)
+        {
+            throw new ArgumentException($"{field} names {index}, which is not a {kind}.", field);
+        }
+
+        if (!allowUnloaded && _unloaded.Contains(index))
+        {
+            throw new ArgumentException($"{field} names {index}, which was unloaded.", field);
+        }
+
+        return item;
+    }
+
+    private static void RequireCount(int count, int max, string field)
+    {
+        if (count > max)
+        {
+            throw new ArgumentException($"{field} has {count} entries, but a surface shader takes at most {max}.", field);
+        }
     }
 }
