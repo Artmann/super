@@ -89,6 +89,30 @@ public readonly record struct UiRect(float X, float Y, float Width, float Height
     }
 }
 
+/// <summary>Lengths on each side of a rectangle, for padding and margins.</summary>
+internal readonly record struct Edges(float Top, float Trailing, float Bottom, float Leading)
+{
+    private float Horizontal => Leading + Trailing;
+
+    private float Vertical => Top + Bottom;
+
+    public static Edges operator +(Edges a, Edges b) =>
+        new(a.Top + b.Top, a.Trailing + b.Trailing, a.Bottom + b.Bottom, a.Leading + b.Leading);
+
+    public Proposal Shrink(Proposal proposal) =>
+        new(Shrink(proposal.Width, Horizontal), Shrink(proposal.Height, Vertical));
+
+    public UiRect Shrink(UiRect frame) => new(
+        frame.X + Leading,
+        frame.Y + Top,
+        Math.Max(frame.Width - Horizontal, 0f),
+        Math.Max(frame.Height - Vertical, 0f));
+
+    public UiSize Grow(UiSize size) => new(size.Width + Horizontal, size.Height + Vertical);
+
+    private static float? Shrink(float? length, float amount) => length is { } value ? Math.Max(value - amount, 0f) : null;
+}
+
 /// <summary>
 /// The space a parent offers. Null asks "how big would you like to be?", and infinity
 /// asks "how far can you stretch?".

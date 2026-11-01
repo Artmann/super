@@ -237,33 +237,30 @@ internal abstract record Modifier(UiView Child) : PrimitiveView
     internal override void Place(UiNode node, UiRect frame) => Inner(node).Place(frame);
 }
 
-internal sealed record PaddingModifier(UiView Child, float Horizontal, float Vertical) : Modifier(Child)
+internal sealed record PaddingModifier(UiView Child, Edges Edges) : Modifier(Child)
 {
-    internal override UiSize Measure(UiNode node, Proposal proposal)
-    {
-        var size = Inner(node).Measure(new Proposal(Shrink(proposal.Width, Horizontal), Shrink(proposal.Height, Vertical)));
-        return new UiSize(size.Width + Horizontal * 2f, size.Height + Vertical * 2f);
-    }
+    internal override UiSize Measure(UiNode node, Proposal proposal) =>
+        Edges.Grow(Inner(node).Measure(Edges.Shrink(proposal)));
 
-    internal override void Place(UiNode node, UiRect frame) =>
-        Inner(node).Place(new UiRect(
-            frame.X + Horizontal,
-            frame.Y + Vertical,
-            Math.Max(frame.Width - Horizontal * 2f, 0f),
-            Math.Max(frame.Height - Vertical * 2f, 0f)));
-
-    private static float? Shrink(float? length, float padding) => length is { } value ? Math.Max(value - padding * 2f, 0f) : null;
+    internal override void Place(UiNode node, UiRect frame) => Inner(node).Place(Edges.Shrink(frame));
 }
 
 internal sealed record FrameModifier(
-    UiView Child, float? Width, float? Height, float? MaxWidth, float? MaxHeight, Alignment Alignment) : Modifier(Child)
+    UiView Child,
+    float? Width,
+    float? Height,
+    float? MaxWidth,
+    float? MaxHeight,
+    Alignment Alignment,
+    float? MinWidth = null,
+    float? MinHeight = null) : Modifier(Child)
 {
     internal override UiSize Measure(UiNode node, Proposal proposal)
     {
         var inner = Inner(node).Measure(Offer(proposal));
         return new UiSize(
-            Resolve(Width, MaxWidth, proposal.Width, inner.Width),
-            Resolve(Height, MaxHeight, proposal.Height, inner.Height));
+            Resolve(Width, MinWidth, MaxWidth, proposal.Width, inner.Width),
+            Resolve(Height, MinHeight, MaxHeight, proposal.Height, inner.Height));
     }
 
     internal override void Place(UiNode node, UiRect frame)
@@ -272,28 +269,41 @@ internal sealed record FrameModifier(
         inner.Place(frame.Align(inner.Measure(Offer(new Proposal(frame.Width, frame.Height))), Alignment));
     }
 
-    private static float? Limit(float? offered, float? fixedLength, float? max)
+    private static float? Limit(float? offered, float? fixedLength, float? min, float? max)
     {
         if (fixedLength is not null)
         {
             return fixedLength;
         }
 
-        return offered is { } value && max is { } limit ? Math.Min(value, limit) : offered;
+        if (offered is not { } value)
+        {
+            return null;
+        }
+
+        value = max is { } limit ? Math.Min(value, limit) : value;
+        return min is { } least ? Math.Max(value, least) : value;
     }
 
-    private static float Resolve(float? fixedLength, float? max, float? offered, float inner)
+    private static float Resolve(float? fixedLength, float? min, float? max, float? offered, float inner)
     {
         if (fixedLength is { } length)
         {
             return length;
         }
 
-        return max is { } limit && offered is { } value ? Math.Min(value, limit) : inner;
+        // A maximum stretches to what's offered. With nothing offered, it's only a limit.
+        float size = inner;
+        if (max is { } limit)
+        {
+            size = offered is { } value ? Math.Min(value, limit) : Math.Min(inner, limit);
+        }
+
+        return min is { } least ? Math.Max(size, least) : size;
     }
 
     private Proposal Offer(Proposal proposal) =>
-        new(Limit(proposal.Width, Width, MaxWidth), Limit(proposal.Height, Height, MaxHeight));
+        new(Limit(proposal.Width, Width, MinWidth, MaxWidth), Limit(proposal.Height, Height, MinHeight, MaxHeight));
 }
 
 /// <summary>Sizes the view as it would like to be, whatever it's offered.</summary>
@@ -302,9 +312,39 @@ internal sealed record FixedSizeModifier(UiView Child) : Modifier(Child)
     internal override UiSize Measure(UiNode node, Proposal proposal) => Inner(node).Measure(new Proposal(null, null));
 }
 
-internal sealed record BackgroundModifier(UiView Child, Color Color) : Modifier(Child)
+/// <summary>
+/// One CSS box. Neighbouring background, border, corner, opacity and margin modifiers
+/// all land in the same one when they're written, which is why their order doesn't matter.
+/// </summary>
+internal sealed record BoxModifier(UiView Child) : Modifier(Child)
 {
-    internal override void Emit(UiNode node, UiTree tree) => tree.AddRectangle(node.Frame, Color);
+    public Edges Margin { get; init; }
+
+    public Color? Fill { get; init; }
+
+    public float BorderWidth { get; init; }
+
+    public Color BorderColor { get; init; }
+
+    public float Radius { get; init; }
+
+    public float Alpha { get; init; } = 1f;
+
+    /// <summary>The space inside the margin, which is what's drawn and what the mouse can hit.</summary>
+    public UiRect BoxOf(UiNode node) => Margin.Shrink(node.Frame);
+
+    internal override UiSize Measure(UiNode node, Proposal proposal) =>
+        Margin.Grow(Inner(node).Measure(Margin.Shrink(proposal)));
+
+    internal override void Place(UiNode node, UiRect frame) => Inner(node).Place(Margin.Shrink(frame));
+
+    internal override void Emit(UiNode node, UiTree tree)
+    {
+        if (Fill is { } fill)
+        {
+            tree.AddRectangle(BoxOf(node), fill);
+        }
+    }
 }
 
 internal sealed record StyleModifier(UiView Child, float? Size = null, bool? Bold = null, Color? Color = null, bool? MonospacedDigits = null)
