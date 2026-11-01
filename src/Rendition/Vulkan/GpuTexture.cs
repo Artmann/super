@@ -93,6 +93,33 @@ internal sealed unsafe class GpuTexture : IDisposable
     /// </summary>
     public GpuBuffer CreateStaging(ReadOnlySpan<TextureData> layers)
     {
+        if (layers.Length != Layers)
+        {
+            throw new ArgumentException($"The texture has {Layers} layers, but {layers.Length} were given.", nameof(layers));
+        }
+
+        for (int i = 0; i < layers.Length; i++)
+        {
+            var layer = layers[i];
+            if (layer.Width != Width || layer.Height != Height || layer.Mips.Length != MipCount)
+            {
+                throw new ArgumentException(
+                    $"Layer {i} is {layer.Width}x{layer.Height} with {layer.Mips.Length} mips, " +
+                    $"but the texture is {Width}x{Height} with {MipCount} mips.", nameof(layers));
+            }
+
+            for (int level = 0; level < layer.Mips.Length; level++)
+            {
+                int expected = MipSize(level);
+                if (layer.Mips[level].Length != expected)
+                {
+                    throw new ArgumentException(
+                        $"Layer {i} mip {level} holds {layer.Mips[level].Length} bytes, but " +
+                        $"{Math.Max(Width >> level, 1)}x{Math.Max(Height >> level, 1)} RGBA needs {expected}.", nameof(layers));
+                }
+            }
+        }
+
         var staging = GpuBuffer.CreateHostVisible(_context, StagingSize(), BufferUsageFlags.TransferSrcBit);
         ulong offset = 0;
         foreach (var layer in layers)
@@ -119,8 +146,9 @@ internal sealed unsafe class GpuTexture : IDisposable
             PipelineStageFlags2.None, AccessFlags2.None,
             PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit, MipCount, 0, 0, Layers);
 
+        // One region per mip per layer. Arrays with many layers go past what the stack should hold.
         int regionCount = (int)(MipCount * Layers);
-        var regions = stackalloc BufferImageCopy[regionCount];
+        Span<BufferImageCopy> regions = regionCount <= 64 ? stackalloc BufferImageCopy[regionCount] : new BufferImageCopy[regionCount];
         ulong offset = 0;
         int region = 0;
         for (uint layer = 0; layer < Layers; layer++)
@@ -139,7 +167,10 @@ internal sealed unsafe class GpuTexture : IDisposable
             }
         }
 
-        api.CmdCopyBufferToImage(cmd, staging.Handle, _image, ImageLayout.TransferDstOptimal, (uint)regionCount, regions);
+        fixed (BufferImageCopy* first = regions)
+        {
+            api.CmdCopyBufferToImage(cmd, staging.Handle, _image, ImageLayout.TransferDstOptimal, (uint)regionCount, first);
+        }
 
         api.Transition(cmd, _image, ImageAspectFlags.ColorBit,
             ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
@@ -147,12 +178,14 @@ internal sealed unsafe class GpuTexture : IDisposable
             PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit, MipCount, 0, 0, Layers);
     }
 
+    private int MipSize(int level) => Math.Max(Width >> level, 1) * Math.Max(Height >> level, 1) * BytesPerTexel;
+
     private ulong StagingSize()
     {
         ulong perLayer = 0;
         for (int level = 0; level < MipCount; level++)
         {
-            perLayer += (ulong)(Math.Max(Width >> level, 1) * Math.Max(Height >> level, 1) * BytesPerTexel);
+            perLayer += (ulong)MipSize(level);
         }
 
         return perLayer * Layers;

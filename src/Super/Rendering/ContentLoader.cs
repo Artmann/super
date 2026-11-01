@@ -51,8 +51,22 @@ internal sealed class ContentLoader<TLoaded>(TLoaded first, Func<object, object>
     /// <summary>Hands back an item, waiting for it if it isn't ready. Something being drawn can't wait for later.</summary>
     public TLoaded Get(int index, Content content) => _loaded[index] ?? Finish(index, content);
 
-    /// <summary>Puts something else in a finished slot, such as a marker for an item that was let go.</summary>
-    public void Replace(int index, TLoaded loaded) => _loaded[index] = loaded;
+    /// <summary>
+    /// Takes what a slot holds and leaves a marker in its place. An item still being
+    /// prepared is dropped unfinished and counted as loaded, so nothing waits for it.
+    /// </summary>
+    public TLoaded? Take(int index, TLoaded marker, Content content)
+    {
+        var loaded = _loaded[index];
+        _loaded[index] = marker;
+        if (loaded is null)
+        {
+            _preparing[index] = null;
+            content.ItemLoaded(index);
+        }
+
+        return loaded;
+    }
 
     private TLoaded Finish(int index, Content content)
     {

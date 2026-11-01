@@ -23,6 +23,37 @@ public class HeightfieldTests
         return vertices;
     }
 
+    private static Vertex[] Row(GeneratedMesh chunk, int row)
+    {
+        int side = Quads + 1;
+        var vertices = new Vertex[side];
+        for (int column = 0; column < side; column++)
+        {
+            vertices[column] = chunk.Vertices[row * side + column];
+        }
+
+        return vertices;
+    }
+
+    [Fact]
+    public void Chunks_in_front_and_behind_share_border_vertices_exactly()
+    {
+        var field = new Heightfield(Wavy, Spacing);
+        var surface = new Surface();
+
+        var near = field.Chunk(0, 0, Quads, surface, 0.25f);
+        var far = field.Chunk(0, 1, Quads, surface, 0.25f);
+
+        var nearEdge = Row(near, Quads);
+        var farEdge = Row(far, 0);
+        for (int column = 0; column <= Quads; column++)
+        {
+            Assert.Equal(nearEdge[column].Position, farEdge[column].Position);
+            Assert.Equal(nearEdge[column].Normal, farEdge[column].Normal);
+            Assert.Equal(nearEdge[column].Uv, farEdge[column].Uv);
+        }
+    }
+
     [Fact]
     public void Neighbouring_chunks_share_border_vertices_exactly()
     {

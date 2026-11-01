@@ -140,8 +140,10 @@ internal sealed class SceneRenderer : IDisposable
         _items.Update(content);
         foreach (int index in content.PendingUnloads)
         {
-            Destroy(_items.Get(index, content));
-            _items.Replace(index, Unloaded.Instance);
+            if (_items.Take(index, Unloaded.Instance, content) is { } loaded)
+            {
+                Destroy(loaded);
+            }
         }
 
         content.ClearPendingUnloads();
@@ -184,6 +186,7 @@ internal sealed class SceneRenderer : IDisposable
         GeneratedMesh mesh => new PreparedMesh(
             mesh,
             mesh.OwnedTexture is { } owned ? TextureData.FromPixels(owned.Size, owned.Size, TextureKind.Color, owned.Pixels) : null),
+        UnloadedItem unloaded => unloaded, // Let go before the window saw it.
         _ => throw new InvalidOperationException($"Content can't load a {item.GetType().Name}."),
     };
 
@@ -194,6 +197,7 @@ internal sealed class SceneRenderer : IDisposable
         TextureData texture => new LoadedTexture(_renderer.CreateTexture(texture)),
         TextureData[] layers => new LoadedTextureArray(_renderer.CreateTextureArray(layers)),
         PreparedMesh(var mesh, var owned) => UploadMesh(mesh, owned, content),
+        UnloadedItem => Unloaded.Instance,
         _ => throw new InvalidOperationException($"Content can't upload a {prepared.GetType().Name}."),
     };
 
@@ -262,6 +266,10 @@ internal sealed class SceneRenderer : IDisposable
             case LoadedTexture texture:
                 _renderer.DestroyTexture(texture.Handle);
                 break;
+            case Unloaded:
+                break;
+            default:
+                throw new InvalidOperationException($"Content can't unload a {loaded.GetType().Name}.");
         }
     }
 

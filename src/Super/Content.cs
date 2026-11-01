@@ -21,6 +21,12 @@ internal sealed record TextureItem(string? Path, GeneratedTexture? Generated, IC
 /// <summary>A texture array the game named, from textures named before it.</summary>
 internal sealed record TextureArrayItem(TextureItem[] Layers);
 
+/// <summary>Stands where an unloaded item was, so its data can be collected while its index stays taken.</summary>
+internal sealed record UnloadedItem
+{
+    public static UnloadedItem Instance { get; } = new();
+}
+
 /// <summary>
 /// Names what a game wants to draw, and reads its JSON files. It touches no GPU, so games
 /// run the same with no window. The window loads what's named here in the background, and
@@ -217,13 +223,14 @@ public sealed class Content
         }
 
         RequireNamed(model.Index, nameof(model));
+        RequireLoaded(model.Index, nameof(model));
         object item = _items[model.Index - 1];
         if (item is not (string or GeneratedMesh))
         {
             throw new ArgumentException($"{nameof(model)} names {model.Index}, which is not a model.", nameof(model));
         }
 
-        MarkUnloaded(model.Index, nameof(model));
+        MarkUnloaded(model.Index);
         if (item is string path)
         {
             _models.Remove(path);
@@ -232,16 +239,43 @@ public sealed class Content
 
     /// <summary>
     /// Lets go of a texture. The window frees it, and a mesh named afterwards can't use
-    /// it. Naming the same file again later makes a new one.
+    /// it. A mesh that names it must be unloaded first, since the window would otherwise
+    /// draw with a texture that is gone. Naming the same file again later makes a new one.
     /// </summary>
     public void Unload(TextureRef texture)
     {
-        var item = Require<TextureItem>(texture.Index, nameof(texture), "texture", allowUnloaded: true);
-        MarkUnloaded(texture.Index, nameof(texture));
+        var item = Require<TextureItem>(texture.Index, nameof(texture), "texture");
+        for (int i = 0; i < _items.Count; i++)
+        {
+            if (_items[i] is GeneratedMesh mesh && Names(mesh.Surface, texture))
+            {
+                throw new InvalidOperationException($"Texture {texture.Index} is still named by model {i + 1}. Unload the model first.");
+            }
+        }
+
+        MarkUnloaded(texture.Index);
         if (item.Path is { } path)
         {
             _textures.Remove((path, item.Kind, item.NormalMap));
         }
+    }
+
+    private static bool Names(Surface surface, TextureRef texture)
+    {
+        if (surface.ColorTexture == texture || surface.NormalTexture == texture || surface.SurfaceTexture == texture)
+        {
+            return true;
+        }
+
+        foreach (var named in surface.ShaderTextures)
+        {
+            if (named == texture)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Whether an item was let go. Cheap, so drawing can ask every frame.</summary>
@@ -450,14 +484,20 @@ public sealed class Content
         return new ModelRef(_items.Count);
     }
 
-    private void MarkUnloaded(int index, string field)
+    /// <summary>Forgets an item's data and tells the window to free what it made of it.</summary>
+    private void MarkUnloaded(int index)
     {
-        if (!_unloaded.Add(index))
-        {
-            throw new ArgumentException($"{field} names {index}, which was already unloaded.", field);
-        }
-
+        _unloaded.Add(index);
         _pendingUnloads.Add(index);
+        _items[index - 1] = UnloadedItem.Instance;
+    }
+
+    private void RequireLoaded(int index, string field)
+    {
+        if (_unloaded.Contains(index))
+        {
+            throw new ArgumentException($"{field} names {index}, which was unloaded.", field);
+        }
     }
 
     private void RequireTexture(TextureRef? texture, string field)
@@ -476,18 +516,14 @@ public sealed class Content
         }
     }
 
-    private T Require<T>(int index, string field, string kind, bool allowUnloaded = false)
+    private T Require<T>(int index, string field, string kind)
         where T : class
     {
         RequireNamed(index, field);
+        RequireLoaded(index, field);
         if (_items[index - 1] is not T item)
         {
             throw new ArgumentException($"{field} names {index}, which is not a {kind}.", field);
-        }
-
-        if (!allowUnloaded && _unloaded.Contains(index))
-        {
-            throw new ArgumentException($"{field} names {index}, which was unloaded.", field);
         }
 
         return item;

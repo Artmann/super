@@ -4,7 +4,7 @@ namespace Rendition.Vulkan;
 
 /// <summary>
 /// Copies waiting to ride the next frame's command buffer, so creating a mesh or texture
-/// during play never waits for the GPU. See docs/design.md on uploads.
+/// during play never waits for the GPU. See "Resource lifetime" in docs/design.md.
 /// </summary>
 internal sealed unsafe class UploadQueue(VulkanContext context)
 {
@@ -17,11 +17,32 @@ internal sealed unsafe class UploadQueue(VulkanContext context)
 
     private readonly List<Pending> _pending = [];
 
-    public bool IsEmpty => _pending.Count == 0;
-
     public void Add(GpuBuffer staging, GpuBuffer target) => _pending.Add(new Pending(staging, target, null));
 
     public void Add(GpuBuffer staging, GpuTexture target) => _pending.Add(new Pending(staging, null, target));
+
+    /// <summary>
+    /// Drops a buffer's waiting copy, if it has one. A buffer destroyed before its copy
+    /// rides a frame must never be copied into, since it could be freed while the copy runs.
+    /// </summary>
+    public void Cancel(GpuBuffer target) => Cancel(target, null);
+
+    /// <summary>Drops a texture's waiting copy the same way as <see cref="Cancel(GpuBuffer)"/>.</summary>
+    public void Cancel(GpuTexture target) => Cancel(null, target);
+
+    private void Cancel(GpuBuffer? buffer, GpuTexture? texture)
+    {
+        for (int i = _pending.Count - 1; i >= 0; i--)
+        {
+            var upload = _pending[i];
+            if (upload.Buffer == buffer && upload.Texture == texture)
+            {
+                // Nothing has read the staging buffer yet, so it can go right away.
+                upload.Staging.Dispose();
+                _pending.RemoveAt(i);
+            }
+        }
+    }
 
     /// <summary>
     /// Records every waiting copy and hands the staging buffers to <paramref name="retire"/>,

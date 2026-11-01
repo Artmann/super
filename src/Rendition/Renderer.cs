@@ -53,7 +53,7 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>
     /// What's been destroyed while a frame might still read it. Slot i holds what was
     /// queued while frame slot i was the last one submitted; its fence says when the
-    /// GPU is done with all of it. See docs/design.md on destroying resources.
+    /// GPU is done with all of it. See "Resource lifetime" in docs/design.md.
     /// </summary>
     private sealed class DestroyedSlot
     {
@@ -65,7 +65,6 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     private readonly DestroyedSlot[] _destroyed = [.. Enumerable.Range(0, FramesInFlight).Select(_ => new DestroyedSlot())];
-    private readonly List<int> _destroyScratch = [];
     private readonly UploadQueue _uploads;
     private readonly ResourceTable _resources;
     private readonly EnvironmentMap _environment;
@@ -267,12 +266,17 @@ public sealed unsafe class Renderer : IDisposable
 
         _meshes[mesh.Index] = null;
         _freeMeshes.Push(mesh.Index);
+
+        // A mesh made this frame may still be waiting for its bytes. That copy must not
+        // run into a buffer that is about to be freed.
+        _uploads.Cancel(live.Vertices);
+        _uploads.Cancel(live.Indices);
         Destroying().Meshes.Add(live);
     }
 
     /// <summary>
-    /// Lets go of a texture. Its slot reads as white until something new takes it, so a
-    /// material that still names it draws white rather than crashing.
+    /// Lets go of a texture. Its slot reads as white once it's released, for whatever takes
+    /// the slot next. A material that still names it must not be drawn after this.
     /// </summary>
     public void DestroyTexture(TextureHandle texture)
     {
@@ -281,10 +285,10 @@ public sealed unsafe class Renderer : IDisposable
             throw new ArgumentException("The texture does not exist.", nameof(texture));
         }
 
-        Destroying().Textures.Add(texture.Index);
+        QueueTextureDestroy(texture.Index);
     }
 
-    /// <summary>Lets go of a texture array. Its slot reads as white until something new takes it.</summary>
+    /// <summary>Lets go of a texture array, with the same rules as <see cref="DestroyTexture"/>.</summary>
     public void DestroyTextureArray(TextureArrayHandle array)
     {
         if (_resources.IsBuiltIn(array) || !_resources.IsLive(array))
@@ -292,23 +296,25 @@ public sealed unsafe class Renderer : IDisposable
             throw new ArgumentException("The texture array does not exist.", nameof(array));
         }
 
+        _uploads.Cancel(_resources.MarkTextureArrayDying(array.Index));
         Destroying().TextureArrays.Add(array.Index);
     }
 
     /// <summary>Lets go of a material slot. Draws that still use it are a caller mistake.</summary>
     public void DestroyMaterial(MaterialHandle material)
     {
-        if (material.Index < 0 || material.Index >= ResourceTable.MaxMaterials)
+        if (!_resources.IsLive(material))
         {
             throw new ArgumentException("The material does not exist.", nameof(material));
         }
 
-        Destroying().Materials.Add(material.Index);
+        QueueMaterialDestroy(material.Index);
     }
 
     /// <summary>
     /// Destroys everything <see cref="CreateModel"/> or <see cref="CreateDrawItem"/> made
-    /// for these parts: their mesh, their materials and the textures those name.
+    /// for these parts: their mesh, their materials and the textures those name. Parts
+    /// that share a material, or a material already destroyed, are passed over.
     /// </summary>
     public void DestroyModel(ReadOnlySpan<DrawItem> parts)
     {
@@ -317,30 +323,39 @@ public sealed unsafe class Renderer : IDisposable
             return;
         }
 
-        var slot = Destroying();
-        _destroyScratch.Clear();
         foreach (ref readonly var part in parts)
         {
-            if (_destroyScratch.Contains(part.Material.Index))
+            if (!_resources.IsLive(part.Material))
             {
                 continue;
             }
 
-            _destroyScratch.Add(part.Material.Index);
             foreach (int texture in _resources.TexturesOf(part.Material))
             {
                 var handle = new TextureHandle(texture);
-                if (texture >= 0 && !_resources.IsBuiltIn(handle) && _resources.IsLive(handle)
-                    && !slot.Textures.Contains(texture))
+                if (texture >= 0 && !_resources.IsBuiltIn(handle) && _resources.IsLive(handle))
                 {
-                    slot.Textures.Add(texture);
+                    QueueTextureDestroy(texture);
                 }
             }
 
-            slot.Materials.Add(part.Material.Index);
+            QueueMaterialDestroy(part.Material.Index);
         }
 
         DestroyMesh(parts[0].Mesh);
+    }
+
+    /// <summary>Marks a live texture as gone, drops any copy still waiting for it, and queues its release.</summary>
+    private void QueueTextureDestroy(int slot)
+    {
+        _uploads.Cancel(_resources.MarkTextureDying(slot));
+        Destroying().Textures.Add(slot);
+    }
+
+    private void QueueMaterialDestroy(int slot)
+    {
+        _resources.MarkMaterialDying(slot);
+        Destroying().Materials.Add(slot);
     }
 
     /// <summary>The slot whose fence covers the frame most recently submitted.</summary>

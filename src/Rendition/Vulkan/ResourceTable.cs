@@ -54,6 +54,9 @@ internal sealed unsafe class ResourceTable : IDisposable
     private readonly Stack<int> _freeTextures = [];
     private readonly Stack<int> _freeTextureArrays = [];
     private readonly Stack<int> _freeMaterials = [];
+    private readonly bool[] _textureDying = new bool[MaxTextures];
+    private readonly bool[] _textureArrayDying = new bool[MaxTextureArrays];
+    private readonly bool[] _materialLive = new bool[MaxMaterials];
     private readonly TextureHandle _white;
     private readonly TextureHandle _flatNormal;
     private readonly TextureArrayHandle _whiteArray;
@@ -225,14 +228,42 @@ internal sealed unsafe class ResourceTable : IDisposable
     /// <summary>Whether the handle is one of the table's own textures, which can't be destroyed.</summary>
     public bool IsBuiltIn(TextureHandle texture) => texture == _white || texture == _flatNormal;
 
+    /// <summary>Whether a handle names a texture that hasn't been destroyed.</summary>
     public bool IsLive(TextureHandle texture) =>
-        texture.Index >= 0 && texture.Index < _textures.Count && _textures[texture.Index] is not null;
+        texture.Index >= 0 && texture.Index < _textures.Count && _textures[texture.Index] is not null
+        && !_textureDying[texture.Index];
+
+    /// <summary>Whether a handle names a material that hasn't been destroyed.</summary>
+    public bool IsLive(MaterialHandle material) =>
+        material.Index >= 0 && material.Index < _materialCount && _materialLive[material.Index];
 
     /// <summary>Whether the handle is the table's own white array, which can't be destroyed.</summary>
     public bool IsBuiltIn(TextureArrayHandle array) => array == _whiteArray;
 
+    /// <summary>Whether a handle names a texture array that hasn't been destroyed.</summary>
     public bool IsLive(TextureArrayHandle array) =>
-        array.Index >= 0 && array.Index < _textureArrays.Count && _textureArrays[array.Index] is not null;
+        array.Index >= 0 && array.Index < _textureArrays.Count && _textureArrays[array.Index] is not null
+        && !_textureArrayDying[array.Index];
+
+    /// <summary>
+    /// Marks a live texture as destroyed, so destroying it again fails, and hands back the
+    /// image for the time until <see cref="ReleaseTexture"/> frees it.
+    /// </summary>
+    public GpuTexture MarkTextureDying(int slot)
+    {
+        _textureDying[slot] = true;
+        return _textures[slot]!;
+    }
+
+    /// <summary>Marks a live texture array as destroyed, like <see cref="MarkTextureDying"/>.</summary>
+    public GpuTexture MarkTextureArrayDying(int slot)
+    {
+        _textureArrayDying[slot] = true;
+        return _textureArrays[slot]!;
+    }
+
+    /// <summary>Marks a live material as destroyed, so destroying it again fails.</summary>
+    public void MarkMaterialDying(int slot) => _materialLive[slot] = false;
 
     /// <summary>
     /// Frees a texture's slot once no frame can read it, pointing the slot at white so
@@ -248,6 +279,7 @@ internal sealed unsafe class ResourceTable : IDisposable
 
         texture.Dispose();
         _textures[slot] = null;
+        _textureDying[slot] = false;
         WriteTextureDescriptor(0, slot, _textures[_white.Index]!);
         _freeTextures.Push(slot);
     }
@@ -263,6 +295,7 @@ internal sealed unsafe class ResourceTable : IDisposable
 
         texture.Dispose();
         _textureArrays[slot] = null;
+        _textureArrayDying[slot] = false;
         WriteTextureDescriptor(2, slot, _textureArrays[_whiteArray.Index]!);
         _freeTextureArrays.Push(slot);
     }
@@ -289,6 +322,7 @@ internal sealed unsafe class ResourceTable : IDisposable
         {
             int slot = _freeMaterials.Pop();
             WriteMaterial(slot, material);
+            _materialLive[slot] = true;
             return new MaterialHandle(slot);
         }
 
@@ -299,6 +333,7 @@ internal sealed unsafe class ResourceTable : IDisposable
 
         // Earlier frames only read earlier slots, so this write needs no synchronization.
         WriteMaterial(_materialCount, material);
+        _materialLive[_materialCount] = true;
         return new MaterialHandle(_materialCount++);
     }
 

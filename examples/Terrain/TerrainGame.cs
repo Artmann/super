@@ -76,16 +76,34 @@ public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Inp
         _shader = content.Shader("terrain");
 
         var looks = random.Stream("looks");
-        _colors = content.TextureArray(
+        TextureRef[] colorLayers =
+        [
             content.Texture(ColorLayer(looks, new Vector3(0.66f, 0.58f, 0.40f), 0.05f)),
             content.Texture(ColorLayer(looks, new Vector3(0.28f, 0.46f, 0.17f), 0.08f)),
             content.Texture(ColorLayer(looks, new Vector3(0.44f, 0.42f, 0.40f), 0.14f)),
-            content.Texture(ColorLayer(looks, new Vector3(0.93f, 0.95f, 0.98f), 0.02f)));
-        _normals = content.TextureArray(
+            content.Texture(ColorLayer(looks, new Vector3(0.93f, 0.95f, 0.98f), 0.02f)),
+        ];
+        TextureRef[] bumpLayers =
+        [
             content.Texture(BumpLayer(looks, 0.015f, 3), TextureKind.Linear, normalMap: true),
             content.Texture(BumpLayer(looks, 0.02f, 7), TextureKind.Linear, normalMap: true),
             content.Texture(BumpLayer(looks, 0.12f, 2), TextureKind.Linear, normalMap: true),
-            content.Texture(BumpLayer(looks, 0.015f, 4), TextureKind.Linear, normalMap: true));
+            content.Texture(BumpLayer(looks, 0.015f, 4), TextureKind.Linear, normalMap: true),
+        ];
+        _colors = content.TextureArray(colorLayers);
+        _normals = content.TextureArray(bumpLayers);
+
+        // The arrays keep their own copy of each layer, so the single textures need not
+        // take texture slots as well.
+        foreach (var layer in colorLayers)
+        {
+            content.Unload(layer);
+        }
+
+        foreach (var layer in bumpLayers)
+        {
+            content.Unload(layer);
+        }
 
         _position = new Vector3(0f, Height(0f, 0f) + 14f, 0f);
         _previousPosition = _position;

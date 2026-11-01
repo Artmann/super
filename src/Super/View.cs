@@ -103,6 +103,16 @@ public sealed class View
     /// </summary>
     public void Shadows(float radius, int cascades = 1)
     {
+        if (!(radius > 0f))
+        {
+            throw new ArgumentOutOfRangeException(nameof(radius), radius, "The shadow radius must be more than zero.");
+        }
+
+        if (cascades is < 1 or > 4)
+        {
+            throw new ArgumentOutOfRangeException(nameof(cascades), cascades, "There can be 1 to 4 shadow cascades.");
+        }
+
         ShadowRadius = radius;
         ShadowCascades = cascades;
     }

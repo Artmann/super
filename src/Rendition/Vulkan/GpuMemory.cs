@@ -122,7 +122,7 @@ internal sealed unsafe class GpuMemory(VulkanContext context) : IDisposable
     {
         for (int i = 0; i < _pools.Count; i++)
         {
-            if (_pools[i].MemoryType == memoryType && _pools[i].Images == images)
+            if (_pools[i].MemoryType == memoryType && _pools[i].Images == images && _pools[i].HostVisible == hostVisible)
             {
                 return i;
             }

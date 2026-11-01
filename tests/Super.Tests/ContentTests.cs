@@ -102,6 +102,37 @@ public class ContentTests
     }
 
     [Fact]
+    public void Texture_a_live_mesh_names_cannot_be_unloaded_until_the_mesh_is()
+    {
+        var content = new Content(new MemoryContent());
+        var texture = content.Texture("textures/splat.png");
+        var model = content.Mesh(Mesh(new Surface { ShaderTextures = [texture] }));
+
+        var problem = Assert.Throws<InvalidOperationException>(() => content.Unload(texture));
+        Assert.Contains(model.Index.ToString(), problem.Message);
+
+        content.Unload(model);
+        content.Unload(texture);
+
+        Assert.True(content.IsUnloaded(texture.Index));
+    }
+
+    [Fact]
+    public void Unloaded_items_let_go_of_their_data()
+    {
+        var content = new Content(new MemoryContent());
+        var texture = content.Texture("textures/splat.png");
+        var model = content.Mesh(Mesh(new Surface { ColorTexture = texture }));
+
+        content.Unload(model);
+        content.Unload(texture);
+
+        Assert.IsType<UnloadedItem>(content.Items[model.Index - 1]);
+        Assert.IsType<UnloadedItem>(content.Items[texture.Index - 1]);
+        Assert.Throws<ArgumentException>(() => content.Unload(texture));
+    }
+
+    [Fact]
     public void Texture_from_png_in_memory_decodes()
     {
         string folder = Directory.CreateTempSubdirectory().FullName;
