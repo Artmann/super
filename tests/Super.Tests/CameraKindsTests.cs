@@ -33,6 +33,9 @@ public class CameraKindsTests
     [
         new Camera(new Vector3(3f, 6f, 9f), Vector3.Zero),
         new Camera(new Vector3(3f, 6f, 9f), Vector3.Zero) { Shift = new Vector2(0.4f, -0.25f) },
+        new Camera(new Vector3(3f, 2f, -4f), Vector3.Zero),
+        new Camera(new Vector3(0f, 10f, 0f), Vector3.Zero),
+        new Camera(new Vector3(0f, -10f, 0f), Vector3.Zero),
         Camera.Orthographic(new Vector3(3f, 6f, 9f), Vector3.Zero, 12f),
         Camera.Orthographic(new Vector3(3f, 6f, 9f), Vector3.Zero, 12f) with { Shift = new Vector2(-0.5f, 0.3f) },
         Camera.Orthographic(new Vector3(0f, 30f, 0f), Vector3.Zero, 20f),
@@ -165,8 +168,34 @@ public class CameraKindsTests
         Assert.Equal(expected, Seen(new Vector3(x, y, z)));
     }
 
+    private static DrawItem Chosen(Vector3 position)
+    {
+        var view = new DetailView(Parallel, new Vector3(0f, 0f, 100f), 0f, 36f, 1f);
+        DrawItem[] draws = [new() { IndexCount = 300, Transform = Matrix4x4.CreateTranslation(position), Detail = new DetailHandle(1) }];
+        List<PartDetail> details =
+        [
+            default,
+            new PartDetail(Vector3.Zero, 1f, [new DetailLevel(300, 100, 0.01f), new DetailLevel(400, 30, 0.05f)]),
+        ];
+        var selected = new DrawItem[1];
+        Assert.Equal(1, DrawSelection.Select(view, draws, details, selected));
+        return selected[0];
+    }
+
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(-500f)]
+    public void Orthographic_models_get_the_same_detail_at_any_depth(float z)
+    {
+        // At 36 pixels a unit, an error of 0.01 shows as 0.36 pixels and 0.05 as 1.8, over the limit of 1.
+        var item = Chosen(new Vector3(0f, 0f, z));
+
+        Assert.Equal(300u, item.FirstIndex);
+        Assert.Equal(100u, item.IndexCount);
+    }
+
     [Fact]
-    public void Orthographic_detail_does_not_depend_on_distance()
+    public void Pixel_scale_is_per_unit_for_a_parallel_view_and_per_distance_for_a_perspective_one()
     {
         var projection = Projection.OrthographicReversedZ(20f, 1f, 0.1f, 1000f);
         var (atOneUnit, perUnit) = Projection.PixelScale(projection, 720);

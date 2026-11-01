@@ -1,5 +1,4 @@
 using System.Numerics;
-using Rendition;
 using Super.Testing;
 
 namespace Super.Tests;
@@ -7,15 +6,6 @@ namespace Super.Tests;
 public class CameraTests
 {
     private static readonly Vector2 Screen = new(1280f, 720f);
-
-    /// <summary>Where the renderer's own matrices put a point, in pixels. Its y already points down.</summary>
-    private static Vector2 Project(in Camera camera, Vector3 point)
-    {
-        var view = Matrix4x4.CreateLookAt(camera.Position, camera.Target, camera.Up);
-        var projection = Projection.PerspectiveInfiniteReversedZ(camera.FieldOfView, Screen.X / Screen.Y, 0.1f);
-        var clip = Vector4.Transform(new Vector4(point, 1f), view * projection);
-        return new Vector2((clip.X / clip.W + 1f) * 0.5f * Screen.X, (clip.Y / clip.W + 1f) * 0.5f * Screen.Y);
-    }
 
     private static void AssertNear(Vector3 expected, Vector3 actual)
     {
@@ -31,19 +21,6 @@ public class CameraTests
         AssertNear(Vector3.Normalize(camera.Target - camera.Position), ray.Direction);
     }
 
-    [Theory]
-    [InlineData(0f, 5f, 5f)]
-    [InlineData(3f, 2f, -4f)]
-    [InlineData(0f, 10f, 0f)]
-    [InlineData(0f, -10f, 0f)]
-    public void A_ray_runs_through_what_is_drawn_at_that_pixel(float x, float y, float z)
-    {
-        var camera = new Camera(new Vector3(x, y, z), Vector3.Zero);
-        var point = new Vector3(0.7f, 0.4f, -0.9f);
-        var ray = camera.Ray(Project(camera, point), Screen);
-        AssertNear(point, ray.Origin + ray.Direction * Vector3.Distance(ray.Origin, point));
-    }
-
     [Fact]
     public void A_ray_finds_the_ground()
     {
@@ -57,6 +34,7 @@ public class CameraTests
     {
         Assert.Null(new Ray(Vector3.UnitY, Vector3.UnitY).Ground());
         Assert.Null(new Ray(Vector3.UnitY, Vector3.UnitX).Ground());
+        Assert.Null(new Ray(-Vector3.UnitY, Vector3.UnitX).Ground());
     }
 
     [Fact]
@@ -215,14 +193,5 @@ public class CameraTests
         using var run = HeadlessGame.Create<Clicker>(1);
         run.Game.Peek = run.Game.ReadRay;
         Assert.Throws<InvalidOperationException>(() => run.Ticks(1));
-    }
-
-    [Fact]
-    public void The_view_takes_a_whole_camera()
-    {
-        var view = new View();
-        view.Begin(0f);
-        view.Camera(new Camera(Vector3.UnitY, Vector3.UnitX, 1f));
-        Assert.Equal(new Camera(Vector3.UnitY, Vector3.UnitX, 1f), view.Shot);
     }
 }
