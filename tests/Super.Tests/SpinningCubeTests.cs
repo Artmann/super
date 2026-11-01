@@ -77,6 +77,54 @@ public class SpinningCubeTests
         Assert.NotEqual(ColorsOver(1, OneMinute), ColorsOver(2, OneMinute));
     }
 
+    [Theory, Seeds(100)]
+    public void Pressing_cycle_changes_the_color_that_tick(int seed)
+    {
+        using var run = HeadlessGame.Create<SpinningCube>(seed);
+        run.Ticks(1);
+        var before = run.Game.Color;
+        run.Input.Press(Control.Cycle);
+        run.Ticks(1);
+        Assert.NotEqual(before, run.Game.Color);
+    }
+
+    [Fact]
+    public void Space_is_bound_to_cycle()
+    {
+        using var run = HeadlessGame.Create<SpinningCube>(3);
+        run.Ticks(1);
+        var before = run.Game.Color;
+        run.Input.Press(Key.Space);
+        run.Ticks(1);
+        Assert.NotEqual(before, run.Game.Color);
+    }
+
+    [Fact]
+    public void Holding_W_steers_the_spin()
+    {
+        using var run = HeadlessGame.Create<SpinningCube>(3);
+        run.Input.Hold(Key.W);
+        run.Ticks(1);
+        Assert.Equal(new Vector2(0f, 1f), run.Game.Steer);
+    }
+
+    [Fact]
+    public void The_cube_spins_the_same_as_before_with_no_input()
+    {
+        using var run = HeadlessGame.Create<SpinningCube>(3);
+        run.Ticks(30);
+        float angle = MathF.Tau * 0.1f * 30 * (1f / 30);
+        var expected = Matrix4x4.CreateRotationY(angle) * Matrix4x4.CreateRotationX(angle * 0.6f);
+        var actual = run.Drawn[0].Transform;
+        for (int row = 0; row < 4; row++)
+        {
+            for (int column = 0; column < 4; column++)
+            {
+                Assert.Equal(expected[row, column], actual[row, column], 1e-5f);
+            }
+        }
+    }
+
     [Fact]
     public void Running_the_game_allocates_nothing_per_frame()
     {
