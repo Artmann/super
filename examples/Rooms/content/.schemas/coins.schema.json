@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "value": {
+      "type": "integer"
+    },
+    "size": {
+      "type": "number"
+    },
+    "$schema": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "value",
+    "size"
+  ],
+  "additionalProperties": false,
+  "allowComments": true,
+  "allowTrailingCommas": true
+}

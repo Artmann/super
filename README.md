@@ -578,7 +578,7 @@ load it. Comments and trailing commas are allowed.
   "id": "axe",
   "name": "Iron Axe",
   "chopPower": 3,
-  "model": "models/axe",
+  "model": "models/axe.rmodel",
 }
 ```
 
@@ -593,20 +593,78 @@ class Armory(Content content)
 }
 ```
 
-- **Mistakes are caught early.** Bad data stops loading and names the place, such as
-  `items/axe.json:4: chopPower must be a number`. Broken references and unknown fields
-  are reported too.
-- **Your editor can help.** Super generates a schema from your records, which gives you
-  autocomplete and red squiggles in VS Code.
-- **Change it while the game runs.** During development, saving a file updates the
-  running game. Live reload is off in headless runs and shipped builds, so it can't
-  change their results.
-- **Mods come almost free.** A mod is a folder of JSON that adds or replaces entries.
+Each file is one record, and every record needs a string `Id`. Fields are written in
+camelCase. A field with a default value in the record is optional, and the rest are
+required. A `ModelRef` is written as its path inside `assets/cooked`. To point at a record
+in another catalog, use `Ref<T>`:
 
-Everything loads at startup or between levels, and after that it's just C# objects.
+```csharp
+public record Recipe(string Id, Ref<Item> Makes);
 
-Levels and saved games can be JSON too, which is handy early on because you can read
-them and fix them by hand. Keep your state in plain objects, so the format can change:
+var made = items[recipe.Makes];
+```
+
+- **Mistakes are caught early.** Bad data stops loading with a `ContentException` that
+  lists every problem in every file, such as `items/axe.json:4: chopPower must be a
+  number`. Unknown fields, missing fields, repeated ids and broken references are all
+  reported. Model paths are checked when `assets/cooked` exists, since assets aren't in
+  git.
+- **Your editor can help.** Run the game from source and Super writes a schema for each
+  catalog into `content/.schemas`, which gives you autocomplete and red squiggles in
+  VS Code. Point a file at its schema with a `$schema` field, which loading ignores:
+
+  ```json
+  { "$schema": "../.schemas/items.schema.json", "id": "axe" }
+  ```
+
+  Or map a whole folder once, in your VS Code settings:
+
+  ```json
+  "json.schemas": [
+    { "fileMatch": ["**/content/items/**/*.json"], "url": "./content/.schemas/items.schema.json" }
+  ]
+  ```
+
+- **Change it while the game runs.** Run the game from source and saving a file updates
+  it at the start of the next tick. If the file has a mistake, the error is printed and
+  the old data stays, so a typo won't end your session. Live reload is off in headless
+  runs, `--screenshot`, `--record`, `--profile` and shipped games, so it can't change
+  their results.
+
+A catalog stays the same object through a reload, so anything holding it sees the new
+data. If you copied something out of a record, refresh it:
+
+```csharp
+items.OnChange(() => _axePower = items["axe"].ChopPower);
+```
+
+Files load when you call `LoadAll`, at startup or between levels, and after that they're
+just C# objects. Going through a catalog with `foreach` is in file path order and doesn't
+allocate.
+
+To ship a game, publish the folder beside the program. A game that finds `content` there
+knows it's shipped:
+
+```xml
+<Content Include="content\**\*.json" Exclude="content\.schemas\**" CopyToPublishDirectory="PreserveNewest" />
+```
+
+A test can state its data next to its checks, or link the game's real files into its
+output folder, as `tests/Rooms.Tests` does:
+
+```csharp
+var files = new MemoryContent { ["items/axe.json"] = axeJson };
+using var run = HeadlessGame.Create<MyGame>(seed, services => services.AddContentFiles(files));
+
+// Acts as if a file was saved, to test what your game does on a reload.
+files["items/axe.json"] = strongerAxeJson;
+run.ContentChanged();
+run.Ticks(1);
+```
+
+Levels and saved games will be JSON too, which is handy early on because you can read
+them and fix them by hand. Keep your state in plain objects, so the format can change.
+This is the plan, and it isn't built yet:
 
 ```csharp
 saves.Write("slot-1", colony);
@@ -998,6 +1056,10 @@ Models are cooked into a fast format by the import tool. The
   exists, but the interface doesn't take clicks yet, so there are no buttons, and it
   can't show images.
 - **Audio.** `view.Play` in the examples needs an audio package that isn't designed yet.
+- **Saved games.** `saves.Write` and `saves.Read` above are the plan.
+- **Mods.** A mod should be a folder of JSON that adds or replaces entries by id, but only
+  one content folder can be read so far.
+- **`Vector3` fields in JSON.** Use separate numbers or an array for now.
 - **Other platforms.** Windows only for now, with Linux kept possible.
 
 An editor is not planned. Super is a library, and your code and JSON files are the
