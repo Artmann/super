@@ -1,0 +1,14 @@
+{
+  "id": "potion",
+  "makes": 1,
+  "needs": [
+    {
+      "item": "herb",
+      "count": 3
+    },
+    {
+      "item": "stone",
+      "count": 1
+    }
+  ]
+}

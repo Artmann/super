@@ -1,0 +1,10 @@
+{
+  "id": "rope",
+  "makes": 1,
+  "needs": [
+    {
+      "item": "fiber",
+      "count": 3
+    }
+  ]
+}

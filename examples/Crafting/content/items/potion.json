@@ -1,0 +1,6 @@
+{
+  "id": "potion",
+  "name": "Healing Potion",
+  "description": "Bitter, warm and worth it.",
+  "icon": "icons/potion.png"
+}

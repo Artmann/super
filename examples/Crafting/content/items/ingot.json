@@ -1,0 +1,6 @@
+{
+  "id": "ingot",
+  "name": "Iron Ingot",
+  "description": "Smelted, poured and cooled.",
+  "icon": "icons/ingot.png"
+}

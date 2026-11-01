@@ -1,0 +1,14 @@
+{
+  "id": "ingot",
+  "makes": 1,
+  "needs": [
+    {
+      "item": "iron",
+      "count": 2
+    },
+    {
+      "item": "coal",
+      "count": 1
+    }
+  ]
+}

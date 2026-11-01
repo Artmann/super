@@ -1,0 +1,18 @@
+{
+  "id": "hammer",
+  "makes": 1,
+  "needs": [
+    {
+      "item": "ingot",
+      "count": 1
+    },
+    {
+      "item": "stone",
+      "count": 1
+    },
+    {
+      "item": "wood",
+      "count": 1
+    }
+  ]
+}

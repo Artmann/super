@@ -1,0 +1,14 @@
+{
+  "id": "bandage",
+  "makes": 2,
+  "needs": [
+    {
+      "item": "cloth",
+      "count": 1
+    },
+    {
+      "item": "herb",
+      "count": 1
+    }
+  ]
+}

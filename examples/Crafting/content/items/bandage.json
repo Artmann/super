@@ -1,0 +1,6 @@
+{
+  "id": "bandage",
+  "name": "Bandage",
+  "description": "Closes a wound and soothes it.",
+  "icon": "icons/bandage.png"
+}

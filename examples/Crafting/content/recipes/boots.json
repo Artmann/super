@@ -1,0 +1,14 @@
+{
+  "id": "boots",
+  "makes": 1,
+  "needs": [
+    {
+      "item": "leather",
+      "count": 2
+    },
+    {
+      "item": "fiber",
+      "count": 2
+    }
+  ]
+}

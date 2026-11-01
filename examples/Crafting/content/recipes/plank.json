@@ -1,0 +1,10 @@
+{
+  "id": "plank",
+  "makes": 2,
+  "needs": [
+    {
+      "item": "wood",
+      "count": 1
+    }
+  ]
+}

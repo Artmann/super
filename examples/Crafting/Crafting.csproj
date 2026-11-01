@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Super\Super.csproj" />
+  </ItemGroup>
+
+  <!-- Published beside the program. Run from source, the game finds this folder itself, and that keeps live reload on. -->
+  <ItemGroup>
+    <Content Include="content\**\*.json;content\**\*.png" Exclude="content\.schemas\**" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

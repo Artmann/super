@@ -1,0 +1,14 @@
+{
+  "id": "shield",
+  "makes": 1,
+  "needs": [
+    {
+      "item": "plank",
+      "count": 3
+    },
+    {
+      "item": "ingot",
+      "count": 1
+    }
+  ]
+}

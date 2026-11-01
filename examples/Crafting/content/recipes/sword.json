@@ -1,0 +1,14 @@
+{
+  "id": "sword",
+  "makes": 1,
+  "needs": [
+    {
+      "item": "ingot",
+      "count": 3
+    },
+    {
+      "item": "leather",
+      "count": 1
+    }
+  ]
+}
