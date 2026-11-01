@@ -26,6 +26,16 @@ internal sealed unsafe class GameWindow : IDisposable
     private readonly Glfw _glfw;
     private readonly WindowHandle* _window;
     private readonly SceneRenderer _scene;
+    private readonly float[] _gamepadAxes = new float[Input.GamepadAxisCount];
+    private readonly bool[] _gamepadButtons = new bool[Input.GamepadButtonCount];
+
+    // GLFW keeps only a pointer to each callback, so the delegates live here to stay alive.
+    private GlfwCallbacks.KeyCallback? _onKey;
+    private GlfwCallbacks.MouseButtonCallback? _onMouseButton;
+    private GlfwCallbacks.CursorPosCallback? _onCursorPos;
+    private GlfwCallbacks.ScrollCallback? _onScroll;
+    private GlfwCallbacks.CharCallback? _onChar;
+    private bool _mouseCaptured;
 
     public GameWindow(string title, int windowWidth, int windowHeight, bool hidden, bool validate, bool disableVsync)
     {
@@ -68,10 +78,12 @@ internal sealed unsafe class GameWindow : IDisposable
         var realTime = Stopwatch.StartNew();
         double last = 0;
         double played = 0;
+        ListenForInput(host.Input);
 
         while (!_glfw.WindowShouldClose(_window))
         {
             _glfw.PollEvents();
+            PollGamepad(host.Input);
 
             double now = realTime.Elapsed.TotalSeconds;
             double step = host.Capture.IsRecording ? 1.0 / host.Capture.FramesPerSecond : now - last;
@@ -84,6 +96,7 @@ internal sealed unsafe class GameWindow : IDisposable
                 host.Tick();
             }
 
+            ApplyMouseCapture(host.Input);
             Draw(host, clock.Blend);
             Show(host, (float)played);
         }
@@ -261,6 +274,98 @@ internal sealed unsafe class GameWindow : IDisposable
 
         byte[] pixels = _scene.Capture(host.View, host.Content, width, height, time, out int capturedWidth, out int capturedHeight);
         host.Capture.Accept(pixels, capturedWidth, capturedHeight);
+    }
+
+    /// <summary>Feeds the window's events into the game's input. Only the interactive loop does this.</summary>
+    private void ListenForInput(Input input)
+    {
+        _onKey = (_, key, _, action, _) =>
+        {
+            if (action == InputAction.Repeat || !GlfwInput.TryMapKey((int)key, out var mapped))
+            {
+                return;
+            }
+
+            if (action == InputAction.Press)
+            {
+                input.KeyDown(mapped);
+            }
+            else
+            {
+                input.KeyUp(mapped);
+            }
+        };
+        _onMouseButton = (_, button, action, _) =>
+        {
+            if ((int)button >= Input.MouseButtonCount)
+            {
+                return;
+            }
+
+            if (action == InputAction.Press)
+            {
+                input.MouseButtonDown((MouseButton)button);
+            }
+            else if (action == InputAction.Release)
+            {
+                input.MouseButtonUp((MouseButton)button);
+            }
+        };
+        _onCursorPos = (_, x, y) =>
+        {
+            _glfw.GetWindowSize(_window, out int windowWidth, out int windowHeight);
+            _glfw.GetFramebufferSize(_window, out int framebufferWidth, out int framebufferHeight);
+            input.MouseMoved(GlfwInput.ToFramebuffer(x, y, windowWidth, windowHeight, framebufferWidth, framebufferHeight));
+        };
+        _onScroll = (_, _, offsetY) => input.Scrolled((float)offsetY);
+        _onChar = (_, codepoint) =>
+        {
+            foreach (char character in char.ConvertFromUtf32((int)codepoint))
+            {
+                input.TypedCharacter(character);
+            }
+        };
+
+        _glfw.SetKeyCallback(_window, _onKey);
+        _glfw.SetMouseButtonCallback(_window, _onMouseButton);
+        _glfw.SetCursorPosCallback(_window, _onCursorPos);
+        _glfw.SetScrollCallback(_window, _onScroll);
+        _glfw.SetCharCallback(_window, _onChar);
+    }
+
+    /// <summary>Reads the first gamepad, if one is plugged in, so a tick sees it as it is now.</summary>
+    private void PollGamepad(Input input)
+    {
+        if (_glfw.JoystickIsGamepad(0) && _glfw.GetGamepadState(0, out GamepadState state))
+        {
+            for (int i = 0; i < Input.GamepadAxisCount; i++)
+            {
+                _gamepadAxes[i] = state.Axes[i];
+            }
+
+            for (int i = 0; i < Input.GamepadButtonCount; i++)
+            {
+                _gamepadButtons[i] = state.Buttons[i] != 0;
+            }
+
+            input.Gamepad(true, _gamepadAxes, _gamepadButtons);
+        }
+        else
+        {
+            input.Gamepad(false, default, default);
+        }
+    }
+
+    /// <summary>Hides and locks the cursor while the game asks for it, and gives it back when it stops.</summary>
+    private void ApplyMouseCapture(Input input)
+    {
+        if (input.CaptureMouse == _mouseCaptured)
+        {
+            return;
+        }
+
+        _mouseCaptured = input.CaptureMouse;
+        _glfw.SetInputMode(_window, CursorStateAttribute.Cursor, _mouseCaptured ? CursorModeValue.CursorDisabled : CursorModeValue.CursorNormal);
     }
 
     private ulong CreateSurface(nint instance)

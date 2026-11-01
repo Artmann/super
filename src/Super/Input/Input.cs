@@ -16,10 +16,10 @@ internal interface IInputListener
 /// </summary>
 public sealed class Input
 {
-    private const int KeyCount = (int)Key.Menu + 1;
-    private const int MouseButtonCount = 8;
-    private const int GamepadButtonCount = 15;
-    private const int GamepadAxisCount = 6;
+    internal const int KeyCount = (int)Key.Menu + 1;
+    internal const int MouseButtonCount = 8;
+    internal const int GamepadButtonCount = 15;
+    internal const int GamepadAxisCount = 6;
     private const string NotReadable = "Input can only be read in Update. Draw and Ui describe state, so they can't look at input.";
 
     private readonly ButtonSet _keys = new(KeyCount);
