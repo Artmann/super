@@ -110,7 +110,9 @@ public class DrawingTests
         };
         var tree = new UiTree();
         tree.Update(new ScrollView { content }.Frame(100f, 60f), 800, 600);
-        Assert.Equal(2, tree.Quads.Length);
+
+        // Two rows, and the scrollbar's track and thumb.
+        Assert.Equal(4, tree.Quads.Length);
     }
 
     [Fact]

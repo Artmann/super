@@ -340,6 +340,12 @@ internal sealed record BoxModifier(UiView Child) : Modifier(Child)
 
     private bool Clips => Radius > 0f;
 
+    internal override bool Blocks => Fill is not null || BorderWidth > 0f;
+
+    internal override UiRect HitArea(UiNode node) => BoxOf(node);
+
+    internal override UiRect? ClipArea(UiNode node) => Clips ? BoxOf(node) : null;
+
     internal override void Emit(UiNode node, UiTree tree)
     {
         tree.PushOpacity(Alpha);

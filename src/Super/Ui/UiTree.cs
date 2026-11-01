@@ -14,13 +14,20 @@ public readonly record struct ShownText(string Text, UiRect Frame);
 /// </summary>
 public sealed class UiTree
 {
+    private const float TooltipOffsetX = 14f;
+    private const float TooltipOffsetY = 18f;
+
     private readonly List<OverlayQuad> _quads = [];
     private readonly List<ShownText> _shownText = [];
     private readonly List<(int Quad, GameImage Image)> _imageQuads = [];
     private readonly List<Clip?> _clips = [];
     private readonly List<float> _opacities = [];
+    private readonly UiNode?[] _overlays = new UiNode?[2];
     private GlyphAtlas? _atlas;
     private UiNode? _root;
+    private int _treeQuads;
+    private int _treeImageQuads;
+    private int _treeText;
     private int _width;
     private int _height;
     private Clip? _clip;
@@ -46,6 +53,38 @@ public sealed class UiTree
         {
             _layoutWanted = false;
             Layout();
+        }
+    }
+
+    /// <summary>What the mouse touches at this point, in the layout last shown.</summary>
+    internal UiNode? Hit(float x, float y) => _root?.Hit(x, y);
+
+    /// <summary>
+    /// Draws what floats above everything and belongs to no place in the tree, each time
+    /// replacing what was there. The mouse can't touch these and no scroll area clips them.
+    /// </summary>
+    internal void ShowOverlays(UiView? dragged, UiView? tooltip, Vector2 cursor)
+    {
+        if (_quads.Count > _treeQuads)
+        {
+            _quads.RemoveRange(_treeQuads, _quads.Count - _treeQuads);
+        }
+
+        _imageQuads.RemoveRange(_treeImageQuads, _imageQuads.Count - _treeImageQuads);
+        _shownText.RemoveRange(_treeText, _shownText.Count - _treeText);
+
+        if (Overlay(0, dragged) is { } preview)
+        {
+            var size = preview.Measure(default);
+            preview.Place(new UiRect(cursor.X - size.Width / 2f, cursor.Y - size.Height / 2f, size.Width, size.Height));
+            preview.Emit();
+        }
+
+        if (Overlay(1, tooltip) is { } tip)
+        {
+            var size = tip.Measure(default);
+            tip.Place(TooltipFrame(size, cursor));
+            tip.Emit();
         }
     }
 
@@ -196,11 +235,53 @@ public sealed class UiTree
         return true;
     }
 
+    /// <summary>Beside the cursor, flipped to its other side at the window's edges.</summary>
+    private UiRect TooltipFrame(UiSize size, Vector2 cursor)
+    {
+        float x = cursor.X + TooltipOffsetX;
+        float y = cursor.Y + TooltipOffsetY;
+        if (x + size.Width > _width)
+        {
+            x = cursor.X - TooltipOffsetX - size.Width;
+        }
+
+        if (y + size.Height > _height)
+        {
+            y = cursor.Y - TooltipOffsetY - size.Height;
+        }
+
+        return new UiRect(Math.Max(x, 0f), Math.Max(y, 0f), size.Width, size.Height);
+    }
+
+    private UiNode? Overlay(int slot, UiView? view)
+    {
+        ref var node = ref _overlays[slot];
+        if (view is null)
+        {
+            node?.Unmount();
+            node = null;
+            return null;
+        }
+
+        if (node is null || node.View.GetType() != view.GetType())
+        {
+            node?.Unmount();
+            node = new UiNode(this, null, view);
+        }
+
+        node.Update(view, TextStyle.Default);
+        node.ForgetLayout();
+        return node;
+    }
+
     private void Layout()
     {
         _quads.Clear();
         _imageQuads.Clear();
         _shownText.Clear();
+        _treeQuads = 0;
+        _treeImageQuads = 0;
+        _treeText = 0;
         if (_root is null)
         {
             return;
@@ -210,6 +291,9 @@ public sealed class UiTree
         var screen = new UiRect(0f, 0f, _width, _height);
         _root.Place(screen.Align(_root.Measure(new Proposal(_width, _height)), Alignment.Center));
         _root.Emit();
+        _treeQuads = _quads.Count;
+        _treeImageQuads = _imageQuads.Count;
+        _treeText = _shownText.Count;
     }
 
     private readonly record struct Clip(UiRect Rect, float Radius);

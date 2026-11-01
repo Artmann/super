@@ -16,6 +16,7 @@ internal sealed class GameHost<TGame> : IDisposable
     private readonly ServiceProvider _services;
     private readonly ITickHook[] _hooks;
     private readonly StateChanges _changes;
+    private readonly UiPointer _pointer;
 
     public GameHost(int seed, int ticksPerSecond, Action<IServiceCollection>? configure)
     {
@@ -47,6 +48,8 @@ internal sealed class GameHost<TGame> : IDisposable
         _hooks = _services.GetServices<ITickHook>().ToArray();
         _changes = _services.GetRequiredService<StateChanges>();
         _changes.Hooks = _services.GetServices<IStateHook>().ToArray();
+        Input.RoutesMouse = true;
+        _pointer = new UiPointer(Ui, Input, ticksPerSecond);
         ((IGame)Game).Load();
         _changes.Apply();
         Content.RequireReferences();
@@ -86,6 +89,8 @@ internal sealed class GameHost<TGame> : IDisposable
             Content.Reload(Console.Error);
         }
 
+        _pointer.BeforeRoll();
+
         // Input is only readable during Update, so the screen can't depend on it.
         Input.Readable = true;
         Input.Roll();
@@ -94,6 +99,7 @@ internal sealed class GameHost<TGame> : IDisposable
             hook.BeforeUpdate();
         }
 
+        _pointer.Deliver();
         Game.Update(Time);
         Input.Readable = false;
 
@@ -112,7 +118,14 @@ internal sealed class GameHost<TGame> : IDisposable
         // The interface runs outside the measurement, so a stats panel reports the game
         // and not itself.
         Stats.EndFrame();
+        _pointer.Pump();
         Ui.Update(((IGame)Game).Ui, ScreenWidth, ScreenHeight);
+        if (_pointer.Refresh())
+        {
+            Ui.Update(((IGame)Game).Ui, ScreenWidth, ScreenHeight);
+        }
+
+        _pointer.ShowOverlays();
         View.Ui = Ui;
         Stats.Resume();
         _changes.Open = true;

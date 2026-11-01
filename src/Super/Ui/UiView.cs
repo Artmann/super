@@ -50,6 +50,21 @@ public abstract record PrimitiveView : UiView
     {
     }
 
+    /// <summary>Whether this stops the mouse where it's drawn. Text doesn't.</summary>
+    internal virtual bool Blocks => false;
+
+    /// <summary>Whether the mouse goes straight through this view and all that's inside it.</summary>
+    internal virtual bool PassesPointer => false;
+
+    /// <summary>The part of the screen the mouse can touch.</summary>
+    internal virtual UiRect HitArea(UiNode node) => node.Frame;
+
+    /// <summary>Where this cuts off what's inside it, if it does. What's cut off can't be hit.</summary>
+    internal virtual UiRect? ClipArea(UiNode node) => null;
+
+    /// <summary>Whether this takes the mouse here ahead of its children.</summary>
+    internal virtual bool HitsFirst(UiNode node, float x, float y) => false;
+
     /// <summary>Changes the text style for everything inside this view.</summary>
     internal virtual TextStyle Inherit(TextStyle style) => style;
 }

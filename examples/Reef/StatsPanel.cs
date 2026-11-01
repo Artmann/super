@@ -31,5 +31,6 @@ internal sealed record StatsPanel(FrameStats Stats, int Fish) : UiView
     }
     .Padding(12f)
     .Background(Color.Hex("#06202C", 0.72f))
+    .IgnoresPointer()
     .FixedSize();
 }

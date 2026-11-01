@@ -76,6 +76,27 @@ public static class UiExtensions
     /// <summary>Names this view among its siblings, so it keeps its state when they move.</summary>
     public static UiView Id(this UiView view, object identity) => view with { Identity = identity };
 
+    /// <summary>Runs this on a left click, on the next tick. Use <see cref="Pressable"/> to look different when hovered.</summary>
+    public static UiView OnClick(this UiView view, Action click) => new ClickModifier(view, click);
+
+    /// <summary>Lets the mouse through to whatever's behind, as CSS's <c>pointer-events: none</c> does.</summary>
+    public static UiView IgnoresPointer(this UiView view) => new IgnoresPointerModifier(view);
+
+    /// <summary>Lets the mouse carry <paramref name="payload"/> from here. <paramref name="preview"/> follows the cursor.</summary>
+    public static UiView Draggable<T>(this UiView view, T payload, UiView? preview = null)
+        where T : notnull =>
+        new DragModifier(view, payload, preview);
+
+    /// <summary>
+    /// Takes what's dropped here, on the next tick. <paramref name="canDrop"/> can turn
+    /// down a payload, which then drops nowhere and looks like nothing's here.
+    /// </summary>
+    public static UiView DropTarget<T>(this UiView view, Action<T> onDrop, Func<T, bool>? canDrop = null) =>
+        new DropModifier<T>(view, onDrop, canDrop);
+
+    /// <summary>Shows <paramref name="content"/> near the cursor after a short hover.</summary>
+    public static UiView Tooltip(this UiView view, UiView content) => new TooltipModifier(view, content);
+
     /// <summary>Continues the box this view already is, so neighbouring box modifiers make one box.</summary>
     private static BoxModifier Box(UiView view) => view as BoxModifier ?? new BoxModifier(view);
 }

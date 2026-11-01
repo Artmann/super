@@ -9,6 +9,17 @@ internal interface IInputListener
     void Rolled();
 }
 
+internal enum MouseEventKind
+{
+    Moved,
+    Down,
+    Up,
+    Wheel,
+}
+
+/// <summary>One thing the mouse did, kept in order for the interface to look at first.</summary>
+internal readonly record struct MouseEvent(MouseEventKind Kind, MouseButton Button, Vector2 Position, float Notches);
+
 /// <summary>
 /// What the player did, frozen for one tick. The window and headless runs feed it
 /// between ticks; Update reads it. Draw and Ui can't, so the picture stays a function
@@ -48,6 +59,12 @@ public sealed class Input
     /// <summary>How far the cursor moved this tick.</summary>
     public Vector2 MouseDelta { get => Read(field); private set; }
 
+    /// <summary>
+    /// Whether the mouse belongs to the interface this tick: it's over something solid, or
+    /// a press began there. Mouse buttons and the wheel read as idle then.
+    /// </summary>
+    public bool MouseOverUi { get => Read(field); private set; }
+
     /// <summary>Wheel notches turned this tick, positive away from the player.</summary>
     public float Scroll { get => Read(field); private set; }
 
@@ -58,6 +75,15 @@ public sealed class Input
 
     /// <summary>Whether reads are allowed right now. The host turns it on for Update only.</summary>
     internal bool Readable { get; set; }
+
+    /// <summary>When set, the mouse waits in <see cref="MouseEvents"/> for the interface to pass on what it doesn't take.</summary>
+    internal bool RoutesMouse { get; set; }
+
+    /// <summary>What the mouse did that the interface hasn't seen yet, in order.</summary>
+    internal List<MouseEvent> MouseEvents { get; } = [];
+
+    /// <summary>What the next tick's <see cref="MouseOverUi"/> says.</summary>
+    internal bool PendingMouseOverUi { get; set; }
 
     /// <summary>How many ticks the snapshot has rolled over.</summary>
     internal int RollCount { get; private set; }
@@ -120,9 +146,45 @@ public sealed class Input
 
     internal void KeyUp(Key key) => _keys.Release((int)key);
 
-    internal void MouseButtonDown(MouseButton button) => _mouseButtons.Press((int)button);
+    internal void MouseButtonDown(MouseButton button)
+    {
+        if (RoutesMouse)
+        {
+            MouseEvents.Add(new MouseEvent(MouseEventKind.Down, button, default, 0f));
+        }
+        else
+        {
+            ApplyMouseButton(button, true);
+        }
+    }
 
-    internal void MouseButtonUp(MouseButton button) => _mouseButtons.Release((int)button);
+    internal void MouseButtonUp(MouseButton button)
+    {
+        if (RoutesMouse)
+        {
+            MouseEvents.Add(new MouseEvent(MouseEventKind.Up, button, default, 0f));
+        }
+        else
+        {
+            ApplyMouseButton(button, false);
+        }
+    }
+
+    /// <summary>A button event the interface didn't take, or no interface is there to take.</summary>
+    internal void ApplyMouseButton(MouseButton button, bool down)
+    {
+        if (down)
+        {
+            _mouseButtons.Press((int)button);
+        }
+        else
+        {
+            _mouseButtons.Release((int)button);
+        }
+    }
+
+    /// <summary>A turn of the wheel the interface didn't take.</summary>
+    internal void ApplyScroll(float notches) => _pendingScroll += notches;
 
     internal void MouseMoved(Vector2 position)
     {
@@ -133,9 +195,23 @@ public sealed class Input
 
         _pendingPosition = position;
         _hasPosition = true;
+        if (RoutesMouse)
+        {
+            MouseEvents.Add(new MouseEvent(MouseEventKind.Moved, default, position, 0f));
+        }
     }
 
-    internal void Scrolled(float notches) => _pendingScroll += notches;
+    internal void Scrolled(float notches)
+    {
+        if (RoutesMouse)
+        {
+            MouseEvents.Add(new MouseEvent(MouseEventKind.Wheel, default, default, notches));
+        }
+        else
+        {
+            ApplyScroll(notches);
+        }
+    }
 
     internal void TypedCharacter(char character) => _typing.Append(character);
 
@@ -174,6 +250,7 @@ public sealed class Input
         _pendingAxes.CopyTo(_axes, 0);
         GamepadConnected = _pendingConnected;
 
+        MouseOverUi = PendingMouseOverUi;
         MousePosition = _pendingPosition;
         MouseDelta = _pendingDelta;
         Scroll = _pendingScroll;

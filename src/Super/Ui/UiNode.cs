@@ -47,6 +47,12 @@ internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view)
 
     public float MaxScroll => Math.Max(ContentLength - ViewportLength, 0f);
 
+    /// <summary>Whether a scroll view's bar is under the mouse.</summary>
+    public bool BarLit { get; set; }
+
+    /// <summary>Whether this is still in the tree. The mouse lets go of anything that isn't.</summary>
+    public bool Mounted { get; private set; } = true;
+
     /// <summary>
     /// Brings this node up to date with a view. Equal views stop here, which is what makes
     /// redescribing the whole interface cheap. Returns whether anything changed.
@@ -151,6 +157,35 @@ internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view)
         (View as PrimitiveView)?.EmitAfter(this, Tree);
     }
 
+    /// <summary>What the mouse touches at this point, front to back, from this node down.</summary>
+    public UiNode? Hit(float x, float y)
+    {
+        if (View is not PrimitiveView primitive)
+        {
+            return Children[0]!.Hit(x, y);
+        }
+
+        if (primitive.PassesPointer || primitive.ClipArea(this) is { } clip && !clip.Contains(x, y))
+        {
+            return null;
+        }
+
+        if (primitive.HitsFirst(this, x, y))
+        {
+            return this;
+        }
+
+        for (int i = Children.Count - 1; i >= 0; i--)
+        {
+            if (Children[i]?.Hit(x, y) is { } hit)
+            {
+                return hit;
+            }
+        }
+
+        return primitive.Blocks && primitive.HitArea(this).Contains(x, y) ? this : null;
+    }
+
     public void ForgetLayout()
     {
         _measurementCount = 0;
@@ -162,6 +197,7 @@ internal sealed class UiNode(UiTree tree, UiNode? parent, UiView view)
 
     public void Unmount()
     {
+        Mounted = false;
         StopWatching();
         foreach (var child in Children)
         {

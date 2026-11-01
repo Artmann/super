@@ -69,6 +69,8 @@ public sealed record Image(GameImage Source, ImageFit Fit = ImageFit.Stretch, Co
         };
     }
 
+    internal override bool Blocks => true;
+
     internal override void Place(UiNode node, UiRect frame)
     {
     }
