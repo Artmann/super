@@ -63,7 +63,7 @@ display can run faster or slower than the simulation.
 
 | Package | What it gives you | Depends on |
 | --- | --- | --- |
-| `Super` | Window, game loop, input, views, interfaces, content | `Rendition`, `Super.Random` |
+| `Super` | Window, game loop, input, game states, views, interfaces, content | `Rendition`, `Super.Random` |
 | `Super.Random` | Seeded random numbers. Usable alone | Nothing else here |
 | `Super.Ecs` | An optional entity component system | `Super` |
 | `Super.Testing` | Headless runs, seeded tests and run logs | `Super` |
@@ -520,6 +520,10 @@ paused in any area without a state for each combination.
 In tests, `run.States<Screen>()` shows where the game is, and can jump there directly so
 a test doesn't have to play through the menu.
 
+The [Rooms example](examples/Rooms) has a menu, a loading screen and two areas, with one
+player and a coin count carried between them. Its tests are in
+[tests/Rooms.Tests](tests/Rooms.Tests).
+
 ### Loading screens
 
 A loading screen is another state that watches `Content`. Name what the next area needs
@@ -969,6 +973,7 @@ dotnet run -c Release --project tools/Rendition.Import -- assets/source/reef/til
 dotnet run -c Release --project tools/Rendition.Import -- assets/source/reef/coral/coral.glb assets/reef-coral.materials.json assets/cooked/reef/coral.rmodel
 dotnet run -c Release --project tools/Rendition.Import -- assets/source/reef/softcoral/Corals.fbx assets/reef-softcoral.materials.json assets/cooked/reef/softcoral.rmodel
 dotnet run -c Release --project examples/Reef
+dotnet run -c Release --project examples/Rooms
 ```
 
 To see what the renderer can do today, run the sample:
