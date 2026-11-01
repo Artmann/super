@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using Super.Profiling;
 
@@ -78,6 +79,28 @@ public sealed class ProfilingTests
         Assert.Contains("102 models, 3,000 triangles", report);
         Assert.Contains("1,234 triangles for the camera, 56 for shadows", report);
         Assert.True(report.IndexOf("big") < report.IndexOf("small"));
+    }
+
+    [Fact]
+    public void The_report_reads_the_same_in_a_culture_with_decimal_commas()
+    {
+        ModelCost[] models = [new("small", 100, 10), new("big", 2, 1000)];
+        var run = Run([["Main", "Slow"]]) with { Models = models, DrawnTriangles = (1234, 56) };
+        var original = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("sv-SE");
+            Assert.Equal("1,5", 1.5.ToString(CultureInfo.CurrentCulture));
+
+            string report = ProfileReport.Write(run);
+
+            Assert.Contains("10.0 ms on average", report);
+            Assert.Contains("3,000 triangles", report);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
     }
 
     [Fact]

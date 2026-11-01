@@ -75,13 +75,13 @@ internal static class ProfileReport
         var sorted = frames.Select(frame => frame.Total).Order().ToArray();
         double total = sorted.Average();
         double waiting = frames.Average(frame => frame.Waiting);
-        Line(text, $"{run.Title}: seed {run.Seed}, from tick {run.Tick:N0}, {run.Width}x{run.Height}, {frames.Count} frames");
+        Formatted(text, $"{run.Title}: seed {run.Seed}, from tick {run.Tick:N0}, {run.Width}x{run.Height}, {frames.Count} frames");
         Line(text);
-        Line(text, $"Frame: {total:0.0} ms on average ({1000.0 / total:0} fps), fastest {sorted[0]:0.0}, slowest {sorted[^1]:0.0}");
-        Line(text, $"  Update    {frames.Average(frame => frame.Update),7:0.00} ms  ({frames.Sum(frame => frame.Ticks)} ticks in all)");
-        Line(text, $"  Draw      {frames.Average(frame => frame.Draw),7:0.00} ms  (the game's Draw, and the interface)");
-        Line(text, $"  Render    {frames.Average(frame => frame.Render),7:0.00} ms  (of which {waiting:0.00} ms waiting for the GPU and the display)");
-        Line(text, $"  Allocated {frames.Average(frame => frame.AllocatedBytes),7:N0} bytes per frame");
+        Formatted(text, $"Frame: {total:0.0} ms on average ({1000.0 / total:0} fps), fastest {sorted[0]:0.0}, slowest {sorted[^1]:0.0}");
+        Formatted(text, $"  Update    {frames.Average(frame => frame.Update),7:0.00} ms  ({frames.Sum(frame => frame.Ticks)} ticks in all)");
+        Formatted(text, $"  Draw      {frames.Average(frame => frame.Draw),7:0.00} ms  (the game's Draw, and the interface)");
+        Formatted(text, $"  Render    {frames.Average(frame => frame.Render),7:0.00} ms  (of which {waiting:0.00} ms waiting for the GPU and the display)");
+        Formatted(text, $"  Allocated {frames.Average(frame => frame.AllocatedBytes),7:N0} bytes per frame");
         Line(text);
         WriteLimit(text, total - waiting, run.GpuMilliseconds.Values.Sum());
         Line(text);
@@ -95,12 +95,12 @@ internal static class ProfileReport
     {
         if (gpu == 0.0)
         {
-            Line(text, $"CPU busy {cpu:0.0} ms per frame. Without GPU times, there's no telling which side is the limit.");
+            Formatted(text, $"CPU busy {cpu:0.0} ms per frame. Without GPU times, there's no telling which side is the limit.");
             return;
         }
 
         string limit = gpu > cpu ? "GPU" : "CPU";
-        Line(text, $"Limited by the {limit}: CPU busy {cpu:0.0} ms, GPU busy {gpu:0.0} ms per frame, enough for about {1000.0 / Math.Max(cpu, gpu):0} fps.");
+        Formatted(text, $"Limited by the {limit}: CPU busy {cpu:0.0} ms, GPU busy {gpu:0.0} ms per frame, enough for about {1000.0 / Math.Max(cpu, gpu):0} fps.");
     }
 
     private static void WriteGpu(StringBuilder text, ProfileRun run)
@@ -113,10 +113,10 @@ internal static class ProfileReport
         }
 
         double total = run.GpuMilliseconds.Values.Sum();
-        Line(text, $"GPU: {total:0.00} ms per frame");
+        Formatted(text, $"GPU: {total:0.00} ms per frame");
         foreach (var (name, milliseconds) in run.GpuMilliseconds.OrderByDescending(pass => pass.Value))
         {
-            Line(text, $"  {name,-18} {milliseconds,7:0.00} ms  {milliseconds / total,4:P0}");
+            Formatted(text, $"  {name,-18} {milliseconds,7:0.00} ms  {milliseconds / total,4:0%}");
         }
 
         Line(text);
@@ -130,12 +130,12 @@ internal static class ProfileReport
         }
 
         long total = models.Sum(model => model.Triangles);
-        Line(text, $"Scene: {models.Sum(model => model.Copies):N0} models, {total:N0} triangles at full detail");
-        Line(text, $"Drawn after culling and detail: {drawn.Camera:N0} triangles for the camera, {drawn.Shadows:N0} for shadows");
+        Formatted(text, $"Scene: {models.Sum(model => model.Copies):N0} models, {total:N0} triangles at full detail");
+        Formatted(text, $"Drawn after culling and detail: {drawn.Camera:N0} triangles for the camera, {drawn.Shadows:N0} for shadows");
         foreach (var model in models.OrderByDescending(model => model.Triangles))
         {
             double share = (double)model.Triangles / total;
-            Line(text, $"  {share,4:P0}  {model.Copies,6:N0} x {model.TrianglesEach,10:N0}  {model.Name}");
+            Formatted(text, $"  {share,4:0%}  {model.Copies,6:N0} x {model.TrianglesEach,10:N0}  {model.Name}");
         }
 
         Line(text);
@@ -149,13 +149,13 @@ internal static class ProfileReport
             return;
         }
 
-        Line(text, $"CPU: {stacks.Count:N0} samples of the game's thread. Waiting counts as time, so waits for the GPU and the display show up, mostly as Renderer.Render.");
+        Formatted(text, $"CPU: {stacks.Count:N0} samples of the game's thread. Waiting counts as time, so waits for the GPU and the display show up, mostly as Renderer.Render.");
         Line(text, "Self is time in the function itself, and total includes what it calls.");
         Line(text);
         Line(text, "   Self   Total  Function");
         foreach (var (name, self, total) in Functions(stacks).Take(FunctionsShown))
         {
-            Line(text, $"{Share(self, stacks.Count)}  {Share(total, stacks.Count)}  {name}");
+            Formatted(text, $"{Share(self, stacks.Count)}  {Share(total, stacks.Count)}  {name}");
         }
 
         Line(text);
@@ -170,11 +170,11 @@ internal static class ProfileReport
             .Take(StacksShown);
         foreach (var group in groups)
         {
-            Line(text, $"{Share(group.Count(), stacks.Count).Trim()} of samples:");
+            Formatted(text, $"{Share(group.Count(), stacks.Count).Trim()} of samples:");
             string[] stack = group.First();
             foreach (string name in stack.TakeLast(StackDepthShown))
             {
-                Line(text, $"  {name}");
+                Formatted(text, $"  {name}");
             }
 
             Line(text);
@@ -184,7 +184,8 @@ internal static class ProfileReport
     private static string Share(int part, int whole) =>
         ((double)part / whole).ToString("0.0%", CultureInfo.InvariantCulture).PadLeft(6);
 
-    private static void Line(StringBuilder text, FormattableString line) =>
+    // Not an overload of Line: a $"" string would pick the string one and use the machine's culture.
+    private static void Formatted(StringBuilder text, FormattableString line) =>
         text.Append(line.ToString(CultureInfo.InvariantCulture)).Append('\n');
 
     private static void Line(StringBuilder text, string line = "") => text.Append(line).Append('\n');
