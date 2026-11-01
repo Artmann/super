@@ -215,6 +215,72 @@ ticks to keep motion smooth at any frame rate:
 view.Model(ball.Id, ballModel, view.Smooth(ball.PreviousTransform, ball.Transform));
 ```
 
+### Cameras and clicking
+
+`view.Camera` takes a position and a target, which is all a fixed camera needs. To click
+on things, keep a `Camera` in your game, because `Update` has to know it too. Input can
+only be read in `Update`, so that's where a click turns into a place in the world:
+
+```csharp
+readonly Camera camera = new(new Vector3(0, 12, 12), Vector3.Zero);
+
+public void Update(GameTime time)
+{
+    if (input.Pressed(MouseButton.Left))
+    {
+        var ray = input.MouseRay(camera);
+
+        // A tile: where the line through the cursor meets the ground.
+        if (ray.Ground() is { } spot)
+        {
+            selectedTile = map.TileAt(spot);
+        }
+
+        // A colonist: the nearest one the line goes through.
+        foreach (ref readonly var colonist in colonists)
+        {
+            if (ray.HitsBall(colonist.Position, 0.5f) is { } distance && distance < nearest)
+            {
+                nearest = distance;
+                selected = colonist.Id;
+            }
+        }
+    }
+}
+
+public void Draw(View view) => view.Camera(camera);
+```
+
+`ray.Ground(height)` gives a point, while `ray.HitsBall` and `ray.HitsBox(min, max)` give a
+distance, so you can keep the closest. A miss gives nothing. Super doesn't go through your
+things for you, since only your game knows what can be clicked, and it tests these simple
+shapes, not a model's triangles.
+
+Two helpers save writing the same camera in every game. Keep one in your game, step it
+once a tick in `Update`, and draw `At(view.Blend)` so it moves smoothly at any frame rate:
+
+```csharp
+readonly OrbitCamera orbit = new() { Distance = 12f };
+readonly FollowCamera follow = new() { Offset = new Vector3(0, 8, 10), Lag = 0.2f };
+
+public void Update(GameTime time)
+{
+    // Circles a target. Yaw, Pitch, Distance and its limits can be set directly.
+    orbit.Turn(input.MouseDelta * 0.005f);
+    orbit.Zoom(input.Scroll);
+    orbit.Update(tower.Position);
+
+    // Trails behind a target. Lag is about how many seconds behind it stays.
+    follow.Update(player.Position, time.TickSeconds);
+}
+
+public void Draw(View view) => view.Camera(follow.At(view.Blend));
+```
+
+The first update puts a camera straight in place. If its target teleports, call
+`follow.Jump()` so the camera doesn't slide across the map. For clicking, pass
+`follow.Current` to `input.MouseRay`.
+
 ### Particles
 
 Particles are worked out from when they started rather than fired and forgotten, so

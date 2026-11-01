@@ -45,6 +45,9 @@ public sealed class Input
     /// <summary>Where the cursor is, in the same pixels the interface lays itself out in.</summary>
     public Vector2 MousePosition { get => Read(field); private set; }
 
+    /// <summary>The line from the camera through the cursor, for working out what was clicked.</summary>
+    public Ray MouseRay(in Camera camera) => camera.Ray(MousePosition, ScreenSize);
+
     /// <summary>How far the cursor moved this tick.</summary>
     public Vector2 MouseDelta { get => Read(field); private set; }
 
@@ -55,6 +58,9 @@ public sealed class Input
     public string Typed { get => Read(field); private set; } = string.Empty;
 
     public bool GamepadConnected { get => Read(field); private set; }
+
+    /// <summary>The size of the screen in the same pixels as the cursor. The host sets it each tick.</summary>
+    internal Vector2 ScreenSize { get; set; }
 
     /// <summary>Whether reads are allowed right now. The host turns it on for Update only.</summary>
     internal bool Readable { get; set; }

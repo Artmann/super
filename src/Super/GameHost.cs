@@ -1,3 +1,4 @@
+using System.Numerics;
 using Microsoft.Extensions.DependencyInjection;
 using Super.Ui;
 
@@ -87,6 +88,7 @@ internal sealed class GameHost<TGame> : IDisposable
         }
 
         // Input is only readable during Update, so the screen can't depend on it.
+        Input.ScreenSize = new Vector2(ScreenWidth, ScreenHeight);
         Input.Readable = true;
         Input.Roll();
         foreach (var hook in _hooks)

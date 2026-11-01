@@ -30,6 +30,7 @@ public sealed class View
     internal Vector3 CameraPosition { get; private set; }
     internal Vector3 CameraTarget { get; private set; }
     internal float CameraFieldOfView { get; private set; }
+    internal Vector3 CameraUp => new Camera(CameraPosition, CameraTarget).Up;
     internal ReadOnlySpan<SunLight> Suns => CollectionsMarshal.AsSpan(_suns);
     internal UnderwaterSettings WaterSettings { get; private set; }
     internal PostSettings Post { get; private set; }
@@ -49,6 +50,9 @@ public sealed class View
         CameraTarget = lookAt;
         CameraFieldOfView = fieldOfView;
     }
+
+    /// <summary>Places a camera your game keeps, so Update can pick with the same one.</summary>
+    public void Camera(in Camera camera) => Camera(camera.Position, camera.Target, camera.FieldOfView);
 
     /// <summary>
     /// Adds a sun. The direction points from the ground towards it, and needn't be one

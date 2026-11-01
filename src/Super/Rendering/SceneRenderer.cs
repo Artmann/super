@@ -266,7 +266,7 @@ internal sealed class SceneRenderer : IDisposable
         {
             Width = width,
             Height = height,
-            View = Matrix4x4.CreateLookAt(view.CameraPosition, view.CameraTarget, Vector3.UnitY),
+            View = Matrix4x4.CreateLookAt(view.CameraPosition, view.CameraTarget, view.CameraUp),
             Projection = Projection.PerspectiveInfiniteReversedZ(
                 view.CameraFieldOfView, width / (float)Math.Max(height, 1), 0.1f),
             CameraPosition = view.CameraPosition,
