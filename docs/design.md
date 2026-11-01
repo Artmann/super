@@ -36,7 +36,7 @@ the rest is not yet.
 | State changes | Requested with `Set`, landing at the end of the tick after `Update` | Every system in a tick sees one state, and the Draw after it shows the new one |
 | Scene-owned entities | A `ScopedTo<TEnum>` tag, cleared by `World` through `IStateHook` | Everything else carries through for free, so there's no scene to hand things across. Children aren't cascaded, since that would make every destroy cost a search |
 | Asset loading | Prepared on background threads, uploaded one per frame, and a drawn model is waited for. Only the interactive window streams | A loading screen stays alive, nothing pops in, and disk speed can't change what a seed does |
-| JSON content | One record per file, read into a `Catalog<T>` by `LoadAll`, with a walk over the JSON reporting every mistake by file and line. Live reload runs only in the window, only from source, and is all or nothing. See `docs/superpowers/specs/2026-11-01-json-content-design.md`. |
+| JSON content | One record per file, read into a `Catalog<T>` by `LoadAll`. Live reload runs only in the window and only from source | Every mistake is reported with its file and line at load, and a reload can't change a seeded run. See `docs/superpowers/specs/2026-11-01-json-content-design.md` |
 | Saves and levels | JSON early on, expected to be replaced | Easy to read and repair during development |
 | Physics | Left out of the first version | Must run in ticks and repeat exactly, and the target games need little |
 
