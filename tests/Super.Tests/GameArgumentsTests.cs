@@ -9,7 +9,7 @@ public class GameArgumentsTests
     }
 
     [Fact]
-    public void Reads_every_option()
+    public void Reads_seed_ticks_and_screenshot()
     {
         var arguments = GameArguments.Parse(["--seed", "42", "--ticks", "6000", "--screenshot", "day.png"]);
 
@@ -89,7 +89,7 @@ public class GameArgumentsTests
     [InlineData("--profile", "reef.txt", "--record", "clip.mp4", "--seconds", "1")]
     [InlineData("--size", "big", "--screenshot", "a.png")]
     [InlineData("--size", "0x10", "--screenshot", "a.png")]
-    public void Explains_a_bad_command_line(params string[] args)
+    public void Refuses_a_bad_command_line(params string[] args)
     {
         Assert.Throws<ArgumentException>(() => GameArguments.Parse(args));
     }
