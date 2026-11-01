@@ -6,8 +6,8 @@ would meet it. This file records the reasons behind it, then Rendition's design.
 
 ## Engine decisions
 
-These are decided. The game loop, window, randomness and headless runs are built; the
-rest is not yet.
+These are decided. The game loop, window, randomness, input and headless runs are built;
+the rest is not yet.
 
 | Area | Choice | Why |
 | --- | --- | --- |
@@ -29,6 +29,9 @@ rest is not yet.
 | Global state | None | Many headless games can share one process |
 | Randomness | `GameRandom` with named streams from one seed | A new roll in one system doesn't disturb another |
 | Content | JSON read by `System.Text.Json` into records, loaded up front | No extra library, and data errors surface at load time |
+| Input sampling | Per-tick snapshot rolled before `Update`; a tap inside one tick is Down and Pressed now, Released next tick | The window polls faster than the game ticks, and a short tap must not vanish |
+| Input reads | Only in `Update`; `Draw`, `Ui` and `Load` throw | The screen stays a function of state, so a seed replays the same |
+| Actions | The game's own enum, bound to a list of `Binding` values | Typed, no strings, and the list is plain data a settings screen can edit later |
 | Saves and levels | JSON early on, expected to be replaced | Easy to read and repair during development |
 | Physics | Left out of the first version | Must run in ticks and repeat exactly, and the target games need little |
 

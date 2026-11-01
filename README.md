@@ -393,6 +393,74 @@ doesn't report itself. Reef's panel is in
 These numbers come from the real clock, so only show them. If they reach `Update`, a seed
 stops repeating.
 
+## Input
+
+Name what the player can do with an enum, then say how each thing is done. Game code
+asks about the action, never the key, so changing a binding touches nothing else.
+
+```csharp
+public enum Control { Move, Look, Jump, Interact }
+
+public class Dungeon(Actions<Control> actions) : IGame
+{
+    public void Load()
+    {
+        actions.Bind(Control.Jump, Key.Space, GamepadButton.South);
+        actions.Bind(Control.Interact, Key.E, GamepadButton.West, MouseButton.Left);
+        actions.Bind(Control.Move, Keys.WASD, Keys.Arrows, GamepadStick.Left);
+        actions.Bind(Control.Look, Mouse.Delta.Scaled(0.01f), GamepadStick.Right);
+    }
+
+    public void Update(GameTime time)
+    {
+        if (actions.Pressed(Control.Jump))
+        {
+            Jump();
+        }
+
+        if (actions.Down(Control.Interact))
+        {
+            KeepOpening(time);
+        }
+
+        Walk(actions.Vector(Control.Move) * Speed * time.TickSeconds);
+    }
+}
+```
+
+`Pressed` is true on the tick an action starts, `Down` while it goes on, and `Released`
+on the tick it stops. `Vector` is the direction with length at most 1, so a diagonal on
+the keys moves no faster than a stick, and `Value` is how much, from 0 to 1. Ask for
+`Actions<Control>` in your constructor and it's there; nothing needs registering.
+
+Underneath is the raw `Input` service, for the odd case that really is about a key:
+`input.Down(Key.Space)`, `input.MousePosition` in the same pixels the interface lays out
+in, `input.Stick(GamepadStick.Left)`, and `input.Typed` for text a player entered this
+tick. The first gamepad is the one that counts, and its sticks give forward as positive y.
+
+Input is a snapshot taken once per tick, so every system in `Update` sees the same
+thing. A key tapped and let go between two ticks still counts: it's `Down` and `Pressed`
+on the next tick and `Released` on the one after, so a quick tap never vanishes.
+
+Only `Update` may read input. `Draw` and `Ui` describe state and `Load` happens before
+play, so reading there throws. That keeps the picture a function of state, which is what
+lets a seed replay and a screenshot test stay stable.
+
+A mouse moves in pixels and a stick in a range from -1 to 1, so give the mouse a
+`Scaled` factor when both drive the same action. The mouse delta and the scroll wheel are
+never clamped; everything else sums to length 1 at most. Set `input.CaptureMouse = true`
+to hide the cursor and lock it to the window, as a first-person camera needs, and set it
+back to free it.
+
+| Binding | Gives |
+| --- | --- |
+| `Key.W`, `MouseButton.Left`, `GamepadButton.South` | A button: 0 or 1 |
+| `GamepadTrigger.Right` | A pull from 0 to 1 |
+| `GamepadStick.Left` | A direction, with a radial dead zone of `input.DeadZone` |
+| `Binding.Axis(Key.Q, Key.E)` | -1, 0 or 1 from two buttons or triggers |
+| `Binding.Composite(up, down, left, right)`, `Keys.WASD`, `Keys.Arrows` | A direction from four buttons |
+| `Mouse.Delta`, `Mouse.Scroll` | Pixels moved or notches turned this tick, unclamped |
+
 ## Content: JSON files
 
 Put JSON in your project's `content` folder. Describe its shape with a C# record, then
@@ -506,7 +574,10 @@ parallel, so this fits in a pull request check, and any crash fails the build.
 - **Invariants** run every tick, so they catch a problem when it happens, not at the
   end of the run.
 - **Fakes** take one line. Swap any service, as with `IWeather` above.
-- **`run.Input`** plays scripted key presses and clicks.
+- **`run.Input`** plays input. `run.Input.Press(Key.Space)` taps a key, `run.Input.Hold`
+  keeps it down and `run.Input.Click` moves the mouse and presses. Play actions directly
+  with `run.Input.Press(Control.Jump)` or `run.Input.Hold(Control.Move, new Vector2(1, 0))`,
+  so a test still passes when the bindings change. Everything lands on the next tick.
 - **`run.Drawn`** lists what `Draw` would have shown.
 - **`run.ShownText`** lists the text the interface showed and where it landed. Layout
   and fonts are real in a headless run, so a test can check that a label fits.
@@ -791,8 +862,9 @@ Models are cooked into a fast format by the import tool. The
 - **Physics.** Not in the first version. Gameplay physics has to give repeatable
   results, so the engine needs choosing carefully. Until then, write your own movement
   code in `Update`, as in the ball example.
-- **Interactive interfaces.** The interface draws text and colored rectangles. It has no
-  input yet, so there are no buttons, and it can't show images.
+- **Interactive interfaces.** The interface draws text and colored rectangles. Input
+  exists, but the interface doesn't take clicks yet, so there are no buttons, and it
+  can't show images.
 - **Audio.** `view.Play` in the examples needs an audio package that isn't designed yet.
 - **Other platforms.** Windows only for now, with Linux kept possible.
 
