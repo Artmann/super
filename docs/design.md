@@ -86,7 +86,7 @@ rendering. Game-facing features belong in Super.
 ## Frame structure
 
 ```
-ShadowPass    scene geometry   -> depth from the key light (4096 x 4096)
+ShadowPass    scene geometry   -> depth from the key light (2048 x 2048, up to 4 cascades)
 GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, depth
 AoPass        fullscreen       -> ambient occlusion from depth and normals
 AoBlurPass    fullscreen       -> the same with the grain averaged away
@@ -268,14 +268,41 @@ ffmpeg process, and the game steps a fixed `1 / fps` per frame while recording, 
 the output doesn't depend on how fast the machine is. Waiting on the GPU for each
 frame is slow, but it's only paid while capturing.
 
+## Resource lifetime
+
+Meshes and textures are made during play, so neither creating nor destroying one
+may wait for the GPU.
+
+Uploads ride the next frame. `CreateMesh`, `CreateDrawItem`, `CreateTexture` and
+`CreateTextureArray` copy their bytes into a staging buffer and queue the copy in
+`UploadQueue`. The next `Render` records every queued copy, with its layout
+transitions, at the start of its command buffer, so a resource made before a
+`Render` is drawable in that same frame. The staging buffer is retired through the
+destroy queue below. `CreateSurfaceShader`, `SetEnvironment`, `SetOverlayAtlas` and
+probe capture still wait, and say so: they're for loading screens.
+
+Destroying returns at once. The resource is added to the destroy slot of the frame
+most recently submitted, and released when a later `Render` has waited on that
+frame's fence, so no frame in flight can still read it. Destroying something whose
+upload is still queued cancels the copy first, so the copy never runs into freed
+memory. A released texture's descriptor slot is rewritten to the white texture, so
+whatever takes the slot next starts from something harmless; a material that still
+names a destroyed texture must not be drawn, which Super's `Content` enforces by
+refusing to unload a texture that a live mesh names.
+
+Handles are recycled through a free list per kind, and each kind remembers which
+slots are on their way out, so destroying a handle twice fails rather than freeing
+whatever reused the slot. Nothing here allocates once the lists have grown.
+
+Device memory is sub-allocated from 64 MB blocks in `GpuMemory`, one set of pools
+per memory type, kept apart for buffers and images and for host-visible memory.
+Anything larger than a block gets its own allocation.
+
 ## Known simplifications to revisit
 
-- Each buffer and image gets its own `vkAllocateMemory`. Replace with a
-  sub-allocator (VMA or our own) before scene sizes grow.
 - Textures are uncompressed RGBA8 with mips. Block compression (BC7) would use
   far less GPU memory.
-- The table holds at most 1024 textures and 1024 materials, and resources can't be
-  removed yet.
+- The table holds at most 1024 textures, 1024 materials and 256 texture arrays.
 - Transparent draws aren't sorted, so overlapping glass can blend in the wrong order.
   Glass also casts no shadow and shows no refraction.
 - The car's surface map channels are an educated guess, because the model has no

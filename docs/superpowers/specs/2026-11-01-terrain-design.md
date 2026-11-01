@@ -125,7 +125,7 @@ vec4 shaderLayer(int slot, vec2 uv, float layer);    // textureArrays[...shaderA
 ```csharp
 public readonly record struct TextureArrayHandle(int Index);
 
-/// <summary>Stacks same-sized images into one texture that shaders index by layer. Waits for the GPU.</summary>
+/// <summary>Stacks same-sized images into one texture that shaders index by layer, uploaded like CreateTexture.</summary>
 public TextureArrayHandle CreateTextureArray(ReadOnlySpan<TextureData> layers);
 ```
 
@@ -147,8 +147,9 @@ chunk. Instead:
 - Descriptor writes for new textures use `descriptorBindingUpdateUnusedWhilePending`
   alongside the existing partially-bound flag, so a slot can be written while the set
   is bound by a frame that doesn't use it. No more `DeviceWaitIdle` in `AddTexture`.
-- `CreateTextureArray`, `CreateSurfaceShader`, `SetEnvironment`, `SetOverlayAtlas`
-  and probe capture still wait, and say so. They're for loading screens.
+- `CreateTextureArray` uploads the same way, since terrain layers are made during play.
+- `CreateSurfaceShader`, `SetEnvironment`, `SetOverlayAtlas` and probe capture still
+  wait, and say so. They're for loading screens.
 - `CreateDrawItem` gains `simplify: bool = true`. With it false the draw gets a bounding
   sphere for culling but no simpler versions.
 
@@ -167,12 +168,16 @@ Rules:
 - Destroying returns at once and never waits for the GPU. The resource is queued and
   released after the frame that was in flight when it was queued has finished, which
   the next-but-one `Render` observes by its fence. `Dispose` drains the queue.
+- Destroying a resource whose upload is still queued cancels the copy, so it never
+  runs into freed memory.
 - Handles are recycled. Each kind keeps a free list, so a long game stays under the
-  1024 texture and material limits. A destroyed texture's descriptor slot is rewritten
-  to the white texture when it's released, so nothing dangles.
-- Using a destroyed handle in a draw is a caller mistake. Debug builds can't check it
-  cheaply, so the doc comment says so and the white texture and default material keep
-  the frame from crashing.
+  1024 texture and material limits. Each kind also remembers which slots are on their
+  way out, so destroying a handle twice fails. A released texture's descriptor slot is
+  rewritten to the white texture, so whatever takes the slot next starts from something
+  harmless.
+- Using a destroyed handle in a draw is a caller mistake that Rendition can't check
+  cheaply; the frame in flight may still sample the old image. Super's `Content`
+  enforces it one level up: a texture can't be unloaded while a live mesh names it.
 - Queuing allocates nothing when nothing is destroyed. The queue is two fixed lists,
   one per frame slot, that grow only on first use.
 
