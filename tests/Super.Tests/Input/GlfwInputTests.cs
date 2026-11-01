@@ -22,6 +22,14 @@ public class GlfwInputTests
     }
 
     [Fact]
+    public void The_first_slot_that_is_a_gamepad_is_used()
+    {
+        Assert.Equal(2, GlfwInput.FirstGamepad(slot => slot == 2 || slot == 5));
+        Assert.Equal(0, GlfwInput.FirstGamepad(_ => true));
+        Assert.Equal(-1, GlfwInput.FirstGamepad(_ => false));
+    }
+
+    [Fact]
     public void Cursor_positions_scale_to_the_framebuffer()
     {
         Assert.Equal(new Vector2(200f, 100f), GlfwInput.ToFramebuffer(100, 50, 1000, 500, 2000, 1000));

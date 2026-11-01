@@ -123,6 +123,51 @@ public class InputTests
     }
 
     [Fact]
+    public void Triggers_rest_at_zero_before_any_gamepad_is_seen()
+    {
+        var input = new Input { Readable = true };
+        input.Roll();
+        Assert.Equal(0f, input.Trigger(GamepadTrigger.Left));
+        Assert.Equal(0f, input.Trigger(GamepadTrigger.Right));
+    }
+
+    [Fact]
+    public void Two_taps_in_back_to_back_ticks_each_press_and_release()
+    {
+        var input = new Input { Readable = true };
+        input.KeyDown(Key.Space);
+        input.KeyUp(Key.Space);
+        input.Roll();
+        Assert.True(input.Pressed(Key.Space));
+        Assert.False(input.Released(Key.Space));
+
+        input.KeyDown(Key.Space);
+        input.KeyUp(Key.Space);
+        input.Roll();
+        Assert.True(input.Pressed(Key.Space));
+        Assert.True(input.Released(Key.Space));
+
+        input.Roll();
+        Assert.False(input.Pressed(Key.Space));
+        Assert.True(input.Released(Key.Space));
+    }
+
+    [Fact]
+    public void A_tap_followed_by_a_hold_still_releases_the_tap()
+    {
+        var input = new Input { Readable = true };
+        input.KeyDown(Key.Space);
+        input.KeyUp(Key.Space);
+        input.Roll();
+
+        input.KeyDown(Key.Space);
+        input.Roll();
+        Assert.True(input.Pressed(Key.Space));
+        Assert.True(input.Released(Key.Space));
+        Assert.True(input.Down(Key.Space));
+    }
+
+    [Fact]
     public void Triggers_map_to_zero_to_one()
     {
         var input = Create();

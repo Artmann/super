@@ -25,8 +25,8 @@ public sealed class Input
     private readonly ButtonSet _keys = new(KeyCount);
     private readonly ButtonSet _mouseButtons = new(MouseButtonCount);
     private readonly ButtonSet _gamepadButtons = new(GamepadButtonCount);
-    private readonly float[] _pendingAxes = new float[GamepadAxisCount];
-    private readonly float[] _axes = new float[GamepadAxisCount];
+    private readonly float[] _pendingAxes = RestingAxes();
+    private readonly float[] _axes = RestingAxes();
     private readonly List<IInputListener> _listeners = [];
     private readonly StringBuilder _typing = new();
 
@@ -196,6 +196,9 @@ public sealed class Input
         return value;
     }
 
+    /// <summary>Sticks centred and triggers at rest, which GLFW reports as -1.</summary>
+    private static float[] RestingAxes() => [0f, 0f, 0f, 0f, -1f, -1f];
+
     /// <summary>A set of buttons with the same press, hold and release rules.</summary>
     private sealed class ButtonSet(int count)
     {
@@ -237,17 +240,18 @@ public sealed class Input
             foreach (ref var state in _states.AsSpan())
             {
                 state.Pressed = state.WentDown;
+                // A tap owed a release from the last tick still gets it, even if the button went down again.
                 if (state.Physical)
                 {
                     state.Down = true;
-                    state.Released = state.WentUp;
+                    state.Released = state.WentUp || state.PendingRelease;
                     state.PendingRelease = false;
                 }
                 else if (state.WentDown)
                 {
                     // A tap inside one tick: held for this tick, let go on the next.
                     state.Down = true;
-                    state.Released = false;
+                    state.Released = state.PendingRelease;
                     state.PendingRelease = true;
                 }
                 else

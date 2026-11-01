@@ -123,5 +123,14 @@ internal readonly record struct Source(SourceKind Kind, int Code)
         _ => 0f,
     };
 
+    /// <summary>Whether a key or button source went down since the last tick.</summary>
+    public bool ReadPressed(Input input) => Kind switch
+    {
+        SourceKind.Key => input.Pressed((Key)Code),
+        SourceKind.MouseButton => input.Pressed((MouseButton)Code),
+        SourceKind.GamepadButton => input.Pressed((GamepadButton)Code),
+        _ => false,
+    };
+
     public Vector2 ReadStick(Input input) => input.Stick((GamepadStick)Code);
 }

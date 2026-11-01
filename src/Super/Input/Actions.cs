@@ -81,6 +81,7 @@ public sealed class Actions<TControl> : IInputListener
         {
             ref var state = ref _states[i];
             bool wasDown = state.Down;
+            bool tapped = false;
             if (state.HasOverride)
             {
                 state.Vector = state.OverrideVector;
@@ -88,26 +89,29 @@ public sealed class Actions<TControl> : IInputListener
             }
             else
             {
-                Evaluate(_bindings[i], out state.Vector, out state.Value);
+                Evaluate(_bindings[i], out state.Vector, out state.Value, out tapped);
             }
 
+            // A button tapped again before its release landed is a new press, even though Down never dropped.
             state.Down = state.Value > DownThreshold;
-            state.Pressed = state.Down && !wasDown;
+            state.Pressed = state.Down && (!wasDown || tapped);
             state.Released = !state.Down && wasDown;
         }
     }
 
-    private void Evaluate(List<Binding> bindings, out Vector2 vector, out float value)
+    private void Evaluate(List<Binding> bindings, out Vector2 vector, out float value, out bool tapped)
     {
         var clamped = Vector2.Zero;
         var free = Vector2.Zero;
         bool button = false;
+        tapped = false;
         foreach (var binding in bindings)
         {
             switch (binding.Kind)
             {
                 case BindingKind.Button:
                     button |= binding.First.Read(_input) > 0f;
+                    tapped |= binding.First.ReadPressed(_input);
                     break;
                 case BindingKind.Trigger:
                     clamped.X += binding.First.Read(_input) * binding.Scale;

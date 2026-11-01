@@ -35,11 +35,13 @@ internal sealed unsafe class GameWindow : IDisposable
     private GlfwCallbacks.CursorPosCallback? _onCursorPos;
     private GlfwCallbacks.ScrollCallback? _onScroll;
     private GlfwCallbacks.CharCallback? _onChar;
+    private readonly Func<int, bool> _isGamepad;
     private bool _mouseCaptured;
 
     public GameWindow(string title, int windowWidth, int windowHeight, bool hidden, bool validate, bool disableVsync)
     {
         _glfw = Glfw.GetApi();
+        _isGamepad = slot => _glfw.JoystickIsGamepad(slot);
         if (!_glfw.Init())
         {
             throw new InvalidOperationException("Could not initialize GLFW.");
@@ -336,7 +338,8 @@ internal sealed unsafe class GameWindow : IDisposable
     /// <summary>Reads the first gamepad, if one is plugged in, so a tick sees it as it is now.</summary>
     private void PollGamepad(Input input)
     {
-        if (_glfw.JoystickIsGamepad(0) && _glfw.GetGamepadState(0, out GamepadState state))
+        int slot = GlfwInput.FirstGamepad(_isGamepad);
+        if (slot >= 0 && _glfw.GetGamepadState(slot, out GamepadState state))
         {
             for (int i = 0; i < Input.GamepadAxisCount; i++)
             {

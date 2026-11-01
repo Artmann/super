@@ -20,6 +20,28 @@ public class ActionsTests
         [leftX, leftY, rightX, rightY, leftTrigger, rightTrigger];
 
     [Fact]
+    public void Two_taps_in_back_to_back_ticks_are_two_action_presses()
+    {
+        var (input, actions) = Create();
+        actions.Bind(Control.Jump, Key.Space);
+
+        input.KeyDown(Key.Space);
+        input.KeyUp(Key.Space);
+        input.Roll();
+        Assert.True(actions.Pressed(Control.Jump));
+
+        input.KeyDown(Key.Space);
+        input.KeyUp(Key.Space);
+        input.Roll();
+        Assert.True(actions.Pressed(Control.Jump));
+        Assert.True(actions.Down(Control.Jump));
+
+        input.Roll();
+        Assert.False(actions.Pressed(Control.Jump));
+        Assert.True(actions.Released(Control.Jump));
+    }
+
+    [Fact]
     public void A_button_binding_presses_and_releases()
     {
         var (input, actions) = Create();
