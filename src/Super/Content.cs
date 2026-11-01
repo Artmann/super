@@ -1,5 +1,7 @@
 using System.Numerics;
 using Rendition;
+using StbImageSharp;
+using Super.Ui;
 
 namespace Super;
 
@@ -22,6 +24,7 @@ public sealed class Content
 
     private readonly List<object> _items = [];
     private readonly Dictionary<string, ModelRef> _models = [];
+    private readonly Dictionary<string, GameImage> _images = [];
     private readonly Dictionary<(Type Type, string Folder), ICatalog> _catalogs = [];
     private readonly List<ContentReference> _waiting = [];
     private readonly ContentReader _reader;
@@ -86,6 +89,32 @@ public sealed class Content
         }
 
         return model;
+    }
+
+    /// <summary>
+    /// Names an image, by its path inside the content folder. Naming it again gives the
+    /// same one. A file that's missing or isn't an image stops here with a
+    /// <see cref="ContentException"/>. It's a catalog's mistake, not a drawing one.
+    /// </summary>
+    public GameImage Image(string path)
+    {
+        if (_images.TryGetValue(path, out var known))
+        {
+            return known;
+        }
+
+        byte[] file = ReadImage(path);
+        using var stream = new MemoryStream(file);
+        if (ImageInfo.FromStream(stream) is not { } info)
+        {
+            throw new ContentException([$"{path} is not an image this can read"]);
+        }
+
+        // The item's place is its index, as for models, because index 0 is the built-in cube.
+        var image = new GameImage(path, info.Width, info.Height, file, _items.Count + 1);
+        _items.Add(image);
+        _images.Add(path, image);
+        return image;
     }
 
     /// <summary>Hands over a surface made by code.</summary>
@@ -277,6 +306,18 @@ public sealed class Content
         }
 
         return stillWaiting;
+    }
+
+    private byte[] ReadImage(string path)
+    {
+        try
+        {
+            return _files.Read(path);
+        }
+        catch (Exception problem) when (problem is IOException or UnauthorizedAccessException or KeyNotFoundException)
+        {
+            throw new ContentException([$"Could not read the image {path}: {problem.Message}"]);
+        }
     }
 
     private ModelRef Add(object item)

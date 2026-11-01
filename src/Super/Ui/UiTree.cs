@@ -16,6 +16,7 @@ public sealed class UiTree
 {
     private readonly List<OverlayQuad> _quads = [];
     private readonly List<ShownText> _shownText = [];
+    private readonly List<(int Quad, GameImage Image)> _imageQuads = [];
     private readonly List<Clip?> _clips = [];
     private readonly List<float> _opacities = [];
     private GlyphAtlas? _atlas;
@@ -70,6 +71,27 @@ public sealed class UiTree
     internal void AddQuad(UiRect frame, Vector2 uvMin, Vector2 uvMax, Color color)
     {
         Add(frame, new OverlayQuad { UvMin = uvMin, UvMax = uvMax, Color = Faded(color) });
+    }
+
+    /// <summary>Draws part of an image. The renderer says which texture that is at <see cref="BindImages"/>.</summary>
+    internal void AddImage(UiRect frame, Vector2 uvMin, Vector2 uvMax, Color tint, GameImage image)
+    {
+        int quad = _quads.Count;
+        AddQuad(frame, uvMin, uvMax, tint);
+        if (_quads.Count > quad)
+        {
+            _imageQuads.Add((quad, image));
+        }
+    }
+
+    /// <summary>Writes the texture of each image quad, which only the renderer knows.</summary>
+    internal void BindImages(Func<GameImage, int> textureIndex)
+    {
+        var quads = CollectionsMarshal.AsSpan(_quads);
+        foreach (var (quad, image) in _imageQuads)
+        {
+            quads[quad].TextureIndex = textureIndex(image);
+        }
     }
 
     internal void AddText(string text, UiRect frame)
@@ -177,6 +199,7 @@ public sealed class UiTree
     private void Layout()
     {
         _quads.Clear();
+        _imageQuads.Clear();
         _shownText.Clear();
         if (_root is null)
         {

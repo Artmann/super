@@ -1,5 +1,6 @@
 using System.Numerics;
 using Rendition;
+using StbImageSharp;
 using Super.Profiling;
 using Super.Ui;
 
@@ -17,19 +18,24 @@ internal sealed class SceneRenderer : IDisposable
     private readonly DirectionalLight[] _lights = new DirectionalLight[MaxLights];
     private readonly Dictionary<int, ColoredMaterial> _coloredMaterials = [];
 
-    /// <summary>The parts of each model, by <see cref="ModelRef.Index"/>.</summary>
-    private readonly ContentLoader<DrawItem[]> _models;
+    /// <summary>Everything content names, by <see cref="ModelRef.Index"/> or <see cref="GameImage.Index"/>.</summary>
+    private readonly ContentLoader<LoadedItem> _items;
+
+    /// <summary>Kept, since asking for a new one each frame would be garbage.</summary>
+    private readonly Func<GameImage, int> _textureOf;
 
     private DrawItem[] _draws = new DrawItem[64];
     private Vector3 _bakedWater;
     private int _uploadedAtlas;
+    private Content? _content;
 
     public SceneRenderer(RendererOptions options)
     {
         _renderer = new Renderer(options);
         _defaultMaterial = _renderer.CreateMaterial(CreateMaterial(new Vector3(0.7f)));
-        _models = new ContentLoader<DrawItem[]>(
-            [_renderer.CreateDrawItem(Cube.Vertices, Cube.Indices, _defaultMaterial)], PrepareItem, Upload);
+        _items = new ContentLoader<LoadedItem>(
+            new LoadedItem([_renderer.CreateDrawItem(Cube.Vertices, Cube.Indices, _defaultMaterial)], default), PrepareItem, Upload);
+        _textureOf = image => OverlayQuad.For(_items.Get(image.Index, _content!).Texture);
         _renderer.SetEnvironment(new EnvironmentDescription
         {
             Ceiling = new Vector3(0.45f, 0.5f, 0.6f),
@@ -78,7 +84,7 @@ internal sealed class SceneRenderer : IDisposable
         foreach (var (model, count) in copies)
         {
             string name = model > 0 && content.Items[model - 1] is string path ? path : model > 0 ? "generated mesh" : "cube";
-            costs.Add(new ModelCost(name, count, _models.Get(model, content).Sum(part => (long)part.IndexCount) / 3));
+            costs.Add(new ModelCost(name, count, _items.Get(model, content).Parts.Sum(part => (long)part.IndexCount) / 3));
         }
 
         return costs;
@@ -136,7 +142,7 @@ internal sealed class SceneRenderer : IDisposable
 
     private void Prepare(Content content, View view)
     {
-        _models.Update(content);
+        _items.Update(content);
 
         // Surfaces pick up the color of the water around them.
         var water = view.WaterSettings;
@@ -164,6 +170,12 @@ internal sealed class SceneRenderer : IDisposable
             });
             _uploadedAtlas = ui.Atlas.Version;
         }
+
+        if (view.Ui is { } shown)
+        {
+            _content = content;
+            shown.BindImages(_textureOf);
+        }
     }
 
     /// <summary>The part of loading that needs no GPU, so it runs on a background thread.</summary>
@@ -174,15 +186,32 @@ internal sealed class SceneRenderer : IDisposable
             return ModelData.Read(FindCooked(path));
         }
 
+        if (item is GameImage image)
+        {
+            var decoded = ImageResult.FromMemory(image.File, ColorComponents.RedGreenBlueAlpha);
+            return new TextureData
+            {
+                Width = decoded.Width,
+                Height = decoded.Height,
+                Kind = TextureKind.Color,
+                Mips = ImageMips.Build(decoded.Width, decoded.Height, decoded.Data),
+            };
+        }
+
         var mesh = (GeneratedMesh)item;
         return new PreparedMesh(mesh, BuildMips(mesh.Texture));
     }
 
-    private DrawItem[] Upload(object prepared)
+    private LoadedItem Upload(object prepared)
     {
+        if (prepared is TextureData picture)
+        {
+            return new LoadedItem([], _renderer.CreateTexture(picture));
+        }
+
         if (prepared is not PreparedMesh(var mesh, var mips))
         {
-            return _renderer.CreateModel((ModelData)prepared);
+            return new LoadedItem(_renderer.CreateModel((ModelData)prepared), default);
         }
 
         var texture = _renderer.CreateTexture(new TextureData
@@ -198,7 +227,7 @@ internal sealed class SceneRenderer : IDisposable
             Roughness = mesh.Roughness,
             BaseColorTexture = texture,
         });
-        return [_renderer.CreateDrawItem(mesh.Vertices, mesh.Indices, material)];
+        return new LoadedItem([_renderer.CreateDrawItem(mesh.Vertices, mesh.Indices, material)], default);
     }
 
     private int PrepareDraws(View view, Content content)
@@ -206,7 +235,7 @@ internal sealed class SceneRenderer : IDisposable
         int count = 0;
         foreach (ref readonly var draw in view.Drawn)
         {
-            var parts = _models.Get(draw.Model.Index, content);
+            var parts = _items.Get(draw.Model.Index, content).Parts;
             if (count + parts.Length > _draws.Length)
             {
                 Array.Resize(ref _draws, (count + parts.Length) * 2);
@@ -284,4 +313,7 @@ internal sealed class SceneRenderer : IDisposable
     private readonly record struct ColoredMaterial(MaterialHandle Handle, Vector3 Color);
 
     private sealed record PreparedMesh(GeneratedMesh Mesh, byte[][] Mips);
+
+    /// <summary>A model has parts and an image has a texture.</summary>
+    private sealed record LoadedItem(DrawItem[] Parts, TextureHandle Texture);
 }
