@@ -35,6 +35,11 @@ public sealed class HeadlessRun<TGame> : IDisposable
     /// <summary>Key presses, clicks and actions to play. They land on the next tick.</summary>
     public ScriptedInput Input { get; }
 
+    /// <summary>The game's states, to check where it is or to jump there. A jump lands at the end of the next tick.</summary>
+    public States<TState> States<TState>()
+        where TState : struct, Enum =>
+        (States<TState>)_host.GetService(typeof(States<TState>));
+
     /// <summary>What the last Draw would have shown.</summary>
     public IReadOnlyList<ModelDraw> Drawn => _host.View.Drawn.ToArray();
 

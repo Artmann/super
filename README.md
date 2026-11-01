@@ -126,7 +126,7 @@ class Woodcutting(Colony colony, Pathfinder paths, GameRandom random, EventLog l
 
 Dependency injection is the standard `Microsoft.Extensions.DependencyInjection`
 container, so it works just like ASP.NET. `GameTime`, `Content`, `GameRandom`, `Input`,
-`EventLog` and logging are already registered. Everything is wired up at startup, and
+`States<T>`, `EventLog` and logging are already registered. Everything is wired up at startup, and
 nothing is looked up while the game runs. Super keeps no global state, so several
 games can run side by side in one process.
 
@@ -460,6 +460,65 @@ back to free it.
 | `Binding.Axis(Key.Q, Key.E)` | -1, 0 or 1 from two buttons or triggers |
 | `Binding.Composite(up, down, left, right)`, `Keys.WASD`, `Keys.Arrows` | A direction from four buttons |
 | `Mouse.Delta`, `Mouse.Scroll` | Pixels moved or notches turned this tick, unclamped |
+
+## Game states
+
+A menu, a loading screen, the house and the outside are all states of one game. Name them
+with your own enum and ask for `States<YourEnum>`. There's nothing to register.
+
+```csharp
+public enum Screen { Menu, House, Outside }
+
+public class MyGame(States<Screen> screen, Actions<Control> actions) : IGame
+{
+    public void Load()
+    {
+        screen.OnEnter(Screen.House, BuildHouse);
+        screen.OnExit(Screen.House, SaveHouse);
+    }
+
+    public void Update(GameTime time)
+    {
+        if (screen.Is(Screen.Menu) && actions.Pressed(Control.Start))
+        {
+            screen.Set(Screen.House);
+        }
+
+        if (screen.Is(Screen.House))
+        {
+            _walking.Update(time);
+        }
+    }
+}
+```
+
+Moving between states never deletes anything by itself. There's one game, so whatever
+isn't tied to a state simply carries through: a player, an inventory, a score. Nothing has
+to be handed from one scene to the next. To remove what belonged to a state, do it in
+`OnExit`, or see [cleaning up entities](#entities-that-belong-to-a-state).
+
+A game starts in the first value of the enum, unless `Load` calls `Set`. Its `OnEnter`
+callbacks run after `Load`, before the first tick.
+
+`Set` is a request. The rest of the tick finishes in the old state, then the exit
+callbacks run, then the enter callbacks, and the Draw after that shows the new state. So
+every system in a tick sees the same state, whatever order they run in.
+
+- `Is` is how a system says where it runs. It's a plain `if`, so you still decide what
+  runs and in what order.
+- `Previous` is the state you came from, so entering the house can put the player at the
+  right door.
+- `Set` from an enter callback moves straight on, in the same tick. More than 32 changes
+  in one tick throws, because that's two states sending each other back and forth.
+- `Set` to the current state does nothing. If a tick calls `Set` twice, the last one wins.
+- `Set` in `Draw` or `Ui` throws, and enter and exit callbacks can't read input, for the
+  same reason `Load` can't: input belongs to `Update`.
+
+Pausing is a second enum, `States<Pause>`. Each enum runs on its own, so a game can be
+paused in any area without a state for each combination.
+
+In tests, `run.States<Screen>()` shows where the game is, and can jump there directly so
+a test doesn't have to play through the menu.
 
 ## Content: JSON files
 

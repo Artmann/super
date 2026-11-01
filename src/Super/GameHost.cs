@@ -15,6 +15,7 @@ internal sealed class GameHost<TGame> : IDisposable
 
     private readonly ServiceProvider _services;
     private readonly ITickHook[] _hooks;
+    private readonly StateChanges _changes;
 
     public GameHost(int seed, int ticksPerSecond, Action<IServiceCollection>? configure)
     {
@@ -25,6 +26,8 @@ internal sealed class GameHost<TGame> : IDisposable
         services.AddSingleton<Content>();
         services.AddSingleton<Input>();
         services.AddSingleton(typeof(Actions<>));
+        services.AddSingleton<StateChanges>();
+        services.AddSingleton(typeof(States<>));
         services.AddSingleton<GameCapture>();
         services.AddSingleton<GameStats>();
         services.AddSingleton<TGame>();
@@ -41,7 +44,10 @@ internal sealed class GameHost<TGame> : IDisposable
         Stats = _services.GetRequiredService<GameStats>();
         Game = _services.GetRequiredService<TGame>();
         _hooks = _services.GetServices<ITickHook>().ToArray();
+        _changes = _services.GetRequiredService<StateChanges>();
+        _changes.Hooks = _services.GetServices<IStateHook>().ToArray();
         ((IGame)Game).Load();
+        _changes.Apply();
     }
 
     public TGame Game { get; }
@@ -82,11 +88,15 @@ internal sealed class GameHost<TGame> : IDisposable
 
         Game.Update(Time);
         Input.Readable = false;
+
+        // Last, so all of Update saw one state and the next Draw shows the new one.
+        _changes.Apply();
         Time.Tick++;
     }
 
     public void Draw(float blend)
     {
+        _changes.Open = false;
         View.Begin(blend);
         Game.Draw(View);
 
@@ -96,6 +106,7 @@ internal sealed class GameHost<TGame> : IDisposable
         Ui.Update(((IGame)Game).Ui, ScreenWidth, ScreenHeight);
         View.Ui = Ui;
         Stats.Resume();
+        _changes.Open = true;
     }
 
     public void Dispose() => _services.Dispose();
