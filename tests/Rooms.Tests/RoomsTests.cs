@@ -76,6 +76,59 @@ public class RoomsTests
     }
 
     [Fact]
+    public void Clicking_the_ground_walks_there()
+    {
+        using var run = Start(1);
+        Into(run, Screen.House);
+
+        var pixel = new Vector2(760f, 300f);
+        var spot = run.Game.Camera.Ray(pixel, new Vector2(1280f, 720f)).Ground()!.Value;
+        run.Input.Click(MouseButton.Left, pixel);
+        run.Ticks(120);
+        Assert.True(Vector3.Distance(spot, Player(run)) < 0.01f, $"Expected {spot}, got {Player(run)}");
+    }
+
+    [Fact]
+    public void A_key_takes_over_from_a_click()
+    {
+        using var run = Start(1);
+        Into(run, Screen.House);
+        run.Input.Click(MouseButton.Left, new Vector2(760f, 300f));
+        run.Ticks(2);
+
+        var before = Player(run);
+        run.Input.Hold(Control.Move, -Vector2.UnitX);
+        run.Ticks(5);
+        Assert.True(Player(run).X < before.X);
+    }
+
+    [Fact]
+    public void The_door_lid_starts_shut_and_lifts_as_the_player_comes_close()
+    {
+        using var run = Start(1);
+        Into(run, Screen.House);
+        float Lid() => run.Drawn.Single(model => model.Key == -1).Transform.Translation.Y;
+        Assert.Equal(0.6f, Lid(), 3);
+
+        WalkTo(run, RoomsGame.HouseDoor - new Vector3(0f, 0f, 1.5f));
+        run.Ticks(30);
+        Assert.Equal(1.6f, Lid(), 3);
+    }
+
+    [Fact]
+    public void A_coin_makes_a_sparkle_that_fades()
+    {
+        using var run = Start(1);
+        Into(run, Screen.Outside);
+        WalkTo(run, run.Game.CoinPositions()[0]);
+        Assert.True(run.Game.Coins > 0);
+        Assert.Contains(run.Drawn, model => model.Key == -2);
+
+        run.Ticks(30);
+        Assert.DoesNotContain(run.Drawn, model => model.Key == -2);
+    }
+
+    [Fact]
     public void Walking_through_the_door_goes_outside_and_back()
     {
         using var run = Start(1);

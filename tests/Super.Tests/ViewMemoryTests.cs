@@ -21,6 +21,8 @@ public class ViewMemoryTests
 
     private bool Open(bool value) => _view.Changed(1, value);
 
+    private bool Seen<T>(T value) => _view.Changed(1, value);
+
     [Fact]
     public void A_new_key_goes_straight_to_its_target()
     {
@@ -90,7 +92,6 @@ public class ViewMemoryTests
         _tick += 4;
         Frame();
         float halfway = Lid(1f);
-        Frame();
         Assert.Equal(halfway, Lid(0f), 3);
     }
 
@@ -160,10 +161,11 @@ public class ViewMemoryTests
     public void Changes_of_different_types_keep_apart()
     {
         Frame();
-        _view.Changed(1, 5);
-        _view.Changed(1, "text");
+        Seen(5);
+        Seen("text");
         Frame();
-        Assert.True(_view.Changed(1, 6));
+        Seen("text");
+        Assert.True(Seen(6));
     }
 
     [Fact]

@@ -108,7 +108,7 @@ internal sealed class GameHost<TGame> : IDisposable
     public void Draw(float blend)
     {
         _changes.Open = false;
-        View.Begin(blend);
+        View.Begin(blend, Time.Tick, Time.TickSeconds);
         Game.Draw(View);
 
         // The interface runs outside the measurement, so a stats panel reports the game

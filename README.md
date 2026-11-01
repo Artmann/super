@@ -168,6 +168,15 @@ you pass. The first time Super sees a key, the value goes straight to its target
 when a player loads a save, open boxes are simply open, with no animation and no creak.
 When `IsOpen` changes during play, the lid swings.
 
+`view.Animate` eases from where the value is to the target over the seconds you ask for,
+and follows game time, so the frame rate doesn't change it. `view.Changed` is true on the
+one frame a value differs from last frame. Both work with any number of things, and a
+running game allocates nothing for them once each key has been seen.
+
+Memory lasts as long as you keep drawing. If a frame doesn't ask for a key, Super forgets
+it, so a box that comes back into view appears finished instead of replaying. Don't call
+`Animate` only while something is moving, or it will never move.
+
 Worlds in Super are flat: a list of things you draw, not a tree of nodes. To attach one
 thing to another, multiply their transforms, or ask for a bone on the parent's pose:
 
@@ -182,13 +191,19 @@ A key names something across frames, like a `key` in React. Super uses it for vi
 memory, and to tell the renderer where an object was last frame, which keeps moving
 things crisp. Use a stable ID from your game, and the same one every frame.
 
+View memory also belongs to the line of code asking, like the order of hooks in React. So
+a lid and a latch on one box can both use the box's ID, and a box and a tree with the same
+ID can't get mixed up. Two calls from one line with one key share their memory, so give
+each its own key.
+
 ### Things that rarely change
 
 A city might have 50,000 walls. Describing them all 60 times a second is wasteful, so
-wrap them in `Cached`. It runs your function again only when the version changes:
+wrap them in `Cached`. It runs your function again only when the version changes. The
+key says which chunk this is, and your `Update` adds one to the version when a wall moves:
 
 ```csharp
-view.Cached(chunk.Version, chunk, static (chunk, view) =>
+view.Cached(chunk.Id, chunk.Version, chunk, static (chunk, view) =>
 {
     foreach (ref readonly var wall in chunk.Walls)
     {
@@ -196,6 +211,10 @@ view.Cached(chunk.Version, chunk, static (chunk, view) =>
     }
 });
 ```
+
+`Cached` keeps models and nothing else, so lights, the camera and anything that animates
+go outside it. It saves your code describing them, but the models still reach the
+renderer each frame.
 
 ### State or view?
 
@@ -292,6 +311,10 @@ if (tree.FellAt is { } fellAt)
     view.Particles(tree.Id, dust, tree.Position, age: view.SecondsSince(fellAt));
 }
 ```
+
+`FellAt` is `time.Tick` from the `Update` where the tree fell. `view.SecondsSince` works
+today for anything that plays out from a moment in time. `view.Particles` doesn't exist
+yet.
 
 ### Materials and the look of the picture
 
@@ -1112,7 +1135,10 @@ Models are cooked into a fast format by the import tool. The
 ## What's not here yet
 
 - **Animation and particles.** The API above is the plan, but Rendition can't play
-  skeletons or draw particles yet.
+  skeletons or draw particles yet. `view.Animate` moves numbers, which you can use on
+  a transform, but `AnimationRef` and `view.Bone` don't exist.
+- **Picking by shape.** Clicks are tested against balls, boxes and the ground, not a
+  model's triangles.
 - **Large numbers of objects.** Rendition's efficiency with many thousands of objects
   still has to be measured and improved.
 - **Physics.** Not in the first version. Gameplay physics has to give repeatable
