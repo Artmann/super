@@ -18,8 +18,8 @@ internal sealed class SceneRenderer : IDisposable
     private readonly DirectionalLight[] _lights = new DirectionalLight[MaxLights];
     private readonly Dictionary<int, ColoredMaterial> _coloredMaterials = [];
 
-    /// <summary>Everything content names, by <see cref="ModelRef.Index"/> or <see cref="GameImage.Index"/>.</summary>
-    private readonly ContentLoader<LoadedItem> _items;
+    /// <summary>Everything the content named, by the index its ref carries.</summary>
+    private readonly ContentLoader<Loaded> _items;
 
     /// <summary>Kept, since asking for a new one each frame would be garbage.</summary>
     private readonly Func<GameImage, int> _textureOf;
@@ -33,9 +33,11 @@ internal sealed class SceneRenderer : IDisposable
     {
         _renderer = new Renderer(options);
         _defaultMaterial = _renderer.CreateMaterial(CreateMaterial(new Vector3(0.7f)));
-        _items = new ContentLoader<LoadedItem>(
-            new LoadedItem([_renderer.CreateDrawItem(Cube.Vertices, Cube.Indices, _defaultMaterial)], default), PrepareItem, Upload);
-        _textureOf = image => OverlayQuad.For(_items.Get(image.Index, _content!).Texture);
+        _items = new ContentLoader<Loaded>(
+            new LoadedModel([_renderer.CreateDrawItem(Cube.Vertices, Cube.Indices, _defaultMaterial)], null, null),
+            PrepareItem,
+            Upload);
+        _textureOf = image => OverlayQuad.For(Require<LoadedTexture>(image.Index, _content!).Handle);
         _renderer.SetEnvironment(new EnvironmentDescription
         {
             Ceiling = new Vector3(0.45f, 0.5f, 0.6f),
@@ -84,7 +86,7 @@ internal sealed class SceneRenderer : IDisposable
         foreach (var (model, count) in copies)
         {
             string name = model > 0 && content.Items[model - 1] is string path ? path : model > 0 ? "generated mesh" : "cube";
-            costs.Add(new ModelCost(name, count, _items.Get(model, content).Parts.Sum(part => (long)part.IndexCount) / 3));
+            costs.Add(new ModelCost(name, count, Parts(model, content).Sum(part => (long)part.IndexCount) / 3));
         }
 
         return costs;
@@ -112,37 +114,57 @@ internal sealed class SceneRenderer : IDisposable
         throw new FileNotFoundException($"Could not find {path} in {CookedFolder}. Assets aren't in git, so it may need cooking first.", path);
     }
 
-    private static byte[][] BuildMips(GeneratedTexture texture)
+    /// <summary>Decodes a named texture and builds its mips. Runs on the background thread.</summary>
+    internal static TextureData LoadTexture(TextureItem item)
     {
-        var mips = new List<byte[]> { texture.Pixels };
-        for (int size = texture.Size; size > 1; size /= 2)
+        if (item.Generated is { } generated)
         {
-            byte[] source = mips[^1];
-            int half = size / 2;
-            byte[] mip = new byte[half * half * 4];
-            for (int y = 0; y < half; y++)
-            {
-                for (int x = 0; x < half; x++)
-                {
-                    for (int channel = 0; channel < 4; channel++)
-                    {
-                        int top = (y * 2 * size + x * 2) * 4 + channel;
-                        int bottom = top + size * 4;
-                        int sum = source[top] + source[top + 4] + source[bottom] + source[bottom + 4];
-                        mip[(y * half + x) * 4 + channel] = (byte)(sum / 4);
-                    }
-                }
-            }
-
-            mips.Add(mip);
+            return TextureData.FromPixels(generated.Size, generated.Size, item.Kind, generated.Pixels, item.NormalMap);
         }
 
-        return mips.ToArray();
+        var image = ImageResult.FromMemory(item.Files.Read(item.Path!), ColorComponents.RedGreenBlueAlpha);
+        return TextureData.FromPixels(image.Width, image.Height, item.Kind, image.Data, item.NormalMap);
+    }
+
+    /// <summary>Decodes an interface image and builds its mips. Runs on the background thread.</summary>
+    private static TextureData LoadImage(GameImage image)
+    {
+        var decoded = ImageResult.FromMemory(image.File, ColorComponents.RedGreenBlueAlpha);
+        return new TextureData
+        {
+            Width = decoded.Width,
+            Height = decoded.Height,
+            Kind = TextureKind.Color,
+            Mips = ImageMips.Build(decoded.Width, decoded.Height, decoded.Data),
+        };
+    }
+
+    private static byte[] LoadShader(string name)
+    {
+        // Shaders.targets keeps the source extension, so Shaders/terrain.frag becomes shaders/terrain.frag.spv.
+        string path = Path.Combine(AppContext.BaseDirectory, "shaders", name + ".frag.spv");
+        if (!File.Exists(path))
+        {
+            throw new FileNotFoundException(
+                $"Could not find the shader {name}: expected {path}. Shaders/{name}.frag compiles to it when the project imports src/Shaders.targets.",
+                path);
+        }
+
+        return File.ReadAllBytes(path);
     }
 
     private void Prepare(Content content, View view)
     {
         _items.Update(content);
+        foreach (int index in content.PendingUnloads)
+        {
+            if (_items.Take(index, Unloaded.Instance, content) is { } loaded)
+            {
+                Destroy(loaded);
+            }
+        }
+
+        content.ClearPendingUnloads();
 
         // Surfaces pick up the color of the water around them.
         var water = view.WaterSettings;
@@ -179,55 +201,101 @@ internal sealed class SceneRenderer : IDisposable
     }
 
     /// <summary>The part of loading that needs no GPU, so it runs on a background thread.</summary>
-    private static object PrepareItem(object item)
+    private static object PrepareItem(object item) => item switch
     {
-        if (item is string path)
+        string path => ModelData.Read(FindCooked(path)),
+        ShaderItem shader => LoadShader(shader.Name),
+        TextureItem texture => LoadTexture(texture),
+        TextureArrayItem array => Array.ConvertAll(array.Layers, LoadTexture),
+        GameImage image => LoadImage(image),
+        GeneratedMesh mesh => new PreparedMesh(
+            mesh,
+            mesh.OwnedTexture is { } owned ? TextureData.FromPixels(owned.Size, owned.Size, TextureKind.Color, owned.Pixels) : null),
+        UnloadedItem unloaded => unloaded, // Let go before the window saw it.
+        _ => throw new InvalidOperationException($"Content can't load a {item.GetType().Name}."),
+    };
+
+    private Loaded Upload(object prepared, Content content) => prepared switch
+    {
+        ModelData model => new LoadedModel(_renderer.CreateModel(model), null, null),
+        byte[] spirv => new LoadedShader(_renderer.CreateSurfaceShader(spirv)),
+        TextureData texture => new LoadedTexture(_renderer.CreateTexture(texture)),
+        TextureData[] layers => new LoadedTextureArray(_renderer.CreateTextureArray(layers)),
+        PreparedMesh(var mesh, var owned) => UploadMesh(mesh, owned, content),
+        UnloadedItem => Unloaded.Instance,
+        _ => throw new InvalidOperationException($"Content can't upload a {prepared.GetType().Name}."),
+    };
+
+    /// <summary>Each generated mesh gets its own material, built from what its surface named.</summary>
+    private LoadedModel UploadMesh(GeneratedMesh mesh, TextureData? owned, Content content)
+    {
+        var surface = mesh.Surface;
+        TextureHandle? ownedTexture = owned is null ? null : _renderer.CreateTexture(owned);
+        var material = new Material
         {
-            return ModelData.Read(FindCooked(path));
+            BaseColor = new Vector4(surface.Color, 1f),
+            Roughness = surface.Roughness,
+            Metallic = surface.Metallic,
+            BaseColorTexture = ownedTexture ?? Texture(surface.ColorTexture, content),
+            NormalTexture = Texture(surface.NormalTexture, content),
+            SurfaceTexture = Texture(surface.SurfaceTexture, content),
+            Shader = surface.Shader is { } shader ? Require<LoadedShader>(shader.Index, content).Handle : null,
+        };
+        for (int i = 0; i < surface.Parameters.Length; i++)
+        {
+            material.ShaderParameters[i] = surface.Parameters[i];
         }
 
-        if (item is GameImage image)
+        for (int i = 0; i < surface.ShaderTextures.Length; i++)
         {
-            var decoded = ImageResult.FromMemory(image.File, ColorComponents.RedGreenBlueAlpha);
-            return new TextureData
-            {
-                Width = decoded.Width,
-                Height = decoded.Height,
-                Kind = TextureKind.Color,
-                Mips = ImageMips.Build(decoded.Width, decoded.Height, decoded.Data),
-            };
+            material.ShaderTextures[i] = Texture(surface.ShaderTextures[i], content);
         }
 
-        var mesh = (GeneratedMesh)item;
-        return new PreparedMesh(mesh, BuildMips(mesh.Texture));
+        for (int i = 0; i < surface.ShaderArrays.Length; i++)
+        {
+            material.ShaderArrays[i] = Require<LoadedTextureArray>(surface.ShaderArrays[i].Index, content).Handle;
+        }
+
+        var handle = _renderer.CreateMaterial(material);
+        var part = _renderer.CreateDrawItem(mesh.Vertices, mesh.Indices, handle, mesh.Simplify);
+        return new LoadedModel([part], handle, ownedTexture);
     }
 
-    private LoadedItem Upload(object prepared)
+    private TextureHandle? Texture(TextureRef? texture, Content content) =>
+        texture is { } named ? Require<LoadedTexture>(named.Index, content).Handle : null;
+
+    private T Require<T>(int index, Content content)
+        where T : Loaded =>
+        _items.Get(index, content) as T
+            ?? throw new InvalidOperationException($"Item {index} was unloaded, so nothing can use it.");
+
+    private DrawItem[] Parts(int index, Content content) => Require<LoadedModel>(index, content).Parts;
+
+    /// <summary>Frees what an item made. A model from a file owns its materials and textures; a generated mesh owns one of each.</summary>
+    private void Destroy(Loaded loaded)
     {
-        if (prepared is TextureData picture)
+        switch (loaded)
         {
-            return new LoadedItem([], _renderer.CreateTexture(picture));
-        }
+            case LoadedModel { Material: { } material } generated:
+                _renderer.DestroyMesh(generated.Parts[0].Mesh);
+                _renderer.DestroyMaterial(material);
+                if (generated.OwnedTexture is { } owned)
+                {
+                    _renderer.DestroyTexture(owned);
+                }
 
-        if (prepared is not PreparedMesh(var mesh, var mips))
-        {
-            return new LoadedItem(_renderer.CreateModel((ModelData)prepared), default);
+                break;
+            case LoadedModel model:
+                _renderer.DestroyModel(model.Parts);
+                break;
+            case LoadedTexture texture:
+                _renderer.DestroyTexture(texture.Handle);
+                break;
+            case Unloaded:
+                break;
+            default:
+                throw new InvalidOperationException($"Content can't unload a {loaded.GetType().Name}.");
         }
-
-        var texture = _renderer.CreateTexture(new TextureData
-        {
-            Width = mesh.Texture.Size,
-            Height = mesh.Texture.Size,
-            Kind = TextureKind.Color,
-            Mips = mips,
-        });
-        var material = _renderer.CreateMaterial(new Material
-        {
-            BaseColor = Vector4.One,
-            Roughness = mesh.Roughness,
-            BaseColorTexture = texture,
-        });
-        return new LoadedItem([_renderer.CreateDrawItem(mesh.Vertices, mesh.Indices, material)], default);
     }
 
     private int PrepareDraws(View view, Content content)
@@ -235,7 +303,7 @@ internal sealed class SceneRenderer : IDisposable
         int count = 0;
         foreach (ref readonly var draw in view.Drawn)
         {
-            var parts = _items.Get(draw.Model.Index, content).Parts;
+            var parts = Parts(draw.Model.Index, content);
             if (count + parts.Length > _draws.Length)
             {
                 Array.Resize(ref _draws, (count + parts.Length) * 2);
@@ -291,17 +359,24 @@ internal sealed class SceneRenderer : IDisposable
             };
         }
 
+        var shot = view.Shot;
+        float aspect = width / (float)Math.Max(height, 1);
         return new FrameView
         {
             Width = width,
             Height = height,
-            View = Matrix4x4.CreateLookAt(view.CameraPosition, view.CameraTarget, Vector3.UnitY),
-            Projection = Projection.PerspectiveInfiniteReversedZ(
-                view.CameraFieldOfView, width / (float)Math.Max(height, 1), 0.1f),
-            CameraPosition = view.CameraPosition,
+            View = Matrix4x4.CreateLookAt(shot.Position, shot.Target, shot.Up),
+            Projection = shot.Matrix(aspect),
+            CameraPosition = shot.Eye,
             Time = time,
             Lights = _lights.AsSpan(0, lightCount),
-            Shadows = new ShadowSettings { Center = view.CameraTarget, Radius = view.ShadowRadius, LightAngle = 0.12f },
+            Shadows = new ShadowSettings
+            {
+                Center = shot.Target,
+                Radius = shot.ShadowRadius(view.ShadowRadius, aspect),
+                Cascades = view.ShadowCascades,
+                LightAngle = 0.12f,
+            },
             EnvironmentIntensity = 0.8f,
             BackgroundRadiance = new Vector3(0.15f, 0.16f, 0.18f),
             Post = view.Post,
@@ -312,8 +387,22 @@ internal sealed class SceneRenderer : IDisposable
 
     private readonly record struct ColoredMaterial(MaterialHandle Handle, Vector3 Color);
 
-    private sealed record PreparedMesh(GeneratedMesh Mesh, byte[][] Mips);
+    private sealed record PreparedMesh(GeneratedMesh Mesh, TextureData? OwnedTexture);
 
-    /// <summary>A model has parts and an image has a texture.</summary>
-    private sealed record LoadedItem(DrawItem[] Parts, TextureHandle Texture);
+    private abstract record Loaded;
+
+    /// <summary>A model's parts. Material and OwnedTexture are set for a generated mesh, which made them itself.</summary>
+    private sealed record LoadedModel(DrawItem[] Parts, MaterialHandle? Material, TextureHandle? OwnedTexture) : Loaded;
+
+    private sealed record LoadedShader(SurfaceShaderHandle Handle) : Loaded;
+
+    private sealed record LoadedTexture(TextureHandle Handle) : Loaded;
+
+    private sealed record LoadedTextureArray(TextureArrayHandle Handle) : Loaded;
+
+    /// <summary>Stands where an item used to be, so using it again fails clearly.</summary>
+    private sealed record Unloaded : Loaded
+    {
+        public static Unloaded Instance { get; } = new();
+    }
 }

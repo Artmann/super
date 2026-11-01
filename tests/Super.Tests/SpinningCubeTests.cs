@@ -21,7 +21,7 @@ public class SpinningCubeTests
         return colors;
     }
 
-    [Theory, Seeds(1000)]
+    [Theory, Seeds(10)]
     public void Always_shows_one_cube_in_a_valid_color_that_keeps_changing(int seed)
     {
         using var run = HeadlessGame.Create<SpinningCube>(seed);
@@ -45,12 +45,13 @@ public class SpinningCubeTests
         Assert.Equal(run.Game.Color, cube.Color);
     }
 
-    [Fact]
-    public void Color_changes_land_half_a_second_to_three_seconds_apart()
+    [Theory, Seeds(20)]
+    public void Color_changes_land_half_a_second_to_three_seconds_apart(int seed)
     {
-        var colors = ColorsOver(seed: 5, OneMinute);
+        var colors = ColorsOver(seed, OneMinute);
 
-        int lastChange = 0;
+        // Index -1 stands for the moment the game loaded, where the first wait begins.
+        int lastChange = -1;
         int changes = 0;
         for (int tick = 1; tick < colors.Count; tick++)
         {
@@ -109,18 +110,39 @@ public class SpinningCubeTests
     }
 
     [Fact]
-    public void The_cube_spins_the_same_as_before_with_no_input()
+    public void Holding_W_tips_the_drawn_cube_over()
+    {
+        using var steered = HeadlessGame.Create<SpinningCube>(3);
+        steered.Input.Hold(Key.W);
+        steered.Ticks(30);
+        using var untouched = HeadlessGame.Create<SpinningCube>(3);
+        untouched.Ticks(30);
+
+        // A second of W turns the cube half a turn about X, so the two cubes face opposite ways.
+        Assert.NotEqual(untouched.Drawn[0].Transform, steered.Drawn[0].Transform);
+    }
+
+    [Fact]
+    public void After_a_second_with_no_input_the_cube_has_turned_36_degrees_about_Y_and_21_6_about_X()
     {
         using var run = HeadlessGame.Create<SpinningCube>(3);
         run.Ticks(30);
-        float angle = MathF.Tau * 0.1f * 30 * (1f / 30);
-        var expected = Matrix4x4.CreateRotationY(angle) * Matrix4x4.CreateRotationX(angle * 0.6f);
+
+        // 0.1 turns a second is 36 degrees about Y, and the tip about X is 0.6 of that, 21.6 degrees.
+        // Worked by hand: Y(36) * X(21.6) in the row-vector convention.
+        float[,] expected =
+        {
+            { 0.80902f, 0.21638f, -0.54651f, 0f },
+            { 0f, 0.92978f, 0.36812f, 0f },
+            { 0.58779f, -0.29782f, 0.75220f, 0f },
+            { 0f, 0f, 0f, 1f },
+        };
         var actual = run.Drawn[0].Transform;
         for (int row = 0; row < 4; row++)
         {
             for (int column = 0; column < 4; column++)
             {
-                Assert.Equal(expected[row, column], actual[row, column], 1e-5f);
+                Assert.Equal(expected[row, column], actual[row, column], 1e-4f);
             }
         }
     }

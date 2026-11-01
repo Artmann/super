@@ -16,16 +16,27 @@ public class GameCaptureTests
     {
         string folder = Directory.CreateTempSubdirectory().FullName;
         string path = Path.Combine(folder, "nested", "shot.png");
-        using var capture = new GameCapture();
+        try
+        {
+            using var capture = new GameCapture();
 
-        capture.Screenshot(path);
-        Assert.True(capture.WantsFrame);
+            capture.Screenshot(path);
+            Assert.True(capture.WantsFrame);
 
-        capture.Accept(new byte[4], 1, 1);
+            capture.Accept(new byte[4], 1, 1);
 
-        Assert.True(File.Exists(path));
-        Assert.False(capture.WantsFrame);
-        Directory.Delete(folder, recursive: true);
+            Assert.True(File.Exists(path));
+            Assert.False(capture.WantsFrame);
+
+            // A second frame must not save the shot again.
+            File.Delete(path);
+            capture.Accept(new byte[4], 1, 1);
+            Assert.False(File.Exists(path));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
     }
 
     [Fact]
@@ -67,7 +78,7 @@ public class GameCaptureTests
     [InlineData("clip.avi", 60)]
     [InlineData("clip.mp4", 0)]
     [InlineData("", 60)]
-    public void Explains_a_bad_recording(string path, int framesPerSecond)
+    public void Refuses_a_bad_recording(string path, int framesPerSecond)
     {
         using var capture = new GameCapture();
 

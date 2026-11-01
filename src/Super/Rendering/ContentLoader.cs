@@ -7,7 +7,7 @@ namespace Super;
 /// While streaming, one finished item uploads per frame, so a loading screen keeps moving.
 /// Otherwise everything uploads before the frame is drawn, in the order it was named.
 /// </summary>
-internal sealed class ContentLoader<TLoaded>(TLoaded first, Func<object, object> prepare, Func<object, TLoaded> upload)
+internal sealed class ContentLoader<TLoaded>(TLoaded first, Func<object, object> prepare, Func<object, Content, TLoaded> upload)
     where TLoaded : class
 {
     private readonly List<TLoaded?> _loaded = [first];
@@ -51,14 +51,31 @@ internal sealed class ContentLoader<TLoaded>(TLoaded first, Func<object, object>
     /// <summary>Hands back an item, waiting for it if it isn't ready. Something being drawn can't wait for later.</summary>
     public TLoaded Get(int index, Content content) => _loaded[index] ?? Finish(index, content);
 
+    /// <summary>
+    /// Takes what a slot holds and leaves a marker in its place. An item still being
+    /// prepared is dropped unfinished and counted as loaded, so nothing waits for it.
+    /// </summary>
+    public TLoaded? Take(int index, TLoaded marker, Content content)
+    {
+        var loaded = _loaded[index];
+        _loaded[index] = marker;
+        if (loaded is null)
+        {
+            _preparing[index] = null;
+            content.ItemLoaded(index);
+        }
+
+        return loaded;
+    }
+
     private TLoaded Finish(int index, Content content)
     {
         // Rethrows here, on the main thread, if the background work failed.
         object prepared = _preparing[index]!.GetAwaiter().GetResult();
-        var loaded = upload(prepared);
+        var loaded = upload(prepared, content);
         _loaded[index] = loaded;
         _preparing[index] = null;
-        content.ItemLoaded();
+        content.ItemLoaded(index);
         return loaded;
     }
 }

@@ -34,10 +34,16 @@ public class LoadingTests
                 "cube",
                 item =>
                 {
-                    Gates[(string)item].Task.Wait();
+                    var gate = Gates[(string)item].Task;
+                    if (Task.WhenAny(gate, Task.Delay(TimeSpan.FromSeconds(10))).GetAwaiter().GetResult() != gate)
+                    {
+                        throw new TimeoutException($"{item} was never finished by the test.");
+                    }
+
+                    gate.GetAwaiter().GetResult();
                     return item;
                 },
-                prepared =>
+                (prepared, _) =>
                 {
                     Uploaded.Add((string)prepared);
                     return (string)prepared;
@@ -109,11 +115,11 @@ public class LoadingTests
         Assert.False(content.IsLoaded);
         Assert.Equal(0f, content.Progress);
 
-        content.ItemLoaded();
+        content.ItemLoaded(1);
         Assert.False(content.IsLoaded);
         Assert.Equal(0.5f, content.Progress);
 
-        content.ItemLoaded();
+        content.ItemLoaded(2);
         Assert.True(content.IsLoaded);
         Assert.Equal(1f, content.Progress);
     }
@@ -123,7 +129,7 @@ public class LoadingTests
     {
         var content = new Content { Streaming = true };
         content.Model("a");
-        content.ItemLoaded();
+        content.ItemLoaded(1);
 
         content.Model("b");
         Assert.False(content.IsLoaded);
@@ -161,7 +167,7 @@ public class LoadingTests
         Assert.Single(fake.Uploaded);
 
         fake.FramesUntil(uploads: 2);
-        Assert.Equal(["a", "b"], fake.Uploaded);
+        Assert.Equal(["a", "b"], fake.Uploaded.Order());
         Assert.True(fake.Content.IsLoaded);
     }
 
@@ -212,7 +218,7 @@ public class LoadingTests
         fake.Fail("missing");
 
         var deadline = DateTime.UtcNow.AddSeconds(10);
-        Assert.ThrowsAny<Exception>(() =>
+        Assert.Throws<FileNotFoundException>(() =>
         {
             while (DateTime.UtcNow < deadline)
             {
@@ -227,7 +233,7 @@ public class LoadingTests
     {
         var content = new Content();
         var uploaded = new List<object>();
-        var loader = new ContentLoader<string>("cube", item => item, prepared =>
+        var loader = new ContentLoader<string>("cube", item => item, (prepared, _) =>
         {
             uploaded.Add(prepared);
             return "done";

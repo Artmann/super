@@ -13,13 +13,22 @@ public sealed class ScriptedInput
     private readonly Input _input;
     private readonly Func<Type, object> _resolve;
     private readonly InputScript _tape = new();
-    private readonly float[] _axes = [0f, 0f, 0f, 0f, -1f, -1f];
-    private readonly bool[] _buttons = new bool[15];
+    private readonly float[] _axes = NewAxes();
+    private readonly bool[] _buttons = new bool[Input.GamepadButtonCount];
 
     internal ScriptedInput(Input input, Func<Type, object> resolve)
     {
         _input = input;
         _resolve = resolve;
+    }
+
+    /// <summary>Sticks centred and triggers released, which a pad reports as -1.</summary>
+    private static float[] NewAxes()
+    {
+        float[] axes = new float[Input.GamepadAxisCount];
+        axes[4] = -1f;
+        axes[5] = -1f;
+        return axes;
     }
 
     /// <summary>A tap: down and up before the next tick, so it's pressed on that tick and released on the one after.</summary>

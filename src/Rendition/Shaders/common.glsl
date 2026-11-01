@@ -13,7 +13,7 @@ struct ReflectionProbe {
 layout(std140, set = 0, binding = 0) uniform Frame {
     mat4 viewProjection;
     mat4 inverseViewProjection;
-    mat4 shadowMatrix;
+    mat4 shadowMatrices[4];      // One per cascade, each covering three times the last.
     mat4 previousViewProjection; // Last frame's, without its anti-aliasing shift.
     vec4 cameraPosition;
     vec4 backgroundRadiance; // rgb: background; a: environment intensity
@@ -24,12 +24,14 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 waterShallow;       // rgb: colour of the water looking up; a: height of the surface
     vec4 waterDeep;          // rgb: colour of the water looking down; a: strength of the light shafts
     vec4 waterLight;         // x: strength of the caustics; y: how small they are; z: reach of the shafts
+    vec4 shadowRadii;        // The radius each cascade covers, in metres.
     int lightCount;
     float time;              // Seconds, as set by the game.
     int frameNumber;
     int historyValid;        // 1 when the previous frame can be used.
     int probeCount;
     int showEnvironment;     // 1 draws the environment where nothing was drawn.
+    int shadowCascades;      // How many of shadowMatrices are in use.
     Light lights[8];
     ReflectionProbe probes[4];
 } frame;

@@ -79,25 +79,38 @@ public class SchemaTests
 
     public record Plain(string Id);
 
+    public record Crate(string Id, int Size);
+
     [Fact]
     public void A_schema_is_written_for_each_catalog_and_only_when_it_changed()
     {
         string root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
         Directory.CreateDirectory(Path.Combine(root, "plain"));
+        Directory.CreateDirectory(Path.Combine(root, "crates"));
         try
         {
             File.WriteAllText(Path.Combine(root, "plain", "a.json"), "{ \"id\": \"a\" }");
+            File.WriteAllText(Path.Combine(root, "crates", "b.json"), "{ \"id\": \"b\", \"size\": 2 }");
             var content = new Content(new ContentFolder(root));
             content.LoadAll<Plain>("plain");
+            content.LoadAll<Crate>("crates");
 
             content.WriteSchemas(root);
-            string written = Path.Combine(root, ".schemas", "plain.schema.json");
-            Assert.True(File.Exists(written));
+            string plain = Path.Combine(root, ".schemas", "plain.schema.json");
+            string crates = Path.Combine(root, ".schemas", "crates.schema.json");
+            Assert.Equal(content.SchemaText(typeof(Plain)), File.ReadAllText(plain));
+            Assert.Equal(content.SchemaText(typeof(Crate)), File.ReadAllText(crates));
 
             var before = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-            File.SetLastWriteTimeUtc(written, before);
+            File.SetLastWriteTimeUtc(plain, before);
+            File.SetLastWriteTimeUtc(crates, before);
+            File.WriteAllText(crates, "stale");
+            File.SetLastWriteTimeUtc(crates, before);
             content.WriteSchemas(root);
-            Assert.Equal(before, File.GetLastWriteTimeUtc(written));
+
+            Assert.Equal(before, File.GetLastWriteTimeUtc(plain));
+            Assert.Equal(content.SchemaText(typeof(Crate)), File.ReadAllText(crates));
+            Assert.NotEqual(before, File.GetLastWriteTimeUtc(crates));
         }
         finally
         {

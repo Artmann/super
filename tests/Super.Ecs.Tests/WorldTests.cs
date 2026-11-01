@@ -250,6 +250,33 @@ public class WorldTests
     }
 
     [Fact]
+    public void Rows_come_in_a_fixed_order_across_archetypes()
+    {
+        var world = new World();
+        var entities = new List<Entity>();
+        for (int i = 0; i < 6; i++)
+        {
+            var entity = world.Create();
+            world.Add(entity, new Position(i));
+            entities.Add(entity);
+        }
+
+        // Position only starts as 0 to 5. Moving 1 and 3 out swaps 5 and then 4 into their rows,
+        // and dropping 0 swaps 4 into the first row, so that archetype ends up as 4, 5, 2.
+        world.Add(entities[1], new Velocity(0f));
+        world.Add(entities[3], new Velocity(0f));
+        world.Destroy(entities[0]);
+
+        var order = new List<float>();
+        foreach (var row in world.Query<Position>())
+        {
+            order.Add(row.First.X);
+        }
+
+        Assert.Equal(new float[] { 4, 5, 2, 1, 3 }, order);
+    }
+
+    [Fact]
     public void Worlds_are_separate()
     {
         var other = new World();
@@ -319,5 +346,27 @@ public class WorldTests
         run.Ticks(3);
 
         Assert.Equal(3f, run.Game.World.Get<Position>(entity).X, 0.001f);
+    }
+
+    [Fact]
+    public void Two_games_do_not_share_a_world()
+    {
+        using var first = HeadlessGame.Create<Movement>(1, services => services.AddSuperEcs());
+        using var second = HeadlessGame.Create<Movement>(1, services => services.AddSuperEcs());
+        var entity = first.Game.World.Create();
+        first.Game.World.Add(entity, new Position(0f));
+        first.Game.World.Add(entity, new Velocity(30f));
+
+        second.Ticks(3);
+
+        Assert.NotSame(first.Game.World, second.Game.World);
+        Assert.Equal(0, second.Game.World.Count);
+        Assert.False(second.Game.World.IsAlive(entity));
+        foreach (var row in second.Game.World.Query<Position>())
+        {
+            Assert.Fail($"The other game's {row.Entity} showed up.");
+        }
+
+        Assert.Equal(1, first.Game.World.Count);
     }
 }

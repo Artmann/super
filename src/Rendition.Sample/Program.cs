@@ -7,7 +7,9 @@ using Silk.NET.Core.Native;
 using Silk.NET.GLFW;
 
 // --check runs a fixed number of frames with validation on, then fails if the
-// renderer produced Vulkan errors or allocated managed memory while rendering.
+// renderer produced Vulkan errors or allocated managed memory while rendering. Its
+// warmup also creates and destroys a textured mesh every frame, so the deferred
+// uploads and the destroy queue get a workout before counting starts.
 // --screenshot <file.png> saves one frame, with validation on, then quits.
 // Neither of those shows a window, so they can run while someone works.
 // --model <file> shows a cooked model instead of the spinning cube.
@@ -22,6 +24,7 @@ bool glow = args.Contains("--glow");
 
 const int warmupFrames = 240;
 const int checkFrames = 900;
+const int churnFrames = 20;
 
 // Anti-aliasing builds up over several frames, so a screenshot waits for it to settle.
 const int screenshotFrame = 48;
@@ -101,14 +104,15 @@ unsafe
     }
     else
     {
-        var material = renderer.CreateMaterial(new Material
+        var glowing = new Material
         {
             BaseColor = new Vector4(0.9f, 0.55f, 0.2f, 1f),
             Metallic = 0.9f,
             Roughness = 0.35f,
             Shader = glow ? renderer.CreateSurfaceShader(LoadShader("glow_bands.frag")) : null,
-            ShaderParameters = new Vector4(4f, 1.2f, 0.3f, 3f),
-        });
+        };
+        glowing.ShaderParameters[0] = new Vector4(4f, 1.2f, 0.3f, 3f);
+        var material = renderer.CreateMaterial(glowing);
         draws =
         [
             new DrawItem
@@ -179,6 +183,7 @@ unsafe
     var clock = Stopwatch.StartNew();
     int frame = 0;
     long allocatedAtWarmup = 0;
+    DrawItem? churn = null;
     bool dragging = false;
     double lastX = 0, lastY = 0;
 
@@ -194,6 +199,33 @@ unsafe
                 case 180: glfw.SetWindowSize(window, 300, 900); break;
                 case 210: glfw.SetWindowSize(window, 1280, 720); break;
             }
+        }
+
+        // Each churn frame throws away last frame's textured cube, still in flight, and makes a new one.
+        if (churn is { } previous)
+        {
+            renderer.DestroyModel([previous]);
+            churn = null;
+        }
+
+        if (check && frame < churnFrames)
+        {
+            var texture = renderer.CreateTexture(new TextureData
+            {
+                Width = 2,
+                Height = 2,
+                Kind = TextureKind.Color,
+                Mips = [[255, 64, 64, 255, 64, 255, 64, 255, 64, 64, 255, 255, 255, 255, 64, 255]],
+            });
+            var churnMaterial = renderer.CreateMaterial(new Material
+            {
+                BaseColor = Vector4.One,
+                BaseColorTexture = texture,
+                Roughness = 0.5f,
+            });
+            var item = renderer.CreateDrawItem(Cube.Vertices, Cube.Indices, churnMaterial, simplify: frame % 2 == 0);
+            item.Transform = Matrix4x4.CreateTranslation(1.5f, 0f, 0f);
+            churn = item;
         }
 
         glfw.PollEvents();
@@ -228,7 +260,13 @@ unsafe
             CameraPosition = camera.Position,
             Time = time,
             Lights = lights,
-            Shadows = new ShadowSettings { Center = new Vector3(0f, shadowHeight, 0f), Radius = shadowRadius, LightAngle = 0.12f },
+            Shadows = new ShadowSettings
+            {
+                Center = new Vector3(0f, shadowHeight, 0f),
+                Radius = shadowRadius,
+                Cascades = 2,
+                LightAngle = 0.12f,
+            },
             EnvironmentIntensity = 0.85f,
             BackgroundRadiance = new Vector3(0.15f, 0.15f, 0.16f),
             BackgroundFadeStart = 9f,
@@ -263,7 +301,7 @@ unsafe
             break;
         }
 
-        renderer.Render(view, draws);
+        renderer.Render(view, churn is { } extra ? [.. draws, extra] : draws);
         frame++;
 
         if (check)

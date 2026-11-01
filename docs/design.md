@@ -6,7 +6,7 @@ would meet it. This file records the reasons behind it, then Rendition's design.
 
 ## Engine decisions
 
-These are decided. The game loop, window, randomness, input, game states, JSON content and headless runs are built;
+These are decided. The game loop, window, randomness, input, game states, JSON content, cameras, picking, view memory and headless runs are built;
 the rest is not yet.
 
 | Area | Choice | Why |
@@ -19,7 +19,7 @@ the rest is not yet.
 | Structure | Game code is plain classes behind `IGame`, with no built-in scheduler | The game's author owns the logic and the order it runs in |
 | Time | `Update` runs on fixed ticks, `Draw` once per displayed frame and blends between ticks | Repeatable simulation, whatever the frame rate |
 | Drawing | Views are plain functions of state, called every frame | Nothing to keep in sync, and loading needs no special cases |
-| View memory | Kept by Super under a key. A new key goes straight to its target | A loaded game appears finished, with no animations replaying |
+| View memory | Kept by Super under a key and the calling line. A new key goes straight to its target, and a key not drawn for a frame is forgotten | A loaded game appears finished, with no animations replaying, and memory can't grow forever |
 | Virtual tree for the world | None, unlike React and SwiftUI | Games redraw most things each frame, so comparing trees gains little and allocates |
 | Virtual tree for interfaces | Yes, with SwiftUI's layout and React's hook-style state | Interfaces are trees that mostly stay the same, so skipping unchanged parts pays. They can allocate a little, and live apart from the render path |
 | Interface code | CPU only, in `Super.Ui`. Rendition only sees textured quads | Layout and text run for real in headless tests, and Rendition stays usable alone |
@@ -27,7 +27,11 @@ the rest is not yet.
 | Interface clipping | Per pixel in `overlay.frag`, each quad carrying a rounded clip rectangle, not scissor rectangles | One draw call, draw order kept, and rounded corners clip what's inside them |
 | Interface box | Background, border, radius, opacity and margin written side by side merge into one box. Padding and frame go by order | It reads like CSS, where these never depend on order, and `UiNode` only sees one box |
 | Hierarchy | Flat, with attachment by transform or bone | Colony and dungeon games have thousands of independent things and little nesting |
-| Unchanging objects | `View.Cached`, keyed by a version number | Static worlds aren't described again each frame |
+| Cameras | A `Camera` is a plain value the game keeps, since picking happens in `Update` and showing in `Draw` | Input can only be read in `Update`, so the camera can't belong to `Draw` alone |
+| Camera kinds | Perspective by default, orthographic with `Size`, asymmetric with `Shift` in half screens | A shift keeps working when the window changes shape, which fixed frustum edges wouldn't |
+| Camera boom | The game tests `BoomCamera.Arm` against its own walls and passes in the distance | Super has no physics, and this needs no delegate |
+| Orthographic shading | Super gives the renderer an eye far behind the camera | Shaders keep one way of finding the view direction |
+| Unchanging objects | `View.Cached`, by key and version number | Static worlds aren't described again each frame |
 | Dependency injection | `Microsoft.Extensions.DependencyInjection`, resolved at startup only | Familiar, makes fakes one line, and costs nothing per frame |
 | Global state | None | Many headless games can share one process |
 | Randomness | `GameRandom` with named streams from one seed | A new roll in one system doesn't disturb another |
@@ -85,7 +89,7 @@ rendering. Game-facing features belong in Super.
 ## Frame structure
 
 ```
-ShadowPass    scene geometry   -> depth from the key light (4096 x 4096)
+ShadowPass    scene geometry   -> depth from the key light (2048 x 2048, up to 4 cascades)
 GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, depth
 AoPass        fullscreen       -> ambient occlusion from depth and normals
 AoBlurPass    fullscreen       -> the same with the grain averaged away
@@ -134,8 +138,12 @@ sets are identical.
 Shadows blur with distance from the object casting them: the lighting pass finds
 how far away the blocker is, then widens its sampling to match. The game says
 which area the shadow map covers through `FrameView.Shadows`. A smaller area gives
-sharper shadows, so the sample fits it to the model. Anything outside the area, in
-depth as well as sideways, counts as lit.
+sharper shadows, so the sample fits it to the model. A wide outdoor scene asks for up
+to four cascades: each covers three times the radius of the one before, all centred on
+the target, and the lighting pass picks the first cascade a point falls inside. The
+shadow pass draws each cascade into its own layer of the same depth image, with its
+own culling and detail choice. Anything outside the last cascade, in depth as well as
+sideways, counts as lit.
 
 Two frames can be in flight. Render targets are shared between frames, and
 pipeline barriers order the access; per-frame state is limited to command
@@ -197,14 +205,20 @@ of deferred rendering.
 
 void main() {
     Surface surface = materialSurface();
-    surface.emissive += materials[draw.material].shaderParameters.rgb * sin(frame.time);
+    surface.emissive += materials[draw.material].shaderParameters[0].rgb * sin(frame.time);
     writeSurface(surface);
 }
 ```
 
 `materialSurface()` gives the surface the material's textures and values describe, so
 a shader only changes what it cares about. A shader can also read `inUv`, `inPosition`
-and `frame`, and `shaderParameters` holds four numbers per material. A game compiles
+and `frame`. Each material carries eight `vec4`s in `shaderParameters`, four textures
+read with `shaderTexture(slot, uv)` and four texture arrays read with
+`shaderLayer(slot, uv, layer)`, where a fractional layer blends two layers. Unset slots
+read white. A texture array comes from `Renderer.CreateTextureArray`, which stacks
+same-sized images with the same mip count. Terrain uses this: one array of ground
+colours, one of their normal maps, a splat texture in a slot and thresholds in the
+parameters, as `examples/Terrain/Shaders/terrain.frag` shows. A game compiles
 the shader with `glslc`, with `src/Rendition/Shaders` on the include path, and passes
 the result to `Renderer.CreateSurfaceShader`, then sets `Material.Shader`. Importing
 `src/Shaders.targets` does the compiling. `src/Rendition.Sample/Shaders/glow_bands.frag`
@@ -257,14 +271,41 @@ ffmpeg process, and the game steps a fixed `1 / fps` per frame while recording, 
 the output doesn't depend on how fast the machine is. Waiting on the GPU for each
 frame is slow, but it's only paid while capturing.
 
+## Resource lifetime
+
+Meshes and textures are made during play, so neither creating nor destroying one
+may wait for the GPU.
+
+Uploads ride the next frame. `CreateMesh`, `CreateDrawItem`, `CreateTexture` and
+`CreateTextureArray` copy their bytes into a staging buffer and queue the copy in
+`UploadQueue`. The next `Render` records every queued copy, with its layout
+transitions, at the start of its command buffer, so a resource made before a
+`Render` is drawable in that same frame. The staging buffer is retired through the
+destroy queue below. `CreateSurfaceShader`, `SetEnvironment`, `SetOverlayAtlas` and
+probe capture still wait, and say so: they're for loading screens.
+
+Destroying returns at once. The resource is added to the destroy slot of the frame
+most recently submitted, and released when a later `Render` has waited on that
+frame's fence, so no frame in flight can still read it. Destroying something whose
+upload is still queued cancels the copy first, so the copy never runs into freed
+memory. A released texture's descriptor slot is rewritten to the white texture, so
+whatever takes the slot next starts from something harmless; a material that still
+names a destroyed texture must not be drawn, which Super's `Content` enforces by
+refusing to unload a texture that a live mesh names.
+
+Handles are recycled through a free list per kind, and each kind remembers which
+slots are on their way out, so destroying a handle twice fails rather than freeing
+whatever reused the slot. Nothing here allocates once the lists have grown.
+
+Device memory is sub-allocated from 64 MB blocks in `GpuMemory`, one set of pools
+per memory type, kept apart for buffers and images and for host-visible memory.
+Anything larger than a block gets its own allocation.
+
 ## Known simplifications to revisit
 
-- Each buffer and image gets its own `vkAllocateMemory`. Replace with a
-  sub-allocator (VMA or our own) before scene sizes grow.
 - Textures are uncompressed RGBA8 with mips. Block compression (BC7) would use
   far less GPU memory.
-- The table holds at most 1024 textures and 1024 materials, and resources can't be
-  removed yet.
+- The table holds at most 1024 textures, 1024 materials and 256 texture arrays.
 - Transparent draws aren't sorted, so overlapping glass can blend in the wrong order.
   Glass also casts no shadow and shows no refraction.
 - The car's surface map channels are an educated guess, because the model has no
@@ -278,8 +319,8 @@ frame is slow, but it's only paid while capturing.
   and animation aren't supported.
 - The adventurer model has 929,000 triangles, which suits a showcase more than a game. A
   game character would need a reduced version and levels of detail.
-- One shadow map covering a fixed area. Large outdoor scenes will need cascades
-  that follow the camera.
+- Shadow cascades are centred on the camera's target rather than fitted to the view
+  frustum, so some of each map covers ground behind the camera.
 - Only directional lights so far. Point and spot lights come later.
 - Only one light casts shadows, so the others shine through objects, held back only
   by ambient occlusion.

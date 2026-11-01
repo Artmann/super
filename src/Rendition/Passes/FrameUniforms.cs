@@ -33,6 +33,12 @@ internal struct GpuLightArray
     private GpuLight _first;
 }
 
+[InlineArray(ShadowPass.MaxCascades)]
+internal struct ShadowMatrixArray
+{
+    private Matrix4x4 _first;
+}
+
 /// <summary>Per-frame shader data. Must match the Frame block in Shaders/common.glsl.</summary>
 [StructLayout(LayoutKind.Sequential)]
 internal struct FrameUniforms
@@ -42,7 +48,7 @@ internal struct FrameUniforms
 
     public Matrix4x4 ViewProjection;
     public Matrix4x4 InverseViewProjection;
-    public Matrix4x4 ShadowMatrix;
+    public ShadowMatrixArray ShadowMatrices;
 
     /// <summary>Last frame's, without its anti-aliasing shift.</summary>
     public Matrix4x4 PreviousViewProjection;
@@ -73,14 +79,17 @@ internal struct FrameUniforms
     /// <summary>x: strength of the caustics; y: how small they are; z: reach of the shafts.</summary>
     public Vector4 WaterLight;
 
+    /// <summary>The radius each shadow cascade covers, in metres.</summary>
+    public Vector4 ShadowRadii;
+
     public int LightCount;
     public float Time;
     public int FrameNumber;
     public int HistoryValid;
     public int ProbeCount;
     public int ShowEnvironment;
-    private readonly int _padding1;
-    private readonly int _padding2;
+    public int ShadowCascades;
+    private readonly int _padding;
     public GpuLightArray Lights;
     public GpuReflectionProbeArray Probes;
 }

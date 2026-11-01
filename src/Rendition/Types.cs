@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Rendition;
@@ -18,6 +19,9 @@ public struct Vertex(Vector3 position, Vector3 normal, Vector4 tangent, Vector2 
 public readonly record struct MeshHandle(int Index);
 
 public readonly record struct TextureHandle(int Index);
+
+/// <summary>A stack of same-sized images that shaders index by layer.</summary>
+public readonly record struct TextureArrayHandle(int Index);
 
 public readonly record struct MaterialHandle(int Index);
 
@@ -68,8 +72,38 @@ public struct Material
     /// <summary>Replaces the standard surface shader. Transparent materials can't use one yet.</summary>
     public SurfaceShaderHandle? Shader;
 
-    /// <summary>Four numbers for the shader to use however it likes, as shaderParameters.</summary>
-    public Vector4 ShaderParameters;
+    /// <summary>Numbers for a surface shader to use however it likes, as shaderParameters[i].</summary>
+    public ShaderParameters ShaderParameters;
+
+    /// <summary>Textures for a surface shader, read with shaderTexture(i, uv). Unset ones read white.</summary>
+    public ShaderTextures ShaderTextures;
+
+    /// <summary>Texture arrays for a surface shader, read with shaderLayer(i, uv, layer). Unset ones read white.</summary>
+    public ShaderArrays ShaderArrays;
+}
+
+/// <summary>Eight vectors a surface shader can read as shaderParameters[0] to [7].</summary>
+[InlineArray(Length)]
+public struct ShaderParameters
+{
+    public const int Length = 8;
+    private Vector4 _element;
+}
+
+/// <summary>Four texture slots a surface shader can read with shaderTexture(0..3, uv).</summary>
+[InlineArray(Length)]
+public struct ShaderTextures
+{
+    public const int Length = 4;
+    private TextureHandle? _element;
+}
+
+/// <summary>Four texture array slots a surface shader can read with shaderLayer(0..3, uv, layer).</summary>
+[InlineArray(Length)]
+public struct ShaderArrays
+{
+    public const int Length = 4;
+    private TextureArrayHandle? _element;
 }
 
 /// <summary>
@@ -194,11 +228,20 @@ public struct UnderwaterSettings
     public float ShaftDistance;
 }
 
-/// <summary>The part of the world covered by the shadow map.</summary>
+/// <summary>The part of the world covered by the shadow maps.</summary>
 public struct ShadowSettings
 {
     public Vector3 Center;
+
+    /// <summary>How far from the centre the sharpest map reaches, in metres.</summary>
     public float Radius;
+
+    /// <summary>
+    /// How many maps to draw, 1 to 4, each covering three times the radius of the one
+    /// before. More cover more ground at the same sharpness near the centre, for the
+    /// cost of drawing the scene again. 0 counts as 1.
+    /// </summary>
+    public int Cascades;
 
     /// <summary>
     /// Apparent size of the light: 0 gives hard shadows, larger values blur them
@@ -289,14 +332,49 @@ public static class Projection
     /// (y down, depth 0 to 1). Reversed-Z keeps depth precision evenly spread, so
     /// large outdoor scenes do not flicker.
     /// </summary>
-    public static Matrix4x4 PerspectiveInfiniteReversedZ(float verticalFov, float aspect, float near)
+    /// <param name="verticalFov">The vertical angle in radians.</param>
+    /// <param name="aspect">Width over height.</param>
+    /// <param name="near">How close to the eye things are cut off.</param>
+    /// <param name="shift">Slides the picture without turning the camera, in half screens, with y up. This makes the frustum asymmetric.</param>
+    public static Matrix4x4 PerspectiveInfiniteReversedZ(float verticalFov, float aspect, float near, Vector2 shift = default)
     {
         float f = 1f / MathF.Tan(verticalFov / 2f);
         return new Matrix4x4(
             f / aspect, 0f, 0f, 0f,
             0f, -f, 0f, 0f,
-            0f, 0f, 0f, -1f,
+            -shift.X, shift.Y, 0f, -1f,
             0f, 0f, near, 0f);
+    }
+
+    /// <summary>
+    /// Reversed-Z orthographic for Vulkan's clip space, where things keep their size however
+    /// far away they are. It has no eye, so set <see cref="FrameView.CameraPosition"/> far
+    /// behind the view: shading works out which way it's looked at from that position.
+    /// </summary>
+    /// <param name="height">How many world units the screen shows from bottom to top.</param>
+    /// <param name="aspect">Width over height.</param>
+    /// <param name="near">Where the view starts, from the camera.</param>
+    /// <param name="far">Where the view ends, from the camera.</param>
+    /// <param name="shift">Slides the picture without moving the camera, in half screens, with y up.</param>
+    public static Matrix4x4 OrthographicReversedZ(float height, float aspect, float near, float far, Vector2 shift = default)
+    {
+        float y = 2f / height;
+        float depth = 1f / (far - near);
+        return new Matrix4x4(
+            y / aspect, 0f, 0f, 0f,
+            0f, -y, 0f, 0f,
+            0f, 0f, depth, 0f,
+            shift.X, -shift.Y, far * depth, 1f);
+    }
+
+    /// <summary>
+    /// How big a unit looks on a screen this tall. Under perspective that's the pixels one
+    /// unit covers one unit away, and under orthographic it's the same at every distance.
+    /// </summary>
+    internal static (float PixelsAtOneUnit, float PixelsPerUnit) PixelScale(in Matrix4x4 projection, int height)
+    {
+        float pixels = MathF.Abs(projection.M22) * height / 2f;
+        return projection.M34 == 0f ? (0f, pixels) : (pixels, 0f);
     }
 }
 

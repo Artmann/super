@@ -168,6 +168,15 @@ you pass. The first time Super sees a key, the value goes straight to its target
 when a player loads a save, open boxes are simply open, with no animation and no creak.
 When `IsOpen` changes during play, the lid swings.
 
+`view.Animate` eases from where the value is to the target over the seconds you ask for,
+and follows game time, so the frame rate doesn't change it. `view.Changed` is true on the
+one frame a value differs from last frame. Both work with any number of things, and a
+running game allocates nothing for them once each key has been seen.
+
+Memory lasts as long as you keep drawing. If a frame doesn't ask for a key, Super forgets
+it, so a box that comes back into view appears finished instead of replaying. Don't call
+`Animate` only while something is moving, or it will never move.
+
 Worlds in Super are flat: a list of things you draw, not a tree of nodes. To attach one
 thing to another, multiply their transforms, or ask for a bone on the parent's pose:
 
@@ -182,13 +191,19 @@ A key names something across frames, like a `key` in React. Super uses it for vi
 memory, and to tell the renderer where an object was last frame, which keeps moving
 things crisp. Use a stable ID from your game, and the same one every frame.
 
+View memory also belongs to the line of code asking, like the order of hooks in React. So
+a lid and a latch on one box can both use the box's ID, and a box and a tree with the same
+ID can't get mixed up. Two calls from one line with one key share their memory, so give
+each its own key.
+
 ### Things that rarely change
 
 A city might have 50,000 walls. Describing them all 60 times a second is wasteful, so
-wrap them in `Cached`. It runs your function again only when the version changes:
+wrap them in `Cached`. It runs your function again only when the version changes. The
+key says which chunk this is, and your `Update` adds one to the version when a wall moves:
 
 ```csharp
-view.Cached(chunk.Version, chunk, static (chunk, view) =>
+view.Cached(chunk.Id, chunk.Version, chunk, static (chunk, view) =>
 {
     foreach (ref readonly var wall in chunk.Walls)
     {
@@ -196,6 +211,10 @@ view.Cached(chunk.Version, chunk, static (chunk, view) =>
     }
 });
 ```
+
+`Cached` keeps models and nothing else, so lights, the camera and anything that animates
+go outside it. It saves your code describing them, but the models still reach the
+renderer each frame.
 
 ### State or view?
 
@@ -215,6 +234,160 @@ ticks to keep motion smooth at any frame rate:
 view.Model(ball.Id, ballModel, view.Smooth(ball.PreviousTransform, ball.Transform));
 ```
 
+### Cameras and clicking
+
+`view.Camera` takes a position and a target, which is all a fixed camera needs. To click
+on things, keep a `Camera` in your game, because `Update` has to know it too. Input can
+only be read in `Update`, so that's where a click turns into a place in the world:
+
+```csharp
+readonly Camera camera = new(new Vector3(0, 12, 12), Vector3.Zero);
+
+public void Update(GameTime time)
+{
+    if (input.Pressed(MouseButton.Left))
+    {
+        var ray = input.MouseRay(camera);
+
+        // A tile: where the line through the cursor meets the ground.
+        if (ray.Ground() is { } spot)
+        {
+            selectedTile = map.TileAt(spot);
+        }
+
+        // A colonist: the nearest one the line goes through.
+        foreach (ref readonly var colonist in colonists)
+        {
+            if (ray.HitsBall(colonist.Position, 0.5f) is { } distance && distance < nearest)
+            {
+                nearest = distance;
+                selected = colonist.Id;
+            }
+        }
+    }
+}
+
+public void Draw(View view) => view.Camera(camera);
+```
+
+`ray.Ground(height)` gives a point, while `ray.HitsBall` and `ray.HitsBox(min, max)` give a
+distance, so you can keep the closest. A miss gives nothing. Super doesn't go through your
+things for you, since only your game knows what can be clicked, and it tests these simple
+shapes, not a model's triangles.
+
+Two helpers save writing the same camera in every game. Keep one in your game, step it
+once a tick in `Update`, and draw `At(view.Blend)` so it moves smoothly at any frame rate:
+
+```csharp
+readonly OrbitCamera orbit = new() { Distance = 12f };
+readonly FollowCamera follow = new() { Offset = new Vector3(0, 8, 10), Lag = 0.2f };
+
+public void Update(GameTime time)
+{
+    // Circles a target. Yaw, Pitch, Distance and its limits can be set directly.
+    orbit.Turn(input.MouseDelta * 0.005f);
+    orbit.Zoom(input.Scroll);
+    orbit.Update(tower.Position);
+
+    // Trails behind a target. Lag is about how many seconds behind it stays.
+    follow.Update(player.Position, time.TickSeconds);
+}
+
+public void Draw(View view) => view.Camera(follow.At(view.Blend));
+```
+
+The first update puts a camera straight in place. If its target teleports, call
+`follow.Jump()` so the camera doesn't slide across the map. For clicking, pass
+`follow.Current` to `input.MouseRay`.
+
+A camera is perspective unless you say otherwise. An orthographic camera has no
+perspective, so things keep their size however far away they are. You give it how many
+world units the screen shows from bottom to top:
+
+```csharp
+var flat = Camera.Orthographic(new Vector3(0, 20, 20), Vector3.Zero, size: 30f);
+```
+
+`Shift` makes a camera asymmetric. It slides the picture without turning the camera, in
+half screens, and works with either kind. This keeps a character in the middle of what's
+left beside a side panel:
+
+```csharp
+var beside = camera with { Shift = new Vector2(0.5f, 0f) };
+```
+
+Clicking works the same with all of them, because `input.MouseRay` asks the camera.
+
+Four more helpers cover the usual kinds of game. They all work like the two above, with
+`Update` once a tick and `At(view.Blend)` in `Draw`.
+
+**Third person.** `BoomCamera` sits on an arm behind the character, and the arm shortens
+when something is in the way. Super doesn't know your walls, so you test the arm against
+them and pass in how far along it you hit something:
+
+```csharp
+readonly BoomCamera boom = new() { Length = 6f, Shoulder = 0.5f };
+
+public void Update(GameTime time)
+{
+    boom.Turn(input.MouseDelta * 0.005f);
+    boom.Zoom(input.Scroll);
+    var walk = boom.Walk(actions.Vector(Control.Move));
+
+    var arm = boom.Arm(player.Position);
+    boom.Update(player.Position, time.TickSeconds, blockedAt: arm.HitsBox(wall.Min, wall.Max));
+}
+```
+
+The arm pulls in at once, so the camera never shows the inside of a wall, and eases back
+out once the way is clear. With several walls, pass the nearest hit. `Walk` turns a stick
+into a direction on the ground, so forward goes where the camera faces.
+
+**First person.** `FirstPersonCamera` looks out from `EyeHeight` above the feet:
+
+```csharp
+readonly FirstPersonCamera eyes = new();
+
+public void Update(GameTime time)
+{
+    eyes.Turn(input.MouseDelta * 0.003f);
+    var walk = eyes.Walk(actions.Vector(Control.Move));
+    eyes.Update(player.Position);
+}
+```
+
+`Walk` stays level wherever you look, so looking up doesn't slow you down.
+
+**Top-down and isometric.** `TopDownCamera` looks straight down and `IsometricCamera` looks
+down at the true isometric angle. Both are orthographic, and zooming changes `Size`:
+
+```csharp
+readonly IsometricCamera iso = new() { Size = 24f };
+
+public void Update(GameTime time)
+{
+    iso.Zoom(input.Scroll);
+
+    // A tiny step for each key held, or follow something with iso.Update(player.Position, seconds).
+    iso.Pan(actions.Vector(Control.Move) * 20f * time.TickSeconds);
+    iso.Update(time.TickSeconds);
+
+    if (input.Pressed(Key.Q))
+    {
+        iso.Turn(1);
+    }
+}
+```
+
+`Turn` walks an isometric camera around by quarter turns, easing there. A top-down camera
+can't rotate. For a top-down view with perspective, use `FollowCamera` with an `Offset`
+straight up.
+
+Orthographic views widen their shadows to cover the screen, so shadows get softer as you
+zoom out. A wide perspective world keeps sharp shadows near the camera with cascades:
+`view.Shadows(40f, cascades: 3)` draws three maps, each covering three times the radius
+of the one before.
+
 ### Particles
 
 Particles are worked out from when they started rather than fired and forgotten, so
@@ -227,6 +400,10 @@ if (tree.FellAt is { } fellAt)
 }
 ```
 
+`FellAt` is `time.Tick` from the `Update` where the tree fell. `view.SecondsSince` works
+today for anything that plays out from a moment in time. `view.Particles` doesn't exist
+yet.
+
 ### Materials and the look of the picture
 
 Materials can be JSON content or code. You can also write your own
@@ -237,6 +414,33 @@ and Rendition's lighting, shadows and reflections treat it like any other surfac
 view.Sky(content.Environment("environments/overcast"));
 view.Post(new PostSettings { Exposure = 0.2f, Vignette = 0.3f, Sharpen = 0.4f });
 ```
+
+### Meshes made by code
+
+A mesh built in code, such as ground from a height function, is handed over with
+`content.Mesh`. Its `Surface` says how it looks: a colour and roughness, textures named
+through `content.Texture`, and optionally a surface shader named through
+`content.Shader` with its parameters, textures and texture arrays.
+
+```csharp
+var splat = content.Texture(SplatFor(chunk), TextureKind.Linear);
+var ground = content.Mesh(field.Chunk(chunk.X, chunk.Z, 32, new Surface
+{
+    Shader = content.Shader("terrain"),
+    Parameters = [new Vector4(snowHeight, snowFade, rockSteepness, rockFade)],
+    ShaderTextures = [splat],
+    ShaderArrays = [groundColors, groundNormals],
+}, uvPerMetre: 0.125f));
+```
+
+`Super.Terrain.Heightfield` builds chunk meshes from a height function on a shared
+grid, so neighbouring chunks meet exactly. A chunk the player has left is let go with
+`content.Unload`, which frees it after the frames in flight, and `content.IsReady` says
+whether a chunk is on the GPU yet, so a game can skip one still loading instead of
+waiting. Textures are unloaded the same way, after every mesh that names them; a texture
+array keeps its own copy of each layer, so the single layers can go as soon as the
+array is named. The shader is `Shaders/<name>.frag` in the game project, compiled by
+importing `src/Shaders.targets`. The [Terrain example](examples/Terrain) does all of this.
 
 ## Interfaces
 
@@ -619,7 +823,8 @@ Assert.True(run.States<Screen>().Is(Screen.House));
 ```
 
 A file that can't be read throws on the main thread, on the frame the problem is found.
-Content is never unloaded yet, so memory only grows as a game names more of it.
+Meshes and textures can be let go with `content.Unload` once a game is done with them;
+everything else stays for the life of the game.
 
 ## Content: JSON files
 
@@ -1093,6 +1298,14 @@ dotnet run -c Release --project examples/ColorCube
 dotnet run -c Release --project examples/Rooms
 ```
 
+The Terrain example is endless hills made from noise, textured by height and slope
+with a surface shader, that load around the camera as you fly with WASD, the mouse,
+Space and Shift:
+
+```
+dotnet run -c Release --project examples/Terrain
+```
+
 The Reef example is a wide underwater view of 6,240 fish schooling over coral, with a
 live stats panel in the corner. Its models
 aren't in this repository because they aren't covered by the license and have their own
@@ -1118,7 +1331,13 @@ Models are cooked into a fast format by the import tool. The
 ## What's not here yet
 
 - **Animation and particles.** The API above is the plan, but Rendition can't play
-  skeletons or draw particles yet.
+  skeletons or draw particles yet. `view.Animate` moves numbers, which you can use on
+  a transform, but `AnimationRef` and `view.Bone` don't exist.
+- **Picking by shape.** Clicks are tested against balls, boxes and the ground, not a
+  model's triangles.
+- **Some camera moves.** A camera can't roll, and asymmetric views are a shift, so head
+  tracking and tiled displays can't be done yet. Underwater views are wrong under an
+  orthographic camera.
 - **Large numbers of objects.** Rendition's efficiency with many thousands of objects
   still has to be measured and improved.
 - **Physics.** Not in the first version. Gameplay physics has to give repeatable

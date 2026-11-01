@@ -57,6 +57,9 @@ public sealed class Input
     /// <summary>Where the cursor is, in the same pixels the interface lays itself out in.</summary>
     public Vector2 MousePosition { get => Read(field); private set; }
 
+    /// <summary>The line from the camera through the cursor, for working out what was clicked.</summary>
+    public Ray MouseRay(in Camera camera) => camera.Ray(MousePosition, ScreenSize);
+
     /// <summary>How far the cursor moved this tick.</summary>
     public Vector2 MouseDelta { get => Read(field); private set; }
 
@@ -74,6 +77,9 @@ public sealed class Input
 
     public bool GamepadConnected { get => Read(field); private set; }
 
+    /// <summary>The size of the screen in the same pixels as the cursor. The host sets it each tick.</summary>
+    internal Vector2 ScreenSize { get; set; }
+
     /// <summary>Whether reads are allowed right now. The host turns it on for Update only.</summary>
     internal bool Readable { get; set; }
 
@@ -85,9 +91,6 @@ public sealed class Input
 
     /// <summary>What the next tick's <see cref="MouseOverUi"/> says.</summary>
     internal bool PendingMouseOverUi { get; set; }
-
-    /// <summary>How many ticks the snapshot has rolled over.</summary>
-    internal int RollCount { get; private set; }
 
     /// <summary>Whether the key is held during this tick.</summary>
     public bool Down(Key key) => Read(_keys.Down((int)key));
@@ -270,7 +273,6 @@ public sealed class Input
         Typed = _typing.Length == 0 ? string.Empty : _typing.ToString();
         _typing.Clear();
 
-        RollCount++;
         foreach (var listener in _listeners)
         {
             listener.Rolled();

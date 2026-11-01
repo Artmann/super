@@ -16,7 +16,8 @@ What exists today:
 
 - A G-buffer pass that writes base colour, metallic, normal, roughness, AO and
   depth, using reversed-Z depth
-- A shadow pass that renders depth from the key light
+- A shadow pass that renders depth from the key light, in up to four cascades for
+  wide outdoor scenes
 - A lighting pass with Cook-Torrance GGX shading, up to eight directional lights,
   soft contact-hardening shadows, studio reflections and a fade into the background
 - A generated environment, baked by a compute shader into cube maps, that gives
@@ -35,11 +36,15 @@ What exists today:
 - Bindless textures and materials, normal mapping, cut-out and two-sided surfaces
 - An import tool that cooks FBX and glTF models and their textures into a `.rmodel`
   file
-- Custom surface shaders that a game can write and attach to a material
+- Custom surface shaders that a game can write and attach to a material, with eight
+  `vec4` parameters, four textures and four texture arrays per material
+- Creating meshes and textures during play without waiting for the GPU: uploads ride
+  the next frame, and destroying waits for the frames in flight
 - Automatic culling and simpler versions of distant models, for the camera and for
   shadows
 - A small public API: `Renderer.CreateModel`, `CreateDrawItem`, `CreateMesh`,
-  `CreateTexture`, `CreateMaterial`, `UpdateMaterial`, `CreateSurfaceShader` and
+  `CreateTexture`, `CreateTextureArray`, `CreateMaterial`, `UpdateMaterial`,
+  `CreateSurfaceShader`, the matching `Destroy` calls and
   `Render(in FrameView, ReadOnlySpan<DrawItem>)`
 
 Decisions, the G-buffer layout and known simplifications are in

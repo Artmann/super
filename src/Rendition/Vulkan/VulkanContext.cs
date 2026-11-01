@@ -29,6 +29,9 @@ internal sealed unsafe class VulkanContext : IDisposable
 
     public int ValidationErrors => _validationErrors;
 
+    /// <summary>Owns every byte of device memory. Set once the device exists.</summary>
+    public readonly GpuMemory Memory;
+
     public VulkanContext(RendererOptions options)
     {
         bool validation = options.EnableValidation && IsValidationLayerAvailable();
@@ -79,6 +82,7 @@ internal sealed unsafe class VulkanContext : IDisposable
             QueueFamilyIndex = QueueFamily,
         };
         Api.CreateCommandPool(Device, &poolInfo, null, out _uploadPool).Check();
+        Memory = new GpuMemory(this);
     }
 
     public uint FindMemoryType(uint typeBits, MemoryPropertyFlags required)
@@ -129,6 +133,7 @@ internal sealed unsafe class VulkanContext : IDisposable
 
     public void Dispose()
     {
+        Memory.Dispose();
         Api.DestroyCommandPool(Device, _uploadPool, null);
         Api.DestroyDevice(Device, null);
         SurfaceApi.DestroySurface(Instance, Surface, null);
@@ -270,6 +275,7 @@ internal sealed unsafe class VulkanContext : IDisposable
             RuntimeDescriptorArray = true,
             DescriptorBindingPartiallyBound = true,
             ShaderSampledImageArrayNonUniformIndexing = true,
+            DescriptorBindingUpdateUnusedWhilePending = true,
         };
         var features13 = new PhysicalDeviceVulkan13Features
         {

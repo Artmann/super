@@ -32,18 +32,27 @@ public record struct Coin;
 public record CoinKind(string Id, int Value, float Size);
 
 /// <summary>A menu, a loading screen, and two areas with one player walking between them.</summary>
-public class RoomsGame(World world, Content content, GameRandom random, States<Screen> screen, Actions<Control> actions) : IGame
+public class RoomsGame(World world, Content content, GameRandom random, States<Screen> screen, Actions<Control> actions, Input input) : IGame
 {
     public const int CoinsOutside = 8;
     public const float HouseSize = 5f;
     public const float OutsideSize = 12f;
+
+    // Models the game draws itself. Entities use IDs from zero, so these can't collide.
+    public const int DoorLidKey = -1;
+    public const int SparkleKey = -2;
+
     public static readonly Vector3 HouseDoor = new(0f, 0f, HouseSize);
     public static readonly Vector3 OutsideDoor = new(0f, 0f, -OutsideSize);
 
     private const float WalkPerSecond = 6f;
     private const float Reach = 1f;
     private const float ArrivalGap = 2f;
+    private const float ArrivedWithin = 0.1f;
+    private const float DoorWakesWithin = 3f;
+    private const float SparkleSeconds = 0.4f;
     private const int GroundTextureSize = 512;
+
     private static readonly Vector3 PlayerColor = new(0.9f, 0.45f, 0.15f);
     private static readonly Vector3 FloorColor = new(0.45f, 0.33f, 0.22f);
     private static readonly Vector3 DoorColor = new(0.2f, 0.5f, 0.8f);
@@ -52,11 +61,17 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
     private readonly Catalog<CoinKind> _coins = content.LoadAll<CoinKind>("coins");
     private readonly RandomStream _coinSpots = random.Stream("coins");
     private readonly List<Entity> _collected = [];
+    private readonly FollowCamera _camera = new();
+    private Vector3? _walkingTo;
+    private long? _lastCoinTick;
     private ModelRef? _grass;
 
     public World World => world;
 
     public Entity Player { get; private set; }
+
+    /// <summary>Where the camera was on the last tick, which is what a click is measured against.</summary>
+    public Camera Camera => _camera.Current;
 
     /// <summary>Coins picked up. It's only a number on this class, so changing state can't touch it.</summary>
     public int Coins { get; private set; }
@@ -110,12 +125,14 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
 
             case Screen.House:
                 Walk(time, HouseSize);
+                _camera.Update(Position, time.TickSeconds);
                 LeaveThrough(HouseDoor, Screen.Outside);
                 break;
 
             case Screen.Outside:
                 Walk(time, OutsideSize);
-                CollectCoins();
+                _camera.Update(Position, time.TickSeconds);
+                CollectCoins(time);
                 LeaveThrough(OutsideDoor, Screen.House);
                 break;
         }
@@ -129,10 +146,34 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
             return;
         }
 
-        float distance = screen.Is(Screen.House) ? 12f : 24f;
-        view.Camera(new Vector3(0f, distance, distance), Vector3.Zero);
+        view.Camera(_camera.At(view.Blend));
         view.Sun(new Vector3(1f, 2f, 1f), new Vector3(1.4f));
         view.Models(world);
+        DrawDoorLid(view);
+        DrawSparkle(view);
+    }
+
+    /// <summary>The lid lifts as the player comes close. Gameplay never asks how far, so it's view memory.</summary>
+    private void DrawDoorLid(View view)
+    {
+        var door = screen.Is(Screen.House) ? HouseDoor : OutsideDoor;
+        bool near = Vector3.Distance(Position, door) < DoorWakesWithin;
+        float lift = view.Animate(DoorLidKey, near ? 1f : 0f, seconds: 0.3f);
+        var lid = Matrix4x4.CreateScale(1.2f, 0.2f, 1.2f) * Matrix4x4.CreateTranslation(door + new Vector3(0f, 0.6f + lift, 0f));
+        view.Model(DoorLidKey, ModelRef.Cube, lid, DoorColor);
+    }
+
+    /// <summary>A flash above the player, shrinking as the last coin gets older.</summary>
+    private void DrawSparkle(View view)
+    {
+        if (_lastCoinTick is not { } tick || view.SecondsSince(tick) >= SparkleSeconds)
+        {
+            return;
+        }
+
+        float size = 0.5f * (1f - view.SecondsSince(tick) / SparkleSeconds);
+        var sparkle = Matrix4x4.CreateScale(size) * Matrix4x4.CreateTranslation(Position + new Vector3(0f, 1.2f, 0f));
+        view.Model(SparkleKey, ModelRef.Cube, sparkle, CoinColor);
     }
 
     /// <summary>Where the coins are now.</summary>
@@ -149,6 +190,7 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
 
     private void EnterHouse()
     {
+        _camera.Offset = new Vector3(0f, 10f, 10f);
         Scoped(Flat(HouseSize), FloorColor);
         Scoped(Transform.At(HouseDoor), DoorColor);
 
@@ -159,6 +201,7 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
 
     private void EnterOutside()
     {
+        _camera.Offset = new Vector3(0f, 14f, 14f);
         var ground = world.Create();
         world.Add(ground, Flat(OutsideSize));
         world.Add(ground, new Model(_grass ?? ModelRef.Cube));
@@ -176,6 +219,8 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
         Move(OutsideDoor + new Vector3(0f, 0f, ArrivalGap));
     }
 
+    private Vector3 Position => world.Get<Transform>(Player).Position;
+
     private Entity Scoped(Transform transform, Vector3 color)
     {
         var entity = world.Create();
@@ -192,13 +237,36 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
     {
         ref var transform = ref world.Get<Transform>(Player);
         transform.Position = position;
+
+        // A move between areas is a teleport, so nothing should slide across the map.
+        _walkingTo = null;
+        _camera.Jump();
+        _camera.Update(position, 0f);
     }
 
     private void Walk(GameTime time, float size)
     {
-        var move = actions.Vector(Control.Move) * (WalkPerSecond * time.TickSeconds);
+        if (input.Pressed(MouseButton.Left))
+        {
+            _walkingTo = input.MouseRay(_camera.Current).Ground();
+        }
+
+        var stick = actions.Vector(Control.Move);
+        if (stick != Vector2.Zero)
+        {
+            _walkingTo = null;
+        }
+
+        var step = new Vector3(stick.X, 0f, -stick.Y) * (WalkPerSecond * time.TickSeconds);
         ref var transform = ref world.Get<Transform>(Player);
-        var next = transform.Position + new Vector3(move.X, 0f, -move.Y);
+        if (_walkingTo is { } spot)
+        {
+            var away = spot - transform.Position;
+            float reach = WalkPerSecond * time.TickSeconds;
+            step = away.Length() < MathF.Max(reach, ArrivedWithin) ? away : Vector3.Normalize(away) * reach;
+        }
+
+        var next = transform.Position + step;
         transform.Position = new Vector3(Math.Clamp(next.X, -size, size), 0f, Math.Clamp(next.Z, -size, size));
     }
 
@@ -210,9 +278,9 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
         }
     }
 
-    private void CollectCoins()
+    private void CollectCoins(GameTime time)
     {
-        var player = world.Get<Transform>(Player).Position;
+        var player = Position;
         foreach (var row in world.Query<Transform, Coin>())
         {
             if (Vector3.Distance(row.First.Position, player) < Reach)
@@ -226,6 +294,7 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
         {
             world.Destroy(coin);
             Coins += _coins["gold"].Value;
+            _lastCoinTick = time.Tick;
         }
 
         _collected.Clear();

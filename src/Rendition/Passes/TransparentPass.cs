@@ -114,7 +114,7 @@ internal sealed unsafe class TransparentPass : IDisposable
         GBuffer targets,
         DescriptorSet frameSet,
         ReadOnlySpan<DrawItem> draws,
-        List<Mesh> meshes)
+        List<Mesh?> meshes)
     {
         var api = _context.Api;
 

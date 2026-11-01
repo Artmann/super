@@ -1,3 +1,4 @@
+using System.Numerics;
 using Microsoft.Extensions.DependencyInjection;
 using Super.Ui;
 
@@ -44,6 +45,7 @@ internal sealed class GameHost<TGame> : IDisposable
         Time = time;
         Seed = seed;
         Content = _services.GetRequiredService<Content>();
+        View.Content = Content;
         Input = _services.GetRequiredService<Input>();
         Capture = _services.GetRequiredService<GameCapture>();
         Stats = _services.GetRequiredService<GameStats>();
@@ -97,6 +99,7 @@ internal sealed class GameHost<TGame> : IDisposable
         _pointer.BeforeRoll();
 
         // Input is only readable during Update, so the screen can't depend on it.
+        Input.ScreenSize = new Vector2(ScreenWidth, ScreenHeight);
         Input.Readable = true;
         Input.Roll();
         foreach (var hook in _hooks)
@@ -117,7 +120,7 @@ internal sealed class GameHost<TGame> : IDisposable
     public void Draw(float blend)
     {
         _changes.Open = false;
-        View.Begin(blend);
+        View.Begin(blend, Time.Tick, Time.TickSeconds);
         Game.Draw(View);
 
         // The interface runs outside the measurement, so a stats panel reports the game

@@ -45,8 +45,27 @@ public sealed unsafe class Renderer : IDisposable
     private const float CameraDetailError = 1f;
     private const float ShadowDetailError = 2f;
 
-    private readonly List<Mesh> _meshes = [];
+    private readonly List<Mesh?> _meshes = [];
+    private readonly Stack<int> _freeMeshes = [];
     private readonly List<PartDetail> _details = [default];
+    private readonly Stack<int> _freeDetails = [];
+
+    /// <summary>
+    /// What's been destroyed while a frame might still read it. Slot i holds what was
+    /// queued while frame slot i was the last one submitted; its fence says when the
+    /// GPU is done with all of it. See "Resource lifetime" in docs/design.md.
+    /// </summary>
+    private sealed class DestroyedSlot
+    {
+        public readonly List<Mesh> Meshes = [];
+        public readonly List<int> Textures = [];
+        public readonly List<int> TextureArrays = [];
+        public readonly List<int> Materials = [];
+        public readonly List<IDisposable> Others = [];
+    }
+
+    private readonly DestroyedSlot[] _destroyed = [.. Enumerable.Range(0, FramesInFlight).Select(_ => new DestroyedSlot())];
+    private readonly UploadQueue _uploads;
     private readonly ResourceTable _resources;
     private readonly EnvironmentMap _environment;
     private readonly ReflectionProbes _probes;
@@ -107,13 +126,16 @@ public sealed unsafe class Renderer : IDisposable
     public (long Camera, long Shadows) DrawnTriangles { get; private set; }
 
     private DrawItem[] _cameraDraws = [];
-    private DrawItem[] _shadowDraws = [];
-    private Matrix4x4 _shadowMatrix;
+    private readonly DrawItem[][] _shadowDraws = new DrawItem[ShadowPass.MaxCascades][];
+    private readonly int[] _shadowCounts = new int[ShadowPass.MaxCascades];
+    private readonly Matrix4x4[] _shadowMatrices = new Matrix4x4[ShadowPass.MaxCascades];
+    private int _shadowCascades;
 
     public Renderer(RendererOptions options)
     {
         _context = new VulkanContext(options);
         _api = _context.Api;
+        _uploads = new UploadQueue(_context);
 
         _disableVsync = options.DisableVsync;
         _swapchain = new Swapchain(_context, (uint)options.Width, (uint)options.Height, _disableVsync);
@@ -204,22 +226,194 @@ public sealed unsafe class Renderer : IDisposable
         _gpuTimer = new GpuTimer(_context, FramesInFlight);
     }
 
+    /// <summary>
+    /// Hands a mesh's bytes to the next frame's command buffer rather than waiting for
+    /// the GPU, so it can be drawn in that same frame.
+    /// </summary>
     public MeshHandle CreateMesh(ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices)
     {
-        var vertexBuffer = GpuBuffer.CreateDeviceLocal(_context, vertices, BufferUsageFlags.VertexBufferBit);
-        var indexBuffer = GpuBuffer.CreateDeviceLocal(_context, indices, BufferUsageFlags.IndexBufferBit);
-        _meshes.Add(new Mesh(vertexBuffer, indexBuffer, (uint)indices.Length));
+        var vertexBuffer = GpuBuffer.CreateDeviceLocalStaged(_context, vertices, BufferUsageFlags.VertexBufferBit, out var vertexStaging);
+        _uploads.Add(vertexStaging, vertexBuffer);
+        var indexBuffer = GpuBuffer.CreateDeviceLocalStaged(_context, indices, BufferUsageFlags.IndexBufferBit, out var indexStaging);
+        _uploads.Add(indexStaging, indexBuffer);
+        return AddMesh(new Mesh(vertexBuffer, indexBuffer, (uint)indices.Length));
+    }
+
+    private MeshHandle AddMesh(Mesh mesh)
+    {
+        if (_freeMeshes.Count > 0)
+        {
+            int slot = _freeMeshes.Pop();
+            _meshes[slot] = mesh;
+            return new MeshHandle(slot);
+        }
+
+        _meshes.Add(mesh);
         return new MeshHandle(_meshes.Count - 1);
     }
 
     /// <summary>
-    /// Uploads a mesh as one draw that the renderer can skip when it's out of view, and
-    /// simplify when it's small on screen.
+    /// Lets go of a mesh and its detail entries. Returns at once; the memory comes back
+    /// two frames later, when no frame in flight can read it. Drawing with the handle
+    /// after this is a caller mistake that isn't checked.
     /// </summary>
-    public DrawItem CreateDrawItem(ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices, MaterialHandle material)
+    public void DestroyMesh(MeshHandle mesh)
+    {
+        if (mesh.Index < 0 || mesh.Index >= _meshes.Count || _meshes[mesh.Index] is not { } live)
+        {
+            throw new ArgumentException("The mesh does not exist.", nameof(mesh));
+        }
+
+        _meshes[mesh.Index] = null;
+        _freeMeshes.Push(mesh.Index);
+
+        // A mesh made this frame may still be waiting for its bytes. That copy must not
+        // run into a buffer that is about to be freed.
+        _uploads.Cancel(live.Vertices);
+        _uploads.Cancel(live.Indices);
+        Destroying().Meshes.Add(live);
+    }
+
+    /// <summary>
+    /// Lets go of a texture. Its slot reads as white once it's released, for whatever takes
+    /// the slot next. A material that still names it must not be drawn after this.
+    /// </summary>
+    public void DestroyTexture(TextureHandle texture)
+    {
+        if (_resources.IsBuiltIn(texture) || !_resources.IsLive(texture))
+        {
+            throw new ArgumentException("The texture does not exist.", nameof(texture));
+        }
+
+        QueueTextureDestroy(texture.Index);
+    }
+
+    /// <summary>Lets go of a texture array, with the same rules as <see cref="DestroyTexture"/>.</summary>
+    public void DestroyTextureArray(TextureArrayHandle array)
+    {
+        if (_resources.IsBuiltIn(array) || !_resources.IsLive(array))
+        {
+            throw new ArgumentException("The texture array does not exist.", nameof(array));
+        }
+
+        _uploads.Cancel(_resources.MarkTextureArrayDying(array.Index));
+        Destroying().TextureArrays.Add(array.Index);
+    }
+
+    /// <summary>Lets go of a material slot. Draws that still use it are a caller mistake.</summary>
+    public void DestroyMaterial(MaterialHandle material)
+    {
+        if (!_resources.IsLive(material))
+        {
+            throw new ArgumentException("The material does not exist.", nameof(material));
+        }
+
+        QueueMaterialDestroy(material.Index);
+    }
+
+    /// <summary>
+    /// Destroys everything <see cref="CreateModel"/> or <see cref="CreateDrawItem"/> made
+    /// for these parts: their mesh, their materials and the textures those name. Parts
+    /// that share a material, or a material already destroyed, are passed over.
+    /// </summary>
+    public void DestroyModel(ReadOnlySpan<DrawItem> parts)
+    {
+        if (parts.IsEmpty)
+        {
+            return;
+        }
+
+        foreach (ref readonly var part in parts)
+        {
+            if (!_resources.IsLive(part.Material))
+            {
+                continue;
+            }
+
+            foreach (int texture in _resources.TexturesOf(part.Material))
+            {
+                var handle = new TextureHandle(texture);
+                if (texture >= 0 && !_resources.IsBuiltIn(handle) && _resources.IsLive(handle))
+                {
+                    QueueTextureDestroy(texture);
+                }
+            }
+
+            QueueMaterialDestroy(part.Material.Index);
+        }
+
+        DestroyMesh(parts[0].Mesh);
+    }
+
+    /// <summary>Marks a live texture as gone, drops any copy still waiting for it, and queues its release.</summary>
+    private void QueueTextureDestroy(int slot)
+    {
+        _uploads.Cancel(_resources.MarkTextureDying(slot));
+        Destroying().Textures.Add(slot);
+    }
+
+    private void QueueMaterialDestroy(int slot)
+    {
+        _resources.MarkMaterialDying(slot);
+        Destroying().Materials.Add(slot);
+    }
+
+    /// <summary>The slot whose fence covers the frame most recently submitted.</summary>
+    private DestroyedSlot Destroying() => _destroyed[(_frameIndex + FramesInFlight - 1) % FramesInFlight];
+
+    /// <summary>Frees what was queued against a frame slot, once its fence has signalled.</summary>
+    private void ReleaseDestroyed(int frameSlot)
+    {
+        var slot = _destroyed[frameSlot];
+        foreach (var mesh in slot.Meshes)
+        {
+            foreach (int detail in mesh.Details)
+            {
+                _details[detail] = default;
+                _freeDetails.Push(detail);
+            }
+
+            mesh.Dispose();
+        }
+
+        foreach (int texture in slot.Textures)
+        {
+            _resources.ReleaseTexture(texture);
+        }
+
+        foreach (int array in slot.TextureArrays)
+        {
+            _resources.ReleaseTextureArray(array);
+        }
+
+        foreach (int material in slot.Materials)
+        {
+            _resources.ReleaseMaterial(material);
+        }
+
+        foreach (var other in slot.Others)
+        {
+            other.Dispose();
+        }
+
+        slot.Meshes.Clear();
+        slot.Textures.Clear();
+        slot.TextureArrays.Clear();
+        slot.Materials.Clear();
+        slot.Others.Clear();
+    }
+
+    /// <summary>
+    /// Uploads a mesh as one draw that the renderer can skip when it's out of view, and
+    /// simplify when it's small on screen. Pass <paramref name="simplify"/> false for
+    /// meshes whose every vertex matters, like terrain chunks that must meet their
+    /// neighbours exactly.
+    /// </summary>
+    public DrawItem CreateDrawItem(
+        ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices, MaterialHandle material, bool simplify = true)
     {
         ModelPart[] parts = [new ModelPart { IndexCount = (uint)indices.Length }];
-        return CreateDetailedMesh(vertices, indices, parts, [material])[0];
+        return CreateDetailedMesh(vertices, indices, parts, [material], simplify)[0];
     }
 
     /// <summary>Replaces what surfaces reflect. Waits for the GPU, so call this while loading.</summary>
@@ -229,7 +423,47 @@ public sealed unsafe class Renderer : IDisposable
         _environment.Bake(environment);
     }
 
-    public TextureHandle CreateTexture(TextureData data) => _resources.AddTexture(data);
+    /// <summary>
+    /// Hands a texture's bytes to the next frame's command buffer rather than waiting for
+    /// the GPU, so it can be sampled in that same frame.
+    /// </summary>
+    public TextureHandle CreateTexture(TextureData data)
+    {
+        var texture = new GpuTexture(_context, data.Width, data.Height, data.Kind, (uint)data.Mips.Length, 1);
+        _uploads.Add(texture.CreateStaging([data]), texture);
+        return _resources.AddTexture(texture);
+    }
+
+    /// <summary>
+    /// Stacks same-sized images into one texture that shaders read by layer, uploaded the
+    /// same way as <see cref="CreateTexture"/>. Every layer must have the first layer's
+    /// size, kind and mip count.
+    /// </summary>
+    public TextureArrayHandle CreateTextureArray(ReadOnlySpan<TextureData> layers)
+    {
+        if (layers.IsEmpty)
+        {
+            throw new ArgumentException("A texture array needs at least one layer.", nameof(layers));
+        }
+
+        var first = layers[0];
+        for (int i = 1; i < layers.Length; i++)
+        {
+            var layer = layers[i];
+            if (layer.Width != first.Width || layer.Height != first.Height || layer.Kind != first.Kind
+                || layer.Mips.Length != first.Mips.Length)
+            {
+                throw new ArgumentException(
+                    $"Layer {i} is {layer.Width}x{layer.Height} {layer.Kind} with {layer.Mips.Length} mips, " +
+                    $"but layer 0 is {first.Width}x{first.Height} {first.Kind} with {first.Mips.Length} mips.",
+                    nameof(layers));
+            }
+        }
+
+        var texture = new GpuTexture(_context, first.Width, first.Height, first.Kind, (uint)first.Mips.Length, (uint)layers.Length, true);
+        _uploads.Add(texture.CreateStaging(layers), texture);
+        return _resources.AddTextureArray(texture);
+    }
 
     /// <summary>
     /// Replaces the image that <see cref="FrameView.Overlay"/> quads read from. Only its
@@ -271,6 +505,7 @@ public sealed unsafe class Renderer : IDisposable
         ];
 
         _api.DeviceWaitIdle(_context.Device).Check();
+        _uploads.Flush();
 
         // The passes are bound to the current targets, so small ones stand in for a while.
         var screenTargets = _gBuffer;
@@ -299,7 +534,7 @@ public sealed unsafe class Renderer : IDisposable
                 Flags = CommandBufferUsageFlags.OneTimeSubmitBit,
             };
             _api.BeginCommandBuffer(cmd, &beginInfo).Check();
-            RecordScene(cmd, frame.Set, visible, castsShadow ? shadowCasters : []);
+            RecordScene(cmd, frame.Set, visible, castsShadow ? shadowCasters : [], shadowsSelected: false);
             _probes.RecordFace(cmd, _gBuffer.Hdr.Image, face);
             _api.EndCommandBuffer(cmd).Check();
 
@@ -374,6 +609,19 @@ public sealed unsafe class Renderer : IDisposable
                 throw new ArgumentException("Transparent materials can't use a surface shader yet.", nameof(material));
             }
         }
+
+        for (int i = 0; i < ShaderTextures.Length; i++)
+        {
+            if (material.ShaderTextures[i] is { } texture && !_resources.IsLive(texture))
+            {
+                throw new ArgumentException($"The material's shader texture {i} does not exist.", nameof(material));
+            }
+
+            if (material.ShaderArrays[i] is { } array && !_resources.IsLive(array))
+            {
+                throw new ArgumentException($"The material's shader texture array {i} does not exist.", nameof(material));
+            }
+        }
     }
 
     /// <summary>Uploads a cooked model and returns one draw per part.</summary>
@@ -409,31 +657,51 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     private DrawItem[] CreateDetailedMesh(
-        ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices, ReadOnlySpan<ModelPart> parts, ReadOnlySpan<MaterialHandle> materials)
+        ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices, ReadOnlySpan<ModelPart> parts,
+        ReadOnlySpan<MaterialHandle> materials, bool simplify = true)
     {
         var allIndices = new List<uint>(indices.ToArray());
         var draws = new DrawItem[parts.Length];
+        var details = new int[parts.Length];
         for (int i = 0; i < parts.Length; i++)
         {
             ref readonly var part = ref parts[i];
-            _details.Add(MeshDetail.Build(vertices, indices.Slice((int)part.FirstIndex, (int)part.IndexCount), allIndices));
+            var partIndices = indices.Slice((int)part.FirstIndex, (int)part.IndexCount);
+            var detail = simplify
+                ? MeshDetail.Build(vertices, partIndices, allIndices)
+                : MeshDetail.Full(vertices, partIndices);
+            details[i] = AddDetail(detail);
             draws[i] = new DrawItem
             {
                 FirstIndex = part.FirstIndex,
                 IndexCount = part.IndexCount,
                 Material = materials[part.Material],
                 Transform = Matrix4x4.Identity,
-                Detail = new DetailHandle(_details.Count - 1),
+                Detail = new DetailHandle(details[i]),
             };
         }
 
         var mesh = CreateMesh(vertices, CollectionsMarshal.AsSpan(allIndices));
+        _meshes[mesh.Index]!.Details = details;
         foreach (ref var draw in draws.AsSpan())
         {
             draw.Mesh = mesh;
         }
 
         return draws;
+    }
+
+    private int AddDetail(in PartDetail detail)
+    {
+        if (_freeDetails.Count > 0)
+        {
+            int slot = _freeDetails.Pop();
+            _details[slot] = detail;
+            return slot;
+        }
+
+        _details.Add(detail);
+        return _details.Count - 1;
     }
 
     public void Render(in FrameView view, ReadOnlySpan<DrawItem> draws)
@@ -452,6 +720,7 @@ public sealed unsafe class Renderer : IDisposable
         var fence = frame.InFlight;
         long waitStart = Stopwatch.GetTimestamp();
         _api.WaitForFences(_context.Device, 1, &fence, true, ulong.MaxValue).Check();
+        ReleaseDestroyed(_frameIndex);
 
         var swapchainHandle = _swapchain.Handle;
         uint imageIndex = 0;
@@ -499,13 +768,14 @@ public sealed unsafe class Renderer : IDisposable
             Flags = CommandBufferUsageFlags.OneTimeSubmitBit,
         };
         _api.BeginCommandBuffer(cmd, &beginInfo).Check();
+        _uploads.Record(cmd, _destroyed[_frameIndex].Others);
         int overlayQuads = _overlayAtlas is null ? 0 : _overlayPass.Upload(_frameIndex, view.Overlay);
         if (timed)
         {
             _gpuTimer.Begin(cmd, _frameIndex);
         }
 
-        RecordFrame(cmd, frame.Set, imageIndex, _cameraDraws.AsSpan(0, cameraCount), _shadowDraws.AsSpan(0, shadowCount), overlayQuads);
+        RecordFrame(cmd, frame.Set, imageIndex, _cameraDraws.AsSpan(0, cameraCount), overlayQuads);
         _gpuTimer.End();
         _api.EndCommandBuffer(cmd).Check();
 
@@ -572,24 +842,38 @@ public sealed unsafe class Renderer : IDisposable
         if (_cameraDraws.Length < draws.Length)
         {
             _cameraDraws = new DrawItem[draws.Length * 2];
-            _shadowDraws = new DrawItem[draws.Length * 2];
+            for (int i = 0; i < _shadowDraws.Length; i++)
+            {
+                _shadowDraws[i] = new DrawItem[draws.Length * 2];
+            }
         }
 
-        float focalPixels = MathF.Abs(view.Projection.M22) * view.Height / 2f;
-        var camera = new DetailView(viewProjection, view.CameraPosition, focalPixels, 0f, CameraDetailError);
+        var (pixelsAtOneUnit, pixelsPerUnit) = Projection.PixelScale(view.Projection, view.Height);
+        var camera = new DetailView(viewProjection, view.CameraPosition, pixelsAtOneUnit, pixelsPerUnit, CameraDetailError);
         int cameraCount = DrawSelection.Select(camera, draws, _details, _cameraDraws);
 
         int shadowCount = 0;
+        Array.Clear(_shadowCounts);
         if (castsShadow)
         {
-            float texelsPerUnit = ShadowPass.Resolution / (2f * view.Shadows.Radius);
-            var shadow = new DetailView(_shadowMatrix, view.CameraPosition, 0f, texelsPerUnit, ShadowDetailError);
-            shadowCount = DrawSelection.Select(shadow, draws, _details, _shadowDraws);
+            for (int cascade = 0; cascade < _shadowCascades; cascade++)
+            {
+                float texelsPerUnit = ShadowPass.Resolution / (2f * ShadowPass.CascadeRadius(view.Shadows, cascade));
+                var shadow = new DetailView(_shadowMatrices[cascade], view.CameraPosition, 0f, texelsPerUnit, ShadowDetailError);
+                _shadowCounts[cascade] = DrawSelection.Select(shadow, draws, _details, _shadowDraws[cascade]);
+                shadowCount += _shadowCounts[cascade];
+            }
         }
 
         if (MeasureGpu)
         {
-            DrawnTriangles = (CountTriangles(_cameraDraws.AsSpan(0, cameraCount)), CountTriangles(_shadowDraws.AsSpan(0, shadowCount)));
+            long shadowTriangles = 0;
+            for (int cascade = 0; cascade < _shadowCascades; cascade++)
+            {
+                shadowTriangles += CountTriangles(_shadowDraws[cascade].AsSpan(0, _shadowCounts[cascade]));
+            }
+
+            DrawnTriangles = (CountTriangles(_cameraDraws.AsSpan(0, cameraCount)), shadowTriangles);
         }
 
         return (cameraCount, shadowCount);
@@ -642,6 +926,11 @@ public sealed unsafe class Renderer : IDisposable
     public void Dispose()
     {
         _api.DeviceWaitIdle(_context.Device).Check();
+        _uploads.Discard();
+        for (int slot = 0; slot < FramesInFlight; slot++)
+        {
+            ReleaseDestroyed(slot);
+        }
 
         _gpuTimer.Dispose();
         _overlayPass.Dispose();
@@ -662,7 +951,7 @@ public sealed unsafe class Renderer : IDisposable
 
         foreach (var mesh in _meshes)
         {
-            mesh.Dispose();
+            mesh?.Dispose();
         }
 
         foreach (ref var frame in _frames.AsSpan())
@@ -692,14 +981,13 @@ public sealed unsafe class Renderer : IDisposable
         DescriptorSet frameSet,
         uint imageIndex,
         ReadOnlySpan<DrawItem> draws,
-        ReadOnlySpan<DrawItem> shadowCasters,
         int overlayQuads)
     {
         var targets = _gBuffer;
         var extent = targets.Extent;
         var swapchainImage = _swapchain.Images[imageIndex];
 
-        RecordScene(cmd, frameSet, draws, shadowCasters);
+        RecordScene(cmd, frameSet, draws, [], shadowsSelected: true);
 
         ReadOnlySpan<DescriptorSet> taaSets = [frameSet, _taaSet];
         _api.BeginColorTarget(cmd, targets.Resolved.Image);
@@ -769,12 +1057,17 @@ public sealed unsafe class Renderer : IDisposable
         _historyReady = true;
     }
 
-    /// <summary>Draws and lights the scene into the HDR target, for frames and probe captures alike.</summary>
+    /// <summary>
+    /// Draws and lights the scene into the HDR target, for frames and probe captures
+    /// alike. A frame's shadow draws were picked per cascade by <see cref="SelectDraws"/>;
+    /// a probe capture draws <paramref name="shadowCasters"/> into every cascade.
+    /// </summary>
     private void RecordScene(
         CommandBuffer cmd,
         DescriptorSet frameSet,
         ReadOnlySpan<DrawItem> draws,
-        ReadOnlySpan<DrawItem> shadowCasters)
+        ReadOnlySpan<DrawItem> shadowCasters,
+        bool shadowsSelected)
     {
         var targets = _gBuffer;
         var extent = targets.Extent;
@@ -792,10 +1085,16 @@ public sealed unsafe class Renderer : IDisposable
         var shadowMap = _shadowPass.Target.Image;
         _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
             ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, SampledStage, SampledAccess, DepthStages,
-            DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
-        _shadowPass.Record(cmd, frameSet, shadowCasters, _meshes);
+            DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit, layerCount: ShadowPass.MaxCascades);
+        for (int cascade = 0; cascade < _shadowCascades; cascade++)
+        {
+            var casters = shadowsSelected ? _shadowDraws[cascade].AsSpan(0, _shadowCounts[cascade]) : shadowCasters;
+            _shadowPass.Record(cmd, frameSet, casters, _meshes, cascade);
+        }
+
         _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
-            ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess);
+            ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess,
+            layerCount: ShadowPass.MaxCascades);
         _gpuTimer.Mark(cmd);
 
         _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
@@ -920,7 +1219,8 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->CameraPosition = new Vector4(view.CameraPosition, 1f);
         uniforms->BackgroundRadiance = new Vector4(view.BackgroundRadiance, view.EnvironmentIntensity);
 
-        // Moving points two shadow map texels off their surface stops them shadowing themselves.
+        // Moving points two texels of the first cascade off their surface stops them
+        // shadowing themselves. The lighting pass works this out per cascade itself.
         float normalOffset = view.Shadows.Radius * 4f / ShadowPass.Resolution;
         uniforms->Parameters = new Vector4(
             view.BackgroundFadeStart, view.BackgroundFadeEnd, view.Shadows.LightAngle, normalOffset);
@@ -934,6 +1234,8 @@ public sealed unsafe class Renderer : IDisposable
         int count = Math.Min(view.Lights.Length, FrameUniforms.MaxLights);
         uniforms->LightCount = count;
         uniforms->Time = view.Time;
+        _shadowCascades = ShadowPass.CascadeCount(view.Shadows);
+        uniforms->ShadowCascades = _shadowCascades;
         bool castsShadow = false;
         for (int i = 0; i < count; i++)
         {
@@ -942,8 +1244,16 @@ public sealed unsafe class Renderer : IDisposable
             bool casts = !castsShadow && light.CastsShadow && view.Shadows.Radius > 0f;
             if (casts)
             {
-                _shadowMatrix = ShadowPass.CreateMatrix(direction, view.Shadows.Center, view.Shadows.Radius);
-                uniforms->ShadowMatrix = _shadowMatrix;
+                var radii = Vector4.Zero;
+                for (int cascade = 0; cascade < _shadowCascades; cascade++)
+                {
+                    float radius = ShadowPass.CascadeRadius(view.Shadows, cascade);
+                    _shadowMatrices[cascade] = ShadowPass.CreateMatrix(direction, view.Shadows.Center, radius);
+                    uniforms->ShadowMatrices[cascade] = _shadowMatrices[cascade];
+                    radii[cascade] = radius;
+                }
+
+                uniforms->ShadowRadii = radii;
                 castsShadow = true;
             }
 

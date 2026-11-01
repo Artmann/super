@@ -23,21 +23,7 @@ internal static class MeshDetail
     /// <summary>Appends the simpler versions of <paramref name="part"/> to <paramref name="indices"/>.</summary>
     public static PartDetail Build(ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> part, List<uint> indices)
     {
-        var min = new Vector3(float.MaxValue);
-        var max = new Vector3(float.MinValue);
-        foreach (uint index in part)
-        {
-            min = Vector3.Min(min, vertices[(int)index].Position);
-            max = Vector3.Max(max, vertices[(int)index].Position);
-        }
-
-        var center = (min + max) / 2f;
-        float radius = 0f;
-        foreach (uint index in part)
-        {
-            radius = MathF.Max(radius, Vector3.Distance(center, vertices[(int)index].Position));
-        }
-
+        var (min, max, center, radius) = Bounds(vertices, part);
         var size = max - min;
         float longest = MathF.Max(size.X, MathF.Max(size.Y, size.Z));
         var levels = new List<DetailLevel>();
@@ -57,6 +43,34 @@ internal static class MeshDetail
         }
 
         return new PartDetail(center, radius, levels.ToArray());
+    }
+
+    /// <summary>The part as it is, with nothing simpler to fall back to.</summary>
+    public static PartDetail Full(ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> part)
+    {
+        var (_, _, center, radius) = Bounds(vertices, part);
+        return new PartDetail(center, radius, []);
+    }
+
+    private static (Vector3 Min, Vector3 Max, Vector3 Center, float Radius) Bounds(
+        ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> part)
+    {
+        var min = new Vector3(float.MaxValue);
+        var max = new Vector3(float.MinValue);
+        foreach (uint index in part)
+        {
+            min = Vector3.Min(min, vertices[(int)index].Position);
+            max = Vector3.Max(max, vertices[(int)index].Position);
+        }
+
+        var center = (min + max) / 2f;
+        float radius = 0f;
+        foreach (uint index in part)
+        {
+            radius = MathF.Max(radius, Vector3.Distance(center, vertices[(int)index].Position));
+        }
+
+        return (min, max, center, radius);
     }
 
     /// <summary>Merges vertices on a grid. The triangles that still have three corners are what's left.</summary>
