@@ -46,6 +46,9 @@ public sealed class HeadlessRun<TGame> : IDisposable
     /// <summary>Lets a held load finish, as if everything arrived at once.</summary>
     public void FinishLoading() => _host.Content.Held = false;
 
+    /// <summary>Acts as if a content file was saved. It lands on the next tick, as it does in the window.</summary>
+    public void ContentChanged() => _host.Content.ReloadWanted = true;
+
     /// <summary>What the last Draw would have shown.</summary>
     public IReadOnlyList<ModelDraw> Drawn => _host.View.Drawn.ToArray();
 

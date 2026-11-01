@@ -18,17 +18,24 @@ public sealed record GeneratedMesh(Vertex[] Vertices, uint[] Indices, GeneratedT
 /// </summary>
 public sealed class Content
 {
+    private static readonly TimeSpan ReloadQuietTime = TimeSpan.FromMilliseconds(100);
+
     private readonly List<object> _items = [];
     private readonly Dictionary<string, ModelRef> _models = [];
     private readonly Dictionary<(Type Type, string Folder), ICatalog> _catalogs = [];
+    private readonly List<ContentReference> _waiting = [];
     private readonly ContentReader _reader;
+    private readonly IContentFiles _files;
+    private ContentWatcher? _watcher;
+    private volatile bool _reloadWanted;
     private int _loaded;
     private int _batchStart;
 
     /// <summary>Reads JSON from the given files, or from the content folder if there are none.</summary>
     public Content(IContentFiles? files = null)
     {
-        _reader = new ContentReader(this, files ?? new ContentFolder());
+        _files = files ?? new ContentFolder();
+        _reader = new ContentReader(this, _files);
     }
 
     internal IReadOnlyList<object> Items => _items;
@@ -38,6 +45,16 @@ public sealed class Content
 
     /// <summary>Set by tests, to keep a loading screen up for as long as they need it.</summary>
     internal bool Held { get; set; }
+
+    /// <summary>Whether files are being watched. This never happens without a window.</summary>
+    internal bool IsLive => _watcher is not null;
+
+    /// <summary>Set when a file changed. The next tick reads everything again.</summary>
+    internal bool ReloadWanted
+    {
+        get => _reloadWanted;
+        set => _reloadWanted = value;
+    }
 
     /// <summary>Whether everything named so far is ready to draw.</summary>
     public bool IsLoaded => !Held && (!Streaming || _loaded >= _items.Count);
@@ -89,9 +106,101 @@ public sealed class Content
 
         _reader.RequireId(typeof(T));
         var catalog = new Catalog<T>(folder);
-        Load([catalog]);
+        Load([catalog], [.. _catalogs.Values, catalog]);
         _catalogs.Add((typeof(T), folder), catalog);
+        if (IsLive)
+        {
+            ContentSchema.Write(((ContentFolder)_files).Root!, folder, typeof(T), _reader.Options);
+        }
+
         return catalog;
+    }
+
+    /// <summary>
+    /// Fails if a reference still has no catalog to point at. Files can load in any order
+    /// within one Load or one tick, so this runs when those end.
+    /// </summary>
+    internal void RequireReferences()
+    {
+        if (_waiting.Count == 0)
+        {
+            return;
+        }
+
+        var problems = _waiting.ConvertAll(reference =>
+            $"{reference.Place}: {reference.Field} points at {reference.Id}, but no {reference.Target.Name} was loaded");
+        _waiting.Clear();
+        throw new ContentException(problems);
+    }
+
+    /// <summary>The schema for a type of record, as text.</summary>
+    internal string SchemaText(Type type) => ContentSchema.Text(type, _reader.Options);
+
+    /// <summary>Writes a schema for every catalog into a content folder.</summary>
+    internal void WriteSchemas(string root)
+    {
+        foreach (var catalog in _catalogs.Values)
+        {
+            ContentSchema.Write(root, catalog.Folder, catalog.RecordType, _reader.Options);
+        }
+    }
+
+    /// <summary>
+    /// Starts development help: schemas, and reloading on save. It does nothing for a
+    /// shipped game, whose content sits beside the program, or for files not on disk.
+    /// </summary>
+    internal void GoLive()
+    {
+        if (_files is ContentFolder { IsSource: true, Root: { } root } && Directory.Exists(root))
+        {
+            WriteSchemas(root);
+            _watcher = new ContentWatcher(root, () => ReloadWanted = true, ReloadQuietTime);
+        }
+    }
+
+    /// <summary>Stops watching files.</summary>
+    internal void StopLive()
+    {
+        _watcher?.Dispose();
+        _watcher = null;
+    }
+
+    /// <summary>
+    /// Reads everything again, all or nothing. A mistake is written to the log and the old
+    /// data stays, because a typo shouldn't end a play session. A file that can't be read
+    /// yet is likely still being saved, so it's tried again on the next tick.
+    /// </summary>
+    internal bool Reload(TextWriter log)
+    {
+        ReloadWanted = false;
+        ICatalog[] all = [.. _catalogs.Values];
+        try
+        {
+            Load(all, all);
+        }
+        catch (ContentException mistake)
+        {
+            log.WriteLine($"Content not reloaded:{Environment.NewLine}{mistake.Message}");
+            return false;
+        }
+        catch (Exception problem) when (problem is IOException or UnauthorizedAccessException)
+        {
+            foreach (var catalog in all)
+            {
+                catalog.Drop();
+            }
+
+            ReloadWanted = true;
+            return false;
+        }
+
+        foreach (var catalog in all)
+        {
+            catalog.Announce();
+        }
+
+        log.WriteLine("Content reloaded.");
+        return true;
     }
 
     /// <summary>Counts one more item as ready. The window calls this as it finishes each one.</summary>
@@ -104,14 +213,22 @@ public sealed class Content
         }
     }
 
-    /// <summary>Reads catalogs all or nothing, so a mistake in one leaves every one of them as it was.</summary>
-    private void Load(ICatalog[] catalogs)
+    /// <summary>
+    /// Reads catalogs all or nothing, so a mistake in one leaves every one of them as it
+    /// was. References are checked against everything known, including what's being read.
+    /// </summary>
+    private void Load(ICatalog[] catalogs, ICatalog[] known)
     {
         var problems = new List<string>();
+        var references = new List<ContentReference>();
         foreach (var catalog in catalogs)
         {
-            catalog.Check(_reader, problems);
+            catalog.Check(_reader, problems, references);
         }
+
+        var waiting = new List<ContentReference>(_waiting);
+        waiting.AddRange(references);
+        var stillWaiting = Resolve(waiting, known, problems);
 
         if (problems.Count == 0)
         {
@@ -137,6 +254,29 @@ public sealed class Content
         {
             throw new ContentException(problems);
         }
+
+        _waiting.Clear();
+        _waiting.AddRange(stillWaiting);
+    }
+
+    /// <summary>Reports references that point at nothing, and hands back those with no catalog yet.</summary>
+    private static List<ContentReference> Resolve(List<ContentReference> references, ICatalog[] known, List<string> problems)
+    {
+        var stillWaiting = new List<ContentReference>();
+        foreach (var reference in references)
+        {
+            var targets = known.Where(catalog => catalog.RecordType == reference.Target).ToArray();
+            if (targets.Length == 0)
+            {
+                stillWaiting.Add(reference);
+            }
+            else if (!targets.Any(catalog => catalog.Has(reference.Id)))
+            {
+                problems.Add($"{reference.Place}: {reference.Field} points at {reference.Id}, but there is no {reference.Target.Name} called that");
+            }
+        }
+
+        return stillWaiting;
     }
 
     private ModelRef Add(object item)

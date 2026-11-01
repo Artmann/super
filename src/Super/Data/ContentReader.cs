@@ -29,6 +29,7 @@ internal sealed class ContentReader
         };
         options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false));
         options.Converters.Add(new ModelRefConverter(content));
+        options.Converters.Add(new RefConverterFactory());
         options.MakeReadOnly();
         Options = options;
     }
@@ -45,7 +46,7 @@ internal sealed class ContentReader
     }
 
     /// <summary>Reads a folder and writes down what's wrong with it. Only files that passed come back.</summary>
-    public IReadOnlyList<CheckedFile> Check(string folder, Type type, List<string> problems)
+    public IReadOnlyList<CheckedFile> Check(string folder, Type type, List<string> problems, List<ContentReference> references)
     {
         if (_files.List(folder) is not { } paths)
         {
@@ -58,7 +59,7 @@ internal sealed class ContentReader
         foreach (string path in paths)
         {
             var json = WithoutByteOrderMark(_files.Read(path));
-            var validator = new ContentValidator(path, json, Options, _files, problems);
+            var validator = new ContentValidator(path, json, Options, _files, problems, references);
             validator.Check(type);
             if (!validator.Passed)
             {
@@ -95,6 +96,25 @@ internal sealed class ContentReader
     {
         bool marked = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
         return marked ? bytes.AsMemory(3) : bytes;
+    }
+
+    private sealed class RefConverterFactory : JsonConverterFactory
+    {
+        public override bool CanConvert(Type typeToConvert) =>
+            typeToConvert.IsGenericType && typeToConvert.GetGenericTypeDefinition() == typeof(Ref<>);
+
+        public override JsonConverter? CreateConverter(Type typeToConvert, JsonSerializerOptions options) =>
+            (JsonConverter?)Activator.CreateInstance(typeof(RefConverter<>).MakeGenericType(typeToConvert.GetGenericArguments()[0]));
+    }
+
+    private sealed class RefConverter<T> : JsonConverter<Ref<T>>
+        where T : notnull
+    {
+        public override Ref<T> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+            new(reader.GetString()!);
+
+        public override void Write(Utf8JsonWriter writer, Ref<T> value, JsonSerializerOptions options) =>
+            writer.WriteStringValue(value.Id);
     }
 
     private sealed class ModelRefConverter(Content content) : JsonConverter<ModelRef>

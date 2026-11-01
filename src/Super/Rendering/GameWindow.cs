@@ -84,6 +84,7 @@ internal sealed unsafe class GameWindow : IDisposable
 
         // Only here can a player see a loading screen, and only here may real time decide its length.
         host.Content.Streaming = true;
+        host.Content.GoLive();
 
         while (!_glfw.WindowShouldClose(_window))
         {

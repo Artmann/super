@@ -18,16 +18,18 @@ internal sealed class ContentValidator
     private readonly JsonSerializerOptions _options;
     private readonly IContentFiles _files;
     private readonly List<string> _problems;
+    private readonly List<ContentReference> _references;
     private readonly List<int> _lineStarts = [0];
     private readonly int _problemsBefore;
 
-    public ContentValidator(string path, ReadOnlyMemory<byte> json, JsonSerializerOptions options, IContentFiles files, List<string> problems)
+    public ContentValidator(string path, ReadOnlyMemory<byte> json, JsonSerializerOptions options, IContentFiles files, List<string> problems, List<ContentReference> references)
     {
         _path = path;
         _json = json;
         _options = options;
         _files = files;
         _problems = problems;
+        _references = references;
         _problemsBefore = problems.Count;
 
         var bytes = json.Span;
@@ -109,6 +111,12 @@ internal sealed class ContentValidator
         if (type == typeof(ModelRef))
         {
             Model(ref reader, field);
+            return;
+        }
+
+        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Ref<>))
+        {
+            Reference(ref reader, type.GetGenericArguments()[0], field);
             return;
         }
 
@@ -256,6 +264,17 @@ internal sealed class ContentValidator
         }
     }
 
+    private void Reference(ref Utf8JsonReader reader, Type target, string field)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            Wrong(ref reader, field, "text");
+            return;
+        }
+
+        _references.Add(new ContentReference(target, reader.GetString()!, $"{_path}:{Line(reader.TokenStartIndex)}", field));
+    }
+
     private void Choice(ref Utf8JsonReader reader, Type type, string field)
     {
         string[] names = Enum.GetNames(type).Select(name => _options.PropertyNamingPolicy!.ConvertName(name)).ToArray();
@@ -313,7 +332,7 @@ internal sealed class ContentValidator
 
     private static string Word(Type type)
     {
-        if (type == typeof(string) || type == typeof(ModelRef))
+        if (type == typeof(string) || type == typeof(ModelRef) || (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Ref<>)))
         {
             return "text";
         }

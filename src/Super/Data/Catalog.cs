@@ -8,7 +8,7 @@ namespace Super;
 internal interface ICatalog
 {
     /// <summary>Reads and checks the files, keeping them until <see cref="Build"/> or <see cref="Drop"/>.</summary>
-    void Check(ContentReader reader, List<string> problems);
+    void Check(ContentReader reader, List<string> problems, List<ContentReference> references);
 
     /// <summary>Turns files that passed into records. They aren't shown to the game yet.</summary>
     void Build(ContentReader reader, List<string> problems);
@@ -21,6 +21,15 @@ internal interface ICatalog
 
     /// <summary>Tells the game the records changed.</summary>
     void Announce();
+
+    /// <summary>The type of record this holds.</summary>
+    Type RecordType { get; }
+
+    /// <summary>The folder this was loaded from.</summary>
+    string Folder { get; }
+
+    /// <summary>Whether this holds an id. During a read, that means the files just read.</summary>
+    bool Has(string id);
 }
 
 /// <summary>
@@ -50,6 +59,13 @@ public sealed class Catalog<T> : IReadOnlyCollection<T>, ICatalog
         ? record
         : throw new KeyNotFoundException($"There is nothing called {id} in content/{_folder}.");
 
+    /// <summary>The record a reference points at.</summary>
+    public T this[Ref<T> reference] => this[reference.Id];
+
+    Type ICatalog.RecordType => typeof(T);
+
+    string ICatalog.Folder => _folder;
+
     public bool Contains(string id) => _byId.ContainsKey(id);
 
     public bool TryGet(string id, [MaybeNullWhen(false)] out T record) => _byId.TryGetValue(id, out record);
@@ -64,8 +80,10 @@ public sealed class Catalog<T> : IReadOnlyCollection<T>, ICatalog
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-    void ICatalog.Check(ContentReader reader, List<string> problems) =>
-        _checked = reader.Check(_folder, typeof(T), problems);
+    void ICatalog.Check(ContentReader reader, List<string> problems, List<ContentReference> references) =>
+        _checked = reader.Check(_folder, typeof(T), problems, references);
+
+    bool ICatalog.Has(string id) => _checked is null ? _byId.ContainsKey(id) : _checked.Any(file => file.Id == id);
 
     void ICatalog.Build(ContentReader reader, List<string> problems)
     {

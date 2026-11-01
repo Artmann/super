@@ -49,6 +49,7 @@ internal sealed class GameHost<TGame> : IDisposable
         _changes.Hooks = _services.GetServices<IStateHook>().ToArray();
         ((IGame)Game).Load();
         _changes.Apply();
+        Content.RequireReferences();
     }
 
     public TGame Game { get; }
@@ -79,6 +80,12 @@ internal sealed class GameHost<TGame> : IDisposable
 
     public void Tick()
     {
+        // Only here, so all of a tick and the Draw after it see one version of the data.
+        if (Content.ReloadWanted)
+        {
+            Content.Reload(Console.Error);
+        }
+
         // Input is only readable during Update, so the screen can't depend on it.
         Input.Readable = true;
         Input.Roll();
@@ -92,6 +99,7 @@ internal sealed class GameHost<TGame> : IDisposable
 
         // Last, so all of Update saw one state and the next Draw shows the new one.
         _changes.Apply();
+        Content.RequireReferences();
         Time.Tick++;
     }
 
@@ -110,5 +118,9 @@ internal sealed class GameHost<TGame> : IDisposable
         _changes.Open = true;
     }
 
-    public void Dispose() => _services.Dispose();
+    public void Dispose()
+    {
+        Content.StopLive();
+        _services.Dispose();
+    }
 }
