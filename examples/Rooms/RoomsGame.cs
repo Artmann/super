@@ -37,6 +37,11 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
     public const int CoinsOutside = 8;
     public const float HouseSize = 5f;
     public const float OutsideSize = 12f;
+
+    // Models the game draws itself. Entities use IDs from zero, so these can't collide.
+    public const int DoorLidKey = -1;
+    public const int SparkleKey = -2;
+
     public static readonly Vector3 HouseDoor = new(0f, 0f, HouseSize);
     public static readonly Vector3 OutsideDoor = new(0f, 0f, -OutsideSize);
 
@@ -47,10 +52,6 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
     private const float DoorWakesWithin = 3f;
     private const float SparkleSeconds = 0.4f;
     private const int GroundTextureSize = 512;
-
-    // Models the game draws itself. Entities use IDs from zero, so these can't collide.
-    private const int DoorLidKey = -1;
-    private const int SparkleKey = -2;
 
     private static readonly Vector3 PlayerColor = new(0.9f, 0.45f, 0.15f);
     private static readonly Vector3 FloorColor = new(0.45f, 0.33f, 0.22f);
