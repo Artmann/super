@@ -65,9 +65,6 @@ public sealed class Input
     /// <summary>Whether reads are allowed right now. The host turns it on for Update only.</summary>
     internal bool Readable { get; set; }
 
-    /// <summary>How many ticks the snapshot has rolled over.</summary>
-    internal int RollCount { get; private set; }
-
     /// <summary>Whether the key is held during this tick.</summary>
     public bool Down(Key key) => Read(_keys.Down((int)key));
 
@@ -189,7 +186,6 @@ public sealed class Input
         Typed = _typing.Length == 0 ? string.Empty : _typing.ToString();
         _typing.Clear();
 
-        RollCount++;
         foreach (var listener in _listeners)
         {
             listener.Rolled();
