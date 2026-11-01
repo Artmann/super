@@ -16,6 +16,16 @@ public sealed class ProfilingTests
         gpu ?? new Dictionary<string, double> { ["Lighting"] = 3.0, ["Shadows"] = 1.0 },
         stacks);
 
+    /// <summary>Checks that both appear, which a plain IndexOf comparison would not: a missing one is -1.</summary>
+    private static void AssertInOrder(string report, string first, string second)
+    {
+        int before = report.IndexOf(first, StringComparison.Ordinal);
+        int after = report.IndexOf(second, StringComparison.Ordinal);
+        Assert.True(before >= 0, $"Not found: {first}");
+        Assert.True(after >= 0, $"Not found: {second}");
+        Assert.True(before < after, $"{first} should come before {second}");
+    }
+
     [Fact]
     public void Functions_are_ranked_by_time_in_themselves()
     {
@@ -43,7 +53,7 @@ public sealed class ProfilingTests
 
         Assert.Contains("seed 7", report);
         Assert.Contains("10.0 ms on average", report);
-        Assert.True(report.IndexOf("Lighting") < report.IndexOf("Shadows")); // Biggest first.
+        AssertInOrder(report, "Lighting", "Shadows"); // Biggest first.
         Assert.Contains("100.0% of samples:\n  Main\n  Slow\n", report);
     }
 
@@ -78,7 +88,7 @@ public sealed class ProfilingTests
 
         Assert.Contains("102 models, 3,000 triangles", report);
         Assert.Contains("1,234 triangles for the camera, 56 for shadows", report);
-        Assert.True(report.IndexOf("big") < report.IndexOf("small"));
+        AssertInOrder(report, "big", "small");
     }
 
     [Fact]
@@ -102,7 +112,19 @@ public sealed class ProfilingTests
             CultureInfo.CurrentCulture = original;
         }
     }
+}
 
+/// <summary>The sampler listens to the whole process, so nothing else may run beside it.</summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class CpuSamplerCollection
+{
+    public const string Name = "CPU sampler";
+}
+
+[Collection(CpuSamplerCollection.Name)]
+[Trait("Speed", "Slow")]
+public sealed class CpuSamplerTests
+{
     [Fact]
     public void The_sampler_finds_a_busy_function_by_name()
     {
