@@ -300,6 +300,92 @@ The first update puts a camera straight in place. If its target teleports, call
 `follow.Jump()` so the camera doesn't slide across the map. For clicking, pass
 `follow.Current` to `input.MouseRay`.
 
+A camera is perspective unless you say otherwise. An orthographic camera has no
+perspective, so things keep their size however far away they are. You give it how many
+world units the screen shows from bottom to top:
+
+```csharp
+var flat = Camera.Orthographic(new Vector3(0, 20, 20), Vector3.Zero, size: 30f);
+```
+
+`Shift` makes a camera asymmetric. It slides the picture without turning the camera, in
+half screens, and works with either kind. This keeps a character in the middle of what's
+left beside a side panel:
+
+```csharp
+var beside = camera with { Shift = new Vector2(0.5f, 0f) };
+```
+
+Clicking works the same with all of them, because `input.MouseRay` asks the camera.
+
+Four more helpers cover the usual kinds of game. They all work like the two above, with
+`Update` once a tick and `At(view.Blend)` in `Draw`.
+
+**Third person.** `BoomCamera` sits on an arm behind the character, and the arm shortens
+when something is in the way. Super doesn't know your walls, so you test the arm against
+them and pass in how far along it you hit something:
+
+```csharp
+readonly BoomCamera boom = new() { Length = 6f, Shoulder = 0.5f };
+
+public void Update(GameTime time)
+{
+    boom.Turn(input.MouseDelta * 0.005f);
+    boom.Zoom(input.Scroll);
+    var walk = boom.Walk(actions.Vector(Control.Move));
+
+    var arm = boom.Arm(player.Position);
+    boom.Update(player.Position, time.TickSeconds, blockedAt: arm.HitsBox(wall.Min, wall.Max));
+}
+```
+
+The arm pulls in at once, so the camera never shows the inside of a wall, and eases back
+out once the way is clear. With several walls, pass the nearest hit. `Walk` turns a stick
+into a direction on the ground, so forward goes where the camera faces.
+
+**First person.** `FirstPersonCamera` looks out from `EyeHeight` above the feet:
+
+```csharp
+readonly FirstPersonCamera eyes = new();
+
+public void Update(GameTime time)
+{
+    eyes.Turn(input.MouseDelta * 0.003f);
+    var walk = eyes.Walk(actions.Vector(Control.Move));
+    eyes.Update(player.Position);
+}
+```
+
+`Walk` stays level wherever you look, so looking up doesn't slow you down.
+
+**Top-down and isometric.** `TopDownCamera` looks straight down and `IsometricCamera` looks
+down at the true isometric angle. Both are orthographic, and zooming changes `Size`:
+
+```csharp
+readonly IsometricCamera iso = new() { Size = 24f };
+
+public void Update(GameTime time)
+{
+    iso.Zoom(input.Scroll);
+
+    // A tiny step for each key held, or follow something with iso.Update(player.Position, seconds).
+    iso.Pan(actions.Vector(Control.Move) * 20f * time.TickSeconds);
+    iso.Update(time.TickSeconds);
+
+    if (input.Pressed(Key.Q))
+    {
+        iso.Turn(1);
+    }
+}
+```
+
+`Turn` walks an isometric camera around by quarter turns, easing there. A top-down camera
+can't rotate. For a top-down view with perspective, use `FollowCamera` with an `Offset`
+straight up.
+
+Orthographic views widen their shadows to cover the screen, so shadows get softer as you
+zoom out.
+
 ### Particles
 
 Particles are worked out from when they started rather than fired and forgotten, so
@@ -1139,6 +1225,9 @@ Models are cooked into a fast format by the import tool. The
   a transform, but `AnimationRef` and `view.Bone` don't exist.
 - **Picking by shape.** Clicks are tested against balls, boxes and the ground, not a
   model's triangles.
+- **Some camera moves.** A camera can't roll, and asymmetric views are a shift, so head
+  tracking and tiled displays can't be done yet. Underwater views are wrong under an
+  orthographic camera.
 - **Large numbers of objects.** Rendition's efficiency with many thousands of objects
   still has to be measured and improved.
 - **Physics.** Not in the first version. Gameplay physics has to give repeatable

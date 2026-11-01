@@ -25,6 +25,9 @@ the rest is not yet.
 | Interface code | CPU only, in `Super.Ui`. Rendition only sees textured quads | Layout and text run for real in headless tests, and Rendition stays usable alone |
 | Hierarchy | Flat, with attachment by transform or bone | Colony and dungeon games have thousands of independent things and little nesting |
 | Cameras | A `Camera` is a plain value the game keeps, since picking happens in `Update` and showing in `Draw` | Input can only be read in `Update`, so the camera can't belong to `Draw` alone |
+| Camera kinds | Perspective by default, orthographic with `Size`, asymmetric with `Shift` in half screens | A shift keeps working when the window changes shape, which fixed frustum edges wouldn't |
+| Camera boom | The game tests `BoomCamera.Arm` against its own walls and passes in the distance | Super has no physics, and this needs no delegate |
+| Orthographic shading | Super gives the renderer an eye far behind the camera | Shaders keep one way of finding the view direction |
 | Unchanging objects | `View.Cached`, by key and version number | Static worlds aren't described again each frame |
 | Dependency injection | `Microsoft.Extensions.DependencyInjection`, resolved at startup only | Familiar, makes fakes one line, and costs nothing per frame |
 | Global state | None | Many headless games can share one process |
