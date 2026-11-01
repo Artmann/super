@@ -6,7 +6,7 @@ namespace Rendition.Vulkan;
 internal sealed unsafe class RenderTarget : IDisposable
 {
     private readonly VulkanContext _context;
-    private readonly DeviceMemory _memory;
+    private readonly GpuAllocation _allocation;
 
     public readonly Image Image;
     public readonly ImageView View;
@@ -37,14 +37,8 @@ internal sealed unsafe class RenderTarget : IDisposable
         api.CreateImage(context.Device, &imageInfo, null, out Image).Check();
 
         api.GetImageMemoryRequirements(context.Device, Image, out var requirements);
-        var allocInfo = new MemoryAllocateInfo
-        {
-            SType = StructureType.MemoryAllocateInfo,
-            AllocationSize = requirements.Size,
-            MemoryTypeIndex = context.FindMemoryType(requirements.MemoryTypeBits, MemoryPropertyFlags.DeviceLocalBit),
-        };
-        api.AllocateMemory(context.Device, &allocInfo, null, out _memory).Check();
-        api.BindImageMemory(context.Device, Image, _memory, 0).Check();
+        _allocation = context.Memory.AllocateImage(requirements, MemoryPropertyFlags.DeviceLocalBit);
+        api.BindImageMemory(context.Device, Image, _allocation.Memory, _allocation.Offset).Check();
 
         var viewInfo = new ImageViewCreateInfo
         {
@@ -61,6 +55,6 @@ internal sealed unsafe class RenderTarget : IDisposable
     {
         _context.Api.DestroyImageView(_context.Device, View, null);
         _context.Api.DestroyImage(_context.Device, Image, null);
-        _context.Api.FreeMemory(_context.Device, _memory, null);
+        _context.Memory.Free(_allocation);
     }
 }

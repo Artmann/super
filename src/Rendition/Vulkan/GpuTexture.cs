@@ -7,7 +7,7 @@ internal sealed unsafe class GpuTexture : IDisposable
 {
     private readonly VulkanContext _context;
     private readonly Image _image;
-    private readonly DeviceMemory _memory;
+    private readonly GpuAllocation _allocation;
 
     public readonly ImageView View;
 
@@ -35,14 +35,8 @@ internal sealed unsafe class GpuTexture : IDisposable
         api.CreateImage(context.Device, &imageInfo, null, out _image).Check();
 
         api.GetImageMemoryRequirements(context.Device, _image, out var requirements);
-        var allocInfo = new MemoryAllocateInfo
-        {
-            SType = StructureType.MemoryAllocateInfo,
-            AllocationSize = requirements.Size,
-            MemoryTypeIndex = context.FindMemoryType(requirements.MemoryTypeBits, MemoryPropertyFlags.DeviceLocalBit),
-        };
-        api.AllocateMemory(context.Device, &allocInfo, null, out _memory).Check();
-        api.BindImageMemory(context.Device, _image, _memory, 0).Check();
+        _allocation = context.Memory.AllocateImage(requirements, MemoryPropertyFlags.DeviceLocalBit);
+        api.BindImageMemory(context.Device, _image, _allocation.Memory, _allocation.Offset).Check();
 
         var viewInfo = new ImageViewCreateInfo
         {
@@ -61,7 +55,7 @@ internal sealed unsafe class GpuTexture : IDisposable
     {
         _context.Api.DestroyImageView(_context.Device, View, null);
         _context.Api.DestroyImage(_context.Device, _image, null);
-        _context.Api.FreeMemory(_context.Device, _memory, null);
+        _context.Memory.Free(_allocation);
     }
 
     private void Upload(TextureData data)

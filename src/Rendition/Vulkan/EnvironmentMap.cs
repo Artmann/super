@@ -58,10 +58,10 @@ internal sealed unsafe class EnvironmentMap : IDisposable
     }
 
     /// <summary>A cube image, a view for sampling it and one writable view per mip.</summary>
-    private readonly struct Cube(Image image, DeviceMemory memory, ImageView sampled, ImageView[] mips)
+    private readonly struct Cube(Image image, GpuAllocation memory, ImageView sampled, ImageView[] mips)
     {
         public readonly Image Image = image;
-        public readonly DeviceMemory Memory = memory;
+        public readonly GpuAllocation Memory = memory;
         public readonly ImageView Sampled = sampled;
         public readonly ImageView[] Mips = mips;
     }
@@ -324,14 +324,8 @@ internal sealed unsafe class EnvironmentMap : IDisposable
         api.CreateImage(_context.Device, &imageInfo, null, out var image).Check();
 
         api.GetImageMemoryRequirements(_context.Device, image, out var requirements);
-        var allocInfo = new MemoryAllocateInfo
-        {
-            SType = StructureType.MemoryAllocateInfo,
-            AllocationSize = requirements.Size,
-            MemoryTypeIndex = _context.FindMemoryType(requirements.MemoryTypeBits, MemoryPropertyFlags.DeviceLocalBit),
-        };
-        api.AllocateMemory(_context.Device, &allocInfo, null, out var memory).Check();
-        api.BindImageMemory(_context.Device, image, memory, 0).Check();
+        var memory = _context.Memory.AllocateImage(requirements, MemoryPropertyFlags.DeviceLocalBit);
+        api.BindImageMemory(_context.Device, image, memory.Memory, memory.Offset).Check();
 
         var viewInfo = new ImageViewCreateInfo
         {
@@ -364,6 +358,6 @@ internal sealed unsafe class EnvironmentMap : IDisposable
 
         api.DestroyImageView(_context.Device, cube.Sampled, null);
         api.DestroyImage(_context.Device, cube.Image, null);
-        api.FreeMemory(_context.Device, cube.Memory, null);
+        _context.Memory.Free(cube.Memory);
     }
 }

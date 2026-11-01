@@ -26,10 +26,10 @@ internal sealed unsafe class ReflectionProbes : IDisposable
     private readonly VulkanContext _context;
     private readonly Sampler _sampler;
     private readonly Image _image;
-    private readonly DeviceMemory _memory;
+    private readonly GpuAllocation _memory;
     private readonly ImageView[] _levels = new ImageView[FrameUniforms.MaxProbes * Mips];
     private readonly Image _source;
-    private readonly DeviceMemory _sourceMemory;
+    private readonly GpuAllocation _sourceMemory;
     private readonly ImageView _sourceView;
     private readonly DescriptorSetLayout _setLayout;
     private readonly DescriptorPool _pool;
@@ -212,8 +212,8 @@ internal sealed unsafe class ReflectionProbes : IDisposable
         api.DestroyImageView(_context.Device, _sourceView, null);
         api.DestroyImage(_context.Device, _image, null);
         api.DestroyImage(_context.Device, _source, null);
-        api.FreeMemory(_context.Device, _memory, null);
-        api.FreeMemory(_context.Device, _sourceMemory, null);
+        _context.Memory.Free(_memory);
+        _context.Memory.Free(_sourceMemory);
     }
 
     private void FilterLevel(int probe, int mip)
@@ -278,7 +278,7 @@ internal sealed unsafe class ReflectionProbes : IDisposable
         });
     }
 
-    private (Image Image, DeviceMemory Memory) CreateCubes(uint mips, uint layers, ImageUsageFlags usage)
+    private (Image Image, GpuAllocation Memory) CreateCubes(uint mips, uint layers, ImageUsageFlags usage)
     {
         var api = _context.Api;
         var imageInfo = new ImageCreateInfo
@@ -299,14 +299,8 @@ internal sealed unsafe class ReflectionProbes : IDisposable
         api.CreateImage(_context.Device, &imageInfo, null, out var image).Check();
 
         api.GetImageMemoryRequirements(_context.Device, image, out var requirements);
-        var allocInfo = new MemoryAllocateInfo
-        {
-            SType = StructureType.MemoryAllocateInfo,
-            AllocationSize = requirements.Size,
-            MemoryTypeIndex = _context.FindMemoryType(requirements.MemoryTypeBits, MemoryPropertyFlags.DeviceLocalBit),
-        };
-        api.AllocateMemory(_context.Device, &allocInfo, null, out var memory).Check();
-        api.BindImageMemory(_context.Device, image, memory, 0).Check();
+        var memory = _context.Memory.AllocateImage(requirements, MemoryPropertyFlags.DeviceLocalBit);
+        api.BindImageMemory(_context.Device, image, memory.Memory, memory.Offset).Check();
         return (image, memory);
     }
 }

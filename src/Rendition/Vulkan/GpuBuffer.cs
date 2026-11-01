@@ -3,13 +3,14 @@ using Buffer = Silk.NET.Vulkan.Buffer;
 
 namespace Rendition.Vulkan;
 
-/// <summary>A GPU buffer with its own memory. See docs/design.md on sub-allocation.</summary>
+/// <summary>A GPU buffer sub-allocated from <see cref="GpuMemory"/>. See docs/design.md.</summary>
 internal sealed unsafe class GpuBuffer : IDisposable
 {
     private readonly VulkanContext _context;
-    private readonly DeviceMemory _memory;
+    private readonly GpuAllocation _allocation;
 
     public readonly Buffer Handle;
+    public readonly ulong Size;
 
     /// <summary>CPU-visible address, or null for device-local buffers.</summary>
     public readonly void* Mapped;
@@ -17,6 +18,7 @@ internal sealed unsafe class GpuBuffer : IDisposable
     public GpuBuffer(VulkanContext context, ulong size, BufferUsageFlags usage, MemoryPropertyFlags properties)
     {
         _context = context;
+        Size = size;
         var api = context.Api;
 
         var bufferInfo = new BufferCreateInfo
@@ -29,21 +31,9 @@ internal sealed unsafe class GpuBuffer : IDisposable
         api.CreateBuffer(context.Device, &bufferInfo, null, out Handle).Check();
 
         api.GetBufferMemoryRequirements(context.Device, Handle, out var requirements);
-        var allocInfo = new MemoryAllocateInfo
-        {
-            SType = StructureType.MemoryAllocateInfo,
-            AllocationSize = requirements.Size,
-            MemoryTypeIndex = context.FindMemoryType(requirements.MemoryTypeBits, properties),
-        };
-        api.AllocateMemory(context.Device, &allocInfo, null, out _memory).Check();
-        api.BindBufferMemory(context.Device, Handle, _memory, 0).Check();
-
-        if ((properties & MemoryPropertyFlags.HostVisibleBit) != 0)
-        {
-            void* mapped;
-            api.MapMemory(context.Device, _memory, 0, Vk.WholeSize, 0, &mapped).Check();
-            Mapped = mapped;
-        }
+        _allocation = context.Memory.AllocateBuffer(requirements, properties);
+        api.BindBufferMemory(context.Device, Handle, _allocation.Memory, _allocation.Offset).Check();
+        Mapped = _allocation.Mapped;
     }
 
     public static GpuBuffer CreateHostVisible(VulkanContext context, ulong size, BufferUsageFlags usage) =>
@@ -72,6 +62,6 @@ internal sealed unsafe class GpuBuffer : IDisposable
     public void Dispose()
     {
         _context.Api.DestroyBuffer(_context.Device, Handle, null);
-        _context.Api.FreeMemory(_context.Device, _memory, null);
+        _context.Memory.Free(_allocation);
     }
 }
