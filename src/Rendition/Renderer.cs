@@ -390,12 +390,15 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>
     /// Uploads a mesh as one draw that the renderer can skip when it's out of view, and
-    /// simplify when it's small on screen.
+    /// simplify when it's small on screen. Pass <paramref name="simplify"/> false for
+    /// meshes whose every vertex matters, like terrain chunks that must meet their
+    /// neighbours exactly.
     /// </summary>
-    public DrawItem CreateDrawItem(ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices, MaterialHandle material)
+    public DrawItem CreateDrawItem(
+        ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices, MaterialHandle material, bool simplify = true)
     {
         ModelPart[] parts = [new ModelPart { IndexCount = (uint)indices.Length }];
-        return CreateDetailedMesh(vertices, indices, parts, [material])[0];
+        return CreateDetailedMesh(vertices, indices, parts, [material], simplify)[0];
     }
 
     /// <summary>Replaces what surfaces reflect. Waits for the GPU, so call this while loading.</summary>
@@ -639,7 +642,8 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     private DrawItem[] CreateDetailedMesh(
-        ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices, ReadOnlySpan<ModelPart> parts, ReadOnlySpan<MaterialHandle> materials)
+        ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices, ReadOnlySpan<ModelPart> parts,
+        ReadOnlySpan<MaterialHandle> materials, bool simplify = true)
     {
         var allIndices = new List<uint>(indices.ToArray());
         var draws = new DrawItem[parts.Length];
@@ -647,7 +651,10 @@ public sealed unsafe class Renderer : IDisposable
         for (int i = 0; i < parts.Length; i++)
         {
             ref readonly var part = ref parts[i];
-            var detail = MeshDetail.Build(vertices, indices.Slice((int)part.FirstIndex, (int)part.IndexCount), allIndices);
+            var partIndices = indices.Slice((int)part.FirstIndex, (int)part.IndexCount);
+            var detail = simplify
+                ? MeshDetail.Build(vertices, partIndices, allIndices)
+                : MeshDetail.Full(vertices, partIndices);
             details[i] = AddDetail(detail);
             draws[i] = new DrawItem
             {
