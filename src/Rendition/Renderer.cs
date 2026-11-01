@@ -127,8 +127,10 @@ public sealed unsafe class Renderer : IDisposable
     public (long Camera, long Shadows) DrawnTriangles { get; private set; }
 
     private DrawItem[] _cameraDraws = [];
-    private DrawItem[] _shadowDraws = [];
-    private Matrix4x4 _shadowMatrix;
+    private readonly DrawItem[][] _shadowDraws = new DrawItem[ShadowPass.MaxCascades][];
+    private readonly int[] _shadowCounts = new int[ShadowPass.MaxCascades];
+    private readonly Matrix4x4[] _shadowMatrices = new Matrix4x4[ShadowPass.MaxCascades];
+    private int _shadowCascades;
 
     public Renderer(RendererOptions options)
     {
@@ -514,7 +516,7 @@ public sealed unsafe class Renderer : IDisposable
                 Flags = CommandBufferUsageFlags.OneTimeSubmitBit,
             };
             _api.BeginCommandBuffer(cmd, &beginInfo).Check();
-            RecordScene(cmd, frame.Set, visible, castsShadow ? shadowCasters : []);
+            RecordScene(cmd, frame.Set, visible, castsShadow ? shadowCasters : [], shadowsSelected: false);
             _probes.RecordFace(cmd, _gBuffer.Hdr.Image, face);
             _api.EndCommandBuffer(cmd).Check();
 
@@ -751,7 +753,7 @@ public sealed unsafe class Renderer : IDisposable
             _gpuTimer.Begin(cmd, _frameIndex);
         }
 
-        RecordFrame(cmd, frame.Set, imageIndex, _cameraDraws.AsSpan(0, cameraCount), _shadowDraws.AsSpan(0, shadowCount), overlayQuads);
+        RecordFrame(cmd, frame.Set, imageIndex, _cameraDraws.AsSpan(0, cameraCount), overlayQuads);
         _gpuTimer.End();
         _api.EndCommandBuffer(cmd).Check();
 
@@ -818,7 +820,10 @@ public sealed unsafe class Renderer : IDisposable
         if (_cameraDraws.Length < draws.Length)
         {
             _cameraDraws = new DrawItem[draws.Length * 2];
-            _shadowDraws = new DrawItem[draws.Length * 2];
+            for (int i = 0; i < _shadowDraws.Length; i++)
+            {
+                _shadowDraws[i] = new DrawItem[draws.Length * 2];
+            }
         }
 
         float focalPixels = MathF.Abs(view.Projection.M22) * view.Height / 2f;
@@ -826,16 +831,27 @@ public sealed unsafe class Renderer : IDisposable
         int cameraCount = DrawSelection.Select(camera, draws, _details, _cameraDraws);
 
         int shadowCount = 0;
+        Array.Clear(_shadowCounts);
         if (castsShadow)
         {
-            float texelsPerUnit = ShadowPass.Resolution / (2f * view.Shadows.Radius);
-            var shadow = new DetailView(_shadowMatrix, view.CameraPosition, 0f, texelsPerUnit, ShadowDetailError);
-            shadowCount = DrawSelection.Select(shadow, draws, _details, _shadowDraws);
+            for (int cascade = 0; cascade < _shadowCascades; cascade++)
+            {
+                float texelsPerUnit = ShadowPass.Resolution / (2f * ShadowPass.CascadeRadius(view.Shadows, cascade));
+                var shadow = new DetailView(_shadowMatrices[cascade], view.CameraPosition, 0f, texelsPerUnit, ShadowDetailError);
+                _shadowCounts[cascade] = DrawSelection.Select(shadow, draws, _details, _shadowDraws[cascade]);
+                shadowCount += _shadowCounts[cascade];
+            }
         }
 
         if (MeasureGpu)
         {
-            DrawnTriangles = (CountTriangles(_cameraDraws.AsSpan(0, cameraCount)), CountTriangles(_shadowDraws.AsSpan(0, shadowCount)));
+            long shadowTriangles = 0;
+            for (int cascade = 0; cascade < _shadowCascades; cascade++)
+            {
+                shadowTriangles += CountTriangles(_shadowDraws[cascade].AsSpan(0, _shadowCounts[cascade]));
+            }
+
+            DrawnTriangles = (CountTriangles(_cameraDraws.AsSpan(0, cameraCount)), shadowTriangles);
         }
 
         return (cameraCount, shadowCount);
@@ -943,14 +959,13 @@ public sealed unsafe class Renderer : IDisposable
         DescriptorSet frameSet,
         uint imageIndex,
         ReadOnlySpan<DrawItem> draws,
-        ReadOnlySpan<DrawItem> shadowCasters,
         int overlayQuads)
     {
         var targets = _gBuffer;
         var extent = targets.Extent;
         var swapchainImage = _swapchain.Images[imageIndex];
 
-        RecordScene(cmd, frameSet, draws, shadowCasters);
+        RecordScene(cmd, frameSet, draws, [], shadowsSelected: true);
 
         ReadOnlySpan<DescriptorSet> taaSets = [frameSet, _taaSet];
         _api.BeginColorTarget(cmd, targets.Resolved.Image);
@@ -1020,12 +1035,17 @@ public sealed unsafe class Renderer : IDisposable
         _historyReady = true;
     }
 
-    /// <summary>Draws and lights the scene into the HDR target, for frames and probe captures alike.</summary>
+    /// <summary>
+    /// Draws and lights the scene into the HDR target, for frames and probe captures
+    /// alike. A frame's shadow draws were picked per cascade by <see cref="SelectDraws"/>;
+    /// a probe capture draws <paramref name="shadowCasters"/> into every cascade.
+    /// </summary>
     private void RecordScene(
         CommandBuffer cmd,
         DescriptorSet frameSet,
         ReadOnlySpan<DrawItem> draws,
-        ReadOnlySpan<DrawItem> shadowCasters)
+        ReadOnlySpan<DrawItem> shadowCasters,
+        bool shadowsSelected)
     {
         var targets = _gBuffer;
         var extent = targets.Extent;
@@ -1043,10 +1063,16 @@ public sealed unsafe class Renderer : IDisposable
         var shadowMap = _shadowPass.Target.Image;
         _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
             ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, SampledStage, SampledAccess, DepthStages,
-            DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
-        _shadowPass.Record(cmd, frameSet, shadowCasters, _meshes);
+            DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit, layerCount: ShadowPass.MaxCascades);
+        for (int cascade = 0; cascade < _shadowCascades; cascade++)
+        {
+            var casters = shadowsSelected ? _shadowDraws[cascade].AsSpan(0, _shadowCounts[cascade]) : shadowCasters;
+            _shadowPass.Record(cmd, frameSet, casters, _meshes, cascade);
+        }
+
         _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
-            ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess);
+            ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess,
+            layerCount: ShadowPass.MaxCascades);
         _gpuTimer.Mark(cmd);
 
         _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
@@ -1171,7 +1197,8 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->CameraPosition = new Vector4(view.CameraPosition, 1f);
         uniforms->BackgroundRadiance = new Vector4(view.BackgroundRadiance, view.EnvironmentIntensity);
 
-        // Moving points two shadow map texels off their surface stops them shadowing themselves.
+        // Moving points two texels of the first cascade off their surface stops them
+        // shadowing themselves. The lighting pass works this out per cascade itself.
         float normalOffset = view.Shadows.Radius * 4f / ShadowPass.Resolution;
         uniforms->Parameters = new Vector4(
             view.BackgroundFadeStart, view.BackgroundFadeEnd, view.Shadows.LightAngle, normalOffset);
@@ -1185,6 +1212,8 @@ public sealed unsafe class Renderer : IDisposable
         int count = Math.Min(view.Lights.Length, FrameUniforms.MaxLights);
         uniforms->LightCount = count;
         uniforms->Time = view.Time;
+        _shadowCascades = ShadowPass.CascadeCount(view.Shadows);
+        uniforms->ShadowCascades = _shadowCascades;
         bool castsShadow = false;
         for (int i = 0; i < count; i++)
         {
@@ -1193,8 +1222,16 @@ public sealed unsafe class Renderer : IDisposable
             bool casts = !castsShadow && light.CastsShadow && view.Shadows.Radius > 0f;
             if (casts)
             {
-                _shadowMatrix = ShadowPass.CreateMatrix(direction, view.Shadows.Center, view.Shadows.Radius);
-                uniforms->ShadowMatrix = _shadowMatrix;
+                var radii = Vector4.Zero;
+                for (int cascade = 0; cascade < _shadowCascades; cascade++)
+                {
+                    float radius = ShadowPass.CascadeRadius(view.Shadows, cascade);
+                    _shadowMatrices[cascade] = ShadowPass.CreateMatrix(direction, view.Shadows.Center, radius);
+                    uniforms->ShadowMatrices[cascade] = _shadowMatrices[cascade];
+                    radii[cascade] = radius;
+                }
+
+                uniforms->ShadowRadii = radii;
                 castsShadow = true;
             }
 

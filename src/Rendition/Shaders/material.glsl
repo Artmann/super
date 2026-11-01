@@ -5,6 +5,7 @@ layout(push_constant) uniform Draw {
     float swimAmplitude;
     float swimBodyLength;
     float swimPhase;
+    int cascade;
 } draw;
 
 // Must match GpuMaterial in Vulkan/ResourceTable.cs.

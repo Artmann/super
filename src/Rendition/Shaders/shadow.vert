@@ -12,6 +12,7 @@ layout(push_constant) uniform Draw {
     float swimAmplitude;
     float swimBodyLength;
     float swimPhase;
+    int cascade;
 } draw;
 
 layout(location = 0) out vec2 outUv;
@@ -19,5 +20,5 @@ layout(location = 0) out vec2 outUv;
 void main() {
     outUv = inUv;
     vec3 swum = swim(inPosition, draw.swimAmplitude, draw.swimBodyLength, draw.swimPhase);
-    gl_Position = frame.shadowMatrix * draw.model * vec4(swum, 1.0);
+    gl_Position = frame.shadowMatrices[draw.cascade] * draw.model * vec4(swum, 1.0);
 }

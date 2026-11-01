@@ -58,7 +58,7 @@ internal sealed class ReefGame(World world, ReefSettings settings, GameRandom ra
         var camera = new Vector3(MathF.Sin(angle) * CameraDistance, CameraHeight, MathF.Cos(angle) * CameraDistance);
         view.Camera(camera, new Vector3(0f, 12f, 0f), 58f * MathF.PI / 180f);
         view.Sun(new Vector3(0.35f, 1f, 0.2f), new Vector3(7f, 7.4f, 7f));
-        view.Shadows(75f);
+        view.Shadows(25f, 3);
         view.Water(Water);
         view.Finish(new PostSettings { Contrast = 0.12f, Saturation = 0.12f, Vignette = 0.4f, Sharpen = 0.35f });
 

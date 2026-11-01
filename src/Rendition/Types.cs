@@ -228,11 +228,20 @@ public struct UnderwaterSettings
     public float ShaftDistance;
 }
 
-/// <summary>The part of the world covered by the shadow map.</summary>
+/// <summary>The part of the world covered by the shadow maps.</summary>
 public struct ShadowSettings
 {
     public Vector3 Center;
+
+    /// <summary>How far from the centre the sharpest map reaches, in metres.</summary>
     public float Radius;
+
+    /// <summary>
+    /// How many maps to draw, 1 to 4, each covering three times the radius of the one
+    /// before. More cover more ground at the same sharpness near the centre, for the
+    /// cost of drawing the scene again. 0 counts as 1.
+    /// </summary>
+    public int Cascades;
 
     /// <summary>
     /// Apparent size of the light: 0 gives hard shadows, larger values blur them

@@ -272,7 +272,13 @@ internal sealed class SceneRenderer : IDisposable
             CameraPosition = view.CameraPosition,
             Time = time,
             Lights = _lights.AsSpan(0, lightCount),
-            Shadows = new ShadowSettings { Center = view.CameraTarget, Radius = view.ShadowRadius, LightAngle = 0.12f },
+            Shadows = new ShadowSettings
+            {
+                Center = view.CameraTarget,
+                Radius = view.ShadowRadius,
+                Cascades = view.ShadowCascades,
+                LightAngle = 0.12f,
+            },
             EnvironmentIntensity = 0.8f,
             BackgroundRadiance = new Vector3(0.15f, 0.16f, 0.18f),
             Post = view.Post,

@@ -5,10 +5,15 @@ using Rendition.Vulkan;
 
 namespace Rendition.Passes;
 
-/// <summary>Renders the scene's depth as seen from the shadow-casting light.</summary>
+/// <summary>
+/// Renders the scene's depth as seen from the shadow-casting light, once per cascade.
+/// Each cascade covers three times the radius of the one before, in its own layer.
+/// </summary>
 internal sealed unsafe class ShadowPass : IDisposable
 {
-    public const int Resolution = 4096;
+    public const int Resolution = 2048;
+    public const int MaxCascades = 4;
+    public const float CascadeGrowth = 3f;
 
     private static readonly Extent2D Extent = new(Resolution, Resolution);
 
@@ -25,7 +30,7 @@ internal sealed unsafe class ShadowPass : IDisposable
         _context = context;
         _resources = resources;
         Target = new RenderTarget(
-            context, GBuffer.DepthFormat, Extent, ImageUsageFlags.DepthStencilAttachmentBit, ImageAspectFlags.DepthBit);
+            context, GBuffer.DepthFormat, Extent, ImageUsageFlags.DepthStencilAttachmentBit, ImageAspectFlags.DepthBit, MaxCascades);
 
         var setLayouts = stackalloc DescriptorSetLayout[] { frameSetLayout, resources.Layout };
         var pushRange = SceneDraws.PushRange;
@@ -69,13 +74,31 @@ internal sealed unsafe class ShadowPass : IDisposable
         _solid = new PipelineVariants(solidCulled, PipelineFactory.Create(context, description));
     }
 
+    /// <summary>How many cascades a setting asks for: 1 to <see cref="MaxCascades"/>, with 0 meaning 1.</summary>
+    public static int CascadeCount(in ShadowSettings shadows) => Math.Clamp(shadows.Cascades, 1, MaxCascades);
+
+    /// <summary>The radius a cascade covers, growing from the settings' radius.</summary>
+    public static float CascadeRadius(in ShadowSettings shadows, int cascade) =>
+        shadows.Radius * MathF.Pow(CascadeGrowth, cascade);
+
     /// <summary>
     /// A reversed-Z parallel projection covering a sphere, matching the camera's
-    /// conventions so the same pipelines' winding and depth test apply.
+    /// conventions so the same pipelines' winding and depth test apply. The centre
+    /// moves in whole texels as the camera does, so shadow edges don't shimmer.
     /// </summary>
     public static Matrix4x4 CreateMatrix(Vector3 lightDirection, Vector3 center, float radius)
     {
         var up = MathF.Abs(lightDirection.Y) > 0.99f ? Vector3.UnitZ : Vector3.UnitY;
+
+        // Snapping happens in the light's own x and y, which a rotation-only view gives.
+        var rotation = Matrix4x4.CreateLookAt(lightDirection, Vector3.Zero, up);
+        var lightSpace = Vector3.Transform(center, rotation);
+        float texel = 2f * radius / Resolution;
+        lightSpace.X = MathF.Round(lightSpace.X / texel) * texel;
+        lightSpace.Y = MathF.Round(lightSpace.Y / texel) * texel;
+        Matrix4x4.Invert(rotation, out var back);
+        center = Vector3.Transform(lightSpace, back);
+
         var view = Matrix4x4.CreateLookAt(center + lightDirection * radius, center, up);
         var projection = new Matrix4x4(
             1f / radius, 0f, 0f, 0f,
@@ -85,13 +108,14 @@ internal sealed unsafe class ShadowPass : IDisposable
         return view * projection;
     }
 
-    public void Record(CommandBuffer cmd, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, List<Mesh?> meshes)
+    /// <summary>Draws one cascade into its layer of the map.</summary>
+    public void Record(CommandBuffer cmd, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, List<Mesh?> meshes, int cascade)
     {
         var api = _context.Api;
         var depthAttachment = new RenderingAttachmentInfo
         {
             SType = StructureType.RenderingAttachmentInfo,
-            ImageView = Target.View,
+            ImageView = Target.LayerViews[cascade],
             ImageLayout = ImageLayout.DepthAttachmentOptimal,
             LoadOp = AttachmentLoadOp.Clear,
             StoreOp = AttachmentStoreOp.Store,
@@ -110,7 +134,7 @@ internal sealed unsafe class ShadowPass : IDisposable
 
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set };
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
-        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, solid: _solid);
+        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, solid: _solid, cascade: cascade);
 
         api.CmdEndRendering(cmd);
     }

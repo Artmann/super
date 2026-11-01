@@ -10,8 +10,8 @@ layout(location = 0) in vec2 inUv;
 layout(set = 1, binding = 0) uniform sampler2D baseColorMetallicTexture;
 layout(set = 1, binding = 1) uniform sampler2D normalRoughnessAoTexture;
 layout(set = 1, binding = 2) uniform sampler2D depthTexture;
-layout(set = 1, binding = 3) uniform sampler2D shadowDepthTexture;
-layout(set = 1, binding = 4) uniform sampler2DShadow shadowCompareTexture;
+layout(set = 1, binding = 3) uniform sampler2DArray shadowDepthTexture;
+layout(set = 1, binding = 4) uniform sampler2DArrayShadow shadowCompareTexture;
 layout(set = 1, binding = 5) uniform samplerCube reflectionTexture;
 layout(set = 1, binding = 6) uniform samplerCube irradianceTexture;
 layout(set = 1, binding = 7) uniform sampler2D emissiveClearcoatTexture;
@@ -39,23 +39,45 @@ const float TRACE_THICKNESS = 0.25;
 const float TRACE_MAX_ROUGHNESS = 0.45;
 const float TRACE_MAX_RADIANCE = 16.0;
 
+// The first cascade whose map holds the point with room for the filter around it,
+// or -1 when none does.
+int shadowCascade(vec3 position, float inset) {
+    for (int c = 0; c < frame.shadowCascades; c++) {
+        vec4 projected = frame.shadowMatrices[c] * vec4(position, 1.0);
+        vec2 uv = projected.xy * 0.5 + 0.5;
+        if (all(greaterThan(uv, vec2(inset))) && all(lessThan(uv, vec2(1.0 - inset)))
+            && projected.z > 0.0 && projected.z < 1.0) {
+            return c;
+        }
+    }
+    return -1;
+}
+
 // Soft shadow that is sharp where an object touches the surface and blurs with
 // distance, like a real studio light. Returns 1 for fully lit.
 float shadowVisibility(vec3 position, vec3 n, vec3 l) {
     float lightAngle = frame.parameters.z;
     float nDotL = clamp(dot(n, l), 0.05, 1.0);
+    float texel = 1.0 / float(textureSize(shadowDepthTexture, 0).x);
 
-    vec4 projected = frame.shadowMatrix * vec4(position + n * frame.parameters.w * (1.0 - nDotL), 1.0);
+    int cascade = shadowCascade(position, 2.0 * texel);
+    if (cascade < 0) {
+        return 1.0;
+    }
+
+    // Moving the point two texels off its surface stops it shadowing itself.
+    float normalOffset = 4.0 * frame.shadowRadii[cascade] * texel;
+    vec4 projected = frame.shadowMatrices[cascade] * vec4(position + n * normalOffset * (1.0 - nDotL), 1.0);
     vec2 uv = projected.xy * 0.5 + 0.5;
     float depth = projected.z;
-    if (uv.x <= 0.0 || uv.x >= 1.0 || uv.y <= 0.0 || uv.y >= 1.0 || depth <= 0.0 || depth >= 1.0) {
+    if (depth <= 0.0 || depth >= 1.0) {
         return 1.0;
     }
 
     // In this projection one unit of depth covers the same distance as one unit of uv,
     // so a slope's bias is simply the sample offset times the slope.
     float slope = min(sqrt(1.0 - nDotL * nDotL) / nDotL, 2.0);
-    float texel = 1.0 / float(textureSize(shadowDepthTexture, 0).x);
+    float layer = float(cascade);
     float rotation = frameNoise(gl_FragCoord.xy, frame.frameNumber) * 2.0 * PI;
     float searchRadius = max(lightAngle * 0.2, 2.0 * texel);
 
@@ -64,7 +86,7 @@ float shadowVisibility(vec3 position, vec3 n, vec3 l) {
     int blockers = 0;
     for (int i = 0; i < BLOCKER_SAMPLES; i++) {
         vec2 offset = diskSample(i, BLOCKER_SAMPLES, rotation) * searchRadius;
-        float stored = texture(shadowDepthTexture, uv + offset).r;
+        float stored = texture(shadowDepthTexture, vec3(uv + offset, layer)).r;
         if (stored > depth + 2.0 * texel + searchRadius * slope) {
             blockerSum += stored;
             blockers++;
@@ -79,7 +101,7 @@ float shadowVisibility(vec3 position, vec3 n, vec3 l) {
     float visibility = 0.0;
     for (int i = 0; i < SHADOW_SAMPLES; i++) {
         vec2 offset = diskSample(i, SHADOW_SAMPLES, rotation) * penumbra;
-        visibility += texture(shadowCompareTexture, vec3(uv + offset, reference));
+        visibility += texture(shadowCompareTexture, vec4(uv + offset, layer, reference));
     }
     return visibility / float(SHADOW_SAMPLES);
 }

@@ -226,7 +226,13 @@ unsafe
             CameraPosition = camera.Position,
             Time = time,
             Lights = lights,
-            Shadows = new ShadowSettings { Center = new Vector3(0f, shadowHeight, 0f), Radius = shadowRadius, LightAngle = 0.12f },
+            Shadows = new ShadowSettings
+            {
+                Center = new Vector3(0f, shadowHeight, 0f),
+                Radius = shadowRadius,
+                Cascades = 2,
+                LightAngle = 0.12f,
+            },
             EnvironmentIntensity = 0.85f,
             BackgroundRadiance = new Vector3(0.15f, 0.15f, 0.16f),
             BackgroundFadeStart = 9f,

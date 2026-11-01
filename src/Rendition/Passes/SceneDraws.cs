@@ -20,6 +20,9 @@ internal static unsafe class SceneDraws
         public Matrix4x4 Model;
         public int Material;
         public SwimMotion Swim;
+
+        /// <summary>Which shadow cascade the shadow pass is drawing. Other passes ignore it.</summary>
+        public int Cascade;
     }
 
     public static PushConstantRange PushRange => new(PushStages, 0, (uint)sizeof(DrawConstants));
@@ -52,7 +55,8 @@ internal static unsafe class SceneDraws
         ReadOnlySpan<DrawItem> draws,
         List<Mesh?> meshes,
         bool transparent = false,
-        PipelineVariants? solid = null)
+        PipelineVariants? solid = null,
+        int cascade = 0)
     {
         var boundPipeline = default(Pipeline);
         int boundMesh = -1;
@@ -84,7 +88,13 @@ internal static unsafe class SceneDraws
                 boundMesh = draw.Mesh.Index;
             }
 
-            var constants = new DrawConstants { Model = draw.Transform, Material = draw.Material.Index, Swim = draw.Swim };
+            var constants = new DrawConstants
+            {
+                Model = draw.Transform,
+                Material = draw.Material.Index,
+                Swim = draw.Swim,
+                Cascade = cascade,
+            };
             api.CmdPushConstants(cmd, layout, PushStages, 0, (uint)sizeof(DrawConstants), &constants);
             api.CmdDrawIndexed(cmd, draw.IndexCount, 1, draw.FirstIndex, 0, 0);
         }

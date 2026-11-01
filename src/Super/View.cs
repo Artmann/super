@@ -34,6 +34,7 @@ public sealed class View
     internal UnderwaterSettings WaterSettings { get; private set; }
     internal PostSettings Post { get; private set; }
     internal float ShadowRadius { get; private set; }
+    internal int ShadowCascades { get; private set; }
     internal UiTree? Ui { get; set; }
 
     /// <summary>Everything drawn so far this frame.</summary>
@@ -80,8 +81,16 @@ public sealed class View
     /// <summary>Sets the look of the finished picture.</summary>
     public void Finish(in PostSettings settings) => Post = settings;
 
-    /// <summary>Sets how far around the camera's target shadows reach, in metres.</summary>
-    public void Shadows(float radius) => ShadowRadius = radius;
+    /// <summary>
+    /// Sets how far around the camera's target the sharpest shadows reach, in metres,
+    /// and how many maps to draw, 1 to 4. Each map covers three times the radius of the
+    /// one before, so a wide world keeps sharp shadows near the camera.
+    /// </summary>
+    public void Shadows(float radius, int cascades = 1)
+    {
+        ShadowRadius = radius;
+        ShadowCascades = cascades;
+    }
 
     /// <summary>
     /// Blends between a thing's transform on the last two ticks, which keeps motion
@@ -98,6 +107,7 @@ public sealed class View
         WaterSettings = default;
         Post = new PostSettings { Vignette = 0.3f, Sharpen = 0.4f };
         ShadowRadius = 8f;
+        ShadowCascades = 1;
         Camera(new Vector3(0f, 0f, 5f), Vector3.Zero);
     }
 }
