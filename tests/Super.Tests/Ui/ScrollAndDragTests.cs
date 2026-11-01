@@ -346,4 +346,129 @@ public sealed class ScrollAndDragTests
         Assert.True(tip.Right <= cursor.X);
         Assert.True(tip.Bottom <= cursor.Y);
     }
+
+    [Fact]
+    public void Leaving_the_window_puts_away_the_tooltip_and_the_hover()
+    {
+        using var run = Run(game => Corner(new Pressable(look => new Text(look.Hovered ? "lit" : "dark").Frame(100f, 100f).Background(Solid))
+            .Tooltip(new Text("tip"))));
+        MoveTo(run, new Vector2(40f, 40f));
+        run.Ticks(20);
+        Assert.Contains(run.ShownText, shown => shown.Text == "tip");
+
+        run.Input.LeaveWindow();
+        run.Ticks(2);
+
+        Assert.DoesNotContain(run.ShownText, shown => shown.Text == "tip");
+        Assert.Contains(run.ShownText, shown => shown.Text == "dark");
+    }
+
+    [Fact]
+    public void Leaving_the_window_stops_counting_as_over_the_interface()
+    {
+        bool over = true;
+        using var run = Run(_ => Corner(new Text("panel").Frame(100f, 100f).Background(Solid)));
+        run.Game.Watch = input =>
+        {
+            over = input.MouseOverUi;
+            return false;
+        };
+        MoveTo(run, new Vector2(40f, 40f));
+        run.Ticks(1);
+        Assert.True(over);
+
+        run.Input.LeaveWindow();
+        run.Ticks(2);
+
+        Assert.False(over);
+    }
+
+    [Fact]
+    public void A_drag_the_game_owns_stays_the_games_over_a_panel()
+    {
+        bool over = true;
+        using var run = Run(_ => new Text("panel").Frame(100f, 100f).Background(Solid)
+            .Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity, alignment: Alignment.BottomTrailing));
+        run.Game.Watch = input =>
+        {
+            over = input.MouseOverUi;
+            return false;
+        };
+        MoveTo(run, new Vector2(40f, 40f));
+        Hold(run);
+
+        MoveTo(run, new Vector2(1250f, 690f));
+        run.Ticks(1);
+
+        Assert.False(over);
+    }
+
+    [Fact]
+    public void Text_over_a_maximum_wraps_and_makes_room_for_itself()
+    {
+        const string Long = "more than enough words to go past one short line of text";
+        using var run = Run(_ => Corner(new VStack(HorizontalAlignment.Leading, 0f)
+        {
+            new Text(Long).Frame(maxWidth: 100f, alignment: Alignment.Leading).FixedSize(),
+            new Text("below"),
+        }));
+
+        var text = run.ShownText.Single(shown => shown.Text == Long).Frame;
+        Assert.True(Y(run, "below") >= text.Bottom - Close);
+    }
+
+    [Fact]
+    public void A_click_stays_with_what_was_pressed_when_the_rows_change()
+    {
+        bool swapped = false;
+        using var run = Run(game => Corner(swapped
+            ? new Button("second", () => game.Log.Add("second"))
+            : new Button("first", () => game.Log.Add("first"))));
+        MoveTo(run, new Vector2(20f, 15f));
+        Hold(run);
+
+        swapped = true;
+        run.Ticks(1);
+        Release(run);
+
+        Assert.Equal(["first"], run.Game.Log);
+    }
+
+    [Fact]
+    public void A_view_that_is_both_ends_of_a_drag_does_not_drop_on_itself()
+    {
+        using var run = Run(game => Corner(new Text("slot").Frame(100f, 100f).Background(Solid)
+            .DropTarget<Item>(item => game.Log.Add(item.Name))
+            .Draggable(new Item("gem"))));
+
+        DragTo(run, new Vector2(50f, 50f), new Vector2(70f, 50f));
+        Release(run);
+
+        Assert.Empty(run.Game.Log);
+    }
+
+    [Fact]
+    public void The_wheel_over_a_sideways_strip_scrolls_the_page_around_it()
+    {
+        var strip = new ScrollView(Axis.Horizontal);
+        for (int i = 0; i < 10; i++)
+        {
+            strip.Add(new Text($"cell {i}").Frame(90f, 40f));
+        }
+
+        var page = new ScrollView { strip.Frame(100f, 40f) };
+        for (int i = 0; i < 10; i++)
+        {
+            page.Add(new Text($"row {i}").Frame(90f, RowHeight, alignment: Alignment.TopLeading));
+        }
+
+        using var run = Run(_ => Corner(page.Frame(100f, 100f)));
+        float before = Y(run, "row 0");
+        MoveTo(run, new Vector2(40f, 20f));
+
+        run.Input.Scroll(-1f);
+        run.Ticks(1);
+
+        Assert.Equal(before - 48f, Y(run, "row 0"), Close);
+    }
 }

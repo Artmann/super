@@ -257,7 +257,16 @@ internal sealed record FrameModifier(
 {
     internal override UiSize Measure(UiNode node, Proposal proposal)
     {
-        var inner = Inner(node).Measure(Offer(proposal));
+        var offer = Offer(proposal);
+        var inner = Inner(node).Measure(offer);
+
+        // With nothing offered, what's over a maximum has to fit it, and may wrap and get taller.
+        var limited = new Proposal(Limited(offer.Width, inner.Width, MaxWidth), Limited(offer.Height, inner.Height, MaxHeight));
+        if (limited != offer)
+        {
+            inner = Inner(node).Measure(limited);
+        }
+
         return new UiSize(
             Resolve(Width, MinWidth, MaxWidth, proposal.Width, inner.Width),
             Resolve(Height, MinHeight, MaxHeight, proposal.Height, inner.Height));
@@ -268,6 +277,9 @@ internal sealed record FrameModifier(
         var inner = Inner(node);
         inner.Place(frame.Align(inner.Measure(Offer(new Proposal(frame.Width, frame.Height))), Alignment));
     }
+
+    private static float? Limited(float? offered, float wanted, float? max) =>
+        offered is null && wanted > max ? max : offered;
 
     private static float? Limit(float? offered, float? fixedLength, float? min, float? max)
     {

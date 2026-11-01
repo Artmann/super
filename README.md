@@ -410,6 +410,8 @@ the interface, `Input.MouseOverUi` is true, so a game can leave those clicks alo
 have a panel let clicks through to the game, as a stats readout should, use
 `.IgnoresPointer()`.
 
+A `ListView` compares its list by reference, so hand it a new one when the items change.
+
 [The crafting bench](examples/Crafting/CraftingGame.cs) uses all of this.
 
 ### How it stays cheap

@@ -3,7 +3,8 @@ namespace Super.Ui;
 /// <summary>
 /// A scrolling list you can pick from. <paramref name="Row"/> describes an item, and this
 /// handles how rows look under the mouse and when selected. Items name their rows, so
-/// they should differ from each other.
+/// they should differ from each other. Hand it a new list when the items change: a list
+/// changed in place looks the same as the last one, so the rows wouldn't update.
 /// </summary>
 public sealed record ListView<T>(IReadOnlyList<T> Items, Func<T, UiView> Row, T? Selected = null, Action<T>? OnSelect = null) : UiView
     where T : class

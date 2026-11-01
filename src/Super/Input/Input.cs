@@ -15,6 +15,7 @@ internal enum MouseEventKind
     Down,
     Up,
     Wheel,
+    Left,
 }
 
 /// <summary>One thing the mouse did, kept in order for the interface to look at first.</summary>
@@ -198,6 +199,15 @@ public sealed class Input
         if (RoutesMouse)
         {
             MouseEvents.Add(new MouseEvent(MouseEventKind.Moved, default, position, 0f));
+        }
+    }
+
+    /// <summary>The cursor went off the window, so it's over nothing until it comes back.</summary>
+    internal void MouseLeftWindow()
+    {
+        if (RoutesMouse)
+        {
+            MouseEvents.Add(new MouseEvent(MouseEventKind.Left, default, default, 0f));
         }
     }
 

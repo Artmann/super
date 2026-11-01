@@ -177,7 +177,7 @@ public sealed class UiTree
 
     private void Add(UiRect frame, OverlayQuad quad)
     {
-        // A long list costs what's on screen, not what's in it.
+        // Rows out of sight are still laid out, but they cost the renderer nothing.
         if (_clip is { } clip && !clip.Rect.Overlaps(frame))
         {
             return;

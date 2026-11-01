@@ -44,6 +44,9 @@ public sealed class ScriptedInput
 
     public void Release(MouseButton button) => Queue(input => input.MouseButtonUp(button));
 
+    /// <summary>Takes the cursor off the window.</summary>
+    public void LeaveWindow() => Queue(input => input.MouseLeftWindow());
+
     public void Press(GamepadButton button)
     {
         Hold(button);

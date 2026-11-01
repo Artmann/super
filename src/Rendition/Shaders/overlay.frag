@@ -53,7 +53,10 @@ void main()
     }
     else
     {
-        vec4 image = texture(textures[nonuniformEXT(textureIndex - 1)], uv);
+        // Textures repeat, so stop short of the edge or filtering pulls in the opposite side.
+        int index = nonuniformEXT(textureIndex - 1);
+        vec2 edge = 0.5 / vec2(textureSize(textures[index], 0));
+        vec4 image = texture(textures[index], clamp(uv, edge, 1.0 - edge));
         float alpha = color.a * image.a;
         fill = vec4(image.rgb * toLinear(color.rgb) * alpha, alpha);
     }

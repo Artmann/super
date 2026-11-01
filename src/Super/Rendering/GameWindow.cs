@@ -33,6 +33,7 @@ internal sealed unsafe class GameWindow : IDisposable
     private GlfwCallbacks.KeyCallback? _onKey;
     private GlfwCallbacks.MouseButtonCallback? _onMouseButton;
     private GlfwCallbacks.CursorPosCallback? _onCursorPos;
+    private GlfwCallbacks.CursorEnterCallback? _onCursorEnter;
     private GlfwCallbacks.ScrollCallback? _onScroll;
     private GlfwCallbacks.CharCallback? _onChar;
     private readonly Func<int, bool> _isGamepad;
@@ -92,7 +93,10 @@ internal sealed unsafe class GameWindow : IDisposable
         while (!_glfw.WindowShouldClose(_window))
         {
             _glfw.PollEvents();
-            PollGamepad(host.Input);
+            if (host.Script is null)
+            {
+                PollGamepad(host.Input);
+            }
 
             double now = realTime.Elapsed.TotalSeconds;
             double step = host.Capture.IsRecording ? 1.0 / host.Capture.FramesPerSecond : now - last;
@@ -333,6 +337,13 @@ internal sealed unsafe class GameWindow : IDisposable
             _glfw.GetFramebufferSize(_window, out int framebufferWidth, out int framebufferHeight);
             input.MouseMoved(GlfwInput.ToFramebuffer(x, y, windowWidth, windowHeight, framebufferWidth, framebufferHeight));
         };
+        _onCursorEnter = (_, entered) =>
+        {
+            if (!entered)
+            {
+                input.MouseLeftWindow();
+            }
+        };
         _onScroll = (_, _, offsetY) => input.Scrolled((float)offsetY);
         _onChar = (_, codepoint) =>
         {
@@ -345,8 +356,17 @@ internal sealed unsafe class GameWindow : IDisposable
         _glfw.SetKeyCallback(_window, _onKey);
         _glfw.SetMouseButtonCallback(_window, _onMouseButton);
         _glfw.SetCursorPosCallback(_window, _onCursorPos);
+        _glfw.SetCursorEnterCallback(_window, _onCursorEnter);
         _glfw.SetScrollCallback(_window, _onScroll);
         _glfw.SetCharCallback(_window, _onChar);
+
+        // The cursor may already be over the window, and a first click shouldn't need a move.
+        _glfw.GetCursorPos(_window, out double cursorX, out double cursorY);
+        _glfw.GetWindowSize(_window, out int width, out int height);
+        if (cursorX >= 0 && cursorY >= 0 && cursorX < width && cursorY < height)
+        {
+            _onCursorPos(_window, cursorX, cursorY);
+        }
     }
 
     /// <summary>Reads the first gamepad, if one is plugged in, so a tick sees it as it is now.</summary>

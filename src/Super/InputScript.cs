@@ -26,6 +26,9 @@ public sealed class InputScript
 
     public InputScript Release(MouseButton button) => Then(input => input.MouseButtonUp(button));
 
+    /// <summary>Takes the cursor off the window.</summary>
+    public InputScript LeaveWindow() => Then(input => input.MouseLeftWindow());
+
     /// <summary>A notch of the wheel. Positive turns it away from the player.</summary>
     public InputScript Scroll(float notches) => Then(input => input.Scrolled(notches));
 
