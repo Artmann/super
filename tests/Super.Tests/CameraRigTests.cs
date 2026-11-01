@@ -232,6 +232,11 @@ public class CameraRigTests
         var iso = new IsometricCamera { Yaw = 0f, Lag = 0f };
         iso.Pan(Vector2.UnitY);
         AssertNear(-Vector3.UnitZ, iso.Center);
+
+        // Turned a quarter, up the screen runs along -X instead.
+        var turned = new IsometricCamera { Yaw = MathF.PI / 2f, Lag = 0f };
+        turned.Pan(Vector2.UnitY);
+        AssertNear(-Vector3.UnitX, turned.Center);
     }
 
     [Fact]

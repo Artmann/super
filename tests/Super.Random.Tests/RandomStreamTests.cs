@@ -43,11 +43,18 @@ public class RandomStreamTests
         Assert.Equal(5, _rolls.Between(5, 5));
         Assert.Equal(-3, _rolls.Between(-3, -3));
 
+        bool sawNegative = false;
+        bool sawPositive = false;
         for (int i = 0; i < 1000; i++)
         {
-            _rolls.Between(int.MinValue, int.MaxValue);
+            int wide = _rolls.Between(int.MinValue, int.MaxValue);
+            sawNegative |= wide < 0;
+            sawPositive |= wide > 0;
             Assert.InRange(_rolls.Between(-2, 2), -2, 2);
         }
+
+        Assert.True(sawNegative);
+        Assert.True(sawPositive);
     }
 
     [Fact]
@@ -226,6 +233,19 @@ public class RandomStreamTests
     }
 
     [Fact]
+    public void Direction3D_is_even_over_the_sphere_and_not_bunched_at_the_poles()
+    {
+        // Heights are even on a sphere, so half the directions sit within a half unit of the equator.
+        int nearEquator = 0;
+        for (int i = 0; i < Samples; i++)
+        {
+            nearEquator += MathF.Abs(_rolls.Direction3D().Y) < 0.5f ? 1 : 0;
+        }
+
+        Assert.InRange(nearEquator, Samples * 0.49, Samples * 0.51);
+    }
+
+    [Fact]
     public void Points_stay_inside_their_shape()
     {
         for (int i = 0; i < 1000; i++)
@@ -246,5 +266,18 @@ public class RandomStreamTests
         }
 
         Assert.InRange(inner, Samples * 0.24, Samples * 0.26);
+    }
+
+    [Fact]
+    public void InsideSphere_spreads_over_the_volume()
+    {
+        // The inner half of the radius covers an eighth of the volume.
+        int inner = 0;
+        for (int i = 0; i < Samples; i++)
+        {
+            inner += _rolls.InsideSphere().Length() < 0.5f ? 1 : 0;
+        }
+
+        Assert.InRange(inner, Samples * 0.12, Samples * 0.13);
     }
 }

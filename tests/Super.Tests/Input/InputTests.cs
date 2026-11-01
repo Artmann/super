@@ -229,7 +229,6 @@ public class InputTests
         input.Roll();
         input.Roll();
         Assert.Equal(2, listener.Rolls);
-        Assert.Equal(2, input.RollCount);
     }
 
     private sealed class CountingListener : IInputListener

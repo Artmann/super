@@ -98,7 +98,7 @@ public class ActionsTests
         input.Roll();
         Assert.Equal(Vector2.Zero, actions.Vector(Control.Move));
         Assert.False(actions.Down(Control.Move));
-        Assert.False(float.IsNaN(actions.Value(Control.Move)));
+        Assert.Equal(0f, actions.Value(Control.Move));
     }
 
     [Fact]

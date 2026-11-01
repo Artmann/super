@@ -96,6 +96,29 @@ public class LoadAllTests
     }
 
     [Fact]
+    public void Files_on_disk_come_in_ordinal_path_order()
+    {
+        string root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        Directory.CreateDirectory(Path.Combine(root, "plain"));
+        try
+        {
+            File.WriteAllText(Path.Combine(root, "plain", "a.json"), "{ \"id\": \"lower\", \"tags\": [] }");
+            File.WriteAllText(Path.Combine(root, "plain", "B.json"), "{ \"id\": \"upper\", \"tags\": [] }");
+            var ids = new List<string>();
+            foreach (var record in new Content(new ContentFolder(root)).LoadAll<Plain>("plain"))
+            {
+                ids.Add(record.Id);
+            }
+
+            Assert.Equal(["upper", "lower"], ids);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Asking_twice_hands_back_the_same_catalog()
     {
         var (content, _) = Make(("items/axe.json", Axe));

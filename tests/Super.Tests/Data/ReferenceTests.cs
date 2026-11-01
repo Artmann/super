@@ -66,7 +66,7 @@ public class ReferenceTests
     }
 
     [Fact]
-    public void Either_side_can_load_first()
+    public void A_recipe_loaded_first_is_checked_when_the_items_arrive()
     {
         var files = new MemoryContent { ["items/axe.json"] = Axe.Replace("axe", "hammer"), ["recipes/chop.json"] = Chop };
         var content = new Content(files);
@@ -78,13 +78,26 @@ public class ReferenceTests
     }
 
     [Fact]
+    public void A_recipe_loaded_before_its_items_still_finds_them()
+    {
+        var files = new MemoryContent { ["items/axe.json"] = Axe, ["recipes/chop.json"] = Chop };
+        var content = new Content(files);
+        var recipes = content.LoadAll<Recipe>("recipes");
+        var items = content.LoadAll<Item>("items");
+        Assert.Equal("Iron Axe", items[recipes["chop"].Makes].Name);
+        Assert.Equal("Iron Axe", items[recipes["chop"].Needs[0]].Name);
+    }
+
+    [Fact]
     public void A_reference_into_two_folders_of_one_type_finds_either()
     {
-        var files = new MemoryContent { ["items/saw.json"] = Axe.Replace("axe", "saw"), ["tools/axe.json"] = Axe, ["recipes/chop.json"] = Chop };
+        var files = new MemoryContent { ["items/saw.json"] = Axe.Replace("axe", "saw"), ["tools/axe.json"] = Axe, ["recipes/chop.json"] = Chop.Replace("[\"axe\"]", "[\"saw\"]") };
         var content = new Content(files);
         content.LoadAll<Item>("items");
         content.LoadAll<Item>("tools");
-        Assert.Equal("axe", content.LoadAll<Recipe>("recipes")["chop"].Makes.Id);
+        var chop = content.LoadAll<Recipe>("recipes")["chop"];
+        Assert.Equal("axe", chop.Makes.Id);
+        Assert.Equal("saw", chop.Needs[0].Id);
     }
 
     [Fact]

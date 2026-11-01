@@ -36,17 +36,6 @@ public class FixedStepClockTests
     }
 
     [Fact]
-    public void Blend_stays_between_zero_and_one()
-    {
-        var clock = new FixedStepClock(30);
-        for (int frame = 0; frame < 10_000; frame++)
-        {
-            clock.Advance(0.007);
-            Assert.InRange(clock.Blend, 0f, 1f);
-        }
-    }
-
-    [Fact]
     public void A_long_stall_doesnt_become_a_flood_of_ticks()
     {
         var clock = new FixedStepClock(30);

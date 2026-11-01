@@ -65,6 +65,15 @@ public class ViewMemoryTests
         Lid(1f);
         Frame();
         Assert.InRange(Lid(1f), 0f, 0.05f);
+
+        // Nine tenths of the way through, it has nearly arrived: slow at both ends.
+        for (int i = 0; i < 8; i++)
+        {
+            Frame();
+            Lid(1f);
+        }
+
+        Assert.InRange(Lid(1f), 0.95f, 1f);
     }
 
     [Fact]
@@ -161,10 +170,11 @@ public class ViewMemoryTests
     public void Changes_of_different_types_keep_apart()
     {
         Frame();
-        Seen(5);
-        Seen("text");
+        Assert.False(Seen(5));
+        Assert.False(Seen("text"));
         Frame();
-        Seen("text");
+        Assert.False(Seen("text"));
+        Assert.False(Seen(5));
         Assert.True(Seen(6));
     }
 

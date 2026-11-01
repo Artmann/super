@@ -10,11 +10,11 @@ public class GameLoopTests
     {
         public GameRandom Random { get; } = random;
         public GameTime Time { get; } = time;
-        public bool Loaded { get; private set; }
+        public int Loads { get; private set; }
         public List<long> TicksSeen { get; } = [];
         public int Draws { get; private set; }
 
-        public void Load() => Loaded = true;
+        public void Load() => Loads++;
 
         public void Update(GameTime time) => TicksSeen.Add(time.Tick);
 
@@ -35,26 +35,10 @@ public class GameLoopTests
         public string Today => "sunny";
     }
 
-    private class Rainy : IWeather
-    {
-        public string Today => "rainy";
-    }
-
     private class Forecast(IWeather weather) : IGame
     {
         public IWeather Weather { get; } = weather;
 
-        public void Update(GameTime time)
-        {
-        }
-
-        public void Draw(View view)
-        {
-        }
-    }
-
-    private class NoLoad : IGame
-    {
         public void Update(GameTime time)
         {
         }
@@ -69,15 +53,18 @@ public class GameLoopTests
     {
         using var run = HeadlessGame.Create<Counter>(1);
 
-        Assert.True(run.Game.Loaded);
+        Assert.Equal(1, run.Game.Loads);
         Assert.Empty(run.Game.TicksSeen);
     }
 
     [Fact]
-    public void Load_is_optional()
+    public void Load_is_not_run_again_by_ticks()
     {
-        using var run = HeadlessGame.Create<NoLoad>(1);
-        run.Ticks(1);
+        using var run = HeadlessGame.Create<Counter>(1);
+
+        run.Ticks(3);
+
+        Assert.Equal(1, run.Game.Loads);
     }
 
     [Fact]
@@ -96,11 +83,35 @@ public class GameLoopTests
     public void Every_tick_is_drawn_and_Drawn_holds_only_the_last_frame()
     {
         using var run = HeadlessGame.Create<Counter>(1);
+        int drawnByCreate = run.Game.Draws;
 
         run.Ticks(5);
 
-        Assert.Equal(5, run.Game.Draws);
-        Assert.Equal(5, Assert.Single(run.Drawn).Key);
+        Assert.Equal(drawnByCreate + 5, run.Game.Draws);
+        Assert.Equal(drawnByCreate + 5, Assert.Single(run.Drawn).Key);
+    }
+
+    [Fact]
+    public void Creating_a_game_draws_once_so_there_is_something_to_see()
+    {
+        using var run = HeadlessGame.Create<Counter>(1);
+
+        Assert.Equal(1, run.Game.Draws);
+        Assert.Single(run.Drawn);
+        Assert.Empty(run.Game.TicksSeen);
+    }
+
+    [Fact]
+    public void A_frame_draws_without_ticking()
+    {
+        using var run = HeadlessGame.Create<Counter>(1);
+        run.Ticks(2);
+
+        run.Frame(0.5f);
+
+        Assert.Equal(2, run.Time.Tick);
+        Assert.Equal(2, run.Game.TicksSeen.Count);
+        Assert.Equal(4, run.Game.Draws);
     }
 
     [Fact]
@@ -113,23 +124,27 @@ public class GameLoopTests
     }
 
     [Fact]
-    public void Fakes_replace_services_in_one_line()
+    public void A_game_gets_the_services_a_test_adds()
     {
-        using var real = HeadlessGame.Create<Forecast>(1, services => services.AddSingleton<IWeather, Sunny>());
-        using var fake = HeadlessGame.Create<Forecast>(1, services =>
-        {
-            services.AddSingleton<IWeather, Sunny>();
-            services.AddSingleton<IWeather, Rainy>();
-        });
+        using var run = HeadlessGame.Create<Forecast>(1, services => services.AddSingleton<IWeather, Sunny>());
 
-        Assert.Equal("sunny", real.Game.Weather.Today);
-        Assert.Equal("rainy", fake.Game.Weather.Today);
+        Assert.Equal("sunny", run.Game.Weather.Today);
     }
 
     [Fact]
-    public void A_missing_service_fails_at_startup()
+    public void Fakes_replace_the_engines_own_services_in_one_line()
     {
-        Assert.ThrowsAny<Exception>(() => HeadlessGame.Create<Forecast>(1));
+        using var run = HeadlessGame.Create<Counter>(1, services => services.AddSingleton(new GameRandom(99)));
+
+        Assert.Equal(99, run.Game.Random.Seed);
+    }
+
+    [Fact]
+    public void A_missing_service_fails_at_startup_naming_it()
+    {
+        var failure = Assert.Throws<AggregateException>(() => HeadlessGame.Create<Forecast>(1));
+
+        Assert.Contains(nameof(IWeather), failure.Message);
     }
 
     [Fact]
@@ -157,17 +172,5 @@ public class GameLoopTests
 
         Assert.Empty(second.Game.TicksSeen);
         Assert.NotSame(first.Game.Random, second.Game.Random);
-    }
-}
-
-public class SeedsAttributeTests
-{
-    private static readonly HashSet<int> Seen = [];
-
-    [Theory, Seeds(10)]
-    public void Runs_once_per_seed(int seed)
-    {
-        Assert.InRange(seed, 1, 10);
-        Assert.True(Seen.Add(seed));
     }
 }

@@ -86,6 +86,18 @@ public sealed class MeshDetailTests
         {
             Assert.True(detail.Levels[i].IndexCount < detail.Levels[i - 1].IndexCount);
             Assert.True(detail.Levels[i].Error > detail.Levels[i - 1].Error);
+
+            // Each level starts where the one before it ends.
+            Assert.Equal(detail.Levels[i - 1].FirstIndex + detail.Levels[i - 1].IndexCount, detail.Levels[i].FirstIndex);
+        }
+
+        // The indices were really added, and each level is the model simplified by its own error.
+        var last = detail.Levels[^1];
+        Assert.Equal(all.Count, (int)(last.FirstIndex + last.IndexCount));
+        foreach (var level in detail.Levels)
+        {
+            var slice = all.GetRange((int)level.FirstIndex, (int)level.IndexCount);
+            Assert.Equal(MeshDetail.Simplify(vertices, indices, level.Error), slice);
         }
 
         Assert.Equal(new Vector3(0.5f, 0.5f, 0f), detail.Center);
@@ -143,9 +155,9 @@ public sealed class MeshDetailTests
         DrawItem[] draws = [At(new Vector3(0f, 0f, -90f)), At(Vector3.Zero), At(new Vector3(0f, 0f, 9.5f))];
         DrawSelection.Select(View(), draws, details, selected);
 
-        Assert.Equal(30u, selected[0].IndexCount);
-        Assert.Equal(100u, selected[1].IndexCount);
-        Assert.Equal(300u, selected[2].IndexCount);
+        Assert.Equal((400u, 30u), (selected[0].FirstIndex, selected[0].IndexCount));
+        Assert.Equal((300u, 100u), (selected[1].FirstIndex, selected[1].IndexCount));
+        Assert.Equal((0u, 300u), (selected[2].FirstIndex, selected[2].IndexCount));
     }
 
     [Fact]

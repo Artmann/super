@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using Super.Profiling;
 
@@ -14,6 +15,16 @@ public sealed class ProfilingTests
         [new ProfiledFrame(1, 2.0, 3.0, 5.0, waiting, 128), new ProfiledFrame(0, 2.0, 3.0, 5.0, waiting, 128)],
         gpu ?? new Dictionary<string, double> { ["Lighting"] = 3.0, ["Shadows"] = 1.0 },
         stacks);
+
+    /// <summary>Checks that both appear, which a plain IndexOf comparison would not: a missing one is -1.</summary>
+    private static void AssertInOrder(string report, string first, string second)
+    {
+        int before = report.IndexOf(first, StringComparison.Ordinal);
+        int after = report.IndexOf(second, StringComparison.Ordinal);
+        Assert.True(before >= 0, $"Not found: {first}");
+        Assert.True(after >= 0, $"Not found: {second}");
+        Assert.True(before < after, $"{first} should come before {second}");
+    }
 
     [Fact]
     public void Functions_are_ranked_by_time_in_themselves()
@@ -42,7 +53,7 @@ public sealed class ProfilingTests
 
         Assert.Contains("seed 7", report);
         Assert.Contains("10.0 ms on average", report);
-        Assert.True(report.IndexOf("Lighting") < report.IndexOf("Shadows")); // Biggest first.
+        AssertInOrder(report, "Lighting", "Shadows"); // Biggest first.
         Assert.Contains("100.0% of samples:\n  Main\n  Slow\n", report);
     }
 
@@ -77,9 +88,43 @@ public sealed class ProfilingTests
 
         Assert.Contains("102 models, 3,000 triangles", report);
         Assert.Contains("1,234 triangles for the camera, 56 for shadows", report);
-        Assert.True(report.IndexOf("big") < report.IndexOf("small"));
+        AssertInOrder(report, "big", "small");
     }
 
+    [Fact]
+    public void The_report_reads_the_same_in_a_culture_with_decimal_commas()
+    {
+        ModelCost[] models = [new("small", 100, 10), new("big", 2, 1000)];
+        var run = Run([["Main", "Slow"]]) with { Models = models, DrawnTriangles = (1234, 56) };
+        var original = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("sv-SE");
+            Assert.Equal("1,5", 1.5.ToString(CultureInfo.CurrentCulture));
+
+            string report = ProfileReport.Write(run);
+
+            Assert.Contains("10.0 ms on average", report);
+            Assert.Contains("3,000 triangles", report);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
+    }
+}
+
+/// <summary>The sampler listens to the whole process, so nothing else may run beside it.</summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class CpuSamplerCollection
+{
+    public const string Name = "CPU sampler";
+}
+
+[Collection(CpuSamplerCollection.Name)]
+[Trait("Speed", "Slow")]
+public sealed class CpuSamplerTests
+{
     [Fact]
     public void The_sampler_finds_a_busy_function_by_name()
     {

@@ -57,11 +57,13 @@ public class GameRandomTests
         // generator changed, and every recorded seed in every game stops meaning anything.
         ulong[] expected = [11926690769562539327, 6436225704593015136, 8086968665446730987];
         Assert.Equal(expected, Rolls(new GameRandom(42).Stream("weather"), 3));
-    }
 
-    [Fact]
-    public void Remembers_its_seed()
-    {
-        Assert.Equal(42, new GameRandom(42).Seed);
+        // The helpers built on those bits are pinned too, since a game feels them and not the bits.
+        var stream = new GameRandom(42).Stream("weather");
+        Assert.Equal(new[] { 0.6465472f, 0.34890848f }, new[] { stream.Float(), stream.Float() });
+        Assert.Equal(new[] { 44, 65, 41 }, new[] { stream.Between(1, 100), stream.Between(1, 100), stream.Between(1, 100) });
+        var items = new List<int> { 1, 2, 3, 4, 5, 6 };
+        stream.Shuffle(items);
+        Assert.Equal([4, 1, 5, 3, 6, 2], items);
     }
 }

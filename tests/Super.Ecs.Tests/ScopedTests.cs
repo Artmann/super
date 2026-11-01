@@ -26,6 +26,7 @@ public class ScopedTests
             Player = world.Create();
             world.Add(Player, Transform.At(new Vector3(1f, 0f, 0f)));
             world.Add(Player, new Smoothed());
+            world.Add(Player, new Model(ModelRef.Cube));
 
             states.OnEnter(Screen.House, () =>
             {
@@ -95,10 +96,15 @@ public class ScopedTests
     public void Another_enum_with_the_same_number_leaves_it_alone()
     {
         using var run = Run();
+        var screenScoped = run.Game.World.Create();
+        run.Game.World.Add(screenScoped, new ScopedTo<Screen>(Screen.Menu));
         var paused = run.Game.World.Create();
         run.Game.World.Add(paused, new ScopedTo<Pause>(Pause.Running));
         run.States<Screen>().Set(Screen.House);
         run.Ticks(1);
+
+        // Leaving Menu is leaving 0, and so is Pause.Running, but only one of them is Screen.
+        Assert.False(run.Game.World.IsAlive(screenScoped));
         Assert.True(run.Game.World.IsAlive(paused));
     }
 
@@ -133,7 +139,8 @@ public class ScopedTests
         run.States<Screen>().Set(Screen.House);
         run.Ticks(1);
 
-        var player = run.Game.World.Get<Smoothed>(run.Game.Player);
-        Assert.Equal(run.Game.DoorPosition, player.Previous.Position);
+        run.Frame(0f);
+        var drawn = Assert.Single(run.Drawn);
+        Assert.Equal(run.Game.DoorPosition, drawn.Transform.Translation);
     }
 }

@@ -9,13 +9,13 @@ internal sealed class ContentWatcher : IDisposable
     private const string SchemaFolder = ".schemas";
 
     private readonly FileSystemWatcher _watcher;
-    private readonly Timer _quiet;
+    private readonly ITimer _quiet;
     private readonly TimeSpan _wait;
 
-    public ContentWatcher(string root, Action changed, TimeSpan wait)
+    public ContentWatcher(string root, Action changed, TimeSpan wait, TimeProvider? clock = null)
     {
         _wait = wait;
-        _quiet = new Timer(_ => changed());
+        _quiet = (clock ?? TimeProvider.System).CreateTimer(_ => changed(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _watcher = new FileSystemWatcher(root, "*.json") { IncludeSubdirectories = true };
         _watcher.Changed += OnFile;
         _watcher.Created += OnFile;
@@ -30,11 +30,17 @@ internal sealed class ContentWatcher : IDisposable
         _quiet.Dispose();
     }
 
-    private void OnFile(object sender, FileSystemEventArgs change)
+    /// <summary>Whether a change at this path, relative to the content folder, is content rather than a generated schema.</summary>
+    internal static bool Matters(string name) => !name.StartsWith(SchemaFolder, StringComparison.Ordinal);
+
+    /// <summary>Notes a change to a file, and starts the wait again if it is content.</summary>
+    internal void Saw(string name)
     {
-        if (!change.Name!.StartsWith(SchemaFolder, StringComparison.Ordinal))
+        if (Matters(name))
         {
             _quiet.Change(_wait, Timeout.InfiniteTimeSpan);
         }
     }
+
+    private void OnFile(object sender, FileSystemEventArgs change) => Saw(change.Name!);
 }
