@@ -41,7 +41,6 @@ public sealed class FoxGame(Content content, Actions<Control> actions) : IGame
     private const int FoxKey = 1;
     private const int GroundKey = 2;
 
-    private ModelRef _model;
     private Animator _animator = null!;
     private float _angle;
     private float _previousAngle;
@@ -63,7 +62,6 @@ public sealed class FoxGame(Content content, Actions<Control> actions) : IGame
         actions.Bind(Control.Pace, Binding.Axis(Key.S, Key.W), Binding.Axis(Key.Down, Key.Up));
         actions.Bind(Control.Look, Key.Space, MouseButton.Left);
 
-        _model = content.Model("fox.rmodel");
         var rig = content.Rig("fox.rmodel");
         var controller = new AnimationController<FoxState, FoxAction>(rig) { CrossFadeSeconds = 0.3f }
             .State(FoxState.Idle, rig.Clip("Survey"))
@@ -90,8 +88,6 @@ public sealed class FoxGame(Content content, Actions<Control> actions) : IGame
         {
             _animator.Play(FoxAction.Look);
         }
-
-        _animator.Update(time);
     }
 
     public void Draw(View view)
@@ -107,6 +103,6 @@ public sealed class FoxGame(Content content, Actions<Control> actions) : IGame
         view.Shadows(4f);
 
         view.Model(GroundKey, ModelRef.Cube, Matrix4x4.CreateScale(40f, 0.1f, 40f) * Matrix4x4.CreateTranslation(0f, -0.05f, 0f), new Vector3(0.33f, 0.45f, 0.22f));
-        view.Model(FoxKey, _model, fox, _animator.Pose);
+        view.Model(FoxKey, _animator, fox);
     }
 }

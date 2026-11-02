@@ -24,17 +24,22 @@ _animations = new AnimationController<Stance, Act>(rig)
     .Action(Act.Shoot, rig.Clip("shoot"), upperBody, fadeSeconds: 0.05f);
 _player = _animations.Start(Stance.Idle);
 
-// Update: the animator is plain state, advanced in ticks.
+// Update: the animator is plain state. The game loop moves it on after Update.
 _player.Set(moving ? Stance.Walk : Stance.Idle);
 if (fire) { _player.Play(Act.Shoot); }
 if (_player.Crossed(Act.Shoot, 0.3f)) { SpawnBullet(); }
-_player.Update(time);
 
-// Draw: the pose is handed over like a colour or a swim.
-view.Model(key, adventurer, transform, _player.Pose);
+// Draw: the rig knows its model, so the animator is enough.
+view.Model(key, _player, transform);
 ```
 
-With the ECS, `world.Add(player, _player)` and `view.Models(world)` draws it.
+With the ECS, `world.Add(player, new Animated(_player))` next to a `Transform`, and
+`view.Models(world)` draws it.
+
+At first the game called `_player.Update(time)` each tick and passed the model and
+`_player.Pose` to the view. That was dropped the same day: rigs from `content.Rig` now
+name their model and hand their animators to the game loop, which advances them after
+Update and holds them weakly, so a dropped character stops on its own.
 
 ## Layers of the design
 
@@ -56,7 +61,7 @@ With the ECS, `world.Add(player, _player)` and `view.Models(world)` draws it.
 | --- | --- | --- |
 | Skeleton, clips, weights | `Rendition.ModelData`, written before the big vertex and texture data | `Content.Rig` reads only the front of the file, so the game has clip names and lengths at load, on the main thread |
 | Pose maths: sampling, blending, skin matrices | `Rendition` (`Animation.cs`), pure CPU | Testable with no GPU, and the renderer is the one that needs matrices |
-| `AnimationController`, `Animator`, `AnimationPose` | `Super` | Game-facing. The animator is state the game ticks; the pose is view data |
+| `AnimationController`, `Animator`, `AnimationPose` | `Super` | Game-facing. The animator is state the game loop ticks; the pose is view data |
 | Pose evaluation per frame | `SceneRenderer` | The view only writes down which clips play at what time and weight. Headless runs see that and need no clip data |
 | Bone matrices on the GPU | One storage buffer per frame in flight, in the frame set at binding 1, indexed by `DrawItem.Bones` | Every pass that draws geometry shares it, so shadows skin for free |
 
@@ -90,7 +95,7 @@ vertices, because skinning happens before it.
 
 ## Time
 
-`Animator.Update(time)` moves every layer by one tick. `Pose` carries each layer's time
+The game loop moves every layer by one tick, scaled by `Animator.Speed`. `Pose` carries each layer's time
 and speed, and `View.Model` adds `Blend` ticks of speed, so motion is smooth at any frame
 rate without the animator knowing about frames. Weights change per tick only.
 

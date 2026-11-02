@@ -5,8 +5,9 @@ namespace Super;
 /// <summary>
 /// One character's animation: which base state it's in, how far through its cycle,
 /// and which actions are playing over it. Comes from
-/// <see cref="AnimationController{TState, TAction}.Start"/>. Call <see cref="Update"/>
-/// every tick and hand <see cref="Pose"/> to the view with the model.
+/// <see cref="AnimationController{TState, TAction}.Start"/>. The game loop moves it on
+/// after every Update, so a game only says what the character is doing, and draws it
+/// with <see cref="View.Model(int, Animator, System.Numerics.Matrix4x4, System.Numerics.Vector3?)"/>.
 /// </summary>
 public sealed class Animator
 {
@@ -16,6 +17,7 @@ public sealed class Animator
     private int _state;
     private float _phase;
     private float _parameter;
+    private float _speed = 1f;
 
     private bool _fading;
     private int _previousState;
@@ -31,12 +33,32 @@ public sealed class Animator
         Pose = new AnimationPose(controller.Rig);
         controller.GetState(state);
         Rebuild();
+        controller.Rig.Runner?.Add(this);
     }
 
     public Rig Rig => _controller.Rig;
 
-    /// <summary>What to draw: give it to the view with the model.</summary>
+    /// <summary>What to draw. <see cref="View.Model(int, Animator, System.Numerics.Matrix4x4, System.Numerics.Vector3?)"/> uses it for you.</summary>
     public AnimationPose Pose { get; }
+
+    /// <summary>
+    /// How fast everything plays: 1 as made, 2 twice as fast, and 0 holds the character
+    /// still, such as while the game is paused.
+    /// </summary>
+    public float Speed
+    {
+        get => _speed;
+        set
+        {
+            if (!(value >= 0f) || !float.IsFinite(value))
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), value, "The speed must be a number of at least zero.");
+            }
+
+            _speed = value;
+            Rebuild();
+        }
+    }
 
     /// <summary>
     /// Picks the clip in a blended state, such as the speed for a walk-to-run blend.
@@ -146,16 +168,18 @@ public sealed class Animator
         return play.PreviousTime < seconds && seconds <= play.Time;
     }
 
-    /// <summary>Moves everything on by one tick.</summary>
-    public void Update(GameTime time) => Advance(time.TickSeconds);
-
-    /// <summary>Moves everything on by this much time.</summary>
-    public void Advance(float seconds)
+    /// <summary>
+    /// Moves everything on by this much game time, scaled by <see cref="Speed"/>. The game
+    /// loop calls it once a tick for animators from content; tests call it by hand.
+    /// </summary>
+    internal void Advance(float seconds)
     {
         if (!(seconds >= 0f))
         {
             throw new ArgumentOutOfRangeException(nameof(seconds), seconds, "Time can't go backwards.");
         }
+
+        seconds *= _speed;
 
         _phase = AdvancePhase(_controller.GetState(_state), _parameter, _phase, seconds);
         if (_fading)
@@ -241,7 +265,7 @@ public sealed class Animator
                 weight = Math.Clamp(Math.Min(play.Time / action.FadeSeconds, (duration - play.Time) / action.FadeSeconds), 0f, 1f);
             }
 
-            Pose.Add(new PoseLayer(action.Clip, play.Time, action.Speed, weight, Loops: false, action.Mask));
+            Pose.Add(new PoseLayer(action.Clip, play.Time, action.Speed * _speed, weight, Loops: false, action.Mask));
         }
     }
 
@@ -258,7 +282,7 @@ public sealed class Animator
     {
         float clipDuration = Rig.Clips[clip].Duration;
         float cycle = CycleSeconds(state, parameter);
-        float speed = cycle > 0f ? state.Speed * clipDuration / cycle : 0f;
+        float speed = cycle > 0f ? state.Speed * _speed * clipDuration / cycle : 0f;
         Pose.Add(new PoseLayer(clip, phase * clipDuration, speed, amount, Loops: true, Mask: null));
     }
 

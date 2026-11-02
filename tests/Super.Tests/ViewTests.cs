@@ -45,6 +45,41 @@ public class ViewTests
     }
 
     [Fact]
+    public void Model_with_an_animator_draws_its_rigs_model_in_its_pose()
+    {
+        var view = new View();
+        var rig = Animation.TestRig.Rig();
+        rig.Model = new ModelRef(7);
+        var animator = new AnimationController<Still, Still>(rig).State(Still.Only, rig.Clip("idle")).Start(Still.Only);
+        var red = new Vector3(1f, 0f, 0f);
+        view.Begin(0f);
+
+        view.Model(3, animator, Matrix4x4.Identity, red);
+
+        Assert.Equal(new ModelRef(7), view.Drawn[0].Model);
+        Assert.Same(animator.Pose, view.Drawn[0].Pose);
+        Assert.Equal(red, view.Drawn[0].Color);
+    }
+
+    [Fact]
+    public void Model_with_an_animator_whose_rig_has_no_model_is_explained()
+    {
+        var view = new View();
+        var rig = Animation.TestRig.Rig();
+        var animator = new AnimationController<Still, Still>(rig).State(Still.Only, rig.Clip("idle")).Start(Still.Only);
+        view.Begin(0f);
+
+        var problem = Assert.Throws<InvalidOperationException>(() => view.Model(3, animator, Matrix4x4.Identity));
+
+        Assert.Equal("The animator's rig wasn't read with content.Rig, so it has no model. Pass the model and the animator's Pose instead.", problem.Message);
+    }
+
+    private enum Still
+    {
+        Only,
+    }
+
+    [Fact]
     public void Model_without_a_pose_has_none()
     {
         var view = new View();

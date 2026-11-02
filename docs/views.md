@@ -145,12 +145,13 @@ and a seed always replays the same.
 
 ## Animated models
 
-A rigged model takes a pose from an `Animator`, which the game keeps as state and moves
-on in `Update`. The pose keeps moving between ticks, so it's as smooth as the frame
-rate:
+A rigged model takes a pose from an `Animator`. The game sets its state in `Update`,
+and the game loop moves it on each tick. Give the view the animator, and it draws the
+rig's model in its current pose. The pose keeps moving between ticks, so it's as
+smooth as the frame rate:
 
 ```csharp
-view.Model(FoxKey, _model, transform, _animator.Pose);
+view.Model(FoxKey, _animator, transform);
 ```
 
 [Animation](animation.md) covers importing rigs, states, actions and blends.

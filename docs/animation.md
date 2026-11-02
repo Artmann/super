@@ -45,11 +45,10 @@ that joint.
 
 ## The rig
 
-`content.Rig(path)` reads the skeleton and clips of a cooked model. Name the model with
-`content.Model` as usual to draw it:
+`content.Rig(path)` reads the skeleton and clips of a cooked model, and names the model
+too, so you don't need `content.Model` for a character:
 
 ```csharp
-_model = content.Model("fox.rmodel");
 var rig = content.Rig("fox.rmodel");
 
 ClipRef walk = rig.Clip("Walk");          // Throws, listing the clips, if there's none.
@@ -89,8 +88,9 @@ Share one controller between every character of a kind, and give each its own an
 
 ## The animator
 
-The animator is gameplay state: `Update` decides what the character is doing, and
-`Draw` shows it.
+The animator is gameplay state. Your `Update` says what the character is doing, and the
+engine does the rest: after every `Update`, the game loop moves each animator on by one
+tick. You never step it yourself.
 
 ```csharp
 public void Update(GameTime time)
@@ -101,12 +101,14 @@ public void Update(GameTime time)
     {
         _animator.Play(FoxAction.Look);
     }
-
-    _animator.Update(time);
 }
 
-public void Draw(View view) => view.Model(FoxKey, _model, transform, _animator.Pose);
+public void Draw(View view) => view.Model(FoxKey, _animator, transform);
 ```
+
+`view.Model(key, animator, transform)` draws the rig's model in the animator's current
+pose. Only the transform is yours to give, since where the character stands is game
+state. With the ECS, even that goes away; see below.
 
 | Member | What it does |
 | --- | --- |
@@ -119,8 +121,8 @@ public void Draw(View view) => view.Model(FoxKey, _model, transform, _animator.P
 | `Stop(action)` | Ends an action early |
 | `IsPlaying(action)` | Whether an action is still playing. It ends when its clip does |
 | `Crossed(action, seconds)` | True on the one tick an action passed that moment of its clip |
-| `Update(time)` | Moves on one tick. Call it every tick |
-| `Pose` | What to draw, for `view.Model` |
+| `Speed` | How fast everything plays, 1 by default. 0 holds the character still, such as while the game is paused |
+| `Pose` | What to draw, for `view.Model(key, model, transform, pose)` when you pick the model yourself |
 
 **Clips in step.** A state keeps one cycle phase. A blended state plays its clips at
 speeds that make them finish their cycles together, so a walk and a run mixed half and
@@ -141,25 +143,32 @@ if (_animator.Crossed(SoldierAction.Shoot, 0.25f))
 }
 ```
 
-`Crossed(action, 0)` is true on the tick the action starts.
+`Crossed(action, 0)` is true on the tick the action starts, right after `Play`. Later
+moments come true in a later `Update`, once the engine has moved the clip past them.
+
+**Who runs it.** Every animator started from a rig that came from `content.Rig` is run
+by the game loop, until nothing in the game holds it any more. Drop a character, or
+destroy its entity, and its animator stops with it. Animators move on game ticks, not
+frames, so a seed replays the same. Pausing doesn't stop them, because the loop keeps
+ticking, so set `Speed = 0` on the characters you want frozen.
 
 **Between ticks.** The game ticks 30 times a second, but the pose keeps moving between
-ticks when drawn, so animation is as smooth as the frame rate. Because the animator
-only changes in `Update`, a seed replays the same.
+ticks when drawn, so animation is as smooth as the frame rate.
 
 ## With the ECS
 
-Add an `Animated` component next to `Model`, and `view.Models(world)` draws the entity
-in its pose. Systems update the animators:
+Give an entity a `Transform` and an `Animated`, and `view.Models(world)` draws the rig's
+model in the animator's pose. There's nothing to update and nothing more to draw:
 
 ```csharp
+var fox = world.Create();
+world.Add(fox, Transform.At(position));
 world.Add(fox, new Animated(controller.Start(FoxState.Idle)));
-
-foreach (var row in world.Query<Animated>())
-{
-    row.First.Value.Update(time);
-}
 ```
+
+Systems only change what it's doing, such as
+`world.Get<Animated>(fox).Value.Set(FoxState.Moving)`. Add a `Model` too when you want
+a tint, or to draw a different model with the same rig.
 
 ## Limits
 

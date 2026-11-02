@@ -86,7 +86,7 @@ public void Draw(View view)
 | `Smoothed` | Blends the entity between ticks. Super remembers last tick's transform for you |
 | `Parent` | Counts the entity's transform from another entity's, so an attached thing follows |
 | `Swim` | Bends the model like a swimming fish, with the phase blended too when `Smoothed` |
-| `Animated` | Draws the model in its `Animator`'s pose. See [Animation](animation.md) |
+| `Animated` | Draws the model in its `Animator`'s pose, which the game loop moves on each tick. Without a `Model`, it draws the rig's own model. See [Animation](animation.md) |
 | `ScopedTo<T>` | Destroys the entity when that game state ends |
 
 `Smoothed` means you don't keep a previous position yourself: the world takes a copy

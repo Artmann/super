@@ -174,6 +174,46 @@ public class ModelsTests
         Assert.Null(drawn.Single(draw => draw.Key != animated.Id).Pose);
     }
 
+    [Fact]
+    public void An_animated_entity_without_a_model_draws_its_rigs_model()
+    {
+        var rig = StillRig();
+        rig.Model = new ModelRef(7);
+        var animator = new AnimationController<Stance, Stance>(rig).State(Stance.Still, rig.Clip("still")).Start(Stance.Still);
+        var entity = _world.Create();
+        _world.Add(entity, Transform.Identity);
+        _world.Add(entity, new Animated(animator));
+
+        var draw = Assert.Single(Draw(0f).ToArray());
+
+        Assert.Equal(new ModelRef(7), draw.Model);
+        Assert.Same(animator.Pose, draw.Pose);
+    }
+
+    [Fact]
+    public void An_animated_entity_with_no_model_anywhere_is_explained()
+    {
+        var rig = StillRig();
+        var animator = new AnimationController<Stance, Stance>(rig).State(Stance.Still, rig.Clip("still")).Start(Stance.Still);
+        var entity = _world.Create();
+        _world.Add(entity, Transform.Identity);
+        _world.Add(entity, new Animated(animator));
+
+        var problem = Assert.Throws<InvalidOperationException>(() => Draw(0f));
+
+        Assert.Equal(
+            $"Entity {entity.Id} is Animated with no Model, and its animator's rig wasn't read with content.Rig, so there's no model to draw. Add a Model.",
+            problem.Message);
+    }
+
+    private static Rig StillRig()
+    {
+        var joint = JointPose.Identity;
+        return new Rig(
+            new Skeleton(["root"], [-1], [joint], [Matrix4x4.Identity], Matrix4x4.Identity),
+            [new AnimationClip("still", 1f, 1, [joint, joint])]);
+    }
+
     private enum Stance
     {
         Still,

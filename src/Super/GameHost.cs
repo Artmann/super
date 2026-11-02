@@ -111,6 +111,9 @@ internal sealed class GameHost<TGame> : IDisposable
         Game.Update(Time);
         Input.Readable = false;
 
+        // After Update, so what the game set this tick plays, and Crossed sees each moment once.
+        Content.Animators.Advance(Time.TickSeconds);
+
         // Last, so all of Update saw one state and the next Draw shows the new one.
         _changes.Apply();
         Content.RequireReferences();

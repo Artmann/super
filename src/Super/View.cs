@@ -104,6 +104,21 @@ public sealed class View
     public void Model(int key, ModelRef model, Matrix4x4 transform, AnimationPose pose, Vector3? color = null) =>
         Model(key, model, transform, color, default, pose);
 
+    /// <summary>
+    /// Draws an animated character in its current pose. The animator's rig must come from
+    /// <see cref="Content.Rig"/>, which knows the model; otherwise pass the model and
+    /// <see cref="Animator.Pose"/> instead.
+    /// </summary>
+    public void Model(int key, Animator animator, Matrix4x4 transform, Vector3? color = null)
+    {
+        if (animator.Rig.Model is not { } model)
+        {
+            throw new InvalidOperationException("The animator's rig wasn't read with content.Rig, so it has no model. Pass the model and the animator's Pose instead.");
+        }
+
+        Model(key, model, transform, color, default, animator.Pose);
+    }
+
     /// <summary>Draws a model with a color, a swimming motion and a pose, any of which may be left out.</summary>
     public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim, AnimationPose? pose)
     {

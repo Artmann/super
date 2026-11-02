@@ -119,7 +119,8 @@ public sealed class Content
     /// Reads a cooked model's skeleton and clips, by its path inside assets/cooked, so a
     /// game can build its <see cref="AnimationController{TState, TAction}"/> at once.
     /// The rig sits at the front of the file, so this is quick, and it's read on the
-    /// calling thread. Asking again gives the same rig. A model cooked without bones
+    /// calling thread. It names the model too, and the game loop moves on every animator
+    /// started from it. Asking again gives the same rig. A model cooked without bones
     /// stops here with an <see cref="InvalidOperationException"/>.
     /// </summary>
     public Rig Rig(string path)
@@ -132,12 +133,19 @@ public sealed class Content
                 throw new InvalidOperationException($"{path} was cooked without a skeleton, so it has no rig to animate.");
             }
 
-            rig = new Rig(skeleton, clips);
+            rig = new Rig(skeleton, clips) { Model = Model(path) };
+            Adopt(rig);
             _rigs.Add(path, rig);
         }
 
         return rig;
     }
+
+    /// <summary>The animators the game loop moves on each tick: every one started from a rig this content read.</summary>
+    internal AnimatorRunner Animators { get; } = new();
+
+    /// <summary>Hands a rig's animators to the game loop, as <see cref="Rig(string)"/> does. Tests use it for rigs built in code.</summary>
+    internal void Adopt(Rig rig) => rig.Runner = Animators;
 
     /// <summary>
     /// Names an image, by its path inside the content folder. Naming it again gives the

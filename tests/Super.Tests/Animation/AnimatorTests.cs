@@ -257,13 +257,45 @@ public class AnimatorTests
     }
 
     [Fact]
-    public void Update_advances_by_one_tick()
+    public void Speed_scales_how_far_time_moves_it()
+    {
+        // The move clip lasts two seconds, so a quarter second at double speed is a quarter cycle.
+        var animator = Controller().Start(Stance.Move);
+        animator.Speed = 2f;
+
+        animator.Advance(0.25f);
+
+        Assert.Equal(0.25f, animator.Phase, Tolerance);
+    }
+
+    [Fact]
+    public void A_speed_of_zero_holds_the_pose_still_even_between_ticks()
     {
         var animator = Controller().Start(Stance.Move);
+        animator.Advance(0.5f);
+        animator.Play(Deed.Wave);
+        animator.Speed = 0f;
 
-        animator.Update(new GameTime(4));
+        animator.Advance(0.5f);
 
-        Assert.Equal(0.125f, animator.Phase, Tolerance);
+        // Half a second in, the root is at 1 and the wave hasn't moved the child; a display
+        // half a second past the tick must not slide them on.
+        var joints = TestRig.Evaluate(animator.Pose, ahead: 0.5f);
+        Assert.Equal(1f, joints[0].Position.X, Tolerance);
+        Assert.Equal(0f, joints[1].Position.X, Tolerance);
+    }
+
+    [Theory]
+    [InlineData(-1f)]
+    [InlineData(float.NaN)]
+    [InlineData(float.PositiveInfinity)]
+    public void A_speed_that_isnt_a_number_of_at_least_zero_is_refused(float speed)
+    {
+        var animator = Controller().Start(Stance.Idle);
+
+        var problem = Assert.Throws<ArgumentOutOfRangeException>(() => animator.Speed = speed);
+
+        Assert.StartsWith("The speed must be a number of at least zero.", problem.Message);
     }
 
     [Fact]

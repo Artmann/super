@@ -35,6 +35,15 @@ public sealed class Rig
 
     public IReadOnlyList<AnimationClip> Clips { get; }
 
+    /// <summary>
+    /// The model the rig was read from, when it came from <see cref="Content.Rig"/>, so
+    /// an animator can be drawn without naming its model again.
+    /// </summary>
+    public ModelRef? Model { get; internal set; }
+
+    /// <summary>Who moves this rig's animators on each tick. Rigs from content have the game loop; others are moved by hand.</summary>
+    internal AnimatorRunner? Runner { get; set; }
+
     /// <summary>The clip names, for a game that wants to list them.</summary>
     public IEnumerable<string> ClipNames => Clips.Select(clip => clip.Name);
 

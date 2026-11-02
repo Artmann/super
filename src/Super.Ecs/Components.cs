@@ -34,9 +34,11 @@ public record struct ScopedTo<TState>(TState State)
     where TState : struct, Enum;
 
 /// <summary>
-/// Animates the entity's <see cref="Model"/> with an <see cref="Animator"/>. Update the
-/// animator in your systems and <see cref="ViewExtensions.Models"/> draws its pose. The
-/// model must have been cooked with a skeleton, and the animator's rig must be its own.
+/// Animates the entity with an <see cref="Animator"/>. The game loop moves the animator
+/// on every tick, so systems only say what the character is doing, and
+/// <see cref="ViewExtensions.Models"/> draws its pose. Without a <see cref="Model"/>, it
+/// draws the rig's own model; with one, the model must have been cooked with a skeleton
+/// and the animator's rig must be its own.
 /// </summary>
 public record struct Animated(Animator Value);
 
