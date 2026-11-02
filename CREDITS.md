@@ -30,6 +30,20 @@ The low-poly coral pack is not used, because its author and license are unknown.
   are © 2014 tomkranis, and the conversion to glTF is © 2017 @AsoboStudio and @scurest,
   both under [Creative Commons Attribution](http://creativecommons.org/licenses/by/4.0/).
 
+## Archer example
+
+- Erika Archer and her animations are from [Mixamo](https://www.mixamo.com) by Adobe,
+  used under Mixamo's terms, which allow them in games and films but not redistributing
+  the files themselves.
+- From [Poly Haven](https://polyhaven.com), all under
+  [CC0](https://creativecommons.org/publicdomain/zero/1.0/):
+  - boulder_01 and shrub_02 by Rico Cilliers;
+  - dead_tree_trunk and tree_stump_01 by Rob Tuytel;
+  - fern_02, grass_medium_01 and fir_sapling_medium by Rob Tuytel and Rico Cilliers;
+  - the grass_ground texture by Charlotte Baglioni.
+- The straw dummy and the arrow in `examples/Archer/models` were made for this example
+  in Blender, and are under the same MIT license as the code.
+
 ## Rendition sample
 
 - ["Adventurer"](https://sketchfab.com/3d-models/592c2f0cfaf4407bab3ef40dfc095eb1)

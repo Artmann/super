@@ -1,0 +1,20 @@
+{
+  "targetLength": 1.7,
+  "materials": [],
+  "animations": [
+    { "file": "idle.fbx", "name": "Idle" },
+    { "file": "look.fbx", "name": "Look" },
+    { "file": "walk.fbx", "name": "Walk" },
+    { "file": "run.fbx", "name": "Run" },
+    { "file": "runstop.fbx", "name": "RunStop" },
+    { "file": "draw.fbx", "name": "Draw" },
+    { "file": "aim.fbx", "name": "Aim" },
+    { "file": "recoil.fbx", "name": "Recoil" },
+    { "file": "dodge.fbx", "name": "Dodge" },
+    { "file": "jump.fbx", "name": "Jump" },
+    { "file": "fall.fbx", "name": "Fall" },
+    { "file": "land.fbx", "name": "Land" },
+    { "file": "dive.fbx", "name": "Dive" },
+    { "file": "cocky.fbx", "name": "Cocky" }
+  ]
+}

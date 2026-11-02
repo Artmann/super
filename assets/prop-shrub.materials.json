@@ -1,0 +1,6 @@
+{
+  "node": "shrub_02_b",
+  "materials": [
+    { "match": "shrub_02", "alpha": "shrub_02_alpha_1k.png", "alphaCutoff": 0.5, "foliage": true }
+  ]
+}

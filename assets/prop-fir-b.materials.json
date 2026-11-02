@@ -1,0 +1,7 @@
+{
+  "node": "fir_sapling_medium_b",
+  "materials": [
+    { "match": "twigs", "alpha": "fir_sapling_medium_twigs_alpha_1k.png", "alphaCutoff": 0.3, "foliage": true },
+    { "match": "branches", "roughness": 0.9 }
+  ]
+}

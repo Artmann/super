@@ -1,0 +1,6 @@
+{
+  "node": "fern_02_a",
+  "materials": [
+    { "match": "fern_02", "alpha": "fern_02_alpha_1k.png", "alphaCutoff": 0.5, "foliage": true }
+  ]
+}
