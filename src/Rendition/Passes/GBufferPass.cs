@@ -92,7 +92,7 @@ internal sealed unsafe class GBufferPass : IDisposable
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set };
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
 
-        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes);
+        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, ScenePass.Opaque);
 
         api.CmdEndRendering(cmd);
     }

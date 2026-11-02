@@ -44,6 +44,7 @@ when a player loads a save, open boxes are simply open, with no animation. When
 | `view.Camera(camera)` | A `Camera` value the game keeps |
 | `view.Sun(direction, color)` | A directional light. `color` is linear and can go past 1 |
 | `view.Model(key, model, transform, color)` | A model. `color`, if given, tints it and keeps its textures |
+| `view.Ghost(key, model, transform, color, opacity)` | A model in one colour that glows a little, as a [preview of where something will go](rendering.md#ghosts) |
 | `view.Shadows(radius, cascades)` | How far shadows reach. See [Rendering](rendering.md#shadows) |
 | `view.Water(settings)` | Puts the camera underwater. See [Rendering](rendering.md#water) |
 | `view.Finish(settings)` | Exposure, contrast, vignette and other [post-processing](rendering.md#the-look-of-the-picture) |

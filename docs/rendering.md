@@ -178,6 +178,23 @@ Cooked assets aren't kept in git. The Reef models have their own license terms
 ([CREDITS.md](../CREDITS.md)); with them in `assets/source/reef`, cook each one using the
 matching `assets/reef-*.materials.json`, then run `examples/Reef`.
 
+## Ghosts
+
+`view.Ghost` draws a model as a preview, such as a building the player is about to
+place: green where it fits and red where it doesn't.
+
+```csharp
+var fits = new Vector3(0.2f, 1f, 0.3f);
+var blocked = new Vector3(1f, 0.15f, 0.1f);
+view.Ghost(PreviewKey, cabin, Matrix4x4.CreateTranslation(cursor), canPlace ? fits : blocked, opacity: 0.6f);
+```
+
+A ghost leaves out the model's own colours, textures and tint, and is one matte colour
+that glows a little, so it reads the same over a dark model or a light one, in sun or
+in shadow. Its shape still shows through the light. The colour is linear, from 0 to 1.
+Opacity is 1 by default, and below 1 the world shows through, as with glass. It must be
+more than 0 and at most 1. A ghost casts no shadow.
+
 ## Meshes made by code
 
 A mesh built in code, such as ground from a height function, is handed over with

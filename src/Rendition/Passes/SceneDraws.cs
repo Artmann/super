@@ -5,6 +5,19 @@ using Rendition.Vulkan;
 
 namespace Rendition.Passes;
 
+/// <summary>Which pass a scene draw is recorded for, which decides what it draws.</summary>
+internal enum ScenePass
+{
+    /// <summary>Solid things, into the G-buffer.</summary>
+    Opaque,
+
+    /// <summary>Glass and see-through ghosts, shaded forward over the lit picture.</summary>
+    Transparent,
+
+    /// <summary>Solid things that cast shadows, into a shadow map.</summary>
+    Shadow,
+}
+
 /// <summary>The pipelines of one shader, for one-sided and two-sided materials.</summary>
 internal readonly record struct PipelineVariants(Pipeline Culled, Pipeline TwoSided);
 
@@ -21,6 +34,9 @@ internal static unsafe class SceneDraws
 
         /// <summary>rgb multiplies the material's colour; w is unused. Comes before the scalars to keep std430 alignment.</summary>
         public Vector4 Tint;
+
+        /// <summary>rgb is the ghost colour and w its opacity, or 0 when the draw is no ghost.</summary>
+        public Vector4 Ghost;
 
         public int Material;
         public SwimMotion Swim;
@@ -50,7 +66,34 @@ internal static unsafe class SceneDraws
     ];
 
     /// <summary>
-    /// Draws either the opaque or the transparent items, in the given order. A pass with
+    /// Whether a draw belongs in a pass. Glass goes with the transparent pass and casts no
+    /// shadow. A ghost goes where its opacity says, whatever its material, and casts no shadow.
+    /// </summary>
+    public static bool Belongs(in DrawItem draw, MaterialFlags flags, ScenePass pass)
+    {
+        bool transparent = draw.Ghost is { } ghost ? ghost.SeeThrough : (flags & MaterialFlags.Transparent) != 0;
+        return pass switch
+        {
+            ScenePass.Opaque => !transparent,
+            ScenePass.Transparent => transparent,
+            _ => !transparent && draw.Ghost is null,
+        };
+    }
+
+    /// <summary>The push constants that draw one item.</summary>
+    public static DrawConstants Constants(in DrawItem draw, int cascade) => new()
+    {
+        Model = draw.Transform,
+        Tint = new Vector4(draw.Tint ?? Vector3.One, 1f),
+        Ghost = draw.Ghost is { } ghost ? new Vector4(ghost.Color, ghost.Opacity) : Vector4.Zero,
+        Material = draw.Material.Index,
+        Swim = draw.Swim,
+        Cascade = cascade,
+        FirstBone = draw.Bones.Count > 0 ? draw.Bones.First : -1,
+    };
+
+    /// <summary>
+    /// Draws the items that belong in <paramref name="pass"/>, in the given order. A pass with
     /// one entry in <paramref name="pipelines"/> draws everything with it. Otherwise each
     /// material picks its surface shader. Materials without cut-out holes use
     /// <paramref name="solid"/> when it's given.
@@ -63,7 +106,7 @@ internal static unsafe class SceneDraws
         ResourceTable resources,
         ReadOnlySpan<DrawItem> draws,
         List<Mesh?> meshes,
-        bool transparent = false,
+        ScenePass pass,
         PipelineVariants? solid = null,
         int cascade = 0)
     {
@@ -72,7 +115,7 @@ internal static unsafe class SceneDraws
         foreach (ref readonly var draw in draws)
         {
             var flags = resources.GetFlags(draw.Material);
-            if ((flags & MaterialFlags.Transparent) != 0 != transparent)
+            if (!Belongs(draw, flags, pass))
             {
                 continue;
             }
@@ -97,15 +140,7 @@ internal static unsafe class SceneDraws
                 boundMesh = draw.Mesh.Index;
             }
 
-            var constants = new DrawConstants
-            {
-                Model = draw.Transform,
-                Tint = new Vector4(draw.Tint ?? Vector3.One, 1f),
-                Material = draw.Material.Index,
-                Swim = draw.Swim,
-                Cascade = cascade,
-                FirstBone = draw.Bones.Count > 0 ? draw.Bones.First : -1,
-            };
+            var constants = Constants(draw, cascade);
             api.CmdPushConstants(cmd, layout, PushStages, 0, (uint)sizeof(DrawConstants), &constants);
             api.CmdDrawIndexed(cmd, draw.IndexCount, 1, draw.FirstIndex, 0, 0);
         }

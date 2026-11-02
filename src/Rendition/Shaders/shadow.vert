@@ -12,6 +12,7 @@ layout(location = 3) in vec4 inWeights;
 layout(push_constant) uniform Draw {
     mat4 model;
     vec4 tint;
+    vec4 ghost; // rgb is the colour of a ghost and a its opacity, or 0 for no ghost.
     int material;
     float swimAmplitude;
     float swimBodyLength;

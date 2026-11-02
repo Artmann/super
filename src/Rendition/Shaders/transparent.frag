@@ -20,11 +20,21 @@ void main() {
     Material material = materials[draw.material];
     vec4 baseColor = texture(textures[material.baseColorTexture], inUv) * material.baseColor * vec4(draw.tint.rgb, 1.0);
     vec3 emissive = texture(textures[material.emissiveTexture], inUv).rgb * material.emissive.rgb;
+    float roughnessOfSurface = material.roughness;
+
+    // A see-through ghost is one matte colour that glows a little, like solid ghosts in
+    // surface.glsl, with the world showing through as much as its opacity says.
+    if (draw.ghost.a > 0.0) {
+        vec3 color = clamp(draw.ghost.rgb, 0.0, 1.0);
+        baseColor = vec4(color, draw.ghost.a);
+        emissive = color * GHOST_GLOW * draw.ghost.a;
+        roughnessOfSurface = 0.7;
+    }
 
     vec3 n = normalize(gl_FrontFacing ? inNormal : -inNormal);
     vec3 v = normalize(frame.cameraPosition.xyz - inPosition);
     float nDotV = max(dot(n, v), 1e-4);
-    float roughness = clamp(material.roughness, 0.045, 1.0);
+    float roughness = clamp(roughnessOfSurface, 0.045, 1.0);
     float alpha = roughness * roughness;
     vec3 f0 = vec3(0.04);
 

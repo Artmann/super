@@ -150,7 +150,7 @@ internal sealed unsafe class TransparentPass : IDisposable
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set, _environmentSet };
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 3, sets, 0, null);
 
-        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, transparent: true);
+        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, ScenePass.Transparent);
 
         api.CmdEndRendering(cmd);
     }

@@ -336,6 +336,7 @@ internal sealed class SceneRenderer : IDisposable
                 item.Swim = draw.Swim;
                 item.Tint = draw.Color ?? (draw.Model.Index == ModelRef.Cube.Index ? CubeColor : null);
                 item.Bones = bones;
+                item.Ghost = draw.Ghost;
             }
         }
 

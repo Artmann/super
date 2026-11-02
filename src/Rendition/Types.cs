@@ -165,6 +165,18 @@ public struct ShaderArrays
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct SwimMotion(float Amplitude, float BodyLength, float Phase);
 
+/// <summary>
+/// A model drawn in one colour that glows a little, so it reads the same over any model,
+/// dark or light, lit or in shadow: a building being placed, say. Its shape still shows
+/// through the light. Opacity below 1 lets the world show through, as glass does. A ghost
+/// casts no shadow. The colour is linear, from 0 to 1.
+/// </summary>
+public readonly record struct Ghost(Vector3 Color, float Opacity = 1f)
+{
+    /// <summary>Whether the world shows through, which draws it with glass rather than solid things.</summary>
+    public bool SeeThrough => Opacity < 1f;
+}
+
 public struct DrawItem
 {
     public MeshHandle Mesh;
@@ -179,6 +191,12 @@ public struct DrawItem
     /// model can each have their own hue at no cost. Null leaves the colour alone.
     /// </summary>
     public Vector3? Tint;
+
+    /// <summary>
+    /// Draws this in one colour, as a preview of where something will go, in place of its
+    /// material's colours, textures and tint. Null draws it as usual.
+    /// </summary>
+    public Ghost? Ghost;
 
     /// <summary>
     /// Lets the renderer skip this draw when it's out of view, and use a simpler version

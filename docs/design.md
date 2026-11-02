@@ -150,6 +150,14 @@ A draw's tint rides in its push constants and multiplies the material's colour i
 `writeSurface()`, so every surface shader gets it, and copies of one textured model can
 each have their own hue.
 
+A ghost rides in the same push constants, as a colour and an opacity, with opacity 0
+meaning no ghost. `writeSurface()` then keeps only the surface's normal and writes one
+matte colour with a little of it as emission (`GHOST_GLOW` in `material.glsl`), so a
+ghost reads the same over any material and in shadow. A ghost picks its pass by its own
+opacity, not its material's: solid ghosts go to the G-buffer and see-through ones to
+the glass pass, where `transparent.frag` does the same swap. `SceneDraws.Belongs`
+decides this, and keeps ghosts out of the shadow maps.
+
 glTF files (`.glb`, `.gltf`) carry more of this themselves, so the importer reads their
 embedded images, the link to their metal and roughness texture, and their colour,
 metal and roughness values. glTF keeps metalness in blue, so the importer moves it to

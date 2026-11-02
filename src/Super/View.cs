@@ -9,7 +9,7 @@ namespace Super;
 /// <summary>
 /// A model to draw. It only exists until the next frame describes the world again. A
 /// pose skins a rigged model; PoseAhead is how many seconds past the last tick the
-/// display is, so clips keep moving between ticks.
+/// display is, so clips keep moving between ticks. A ghost draws it in one colour.
 /// </summary>
 public readonly record struct ModelDraw(
     int Key,
@@ -18,7 +18,8 @@ public readonly record struct ModelDraw(
     Vector3? Color,
     SwimMotion Swim = default,
     AnimationPose? Pose = null,
-    float PoseAhead = 0f);
+    float PoseAhead = 0f,
+    Ghost? Ghost = null);
 
 /// <summary>A light as far away as the sun, shining the same way everywhere.</summary>
 public readonly record struct SunLight(Vector3 Direction, Vector3 Color);
@@ -134,6 +135,24 @@ public sealed class View
         }
 
         _models.Add(new ModelDraw(key, model, transform, color, swim, pose, pose is null ? 0f : Blend * _tickSeconds * _timeScale));
+    }
+
+    /// <summary>
+    /// Draws a model in one flat colour that glows a little, as a preview of where something
+    /// will go: green where a building fits, red where it doesn't. It reads the same over
+    /// any model and in any light, since the model's own colours and textures are left out.
+    /// An opacity below 1 lets the world show through. A ghost casts no shadow. The colour
+    /// is linear, from 0 to 1.
+    /// </summary>
+    public void Ghost(int key, ModelRef model, Matrix4x4 transform, Vector3 color, float opacity = 1f)
+    {
+        if (!(opacity > 0f && opacity <= 1f))
+        {
+            throw new ArgumentOutOfRangeException(nameof(opacity), opacity, "A ghost's opacity must be more than 0 and at most 1.");
+        }
+
+        Model(key, model, transform, null);
+        _models[^1] = _models[^1] with { Ghost = new Ghost(color, opacity) };
     }
 
     /// <summary>

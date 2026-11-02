@@ -136,7 +136,7 @@ internal sealed unsafe class ShadowPass : IDisposable
 
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set };
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
-        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, solid: _solid, cascade: cascade);
+        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, ScenePass.Shadow, solid: _solid, cascade: cascade);
 
         api.CmdEndRendering(cmd);
     }
