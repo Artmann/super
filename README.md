@@ -1,6 +1,5 @@
 # Supercharge Your Game
 
-**Your game, in plain C#.**
 
 [![The Reef example: schools of fish over a coral reef](docs/media/reef.webp)](docs/media/reef.mp4)
 
