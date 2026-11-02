@@ -143,9 +143,21 @@ If gameplay cares, it's state. If only the eyes care, it's view.
 Views read state and never write it, so animation can't change how a game turns out,
 and a seed always replays the same.
 
+## Animated models
+
+A rigged model takes a pose from an `Animator`, which the game keeps as state and moves
+on in `Update`. The pose keeps moving between ticks, so it's as smooth as the frame
+rate:
+
+```csharp
+view.Model(FoxKey, _model, transform, _animator.Pose);
+```
+
+[Animation](animation.md) covers importing rigs, states, actions and blends.
+
 ## Planned
 
-Skeletal animation, bones and particles aren't built yet. This is the intended shape:
+Attaching models to bones and particles aren't built yet. This is the intended shape:
 
 ```csharp
 // Planned: not in Super yet.

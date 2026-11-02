@@ -122,6 +122,10 @@ Other options are the `baseColor`, `normal`, `surface` and `emissive` textures,
 `color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `twoSided`, `transparent`,
 `opacity`, `noNormalMap` and `rotateY`; see `tools/Rendition.Import/ImportSettings.cs`.
 
+A rigged model keeps its skeleton, bone weights and clips, and `animations` adds clips
+from other files of the same rig, such as Mixamo's:
+`"animations": [{ "file": "walk.fbx", "name": "Walk" }]`. See [Animation](animation.md).
+
 A colour passed when drawing a model tints it and keeps its textures, so one tree model
 can be drawn in many autumn shades at no extra cost.
 

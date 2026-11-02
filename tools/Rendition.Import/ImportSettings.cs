@@ -10,6 +10,21 @@ public sealed class ImportSettings
     public float RotateY { get; set; }
 
     public List<MaterialRule> Materials { get; set; } = [];
+
+    /// <summary>
+    /// Clips from other files of the same rig, such as Mixamo's one-animation FBX files,
+    /// matched to the model's joints by name.
+    /// </summary>
+    public List<AnimationSource> Animations { get; set; } = [];
+}
+
+/// <summary>A file next to the model to take clips from.</summary>
+public sealed class AnimationSource
+{
+    public string File { get; set; } = "";
+
+    /// <summary>The clip's name in the game. Without one, the file's name without its extension.</summary>
+    public string? Name { get; set; }
 }
 
 /// <summary>

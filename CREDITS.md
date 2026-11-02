@@ -22,6 +22,14 @@ That license does not cover the assets below, which belong to their authors.
 
 The low-poly coral pack is not used, because its author and license are unknown.
 
+## Fox example
+
+- The [Fox](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Fox)
+  from the Khronos glTF sample assets. The model is by PixelMannen under
+  [CC0](https://creativecommons.org/publicdomain/zero/1.0/). The rigging and animation
+  are © 2014 tomkranis, and the conversion to glTF is © 2017 @AsoboStudio and @scurest,
+  both under [Creative Commons Attribution](http://creativecommons.org/licenses/by/4.0/).
+
 ## Rendition sample
 
 - ["Adventurer"](https://sketchfab.com/3d-models/592c2f0cfaf4407bab3ef40dfc095eb1)

@@ -45,6 +45,7 @@ public sealed class Content
     private readonly HashSet<int> _unloaded = [];
     private readonly List<int> _pendingUnloads = [];
     private readonly Dictionary<string, ModelRef> _models = [];
+    private readonly Dictionary<string, Rig> _rigs = [];
     private readonly Dictionary<string, GameImage> _images = [];
     private readonly Dictionary<string, ShaderRef> _shaders = [];
     private readonly Dictionary<(string Path, TextureKind Kind, bool NormalMap), TextureRef> _textures = [];
@@ -112,6 +113,30 @@ public sealed class Content
         }
 
         return model;
+    }
+
+    /// <summary>
+    /// Reads a cooked model's skeleton and clips, by its path inside assets/cooked, so a
+    /// game can build its <see cref="AnimationController{TState, TAction}"/> at once.
+    /// The rig sits at the front of the file, so this is quick, and it's read on the
+    /// calling thread. Asking again gives the same rig. A model cooked without bones
+    /// stops here with an <see cref="InvalidOperationException"/>.
+    /// </summary>
+    public Rig Rig(string path)
+    {
+        if (!_rigs.TryGetValue(path, out var rig))
+        {
+            var (skeleton, clips) = ModelData.ReadRig(ContentFolder.FindCooked(path));
+            if (skeleton is null)
+            {
+                throw new InvalidOperationException($"{path} was cooked without a skeleton, so it has no rig to animate.");
+            }
+
+            rig = new Rig(skeleton, clips);
+            _rigs.Add(path, rig);
+        }
+
+        return rig;
     }
 
     /// <summary>

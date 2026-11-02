@@ -14,7 +14,6 @@ internal sealed class SceneRenderer : IDisposable
 
     /// <summary>The cube's color when a draw doesn't give one.</summary>
     private static readonly Vector3 CubeColor = new(0.7f);
-    private const string CookedFolder = "assets/cooked";
 
     private readonly Renderer _renderer;
     private readonly MaterialHandle _defaultMaterial;
@@ -27,6 +26,10 @@ internal sealed class SceneRenderer : IDisposable
     private readonly Func<GameImage, int> _textureOf;
 
     private DrawItem[] _draws = new DrawItem[64];
+    private Matrix4x4[] _bones = new Matrix4x4[256];
+    private readonly JointPose[] _pose = new JointPose[Skeleton.MaxJoints];
+    private readonly JointPose[] _poseScratch = new JointPose[Skeleton.MaxJoints];
+    private int _boneCount;
     private Vector3 _bakedWater;
     private int _uploadedAtlas;
     private Content? _content;
@@ -102,20 +105,6 @@ internal sealed class SceneRenderer : IDisposable
         BaseColor = new Vector4(color, 1f),
         Roughness = DefaultRoughness,
     };
-
-    private static string FindCooked(string path)
-    {
-        foreach (string folder in ContentFolder.Upward())
-        {
-            string candidate = Path.Combine(folder, CookedFolder, path);
-            if (File.Exists(candidate))
-            {
-                return candidate;
-            }
-        }
-
-        throw new FileNotFoundException($"Could not find {path} in {CookedFolder}. Assets aren't in git, so it may need cooking first.", path);
-    }
 
     /// <summary>Decodes a named texture and builds its mips. Runs on the background thread.</summary>
     internal static TextureData LoadTexture(TextureItem item)
@@ -206,7 +195,7 @@ internal sealed class SceneRenderer : IDisposable
     /// <summary>The part of loading that needs no GPU, so it runs on a background thread.</summary>
     private static object PrepareItem(object item) => item switch
     {
-        string path => ModelData.Read(FindCooked(path)),
+        string path => ModelData.Read(ContentFolder.FindCooked(path)),
         ShaderItem shader => LoadShader(shader.Name),
         TextureItem texture => LoadTexture(texture),
         TextureArrayItem array => Array.ConvertAll(array.Layers, LoadTexture),
@@ -220,7 +209,7 @@ internal sealed class SceneRenderer : IDisposable
 
     private Loaded Upload(object prepared, Content content) => prepared switch
     {
-        ModelData model => new LoadedModel(_renderer.CreateModel(model), null, null),
+        ModelData model => new LoadedModel(_renderer.CreateModel(model), null, null, model.Skeleton?.Count ?? 0),
         byte[] spirv => new LoadedShader(_renderer.CreateSurfaceShader(spirv)),
         TextureData texture => new LoadedTexture(_renderer.CreateTexture(texture)),
         TextureData[] layers => new LoadedTextureArray(_renderer.CreateTextureArray(layers)),
@@ -304,14 +293,17 @@ internal sealed class SceneRenderer : IDisposable
     private int PrepareDraws(View view, Content content)
     {
         int count = 0;
+        _boneCount = 0;
         foreach (ref readonly var draw in view.Drawn)
         {
-            var parts = Parts(draw.Model.Index, content);
+            var model = Require<LoadedModel>(draw.Model.Index, content);
+            var parts = model.Parts;
             if (count + parts.Length > _draws.Length)
             {
                 Array.Resize(ref _draws, (count + parts.Length) * 2);
             }
 
+            var bones = draw.Pose is { } pose ? Skin(pose, draw.PoseAhead, model, draw.Model.Index, content) : default;
             foreach (ref readonly var part in parts.AsSpan())
             {
                 ref var item = ref _draws[count++];
@@ -319,10 +311,48 @@ internal sealed class SceneRenderer : IDisposable
                 item.Transform = draw.Transform;
                 item.Swim = draw.Swim;
                 item.Tint = draw.Color ?? (draw.Model.Index == ModelRef.Cube.Index ? CubeColor : null);
+                item.Bones = bones;
             }
         }
 
         return count;
+    }
+
+    /// <summary>
+    /// Samples a pose into this frame's bone matrices. Once the frame's bones are full,
+    /// the rest of the models stand in their bind pose rather than fail.
+    /// </summary>
+    private BoneRange Skin(AnimationPose pose, float ahead, LoadedModel model, int index, Content content)
+    {
+        int joints = pose.Rig.Skeleton.Count;
+        if (model.JointCount == 0)
+        {
+            string name = content.Items[index - 1] is string path ? path : "a generated mesh";
+            throw new InvalidOperationException($"Model {index} ({name}) has no skeleton, so it can't be drawn with a pose.");
+        }
+
+        if (joints != model.JointCount)
+        {
+            throw new InvalidOperationException(
+                $"The pose's rig has {joints} joints, but model {index} has {model.JointCount}. Use the rig from the same cooked file.");
+        }
+
+        if (_boneCount + joints > Renderer.MaxBones)
+        {
+            return default;
+        }
+
+        if (_boneCount + joints > _bones.Length)
+        {
+            Array.Resize(ref _bones, Math.Min(Math.Max(_bones.Length * 2, _boneCount + joints), Renderer.MaxBones));
+        }
+
+        var local = _pose.AsSpan(0, joints);
+        pose.Evaluate(ahead, local, _poseScratch.AsSpan(0, joints));
+        pose.Rig.Skeleton.SkinMatrices(local, _bones.AsSpan(_boneCount, joints));
+        var range = new BoneRange(_boneCount, joints);
+        _boneCount += joints;
+        return range;
     }
 
     private FrameView CreateFrame(View view, int width, int height, float time)
@@ -350,6 +380,7 @@ internal sealed class SceneRenderer : IDisposable
             CameraPosition = shot.Eye,
             Time = time,
             Lights = _lights.AsSpan(0, lightCount),
+            Bones = _bones.AsSpan(0, _boneCount),
             Shadows = new ShadowSettings
             {
                 Center = shot.Target,
@@ -369,8 +400,11 @@ internal sealed class SceneRenderer : IDisposable
 
     private abstract record Loaded;
 
-    /// <summary>A model's parts. Material and OwnedTexture are set for a generated mesh, which made them itself.</summary>
-    private sealed record LoadedModel(DrawItem[] Parts, MaterialHandle? Material, TextureHandle? OwnedTexture) : Loaded;
+    /// <summary>
+    /// A model's parts. Material and OwnedTexture are set for a generated mesh, which made
+    /// them itself. JointCount is 0 for a model with no skeleton.
+    /// </summary>
+    private sealed record LoadedModel(DrawItem[] Parts, MaterialHandle? Material, TextureHandle? OwnedTexture, int JointCount = 0) : Loaded;
 
     private sealed record LoadedShader(SurfaceShaderHandle Handle) : Loaded;
 

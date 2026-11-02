@@ -41,13 +41,19 @@ public struct ModelPart
 public sealed class ModelData
 {
     private const uint Magic = 0x4C444D52; // "RMDL"
-    private const int Version = 2;
+    private const int Version = 3;
 
     public required Vertex[] Vertices { get; init; }
     public required uint[] Indices { get; init; }
     public required ModelPart[] Parts { get; init; }
     public required ModelMaterial[] Materials { get; init; }
     public required TextureData[] Textures { get; init; }
+
+    /// <summary>The joints the vertices follow, for a rigged model. Null for a static one.</summary>
+    public Skeleton? Skeleton { get; init; }
+
+    /// <summary>Motions for the skeleton, each with as many joints as it has.</summary>
+    public AnimationClip[] Clips { get; init; } = [];
 
     /// <summary>
     /// Says why a material's cutoff can't work, or returns null when it can or there is
@@ -87,9 +93,44 @@ public sealed class ModelData
 
     public void Write(string path)
     {
+        foreach (var clip in Clips)
+        {
+            if (Skeleton is null || clip.JointCount != Skeleton.Count)
+            {
+                throw new InvalidOperationException(
+                    $"Clip {clip.Name} has {clip.JointCount} joints, but the model has {Skeleton?.Count ?? 0}.");
+            }
+        }
+
         using var writer = new BinaryWriter(File.Create(path), Encoding.UTF8);
         writer.Write(Magic);
         writer.Write(Version);
+
+        // The rig comes first, so a game can read it without the geometry and textures behind it.
+        writer.Write(Skeleton is not null);
+        if (Skeleton is { } skeleton)
+        {
+            writer.Write(skeleton.Count);
+            foreach (string name in skeleton.Names)
+            {
+                writer.Write(name);
+            }
+
+            WriteArray(writer, skeleton.Parents);
+            WriteArray(writer, skeleton.Rest);
+            WriteArray(writer, skeleton.InverseBind);
+            WriteArray(writer, new[] { skeleton.RootTransform });
+        }
+
+        writer.Write(Clips.Length);
+        foreach (var clip in Clips)
+        {
+            writer.Write(clip.Name);
+            writer.Write(clip.FrameRate);
+            writer.Write(clip.JointCount);
+            WriteArray(writer, clip.Frames);
+        }
+
         WriteArray(writer, Vertices);
         WriteArray(writer, Indices);
         WriteArray(writer, Parts);
@@ -111,11 +152,7 @@ public sealed class ModelData
     public static ModelData Read(string path)
     {
         using var reader = new BinaryReader(new BufferedStream(File.OpenRead(path), 1 << 20), Encoding.UTF8);
-        if (reader.ReadUInt32() != Magic || reader.ReadInt32() != Version)
-        {
-            throw new InvalidDataException($"{path} is not a current model file. Re-run the importer.");
-        }
-
+        var (skeleton, clips) = ReadRig(reader, path);
         var vertices = ReadArray<Vertex>(reader);
         var indices = ReadArray<uint>(reader);
         var parts = ReadArray<ModelPart>(reader);
@@ -142,7 +179,51 @@ public sealed class ModelData
             Parts = parts,
             Materials = materials,
             Textures = textures,
+            Skeleton = skeleton,
+            Clips = clips,
         };
+    }
+
+    /// <summary>Reads only the skeleton and clips, which sit at the front of the file, so it's quick.</summary>
+    public static (Skeleton? Skeleton, AnimationClip[] Clips) ReadRig(string path)
+    {
+        using var reader = new BinaryReader(new BufferedStream(File.OpenRead(path), 1 << 16), Encoding.UTF8);
+        return ReadRig(reader, path);
+    }
+
+    private static (Skeleton? Skeleton, AnimationClip[] Clips) ReadRig(BinaryReader reader, string path)
+    {
+        if (reader.ReadUInt32() != Magic || reader.ReadInt32() != Version)
+        {
+            throw new InvalidDataException($"{path} is not a current model file. Re-run the importer.");
+        }
+
+        Skeleton? skeleton = null;
+        if (reader.ReadBoolean())
+        {
+            var names = new string[reader.ReadInt32()];
+            for (int i = 0; i < names.Length; i++)
+            {
+                names[i] = reader.ReadString();
+            }
+
+            var parents = ReadArray<int>(reader);
+            var rest = ReadArray<JointPose>(reader);
+            var inverseBind = ReadArray<Matrix4x4>(reader);
+            var root = ReadArray<Matrix4x4>(reader)[0];
+            skeleton = new Skeleton(names, parents, rest, inverseBind, root);
+        }
+
+        var clips = new AnimationClip[reader.ReadInt32()];
+        for (int i = 0; i < clips.Length; i++)
+        {
+            string name = reader.ReadString();
+            float frameRate = reader.ReadSingle();
+            int jointCount = reader.ReadInt32();
+            clips[i] = new AnimationClip(name, frameRate, jointCount, ReadArray<JointPose>(reader));
+        }
+
+        return (skeleton, clips);
     }
 
     private static void WriteArray<T>(BinaryWriter writer, T[] items) where T : unmanaged

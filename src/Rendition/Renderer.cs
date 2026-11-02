@@ -17,6 +17,9 @@ public sealed unsafe class Renderer : IDisposable
     private const int FramesInFlight = 2;
     private const int JitterSteps = 16;
 
+    /// <summary>The most skin matrices one frame can hold across every skinned draw.</summary>
+    public const int MaxBones = 16384;
+
     private const PipelineStageFlags2 SampledStage = PipelineStageFlags2.FragmentShaderBit;
     private const AccessFlags2 SampledAccess = AccessFlags2.ShaderSampledReadBit;
     private const PipelineStageFlags2 ColorStage = PipelineStageFlags2.ColorAttachmentOutputBit;
@@ -34,6 +37,7 @@ public sealed unsafe class Renderer : IDisposable
         public Fence InFlight;
         public Semaphore ImageAvailable;
         public GpuBuffer Uniforms;
+        public GpuBuffer Bones;
         public DescriptorSet Set;
     }
 
@@ -166,8 +170,7 @@ public sealed unsafe class Renderer : IDisposable
         };
         _api.CreateSampler(_context.Device, &shadowSamplerInfo, null, out _shadowSampler).Check();
 
-        _frameSetLayout = CreateSetLayout(
-            DescriptorType.UniformBuffer, 1, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit);
+        _frameSetLayout = CreateFrameSetLayout();
         _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 11, ShaderStageFlags.FragmentBit);
         _threeTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 3, ShaderStageFlags.FragmentBit);
         _twoTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 2, ShaderStageFlags.FragmentBit);
@@ -176,13 +179,14 @@ public sealed unsafe class Renderer : IDisposable
         var poolSizes = stackalloc DescriptorPoolSize[]
         {
             new(DescriptorType.UniformBuffer, FramesInFlight),
+            new(DescriptorType.StorageBuffer, FramesInFlight),
             new(DescriptorType.CombinedImageSampler, 23),
         };
         var poolInfo = new DescriptorPoolCreateInfo
         {
             SType = StructureType.DescriptorPoolCreateInfo,
             MaxSets = FramesInFlight + 7,
-            PoolSizeCount = 2,
+            PoolSizeCount = 3,
             PPoolSizes = poolSizes,
         };
         _api.CreateDescriptorPool(_context.Device, &poolInfo, null, out _descriptorPool).Check();
@@ -525,6 +529,7 @@ public sealed unsafe class Renderer : IDisposable
         {
             faceView.View = Matrix4x4.CreateLookAt(probe.Position, probe.Position + faces[face].Forward, faces[face].Up);
             bool castsShadow = WriteUniforms(frame.Uniforms, faceView, Matrix4x4.Identity, Vector2.Zero, 0, false, capturingProbe: true);
+            WriteBones(frame, view.Bones);
 
             _api.ResetCommandPool(_context.Device, frame.CommandPool, 0).Check();
             var cmd = frame.CommandBuffer;
@@ -653,12 +658,15 @@ public sealed unsafe class Renderer : IDisposable
             });
         }
 
-        return CreateDetailedMesh(model.Vertices, model.Indices, model.Parts, materials);
+        // A posed skeleton can reach well outside the rest pose, so a skinned part's
+        // culling sphere is doubled rather than culled too early at the screen's edge.
+        float radiusScale = model.Skeleton is null ? 1f : 2f;
+        return CreateDetailedMesh(model.Vertices, model.Indices, model.Parts, materials, radiusScale: radiusScale);
     }
 
     private DrawItem[] CreateDetailedMesh(
         ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices, ReadOnlySpan<ModelPart> parts,
-        ReadOnlySpan<MaterialHandle> materials, bool simplify = true)
+        ReadOnlySpan<MaterialHandle> materials, bool simplify = true, float radiusScale = 1f)
     {
         var allIndices = new List<uint>(indices.ToArray());
         var draws = new DrawItem[parts.Length];
@@ -670,7 +678,7 @@ public sealed unsafe class Renderer : IDisposable
             var detail = simplify
                 ? MeshDetail.Build(vertices, partIndices, allIndices)
                 : MeshDetail.Full(vertices, partIndices);
-            details[i] = AddDetail(detail);
+            details[i] = AddDetail(detail with { Radius = detail.Radius * radiusScale });
             draws[i] = new DrawItem
             {
                 FirstIndex = part.FirstIndex,
@@ -756,6 +764,7 @@ public sealed unsafe class Renderer : IDisposable
         var shift = Jitter[_frameNumber % JitterSteps] * 2f / new Vector2(view.Width, view.Height);
         var previous = _historyReady ? _previousViewProjection : viewProjection;
         bool castsShadow = WriteUniforms(frame.Uniforms, view, previous, shift, _frameNumber, _historyReady, capturingProbe: false);
+        WriteBones(frame, view.Bones);
         _previousViewProjection = viewProjection;
         _frameNumber++;
         var (cameraCount, shadowCount) = SelectDraws(view, viewProjection, draws, castsShadow);
@@ -957,6 +966,7 @@ public sealed unsafe class Renderer : IDisposable
         foreach (ref var frame in _frames.AsSpan())
         {
             frame.Uniforms.Dispose();
+            frame.Bones.Dispose();
             _api.DestroySemaphore(_context.Device, frame.ImageAvailable, null);
             _api.DestroyFence(_context.Device, frame.InFlight, null);
             _api.DestroyCommandPool(_context.Device, frame.CommandPool, null);
@@ -1337,21 +1347,71 @@ public sealed unsafe class Renderer : IDisposable
 
         frame.Uniforms = GpuBuffer.CreateHostVisible(
             _context, (ulong)sizeof(FrameUniforms), BufferUsageFlags.UniformBufferBit);
+        frame.Bones = GpuBuffer.CreateHostVisible(
+            _context, (ulong)(MaxBones * sizeof(Matrix4x4)), BufferUsageFlags.StorageBufferBit);
         frame.Set = AllocateSet(_frameSetLayout);
 
-        var bufferInfo = new DescriptorBufferInfo(frame.Uniforms.Handle, 0, (ulong)sizeof(FrameUniforms));
-        var write = new WriteDescriptorSet
+        var uniformInfo = new DescriptorBufferInfo(frame.Uniforms.Handle, 0, (ulong)sizeof(FrameUniforms));
+        var bonesInfo = new DescriptorBufferInfo(frame.Bones.Handle, 0, frame.Bones.Size);
+        var writes = stackalloc WriteDescriptorSet[]
         {
-            SType = StructureType.WriteDescriptorSet,
-            DstSet = frame.Set,
-            DstBinding = 0,
-            DescriptorCount = 1,
-            DescriptorType = DescriptorType.UniformBuffer,
-            PBufferInfo = &bufferInfo,
+            new()
+            {
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = frame.Set,
+                DstBinding = 0,
+                DescriptorCount = 1,
+                DescriptorType = DescriptorType.UniformBuffer,
+                PBufferInfo = &uniformInfo,
+            },
+            new()
+            {
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = frame.Set,
+                DstBinding = 1,
+                DescriptorCount = 1,
+                DescriptorType = DescriptorType.StorageBuffer,
+                PBufferInfo = &bonesInfo,
+            },
         };
-        _api.UpdateDescriptorSets(_context.Device, 1, &write, 0, null);
+        _api.UpdateDescriptorSets(_context.Device, 2, writes, 0, null);
 
         return frame;
+    }
+
+    /// <summary>
+    /// Copies a frame's skin matrices to where the vertex shaders read them. Must happen
+    /// after the frame's fence, since the buffer is written in place.
+    /// </summary>
+    private static void WriteBones(in Frame frame, ReadOnlySpan<Matrix4x4> bones)
+    {
+        if (bones.Length > MaxBones)
+        {
+            throw new ArgumentException($"A frame can have at most {MaxBones} bone matrices, not {bones.Length}.", nameof(bones));
+        }
+
+        bones.CopyTo(new Span<Matrix4x4>(frame.Bones.Mapped, bones.Length));
+    }
+
+    /// <summary>
+    /// The frame uniforms at binding 0 and the skin matrices at binding 1, as
+    /// Shaders/common.glsl and skinning.glsl read them.
+    /// </summary>
+    private DescriptorSetLayout CreateFrameSetLayout()
+    {
+        var bindings = stackalloc DescriptorSetLayoutBinding[]
+        {
+            new(0, DescriptorType.UniformBuffer, 1, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit),
+            new(1, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit),
+        };
+        var info = new DescriptorSetLayoutCreateInfo
+        {
+            SType = StructureType.DescriptorSetLayoutCreateInfo,
+            BindingCount = 2,
+            PBindings = bindings,
+        };
+        _api.CreateDescriptorSetLayout(_context.Device, &info, null, out var layout).Check();
+        return layout;
     }
 
     private DescriptorSetLayout CreateSetLayout(DescriptorType type, int bindingCount, ShaderStageFlags stages)

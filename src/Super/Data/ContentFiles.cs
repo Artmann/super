@@ -93,6 +93,21 @@ public sealed class ContentFolder : IContentFiles
         return cooked.Length == 0 || cooked.Any(folder => File.Exists(Path.Combine(folder, path)));
     }
 
+    /// <summary>The full path of a cooked model, looking in assets/cooked from the program's folder upward.</summary>
+    internal static string FindCooked(string path)
+    {
+        foreach (string folder in Upward())
+        {
+            string candidate = Path.Combine(folder, CookedFolder, path);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        throw new FileNotFoundException($"Could not find {path} in {CookedFolder}. Assets aren't in git, so it may need cooking first.", path);
+    }
+
     /// <summary>The program's folder and each one above it.</summary>
     internal static IEnumerable<string> Upward()
     {

@@ -157,6 +157,29 @@ public class ModelsTests
     }
 
     [Fact]
+    public void An_animated_entity_passes_its_pose()
+    {
+        var joint = JointPose.Identity;
+        var rig = new Rig(
+            new Skeleton(["root"], [-1], [joint], [Matrix4x4.Identity], Matrix4x4.Identity),
+            [new AnimationClip("still", 1f, 1, [joint, joint])]);
+        var animator = new AnimationController<Stance, Stance>(rig).State(Stance.Still, rig.Clip("still")).Start(Stance.Still);
+        var animated = Spawn(Transform.Identity);
+        _world.Add(animated, new Animated(animator));
+        Spawn(Transform.Identity);
+
+        var drawn = Draw(0f).ToArray();
+
+        Assert.Same(animator.Pose, drawn.Single(draw => draw.Key == animated.Id).Pose);
+        Assert.Null(drawn.Single(draw => draw.Key != animated.Id).Pose);
+    }
+
+    private enum Stance
+    {
+        Still,
+    }
+
+    [Fact]
     public void Keys_stay_stable_as_entities_come_and_go()
     {
         var first = Spawn(Transform.Identity);

@@ -2,9 +2,10 @@
 
 Super is early. These are the known gaps, so you can plan around them.
 
-- **Animation and particles.** Rendition can't play skeletons or draw particles yet.
-  `view.Animate` moves numbers, which you can use on a transform, but `AnimationRef`,
-  `view.Bone` and `view.Particles` don't exist. See [Drawing with views](views.md#planned).
+- **Particles and bone attachment.** Skeletal [animation](animation.md) works, but
+  `view.Bone`, for hanging a model on a joint, and `view.Particles` don't exist yet. See
+  [Drawing with views](views.md#planned). Clips have no root motion, so a character's
+  movement comes from game code.
 - **Audio.** There's no audio package yet.
 - **Picking by shape.** Clicks are tested against balls, boxes and the ground, not a
   model's triangles.

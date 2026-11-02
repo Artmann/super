@@ -35,10 +35,11 @@ public class GpuMaterialTests
     [Fact]
     public void Draw_constants_match_the_draw_block_in_material_glsl()
     {
-        // mat4 model, vec4 tint, int material, three swim floats, int cascade.
+        // mat4 model, vec4 tint, int material, three swim floats, int cascade, int firstBone.
         Assert.Equal(64, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.Tint)));
         Assert.Equal(80, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.Material)));
         Assert.Equal(96, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.Cascade)));
-        Assert.Equal(100, Unsafe.SizeOf<SceneDraws.DrawConstants>());
+        Assert.Equal(100, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.FirstBone)));
+        Assert.Equal(104, Unsafe.SizeOf<SceneDraws.DrawConstants>());
     }
 }

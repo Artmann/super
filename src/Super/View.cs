@@ -6,8 +6,19 @@ using Super.Ui;
 
 namespace Super;
 
-/// <summary>A model to draw. It only exists until the next frame describes the world again.</summary>
-public readonly record struct ModelDraw(int Key, ModelRef Model, Matrix4x4 Transform, Vector3? Color, SwimMotion Swim = default);
+/// <summary>
+/// A model to draw. It only exists until the next frame describes the world again. A
+/// pose skins a rigged model; PoseAhead is how many seconds past the last tick the
+/// display is, so clips keep moving between ticks.
+/// </summary>
+public readonly record struct ModelDraw(
+    int Key,
+    ModelRef Model,
+    Matrix4x4 Transform,
+    Vector3? Color,
+    SwimMotion Swim = default,
+    AnimationPose? Pose = null,
+    float PoseAhead = 0f);
 
 /// <summary>A light as far away as the sun, shining the same way everywhere.</summary>
 public readonly record struct SunLight(Vector3 Direction, Vector3 Color);
@@ -82,14 +93,26 @@ public sealed class View
         Model(key, model, transform, null, swim);
 
     /// <summary>Draws a model with both a color and a swimming motion.</summary>
-    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim)
+    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim) =>
+        Model(key, model, transform, color, swim, null);
+
+    /// <summary>
+    /// Draws a rigged model in a pose from an <see cref="Animator"/>. The model must have
+    /// been cooked with a skeleton, and the pose's rig must be the model's own. Clips
+    /// keep moving between ticks, like <see cref="Smooth"/> does for transforms.
+    /// </summary>
+    public void Model(int key, ModelRef model, Matrix4x4 transform, AnimationPose pose, Vector3? color = null) =>
+        Model(key, model, transform, color, default, pose);
+
+    /// <summary>Draws a model with a color, a swimming motion and a pose, any of which may be left out.</summary>
+    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim, AnimationPose? pose)
     {
         if (Content is { } content && content.IsUnloaded(model.Index))
         {
             throw new InvalidOperationException($"Model {model.Index} was unloaded, so it can't be drawn.");
         }
 
-        _models.Add(new ModelDraw(key, model, transform, color, swim));
+        _models.Add(new ModelDraw(key, model, transform, color, swim, pose, pose is null ? 0f : Blend * _tickSeconds));
     }
 
     /// <summary>Puts the whole view underwater.</summary>

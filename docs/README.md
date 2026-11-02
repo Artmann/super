@@ -10,6 +10,7 @@ that doesn't exist yet; everything else works today.
 | [Drawing with views](views.md) | `Draw`, keys, view memory, smoothing, `Cached` and state versus view |
 | [Cameras and clicking](cameras.md) | `Camera`, the camera helpers, orthographic and shifted views, and picking |
 | [Rendering](rendering.md) | Lights, shadows, water, post-processing, meshes made by code, surface shaders, terrain and models |
+| [Animation](animation.md) | Rigged models, Mixamo clips, states, actions, blends and masks |
 | [Interfaces](interfaces.md) | `Super.Ui`: views, modifiers, layout, colours, state and the mouse |
 | [Input](input.md) | Actions, bindings and the raw `Input` service |
 | [Game states](states.md) | `States<T>`, enter and exit callbacks, and loading screens |

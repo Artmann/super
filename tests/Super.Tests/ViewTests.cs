@@ -32,6 +32,31 @@ public class ViewTests
     }
 
     [Fact]
+    public void Model_with_a_pose_records_how_far_past_the_tick_the_display_is()
+    {
+        var view = new View();
+        var pose = new AnimationPose(Animation.TestRig.Rig());
+        view.Begin(0.5f, tick: 3, tickSeconds: 0.1f);
+
+        view.Model(7, ModelRef.Cube, Matrix4x4.Identity, pose);
+
+        Assert.Same(pose, view.Drawn[0].Pose);
+        Assert.Equal(0.05f, view.Drawn[0].PoseAhead, 0.0001f);
+    }
+
+    [Fact]
+    public void Model_without_a_pose_has_none()
+    {
+        var view = new View();
+        view.Begin(0.5f, tick: 3, tickSeconds: 0.1f);
+
+        view.Model(7, ModelRef.Cube, Matrix4x4.Identity);
+
+        Assert.Null(view.Drawn[0].Pose);
+        Assert.Equal(0f, view.Drawn[0].PoseAhead);
+    }
+
+    [Fact]
     public void Sun_directions_become_one_unit_long()
     {
         var view = new View();

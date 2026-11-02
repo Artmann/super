@@ -1,10 +1,12 @@
 using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Rendition;
 using Rendition.Import;
 using Silk.NET.Assimp;
 using Assimp = Silk.NET.Assimp.Assimp;
 using File = System.IO.File;
+using Skeleton = Rendition.Skeleton;
 
 // Usage: Rendition.Import <model file> <materials.json> <output.rmodel>
 // Textures are looked up by file name next to the model file, because model files
@@ -31,21 +33,42 @@ var materialNames = new List<string>();
 // Each mesh's material and the run of vertices it added.
 var meshVertices = new List<(int Material, int First, int Count)>();
 
+Skeleton? skeleton = null;
+var clips = new List<AnimationClip>();
+Vertex[] vertexArray;
+
 unsafe
 {
     var assimp = Assimp.GetApi();
     const PostProcessSteps steps = PostProcessSteps.Triangulate
         | PostProcessSteps.JoinIdenticalVertices
-        | PostProcessSteps.PreTransformVertices
         | PostProcessSteps.GenerateSmoothNormals
         | PostProcessSteps.CalculateTangentSpace
         | PostProcessSteps.FlipUVs;
 
-    var scene = assimp.ImportFile(modelPath, (uint)steps);
+    var scene = Import(assimp, modelPath, steps);
     if (scene == null || scene->MRootNode == null)
     {
         Console.Error.WriteLine($"Could not read {modelPath}: {assimp.GetErrorStringS()}");
         return 1;
+    }
+
+    // A rigged model keeps its node tree, since the joints live there. A static one is
+    // flattened into a single mesh space.
+    RigImporter? rig = null;
+    if (RigImporter.HasBones(scene))
+    {
+        rig = RigImporter.Read(scene);
+        Console.WriteLine($"Rig: {rig.JointCount} joints");
+    }
+    else
+    {
+        scene = assimp.ApplyPostProcessing(scene, (uint)PostProcessSteps.PreTransformVertices);
+        if (scene == null)
+        {
+            Console.Error.WriteLine($"Could not flatten {modelPath}: {assimp.GetErrorStringS()}");
+            return 1;
+        }
     }
 
     // Materials refer to images stored inside the file as "*0", "*1" and so on.
@@ -88,6 +111,8 @@ unsafe
             vertices.Add(new Vertex(mesh->MVertices[v], normal, tangent, new Vector2(uv.X, uv.Y)));
         }
 
+        rig?.Skin(mesh, (int)m, CollectionsMarshal.AsSpan(vertices).Slice((int)baseVertex, (int)mesh->MNumVertices));
+
         uint firstIndex = (uint)indices.Count;
         for (uint f = 0; f < mesh->MNumFaces; f++)
         {
@@ -110,12 +135,46 @@ unsafe
         });
     }
 
+    if (rig is not null)
+    {
+        for (uint a = 0; a < scene->MNumAnimations; a++)
+        {
+            var animation = scene->MAnimations[a];
+            string name = animation->MName.AsString is { Length: > 0 } own ? own : $"clip{a}";
+            AddClip(clips, rig.ReadClip(animation, name));
+        }
+
+        foreach (var source in settings.Animations)
+        {
+            string path = Path.Combine(sourceDirectory, source.File);
+            var extra = Import(assimp, path, steps);
+            if (extra == null)
+            {
+                Console.Error.WriteLine($"Could not read {path}: {assimp.GetErrorStringS()}");
+                return 1;
+            }
+
+            string baseName = source.Name ?? Path.GetFileNameWithoutExtension(source.File);
+            for (uint a = 0; a < extra->MNumAnimations; a++)
+            {
+                string name = extra->MNumAnimations == 1 ? baseName : $"{baseName}{a + 1}";
+                AddClip(clips, rig.ReadClip(extra->MAnimations[a], name));
+            }
+
+            assimp.FreeScene(extra);
+        }
+    }
+
     assimp.FreeScene(scene);
+
+    // The turn, scale and centring go into the vertices, and for a rig into its skeleton
+    // too, so skinning lands in the same space.
+    vertexArray = vertices.ToArray();
+    var normalization = Normalization(vertexArray, settings.RotateY, settings.TargetLength);
+    Apply(vertexArray, normalization);
+    skeleton = rig?.ToSkeleton(normalization);
 }
 
-var vertexArray = vertices.ToArray();
-Rotate(vertexArray, settings.RotateY);
-Normalize(vertexArray, settings.TargetLength);
 for (int i = 0; i < materials.Count; i++)
 {
     if ((materials[i].Flags & MaterialFlags.Foliage) != 0)
@@ -131,6 +190,8 @@ var model = new ModelData
     Parts = parts.ToArray(),
     Materials = materials.ToArray(),
     Textures = textures.ToArray(),
+    Skeleton = skeleton,
+    Clips = clips.ToArray(),
 };
 
 // A cutoff that can't cut renders fine but wrong, so it stops the import. Materials no
@@ -154,6 +215,7 @@ model.Write(args[2]);
 Console.WriteLine(
     $"Wrote {args[2]}: {vertices.Count} vertices, {indices.Count / 3} triangles, " +
     $"{parts.Count} parts, {materials.Count} materials, {textures.Count} textures, " +
+    (skeleton is null ? "" : $"{skeleton.Count} joints, {clips.Count} clips, ") +
     $"{new FileInfo(args[2]).Length / (1024 * 1024)} MB");
 return 0;
 
@@ -172,38 +234,63 @@ static void PointOutOfCrown(Vertex[] vertices, IEnumerable<(int Material, int Fi
     }
 }
 
-static void Rotate(Vertex[] vertices, float degrees)
+static unsafe Scene* Import(Assimp assimp, string path, PostProcessSteps steps)
 {
-    var turn = Matrix4x4.CreateRotationY(degrees * MathF.PI / 180f);
-    foreach (ref var vertex in vertices.AsSpan())
-    {
-        vertex.Position = Vector3.Transform(vertex.Position, turn);
-        vertex.Normal = Vector3.TransformNormal(vertex.Normal, turn);
-        var tangent = Vector3.TransformNormal(new Vector3(vertex.Tangent.X, vertex.Tangent.Y, vertex.Tangent.Z), turn);
-        vertex.Tangent = new Vector4(tangent, vertex.Tangent.W);
-    }
+    // Mixamo FBX files otherwise sprout pivot nodes, which would break joint names
+    // between a character and its animation files.
+    var properties = assimp.CreatePropertyStore();
+    assimp.SetImportPropertyInteger(properties, "IMPORT_FBX_PRESERVE_PIVOTS", 0);
+    var scene = assimp.ImportFileExWithProperties(path, (uint)steps, null, properties);
+    assimp.ReleasePropertyStore(properties);
+    return scene;
 }
 
-// Scales the model to real-world metres, centres it, and stands it on y = 0.
-static void Normalize(Vertex[] vertices, float targetLength)
+static void AddClip(List<AnimationClip> clips, AnimationClip? clip)
 {
+    if (clip is null)
+    {
+        return;
+    }
+
+    if (clips.Any(existing => existing.Name == clip.Name))
+    {
+        throw new InvalidDataException($"Two clips are called {clip.Name}. Give one a name in the settings file.");
+    }
+
+    clips.Add(clip);
+}
+
+// The transform that turns the model by rotateY degrees around the vertical axis, scales
+// it to real-world metres, centres it, and stands it on y = 0. The bounds are taken after
+// the turn, so the model fits its target length the way it will face.
+static Matrix4x4 Normalization(Vertex[] vertices, float rotateY, float targetLength)
+{
+    var turn = Matrix4x4.CreateRotationY(rotateY * MathF.PI / 180f);
     var min = new Vector3(float.MaxValue);
     var max = new Vector3(float.MinValue);
     foreach (ref readonly var vertex in vertices.AsSpan())
     {
-        min = Vector3.Min(min, vertex.Position);
-        max = Vector3.Max(max, vertex.Position);
+        var turned = Vector3.Transform(vertex.Position, turn);
+        min = Vector3.Min(min, turned);
+        max = Vector3.Max(max, turned);
     }
 
     var size = max - min;
     Console.WriteLine($"Source bounds: {size}");
     float scale = targetLength > 0f ? targetLength / MathF.Max(size.X, MathF.Max(size.Y, size.Z)) : 1f;
     var center = (min + max) * 0.5f;
+    var shift = new Vector3(-center.X, -center.Y + size.Y * 0.5f, -center.Z);
+    return turn * Matrix4x4.CreateTranslation(shift) * Matrix4x4.CreateScale(scale);
+}
+
+static void Apply(Vertex[] vertices, in Matrix4x4 transform)
+{
     foreach (ref var vertex in vertices.AsSpan())
     {
-        var position = vertex.Position - center;
-        position.Y += size.Y * 0.5f;
-        vertex.Position = position * scale;
+        vertex.Position = Vector3.Transform(vertex.Position, transform);
+        vertex.Normal = Vector3.Normalize(Vector3.TransformNormal(vertex.Normal, transform));
+        var tangent = Vector3.TransformNormal(new Vector3(vertex.Tangent.X, vertex.Tangent.Y, vertex.Tangent.Z), transform);
+        vertex.Tangent = new Vector4(Vector3.Normalize(tangent), vertex.Tangent.W);
     }
 }
 

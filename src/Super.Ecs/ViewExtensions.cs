@@ -10,8 +10,9 @@ public static class ViewExtensions
     /// <summary>
     /// Draws every entity with a <see cref="Transform"/> and a <see cref="Model"/>, keyed
     /// by entity ID. <see cref="Smoothed"/> entities blend from last tick, <see cref="Parent"/>
-    /// entities follow their parent, and <see cref="Swim"/> entities swim. Call it from
-    /// Draw, alongside any models you describe by hand.
+    /// entities follow their parent, <see cref="Swim"/> entities swim, and
+    /// <see cref="Animated"/> entities take their animator's pose. Call it from Draw,
+    /// alongside any models you describe by hand.
     /// </summary>
     public static void Models(this View view, World world)
     {
@@ -25,6 +26,7 @@ public static class ViewExtensions
         int smoothedType = world.TypeIdOrMissing<Smoothed>();
         int parentType = world.TypeIdOrMissing<Parent>();
         int swimType = world.TypeIdOrMissing<Swim>();
+        int animatedType = world.TypeIdOrMissing<Animated>();
         ulong mask = (1UL << transformType) | (1UL << modelType);
         float blend = view.Blend;
 
@@ -40,6 +42,7 @@ public static class ViewExtensions
                 var smoothed = archetype.ColumnOrNull<Smoothed>(smoothedType)?.Values;
                 var parents = archetype.ColumnOrNull<Parent>(parentType)?.Values;
                 var swims = archetype.ColumnOrNull<Swim>(swimType)?.Values;
+                var animated = archetype.ColumnOrNull<Animated>(animatedType)?.Values;
 
                 for (int i = 0; i < archetype.Count; i++)
                 {
@@ -50,9 +53,10 @@ public static class ViewExtensions
                     }
 
                     ref readonly var model = ref models[i];
+                    var pose = animated?[i].Value?.Pose;
                     if (swims is null)
                     {
-                        view.Model(entities[i].Id, model.Value, matrix, model.Color);
+                        view.Model(entities[i].Id, model.Value, matrix, model.Color, default, pose);
                         continue;
                     }
 
@@ -60,7 +64,7 @@ public static class ViewExtensions
                     float phase = smoothed is not null && smoothed[i].HasPrevious
                         ? float.Lerp(smoothed[i].PreviousPhase, swim.Phase, blend)
                         : swim.Phase;
-                    view.Model(entities[i].Id, model.Value, matrix, model.Color, new SwimMotion(swim.Amplitude, swim.BodyLength, phase));
+                    view.Model(entities[i].Id, model.Value, matrix, model.Color, new SwimMotion(swim.Amplitude, swim.BodyLength, phase), pose);
                 }
             }
         }

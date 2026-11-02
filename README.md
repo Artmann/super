@@ -112,6 +112,7 @@ marked as planned. The examples are the best place to see it running:
 | [Crafting](examples/Crafting) | An inventory and crafting bench driven entirely by the mouse |
 | [Terrain](examples/Terrain) | Endless generated hills with a custom surface shader |
 | [Reef](examples/Reef) | 6,240 schooling fish with the ECS, water and a stats panel |
+| [Fox](examples/Fox) | A skinned character blending walk into run, with a head turn played over it |
 
 ## License
 

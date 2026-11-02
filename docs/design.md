@@ -46,6 +46,8 @@ the rest is not yet.
 | JSON content | One record per file, read into a `Catalog<T>` by `LoadAll`. Live reload runs only in the window and only from source | Every mistake is reported with its file and line at load, and a reload can't change a seeded run. See `docs/superpowers/specs/2026-11-01-json-content-design.md` |
 | Saves and levels | JSON early on, expected to be replaced | Easy to read and repair during development |
 | Physics | Left out of the first version | Must run in ticks and repeat exactly, and the target games need little |
+| Animation | An `Animator` per character is gameplay state, moved on in `Update`. It writes its blend as clip layers into an `AnimationPose`, which the renderer samples at draw time, `PoseAhead` seconds past the tick | Clips stay smooth at any frame rate, gameplay can wait on moments in a clip, and a seed replays the same |
+| Animation states | States and actions are the game's enums. One base state loops, keeping its phase across changes; actions play once over it, optionally masked to part of the skeleton | Walk and wave, or run and shoot, need no state per combination |
 
 The rule for dividing data: if gameplay cares, it's state; if only the eyes care, it's
 view. Views read state and never write it, so animation can't change a simulation's
@@ -53,8 +55,9 @@ outcome. Repeatability is promised for the same build on the same kind of CPU, b
 floating point results can differ between CPU types.
 
 Rendition needs work to support this: keys passed through to per-object motion
-vectors, skeletal animation in the importer and the vertex shader, a particle pass,
-and a check of how it copes with many thousands of draws.
+vectors, a particle pass, and a check of how it copes with many thousands of draws.
+Skeletal animation is in: the importer keeps skeletons and clips, and the vertex shader
+skins.
 
 # Rendition design
 
@@ -85,6 +88,7 @@ rendering. Game-facing features belong in Super.
 | Math | System.Numerics | SIMD-accelerated value types |
 | Model import | Separate tool using Assimp, writing our own `.rmodel` | The game loads a fast flat file and never ships an FBX or glTF parser |
 | Textures and materials | One global descriptor set indexed by material | Adding materials adds no binding work per draw |
+| Skinning | Four joints and weights per vertex, packed as bytes. Each frame's bone matrices go in one storage buffer (set 0, binding 1, up to `Renderer.MaxBones` = 16,384), and a draw's push constants hold its first bone, or -1 when it has none | Unskinned models use the same shaders and vertex format, and many characters cost one upload |
 
 ## Frame structure
 
@@ -329,8 +333,9 @@ Anything larger than a block gets its own allocation.
 - The importer reads glTF's `MASK` cut-outs, but not its emissive maps, glass or
   two-sided flags yet. Set those in the materials file.
 - Foliage translucency is a constant in `surface.glsl`, and a material can't have both
-  foliage and clearcoat, since they share a G-buffer channel. It flattens models into a single pose, so skeletons
-  and animation aren't supported.
+  foliage and clearcoat, since they share a G-buffer channel.
+- Clips are sampled at 30 frames a second on import and blended linearly between
+  frames, and have no root motion.
 - The adventurer model has 929,000 triangles, which suits a showcase more than a game. A
   game character would need a reduced version and levels of detail.
 - Shadow cascades are centred on the camera's target rather than fitted to the view
@@ -343,8 +348,8 @@ Anything larger than a block gets its own allocation.
 - The ambient occlusion radius and strength, and the bloom strength, are constants in
   their shaders. A game will want to set them per scene.
 - Temporal anti-aliasing follows the camera only, with no motion per object, so moving
-  objects rely on the colour clamp and can show rough edges. Skinned or animated games
-  will need motion vectors from the G-buffer pass.
+  objects rely on the colour clamp and can show rough edges. Skinned models, now
+  supported, will need motion vectors from the G-buffer pass too.
 - Screen-space reflections only know what is on screen, and read last frame's image.
   Glass still reflects the studio, not probes or traced rays.
 - Probes are captured once and don't update. They affect reflections only, not

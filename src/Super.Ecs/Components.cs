@@ -34,6 +34,13 @@ public record struct ScopedTo<TState>(TState State)
     where TState : struct, Enum;
 
 /// <summary>
+/// Animates the entity's <see cref="Model"/> with an <see cref="Animator"/>. Update the
+/// animator in your systems and <see cref="ViewExtensions.Models"/> draws its pose. The
+/// model must have been cooked with a skeleton, and the animator's rig must be its own.
+/// </summary>
+public record struct Animated(Animator Value);
+
+/// <summary>
 /// Bends the model in a wave from head to tail as it's drawn. The head must face +z.
 /// Amplitude and BodyLength are in the model's own units, and Phase, in radians, should
 /// rise steadily in Update. With <see cref="Smoothed"/>, the phase blends between ticks too.
