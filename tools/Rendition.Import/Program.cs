@@ -63,6 +63,16 @@ unsafe
     }
     else
     {
+        if (settings.Node is { } keep)
+        {
+            int kept = KeepNodes(scene->MRootNode, keep, false);
+            if (kept == 0)
+            {
+                Console.Error.WriteLine($"No node with meshes has \"{keep}\" in its name.");
+                return 1;
+            }
+        }
+
         scene = assimp.ApplyPostProcessing(scene, (uint)PostProcessSteps.PreTransformVertices);
         if (scene == null)
         {
@@ -71,13 +81,20 @@ unsafe
         }
     }
 
-    // Materials refer to images stored inside the file as "*0", "*1" and so on.
+    // glTF materials refer to images stored inside the file as "*0", "*1" and so on, while
+    // FBX materials use the image's original file name, so each is stored under both.
     for (uint i = 0; i < scene->MNumTextures; i++)
     {
         var embedded = scene->MTextures[i];
         if (embedded->MHeight == 0) // A height of 0 means the width is the size of an encoded image.
         {
-            textures.AddEmbedded($"*{i}", new ReadOnlySpan<byte>(embedded->PcData, (int)embedded->MWidth).ToArray());
+            byte[] encoded = new ReadOnlySpan<byte>(embedded->PcData, (int)embedded->MWidth).ToArray();
+            textures.AddEmbedded($"*{i}", encoded);
+            string original = embedded->MFilename.AsString;
+            if (original.Length > 0)
+            {
+                textures.AddEmbedded(Path.GetFileName(original.Replace('\\', '/')), encoded);
+            }
         }
     }
 
@@ -263,6 +280,29 @@ static void AddClip(List<AnimationClip> clips, AnimationClip? clip)
 // The transform that turns the model by rotateY degrees around the vertical axis, scales
 // it to real-world metres, centres it, and stands it on y = 0. The bounds are taken after
 // the turn, so the model fits its target length the way it will face.
+// Drops the meshes of every node outside the ones named, so flattening leaves them out.
+// Returns how many nodes with meshes were kept.
+static unsafe int KeepNodes(Node* node, string keep, bool inside)
+{
+    inside |= node->MName.AsString.Contains(keep, StringComparison.OrdinalIgnoreCase);
+    int kept = 0;
+    if (!inside)
+    {
+        node->MNumMeshes = 0;
+    }
+    else if (node->MNumMeshes > 0)
+    {
+        kept++;
+    }
+
+    for (uint i = 0; i < node->MNumChildren; i++)
+    {
+        kept += KeepNodes(node->MChildren[i], keep, inside);
+    }
+
+    return kept;
+}
+
 static Matrix4x4 Normalization(Vertex[] vertices, float rotateY, float targetLength)
 {
     var turn = Matrix4x4.CreateRotationY(rotateY * MathF.PI / 180f);
@@ -334,7 +374,7 @@ static unsafe ModelMaterial ImportMaterial(
         Metallic = rule.Metallic ?? fileMetallic?[0] ?? 0f,
         Roughness = rule.Roughness ?? fileRoughness?[0] ?? 0.6f,
         AlphaCutoff = rule.AlphaCutoff ?? fileCutoff ?? 0f,
-        BaseColorTexture = textures.Add(rule.BaseColor ?? linkedColor, TextureKind.Color),
+        BaseColorTexture = textures.Add(rule.BaseColor ?? linkedColor, TextureKind.Color, alphaFile: rule.Alpha),
         NormalTexture = textures.Add(rule.NoNormalMap ? null : rule.Normal ?? linkedNormal, TextureKind.Linear, isNormalMap: true),
         SurfaceTexture = rule.Surface is not null
             ? textures.Add(rule.Surface, TextureKind.Linear)

@@ -20,6 +20,7 @@ internal sealed unsafe class RigImporter
     private readonly Matrix4x4[] _restGlobal;
     private readonly Matrix4x4[] _inverseBind;
     private readonly Dictionary<string, int> _jointOf = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _jointByBareName = new(StringComparer.Ordinal);
 
     // Every node of the scene, parent first, with its global rest transform, so a mesh
     // that hangs off a node without a skin can be placed and attached.
@@ -224,7 +225,7 @@ internal sealed unsafe class RigImporter
         for (uint c = 0; c < animation->MNumChannels; c++)
         {
             var channel = animation->MChannels[c];
-            if (_jointOf.TryGetValue(channel->MNodeName.AsString, out int joint))
+            if (JointOf(channel->MNodeName.AsString) is { } joint)
             {
                 channels[joint] = channel;
                 matched++;
@@ -256,6 +257,31 @@ internal sealed unsafe class RigImporter
         Console.WriteLine($"  clip {name}: {seconds:0.00} s, {frameCount} frames, {matched} of {JointCount} joints move");
         return new AnimationClip(name, FrameRate, JointCount, frames);
     }
+
+    /// <summary>
+    /// The joint a clip's channel drives. Mixamo names joints "mixamorig:Hips", but adds a
+    /// number to the prefix in some downloads ("mixamorig12:Hips"), so when the full name
+    /// isn't a joint, the part after the colon is matched on its own.
+    /// </summary>
+    private int? JointOf(string channel)
+    {
+        if (_jointOf.TryGetValue(channel, out int joint))
+        {
+            return joint;
+        }
+
+        if (_jointByBareName.Count == 0)
+        {
+            for (int i = 0; i < _names.Length; i++)
+            {
+                _jointByBareName.TryAdd(BareName(_names[i]), i);
+            }
+        }
+
+        return _jointByBareName.TryGetValue(BareName(channel), out joint) ? joint : null;
+    }
+
+    private static string BareName(string name) => name[(name.LastIndexOf(':') + 1)..];
 
     private void Walk(Node* node, int parent, in Matrix4x4 parentGlobal)
     {

@@ -9,8 +9,9 @@ that doesn't exist yet; everything else works today.
 | [Working with coding agents](agents.md) | How an agent builds, runs, tests and sees a Super game |
 | [Drawing with views](views.md) | `Draw`, keys, view memory, smoothing, `Cached` and state versus view |
 | [Cameras and clicking](cameras.md) | `Camera`, the camera helpers, orthographic and shifted views, and picking |
-| [Rendering](rendering.md) | Lights, shadows, water, post-processing, meshes made by code, surface shaders, terrain and models |
-| [Animation](animation.md) | Rigged models, Mixamo clips, states, actions, blends and masks |
+| [Rendering](rendering.md) | Lights, shadows, the sky, water, post-processing, meshes made by code, surface shaders, terrain and models |
+| [Animation](animation.md) | Rigged models, Mixamo clips, states, actions, blends, masks, root motion and joints |
+| [Cutscenes](cutscenes.md) | Shots, moments, slow motion and the `Director` |
 | [Interfaces](interfaces.md) | `Super.Ui`: views, modifiers, layout, colours, state and the mouse |
 | [Input](input.md) | Actions, bindings and the raw `Input` service |
 | [Game states](states.md) | `States<T>`, enter and exit callbacks, and loading screens |

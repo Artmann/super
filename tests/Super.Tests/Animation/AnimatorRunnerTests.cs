@@ -47,6 +47,39 @@ public class AnimatorRunnerTests
         Assert.Equal(3f / 60f, run.Game.Animator.Phase, 0.0001f);
     }
 
+    /// <summary>A walker in a world running at half speed.</summary>
+    private sealed class SlowWalker(Content content, GameTime time) : IGame
+    {
+        public Animator Animator { get; private set; } = null!;
+
+        public void Load()
+        {
+            time.Scale = 0.5f;
+            var rig = TestRig.Rig();
+            content.Adopt(rig);
+            Animator = Start(rig);
+        }
+
+        public void Update(GameTime gameTime)
+        {
+        }
+
+        public void Draw(View view)
+        {
+        }
+    }
+
+    [Fact]
+    public void The_game_loop_moves_animators_by_the_scaled_time()
+    {
+        using var run = HeadlessGame.Create<SlowWalker>(1);
+
+        run.Ticks(4);
+
+        // Four ticks at half speed is two ticks' worth: a sixtieth of the cycle each.
+        Assert.Equal(2f / 60f, run.Game.Animator.Phase, 0.0001f);
+    }
+
     /// <summary>A game with a rig built in code and never handed to content.</summary>
     private sealed class HandMade : IGame
     {

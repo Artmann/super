@@ -1216,7 +1216,7 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->PreviousViewProjection = previousViewProjection;
         uniforms->FrameNumber = frameNumber;
         uniforms->HistoryValid = historyValid ? 1 : 0;
-        uniforms->ShowEnvironment = capturingProbe ? 1 : 0;
+        uniforms->ShowEnvironment = capturingProbe || view.ShowEnvironment ? 1 : 0;
         uniforms->Grade = new Vector4(
             MathF.Pow(2f, view.Post.Exposure), 1f + view.Post.Contrast, 1f + view.Post.Saturation, view.Post.Vignette);
         uniforms->Finish = new Vector4(view.Post.Sharpen, view.Post.Grain, shift.X, shift.Y);

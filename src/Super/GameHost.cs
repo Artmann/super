@@ -36,6 +36,7 @@ internal sealed class GameHost<TGame> : IDisposable
         services.AddSingleton(typeof(States<>));
         services.AddSingleton<GameCapture>();
         services.AddSingleton<GameStats>();
+        services.AddSingleton<Director>();
         services.AddSingleton<TGame>();
 
         // This comes last so a game or a test can replace any of the above.
@@ -49,6 +50,7 @@ internal sealed class GameHost<TGame> : IDisposable
         Input = _services.GetRequiredService<Input>();
         Capture = _services.GetRequiredService<GameCapture>();
         Stats = _services.GetRequiredService<GameStats>();
+        Director = _services.GetRequiredService<Director>();
         Game = _services.GetRequiredService<TGame>();
         _hooks = _services.GetServices<ITickHook>().ToArray();
         _changes = _services.GetRequiredService<StateChanges>();
@@ -73,6 +75,8 @@ internal sealed class GameHost<TGame> : IDisposable
     public int Seed { get; }
 
     public GameStats Stats { get; }
+
+    public Director Director { get; }
 
     public View View { get; } = new();
 
@@ -108,11 +112,17 @@ internal sealed class GameHost<TGame> : IDisposable
         }
 
         _pointer.Deliver();
+
+        // Before Update, so the game sees a cutscene's moments and time scale this tick.
+        Director.BeforeUpdate();
         Game.Update(Time);
         Input.Readable = false;
 
         // After Update, so what the game set this tick plays, and Crossed sees each moment once.
-        Content.Animators.Advance(Time.TickSeconds);
+        Content.Animators.Advance(Time.DeltaSeconds);
+
+        // Once everything has moved, so a camera following something sees where it is now.
+        Director.AfterUpdate();
 
         // Last, so all of Update saw one state and the next Draw shows the new one.
         _changes.Apply();
@@ -123,8 +133,12 @@ internal sealed class GameHost<TGame> : IDisposable
     public void Draw(float blend)
     {
         _changes.Open = false;
-        View.Begin(blend, Time.Tick, Time.TickSeconds);
+        View.Begin(blend, Time.Tick, Time.TickSeconds, Time.Scale);
         Game.Draw(View);
+        if (Director.IsPlaying)
+        {
+            View.Camera(Director.At(blend));
+        }
 
         // The interface runs outside the measurement, so a stats panel reports the game
         // and not itself.

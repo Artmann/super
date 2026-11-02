@@ -42,6 +42,7 @@ public sealed class View
     private long _frame;
     private long _tick;
     private float _tickSeconds;
+    private float _timeScale = 1f;
 
     internal Camera Shot { get; private set; }
     /// <summary>The time on screen, which sits between the last tick and the next.</summary>
@@ -49,6 +50,7 @@ public sealed class View
 
     internal ReadOnlySpan<SunLight> Suns => CollectionsMarshal.AsSpan(_suns);
     internal UnderwaterSettings WaterSettings { get; private set; }
+    internal SkySettings? SkySettings { get; private set; }
     internal PostSettings Post { get; private set; }
     internal float ShadowRadius { get; private set; }
     internal int ShadowCascades { get; private set; }
@@ -127,7 +129,29 @@ public sealed class View
             throw new InvalidOperationException($"Model {model.Index} was unloaded, so it can't be drawn.");
         }
 
-        _models.Add(new ModelDraw(key, model, transform, color, swim, pose, pose is null ? 0f : Blend * _tickSeconds));
+        _models.Add(new ModelDraw(key, model, transform, color, swim, pose, pose is null ? 0f : Blend * _tickSeconds * _timeScale));
+    }
+
+    /// <summary>
+    /// Sets the sky: a gradient from the ground up through the horizon to straight up, and
+    /// haze that fades distant things into it. Without one the world sits in a plain grey
+    /// studio. Water, when set, takes over the sky.
+    /// </summary>
+    public void Sky(in SkySettings settings)
+    {
+        if (settings.Brightness < 0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(settings), settings.Brightness, "The sky's brightness can't be negative.");
+        }
+
+        if (settings.HazeStart < 0f || settings.HazeEnd < settings.HazeStart)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(settings),
+                $"The haze must start at zero or further and end no nearer than it starts, but it runs from {settings.HazeStart} to {settings.HazeEnd} metres.");
+        }
+
+        SkySettings = settings;
     }
 
     /// <summary>Puts the whole view underwater.</summary>
@@ -241,17 +265,19 @@ public sealed class View
     }
 
     /// <summary>Clears the last frame, keeping its memory so a running game allocates nothing here.</summary>
-    internal void Begin(float blend, long tick = 0, float tickSeconds = 0f)
+    internal void Begin(float blend, long tick = 0, float tickSeconds = 0f, float timeScale = 1f)
     {
         // What the last frame didn't draw goes now, before this frame can touch it.
         _memory.Forget(_frame);
         _frame++;
         _tick = tick;
         _tickSeconds = tickSeconds;
+        _timeScale = timeScale;
         Blend = blend;
         _models.Clear();
         _suns.Clear();
         WaterSettings = default;
+        SkySettings = null;
         Post = new PostSettings { Vignette = 0.3f, Sharpen = 0.4f };
         ShadowRadius = 8f;
         ShadowCascades = 1;

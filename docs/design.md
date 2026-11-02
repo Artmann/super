@@ -47,6 +47,10 @@ the rest is not yet.
 | Saves and levels | JSON early on, expected to be replaced | Easy to read and repair during development |
 | Physics | Left out of the first version | Must run in ticks and repeat exactly, and the target games need little |
 | Animation | An `Animator` per character is gameplay state. The game sets it in `Update`, and `GameHost` moves every animator from a `content.Rig` rig on one tick right after, through `Content.Animators`, which holds them weakly. It writes its blend as clip layers into an `AnimationPose`, which the renderer samples at draw time, `PoseAhead` seconds past the tick | Games never step or hand over poses themselves, dropped characters stop being run without a call, clips stay smooth at any frame rate, gameplay can wait on moments in a clip, and a seed replays the same, since an animator nothing holds can't affect the game |
+| Root motion | `Rig.RootMotion` strips one joint's travel over the ground out of every clip at load and keeps it as a track per clip; the animator mixes it by layer weight into `RootMotion` each tick | The game owns where a character stands, so travel has to come back as state rather than live in the pose |
+| Cutscenes | A `Cutscene` is a list of shots, moments and slow stretches built in code; the `Director` runs it on the tick clock, cueing before `Update` and placing the camera after it, and sets `GameTime.Scale` | Moments land on ticks, so a recorded film replays the same. Shots keep real time while the world slows. The camera sees where things are once they've moved |
+| Time scale | `GameTime.Scale` scales `DeltaSeconds`, never the tick rate | Input and the camera stay smooth in slow motion, and a frozen world still ticks |
+| Content folder | Found once by walking up from the program, behind a `Lazy` | Textures load on background threads, and a plain flag set before the path was found let a thread read no path |
 | Animation states | States and actions are the game's enums. One base state loops, keeping its phase across changes; actions play once over it, optionally masked to part of the skeleton | Walk and wave, or run and shoot, need no state per combination |
 
 The rule for dividing data: if gameplay cares, it's state; if only the eyes care, it's
@@ -176,6 +180,16 @@ line up with the lights. Baking waits for the GPU, so it belongs in loading.
 
 Panels appear only in reflections. The direct lights already provide their diffuse
 light, and baking it too would count that light twice and overexpose the scene.
+
+`FrameView.ShowEnvironment` draws the reflection cube, times `EnvironmentIntensity`,
+as the background instead of the flat `BackgroundRadiance`, and the distance fade then
+mixes toward the cube in the direction of the view. A far hill melts into the sky just
+behind it rather than into one grey. Super's `view.Sky` turns it on; the studio and
+underwater views leave it off.
+
+Super keeps one set of bands, from water first, then the sky, then the plain studio, and
+bakes them again only when they change, so a steady sky costs nothing per frame but a
+sky animated every frame would rebake every frame.
 
 ## Reflections
 
@@ -335,7 +349,7 @@ Anything larger than a block gets its own allocation.
 - Foliage translucency is a constant in `surface.glsl`, and a material can't have both
   foliage and clearcoat, since they share a G-buffer channel.
 - Clips are sampled at 30 frames a second on import and blended linearly between
-  frames, and have no root motion.
+  frames. Root motion only carries travel over the ground, not turns.
 - The adventurer model has 929,000 triangles, which suits a showcase more than a game. A
   game character would need a reduced version and levels of detail.
 - Shadow cascades are centred on the camera's target rather than fitted to the view

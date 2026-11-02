@@ -1,3 +1,4 @@
+using System.Numerics;
 using Rendition;
 
 namespace Super;
@@ -117,6 +118,115 @@ public sealed class Rig
         }
 
         return new Motion(this, sorted);
+    }
+
+    /// <summary>The joint whose travel across the ground moves the character, once <see cref="RootMotion"/> has picked one.</summary>
+    public string? RootMotionJoint { get; private set; }
+
+    /// <summary>
+    /// Takes the travel across the ground out of every clip and hands it to the game
+    /// instead, so a dodge or a roll moves the character and not only its mesh. Name the
+    /// joint that carries the body, such as the hips. Its height and turns stay in the
+    /// clips, so a jump still leaves the ground. Each animator then reports the travel in
+    /// <see cref="Animator.RootMotion"/>, for the game to add to where the character is.
+    /// Asking again for the same joint does nothing.
+    /// </summary>
+    public void RootMotion(string joint)
+    {
+        if (RootMotionJoint is not null)
+        {
+            if (RootMotionJoint == joint)
+            {
+                return;
+            }
+
+            throw new InvalidOperationException($"The rig already takes its root motion from {RootMotionJoint}, so it can't take it from {joint} too.");
+        }
+
+        int index = Skeleton.IndexOf(joint);
+        if (index < 0)
+        {
+            throw new ArgumentException($"The rig has no joint called {joint}. It has: {string.Join(", ", Skeleton.Names)}.", nameof(joint));
+        }
+
+        var tracks = new Vector3[Clips.Count][];
+        for (int i = 0; i < Clips.Count; i++)
+        {
+            tracks[i] = TakeTravel(Clips[i], index);
+        }
+
+        _travel = tracks;
+        _rootJoint = index;
+        RootMotionJoint = joint;
+    }
+
+    private Vector3[][]? _travel;
+    private int _rootJoint = -1;
+
+    /// <summary>The joint root motion comes from, or -1.</summary>
+    internal int RootJoint => _rootJoint;
+
+    /// <summary>
+    /// How far a clip has carried the character over the ground from its first frame,
+    /// in the model's space, at a moment held at the ends. Zero without root motion.
+    /// </summary>
+    internal Vector3 Travel(int clip, float seconds)
+    {
+        if (_travel is null)
+        {
+            return Vector3.Zero;
+        }
+
+        var track = _travel[clip];
+        var data = Clips[clip];
+        float frame = Math.Clamp(seconds * data.FrameRate, 0f, track.Length - 1);
+        int first = Math.Min((int)frame, track.Length - 2);
+        if (first < 0)
+        {
+            return track[0];
+        }
+
+        return Vector3.Lerp(track[first], track[first + 1], frame - first);
+    }
+
+    /// <summary>
+    /// Pins the joint over its first frame's spot on the ground, frame by frame, and
+    /// returns where it would have gone. The sums run in the model's space, after the
+    /// joint's parents and the root transform, since only there is up the y axis.
+    /// </summary>
+    private Vector3[] TakeTravel(AnimationClip clip, int joint)
+    {
+        int joints = Skeleton.Count;
+        var globals = new Matrix4x4[joints];
+        var track = new Vector3[clip.FrameCount];
+        Vector3 start = default;
+        for (int f = 0; f < clip.FrameCount; f++)
+        {
+            var frame = clip.Frames.AsSpan(f * joints, joints);
+            for (int i = 0; i < joint; i++)
+            {
+                globals[i] = Skeleton.Parents[i] >= 0 ? frame[i].Matrix * globals[Skeleton.Parents[i]] : frame[i].Matrix;
+            }
+
+            int parent = Skeleton.Parents[joint];
+            var toModel = (parent >= 0 ? globals[parent] : Matrix4x4.Identity) * Skeleton.RootTransform;
+            var at = Vector3.Transform(frame[joint].Position, toModel);
+            if (f == 0)
+            {
+                start = at;
+            }
+
+            var travel = new Vector3(at.X - start.X, 0f, at.Z - start.Z);
+            track[f] = travel;
+            if (!Matrix4x4.Invert(toModel, out var toJoint))
+            {
+                throw new InvalidOperationException($"The joints above {Skeleton.Names[joint]} squash it flat in clip {clip.Name}, so its travel can't be taken out.");
+            }
+
+            frame[joint].Position = Vector3.Transform(at - travel, toJoint);
+        }
+
+        return track;
     }
 
     internal void Check(ClipRef clip)

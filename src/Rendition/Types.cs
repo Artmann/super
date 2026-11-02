@@ -342,8 +342,15 @@ public ref struct FrameView
     /// <summary>Scales the light and reflections from the environment.</summary>
     public float EnvironmentIntensity;
 
-    /// <summary>Shown where nothing was drawn.</summary>
+    /// <summary>Shown where nothing was drawn, unless <see cref="ShowEnvironment"/> is set.</summary>
     public Vector3 BackgroundRadiance;
+
+    /// <summary>
+    /// Shows the environment's bands where nothing was drawn, scaled by
+    /// <see cref="EnvironmentIntensity"/>, so the sky behind the scene is the one lighting it.
+    /// Distant surfaces then melt into the sky in their own direction.
+    /// </summary>
+    public bool ShowEnvironment;
 
     /// <summary>Surfaces melt into the background between these distances. Equal values turn it off.</summary>
     public float BackgroundFadeStart;

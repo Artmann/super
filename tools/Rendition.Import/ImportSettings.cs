@@ -9,6 +9,12 @@ public sealed class ImportSettings
     /// <summary>Turns the model around the vertical axis, in degrees, so it faces the way a game expects.</summary>
     public float RotateY { get; set; }
 
+    /// <summary>
+    /// Keeps only what's under the nodes whose name contains this, for files that hold
+    /// several variants side by side, as Poly Haven's plant sets do. Not for rigged models.
+    /// </summary>
+    public string? Node { get; set; }
+
     public List<MaterialRule> Materials { get; set; } = [];
 
     /// <summary>
@@ -35,6 +41,13 @@ public sealed class MaterialRule
 {
     public string Match { get; set; } = "";
     public string? BaseColor { get; set; }
+
+    /// <summary>
+    /// A grey image of opacity, whose red becomes the colour texture's alpha. Poly Haven's
+    /// glTF plants ship their leaf cut-outs this way, beside a colour JPEG with no alpha.
+    /// </summary>
+    public string? Alpha { get; set; }
+
     public string? Normal { get; set; }
 
     /// <summary>Ignores the normal map linked in the model file, for maps that do more harm than good.</summary>

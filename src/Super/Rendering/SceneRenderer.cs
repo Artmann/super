@@ -30,7 +30,7 @@ internal sealed class SceneRenderer : IDisposable
     private readonly JointPose[] _pose = new JointPose[Skeleton.MaxJoints];
     private readonly JointPose[] _poseScratch = new JointPose[Skeleton.MaxJoints];
     private int _boneCount;
-    private Vector3 _bakedWater;
+    private Bands _bakedBands;
     private int _uploadedAtlas;
     private Content? _content;
 
@@ -46,10 +46,33 @@ internal sealed class SceneRenderer : IDisposable
         _textureOf = image => OverlayQuad.For(Require<LoadedTexture>(image.Index, _content!).Handle);
         _renderer.SetEnvironment(new EnvironmentDescription
         {
-            Ceiling = new Vector3(0.45f, 0.5f, 0.6f),
-            Horizon = new Vector3(0.5f, 0.5f, 0.52f),
-            Floor = new Vector3(0.25f, 0.24f, 0.23f),
+            Ceiling = Studio.Ceiling,
+            Horizon = Studio.Horizon,
+            Floor = Studio.Floor,
         });
+        _bakedBands = Studio;
+    }
+
+    /// <summary>The grey room a world without a sky sits in.</summary>
+    private static readonly Bands Studio = new(new Vector3(0.45f, 0.5f, 0.6f), new Vector3(0.5f, 0.5f, 0.52f), new Vector3(0.25f, 0.24f, 0.23f));
+
+    private readonly record struct Bands(Vector3 Ceiling, Vector3 Horizon, Vector3 Floor);
+
+    // Water wins over the sky, which wins over the studio.
+    private static Bands Surroundings(View view)
+    {
+        var water = view.WaterSettings;
+        if (water.Absorption != Vector3.Zero)
+        {
+            return new Bands(water.ShallowColor, Vector3.Lerp(water.ShallowColor, water.DeepColor, 0.5f), water.DeepColor);
+        }
+
+        if (view.SkySettings is { } sky)
+        {
+            return new Bands(sky.Zenith, sky.Horizon, sky.Ground);
+        }
+
+        return Studio;
     }
 
     public int ValidationErrors => _renderer.ValidationErrors;
@@ -158,17 +181,18 @@ internal sealed class SceneRenderer : IDisposable
 
         content.ClearPendingUnloads();
 
-        // Surfaces pick up the color of the water around them.
-        var water = view.WaterSettings;
-        if (water.Absorption != Vector3.Zero && water.ShallowColor != _bakedWater)
+        // Surfaces pick up the color of the water or sky around them. Baking is slow, so
+        // it only happens when the colors change.
+        var bands = Surroundings(view);
+        if (bands != _bakedBands)
         {
             _renderer.SetEnvironment(new EnvironmentDescription
             {
-                Ceiling = water.ShallowColor,
-                Horizon = Vector3.Lerp(water.ShallowColor, water.DeepColor, 0.5f),
-                Floor = water.DeepColor,
+                Ceiling = bands.Ceiling,
+                Horizon = bands.Horizon,
+                Floor = bands.Floor,
             });
-            _bakedWater = water.ShallowColor;
+            _bakedBands = bands;
         }
 
         // Only a character that hasn't been drawn before brings this here.
@@ -370,6 +394,7 @@ internal sealed class SceneRenderer : IDisposable
         }
 
         var shot = view.Shot;
+        var sky = view.SkySettings;
         float aspect = width / (float)Math.Max(height, 1);
         return new FrameView
         {
@@ -388,8 +413,11 @@ internal sealed class SceneRenderer : IDisposable
                 Cascades = view.ShadowCascades,
                 LightAngle = 0.12f,
             },
-            EnvironmentIntensity = 0.8f,
+            EnvironmentIntensity = sky is null ? 0.8f : sky.Value.Brightness > 0f ? sky.Value.Brightness : 1f,
             BackgroundRadiance = new Vector3(0.15f, 0.16f, 0.18f),
+            ShowEnvironment = sky is not null,
+            BackgroundFadeStart = sky?.HazeStart ?? 0f,
+            BackgroundFadeEnd = sky?.HazeEnd ?? 0f,
             Post = view.Post,
             Water = view.WaterSettings,
             Overlay = view.Ui is { } ui ? ui.Quads : [],

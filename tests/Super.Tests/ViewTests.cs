@@ -19,6 +19,43 @@ public class ViewTests
     }
 
     [Fact]
+    public void Sky_is_kept_until_the_next_frame()
+    {
+        var view = new View();
+        view.Begin(0f);
+        var sky = new SkySettings { Zenith = new Vector3(0.2f, 0.4f, 0.9f), Horizon = Vector3.One, HazeStart = 10f, HazeEnd = 40f };
+
+        view.Sky(sky);
+        var kept = view.SkySettings;
+        view.Begin(0f);
+
+        Assert.Equal(sky, kept);
+        Assert.Null(view.SkySettings);
+    }
+
+    [Fact]
+    public void Sky_with_negative_brightness_is_explained()
+    {
+        var view = new View();
+
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Sky(new SkySettings { Brightness = -1f }));
+
+        Assert.Contains("brightness can't be negative", error.Message);
+    }
+
+    [Theory]
+    [InlineData(-5f, 10f)]
+    [InlineData(30f, 10f)]
+    public void Sky_with_haze_that_ends_before_it_starts_is_explained(float start, float end)
+    {
+        var view = new View();
+
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Sky(new SkySettings { HazeStart = start, HazeEnd = end }));
+
+        Assert.Contains($"runs from {start} to {end} metres", error.Message);
+    }
+
+    [Fact]
     public void Model_records_what_it_was_given()
     {
         var view = new View();
@@ -42,6 +79,18 @@ public class ViewTests
 
         Assert.Same(pose, view.Drawn[0].Pose);
         Assert.Equal(0.05f, view.Drawn[0].PoseAhead, 0.0001f);
+    }
+
+    [Fact]
+    public void A_pose_moves_on_between_ticks_by_the_scaled_time()
+    {
+        var view = new View();
+        var pose = new AnimationPose(Animation.TestRig.Rig());
+        view.Begin(0.5f, tick: 3, tickSeconds: 0.1f, timeScale: 0.25f);
+
+        view.Model(7, ModelRef.Cube, Matrix4x4.Identity, pose);
+
+        Assert.Equal(0.0125f, view.Drawn[0].PoseAhead, 0.0001f);
     }
 
     [Fact]

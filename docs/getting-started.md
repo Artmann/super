@@ -70,6 +70,12 @@ two ticks so motion stays smooth; see [Drawing with views](views.md#smooth-motio
 `GameTime` has `Tick`, `TickSeconds`, `TicksPerSecond` and `TotalSeconds`. Take time
 from it rather than the system clock, so a seed always replays the same.
 
+`Scale` sets how fast the world moves: 1 as normal, 0.25 for slow motion, 0 to freeze it.
+Ticks keep coming at the same rate, so input and the camera stay smooth. Move things by
+`DeltaSeconds`, which is the tick's length times the scale, and they slow with it.
+Animators from content follow it on their own, and a
+[cutscene](cutscenes.md#slow-motion) can set it.
+
 ## Options
 
 ```csharp

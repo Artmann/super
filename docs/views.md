@@ -158,7 +158,9 @@ view.Model(FoxKey, _animator, transform);
 
 ## Planned
 
-Attaching models to bones and particles aren't built yet. This is the intended shape:
+Attaching models to bones and particles aren't built yet. Until then,
+`animator.Joint(name)` times the character's transform places a model on a bone by
+hand; see [Animation](animation.md#joints). This is the intended shape:
 
 ```csharp
 // Planned: not in Super yet.

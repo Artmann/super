@@ -59,6 +59,9 @@ public sealed class HeadlessRun<TGame> : IDisposable
     /// <summary>What the last Draw would have shown.</summary>
     public IReadOnlyList<ModelDraw> Drawn => _host.View.Drawn.ToArray();
 
+    /// <summary>The camera the last frame showed. Call <see cref="Frame"/> first.</summary>
+    public Camera Camera => _host.View.Shot;
+
     /// <summary>The text the interface showed in the last Draw, with where it landed.</summary>
     public IReadOnlyList<ShownText> ShownText => _host.Ui.ShownText;
 

@@ -33,34 +33,17 @@ public sealed class ContentFolder : IContentFiles
     private const string FolderName = "content";
     private const string CookedFolder = "assets/cooked";
 
-    private string? _root;
-    private bool _searched;
+    // Textures load on background threads, so the search must finish before anyone sees it.
+    private readonly Lazy<string?> _root;
 
     /// <summary>Finds the folder by walking up from the program.</summary>
-    public ContentFolder()
-    {
-    }
+    public ContentFolder() =>
+        _root = new Lazy<string?>(() => Upward().Select(folder => Path.Combine(folder, FolderName)).FirstOrDefault(Directory.Exists));
 
-    public ContentFolder(string root)
-    {
-        _root = root;
-        _searched = true;
-    }
+    public ContentFolder(string root) => _root = new Lazy<string?>(root);
 
     /// <summary>The folder's full path, if there is one.</summary>
-    internal string? Root
-    {
-        get
-        {
-            if (!_searched)
-            {
-                _searched = true;
-                _root = Upward().Select(folder => Path.Combine(folder, FolderName)).FirstOrDefault(Directory.Exists);
-            }
-
-            return _root;
-        }
-    }
+    internal string? Root => _root.Value;
 
     /// <summary>Whether this is a project's own folder rather than one shipped beside the program.</summary>
     internal bool IsSource
@@ -85,7 +68,16 @@ public sealed class ContentFolder : IContentFiles
             .ToArray();
     }
 
-    public byte[] Read(string path) => File.ReadAllBytes(Path.Combine(Root!, path));
+    public byte[] Read(string path)
+    {
+        if (Root is not { } root)
+        {
+            throw new DirectoryNotFoundException(
+                $"Can't read {path}: there's no {FolderName} folder beside the program or in any folder above it. Make one in your game's project.");
+        }
+
+        return File.ReadAllBytes(Path.Combine(root, path));
+    }
 
     public bool HasModel(string path)
     {

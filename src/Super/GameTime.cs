@@ -3,6 +3,8 @@ namespace Super;
 /// <summary>Simulation time, counted in ticks. It never reads the system clock.</summary>
 public sealed class GameTime
 {
+    private float _scale = 1f;
+
     internal GameTime(int ticksPerSecond)
     {
         if (ticksPerSecond <= 0)
@@ -24,4 +26,27 @@ public sealed class GameTime
 
     /// <summary>How long the simulation has been running, in seconds.</summary>
     public double TotalSeconds => (double)Tick / TicksPerSecond;
+
+    /// <summary>
+    /// How fast the world moves: 1 as normal, 0.25 for slow motion, 0 to freeze it. Ticks
+    /// keep coming at the same rate, so input and the camera stay smooth; only what moves
+    /// by <see cref="DeltaSeconds"/> slows down. Animators from content follow it, and a
+    /// <see cref="Cutscene"/> can set it.
+    /// </summary>
+    public float Scale
+    {
+        get => _scale;
+        set
+        {
+            if (!(value >= 0f) || !float.IsFinite(value))
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), value, "The time scale must be a number of at least zero.");
+            }
+
+            _scale = value;
+        }
+    }
+
+    /// <summary>How much the world moves on this tick: the tick's length times <see cref="Scale"/>. Move things by this.</summary>
+    public float DeltaSeconds => TickSeconds * _scale;
 }

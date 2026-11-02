@@ -155,6 +155,48 @@ ticking, so set `Speed = 0` on the characters you want frozen.
 **Between ticks.** The game ticks 30 times a second, but the pose keeps moving between
 ticks when drawn, so animation is as smooth as the frame rate.
 
+**Slow motion.** Animators from content move by `GameTime.DeltaSeconds`, so they slow
+down with [`GameTime.Scale`](getting-started.md#a-first-game), as in a
+[cutscene](cutscenes.md#slow-motion).
+
+## Root motion
+
+Mixamo's dodges, rolls and dives move the body across the ground. Played as they are,
+the mesh leaves the character behind and snaps back when the clip ends. Root motion
+takes that travel out of the clips and hands it to your game instead:
+
+```csharp
+var rig = content.Rig("archer.rmodel");
+rig.RootMotion("mixamorig:Hips");
+```
+
+Name the joint that carries the body. Its travel over the ground comes out of every clip,
+while its height and turns stay in, so a jump still leaves the ground. Each tick,
+`animator.RootMotion` says how far the clips carried the character, in the model's
+space. Turn it by the character's rotation and scale, then add it to where they stand:
+
+```csharp
+_position += Vector3.Transform(_animator.RootMotion, Matrix4x4.CreateScale(scale) * Matrix4x4.CreateRotationY(_facing));
+```
+
+Blends and actions mix it as they mix the pose, so a dodge fading in moves the
+character a little at first, and a loop carries on from where its last cycle ended.
+Call `RootMotion` once per rig, before starting animators. Asking again for the same
+joint does nothing, and asking for another throws.
+
+## Joints
+
+`animator.Joint(name)` is where a joint is in the model this tick, such as the hand an
+arrow leaves from. Multiply it by the character's own transform to place it in the world:
+
+```csharp
+var nock = _animator.Joint("mixamorig:arrow") * transform;
+var arrow = new Arrow(nock.Translation, direction);
+```
+
+An unknown name throws, listing the joints the rig has. It's worked out once per tick,
+however often you ask.
+
 ## With the ECS
 
 Give an entity a `Transform` and an `Animated`, and `view.Models(world)` draws the rig's
@@ -178,9 +220,10 @@ a tint, or to draw a different model with the same rig.
   have been cooked with a skeleton. Drawing a pose whose joint count differs throws.
 - Clips are sampled at 30 frames a second when imported, and blended linearly between
   frames.
-- There's no root motion: the character's movement comes from your game code, and clips
-  that walk away from the origin will slide back each loop.
-- Attaching a model to a bone, such as a sword to a hand that comes from a separate
-  file, isn't built yet; see [Drawing with views](views.md#planned).
+- Root motion only carries travel over the ground. Turns in a clip, such as a turn on
+  the spot, stay in the pose and don't turn the character.
+- Attaching a model to a bone, such as a sword to a hand, isn't built in. Draw it
+  yourself at `animator.Joint(name)` times the character's transform; see
+  [Drawing with views](views.md#planned).
 - Skinned models don't give temporal anti-aliasing motion vectors yet, so fast limbs can
   show slight smearing.

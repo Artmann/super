@@ -348,11 +348,17 @@ void main() {
     }
 
     // Distant surfaces melt into the background, which hides the horizon of a studio floor.
+    // When the environment is the background, each one melts into the sky behind it.
     float fadeStart = frame.parameters.x;
     float fadeEnd = frame.parameters.y;
     if (fadeEnd > fadeStart) {
-        float distanceToCamera = length(frame.cameraPosition.xyz - position);
-        color = mix(color, frame.backgroundRadiance.rgb, smoothstep(fadeStart, fadeEnd, distanceToCamera));
+        vec3 away = position - frame.cameraPosition.xyz;
+        vec3 behind = frame.backgroundRadiance.rgb;
+        if (frame.showEnvironment == 1) {
+            behind = textureLod(reflectionTexture, normalize(away), 0.0).rgb * frame.backgroundRadiance.a;
+        }
+
+        color = mix(color, behind, smoothstep(fadeStart, fadeEnd, length(away)));
     }
 
     outColor = vec4(color, 1.0);

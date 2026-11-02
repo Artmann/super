@@ -1,4 +1,6 @@
+using System.Numerics;
 using System.Runtime.CompilerServices;
+using Rendition;
 
 namespace Super;
 
@@ -24,6 +26,12 @@ public sealed class Animator
     private float _previousPhase;
     private float _previousParameter;
     private float _fadeSeconds;
+
+    // Each joint in the model for this tick, worked out when first asked for.
+    private Matrix4x4[]? _joints;
+    private JointPose[]? _locals;
+    private JointPose[]? _scratch;
+    private bool _jointsFresh;
 
     internal Animator(AnimationControllerBase controller, int state)
     {
@@ -76,6 +84,44 @@ public sealed class Animator
 
             _parameter = value;
         }
+    }
+
+    /// <summary>
+    /// How far the clips carried the character over the ground on the last tick, in the
+    /// model's space, once the rig has <see cref="Rig.RootMotion"/>. Turn it by the
+    /// character's own rotation and scale, then add it to where the character is.
+    /// </summary>
+    public Vector3 RootMotion { get; private set; }
+
+    /// <summary>
+    /// Where a joint is in the model this tick, such as the hand an arrow leaves from.
+    /// Multiply by the character's own transform to place it in the world.
+    /// </summary>
+    public Matrix4x4 Joint(string name)
+    {
+        int joint = Rig.Skeleton.IndexOf(name);
+        if (joint < 0)
+        {
+            throw new ArgumentException($"The rig has no joint called {name}. It has: {string.Join(", ", Rig.Skeleton.Names)}.", nameof(name));
+        }
+
+        var skeleton = Rig.Skeleton;
+        if (!_jointsFresh || _joints is null)
+        {
+            _joints ??= new Matrix4x4[skeleton.Count];
+            _locals ??= new JointPose[skeleton.Count];
+            _scratch ??= new JointPose[skeleton.Count];
+            var locals = _locals;
+            Pose.Evaluate(0f, locals, _scratch);
+            for (int i = 0; i < skeleton.Count; i++)
+            {
+                _joints[i] = skeleton.Parents[i] >= 0 ? locals[i].Matrix * _joints[skeleton.Parents[i]] : locals[i].Matrix;
+            }
+
+            _jointsFresh = true;
+        }
+
+        return _joints[joint] * skeleton.RootTransform;
     }
 
     /// <summary>How far through the state's cycle, from 0 to 1.</summary>
@@ -179,6 +225,7 @@ public sealed class Animator
             throw new ArgumentOutOfRangeException(nameof(seconds), seconds, "Time can't go backwards.");
         }
 
+        RootMotion = Rig.RootJoint >= 0 ? TravelOver(seconds) : Vector3.Zero;
         seconds *= _speed;
 
         _phase = AdvancePhase(_controller.GetState(_state), _parameter, _phase, seconds);
@@ -212,6 +259,47 @@ public sealed class Animator
         Rebuild();
     }
 
+    /// <summary>
+    /// How far the pose's layers carry the character over this much time, mixed as the
+    /// layers mix the root joint: each later layer takes its share from those before.
+    /// </summary>
+    private Vector3 TravelOver(float seconds)
+    {
+        var travel = Vector3.Zero;
+        float left = 1f;
+        var layers = Pose.Layers;
+        for (int i = layers.Length - 1; i >= 0 && left > 0f; i--)
+        {
+            var layer = layers[i];
+            float share = Math.Clamp(layer.Amount * (layer.Mask?.Weights[Rig.RootJoint] ?? 1f), 0f, 1f);
+            if (share <= 0f)
+            {
+                continue;
+            }
+
+            travel += left * share * LayerTravel(layer, seconds);
+            left *= 1f - share;
+        }
+
+        return travel;
+    }
+
+    private Vector3 LayerTravel(in PoseLayer layer, float seconds)
+    {
+        float duration = Rig.Clips[layer.Clip].Duration;
+        float from = layer.Time;
+        float to = from + seconds * layer.Speed;
+        if (!layer.Loops || duration <= 0f)
+        {
+            return Rig.Travel(layer.Clip, to) - Rig.Travel(layer.Clip, from);
+        }
+
+        // A loop carries on from where its last cycle ended, so each wrap adds a whole cycle.
+        float cycles = MathF.Floor(to / duration);
+        var lap = Rig.Travel(layer.Clip, duration);
+        return Rig.Travel(layer.Clip, to - cycles * duration) + cycles * lap - Rig.Travel(layer.Clip, from);
+    }
+
     private float AdvancePhase(StateDefinition state, float parameter, float phase, float seconds)
     {
         float duration = CycleSeconds(state, parameter);
@@ -233,6 +321,7 @@ public sealed class Animator
 
     private void Rebuild()
     {
+        _jointsFresh = false;
         Pose.Clear();
         if (_fading)
         {

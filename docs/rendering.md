@@ -52,6 +52,32 @@ view.Finish(new PostSettings
 
 Leaving a value at zero leaves that part unchanged.
 
+## The sky
+
+Without a sky the world sits in a plain grey studio. `view.Sky` gives it a gradient from
+the ground up through the horizon to straight up, which shows behind everything, lights
+the scene from all around and shows in reflections:
+
+```csharp
+view.Sky(new SkySettings
+{
+    Zenith = new Vector3(0.18f, 0.36f, 0.85f),   // straight up
+    Horizon = new Vector3(1f, 0.62f, 0.32f),
+    Ground = new Vector3(0.22f, 0.2f, 0.13f),    // below the horizon
+    Brightness = 0.9f,                           // 0 counts as 1
+    HazeStart = 25f,                             // metres
+    HazeEnd = 110f,
+});
+```
+
+Haze fades things into the sky behind them, from nothing at `HazeStart` to all sky at
+`HazeEnd`, so the far edge of a world melts away instead of stopping. Leave both at
+zero for no haze. A negative brightness, or haze that ends nearer than it starts, throws.
+
+Changing the colours rebuilds the sky's lighting, which takes a moment, so keep them
+steady rather than animating them every frame. [Water](#water), when set, takes over the
+sky. The [Archer example](../examples/Archer) uses a golden-hour sky.
+
 ## Water
 
 `view.Water` puts the camera underwater, with light absorbed by depth, moving caustics on
@@ -117,6 +143,24 @@ giving you solid cards.
 as one rounded shape instead of speckled cards, lets sunlight through the back of the
 leaves, and draws both sides. Every material the rule matches counts as one crown, so
 give the trunk its own material. Re-import a model to get it.
+
+Textures are looked for beside the source file, then in any folder under it, as
+Poly Haven's downloads keep them in `textures`. Some plants ship their leaf cut-outs
+as a separate grey image beside a colour JPEG with no alpha; name it with `alpha`, and
+its red becomes the colour texture's opacity:
+
+```json
+{
+  "node": "fern_02_a",
+  "materials": [
+    { "match": "fern_02", "alpha": "fern_02_alpha_1k.png", "alphaCutoff": 0.5, "foliage": true }
+  ]
+}
+```
+
+`node` keeps only what's under the nodes whose name contains it, for files that hold
+several variants side by side, as Poly Haven's plant sets do. The import fails if no
+node with meshes matches. It's not for rigged models.
 
 Other options are the `baseColor`, `normal`, `surface` and `emissive` textures,
 `color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `twoSided`, `transparent`,
