@@ -1,5 +1,11 @@
 # Super
 
+**Your game, in plain C#.**
+
+[![The Reef example: schools of fish over a coral reef](docs/media/reef.webp)](docs/media/reef.mp4)
+
+<sub>The [Reef](examples/Reef) example: 6,240 schooling fish. Click for the full 20-second video.</sub>
+
 A modern C# game engine you use as a library, with a 3D renderer built in. Super is
 made so a coding agent can build, run, test and see a game with no editor and no
 person at the mouse.
