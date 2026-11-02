@@ -2,6 +2,13 @@
 
 - Always use bracers for control statements like if and while.
 
+## Keeping docs current
+
+Update the docs in `docs/` in the same change as the code, as you go, not at the end.
+A new option, changed behaviour or new limit goes in the user guide (such as
+`rendering.md` or `views.md`), and engine internals go in `design.md`. Before
+committing, search `docs/` for the names you touched so no old description is left.
+
 ## Seeing the game
 
 To see a game, use `--screenshot` or `--record` from `docs/command-line.md`, or `GameCapture`
