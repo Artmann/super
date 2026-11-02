@@ -40,7 +40,7 @@ in parallel, because Super keeps no global state, so this fits in a pull request
 | `run.Invariant(name, game => ...)` | A rule checked after every tick |
 | `run.Input` | Plays keys, mouse, gamepad and actions |
 | `run.Drawn` | The models the last `Draw` described, with their keys and transforms |
-| `run.ShownText` | Every piece of text the interface showed, with where it landed |
+| `run.ShownText` | Every piece of text the interface showed, with where it landed. Text cut by a [line limit](interfaces.md#text-that-doesnt-fit) ends in "…" |
 | `run.FrameOf(id)` | Where the view given `.Id(id)` was laid out, so a test can [find it](#finding-a-view) |
 | `run.Play(script)` | Plays an [`InputScript`](command-line.md#scripted-input), such as one of the game's own, from the next tick |
 | `run.ScreenSize` | The size the interface was laid out for |

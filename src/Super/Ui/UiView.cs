@@ -160,7 +160,8 @@ internal readonly record struct Edges(float Top, float Trailing, float Bottom, f
 internal readonly record struct Proposal(float? Width, float? Height);
 
 /// <summary>How text looks. It flows down the tree, so a style set on a stack reaches all the text inside.</summary>
-internal readonly record struct TextStyle(float Size, bool Bold, Color Color, bool MonospacedDigits)
+/// <summary>How text looks. A line limit of null lets text wrap onto as many lines as it needs.</summary>
+internal readonly record struct TextStyle(float Size, bool Bold, Color Color, bool MonospacedDigits, int? LineLimit = null)
 {
     public static TextStyle Default { get; } = new(14f, false, Color.White, false);
 }

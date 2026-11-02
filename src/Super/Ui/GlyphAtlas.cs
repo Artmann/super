@@ -17,6 +17,7 @@ internal sealed class GlyphAtlas
     private const int Padding = 1;
     private const int SolidBlock = 4;
     private const float WidthTolerance = 0.01f;
+    private const char Ellipsis = '…';
 
     private readonly StbTrueType.stbtt_fontinfo _regular = LoadFont("Inter-Regular.ttf");
     private readonly StbTrueType.stbtt_fontinfo _bold = LoadFont("Inter-Bold.ttf");
@@ -61,6 +62,22 @@ internal sealed class GlyphAtlas
         return new UiSize(width, _lines.Count * face.LineHeight);
     }
 
+    /// <summary>
+    /// The text as it shows at this width: all of it, or, when a line limit cut it, the
+    /// part that shows followed by an ellipsis.
+    /// </summary>
+    public string Shown(string text, in TextStyle style, float width)
+    {
+        if (style.LineLimit is null)
+        {
+            return text;
+        }
+
+        Wrap(text, FaceFor(style), style, width);
+        var last = _lines[^1];
+        return last.Cut ? string.Concat(text.AsSpan(0, last.End), Ellipsis.ToString()) : text;
+    }
+
     public void Draw(UiTree tree, string text, in TextStyle style, UiRect frame)
     {
         var face = FaceFor(style);
@@ -84,6 +101,16 @@ internal sealed class GlyphAtlas
 
                 pen += advance;
                 previous = character;
+            }
+
+            if (line.Cut)
+            {
+                var glyph = GlyphFor(face, Ellipsis);
+                if (glyph.Width > 0)
+                {
+                    var box = new UiRect(MathF.Round(pen) + glyph.OffsetX, baseline + glyph.OffsetY, glyph.Width, glyph.Height);
+                    tree.AddQuad(box, glyph.UvMin, glyph.UvMax, style.Color);
+                }
             }
 
             baseline += face.LineHeight;
@@ -158,6 +185,67 @@ internal sealed class GlyphAtlas
         }
 
         _lines.Add(new Line(start, text.Length, width));
+        if (style.LineLimit is { } most)
+        {
+            Cut(text, face, style, most, limit);
+        }
+    }
+
+    /// <summary>
+    /// Keeps the first lines, and cuts the last one kept where the text and an ellipsis
+    /// still fit, when lines were left out or one word is too long for it.
+    /// </summary>
+    private void Cut(string text, Face face, in TextStyle style, int most, float limit)
+    {
+        bool leftOut = _lines.Count > most;
+        var last = _lines[Math.Min(most, _lines.Count) - 1];
+        if (!leftOut && last.Width <= limit)
+        {
+            return;
+        }
+
+        if (leftOut)
+        {
+            _lines.RemoveRange(most, _lines.Count - most);
+        }
+
+        float ellipsis = GlyphFor(face, Ellipsis).Advance;
+        float room = limit - ellipsis;
+        int end = last.Start;
+        float width = 0f;
+        char previous = '\0';
+        while (end < text.Length && text[end] != '\n')
+        {
+            float advance = Advance(face, style, previous, text[end]);
+            if (width + advance > room)
+            {
+                break;
+            }
+
+            width += advance;
+            previous = text[end];
+            end++;
+        }
+
+        while (end > last.Start && text[end - 1] == ' ')
+        {
+            end--;
+        }
+
+        _lines[^1] = new Line(last.Start, end, Width(text, face, style, last.Start, end) + ellipsis, Cut: true);
+    }
+
+    private float Width(string text, Face face, in TextStyle style, int start, int end)
+    {
+        float width = 0f;
+        char previous = '\0';
+        for (int i = start; i < end; i++)
+        {
+            width += Advance(face, style, previous, text[i]);
+            previous = text[i];
+        }
+
+        return width;
     }
 
     private Face FaceFor(in TextStyle style)
@@ -268,7 +356,8 @@ internal sealed class GlyphAtlas
         Pixels[index + 3] = alpha;
     }
 
-    private readonly record struct Line(int Start, int End, float Width);
+    /// <summary>A line of text from Start up to End. A cut line ends in an ellipsis, counted in its width.</summary>
+    private readonly record struct Line(int Start, int End, float Width, bool Cut = false);
 
     private readonly record struct Glyph(Vector2 UvMin, Vector2 UvMax, int Width, int Height, int OffsetX, int OffsetY, float Advance);
 

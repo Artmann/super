@@ -52,7 +52,7 @@ Interface code runs on the CPU only. Layout and text are real in headless runs, 
 
 | View | What it does |
 | --- | --- |
-| `Text("Hello")` | Text. It wraps at spaces when it's offered too little width |
+| `Text("Hello")` | Text. It wraps at spaces when it's offered too little width. See [Text that doesn't fit](#text-that-doesnt-fit) |
 | `VStack`, `HStack` | Children top to bottom, or left to right |
 | `ZStack` | Children on top of each other, the last one in front |
 | `Spacer()` | Pushes its neighbors apart along the stack |
@@ -79,6 +79,7 @@ Modifiers wrap a view, so their order usually matters.
 | `.Opacity(value)` | Fades the view and everything inside it |
 | `.Foreground(color)`, `.FontSize(pixels)`, `.Bold()` | Styles text here and everywhere inside |
 | `.MonospacedDigit()` | Gives digits one width, so changing numbers don't jiggle |
+| `.LineLimit(lines)` | Keeps text here and everywhere inside to that many lines, ending cut text in "…" |
 | `.Id(key)` | Names a view among its siblings, and lets a test or script [find it on screen](testing.md#finding-a-view) |
 | `.OnClick(action)` | Runs on a left click |
 | `.Tooltip(view)` | Shows a view near the cursor after a short hover |
@@ -133,6 +134,30 @@ last. To make something grow like `flex-grow`, give it
 `.Frame(maxWidth: UiExtensions.Infinity)`. To pin something to a corner, wrap it in a
 frame that fills the screen, as `MyColony` does above. The top of the tree is centered
 otherwise.
+
+### Text that doesn't fit
+
+A stack offers each piece of text the width it would like when there's room. When
+there isn't, text wraps at its spaces and gets taller, and a short label such as
+"Thatch 8" can end up split from its number, spilling out of a card with a fixed height.
+Wrapping is the default because paragraphs need it. For labels, choose what happens
+instead:
+
+| Write | What happens when it doesn't fit |
+| --- | --- |
+| nothing | Wraps onto more lines, and grows taller than it was offered |
+| `.LineLimit(1)` | Stays on one line inside its frame, cut with "…" at the end |
+| `.LineLimit(n)` | Wraps onto at most `n` lines, the last cut with "…" |
+| `.FixedSize()` | Stays whole on one line and spills past its frame, overlapping its neighbours |
+
+`.LineLimit` reaches every text inside it, so one on a row covers all its labels:
+
+```csharp
+new HStack { new Text("Wood 16"), new Text("Stone 6"), new Text("Thatch 8") }.LineLimit(1)
+```
+
+`run.ShownText` reports cut text as it shows, such as `"Thatc…"`, so a test sees the
+cut too. Only cut text is reported differently; text that wraps is reported whole.
 
 ## State
 

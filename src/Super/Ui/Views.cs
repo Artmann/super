@@ -2,7 +2,10 @@ using System.Collections;
 
 namespace Super.Ui;
 
-/// <summary>A line or paragraph of text. It wraps at spaces when it's offered too little width.</summary>
+/// <summary>
+/// A line or paragraph of text. It wraps at spaces when it's offered too little width, unless
+/// a <see cref="UiExtensions.LineLimit"/> cuts it short with an ellipsis.
+/// </summary>
 public sealed record Text(string Content) : PrimitiveView
 {
     internal override IReadOnlyList<UiView?> Children => [];
@@ -16,7 +19,7 @@ public sealed record Text(string Content) : PrimitiveView
 
     internal override void Emit(UiNode node, UiTree tree)
     {
-        tree.AddText(Content, node.Frame);
+        tree.AddText(tree.Atlas.Shown(Content, node.Style, node.Frame.Width), node.Frame);
         tree.Atlas.Draw(tree, Content, node.Style, node.Frame);
     }
 }
@@ -384,9 +387,10 @@ internal sealed record BoxModifier(UiView Child) : Modifier(Child)
     }
 }
 
-internal sealed record StyleModifier(UiView Child, float? Size = null, bool? Bold = null, Color? Color = null, bool? MonospacedDigits = null)
+internal sealed record StyleModifier(
+    UiView Child, float? Size = null, bool? Bold = null, Color? Color = null, bool? MonospacedDigits = null, int? LineLimit = null)
     : Modifier(Child)
 {
     internal override TextStyle Inherit(TextStyle style) => new(
-        Size ?? style.Size, Bold ?? style.Bold, Color ?? style.Color, MonospacedDigits ?? style.MonospacedDigits);
+        Size ?? style.Size, Bold ?? style.Bold, Color ?? style.Color, MonospacedDigits ?? style.MonospacedDigits, LineLimit ?? style.LineLimit);
 }
