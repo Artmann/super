@@ -20,7 +20,7 @@ dotnet run -c Release --project MyColony -- --script tooltip --ticks 40 --screen
 | `--size WxH` | The picture size, such as `1920x1080`. The game's window size by default |
 | `--profile file.txt` | Measures where the time goes. See [Profiling](profiling.md) |
 | `--frames N` | How many frames `--profile` measures, 60 by default |
-| `--script name` | Plays one of the game's [input scripts](#scripted-mouse-input) |
+| `--script name` | Plays one of the game's [input scripts](#scripted-input) |
 | `--no-vsync` | Plays in the window without waiting for the display |
 
 `--screenshot`, `--record` and `--profile` can't run together. A mistake in the options
@@ -42,29 +42,40 @@ take you back to that tick.
 [ffmpeg](https://ffmpeg.org) on the PATH (`winget install Gyan.FFmpeg`). A video runs as
 fast as the machine can make it, and the same seed gives the same frames.
 
-## Scripted mouse input
+## Scripted input
 
-`--script` plays a named list of mouse moves, clicks and drags, so a screenshot can show
-a tooltip, a hover or a drag in progress. A game lists its scripts in `IGame.Scripts`:
+`--script` plays a named list of key presses, mouse moves, clicks and drags, so a
+screenshot can show a tooltip, a hover or a drag in progress. A game lists its scripts
+in `IGame.Scripts`:
 
 ```csharp
 public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
 {
     ["tooltip"] = new InputScript().MoveMouse(SlotCenter(2)).Wait(30),
     ["drag"] = new InputScript().Drag(SlotCenter(0), SlotCenter(5)),
-    ["craft"] = new InputScript().Click(CraftButton).Wait(5),
+    ["craft"] = new InputScript().Click("craft").Wait(5),
+    ["build"] = new InputScript().Press(Key.B).Click("build.Cabin").Wait(5),
 };
 ```
 
 | Step | What it does |
 | --- | --- |
 | `MoveMouse(position)` | Moves the cursor, in interface pixels |
+| `MoveMouse(id)` | Moves the cursor to the middle of the view given `.Id(id)` |
 | `Click(position)` | Moves there and clicks the left button |
+| `Click(id)` | Clicks the middle of the view given `.Id(id)` |
 | `Hold(button)`, `Release(button)` | Presses or lets go of a mouse button |
+| `Press(key)` | Taps a key: down on one tick and up on the next. It takes a tick |
+| `Hold(key)`, `Release(key)` | Holds a key down, or lets it go |
 | `Drag(from, to)` | Presses at one place, moves and lets go at the other |
 | `Scroll(notches)` | Turns the wheel |
 | `LeaveWindow()` | Moves the cursor out of the window |
 | `Wait(ticks)` | Waits before the next step |
+
+An id is looked up when its step plays, in the layout last drawn, so a script needs no
+pixel positions and keeps working when the layout changes. An id no view has stops the
+run and lists the ids that are on screen. A test plays the same scripts with
+[`run.Play(script)`](testing.md#what-a-run-gives-you), counting from the next tick.
 
 Set `--ticks` past the end of the script. While a script plays, the window ignores real
 input. Asking for a name the game doesn't have lists the ones it does. The

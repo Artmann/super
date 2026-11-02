@@ -60,7 +60,7 @@ A game implements `IGame`, which has five members. Only `Update` and `Draw` are 
 | `Update(GameTime)` | A fixed number of times per second, 30 by default | Change game state. The only place input can be read |
 | `Draw(View)` | Once per displayed frame | Describe the 3D world. It only reads state |
 | `Ui` | Once per displayed frame | Describe the [interface](interfaces.md) on top. It only reads state |
-| `Scripts` | Once, after `Load` | Named mouse scripts for [`--script`](command-line.md#scripted-mouse-input) |
+| `Scripts` | Once, after `Load` | Named input scripts for [`--script`](command-line.md#scripted-input) |
 
 Keeping `Update` and `Draw` apart is the most important idea in Super. `Update` is the
 game. `Draw` only looks at it, so the game can run with no screen at all, and the

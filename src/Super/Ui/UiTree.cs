@@ -56,6 +56,65 @@ public sealed class UiTree
         }
     }
 
+    /// <summary>
+    /// Where the view given this id with <see cref="UiExtensions.Id"/> was laid out last,
+    /// in interface pixels. A box's margin isn't part of it, so this is the area that
+    /// shows and takes clicks. It throws if no view or more than one has the id.
+    /// </summary>
+    public UiRect FrameOf(object id)
+    {
+        var found = new List<UiNode>();
+        var ids = new List<object>();
+        if (_root is not null)
+        {
+            Collect(_root, id, found, ids);
+        }
+
+        return found.Count switch
+        {
+            1 => ShownFrame(found[0]),
+            0 => throw new InvalidOperationException(ids.Count == 0
+                ? $"No view on screen has the id '{id}', and none has an id."
+                : $"No view on screen has the id '{id}'. These ids are: {string.Join(", ", ids)}."),
+            _ => throw new InvalidOperationException($"{found.Count} views on screen have the id '{id}', so it doesn't say which one."),
+        };
+    }
+
+    private static void Collect(UiNode node, object id, List<UiNode> found, List<object> ids)
+    {
+        if (node.View.Identity is { } identity)
+        {
+            if (Equals(identity, id))
+            {
+                found.Add(node);
+            }
+
+            if (!ids.Contains(identity))
+            {
+                ids.Add(identity);
+            }
+        }
+
+        foreach (var child in node.Children)
+        {
+            if (child is not null)
+            {
+                Collect(child, id, found, ids);
+            }
+        }
+    }
+
+    /// <summary>A component is where its body is, and a box is where it shows, inside its margin.</summary>
+    private static UiRect ShownFrame(UiNode node)
+    {
+        while (node.View is not PrimitiveView)
+        {
+            node = node.Children[0]!;
+        }
+
+        return ((PrimitiveView)node.View).HitArea(node);
+    }
+
     /// <summary>What the mouse touches at this point, in the layout last shown.</summary>
     internal UiNode? Hit(float x, float y) => _root?.Hit(x, y);
 

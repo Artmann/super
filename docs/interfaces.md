@@ -79,7 +79,7 @@ Modifiers wrap a view, so their order usually matters.
 | `.Opacity(value)` | Fades the view and everything inside it |
 | `.Foreground(color)`, `.FontSize(pixels)`, `.Bold()` | Styles text here and everywhere inside |
 | `.MonospacedDigit()` | Gives digits one width, so changing numbers don't jiggle |
-| `.Id(key)` | Names a view among its siblings |
+| `.Id(key)` | Names a view among its siblings, and lets a test or script [find it on screen](testing.md#finding-a-view) |
 | `.OnClick(action)` | Runs on a left click |
 | `.Tooltip(view)` | Shows a view near the cursor after a short hover |
 | `.Draggable(payload, preview)`, `.DropTarget<T>(onDrop, canDrop)` | Lets the mouse carry a value from one view to another |

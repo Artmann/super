@@ -32,7 +32,7 @@ dotnet run -c Release --project MyGame -- --seed 7 --ticks 300 --record shots/af
 
 The same seed and ticks give the same picture, so a before and after compare like for
 like. To see hover states, tooltips or a drag in progress, play an
-[input script](command-line.md#scripted-mouse-input) first:
+[input script](command-line.md#scripted-input) first:
 
 ```
 dotnet run -c Release --project MyGame -- --script tooltip --ticks 40 --screenshot shots/tooltip.png

@@ -18,8 +18,12 @@ public sealed class PointerGame : IGame
 
     public PointerGame(Input input) => Input = input;
 
+    /// <summary>How many times Update has run.</summary>
+    public long Ticks { get; private set; }
+
     public void Update(GameTime time)
     {
+        Ticks++;
         if (Watch?.Invoke(Input) == true)
         {
             Reads++;

@@ -1,4 +1,5 @@
 using System.Numerics;
+using Super.Ui;
 
 namespace Super.Testing;
 
@@ -12,14 +13,16 @@ public sealed class ScriptedInput
 {
     private readonly Input _input;
     private readonly Func<Type, object> _resolve;
+    private readonly UiTree _ui;
     private readonly InputScript _tape = new();
     private readonly float[] _axes = NewAxes();
     private readonly bool[] _buttons = new bool[Input.GamepadButtonCount];
 
-    internal ScriptedInput(Input input, Func<Type, object> resolve)
+    internal ScriptedInput(Input input, Func<Type, object> resolve, UiTree ui)
     {
         _input = input;
         _resolve = resolve;
+        _ui = ui;
     }
 
     /// <summary>Sticks centred and triggers released, which a pad reports as -1.</summary>
@@ -88,6 +91,16 @@ public sealed class ScriptedInput
         Press(button);
     }
 
+    /// <summary>
+    /// Moves the cursor to the middle of the view given this id with <see cref="UiExtensions.Id"/>,
+    /// and clicks the left button. The view is looked up on the next tick, in the layout last shown.
+    /// </summary>
+    public void Click(object id)
+    {
+        Queue((input, ui) => input.MouseMoved(InputScript.Middle(ui.FrameOf(id))));
+        Press(MouseButton.Left);
+    }
+
     public void Scroll(float notches) => Queue(input => input.Scrolled(notches));
 
     public void Type(string text) => Queue(input =>
@@ -147,9 +160,11 @@ public sealed class ScriptedInput
     }
 
     /// <summary>Feeds everything due on this tick into the game's input, just before the tick rolls.</summary>
-    internal void Play(long tick) => _tape.Play(tick, _input);
+    internal void Play(long tick) => _tape.Play(tick, _input, _ui);
 
     private void Queue(Action<Input> apply, long ticksFromNow = 0) => _tape.Then(apply, ticksFromNow);
+
+    private void Queue(Action<Input, UiTree> apply) => _tape.Then(apply);
 
     private Actions<TControl> Actions<TControl>()
         where TControl : struct, Enum =>

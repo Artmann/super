@@ -24,7 +24,7 @@ public sealed class HeadlessRun<TGame> : IDisposable
     internal HeadlessRun(int seed, Action<IServiceCollection>? services)
     {
         _host = new GameHost<TGame>(seed, DefaultTicksPerSecond, services);
-        Input = new ScriptedInput(_host.Input, _host.GetService);
+        Input = new ScriptedInput(_host.Input, _host.GetService, _host.Ui);
 
         // So there is something to look at before the first tick, as there is in the window.
         _host.Draw(1f);
@@ -64,6 +64,18 @@ public sealed class HeadlessRun<TGame> : IDisposable
 
     /// <summary>The text the interface showed in the last Draw, with where it landed.</summary>
     public IReadOnlyList<ShownText> ShownText => _host.Ui.ShownText;
+
+    /// <summary>
+    /// Where the view given this id with <see cref="UiExtensions.Id"/> was laid out in the
+    /// last Draw, without its margin. It throws if no view or more than one has the id.
+    /// </summary>
+    public UiRect FrameOf(object id) => _host.Ui.FrameOf(id);
+
+    /// <summary>
+    /// Plays a script, such as one from the game's <see cref="IGame.Scripts"/>, as
+    /// <c>--script</c> does, starting on the next tick. It replaces any script still playing.
+    /// </summary>
+    public void Play(InputScript script) => _host.Script = script;
 
     /// <summary>Adds a rule that's checked after every tick, so a problem is caught when it happens.</summary>
     public void Invariant(string name, Func<TGame, bool> holds) => _invariants.Add((name, holds));

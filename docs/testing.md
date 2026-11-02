@@ -41,6 +41,8 @@ in parallel, because Super keeps no global state, so this fits in a pull request
 | `run.Input` | Plays keys, mouse, gamepad and actions |
 | `run.Drawn` | The models the last `Draw` described, with their keys and transforms |
 | `run.ShownText` | Every piece of text the interface showed, with where it landed |
+| `run.FrameOf(id)` | Where the view given `.Id(id)` was laid out, so a test can [find it](#finding-a-view) |
+| `run.Play(script)` | Plays an [`InputScript`](command-line.md#scripted-input), such as one of the game's own, from the next tick |
 | `run.ScreenSize` | The size the interface was laid out for |
 | `run.States<T>()` | The [game states](states.md), to read or jump to |
 | `run.HoldLoading()`, `run.FinishLoading()` | Holds a [loading screen](states.md#loading-screens) open |
@@ -96,6 +98,7 @@ run.Input.Press(Key.Space);                              // tap a key
 run.Input.Hold(Key.W);                                   // keep it down
 run.Input.Release(Key.W);
 run.Input.Click(MouseButton.Left, at: new Vector2(640, 360));
+run.Input.Click("build.Cabin");                          // the view given .Id("build.Cabin")
 run.Input.Scroll(-2f);
 run.Input.Stick(GamepadStick.Left, new Vector2(0f, 1f));
 run.Input.Type("hello");
@@ -116,6 +119,27 @@ run.Ticks(1);
 var title = Assert.Single(run.ShownText, shown => shown.Text == "Rooms");
 Assert.True(title.Frame.Width < run.ScreenSize.X);
 ```
+
+### Finding a view
+
+Give a view an id with `.Id(...)` and a test finds it on screen without redoing the
+layout by hand:
+
+```csharp
+// In the game's Ui.
+new BuildCard(kind).OnClick(() => Pick(kind)).Id($"build.{kind}")
+
+// In a test.
+run.Ticks(1);
+var card = run.FrameOf("build.Cabin");
+run.Input.Click("build.Cabin");                          // clicks the middle of it
+```
+
+`FrameOf` gives the area the view shows and takes clicks in, without a box's margin.
+It's the layout from the last `Draw`, and the id is looked up when the click plays, so
+the view can move after the test asks for the click. An id no view has, or one that two
+views share, throws and says which ids are on screen. The same `.Id` also keeps a view's
+state when its siblings move, so give each one a different id among its siblings.
 
 To check the 3D world, look through `run.Drawn`:
 
