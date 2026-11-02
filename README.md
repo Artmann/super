@@ -1,4 +1,4 @@
-# Super
+# Supercharge Your Game
 
 **Your game, in plain C#.**
 
