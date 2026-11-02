@@ -11,12 +11,14 @@ internal sealed class SceneRenderer : IDisposable
 {
     private const int MaxLights = 8;
     private const float DefaultRoughness = 0.4f;
+
+    /// <summary>The cube's color when a draw doesn't give one.</summary>
+    private static readonly Vector3 CubeColor = new(0.7f);
     private const string CookedFolder = "assets/cooked";
 
     private readonly Renderer _renderer;
     private readonly MaterialHandle _defaultMaterial;
     private readonly DirectionalLight[] _lights = new DirectionalLight[MaxLights];
-    private readonly Dictionary<int, ColoredMaterial> _coloredMaterials = [];
 
     /// <summary>Everything the content named, by the index its ref carries.</summary>
     private readonly ContentLoader<Loaded> _items;
@@ -32,7 +34,8 @@ internal sealed class SceneRenderer : IDisposable
     public SceneRenderer(RendererOptions options)
     {
         _renderer = new Renderer(options);
-        _defaultMaterial = _renderer.CreateMaterial(CreateMaterial(new Vector3(0.7f)));
+        // White, so a draw's color comes out exactly as asked. CubeColor greys the rest.
+        _defaultMaterial = _renderer.CreateMaterial(CreateMaterial(Vector3.One));
         _items = new ContentLoader<Loaded>(
             new LoadedModel([_renderer.CreateDrawItem(Cube.Vertices, Cube.Indices, _defaultMaterial)], null, null),
             PrepareItem,
@@ -315,34 +318,11 @@ internal sealed class SceneRenderer : IDisposable
                 item = part;
                 item.Transform = draw.Transform;
                 item.Swim = draw.Swim;
-                if (draw.Color is { } color)
-                {
-                    item.Material = MaterialFor(draw.Key, color);
-                }
+                item.Tint = draw.Color ?? (draw.Model.Index == ModelRef.Cube.Index ? CubeColor : null);
             }
         }
 
         return count;
-    }
-
-    /// <summary>
-    /// Each key that asks for a color gets one material and recolors it in place. The
-    /// renderer has a fixed number of materials, so one per color would run out.
-    /// </summary>
-    private MaterialHandle MaterialFor(int key, Vector3 color)
-    {
-        if (!_coloredMaterials.TryGetValue(key, out var colored))
-        {
-            colored = new ColoredMaterial(_renderer.CreateMaterial(CreateMaterial(color)), color);
-            _coloredMaterials.Add(key, colored);
-        }
-        else if (colored.Color != color)
-        {
-            _renderer.UpdateMaterial(colored.Handle, CreateMaterial(color));
-            _coloredMaterials[key] = colored with { Color = color };
-        }
-
-        return colored.Handle;
     }
 
     private FrameView CreateFrame(View view, int width, int height, float time)
@@ -384,8 +364,6 @@ internal sealed class SceneRenderer : IDisposable
             Overlay = view.Ui is { } ui ? ui.Quads : [],
         };
     }
-
-    private readonly record struct ColoredMaterial(MaterialHandle Handle, Vector3 Color);
 
     private sealed record PreparedMesh(GeneratedMesh Mesh, TextureData? OwnedTexture);
 

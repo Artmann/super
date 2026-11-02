@@ -39,6 +39,12 @@ internal sealed unsafe class ResourceTable : IDisposable
         public Rendition.ShaderParameters ShaderParameters;
         public TextureSlots ShaderTextures;
         public TextureSlots ShaderArrays;
+        public uint Flags;
+
+        // std430 rounds the struct up to its vec4 alignment.
+        private readonly int _padding0;
+        private readonly int _padding1;
+        private readonly int _padding2;
     }
 
     private readonly VulkanContext _context;
@@ -374,6 +380,7 @@ internal sealed unsafe class ResourceTable : IDisposable
             Clearcoat = material.Clearcoat,
             Emissive = new Vector4(material.Emissive, 0f),
             ShaderParameters = material.ShaderParameters,
+            Flags = (uint)material.Flags,
         };
         for (int i = 0; i < ShaderTextures.Length; i++)
         {

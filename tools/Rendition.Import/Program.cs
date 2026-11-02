@@ -26,6 +26,10 @@ var vertices = new List<Vertex>();
 var indices = new List<uint>();
 var parts = new List<ModelPart>();
 var materials = new List<ModelMaterial>();
+var materialNames = new List<string>();
+
+// Each mesh's material and the run of vertices it added.
+var meshVertices = new List<(int Material, int First, int Count)>();
 
 unsafe
 {
@@ -56,12 +60,14 @@ unsafe
 
     for (uint i = 0; i < scene->MNumMaterials; i++)
     {
-        materials.Add(ImportMaterial(assimp, scene->MMaterials[i], settings, textures, isGltf));
+        materials.Add(ImportMaterial(assimp, scene->MMaterials[i], settings, textures, isGltf, out string materialName));
+        materialNames.Add(materialName);
     }
 
     for (uint m = 0; m < scene->MNumMeshes; m++)
     {
         var mesh = scene->MMeshes[m];
+        meshVertices.Add(((int)mesh->MMaterialIndex, vertices.Count, (int)mesh->MNumVertices));
         if (mesh->MTextureCoords[0] == null || mesh->MNormals == null || mesh->MTangents == null)
         {
             Console.WriteLine($"  note: mesh {m} ({mesh->MName.AsString}) has no UVs; using a flat tangent frame");
@@ -110,21 +116,61 @@ unsafe
 var vertexArray = vertices.ToArray();
 Rotate(vertexArray, settings.RotateY);
 Normalize(vertexArray, settings.TargetLength);
+for (int i = 0; i < materials.Count; i++)
+{
+    if ((materials[i].Flags & MaterialFlags.Foliage) != 0)
+    {
+        PointOutOfCrown(vertexArray, meshVertices.Where(mesh => mesh.Material == i));
+    }
+}
 
-new ModelData
+var model = new ModelData
 {
     Vertices = vertexArray,
     Indices = indices.ToArray(),
     Parts = parts.ToArray(),
     Materials = materials.ToArray(),
     Textures = textures.ToArray(),
-}.Write(args[2]);
+};
+
+// A cutoff that can't cut renders fine but wrong, so it stops the import. Materials no
+// part uses are never drawn, so they can't be wrong.
+var problems = parts.Select(part => part.Material).Distinct().Order()
+    .Select(i => (Name: materialNames[i], Problem: model.CutoutProblem(i)))
+    .Where(entry => entry.Problem is not null)
+    .ToList();
+foreach (var (materialName, problem) in problems)
+{
+    Console.Error.WriteLine($"error: material {materialName}: {problem}");
+}
+
+if (problems.Count > 0)
+{
+    return 1;
+}
+
+model.Write(args[2]);
 
 Console.WriteLine(
     $"Wrote {args[2]}: {vertices.Count} vertices, {indices.Count / 3} triangles, " +
     $"{parts.Count} parts, {materials.Count} materials, {textures.Count} textures, " +
     $"{new FileInfo(args[2]).Length / (1024 * 1024)} MB");
 return 0;
+
+// Every mesh of one foliage material counts as one crown.
+static void PointOutOfCrown(Vertex[] vertices, IEnumerable<(int Material, int First, int Count)> meshes)
+{
+    var runs = meshes.ToList();
+    var crown = runs.SelectMany(run => vertices.Skip(run.First).Take(run.Count)).ToArray();
+    FoliageNormals.PointOutOfCrown(crown);
+
+    int next = 0;
+    foreach (var run in runs)
+    {
+        crown.AsSpan(next, run.Count).CopyTo(vertices.AsSpan(run.First, run.Count));
+        next += run.Count;
+    }
+}
 
 static void Rotate(Vertex[] vertices, float degrees)
 {
@@ -162,11 +208,12 @@ static void Normalize(Vertex[] vertices, float targetLength)
 }
 
 static unsafe ModelMaterial ImportMaterial(
-    Assimp assimp, Silk.NET.Assimp.Material* source, ImportSettings settings, TextureCooker textures, bool isGltf)
+    Assimp assimp, Silk.NET.Assimp.Material* source, ImportSettings settings, TextureCooker textures, bool isGltf,
+    out string materialName)
 {
     AssimpString name;
     assimp.GetMaterialString(source, Assimp.MaterialNameBase, 0, 0, &name);
-    string materialName = name.AsString;
+    materialName = name.AsString;
 
     string? linkedColor = GetTexture(assimp, source, TextureType.Diffuse) ?? GetTexture(assimp, source, TextureType.BaseColor);
     string? linkedNormal = GetTexture(assimp, source, TextureType.Normals) ?? GetTexture(assimp, source, TextureType.Height);
@@ -178,12 +225,17 @@ static unsafe ModelMaterial ImportMaterial(
     float[]? fileColor = isGltf ? GetFloats(assimp, source, "$clr.base", 4) : null;
     float[]? fileMetallic = isGltf ? GetFloats(assimp, source, "$mat.metallicFactor", 1) : null;
     float[]? fileRoughness = isGltf ? GetFloats(assimp, source, "$mat.roughnessFactor", 1) : null;
+    float? fileCutoff = isGltf ? GetGltfCutoff(assimp, source) : null;
 
-    var rule = settings.Materials.FirstOrDefault(r => materialName.Contains(r.Match, StringComparison.OrdinalIgnoreCase));
+    // Use a local copy, since lambdas can't capture an out parameter.
+    string matchName = materialName;
+    var rule = settings.Materials.FirstOrDefault(r => matchName.Contains(r.Match, StringComparison.OrdinalIgnoreCase));
     Console.WriteLine($"{materialName}: color={linkedColor ?? "-"} normal={linkedNormal ?? "-"} surface={linkedSurface ?? "-"} rule={rule?.Match ?? "(none)"}");
 
     rule ??= new MaterialRule();
-    var flags = (rule.TwoSided ? MaterialFlags.TwoSided : 0) | (rule.Transparent ? MaterialFlags.Transparent : 0);
+    var flags = (rule.TwoSided || rule.Foliage ? MaterialFlags.TwoSided : 0)
+        | (rule.Transparent ? MaterialFlags.Transparent : 0)
+        | (rule.Foliage ? MaterialFlags.Foliage : 0);
     var emissive = rule.EmissiveColor is { Length: 3 } e
         ? new Vector3(e[0], e[1], e[2])
         : rule.Emissive != null ? Vector3.One : Vector3.Zero;
@@ -194,7 +246,7 @@ static unsafe ModelMaterial ImportMaterial(
             : fileColor is { } f ? new Vector4(f[0], f[1], f[2], f[3]) : new Vector4(1f, 1f, 1f, rule.Opacity),
         Metallic = rule.Metallic ?? fileMetallic?[0] ?? 0f,
         Roughness = rule.Roughness ?? fileRoughness?[0] ?? 0.6f,
-        AlphaCutoff = rule.AlphaCutoff,
+        AlphaCutoff = rule.AlphaCutoff ?? fileCutoff ?? 0f,
         BaseColorTexture = textures.Add(rule.BaseColor ?? linkedColor, TextureKind.Color),
         NormalTexture = textures.Add(rule.NoNormalMap ? null : rule.Normal ?? linkedNormal, TextureKind.Linear, isNormalMap: true),
         SurfaceTexture = rule.Surface is not null
@@ -205,6 +257,19 @@ static unsafe ModelMaterial ImportMaterial(
         Clearcoat = rule.Clearcoat,
         Flags = flags,
     };
+}
+
+// glTF's MASK mode cuts out by alpha, at 0.5 unless the file says otherwise.
+static unsafe float? GetGltfCutoff(Assimp assimp, Silk.NET.Assimp.Material* material)
+{
+    AssimpString mode;
+    if (assimp.GetMaterialString(material, "$mat.gltf.alphaMode", 0, 0, &mode) != Return.Success
+        || mode.AsString != "MASK")
+    {
+        return null;
+    }
+
+    return GetFloats(assimp, material, "$mat.gltf.alphaCutoff", 1)?[0] ?? 0.5f;
 }
 
 static unsafe float[]? GetFloats(Assimp assimp, Silk.NET.Assimp.Material* material, string key, uint count)

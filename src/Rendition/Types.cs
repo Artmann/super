@@ -42,6 +42,14 @@ public enum MaterialFlags
 
     /// <summary>Glass and the like: blended over the scene. BaseColor.W sets how much tint it adds.</summary>
     Transparent = 2,
+
+    /// <summary>
+    /// Leaves on a tree's crown. Back faces keep the normal the mesh gives them instead
+    /// of flipping it, and sunlight shines through from behind. Pair it with normals
+    /// that point out of the crown, as <see cref="FoliageNormals"/> makes, so the crown
+    /// is lit as one shape and not as a pile of separate cards.
+    /// </summary>
+    Foliage = 4,
 }
 
 /// <summary>
@@ -54,7 +62,11 @@ public struct Material
     public float Metallic;
     public float Roughness;
 
-    /// <summary>Pixels with opacity below this are cut out. 0 keeps every pixel.</summary>
+    /// <summary>
+    /// Pixels with opacity below this are cut out. 0 keeps every pixel. Opacity is the
+    /// base colour texture's alpha times BaseColor.W times the surface texture's alpha,
+    /// so leaf alpha can live in either texture.
+    /// </summary>
     public float AlphaCutoff;
 
     public TextureHandle? BaseColorTexture;
@@ -122,6 +134,12 @@ public struct DrawItem
     public MaterialHandle Material;
     public Matrix4x4 Transform;
     public SwimMotion Swim;
+
+    /// <summary>
+    /// Multiplies the material's colour for this draw only, so copies of one textured
+    /// model can each have their own hue at no cost. Null leaves the colour alone.
+    /// </summary>
+    public Vector3? Tint;
 
     /// <summary>
     /// Lets the renderer skip this draw when it's out of view, and use a simpler version

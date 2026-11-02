@@ -10,6 +10,7 @@ layout(location = 3) in vec2 inUv;
 // Must match DrawConstants in Passes/SceneDraws.cs.
 layout(push_constant) uniform Draw {
     mat4 model;
+    vec4 tint;
     int material;
     float swimAmplitude;
     float swimBodyLength;

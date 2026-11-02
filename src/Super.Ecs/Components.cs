@@ -4,7 +4,7 @@ namespace Super.Ecs;
 
 /// <summary>
 /// What an entity looks like. With a <see cref="Transform"/>, <see cref="ViewExtensions.Models"/>
-/// draws it, keyed by the entity's ID. A color replaces the model's own.
+/// draws it, keyed by the entity's ID. A color tints the model and keeps its textures.
 /// </summary>
 public record struct Model(ModelRef Value, Vector3? Color = null);
 

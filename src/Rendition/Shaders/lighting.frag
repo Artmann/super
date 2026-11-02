@@ -258,8 +258,11 @@ void main() {
     float roughness = clamp(normalRoughnessAo.z, 0.045, 1.0);
     float screenAo = texture(ambientOcclusionTexture, inUv).r;
     float ao = normalRoughnessAo.w * screenAo;
+    // Alpha holds the clearcoat, or for foliage how much light shines through as a
+    // negative number. writeSurface() in surface.glsl packs it.
     vec4 emissiveClearcoat = texture(emissiveClearcoatTexture, inUv);
-    float clearcoat = emissiveClearcoat.a;
+    float clearcoat = max(emissiveClearcoat.a, 0.0);
+    float translucency = max(-emissiveClearcoat.a, 0.0);
 
     vec4 clip = vec4(inUv * 2.0 - 1.0, depth, 1.0);
     vec4 world = frame.inverseViewProjection * clip;
@@ -290,6 +293,10 @@ void main() {
     reflectedLight = mix(reflectedLight, traced.rgb, traced.a);
     vec3 environmentSpecular = reflectedLight * (f0 * brdf.x + brdf.y);
     vec3 environmentDiffuse = texture(irradianceTexture, n).rgb * baseColor * (1.0 - metallic);
+    if (translucency > 0.0) {
+        environmentDiffuse += texture(irradianceTexture, -n).rgb * baseColor * (1.0 - metallic) * translucency;
+    }
+
     vec3 environmentLight = environmentDiffuse + environmentSpecular;
 
     // The coat reflects first and what it lets through lights the layers below.
@@ -305,8 +312,12 @@ void main() {
 
     for (int i = 0; i < frame.lightCount; i++) {
         vec3 l = frame.lights[i].direction.xyz;
-        float nDotL = max(dot(n, l), 0.0);
-        if (nDotL == 0.0) {
+        float facing = dot(n, l);
+        float nDotL = max(facing, 0.0);
+
+        // Leaves lit from behind glow with their own colour.
+        float transmitted = translucency * max(-facing, 0.0);
+        if (nDotL == 0.0 && transmitted == 0.0) {
             continue;
         }
 
@@ -315,17 +326,20 @@ void main() {
         vec3 specular = distributionGgx(max(dot(n, h), 0.0), alpha) * visibilitySmithGgx(nDotV, nDotL, alpha) * f;
         vec3 diffuse = (1.0 - f) * (1.0 - metallic) * baseColor / PI;
 
-        vec3 lit = diffuse + specular;
+        vec3 lit = (diffuse + specular) * nDotL;
         if (clearcoat > 0.0) {
             vec3 coatF = fresnelSchlick(max(dot(v, h), 0.0), CLEARCOAT_F0) * clearcoat;
             float coatHighlight = distributionGgx(max(dot(n, h), 0.0), coatAlpha) * visibilitySmithGgx(nDotV, nDotL, coatAlpha);
-            lit = lit * (1.0 - coatF) + coatHighlight * coatF;
+            lit = lit * (1.0 - coatF) + coatHighlight * coatF * nDotL;
         }
+        lit += (1.0 - metallic) * baseColor / PI * transmitted;
 
         // A light without a shadow map would shine through everything, so nearby
-        // surfaces are all that can block it.
-        float visibility = frame.lights[i].direction.w > 0.5 ? shadowVisibility(position, n, l) : screenAo;
-        color += lit * sunlightReaching(position, l, i) * nDotL * visibility;
+        // surfaces are all that can block it. Light from behind is looked up from the
+        // side it arrives on.
+        vec3 lightSide = facing >= 0.0 ? n : -n;
+        float visibility = frame.lights[i].direction.w > 0.5 ? shadowVisibility(position, lightSide, l) : screenAo;
+        color += lit * sunlightReaching(position, l, i) * visibility;
     }
 
     if (isUnderwater()) {

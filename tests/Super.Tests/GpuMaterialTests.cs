@@ -1,4 +1,6 @@
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using Rendition.Passes;
 using Rendition.Vulkan;
 
 namespace Super.Tests;
@@ -17,8 +19,26 @@ public class GpuMaterialTests
             + vec4              // emissive
             + 8 * vec4          // shaderParameters[8]
             + 4 * scalar        // shaderTextures[4]
-            + 4 * scalar;       // shaderArrays[4]
+            + 4 * scalar        // shaderArrays[4]
+            + vec4;             // flags, rounded up to the struct's vec4 alignment
 
         Assert.Equal(expected, Unsafe.SizeOf<ResourceTable.GpuMaterial>());
+    }
+
+    [Fact]
+    public void Flags_sit_right_after_the_shader_arrays_as_in_material_glsl()
+    {
+        // 64 bytes of fixed values, 128 of shader parameters, then 16 and 16 of slots.
+        Assert.Equal(224, (int)Marshal.OffsetOf<ResourceTable.GpuMaterial>(nameof(ResourceTable.GpuMaterial.Flags)));
+    }
+
+    [Fact]
+    public void Draw_constants_match_the_draw_block_in_material_glsl()
+    {
+        // mat4 model, vec4 tint, int material, three swim floats, int cascade.
+        Assert.Equal(64, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.Tint)));
+        Assert.Equal(80, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.Material)));
+        Assert.Equal(96, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.Cascade)));
+        Assert.Equal(100, Unsafe.SizeOf<SceneDraws.DrawConstants>());
     }
 }

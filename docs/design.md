@@ -14,7 +14,7 @@ the rest is not yet.
 | Projects | `Super`, `Super.Random`, optional `Super.Ecs` and `Super.Testing`, and `Rendition`, which knows nothing of the others | Each layer stays usable without those above it |
 | Namespaces | `Super.Random` keeps its types in the `Super` namespace | `using Super;` is enough, and it can't hide `System.Random` |
 | Random generator | xoshiro256**, with streams seeded by hashing their name with FNV-1a | Fast and well tested. `string.GetHashCode` changes between runs, so it can't be used. A test pins the sequence, because changing it breaks every recorded seed |
-| Per-draw color | Each key that asks for a color owns one material, recolored in place | The renderer has 1024 material slots, so one per color would run out. Until draws carry their own color, a game has at most that many colored keys |
+| Per-draw color | A tint pushed with each draw, multiplied into the model's own material | Textured models keep their textures, and no draw needs a material of its own, so the 1024 material slots can't run out however many colors a game uses |
 | Falling behind | The clock drops time beyond 0.25 seconds of backlog | Trying to catch up after a stall would slow a struggling game further |
 | Structure | Game code is plain classes behind `IGame`, with no built-in scheduler | The game's author owns the logic and the order it runs in |
 | Time | `Update` runs on fixed ticks, `Draw` once per displayed frame and blends between ticks | Repeatable simulation, whatever the frame rate |
@@ -107,7 +107,7 @@ G-buffer layout:
 | --- | --- | --- |
 | 0 | `R8G8B8A8_SRGB` | base colour, metallic |
 | 1 | `R16G16B16A16_SFLOAT` | octahedral normal (xy), roughness, AO |
-| 2 | `R16G16B16A16_SFLOAT` | emissive colour, clearcoat |
+| 2 | `R16G16B16A16_SFLOAT` | emissive colour, clearcoat (or minus the translucency, for foliage) |
 | depth | `D32_SFLOAT` | reversed-Z, position is reconstructed from it |
 
 Games talk to the renderer with plain structs: `Renderer.Render(in FrameView,
@@ -127,6 +127,18 @@ Model files often link only colour and normal maps. Each model has an
 `assets/<name>.materials.json` that connects the remaining textures and sets
 material values. The surface texture holds metalness in red, roughness in green
 and opacity in alpha.
+
+A cut-out's opacity is the colour texture's alpha times the colour's alpha times the
+surface texture's alpha. Asset packs and glTF keep leaf alpha in the colour texture, so
+it works without a surface texture. The importer fails when a cutoff can't cut: no
+pixel has alpha below it, or none has alpha above it. A `foliage` rule is for a tree's
+leaves. It points the normals out of the crown, so the crown is lit as one shape and
+not as a pile of separate cards, draws both sides, and keeps back faces from flipping
+their normal. The lighting pass then lets sunlight through the leaves from behind.
+
+A draw's tint rides in its push constants and multiplies the material's colour in
+`writeSurface()`, so every surface shader gets it, and copies of one textured model can
+each have their own hue.
 
 glTF files (`.glb`, `.gltf`) carry more of this themselves, so the importer reads their
 embedded images, the link to their metal and roughness texture, and their colour,
@@ -314,8 +326,10 @@ Anything larger than a block gets its own allocation.
 - The adventurer model doesn't use its normal map. The map creases the skin, most
   visibly on the face, whichever way up it's read, and adds almost nothing to the
   clothing, so its materials file sets `noNormalMap`.
-- The importer doesn't read glTF emissive maps, cut-outs, glass or two-sided flags yet.
-  Set those in the materials file. It flattens models into a single pose, so skeletons
+- The importer reads glTF's `MASK` cut-outs, but not its emissive maps, glass or
+  two-sided flags yet. Set those in the materials file.
+- Foliage translucency is a constant in `surface.glsl`, and a material can't have both
+  foliage and clearcoat, since they share a G-buffer channel. It flattens models into a single pose, so skeletons
   and animation aren't supported.
 - The adventurer model has 929,000 triangles, which suits a showcase more than a game. A
   game character would need a reduced version and levels of detail.

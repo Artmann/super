@@ -15,9 +15,13 @@ internal static unsafe class SceneDraws
 
     /// <summary>Must match the Draw block in Shaders/material.glsl and the vertex shaders.</summary>
     [StructLayout(LayoutKind.Sequential)]
-    private struct DrawConstants
+    internal struct DrawConstants
     {
         public Matrix4x4 Model;
+
+        /// <summary>rgb multiplies the material's colour; w is unused. Comes before the scalars to keep std430 alignment.</summary>
+        public Vector4 Tint;
+
         public int Material;
         public SwimMotion Swim;
 
@@ -91,6 +95,7 @@ internal static unsafe class SceneDraws
             var constants = new DrawConstants
             {
                 Model = draw.Transform,
+                Tint = new Vector4(draw.Tint ?? Vector3.One, 1f),
                 Material = draw.Material.Index,
                 Swim = draw.Swim,
                 Cascade = cascade,

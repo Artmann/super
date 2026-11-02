@@ -94,6 +94,37 @@ Naming a model starts loading it. A model drawn before it's ready is waited for,
 nothing pops in; to show a loading screen instead, see
 [Game states](states.md#loading-screens). `ModelRef.Cube` is built in and needs no file.
 
+The materials file sets the model's size and fixes up materials by name. Each rule
+applies to every material whose name contains `match`:
+
+```json
+{
+  "targetLength": 6.0,
+  "materials": [
+    { "match": "bark", "roughness": 0.9 },
+    { "match": "leaves", "alphaCutoff": 0.5, "foliage": true }
+  ]
+}
+```
+
+`alphaCutoff` cuts out pixels whose opacity is below it. Opacity is the colour texture's
+alpha times the surface texture's alpha, so leaves with alpha in their colour texture
+need nothing else, and a glTF file's own `MASK` cutoff is read without a rule. The
+import fails if the cutoff would cut out nothing, or everything, instead of quietly
+giving you solid cards.
+
+`foliage` is for a tree's leaves. It points their normals out of the crown so it's lit
+as one rounded shape instead of speckled cards, lets sunlight through the back of the
+leaves, and draws both sides. Every material the rule matches counts as one crown, so
+give the trunk its own material. Re-import a model to get it.
+
+Other options are the `baseColor`, `normal`, `surface` and `emissive` textures,
+`color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `twoSided`, `transparent`,
+`opacity`, `noNormalMap` and `rotateY`; see `tools/Rendition.Import/ImportSettings.cs`.
+
+A colour passed when drawing a model tints it and keeps its textures, so one tree model
+can be drawn in many autumn shades at no extra cost.
+
 Cooked assets aren't kept in git. The Reef models have their own license terms
 ([CREDITS.md](../CREDITS.md)); with them in `assets/source/reef`, cook each one using the
 matching `assets/reef-*.materials.json`, then run `examples/Reef`.

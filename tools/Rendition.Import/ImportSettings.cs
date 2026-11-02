@@ -47,7 +47,22 @@ public sealed class MaterialRule
     /// <summary>Overrides the value in the model file, if it has one. The default is 0.6.</summary>
     public float? Roughness { get; set; }
 
-    public float AlphaCutoff { get; set; }
+    /// <summary>
+    /// Cuts out pixels whose opacity is below this. Opacity comes from the colour
+    /// texture's alpha and the surface texture's alpha. Without a value, a glTF file's
+    /// own MASK cutoff is used. The import fails if the cutoff would cut nothing, or
+    /// everything.
+    /// </summary>
+    public float? AlphaCutoff { get; set; }
+
     public bool TwoSided { get; set; }
+
+    /// <summary>
+    /// For a tree's leaves. Points the normals out of the crown so it's lit as one shape,
+    /// lets sunlight through from behind, and draws both sides. Every material this rule
+    /// matches counts as one crown, so keep the trunk in a material of its own.
+    /// </summary>
+    public bool Foliage { get; set; }
+
     public bool Transparent { get; set; }
 }

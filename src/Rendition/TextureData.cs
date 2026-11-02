@@ -10,6 +10,21 @@ public sealed class TextureData
     public required TextureKind Kind { get; init; }
     public required byte[][] Mips { get; init; }
 
+    /// <summary>The lowest and highest alpha of the full-size image, from 0 to 1.</summary>
+    public (float Lowest, float Highest) AlphaRange()
+    {
+        byte lowest = 255;
+        byte highest = 0;
+        byte[] pixels = Mips[0];
+        for (int i = 3; i < pixels.Length; i += 4)
+        {
+            lowest = Math.Min(lowest, pixels[i]);
+            highest = Math.Max(highest, pixels[i]);
+        }
+
+        return (lowest / 255f, highest / 255f);
+    }
+
     /// <summary>
     /// Builds the mip chain for an image's RGBA bytes, row by row. Colour is averaged in
     /// linear light, and a normal map's averages are brought back to unit length.

@@ -18,7 +18,7 @@ layout(location = 0) out vec4 outColor;
 // tint is scaled by opacity, so the output is premultiplied by alpha.
 void main() {
     Material material = materials[draw.material];
-    vec4 baseColor = texture(textures[material.baseColorTexture], inUv) * material.baseColor;
+    vec4 baseColor = texture(textures[material.baseColorTexture], inUv) * material.baseColor * vec4(draw.tint.rgb, 1.0);
     vec3 emissive = texture(textures[material.emissiveTexture], inUv).rgb * material.emissive.rgb;
 
     vec3 n = normalize(gl_FrontFacing ? inNormal : -inNormal);

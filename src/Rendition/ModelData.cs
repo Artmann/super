@@ -49,6 +49,42 @@ public sealed class ModelData
     public required ModelMaterial[] Materials { get; init; }
     public required TextureData[] Textures { get; init; }
 
+    /// <summary>
+    /// Says why a material's cutoff can't work, or returns null when it can or there is
+    /// none. Opacity is the colour texture's alpha times BaseColor.W times the surface
+    /// texture's alpha, so a cutoff with no alpha below it keeps every pixel, and one
+    /// above all of them removes the whole material.
+    /// </summary>
+    public string? CutoutProblem(int material)
+    {
+        ref readonly var source = ref Materials[material];
+        if (source.AlphaCutoff <= 0f)
+        {
+            return null;
+        }
+
+        var color = Alpha(source.BaseColorTexture);
+        var surface = Alpha(source.SurfaceTexture);
+        float lowest = color.Lowest * source.BaseColor.W * surface.Lowest;
+        float highest = color.Highest * source.BaseColor.W * surface.Highest;
+        string cutoff = source.AlphaCutoff.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (lowest >= source.AlphaCutoff)
+        {
+            return source.BaseColorTexture < 0 && source.SurfaceTexture < 0
+                ? $"alpha cutoff {cutoff} has nothing to cut by, because the material has no colour or surface texture."
+                : $"alpha cutoff {cutoff} cuts nothing out, because no pixel of its colour or surface texture has alpha below it.";
+        }
+
+        if (highest < source.AlphaCutoff)
+        {
+            return $"alpha cutoff {cutoff} cuts out every pixel, because none has alpha that high.";
+        }
+
+        return null;
+    }
+
+    private (float Lowest, float Highest) Alpha(int texture) => texture >= 0 ? Textures[texture].AlphaRange() : (1f, 1f);
+
     public void Write(string path)
     {
         using var writer = new BinaryWriter(File.Create(path), Encoding.UTF8);

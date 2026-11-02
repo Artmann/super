@@ -32,24 +32,32 @@ vec2 octahedralEncode(vec3 n) {
     return n.xy;
 }
 
+// How much sunlight shines through foliage from behind, 0 to 1.
+const float FOLIAGE_TRANSLUCENCY = 0.6;
+
 // The surface as the material's constants and textures describe it, with cut-out
 // pixels discarded. Custom shaders can start from this and change what they need.
 Surface materialSurface() {
     Material material = materials[draw.material];
 
+    // Opacity can come from either texture. Asset packs and glTF keep it in the colour
+    // texture, and both read white where a material has no texture.
+    vec4 baseColor = texture(textures[material.baseColorTexture], inUv) * material.baseColor;
     vec4 mask = texture(textures[material.surfaceTexture], inUv);
-    if (mask.a < material.alphaCutoff) {
+    if (baseColor.a * mask.a < material.alphaCutoff) {
         discard;
     }
 
     // Moves the normal map out of the surface's own tangent space into world space.
-    vec3 n = normalize(gl_FrontFacing ? inNormal : -inNormal);
+    // Foliage keeps the normal its mesh gives, which points out of the whole crown.
+    bool foliage = (material.flags & MATERIAL_FOLIAGE) != 0u;
+    vec3 n = normalize(gl_FrontFacing || foliage ? inNormal : -inNormal);
     vec3 t = normalize(inTangent.xyz - n * dot(n, inTangent.xyz));
     vec3 b = cross(n, t) * inTangent.w;
     vec3 mapped = texture(textures[material.normalTexture], inUv).xyz * 2.0 - 1.0;
 
     Surface surface;
-    surface.baseColor = (texture(textures[material.baseColorTexture], inUv) * material.baseColor).rgb;
+    surface.baseColor = baseColor.rgb;
     surface.metallic = material.metallic * mask.r;
     surface.roughness = material.roughness * mask.g;
     surface.normal = normalize(t * mapped.x + b * mapped.y + n * mapped.z);
@@ -69,8 +77,11 @@ vec4 shaderLayer(int slot, vec2 uv, float layer) {
     return texture(textureArrays[materials[draw.material].shaderArrays[slot]], vec3(uv, layer));
 }
 
+// Applies the draw's tint, so every surface shader gets it. Foliage has no clearcoat, so
+// its translucency travels in the same channel as a negative number.
 void writeSurface(Surface surface) {
-    outBaseColorMetallic = vec4(surface.baseColor, surface.metallic);
+    bool foliage = (materials[draw.material].flags & MATERIAL_FOLIAGE) != 0u;
+    outBaseColorMetallic = vec4(surface.baseColor * draw.tint.rgb, surface.metallic);
     outNormalRoughnessAo = vec4(octahedralEncode(surface.normal), surface.roughness, 1.0);
-    outEmissiveClearcoat = vec4(surface.emissive, surface.clearcoat);
+    outEmissiveClearcoat = vec4(surface.emissive, foliage ? -FOLIAGE_TRANSLUCENCY : surface.clearcoat);
 }

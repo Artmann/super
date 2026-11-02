@@ -67,13 +67,15 @@ public sealed class View
 
     /// <summary>
     /// Draws a model. The key names it across frames, so use a stable ID from your game.
-    /// A color replaces the model's own, as red, green and blue from 0 to 1.
+    /// A color tints the model, as red, green and blue from 0 to 1. It multiplies the
+    /// model's own colors and keeps its textures, and costs nothing extra, so every copy
+    /// of a model can have its own. The cube is white under a color.
     /// </summary>
     public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color = null) =>
         Model(key, model, transform, color, default);
 
     /// <summary>
-    /// Draws a model that bends as it swims. Its head must face +z. Unlike a color, this
+    /// Draws a model that bends as it swims. Its head must face +z. Like a color, this
     /// costs nothing extra, so every fish can have its own.
     /// </summary>
     public void Model(int key, ModelRef model, Matrix4x4 transform, SwimMotion swim) =>

@@ -82,7 +82,7 @@ public void Draw(View view)
 | Component | What it does |
 | --- | --- |
 | `Transform` | Position, rotation and scale. `Transform.At` and `Transform.Facing` build common ones |
-| `Model` | A `ModelRef`, and an optional color that replaces the model's own |
+| `Model` | A `ModelRef`, and an optional color that tints the model and keeps its textures |
 | `Smoothed` | Blends the entity between ticks. Super remembers last tick's transform for you |
 | `Parent` | Counts the entity's transform from another entity's, so an attached thing follows |
 | `Swim` | Bends the model like a swimming fish, with the phase blended too when `Smoothed` |
