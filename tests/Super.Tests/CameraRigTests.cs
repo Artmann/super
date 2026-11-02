@@ -198,6 +198,26 @@ public class CameraRigTests
     }
 
     [Fact]
+    public void A_jumped_overhead_camera_is_at_its_new_center_size_and_turn_after_one_update()
+    {
+        var iso = new IsometricCamera { Size = 20f, Lag = 0.5f };
+        iso.Update(Vector3.Zero, Tick);
+        iso.Center = new Vector3(40f, 0f, -12f);
+        iso.Size = 8f;
+        iso.Turn(1);
+        iso.Jump();
+        iso.Update(Tick);
+
+        var settled = new IsometricCamera { Center = new Vector3(40f, 0f, -12f), Size = 8f, Lag = 0f };
+        settled.Turn(1);
+        settled.Update(Tick);
+        AssertNear(settled.Current.Target, iso.Current.Target);
+        AssertNear(settled.Current.Position, iso.Current.Position, 0.01f);
+        Assert.Equal(8f, iso.Current.Size);
+        Assert.Equal(iso.Current, iso.Previous);
+    }
+
+    [Fact]
     public void Isometric_uses_the_true_angle()
     {
         var iso = new IsometricCamera { Lag = 0f };

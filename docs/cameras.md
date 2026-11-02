@@ -69,7 +69,16 @@ any frame rate. `Current` is the camera as of the last tick, which is the one to
 | `IsometricCamera` | The true isometric angle, orthographic, turning by quarter turns |
 
 The first update puts a camera straight in place. If its target teleports, call
-`Jump()` so the camera doesn't slide across the map.
+`Jump()` so the camera doesn't slide across the map. It works the same when you set a
+rig's `Center`, `Size` or turn yourself, such as to show a building the player picked:
+the next update puts the camera there, with no blend from where it was. In a test, that
+is one tick instead of waiting for the lag to settle:
+
+```csharp
+run.Game.Camera.Rig.Center = new Vector3(40, 0, -12);
+run.Game.Camera.Rig.Jump();
+run.Ticks(1);                                            // the camera is there now
+```
 
 ### Orbit and follow
 

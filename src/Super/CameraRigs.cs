@@ -232,7 +232,10 @@ public abstract class OverheadCamera
         _placed = true;
     }
 
-    /// <summary>Puts the camera straight in place on the next update, for when the view teleports.</summary>
+    /// <summary>
+    /// Puts the camera straight in place on the next update, with no blend, for when the
+    /// view teleports or you set <see cref="Center"/>, <see cref="Size"/> or a turn and want it there now.
+    /// </summary>
     public void Jump() => _placed = false;
 
     /// <summary>The camera between the last two ticks, as in <c>view.Camera(camera.At(view.Blend))</c>.</summary>
