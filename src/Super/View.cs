@@ -137,7 +137,8 @@ public sealed class View
     }
 
     /// <summary>
-    /// Draws a burst of soft particles, such as dust or smoke, at a place in the world.
+    /// Draws a particle effect, such as dust or smoke, at a place in the world. A
+    /// <see cref="ParticleEmitter"/> can be passed on its own.
     /// The age is how many seconds ago it started, usually
     /// <c>view.SecondsSince(startTick)</c>; each particle is worked out from the age and
     /// the key alone, so the same key and age always look the same, paused, loaded or
@@ -160,8 +161,9 @@ public sealed class View
     /// <summary>
     /// Draws a burst of particles laid along a line, such as dust where a fallen tree hit
     /// the ground. The effect's x axis runs from one end to the other, scaled so a
-    /// <see cref="ParticleSpawn.Line"/> one metre long covers it exactly, and its y axis
-    /// stays upward. Speeds keep their size.
+    /// <see cref="ParticleEmitter.FromLine"/> one metre long covers it exactly, and its y
+    /// axis stays upward. Speeds and sizes keep their size, and an emitter's offset of
+    /// -0.5 on x is the start of the line and 0.5 the end.
     /// </summary>
     public void Particles(int key, ParticleEffect effect, Vector3 from, Vector3 to, float age)
     {

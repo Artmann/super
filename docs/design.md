@@ -61,7 +61,7 @@ floating point results can differ between CPU types.
 Rendition needs work to support this: keys passed through to per-object motion
 vectors, and a check of how it copes with many thousands of draws. Skeletal animation
 is in: the importer keeps skeletons and clips, and the vertex shader skins. Particles
-are in too: a `ParticleEffect` turns a key and an age into particles with no state
+are in too: a `ParticleEffect` of chained emitters turns a key and an age into particles with no state
 from frame to frame; see [Particles](#particles).
 
 # Rendition design
@@ -244,11 +244,26 @@ pseudo-sphere normal, bent toward the camera, with the sky's irradiance and wrap
 sunlight, so a puff is brighter on its sunny side but never dark like a solid ball.
 Haze and the underwater fade are the same as for surfaces. Colour is premultiplied.
 
-On the Super side, `ParticleEffect.Emit` works out every particle from the key, the
-effect's seed, the particle's number and the age, through an integer hash. Motion with
-drag has a closed form: travel is `v(1 - e^-kt)/k` and gravity adds `g(t - that)/k`,
-so there's no stepping. Spawn shapes and speeds go through the call's transform;
-gravity and sizes stay in the world.
+On the Super side, a `ParticleEmitter` is an immutable list of nodes, built like a
+Unity or Unreal particle graph but always a chain, never a graph with branches. The
+constructor sorts the nodes into stages and every particle runs through them in a
+fixed order: birth time, spawn shape, start speeds (summed), forces, motions (in
+turn), then looks (in turn, multiplying from one metre, white and solid). Every node
+must be a closed-form function of the particle's age, because nothing is stepped
+or kept between frames. That's why forces can't be arbitrary: drag, gravity and wind
+fold into one drag `k` and one steady pull `g`, wind adding `k` times its speed, so
+travel is `v(1 - e^-kt)/k` and the pull adds `g(t - that)/k`. A new force has to fit
+that form; anything else goes in as a motion node that moves the finished position.
+
+Randomness comes from an integer hash. The key and the emitter's place in its
+`ParticleEffect` make a seed, mixed with the emitter's own `Seed` and the particle's
+number. Each node rolls its own dice, salted by its place in the list, so adding a
+node doesn't change what the nodes before it roll. An effect is a list of emitters,
+each with a delay and an offset; the delay is taken off the age. Spawn shapes, speeds
+and offsets go through the call's transform; the from/to call stretches only the x of
+shapes and offsets, so speeds keep their size. Gravity, wind, sizes and colours stay
+in the world. An emitter drawn alone turns into an effect once and keeps it, so a
+frame allocates nothing.
 
 ## Custom shaders
 

@@ -19,37 +19,31 @@ public sealed class DustGame : IGame
     private const int StumpKey = 200;
     private const int DustKey = 1000;
 
-    /// <summary>Earthy dust kicked up off dry ground: tan, fading greyer as it thins.</summary>
-    public static readonly ParticleEffect GroundDust = new()
-    {
-        Count = 40,
-        Lifetime = 1.6f,
-        EmitSeconds = 0.15f,
-        Spawn = ParticleSpawn.Line(),
-        Outward = 2.2f,
-        Scatter = 0.4f,
-        Velocity = new Vector3(0f, 0.6f, 0f),
-        Drag = 2.5f,
-        Gravity = new Vector3(0f, 0.25f, 0f),
-        StartSize = 0.5f,
-        EndSize = 1.8f,
-        StartColor = new Vector3(0.55f, 0.42f, 0.28f),
-        EndColor = new Vector3(0.5f, 0.45f, 0.38f),
-        Opacity = 0.6f,
-    };
+    /// <summary>Earthy dust kicked up off dry ground along the whole trunk where it lands.</summary>
+    public static readonly ParticleEmitter GroundDust = new ParticleEmitter(count: 40, lifetime: 1.6f)
+        .Over(0.15f)
+        .FromLine()
+        .Outward(2.2f)
+        .Scatter(0.4f)
+        .Velocity(new Vector3(0f, 0.6f, 0f))
+        .Billows(opacity: 0.6f)
+        .Size(0.5f, 1.8f);
 
     /// <summary>A smaller puff round the foot of the tree as it gives way.</summary>
-    public static readonly ParticleEffect StumpDust = GroundDust with
-    {
-        Count = 14,
-        Lifetime = 1.2f,
-        Spawn = ParticleSpawn.Disc(0.3f),
-        Outward = 1.2f,
-        StartSize = 0.3f,
-        EndSize = 1f,
-        Opacity = 0.35f,
-        Seed = 1,
-    };
+    public static readonly ParticleEmitter StumpPuff = new ParticleEmitter(count: 14, lifetime: 1.2f)
+        .FromDisc(0.3f)
+        .Outward(1.2f)
+        .Velocity(new Vector3(0f, 0.6f, 0f))
+        .Billows(opacity: 0.35f)
+        .Size(0.3f, 1f);
+
+    /// <summary>
+    /// The whole fall, drawn along the line from the stump to where the crown lands: the
+    /// puff at the start of the line straight away, the dust when the trunk hits.
+    /// </summary>
+    public static readonly ParticleEffect TreeFall = new ParticleEffect()
+        .Add(StumpPuff, offset: new Vector3(-0.5f, 0f, 0f))
+        .Add(GroundDust, delay: FallSeconds);
 
     private static readonly Tree[] Trees =
     [
@@ -116,14 +110,23 @@ public sealed class DustGame : IGame
         view.Model(TreeKey + index, ModelRef.Cube, trunk, new Vector3(0.36f, 0.24f, 0.15f));
         view.Model(StumpKey + index, ModelRef.Cube, Matrix4x4.CreateScale(0.45f, 0.3f, 0.45f) * Matrix4x4.CreateTranslation(tree.Foot + new Vector3(0f, 0.15f, 0f)), new Vector3(0.4f, 0.3f, 0.2f));
 
-        int key = DustKey + index * 10_000 + (int)cycle * 2;
-        view.Particles(key, StumpDust, tree.Foot, since);
-
-        // Where it lands, along the whole trunk from just past the stump to the crown.
-        var from = tree.Foot + direction * 0.6f;
-        var to = tree.Foot + direction * TrunkLength;
-        view.Particles(key + 1, GroundDust, from, to, since - FallSeconds);
+        // From the stump to the crown, so the puff sits at the foot and the dust along the trunk.
+        int key = DustKey + index * 10_000 + (int)cycle;
+        view.Particles(key, TreeFall, tree.Foot, tree.Foot + direction * TrunkLength, since);
     }
 
     private readonly record struct Tree(Vector3 Foot, float Heading, float Offset);
+}
+
+/// <summary>The looks shared by every kind of dust here, kept in one place like any other code.</summary>
+public static class DustLooks
+{
+    /// <summary>Slowed by the air, drifting up as warm dust does, tan fading greyer as it thins.</summary>
+    public static ParticleEmitter Billows(this ParticleEmitter emitter, float opacity) => emitter
+        .Drag(2.5f)
+        .Gravity(new Vector3(0f, 0.25f, 0f))
+        .Color(new Vector3(0.55f, 0.42f, 0.28f), new Vector3(0.5f, 0.45f, 0.38f))
+        .Opacity(opacity)
+        .Fade(0.1f, 0.6f)
+        .Spin(0.5f);
 }

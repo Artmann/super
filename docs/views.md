@@ -158,27 +158,24 @@ view.Model(FoxKey, _animator, transform);
 
 ## Particles
 
-Dust, smoke and spray are soft, see-through puffs. Describe the burst once as a
-`ParticleEffect`, then draw it each frame with how long ago it started. Your `Update`
-saves the tick when the tree falls; the view does the rest:
+Dust, smoke and spray are soft, see-through puffs. You build them from nodes, the way
+you would in Unity's or Unreal's particle editors, but in code: start a
+`ParticleEmitter` with how many particles and how long they live, then chain the
+steps. Draw it each frame with how long ago it started. Your `Update` saves the tick
+when the tree falls; the view does the rest:
 
 ```csharp
-static readonly ParticleEffect Dust = new()
-{
-    Count = 40,
-    Lifetime = 1.6f,
-    EmitSeconds = 0.15f,
-    Spawn = ParticleSpawn.Line(),
-    Outward = 2.2f,                        // billow out sideways off the line
-    Velocity = new Vector3(0f, 0.6f, 0f),  // and up a little
-    Drag = 2.5f,
-    Gravity = new Vector3(0f, 0.25f, 0f),  // warm dust drifts upward
-    StartSize = 0.5f,
-    EndSize = 1.8f,
-    StartColor = new Vector3(0.55f, 0.42f, 0.28f),
-    EndColor = new Vector3(0.5f, 0.45f, 0.38f),
-    Opacity = 0.6f,
-};
+static readonly ParticleEmitter Dust = new ParticleEmitter(count: 40, lifetime: 1.6f)
+    .Over(0.15f)                            // born over 0.15 s, not all at once
+    .FromLine()                             // along a line one metre long
+    .Outward(2.2f)                          // billow out sideways off the line
+    .Velocity(new Vector3(0f, 0.6f, 0f))    // and up a little
+    .Drag(2.5f)
+    .Gravity(new Vector3(0f, 0.25f, 0f))    // warm dust drifts upward
+    .Size(0.5f, 1.8f)
+    .Color(new Vector3(0.55f, 0.42f, 0.28f), new Vector3(0.5f, 0.45f, 0.38f))
+    .Opacity(0.6f)
+    .Fade(0.1f, 0.6f);
 
 if (tree.FellAt is { } fellAt)
 {
@@ -192,7 +189,7 @@ worked out from the age and the key, so pausing, loading, slow motion and `--rec
 all show exactly the same dust. Use a different key for each burst, such as the tree's
 ID, or every tree throws up the same pattern. Before the age is 0 nothing is drawn, so
 you can pass a negative age to start a burst later, and once the age passes
-`effect.Duration` the call costs nothing.
+`Duration` the call costs nothing.
 
 There are three ways to place a burst:
 
@@ -200,31 +197,83 @@ There are three ways to place a burst:
 | --- | --- |
 | `view.Particles(key, effect, position, age)` | A puff at one spot |
 | `view.Particles(key, effect, transform, age)` | A burst turned, tilted or stretched |
-| `view.Particles(key, effect, from, to, age)` | Dust along a line, such as where a tree lands. A one-metre `Line` spawn covers it end to end |
+| `view.Particles(key, effect, from, to, age)` | Dust along a line, such as where a tree lands. `FromLine()` covers it end to end |
 
-Spawn shapes and speeds are in the effect's own space and follow the transform;
-gravity, sizes and colours stay in the world, so dust still rises and keeps its size
-however the burst is turned.
+Spawn shapes and speeds are in the emitter's own space and follow the transform;
+gravity, wind, sizes and colours stay in the world, so dust still rises and keeps its
+size however the burst is turned.
 
-| Setting | What it does | Default |
+### Nodes
+
+A new emitter bursts all its particles at once from a point, a metre wide, white and
+solid. Each call adds a node and gives back a new emitter, so a shared one never
+changes and `Dust.WithCount(12)` is a smaller variation. The timing, the shape, the
+count, the lifetime and the seed have one setting each, so calling one again replaces
+it. Everything else stacks: speeds and forces add up, motions apply in turn, and
+sizes, colours and opacities multiply.
+
+| Stage | Call | What it does |
 | --- | --- | --- |
-| `Count` | Particles in the burst, 1 to 32,768 | 24 |
-| `Lifetime`, `LifetimeSpread` | Seconds each lives, and how much that varies as a fraction | 1.5, 0.3 |
-| `EmitSeconds` | Spreads births over this long; 0 is one burst | 0 |
-| `Spawn` | `ParticleSpawn.Point`, `Line(length)`, `Box(size)` or `Disc(radius)` | Point |
-| `Velocity` | A speed every particle starts with, in metres per second | none |
-| `Outward` | Speed out sideways from the middle of the shape | 0 |
-| `Scatter` | Most speed in a random direction | 0 |
-| `Drag` | How fast the air slows them, per second | 0 |
-| `Gravity` | A pull in the world; a positive y rises | none |
-| `StartSize`, `EndSize`, `SizeSpread` | Width in metres, growing fast then slowly | 0.3, 0.8, 0.3 |
-| `StartColor`, `EndColor` | Linear colour like a model's, lit by the sun and sky | grey |
-| `Opacity`, `FadeIn`, `FadeOut` | How solid at most, and the parts of life spent fading | 0.5, 0.1, 0.6 |
-| `Spin` | Fastest turn either way, in radians per second | 0.5 |
-| `Seed` | Changes the pattern for every key | 0 |
+| Settings | `WithCount(n)`, `WithLifetime(seconds, spread)`, `Seed(n)` | Particles from 1 to 32,768; how long each lives and how much that varies, from 0 to 0.9; a different pattern for every key |
+| Birth | `Burst()` | All born at once. The default |
+| | `Over(seconds)` | Births spread evenly over that long |
+| | `Pulses(times, every)` | Shared between bursts that far apart, like puffs from a chimney |
+| Shape | `FromPoint()` | All from the middle. The default |
+| | `FromLine(length)` | Along the x axis. Outward speed throws them sideways off it |
+| | `FromBox(size)`, `FromDisc(radius)`, `FromSphere(radius)` | Anywhere inside, evenly. A disc lies flat, such as round the foot of a tree |
+| Speed | `Velocity(v)` | A speed every particle starts with, in metres per second |
+| | `Outward(speed)` | Out from the middle of the shape, at 50% to 150% of the speed |
+| | `Scatter(speed)` | Up to that speed in any direction |
+| | `Cone(direction, angle, speed)` | Within a cone that many radians either side of the direction, like a fountain |
+| Force | `Drag(perSecond)` | Slows them. At 2, a particle has lost 86% of its speed after a second |
+| | `Gravity(pull)` | A pull in the world, in metres per second per second. A positive y rises |
+| | `Wind(velocity)` | Moving air. It needs drag to catch them; the more drag, the sooner they go with it |
+| Motion | `Wobble(metres, perSecond)` | A smooth wandering sway, like eddies in the air |
+| | `Swirl(turnsPerSecond)` | Turns them round the upright axis through the middle, like a dust devil |
+| Look | `Size(start, end, easing, spread)` | Width in metres over the life. The default `Easing.Out` grows fast, then slowly |
+| | `Color(color)`, `Color(start, end)` | Linear colour like a model's, lit by the sun and sky |
+| | `Gradient((0f, a), (0.3f, b), (1f, c))` | Colours at points through the life, blending between them |
+| | `Opacity(amount)` | How solid the middle is at most, from 0 to 1. Overlapping puffs add up |
+| | `Fade(in, out)` | The parts of the life, from 0 to 1, spent fading in and out |
+| | `Flicker(amount, perSecond)` | Dips the opacity, each particle at its own beat |
+| | `Spin(radiansPerSecond)` | Turns each at its own speed, up to that fast either way |
 
-Setting something out of range throws with the reason. Effects are records, so
-`Dust with { Count = 12, Spawn = ParticleSpawn.Disc(0.3f) }` makes a variation.
+A setting out of range throws with the reason, and `ToString()` lists the nodes in
+order, which helps when a puff doesn't look as expected.
+
+### Effects
+
+A `ParticleEffect` puts several emitters on a timeline under one key. Each starts after
+its delay, moved by its offset in the effect's own space, and each gets its own pattern
+from the key. The `Dust` example draws a whole tree fall with one call, from the stump
+to where the crown lands. On a from/to line the offset's x stretches with the line, so
+-0.5 is the start and 0.5 the end:
+
+```csharp
+static readonly ParticleEffect TreeFall = new ParticleEffect()
+    .Add(StumpPuff, offset: new Vector3(-0.5f, 0f, 0f))  // at the stump, straight away
+    .Add(GroundDust, delay: FallSeconds);                // along the trunk when it lands
+
+view.Particles(key, TreeFall, tree.Foot, tree.Foot + direction * TrunkLength, since);
+```
+
+An emitter can be drawn on its own wherever an effect can. To share steps between
+emitters, write an extension method; the `Dust` example gives its stump puff and its
+ground dust the same `Billows` look this way:
+
+```csharp
+public static ParticleEmitter Billows(this ParticleEmitter emitter, float opacity) => emitter
+    .Drag(2.5f)
+    .Gravity(new Vector3(0f, 0.25f, 0f))
+    .Color(tan, grey)
+    .Opacity(opacity)
+    .Fade(0.1f, 0.6f);
+```
+
+Build emitters and effects once, in `static readonly` fields, and drawing them
+allocates nothing.
+
+### How they look
 
 Particles are lit by the sun and sky, shaded by shadows, fade into haze and melt
 softly into the ground and anything they touch. They cast no shadow, and underwater

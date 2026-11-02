@@ -8,7 +8,8 @@ Super is early. These are the known gaps, so you can plan around them.
   place for drawing a model there by hand.
 - **More from particles.** [Particles](views.md#particles) are soft puffs for dust and
   smoke. There are no textured, glowing or stretched sparks yet, and they cast no
-  shadow.
+  shadow. Nodes must work from the age alone, so particles can't bounce off the
+  ground or react to what they hit.
 - **Level of detail.** Every model is drawn at full detail however far away it is, so
   dense forests of high-poly trees are slow.
 - **Film effects.** [Cutscenes](cutscenes.md) cut between shots, but there's no depth
