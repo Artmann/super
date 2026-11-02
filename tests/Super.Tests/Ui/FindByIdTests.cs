@@ -133,6 +133,52 @@ public sealed class FindByIdTests
         Assert.Equal(4, run.Game.Reads);
     }
 
+    private static UiView Tipped() => Corner(new Text("thing").Frame(100f, 100f).Background(Solid)
+        .Tooltip(new Text("cost").Frame(120f, 40f).Background(Solid).Id("cost")));
+
+    [Fact]
+    public void FrameOf_finds_an_id_inside_a_shown_tooltip()
+    {
+        using var run = Run(_ => Tipped());
+
+        run.Input.MoveMouse(new Vector2(40f, 40f));
+        run.Ticks(20);
+
+        // The tooltip sits 14 right of and 18 below the cursor.
+        Assert.Equal(new UiRect(54f, 58f, 120f, 40f), run.FrameOf("cost"));
+    }
+
+    [Fact]
+    public void FrameOf_no_longer_finds_an_id_in_a_tooltip_that_went_away()
+    {
+        using var run = Run(_ => Tipped());
+        run.Input.MoveMouse(new Vector2(40f, 40f));
+        run.Ticks(20);
+
+        run.Input.MoveMouse(new Vector2(600f, 600f));
+        run.Ticks(2);
+
+        var problem = Assert.Throws<InvalidOperationException>(() => run.FrameOf("cost"));
+        Assert.Equal("No view on screen has the id 'cost', and none has an id.", problem.Message);
+    }
+
+    [Fact]
+    public void FrameOf_finds_an_id_inside_a_drag_preview()
+    {
+        using var run = Run(_ => Corner(new Text("source").Frame(100f, 100f).Background(Solid)
+            .Draggable("gem", new Text("gem").Frame(80f, 30f).Background(Solid).Id("dragged"))));
+        run.Input.MoveMouse(new Vector2(50f, 50f));
+        run.Ticks(1);
+        run.Input.Hold(MouseButton.Left);
+        run.Ticks(1);
+
+        run.Input.MoveMouse(new Vector2(300f, 200f));
+        run.Ticks(1);
+
+        // The preview is centred on the cursor.
+        Assert.Equal(new UiRect(260f, 185f, 80f, 30f), run.FrameOf("dragged"));
+    }
+
     private sealed record Card : UiView
     {
         public override UiView Body => new Text("card").Frame(60f, 20f).Background(Solid).Margin(5f);

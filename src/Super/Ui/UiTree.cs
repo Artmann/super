@@ -62,7 +62,8 @@ public sealed class UiTree
     /// <summary>
     /// Where the view given this id with <see cref="UiExtensions.Id"/> was laid out last,
     /// in interface pixels. A box's margin isn't part of it, so this is the area that
-    /// shows and takes clicks. It throws if no view or more than one has the id.
+    /// shows and takes clicks. It also looks in the tooltip and drag preview while they
+    /// show. It throws if no view or more than one has the id.
     /// </summary>
     public UiRect FrameOf(object id)
     {
@@ -71,6 +72,15 @@ public sealed class UiTree
         if (_root is not null)
         {
             Collect(_root, id, found, ids);
+        }
+
+        // The drag preview and the tooltip, as the last frame showed them.
+        foreach (var overlay in _overlays)
+        {
+            if (overlay is not null)
+            {
+                Collect(overlay, id, found, ids);
+            }
         }
 
         return found.Count switch

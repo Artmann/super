@@ -146,7 +146,9 @@ run.Input.Click("build.Cabin");                          // clicks the middle of
 `FrameOf` gives the area the view shows and takes clicks in, without a box's margin.
 It's the layout from the last `Draw`, and the id is looked up when the click plays, so
 the view can move after the test asks for the click. An id no view has, or one that two
-views share, throws and says which ids are on screen. The same `.Id` also keeps a view's
+views share, throws and says which ids are on screen. Ids inside a tooltip or a drag
+preview are found too, while it shows. Hover long enough for the tooltip to appear,
+about half a second of ticks, before asking. The same `.Id` also keeps a view's
 state when its siblings move, so give each one a different id among its siblings.
 
 To check the 3D world, look through `run.Drawn`:
