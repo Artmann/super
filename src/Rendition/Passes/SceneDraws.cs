@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
@@ -18,6 +19,9 @@ internal enum ScenePass
     Shadow,
 }
 
+/// <summary>Draws that go to the GPU as one instanced draw: <see cref="Count"/> entries of an order, from <see cref="First"/>.</summary>
+internal readonly record struct DrawBatch(int First, int Count);
+
 /// <summary>The pipelines of one shader, for one-sided and two-sided materials.</summary>
 internal readonly record struct PipelineVariants(Pipeline Culled, Pipeline TwoSided);
 
@@ -26,12 +30,14 @@ internal static unsafe class SceneDraws
 {
     public const ShaderStageFlags PushStages = ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit;
 
-    /// <summary>Must match the Draw block in Shaders/material.glsl and the vertex shaders.</summary>
+    /// <summary>
+    /// Must match the Draw block in Shaders/material.glsl and the vertex shaders. It's the
+    /// same for every copy in an instanced draw. Each copy's matrix is in the frame's
+    /// <see cref="InstanceBuffer"/>.
+    /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal struct DrawConstants
     {
-        public Matrix4x4 Model;
-
         /// <summary>rgb multiplies the material's colour; w is unused. Comes before the scalars to keep std430 alignment.</summary>
         public Vector4 Tint;
 
@@ -80,10 +86,93 @@ internal static unsafe class SceneDraws
         };
     }
 
-    /// <summary>The push constants that draw one item.</summary>
+    /// <summary>
+    /// Groups draws that differ only in where they stand, so each group is one instanced
+    /// draw. <paramref name="order"/> holds the indices of the draws to make, and unless
+    /// <paramref name="keepOrder"/> it's sorted so that copies far apart in the list meet,
+    /// as copies of a model with several parts are. Kept order, for glass, groups only
+    /// neighbours. A skinned draw is always alone, since its skin is its own.
+    /// </summary>
+    public static void Batch(ReadOnlySpan<DrawItem> draws, Span<int> order, bool keepOrder, List<DrawBatch> batches)
+    {
+        batches.Clear();
+        if (!keepOrder)
+        {
+            var looks = ArrayPool<Look>.Shared.Rent(order.Length);
+            for (int i = 0; i < order.Length; i++)
+            {
+                looks[i] = new Look(draws[order[i]], order[i]);
+            }
+
+            looks.AsSpan(0, order.Length).Sort();
+            for (int i = 0; i < order.Length; i++)
+            {
+                order[i] = looks[i].Index;
+            }
+
+            ArrayPool<Look>.Shared.Return(looks);
+        }
+
+        int first = 0;
+        for (int i = 1; i <= order.Length; i++)
+        {
+            if (i == order.Length || !SameLook(draws[order[first]], draws[order[i]]))
+            {
+                batches.Add(new DrawBatch(first, i - first));
+                first = i;
+            }
+        }
+    }
+
+    private static bool SameLook(in DrawItem a, in DrawItem b) =>
+        a.Bones.Count == 0 && b.Bones.Count == 0
+        && a.Mesh == b.Mesh
+        && a.FirstIndex == b.FirstIndex
+        && a.IndexCount == b.IndexCount
+        && a.Material == b.Material
+        && a.Tint == b.Tint
+        && a.Ghost == b.Ghost
+        && a.Swim == b.Swim;
+
+    /// <summary>What a draw looks like, to sort draws that look the same next to each other, and otherwise keep their order.</summary>
+    private readonly struct Look(in DrawItem draw, int index) : IComparable<Look>
+    {
+        private readonly int _mesh = draw.Mesh.Index;
+        private readonly uint _firstIndex = draw.FirstIndex;
+        private readonly uint _indexCount = draw.IndexCount;
+        private readonly int _material = draw.Material.Index;
+        private readonly Vector4 _tint = draw.Tint is { } tint ? new Vector4(tint, 1f) : Vector4.Zero;
+        private readonly Vector4 _ghost = draw.Ghost is { } ghost ? new Vector4(ghost.Color, ghost.Opacity) : Vector4.Zero;
+        private readonly SwimMotion _swim = draw.Swim;
+
+        public int Index { get; } = index;
+
+        public int CompareTo(Look other)
+        {
+            int compared = _mesh.CompareTo(other._mesh);
+            compared = compared != 0 ? compared : _firstIndex.CompareTo(other._firstIndex);
+            compared = compared != 0 ? compared : _indexCount.CompareTo(other._indexCount);
+            compared = compared != 0 ? compared : _material.CompareTo(other._material);
+            compared = compared != 0 ? compared : Compare(_tint, other._tint);
+            compared = compared != 0 ? compared : Compare(_ghost, other._ghost);
+            compared = compared != 0 ? compared : _swim.Amplitude.CompareTo(other._swim.Amplitude);
+            compared = compared != 0 ? compared : _swim.BodyLength.CompareTo(other._swim.BodyLength);
+            compared = compared != 0 ? compared : _swim.Phase.CompareTo(other._swim.Phase);
+            return compared != 0 ? compared : Index.CompareTo(other.Index);
+        }
+
+        private static int Compare(Vector4 a, Vector4 b)
+        {
+            int compared = a.X.CompareTo(b.X);
+            compared = compared != 0 ? compared : a.Y.CompareTo(b.Y);
+            compared = compared != 0 ? compared : a.Z.CompareTo(b.Z);
+            return compared != 0 ? compared : a.W.CompareTo(b.W);
+        }
+    }
+
+    /// <summary>The push constants that draw one item, or every copy in its batch.</summary>
     public static DrawConstants Constants(in DrawItem draw, int cascade) => new()
     {
-        Model = draw.Transform,
         Tint = new Vector4(draw.Tint ?? Vector3.One, 1f),
         Ghost = draw.Ghost is { } ghost ? new Vector4(ghost.Color, ghost.Opacity) : Vector4.Zero,
         Material = draw.Material.Index,
@@ -93,10 +182,12 @@ internal static unsafe class SceneDraws
     };
 
     /// <summary>
-    /// Draws the items that belong in <paramref name="pass"/>, in the given order. A pass with
-    /// one entry in <paramref name="pipelines"/> draws everything with it. Otherwise each
-    /// material picks its surface shader. Materials without cut-out holes use
-    /// <paramref name="solid"/> when it's given.
+    /// Draws the items that belong in <paramref name="pass"/>, with copies that look the
+    /// same as one instanced draw. Solid things and shadows are drawn in any order, which
+    /// brings copies together. Glass keeps the given order. A pass with one entry in
+    /// <paramref name="pipelines"/> draws everything with it. Otherwise each material picks
+    /// its surface shader. Materials without cut-out holes use <paramref name="solid"/>
+    /// when it's given. Each copy's matrix goes into <paramref name="instances"/>.
     /// </summary>
     public static void Record(
         Vk api,
@@ -106,20 +197,31 @@ internal static unsafe class SceneDraws
         ResourceTable resources,
         ReadOnlySpan<DrawItem> draws,
         List<Mesh?> meshes,
+        InstanceBuffer instances,
         ScenePass pass,
         PipelineVariants? solid = null,
         int cascade = 0)
     {
+        int[] pooled = ArrayPool<int>.Shared.Rent(draws.Length);
+        int count = 0;
+        for (int i = 0; i < draws.Length; i++)
+        {
+            if (Belongs(draws[i], resources.GetFlags(draws[i].Material), pass))
+            {
+                pooled[count++] = i;
+            }
+        }
+
+        var order = pooled.AsSpan(0, count);
+        var batches = _batches ??= [];
+        Batch(draws, order, keepOrder: pass == ScenePass.Transparent, batches);
+
         var boundPipeline = default(Pipeline);
         int boundMesh = -1;
-        foreach (ref readonly var draw in draws)
+        foreach (var batch in batches)
         {
+            ref readonly var draw = ref draws[order[batch.First]];
             var flags = resources.GetFlags(draw.Material);
-            if (!Belongs(draw, flags, pass))
-            {
-                continue;
-            }
-
             var variants = solid is { } solidVariants && !resources.HasCutouts(draw.Material)
                 ? solidVariants
                 : pipelines[pipelines.Count > 1 ? resources.GetShader(draw.Material) : 0];
@@ -140,9 +242,20 @@ internal static unsafe class SceneDraws
                 boundMesh = draw.Mesh.Index;
             }
 
+            int firstInstance = instances.Count;
+            foreach (int index in order.Slice(batch.First, batch.Count))
+            {
+                instances.Add(draws[index].Transform);
+            }
+
             var constants = Constants(draw, cascade);
             api.CmdPushConstants(cmd, layout, PushStages, 0, (uint)sizeof(DrawConstants), &constants);
-            api.CmdDrawIndexed(cmd, draw.IndexCount, 1, draw.FirstIndex, 0, 0);
+            api.CmdDrawIndexed(cmd, draw.IndexCount, (uint)batch.Count, draw.FirstIndex, 0, (uint)firstInstance);
         }
+
+        ArrayPool<int>.Shared.Return(pooled);
     }
+
+    [ThreadStatic]
+    private static List<DrawBatch>? _batches;
 }

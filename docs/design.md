@@ -146,6 +146,16 @@ leaves. It points the normals out of the crown, so the crown is lit as one shape
 not as a pile of separate cards, draws both sides, and keeps back faces from flipping
 their normal. The lighting pass then lets sunlight through the leaves from behind.
 
+Copies are drawn instanced. `SceneDraws.Batch` sorts a pass's opaque and shadow draws
+by mesh, part, material, tint, ghost and swim, and each run of draws that match is one
+`vkCmdDrawIndexed`. Skinned draws never match. The order is safe because the depth test
+decides what shows. Glass keeps its order and only joins neighbours. Each copy's model
+matrix goes into the frame's `InstanceBuffer` (set 0, binding 2, `instances.glsl`), and
+the vertex shaders read it by `gl_InstanceIndex`. The buffer grows before a frame is
+recorded, sized from the selected draws. The push constants hold only what copies
+share. Coplanar surfaces can trade places in a depth tie, which moved 0.03% of the
+pixels in Archer by at most 3 of 255.
+
 A draw's tint rides in its push constants and multiplies the material's colour in
 `writeSurface()`, so every surface shader gets it, and copies of one textured model can
 each have their own hue.

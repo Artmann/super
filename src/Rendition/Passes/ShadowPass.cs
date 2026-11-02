@@ -111,7 +111,7 @@ internal sealed unsafe class ShadowPass : IDisposable
     }
 
     /// <summary>Draws one cascade into its layer of the map.</summary>
-    public void Record(CommandBuffer cmd, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, List<Mesh?> meshes, int cascade)
+    public void Record(CommandBuffer cmd, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, List<Mesh?> meshes, InstanceBuffer instances, int cascade)
     {
         var api = _context.Api;
         var depthAttachment = new RenderingAttachmentInfo
@@ -136,7 +136,7 @@ internal sealed unsafe class ShadowPass : IDisposable
 
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set };
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
-        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, ScenePass.Shadow, solid: _solid, cascade: cascade);
+        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, instances, ScenePass.Shadow, solid: _solid, cascade: cascade);
 
         api.CmdEndRendering(cmd);
     }

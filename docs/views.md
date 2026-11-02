@@ -79,9 +79,13 @@ View memory is never part of the simulation, so it can't change how a seed plays
 ## Keys
 
 A key names something across frames, like a `key` in React. Super uses it for view
-memory, and to tell the renderer where an object was last frame, which keeps moving
-things crisp under temporal anti-aliasing. Use a stable ID from your game, and the same
-one every frame.
+memory, and particles use it as their seed. A test can find a model draw by its key in
+`run.Drawn`. Use a stable ID from your game, and the same one every frame.
+
+The renderer doesn't read model keys, so two models that share a key draw fine. Keys
+don't need to be unique across a game, and there's no limit on how many you use. A
+grid of tiles can pass the tile's index, and a building and its ghost can both pass the
+building's ID.
 
 View memory also belongs to the line of code asking, like the order of hooks in React.
 So a lid and a latch on one box can both use the box's ID, and a box and a tree with the

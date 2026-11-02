@@ -114,7 +114,8 @@ internal sealed unsafe class TransparentPass : IDisposable
         GBuffer targets,
         DescriptorSet frameSet,
         ReadOnlySpan<DrawItem> draws,
-        List<Mesh?> meshes)
+        List<Mesh?> meshes,
+        InstanceBuffer instances)
     {
         var api = _context.Api;
 
@@ -150,7 +151,7 @@ internal sealed unsafe class TransparentPass : IDisposable
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set, _environmentSet };
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 3, sets, 0, null);
 
-        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, ScenePass.Transparent);
+        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, instances, ScenePass.Transparent);
 
         api.CmdEndRendering(cmd);
     }

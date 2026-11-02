@@ -38,6 +38,7 @@ public sealed unsafe class Renderer : IDisposable
         public Semaphore ImageAvailable;
         public GpuBuffer Uniforms;
         public GpuBuffer Bones;
+        public InstanceBuffer Instances;
         public DescriptorSet Set;
     }
 
@@ -182,7 +183,7 @@ public sealed unsafe class Renderer : IDisposable
         var poolSizes = stackalloc DescriptorPoolSize[]
         {
             new(DescriptorType.UniformBuffer, FramesInFlight),
-            new(DescriptorType.StorageBuffer, FramesInFlight),
+            new(DescriptorType.StorageBuffer, 2 * FramesInFlight),
             new(DescriptorType.CombinedImageSampler, 23),
         };
         var poolInfo = new DescriptorPoolCreateInfo
@@ -534,6 +535,7 @@ public sealed unsafe class Renderer : IDisposable
             faceView.View = Matrix4x4.CreateLookAt(probe.Position, probe.Position + faces[face].Forward, faces[face].Up);
             bool castsShadow = WriteUniforms(frame.Uniforms, faceView, Matrix4x4.Identity, Vector2.Zero, 0, false, capturingProbe: true);
             WriteBones(frame, view.Bones);
+            ResetInstances(frame, visible.Length + (castsShadow ? shadowCasters.Length * _shadowCascades : 0));
 
             _api.ResetCommandPool(_context.Device, frame.CommandPool, 0).Check();
             var cmd = frame.CommandBuffer;
@@ -772,6 +774,7 @@ public sealed unsafe class Renderer : IDisposable
         _previousViewProjection = viewProjection;
         _frameNumber++;
         var (cameraCount, shadowCount) = SelectDraws(view, viewProjection, draws, castsShadow);
+        ResetInstances(frame, cameraCount + shadowCount);
 
         _api.ResetCommandPool(_context.Device, frame.CommandPool, 0).Check();
         var cmd = frame.CommandBuffer;
@@ -992,6 +995,7 @@ public sealed unsafe class Renderer : IDisposable
         {
             frame.Uniforms.Dispose();
             frame.Bones.Dispose();
+            frame.Instances.Dispose();
             _api.DestroySemaphore(_context.Device, frame.ImageAvailable, null);
             _api.DestroyFence(_context.Device, frame.InFlight, null);
             _api.DestroyCommandPool(_context.Device, frame.CommandPool, null);
@@ -1107,6 +1111,7 @@ public sealed unsafe class Renderer : IDisposable
         int particleCount = 0)
     {
         var targets = _gBuffer;
+        var instances = _frames[_frameIndex].Instances;
         var extent = targets.Extent;
 
         // The lighting pass binds history even before there is any.
@@ -1126,7 +1131,7 @@ public sealed unsafe class Renderer : IDisposable
         for (int cascade = 0; cascade < _shadowCascades; cascade++)
         {
             var casters = shadowsSelected ? _shadowDraws[cascade].AsSpan(0, _shadowCounts[cascade]) : shadowCasters;
-            _shadowPass.Record(cmd, frameSet, casters, _meshes, cascade);
+            _shadowPass.Record(cmd, frameSet, casters, _meshes, instances, cascade);
         }
 
         _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
@@ -1144,7 +1149,7 @@ public sealed unsafe class Renderer : IDisposable
             ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, DepthStages, AccessFlags2.DepthStencilAttachmentReadBit, DepthStages,
             DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
 
-        _gBufferPass.Record(cmd, targets, frameSet, draws, _meshes);
+        _gBufferPass.Record(cmd, targets, frameSet, draws, _meshes, instances);
 
         _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
             ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, ColorStage, ColorWrite, SampledStage, SampledAccess);
@@ -1189,7 +1194,7 @@ public sealed unsafe class Renderer : IDisposable
         _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
             ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal, SampledStage, SampledAccess, DepthStages,
             AccessFlags2.DepthStencilAttachmentReadBit);
-        _transparentPass.Record(cmd, targets, frameSet, draws, _meshes);
+        _transparentPass.Record(cmd, targets, frameSet, draws, _meshes, instances);
 
         _api.EndColorTarget(cmd, targets.Hdr.Image);
         _gpuTimer.Mark(cmd);
@@ -1411,7 +1416,37 @@ public sealed unsafe class Renderer : IDisposable
         };
         _api.UpdateDescriptorSets(_context.Device, 2, writes, 0, null);
 
+        frame.Instances = new InstanceBuffer(_context);
+        WriteInstanceDescriptor(frame);
         return frame;
+    }
+
+    /// <summary>
+    /// Empties this frame's model matrices for a frame of at most <paramref name="copies"/>
+    /// draws, growing the buffer first if they won't fit. Must happen after the frame's
+    /// fence and before its commands are recorded, since they bind the descriptor.
+    /// </summary>
+    private void ResetInstances(in Frame frame, int copies)
+    {
+        if (frame.Instances.Reset(copies))
+        {
+            WriteInstanceDescriptor(frame);
+        }
+    }
+
+    private void WriteInstanceDescriptor(in Frame frame)
+    {
+        var info = new DescriptorBufferInfo(frame.Instances.Handle, 0, frame.Instances.Size);
+        var write = new WriteDescriptorSet
+        {
+            SType = StructureType.WriteDescriptorSet,
+            DstSet = frame.Set,
+            DstBinding = 2,
+            DescriptorCount = 1,
+            DescriptorType = DescriptorType.StorageBuffer,
+            PBufferInfo = &info,
+        };
+        _api.UpdateDescriptorSets(_context.Device, 1, &write, 0, null);
     }
 
     /// <summary>
@@ -1429,8 +1464,9 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>
-    /// The frame uniforms at binding 0 and the skin matrices at binding 1, as
-    /// Shaders/common.glsl and skinning.glsl read them.
+    /// The frame uniforms at binding 0, the skin matrices at binding 1 and each copy's
+    /// model matrix at binding 2, as Shaders/common.glsl, skinning.glsl and instances.glsl
+    /// read them.
     /// </summary>
     private DescriptorSetLayout CreateFrameSetLayout()
     {
@@ -1438,11 +1474,12 @@ public sealed unsafe class Renderer : IDisposable
         {
             new(0, DescriptorType.UniformBuffer, 1, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit),
             new(1, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit),
+            new(2, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit),
         };
         var info = new DescriptorSetLayoutCreateInfo
         {
             SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 2,
+            BindingCount = 3,
             PBindings = bindings,
         };
         _api.CreateDescriptorSetLayout(_context.Device, &info, null, out var layout).Check();

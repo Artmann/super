@@ -1,6 +1,5 @@
 // Must match DrawConstants in Passes/SceneDraws.cs.
 layout(push_constant) uniform Draw {
-    mat4 model;
     vec4 tint; // rgb multiplies the material's colour, for this draw only.
     vec4 ghost; // rgb is the colour of a ghost and a its opacity, or 0 for no ghost.
     int material;
