@@ -2,10 +2,13 @@
 
 Super is early. These are the known gaps, so you can plan around them.
 
-- **Particles and bone attachment.** Skeletal [animation](animation.md) works, but
-  `view.Bone`, for hanging a model on a joint, and `view.Particles` don't exist yet. See
+- **Bone attachment.** Skeletal [animation](animation.md) works, but `view.Bone`, for
+  hanging a model on a joint, doesn't exist yet. See
   [Drawing with views](views.md#planned). Until then, `animator.Joint` gives a joint's
   place for drawing a model there by hand.
+- **More from particles.** [Particles](views.md#particles) are soft puffs for dust and
+  smoke. There are no textured, glowing or stretched sparks yet, and they cast no
+  shadow.
 - **Level of detail.** Every model is drawn at full detail however far away it is, so
   dense forests of high-poly trees are slow.
 - **Film effects.** [Cutscenes](cutscenes.md) cut between shots, but there's no depth

@@ -23,6 +23,8 @@ What exists today:
 - A generated environment, baked by a compute shader into cube maps, that gives
   surfaces their reflections and soft fill light
 - A forward pass that blends glass over the lit image
+- A particle pass of soft, lit puffs that fade into surfaces, passed in as
+  `FrameView.Particles`
 - Car paint clearcoat, and surfaces that give off light
 - Screen-space reflections and box-corrected reflection probes
 - Temporal anti-aliasing, ambient occlusion and bloom

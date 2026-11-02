@@ -12,6 +12,7 @@ What it does for every game, with no setup:
 - Screen-space reflections and box-corrected reflection probes
 - Temporal anti-aliasing, ambient occlusion and bloom
 - Glass, car paint clearcoat and surfaces that glow
+- Soft, lit [particles](views.md#particles) for dust and smoke
 - Culling and simpler versions of distant models, for the camera and for shadows
 - ACES filmic tonemapping, colour grading, sharpening, vignette, grain and dithering
 

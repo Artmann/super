@@ -421,6 +421,7 @@ internal sealed class SceneRenderer : IDisposable
             Post = view.Post,
             Water = view.WaterSettings,
             Overlay = view.Ui is { } ui ? ui.Quads : [],
+            Particles = view.DrawnParticles,
         };
     }
 

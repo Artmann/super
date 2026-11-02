@@ -362,6 +362,39 @@ public ref struct FrameView
 
     /// <summary>Flat rectangles drawn last, over everything, in order. Needs <see cref="Renderer.SetOverlayAtlas"/>.</summary>
     public ReadOnlySpan<OverlayQuad> Overlay;
+
+    /// <summary>
+    /// Soft puffs of dust, smoke or spray, blended over the lit scene in any order. At most
+    /// <see cref="Particle.MaxPerFrame"/> are drawn; the rest are dropped.
+    /// </summary>
+    public ReadOnlySpan<Particle> Particles;
+}
+
+/// <summary>
+/// A soft, see-through puff that always faces the camera, such as one wisp of dust or
+/// smoke. It's lit by the sun and the sky, falls into shadow, fades into haze, and melts
+/// into whatever it touches instead of showing a hard edge where it meets the ground.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct Particle
+{
+    /// <summary>How many fit in one frame. Past this they aren't drawn.</summary>
+    public const int MaxPerFrame = 32768;
+
+    /// <summary>The middle of the puff.</summary>
+    public Vector3 Position;
+
+    /// <summary>How wide the puff is, in metres.</summary>
+    public float Size;
+
+    /// <summary>Linear red, green and blue from 0 to 1, and how solid its middle is from 0 to 1.</summary>
+    public Vector4 Color;
+
+    /// <summary>Turns the puff on the screen, in radians.</summary>
+    public float Rotation;
+
+    /// <summary>Picks the lumpy outline of the puff. Any number; nearby values look alike.</summary>
+    public float Variant;
 }
 
 /// <summary>

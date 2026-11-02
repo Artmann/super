@@ -96,6 +96,9 @@ public sealed unsafe class Renderer : IDisposable
     private readonly FullscreenPass _aoBlurPass;
     private readonly FullscreenPass _lightingPass;
     private readonly TransparentPass _transparentPass;
+    private readonly ParticlePass _particlePass;
+    private ParticlePass.CameraConstants _particleCamera;
+    private int _particleCount;
     private readonly FullscreenPass _taaPass;
     private readonly BloomPass _bloomPass;
     private readonly FullscreenPass _tonemapPass;
@@ -216,6 +219,7 @@ public sealed unsafe class Renderer : IDisposable
         _finishSet = AllocateSet(_oneTextureSetLayout);
         _overlaySet = AllocateSet(_oneTextureSetLayout);
         _bloomPass = new BloomPass(_context, _linearSampler, _gBuffer.Resolved.View, _gBuffer.Extent);
+        _particlePass = new ParticlePass(_context, _frameSetLayout, FramesInFlight);
         WriteTargetDescriptors();
 
         _gBufferPass = new GBufferPass(_context, _frameSetLayout, _resources);
@@ -779,6 +783,7 @@ public sealed unsafe class Renderer : IDisposable
         _api.BeginCommandBuffer(cmd, &beginInfo).Check();
         _uploads.Record(cmd, _destroyed[_frameIndex].Others);
         int overlayQuads = _overlayAtlas is null ? 0 : _overlayPass.Upload(_frameIndex, view.Overlay);
+        UploadParticles(view);
         if (timed)
         {
             _gpuTimer.Begin(cmd, _frameIndex);
@@ -888,6 +893,25 @@ public sealed unsafe class Renderer : IDisposable
         return (cameraCount, shadowCount);
     }
 
+    /// <summary>
+    /// Sorts this frame's particles into their buffer and keeps the camera's axes, which
+    /// turn each one to face the screen. The view matrix holds them in its columns.
+    /// </summary>
+    private void UploadParticles(in FrameView view)
+    {
+        ref readonly var m = ref view.View;
+        var right = new Vector3(m.M11, m.M21, m.M31);
+        var up = new Vector3(m.M12, m.M22, m.M32);
+        var forward = -new Vector3(m.M13, m.M23, m.M33);
+        _particleCamera = new ParticlePass.CameraConstants
+        {
+            Right = new Vector4(right, 0f),
+            Up = new Vector4(up, 0f),
+            Forward = new Vector4(forward, 0f),
+        };
+        _particleCount = _particlePass.Upload(_frameIndex, view.Particles, view.CameraPosition, forward);
+    }
+
     private static long CountTriangles(ReadOnlySpan<DrawItem> draws)
     {
         long indices = 0;
@@ -949,6 +973,7 @@ public sealed unsafe class Renderer : IDisposable
         _bloomPass.Dispose();
         _taaPass.Dispose();
         _transparentPass.Dispose();
+        _particlePass.Dispose();
         _lightingPass.Dispose();
         _aoBlurPass.Dispose();
         _aoPass.Dispose();
@@ -997,7 +1022,7 @@ public sealed unsafe class Renderer : IDisposable
         var extent = targets.Extent;
         var swapchainImage = _swapchain.Images[imageIndex];
 
-        RecordScene(cmd, frameSet, draws, [], shadowsSelected: true);
+        RecordScene(cmd, frameSet, draws, [], shadowsSelected: true, _particleCount);
 
         ReadOnlySpan<DescriptorSet> taaSets = [frameSet, _taaSet];
         _api.BeginColorTarget(cmd, targets.Resolved.Image);
@@ -1071,13 +1096,15 @@ public sealed unsafe class Renderer : IDisposable
     /// Draws and lights the scene into the HDR target, for frames and probe captures
     /// alike. A frame's shadow draws were picked per cascade by <see cref="SelectDraws"/>;
     /// a probe capture draws <paramref name="shadowCasters"/> into every cascade.
+    /// Probes leave particles out, since a puff of dust shouldn't stay in a reflection.
     /// </summary>
     private void RecordScene(
         CommandBuffer cmd,
         DescriptorSet frameSet,
         ReadOnlySpan<DrawItem> draws,
         ReadOnlySpan<DrawItem> shadowCasters,
-        bool shadowsSelected)
+        bool shadowsSelected,
+        int particleCount = 0)
     {
         var targets = _gBuffer;
         var extent = targets.Extent;
@@ -1145,6 +1172,14 @@ public sealed unsafe class Renderer : IDisposable
 
         ReadOnlySpan<DescriptorSet> lightingSets = [frameSet, _lightingSet];
         _lightingPass.Record(cmd, targets.Hdr.View, extent, lightingSets);
+        _gpuTimer.Mark(cmd);
+
+        // Particles blend over the lit image, reading depth as a texture to melt into
+        // surfaces, so depth stays readable by shaders until glass needs it for testing.
+        _api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
+            ColorWrite | AccessFlags2.ColorAttachmentReadBit);
+        _particlePass.Record(cmd, targets, frameSet, _frameIndex, particleCount, _particleCamera);
         _gpuTimer.Mark(cmd);
 
         // Glass blends over the lit image and is hidden by whatever stands in front of it.
@@ -1473,6 +1508,13 @@ public sealed unsafe class Renderer : IDisposable
             new(_linearSampler, _gBuffer.History.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_environment.Sampler, _probes.View, ImageLayout.ShaderReadOnlyOptimal),
         ]);
+
+        // Particles read depth after lighting, before glass moves it into a testing layout.
+        _particlePass.WriteTargets(
+            depth,
+            new(_shadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_environment.Sampler, _environment.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
+            new(_environment.Sampler, _environment.Reflections, ImageLayout.ShaderReadOnlyOptimal));
 
         // Glass has just used depth for testing, and it stays in that layout.
         WriteImages(_taaSet,

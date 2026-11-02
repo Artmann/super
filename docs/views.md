@@ -156,23 +156,91 @@ view.Model(FoxKey, _animator, transform);
 
 [Animation](animation.md) covers importing rigs, states, actions and blends.
 
+## Particles
+
+Dust, smoke and spray are soft, see-through puffs. Describe the burst once as a
+`ParticleEffect`, then draw it each frame with how long ago it started. Your `Update`
+saves the tick when the tree falls; the view does the rest:
+
+```csharp
+static readonly ParticleEffect Dust = new()
+{
+    Count = 40,
+    Lifetime = 1.6f,
+    EmitSeconds = 0.15f,
+    Spawn = ParticleSpawn.Line(),
+    Outward = 2.2f,                        // billow out sideways off the line
+    Velocity = new Vector3(0f, 0.6f, 0f),  // and up a little
+    Drag = 2.5f,
+    Gravity = new Vector3(0f, 0.25f, 0f),  // warm dust drifts upward
+    StartSize = 0.5f,
+    EndSize = 1.8f,
+    StartColor = new Vector3(0.55f, 0.42f, 0.28f),
+    EndColor = new Vector3(0.5f, 0.45f, 0.38f),
+    Opacity = 0.6f,
+};
+
+if (tree.FellAt is { } fellAt)
+{
+    float age = view.SecondsSince(fellAt);
+    view.Particles(tree.Id, Dust, tree.Foot, tree.Crown, age - FallSeconds);
+}
+```
+
+Nothing is simulated from frame to frame. Every particle's place, size and colour are
+worked out from the age and the key, so pausing, loading, slow motion and `--record`
+all show exactly the same dust. Use a different key for each burst, such as the tree's
+ID, or every tree throws up the same pattern. Before the age is 0 nothing is drawn, so
+you can pass a negative age to start a burst later, and once the age passes
+`effect.Duration` the call costs nothing.
+
+There are three ways to place a burst:
+
+| Call | Use it for |
+| --- | --- |
+| `view.Particles(key, effect, position, age)` | A puff at one spot |
+| `view.Particles(key, effect, transform, age)` | A burst turned, tilted or stretched |
+| `view.Particles(key, effect, from, to, age)` | Dust along a line, such as where a tree lands. A one-metre `Line` spawn covers it end to end |
+
+Spawn shapes and speeds are in the effect's own space and follow the transform;
+gravity, sizes and colours stay in the world, so dust still rises and keeps its size
+however the burst is turned.
+
+| Setting | What it does | Default |
+| --- | --- | --- |
+| `Count` | Particles in the burst, 1 to 32,768 | 24 |
+| `Lifetime`, `LifetimeSpread` | Seconds each lives, and how much that varies as a fraction | 1.5, 0.3 |
+| `EmitSeconds` | Spreads births over this long; 0 is one burst | 0 |
+| `Spawn` | `ParticleSpawn.Point`, `Line(length)`, `Box(size)` or `Disc(radius)` | Point |
+| `Velocity` | A speed every particle starts with, in metres per second | none |
+| `Outward` | Speed out sideways from the middle of the shape | 0 |
+| `Scatter` | Most speed in a random direction | 0 |
+| `Drag` | How fast the air slows them, per second | 0 |
+| `Gravity` | A pull in the world; a positive y rises | none |
+| `StartSize`, `EndSize`, `SizeSpread` | Width in metres, growing fast then slowly | 0.3, 0.8, 0.3 |
+| `StartColor`, `EndColor` | Linear colour like a model's, lit by the sun and sky | grey |
+| `Opacity`, `FadeIn`, `FadeOut` | How solid at most, and the parts of life spent fading | 0.5, 0.1, 0.6 |
+| `Spin` | Fastest turn either way, in radians per second | 0.5 |
+| `Seed` | Changes the pattern for every key | 0 |
+
+Setting something out of range throws with the reason. Effects are records, so
+`Dust with { Count = 12, Spawn = ParticleSpawn.Disc(0.3f) }` makes a variation.
+
+Particles are lit by the sun and sky, shaded by shadows, fade into haze and melt
+softly into the ground and anything they touch. They cast no shadow, and underwater
+they fade with distance but miss the shafts of light. Glass drawn in front of them
+covers them correctly, but glass behind a puff also covers it. `Cached` keeps only
+models, so draw particles outside it. A frame holds at most 32,768 particles; more
+are dropped. The `Dust` example drops trees in a clearing.
+
 ## Planned
 
-Attaching models to bones and particles aren't built yet. Until then,
-`animator.Joint(name)` times the character's transform places a model on a bone by
-hand; see [Animation](animation.md#joints). This is the intended shape:
+Attaching models to bones isn't built yet. Until then, `animator.Joint(name)` times the
+character's transform places a model on a bone by hand; see
+[Animation](animation.md#joints). This is the intended shape:
 
 ```csharp
 // Planned: not in Super yet.
 var hand = view.Bone(colonist.Id, "hand_r");
 view.Model(colonist.AxeId, axe, hand);
-
-if (tree.FellAt is { } fellAt)
-{
-    view.Particles(tree.Id, dust, tree.Position, age: view.SecondsSince(fellAt));
-}
 ```
-
-Particles will be worked out from when they started rather than fired and forgotten, so
-pausing and loading stay correct. `view.SecondsSince` already works for anything that
-plays out from a moment in time.

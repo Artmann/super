@@ -38,6 +38,7 @@ public sealed class View
 {
     private readonly List<ModelDraw> _models = [];
     private readonly List<SunLight> _suns = [];
+    private readonly List<Particle> _particles = [];
     private readonly ViewMemory _memory = new();
     private long _frame;
     private long _tick;
@@ -61,6 +62,9 @@ public sealed class View
 
     /// <summary>Everything drawn so far this frame.</summary>
     public ReadOnlySpan<ModelDraw> Drawn => CollectionsMarshal.AsSpan(_models);
+
+    /// <summary>Every particle drawn so far this frame, in no particular order.</summary>
+    public ReadOnlySpan<Particle> DrawnParticles => CollectionsMarshal.AsSpan(_particles);
 
     /// <summary>How far the display is between the last tick and the next, from 0 to 1.</summary>
     public float Blend { get; private set; }
@@ -130,6 +134,57 @@ public sealed class View
         }
 
         _models.Add(new ModelDraw(key, model, transform, color, swim, pose, pose is null ? 0f : Blend * _tickSeconds * _timeScale));
+    }
+
+    /// <summary>
+    /// Draws a burst of soft particles, such as dust or smoke, at a place in the world.
+    /// The age is how many seconds ago it started, usually
+    /// <c>view.SecondsSince(startTick)</c>; each particle is worked out from the age and
+    /// the key alone, so the same key and age always look the same, paused, loaded or
+    /// recorded. Use a different key for each burst so they don't look alike. Before the
+    /// age is 0 or after <see cref="ParticleEffect.Duration"/> nothing is drawn.
+    /// </summary>
+    public void Particles(int key, ParticleEffect effect, Vector3 position, float age) =>
+        Particles(key, effect, Matrix4x4.CreateTranslation(position), age);
+
+    /// <summary>
+    /// Draws a burst of particles moved, turned and stretched by a transform. The spawn
+    /// shape and speeds go through it; gravity and sizes stay in the world.
+    /// </summary>
+    public void Particles(int key, ParticleEffect effect, Matrix4x4 transform, float age)
+    {
+        ArgumentNullException.ThrowIfNull(effect);
+        effect.Emit(key, age, transform, _particles);
+    }
+
+    /// <summary>
+    /// Draws a burst of particles laid along a line, such as dust where a fallen tree hit
+    /// the ground. The effect's x axis runs from one end to the other, scaled so a
+    /// <see cref="ParticleSpawn.Line"/> one metre long covers it exactly, and its y axis
+    /// stays upward. Speeds keep their size.
+    /// </summary>
+    public void Particles(int key, ParticleEffect effect, Vector3 from, Vector3 to, float age)
+    {
+        var along = to - from;
+        float length = along.Length();
+        if (length < 1e-4f)
+        {
+            Particles(key, effect, (from + to) * 0.5f, age);
+            return;
+        }
+
+        var x = along / length;
+        var up = MathF.Abs(x.Y) > 0.99f ? Vector3.UnitX : Vector3.UnitY;
+        var z = Vector3.Normalize(Vector3.Cross(x, up));
+        var y = Vector3.Cross(z, x);
+        var middle = (from + to) * 0.5f;
+        var transform = new Matrix4x4(
+            x.X, x.Y, x.Z, 0f,
+            y.X, y.Y, y.Z, 0f,
+            z.X, z.Y, z.Z, 0f,
+            middle.X, middle.Y, middle.Z, 1f);
+        ArgumentNullException.ThrowIfNull(effect);
+        effect.Emit(key, age, transform, _particles, length);
     }
 
     /// <summary>
@@ -276,6 +331,7 @@ public sealed class View
         Blend = blend;
         _models.Clear();
         _suns.Clear();
+        _particles.Clear();
         WaterSettings = default;
         SkySettings = null;
         Post = new PostSettings { Vignette = 0.3f, Sharpen = 0.4f };

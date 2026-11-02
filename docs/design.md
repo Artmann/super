@@ -59,9 +59,10 @@ outcome. Repeatability is promised for the same build on the same kind of CPU, b
 floating point results can differ between CPU types.
 
 Rendition needs work to support this: keys passed through to per-object motion
-vectors, a particle pass, and a check of how it copes with many thousands of draws.
-Skeletal animation is in: the importer keeps skeletons and clips, and the vertex shader
-skins.
+vectors, and a check of how it copes with many thousands of draws. Skeletal animation
+is in: the importer keeps skeletons and clips, and the vertex shader skins. Particles
+are in too: a `ParticleEffect` turns a key and an age into particles with no state
+from frame to frame; see [Particles](#particles).
 
 # Rendition design
 
@@ -102,6 +103,7 @@ GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive
 AoPass        fullscreen       -> ambient occlusion from depth and normals
 AoBlurPass    fullscreen       -> the same with the grain averaged away
 LightingPass  fullscreen       -> HDR colour (Cook-Torrance GGX PBR, traced reflections, probes)
+ParticlePass  camera squares   -> soft puffs blended over HDR colour, back to front
 TransparentPass  glass         -> blended over HDR colour, forward shaded
 TaaPass       fullscreen       -> this frame blended with history, then copied to history
 BloomPass     fullscreen x 9   -> glow, by shrinking and regrowing the image
@@ -219,6 +221,34 @@ shaded as it's drawn, after lighting, and tests against the depth of the opaque 
 without writing to it. Its reflection stays at full strength however clear the glass
 is, and only its tint is scaled by opacity. The colour is premultiplied so the
 blend can express that.
+
+## Particles
+
+A particle is a plain 40-byte struct: middle, width, linear colour and opacity, a turn
+and a variant that picks its lumpy outline. `FrameView.Particles` hands the renderer
+up to `Particle.MaxPerFrame` (32,768) a frame; more are dropped. `ParticlePass` sorts
+them furthest first along the view direction on the CPU, into the frame's own
+host-visible vertex buffer, with scratch arrays made once, so nothing allocates. Each
+particle is one instance of a six-vertex square facing the camera.
+
+The pass runs after lighting and before glass, so glass in front of dust still covers
+it. It has no depth attachment. The fragment shader reads the depth buffer itself and
+thins a puff over half its width as it nears the surface behind, so dust melts into the
+ground instead of showing a hard line where it crosses it. It also thins puffs the
+camera is about to pass through.
+
+Lighting is cheap but matches the scene. Each corner of the square looks up the
+shadow map in the vertex shader, five filtered taps, so a puff is shaded where a tree's
+shadow falls on it without any per-pixel shadow cost. The fragment shader lights a
+pseudo-sphere normal, bent toward the camera, with the sky's irradiance and wrapped
+sunlight, so a puff is brighter on its sunny side but never dark like a solid ball.
+Haze and the underwater fade are the same as for surfaces. Colour is premultiplied.
+
+On the Super side, `ParticleEffect.Emit` works out every particle from the key, the
+effect's seed, the particle's number and the age, through an integer hash. Motion with
+drag has a closed form: travel is `v(1 - e^-kt)/k` and gravity adds `g(t - that)/k`,
+so there's no stepping. Spawn shapes and speeds go through the call's transform;
+gravity and sizes stay in the world.
 
 ## Custom shaders
 
@@ -338,6 +368,11 @@ Anything larger than a block gets its own allocation.
 - The table holds at most 1024 textures, 1024 materials and 256 texture arrays.
 - Transparent draws aren't sorted, so overlapping glass can blend in the wrong order.
   Glass also casts no shadow and shows no refraction.
+- Particles cast no shadow, don't show in probes or reflections, and give no motion
+  vectors, so fast puffs can smear slightly under temporal anti-aliasing. Underwater
+  they fade with distance but miss the shafts of light. Particles and glass are sorted
+  separately, so a puff behind glass is drawn under it correctly but a puff in front of
+  glass is covered by it.
 - The car's surface map channels are an educated guess, because the model has no
   documentation. The paint's metalness is set to 0.2 by eye. Its normal maps were
   measured: they use the green direction the renderer expects.
