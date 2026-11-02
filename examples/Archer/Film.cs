@@ -11,7 +11,7 @@ namespace Archer;
 public static class Film
 {
     /// <summary>How high Erika stands on the boulder.</summary>
-    public const float RockHeight = 1.32f;
+    public const float RockHeight = 1.23f;
 
     /// <summary>Where her dive off the boulder ends, more or less.</summary>
     public static readonly Vector3 DiveEnd = new(-3.6f, 0f, 11.4f);
@@ -34,35 +34,35 @@ public static class Film
 
         return new Cutscene()
             // 1. Golden hour. The camera swoops down and round to her face as she looks about.
-            .Then(Shot.Custom(3.6f, time => Swing(erika().Position, new Spot(1.1f, 10f, 2.6f), new Spot(-0.7f, 2.4f, 1.5f), time.Amount, Chest, 0.75f, 0.6f), Easing.InOut))
-            .At(0.2f, () => erika().Animator.Play(Move.Look))
+            .Then(Shot.Custom(2f, time => Swing(erika().Position, new Spot(1.1f, 10f, 2.6f), new Spot(-0.7f, 2.4f, 1.5f), time.Amount, Chest, 0.75f, 0.6f), Easing.InOut))
+            .At(0.1f, () => erika().Animator.Play(Move.Look))
 
             // 2. Over her shoulder, pushing in, as she draws on the first dummy.
-            .Then(Shot.Move(2.4f,
+            .Then(Shot.Move(1.5f,
                 new Camera(new Vector3(-0.8f, 1.65f, -1.7f), dummies[0].Target, 0.6f),
                 new Camera(new Vector3(-0.55f, 1.6f, -0.95f), dummies[0].Target, 0.42f)))
-            .At(3.4f, () => Draw(erika()))
+            .At(2.1f, () => Draw(erika()))
 
             // 3. She lets go, the world slows, and the camera rides the arrow in.
-            .At(5.6f, () => Shoot(game, dummies[0]))
-            .Slow(5.45f, 7.4f, 0.3f, ramp: 0.3f)
-            .Then(Shot.Custom(2f, _ => FollowArrow(game)))
+            .At(3.35f, () => Shoot(game, dummies[0]))
+            .Slow(3.2f, 4.75f, 0.3f, ramp: 0.25f)
+            .Then(Shot.Custom(1.5f, _ => FollowArrow(game)))
 
             // 4. A dodge to her right, then a sprint for the boulder, tracked from the side.
-            .At(8f, () =>
+            .At(5f, () =>
             {
                 erika().Animator.Play(Move.Dodge);
                 erika().Animator.Set(Pose.Idle);
             })
-            .At(8.8f, () =>
+            .At(5.7f, () =>
             {
                 erika().Face(Clearing.Rock);
                 erika().Animator.Set(Pose.Run);
             })
-            .Then(Shot.Track(1.9f, () => erika().Position, new Vector3(3f, 1.4f, 2.8f), new Vector3(3.6f, 1.1f, 0.8f), new Vector3(0f, 1f, 0f), 0.75f))
+            .Then(Shot.Track(1.8f, () => erika().Position, new Vector3(3f, 1.4f, 2.8f), new Vector3(3.6f, 1.1f, 0.8f), new Vector3(0f, 1f, 0f), 0.75f))
 
             // 5. Up onto the boulder, from low down.
-            .At(9.9f, () =>
+            .At(6.8f, () =>
             {
                 var her = erika();
                 her.Animator.Play(Move.Jump);
@@ -74,51 +74,51 @@ public static class Film
                     her.Face(dummies[1].Position);
                 });
             })
-            .Then(Shot.Hold(1.4f, new Camera(Clearing.Rock + new Vector3(2.6f, 0.25f, 2.8f), Clearing.Rock + new Vector3(0.3f, 1.7f, -0.6f), 0.85f)))
+            .Then(Shot.Hold(1f, new Camera(Clearing.Rock + new Vector3(2.6f, 0.25f, 2.8f), Clearing.Rock + new Vector3(0.3f, 1.7f, -0.6f), 0.85f)))
 
             // 6. On the rock, in slow motion, the camera circles her as she shoots the second.
-            .At(11.5f, () => Draw(erika()))
-            .Slow(12.4f, 14.6f, 0.25f, ramp: 0.35f)
-            .At(13.3f, () => Shoot(game, dummies[1]))
-            .Then(Shot.Orbit(2.9f, () => erika().Position, radius: 3.4f, height: 0.3f,
+            .At(7.7f, () => Draw(erika()))
+            .Slow(8.4f, 10.2f, 0.25f, ramp: 0.3f)
+            .At(8.9f, () => Shoot(game, dummies[1]))
+            .Then(Shot.Orbit(2.3f, () => erika().Position, radius: 3.4f, height: 0.3f,
                 fromAngle: Toward(rockTop, dummies[1].Position) + 2.5f,
                 toAngle: Toward(rockTop, dummies[1].Position) + 0.9f,
                 look: new Vector3(0f, 1.4f, 0f), fieldOfView: 0.6f))
-            .Then(Shot.Hold(1.2f, Beside(dummies[1], rockTop, 2.2f, 1.3f)))
+            .Then(Shot.Hold(0.7f, Beside(dummies[1], rockTop, 2.2f, 1.3f)))
 
             // 7. A dive off the rock into a roll, seen wide.
-            .At(15.4f, () =>
+            .At(10.7f, () =>
             {
                 erika().Animator.Set(Pose.Idle);
                 erika().Face(DiveEnd);
             })
-            .At(15.6f, () =>
+            .At(10.85f, () =>
             {
                 erika().Animator.Play(Move.Dive);
                 erika().DropTo(0f, 0.5f);
             })
-            .At(17.1f, () =>
+            .At(12.1f, () =>
             {
                 erika().Face(dummies[2].Position);
                 Draw(erika());
             })
-            .Then(Shot.Track(2.6f, () => erika().Position, new Vector3(4.5f, 2.4f, -1.5f), new Vector3(4.2f, 1.4f, 1.8f), new Vector3(0f, 0.8f, 0f), 0.7f))
+            .Then(Shot.Track(2.2f, () => erika().Position, new Vector3(4.5f, 2.4f, -1.5f), new Vector3(4.2f, 1.4f, 1.8f), new Vector3(0f, 0.8f, 0f), 0.7f))
 
             // 8. Two quick shots at the third dummy, cut fast.
-            .At(18.1f, () => Shoot(game, dummies[2]))
-            .At(19f, () => Shoot(game, dummies[2]))
-            .Then(Shot.Custom(0.35f, _ => OverShoulder(erika(), dummies[2])))
-            .Then(Shot.Custom(0.55f, _ => Beside(dummies[2], erika().Position, 1.8f, 1.25f)))
-            .Then(Shot.Custom(0.3f, _ => InFront(erika(), dummies[2])))
-            .Then(Shot.Custom(0.7f, _ => Beside(dummies[2], erika().Position, -1.6f, 1f)))
+            .At(13.1f, () => Shoot(game, dummies[2]))
+            .At(13.8f, () => Shoot(game, dummies[2]))
+            .Then(Shot.Custom(0.3f, _ => OverShoulder(erika(), dummies[2])))
+            .Then(Shot.Custom(0.45f, _ => Beside(dummies[2], erika().Position, 1.8f, 1.25f)))
+            .Then(Shot.Custom(0.25f, _ => InFront(erika(), dummies[2])))
+            .Then(Shot.Custom(0.6f, _ => Beside(dummies[2], erika().Position, -1.6f, 1f)))
 
             // 9. Pleased with herself. The camera pulls back and up over the clearing.
-            .At(20f, () =>
+            .At(14.7f, () =>
             {
                 erika().Animator.Play(Move.Cocky);
                 erika().Animator.Set(Pose.Idle);
             })
-            .Then(Shot.Custom(5.6f, time =>
+            .Then(Shot.Custom(2.8f, time =>
             {
                 var at = erika().Position;
                 var near = InFront(erika(), dummies[2]).Position - at;

@@ -1,0 +1,6 @@
+{
+  "node": "dandelion_01_b",
+  "materials": [
+    { "match": "dandelion_01", "alpha": "dandelion_01_alpha_1k.png", "alphaCutoff": 0.5, "foliage": true }
+  ]
+}

@@ -37,12 +37,19 @@ The low-poly coral pack is not used, because its author and license are unknown.
   the files themselves.
 - From [Poly Haven](https://polyhaven.com), all under
   [CC0](https://creativecommons.org/publicdomain/zero/1.0/):
-  - boulder_01 and shrub_02 by Rico Cilliers;
-  - dead_tree_trunk and tree_stump_01 by Rob Tuytel;
-  - fern_02, grass_medium_01 and fir_sapling_medium by Rob Tuytel and Rico Cilliers;
-  - the grass_ground texture by Charlotte Baglioni.
-- The straw dummy and the arrow in `examples/Archer/models` were made for this example
-  in Blender, and are under the same MIT license as the code.
+  - shrub_02 and dry_branches_medium_01 by Rico Cilliers;
+  - dead_tree_trunk, tree_stump_01 and tree_stump_02 by Rob Tuytel;
+  - fern_02, grass_medium_01, fir_sapling_medium, dandelion_01 and nettle_plant by Rob
+    Tuytel and Rico Cilliers;
+  - periwinkle_plant by Amal Kumar;
+  - rock_moss_set_01 by Kless Gyzen;
+  - the grass_ground texture by Charlotte Baglioni;
+  - the forrest_ground_03, forest_leaves_04 and brown_planks_04 textures by Rob Tuytel;
+  - the thatch_roof_angled texture by Dimitrios Savva and Rob Tuytel;
+  - the hessian_230 texture by colormass and Rico Cilliers.
+- `examples/Archer/models/build.py` builds the firs, the straw dummy and the arrow in
+  Blender from those textures. The script and what it makes are under the same MIT
+  license as the code.
 
 ## Rendition sample
 

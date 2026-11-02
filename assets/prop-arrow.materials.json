@@ -1,0 +1,5 @@
+{
+  "materials": [
+    { "match": "feather", "twoSided": true }
+  ]
+}

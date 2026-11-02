@@ -1,0 +1,6 @@
+{
+  "node": "periwinkle_plant_02",
+  "materials": [
+    { "match": "periwinkle_plant", "alpha": "periwinkle_plant_opacity_1k.png", "alphaCutoff": 0.5, "foliage": true }
+  ]
+}

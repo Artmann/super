@@ -78,23 +78,24 @@ public sealed class ArcherGame(Content content, Director director, Input input) 
     {
         // The director holds the camera while the film plays; this is where it leaves off.
         view.Camera(Film.End(Erika.Position));
-        view.Sun(new Vector3(0.8f, 0.3f, -0.45f), new Vector3(6.2f, 4.1f, 2.4f));
-        view.Sun(new Vector3(-0.5f, 0.7f, 0.5f), new Vector3(0.22f, 0.3f, 0.45f));
+        view.Sun(new Vector3(0.9f, 0.24f, 0.3f), new Vector3(6.6f, 4.0f, 2.0f));
+        view.Sun(new Vector3(-0.6f, 0.6f, -0.4f), new Vector3(0.24f, 0.32f, 0.5f));
         view.Sky(new SkySettings
         {
-            Zenith = new Vector3(0.18f, 0.36f, 0.85f),
-            Horizon = new Vector3(1f, 0.62f, 0.32f),
-            Ground = new Vector3(0.22f, 0.2f, 0.13f),
+            Zenith = new Vector3(0.12f, 0.28f, 0.72f),
+            Horizon = new Vector3(1f, 0.56f, 0.28f),
+            Ground = new Vector3(0.16f, 0.15f, 0.1f),
             Brightness = 0.9f,
-            HazeStart = 25f,
-            HazeEnd = 110f,
+            HazeStart = 45f,
+            HazeEnd = 150f,
         });
         view.Shadows(14f, cascades: 3);
         view.Finish(new PostSettings
         {
-            Contrast = 0.12f,
-            Saturation = 0.08f,
-            Vignette = 0.35f,
+            Exposure = 0.2f,
+            Contrast = 0.18f,
+            Saturation = 0.05f,
+            Vignette = 0.4f,
             Sharpen = 0.3f,
             Grain = 0.012f,
         });

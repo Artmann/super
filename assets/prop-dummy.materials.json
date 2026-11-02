@@ -1,0 +1,7 @@
+{
+  "materials": [
+    { "match": "straw", "twoSided": true },
+    { "match": "burlap", "roughness": 0.95 },
+    { "match": "target", "roughness": 0.95 }
+  ]
+}

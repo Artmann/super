@@ -1,0 +1,6 @@
+{
+  "node": "nettle_plant_tall_b",
+  "materials": [
+    { "match": "nettle_plant", "alpha": "nettle_plant_alpha_1k.png", "alphaCutoff": 0.5, "foliage": true }
+  ]
+}

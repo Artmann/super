@@ -7,7 +7,7 @@ the camera and the time scale, and when it ends both go back to the game.
 
 The game keeps running underneath. Characters animate, arrows fly and dummies wobble
 in `Update` as they always do; the cutscene only says where the camera is and nudges
-the story along. `examples/Archer` is a 26-second film made this way.
+the story along. `examples/Archer` is a 17-second film made this way.
 
 ```csharp
 public sealed class MyGame(Director director) : IGame
@@ -102,14 +102,14 @@ When the cutscene ends, the time scale goes back to what it was when it started.
 the same:
 
 ```
-dotnet run -c Release --project examples/Archer -- --record out/clearing.mp4 --seconds 26
+dotnet run -c Release --project examples/Archer -- --record out/clearing.mp4 --seconds 18
 ```
 
 To review a film quickly, record at a low frame rate and tile the frames into contact
 sheets, so one picture shows a few seconds:
 
 ```
-dotnet run -c Release --project examples/Archer -- --record out/draft.mp4 --seconds 26 --fps 5
+dotnet run -c Release --project examples/Archer -- --record out/draft.mp4 --seconds 18 --fps 5
 ffmpeg -i out/draft.mp4 -vf "scale=400:-1,tile=4x4" out/sheet-%02d.png
 ```
 
