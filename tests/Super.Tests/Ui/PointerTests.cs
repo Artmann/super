@@ -166,6 +166,31 @@ public sealed class PointerTests
     }
 
     [Fact]
+    public void Update_sees_what_a_click_changed_on_the_tick_of_the_click()
+    {
+        bool picked = false;
+        long seenOnTick = -1;
+        using var run = Run(_ => Corner(new Text("pick").Frame(100f, 100f).Background(Solid).OnClick(() => picked = true)));
+        run.Game.Watch = _ =>
+        {
+            if (picked && seenOnTick < 0)
+            {
+                seenOnTick = run.Game.Ticks;
+            }
+
+            return false;
+        };
+
+        MoveTo(run, OnBox);
+        Press(run);
+        long releasedOnTick = run.Game.Ticks + 1;
+        Release(run);
+
+        Assert.True(picked);
+        Assert.Equal(releasedOnTick, seenOnTick);
+    }
+
+    [Fact]
     public void Hover_and_press_show_in_the_frame_they_happen()
     {
         using var run = Run(_ => Corner(new Pressable(look => new Text(look.Pressed ? "held" : look.Hovered ? "over" : "idle").Frame(100f, 100f).Background(Solid))));

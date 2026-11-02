@@ -205,6 +205,22 @@ new Pressable(look => Slot(stack).Background(look.Hovered ? hover : fill))
     .DropTarget<int>(from => bag.Move(from, slotNumber));
 ```
 
+In a tick, the order is: clicks, then `Update`, then the next `Draw`. So `Update` already
+sees what a click changed on the tick it happened, and the press the button took never
+reaches `Input`, so `Pressed(MouseButton.Left)` stays false. When a button and a key do
+the same thing, have both call one method that does all of it, such as putting the other
+tool away, rather than comparing state against last tick in `Update` to find out what a
+click did:
+
+```csharp
+new Button("Harvest", () => tools.TakeOut(harvest));      // the button
+
+if (actions.Pressed(Control.Harvest))                     // the key, in Update
+{
+    tools.TakeOut(harvest);
+}
+```
+
 A press that moves off a button and lets go there doesn't click. While the mouse is over
 the interface, `Input.MouseOverUi` is true, so a game can leave those clicks alone. To
 have a panel let clicks through to the game, as a stats readout should, use
