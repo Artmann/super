@@ -1,7 +1,7 @@
 # Super design
 
 Super is a C# game engine used as a library, with no editor. Rendition is its
-renderer and stays a separate project. `README.md` describes the engine as a user
+renderer and stays a separate project. The other pages in `docs` describe the engine as a user
 would meet it. This file records the reasons behind it, then Rendition's design.
 
 ## Engine decisions

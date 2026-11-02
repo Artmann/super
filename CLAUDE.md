@@ -4,7 +4,7 @@
 
 ## Seeing the game
 
-To see a game, use `--screenshot` or `--record` from the README, or `GameCapture`
+To see a game, use `--screenshot` or `--record` from `docs/command-line.md`, or `GameCapture`
 from code. They use the renderer's own frames, so they stay clean and repeatable.
 Never capture the desktop: that can pick up the user's other windows.
 
