@@ -40,7 +40,7 @@ in parallel, because Super keeps no global state, so this fits in a pull request
 | `run.Invariant(name, game => ...)` | A rule checked after every tick |
 | `run.Input` | Plays keys, mouse, gamepad and actions |
 | `run.Drawn` | The models the last `Draw` described, with their keys and transforms |
-| `run.ShownText` | Every piece of text the interface showed, with where it landed. Text cut by a [line limit](interfaces.md#text-that-doesnt-fit) ends in "…" |
+| `run.ShownText` | Every piece of text the interface showed, with where it landed, its colour, size and weight. Text cut by a [line limit](interfaces.md#text-that-doesnt-fit) ends in "…" |
 | `run.FrameOf(id)` | Where the view given `.Id(id)` was laid out, so a test can [find it](#finding-a-view) |
 | `run.Play(script)` | Plays an [`InputScript`](command-line.md#scripted-input), such as one of the game's own, from the next tick |
 | `run.ScreenSize` | The size the interface was laid out for |
@@ -118,7 +118,15 @@ player would see:
 run.Ticks(1);
 var title = Assert.Single(run.ShownText, shown => shown.Text == "Rooms");
 Assert.True(title.Frame.Width < run.ScreenSize.X);
+Assert.True(title.Bold);
+
+var stone = Assert.Single(run.ShownText, shown => shown.Text == "Stone 6");
+Assert.Equal(ShortColor, stone.Color);                   // the store is short of stone
 ```
+
+Each `ShownText` has the `Color` it's drawn in, including colours it inherits from
+`.Foreground` around it, with any `.Opacity` around it folded into the alpha. `Size` is
+the font size in pixels, and `Bold` its weight.
 
 ### Finding a view
 

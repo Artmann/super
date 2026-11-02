@@ -19,7 +19,7 @@ public sealed record Text(string Content) : PrimitiveView
 
     internal override void Emit(UiNode node, UiTree tree)
     {
-        tree.AddText(tree.Atlas.Shown(Content, node.Style, node.Frame.Width), node.Frame);
+        tree.AddText(tree.Atlas.Shown(Content, node.Style, node.Frame.Width), node.Frame, node.Style);
         tree.Atlas.Draw(tree, Content, node.Style, node.Frame);
     }
 }

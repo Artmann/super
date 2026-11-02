@@ -4,8 +4,11 @@ using Rendition;
 
 namespace Super.Ui;
 
-/// <summary>A piece of text on screen, and where it landed.</summary>
-public readonly record struct ShownText(string Text, UiRect Frame);
+/// <summary>
+/// A piece of text on screen and where it landed, with its colour, size in pixels and
+/// weight. The colour is the one it's drawn in, faded by any <c>.Opacity</c> around it.
+/// </summary>
+public readonly record struct ShownText(string Text, UiRect Frame, Color Color, float Size, bool Bold);
 
 /// <summary>
 /// Keeps an interface on screen: it reconciles each new description, lays out what
@@ -192,11 +195,11 @@ public sealed class UiTree
         }
     }
 
-    internal void AddText(string text, UiRect frame)
+    internal void AddText(string text, UiRect frame, in TextStyle style)
     {
         if (_clip is not { } clip || clip.Rect.Overlaps(frame))
         {
-            _shownText.Add(new ShownText(text, frame));
+            _shownText.Add(new ShownText(text, frame, style.Color with { A = style.Color.A * _opacity }, style.Size, style.Bold));
         }
     }
 
