@@ -113,6 +113,10 @@ internal sealed class WavReader : ISampleReader, IClipFormat
         return frames;
     }
 
+    public void Dispose()
+    {
+    }
+
     public void Seek(long frame)
     {
         _frame = Math.Clamp(frame, 0, Frames);

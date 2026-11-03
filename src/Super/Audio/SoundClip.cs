@@ -1,7 +1,7 @@
 namespace Super;
 
 /// <summary>Reads interleaved float samples from a clip. A frame is one sample per channel.</summary>
-internal interface ISampleReader
+internal interface ISampleReader : IDisposable
 {
     /// <summary>Total frames in the clip.</summary>
     long Frames { get; }
@@ -43,11 +43,20 @@ internal sealed class SoundClip
     /// <summary>True when the clip is long and each Open makes a new decoder.</summary>
     public bool Streamed => _samples is null;
 
-    /// <summary>A reader at the start of the clip. A decoded clip reads from its shared array.</summary>
-    public ISampleReader Open()
+    /// <summary>
+    /// A reader at the start of the clip. A decoded clip reads from its shared array; pass a reader from an
+    /// earlier decoded Open to reuse it without allocating. A streamed clip always makes a new decoder.
+    /// </summary>
+    public ISampleReader Open(ISampleReader? reuse = null)
     {
         if (_samples is not null)
         {
+            if (reuse is ArrayReader reader)
+            {
+                reader.Rebind(_samples, Channels);
+                return reader;
+            }
+
             return new ArrayReader(_samples, Channels);
         }
 
@@ -68,7 +77,7 @@ internal sealed class SoundClip
 
         try
         {
-            ISampleReader first = open();
+            using ISampleReader first = open();
             var format = (IClipFormat)first;
             double seconds = (double)first.Frames / format.SampleRate;
             if (seconds > MaxDecodedSeconds)
@@ -110,16 +119,37 @@ internal sealed class SoundClip
         return filled == samples.Length ? samples : samples[..filled];
     }
 
-    private sealed class ArrayReader(float[] samples, int channels) : ISampleReader
+    private sealed class ArrayReader : ISampleReader
     {
+        private float[] _samples;
+        private int _channels;
         private long _frame;
 
-        public long Frames { get; } = samples.Length / channels;
+        public ArrayReader(float[] samples, int channels)
+        {
+            _samples = samples;
+            _channels = channels;
+            Frames = samples.Length / channels;
+        }
+
+        public long Frames { get; private set; }
+
+        public void Rebind(float[] samples, int channels)
+        {
+            _samples = samples;
+            _channels = channels;
+            Frames = samples.Length / channels;
+            _frame = 0;
+        }
+
+        public void Dispose()
+        {
+        }
 
         public int Read(Span<float> interleaved)
         {
-            int frames = (int)Math.Min(interleaved.Length / channels, Frames - _frame);
-            samples.AsSpan((int)(_frame * channels), frames * channels).CopyTo(interleaved);
+            int frames = (int)Math.Min(interleaved.Length / _channels, Frames - _frame);
+            _samples.AsSpan((int)(_frame * _channels), frames * _channels).CopyTo(interleaved);
             _frame += frames;
             return frames;
         }
