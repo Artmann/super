@@ -13,11 +13,15 @@ public readonly record struct PoseLayer(int Clip, float Time, float Speed, float
 /// <summary>
 /// Which clips a model is playing, at what time and how strongly. An <see cref="Animator"/>
 /// keeps one up to date; a view hands it to the renderer, which samples the clips and
-/// skins the model. It holds no joint data itself, so a headless game can look at it.
+/// skins the model. Its layers hold no joint data, so a headless game can look at it.
+/// A game can also set joints itself, such as legs placed on the ground by IK; those
+/// go over whatever the layers give.
 /// </summary>
 public sealed class AnimationPose
 {
     private PoseLayer[] _layers = new PoseLayer[6];
+    private JointPose[]? _joints;
+    private bool[]? _isSet;
 
     public AnimationPose(Rig rig)
     {
@@ -30,7 +34,57 @@ public sealed class AnimationPose
 
     public ReadOnlySpan<PoseLayer> Layers => _layers.AsSpan(0, LayerCount);
 
+    /// <summary>Whether any joint is set by <see cref="SetJoint(int, in JointPose)"/>.</summary>
+    public bool HasSetJoints { get; private set; }
+
+    /// <summary>Takes away the layers. Joints set by the game stay until <see cref="ClearJoints"/>.</summary>
     public void Clear() => LayerCount = 0;
+
+    /// <summary>
+    /// Sets a joint's local pose, relative to its parent, over whatever the layers give.
+    /// It stays until it's set again or cleared, and isn't moved ahead between ticks, so
+    /// set it in Draw from values already blended with <c>view.Blend</c>.
+    /// </summary>
+    public void SetJoint(int joint, in JointPose local)
+    {
+        int count = Rig.Skeleton.Count;
+        if ((uint)joint >= (uint)count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(joint), joint, $"The rig has {count} joints, numbered from 0.");
+        }
+
+        _joints ??= new JointPose[count];
+        _isSet ??= new bool[count];
+        _joints[joint] = local;
+        _isSet[joint] = true;
+        HasSetJoints = true;
+    }
+
+    /// <summary>Sets a joint by name. An unknown name throws, listing the joints the rig has.</summary>
+    public void SetJoint(string joint, in JointPose local) => SetJoint(JointIndex(joint), local);
+
+    /// <summary>The number of a joint, for setting it quickly every frame. An unknown name throws, listing the joints.</summary>
+    public int JointIndex(string joint)
+    {
+        int index = Rig.Skeleton.IndexOf(joint);
+        if (index < 0)
+        {
+            throw new ArgumentException($"The rig has no joint called {joint}. It has: {string.Join(", ", Rig.Skeleton.Names)}.", nameof(joint));
+        }
+
+        return index;
+    }
+
+    /// <summary>Hands every joint set by the game back to the layers.</summary>
+    public void ClearJoints()
+    {
+        if (_isSet is not null)
+        {
+            Array.Clear(_isSet);
+        }
+
+        HasSetJoints = false;
+    }
 
     /// <summary>Adds a layer. Layers with no amount are left out, since they'd change nothing.</summary>
     public void Add(in PoseLayer layer)
@@ -79,6 +133,17 @@ public sealed class AnimationPose
 
             clip.Sample(time, scratch);
             PoseBlend.Blend(pose, scratch, layer.Amount, layer.Mask?.Weights ?? default(ReadOnlySpan<float>));
+        }
+
+        if (HasSetJoints)
+        {
+            for (int i = 0; i < pose.Length; i++)
+            {
+                if (_isSet![i])
+                {
+                    pose[i] = _joints![i];
+                }
+            }
         }
     }
 }

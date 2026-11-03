@@ -165,4 +165,45 @@ public class RigTests
 
         Assert.Contains("another rig", problem.Message);
     }
+
+    [Fact]
+    public void A_set_joint_goes_over_the_layers_and_leaves_the_others_to_them()
+    {
+        var pose = new AnimationPose(TestRig.Rig());
+        pose.Add(new PoseLayer(Clip: 1, Time: 1f, Speed: 1f, Amount: 1f, Loops: false, Mask: null));
+
+        pose.SetJoint(TestRig.Child, TestRig.ChildAt(7f));
+        var joints = TestRig.Evaluate(pose);
+
+        Assert.Equal(7f, joints[1].Position.X, Tolerance);
+        // The root is still the move clip's, 1 s in, where x is 2.
+        Assert.Equal(2f, joints[0].Position.X, Tolerance);
+    }
+
+    [Fact]
+    public void A_set_joint_stays_when_the_layers_are_cleared_until_the_joints_are()
+    {
+        var pose = new AnimationPose(TestRig.Rig());
+        pose.SetJoint(0, TestRig.RootAt(3f));
+
+        pose.Clear();
+        Assert.Equal(3f, TestRig.Evaluate(pose)[0].Position.X, Tolerance);
+        Assert.True(pose.HasSetJoints);
+
+        pose.ClearJoints();
+        Assert.Equal(0f, TestRig.Evaluate(pose)[0].Position.X, Tolerance);
+        Assert.False(pose.HasSetJoints);
+    }
+
+    [Fact]
+    public void Setting_an_unknown_joint_explains_by_listing_the_joints()
+    {
+        var pose = new AnimationPose(TestRig.Rig());
+
+        var byName = Assert.Throws<ArgumentException>(() => pose.SetJoint("tail", JointPose.Identity));
+        var byNumber = Assert.Throws<ArgumentOutOfRangeException>(() => pose.SetJoint(2, JointPose.Identity));
+
+        Assert.Contains("root, child", byName.Message);
+        Assert.Contains("2 joints", byNumber.Message);
+    }
 }

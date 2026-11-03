@@ -197,6 +197,31 @@ var arrow = new Arrow(nock.Translation, direction);
 An unknown name throws, listing the joints the rig has. It's worked out once per tick,
 however often you ask.
 
+## Setting joints yourself
+
+For procedural motion, such as feet placed on uneven ground by IK or a head turned to
+look at something, set joints directly. `pose.SetJoint` takes a joint's local pose,
+relative to its parent, and puts it over whatever the clips give. The others still
+follow the clips, or stay at rest if there are none:
+
+```csharp
+var rig = content.Rig("bug.rmodel");
+var pose = new AnimationPose(rig);
+int knee = pose.JointIndex("Leg_F_Tibia_L");
+
+public void Draw(View view)
+{
+    // Work out from state already blended with view.Blend; set joints aren't moved ahead.
+    pose.SetJoint(knee, new JointPose(rest.Position, kneeTurn, Vector3.One));
+    view.Model(BugKey, rig.Model!.Value, transform, pose);
+}
+```
+
+A set joint stays until it's set again or `pose.ClearJoints()` hands every joint back to
+the clips. `Clear()` only takes away the layers. It works on an animator's pose too
+(`animator.Pose`), so IK can go over a walk clip. The skeleton's `Rest`, `Parents` and
+`Names` give what's needed to work out where joints are in the model.
+
 ## With the ECS
 
 Give an entity a `Transform` and an `Animated`, and `view.Models(world)` draws the rig's
