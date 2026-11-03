@@ -134,12 +134,20 @@ public sealed class AudioThreadTests
 
         public float Loudest => Volatile.Read(ref _loudest);
 
-        public bool Disposed { get; private set; }
+        public bool Disposed => Volatile.Read(ref _disposed) != 0;
+
+        private int _disposed;
 
         public int Free() => 1;
 
+        /// <summary>The thread that queued the last block.</summary>
+        public Thread? Caller => Volatile.Read(ref _caller);
+
+        private Thread? _caller;
+
         public void Queue(ReadOnlySpan<float> stereo)
         {
+            Volatile.Write(ref _caller, Thread.CurrentThread);
             Volatile.Write(ref _inside, 1);
             Entered.Set();
             float loudest = _loudest;
@@ -164,7 +172,121 @@ public sealed class AudioThreadTests
 
         public void Dispose()
         {
-            Disposed = true;
+            Volatile.Write(ref _disposed, 1);
+        }
+    }
+
+    /// <summary>Speakers that fail on every block, the way a device error does.</summary>
+    private sealed class FailingSpeakers : IAudioSink
+    {
+        public int Free() => 1;
+
+        public void Queue(ReadOnlySpan<float> stereo)
+        {
+            throw new InvalidOperationException("OpenAL error InvalidOperation while queueing sound");
+        }
+
+        public void KeepPlaying()
+        {
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+
+    /// <summary>
+    /// Speakers like a real source: all four blocks are free at first and again after <see cref="RunDry"/>, and none
+    /// in between. A source that ran dry stops until it's played again.
+    /// </summary>
+    private sealed class DrySpeakers : IAudioSink
+    {
+        private readonly Lock _gate = new();
+        private int _free = DeviceOutput.Blocks;
+        private int _pass;
+        private int _largestPass;
+        private int _queued;
+        private int _starts;
+        private bool _playing;
+
+        public int LargestPass
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _largestPass;
+                }
+            }
+        }
+
+        public int Queued
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _queued;
+                }
+            }
+        }
+
+        public int Starts
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _starts;
+                }
+            }
+        }
+
+        /// <summary>Plays out every queued block and stops, as when the thread fell behind.</summary>
+        public void RunDry()
+        {
+            lock (_gate)
+            {
+                _free = DeviceOutput.Blocks;
+                _playing = false;
+            }
+        }
+
+        public int Free()
+        {
+            lock (_gate)
+            {
+                int free = _free;
+                _free = 0;
+                _pass = 0;
+                return free;
+            }
+        }
+
+        public void Queue(ReadOnlySpan<float> stereo)
+        {
+            lock (_gate)
+            {
+                _pass++;
+                _queued++;
+            }
+        }
+
+        public void KeepPlaying()
+        {
+            lock (_gate)
+            {
+                _largestPass = Math.Max(_largestPass, _pass);
+                if (!_playing)
+                {
+                    _playing = true;
+                    _starts++;
+                }
+            }
+        }
+
+        public void Dispose()
+        {
         }
     }
 
@@ -364,19 +486,85 @@ public sealed class AudioThreadTests
     public void CloseStopsTheThreadAndClosesTheSpeakers()
     {
         (AudioService audio, _) = Make();
-        var speakers = new StandInSpeakers();
+        var speakers = new StandInSpeakers { Hold = TimeSpan.FromMilliseconds(100) };
         audio.UseOutput(speakers, TextWriter.Null);
-        WaitFor(() => speakers.Blocks > 0, "the thread to start");
+        Assert.True(speakers.Entered.Wait(Cap), "The thread never started a block.");
 
+        Thread thread = Assert.IsType<Thread>(speakers.Caller);
+
+        // Close lands while the thread holds a block; when it returns, the thread has ended, not only finished the block.
         audio.Close();
 
-        Assert.True(speakers.Disposed);
+        Assert.False(thread.IsAlive);
         Assert.False(speakers.Inside);
+        Assert.True(speakers.Disposed);
         Assert.True(audio.Manual);
     }
 
     [Fact]
-    public void ARealDeviceMixes()
+    public void AFailingDeviceLogsOnceAndKeepsTakingCommands()
+    {
+        (AudioService audio, Content content) = Make();
+        var log = new SharedLog();
+        audio.UseOutput(new FailingSpeakers(), log);
+        try
+        {
+            WaitFor(() => log.Text.Length > 0, "the thread to stop playing");
+            SoundRef bang = content.Sound("bang.wav");
+
+            // Three frames of 3000 sounds overflow the 4096 the queue holds, unless the thread keeps taking them.
+            for (int round = 0; round < 3; round++)
+            {
+                for (int i = 0; i < 3000; i++)
+                {
+                    audio.Play(bang);
+                }
+
+                Frame(audio);
+                long sent = audio.CommandsQueued;
+                WaitFor(() => audio.CommandsTaken == sent, "the thread to take the frame's commands");
+            }
+
+            Assert.Equal(0, audio.DroppedCommands);
+            Assert.False(audio.Manual);
+        }
+        finally
+        {
+            audio.Close();
+        }
+
+        Assert.Equal("Sound stopped: OpenAL error InvalidOperation while queueing sound" + Environment.NewLine, log.Text);
+    }
+
+    [Fact]
+    public void AfterRunningDryEveryBlockIsRefilledAndPlayingStartsAgain()
+    {
+        (AudioService audio, _) = Make();
+        var speakers = new DrySpeakers();
+        audio.UseOutput(speakers, TextWriter.Null);
+        try
+        {
+            WaitFor(() => speakers.Starts == 1, "the speakers to start");
+            Assert.Equal(DeviceOutput.Blocks, speakers.Queued);
+            Assert.Equal(DeviceOutput.Blocks, speakers.LargestPass);
+
+            // A pause leaves the speakers to run dry; Resume has to fill them all and start them again.
+            audio.PauseDevice();
+            speakers.RunDry();
+            audio.ResumeDevice();
+
+            WaitFor(() => speakers.Starts == 2, "the speakers to start again");
+            Assert.Equal(2 * DeviceOutput.Blocks, speakers.Queued);
+            Assert.Equal(DeviceOutput.Blocks, speakers.LargestPass);
+        }
+        finally
+        {
+            audio.Close();
+        }
+    }
+
+    [Fact]
+    public void ARealDeviceMixesOrLogsWhyNot()
     {
         (AudioService audio, _) = Make();
         var log = new StringWriter();

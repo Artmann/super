@@ -156,6 +156,9 @@ public sealed class Audio
     /// <summary>Commands queued for the mixer since the start. Tests use it to see what a frame sent.</summary>
     internal long CommandsQueued => _commands.Written;
 
+    /// <summary>Commands the mixer side has taken since the start, applied or thrown away. Any thread may read it.</summary>
+    internal long CommandsTaken => _commands.Taken;
+
     /// <summary>
     /// What the mixer is playing, once it has taken the commands handed over so far. Manual mode only, since otherwise
     /// the mixer belongs to another thread.
@@ -410,6 +413,14 @@ public sealed class Audio
     {
         Drain();
         _mixer.Mix(stereo);
+    }
+
+    /// <summary>Mixer side: takes the commands handed over so far and throws them away, for when nothing mixes any more.</summary>
+    internal void Discard()
+    {
+        while (_commands.TryPop(out _))
+        {
+        }
     }
 
     private void Drain()
