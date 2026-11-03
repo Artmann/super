@@ -59,7 +59,7 @@ internal sealed class GameHost<TGame> : IDisposable
         services.AddSingleton(typeof(Actions<>));
         services.AddSingleton<StateChanges>();
         services.AddSingleton(typeof(States<>));
-        services.AddSingleton<GameCapture>();
+        services.AddSingleton(provider => new GameCapture(provider.GetRequiredService<Audio>()));
         services.AddSingleton<GameStats>();
         services.AddSingleton<Director>();
         services.AddSingleton<TGame>();

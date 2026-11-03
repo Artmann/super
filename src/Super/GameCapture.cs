@@ -11,7 +11,19 @@ public sealed class GameCapture : IDisposable
 
     private readonly List<string> _screenshots = [];
     private string? _videoPath;
+    private readonly Audio? _audio;
     private VideoFile? _video;
+    private string? _soundPath;
+
+    public GameCapture()
+    {
+    }
+
+    /// <summary>With the game's audio, a recording carries its sound.</summary>
+    internal GameCapture(Audio? audio)
+    {
+        _audio = audio;
+    }
 
     /// <summary>
     /// While this is true each frame moves the game on by exactly one video frame. A
@@ -45,17 +57,40 @@ public sealed class GameCapture : IDisposable
             throw new InvalidOperationException($"Already recording {_videoPath}.");
         }
 
+        if (_audio is not null)
+        {
+            // The game's sound goes beside the video until the video is done, then into it.
+            string soundPath = Path.ChangeExtension(path, ".wav");
+            CreateFolderFor(soundPath);
+            _audio.StartRecording(soundPath);
+            _soundPath = soundPath;
+        }
+
         _videoPath = path;
         FramesPerSecond = framesPerSecond;
     }
 
-    /// <summary>Finishes the video, and waits for the file to be complete.</summary>
+    /// <summary>
+    /// Finishes the video, and waits for the file to be complete. It includes the game's sound; if ffmpeg can't add
+    /// it, the video is kept without sound and the sound is left beside it as a .wav.
+    /// </summary>
     public void StopRecording()
     {
         var video = _video;
+        string? soundPath = _soundPath;
         _video = null;
         _videoPath = null;
-        video?.Finish();
+        _soundPath = null;
+        _audio?.StopRecording();
+        if (video is not null)
+        {
+            video.Finish(soundPath);
+        }
+        else if (soundPath is not null)
+        {
+            // No frame was ever saved, so there's no video to put it in.
+            File.Delete(soundPath);
+        }
     }
 
     public void Dispose() => StopRecording();
