@@ -170,8 +170,14 @@ listener, the world rate, ambiences) becomes an `AudioCommand` pushed into
 commands, made once. The producer's pushes stay hidden until `Publish`, so a frame's
 changes arrive together. Its counters only grow, so full and empty can't be confused. A
 push into a full ring drops the command and counts it (`Audio.DroppedCommands`); the game
-thread never waits. A dropped start leaves later commands for that id doing nothing (see
-below); a dropped stop leaves a loop playing, so the size is far beyond any normal frame.
+thread never waits. The size is far beyond any normal frame, and a dropped command is
+recovered from where it matters. A dropped start frees its id again and returns −1; for
+music, the next `Music` call with that track tries again. A dropped stop would leave a
+loop, an ambience or a protected music track playing for ever. So when a start reaches a
+mixer-side slot that still holds a game id, that id's stop must have been dropped, and the
+old voice or ambience is stopped over 0.3 s before the slot is reused. Ids are freed and
+taken last in, first out, so the next start usually lands in that slot soon after.
+`TryPop` clears each slot it reads, so the ring doesn't keep an ambience definition alive.
 
 **Ids.** `StartLoop`, `StartAmbience` and `Music` pick ids on the game thread from
 preallocated pools (1024 voice ids, 64 ambience ids): a slot in the low 16 bits and the

@@ -109,9 +109,13 @@ internal sealed class AudioCommands
             return false;
         }
 
-        command = _items[(int)(read % _items.Length)];
+        int index = (int)(read % _items.Length);
+        command = _items[index];
 
-        // Only after the copy, so the producer can't reuse the slot while it's being read.
+        // Clear the slot so it doesn't keep an ambience definition alive until the ring wraps round to it.
+        _items[index] = default;
+
+        // Only after the copy and the clear, so the producer can't reuse the slot while it's being read.
         Volatile.Write(ref _read, read + 1);
         return true;
     }

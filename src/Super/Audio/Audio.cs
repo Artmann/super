@@ -156,7 +156,7 @@ public sealed class Audio
             _musicVoice = NoId;
         }
 
-        _music = clip;
+        _music = null;
         if (next is not null)
         {
             _musicVoice = Start(new VoiceStart
@@ -167,6 +167,12 @@ public sealed class Audio
                 IsMusic = true,
                 FadeInSeconds = fadeSeconds,
             });
+
+            // A start that couldn't be sent leaves no track playing, so asking for it again tries again.
+            if (_musicVoice != NoId)
+            {
+                _music = clip;
+            }
         }
     }
 
@@ -248,9 +254,10 @@ public sealed class Audio
         CheckVolume(volume, nameof(volume));
         AmbienceDefinition definition = _content.AmbienceOf(ambience);
         int id = _ambienceIds.Take();
-        if (id != NoId)
+        if (id != NoId && !Send(new AudioCommand { Kind = AudioCommandKind.StartAmbience, Id = id, Ambience = definition, Value = volume, FadeSeconds = AmbienceFadeSeconds }))
         {
-            Send(new AudioCommand { Kind = AudioCommandKind.StartAmbience, Id = id, Ambience = definition, Value = volume, FadeSeconds = AmbienceFadeSeconds });
+            _ambienceIds.Release(id);
+            return NoId;
         }
 
         return id;
@@ -297,6 +304,11 @@ public sealed class Audio
             throw new InvalidOperationException("The audio can only be advanced by hand when the game drives it, as in tests.");
         }
 
+        if (!(seconds >= 0) || !float.IsFinite(seconds))
+        {
+            throw new ArgumentOutOfRangeException(nameof(seconds), seconds, "seconds must be a number of at least zero.");
+        }
+
         _commands.Publish();
         double exact = _carriedFrames + (double)seconds * Mixer.SampleRate;
         long frames = (long)Math.Round(exact);
@@ -330,12 +342,23 @@ public sealed class Audio
         switch (command.Kind)
         {
             case AudioCommandKind.StartVoice:
-                int voice = StartOnMixer(command.Start);
                 if (command.Id != NoId)
                 {
                     int slot = IdPool.Slot(command.Id);
+
+                    // The game frees an id when it sends the stop, so a slot still holding a game id here means that
+                    // stop was dropped from a full queue. Stopping the old voice now keeps it from playing forever.
+                    if (_voiceGameIds[slot] != NoId)
+                    {
+                        _mixer.Stop(_mixerVoices[slot], LoopFadeOutSeconds);
+                    }
+
                     _voiceGameIds[slot] = command.Id;
-                    _mixerVoices[slot] = voice;
+                    _mixerVoices[slot] = StartOnMixer(command.Start);
+                }
+                else
+                {
+                    StartOnMixer(command.Start);
                 }
 
                 break;
@@ -351,6 +374,13 @@ public sealed class Audio
                 break;
             case AudioCommandKind.StartAmbience:
                 int slotOfAmbience = IdPool.Slot(command.Id);
+
+                // As for voices: a game id still here means its stop was dropped.
+                if (_ambienceGameIds[slotOfAmbience] != NoId)
+                {
+                    _mixer.StopAmbience(_mixerAmbiences[slotOfAmbience], LoopFadeOutSeconds);
+                }
+
                 _ambienceGameIds[slotOfAmbience] = command.Id;
                 _mixerAmbiences[slotOfAmbience] = StartAmbienceOnMixer(command);
                 break;
@@ -427,12 +457,14 @@ public sealed class Audio
         }
     }
 
+    /// <summary>A fresh id for the voice, or -1 when every id is taken or the queue is full.</summary>
     private int Start(in VoiceStart start)
     {
         int id = _voiceIds.Take();
-        if (id != NoId)
+        if (id != NoId && !Send(new AudioCommand { Kind = AudioCommandKind.StartVoice, Id = id, Start = start }))
         {
-            Send(new AudioCommand { Kind = AudioCommandKind.StartVoice, Id = id, Start = start });
+            _voiceIds.Release(id);
+            return NoId;
         }
 
         return id;
@@ -446,9 +478,9 @@ public sealed class Audio
         }
     }
 
-    private void Send(in AudioCommand command)
+    private bool Send(in AudioCommand command)
     {
-        _commands.Push(command);
+        return _commands.Push(command);
     }
 
     private static void CheckVolume(float volume, string name)
