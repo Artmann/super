@@ -73,12 +73,13 @@ public sealed class ForestTests
         Assert.True(Assert.Single(run.Sounds, Hammering).Pan < -0.2f);
     }
 
-    [Theory, Seeds(15)]
-    public void ForestKeepsItsAmbienceAndMusicAndHammersOnlyWhileBuildingForAMinute(int seed)
+    // A [Fact]: the builder's timing is fixed, and the seed only moves the trees and the scattered sounds.
+    [Fact]
+    public void ForestKeepsItsAmbienceAndMusicAndHammersOnlyWhileBuildingForAMinute()
     {
         // A hammering sound fades out over 0.3 s after the builder stops, so it may linger this many ticks.
         const int FadeOutTicks = 12;
-        using var run = Start(seed);
+        using var run = Start();
         int sinceBuilding = 0;
         for (int tick = 0; tick < 1800; tick++)
         {

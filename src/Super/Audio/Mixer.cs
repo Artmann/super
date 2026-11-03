@@ -362,10 +362,12 @@ internal sealed class Mixer
         return Spatial.Falloff(Vector3.Distance(_listener, voice.Position), voice.Near, voice.Far);
     }
 
-    internal void RecordFailure(Exception problem)
+    internal void RecordFailure(Exception problem) => RecordFailure(problem.Message);
+
+    internal void RecordFailure(string message)
     {
         FailedVoices++;
-        LastFailure = problem.Message;
+        LastFailure = message;
     }
 
     private AmbiencePlayer? FindAmbience(int id)

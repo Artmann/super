@@ -1,3 +1,4 @@
+using System.Globalization;
 using Super.Testing;
 
 namespace Super.Tests.Audio;
@@ -154,6 +155,58 @@ public class SoundContentTests
 
         Assert.Contains("forest.ambience.json", problem.Message);
         Assert.Contains("every", problem.Message);
+    }
+
+    [Theory]
+    [InlineData("""{ "layers": [ { "file": "wind.wav" }, { "file": "wind.wav", "volume": -0.5 } ] }""",
+        "layers[1].volume is -0.5, but it can't be below 0.")]
+    [InlineData("""{ "scattered": [ { "files": ["wind.wav"], "every": [0, 2] } ] }""",
+        "scattered[0].every starts at 0, but it must be above 0.")]
+    [InlineData("""{ "scattered": [ { "files": ["wind.wav"], "every": [1.5, 0.5] } ] }""",
+        "scattered[0].every is [1.5, 0.5], but the first number can't be above the second.")]
+    [InlineData("""{ "scattered": [ { "files": ["wind.wav"], "every": [1, 2], "volume": [-0.25, 1] } ] }""",
+        "scattered[0].volume starts at -0.25, but it can't be below 0.")]
+    [InlineData("""{ "scattered": [ { "files": ["wind.wav"], "every": [1, 2], "pitchVariation": 1 } ] }""",
+        "scattered[0].pitchVariation is 1, but it must be from 0 up to, but not including, 1.")]
+    [InlineData("""{ "scattered": [ { "files": ["wind.wav"], "every": [1, 2], "pitchVariation": -0.1 } ] }""",
+        "scattered[0].pitchVariation is -0.1, but it must be from 0 up to, but not including, 1.")]
+    public void AmbienceOutOfRangeNumberNamesTheFileAndTheField(string json, string expected)
+    {
+        var files = new MemoryContent().Add("sounds/wind.wav", Wav());
+        files["sounds/a.ambience.json"] = json;
+        var content = new Content(files);
+        var original = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = new CultureInfo("sv-SE");
+        try
+        {
+            var problem = Assert.Throws<ContentException>(() => content.Ambience("sounds/a.ambience.json"));
+
+            Assert.Equal(["sounds/a.ambience.json: " + expected], problem.Problems);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
+    }
+
+    [Fact]
+    public void AmbienceAcceptsNumbersAtTheEdgeOfTheirRange()
+    {
+        var files = new MemoryContent().Add("sounds/wind.wav", Wav());
+        files["sounds/a.ambience.json"] = """
+            {
+              "layers": [ { "file": "wind.wav", "volume": 0 } ],
+              "scattered": [ { "files": ["wind.wav"], "every": [0.01, 0.01], "volume": [0, 0], "pitchVariation": 0.99 } ]
+            }
+            """;
+        var content = new Content(files);
+
+        AmbienceDefinition ambience = content.AmbienceOf(content.Ambience("sounds/a.ambience.json"));
+
+        Assert.Equal(0f, ambience.Layers[0].Volume);
+        Assert.Equal(0.01f, ambience.Scattered[0].MinSeconds);
+        Assert.Equal(0f, ambience.Scattered[0].MinVolume);
+        Assert.Equal(0.99f, ambience.Scattered[0].PitchVariation);
     }
 
     [Fact]

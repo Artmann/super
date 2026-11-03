@@ -244,7 +244,14 @@ internal sealed class Voice
         // Nothing above changed this voice, so a start that threw leaves whatever the slot was playing alone.
         if (old is not null && old != reader && old != decoded)
         {
-            old.Dispose();
+            try
+            {
+                old.Dispose();
+            }
+            catch (Exception)
+            {
+                // The old sound is over; a decoder that won't dispose mustn't stop the new one starting.
+            }
         }
 
         _decoded = decoded;

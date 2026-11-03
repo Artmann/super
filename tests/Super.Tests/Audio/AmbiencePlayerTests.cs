@@ -328,6 +328,36 @@ public class AmbiencePlayerTests
     }
 
     [Fact]
+    public void AScatteredSoundDuringTheFadeInIsAsQuietAsTheFadeSoFar()
+    {
+        var mixer = TestMixer.Make();
+        mixer.StartAmbience(Every(0.1f, 0.1f, Constant("twig.wav", 100)), 1, fadeSeconds: 1);
+
+        float[] stereo = FirstSoundingBlock(mixer);
+
+        // Due at frame 4800, so it starts with the block at 4608: nine blocks into a one second fade, 4608 / 48000.
+        Assert.Equal(4608, mixer.Clock - Block);
+        Assert.Equal(0.096f, Math.Max(stereo[0], stereo[1]), 1e-6f);
+    }
+
+    [Fact]
+    public void ALayerThatFindsNoVoiceIsCountedAsAFailure()
+    {
+        var mixer = TestMixer.Make();
+        SoundClip song = Constant("song.wav", 4800);
+        for (int i = 0; i < Mixer.MaxVoices; i++)
+        {
+            mixer.Start(new VoiceStart { Clip = song, Channel = Channel.Music, Volume = 0.1f, Loop = true, IsMusic = true });
+        }
+
+        Assert.NotEqual(Mixer.NoAmbience, mixer.StartAmbience(Layers((Constant("rain.wav", 4800), 1f)), 1, 0));
+
+        Assert.Equal(1, mixer.FailedVoices);
+        Assert.Equal("The ambience layer rain.wav found no free voice: all 64 are music or ambience layers.", mixer.LastFailure);
+        Assert.DoesNotContain(Snapshot(mixer), p => p.Clip == "rain.wav");
+    }
+
+    [Fact]
     public void SetAmbienceVolumeFadesTheLayers()
     {
         var mixer = TestMixer.Make();

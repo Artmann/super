@@ -25,7 +25,9 @@ internal sealed class AmbiencePlayer
     {
         _definition = definition;
         Id = id;
-        Volume.Set(volume);
+        // Scattered sounds follow the same fade in as the layers, so the first crow of a fading-in forest is quiet too.
+        Volume.Set(0);
+        Volume.To(volume, Mixer.ToFrames(fadeSeconds));
         if (_layerVoices.Length < definition.Layers.Length)
         {
             _layerVoices = new int[definition.Layers.Length];
@@ -52,6 +54,11 @@ internal sealed class AmbiencePlayer
                     StartFrame = frames > 1 ? random.Between(0, (int)Math.Min(frames - 1, int.MaxValue)) : 0,
                     IsLayer = true,
                 });
+                if (_layerVoices[i] == Mixer.Dropped)
+                {
+                    // Only possible when every voice is music or a layer. The rest of the ambience still plays.
+                    mixer.RecordFailure($"The ambience layer {layer.Clip.Path} found no free voice: all {Mixer.MaxVoices} are music or ambience layers.");
+                }
             }
             catch
             {
