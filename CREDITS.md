@@ -57,3 +57,11 @@ The low-poly coral pack is not used, because its author and license are unknown.
   by Otto Rossi is licensed under
   [Creative Commons Attribution](http://creativecommons.org/licenses/by/4.0/).
 - The Ford GT model's author and license are not recorded yet.
+
+## Forest example
+
+- The sounds and music in `examples/Forest/content` are from the
+  [Ninja Adventure Asset Pack](https://pixel-boy.itch.io/ninja-adventure-asset-pack) by
+  Pixel-boy and AAA, released under
+  [CC0](https://creativecommons.org/publicdomain/zero/1.0/). The file-by-file list is in
+  [examples/Forest/CREDITS.md](examples/Forest/CREDITS.md).
