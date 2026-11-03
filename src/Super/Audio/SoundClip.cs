@@ -9,7 +9,10 @@ internal interface ISampleReader : IDisposable
     /// <summary>Fills the span with whole frames and returns how many frames it read, or 0 at the end.</summary>
     int Read(Span<float> interleaved);
 
-    /// <summary>Moves the next read to this frame.</summary>
+    /// <summary>
+    /// Moves the next read to exactly this frame. Seek(0) rewinds the reader it is rather than opening a new decoder, so
+    /// a loop can go round while mixing (NVorbis still allocates some 25 KB to rewind; the others nothing).
+    /// </summary>
     void Seek(long frame);
 }
 

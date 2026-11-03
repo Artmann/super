@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using NLayer;
 using NVorbis;
 
@@ -49,12 +50,50 @@ internal static class Decoders
     private sealed class OggReader : ISampleReader, IClipFormat
     {
         private readonly byte[] _bytes;
+        private readonly bool _rewindsExactly;
         private VorbisReader _reader;
 
         public OggReader(byte[] bytes)
         {
             _bytes = bytes;
             _reader = Open();
+            _rewindsExactly = HasSeveralAudioPages(bytes);
+        }
+
+        /// <summary>
+        /// True unless all the audio is in one Ogg page. NVorbis rewinds to frame 0 exactly, except in that case, where
+        /// it starts a packet late. Only a clip of a second or so fits in one page, and a streamed clip is over 10 s.
+        /// </summary>
+        private static bool HasSeveralAudioPages(byte[] bytes)
+        {
+            int at = 0;
+            while (at + 27 <= bytes.Length && bytes[at] == 'O' && bytes[at + 1] == 'g' && bytes[at + 2] == 'g' && bytes[at + 3] == 'S')
+            {
+                byte flags = bytes[at + 5];
+                long granule = BinaryPrimitives.ReadInt64LittleEndian(bytes.AsSpan(at + 6));
+                int segments = bytes[at + 26];
+                if (at + 27 + segments > bytes.Length)
+                {
+                    return false;
+                }
+
+                int length = 0;
+                for (int i = 0; i < segments; i++)
+                {
+                    length += bytes[at + 27 + i];
+                }
+
+                // The header pages have granule 0, and a page in which no packet ends has -1. The first page past those
+                // holds the first audio; it must not be the last page.
+                if (granule > 0)
+                {
+                    return (flags & 4) == 0;
+                }
+
+                at += 27 + segments + length;
+            }
+
+            return false;
         }
 
         private VorbisReader Open()
@@ -84,10 +123,25 @@ internal static class Decoders
 
         public void Seek(long frame)
         {
-            // NVorbis's own seek lands about 30 frames late in this encoder's files, so decode from the start instead.
-            _reader.Dispose();
-            _reader = Open();
-            SkipFrames(this, Math.Clamp(frame, 0, Frames));
+            frame = Math.Clamp(frame, 0, Frames);
+            if (_rewindsExactly)
+            {
+                // Rewinding the decoder it has is far cheaper than opening a new one, which builds its codebooks again
+                // (about 800 KB), so a loop can go round while mixing.
+                _reader.SeekTo(0);
+            }
+            else
+            {
+                _reader.Dispose();
+                _reader = Open();
+            }
+
+            if (frame > 0)
+            {
+                // NVorbis's seek to anywhere else lands about 30 frames late in this encoder's files, so decode on from
+                // the start instead.
+                SkipFrames(this, frame);
+            }
         }
 
         public void Dispose()
@@ -99,7 +153,7 @@ internal static class Decoders
     private sealed class Mp3Reader : ISampleReader, IClipFormat
     {
         private readonly byte[] _bytes;
-        private MpegFile _file;
+        private readonly MpegFile _file;
 
         public Mp3Reader(byte[] bytes)
         {
@@ -135,10 +189,16 @@ internal static class Decoders
 
         public void Seek(long frame)
         {
-            // NLayer only seeks to whole 1152-frame granules and starts them without their overlap, so decode from the start instead.
-            _file.Dispose();
-            _file = Open();
-            SkipFrames(this, Math.Clamp(frame, 0, Frames));
+            frame = Math.Clamp(frame, 0, Frames);
+
+            // Position 0 is exact, since the first granule has no overlap to lose, and rewinding allocates nothing.
+            _file.Position = 0;
+            if (frame > 0)
+            {
+                // Elsewhere NLayer only seeks to whole 1152-frame granules and starts them without their overlap, so
+                // decode on from the start instead.
+                SkipFrames(this, frame);
+            }
         }
 
         public void Dispose()

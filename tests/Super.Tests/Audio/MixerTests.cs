@@ -642,6 +642,47 @@ public class MixerTests
         Assert.Equal(before, after);
     }
 
+    /// <summary>
+    /// NVorbis allocates as it decodes, so a streamed .ogg can't mix with no allocation at all. What this checks is that
+    /// going round costs no more than playing on: a second across the loop's end allocates within 64 KB of a second
+    /// from its middle. Opening a new decoder there, as it once did, costs about 800 KB.
+    /// </summary>
+    [Fact]
+    public void AStreamedOggLoopGoesRoundWithoutOpeningItsDecoderAgain()
+    {
+        byte[] bytes = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Audio", "Fixtures", "rising.ogg"));
+        SoundClip clip = SoundClip.Streaming("rising.ogg", 44100, 1, 4, () => Decoders.Ogg(bytes));
+        var mixer = TestMixer.Make();
+        mixer.Start(Flat(clip, Channel.Music, loop: true));
+        var stereo = new float[480 * 2];
+        int blocksPerSecond = Mixer.SampleRate / 480;
+
+        // The 4 s clip: mix to 1 s, measure 1 s to 2 s, mix on to 3.5 s, then measure 3.5 s round to 0.5 s.
+        MixSeconds(mixer, stereo, blocksPerSecond, 1);
+        long middle = AllocatedBy(() => MixSeconds(mixer, stereo, blocksPerSecond, 1));
+        MixSeconds(mixer, stereo, blocksPerSecond, 1.5);
+        long acrossTheEnd = AllocatedBy(() => MixSeconds(mixer, stereo, blocksPerSecond, 1));
+
+        Assert.Equal(0.5, Assert.Single(Snapshot(mixer)).Seconds, 0.01);
+        Assert.Equal(0, mixer.FailedVoices);
+        Assert.InRange(acrossTheEnd, 0, middle + 64 * 1024);
+    }
+
+    private static void MixSeconds(Mixer mixer, float[] stereo, int blocksPerSecond, double seconds)
+    {
+        for (int i = 0; i < blocksPerSecond * seconds; i++)
+        {
+            mixer.Mix(stereo);
+        }
+    }
+
+    private static long AllocatedBy(Action action)
+    {
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        action();
+        return GC.GetAllocatedBytesForCurrentThread() - before;
+    }
+
     [Fact]
     public void StartingADecodedClipAllocatesNothingOnceTheSlotsAreWarm()
     {
