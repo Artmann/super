@@ -347,6 +347,38 @@ public class MixerTests
     }
 
     [Fact]
+    public void PastTheLimitTheTagsOfDroppedVoicesAreReported()
+    {
+        var mixer = TestMixer.Make();
+        var reported = new List<int>();
+        mixer.OnDropped = reported.Add;
+        SoundClip loud = Constant("loud.wav", 48000, 4800);
+        SoundClip quiet = Constant("quiet.wav", 48000, 4800);
+        SoundClip shortClip = Constant("short.wav", 48000, 100);
+
+        // A tagged voice that just ends isn't reported.
+        mixer.Start(Flat(shortClip, Channel.Effects, 1f) with { Tag = 5 });
+        Mix(mixer, 200);
+        Assert.Empty(Snapshot(mixer));
+
+        mixer.Start(Flat(quiet, Channel.Effects, 0.1f, loop: true) with { Tag = 7 });
+        mixer.Start(Flat(quiet, Channel.Effects, 0.2f, loop: true));
+        for (int i = 0; i < Mixer.MaxVoices - 2; i++)
+        {
+            mixer.Start(Flat(loud, Channel.Effects, 0.5f, loop: true));
+        }
+
+        Assert.Empty(reported);
+
+        // Cut for a louder one, then the untagged quiet voice, then a new tagged voice refused at its start.
+        mixer.Start(Flat(loud, Channel.Effects, 0.5f, loop: true));
+        mixer.Start(Flat(loud, Channel.Effects, 0.5f, loop: true));
+        Assert.Equal(Mixer.Dropped, mixer.Start(Flat(quiet, Channel.Effects, 0.1f, loop: true) with { Tag = 9 }));
+
+        Assert.Equal([7, 9], reported);
+    }
+
+    [Fact]
     public void PastTheLimitMusicIsNeverDropped()
     {
         var mixer = TestMixer.Make();

@@ -119,7 +119,9 @@ voice counts at its current fade). If the new voice would be quieter than every
 candidate, or every voice is protected, the new one is dropped instead and `Start` returns
 `Mixer.Dropped` (−1). Music and ambience layers are never dropped, and starting one drops
 the quietest other voice whatever its own volume. A dropped voice is cut at once, without a
-fade, since its slot is needed now.
+fade, since its slot is needed now. A voice can carry a `Tag` (the game's id for it); when
+the limit drops a tagged voice, refused at its start or cut for a newer one, the mixer calls
+`OnDropped` with the tag. Voices that end or fail aren't reported.
 
 **Voice ids.** An id is the slot in the low 8 bits and the slot's start count above
 them. An id kept after its voice ended can't reach the next sound in that slot, and calls
@@ -219,7 +221,15 @@ matters because draw hooks run every frame while the ring drains once a tick in 
 mode (`Audio.CommandsQueued` is what the test reads). Two dictionaries swap roles each
 frame so nothing allocates once warm. The position is `ViewExtensions.WorldMatrix`, the
 same transform, `Smoothed` blend and `Parent` chain `Models` draws with. A start that
-returned id -1 is tried again next frame. A dropped `Move` or `ChangeVolume` is not resent until the
+returned id -1 is tried again next frame. A loop the voice limit dropped is started again
+(stopped, then started under a fresh id) once the mixer has a slot free. The mixer side
+tags each loop's voice with its game id, and `OnDropped` writes that id into
+`_droppedIds[slot]` with a volatile write; `Audio.WasDropped(id)` compares it on the game
+thread, and taking an id clears its slot, so a stale entry can't match a new id. After each
+`Render` the mixer side publishes how many slots are free and bumps a mix count;
+`Audio.TryClaimVoice` lets the game claim each of those free slots once until the next mix.
+So restarts follow free slots instead of retrying every frame against a full mixer, and a
+restarted loop lands in a free slot rather than cutting another. A dropped `Move` or `ChangeVolume` is not resent until the
 value changes again. Values are checked before `Audio` is called, so a bad one throws an
 `ArgumentOutOfRangeException` naming the entity and field; a `finally` still completes the swap and
 keeps entities not yet reached tracked as they were, so the next frame neither restarts nor leaks.

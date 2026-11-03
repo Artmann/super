@@ -36,6 +36,12 @@ internal struct VoiceStart
     /// <summary>True for an ambience layer, which the voice limit never drops either.</summary>
     public bool IsLayer;
 
+    /// <summary>
+    /// The game's own id for the voice, or -1 for none. If the voice limit drops a tagged voice, at its start or later
+    /// for a louder one, <see cref="Mixer.OnDropped"/> is called with it.
+    /// </summary>
+    public int Tag = -1;
+
     public VoiceStart()
     {
         Clip = null!;
@@ -167,6 +173,9 @@ internal sealed class Voice
 
     public bool IsLayer { get; private set; }
 
+    /// <summary>The <see cref="VoiceStart.Tag"/> it was started with.</summary>
+    public int Tag { get; private set; } = -1;
+
     /// <summary>Music and ambience layers, which the voice limit never drops.</summary>
     public bool Protected => IsMusic || IsLayer;
 
@@ -253,6 +262,7 @@ internal sealed class Voice
         FollowsScale = start.FollowsScale;
         IsMusic = start.IsMusic;
         IsLayer = start.IsLayer;
+        Tag = start.Tag;
         Failure = null;
         Stopping = false;
         Volume.Set(start.Volume);

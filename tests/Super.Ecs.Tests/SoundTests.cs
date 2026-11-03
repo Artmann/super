@@ -20,6 +20,8 @@ public class SoundTests
 
         public SoundRef Hum { get; private set; }
 
+        public SoundRef Shot { get; private set; }
+
         public AmbienceRef Forest { get; private set; }
 
         public AmbienceRef Cave { get; private set; }
@@ -31,6 +33,7 @@ public class SoundTests
         {
             Creak = content.Sound("creak.wav");
             Hum = content.Sound("hum.wav");
+            Shot = content.Sound("shot.wav");
             Forest = content.Ambience("forest.ambience.json");
             Cave = content.Ambience("cave.ambience.json");
         }
@@ -72,6 +75,7 @@ public class SoundTests
         var files = new MemoryContent()
             .Add("creak.wav", Wav(4))
             .Add("hum.wav", Wav(4))
+            .Add("shot.wav", Wav(0.2))
             .Add("forest.ambience.json", System.Text.Encoding.UTF8.GetBytes("""{ "layers": [ { "file": "creak.wav" } ] }"""))
             .Add("cave.ambience.json", System.Text.Encoding.UTF8.GetBytes("""{ "layers": [ { "file": "hum.wav" } ] }"""));
         return HeadlessGame.Create<Hearing>(1, services => services.AddSuperEcs().AddContentFiles(files));
@@ -398,6 +402,59 @@ public class SoundTests
         run.Ticks(2);
 
         Assert.Contains(run.Sounds, sound => sound.Clip == "hum.wav");
+    }
+
+    private static void Burst(HeadlessRun<Hearing> run)
+    {
+        for (int i = 0; i < Mixer.MaxVoices; i++)
+        {
+            run.Game.Audio.Play(run.Game.Shot);
+        }
+    }
+
+    [Fact]
+    public void ASoundCutForABurstOfLouderSoundsComesBackWhenTheyEnd()
+    {
+        using var run = Start();
+        Make(run, run.Game.Hum, volume: 0.1f);
+        run.Ticks(3);
+        Assert.Single(run.Sounds, sound => sound.Clip == "hum.wav");
+
+        Burst(run);
+        run.Ticks(2);
+        Assert.Equal(Mixer.MaxVoices, run.Sounds.Count);
+        Assert.DoesNotContain(run.Sounds, sound => sound.Clip == "hum.wav");
+
+        // The shots last 0.2 s, 6 ticks.
+        run.Ticks(10);
+
+        PlayingSound hum = Find(run, "hum.wav");
+        Assert.True(hum.Looping);
+        Assert.Single(run.Sounds);
+    }
+
+    [Fact]
+    public void ASoundTheLimitRefusedStartsOnceASlotIsFreeAndSendsNothingUntilThen()
+    {
+        using var run = Start();
+        Burst(run);
+        Make(run, run.Game.Hum, volume: 0.1f);
+        run.Ticks(2);
+        Assert.Equal(Mixer.MaxVoices, run.Sounds.Count);
+        Assert.DoesNotContain(run.Sounds, sound => sound.Clip == "hum.wav");
+
+        // While every slot is taken, frames send what a frame with no sound sends.
+        long empty = EmptyFrameCommands();
+        for (int i = 0; i < 3; i++)
+        {
+            long before = run.Game.Audio.CommandsQueued;
+            run.Frame(1f);
+            Assert.Equal(empty, run.Game.Audio.CommandsQueued - before);
+        }
+
+        run.Ticks(10);
+
+        Assert.Equal("hum.wav", Assert.Single(run.Sounds).Clip);
     }
 
     [Fact]
