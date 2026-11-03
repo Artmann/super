@@ -529,6 +529,8 @@ public class MixerTests
         Assert.Equal(1.5f, stereo[100 * 2], 1e-6f);
         Assert.Equal(0.5f, stereo[3999 * 2], 1e-6f);
         Assert.Equal("steady.wav", Assert.Single(Snapshot(mixer)).Clip);
+        Assert.Equal(1, mixer.FailedVoices);
+        Assert.Equal("corrupt frame", mixer.LastFailure);
     }
 
     /// <summary>A mono reader of ones that throws once it has given its frames.</summary>

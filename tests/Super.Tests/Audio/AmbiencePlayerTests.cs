@@ -380,20 +380,112 @@ public class AmbiencePlayerTests
     }
 
     [Fact]
-    public void AmbienceVoicesCountAgainstTheVoiceLimit()
+    public void ALayerStartingPastTheLimitDropsAnEffectEvenAtLowerVolume()
     {
         var mixer = TestMixer.Make();
-        SoundClip loud = Constant("loud.wav", 4800);
+        SoundClip effect = Constant("effect.wav", 4800);
         for (int i = 0; i < Mixer.MaxVoices; i++)
         {
-            mixer.Start(new VoiceStart { Clip = loud, Channel = Channel.Effects, Volume = 1, Loop = true });
+            mixer.Start(new VoiceStart { Clip = effect, Channel = Channel.Effects, Volume = 0.1f, Loop = true });
         }
 
-        mixer.StartAmbience(Layers((Constant("rain.wav", 4800), 0.01f)), 1, 0);
+        mixer.StartAmbience(Layers((Constant("rain.wav", 4800), 1f)), 1, 0);
 
         PlayingSound[] playing = Snapshot(mixer);
         Assert.Equal(Mixer.MaxVoices, playing.Length);
-        Assert.DoesNotContain(playing, p => p.Clip == "rain.wav");
+        Assert.Single(playing, p => p.Clip == "rain.wav");
+        Assert.Equal(Mixer.MaxVoices - 1, playing.Count(p => p.Clip == "effect.wav"));
+    }
+
+    [Fact]
+    public void ALayerQuieterThanEveryEffectIsStillKeptPastTheLimit()
+    {
+        var mixer = TestMixer.Make();
+        SoundClip effect = Constant("effect.wav", 4800);
+        for (int i = 0; i < Mixer.MaxVoices; i++)
+        {
+            mixer.Start(new VoiceStart { Clip = effect, Channel = Channel.Effects, Volume = 1f, Loop = true });
+        }
+
+        mixer.StartAmbience(Layers((Constant("rain.wav", 4800), 0.001f)), 1, 0);
+
+        Assert.Single(Snapshot(mixer), p => p.Clip == "rain.wav");
+    }
+
+    [Fact]
+    public void ABurstOfEffectsNeverDropsAPlayingLayer()
+    {
+        var mixer = TestMixer.Make();
+        mixer.StartAmbience(Layers((Constant("rain.wav", 4800), 0.01f), (Constant("wind.wav", 4800), 0.01f)), 1, 0);
+        SoundClip shot = Constant("shot.wav", 4800);
+
+        for (int i = 0; i < 3 * Mixer.MaxVoices; i++)
+        {
+            mixer.Start(new VoiceStart { Clip = shot, Channel = Channel.Effects, Volume = 1f, Loop = true });
+        }
+
+        PlayingSound[] playing = Snapshot(mixer);
+        Assert.Equal(Mixer.MaxVoices, playing.Length);
+        Assert.Single(playing, p => p.Clip == "rain.wav");
+        Assert.Single(playing, p => p.Clip == "wind.wav");
+    }
+
+    [Fact]
+    public void AScatteredSoundThatCantStartIsSkippedAndTheLayerKeepsSounding()
+    {
+        var mixer = TestMixer.Make();
+        SoundClip broken = SoundClip.Streaming("broken.ogg", 48000, 1, 20, () => throw new InvalidDataException("can't open"));
+        var ambience = new AmbienceDefinition(
+            [new Layer(Constant("rain.wav", 4800), 0.5f)],
+            [new Scattered([broken], 0.5f, 0.5f, 1, 1, 0)]);
+        mixer.StartAmbience(ambience, 1, 0);
+
+        // Four seconds is about eight fires.
+        for (int i = 0; i < 4 * Mixer.SampleRate / Block; i++)
+        {
+            float[] stereo = Mix(mixer, Block);
+            Assert.Equal(0.5f, stereo[^2], 1e-6f);
+        }
+
+        Assert.InRange(mixer.FailedVoices, 6, 9);
+        Assert.Equal("can't open", mixer.LastFailure);
+        Assert.Equal(4L * Mixer.SampleRate / Block * Block, mixer.Clock);
+        Assert.Equal("rain.wav", Assert.Single(Snapshot(mixer)).Clip);
+    }
+
+    [Fact]
+    public void ALayerThatCantStartStopsTheLayersAlreadyStarted()
+    {
+        var mixer = TestMixer.Make();
+        SoundClip broken = SoundClip.Streaming("broken.ogg", 48000, 1, 20, () => throw new InvalidDataException("can't open"));
+        var ambience = new AmbienceDefinition(
+            [new Layer(Constant("rain.wav", 4800), 0.5f), new Layer(broken, 0.5f)],
+            []);
+
+        var e = Assert.Throws<InvalidDataException>(() => mixer.StartAmbience(ambience, 1, 0));
+
+        Assert.Equal("can't open", e.Message);
+        Assert.Empty(Snapshot(mixer));
+        Mix(mixer, Block);
+        Assert.NotEqual(Mixer.NoAmbience, mixer.StartAmbience(Layers((Constant("wind.wav", 4800), 0.3f)), 1, 0));
+    }
+
+    [Fact]
+    public void AStartThatFailsDropsNothingEvenWithEveryVoiceTaken()
+    {
+        var mixer = TestMixer.Make();
+        SoundClip effect = Constant("effect.wav", 4800);
+        for (int i = 0; i < Mixer.MaxVoices; i++)
+        {
+            mixer.Start(new VoiceStart { Clip = effect, Channel = Channel.Effects, Volume = 0.1f, Loop = true });
+        }
+
+        SoundClip broken = SoundClip.Streaming("broken.ogg", 48000, 1, 20, () => throw new InvalidDataException("can't open"));
+        Assert.Throws<InvalidDataException>(() => mixer.Start(new VoiceStart { Clip = broken, Channel = Channel.Effects, Volume = 1f }));
+
+        PlayingSound[] playing = Snapshot(mixer);
+        Assert.Equal(Mixer.MaxVoices, playing.Length);
+        Assert.All(playing, p => Assert.Equal("effect.wav", p.Clip));
     }
 
     [Fact]
@@ -407,23 +499,9 @@ public class AmbiencePlayerTests
                 new Scattered([Constant("drip.wav", 500)], 0.05f, 0.2f, 0.5f, 1f, 0f),
             ]);
         var stereo = new float[Block * 2];
-
-        // Give the first 20 slots a decoded reader, so which slot a scattered sound lands in doesn't matter.
-        SoundClip blip = Constant("blip.wav", 10);
-        for (int i = 0; i < 20; i++)
-        {
-            mixer.Start(new VoiceStart { Clip = blip, Channel = Channel.Effects });
-        }
-
-        mixer.Mix(stereo);
         int id = mixer.StartAmbience(ambience, 1, 0.5f);
 
-        // Warm up past the fade-in and the first rounds of scattered sounds.
-        for (int i = 0; i < 20 * Mixer.SampleRate / Block; i++)
-        {
-            mixer.Mix(stereo);
-        }
-
+        // No warm-up: the first scattered sound in each slot must not build a reader while mixing.
         var playing = new PlayingSound[Mixer.MaxVoices];
         int most = 0;
         long before = GC.GetAllocatedBytesForCurrentThread();
