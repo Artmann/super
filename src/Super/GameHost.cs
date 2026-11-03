@@ -64,7 +64,9 @@ internal sealed class GameHost<TGame> : IDisposable
         services.AddSingleton<Director>();
         services.AddSingleton<TGame>();
 
-        // This comes last so a game or a test can replace any of the above.
+        // This comes last so a game or a test can replace the services above. Audio is the exception for a game: it
+        // is sealed with an internal constructor, so only this factory builds it, reading sounds through whichever
+        // Content ends up registered.
         configure?.Invoke(services);
 
         _services = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });

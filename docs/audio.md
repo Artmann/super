@@ -140,7 +140,9 @@ audio.Music(null);
 One track plays at a time, looping, on the `Music` channel. A new track cross-fades from
 the old one over `fadeSeconds` (2 by default), and the first track fades in over the same
 time. Asking for the track that's already playing does nothing, so calling `Music` every
-tick from whatever decides the mood is fine. `Music(null)` fades the music out.
+tick from whatever decides the mood is fine. `Music(null)` fades the music out. Asking
+for a track while it is fading out, after a switch away or `Music(null)`, starts it again
+from the beginning rather than bringing the fading one back.
 
 ## Channel volumes
 

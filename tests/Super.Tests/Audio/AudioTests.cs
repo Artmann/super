@@ -144,28 +144,29 @@ public class AudioTests
         using var run = Start(plan);
         Once(run, plan, (audio, content, _) => audio.Music(content.Sound("a.wav")));
 
-        // The first track fades in over two seconds too.
-        run.Ticks(10);
-        Assert.Equal(10f / 60f, Find(run, "a.wav").Gain, 0.0001f);
-        run.Ticks(50);
-        Assert.Equal(1f, Find(run, "a.wav").Gain, 0.0001f);
-
+        // The first track fades in over two seconds too, so ten ticks in it has reached a sixth.
+        run.Ticks(9);
         Once(run, plan, (audio, content, _) => audio.Music(content.Sound("b.wav")));
-        run.Ticks(1);
-        PlayingSound a = Find(run, "a.wav");
+        float aAtSwitch = Find(run, "a.wav").Gain;
+        Assert.Equal(10f / 60f, aAtSwitch, 0.0001f);
         PlayingSound b = Find(run, "b.wav");
         Assert.Equal(Channel.Music, b.Channel);
         Assert.True(b.Looping);
 
+        // a fades out from where it was, without first jumping up towards full volume, while b comes in.
         run.Ticks(1);
-        Assert.True(Find(run, "a.wav").Gain < a.Gain, "a should be fading out");
-        Assert.True(Find(run, "b.wav").Gain > b.Gain, "b should be fading in");
+        float aAfterOne = Find(run, "a.wav").Gain;
+        float bAfterOne = Find(run, "b.wav").Gain;
+        Assert.True(aAfterOne < aAtSwitch, $"a should fall from {aAtSwitch}, but is {aAfterOne}");
+        Assert.True(bAfterOne > 0, "b should be fading in");
 
-        // Two ticks of the two-second fade have been mixed. Just before it ends a is still there.
-        run.Ticks(55);
-        Find(run, "a.wav");
+        run.Ticks(30);
+        float aHalfway = Find(run, "a.wav").Gain;
+        Assert.InRange(aHalfway, 0.0001f, aAfterOne - 0.01f);
+        Assert.InRange(Find(run, "b.wav").Gain, bAfterOne + 0.4f, 0.99f);
 
-        run.Ticks(4);
+        // Two seconds after the switch only b is left, at full volume.
+        run.Ticks(31);
         PlayingSound only = Assert.Single(run.Sounds);
         Assert.Equal("b.wav", only.Clip);
         Assert.Equal(1f, only.Gain, 0.0001f);
@@ -397,6 +398,96 @@ public class AudioTests
         PlayingSound b = Assert.Single(audio.Playing);
         Assert.Equal("b.wav", b.Clip);
         Assert.Equal(1f, b.Gain, 0.0001f);
+    }
+
+    /// <summary>Fills the empty command queue to the brim, so whatever is sent next is dropped.</summary>
+    private static void FillQueue(AudioService audio)
+    {
+        for (int i = 0; i < 4096; i++)
+        {
+            audio.Volume(Channel.Effects, 1);
+        }
+    }
+
+    [Fact]
+    public void LoopWhoseStopWasDroppedEndsWhenItsIdIsReused()
+    {
+        var content = new Content(Files());
+        var audio = new AudioService(content, seed: 1);
+        int first = audio.StartLoop(content.Sound("a.wav"), 1, Channel.Effects, at: null, near: 2, far: 50);
+        audio.Advance(0.2f);
+
+        FillQueue(audio);
+        audio.StopLoop(first);
+        Assert.Equal(1, audio.DroppedCommands);
+        audio.Advance(0.2f);
+        Assert.Equal("a.wav", Assert.Single(audio.Playing).Clip);
+
+        int second = audio.StartLoop(content.Sound("b.wav"), 1, Channel.Effects, at: null, near: 2, far: 50);
+        Assert.NotEqual(first, second);
+        audio.Advance(0.5f);
+
+        Assert.Equal("b.wav", Assert.Single(audio.Playing).Clip);
+    }
+
+    [Fact]
+    public void MusicWhoseSwitchWasDroppedCanBeAskedForAgain()
+    {
+        var content = new Content(Files());
+        var audio = new AudioService(content, seed: 1);
+        audio.Music(content.Sound("a.wav"));
+        audio.Advance(2.1f);
+
+        // Both the stop of a and the start of b are dropped, so a plays on.
+        FillQueue(audio);
+        audio.Music(content.Sound("b.wav"));
+        Assert.Equal(2, audio.DroppedCommands);
+        audio.Advance(0.2f);
+        Assert.Equal("a.wav", Assert.Single(audio.Playing).Clip);
+
+        // Asking again sends b, and a, whose stop never arrived, ends as b takes over its id.
+        audio.Music(content.Sound("b.wav"));
+        audio.Advance(2.1f);
+
+        PlayingSound only = Assert.Single(audio.Playing);
+        Assert.Equal("b.wav", only.Clip);
+        Assert.Equal(1f, only.Gain, 0.0001f);
+    }
+
+    [Fact]
+    public void AmbienceWhoseStopWasDroppedEndsWhenItsIdIsReused()
+    {
+        var content = new Content(Files());
+        var audio = new AudioService(content, seed: 1);
+        int first = audio.StartAmbience(content.Ambience("forest.ambience.json"), 1);
+        audio.Advance(2.1f);
+
+        FillQueue(audio);
+        audio.StopAmbience(first);
+        Assert.Equal(1, audio.DroppedCommands);
+        audio.Advance(0.2f);
+        Assert.Single(audio.Playing);
+
+        int second = audio.StartAmbience(content.Ambience("forest.ambience.json"), 1);
+        Assert.NotEqual(first, second);
+        audio.Advance(0.5f);
+
+        // Only the new ambience's one layer is left, still fading in.
+        PlayingSound layer = Assert.Single(audio.Playing);
+        Assert.Equal(0.25f, layer.Gain, 0.001f);
+    }
+
+    [Fact]
+    public void AdvanceByANegativeOrEndlessTimeExplains()
+    {
+        var audio = new AudioService(new Content(Files()), seed: 1);
+
+        foreach (float seconds in new[] { -0.1f, float.NaN, float.PositiveInfinity })
+        {
+            var problem = Assert.Throws<ArgumentOutOfRangeException>(() => audio.Advance(seconds));
+            Assert.Equal("seconds", problem.ParamName);
+            Assert.Contains("at least zero", problem.Message);
+        }
     }
 
     [Fact]
