@@ -131,7 +131,8 @@ readonly ModelRef coral = content.Model("reef/coral.rmodel");
 
 Naming a model starts loading it. A model drawn before it's ready is waited for, so
 nothing pops in; to show a loading screen instead, see
-[Game states](states.md#loading-screens). `ModelRef.Cube` is built in and needs no file.
+[Game states](states.md#loading-screens). `ModelRef.Cube` and the other
+[built-in shapes](#built-in-shapes) need no file.
 
 The materials file sets the model's size and fixes up materials by name. Each rule
 applies to every material whose name contains `match`:
@@ -212,6 +213,63 @@ that glows a little, so it reads the same over a dark model or a light one, in s
 in shadow. Its shape still shows through the light. The colour is linear, from 0 to 1.
 Opacity is 1 by default, and below 1 the world shows through, as with glass. It must be
 more than 0 and at most 1. A ghost casts no shadow.
+
+## Built-in shapes
+
+![Every built-in shape at the back, and shapes made with Shapes at the front](media/shapes.webp)
+
+Every game has eight ready shapes that need no file and no loading, handy for trying out
+an idea: a capsule as the player, spheres as resources, cylinders as trees. Each is one
+unit wide and centred on zero, and comes out light grey unless the draw gives a colour.
+
+```csharp
+view.Model(1, ModelRef.Capsule, Matrix4x4.CreateTranslation(player.Position + Vector3.UnitY), playerColor);
+```
+
+| Shape | Size |
+| --- | --- |
+| `ModelRef.Cube` | 1 × 1 × 1 |
+| `ModelRef.Sphere` | 1 across |
+| `ModelRef.Capsule` | 1 wide, 2 tall, standing up |
+| `ModelRef.Cylinder` | 1 wide, 1 tall, standing up |
+| `ModelRef.Cone` | 1 wide at the base, 1 tall, pointing up |
+| `ModelRef.Plane` | 1 × 1, lying flat and facing up. One-sided |
+| `ModelRef.Quad` | 1 × 1, standing up and facing along +z. One-sided |
+| `ModelRef.Torus` | 1 across, with a tube 0.25 thick, lying flat |
+
+They can't be unloaded, and `content.IsReady` is always true for them.
+
+For other sizes, more or fewer segments, or a surface of their own, `Shapes` builds the
+same shapes and more as a `GeneratedMesh` to hand to `content.Mesh`:
+
+```csharp
+ModelRef pillar = content.Mesh(Shapes.Cylinder(topRadius: 0.3f, bottomRadius: 0.4f, height: 3f));
+ModelRef tile = content.Mesh(Shapes.Hex(radius: 1f, height: 0.2f, new Surface { Color = grass }));
+ModelRef rock = content.Mesh(Shapes.Flat(Shapes.Sphere(0.5f, segments: 7, rings: 5)));
+ModelRef floor = content.Mesh(Shapes.Plane(new Vector2(20f, 20f), surface: tiles, uvPerMetre: 0.5f));
+```
+
+| Call | Makes |
+| --- | --- |
+| `Shapes.Box(size)` | A box of that width, height and depth |
+| `Shapes.Sphere(radius, segments, rings)` | A sphere. Segments go round the middle, rings from pole to pole |
+| `Shapes.Hemisphere(radius, segments, rings)` | The top half of a sphere, closed underneath, with its base at zero |
+| `Shapes.Capsule(radius, height, segments, rings)` | A capsule. The height is end to end, at least twice the radius; rings are per end |
+| `Shapes.Cylinder(topRadius, bottomRadius, height, segments)` | A cylinder closed at both ends. A top radius of 0 is a cone |
+| `Shapes.Cone(radius, height, segments)` | A cone standing on its base |
+| `Shapes.Plane(size, subdivisions)` | A one-sided square on x and z, facing up, split into squares |
+| `Shapes.Quad(size)` | A one-sided rectangle on x and y, facing along +z |
+| `Shapes.Torus(radius, tube, segments, sides)` | A ring lying flat. The radius is to the middle of the tube, which must be thinner |
+| `Shapes.Prism(sides, radius, height)` | A column with that many flat sides. The radius is to a corner |
+| `Shapes.Hex(radius, height)` | A six-sided tile with corners along x, for hex maps |
+| `Shapes.Flat(mesh)` | Any mesh with hard edges: each triangle lit as one flat face, for a low-poly look |
+
+Every shape is centred on zero apart from the hemisphere, faces outwards, and has normals,
+tangents and UVs, so normal maps work on it. Curved shapes are smooth, while the box,
+prism and hex have sharp edges. Every call also takes a `Surface`, which defaults to matte
+grey. UVs stretch once across each part, such as each face of a box or the side of a
+cylinder, unless `uvPerMetre` is given; then they count metres, so a tiled texture is the
+same size on every shape whatever its size. Round shapes measure round their widest point.
 
 ## Meshes made by code
 

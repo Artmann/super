@@ -672,6 +672,13 @@ Handles are recycled through a free list per kind, and each kind remembers which
 slots are on their way out, so destroying a handle twice fails rather than freeing
 whatever reused the slot. Nothing here allocates once the lists have grown.
 
+The built-in shapes live outside `Content`. The cube is index 0, slot 0 of the
+`ContentLoader`, and content items count up from 1. The other shapes take negative
+indices, so adding one never moves an index a game already holds. `SceneRenderer`
+builds them from `Shapes.BuiltIn` once, with the shared white material, and keeps them
+for its whole life; `Content` treats any index of 0 or below as always ready and never
+unloadable, and `View.Model` refuses a negative index with no shape behind it.
+
 Device memory is sub-allocated from 64 MB blocks in `GpuMemory`, one set of pools
 per memory type, kept apart for buffers and images and for host-visible memory.
 Anything larger than a block gets its own allocation.

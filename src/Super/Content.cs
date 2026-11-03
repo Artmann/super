@@ -313,7 +313,7 @@ public sealed class Content
     /// </summary>
     public bool IsReady(ModelRef model)
     {
-        if (model.Index == 0)
+        if (model.IsBuiltIn)
         {
             return true;
         }
@@ -328,9 +328,9 @@ public sealed class Content
     /// </summary>
     public void Unload(ModelRef model)
     {
-        if (model.Index == 0)
+        if (model.IsBuiltIn)
         {
-            throw new ArgumentException("The built-in cube can't be unloaded.", nameof(model));
+            throw new ArgumentException("The built-in shapes, such as the cube, can't be unloaded.", nameof(model));
         }
 
         RequireNamed(model.Index, nameof(model));
@@ -603,7 +603,7 @@ public sealed class Content
         _items.Add(item);
         _itemLoaded.Add(false);
 
-        // Index 0 is the built-in cube.
+        // Index 0 is the built-in cube, and the other built-in shapes are below zero.
         return new ModelRef(_items.Count);
     }
 

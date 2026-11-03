@@ -12,7 +12,7 @@ internal sealed class SceneRenderer : IDisposable
     private const int MaxLights = 8;
     private const float DefaultRoughness = 0.4f;
 
-    /// <summary>The cube's color when a draw doesn't give one.</summary>
+    /// <summary>The built-in shapes' color when a draw doesn't give one.</summary>
     private static readonly Vector3 CubeColor = new(0.7f);
 
     private readonly Renderer _renderer;
@@ -21,6 +21,9 @@ internal sealed class SceneRenderer : IDisposable
 
     /// <summary>Everything the content named, by the index its ref carries.</summary>
     private readonly ContentLoader<Loaded> _items;
+
+    /// <summary>The built-in shapes other than the cube, made once and kept for the renderer's life.</summary>
+    private readonly LoadedModel[] _shapes;
 
     /// <summary>Kept, since asking for a new one each frame would be garbage.</summary>
     private readonly Func<GameImage, int> _textureOf;
@@ -43,7 +46,10 @@ internal sealed class SceneRenderer : IDisposable
             new LoadedModel([_renderer.CreateDrawItem(Cube.Vertices, Cube.Indices, _defaultMaterial)], null, null),
             PrepareItem,
             Upload);
-        _textureOf = image => OverlayQuad.For(Require<LoadedTexture>(image.Index, _content!).Handle);
+        _shapes = Array.ConvertAll(
+            Shapes.BuiltIn(),
+            mesh => new LoadedModel([_renderer.CreateDrawItem(mesh.Vertices, mesh.Indices, _defaultMaterial)], null, null));
+        _textureOf =image => OverlayQuad.For(Require<LoadedTexture>(image.Index, _content!).Handle);
         _renderer.SetEnvironment(new EnvironmentDescription
         {
             Ceiling = Studio.Ceiling,
@@ -114,7 +120,7 @@ internal sealed class SceneRenderer : IDisposable
         var costs = new List<ModelCost>();
         foreach (var (model, count) in copies)
         {
-            string name = model > 0 && content.Items[model - 1] is string path ? path : model > 0 ? "generated mesh" : "cube";
+            string name = Name(model, content, "generated mesh");
             costs.Add(new ModelCost(name, count, Parts(model, content).Sum(part => (long)part.IndexCount) / 3));
         }
 
@@ -285,7 +291,18 @@ internal sealed class SceneRenderer : IDisposable
         _items.Get(index, content) as T
             ?? throw new InvalidOperationException($"Item {index} was unloaded, so nothing can use it.");
 
-    private DrawItem[] Parts(int index, Content content) => Require<LoadedModel>(index, content).Parts;
+    private DrawItem[] Parts(int index, Content content) => Model(index, content).Parts;
+
+    /// <summary>What a model is called in reports: its path, the built-in shape's name, or what it is.</summary>
+    private static string Name(int index, Content content, string generated) => index switch
+    {
+        0 => "cube",
+        < 0 => Shapes.BuiltInNames[-index - 1],
+        _ => content.Items[index - 1] is string path ? path : generated,
+    };
+
+    /// <summary>A model by its ref's index. The built-in shapes other than the cube sit below zero, outside the content.</summary>
+    private LoadedModel Model(int index, Content content) => index < 0 ? _shapes[-index - 1] : Require<LoadedModel>(index, content);
 
     /// <summary>Frees what an item made. A model from a file owns its materials and textures; a generated mesh owns one of each.</summary>
     private void Destroy(Loaded loaded)
@@ -320,7 +337,7 @@ internal sealed class SceneRenderer : IDisposable
         _boneCount = 0;
         foreach (ref readonly var draw in view.Drawn)
         {
-            var model = Require<LoadedModel>(draw.Model.Index, content);
+            var model = Model(draw.Model.Index, content);
             var parts = model.Parts;
             if (count + parts.Length > _draws.Length)
             {
@@ -334,7 +351,7 @@ internal sealed class SceneRenderer : IDisposable
                 item = part;
                 item.Transform = draw.Transform;
                 item.Swim = draw.Swim;
-                item.Tint = draw.Color ?? (draw.Model.Index == ModelRef.Cube.Index ? CubeColor : null);
+                item.Tint = draw.Color ?? (draw.Model.IsBuiltIn ? CubeColor : null);
                 item.Bones = bones;
                 item.Ghost = draw.Ghost;
             }
@@ -352,7 +369,7 @@ internal sealed class SceneRenderer : IDisposable
         int joints = pose.Rig.Skeleton.Count;
         if (model.JointCount == 0)
         {
-            string name = content.Items[index - 1] is string path ? path : "a generated mesh";
+            string name = Name(index, content, "a generated mesh");
             throw new InvalidOperationException($"Model {index} ({name}) has no skeleton, so it can't be drawn with a pose.");
         }
 

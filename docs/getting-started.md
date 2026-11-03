@@ -56,7 +56,8 @@ class Spinner : IGame
 ```
 
 `StartWindowsGameLoop` opens the window and runs until it closes. `ModelRef.Cube` is a
-built-in cube, so this runs with no files at all.
+built-in cube, so this runs with no files at all. There are
+[other built-in shapes](rendering.md#built-in-shapes) too, such as `ModelRef.Sphere`.
 
 A game implements `IGame`, which has five members. Only `Update` and `Draw` are required:
 

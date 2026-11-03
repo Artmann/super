@@ -108,6 +108,7 @@ marked as planned. The examples are the best place to see it running:
 | Example | Shows |
 | --- | --- |
 | [ColorCube](examples/ColorCube) | The game loop, input actions and seeded randomness |
+| [Shapes](examples/Shapes) | Every built-in shape, and shapes made in code with `Shapes` |
 | [Rooms](examples/Rooms) | Game states, a loading screen, JSON content and clicking the ground |
 | [Crafting](examples/Crafting) | An inventory and crafting bench driven entirely by the mouse |
 | [Terrain](examples/Terrain) | Endless generated hills with a custom surface shader |

@@ -16,6 +16,7 @@
     <Project Path="examples/Fox/Fox.csproj" />
     <Project Path="examples/Reef/Reef.csproj" />
     <Project Path="examples/Rooms/Rooms.csproj" />
+    <Project Path="examples/Shapes/Shapes.csproj" />
     <Project Path="examples/Terrain/Terrain.csproj" />
   </Folder>
   <Folder Name="/tests/">
