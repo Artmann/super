@@ -155,7 +155,7 @@ public sealed class ForestGame(
         pause.OnExit(Pause.Paused, () => time.Scale = 1f);
     }
 
-    public void Update(GameTime time)
+    public void Update(GameTime tick)
     {
         if (input.Pressed(Key.P))
         {
@@ -176,7 +176,7 @@ public sealed class ForestGame(
             }
         }
 
-        if (Builder.Advance(time.DeltaSeconds))
+        if (Builder.Advance(tick.DeltaSeconds))
         {
             ChangeWork();
         }
@@ -189,7 +189,7 @@ public sealed class ForestGame(
             Camera.Turn(input.MouseDelta * 0.005f);
         }
 
-        Camera.Turn(new Vector2(OrbitSpeed * time.TickSeconds, 0f));
+        Camera.Turn(new Vector2(OrbitSpeed * tick.TickSeconds, 0f));
         Camera.Update(new Vector3(0f, 1f, 0f));
     }
 

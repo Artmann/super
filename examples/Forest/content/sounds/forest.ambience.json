@@ -1,6 +1,6 @@
 {
   "layers": [
     { "file": "ambient/rain.wav", "volume": 0.5 },
-    { "file": "ambient/wind.wav", "volume": 0.4 }
+    { "file": "ambient/wind.ogg", "volume": 0.4 }
   ]
 }
