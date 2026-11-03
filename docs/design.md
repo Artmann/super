@@ -208,7 +208,10 @@ matters because draw hooks run every frame while the ring drains once a tick in 
 mode (`Audio.CommandsQueued` is what the test reads). Two dictionaries swap roles each
 frame so nothing allocates once warm. The position is `ViewExtensions.WorldMatrix`, the
 same transform, `Smoothed` blend and `Parent` chain `Models` draws with. A start that
-returned id -1 is tried again next frame.
+returned id -1 is tried again next frame. A dropped `Move` or `ChangeVolume` is not resent until the
+value changes again. Values are checked before `Audio` is called, so a bad one throws an
+`ArgumentOutOfRangeException` naming the entity and field; a `finally` still completes the swap and
+keeps entities not yet reached tracked as they were, so the next frame neither restarts nor leaks.
 
 **Randomness.** `Audio` is built with an audio seed and makes `new GameRandom(seed)`
 from it: the `"audio"` stream goes to the mixer (ambiences) and `"audio pitch"` stays on
