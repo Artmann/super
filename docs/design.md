@@ -269,7 +269,12 @@ pass. After each pass it compares `Mixer.FailedVoices` with the count it last sa
 when it grew writes `A sound failed and stopped ({count} so far): {LastFailure}` to the
 log given to `UseDevice`, a plain `WriteLine` inside a `try`. Anything else that throws
 on the thread is caught: it logs `Sound stopped: {message}` and stops rendering for good,
-because the mixer may be half way through a change; the game carries on in silence.
+because the mixer may be half way through a change; the game carries on in silence. The
+thread stays alive and keeps emptying the command ring with `Audio.Discard()`, so the
+game's commands don't pile up and count as dropped. `OpenAlSpeakers.Queue` checks
+`alGetError` after queueing and throws on an error, which lands here, so a device error
+gives exactly one line. If opening fails part way, `Open` deletes whatever source and
+buffers it made before closing the context and device.
 
 **Handing the mixer over.** Each pass runs while holding a lock. `Pause` takes the same
 lock and sets a flag, so when it returns the thread has finished its block and won't
@@ -284,6 +289,8 @@ first pass after `Resume` refills them and starts the source again.
 **Closing.** `GameHost.Dispose` calls `Audio.Close()` before the services go: it stops
 the thread, joins it, closes the source, buffers, context and device, then
 `Mixer.StopAll()` ends every ambience and voice, so streamed clips close their readers.
+`Audio.Close()` runs inside a `try`, so the services and the throwaway content folder are
+still disposed if it throws.
 `Mixer` itself isn't `IDisposable`; this is the only place voices still playing are
 released.
 

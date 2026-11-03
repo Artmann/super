@@ -208,11 +208,17 @@ internal sealed class GameHost<TGame> : IDisposable
         Content.StopLive();
 
         // Before the services go, so the audio thread is stopped while everything it reads is still there.
-        Audio.Close();
-        _services.Dispose();
-        if (_throwawayFolder is not null && Directory.Exists(_throwawayFolder))
+        try
         {
-            Directory.Delete(_throwawayFolder, recursive: true);
+            Audio.Close();
+        }
+        finally
+        {
+            _services.Dispose();
+            if (_throwawayFolder is not null && Directory.Exists(_throwawayFolder))
+            {
+                Directory.Delete(_throwawayFolder, recursive: true);
+            }
         }
     }
 }

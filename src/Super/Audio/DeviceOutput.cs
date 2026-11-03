@@ -160,9 +160,17 @@ internal sealed class DeviceOutput : IDisposable
                     return;
                 }
 
-                if (!_paused && !_broken)
+                if (!_paused)
                 {
-                    Fill();
+                    if (_broken)
+                    {
+                        // The game keeps sending; taking its commands keeps the queue from filling up and dropping.
+                        _audio.Discard();
+                    }
+                    else
+                    {
+                        Fill();
+                    }
                 }
             }
 
@@ -188,7 +196,7 @@ internal sealed class DeviceOutput : IDisposable
         catch (Exception problem)
         {
             // Nothing may escape a background thread, or the game would crash. The mixer may be half way through a
-            // change, so it isn't touched again: the game carries on in silence.
+            // change, so it isn't touched again: the game carries on in silence, and its commands are thrown away.
             _broken = true;
             Log($"Sound stopped: {problem.Message}");
         }
@@ -253,6 +261,9 @@ internal sealed unsafe class OpenAlSpeakers : IAudioSink
         AL? al = null;
         Device* device = null;
         Context* context = null;
+        uint source = 0;
+        bool haveSource = false;
+        uint[]? buffers = null;
         try
         {
             al = AL.GetApi(soft: true);
@@ -275,11 +286,20 @@ internal sealed unsafe class OpenAlSpeakers : IAudioSink
             }
 
             var format = (BufferFormat)al.GetEnumValue("AL_FORMAT_STEREO_FLOAT32");
-            uint source = al.GenSource();
-            uint[] buffers = al.GenBuffers(DeviceOutput.Blocks);
+            al.GetError();
+            source = al.GenSource();
             AudioError error = al.GetError();
             if (error != AudioError.NoError)
             {
+                throw new InvalidOperationException($"OpenAL error {error}");
+            }
+
+            haveSource = true;
+            buffers = al.GenBuffers(DeviceOutput.Blocks);
+            error = al.GetError();
+            if (error != AudioError.NoError)
+            {
+                buffers = null;
                 throw new InvalidOperationException($"OpenAL error {error}");
             }
 
@@ -287,6 +307,17 @@ internal sealed unsafe class OpenAlSpeakers : IAudioSink
         }
         catch
         {
+            // What was made before the failure goes again, while its context is still current.
+            if (buffers is not null)
+            {
+                al!.DeleteBuffers(buffers);
+            }
+
+            if (haveSource)
+            {
+                al!.DeleteSource(source);
+            }
+
             if (context != null)
             {
                 alc.MakeContextCurrent(null);
@@ -330,6 +361,13 @@ internal sealed unsafe class OpenAlSpeakers : IAudioSink
         }
 
         _al.SourceQueueBuffers(_source, 1, &buffer);
+
+        // A failed queue would leave the buffer lost and the source short; throwing stops the thread with one line.
+        AudioError error = _al.GetError();
+        if (error != AudioError.NoError)
+        {
+            throw new InvalidOperationException($"OpenAL error {error} while queueing sound");
+        }
     }
 
     public void KeepPlaying()

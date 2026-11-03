@@ -233,7 +233,7 @@ The scale is read once a frame, along with the camera.
 Playing in the window sends the sound to the computer's default sound device, through
 OpenAL Soft, which ships with Super, so there's nothing to install. Sound runs on its own
 thread with about 43 ms queued, so a slow frame doesn't make it stutter. Screenshots,
-recordings and profiles never open the device, and neither do tests.
+recordings, profiles and `HeadlessGame` runs never open the device; only live play does.
 
 ### No sound device
 
@@ -249,7 +249,8 @@ time, so nothing piles up while it's silent.
 
 If a sound fails while it plays, such as a streamed `.ogg` with a damaged part, that
 sound stops, the others carry on, and the game prints a line such as
-`A sound failed and stopped (1 so far): ...` with the reason.
+`A sound failed and stopped (1 so far): ...` with the reason. If the device itself fails
+while playing, the game prints `Sound stopped: ...` once and carries on silently.
 
 ## In tests
 

@@ -82,6 +82,9 @@ internal sealed class AudioCommands
     /// <summary>How many commands were dropped because the ring was full.</summary>
     public int Dropped => Volatile.Read(ref _dropped);
 
+    /// <summary>How many commands the consumer has taken since the start. Any thread may read it.</summary>
+    public long Taken => Volatile.Read(ref _read);
+
     /// <summary>Producer only. Queues the command, or drops and counts it when the ring is full.</summary>
     public bool Push(in AudioCommand command)
     {
