@@ -172,7 +172,14 @@ forest.OnEnter(Screen.Forest, () =>
 ```
 
 These need `services.AddSuperEcs()`. A frame sends the mixer a command only for what
-changed, so a thousand still sounds cost nothing frame to frame.
+changed, so a thousand still sounds cost nothing frame to frame. The flip side: if the queue to
+the mixer is full and a move or volume change is dropped, it isn't sent again until that value
+changes again.
+
+A bad value on a component, such as a negative `Volume`, a `Far` that isn't beyond `Near` or a
+position that isn't finite, throws `ArgumentOutOfRangeException` from the frame, naming the
+entity and the field. The sounds already playing carry on, and once the value is fixed (or the
+component removed) the next frame picks up from there without restarting or doubling anything.
 
 ## Music
 

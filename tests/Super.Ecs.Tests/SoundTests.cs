@@ -22,16 +22,20 @@ public class SoundTests
 
         public AmbienceRef Forest { get; private set; }
 
+        public AmbienceRef Cave { get; private set; }
+
+        /// <summary>What Update does, for a test that moves things during a tick.</summary>
+        public Action? Step { get; set; }
+
         public void Load()
         {
             Creak = content.Sound("creak.wav");
             Hum = content.Sound("hum.wav");
             Forest = content.Ambience("forest.ambience.json");
+            Cave = content.Ambience("cave.ambience.json");
         }
 
-        public void Update(GameTime time)
-        {
-        }
+        public void Update(GameTime time) => Step?.Invoke();
 
         public void Draw(View view) => view.Camera(Vector3.Zero, -Vector3.UnitZ);
     }
@@ -68,7 +72,8 @@ public class SoundTests
         var files = new MemoryContent()
             .Add("creak.wav", Wav(4))
             .Add("hum.wav", Wav(4))
-            .Add("forest.ambience.json", System.Text.Encoding.UTF8.GetBytes("""{ "layers": [ { "file": "creak.wav" } ] }"""));
+            .Add("forest.ambience.json", System.Text.Encoding.UTF8.GetBytes("""{ "layers": [ { "file": "creak.wav" } ] }"""))
+            .Add("cave.ambience.json", System.Text.Encoding.UTF8.GetBytes("""{ "layers": [ { "file": "hum.wav" } ] }"""));
         return HeadlessGame.Create<Hearing>(1, services => services.AddSuperEcs().AddContentFiles(files));
     }
 
@@ -209,6 +214,137 @@ public class SoundTests
 
         run.Ticks(70);
         Assert.Empty(run.Sounds);
+    }
+
+    [Fact]
+    public void ReplacedAmbienceFadesTheOldLayersAndStartsTheNew()
+    {
+        using var run = Start();
+        Entity entity = run.Game.World.Create();
+        run.Game.World.Add(entity, new Ambience(run.Game.Forest));
+        run.Ticks(70);
+        float full = Find(run, "creak.wav").Gain;
+
+        run.Game.World.Add(entity, new Ambience(run.Game.Cave));
+        run.Ticks(4);
+        Assert.True(Find(run, "creak.wav").Gain < full);
+        Assert.Equal(Channel.Ambience, Find(run, "hum.wav").Channel);
+
+        run.Ticks(70);
+        Assert.Equal("hum.wav", Assert.Single(run.Sounds).Clip);
+    }
+
+    [Fact]
+    public void ChangingAmbienceVolumeFadesToIt()
+    {
+        using var run = Start();
+        Entity entity = run.Game.World.Create();
+        run.Game.World.Add(entity, new Ambience(run.Game.Forest));
+        run.Ticks(70);
+        float full = Find(run, "creak.wav").Gain;
+
+        run.Game.World.Add(entity, new Ambience(run.Game.Forest, 0.5f));
+        run.Ticks(4);
+        float midway = Find(run, "creak.wav").Gain;
+        Assert.True(midway < full && midway > full * 0.5f);
+
+        // The fade takes 2 s, 60 ticks.
+        run.Ticks(70);
+        Assert.Equal(full * 0.5f, Find(run, "creak.wav").Gain, 0.001f);
+    }
+
+    [Fact]
+    public void SmoothedSoundUsesTheBlendedPosition()
+    {
+        using var run = Start();
+        World world = run.Game.World;
+        Entity entity = Make(run, run.Game.Creak, new Vector3(-10f, 0f, -5f));
+        world.Add(entity, new Smoothed());
+        run.Ticks(2);
+
+        run.Game.Step = () => world.Add(entity, Transform.At(new Vector3(10f, 0f, -5f)));
+        run.Ticks(1);
+        run.Game.Step = null;
+        Assert.True(Find(run, "creak.wav").Pan > 0.8f);
+
+        // Half way between the last two ticks it is straight ahead.
+        run.Frame(0.5f);
+
+        Assert.Equal(0f, Find(run, "creak.wav").Pan, 0.001f);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ABadVolumeThrowsAndLeavesTheOtherSoundsAlone(bool badFirst)
+    {
+        using var run = Start();
+        Entity bad = default;
+        if (badFirst)
+        {
+            bad = Make(run, run.Game.Hum, volume: -1f);
+        }
+
+        Make(run, run.Game.Creak);
+        if (!badFirst)
+        {
+            bad = Make(run, run.Game.Hum, volume: -1f);
+        }
+
+        var problem = Assert.Throws<ArgumentOutOfRangeException>(() => run.Frame(1f));
+        Assert.StartsWith($"Entity {bad.Id}'s Sound has Volume -1; it must be a number of at least 0.", problem.Message);
+
+        // Throwing again, as every frame would, changes nothing.
+        Assert.Throws<ArgumentOutOfRangeException>(() => run.Frame(1f));
+        run.Game.World.Add(bad, new Sound(run.Game.Hum));
+        run.Ticks(15);
+
+        Assert.Equal(2, run.Sounds.Count);
+        Assert.Single(run.Sounds, sound => sound.Clip == "creak.wav");
+        Assert.Single(run.Sounds, sound => sound.Clip == "hum.wav");
+    }
+
+    [Fact]
+    public void ABadValueOnAPlayingSoundKeepsItPlayingUntilFixed()
+    {
+        using var run = Start();
+        Entity entity = Make(run, run.Game.Creak);
+        run.Ticks(10);
+        double heard = Find(run, "creak.wav").Seconds;
+
+        run.Game.World.Add(entity, new Sound(run.Game.Creak, Far: 1f));
+        var problem = Assert.Throws<ArgumentOutOfRangeException>(() => run.Frame(1f));
+        Assert.StartsWith($"Entity {entity.Id}'s Sound has Far 1; it must be finite and further than its Near, 2.", problem.Message);
+        run.Game.World.Add(entity, new Sound(run.Game.Creak));
+        run.Ticks(3);
+
+        // The same voice carried on: it wasn't stopped and started over.
+        PlayingSound creak = Find(run, "creak.wav");
+        Assert.True(creak.Seconds > heard);
+    }
+
+    [Fact]
+    public void ANonFinitePositionThrowsNamingTheEntity()
+    {
+        using var run = Start();
+        Entity entity = Make(run, run.Game.Creak, new Vector3(float.NaN, 0f, 0f));
+
+        var problem = Assert.Throws<ArgumentOutOfRangeException>(() => run.Frame(1f));
+
+        Assert.StartsWith($"Entity {entity.Id}'s Sound is at", problem.Message);
+        Assert.Contains("isn't a finite position", problem.Message);
+    }
+
+    [Fact]
+    public void ABadAmbienceVolumeThrowsNamingTheEntity()
+    {
+        using var run = Start();
+        Entity entity = run.Game.World.Create();
+        run.Game.World.Add(entity, new Ambience(run.Game.Forest, -2f));
+
+        var problem = Assert.Throws<ArgumentOutOfRangeException>(() => run.Frame(1f));
+
+        Assert.StartsWith($"Entity {entity.Id}'s Ambience has Volume -2; it must be a number of at least 0.", problem.Message);
     }
 
     [Fact]
