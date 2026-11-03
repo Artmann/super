@@ -8,9 +8,9 @@ namespace Super;
 /// </summary>
 /// <remarks>
 /// The game thread never touches the <see cref="Mixer"/>. It queues <see cref="AudioCommand"/>s, and whatever mixes
-/// (the game loop itself in manual mode, an audio thread otherwise) drains them before each block. Voices and
-/// ambiences get ids chosen here, on the game thread, so starting one returns at once; the mixer side maps them to
-/// its own.
+/// (the game loop itself in manual mode, the audio thread of a <see cref="DeviceOutput"/> otherwise) drains them before
+/// each block. Voices and ambiences get ids chosen here, on the game thread, so starting one returns at once; the
+/// mixer side maps them to its own.
 /// </remarks>
 public sealed class Audio
 {
@@ -35,6 +35,8 @@ public sealed class Audio
     private SoundRef? _music;
     private int _musicVoice = NoId;
     private double _carriedFrames;
+    private DeviceOutput? _output;
+    private bool _outputPaused;
 
     // Mixer side: only whatever renders touches these. Indexed by the slot of a game id.
     private readonly Mixer _mixer;
@@ -65,10 +67,88 @@ public sealed class Audio
     }
 
     /// <summary>
-    /// True when the game loop drives the mixer, a tick at a time, as in tests and headless runs. Until there's an
-    /// output device that's always.
+    /// True when the game loop drives the mixer, a tick at a time: in tests and headless runs, when no device opened,
+    /// and while the device is paused. False while an audio thread plays it through a device.
     /// </summary>
-    internal bool Manual { get; } = true;
+    internal bool Manual => _output is null || _outputPaused;
+
+    /// <summary>The mixer's sample clock, frames mixed so far. Readable from any thread.</summary>
+    internal long MixedFrames => _mixer.Clock;
+
+    /// <summary>Mixer side: how many sounds failed as they started or played. See <see cref="Mixer.FailedVoices"/>.</summary>
+    internal int FailedVoices => _mixer.FailedVoices;
+
+    /// <summary>Mixer side: the message of the latest failure, or null.</summary>
+    internal string? LastFailure => _mixer.LastFailure;
+
+    /// <summary>
+    /// Plays through the default sound device from now on, mixed on an audio thread, and returns true. If the device
+    /// won't open, writes one line saying so to <paramref name="log"/>, stays manual and returns false. The audio
+    /// thread also writes to <paramref name="log"/> when a sound fails.
+    /// </summary>
+    /// <param name="openOverride">For tests: a reason it returns fails the open with that reason.</param>
+    internal bool UseDevice(TextWriter log, Func<string?>? openOverride = null)
+    {
+        CheckNoOutput();
+        _output = DeviceOutput.TryOpen(this, log, openOverride);
+        return _output is not null;
+    }
+
+    /// <summary>As <see cref="UseDevice"/>, into a stand-in for the speakers, so tests can run the audio thread.</summary>
+    internal void UseOutput(IAudioSink sink, TextWriter log)
+    {
+        CheckNoOutput();
+        _output = new DeviceOutput(this, sink, log);
+    }
+
+    /// <summary>
+    /// Takes the mixer back from the audio thread, waiting for it to finish the block it's on. From then until
+    /// <see cref="ResumeDevice"/> the audio is <see cref="Manual"/>: <see cref="Advance"/> and <see cref="Render"/>
+    /// mix on the calling thread, and the game loop advances it each tick. Does nothing without a device or when
+    /// already paused.
+    /// </summary>
+    internal void PauseDevice()
+    {
+        if (_output is null || _outputPaused)
+        {
+            return;
+        }
+
+        _output.Pause();
+        _outputPaused = true;
+    }
+
+    /// <summary>Hands the mixer back to the audio thread. Does nothing without a device or when it isn't paused.</summary>
+    internal void ResumeDevice()
+    {
+        if (_output is null || !_outputPaused)
+        {
+            return;
+        }
+
+        _outputPaused = false;
+        _output.Resume();
+    }
+
+    /// <summary>
+    /// Stops the audio thread and closes the device, if there is one, then ends every sound so streamed clips close
+    /// their readers. The game host calls this as it shuts down.
+    /// </summary>
+    internal void Close()
+    {
+        _output?.Dispose();
+        _output = null;
+        _outputPaused = false;
+        _mixer.StopAll();
+    }
+
+    private void CheckNoOutput()
+    {
+        if (_output is not null)
+        {
+            throw new InvalidOperationException("The audio already plays through a device.");
+        }
+    }
 
     /// <summary>Commands dropped because the queue to the mixer was full.</summary>
     internal int DroppedCommands => _commands.Dropped;

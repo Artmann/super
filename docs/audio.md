@@ -228,6 +228,29 @@ pause.OnExit(Pause.Paused, () => time.Scale = 1);
 
 The scale is read once a frame, along with the camera.
 
+## Speakers
+
+Playing in the window sends the sound to the computer's default sound device, through
+OpenAL Soft, which ships with Super, so there's nothing to install. Sound runs on its own
+thread with about 43 ms queued, so a slow frame doesn't make it stutter. Screenshots,
+recordings and profiles never open the device, and neither do tests.
+
+### No sound device
+
+If there's no sound device, or it won't open, the game still runs, silently, and prints
+one line saying why:
+
+```
+No sound device (the default device didn't open); playing silently.
+```
+
+Everything else carries on as if it were heard: sounds still start, move and end on
+time, so nothing piles up while it's silent.
+
+If a sound fails while it plays, such as a streamed `.ogg` with a damaged part, that
+sound stops, the others carry on, and the game prints a line such as
+`A sound failed and stopped (1 so far): ...` with the reason.
+
 ## In tests
 
 There's no sound card in a test, and none is needed. `run.Sounds` lists what the mixer is

@@ -213,6 +213,13 @@ public sealed class Content
 
     internal SoundClip Clip(SoundRef sound) => _clips[sound.Index];
 
+    /// <summary>Names a clip made in code, for tests whose clip has to fail or be watched as it plays.</summary>
+    internal SoundRef AddClip(SoundClip clip)
+    {
+        _clips.Add(clip);
+        return new SoundRef(_clips.Count - 1);
+    }
+
     internal AmbienceDefinition AmbienceOf(AmbienceRef ambience) => _ambiences[ambience.Index];
 
     /// <summary>
