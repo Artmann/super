@@ -14,7 +14,7 @@ that doesn't exist yet; everything else works today.
 | [Cutscenes](cutscenes.md) | Shots, moments, slow motion and the `Director` |
 | [Interfaces](interfaces.md) | `Super.Ui`: views, modifiers, layout, colours, state and the mouse |
 | [Input](input.md) | Actions, bindings and the raw `Input` service |
-| [Audio](audio.md) | Naming sounds and ambiences from content |
+| [Audio](audio.md) | Sounds, music, channel volumes and ambiences |
 | [Game states](states.md) | `States<T>`, enter and exit callbacks, and loading screens |
 | [JSON content](content.md) | Catalogs, references, schemas, live reload and shipping |
 | [User data](user-data.md) | `UserData`: settings and progress kept per player, outside saved games |

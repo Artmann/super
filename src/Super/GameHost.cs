@@ -13,9 +13,11 @@ internal sealed class GameHost<TGame> : IDisposable
 {
     private const int DefaultScreenWidth = 1280;
     private const int DefaultScreenHeight = 720;
+    private const int HeadlessAudioSeed = 1;
 
     private readonly ServiceProvider _services;
     private readonly ITickHook[] _hooks;
+    private readonly IDrawHook[] _drawHooks;
     private readonly StateChanges _changes;
     private readonly UiPointer _pointer;
 
@@ -38,7 +40,11 @@ internal sealed class GameHost<TGame> : IDisposable
     /// Where <see cref="UserData"/> keeps its files. Left empty, it's a throwaway folder that's
     /// deleted afterwards, so a test or a screenshot never touches the player's own settings.
     /// </param>
-    public GameHost(int seed, int ticksPerSecond, Action<IServiceCollection>? configure, string? userDataFolder = null)
+    /// <param name="audioSeed">
+    /// Seeds audio's own randomness, such as pitch variation and ambience timing. Null gives the fixed seed 1, so
+    /// headless runs, screenshots and recordings sound the same every time.
+    /// </param>
+    public GameHost(int seed, int ticksPerSecond, Action<IServiceCollection>? configure, string? userDataFolder = null, int? audioSeed = null)
     {
         var time = new GameTime(ticksPerSecond);
         var services = new ServiceCollection();
@@ -48,6 +54,7 @@ internal sealed class GameHost<TGame> : IDisposable
         services.AddSingleton(new GameRandom(seed));
         services.AddSingleton<IContentFiles, ContentFolder>();
         services.AddSingleton<Content>();
+        services.AddSingleton(provider => new Audio(provider.GetRequiredService<Content>(), audioSeed ?? HeadlessAudioSeed));
         services.AddSingleton<Input>();
         services.AddSingleton(typeof(Actions<>));
         services.AddSingleton<StateChanges>();
@@ -69,8 +76,10 @@ internal sealed class GameHost<TGame> : IDisposable
         Capture = _services.GetRequiredService<GameCapture>();
         Stats = _services.GetRequiredService<GameStats>();
         Director = _services.GetRequiredService<Director>();
+        Audio = _services.GetRequiredService<Audio>();
         Game = _services.GetRequiredService<TGame>();
         _hooks = _services.GetServices<ITickHook>().ToArray();
+        _drawHooks = _services.GetServices<IDrawHook>().ToArray();
         _changes = _services.GetRequiredService<StateChanges>();
         _changes.Hooks = _services.GetServices<IStateHook>().ToArray();
         Input.RoutesMouse = true;
@@ -95,6 +104,8 @@ internal sealed class GameHost<TGame> : IDisposable
     public GameStats Stats { get; }
 
     public Director Director { get; }
+
+    public Audio Audio { get; }
 
     public View View { get; } = new();
 
@@ -133,6 +144,14 @@ internal sealed class GameHost<TGame> : IDisposable
 
         // Before Update, so the game sees a cutscene's moments and time scale this tick.
         Director.BeforeUpdate();
+
+        // Before Update, so this tick's audio is what was asked for up to the last frame. A sound started in this
+        // Update is handed over at this tick's Draw and mixed from the next tick.
+        if (Audio.Manual)
+        {
+            Audio.Advance(Time.TickSeconds);
+        }
+
         Game.Update(Time);
         Input.Readable = false;
 
@@ -157,6 +176,14 @@ internal sealed class GameHost<TGame> : IDisposable
         {
             View.Camera(Director.At(blend));
         }
+
+        foreach (var hook in _drawHooks)
+        {
+            hook.AfterDraw(View);
+        }
+
+        // Last of the frame's own work, so the listener is the camera the frame showed and the hooks' changes go too.
+        Audio.EndFrame(View.Shot, Time.Scale);
 
         // The interface runs outside the measurement, so a stats panel reports the game
         // and not itself.

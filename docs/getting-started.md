@@ -156,6 +156,7 @@ container, so it works just like ASP.NET. These are already registered:
 | `GameTime` | The current tick and tick length |
 | `GameRandom` | [Seeded random numbers](random.md) |
 | `Content` | Models, images, meshes, textures and [JSON catalogs](content.md) |
+| `Audio` | [Sounds, music and channel volumes](audio.md) |
 | `Input`, `Actions<T>` | [Input](input.md) for any enum of actions |
 | `States<T>` | [Game states](states.md) for any enum |
 | `GameCapture` | [Screenshots and video from code](command-line.md#capturing-from-code) |

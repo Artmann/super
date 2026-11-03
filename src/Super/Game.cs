@@ -26,7 +26,9 @@ public static class Game
         // Runs without a window get a throwaway folder, so they never change the player's settings.
         string? userDataFolder = arguments.UserDataFolder ?? (hidden ? null : playerFolder);
 
-        using var host = new GameHost<TGame>(seed, options.TicksPerSecond, services, userDataFolder);
+        // Only live play sounds different each time. Screenshots, recordings and profiles keep the fixed audio seed.
+        int? audioSeed = hidden ? null : Random.Shared.Next();
+        using var host = new GameHost<TGame>(seed, options.TicksPerSecond, services, userDataFolder, audioSeed);
         host.Script = FindScript<TGame>(host, arguments.ScriptName);
 
         // Validation would swamp the timings, so a profile runs without it.
