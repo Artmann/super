@@ -10,7 +10,7 @@ internal interface ISampleReader : IDisposable
     int Read(Span<float> interleaved);
 
     /// <summary>
-    /// Moves the next read to exactly this frame. Seek(0) rewinds the reader it is rather than opening a new decoder, so
+    /// Moves the next read to exactly this frame. Seek(0) rewinds the existing decoder rather than opening a new decoder, so
     /// a loop can go round while mixing (NVorbis still allocates some 25 KB to rewind; the others nothing).
     /// </summary>
     void Seek(long frame);
