@@ -223,19 +223,69 @@ headless runs and tests all sound the same each run.
 **The game loop.** In `GameHost.Draw`: the game's `Draw`, then a playing cutscene's
 camera, then every `IDrawHook.AfterDraw(view)`, then `Audio.EndFrame(View.Shot,
 Time.Scale)`, which pushes the listener (the camera's position, facing `Target −
-Position`) and the world rate and publishes the frame's commands. In manual mode (always,
-until there is an output device) `GameHost.Tick` calls `Audio.Advance(TickSeconds)`
-before `Update`. `Advance` publishes anything still queued, as a frame would, so ticks
-with no `Draw` between them lose nothing; then it drains the ring and mixes
-`round(seconds × 48000)` frames into a scratch buffer in blocks of up to 2048, carrying
-the fraction of a frame to the next call so a long run doesn't drift. The mix itself is
-thrown away for now. A sound started in `Update` is handed over at that tick's `Draw` and
+Position`) and the world rate and publishes the frame's commands. In manual mode
+(`Audio.Manual`: no device, or the device paused) `GameHost.Tick` calls
+`Audio.Advance(TickSeconds)` before `Update`. `Advance` publishes anything still queued, as
+a frame would, so ticks with no `Draw` between them lose nothing; then it drains the ring
+and mixes `round(seconds × 48000)` frames into a scratch buffer in blocks of up to 2048,
+carrying the fraction of a frame to the next call so a long run doesn't drift. The mix
+itself is thrown away. A sound started in `Update` is handed over at that tick's `Draw` and
 first mixed by the next tick's `Advance`. `Render(span)` drains then mixes one span; it's
-the one call a mixing thread needs.
+the one call the audio thread makes.
 
 **Reading it.** `Audio.Playing` (manual mode only, else `InvalidOperationException`)
 drains what's been published, so it shows what the mixer has been told so far, and
 copies `Mixer.Snapshot` into a new list. `HeadlessRun.Sounds` returns it.
+`Audio.MixedFrames` is the mixer's sample clock (`Mixer.Clock`, a volatile field), the
+one piece of mixer state any thread may read.
+
+## Audio output
+
+`DeviceOutput` (in `src/Super/Audio/DeviceOutput.cs`) plays the mix through the speakers.
+`Game.StartWindowsGameLoop` calls `Audio.UseDevice(Console.Error)` just before
+`window.Run`, so only live play opens a device; screenshots, recordings and profiles
+return earlier and stay manual. `UseDevice` returns false and stays manual if the device
+won't open, so the game loop keeps advancing the mixer per tick and voices still end on
+time. It writes one line, `No sound device ({reason}); playing silently.`, where the
+reason is the exception message from opening. Tests force this with `openOverride`, a
+`Func<string?>` whose non-null result fails the open with that reason.
+
+**The device.** `OpenAlSpeakers` opens the default device through OpenAL Soft
+(`Silk.NET.OpenAL` with the `Silk.NET.OpenAL.Soft.Native` binaries, so nothing has to be
+installed), asks for a 48 kHz context, needs `AL_EXT_float32` and queues
+`AL_FORMAT_STEREO_FLOAT32` buffers on one source: 4 buffers of 512 frames, about 43 ms.
+OpenAL only plays what Super mixed; none of its 3D features are used. It sits behind
+`IAudioSink` (`Free`, `Queue`, `KeepPlaying`), so tests run the real audio thread into a
+stand-in with no sound card.
+
+**The audio thread.** `DeviceOutput` starts one background thread, "Super audio", above
+normal priority. Each pass it asks the sink how many buffers have finished playing,
+renders one 512-frame block through `Audio.Render` for each (which drains the command
+ring, then mixes) and queues it, then makes sure the source is playing. It then waits
+up to 2 ms (often about 15 ms on Windows) on an event that `Resume` and `Dispose` set. If
+it falls behind, every processed buffer is refilled in one pass, and a source that ran
+dry and stopped is played again, so it never stays stopped. It allocates nothing per
+pass. After each pass it compares `Mixer.FailedVoices` with the count it last saw, and
+when it grew writes `A sound failed and stopped ({count} so far): {LastFailure}` to the
+log given to `UseDevice`, a plain `WriteLine` inside a `try`. Anything else that throws
+on the thread is caught: it logs `Sound stopped: {message}` and stops rendering for good,
+because the mixer may be half way through a change; the game carries on in silence.
+
+**Handing the mixer over.** Each pass runs while holding a lock. `Pause` takes the same
+lock and sets a flag, so when it returns the thread has finished its block and won't
+touch the mixer until `Resume` clears it; the lock also makes each side's writes to the
+mixer visible to the other. `Audio.PauseDevice()` pauses and makes `Manual` true, so
+`Advance`, `Playing` and `Render` work on the calling thread and the game loop advances
+the mixer per tick again. `Audio.ResumeDevice()` hands it back. Both do nothing without
+a device. Pausing is the one time the game thread waits on the audio thread, for at most
+one block; it's there for recording sound from live play. The speakers run dry while paused, and the
+first pass after `Resume` refills them and starts the source again.
+
+**Closing.** `GameHost.Dispose` calls `Audio.Close()` before the services go: it stops
+the thread, joins it, closes the source, buffers, context and device, then
+`Mixer.StopAll()` ends every ambience and voice, so streamed clips close their readers.
+`Mixer` itself isn't `IDisposable`; this is the only place voices still playing are
+released.
 
 # Rendition design
 

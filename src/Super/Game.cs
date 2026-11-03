@@ -60,6 +60,9 @@ public static class Game
             return;
         }
 
+        // Only live play gets here, so only it plays through the speakers. Without a device it runs silently, with the
+        // game loop still moving the audio on a tick at a time.
+        host.Audio.UseDevice(Console.Error);
         window.Run(host, options.TicksPerSecond);
     }
 

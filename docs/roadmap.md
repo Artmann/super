@@ -12,7 +12,8 @@ Super is early. These are the known gaps, so you can plan around them.
   ground or react to what they hit.
 - **Film effects.** [Cutscenes](cutscenes.md) cut between shots, but there's no depth
   of field, motion blur or cross-fade yet.
-- **Audio.** Sounds are mixed but not yet heard: there's no output device, so only tests can check them.
+- **Sound in videos.** Live play is heard through the speakers, but `--record` videos are
+  silent so far.
 - **Picking by shape.** Clicks are tested against balls, boxes and the ground, not a
   model's triangles.
 - **Some camera moves.** A camera can't roll, and asymmetric views are a shift, so head

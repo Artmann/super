@@ -37,6 +37,7 @@ internal sealed class Mixer
     private Vector3 _listener;
     private Vector3 _forward = -Vector3.UnitZ;
     private float _worldRate = 1;
+    private long _clock;
 
     /// <summary>
     /// Makes a mixer. <paramref name="random"/> picks everything random in ambiences: where layers start and when,
@@ -65,8 +66,11 @@ internal sealed class Mixer
     /// <summary>The message of the latest of those failures, for a log, or null if there has been none.</summary>
     public string? LastFailure { get; private set; }
 
-    /// <summary>Frames mixed so far: the mixer's sample clock.</summary>
-    public long Clock { get; private set; }
+    /// <summary>
+    /// Frames mixed so far: the mixer's sample clock. Unlike the rest of the mixer it may be read from any thread, so
+    /// a test can watch an audio thread mix.
+    /// </summary>
+    public long Clock => Volatile.Read(ref _clock);
 
     /// <summary>
     /// Starts a voice and returns its id. With every slot taken, the quietest voice that isn't music or an ambience layer is
@@ -254,7 +258,30 @@ internal sealed class Mixer
             }
         }
 
-        Clock += frames;
+        Volatile.Write(ref _clock, _clock + frames);
+    }
+
+    /// <summary>
+    /// Ends every ambience and voice at once, closing the readers of streamed clips. For when the mixer is done with,
+    /// such as when the game closes.
+    /// </summary>
+    public void StopAll()
+    {
+        for (int i = 0; i < MaxAmbiences; i++)
+        {
+            if (_ambiences[i].Active)
+            {
+                _ambiences[i].Stop(this, 0);
+            }
+        }
+
+        for (int i = 0; i < MaxVoices; i++)
+        {
+            if (_voices[i].Active)
+            {
+                _voices[i].End();
+            }
+        }
     }
 
     /// <summary>Copies what's playing into the span, up to its length, and returns how many it wrote.</summary>
