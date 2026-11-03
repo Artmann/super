@@ -13,7 +13,11 @@ dotnet build Super.slnx -c Release
 dotnet test Super.slnx -c Release
 ```
 
-The tests need no window or GPU. To see games running, try the examples:
+The tests need no window or GPU. GitHub Actions runs the same build and tests on every pull
+request and on each push to `main`, on Windows (`.github/workflows/ci.yml`). The recording tests
+there need `ffmpeg`, as they do locally.
+
+To see games running, try the examples:
 
 ```
 dotnet run -c Release --project examples/ColorCube
