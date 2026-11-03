@@ -282,6 +282,24 @@ public struct PostSettings
 
     /// <summary>Strength of film grain. 0.01 is subtle.</summary>
     public float Grain;
+
+    /// <summary>
+    /// Added glow, on top of the soft glow every picture has. 0.1 is a dreamy haze round bright
+    /// things; negative values take the glow away.
+    /// </summary>
+    public float Bloom;
+
+    /// <summary>
+    /// Colour added to the darkest parts of the picture, fading out towards white, so shadows
+    /// take on a tint instead of going black. 0.02 is gentle; (0.03, 0.02, 0.05) gives lilac shade.
+    /// </summary>
+    public Vector3 Lift;
+
+    /// <summary>
+    /// Extra brightness in each of red, green and blue, which shows most in the brightest parts.
+    /// 0.05 is five per cent brighter; (0.05, 0.02, -0.04) warms the highlights to cream.
+    /// </summary>
+    public Vector3 Gain;
 }
 
 /// <summary>Puts the camera underwater. Leaving Absorption at zero means there's no water.</summary>
@@ -373,6 +391,16 @@ public ref struct FrameView
     /// <summary>Surfaces melt into the background between these distances. Equal values turn it off.</summary>
     public float BackgroundFadeStart;
     public float BackgroundFadeEnd;
+
+    /// <summary>
+    /// Where the fade's distance is measured from, the camera when unset. Set, the distance is taken
+    /// across the ground only, so tall things fade no sooner than what they stand on. A point the camera
+    /// looks at suits a camera far off, as an isometric one is, where everything on screen is about as far away.
+    /// </summary>
+    public Vector3? BackgroundFadeOrigin;
+
+    /// <summary>What distant surfaces fade into. Zero fades them into the background behind them.</summary>
+    public Vector3 BackgroundFadeColor;
 
     public PostSettings Post;
 

@@ -354,11 +354,13 @@ void main() {
     if (fadeEnd > fadeStart) {
         vec3 away = position - frame.cameraPosition.xyz;
         vec3 behind = frame.backgroundRadiance.rgb;
-        if (frame.showEnvironment == 1) {
+        if (frame.hazeColor.a > 0.5) {
+            behind = frame.hazeColor.rgb;
+        } else if (frame.showEnvironment == 1) {
             behind = textureLod(reflectionTexture, normalize(away), 0.0).rgb * frame.backgroundRadiance.a;
         }
 
-        color = mix(color, behind, smoothstep(fadeStart, fadeEnd, length(away)));
+        color = mix(color, behind, smoothstep(fadeStart, fadeEnd, hazeDistance(position)));
     }
 
     outColor = vec4(color, 1.0);

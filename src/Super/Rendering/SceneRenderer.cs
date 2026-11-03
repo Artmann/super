@@ -380,6 +380,9 @@ internal sealed class SceneRenderer : IDisposable
         return range;
     }
 
+    /// <summary>Where the haze is measured from: the camera's focus when the sky asks for it, else the camera.</summary>
+    internal static Vector3? HazeOrigin(SkySettings? sky, Camera shot) => sky is { HazeFromFocus: true } ? shot.Target : null;
+
     private FrameView CreateFrame(View view, int width, int height, float time)
     {
         var suns = view.Suns;
@@ -419,6 +422,8 @@ internal sealed class SceneRenderer : IDisposable
             ShowEnvironment = sky is not null,
             BackgroundFadeStart = sky?.HazeStart ?? 0f,
             BackgroundFadeEnd = sky?.HazeEnd ?? 0f,
+            BackgroundFadeOrigin = HazeOrigin(sky, shot),
+            BackgroundFadeColor = sky?.HazeColor ?? Vector3.Zero,
             Post = view.Post,
             Water = view.WaterSettings,
             Overlay = view.Ui is { } ui ? ui.Quads : [],

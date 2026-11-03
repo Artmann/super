@@ -48,10 +48,15 @@ view.Finish(new PostSettings
     Vignette = 0.3f,
     Sharpen = 0.4f,
     Grain = 0.01f,
+    Bloom = 0.1f,                              // more glow round bright things
+    Lift = new Vector3(0.03f, 0.02f, 0.05f),   // lilac in the shade
+    Gain = new Vector3(0.05f, 0.02f, -0.04f),  // cream in the highlights
 });
 ```
 
-Leaving a value at zero leaves that part unchanged.
+Leaving a value at zero leaves that part unchanged. `Lift` adds colour to the dark parts
+and fades out towards white, so shade takes a tint and white stays white. `Gain` makes
+each channel that much brighter, by its share, so it shows most in the highlights.
 
 ## The sky
 
@@ -74,6 +79,13 @@ view.Sky(new SkySettings
 Haze fades things into the sky behind them, from nothing at `HazeStart` to all sky at
 `HazeEnd`, so the far edge of a world melts away instead of stopping. Leave both at
 zero for no haze. A negative brightness, or haze that ends nearer than it starts, throws.
+
+`HazeFromFocus` measures the haze across the ground from the point the camera looks at
+instead of from the camera. Use it with a far-off camera, such as an isometric one: from there everything on
+screen is about the same distance away, so haze from the camera fades everything evenly.
+Haze from the focus leaves the middle clear and fades the edges of the view. `HazeColor`
+sets what things fade into; zero fades them into the sky behind them, which for a camera
+looking down is the dark ground below the horizon.
 
 Changing the colours rebuilds the sky's lighting, which takes a moment, so keep them
 steady rather than animating them every frame. [Water](#water), when set, takes over the

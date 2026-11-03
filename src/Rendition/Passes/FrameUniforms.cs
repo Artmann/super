@@ -67,6 +67,18 @@ internal struct FrameUniforms
     /// <summary>x: sharpening; y: grain; zw: this frame's anti-aliasing shift.</summary>
     public Vector4 Finish;
 
+    /// <summary>rgb: colour added to the darks; a: how much of the bloom is mixed in.</summary>
+    public Vector4 Lift;
+
+    /// <summary>rgb: what each channel is multiplied by.</summary>
+    public Vector4 Gain;
+
+    /// <summary>xyz: the point the haze is measured from; w: 1 to measure across the ground only.</summary>
+    public Vector4 HazeOrigin;
+
+    /// <summary>rgb: what things fade into; a: 1 to fade into it rather than the background.</summary>
+    public Vector4 HazeColor;
+
     /// <summary>rgb: light lost per metre; a: 1 when the view is underwater.</summary>
     public Vector4 WaterAbsorption;
 

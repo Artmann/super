@@ -483,7 +483,10 @@ light, and baking it too would count that light twice and overexpose the scene.
 as the background instead of the flat `BackgroundRadiance`, and the distance fade then
 mixes toward the cube in the direction of the view. A far hill melts into the sky just
 behind it rather than into one grey. Super's `view.Sky` turns it on; the studio and
-underwater views leave it off.
+underwater views leave it off. A `BackgroundFadeColor` overrides both backgrounds, and
+`BackgroundFadeOrigin` measures the fade across the ground from that point instead of
+from the camera, so a tall tree fades no sooner than the ground it stands on.
+The direction used to look up the cube is still taken from the camera.
 
 Super keeps one set of bands, from water first, then the sky, then the plain studio, and
 bakes them again only when they change, so a steady sky costs nothing per frame but a
@@ -611,6 +614,7 @@ render pass. It works only inside the area the shadow map covers.
 Bloom has no brightness threshold. Every pixel gives away a small share of its
 light, so only really bright things show a visible glow. That's physically closer
 to how a lens scatters light, and nothing pops as a surface crosses a threshold.
+`PostSettings.Bloom` adds to the share, which starts at 5%.
 
 Tonemapping uses Stephen Hill's fit of the ACES film transform rather than the
 simpler Narkowicz curve. It works in ACES's own colour space, so very bright colours
@@ -625,8 +629,8 @@ and history is pulled back into the range of nearby colours so old images don't 
 behind. It runs before bloom and tonemapping, on HDR colour. It replaced FXAA, which
 couldn't remove shimmer.
 
-`FrameView.Post` holds the look of the image: exposure, contrast and saturation in the
-tonemap pass, then sharpening, vignette and film grain in the finish pass. Grain and
+`FrameView.Post` holds the look of the image: bloom, exposure, contrast and saturation,
+then lift and gain after ACES, in the tonemap pass, then sharpening, vignette and film grain in the finish pass. Grain and
 dither also hide the steps an 8-bit screen would show in slow gradients.
 
 ## Verification without a window
@@ -705,8 +709,8 @@ Anything larger than a block gets its own allocation.
   by ambient occlusion.
 - The environment is treated as infinitely far away, and ambient occlusion is all
   that blocks it.
-- The ambient occlusion radius and strength, and the bloom strength, are constants in
-  their shaders. A game will want to set them per scene.
+- The ambient occlusion radius and strength are constants in their shaders. A game
+  will want to set them per scene.
 - Temporal anti-aliasing follows the camera only, with no motion per object, so moving
   objects rely on the colour clamp and can show rough edges. Skinned models, now
   supported, will need motion vectors from the G-buffer pass too.

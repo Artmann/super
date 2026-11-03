@@ -1260,6 +1260,8 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->Grade = new Vector4(
             MathF.Pow(2f, view.Post.Exposure), 1f + view.Post.Contrast, 1f + view.Post.Saturation, view.Post.Vignette);
         uniforms->Finish = new Vector4(view.Post.Sharpen, view.Post.Grain, shift.X, shift.Y);
+        (uniforms->Lift, uniforms->Gain) = PostGrade.Tint(view.Post);
+        (uniforms->HazeOrigin, uniforms->HazeColor) = Haze.Pack(view.CameraPosition, view.BackgroundFadeOrigin, view.BackgroundFadeColor);
         uniforms->ProbeCount = 0;
         if (!capturingProbe)
         {

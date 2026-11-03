@@ -29,4 +29,14 @@ public struct SkySettings
 
     /// <inheritdoc cref="HazeStart"/>
     public float HazeEnd;
+
+    /// <summary>
+    /// Measures the haze from the point the camera looks at rather than from the camera. Suits a
+    /// camera far off, as an isometric one is: from there everything on screen is about as far away,
+    /// so haze from the camera fades it all alike, while haze from the focus fades the view's edges.
+    /// </summary>
+    public bool HazeFromFocus;
+
+    /// <summary>What things fade into. Zero fades them into the sky behind them.</summary>
+    public Vector3 HazeColor;
 }

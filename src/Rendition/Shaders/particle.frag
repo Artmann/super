@@ -103,11 +103,13 @@ void main() {
         float fadeEnd = frame.parameters.y;
         if (fadeEnd > fadeStart) {
             vec3 beyond = frame.backgroundRadiance.rgb;
-            if (frame.showEnvironment == 1) {
+            if (frame.hazeColor.a > 0.5) {
+                beyond = frame.hazeColor.rgb;
+            } else if (frame.showEnvironment == 1) {
                 beyond = textureLod(reflectionTexture, normalize(away), 0.0).rgb * frame.backgroundRadiance.a;
             }
 
-            color = mix(color, beyond, smoothstep(fadeStart, fadeEnd, length(away)));
+            color = mix(color, beyond, smoothstep(fadeStart, fadeEnd, hazeDistance(inPosition)));
         }
     }
 
