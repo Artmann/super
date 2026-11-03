@@ -20,10 +20,12 @@ dotnet run -c Release --project examples/ColorCube
 dotnet run -c Release --project examples/Rooms
 dotnet run -c Release --project examples/Crafting
 dotnet run -c Release --project examples/Terrain
+dotnet run -c Release --project examples/Forest
 ```
 
 The Terrain example is endless hills you fly over with WASD, the mouse, Space and
-Shift. The Reef example needs models that aren't in the repository; see
+Shift. The Forest example is a rainy forest with music and a builder hammering at a cabin; try
+Space and the keys 1 to 4 for the sound. The Reef example needs models that aren't in the repository; see
 [Rendering](rendering.md#models) for how to cook them.
 
 ## A first game

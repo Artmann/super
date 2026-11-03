@@ -276,3 +276,11 @@ Assert.True(hit.Pan < 0);
 
 A sound started in an `Update` is in `run.Sounds` after that tick, once its frame has
 handed it over. It starts moving on the tick after.
+
+## Example
+
+The [Forest example](../examples/Forest) puts it together: rain and wind as an ambience scoped to the
+forest state, music, a builder whose `Sound` component is added while hammering and removed
+while walking, `Space` for a flat click, `1` to `4` to cycle the channel volumes and `P` to
+pause with `Scale` 0. Its tests in [tests/Forest.Tests](../tests/Forest.Tests) check the layers, the
+hammering and its pan with `run.Sounds`.
