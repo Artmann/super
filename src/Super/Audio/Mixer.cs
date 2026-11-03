@@ -15,6 +15,12 @@ internal sealed class Mixer
     public const int SampleRate = 48000;
     public const int MaxVoices = 64;
 
+    /// <summary>How many ambiences can play at once.</summary>
+    public const int MaxAmbiences = 8;
+
+    /// <summary>The id <see cref="StartAmbience"/> returns when all <see cref="MaxAmbiences"/> are already playing.</summary>
+    public const int NoAmbience = -1;
+
     /// <summary>The id <see cref="Start"/> returns when the voice limit dropped the new sound.</summary>
     public const int Dropped = -1;
 
@@ -24,16 +30,30 @@ internal sealed class Mixer
 
     private readonly Voice[] _voices = new Voice[MaxVoices];
     private readonly int[] _generations = new int[MaxVoices];
+    private readonly AmbiencePlayer[] _ambiences = new AmbiencePlayer[MaxAmbiences];
+    private readonly int[] _ambienceGenerations = new int[MaxAmbiences];
+    private readonly RandomStream _random;
     private readonly float[] _channelVolumes = new float[Enum.GetValues<Channel>().Length];
     private Vector3 _listener;
     private Vector3 _forward = -Vector3.UnitZ;
     private float _worldRate = 1;
 
-    public Mixer()
+    /// <summary>
+    /// Makes a mixer. <paramref name="random"/> picks everything random in ambiences: where layers start and when,
+    /// which and how loud scattered sounds play. Pass <c>new GameRandom(seed).Stream("audio")</c>, never the game's own.
+    /// </summary>
+    public Mixer(RandomStream random)
     {
+        ArgumentNullException.ThrowIfNull(random);
+        _random = random;
         for (int i = 0; i < MaxVoices; i++)
         {
             _voices[i] = new Voice();
+        }
+
+        for (int i = 0; i < MaxAmbiences; i++)
+        {
+            _ambiences[i] = new AmbiencePlayer();
         }
 
         Array.Fill(_channelVolumes, 1f);
@@ -100,6 +120,47 @@ internal sealed class Mixer
         Find(voice)?.Volume.To(volume, ToFrames(fadeSeconds));
     }
 
+    /// <summary>
+    /// Starts an ambience: its layers loop on the Ambience channel from a random frame, fading in over the seconds
+    /// given, and its scattered sounds play at random times. Returns its id, or <see cref="NoAmbience"/> when
+    /// <see cref="MaxAmbiences"/> are already playing. Its voices count against the voice limit like any other.
+    /// </summary>
+    public int StartAmbience(AmbienceDefinition definition, float volume, float fadeSeconds)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        int slot = Array.FindIndex(_ambiences, player => !player.Active);
+        if (slot < 0)
+        {
+            return NoAmbience;
+        }
+
+        int generation = (_ambienceGenerations[slot] + 1) & GenerationMask;
+        if (generation == 0)
+        {
+            generation = 1;
+        }
+
+        _ambienceGenerations[slot] = generation;
+        int id = slot | (generation << SlotBits);
+        _ambiences[slot].Begin(this, _random, definition, id, volume, fadeSeconds);
+        return id;
+    }
+
+    /// <summary>Fades the ambience's layers and the scattered sounds still to start to the new volume.</summary>
+    public void SetAmbienceVolume(int ambience, float volume, float fadeSeconds)
+    {
+        FindAmbience(ambience)?.SetVolume(this, volume, fadeSeconds);
+    }
+
+    /// <summary>
+    /// Fades every layer out over the seconds given (0 removes them at once) and starts no more scattered sounds.
+    /// A scattered sound already playing plays to its end.
+    /// </summary>
+    public void StopAmbience(int ambience, float fadeSeconds)
+    {
+        FindAmbience(ambience)?.Stop(this, fadeSeconds);
+    }
+
     /// <summary>Moves a placed voice from the next mixed frame. A flat voice stays flat.</summary>
     public void SetPosition(int voice, Vector3 position)
     {
@@ -135,6 +196,14 @@ internal sealed class Mixer
         Span<float> block = stereo[..(frames * 2)];
         stereo.Clear();
 
+        for (int i = 0; i < MaxAmbiences; i++)
+        {
+            if (_ambiences[i].Active)
+            {
+                _ambiences[i].Update(this, _random, frames);
+            }
+        }
+
         for (int i = 0; i < MaxVoices; i++)
         {
             Voice voice = _voices[i];
@@ -159,10 +228,35 @@ internal sealed class Mixer
                 left = panLeft * falloff * channel;
                 right = panRight * falloff * channel;
             }
-
-            if (!voice.Mix(block, step, left, right))
+            else if (voice.Pan != 0)
             {
-                voice.End();
+                (float balanceLeft, float balanceRight) = Spatial.Balance(voice.Pan);
+                left *= balanceLeft;
+                right *= balanceRight;
+            }
+
+            // One voice with a reader that fails, such as a corrupt frame far into a streamed file, loses its own
+            // sound and nothing else.
+            bool finished;
+            try
+            {
+                finished = !voice.Mix(block, step, left, right);
+            }
+            catch (Exception)
+            {
+                finished = true;
+            }
+
+            if (finished)
+            {
+                try
+                {
+                    voice.End();
+                }
+                catch (Exception)
+                {
+                    // The slot is already free; a decoder that won't dispose has nothing more to tell us.
+                }
             }
         }
 
@@ -182,7 +276,7 @@ internal sealed class Mixer
             }
 
             float gain = voice.Volume.Value * voice.Envelope.Value * ChannelGain(voice.Channel);
-            float pan = 0;
+            float pan = voice.Pan;
             if (voice.Placed)
             {
                 gain *= Falloff(voice);
@@ -195,7 +289,7 @@ internal sealed class Mixer
         return count;
     }
 
-    private static int ToFrames(float seconds)
+    internal static int ToFrames(float seconds)
     {
         return seconds > 0 ? (int)Math.Round((double)seconds * SampleRate) : 0;
     }
@@ -209,6 +303,17 @@ internal sealed class Mixer
     private float Falloff(Voice voice)
     {
         return Spatial.Falloff(Vector3.Distance(_listener, voice.Position), voice.Near, voice.Far);
+    }
+
+    private AmbiencePlayer? FindAmbience(int id)
+    {
+        if (id < 0)
+        {
+            return null;
+        }
+
+        AmbiencePlayer player = _ambiences[(id & SlotMask) % MaxAmbiences];
+        return player.Active && player.Id == id ? player : null;
     }
 
     private Voice? Find(int id)

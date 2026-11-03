@@ -47,4 +47,15 @@ internal static class Spatial
         float angle = (pan + 1) * MathF.PI / 4;
         return (MathF.Cos(angle), MathF.Sin(angle));
     }
+
+    /// <summary>
+    /// Gains for a flat stereo voice panned by a balance control: both 1 at the centre, and panning to one side
+    /// turns the other side down along a quarter circle to 0 at the edge.
+    /// </summary>
+    public static (float Left, float Right) Balance(float pan)
+    {
+        float turn = MathF.Abs(Math.Clamp(pan, -1, 1)) * MathF.PI / 2;
+        float far = MathF.Cos(turn);
+        return pan > 0 ? (far, 1) : (1, far);
+    }
 }

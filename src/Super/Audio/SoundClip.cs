@@ -63,6 +63,14 @@ internal sealed class SoundClip
         return _decoder!();
     }
 
+    /// <summary>
+    /// A streamed clip over any reader factory, for tests that need a decoder which fails when opened or part way through.
+    /// </summary>
+    internal static SoundClip Streaming(string path, int sampleRate, int channels, double seconds, Func<ISampleReader> open)
+    {
+        return new SoundClip(path, sampleRate, channels, seconds, null, open);
+    }
+
     /// <summary>Reads a clip from its file bytes. The path picks the format and names the file in errors.</summary>
     public static SoundClip Read(string path, byte[] bytes)
     {

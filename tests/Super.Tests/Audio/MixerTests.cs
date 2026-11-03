@@ -47,7 +47,7 @@ public class MixerTests
     [Fact]
     public void FlatConstantClipMixesAtChannelTimesMaster()
     {
-        var mixer = new Mixer();
+        var mixer = TestMixer.Make();
         mixer.SetChannelVolume(Channel.Interface, 0.5f);
         mixer.SetChannelVolume(Channel.Master, 0.8f);
         mixer.Start(Flat(Constant("click.wav", 48000, 4800)));
@@ -63,7 +63,7 @@ public class MixerTests
     [Fact]
     public void ClipAt44100PlaysForItsLengthAt48000()
     {
-        var mixer = new Mixer();
+        var mixer = TestMixer.Make();
         mixer.Start(Flat(Constant("a.wav", 44100, 4410)));
 
         float[] stereo = Mix(mixer, 6000);
@@ -86,7 +86,7 @@ public class MixerTests
     [Fact]
     public void LoopingClipNeverRunsOut()
     {
-        var mixer = new Mixer();
+        var mixer = TestMixer.Make();
         mixer.Start(Flat(Constant("loop.wav", 44100, 4410), loop: true));
 
         for (int block = 0; block < 3 * 48000 / 512; block++)
@@ -104,7 +104,7 @@ public class MixerTests
     [Fact]
     public void StreamedClipLoopsBackToItsStart()
     {
-        var mixer = new Mixer();
+        var mixer = TestMixer.Make();
         SoundClip clip = Constant("song.wav", 8000, 84000); // 10.5 s, past the decode limit
         Assert.True(clip.Streamed);
         mixer.Start(Flat(clip, Channel.Music, loop: true));
@@ -125,7 +125,7 @@ public class MixerTests
     [Fact]
     public void FadeInRisesOverItsSeconds()
     {
-        var mixer = new Mixer();
+        var mixer = TestMixer.Make();
         VoiceStart start = Flat(Constant("rise.wav", 48000, 48000));
         start.FadeInSeconds = 0.1f;
         mixer.Start(start);
@@ -145,7 +145,7 @@ public class MixerTests
     [Fact]
     public void StopFadesThenRemoves()
     {
-        var mixer = new Mixer();
+        var mixer = TestMixer.Make();
         int voice = mixer.Start(Flat(Constant("hum.wav", 48000, 4800), loop: true));
         Mix(mixer, 512);
 
@@ -161,7 +161,7 @@ public class MixerTests
     [Fact]
     public void PlacedSoundLeftOfListenerIsOnlyLeft()
     {
-        var mixer = new Mixer();
+        var mixer = TestMixer.Make();
         mixer.SetListener(Vector3.Zero, -Vector3.UnitZ);
         mixer.Start(new VoiceStart
         {
@@ -184,7 +184,7 @@ public class MixerTests
     [Fact]
     public void StereoClipPlacedInWorldIsFoldedToMono()
     {
-        var mixer = new Mixer();
+        var mixer = TestMixer.Make();
         var samples = new float[200];
         for (int frame = 0; frame < 100; frame++)
         {
@@ -205,7 +205,7 @@ public class MixerTests
     [Fact]
     public void FlatStereoClipKeepsItsChannels()
     {
-        var mixer = new Mixer();
+        var mixer = TestMixer.Make();
         var samples = new float[200];
         for (int frame = 0; frame < 100; frame++)
         {
@@ -227,7 +227,7 @@ public class MixerTests
     [Fact]
     public void WorldRateZeroHoldsPlacedVoicePosition()
     {
-        var mixer = new Mixer();
+        var mixer = TestMixer.Make();
         mixer.SetChannelVolume(Channel.Music, 0);
         mixer.Start(new VoiceStart
         {
@@ -248,22 +248,41 @@ public class MixerTests
         float[] paused = Mix(mixer, 48000);
         mixer.SetWorldRate(1);
 
-        Assert.Equal(-1, Array.FindIndex(paused, sample => sample != 0));
+        // The 5 ms (240 frame) fade out keeps the voice moving for 239 more frames, then it is silent and still.
+        Assert.NotEqual(0f, paused[0]);
+        Assert.Equal(-1, Array.FindIndex(paused, 239 * 2, sample => sample != 0));
         PlayingSound[] playing = Snapshot(mixer);
         PlayingSound step = Assert.Single(playing, p => p.Clip == "step.wav");
         PlayingSound song = Assert.Single(playing, p => p.Clip == "song.wav");
-        Assert.Equal(1000.0 / 48000, step.Seconds, 1e-9);
+        Assert.Equal(1239.0 / 48000, step.Seconds, 1e-9);
         Assert.Equal(49000.0 / 48000, song.Seconds, 1e-9);
 
+        // It resumes from frame 1239, fading in: the first frame is 1/240 of the way up.
         float[] resumed = Mix(mixer, 1);
-        Assert.Equal(Centre * 1000f / 48000, resumed[0], 1e-6f);
-        Assert.Equal(Centre * 1000f / 48000, resumed[1], 1e-6f);
+        Assert.Equal(Centre * 1239f / 48000 / 240, resumed[0], 1e-8f);
+        Assert.Equal(Centre * 1239f / 48000 / 240, resumed[1], 1e-8f);
     }
 
     [Fact]
-    public void HalfWorldRatePlaysPlacedVoiceAtHalfSpeed()
+    public void HoldingAtWorldRateZeroFadesOutOverFiveMilliseconds()
     {
-        var mixer = new Mixer();
+        var mixer = TestMixer.Make();
+        mixer.Start(new VoiceStart { Clip = Constant("hum.wav", 48000, 48000), Channel = Channel.Effects, FollowsScale = true });
+        Mix(mixer, 512);
+
+        mixer.SetWorldRate(0);
+        float[] stereo = Mix(mixer, 512);
+
+        Assert.Equal(239f / 240, stereo[0], 1e-6f);
+        Assert.Equal(0.5f, stereo[119 * 2], 1e-6f);
+        Assert.Equal(1f / 240, stereo[238 * 2], 1e-6f);
+        Assert.Equal(0f, stereo[239 * 2]);
+    }
+
+    [Fact]
+    public void HalfWorldRatePlaysScaleFollowingVoiceAtHalfSpeed()
+    {
+        var mixer = TestMixer.Make();
         mixer.SetWorldRate(0.5f);
         mixer.Start(new VoiceStart
         {
@@ -280,7 +299,7 @@ public class MixerTests
     [Fact]
     public void PitchTwoPlaysTwiceAsFast()
     {
-        var mixer = new Mixer();
+        var mixer = TestMixer.Make();
         VoiceStart start = Flat(Constant("high.wav", 48000, 48000));
         start.Pitch = 2;
         mixer.Start(start);
@@ -293,7 +312,7 @@ public class MixerTests
     [Fact]
     public void RampClipIsInterpolatedBetweenFrames()
     {
-        var mixer = new Mixer();
+        var mixer = TestMixer.Make();
         VoiceStart start = Flat(Ramp("ramp.wav", 1000));
         start.Pitch = 0.5f;
         mixer.Start(start);
@@ -310,7 +329,7 @@ public class MixerTests
     [Fact]
     public void PastTheLimitTheQuietestGoes()
     {
-        var mixer = new Mixer();
+        var mixer = TestMixer.Make();
         SoundClip loud = Constant("loud.wav", 48000, 4800);
         SoundClip quiet = Constant("quiet.wav", 48000, 4800);
         for (int i = 0; i < Mixer.MaxVoices - 1; i++)
@@ -330,7 +349,7 @@ public class MixerTests
     [Fact]
     public void PastTheLimitMusicIsNeverDropped()
     {
-        var mixer = new Mixer();
+        var mixer = TestMixer.Make();
         SoundClip song = Constant("song.wav", 48000, 4800);
         SoundClip shot = Constant("shot.wav", 48000, 4800);
         for (int i = 0; i < Mixer.MaxVoices - 1; i++)
@@ -350,7 +369,7 @@ public class MixerTests
     [Fact]
     public void PastTheLimitANewQuietestVoiceIsTheOneDropped()
     {
-        var mixer = new Mixer();
+        var mixer = TestMixer.Make();
         SoundClip loud = Constant("loud.wav", 48000, 4800);
         SoundClip quiet = Constant("quiet.wav", 48000, 4800);
         for (int i = 0; i < Mixer.MaxVoices; i++)
@@ -376,7 +395,7 @@ public class MixerTests
     [Fact]
     public void StaleIdDoesNotTouchTheVoiceThatReusedItsSlot()
     {
-        var mixer = new Mixer();
+        var mixer = TestMixer.Make();
         int old = mixer.Start(Flat(Constant("short.wav", 48000, 100)));
         Mix(mixer, 200);
         Assert.Empty(Snapshot(mixer));
@@ -395,7 +414,7 @@ public class MixerTests
     [Fact]
     public void SetVolumeFadesToTheNewVolume()
     {
-        var mixer = new Mixer();
+        var mixer = TestMixer.Make();
         int voice = mixer.Start(Flat(Constant("hum.wav", 48000, 48000)));
 
         mixer.SetVolume(voice, 0.5f, 0.1f);
@@ -410,7 +429,7 @@ public class MixerTests
     [Fact]
     public void SetPositionMovesThePan()
     {
-        var mixer = new Mixer();
+        var mixer = TestMixer.Make();
         int voice = mixer.Start(new VoiceStart
         {
             Clip = Constant("buzz.wav", 48000, 48000),
@@ -420,6 +439,7 @@ public class MixerTests
         Mix(mixer, 10);
 
         mixer.SetPosition(voice, new Vector3(1, 0, 0));
+        Mix(mixer, 10); // the pan ramps across this block
         float[] stereo = Mix(mixer, 10);
 
         Assert.Equal(0f, stereo[0], 1e-6f);
@@ -428,9 +448,122 @@ public class MixerTests
     }
 
     [Fact]
+    public void APanChangeLandsGraduallyWithinOneBlock()
+    {
+        var mixer = TestMixer.Make();
+        mixer.SetListener(Vector3.Zero, -Vector3.UnitZ);
+        int voice = mixer.Start(new VoiceStart
+        {
+            Clip = Constant("buzz.wav", 48000, 48000),
+            Channel = Channel.Effects,
+            Position = new Vector3(-1, 0, 0),
+        });
+        Mix(mixer, 10);
+
+        // Hard left to hard right, within the near distance so there is no falloff. Over 100 frames each side
+        // moves 1/100 a frame: left 0.99 down to 0, right 0.01 up to 1.
+        mixer.SetPosition(voice, new Vector3(1, 0, 0));
+        float[] stereo = Mix(mixer, 100);
+
+        for (int frame = 0; frame < 100; frame++)
+        {
+            Assert.Equal(1f - (frame + 1) / 100f, stereo[frame * 2], 1e-5f);
+            Assert.Equal((frame + 1) / 100f, stereo[frame * 2 + 1], 1e-5f);
+        }
+    }
+
+    [Fact]
+    public void AFlatVoicesFirstBlockStartsAtItsGainsNotAtZero()
+    {
+        var mixer = TestMixer.Make();
+        mixer.Start(Flat(Constant("click.wav", 48000, 4800), Channel.Interface, 1));
+
+        float[] stereo = Mix(mixer, 4);
+
+        Assert.Equal(1f, stereo[0]);
+        Assert.Equal(1f, stereo[1]);
+    }
+
+    [Fact]
+    public void AChannelVolumeChangeRampsAcrossTheBlock()
+    {
+        var mixer = TestMixer.Make();
+        mixer.Start(Flat(Constant("hum.wav", 48000, 48000), loop: true));
+        Mix(mixer, 10);
+
+        mixer.SetChannelVolume(Channel.Interface, 0.5f);
+        float[] stereo = Mix(mixer, 100);
+
+        Assert.Equal(0.995f, stereo[0], 1e-5f);
+        Assert.Equal(0.75f, stereo[49 * 2], 1e-5f);
+        Assert.Equal(0.5f, stereo[99 * 2], 1e-5f);
+    }
+
+    [Fact]
+    public void AVoiceWhoseClipFailsToOpenLeavesNoVoiceBehind()
+    {
+        var mixer = TestMixer.Make();
+        SoundClip broken = SoundClip.Streaming("broken.ogg", 48000, 1, 20, () => throw new InvalidDataException("can't open"));
+
+        var e = Assert.Throws<InvalidDataException>(() => mixer.Start(Flat(broken)));
+
+        Assert.Equal("can't open", e.Message);
+        Assert.Empty(Snapshot(mixer));
+        Mix(mixer, 100);
+        mixer.Start(Flat(Constant("ok.wav", 48000, 4800)));
+        Assert.Equal("ok.wav", Assert.Single(Snapshot(mixer)).Clip);
+    }
+
+    [Fact]
+    public void AVoiceWhoseReaderFailsPartWayEndsAndTheOthersCarryOn()
+    {
+        var mixer = TestMixer.Make();
+
+        // Stands in for a streamed ogg with a corrupt frame later on: good for 1000 frames, then it throws.
+        SoundClip corrupt = SoundClip.Streaming("corrupt.ogg", 48000, 1, 20, () => new FailingReader(1000));
+        mixer.Start(Flat(corrupt, Channel.Effects, 1, loop: true));
+        mixer.Start(Flat(Constant("steady.wav", 48000, 4800), Channel.Effects, 0.5f, loop: true));
+
+        float[] stereo = Mix(mixer, 4000);
+
+        Assert.Equal(1.5f, stereo[100 * 2], 1e-6f);
+        Assert.Equal(0.5f, stereo[3999 * 2], 1e-6f);
+        Assert.Equal("steady.wav", Assert.Single(Snapshot(mixer)).Clip);
+    }
+
+    /// <summary>A mono reader of ones that throws once it has given its frames.</summary>
+    private sealed class FailingReader(int goodFrames) : ISampleReader
+    {
+        private int _read;
+
+        public long Frames => 20 * 48000;
+
+        public int Read(Span<float> interleaved)
+        {
+            if (_read >= goodFrames)
+            {
+                throw new InvalidDataException("corrupt frame");
+            }
+
+            int frames = Math.Min(interleaved.Length, goodFrames - _read);
+            interleaved[..frames].Fill(1f);
+            _read += frames;
+            return frames;
+        }
+
+        public void Seek(long frame)
+        {
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+
+    [Fact]
     public void SnapshotReportsGainAndPan()
     {
-        var mixer = new Mixer();
+        var mixer = TestMixer.Make();
         mixer.SetChannelVolume(Channel.Effects, 0.5f);
         mixer.SetChannelVolume(Channel.Master, 0.8f);
         mixer.Start(new VoiceStart
@@ -466,7 +599,7 @@ public class MixerTests
     [Fact]
     public void SnapshotStopsAtTheSpanLength()
     {
-        var mixer = new Mixer();
+        var mixer = TestMixer.Make();
         SoundClip clip = Constant("a.wav", 48000, 4800);
         mixer.Start(Flat(clip));
         mixer.Start(Flat(clip));
@@ -478,7 +611,7 @@ public class MixerTests
     [Fact]
     public void MixAllocatesNothingOnceWarm()
     {
-        var mixer = new Mixer();
+        var mixer = TestMixer.Make();
         SoundClip clip = Constant("a.wav", 44100, 4410);
         for (int i = 0; i < 10; i++)
         {
@@ -510,7 +643,7 @@ public class MixerTests
     [Fact]
     public void StartingADecodedClipAllocatesNothingOnceTheSlotsAreWarm()
     {
-        var mixer = new Mixer();
+        var mixer = TestMixer.Make();
         SoundClip clip = Constant("a.wav", 48000, 100);
         VoiceStart start = Flat(clip, Channel.Effects);
         var stereo = new float[512 * 2];
