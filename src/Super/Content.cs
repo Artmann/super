@@ -47,6 +47,10 @@ public sealed class Content
     private readonly Dictionary<string, ModelRef> _models = [];
     private readonly Dictionary<string, Rig> _rigs = [];
     private readonly Dictionary<string, GameImage> _images = [];
+    private readonly List<SoundClip> _clips = [];
+    private readonly Dictionary<string, SoundRef> _sounds = [];
+    private readonly List<AmbienceDefinition> _ambiences = [];
+    private readonly Dictionary<string, AmbienceRef> _ambienceRefs = [];
     private readonly Dictionary<string, ShaderRef> _shaders = [];
     private readonly Dictionary<(string Path, TextureKind Kind, bool NormalMap), TextureRef> _textures = [];
     private readonly Dictionary<(Type Type, string Folder), ICatalog> _catalogs = [];
@@ -159,7 +163,7 @@ public sealed class Content
             return known;
         }
 
-        byte[] file = ReadImage(path);
+        byte[] file = ReadFile(path, "image");
         using var stream = new MemoryStream(file);
         if (ImageInfo.FromStream(stream) is not { } info)
         {
@@ -172,6 +176,44 @@ public sealed class Content
         _images.Add(path, image);
         return image;
     }
+
+    /// <summary>
+    /// Names a sound by its path inside the content folder: .wav, .ogg or .mp3. Naming it
+    /// again gives the same one. A file that's missing or can't be read stops here with a
+    /// <see cref="ContentException"/> naming it.
+    /// </summary>
+    public SoundRef Sound(string path)
+    {
+        if (!_sounds.TryGetValue(path, out var sound))
+        {
+            _clips.Add(SoundClip.Read(path, ReadFile(path, "sound")));
+            sound = new SoundRef(_clips.Count - 1);
+            _sounds.Add(path, sound);
+        }
+
+        return sound;
+    }
+
+    /// <summary>
+    /// Names an ambience by the path of its .ambience.json file inside the content folder.
+    /// Naming it again gives the same one. Any mistake in the file, or in a sound it names,
+    /// stops here with a <see cref="ContentException"/> naming the file.
+    /// </summary>
+    public AmbienceRef Ambience(string path)
+    {
+        if (!_ambienceRefs.TryGetValue(path, out var ambience))
+        {
+            _ambiences.Add(AmbienceReader.Read(path, ReadFile(path, "ambience"), clipPath => Clip(Sound(clipPath))));
+            ambience = new AmbienceRef(_ambiences.Count - 1);
+            _ambienceRefs.Add(path, ambience);
+        }
+
+        return ambience;
+    }
+
+    internal SoundClip Clip(SoundRef sound) => _clips[sound.Index];
+
+    internal AmbienceDefinition AmbienceOf(AmbienceRef ambience) => _ambiences[ambience.Index];
 
     /// <summary>
     /// Hands over a surface made by code. Anything its surface names must have been named
@@ -537,7 +579,7 @@ public sealed class Content
         return stillWaiting;
     }
 
-    private byte[] ReadImage(string path)
+    private byte[] ReadFile(string path, string kind)
     {
         try
         {
@@ -545,7 +587,7 @@ public sealed class Content
         }
         catch (Exception problem) when (problem is IOException or UnauthorizedAccessException or KeyNotFoundException)
         {
-            throw new ContentException([$"Could not read the image {path}: {problem.Message}"]);
+            throw new ContentException([$"Could not read the {kind} {path}: {problem.Message}"]);
         }
     }
 
