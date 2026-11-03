@@ -54,18 +54,19 @@ volume from `volume`, with its pitch moved up or down by up to `pitchVariation`.
 | Key | Meaning | Default |
 | --- | --- | --- |
 | `layers[].file` | The clip to loop | required |
-| `layers[].volume` | Layer volume, 1 is the clip's own level | 1 |
+| `layers[].volume` | Layer volume, 1 is the clip's own level, not below 0 | 1 |
 | `scattered[].files` | Clips to pick from, at least one | required |
-| `scattered[].every` | `[min, max]` seconds between plays, min not above max | required |
-| `scattered[].volume` | `[min, max]` volume of each play | `[1, 1]` |
-| `scattered[].pitchVariation` | How far a play's pitch may move, up or down | 0 |
+| `scattered[].every` | `[min, max]` seconds between plays, min above 0 and not above max | required |
+| `scattered[].volume` | `[min, max]` volume of each play, min not below 0 and not above max | `[1, 1]` |
+| `scattered[].pitchVariation` | How far a play's pitch may move, up or down, from 0 up to (not including) 1 | 0 |
 
 Both `layers` and `scattered` may be left out.
 
 When an ambience plays, each layer starts at a random point in its clip, so it doesn't
 begin the same way every time. Each scattered entry waits a random time in `every`, plays
 one random file at a random volume, a pitch moved by up to `pitchVariation` (0.1 is
-10%) either way, and a random spot between left and right, then waits again. Up to 8
+10%) either way, and a random spot between left and right, then waits again. While the
+ambience fades in, its scattered sounds are as quiet as the fade so far. Up to 8
 ambiences can play at once, and their sounds count against the mixer's 64 voices, but the voice limit never drops a layer (it may drop a scattered sound). Stopping
 an ambience fades its layers out and starts no new scattered sounds; one already
 playing finishes. The sounds are picked by the game's audio random stream, so a fixed
@@ -78,8 +79,9 @@ Paths inside an ambience file are relative to the folder of that file, so
 `..` steps up a folder, and `\` works like `/`. Paths given to `content.Sound` and `content.Ambience` are
 relative to the content folder.
 
-A mistake in an ambience, such as `"every": [12, 4]`, a missing file or invalid JSON, is
-a `ContentException` that names the ambience file and what is wrong. A missing clip
+A mistake in an ambience, such as `"every": [12, 4]`, a number outside the limits in the
+table, a missing file or invalid JSON, is a `ContentException` that names the ambience
+file, the field (for example `scattered[0].pitchVariation`) and what is wrong. A missing clip
 names both the ambience file and the clip.
 
 ## Playing sounds
@@ -221,8 +223,9 @@ the player's choices is the game's job, for example with [user data](user-data.m
 
 Placed sounds follow [`GameTime.Scale`](getting-started.md#a-first-game): below 1 they play slower and lower,
 matching slow motion, and at 0 they pause where they are and carry on from there when the
-scale comes back. Flat sounds, music and ambiences ignore the scale, so a pause menu still
-clicks and the music keeps going.
+scale comes back. A `Sound` component follows the scale too, even without a `Transform`.
+Flat `audio.Play` sounds, music and ambiences ignore it, so a pause menu still clicks and
+the music keeps going.
 
 A pause is a [state](states.md), not a time scale, so a pause screen freezes world sounds
 the same way it freezes the world, by setting `Scale` to 0:
@@ -261,7 +264,10 @@ time, so nothing piles up while it's silent.
 
 If a sound fails while it plays, such as a streamed `.ogg` with a damaged part, that
 sound stops, the others carry on, and the game prints a line such as
-`A sound failed and stopped (1 so far): ...` with the reason. If the device itself fails
+`A sound failed and stopped (1 so far): ...` with the reason. The audio thread prints it,
+so a run without a sound device, such as headless or a test, prints nothing (the sound
+still stops), and while a recording has paused the device the line waits until it ends. An ambience layer that finds no free voice, because all 64 are
+music or layers, counts as a failed sound as well. If the device itself fails
 while playing, the game prints `Sound stopped: ...` once and carries on silently.
 
 ## In tests

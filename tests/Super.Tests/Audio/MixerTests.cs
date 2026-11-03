@@ -425,6 +425,42 @@ public class MixerTests
     }
 
     [Fact]
+    public void PastTheLimitAVictimWhoseDecoderWontDisposeStillMakesWayForTheNewVoice()
+    {
+        var mixer = TestMixer.Make();
+        SoundClip stuck = SoundClip.Streaming("stuck.ogg", Mixer.SampleRate, 1, 20, () => new UndisposableReader());
+        for (int i = 0; i < Mixer.MaxVoices; i++)
+        {
+            mixer.Start(Flat(stuck, Channel.Effects, 0.1f, loop: true));
+        }
+
+        int loud = mixer.Start(Flat(Constant("loud.wav", 48000, 4800), Channel.Effects, 0.5f, loop: true));
+
+        Assert.NotEqual(Mixer.Dropped, loud);
+        PlayingSound[] playing = Snapshot(mixer);
+        Assert.Equal(Mixer.MaxVoices, playing.Length);
+        Assert.Equal(1, playing.Count(p => p.Clip == "loud.wav"));
+    }
+
+    /// <summary>A silent reader whose Dispose throws, like a decoder whose file went away.</summary>
+    private sealed class UndisposableReader : ISampleReader
+    {
+        public long Frames => 20 * Mixer.SampleRate;
+
+        public int Read(Span<float> interleaved)
+        {
+            interleaved.Clear();
+            return interleaved.Length;
+        }
+
+        public void Seek(long frame)
+        {
+        }
+
+        public void Dispose() => throw new IOException("The file went away.");
+    }
+
+    [Fact]
     public void StaleIdDoesNotTouchTheVoiceThatReusedItsSlot()
     {
         var mixer = TestMixer.Make();

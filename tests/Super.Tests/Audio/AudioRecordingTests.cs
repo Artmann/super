@@ -217,6 +217,25 @@ public sealed class AudioRecordingTests : IDisposable
     }
 
     [Fact]
+    public void AGameCaptureWhoseSoundWontStartStopsWithNoVideoBegun()
+    {
+        using var run = Start();
+        string other = Path.Combine(_folder, "other.wav");
+        run.Game.Audio.StartRecording(other);
+        string video = Path.Combine(_folder, "clip.mp4");
+        using var capture = new GameCapture(run.Game.Audio);
+        capture.StartRecording(video, TicksPerSecond);
+
+        var thrown = Assert.Throws<InvalidOperationException>(() => capture.Accept(new byte[16 * 16 * 4], 16, 16));
+
+        Assert.Equal("The audio is already being recorded.", thrown.Message);
+        Assert.False(capture.IsRecording);
+        capture.StopRecording();
+        run.Game.Audio.StopRecording();
+        Assert.Equal([other], Directory.GetFiles(_folder));
+    }
+
+    [Fact]
     public void AddingSoundReplacesTheVideoAndDeletesTheWav()
     {
         string video = Path.Combine(_folder, "game.mp4");

@@ -73,8 +73,9 @@ adds each voice into it and moves the sample clock (`Clock`, frames mixed) on by
 span's frame count. It allocates nothing: voices live in 64 slots made up front, each
 with its own read buffer, and a slot keeps the reader of the last decoded clip it played
 and rebinds it for the next one. A streamed clip (over 10 s) opens a decoder when it
-starts, which is the one allocation allowed, and disposes it when the voice ends. A
-looping clip goes back to its start with `Seek(0)`; nothing else seeks while mixing.
+starts, which is the one allocation allowed, and disposes it when the voice ends or is
+cut for a newer one. A decoder that throws as it is disposed is ignored, so it can't stop
+the next sound starting. A looping clip goes back to its start with `Seek(0)`; nothing else seeks while mixing.
 `Seek(0)` rewinds the decoder the voice already has rather than opening a new one, which
 for an ogg costs about 800 KB of codebooks. NVorbis rewinds exactly unless all the audio
 is in one Ogg page (a second or so, never a streamed clip), where it starts a packet late,
@@ -130,7 +131,9 @@ on unknown, ended or dropped ids do nothing.
 **Bad voices.** A voice whose reader throws while mixing (say a corrupt frame far into a
 streamed ogg) is ended and the rest carry on. Only the clip's reader is guarded, so any
 other exception still reaches the caller. `FailedVoices` and `LastFailure` on the mixer
-count these (and skipped scattered sounds) for a later task to log. Starting a voice opens its reader before the
+count these, skipped scattered sounds, and ambience layers that found no free voice
+(`RecordFailure`). The device's audio thread logs a line when the count grows; manual
+mixing (headless, tests) logs nothing. Starting a voice opens its reader before the
 slot is marked in use, so a clip that fails to open throws from `Start` and leaves the
 slot free; a voice that was to be dropped for it keeps playing until the new one has begun.
 
@@ -150,7 +153,8 @@ below comes from it, so one seed gives the same ambience every run.
   speakers' buffer.
 - Each scattered entry waits a random `MinSeconds..MaxSeconds` of the sample clock, then
   plays a random one of its clips once, at a random volume within its range times the
-  ambience volume, pitch `1 ± PitchVariation`, and a random flat pan in −0.8..0.8 (the
+  ambience volume as it is at that moment (it rises from 0 over `fadeSeconds` with the
+  layers, so a scattered sound during the fade-in is quiet too), pitch `1 ± PitchVariation`, and a random flat pan in −0.8..0.8 (the
   balance law `Spatial.Balance`: both ears at 1 in the centre, the far ear turned down),
   and waits again. The next wait counts from the time it was due, not from when the block
   happened to start, so the gaps don't drift. A sound starts at the start of the block
@@ -158,7 +162,9 @@ below comes from it, so one seed gives the same ambience every run.
 - Ambience voices count against the 64 slots and show up in `Snapshot`. Layers are
   protected from the voice limit like music; scattered sounds are ordinary voices and can
   be dropped. If a layer can't start, the layers already started are stopped and the
-  error reaches the caller of `StartAmbience`. If a scattered sound can't start (say its
+  error reaches the caller of `StartAmbience`. A layer the limit refuses, which only
+  happens when all 64 voices are music or layers, is counted with `RecordFailure` and the
+  rest of the ambience plays. If a scattered sound can't start (say its
   clip fails to open), that one play is skipped and the next is timed as usual.
 - `SetAmbienceVolume` fades the layers (and the volume new scattered sounds use) to the new
   level over the seconds given. A scattered sound already playing keeps the volume it began with.

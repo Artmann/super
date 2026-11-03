@@ -54,6 +54,11 @@ internal static class AmbienceReader
                     string place = $"layers[{i++}]";
                     string file = RequireString(path, layer, "file", place);
                     float volume = layer.TryGetProperty("volume", out JsonElement v) ? Number(path, v, $"{place}.volume") : 1f;
+                    if (volume < 0)
+                    {
+                        throw Mistake(path, $"{place}.volume is {Text(volume)}, but it can't be below 0.");
+                    }
+
                     layers.Add(new Layer(Clip(path, folder, file, loadClip), volume));
                 }
             }
@@ -87,13 +92,23 @@ internal static class AmbienceReader
                     }
 
                     (float minSeconds, float maxSeconds) = Range(path, entry, "every", place, required: true);
-                    if (minSeconds < 0)
+                    if (minSeconds <= 0)
                     {
-                        throw Mistake(path, $"{place}.every starts at {minSeconds}, but it can't be below 0.");
+                        throw Mistake(path, $"{place}.every starts at {Text(minSeconds)}, but it must be above 0.");
                     }
 
                     (float minVolume, float maxVolume) = Range(path, entry, "volume", place, required: false);
+                    if (minVolume < 0)
+                    {
+                        throw Mistake(path, $"{place}.volume starts at {Text(minVolume)}, but it can't be below 0.");
+                    }
+
                     float pitch = entry.TryGetProperty("pitchVariation", out JsonElement p) ? Number(path, p, $"{place}.pitchVariation") : 0f;
+                    if (!(pitch >= 0 && pitch < 1))
+                    {
+                        throw Mistake(path, $"{place}.pitchVariation is {Text(pitch)}, but it must be from 0 up to, but not including, 1.");
+                    }
+
                     scattered.Add(new Scattered([.. clips], minSeconds, maxSeconds, minVolume, maxVolume, pitch));
                 }
             }
@@ -123,7 +138,7 @@ internal static class AmbienceReader
         float max = Number(path, range[1], $"{place}.{name}");
         if (min > max)
         {
-            throw Mistake(path, $"{place}.{name} is [{min}, {max}], but the first number can't be above the second.");
+            throw Mistake(path, $"{place}.{name} is [{Text(min)}, {Text(max)}], but the first number can't be above the second.");
         }
 
         return (min, max);
@@ -200,4 +215,7 @@ internal static class AmbienceReader
     }
 
     private static ContentException Mistake(string path, string what) => new([$"{path}: {what}"]);
+
+    /// <summary>A number as the file writes it, whatever the culture: 0.5, never 0,5.</summary>
+    private static string Text(float value) => value.ToString(System.Globalization.CultureInfo.InvariantCulture);
 }

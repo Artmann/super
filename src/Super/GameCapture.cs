@@ -3,9 +3,8 @@ namespace Super;
 /// <summary>
 /// Saves what the game draws, from anywhere in a game's code. The pictures come straight
 /// from the renderer, so other windows and overlays can never end up in them.
-/// With no window there are no pictures to capture, so screenshots and videos aren't saved.
-/// A headless recording can still write the game's sound to a .wav, and that file is
-/// deleted again when the recording stops.
+/// With no window there are no pictures to capture, so a headless run saves no screenshots,
+/// no video and no .wav: the sound only starts with the first picture.
 /// </summary>
 public sealed class GameCapture : IDisposable
 {
@@ -105,16 +104,7 @@ public sealed class GameCapture : IDisposable
         if (_video is null)
         {
             CreateFolderFor(_videoPath);
-            _video = new VideoFile(_videoPath, width, height, FramesPerSecond);
-
-            if (_audio is not null)
-            {
-                // The sound starts with the first picture, so the two line up. It waits beside the video until
-                // the video is done, then goes into it.
-                string soundPath = Path.ChangeExtension(_videoPath, ".wav");
-                _audio.StartRecording(soundPath);
-                _soundPath = soundPath;
-            }
+            _video = Begin(width, height);
         }
         else if (_video.Width != width || _video.Height != height)
         {
@@ -124,6 +114,44 @@ public sealed class GameCapture : IDisposable
         }
 
         _video.Write(pixels);
+    }
+
+    /// <summary>
+    /// Starts the sound, then the video. If either won't start, the recording stops with nothing left running: no
+    /// ffmpeg, no open .wav and no half-made files.
+    /// </summary>
+    private VideoFile Begin(int width, int height)
+    {
+        string videoPath = _videoPath!;
+        string? soundPath = null;
+        try
+        {
+            if (_audio is not null)
+            {
+                // The sound starts with the first picture, so the two line up. It waits beside the video until
+                // the video is done, then goes into it.
+                string wav = Path.ChangeExtension(videoPath, ".wav");
+                _audio.StartRecording(wav);
+                soundPath = wav;
+            }
+
+            var video = new VideoFile(videoPath, width, height, FramesPerSecond);
+            _soundPath = soundPath;
+            return video;
+        }
+        catch
+        {
+            _videoPath = null;
+
+            // Only a sound this capture started is stopped; one that failed to start may belong to someone else.
+            if (soundPath is not null)
+            {
+                _audio!.StopRecording();
+                File.Delete(soundPath);
+            }
+
+            throw;
+        }
     }
 
     private static void CreateFolderFor(string path)
