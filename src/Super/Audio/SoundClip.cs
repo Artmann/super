@@ -71,6 +71,12 @@ internal sealed class SoundClip
         return new SoundClip(path, sampleRate, channels, seconds, null, open);
     }
 
+    /// <summary>An empty decoded-clip reader, for a voice to hold so that rebinding it to a clip later allocates nothing.</summary>
+    internal static ISampleReader NewDecodedReader()
+    {
+        return new ArrayReader([], 1);
+    }
+
     /// <summary>Reads a clip from its file bytes. The path picks the format and names the file in errors.</summary>
     public static SoundClip Read(string path, byte[] bytes)
     {

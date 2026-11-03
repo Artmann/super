@@ -29,6 +29,9 @@ internal struct VoiceStart
     /// <summary>True for music, which the voice limit never drops.</summary>
     public bool IsMusic;
 
+    /// <summary>True for an ambience layer, which the voice limit never drops either.</summary>
+    public bool IsLayer;
+
     public VoiceStart()
     {
         Clip = null!;
@@ -108,7 +111,7 @@ internal sealed class Voice
     private readonly float[] _buffer = new float[BufferFrames * 2];
 
     // A decoded clip's reader, kept for the next decoded clip played in this slot.
-    private ISampleReader? _decoded;
+    private ISampleReader? _decoded = SoundClip.NewDecodedReader();
     private ISampleReader _reader = null!;
     private int _channels;
 
@@ -158,6 +161,14 @@ internal sealed class Voice
 
     public bool IsMusic { get; private set; }
 
+    public bool IsLayer { get; private set; }
+
+    /// <summary>Music and ambience layers, which the voice limit never drops.</summary>
+    public bool Protected => IsMusic || IsLayer;
+
+    /// <summary>What went wrong if the clip's reader threw while mixing. The voice ends at once.</summary>
+    public Exception? Failure { get; private set; }
+
     /// <summary>True once <see cref="Mixer.Stop"/> has started its fade; the voice ends when the fade reaches 0.</summary>
     public bool Stopping { get; set; }
 
@@ -182,6 +193,7 @@ internal sealed class Voice
     /// </summary>
     public void Begin(in VoiceStart start, int id, int fadeInFrames)
     {
+        ISampleReader? old = Active ? _reader : null;
         ISampleReader reader;
         ISampleReader? decoded = _decoded;
         if (start.Clip.Streamed)
@@ -216,6 +228,12 @@ internal sealed class Voice
             }
         }
 
+        // Nothing above changed this voice, so a start that threw leaves whatever the slot was playing alone.
+        if (old is not null && old != reader && old != decoded)
+        {
+            old.Dispose();
+        }
+
         _decoded = decoded;
         _reader = reader;
         Id = id;
@@ -230,6 +248,8 @@ internal sealed class Voice
         Far = start.Far;
         FollowsScale = start.FollowsScale;
         IsMusic = start.IsMusic;
+        IsLayer = start.IsLayer;
+        Failure = null;
         Stopping = false;
         Volume.Set(start.Volume);
         Envelope.Set(fadeInFrames > 0 ? 0 : 1);
@@ -254,7 +274,14 @@ internal sealed class Voice
         Clip = null!;
         if (reader != _decoded)
         {
-            reader.Dispose();
+            try
+            {
+                reader.Dispose();
+            }
+            catch (Exception)
+            {
+                // The voice is over; a decoder that won't dispose has nothing more to tell us.
+            }
         }
     }
 
@@ -300,6 +327,11 @@ internal sealed class Voice
             {
                 long index = (long)_cursor;
                 Fetch(index);
+                if (Failure is not null)
+                {
+                    return false;
+                }
+
                 if (index >= _bufferStart + _bufferCount)
                 {
                     return false;
@@ -383,11 +415,22 @@ internal sealed class Voice
             }
 
             Span<float> free = _buffer.AsSpan(_bufferCount * _channels, (BufferFrames - _bufferCount) * _channels);
-            int read = _reader.Read(free);
-            if (read == 0 && Loop)
+            int read;
+            try
             {
-                _reader.Seek(0);
                 read = _reader.Read(free);
+                if (read == 0 && Loop)
+                {
+                    _reader.Seek(0);
+                    read = _reader.Read(free);
+                }
+            }
+            catch (Exception e)
+            {
+                // Only the clip's reader is caught, such as a corrupt frame far into a streamed file.
+                Failure = e;
+                _sourceEnded = true;
+                return;
             }
 
             if (read == 0)

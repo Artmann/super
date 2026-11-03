@@ -107,10 +107,11 @@ the falloff and panned. A voice without one keeps its own stereo and isn't panne
   is 0.707 on each side and a sound keeps the same power as it moves across.
 
 **Voice limit.** With all 64 slots taken, starting a voice drops the quietest voice
-that isn't music, judged by the volume it's heading for × falloff × channel (a stopping
+that isn't music or an ambience layer, judged by the volume it's heading for × falloff × channel (a stopping
 voice counts at its current fade). If the new voice would be quieter than every
-candidate, or every voice is music, the new one is dropped instead and `Start` returns
-`Mixer.Dropped` (−1). Music is never dropped. A dropped voice is cut at once, without a
+candidate, or every voice is protected, the new one is dropped instead and `Start` returns
+`Mixer.Dropped` (−1). Music and ambience layers are never dropped, and starting one drops
+the quietest other voice whatever its own volume. A dropped voice is cut at once, without a
 fade, since its slot is needed now.
 
 **Voice ids.** An id is the slot in the low 8 bits and the slot's start count above
@@ -118,9 +119,11 @@ them. An id kept after its voice ended can't reach the next sound in that slot, 
 on unknown, ended or dropped ids do nothing.
 
 **Bad voices.** A voice whose reader throws while mixing (say a corrupt frame far into a
-streamed ogg) is ended and the rest carry on. Starting a voice opens its reader before the
+streamed ogg) is ended and the rest carry on. Only the clip's reader is guarded, so any
+other exception still reaches the caller. `FailedVoices` and `LastFailure` on the mixer
+count these (and skipped scattered sounds) for a later task to log. Starting a voice opens its reader before the
 slot is marked in use, so a clip that fails to open throws from `Start` and leaves the
-slot free.
+slot free; a voice that was to be dropped for it keeps playing until the new one has begun.
 
 **Ambience.** `StartAmbience(definition, volume, fadeSeconds)` makes the layers and
 scattered timers of an `AmbienceDefinition` and returns an id (`NoAmbience`, −1, when
@@ -138,15 +141,19 @@ below comes from it, so one seed gives the same ambience every run.
   balance law `Spatial.Balance`: both ears at 1 in the centre, the far ear turned down),
   and waits again. The next wait counts from the time it was due, not from when the block
   happened to start, so the gaps don't drift. A sound starts at the start of the block
-  that it is due in, so it is up to one block late.
-- Ambience voices are ordinary voices, so they count against the 64-voice limit, show up
-  in `Snapshot`, and may be dropped like any non-music voice.
+  that it is due in, so it starts early, by less than one block.
+- Ambience voices count against the 64 slots and show up in `Snapshot`. Layers are
+  protected from the voice limit like music; scattered sounds are ordinary voices and can
+  be dropped. If a layer can't start, the layers already started are stopped and the
+  error reaches the caller of `StartAmbience`. If a scattered sound can't start (say its
+  clip fails to open), that one play is skipped and the next is timed as usual.
 - `SetAmbienceVolume` fades the layers (and the volume new scattered sounds use) to the new
   level over the seconds given. A scattered sound already playing keeps the volume it began with.
 - `StopAmbience` fades every layer out over the seconds given and starts no more
   scattered sounds. A scattered sound already playing plays to its end without a fade.
 - Nothing allocates while mixing: the players are made when the mixer is built, and their
-  layer and timer arrays only grow when an ambience starts. A scattered clip that is
+  layer and timer arrays only grow when an ambience starts, and every voice slot holds a
+  decoded-clip reader from the moment the mixer is built. A scattered clip that is
   streamed (over 10 s) opens a decoder as it starts, which is the one exception.
 
 A voice that isn't looping is removed when its clip runs out. `Stop` fades the voice to

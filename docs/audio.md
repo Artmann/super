@@ -65,7 +65,7 @@ When an ambience plays, each layer starts at a random point in its clip, so it d
 begin the same way every time. Each scattered entry waits a random time in `every`, plays
 one random file at a random volume, a pitch moved by up to `pitchVariation` (0.1 is
 10%) either way, and a random spot between left and right, then waits again. Up to 8
-ambiences can play at once, and their sounds count against the mixer's 64 voices. Stopping
+ambiences can play at once, and their sounds count against the mixer's 64 voices, but the voice limit never drops a layer (it may drop a scattered sound). Stopping
 an ambience fades its layers out and starts no new scattered sounds; one already
 playing finishes. The sounds are picked by the game's audio random stream, so a fixed
 audio seed (headless, screenshots, recordings) gives the same ambience every run.

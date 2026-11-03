@@ -59,12 +59,18 @@ internal sealed class Mixer
         Array.Fill(_channelVolumes, 1f);
     }
 
+    /// <summary>How many voices have ended because their clip's reader threw, or scattered sounds couldn't start.</summary>
+    public int FailedVoices { get; private set; }
+
+    /// <summary>The message of the latest of those failures, for a log, or null if there has been none.</summary>
+    public string? LastFailure { get; private set; }
+
     /// <summary>Frames mixed so far: the mixer's sample clock.</summary>
     public long Clock { get; private set; }
 
     /// <summary>
-    /// Starts a voice and returns its id. With every slot taken, the quietest voice that isn't music is dropped; if
-    /// the new one would be quieter than all of them, or every voice is music, the new one is dropped and
+    /// Starts a voice and returns its id. With every slot taken, the quietest voice that isn't music or an ambience layer is
+    /// dropped; if the new one would be quieter than all of them, or every voice is protected, the new one is dropped and
     /// <see cref="Dropped"/> comes back.
     /// </summary>
     public int Start(in VoiceStart start)
@@ -80,7 +86,6 @@ internal sealed class Mixer
                 return Dropped;
             }
 
-            _voices[slot].End();
         }
 
         int generation = (_generations[slot] + 1) & GenerationMask;
@@ -89,9 +94,10 @@ internal sealed class Mixer
             generation = 1;
         }
 
-        _generations[slot] = generation;
+        // A victim keeps playing until the new voice has begun, so a start that throws drops nothing.
         int id = slot | (generation << SlotBits);
         _voices[slot].Begin(start, id, ToFrames(start.FadeInSeconds));
+        _generations[slot] = generation;
         return id;
     }
 
@@ -235,28 +241,16 @@ internal sealed class Mixer
                 right *= balanceRight;
             }
 
-            // One voice with a reader that fails, such as a corrupt frame far into a streamed file, loses its own
-            // sound and nothing else.
-            bool finished;
-            try
+            if (!voice.Mix(block, step, left, right))
             {
-                finished = !voice.Mix(block, step, left, right);
-            }
-            catch (Exception)
-            {
-                finished = true;
-            }
+                // A voice whose reader failed, such as on a corrupt frame far into a streamed file, loses its own
+                // sound and nothing else.
+                if (voice.Failure is not null)
+                {
+                    RecordFailure(voice.Failure);
+                }
 
-            if (finished)
-            {
-                try
-                {
-                    voice.End();
-                }
-                catch (Exception)
-                {
-                    // The slot is already free; a decoder that won't dispose has nothing more to tell us.
-                }
+                voice.End();
             }
         }
 
@@ -305,6 +299,12 @@ internal sealed class Mixer
         return Spatial.Falloff(Vector3.Distance(_listener, voice.Position), voice.Near, voice.Far);
     }
 
+    internal void RecordFailure(Exception problem)
+    {
+        FailedVoices++;
+        LastFailure = problem.Message;
+    }
+
     private AmbiencePlayer? FindAmbience(int id)
     {
         if (id < 0)
@@ -348,7 +348,7 @@ internal sealed class Mixer
         for (int i = 0; i < MaxVoices; i++)
         {
             Voice voice = _voices[i];
-            if (voice.IsMusic)
+            if (voice.Protected)
             {
                 continue;
             }
@@ -366,7 +366,7 @@ internal sealed class Mixer
             return -1;
         }
 
-        if (!start.IsMusic)
+        if (!start.IsMusic && !start.IsLayer)
         {
             float loudness = start.Volume * ChannelGain(start.Channel);
             if (start.Position is Vector3 position)
