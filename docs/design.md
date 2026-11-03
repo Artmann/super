@@ -53,6 +53,7 @@ the rest is not yet.
 | Time scale | `GameTime.Scale` scales `DeltaSeconds`, never the tick rate | Input and the camera stay smooth in slow motion, and a frozen world still ticks |
 | Content folder | Found once by walking up from the program, behind a `Lazy` | Textures load on background threads, and a plain flag set before the path was found let a thread read no path |
 | Animation states | States and actions are the game's enums. One base state loops, keeping its phase across changes; actions play once over it, optionally masked to part of the skeleton | Walk and wave, or run and shoot, need no state per combination |
+| Audio mixing | Super's own `Mixer` writes 48 kHz stereo floats into a span, with a fixed 64 voice slots; OpenAL only plays the result. See [Audio mixer](#audio-mixer) | The same code runs with a device or without one, so headless runs and tests hear exactly what a player would, sample for sample |
 
 The rule for dividing data: if gameplay cares, it's state; if only the eyes care, it's
 view. Views read state and never write it, so animation can't change a simulation's
@@ -64,6 +65,53 @@ vectors, and a check of how it copes with many thousands of draws. Skeletal anim
 is in: the importer keeps skeletons and clips, and the vertex shader skins. Particles
 are in too: a `ParticleEffect` of chained emitters turns a key and an age into particles with no state
 from frame to frame; see [Particles](#particles).
+
+## Audio mixer
+
+`Mixer` (in `src/Super/Audio`) owns every playing voice. `Mix(span)` clears the span,
+adds each voice into it and moves the sample clock (`Clock`, frames mixed) on by the
+span's frame count. It allocates nothing: voices live in 64 slots made up front, each
+with its own read buffer, and a slot keeps the reader of the last decoded clip it played
+and rebinds it for the next one. A streamed clip (over 10 s) opens a decoder when it
+starts, which is the one allocation allowed, and disposes it when the voice ends. A
+looping clip goes back to its start with `Seek(0)`; nothing else seeks while mixing.
+
+**Gain.** A voice's gain is its volume × its fade × distance falloff × its channel ×
+Master (a voice on `Master` is scaled once). Volume and fade move per frame along
+straight ramps, so a fade-in of 0.1 s is exactly 0.5 at 2400 frames. Channel volumes,
+the listener and voice positions are read once per `Mix` call and hold for that block.
+
+**Pitch and rate.** Each output frame steps through the source by
+`clip rate / 48000 × pitch`, times the world rate for voices that follow `Scale`, and
+reads between source frames with linear interpolation. So a 44.1 kHz clip plays at its
+own length and pitch. At a world rate of 0 a voice holds its place and is silent, then
+carries on from the same frame. Fades still run while it's held.
+
+**Placing.** A voice with a position is folded to mono, `(L + R) / 2`, then scaled by
+the falloff and panned. A voice without one keeps its own stereo and isn't panned.
+
+- Falloff is 1 up to `near`, 0 from `far` on, and `(near/d − near/far) / (1 − near/far)`
+  in between: the inverse-distance curve, shifted and stretched to reach 0 exactly at
+  `far`. With near 2 and far 50 that's 0.48 at 4 m and 0.17 at 10 m.
+- Pan is the dot of the direction to the source with the listener's right,
+  `normalize(cross(forward, up))`, from −1 (left) to 1 (right). It's 0 at the listener
+  and when looking straight up or down.
+- Equal-power panning: left `cos((pan + 1)·π/4)`, right `sin((pan + 1)·π/4)`, so the centre
+  is 0.707 on each side and a sound keeps the same power as it moves across.
+
+**Voice limit.** With all 64 slots taken, starting a voice drops the quietest voice
+that isn't music, judged by the volume it's heading for × falloff × channel (a stopping
+voice counts at its current fade). If the new voice would be quieter than every
+candidate, or every voice is music, the new one is dropped instead and `Start` returns
+`Mixer.Dropped` (−1). Music is never dropped. A dropped voice is cut at once, without a
+fade, since its slot is needed now.
+
+**Voice ids.** An id is the slot in the low 8 bits and the slot's start count above
+them. An id kept after its voice ended can't reach the next sound in that slot, and calls
+on unknown, ended or dropped ids do nothing.
+
+A voice that isn't looping is removed when its clip runs out. `Stop` fades the voice to
+0 over the seconds given (0 removes it at once) and removes it then.
 
 # Rendition design
 
