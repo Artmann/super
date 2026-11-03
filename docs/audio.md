@@ -53,7 +53,7 @@ volume from `volume`, with its pitch moved up or down by up to `pitchVariation`.
 | Key | Meaning | Default |
 | --- | --- | --- |
 | `layers[].file` | The clip to loop | required |
-| `layers[].volume` | Layer volume, 0 to 1 | 1 |
+| `layers[].volume` | Layer volume, 1 is the clip's own level | 1 |
 | `scattered[].files` | Clips to pick from, at least one | required |
 | `scattered[].every` | `[min, max]` seconds between plays, min not above max | required |
 | `scattered[].volume` | `[min, max]` volume of each play | `[1, 1]` |
@@ -74,7 +74,7 @@ audio seed (headless, screenshots, recordings) gives the same ambience every run
 
 Paths inside an ambience file are relative to the folder of that file, so
 `sounds/forest.ambience.json` naming `"ambient/rain.wav"` reads `sounds/ambient/rain.wav`.
-`..` steps up a folder. Paths given to `content.Sound` and `content.Ambience` are
+`..` steps up a folder, and `\` works like `/`. Paths given to `content.Sound` and `content.Ambience` are
 relative to the content folder.
 
 A mistake in an ambience, such as `"every": [12, 4]`, a missing file or invalid JSON, is

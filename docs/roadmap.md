@@ -12,8 +12,10 @@ Super is early. These are the known gaps, so you can plan around them.
   ground or react to what they hit.
 - **Film effects.** [Cutscenes](cutscenes.md) cut between shots, but there's no depth
   of field, motion blur or cross-fade yet.
-- **Sound in videos.** Live play is heard through the speakers, but `--record` videos are
-  silent so far.
+- **More from audio.** [Audio](audio.md) plays stereo sound with no echo or reverb, walls
+  that muffle sound, Doppler or surround. There is no ducking (music dipping under
+  speech), no ambience that blends by where the camera stands, and sounds can't be tied
+  to animation moments yet. A `Crossed` event can start a one-shot by hand.
 - **Picking by shape.** Clicks are tested against balls, boxes and the ground, not a
   model's triangles.
 - **Some camera moves.** A camera can't roll, and asymmetric views are a shift, so head
