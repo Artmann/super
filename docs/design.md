@@ -159,6 +159,61 @@ below comes from it, so one seed gives the same ambience every run.
 A voice that isn't looping is removed when its clip runs out. `Stop` fades the voice to
 0 over the seconds given (0 removes it at once) and removes it then.
 
+## Audio service
+
+`Audio` (in `src/Super/Audio`) is what games call. It owns a `Mixer` but the game thread
+never touches it: every change (starts, stops, volumes, positions, channel volumes, the
+listener, the world rate, ambiences) becomes an `AudioCommand` pushed into
+`AudioCommands`, and the mixer side applies them in order before it mixes.
+
+**The command ring.** `AudioCommands` is a single-producer single-consumer ring of 4096
+commands, made once. The producer's pushes stay hidden until `Publish`, so a frame's
+changes arrive together. Its counters only grow, so full and empty can't be confused. A
+push into a full ring drops the command and counts it (`Audio.DroppedCommands`); the game
+thread never waits. A dropped start leaves later commands for that id doing nothing (see
+below); a dropped stop leaves a loop playing, so the size is far beyond any normal frame.
+
+**Ids.** `StartLoop`, `StartAmbience` and `Music` pick ids on the game thread from
+preallocated pools (1024 voice ids, 64 ambience ids): a slot in the low 16 bits and the
+slot's use count above, as in the mixer. They return at once, with no round trip.
+Releasing an id frees it straight away, which is safe because the ring keeps order: the
+stop reaches the mixer before any later start in that slot. The game side ignores calls
+on ids it doesn't hold. The mixer side keeps, per slot, the game id last started there and
+the mixer voice or ambience id it got, `Mixer.Dropped` or `Mixer.NoAmbience` if the
+mixer refused it. A command reaches a mixer voice only if its game id matches the one
+stored, so a command whose start was dropped can't reach an older sound. One-shots have
+no id and no mapping. A start whose clip fails to open is counted in the mixer's
+`FailedVoices` and mapped to `Dropped`, so one bad clip can't stop the mixer.
+
+**Fades.** Loops fade in over 0.1 s, change volume over 0.1 s and fade out over 0.3 s.
+Ambiences fade in, change and fade out over 2 s. Music cross-fades over `fadeSeconds`:
+the old track's voice stops with that fade and the new one starts with it as its fade-in.
+Music takes its ids from the same pool as loops.
+
+**Randomness.** `Audio` is built with an audio seed and makes `new GameRandom(seed)`
+from it: the `"audio"` stream goes to the mixer (ambiences) and `"audio pitch"` stays on
+the game thread for `Play`'s pitch variation. Two streams, because each is used by one
+thread only. `GameHost` takes `int? audioSeed`; null is 1. `Game.StartWindowsGameLoop`
+passes `Random.Shared.Next()` for live play only, so screenshots, recordings, profiles,
+headless runs and tests all sound the same each run.
+
+**The game loop.** In `GameHost.Draw`: the game's `Draw`, then a playing cutscene's
+camera, then every `IDrawHook.AfterDraw(view)`, then `Audio.EndFrame(View.Shot,
+Time.Scale)`, which pushes the listener (the camera's position, facing `Target −
+Position`) and the world rate and publishes the frame's commands. In manual mode (always,
+until there is an output device) `GameHost.Tick` calls `Audio.Advance(TickSeconds)`
+before `Update`. `Advance` publishes anything still queued, as a frame would, so ticks
+with no `Draw` between them lose nothing; then it drains the ring and mixes
+`round(seconds × 48000)` frames into a scratch buffer in blocks of up to 2048, carrying
+the fraction of a frame to the next call so a long run doesn't drift. The mix itself is
+thrown away for now. A sound started in `Update` is handed over at that tick's `Draw` and
+first mixed by the next tick's `Advance`. `Render(span)` drains then mixes one span; it's
+the one call a mixing thread needs.
+
+**Reading it.** `Audio.Playing` (manual mode only, else `InvalidOperationException`)
+drains what's been published, so it shows what the mixer has been told so far, and
+copies `Mixer.Snapshot` into a new list. `HeadlessRun.Sounds` returns it.
+
 # Rendition design
 
 Rendition is a deferred, PBR renderer in modern .NET, generic enough for any 3D game.
