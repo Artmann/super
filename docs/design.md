@@ -75,6 +75,13 @@ with its own read buffer, and a slot keeps the reader of the last decoded clip i
 and rebinds it for the next one. A streamed clip (over 10 s) opens a decoder when it
 starts, which is the one allocation allowed, and disposes it when the voice ends. A
 looping clip goes back to its start with `Seek(0)`; nothing else seeks while mixing.
+`Seek(0)` rewinds the decoder the voice already has rather than opening a new one, which
+for an ogg costs about 800 KB of codebooks. NVorbis rewinds exactly unless all the audio
+is in one Ogg page (a second or so, never a streamed clip), where it starts a packet late,
+so the ogg reader reopens only then. An exact seek anywhere else decodes forward from the
+start, because both decoders' own seeks land off. The decoders themselves allocate as they
+decode (NVorbis about 10 bytes a frame, and about 25 KB per rewind; NLayer a few tens of KB
+per pass), so a streamed compressed clip is the one place mixing still allocates.
 
 **Gain.** A voice's gain is its volume × its fade × distance falloff × its channel ×
 Master (a voice on `Master` is scaled once). Volume and fade move per frame along

@@ -232,6 +232,43 @@ public class SoundClipTests
         }
     }
 
+    // tone.ogg holds all its audio in one Ogg page, where NVorbis's own rewind is a packet late; rising.ogg has many.
+    [Theory]
+    [InlineData("tone.ogg")]
+    [InlineData("rising.ogg")]
+    [InlineData("tone.mp3")]
+    [InlineData("rising.mp3")]
+    public void CompressedReaderSeekToZeroAfterTheEndReadsTheSameAgain(string name)
+    {
+        using ISampleReader reader = OpenDecoder(name);
+        float[] first = ReadToEnd(reader);
+
+        reader.Seek(0);
+        float[] second = ReadToEnd(reader);
+
+        Assert.True(first.Length > 20000);
+        Assert.Equal(first, second);
+    }
+
+    // Opening a new decoder, as Seek(0) once did, costs about 800 KB. NVorbis's rewind allocates some 25 KB of its own;
+    // NLayer's nothing.
+    [Theory]
+    [InlineData("rising.ogg", 64 * 1024)]
+    [InlineData("rising.mp3", 0)]
+    public void CompressedReaderSeekToZeroRewindsWithoutOpeningAgain(string name, long mostBytes)
+    {
+        using ISampleReader reader = OpenDecoder(name);
+        ReadToEnd(reader);
+        reader.Seek(0);
+        ReadToEnd(reader);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        reader.Seek(0);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.InRange(allocated, 0, mostBytes);
+    }
+
     [Fact]
     public void OggWithMoreThanTwoChannelsNamesThePath()
     {
@@ -240,6 +277,20 @@ public class SoundClipTests
         var e = Assert.Throws<ContentException>(() => SoundClip.Read("six.ogg", bytes));
 
         Assert.Equal("six.ogg: only mono and stereo are supported, found 6 channels", e.Message);
+    }
+
+    private static float[] ReadToEnd(ISampleReader reader)
+    {
+        int channels = ((IClipFormat)reader).Channels;
+        var all = new List<float>();
+        float[] buffer = new float[1000 * channels];
+        int frames;
+        while ((frames = reader.Read(buffer)) > 0)
+        {
+            all.AddRange(buffer.AsSpan(0, frames * channels).ToArray());
+        }
+
+        return [.. all];
     }
 
     private static ISampleReader OpenDecoder(string name)

@@ -23,8 +23,9 @@ Paths are inside the content folder. Naming the same path again gives the same r
 
 Any other extension, or a clip with more than two channels, is a `ContentException`
 naming the path. Clips up to 10 seconds are decoded once and kept in memory; longer ones
-are decoded as they play. The sample rate can be anything, because the mixer outputs
-48 000 Hz and converts.
+are decoded as they play. A longer `.ogg` or `.mp3` costs a little memory churn as it
+decodes, so keep effects that play often under 10 seconds. The sample rate can be anything,
+because the mixer outputs 48 000 Hz and converts.
 
 ### Ambience files
 
