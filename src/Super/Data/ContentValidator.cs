@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 
@@ -12,6 +13,7 @@ internal sealed class ContentValidator
 {
     private const string SchemaField = "$schema";
     private const string IdField = "id";
+    private const string VectorWord = "a list of three numbers, such as [1, 0, 2]";
 
     private readonly string _path;
     private readonly ReadOnlyMemory<byte> _json;
@@ -117,6 +119,12 @@ internal sealed class ContentValidator
         if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Ref<>))
         {
             Reference(ref reader, type.GetGenericArguments()[0], field);
+            return;
+        }
+
+        if (type == typeof(Vector3))
+        {
+            Vector(ref reader, field);
             return;
         }
 
@@ -275,6 +283,30 @@ internal sealed class ContentValidator
         _references.Add(new ContentReference(target, reader.GetString()!, $"{_path}:{Line(reader.TokenStartIndex)}", field));
     }
 
+    private void Vector(ref Utf8JsonReader reader, string field)
+    {
+        if (reader.TokenType != JsonTokenType.StartArray)
+        {
+            Wrong(ref reader, field, VectorWord);
+            return;
+        }
+
+        int line = Line(reader.TokenStartIndex);
+        int count = 0;
+        bool numbers = true;
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+        {
+            numbers &= reader.TokenType == JsonTokenType.Number;
+            reader.Skip();
+            count++;
+        }
+
+        if (!numbers || count != 3)
+        {
+            Report(line, $"{(field.Length > 0 ? field : "this file")} must be {VectorWord}");
+        }
+    }
+
     private void Choice(ref Utf8JsonReader reader, Type type, string field)
     {
         string[] names = Enum.GetNames(type).Select(name => _options.PropertyNamingPolicy!.ConvertName(name)).ToArray();
@@ -340,6 +372,11 @@ internal sealed class ContentValidator
         if (type == typeof(bool))
         {
             return "true or false";
+        }
+
+        if (type == typeof(Vector3))
+        {
+            return VectorWord;
         }
 
         return IsWhole(type) || type == typeof(float) || type == typeof(double) || type == typeof(decimal)

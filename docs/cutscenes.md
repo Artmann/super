@@ -39,6 +39,7 @@ The cutscene lasts as long as its shots end to end.
 | `Shot.Move(seconds, from, to, easing)` | Moves from one camera to another: a crane when it rises, a dolly when it rolls in, a pan when only the target moves |
 | `Shot.Track(seconds, subject, from, to, look, fieldOfView, easing)` | Rides along with something, sliding from one offset to another while looking at a point above it |
 | `Shot.Orbit(seconds, subject, radius, height, fromAngle, toAngle, look, fieldOfView, easing)` | Circles something, from one angle to another |
+| `Shot.Along(seconds, rail, subject, look, fieldOfView, easing)` | Rides a [spline](splines.md) from its start to its end at an even speed, looking ahead along it or at a point above the subject |
 | `Shot.Custom(seconds, camera, easing)` | Any move: a function gets a `ShotTime` and gives a camera |
 
 A subject is a function, such as `() => hero.Position`. It's asked every tick, so the

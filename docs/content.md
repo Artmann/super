@@ -44,6 +44,16 @@ and tune it while the game runs:
 Keys out of order, or both keys and an easing, are reported like any other mistake.
 See [Tweens and curves](tweens.md#curves-in-content).
 
+A `Vector3` is written as a list of three numbers, such as `[1, 0, 2.5]`. A `Spline` is
+written as points or as Bézier knots, so routes, rails and tracks can live in files:
+
+```json
+// content/routes/harbour.json
+{ "id": "harbour", "start": [0, 0, 0], "path": { "points": [[0, 0, 0], [12, 0, 4], [20, 1, 0]], "closed": true } }
+```
+
+See [Splines](splines.md#splines-in-content).
+
 ## References between catalogs
 
 To point at a record in another catalog, use `Ref<T>`:
@@ -159,5 +169,4 @@ var colony = saves.Read<Colony>("slot-1");
 ```
 
 Mods should be folders of JSON that add or replace entries by id, but only one content
-folder can be read so far. `Vector3` fields aren't supported in JSON yet; use separate
-numbers or an array.
+folder can be read so far.

@@ -303,6 +303,43 @@ game can skip one still loading instead of waiting. A texture is freed after eve
 that names it; a texture array keeps its own copy of each layer, so the single layers can
 go as soon as the array is made.
 
+## Meshes along a spline
+
+`Shapes` can also build meshes that follow a [spline](splines.md), such as a road, a
+river, a rail or a cable:
+
+```csharp
+Vector2[] bank = [new(3.8f, -1.6f), new(3f, 0f), new(-3f, 0f), new(-3.8f, -1.6f)];
+ModelRef road = content.Mesh(Shapes.Extrude(path, bank, step: 1f, surface: tarmac));
+ModelRef river = content.Mesh(Shapes.Ribbon(path, width: 6f, surface: water));
+ModelRef rail = content.Mesh(Shapes.Tube(path, radius: 0.05f, sides: 8));
+ModelRef deck = content.Mesh(Shapes.Bend(Shapes.Plane(new Vector2(4f, 20f), subdivisions: 40), path));
+```
+
+| Call | Makes |
+| --- | --- |
+| `Shapes.Extrude(spline, outline, closedOutline, smooth, step)` | Sweeps an outline along the spline |
+| `Shapes.Ribbon(spline, width, step)` | A flat strip facing up, centred on the spline |
+| `Shapes.Tube(spline, radius, sides, step)` | A round pipe with smooth sides |
+| `Shapes.Bend(mesh, spline)` | Bends a generated mesh so its +z runs along the spline |
+
+The outline is in metres, seen looking along the spline from its start: x to the right
+and y up. Each edge faces to the right of the way it runs. So an outline that goes
+anticlockwise faces outwards, and a flat road listed from right to left faces up.
+`closedOutline` joins the last point back to the first. Edges are sharp across the
+outline unless it's `smooth`, as for a pipe. The ends are left open. A ring of vertices
+goes every `step` metres. UVs are in metres: u runs across the outline and v runs along
+the spline, scaled by `uvPerMetre`.
+
+`Bend` measures along the spline from the back of the mesh (its lowest z). Each vertex
+keeps its x and y across the spline, so the mesh keeps its length. Past the end of an
+open spline the mesh carries on straight. Only vertices move, so give the mesh plenty of
+them along z, such as a `Shapes.Plane` with many subdivisions.
+
+An outline folds over itself where the spline turns tighter than the outline is wide.
+Keep half the width narrower than the tightest turn. Only generated meshes can be bent;
+a loaded model can't be.
+
 ## Terrain
 
 `Super.Terrain.Heightfield` builds chunk meshes from a height function on a shared grid,

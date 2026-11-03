@@ -11,7 +11,7 @@ namespace Super;
 /// UVs stretch once across each part unless <c>uvPerMetre</c> is given, which makes them
 /// tile in metres instead, so a texture keeps its size whatever the shape's size.
 /// </summary>
-public static class Shapes
+public static partial class Shapes
 {
     /// <summary>A box with this width, height and depth. One texture covers each face.</summary>
     public static GeneratedMesh Box(Vector3 size, Surface? surface = null, float? uvPerMetre = null)

@@ -36,7 +36,6 @@ Super is early. These are the known gaps, so you can plan around them.
   Tests already run headless.
 - **Mods.** A mod should be a folder of JSON that adds or replaces entries by id, but only
   one content folder can be read so far.
-- **`Vector3` fields in JSON.** Use separate numbers or an array for now.
 - **Unloading game states.** Entities can be [scoped to a state](ecs.md#entities-that-belong-to-a-state),
   but models and other content stay loaded unless you call `content.Unload`.
 - **NuGet packages.** Clone the repository and reference the projects for now.

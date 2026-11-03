@@ -80,6 +80,28 @@ public sealed class Shot
             return new Camera(center + offset, center, fieldOfView);
         });
 
+    /// <summary>
+    /// Rides a camera along a rail, from its start to its end, easing on the distance along
+    /// it so the speed stays even. It looks at the subject, raised by <paramref name="look"/>,
+    /// or without one, straight ahead along the rail.
+    /// </summary>
+    public static Shot Along(
+        float seconds,
+        Spline rail,
+        Func<Vector3>? subject = null,
+        Vector3 look = default,
+        float fieldOfView = MathF.PI / 4f,
+        Easing easing = Easing.InOut)
+    {
+        ArgumentNullException.ThrowIfNull(rail);
+        return new(seconds, easing, time =>
+        {
+            var pose = rail.FrameAtDistance(time.Amount * rail.Length);
+            var target = subject is null ? pose.Position + pose.Forward : subject() + look;
+            return new Camera(pose.Position, target, fieldOfView);
+        });
+    }
+
     /// <summary>Any move at all: the function gets how far through the shot it is and gives the camera.</summary>
     public static Shot Custom(float seconds, Func<ShotTime, Camera> camera, Easing easing = Easing.Linear) =>
         new(seconds, easing, camera);

@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Schema;
@@ -42,6 +43,17 @@ internal static class ContentSchema
         if (type == typeof(ModelRef) || (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Ref<>)))
         {
             return new JsonObject { ["type"] = "string" };
+        }
+
+        if (type == typeof(Vector3))
+        {
+            return new JsonObject
+            {
+                ["type"] = "array",
+                ["items"] = new JsonObject { ["type"] = "number" },
+                ["minItems"] = 3,
+                ["maxItems"] = 3,
+            };
         }
 
         if (node is JsonObject described && context.TypeInfo.Kind == JsonTypeInfoKind.Object)

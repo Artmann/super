@@ -16,14 +16,20 @@ public enum Control
 
     /// <summary>Climb or sink.</summary>
     Rise,
+
+    /// <summary>Plays a flyover that rides a rail above the road, watching the cart.</summary>
+    Flyover,
 }
 
 /// <summary>
 /// Endless hills made from noise, textured by height and slope. Chunks appear around the
-/// camera as it flies and are unloaded behind it.
+/// camera as it flies and are unloaded behind it. A road made from a spline loops round
+/// the start, and F plays a flyover along it.
 /// </summary>
-public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Input input, Content content) : IGame
+public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Input input, Content content, Director director) : IGame
 {
+    private const float FlyoverSeconds = 8f;
+
     internal const int ChunkQuads = 32;
     internal const float Spacing = 2f;
     internal const float ChunkSize = ChunkQuads * Spacing;
@@ -50,6 +56,7 @@ public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Inp
     private TextureArrayRef _normals;
     private Vector3 _position;
     private Vector3 _previousPosition;
+    private Road _road = null!;
     private float _yaw;
     private float _pitch = -0.25f;
     private float _previousYaw;
@@ -64,11 +71,21 @@ public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Inp
     /// <summary>How high the ground is anywhere.</summary>
     internal float GroundHeight(float x, float z) => _field.Height(x, z);
 
+    /// <summary>The road round the start, and the cart on it.</summary>
+    internal Road Road => _road;
+
+    /// <summary>A flyover: press F, then wait for the camera to ride the rail.</summary>
+    public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
+    {
+        ["flyover"] = new InputScript().Press(Key.F).Wait(120),
+    };
+
     public void Load()
     {
         actions.Bind(Control.Move, Keys.WASD, Keys.Arrows, GamepadStick.Left);
         actions.Bind(Control.Look, Mouse.Delta.Scaled(TurnPerPixel), ((Binding)GamepadStick.Right).Scaled(TurnPerSecond / 30f));
         actions.Bind(Control.Rise, Binding.Axis((Binding)Key.LeftShift, (Binding)Key.Space), Binding.Axis((Binding)GamepadTrigger.Left, (Binding)GamepadTrigger.Right));
+        actions.Bind(Control.Flyover, Key.F, GamepadButton.North);
 
         _ground = new Noise(random.Stream("ground"));
         _moisture = new Noise(random.Stream("moisture"));
@@ -109,6 +126,7 @@ public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Inp
         _previousPosition = _position;
         _previousYaw = _yaw;
         _previousPitch = _pitch;
+        _road = new Road(content, Height);
         UpdateChunks();
     }
 
@@ -138,6 +156,11 @@ public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Inp
         }
 
         UpdateChunks();
+        _road.Update(time);
+        if (actions.Pressed(Control.Flyover))
+        {
+            director.Play(new Cutscene().Then(Shot.Along(FlyoverSeconds, Rail(), () => _road.Cart, look: new Vector3(0f, 1f, 0f))));
+        }
     }
 
     public void Draw(View view)
@@ -158,9 +181,33 @@ public sealed class TerrainGame(GameRandom random, Actions<Control> actions, Inp
                 view.Model(DrawKey(key), chunk.Model, Matrix4x4.Identity);
             }
         }
+
+        _road.Draw(view);
     }
 
-    private static int DrawKey((int X, int Z) chunk) => ((chunk.X & 0xFFFF) << 16) | (chunk.Z & 0xFFFF);
+    /// <summary>Fourteen bits of each chunk coordinate, which keeps every key below the road's.</summary>
+    private static int DrawKey((int X, int Z) chunk) => ((chunk.X & 0x3FFF) << 14) | (chunk.Z & 0x3FFF);
+
+    /// <summary>
+    /// A rail for the flyover camera: it starts high and wide behind the cart, then swoops
+    /// down beside the road ahead of it, so the cart drives through the shot.
+    /// </summary>
+    private Spline Rail()
+    {
+        var path = _road.Path;
+        float start = _road.CartDistance;
+        var points = new Vector3[6];
+        for (int i = 0; i < points.Length; i++)
+        {
+            float share = i / (points.Length - 1f);
+            var pose = path.FrameAtDistance(start + (share * 1.2f - 0.1f) * Road.CartSpeed * FlyoverSeconds);
+            float outwards = float.Lerp(30f, 9f, share);
+            float above = float.Lerp(28f, 3f, share * share);
+            points[i] = pose.Position + pose.Right * outwards + new Vector3(0f, above, 0f);
+        }
+
+        return Spline.Through(points);
+    }
 
     private static Vector3 Forward(float yaw, float pitch) =>
         new(-MathF.Sin(yaw) * MathF.Cos(pitch), MathF.Sin(pitch), -MathF.Cos(yaw) * MathF.Cos(pitch));

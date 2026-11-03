@@ -1,3 +1,4 @@
+using System.Numerics;
 using Super;
 using Super.Testing;
 using Terrain;
@@ -27,7 +28,7 @@ public class TerrainTests
         Assert.Contains((0, -TerrainGame.LoadRadius - 2), after);
         Assert.DoesNotContain((0, TerrainGame.LoadRadius), after);
         Assert.NotEqual(start, after);
-        Assert.Equal(after.Count, run.Drawn.Select(draw => draw.Model).Distinct().Count());
+        Assert.Equal(after.Count + Road.Models, run.Drawn.Select(draw => draw.Model).Distinct().Count());
     }
 
     [Fact]
@@ -53,5 +54,51 @@ public class TerrainTests
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
         Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public void The_road_stays_above_the_ground_all_the_way_round()
+    {
+        using var run = HeadlessGame.Create<TerrainGame>(seed: 7);
+        run.Ticks(1);
+
+        var road = run.Game.Road.Path;
+        foreach (var pose in road.Scatter(1f))
+        {
+            foreach (float side in (ReadOnlySpan<float>)[-3f, 0f, 3f])
+            {
+                var spot = pose.Position + pose.Right * side;
+                float ground = run.Game.GroundHeight(spot.X, spot.Z);
+                Assert.True(spot.Y > ground, $"The road dips {ground - spot.Y} m under the ground at {spot}.");
+            }
+        }
+    }
+
+    [Fact]
+    public void The_cart_drives_round_the_road()
+    {
+        using var run = HeadlessGame.Create<TerrainGame>(seed: 7);
+
+        // Two seconds at 30 ticks a second.
+        run.Ticks(60);
+
+        Assert.Equal(2f * Road.CartSpeed, run.Game.Road.CartDistance, 0.01f);
+        Assert.True(run.Game.Road.Path.Nearest(run.Game.Road.Cart).Gap < 0.01f);
+    }
+
+    [Fact]
+    public void F_plays_a_flyover_that_watches_the_cart()
+    {
+        using var run = HeadlessGame.Create<TerrainGame>(seed: 7);
+        run.Ticks(1);
+        var flying = run.Camera;
+
+        run.Input.Press(Key.F);
+        run.Ticks(60);
+        run.Frame(1f);
+
+        Assert.NotEqual(flying.Position, run.Camera.Position);
+        float gap = Vector3.Distance(run.Game.Road.Cart + new Vector3(0f, 1f, 0f), run.Camera.Target);
+        Assert.True(gap < 0.5f, $"The camera looks {gap} m away from the cart.");
     }
 }

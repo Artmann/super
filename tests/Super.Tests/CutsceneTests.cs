@@ -39,6 +39,32 @@ public class CutsceneTests
     }
 
     [Fact]
+    public void Along_rides_a_rail_looking_ahead()
+    {
+        var rail = Spline.Through([Vector3.Zero, new Vector3(10f, 0f, 0f)]);
+        var shot = Shot.Along(2f, rail, easing: Easing.Linear);
+
+        var halfway = shot.CameraAt(1f);
+
+        Assert.Equal(5f, halfway.Position.X, 1e-3f);
+        Assert.Equal(6f, halfway.Target.X, 1e-3f);
+        Assert.Equal(10f, shot.CameraAt(2f).Position.X, 1e-3f);
+    }
+
+    [Fact]
+    public void Along_looks_at_its_subject_when_it_has_one()
+    {
+        var rail = Spline.Through([Vector3.Zero, new Vector3(10f, 0f, 0f)]);
+        var subject = new Vector3(3f, 0f, 5f);
+        var shot = Shot.Along(2f, rail, () => subject, look: new Vector3(0f, 1f, 0f), easing: Easing.Linear);
+
+        var halfway = shot.CameraAt(1f);
+
+        Assert.Equal(new Vector3(3f, 1f, 5f), halfway.Target);
+        Assert.Equal(5f, halfway.Position.X, 1e-3f);
+    }
+
+    [Fact]
     public void Track_rides_along_with_its_subject()
     {
         var subject = new Vector3(5f, 0f, 0f);

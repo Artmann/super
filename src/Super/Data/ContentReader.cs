@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -30,6 +31,7 @@ internal sealed class ContentReader
         options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false));
         options.Converters.Add(new ModelRefConverter(content));
         options.Converters.Add(new RefConverterFactory());
+        options.Converters.Add(new Vector3Converter());
         options.MakeReadOnly();
         Options = options;
     }
@@ -115,6 +117,46 @@ internal sealed class ContentReader
 
         public override void Write(Utf8JsonWriter writer, Ref<T> value, JsonSerializerOptions options) =>
             writer.WriteStringValue(value.Id);
+    }
+
+    /// <summary>Reads a <see cref="Vector3"/> as a list of three numbers, such as <c>[1, 0, 2.5]</c>.</summary>
+    private sealed class Vector3Converter : JsonConverter<Vector3>
+    {
+        public override Vector3 Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType != JsonTokenType.StartArray)
+            {
+                throw new JsonException("A vector must be a list of three numbers.");
+            }
+
+            Span<float> parts = stackalloc float[3];
+            int count = 0;
+            while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+            {
+                if (reader.TokenType != JsonTokenType.Number || count == 3)
+                {
+                    throw new JsonException("A vector must be a list of three numbers.");
+                }
+
+                parts[count++] = reader.GetSingle();
+            }
+
+            if (count != 3)
+            {
+                throw new JsonException("A vector must be a list of three numbers.");
+            }
+
+            return new Vector3(parts[0], parts[1], parts[2]);
+        }
+
+        public override void Write(Utf8JsonWriter writer, Vector3 value, JsonSerializerOptions options)
+        {
+            writer.WriteStartArray();
+            writer.WriteNumberValue(value.X);
+            writer.WriteNumberValue(value.Y);
+            writer.WriteNumberValue(value.Z);
+            writer.WriteEndArray();
+        }
     }
 
     private sealed class ModelRefConverter(Content content) : JsonConverter<ModelRef>

@@ -35,6 +35,9 @@ public record struct Transform(Vector3 Position, Quaternion Rotation, Vector3 Sc
         return new Transform(position, Quaternion.CreateFromRotationMatrix(rotation), scale);
     }
 
+    /// <summary>A transform at a place on a spline, facing along it, such as from a <see cref="SplineFollower"/>.</summary>
+    public static Transform From(in SplinePose pose, float scale = 1f) => new(pose.Position, pose.Rotation, new Vector3(scale));
+
     /// <summary>The transform as a matrix: scale, then rotation, then position.</summary>
     public readonly Matrix4x4 Matrix
     {

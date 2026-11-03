@@ -27,8 +27,15 @@ public class ShapesTests
         "flat sphere" => Shapes.Flat(Shapes.Sphere(1f, segments: 8, rings: 4)),
         "plane" => Shapes.Plane(new Vector2(4f, 2f), subdivisions: 3),
         "quad" => Shapes.Quad(new Vector2(2f, 1f)),
+        "ribbon" => Shapes.Ribbon(Bend(), 2f, step: 0.25f),
+        "embankment" => Shapes.Extrude(Bend(), [new Vector2(1.5f, -0.5f), new Vector2(1f, 0f), new Vector2(-1f, 0f), new Vector2(-1.5f, -0.5f)], step: 0.25f),
+        "tube" => Shapes.Tube(Bend(), 0.2f, sides: 6, step: 0.25f),
+        "bent plane" => Shapes.Bend(Shapes.Plane(new Vector2(0.5f, 8f), subdivisions: 24), Bend()),
         _ => throw new ArgumentException(name),
     };
+
+    /// <summary>A curve that turns left, climbs and turns back, for shapes made along a spline.</summary>
+    private static Spline Bend() => Spline.Through([Vector3.Zero, new Vector3(0f, 0f, 4f), new Vector3(3f, 1f, 7f), new Vector3(7f, 1.5f, 8f)]);
 
     /// <summary>Where the outward direction at a point starts: the middle for most, the tube's core for a torus.</summary>
     private static Vector3 Inside(string name, Vector3 position) => name switch
@@ -90,6 +97,10 @@ public class ShapesTests
     [MemberData(nameof(ClosedShapes))]
     [InlineData("plane")]
     [InlineData("quad")]
+    [InlineData("ribbon")]
+    [InlineData("embankment")]
+    [InlineData("tube")]
+    [InlineData("bent plane")]
     public void Every_triangle_winds_to_face_the_way_its_normals_point(string name)
     {
         var mesh = Make(name);
@@ -152,6 +163,10 @@ public class ShapesTests
     [MemberData(nameof(ClosedShapes))]
     [InlineData("plane")]
     [InlineData("quad")]
+    [InlineData("ribbon")]
+    [InlineData("embankment")]
+    [InlineData("tube")]
+    [InlineData("bent plane")]
     public void Tangents_run_along_u_with_the_handedness_the_shaders_expect(string name)
     {
         var mesh = Make(name);
@@ -342,6 +357,123 @@ public class ShapesTests
         var problem = Assert.Throws<ArgumentOutOfRangeException>(() => Shapes.Cylinder(0f, 0f));
 
         Assert.Contains("needs a top or bottom radius above zero", problem.Message);
+    }
+
+    [Theory]
+    // 10 m long with a ring every metre: 11 rows of 2 columns, and 10 × 2 triangles.
+    [InlineData("ribbon", 22, 20)]
+    // Three sharp edges, each its own strip of 2 columns.
+    [InlineData("embankment", 66, 60)]
+    // Four sides, smooth, with the seam repeated: 5 columns.
+    [InlineData("tube", 55, 80)]
+    public void Shapes_along_a_spline_have_a_ring_every_step(string name, int vertices, int triangles)
+    {
+        var straight = Spline.Through([Vector3.Zero, new Vector3(0f, 0f, 10f)]);
+        var mesh = name switch
+        {
+            "ribbon" => Shapes.Ribbon(straight, 4f, step: 1f),
+            "embankment" => Shapes.Extrude(straight, [new Vector2(3f, -1f), new Vector2(2f, 0f), new Vector2(-2f, 0f), new Vector2(-3f, -1f)], step: 1f),
+            _ => Shapes.Tube(straight, 0.5f, sides: 4, step: 1f),
+        };
+
+        Assert.Equal(vertices, mesh.Vertices.Length);
+        Assert.Equal(triangles * 3, mesh.Indices.Length);
+    }
+
+    [Fact]
+    public void A_ribbon_lies_flat_facing_up_with_uvs_in_metres()
+    {
+        var straight = Spline.Through([Vector3.Zero, new Vector3(0f, 0f, 10f)]);
+
+        var mesh = Shapes.Ribbon(straight, 4f, step: 0.5f);
+
+        Assert.All(mesh.Vertices, vertex => Assert.Equal(Vector3.UnitY, vertex.Normal));
+        Assert.All(mesh.Vertices, vertex => Assert.Equal(2f, MathF.Abs(vertex.Position.X), Tolerance));
+
+        // The outline starts on the right, which looking along +z is -x, and u counts across from there.
+        Assert.All(mesh.Vertices.Where(vertex => vertex.Uv.X == 0f), vertex => Assert.Equal(-2f, vertex.Position.X, Tolerance));
+        Assert.All(mesh.Vertices, vertex => Assert.Equal(vertex.Position.Z, vertex.Uv.Y, Tolerance));
+        Assert.Equal(new Vector2(4f, 10f), MaxUv(mesh));
+    }
+
+    [Fact]
+    public void A_tube_keeps_its_radius_round_the_spline_with_normals_pointing_out()
+    {
+        var straight = Spline.Through([Vector3.Zero, new Vector3(0f, 0f, 10f)]);
+
+        var mesh = Shapes.Tube(straight, 0.5f, sides: 4, step: 1f);
+
+        foreach (var vertex in mesh.Vertices)
+        {
+            var outward = vertex.Position with { Z = 0f };
+            Assert.Equal(0.5f, outward.Length(), Tolerance);
+            Assert.Equal(1f, Vector3.Dot(Vector3.Normalize(outward), vertex.Normal), Tolerance);
+        }
+
+        // Round a square of side 0.5 × √2.
+        Assert.Equal(2f * MathF.Sqrt(2f), MaxUv(mesh).X, Tolerance);
+    }
+
+    [Fact]
+    public void Bend_lays_a_mesh_along_a_spline_and_carries_on_straight_past_its_end()
+    {
+        float kappa = 4f / 3f * (MathF.Sqrt(2f) - 1f);
+        var arc = Spline.Bezier([new SplineKnot(Vector3.UnitX, Out: new Vector3(0f, 0f, kappa)), new SplineKnot(Vector3.UnitZ, In: new Vector3(kappa, 0f, 0f))]);
+
+        // One metre longer than the quarter circle, so its front sticks out one metre past the end.
+        float length = arc.Length + 1f;
+        var box = Shapes.Box(new Vector3(0.2f, 0.2f, length));
+        var bent = Shapes.Bend(box, arc);
+
+        // The arc starts at (1, 0, 0) heading +z, where the box's +x (its left) is +x.
+        AssertMoved(box, bent, new Vector3(0.1f, 0.1f, -length / 2f), new Vector3(1.1f, 0.1f, 0f));
+
+        // It ends at (0, 0, 1) heading -x, where the box's left is +z, then goes on one metre.
+        AssertMoved(box, bent, new Vector3(0.1f, 0.1f, length / 2f), new Vector3(-1f, 0.1f, 1.1f));
+
+        // The front end faces the way the spline left off, and the top still faces up.
+        for (int i = 0; i < box.Vertices.Length; i++)
+        {
+            if (box.Vertices[i].Normal == Vector3.UnitZ)
+            {
+                Assert.True(Vector3.Distance(-Vector3.UnitX, bent.Vertices[i].Normal) < 1e-3f, $"The front faces {bent.Vertices[i].Normal}.");
+            }
+            else if (box.Vertices[i].Normal == Vector3.UnitY)
+            {
+                Assert.True(Vector3.Distance(Vector3.UnitY, bent.Vertices[i].Normal) < 1e-3f, $"The top faces {bent.Vertices[i].Normal}.");
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(new float[] { 0f, 0f }, false, "An outline needs at least two points.")]
+    [InlineData(new float[] { 0f, 0f, 1f, 0f }, true, "A closed outline needs at least three points.")]
+    [InlineData(new float[] { 0f, 0f, 1f, 0f, 1f, 0f }, false, "Outline points 1 and 2 are in the same place.")]
+    [InlineData(new float[] { 0f, 0f, 1f, 0f, 0f, 0f }, true, "Outline points 2 and 0 are in the same place.")]
+    [InlineData(new float[] { 0f, 0f, float.NaN, 0f }, false, "Outline point 1 must be finite.")]
+    public void Outlines_that_cant_be_swept_are_explained(float[] numbers, bool closed, string expected)
+    {
+        var outline = Enumerable.Range(0, numbers.Length / 2).Select(i => new Vector2(numbers[i * 2], numbers[i * 2 + 1])).ToArray();
+        var straight = Spline.Through([Vector3.Zero, Vector3.UnitZ]);
+
+        var problem = Assert.Throws<ArgumentException>(() => Shapes.Extrude(straight, outline, closed));
+
+        Assert.Equal($"{expected} (Parameter 'outline')", problem.Message);
+    }
+
+    private static void AssertMoved(GeneratedMesh before, GeneratedMesh after, Vector3 from, Vector3 to)
+    {
+        int found = 0;
+        for (int i = 0; i < before.Vertices.Length; i++)
+        {
+            if (Vector3.Distance(before.Vertices[i].Position, from) < Tolerance)
+            {
+                Assert.True(Vector3.Distance(after.Vertices[i].Position, to) < 1e-3f, $"{from} went to {after.Vertices[i].Position}, not {to}.");
+                found++;
+            }
+        }
+
+        Assert.True(found > 0, $"No vertex was at {from}.");
     }
 
     private static (Vertex A, Vertex B, Vertex C) Corners(GeneratedMesh mesh, int first) =>

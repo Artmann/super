@@ -64,4 +64,17 @@ public class TransformTests
         var forward = Vector3.Transform(Vector3.UnitZ, half.Rotation);
         Assert.Equal(MathF.PI / 4f, MathF.Acos(Vector3.Dot(forward, Vector3.UnitZ)), 0.001f);
     }
+
+    [Fact]
+    public void From_a_spline_pose_faces_along_the_spline()
+    {
+        var curve = Spline.Through([Vector3.Zero, new Vector3(0f, 0f, -10f)]);
+
+        var transform = Transform.From(curve.FrameAtDistance(4f), scale: 2f);
+
+        AssertEqual(new Vector3(0f, 0f, -4f), transform.Position);
+        AssertEqual(-Vector3.UnitZ, Vector3.Transform(Vector3.UnitZ, transform.Rotation));
+        AssertEqual(Vector3.UnitY, Vector3.Transform(Vector3.UnitY, transform.Rotation));
+        AssertEqual(new Vector3(2f), transform.Scale);
+    }
 }

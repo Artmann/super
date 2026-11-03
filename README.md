@@ -111,7 +111,7 @@ marked as planned. The examples are the best place to see it running:
 | [Shapes](examples/Shapes) | Every built-in shape, and shapes made in code with `Shapes` |
 | [Rooms](examples/Rooms) | Game states, a loading screen, JSON content, clicking the ground and huts that rise on a curve |
 | [Crafting](examples/Crafting) | An inventory and crafting bench driven entirely by the mouse |
-| [Terrain](examples/Terrain) | Endless generated hills with a custom surface shader |
+| [Terrain](examples/Terrain) | Endless generated hills with a custom surface shader, a road built along a spline with a cart driving it, and a flyover on F |
 | [Reef](examples/Reef) | 6,240 schooling fish with the ECS, water and a stats panel |
 | [Fox](examples/Fox) | A skinned character blending walk into run, with a head turn played over it |
 | [Archer](examples/Archer) | A short film: a cutscene with slow motion, root motion, a sky and a forest clearing |
