@@ -88,6 +88,8 @@ public void Draw(View view)
 | `Swim` | Bends the model like a swimming fish, with the phase blended too when `Smoothed` |
 | `Animated` | Draws the model in its `Animator`'s pose, which the game loop moves on each tick. Without a `Model`, it draws the rig's own model. See [Animation](animation.md) |
 | `ScopedTo<T>` | Destroys the entity when that game state ends |
+| `Sound` | Plays a looping sound from the entity for as long as it has this. See [Sounds from entities](#sounds-from-entities) |
+| `Ambience` | Plays an ambience for as long as the entity has this |
 
 `Smoothed` means you don't keep a previous position yourself: the world takes a copy
 before each `Update`, and an entity's first frame shows it exactly where it is, so a
@@ -99,6 +101,38 @@ Entities without `Model` aren't drawn, so gameplay-only things cost nothing here
 
 The [Reef example](../examples/Reef) uses this for thousands of schooling fish, and its
 `Draw` is a camera, a sun, the seabed and `view.Models(world)`.
+
+## Sounds from entities
+
+Put a `Sound` on an entity and it plays; take it away, or destroy the entity, and it
+fades out. There is nothing to call and no handle to keep:
+
+```csharp
+var engine = world.Create();
+world.Add(engine, Transform.At(new Vector3(4f, 0f, 2f)));
+world.Add(engine, new Smoothed());
+world.Add(engine, new Sound(content.Sound("sounds/engine.ogg"), Volume: 0.8f));
+```
+
+With a `Transform` the sound sits where the entity is drawn (`Smoothed` and `Parent`
+count, as for `Models`) and follows it. Without one it's flat. The fields are `Clip`,
+`Volume` (1), `Channel` (`Effects`), `Near` (2 m) and `Far` (50 m); see
+[Audio](audio.md#sounds-and-ambiences-on-entities).
+
+An `Ambience` does the same for an [ambience](audio.md#ambience-files). With `ScopedTo<T>`
+on the same entity it plays for as long as its game state does:
+
+```csharp
+screen.OnEnter(Screen.Forest, () =>
+{
+    var forest = world.Create();
+    world.Add(forest, new Ambience(content.Ambience("ambience/forest.ambience.json")));
+    world.Add(forest, new ScopedTo<Screen>(Screen.Forest));
+});
+```
+
+Both are kept in step after each frame's `Draw`. Changing the component's volume fades to
+the new one; changing its clip, channel, `Near` or `Far` swaps the sound.
 
 ## Entities that belong to a state
 

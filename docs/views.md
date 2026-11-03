@@ -22,11 +22,6 @@ class BoxView(Content content)
         float open = view.Animate(data.Id, data.IsOpen ? 1f : 0f, seconds: 0.4f);
         view.Model(data.Id, box, data.Transform);
         view.Model(data.Id + 1, lid, Matrix4x4.CreateRotationX(-open * 1.8f) * data.Transform);
-
-        if (view.Changed(data.Id, data.IsOpen))
-        {
-            // Play a creak here, once audio exists.
-        }
     }
 }
 ```
@@ -35,6 +30,23 @@ class BoxView(Content content)
 you pass. The first time Super sees a key, the value goes straight to its target. So
 when a player loads a save, open boxes are simply open, with no animation. When
 `IsOpen` changes during play, the lid swings.
+
+A view only describes how things look, so sounds don't go in `Draw`. The creak belongs
+where `IsOpen` changes, in `Update`, which runs once per tick whether or not the box is
+on screen, and which a test can check without drawing:
+
+```csharp
+public void Open(ref Box box, Audio audio)
+{
+    box.IsOpen = true;
+    audio.Play(creak, at: box.Transform.Translation);
+}
+```
+
+(`Changed` is view memory, which only lasts while you keep drawing, so a creak
+tied to it would be skipped for a box that is off screen.) For a sound that plays for as
+long as something exists, such as a humming machine, put a [`Sound`](ecs.md#sounds-from-entities)
+component on its entity instead. See [Audio](audio.md).
 
 ## What a view can draw
 

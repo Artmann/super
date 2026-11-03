@@ -96,11 +96,11 @@ public static class ViewExtensions
         }
     }
 
-    private static Transform Blended(in Transform current, in Smoothed smoothed, float blend) =>
+    internal static Transform Blended(in Transform current, in Smoothed smoothed, float blend) =>
         smoothed.HasPrevious ? Transform.Lerp(in smoothed.Previous, in current, blend) : current;
 
     /// <summary>An entity's matrix in the world, following its own parents. A dead parent, or one with no transform, counts as the world itself.</summary>
-    private static Matrix4x4 WorldMatrix(World world, Entity entity, float blend, int depth)
+    internal static Matrix4x4 WorldMatrix(World world, Entity entity, float blend, int depth)
     {
         if (depth >= MaxParentDepth || !world.IsAlive(entity) || !world.Has<Transform>(entity))
         {

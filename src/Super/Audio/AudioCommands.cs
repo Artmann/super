@@ -76,6 +76,9 @@ internal sealed class AudioCommands
 
     public int Capacity => _items.Length;
 
+    /// <summary>How many commands were queued since the start, dropped ones not counted.</summary>
+    public long Written => _written;
+
     /// <summary>How many commands were dropped because the ring was full.</summary>
     public int Dropped => Volatile.Read(ref _dropped);
 
