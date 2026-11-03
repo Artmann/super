@@ -43,6 +43,18 @@ take you back to that tick.
 [ffmpeg](https://ffmpeg.org) on the PATH (`winget install Gyan.FFmpeg`). A video runs as
 fast as the machine can make it, and the same seed gives the same frames.
 
+`--record` includes the game's sound. The audio is mixed a tick at a time, like the
+picture, and written beside the video as `file.wav`. When the video is finished, ffmpeg
+adds the sound to it (the picture isn't re-encoded) and the WAV is deleted. If that
+fails, the video is kept without sound, the WAV stays as `file.wav` next to it, and one
+line says why:
+
+```
+Couldn't add sound to day-200.mp4: {error}. The sound is in day-200.wav.
+```
+
+The audio seed is fixed, so the same seed gives the same sound too.
+
 ## Scripted input
 
 `--script` plays a named list of key presses, mouse moves, clicks and drags, so a
@@ -119,6 +131,7 @@ internal sealed class MyColony(GameCapture capture) : IGame
 - `Screenshot` saves the next frame as a PNG. Folders are created for you.
 - While recording, each frame moves the game on by exactly one video frame. Instead of a
   stuttering video you get a game that may run slowly until `StopRecording`.
+- Recording includes the game's sound, written to a .wav beside the video and added to it at the end (see `--record` above). In live play the sound device is paused while recording, so the sound is in the video but not through the speakers.
 - `StopRecording` waits for the file to be finished. Closing the game finishes it too.
 - Resizing the window ends the recording, and the video stops at that point.
 - In a headless test there's nothing to capture, so these calls do nothing.

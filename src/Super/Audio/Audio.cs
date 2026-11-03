@@ -37,6 +37,8 @@ public sealed class Audio
     private double _carriedFrames;
     private DeviceOutput? _output;
     private bool _outputPaused;
+    private AudioRecording? _recording;
+    private bool _recordingPausedDevice;
 
     // Mixer side: only whatever renders touches these. Indexed by the slot of a game id.
     private readonly Mixer _mixer;
@@ -136,10 +138,48 @@ public sealed class Audio
     /// </summary>
     internal void Close()
     {
+        _recording?.Finish();
+        _recording = null;
+        _recordingPausedDevice = false;
         _output?.Dispose();
         _output = null;
         _outputPaused = false;
         _mixer.StopAll();
+    }
+
+    /// <summary>
+    /// Writes everything <see cref="Advance"/> mixes from now on to a WAV file, until <see cref="StopRecording"/>.
+    /// A device is paused for the time, which makes the audio <see cref="Manual"/>: the game loop mixes, a tick at
+    /// a time, so the file holds exactly the game's own time. Game thread only.
+    /// </summary>
+    internal void StartRecording(string wavPath)
+    {
+        if (_recording is not null)
+        {
+            throw new InvalidOperationException("The audio is already being recorded.");
+        }
+
+        _recording = new AudioRecording(wavPath);
+        _recordingPausedDevice = _output is not null && !_outputPaused;
+        PauseDevice();
+    }
+
+    /// <summary>Finishes the WAV file and gives a paused device back to the audio thread. Does nothing when not recording.</summary>
+    internal void StopRecording()
+    {
+        var recording = _recording;
+        if (recording is null)
+        {
+            return;
+        }
+
+        _recording = null;
+        recording.Finish();
+        if (_recordingPausedDevice)
+        {
+            _recordingPausedDevice = false;
+            ResumeDevice();
+        }
     }
 
     private void CheckNoOutput()
@@ -403,7 +443,9 @@ public sealed class Audio
         while (frames > 0)
         {
             int block = (int)Math.Min(frames, ScratchFrames);
-            Render(_scratch.AsSpan(0, block * 2));
+            Span<float> mixed = _scratch.AsSpan(0, block * 2);
+            Render(mixed);
+            _recording?.Write(mixed);
             frames -= block;
         }
     }

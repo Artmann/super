@@ -286,6 +286,18 @@ a device. Pausing is the one time the game thread waits on the audio thread, for
 one block; it's there for recording sound from live play. The speakers run dry while paused, and the
 first pass after `Resume` refills them and starts the source again.
 
+**Recording.** `Audio.StartRecording(wavPath)` makes the audio manual (pausing a device
+if there is one, which `Audio.StopRecording()` resumes) and opens an `AudioRecording`, a
+48 kHz stereo float WAV writer. `Advance` writes each block it mixes to it from the
+scratch buffer it already uses, so nothing is allocated per tick, and the fractional
+frames carried between ticks mean the file holds exactly the frames the clock mixed.
+`StopRecording` goes back and fixes the header sizes. `GameCapture` starts it at
+`StartRecording` and stops it first in `StopRecording`; then `VideoFile.AddSound` runs
+`ffmpeg -y -i video -i wav -c:v copy -c:a aac -shortest` into a temp file beside the
+video, moves it over the video and deletes the WAV. On any failure it deletes the temp
+file, keeps both and writes the one-line message. Tests give it a stand-in for the
+ffmpeg run.
+
 **Closing.** `GameHost.Dispose` calls `Audio.Close()` before the services go: it stops
 the thread, joins it, closes the source, buffers, context and device, then
 `Mixer.StopAll()` ends every ambience and voice, so streamed clips close their readers.

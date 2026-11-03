@@ -235,6 +235,12 @@ OpenAL Soft, which ships with Super, so there's nothing to install. Sound runs o
 thread with about 43 ms queued, so a slow frame doesn't make it stutter. Screenshots,
 recordings, profiles and `HeadlessGame` runs never open the device; only live play does.
 
+### Recording
+
+`--record` and `GameCapture.StartRecording` put the game's sound in the video; see
+[command-line.md](command-line.md#videos). In live play the speakers go quiet while a
+recording runs, because the game then mixes the sound a tick at a time for the file.
+
 ### No sound device
 
 If there's no sound device, or it won't open, the game still runs, silently, and prints
