@@ -129,6 +129,51 @@ queued before a frame ends, the extra ones are dropped rather than holding the g
 Up to 64 sounds play at once. Past that the quietest sound gives way to a new one, or the
 new one isn't played if it's the quietest. Music and ambience layers never give way.
 
+## Sounds and ambiences on entities
+
+For a sound that lasts as long as something exists, a humming machine or a stream, put a
+[`Sound`](ecs.md#sounds-from-entities) component on the entity. Super plays it, moves it
+and stops it for you, so `Draw` and `Update` make no sound calls:
+
+```csharp
+world.Add(machine, Transform.At(new Vector3(8f, 0f, 3f)));
+world.Add(machine, new Sound(content.Sound("sounds/hum.ogg"), Volume: 0.6f, Near: 3, Far: 30));
+```
+
+| Field | Meaning | Default |
+| --- | --- | --- |
+| `Clip` | The clip, which loops | |
+| `Volume` | 0 or more | 1 |
+| `Channel` | The channel to play on | `Effects` |
+| `Near`, `Far` | Full volume within `Near` metres, silent from `Far` | 2, 50 |
+
+- With a `Transform` it's placed where the entity is drawn, including `Smoothed` and
+  `Parent`, and follows it. Without one it's flat, but it still follows the time scale:
+  it pauses at `Scale` 0 and slows below 1, unlike a flat `audio.Play`.
+- It fades in over 0.1 s. Removing the component or destroying the entity fades it out
+  over 0.3 s. An entity that has a `Sound` when the game loads simply starts playing.
+- Changing `Volume` fades to it over 0.1 s. Changing `Clip`, `Channel`, `Near`, `Far`, or
+  whether the entity has a `Transform`, fades the old sound out and starts the new one.
+- A sound that can't start, such as when all 1024 ids are in use, is tried again each
+  frame until it can.
+
+An [`Ambience`](ecs.md#sounds-from-entities) component plays an ambience (fading in and
+out over 2 s) for as long as the entity has it. Tag the entity with `ScopedTo<TState>` and
+the ambience belongs to that [state](states.md): leaving the state destroys the entity,
+and the layers fade out.
+
+```csharp
+forest.OnEnter(Screen.Forest, () =>
+{
+    var entity = world.Create();
+    world.Add(entity, new Ambience(content.Ambience("ambience/forest.ambience.json"), Volume: 0.7f));
+    world.Add(entity, new ScopedTo<Screen>(Screen.Forest));
+});
+```
+
+These need `services.AddSuperEcs()`. A frame sends the mixer a command only for what
+changed, so a thousand still sounds cost nothing frame to frame.
+
 ## Music
 
 ```csharp

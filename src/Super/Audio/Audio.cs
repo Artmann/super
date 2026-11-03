@@ -73,6 +73,9 @@ public sealed class Audio
     /// <summary>Commands dropped because the queue to the mixer was full.</summary>
     internal int DroppedCommands => _commands.Dropped;
 
+    /// <summary>Commands queued for the mixer since the start. Tests use it to see what a frame sent.</summary>
+    internal long CommandsQueued => _commands.Written;
+
     /// <summary>
     /// What the mixer is playing, once it has taken the commands handed over so far. Manual mode only, since otherwise
     /// the mixer belongs to another thread.

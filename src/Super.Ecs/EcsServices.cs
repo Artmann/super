@@ -9,5 +9,6 @@ public static class EcsServices
         services
             .AddSingleton<World>()
             .AddSingleton<ITickHook>(provider => provider.GetRequiredService<World>())
-            .AddSingleton<IStateHook>(provider => provider.GetRequiredService<World>());
+            .AddSingleton<IStateHook>(provider => provider.GetRequiredService<World>())
+            .AddSingleton<IDrawHook, SoundSync>();
 }

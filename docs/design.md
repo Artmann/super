@@ -196,6 +196,20 @@ Ambiences fade in, change and fade out over 2 s. Music cross-fades over `fadeSec
 the old track's voice stops with that fade and the new one starts with it as its fade-in.
 Music takes its ids from the same pool as loops.
 
+**Sounds from entities.** `SoundSync` (in `src/Super.Ecs/Audio`) is an `IDrawHook` that
+`AddSuperEcs` registers. After each frame's Draw it walks the entities with `Sound` and
+with `Ambience` and compares them with what it sent last frame, keyed by `Entity` (id and
+generation, so an id reused in the same tick is a new sound). Per entity it remembers the
+loop's id and the clip, channel, near, far, volume and world position it last sent. A new
+entity starts a loop, a changed clip/channel/near/far/placement stops and restarts it, a
+changed position sends `Move` (an exact compare) and a changed volume sends
+`ChangeVolume`; whatever wasn't seen is stopped. A still entity sends nothing, which
+matters because draw hooks run every frame while the ring drains once a tick in manual
+mode (`Audio.CommandsQueued` is what the test reads). Two dictionaries swap roles each
+frame so nothing allocates once warm. The position is `ViewExtensions.WorldMatrix`, the
+same transform, `Smoothed` blend and `Parent` chain `Models` draws with. A start that
+returned id -1 is tried again next frame.
+
 **Randomness.** `Audio` is built with an audio seed and makes `new GameRandom(seed)`
 from it: the `"audio"` stream goes to the mixer (ambiences) and `"audio pitch"` stays on
 the game thread for `Play`'s pitch variation. Two streams, because each is used by one
