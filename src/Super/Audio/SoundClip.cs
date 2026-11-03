@@ -14,6 +14,12 @@ internal interface ISampleReader : IDisposable
     /// a loop can go round while mixing (NVorbis still allocates some 25 KB to rewind; the others nothing).
     /// </summary>
     void Seek(long frame);
+
+    /// <summary>
+    /// Moves the next read to about this frame, quickly: a compressed reader uses its decoder's own seek, which may land
+    /// a little early or late, instead of decoding forward. Readers that can seek exactly at no cost just seek.
+    /// </summary>
+    void SeekNear(long frame) => Seek(frame);
 }
 
 /// <summary>A sound file read from disk. Short clips are decoded once; long ones are decoded as they play.</summary>

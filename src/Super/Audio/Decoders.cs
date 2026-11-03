@@ -12,6 +12,12 @@ internal interface IClipFormat
     int Channels { get; }
 }
 
+/// <summary>How many frames a compressed reader has decoded since it was made, so tests can see how much work a seek did.</summary>
+internal interface IDecodeCount
+{
+    long FramesDecoded { get; }
+}
+
 /// <summary>Streaming readers over compressed audio held in memory.</summary>
 internal static class Decoders
 {
@@ -47,7 +53,7 @@ internal static class Decoders
         return new InvalidDataException($"only mono and stereo are supported, found {channels} channels");
     }
 
-    private sealed class OggReader : ISampleReader, IClipFormat
+    private sealed class OggReader : ISampleReader, IClipFormat, IDecodeCount
     {
         private readonly byte[] _bytes;
         private readonly bool _rewindsExactly;
@@ -115,10 +121,13 @@ internal static class Decoders
 
         public long Frames => _reader.TotalSamples;
 
+        public long FramesDecoded { get; private set; }
+
         public int Read(Span<float> interleaved)
         {
-            int samples = _reader.ReadSamples(interleaved[..(interleaved.Length / Channels * Channels)]);
-            return samples / Channels;
+            int frames = _reader.ReadSamples(interleaved[..(interleaved.Length / Channels * Channels)]) / Channels;
+            FramesDecoded += frames;
+            return frames;
         }
 
         public void Seek(long frame)
@@ -144,13 +153,19 @@ internal static class Decoders
             }
         }
 
+        public void SeekNear(long frame)
+        {
+            // NVorbis's own seek: quick, and a few dozen frames out at most.
+            _reader.SeekTo(Math.Clamp(frame, 0, Frames));
+        }
+
         public void Dispose()
         {
             _reader.Dispose();
         }
     }
 
-    private sealed class Mp3Reader : ISampleReader, IClipFormat
+    private sealed class Mp3Reader : ISampleReader, IClipFormat, IDecodeCount
     {
         private readonly byte[] _bytes;
         private readonly MpegFile _file;
@@ -181,10 +196,13 @@ internal static class Decoders
         // MpegFile measures its length in bytes of float samples.
         public long Frames => _file.Length / (sizeof(float) * Channels);
 
+        public long FramesDecoded { get; private set; }
+
         public int Read(Span<float> interleaved)
         {
-            int samples = _file.ReadSamples(interleaved[..(interleaved.Length / Channels * Channels)]);
-            return samples / Channels;
+            int frames = _file.ReadSamples(interleaved[..(interleaved.Length / Channels * Channels)]) / Channels;
+            FramesDecoded += frames;
+            return frames;
         }
 
         public void Seek(long frame)
@@ -199,6 +217,12 @@ internal static class Decoders
                 // decode on from the start instead.
                 SkipFrames(this, frame);
             }
+        }
+
+        public void SeekNear(long frame)
+        {
+            // NLayer's own seek: quick, but it lands on a granule boundary up to 1152 frames early.
+            _file.Position = Math.Clamp(frame, 0, Frames) * sizeof(float) * Channels;
         }
 
         public void Dispose()
