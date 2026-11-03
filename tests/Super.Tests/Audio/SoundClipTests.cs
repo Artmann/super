@@ -269,6 +269,51 @@ public class SoundClipTests
         Assert.InRange(allocated, 0, mostBytes);
     }
 
+    // The rising fixtures are a 1 kHz tone at 44 100 Hz whose peak rises steadily from 0 to 0.75 over their 4 s, so how
+    // loud a stretch is says where in the clip it is: 0.01 is about 2400 frames. NLayer lands on a granule boundary and
+    // starts it without its overlap, so the first two granules (2304 frames) after the seek are skipped before measuring.
+    [Theory]
+    [InlineData("rising.ogg")]
+    [InlineData("rising.mp3")]
+    public void CompressedReaderSeekNearLandsCloseToTheFrame(string name)
+    {
+        using ISampleReader whole = OpenDecoder(name);
+        float[] all = ReadToEnd(whole);
+        const int Settle = 2304;
+        const int Window = 441;
+
+        foreach (long frame in new long[] { 44100, 88200, 132300 })
+        {
+            using ISampleReader reader = OpenDecoder(name);
+            reader.SeekNear(frame);
+            float[] settle = new float[Settle];
+            Assert.Equal(Settle, reader.Read(settle));
+            float[] window = new float[Window];
+            Assert.Equal(Window, reader.Read(window));
+
+            float expected = all.AsSpan((int)frame + Settle, Window).ToArray().Max(Math.Abs);
+            Assert.InRange(window.Max(Math.Abs), expected - 0.01f, expected + 0.01f);
+        }
+    }
+
+    [Theory]
+    [InlineData("rising.ogg")]
+    [InlineData("rising.mp3")]
+    public void CompressedReaderSeekNearDecodesNothingOnTheWay(string name)
+    {
+        using ISampleReader reader = OpenDecoder(name);
+        reader.Read(new float[16]);
+        long before = ((IDecodeCount)reader).FramesDecoded;
+
+        reader.SeekNear(132300);
+
+        Assert.Equal(before, ((IDecodeCount)reader).FramesDecoded);
+
+        // While an exact seek decodes its way there.
+        reader.Seek(132300);
+        Assert.Equal(before + 132300, ((IDecodeCount)reader).FramesDecoded);
+    }
+
     [Fact]
     public void OggWithMoreThanTwoChannelsNamesThePath()
     {

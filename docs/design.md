@@ -141,7 +141,11 @@ below comes from it, so one seed gives the same ambience every run.
 
 - Each layer is a looping voice on the Ambience channel at `layer volume × ambience volume`,
   fading in over `fadeSeconds`, starting at a random frame of its clip. A decoded clip
-  just starts its cursor there; a streamed clip seeks once, as the ambience starts.
+  just starts its cursor there; a streamed clip uses its decoder's own seek
+  (`ISampleReader.SeekNear`) once, as the ambience starts. That is quick but lands a little
+  off (a few dozen frames for an ogg, up to 1152 early for an mp3), which a random start
+  doesn't mind. Decoding up to the frame, as an exact seek does, could take longer than the
+  speakers' buffer.
 - Each scattered entry waits a random `MinSeconds..MaxSeconds` of the sample clock, then
   plays a random one of its clips once, at a random volume within its range times the
   ambience volume, pitch `1 ± PitchVariation`, and a random flat pan in −0.8..0.8 (the

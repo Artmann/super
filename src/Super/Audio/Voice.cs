@@ -17,7 +17,11 @@ internal struct VoiceStart
     public float Far = 50;
     public float FadeInSeconds;
 
-    /// <summary>The clip frame to start from. A streamed clip seeks there once, when the voice starts.</summary>
+    /// <summary>
+    /// About where in the clip to start, for an ambience layer's random start. A decoded clip starts exactly there. A
+    /// streamed clip uses its decoder's own quick seek once, when the voice starts, which may land a little off (up to
+    /// 1152 frames early for an MP3), rather than decoding up to it, which can take longer than the speakers' buffer.
+    /// </summary>
     public long StartFrame;
 
     /// <summary>-1 (left) to 1 (right) for a flat voice. 0 leaves it as it is. Placed voices pan by position instead.</summary>
@@ -214,7 +218,7 @@ internal sealed class Voice
             {
                 try
                 {
-                    reader.Seek(from);
+                    reader.SeekNear(from);
                 }
                 catch
                 {

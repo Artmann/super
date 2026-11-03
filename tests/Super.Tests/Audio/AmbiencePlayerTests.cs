@@ -157,6 +157,63 @@ public class AmbiencePlayerTests
         Assert.True(firstSamples.Distinct().Count() > 5, string.Join(", ", firstSamples));
     }
 
+    /// <summary>A silent streamed reader that counts what the voice asks of it.</summary>
+    private sealed class CountingReader(long frames) : ISampleReader
+    {
+        public long Frames => frames;
+
+        public long FramesRead { get; private set; }
+
+        public int ExactSeeks { get; private set; }
+
+        public long NearFrame { get; private set; } = -1;
+
+        public int Read(Span<float> interleaved)
+        {
+            int read = (int)Math.Min(interleaved.Length, frames - FramesRead);
+            interleaved[..read].Clear();
+            FramesRead += read;
+            return read;
+        }
+
+        public void Seek(long frame)
+        {
+            ExactSeeks++;
+            FramesRead = frame;
+        }
+
+        public void SeekNear(long frame)
+        {
+            NearFrame = frame;
+            FramesRead = frame;
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+
+    [Fact]
+    public void AStreamedLayerStartsNearItsRandomFrameWithoutDecodingUpToIt()
+    {
+        const long frames = 60L * Mixer.SampleRate;
+        var readers = new List<CountingReader>();
+        SoundClip clip = SoundClip.Streaming("long.ogg", Mixer.SampleRate, 1, 60, () =>
+        {
+            var reader = new CountingReader(frames);
+            readers.Add(reader);
+            return reader;
+        });
+        var mixer = TestMixer.Make(3);
+
+        mixer.StartAmbience(Layers((clip, 1)), 1, 0);
+
+        CountingReader started = Assert.Single(readers);
+        Assert.Equal(0, started.ExactSeeks);
+        Assert.InRange(started.NearFrame, 1, frames - 1);
+        Assert.Equal((double)started.NearFrame / Mixer.SampleRate, Assert.Single(Snapshot(mixer)).Seconds, 1e-9);
+    }
+
     [Fact]
     public void ScatteredFiresWithinItsRange()
     {
