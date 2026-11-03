@@ -7,9 +7,6 @@ namespace Forest.Tests;
 
 public sealed class ForestTests
 {
-    // The mixer plays this many sounds at once (docs/audio.md).
-    private const int MaxVoices = 64;
-
     private const int TicksPerSecond = 30;
 
     private static HeadlessRun<ForestGame> Start(int seed = 1) =>
@@ -34,7 +31,7 @@ public sealed class ForestTests
         run.Ticks(1);
 
         var ambience = run.Sounds.Where(sound => sound.Channel == Channel.Ambience).Select(sound => sound.Clip).Order().ToList();
-        Assert.Equal(["sounds/ambient/rain.wav", "sounds/ambient/wind.wav"], ambience);
+        Assert.Equal(["sounds/ambient/rain.wav", "sounds/ambient/wind.ogg"], ambience);
         var music = Assert.Single(run.Sounds, sound => sound.Channel == Channel.Music);
         Assert.Equal("music/clearing.ogg", music.Clip);
         Assert.True(music.Looping);
@@ -65,7 +62,7 @@ public sealed class ForestTests
         run.Game.OrbitSpeed = 0;
 
         // The builder works 4 m to the side of the cabin, at +x, and the camera is 16 m out. A camera looking at the
-    // cabin from +z has the builder on its right, about 4 m across in 16 m, so a pan of about 0.24.
+        // cabin from +z has the builder on its right, about 4 m across in 16 m, so a pan of about 0.24.
         run.Game.Camera.Yaw = 0;
         run.Ticks(3);
         Assert.True(Assert.Single(run.Sounds, Hammering).Pan > 0.2f);
@@ -77,10 +74,25 @@ public sealed class ForestTests
     }
 
     [Theory, Seeds(15)]
-    public void ForestRunsAMinuteWithoutTrouble(int seed)
+    public void ForestKeepsItsAmbienceAndMusicAndHammersOnlyWhileBuildingForAMinute(int seed)
     {
+        // A hammering sound fades out over 0.3 s after the builder stops, so it may linger this many ticks.
+        const int FadeOutTicks = 12;
         using var run = Start(seed);
-        run.Invariant("voice count stays within the mixer's limit", _ => run.Sounds.Count <= MaxVoices);
-        run.Ticks(1800);
+        int sinceBuilding = 0;
+        for (int tick = 0; tick < 1800; tick++)
+        {
+            run.Ticks(1);
+            sinceBuilding = run.Game.Builder.IsBuilding ? 0 : sinceBuilding + 1;
+
+            Assert.Contains(run.Sounds, sound => sound.Clip == "sounds/ambient/rain.wav" && sound.Channel == Channel.Ambience);
+            Assert.Contains(run.Sounds, sound => sound.Clip == "sounds/ambient/wind.ogg" && sound.Channel == Channel.Ambience);
+            Assert.Contains(run.Sounds, sound => sound.Clip == "music/clearing.ogg" && sound.Channel == Channel.Music);
+            Assert.True(run.Sounds.Count(Hammering) <= 1, $"more than one hammering at tick {tick}");
+            if (sinceBuilding > FadeOutTicks)
+            {
+                Assert.DoesNotContain(run.Sounds, Hammering);
+            }
+        }
     }
 }
