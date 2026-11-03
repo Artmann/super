@@ -3,7 +3,9 @@ namespace Super;
 /// <summary>
 /// Saves what the game draws, from anywhere in a game's code. The pictures come straight
 /// from the renderer, so other windows and overlays can never end up in them.
-/// With no window there's nothing to capture, so requests do nothing.
+/// With no window there are no pictures to capture, so screenshots and videos aren't saved.
+/// A headless recording can still write the game's sound to a .wav, and that file is
+/// deleted again when the recording stops.
 /// </summary>
 public sealed class GameCapture : IDisposable
 {

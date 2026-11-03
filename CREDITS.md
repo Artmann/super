@@ -3,6 +3,16 @@
 The code in this repository is under the MIT license (see [LICENSE](LICENSE)).
 That license does not cover the assets below, which belong to their authors.
 
+## Third-party libraries
+
+- [OpenAL Soft](https://github.com/kcat/openal-soft) plays Super's sound through the
+  speakers. It is licensed under the LGPL-2.0-or-later, and is loaded as a separate
+  `soft_oal.dll` from the `Silk.NET.OpenAL.Soft.Native` package, so you can replace it.
+  Its source is at the link.
+- [NVorbis](https://github.com/NVorbis/NVorbis) reads `.ogg` files, and
+  [NLayer](https://github.com/naudio/NLayer) reads `.mp3` files. Both are under the MIT
+  license.
+
 ## Fonts
 
 - [Inter](https://github.com/rsms/inter) is Copyright 2016 The Inter Project Authors and

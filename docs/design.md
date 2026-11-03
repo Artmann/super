@@ -276,6 +276,11 @@ game's commands don't pile up and count as dropped. `OpenAlSpeakers.Queue` check
 gives exactly one line. If opening fails part way, `Open` deletes whatever source and
 buffers it made before closing the context and device.
 
+**Known limit.** The four buffers hold about 43 ms, and the thread wakes about every
+15.6 ms (the Windows timer tick), so there is about 27 ms of margin before the speakers
+run dry. A long pause, such as a big garbage collection, can use that up and cause an
+audible gap. The thread recovers on its next pass.
+
 **Handing the mixer over.** Each pass runs while holding a lock. `Pause` takes the same
 lock and sets a flag, so when it returns the thread has finished its block and won't
 touch the mixer until `Resume` clears it; the lock also makes each side's writes to the
@@ -321,7 +326,8 @@ It only does rendering and owns nothing beyond the window it draws into.
 ## Non-goals (for now)
 
 Editor, physics, audio, game logic and non-Windows platforms. Rendition keeps to
-rendering. Game-facing features belong in Super.
+rendering. Game-facing features belong in Super, which has the audio (see
+[Audio](audio.md)).
 
 ## Decisions
 
