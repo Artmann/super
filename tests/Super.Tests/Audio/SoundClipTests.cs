@@ -158,4 +158,93 @@ public class SoundClipTests
         Assert.Equal(2, reader.Read(buffer));
         Assert.Equal(0, reader.Read(buffer));
     }
+
+    [Fact]
+    public void OpenWithReuseRebindsTheSameReaderToTheNewClip()
+    {
+        SoundClip a = SoundClip.Read("a.wav", TestWav.Make(8000, 1, [0.1f, 0.2f, 0.3f], asFloat: true));
+        SoundClip b = SoundClip.Read("b.wav", TestWav.Make(8000, 2, [0.5f, -0.5f, 0.6f, -0.6f], asFloat: true));
+        ISampleReader first = a.Open();
+        first.Read(new float[2]);
+
+        ISampleReader second = b.Open(first);
+
+        Assert.Same(first, second);
+        Assert.Equal(2, second.Frames);
+        float[] buffer = new float[4];
+        Assert.Equal(2, second.Read(buffer));
+        Assert.Equal(new[] { 0.5f, -0.5f, 0.6f, -0.6f }, buffer);
+    }
+
+    [Fact]
+    public void ReusedOpenAndReadAllocateNothing()
+    {
+        SoundClip a = SoundClip.Read("a.wav", TestWav.Make(8000, 1, new float[100], asFloat: true));
+        SoundClip b = SoundClip.Read("b.wav", TestWav.Make(8000, 1, new float[100], asFloat: true));
+        float[] buffer = new float[64];
+        ISampleReader reader = a.Open();
+        reader = b.Open(reader);
+        reader.Read(buffer);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        reader = a.Open(reader);
+        reader.Read(buffer);
+        long after = GC.GetAllocatedBytesForCurrentThread();
+
+        Assert.Equal(before, after);
+    }
+
+    [Theory]
+    [InlineData("tone.ogg", 0.02)]
+    [InlineData("tone.mp3", 0.06)] // MP3 encoders pad the start and end with silence
+    public void CompressedReaderFramesMatchTheRealLength(string name, double toleranceSeconds)
+    {
+        using ISampleReader reader = OpenDecoder(name);
+
+        Assert.InRange(reader.Frames, (0.5 - toleranceSeconds) * 44100, (0.5 + toleranceSeconds) * 44100);
+    }
+
+    [Theory]
+    [InlineData("tone.ogg")]
+    [InlineData("tone.mp3")]
+    public void CompressedReaderSeekThenReadMatchesTheFullRead(string name)
+    {
+        using ISampleReader whole = OpenDecoder(name);
+        float[] all = new float[whole.Frames + 4096];
+        int total = 0;
+        int got;
+        while ((got = whole.Read(all.AsSpan(total))) > 0)
+        {
+            total += got;
+        }
+
+        long middle = total / 2;
+
+        using ISampleReader reader = OpenDecoder(name);
+        reader.Seek(middle);
+        float[] slice = new float[100];
+        int read = reader.Read(slice);
+
+        Assert.Equal(100, read);
+        for (int i = 0; i < 100; i++)
+        {
+            Assert.Equal(all[middle + i], slice[i], 0.01f);
+        }
+    }
+
+    [Fact]
+    public void OggWithMoreThanTwoChannelsNamesThePath()
+    {
+        byte[] bytes = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Audio", "Fixtures", "six.ogg"));
+
+        var e = Assert.Throws<ContentException>(() => SoundClip.Read("six.ogg", bytes));
+
+        Assert.Equal("six.ogg: only mono and stereo are supported, found 6 channels", e.Message);
+    }
+
+    private static ISampleReader OpenDecoder(string name)
+    {
+        byte[] bytes = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Audio", "Fixtures", name));
+        return name.EndsWith(".ogg") ? Decoders.Ogg(bytes) : Decoders.Mp3(bytes);
+    }
 }
