@@ -172,8 +172,9 @@ below comes from it, so one seed gives the same ambience every run.
   scattered sounds. A scattered sound already playing plays to its end without a fade.
 - Nothing allocates while mixing: the players are made when the mixer is built, and their
   layer and timer arrays only grow when an ambience starts, and every voice slot holds a
-  decoded-clip reader from the moment the mixer is built. A scattered clip that is
-  streamed (over 10 s) opens a decoder as it starts, which is the one exception.
+  decoded-clip reader from the moment the mixer is built. Streamed clips are the
+  exception: one opens a decoder as it starts, and the decoders allocate as they decode
+  (see the audio mixer section above).
 
 A voice that isn't looping is removed when its clip runs out. `Stop` fades the voice to
 0 over the seconds given (0 removes it at once) and removes it then.
@@ -234,8 +235,10 @@ tags each loop's voice with its game id, and `OnDropped` writes that id into
 thread, and taking an id clears its slot, so a stale entry can't match a new id. After each
 `Render` the mixer side publishes how many slots are free and bumps a mix count;
 `Audio.TryClaimVoice` lets the game claim each of those free slots once until the next mix.
-So restarts follow free slots instead of retrying every frame against a full mixer, and a
-restarted loop lands in a free slot rather than cutting another. A dropped `Move` or `ChangeVolume` is not resent until the
+So restarts follow free slots instead of retrying every frame against a full mixer. A
+restarted loop usually lands in a free slot, but a one-shot sent in the same frame can take
+it first, and then the loop cuts the quietest voice, which is reported and comes back in its turn.
+A dropped `Move` or `ChangeVolume` is not resent until the
 value changes again. Values are checked before `Audio` is called, so a bad one throws an
 `ArgumentOutOfRangeException` naming the entity and field; a `finally` still completes the swap and
 keeps entities not yet reached tracked as they were, so the next frame neither restarts nor leaks.

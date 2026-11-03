@@ -23,8 +23,10 @@ Paths are inside the content folder. Naming the same path again gives the same r
 
 Any other extension, or a clip with more than two channels, is a `ContentException`
 naming the path. Clips up to 10 seconds are decoded once and kept in memory; longer ones
-are decoded as they play. A longer `.ogg` or `.mp3` costs a little memory churn as it
-decodes, so keep effects that play often under 10 seconds. The sample rate can be anything,
+are decoded as they play. The decoder for a streamed `.ogg` or `.mp3` makes garbage as it
+plays, roughly 0.3 MB a second per clip. Music is always streamed. Keep effects that play
+often under 10 seconds so they are decoded once. With no sound device, or in tests, this
+decoding runs on the game thread. The sample rate can be anything,
 because the mixer outputs 48 000 Hz and converts.
 
 ### Ambience files
