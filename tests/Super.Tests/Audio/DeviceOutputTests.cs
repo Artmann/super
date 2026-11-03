@@ -320,6 +320,30 @@ public sealed class AudioThreadTests
     }
 
     [Fact]
+    public void AFailedFinishStillGivesTheDeviceBack()
+    {
+        (AudioService audio, _) = Make();
+        audio.UseOutput(new StandInSpeakers(), TextWriter.Null);
+        try
+        {
+            var stream = new AudioRecordingTests.FlakyStream();
+            audio.StartRecording(new AudioRecording(stream));
+            Assert.True(audio.Manual);
+            stream.Failing = true;
+
+            Assert.Throws<IOException>(audio.StopRecording);
+
+            Assert.False(audio.Manual);
+            audio.StartRecording(new AudioRecording(new MemoryStream()));
+            audio.StopRecording();
+        }
+        finally
+        {
+            audio.Close();
+        }
+    }
+
+    [Fact]
     public void OnTheThreadAdvanceThrows()
     {
         (AudioService audio, _) = Make();

@@ -78,7 +78,8 @@ internal sealed class VideoFile
     /// stays as it was, the WAV is left where it is, and one line says so.
     /// </summary>
     /// <param name="run">For tests: runs ffmpeg with these arguments and returns its error, or null on success.</param>
-    internal static void AddSound(string videoPath, string soundPath, Func<IReadOnlyList<string>, string?>? run = null)
+    /// <param name="log">Where the failure line goes; the console error by default.</param>
+    internal static void AddSound(string videoPath, string soundPath, Func<IReadOnlyList<string>, string?>? run = null, TextWriter? log = null)
     {
         string temp = Path.Combine(
             Path.GetDirectoryName(Path.GetFullPath(videoPath))!,
@@ -87,11 +88,11 @@ internal sealed class VideoFile
         try
         {
             error = (run ?? RunFfmpeg)(
-                ["-y", "-hide_banner", "-loglevel", "error", "-i", videoPath, "-i", soundPath, "-c:v", "copy", "-c:a", "aac", "-shortest", temp]);
+                ["-nostdin", "-y", "-hide_banner", "-loglevel", "error", "-i", videoPath, "-i", soundPath, "-c:v", "copy", "-c:a", "aac", "-shortest", temp]);
             if (error is null)
             {
                 File.Move(temp, videoPath, overwrite: true);
-                File.Delete(soundPath);
+                TryDelete(soundPath); // the sound is in the video now; a WAV that stays behind is no failure
                 return;
             }
         }
@@ -101,7 +102,7 @@ internal sealed class VideoFile
         }
 
         TryDelete(temp);
-        Console.Error.WriteLine($"Couldn't add sound to {videoPath}: {error}. The sound is in {soundPath}.");
+        (log ?? Console.Error).WriteLine($"Couldn't add sound to {videoPath}: {error}. The sound is in {soundPath}.");
     }
 
     private static string? RunFfmpeg(IReadOnlyList<string> arguments)

@@ -291,9 +291,9 @@ if there is one, which `Audio.StopRecording()` resumes) and opens an `AudioRecor
 48 kHz stereo float WAV writer. `Advance` writes each block it mixes to it from the
 scratch buffer it already uses, so nothing is allocated per tick, and the fractional
 frames carried between ticks mean the file holds exactly the frames the clock mixed.
-`StopRecording` goes back and fixes the header sizes. `GameCapture` starts it at
-`StartRecording` and stops it first in `StopRecording`; then `VideoFile.AddSound` runs
-`ffmpeg -y -i video -i wav -c:v copy -c:a aac -shortest` into a temp file beside the
+`StopRecording` goes back and fixes the header sizes. `GameCapture` starts it when the video gets its first frame
+and stops it first in `StopRecording`, in a `finally` so the video is still finished; then `VideoFile.AddSound` runs
+`ffmpeg -nostdin -y -i video -i wav -c:v copy -c:a aac -shortest` into a temp file beside the
 video, moves it over the video and deletes the WAV. On any failure it deletes the temp
 file, keeps both and writes the one-line message. Tests give it a stand-in for the
 ffmpeg run.

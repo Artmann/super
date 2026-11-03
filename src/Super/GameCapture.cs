@@ -57,15 +57,6 @@ public sealed class GameCapture : IDisposable
             throw new InvalidOperationException($"Already recording {_videoPath}.");
         }
 
-        if (_audio is not null)
-        {
-            // The game's sound goes beside the video until the video is done, then into it.
-            string soundPath = Path.ChangeExtension(path, ".wav");
-            CreateFolderFor(soundPath);
-            _audio.StartRecording(soundPath);
-            _soundPath = soundPath;
-        }
-
         _videoPath = path;
         FramesPerSecond = framesPerSecond;
     }
@@ -81,15 +72,13 @@ public sealed class GameCapture : IDisposable
         _video = null;
         _videoPath = null;
         _soundPath = null;
-        _audio?.StopRecording();
-        if (video is not null)
+        try
         {
-            video.Finish(soundPath);
+            _audio?.StopRecording();
         }
-        else if (soundPath is not null)
+        finally
         {
-            // No frame was ever saved, so there's no video to put it in.
-            File.Delete(soundPath);
+            video?.Finish(soundPath);
         }
     }
 
@@ -115,6 +104,15 @@ public sealed class GameCapture : IDisposable
         {
             CreateFolderFor(_videoPath);
             _video = new VideoFile(_videoPath, width, height, FramesPerSecond);
+
+            if (_audio is not null)
+            {
+                // The sound starts with the first picture, so the two line up. It waits beside the video until
+                // the video is done, then goes into it.
+                string soundPath = Path.ChangeExtension(_videoPath, ".wav");
+                _audio.StartRecording(soundPath);
+                _soundPath = soundPath;
+            }
         }
         else if (_video.Width != width || _video.Height != height)
         {

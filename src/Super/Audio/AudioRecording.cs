@@ -13,14 +13,19 @@ internal sealed class AudioRecording : IDisposable
     private const int BytesPerFrame = Channels * sizeof(float);
     private const int HeaderBytes = 44;
 
-    private readonly FileStream _file;
+    private readonly Stream _file;
     private long _frames;
     private bool _finished;
 
     public AudioRecording(string wavPath)
+        : this(OpenNew(wavPath))
     {
-        ArgumentException.ThrowIfNullOrEmpty(wavPath);
-        _file = new FileStream(wavPath, FileMode.Create, FileAccess.Write, FileShare.Read, bufferSize: 1 << 16);
+    }
+
+    /// <summary>Writes to this stream instead of a file, which must be seekable. For tests.</summary>
+    internal AudioRecording(Stream stream)
+    {
+        _file = stream;
         _file.Write(Header(0));
     }
 
@@ -49,13 +54,25 @@ internal sealed class AudioRecording : IDisposable
         }
 
         _finished = true;
-        _file.Flush();
-        _file.Position = 0;
-        _file.Write(Header(_frames));
-        _file.Dispose();
+        try
+        {
+            _file.Flush();
+            _file.Position = 0;
+            _file.Write(Header(_frames));
+        }
+        finally
+        {
+            _file.Dispose();
+        }
     }
 
     public void Dispose() => Finish();
+
+    private static FileStream OpenNew(string wavPath)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(wavPath);
+        return new FileStream(wavPath, FileMode.Create, FileAccess.Write, FileShare.Read, bufferSize: 1 << 16);
+    }
 
     private static byte[] Header(long frames)
     {
