@@ -122,6 +122,30 @@ public class SoundContentTests
     }
 
     [Fact]
+    public void AmbienceDotDotStepsUpAFolder()
+    {
+        var files = new MemoryContent().Add("sounds/shared/rain.wav", Wav());
+        files["sounds/forest/forest.ambience.json"] = """{ "layers": [ { "file": "../shared/rain.wav" } ] }""";
+        var content = new Content(files);
+
+        AmbienceDefinition forest = content.AmbienceOf(content.Ambience("sounds/forest/forest.ambience.json"));
+
+        Assert.Equal("sounds/shared/rain.wav", forest.Layers[0].Clip.Path);
+    }
+
+    [Fact]
+    public void AmbienceBackslashesWorkLikeSlashes()
+    {
+        var files = new MemoryContent().Add("sounds/ambient/rain.wav", Wav());
+        files["sounds/forest.ambience.json"] = """{ "layers": [ { "file": "ambient\\rain.wav" } ] }""";
+        var content = new Content(files);
+
+        AmbienceDefinition forest = content.AmbienceOf(content.Ambience("sounds/forest.ambience.json"));
+
+        Assert.Equal("sounds/ambient/rain.wav", forest.Layers[0].Clip.Path);
+    }
+
+    [Fact]
     public void AmbienceEveryWithMinAboveMaxExplains()
     {
         var content = new Content(ForestFiles(Forest("[12, 4]")));
