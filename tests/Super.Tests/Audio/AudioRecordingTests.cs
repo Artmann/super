@@ -98,6 +98,43 @@ public sealed class AudioRecordingTests : IDisposable
         Assert.Equal(pattern, back);
     }
 
+    /// <summary>A stream whose writes can be made to fail, like a disk that fills up.</summary>
+    internal sealed class FlakyStream : MemoryStream
+    {
+        public bool Failing { get; set; }
+
+        public bool Closed { get; private set; }
+
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            if (Failing)
+            {
+                throw new IOException("disk full");
+            }
+
+            base.Write(buffer);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            Closed = true;
+            base.Dispose(disposing);
+        }
+    }
+
+    [Fact]
+    public void FinishClosesTheFileEvenWhenTheHeaderWontWrite()
+    {
+        var stream = new FlakyStream();
+        var recording = new AudioRecording(stream);
+        stream.Failing = true;
+
+        var thrown = Assert.Throws<IOException>(recording.Finish);
+
+        Assert.Equal("disk full", thrown.Message);
+        Assert.True(stream.Closed);
+    }
+
     [Fact]
     public void RecordingRefusesHalfAFrame()
     {
@@ -164,7 +201,7 @@ public sealed class AudioRecordingTests : IDisposable
     }
 
     [Fact]
-    public void AGameCaptureKeepsNoWavWhenNoFrameWasSaved()
+    public void AGameCaptureStartsTheWavWithTheFirstPictureAndKeepsNoneWithoutOne()
     {
         using var run = Start();
         string video = Path.Combine(_folder, "clip.mp4");
@@ -172,8 +209,7 @@ public sealed class AudioRecordingTests : IDisposable
 
         capture.StartRecording(video, TicksPerSecond);
         run.Ticks(3);
-        Assert.True(File.Exists(Path.Combine(_folder, "clip.wav")));
-        Assert.Equal(4800, run.Game.Audio.MixedFrames);
+        Assert.False(File.Exists(Path.Combine(_folder, "clip.wav")), "no picture has been saved yet");
         capture.StopRecording();
 
         Assert.False(File.Exists(Path.Combine(_folder, "clip.wav")));
@@ -200,7 +236,7 @@ public sealed class AudioRecordingTests : IDisposable
         Assert.False(File.Exists(wav));
         Assert.NotNull(seen);
         Assert.Equal(
-            ["-y", "-hide_banner", "-loglevel", "error", "-i", video, "-i", wav, "-c:v", "copy", "-c:a", "aac", "-shortest", seen![^1]],
+            ["-nostdin", "-y", "-hide_banner", "-loglevel", "error", "-i", video, "-i", wav, "-c:v", "copy", "-c:a", "aac", "-shortest", seen![^1]],
             seen);
         Assert.False(File.Exists(seen[^1]));
         Assert.Equal([video], Directory.GetFiles(_folder));
@@ -213,21 +249,13 @@ public sealed class AudioRecordingTests : IDisposable
         string wav = Path.Combine(_folder, "game.wav");
         File.WriteAllText(video, "silent video");
         File.WriteAllText(wav, "sound");
-        TextWriter original = Console.Error;
         using var error = new StringWriter(CultureInfo.InvariantCulture);
-        Console.SetError(error);
-        try
+
+        VideoFile.AddSound(video, wav, arguments =>
         {
-            VideoFile.AddSound(video, wav, arguments =>
-            {
-                File.WriteAllText(arguments[^1], "half a file");
-                return "no audio encoder";
-            });
-        }
-        finally
-        {
-            Console.SetError(original);
-        }
+            File.WriteAllText(arguments[^1], "half a file");
+            return "no audio encoder";
+        }, error);
 
         Assert.Equal("silent video", File.ReadAllText(video));
         Assert.Equal("sound", File.ReadAllText(wav));
@@ -236,7 +264,7 @@ public sealed class AudioRecordingTests : IDisposable
     }
 }
 
-/// <summary>Runs ffmpeg for real, which takes a moment, and sets the process-wide console error.</summary>
+/// <summary>Runs ffmpeg for real, which takes a moment.</summary>
 [Collection(AudioThreadCollection.Name)]
 [Trait("Speed", "Slow")]
 public sealed class AudioInVideoTests : IDisposable

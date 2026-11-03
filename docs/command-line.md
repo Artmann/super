@@ -53,7 +53,7 @@ line says why:
 Couldn't add sound to day-200.mp4: {error}. The sound is in day-200.wav.
 ```
 
-The audio seed is fixed, so the same seed gives the same sound too.
+The sound starts with the first picture, so it lines up with the video to within a tick. An existing `file.wav` next to the video is overwritten, and so is the video itself. The audio seed is fixed, so the same seed gives the same sound too.
 
 ## Scripted input
 
@@ -134,7 +134,7 @@ internal sealed class MyColony(GameCapture capture) : IGame
 - Recording includes the game's sound, written to a .wav beside the video and added to it at the end (see `--record` above). In live play the sound device is paused while recording, so the sound is in the video but not through the speakers.
 - `StopRecording` waits for the file to be finished. Closing the game finishes it too.
 - Resizing the window ends the recording, and the video stops at that point.
-- In a headless test there's nothing to capture, so these calls do nothing.
+- With no window there are no pictures to save, so in a headless test `Screenshot` and `StartRecording` never produce a file.
 
 ## Planned
 

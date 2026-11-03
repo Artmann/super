@@ -138,13 +138,20 @@ public sealed class Audio
     /// </summary>
     internal void Close()
     {
-        _recording?.Finish();
+        var recording = _recording;
         _recording = null;
         _recordingPausedDevice = false;
-        _output?.Dispose();
-        _output = null;
-        _outputPaused = false;
-        _mixer.StopAll();
+        try
+        {
+            recording?.Finish();
+        }
+        finally
+        {
+            _output?.Dispose();
+            _output = null;
+            _outputPaused = false;
+            _mixer.StopAll();
+        }
     }
 
     /// <summary>
@@ -159,9 +166,31 @@ public sealed class Audio
             throw new InvalidOperationException("The audio is already being recorded.");
         }
 
-        _recording = new AudioRecording(wavPath);
+        StartRecording(new AudioRecording(wavPath));
+    }
+
+    /// <summary>As above, into a recording that is already open.</summary>
+    internal void StartRecording(AudioRecording recording)
+    {
+        if (_recording is not null)
+        {
+            recording.Dispose();
+            throw new InvalidOperationException("The audio is already being recorded.");
+        }
+
+        _recording = recording;
         _recordingPausedDevice = _output is not null && !_outputPaused;
-        PauseDevice();
+        try
+        {
+            PauseDevice();
+        }
+        catch
+        {
+            _recording = null;
+            _recordingPausedDevice = false;
+            recording.Dispose();
+            throw;
+        }
     }
 
     /// <summary>Finishes the WAV file and gives a paused device back to the audio thread. Does nothing when not recording.</summary>
@@ -174,11 +203,17 @@ public sealed class Audio
         }
 
         _recording = null;
-        recording.Finish();
-        if (_recordingPausedDevice)
+        try
         {
-            _recordingPausedDevice = false;
-            ResumeDevice();
+            recording.Finish();
+        }
+        finally
+        {
+            if (_recordingPausedDevice)
+            {
+                _recordingPausedDevice = false;
+                ResumeDevice();
+            }
         }
     }
 
