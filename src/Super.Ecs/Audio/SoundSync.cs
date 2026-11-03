@@ -12,7 +12,8 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
 {
     private const int NoId = -1;
 
-    // What was sent for an entity, to tell what changed. A voice of -1 never started, so it's tried again.
+    // What was sent for an entity, to tell what changed. A voice of -1 never started, so it's tried again; one the
+    // voice limit dropped is started again once a slot is free.
     private struct PlayingLoop
     {
         public int Voice;
@@ -65,11 +66,16 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
                 else if (loop.Voice == NoId || loop.Clip != sound.Clip || loop.Channel != sound.Channel
                     || loop.Near != sound.Near || loop.Far != sound.Far || loop.Placed != placed)
                 {
-                    // Written back first, so a throw below leaves the entity tracked with no voice, not with a stopped one.
-                    audio.StopLoop(loop.Voice);
-                    loop.Voice = NoId;
-                    _lastLoops[entity] = loop;
-                    loop = StartLoop(sound, placed, at);
+                    loop = Restart(entity, loop, sound, placed, at);
+                }
+                else if (audio.WasDropped(loop.Voice))
+                {
+                    // The voice limit dropped it. It comes back once the mixer has a slot free; until then nothing is
+                    // sent for it, so a full mixer isn't asked again every frame.
+                    if (audio.TryClaimVoice())
+                    {
+                        loop = Restart(entity, loop, sound, placed, at);
+                    }
                 }
                 else
                 {
@@ -138,6 +144,15 @@ internal sealed class SoundSync(World world, Audio audio) : IDrawHook
         {
             throw new ArgumentOutOfRangeException(nameof(sound), at, $"Entity {entity.Id}'s Sound is at {at}, which isn't a finite position. Check its Transform and its parents'.");
         }
+    }
+
+    private PlayingLoop Restart(Entity entity, PlayingLoop loop, Sound sound, bool placed, Vector3 at)
+    {
+        // Written back first, so a throw below leaves the entity tracked with no voice, not with a stopped one.
+        audio.StopLoop(loop.Voice);
+        loop.Voice = NoId;
+        _lastLoops[entity] = loop;
+        return StartLoop(sound, placed, at);
     }
 
     private PlayingLoop StartLoop(Sound sound, bool placed, Vector3 at)

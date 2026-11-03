@@ -49,6 +49,17 @@ public sealed class Audio
     private readonly float[] _scratch = new float[ScratchFrames * 2];
     private readonly PlayingSound[] _snapshot = new PlayingSound[Mixer.MaxVoices];
 
+    // Both sides. Per id slot, the game id of a loop the voice limit dropped: written by the mixer side, cleared by
+    // the game when it takes the slot again. And how many voice slots were free after the latest mix, with a count of
+    // mixes so the game can tell a fresh figure from one it has already used.
+    private readonly int[] _droppedIds = new int[MaxVoiceIds];
+    private int _freeVoices = Mixer.MaxVoices;
+    private int _mixes;
+
+    // Game thread: the mix whose free slots it last took, and how many of those are left to claim.
+    private int _claimedMix = -1;
+    private int _claimable;
+
     /// <param name="content">Where clips and ambiences are named.</param>
     /// <param name="seed">
     /// Seeds everything random in audio: pitch variation here, ambience timing in the mixer. It's never the game's
@@ -66,6 +77,8 @@ public sealed class Audio
         Array.Fill(_mixerVoices, Mixer.Dropped);
         Array.Fill(_ambienceGameIds, NoId);
         Array.Fill(_mixerAmbiences, Mixer.NoAmbience);
+        Array.Fill(_droppedIds, NoId);
+        _mixer.OnDropped = MarkDropped;
     }
 
     /// <summary>
@@ -409,6 +422,38 @@ public sealed class Audio
         Stop(voice, LoopFadeOutSeconds);
     }
 
+    /// <summary>
+    /// True when the voice limit dropped this loop, at its start or later for a louder sound, so it is silent though
+    /// its id is still held. Stop it and start it again to bring it back, once <see cref="TryClaimVoice"/> agrees.
+    /// </summary>
+    internal bool WasDropped(int voice)
+    {
+        return _voiceIds.Holds(voice) && Volatile.Read(ref _droppedIds[IdPool.Slot(voice)]) == voice;
+    }
+
+    /// <summary>
+    /// Claims one of the voice slots that were free after the latest mix and returns true, or returns false when none
+    /// is left. Each free slot is claimed once until the mixer mixes again, so dropped loops come back as slots free
+    /// up rather than all asking every frame.
+    /// </summary>
+    internal bool TryClaimVoice()
+    {
+        int mixes = Volatile.Read(ref _mixes);
+        if (mixes != _claimedMix)
+        {
+            _claimedMix = mixes;
+            _claimable = Volatile.Read(ref _freeVoices);
+        }
+
+        if (_claimable <= 0)
+        {
+            return false;
+        }
+
+        _claimable--;
+        return true;
+    }
+
     /// <summary>Starts an ambience, fading in over 2 s, and returns its id at once, or -1 when every id is taken.</summary>
     internal int StartAmbience(AmbienceRef ambience, float volume)
     {
@@ -490,6 +535,14 @@ public sealed class Audio
     {
         Drain();
         _mixer.Mix(stereo);
+        Volatile.Write(ref _freeVoices, _mixer.FreeVoices);
+        Volatile.Write(ref _mixes, _mixes + 1);
+    }
+
+    /// <summary>Mixer side: notes a loop the voice limit dropped, for <see cref="WasDropped"/>.</summary>
+    private void MarkDropped(int voice)
+    {
+        Volatile.Write(ref _droppedIds[IdPool.Slot(voice)], voice);
     }
 
     /// <summary>Mixer side: takes the commands handed over so far and throws them away, for when nothing mixes any more.</summary>
@@ -524,8 +577,10 @@ public sealed class Audio
                         _mixer.Stop(_mixerVoices[slot], LoopFadeOutSeconds);
                     }
 
+                    VoiceStart tagged = command.Start;
+                    tagged.Tag = command.Id;
                     _voiceGameIds[slot] = command.Id;
-                    _mixerVoices[slot] = StartOnMixer(command.Start);
+                    _mixerVoices[slot] = StartOnMixer(tagged);
                 }
                 else
                 {
@@ -632,7 +687,14 @@ public sealed class Audio
     private int Start(in VoiceStart start)
     {
         int id = _voiceIds.Take();
-        if (id != NoId && !Send(new AudioCommand { Kind = AudioCommandKind.StartVoice, Id = id, Start = start }))
+        if (id == NoId)
+        {
+            return NoId;
+        }
+
+        // A drop noted for an older id in this slot is a different id, but its generation could wrap round to this one.
+        Volatile.Write(ref _droppedIds[IdPool.Slot(id)], NoId);
+        if (!Send(new AudioCommand { Kind = AudioCommandKind.StartVoice, Id = id, Start = start }))
         {
             _voiceIds.Release(id);
             return NoId;

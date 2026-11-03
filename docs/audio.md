@@ -128,7 +128,8 @@ queued and handed to the mixer together at the end of each frame. If more than 4
 queued before a frame ends, the extra ones are dropped rather than holding the game up.
 
 Up to 64 sounds play at once. Past that the quietest sound gives way to a new one, or the
-new one isn't played if it's the quietest. Music and ambience layers never give way.
+new one isn't played if it's the quietest. Music and ambience layers never give way. A
+dropped [`Sound` component](#sounds-and-ambiences-on-entities) comes back once there's room.
 
 ## Sounds and ambiences on entities
 
@@ -157,6 +158,10 @@ world.Add(machine, new Sound(content.Sound("sounds/hum.ogg"), Volume: 0.6f, Near
   whether the entity has a `Transform`, fades the old sound out and starts the new one.
 - A sound that can't start, such as when all 1024 ids are in use, is tried again each
   frame until it can.
+- A sound the 64-voice limit drops, because a burst of louder sounds needed the room or
+  because it was the quietest when it started, comes back, from the start of its clip with
+  its fade-in, once a voice is free again. Until then it sends nothing, so a full mixer
+  isn't asked again every frame. A one-shot `audio.Play` that is dropped is just gone.
 
 An [`Ambience`](ecs.md#sounds-from-entities) component plays an ambience (fading in and
 out over 2 s) for as long as the entity has it. Tag the entity with `ScopedTo<TState>` and

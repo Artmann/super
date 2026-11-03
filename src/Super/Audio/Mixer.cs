@@ -67,6 +67,30 @@ internal sealed class Mixer
     public string? LastFailure { get; private set; }
 
     /// <summary>
+    /// Called with the <see cref="VoiceStart.Tag"/> of a tagged voice the voice limit dropped: one refused at its start,
+    /// or one cut for a newer voice. Not called for voices that end or fail. Runs on whatever thread mixes.
+    /// </summary>
+    public Action<int>? OnDropped { get; set; }
+
+    /// <summary>How many voice slots are free.</summary>
+    public int FreeVoices
+    {
+        get
+        {
+            int free = 0;
+            for (int i = 0; i < MaxVoices; i++)
+            {
+                if (!_voices[i].Active)
+                {
+                    free++;
+                }
+            }
+
+            return free;
+        }
+    }
+
+    /// <summary>
     /// Frames mixed so far: the mixer's sample clock. Unlike the rest of the mixer it may be read from any thread, so
     /// a test can watch an audio thread mix.
     /// </summary>
@@ -82,14 +106,17 @@ internal sealed class Mixer
         ArgumentNullException.ThrowIfNull(start.Clip, "start.Clip");
 
         int slot = FreeSlot();
+        int cut = -1;
         if (slot < 0)
         {
             slot = Victim(start);
             if (slot < 0)
             {
+                ReportDropped(start.Tag);
                 return Dropped;
             }
 
+            cut = _voices[slot].Tag;
         }
 
         int generation = (_generations[slot] + 1) & GenerationMask;
@@ -102,7 +129,16 @@ internal sealed class Mixer
         int id = slot | (generation << SlotBits);
         _voices[slot].Begin(start, id, ToFrames(start.FadeInSeconds));
         _generations[slot] = generation;
+        ReportDropped(cut);
         return id;
+    }
+
+    private void ReportDropped(int tag)
+    {
+        if (tag >= 0)
+        {
+            OnDropped?.Invoke(tag);
+        }
     }
 
     /// <summary>Fades the voice out over the seconds given, then removes it. 0 removes it at once.</summary>
