@@ -23,6 +23,9 @@ public enum Control
 
     /// <summary>Walk, in a direction.</summary>
     Move,
+
+    /// <summary>Build a hut beside the player, outside.</summary>
+    Build,
 }
 
 /// <summary>Something to pick up outside. It's scoped, so those left behind go when the player does.</summary>
@@ -31,12 +34,29 @@ public record struct Coin;
 /// <summary>What a coin is like, from content/coins. Save the file while playing to change it.</summary>
 public record CoinKind(string Id, int Value, float Size);
 
+/// <summary>How something moves, from content/motions: a curve from 0 to 1, played over some seconds.</summary>
+public record Motion(string Id, float Seconds, Curve Curve);
+
+/// <summary>A hut the player built outside. It's scoped like the coins.</summary>
+public record struct Hut;
+
+/// <summary>A hut on its way up out of the ground. The tween is its height, kept in the world like any other state.</summary>
+public struct Rising(Tween<float> height)
+{
+    /// <summary>A field, not a property, so a query can update the tween where it lies.</summary>
+    public Tween<float> Height = height;
+}
+
 /// <summary>A menu, a loading screen, and two areas with one player walking between them.</summary>
 public class RoomsGame(World world, Content content, GameRandom random, States<Screen> screen, Actions<Control> actions, Input input) : IGame
 {
     public const int CoinsOutside = 8;
     public const float HouseSize = 5f;
     public const float OutsideSize = 12f;
+
+    /// <summary>How high a hut's middle stands once it's up, and how far down it starts.</summary>
+    public const float HutHeight = 0.1f;
+    public const float HutBuried = -1.3f;
 
     // Models the game draws itself. Entities use IDs from zero, so these can't collide.
     public const int DoorLidKey = -1;
@@ -57,10 +77,14 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
     private static readonly Vector3 FloorColor = new(0.45f, 0.33f, 0.22f);
     private static readonly Vector3 DoorColor = new(0.2f, 0.5f, 0.8f);
     private static readonly Vector3 CoinColor = new(1f, 0.8f, 0.1f);
+    private static readonly Vector3 HutColor = new(0.75f, 0.3f, 0.3f);
+    private static readonly Vector3 HutSpot = new(1.8f, 0f, 0f);
 
     private readonly Catalog<CoinKind> _coins = content.LoadAll<CoinKind>("coins");
+    private readonly Catalog<Motion> _motions = content.LoadAll<Motion>("motions");
     private readonly RandomStream _coinSpots = random.Stream("coins");
     private readonly List<Entity> _collected = [];
+    private readonly List<Entity> _risen = [];
     private readonly FollowCamera _camera = new();
     private Vector3? _walkingTo;
     private long? _lastCoinTick;
@@ -75,6 +99,17 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
 
     /// <summary>Coins picked up. It's only a number on this class, so changing state can't touch it.</summary>
     public int Coins { get; private set; }
+
+    /// <summary>Walks outside and builds three huts in a row, catching the last ones on their way up.</summary>
+    public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
+    {
+        ["building"] = new InputScript()
+            .Press(Key.Space).Wait(40)
+            .Hold(Key.S).Wait(30).Release(Key.S).Wait(5)
+            .Press(Key.E).Hold(Key.D).Wait(8).Release(Key.D)
+            .Press(Key.E).Hold(Key.D).Wait(8).Release(Key.D)
+            .Press(Key.E).Wait(6),
+    };
 
     public UiView? Ui
     {
@@ -99,6 +134,7 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
     {
         actions.Bind(Control.Start, Key.Space, GamepadButton.South, MouseButton.Left);
         actions.Bind(Control.Move, Keys.WASD, Keys.Arrows, GamepadStick.Left);
+        actions.Bind(Control.Build, Key.E, GamepadButton.West);
 
         // Not scoped to anything, so the player carries through every state.
         Player = world.Create();
@@ -133,6 +169,7 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
                 Walk(time, OutsideSize);
                 _camera.Update(Position, time.TickSeconds);
                 CollectCoins(time);
+                BuildHuts(time);
                 LeaveThrough(OutsideDoor, Screen.House);
                 break;
         }
@@ -181,6 +218,18 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
     {
         var positions = new List<Vector3>();
         foreach (var row in world.Query<Transform, Coin>())
+        {
+            positions.Add(row.First.Position);
+        }
+
+        return positions;
+    }
+
+    /// <summary>Where the huts are now, built or still rising.</summary>
+    public List<Vector3> HutPositions()
+    {
+        var positions = new List<Vector3>();
+        foreach (var row in world.Query<Transform, Hut>())
         {
             positions.Add(row.First.Position);
         }
@@ -298,6 +347,39 @@ public class RoomsGame(World world, Content content, GameRandom random, States<S
         }
 
         _collected.Clear();
+    }
+
+    /// <summary>Puts a hut beside the player when asked, and raises every hut that's still on its way up.</summary>
+    private void BuildHuts(GameTime time)
+    {
+        if (actions.Pressed(Control.Build))
+        {
+            var rise = _motions["rise"];
+            var spot = Position + HutSpot;
+            var hut = Scoped(Transform.At(spot with { Y = HutBuried }, 1.2f), HutColor);
+            world.Add(hut, new Hut());
+            world.Add(hut, new Smoothed());
+            world.Add(hut, new Rising(Tween.Between(HutBuried, HutHeight, rise.Seconds).Ease(rise.Curve)));
+        }
+
+        foreach (var row in world.Query<Transform, Rising>())
+        {
+            ref var height = ref row.Second.Height;
+            height.Update(time);
+            row.First.Position = row.First.Position with { Y = height.Value };
+            if (height.Completed)
+            {
+                _risen.Add(row.Entity);
+            }
+        }
+
+        // A hut that's up has nothing left to do, so it stops being asked.
+        foreach (var hut in _risen)
+        {
+            world.Remove<Rising>(hut);
+        }
+
+        _risen.Clear();
     }
 
     /// <summary>A checkered square, large enough that building it is worth doing in the background.</summary>

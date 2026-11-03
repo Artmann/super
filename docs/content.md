@@ -28,6 +28,22 @@ Each file is one record, and every record needs a string `Id`. Fields are writte
 camelCase. A field with a default value in the record is optional, and the rest are
 required. A `ModelRef` is written as its path inside `assets/cooked`.
 
+A `Curve` is written as keys or as an easing, so a designer can shape motion in a file
+and tune it while the game runs:
+
+```json
+// content/motions/rise.json
+{ "id": "rise", "seconds": 0.8, "curve": { "keys": [{ "time": 0, "value": 0 }, { "time": 0.6, "value": 1.15 }, { "time": 1, "value": 1 }] } }
+```
+
+```json
+// content/motions/drop.json
+{ "id": "drop", "seconds": 0.5, "curve": { "easing": "bounceOut" } }
+```
+
+Keys out of order, or both keys and an easing, are reported like any other mistake.
+See [Tweens and curves](tweens.md#curves-in-content).
+
 ## References between catalogs
 
 To point at a record in another catalog, use `Ref<T>`:

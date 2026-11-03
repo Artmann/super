@@ -86,6 +86,9 @@ Memory lasts as long as you keep drawing. If a frame doesn't ask for a key, Supe
 forgets it, so a box that comes back into view appears finished instead of replaying.
 Don't call `Animate` only while something is moving, or it will never move.
 
+`Animate` is for looks. A move that is part of the game, such as a building rising before
+it works, is a [tween](tweens.md) kept in the game's state.
+
 View memory is never part of the simulation, so it can't change how a seed plays out.
 
 ## Keys

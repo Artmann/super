@@ -57,8 +57,11 @@ two dummies, or swing round a character the short way:
 
 **Easing.** `Linear` keeps the same speed all the way. `In` starts slow, `Out` slows to a
 stop, and `InOut` does both, like a camera on a crane. Moves, tracks and orbits ease
-`InOut` by default; holds and custom shots are `Linear` unless you say otherwise.
-`Ease.Apply(easing, amount)` gives the same curves for your own use.
+`InOut` by default; holds and custom shots are `Linear` unless you say otherwise. Any
+other easing works too, such as `SineInOut` for a gentler move or `BackOut` for one
+that goes a little past and settles; [Tweens and curves](tweens.md) lists them all.
+`Ease.Apply(easing, amount)` gives the same curves for your own use, and a custom shot
+can shape its move with a `Curve`, as in `curve.Sample(time.Amount)`.
 
 ## Moments
 

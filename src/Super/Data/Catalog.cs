@@ -101,6 +101,11 @@ public sealed class Catalog<T> : IReadOnlyCollection<T>, ICatalog
             {
                 problems.Add($"{file.Path}:{error.LineNumber + 1 ?? 1}: {ContentValidator.Plain(error.Message)}");
             }
+            catch (ArgumentException error)
+            {
+                // A value that checks itself, such as a curve with keys out of order.
+                problems.Add($"{file.Path}: {error.Message}");
+            }
         }
 
         _builtRecords = records;

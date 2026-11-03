@@ -12,6 +12,7 @@ that doesn't exist yet; everything else works today.
 | [Rendering](rendering.md) | Lights, shadows, the sky, water, post-processing, meshes made by code, surface shaders, terrain and models |
 | [Animation](animation.md) | Rigged models, Mixamo clips, states, actions, blends, masks, root motion and joints |
 | [Cutscenes](cutscenes.md) | Shots, moments, slow motion and the `Director` |
+| [Tweens and curves](tweens.md) | Easings, curves drawn by key or in JSON, tweens, sequences and groups |
 | [Interfaces](interfaces.md) | `Super.Ui`: views, modifiers, layout, colours, state and the mouse |
 | [Input](input.md) | Actions, bindings and the raw `Input` service |
 | [Audio](audio.md) | Sounds, music, channel volumes and ambiences |

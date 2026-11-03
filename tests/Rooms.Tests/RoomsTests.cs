@@ -186,6 +186,57 @@ public class RoomsTests
     }
 
     [Fact]
+    public void A_built_hut_rises_past_its_height_and_settles_on_it()
+    {
+        using var run = Start(1);
+        Into(run, Screen.Outside);
+        run.Input.Press(Control.Build);
+        run.Ticks(1);
+        float start = Assert.Single(run.Game.HutPositions()).Y;
+
+        float highest = start;
+        for (int tick = 0; tick < 40; tick++)
+        {
+            run.Ticks(1);
+            highest = MathF.Max(highest, run.Game.HutPositions()[0].Y);
+        }
+
+        // The first tick has already lifted it a little out of the ground.
+        Assert.InRange(start, RoomsGame.HutBuried, RoomsGame.HutBuried + 0.2f);
+
+        // The curve in content/motions/rise.json goes to 1.15 of the way, so it overshoots.
+        Assert.True(highest > RoomsGame.HutHeight + 0.1f, $"The hut only reached {highest}.");
+        Assert.Equal(RoomsGame.HutHeight, run.Game.HutPositions()[0].Y, 0.0001f);
+        Assert.Equal(0, Rising(run));
+    }
+
+    [Fact]
+    public void Huts_stay_outside()
+    {
+        using var run = Start(1);
+        Into(run, Screen.Outside);
+        run.Input.Press(Control.Build);
+        run.Ticks(1);
+        Assert.Single(run.Game.HutPositions());
+
+        Into(run, Screen.House);
+
+        Assert.Empty(run.Game.HutPositions());
+        Assert.Equal(0, Rising(run));
+    }
+
+    private static int Rising(HeadlessRun<RoomsGame> run)
+    {
+        int count = 0;
+        foreach (var _ in run.Game.World.Query<Rising>())
+        {
+            count++;
+        }
+
+        return count;
+    }
+
+    [Fact]
     public void Areas_never_leak_entities()
     {
         using var run = Start(1);
@@ -229,7 +280,11 @@ public class RoomsTests
     [Fact]
     public void A_coin_is_worth_what_its_file_says()
     {
-        var files = new MemoryContent { ["coins/gold.json"] = """{ "id": "gold", "value": 5, "size": 0.4 }""" };
+        var files = new MemoryContent
+        {
+            ["coins/gold.json"] = """{ "id": "gold", "value": 5, "size": 0.4 }""",
+            ["motions/rise.json"] = """{ "id": "rise", "seconds": 0.8, "curve": { "easing": "backOut" } }""",
+        };
         using var run = HeadlessGame.Create<RoomsGame>(3, services => services.AddSuperEcs().AddContentFiles(files));
         Into(run, Screen.Outside);
         WalkTo(run, run.Game.CoinPositions()[0]);

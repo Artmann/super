@@ -2,39 +2,6 @@ using System.Numerics;
 
 namespace Super;
 
-/// <summary>How a move gets going and comes to rest.</summary>
-public enum Easing
-{
-    /// <summary>The same speed all the way, starting and stopping at once.</summary>
-    Linear,
-
-    /// <summary>Starts slow and speeds up, ending at full speed.</summary>
-    In,
-
-    /// <summary>Starts at full speed and slows to a stop.</summary>
-    Out,
-
-    /// <summary>Starts slow and settles slowly, like a camera on a crane.</summary>
-    InOut,
-}
-
-/// <summary>The sums behind <see cref="Easing"/>.</summary>
-public static class Ease
-{
-    /// <summary>How far along a move is at this point of its time, both from 0 to 1.</summary>
-    public static float Apply(Easing easing, float amount)
-    {
-        float t = Math.Clamp(amount, 0f, 1f);
-        return easing switch
-        {
-            Easing.In => t * t * t,
-            Easing.Out => 1f - (1f - t) * (1f - t) * (1f - t),
-            Easing.InOut => t < 0.5f ? 4f * t * t * t : 1f - 4f * (1f - t) * (1f - t) * (1f - t),
-            _ => t,
-        };
-    }
-}
-
 /// <summary>Where a shot is: how far through it, from 0 to 1 and eased, and the seconds since it began.</summary>
 public readonly record struct ShotTime(float Amount, float Seconds);
 
