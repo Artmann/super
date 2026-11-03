@@ -17,6 +17,12 @@ internal struct VoiceStart
     public float Far = 50;
     public float FadeInSeconds;
 
+    /// <summary>The clip frame to start from. A streamed clip seeks there once, when the voice starts.</summary>
+    public long StartFrame;
+
+    /// <summary>-1 (left) to 1 (right) for a flat voice. 0 leaves it as it is. Placed voices pan by position instead.</summary>
+    public float Pan;
+
     /// <summary>True when the world's time scale slows and pauses it.</summary>
     public bool FollowsScale;
 
@@ -52,6 +58,16 @@ internal struct Ramp
         _elapsed = 0;
     }
 
+    /// <summary>Moves on this many frames at once, to where <see cref="Step"/> would have got after as many calls.</summary>
+    public void Advance(int frames)
+    {
+        if (_elapsed < _length && frames > 0)
+        {
+            _elapsed = (int)Math.Min((long)_elapsed + frames, _length);
+            Value = _elapsed == _length ? _to : _from + (_to - _from) * _elapsed / _length;
+        }
+    }
+
     public void To(float target, int frames)
     {
         if (frames <= 0)
@@ -85,6 +101,9 @@ internal sealed class Voice
 {
     private const int BufferFrames = 1024;
 
+    // A voice held at world rate 0 fades out over this many frames (5 ms), and back in when it resumes.
+    private const int HoldRampFrames = 240;
+
     // Interleaved source frames; up to two channels.
     private readonly float[] _buffer = new float[BufferFrames * 2];
 
@@ -98,6 +117,16 @@ internal sealed class Voice
     private int _bufferCount;
     private bool _sourceEnded;
     private double _cursor;
+
+    // The gains the last block ended on, which this block ramps from. Not known until the first block.
+    private bool _started;
+    private float _lastLeft;
+    private float _lastRight;
+
+    // How far into the 5 ms ramp a hold or resume is, 0 (held) to HoldRampFrames (running), and the step to keep
+    // playing at while it fades out.
+    private int _running;
+    private double _lastStep;
 
     public Ramp Volume;
     public Ramp Envelope;
@@ -117,6 +146,9 @@ internal sealed class Voice
     public bool Placed { get; private set; }
 
     public Vector3 Position { get; set; }
+
+    /// <summary>The pan of a flat voice.</summary>
+    public float Pan { get; private set; }
 
     public float Near { get; private set; }
 
@@ -145,16 +177,55 @@ internal sealed class Voice
         }
     }
 
+    /// <summary>
+    /// Starts the voice. The clip is opened first, so a clip that fails to open throws with the slot still free.
+    /// </summary>
     public void Begin(in VoiceStart start, int id, int fadeInFrames)
     {
+        ISampleReader reader;
+        ISampleReader? decoded = _decoded;
+        if (start.Clip.Streamed)
+        {
+            reader = start.Clip.Open();
+        }
+        else
+        {
+            decoded = start.Clip.Open(_decoded);
+            reader = decoded;
+        }
+
+        long from = 0;
+        if (start.StartFrame > 0)
+        {
+            from = Math.Min(start.StartFrame, Math.Max(0, reader.Frames - 1));
+            if (from > 0)
+            {
+                try
+                {
+                    reader.Seek(from);
+                }
+                catch
+                {
+                    if (reader != decoded)
+                    {
+                        reader.Dispose();
+                    }
+
+                    throw;
+                }
+            }
+        }
+
+        _decoded = decoded;
+        _reader = reader;
         Id = id;
-        Active = true;
         Clip = start.Clip;
         Channel = start.Channel;
         Loop = start.Loop;
         Pitch = Math.Max(0, start.Pitch);
         Placed = start.Position.HasValue;
         Position = start.Position.GetValueOrDefault();
+        Pan = Math.Clamp(start.Pan, -1, 1);
         Near = start.Near;
         Far = start.Far;
         FollowsScale = start.FollowsScale;
@@ -164,46 +235,68 @@ internal sealed class Voice
         Envelope.Set(fadeInFrames > 0 ? 0 : 1);
         Envelope.To(1, fadeInFrames);
 
-        if (Clip.Streamed)
-        {
-            _reader = Clip.Open();
-        }
-        else
-        {
-            _decoded = Clip.Open(_decoded);
-            _reader = _decoded;
-        }
-
         _channels = Clip.Channels;
-        _bufferStart = 0;
+        _bufferStart = from;
         _bufferCount = 0;
         _sourceEnded = false;
-        _cursor = 0;
+        _cursor = from;
+        _started = false;
+        _running = 0;
+        _lastStep = 0;
+        Active = true;
     }
 
     public void End()
     {
-        if (_reader != _decoded)
-        {
-            _reader.Dispose();
-        }
-
+        Active = false;
+        ISampleReader reader = _reader;
         _reader = null!;
         Clip = null!;
-        Active = false;
+        if (reader != _decoded)
+        {
+            reader.Dispose();
+        }
     }
 
     /// <summary>
     /// Adds this voice into the stereo block, stepping through the source by <paramref name="step"/> frames per output
-    /// frame. A placed voice is folded to mono and scaled by the two gains; a flat one keeps its sides. A step of 0
-    /// holds the voice where it is and sounds nothing. Returns false once the voice has finished.
+    /// frame. A placed voice is folded to mono and scaled by the two gains; a flat one keeps its sides. The gains
+    /// ramp in a straight line from where the last block left them to the values given, so they never jump; a
+    /// voice's first block starts at the values given. A step of 0 holds the voice where it is: it keeps playing
+    /// for 5 ms while it fades out, then sounds nothing, and fades back in when it resumes. Returns false once the
+    /// voice has finished.
     /// </summary>
     public bool Mix(Span<float> stereo, double step, float leftGain, float rightGain)
     {
         int frames = stereo.Length / 2;
+        if (!_started)
+        {
+            _started = true;
+            _lastLeft = leftGain;
+            _lastRight = rightGain;
+            _running = step > 0 ? HoldRampFrames : 0;
+        }
+
+        float leftSlope = (leftGain - _lastLeft) / frames;
+        float rightSlope = (rightGain - _lastRight) / frames;
         for (int frame = 0; frame < frames; frame++)
         {
+            double move = step;
             if (step > 0)
+            {
+                _lastStep = step;
+                if (_running < HoldRampFrames)
+                {
+                    _running++;
+                }
+            }
+            else if (_running > 0)
+            {
+                _running--;
+                move = _lastStep;
+            }
+
+            if (_running > 0 && move > 0)
             {
                 long index = (long)_cursor;
                 Fetch(index);
@@ -216,19 +309,26 @@ internal sealed class Voice
                 float left = Interpolate(index, 0, t);
                 float right = _channels == 2 ? Interpolate(index, 1, t) : left;
                 float gain = Volume.Value * Envelope.Value;
+                if (_running < HoldRampFrames)
+                {
+                    gain *= (float)_running / HoldRampFrames;
+                }
+
+                float leftNow = _lastLeft + leftSlope * (frame + 1);
+                float rightNow = _lastRight + rightSlope * (frame + 1);
                 if (Placed)
                 {
                     float mono = (left + right) * 0.5f * gain;
-                    stereo[frame * 2] += mono * leftGain;
-                    stereo[frame * 2 + 1] += mono * rightGain;
+                    stereo[frame * 2] += mono * leftNow;
+                    stereo[frame * 2 + 1] += mono * rightNow;
                 }
                 else
                 {
-                    stereo[frame * 2] += left * gain * leftGain;
-                    stereo[frame * 2 + 1] += right * gain * rightGain;
+                    stereo[frame * 2] += left * gain * leftNow;
+                    stereo[frame * 2 + 1] += right * gain * rightNow;
                 }
 
-                _cursor += step;
+                _cursor += move;
             }
 
             Volume.Step();
@@ -239,6 +339,8 @@ internal sealed class Voice
             }
         }
 
+        _lastLeft = leftGain;
+        _lastRight = rightGain;
         return true;
     }
 

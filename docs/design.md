@@ -79,13 +79,20 @@ looping clip goes back to its start with `Seek(0)`; nothing else seeks while mix
 **Gain.** A voice's gain is its volume × its fade × distance falloff × its channel ×
 Master (a voice on `Master` is scaled once). Volume and fade move per frame along
 straight ramps, so a fade-in of 0.1 s is exactly 0.5 at 2400 frames. Channel volumes,
-the listener and voice positions are read once per `Mix` call and hold for that block.
+the listener and voice positions are read once per `Mix` call, and each voice's left and
+right gain is worked out from them. A voice ramps those two gains in a straight line from
+where the last block left them to this block's values, frame by frame, so a camera turn,
+a moving source or a channel change never steps at a block edge (that would be zipper
+noise). A voice's first block starts at its gains, so there is no fade from 0 beyond its
+own fade-in. Once the gains are steady the ramp is flat and the output is exact.
 
 **Pitch and rate.** Each output frame steps through the source by
 `clip rate / 48000 × pitch`, times the world rate for voices that follow `Scale`, and
 reads between source frames with linear interpolation. So a 44.1 kHz clip plays at its
 own length and pitch. At a world rate of 0 a voice holds its place and is silent, then
-carries on from the same frame. Fades still run while it's held.
+carries on from the same frame. Fades still run while it's held. So a pause doesn't
+click, the voice fades out over 5 ms (240 frames) while it keeps playing at its last
+speed, and fades back in over 5 ms when it resumes.
 
 **Placing.** A voice with a position is folded to mono, `(L + R) / 2`, then scaled by
 the falloff and panned. A voice without one keeps its own stereo and isn't panned.
@@ -109,6 +116,38 @@ fade, since its slot is needed now.
 **Voice ids.** An id is the slot in the low 8 bits and the slot's start count above
 them. An id kept after its voice ended can't reach the next sound in that slot, and calls
 on unknown, ended or dropped ids do nothing.
+
+**Bad voices.** A voice whose reader throws while mixing (say a corrupt frame far into a
+streamed ogg) is ended and the rest carry on. Starting a voice opens its reader before the
+slot is marked in use, so a clip that fails to open throws from `Start` and leaves the
+slot free.
+
+**Ambience.** `StartAmbience(definition, volume, fadeSeconds)` makes the layers and
+scattered timers of an `AmbienceDefinition` and returns an id (`NoAmbience`, −1, when
+`MaxAmbiences`, 8, are already playing). `SetAmbienceVolume` and `StopAmbience` take that
+id; stale or unknown ids do nothing. The mixer is built with a `RandomStream` (the game
+gives it `new GameRandom(seed).Stream("audio")`, never its own), and everything random
+below comes from it, so one seed gives the same ambience every run.
+
+- Each layer is a looping voice on the Ambience channel at `layer volume × ambience volume`,
+  fading in over `fadeSeconds`, starting at a random frame of its clip. A decoded clip
+  just starts its cursor there; a streamed clip seeks once, as the ambience starts.
+- Each scattered entry waits a random `MinSeconds..MaxSeconds` of the sample clock, then
+  plays a random one of its clips once, at a random volume within its range times the
+  ambience volume, pitch `1 ± PitchVariation`, and a random flat pan in −0.8..0.8 (the
+  balance law `Spatial.Balance`: both ears at 1 in the centre, the far ear turned down),
+  and waits again. The next wait counts from the time it was due, not from when the block
+  happened to start, so the gaps don't drift. A sound starts at the start of the block
+  that it is due in, so it is up to one block late.
+- Ambience voices are ordinary voices, so they count against the 64-voice limit, show up
+  in `Snapshot`, and may be dropped like any non-music voice.
+- `SetAmbienceVolume` fades the layers (and the volume new scattered sounds use) to the new
+  level over the seconds given. A scattered sound already playing keeps the volume it began with.
+- `StopAmbience` fades every layer out over the seconds given and starts no more
+  scattered sounds. A scattered sound already playing plays to its end without a fade.
+- Nothing allocates while mixing: the players are made when the mixer is built, and their
+  layer and timer arrays only grow when an ambience starts. A scattered clip that is
+  streamed (over 10 s) opens a decoder as it starts, which is the one exception.
 
 A voice that isn't looping is removed when its clip runs out. `Stop` fades the voice to
 0 over the seconds given (0 removes it at once) and removes it then.

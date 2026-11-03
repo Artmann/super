@@ -61,6 +61,15 @@ volume from `volume`, with its pitch moved up or down by up to `pitchVariation`.
 
 Both `layers` and `scattered` may be left out.
 
+When an ambience plays, each layer starts at a random point in its clip, so it doesn't
+begin the same way every time. Each scattered entry waits a random time in `every`, plays
+one random file at a random volume, a pitch moved by up to `pitchVariation` (0.1 is
+10%) either way, and a random spot between left and right, then waits again. Up to 8
+ambiences can play at once, and their sounds count against the mixer's 64 voices. Stopping
+an ambience fades its layers out and starts no new scattered sounds; one already
+playing finishes. The sounds are picked by the game's audio random stream, so a fixed
+audio seed (headless, screenshots, recordings) gives the same ambience every run.
+
 ### Path rules
 
 Paths inside an ambience file are relative to the folder of that file, so
