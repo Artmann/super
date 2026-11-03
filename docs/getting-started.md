@@ -82,6 +82,7 @@ Animators from content follow it on their own, and a
 Game.StartWindowsGameLoop<MyGame>(new GameOptions
 {
     Title = "Colony",
+    Id = "colony",
     Width = 1600,
     Height = 900,
     TicksPerSecond = 60,
@@ -90,6 +91,8 @@ Game.StartWindowsGameLoop<MyGame>(new GameOptions
 ```
 
 Without a `Seed`, each run picks a new one. `--seed` on the command line overrides it.
+`Id` names the folder the player's [user data](user-data.md) is kept in, and shouldn't
+change once the game ships. Without it, the title is used.
 If the game falls more than a quarter of a second behind, the clock drops the backlog
 instead of trying to catch up.
 

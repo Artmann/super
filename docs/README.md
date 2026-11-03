@@ -16,6 +16,7 @@ that doesn't exist yet; everything else works today.
 | [Input](input.md) | Actions, bindings and the raw `Input` service |
 | [Game states](states.md) | `States<T>`, enter and exit callbacks, and loading screens |
 | [JSON content](content.md) | Catalogs, references, schemas, live reload and shipping |
+| [User data](user-data.md) | `UserData`: settings and progress kept per player, outside saved games |
 | [Random numbers](random.md) | `GameRandom` and named streams |
 | [Testing](testing.md) | Headless runs, seeds, invariants, played input and checking the screen |
 | [The command line](command-line.md) | `--screenshot`, `--record`, `--script` and capturing from code |

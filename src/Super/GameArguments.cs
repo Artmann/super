@@ -18,7 +18,8 @@ internal sealed record GameArguments(
     string? ProfilePath = null,
     int Frames = GameArguments.DefaultProfileFrames,
     bool NoVsync = false,
-    string? ScriptName = null)
+    string? ScriptName = null,
+    string? UserDataFolder = null)
 {
     public const int DefaultFramesPerSecond = 60;
 
@@ -38,6 +39,7 @@ internal sealed record GameArguments(
         int? frames = null;
         bool noVsync = false;
         string? scriptName = null;
+        string? userDataFolder = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -72,6 +74,9 @@ internal sealed record GameArguments(
                     break;
                 case "--script":
                     scriptName = Value(args, ++i, "--script");
+                    break;
+                case "--user-data":
+                    userDataFolder = Value(args, ++i, "--user-data");
                     break;
                 case "--no-vsync":
                     noVsync = true;
@@ -131,7 +136,7 @@ internal sealed record GameArguments(
         }
 
         return new GameArguments(
-            seed, ticks, screenshotPath, recordPath, seconds, framesPerSecond, width, height, profilePath, frames ?? DefaultProfileFrames, noVsync, scriptName);
+            seed, ticks, screenshotPath, recordPath, seconds, framesPerSecond, width, height, profilePath, frames ?? DefaultProfileFrames, noVsync, scriptName, userDataFolder);
     }
 
     private static double PositiveSeconds(ReadOnlySpan<string> args, int index)

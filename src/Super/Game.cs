@@ -18,9 +18,16 @@ public static class Game
         int seed = arguments.Seed ?? options.Seed ?? Random.Shared.Next();
         Console.WriteLine($"seed {seed}");
 
-        using var host = new GameHost<TGame>(seed, options.TicksPerSecond, services);
-        host.Script = FindScript<TGame>(host, arguments.ScriptName);
         bool hidden = arguments.ScreenshotPath is not null || arguments.RecordPath is not null || arguments.ProfilePath is not null;
+
+        // Worked out even when unused, so a bad id fails in a screenshot run as well as in play.
+        string playerFolder = UserData.FolderFor(options.Id ?? UserData.IdFromTitle(options.Title));
+
+        // Runs without a window get a throwaway folder, so they never change the player's settings.
+        string? userDataFolder = arguments.UserDataFolder ?? (hidden ? null : playerFolder);
+
+        using var host = new GameHost<TGame>(seed, options.TicksPerSecond, services, userDataFolder);
+        host.Script = FindScript<TGame>(host, arguments.ScriptName);
 
         // Validation would swamp the timings, so a profile runs without it.
         bool validate = hidden && arguments.ProfilePath is null;

@@ -29,6 +29,20 @@ public class GameArgumentsTests
     }
 
     [Fact]
+    public void Reads_a_user_data_folder()
+    {
+        Assert.Equal("saves/test", GameArguments.Parse(["--user-data", "saves/test", "--screenshot", "a.png"]).UserDataFolder);
+    }
+
+    [Fact]
+    public void A_user_data_folder_needs_a_path()
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--user-data"]));
+
+        Assert.Equal("--user-data needs a value.", error.Message);
+    }
+
+    [Fact]
     public void Reads_a_recording()
     {
         var arguments = GameArguments.Parse(

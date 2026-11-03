@@ -19,6 +19,8 @@ internal sealed class GameHost<TGame> : IDisposable
     private readonly StateChanges _changes;
     private readonly UiPointer _pointer;
 
+    private readonly string? _throwawayFolder;
+
     private long _scriptStart;
 
     /// <summary>When set, this is the player. Each tick plays what's due on it, counting from the tick it was set.</summary>
@@ -32,10 +34,16 @@ internal sealed class GameHost<TGame> : IDisposable
         }
     }
 
-    public GameHost(int seed, int ticksPerSecond, Action<IServiceCollection>? configure)
+    /// <param name="userDataFolder">
+    /// Where <see cref="UserData"/> keeps its files. Left empty, it's a throwaway folder that's
+    /// deleted afterwards, so a test or a screenshot never touches the player's own settings.
+    /// </param>
+    public GameHost(int seed, int ticksPerSecond, Action<IServiceCollection>? configure, string? userDataFolder = null)
     {
         var time = new GameTime(ticksPerSecond);
         var services = new ServiceCollection();
+        _throwawayFolder = userDataFolder is null ? Path.Combine(Path.GetTempPath(), "super-user-data-" + Guid.NewGuid().ToString("N")) : null;
+        services.AddSingleton(new UserData(userDataFolder ?? _throwawayFolder!));
         services.AddSingleton(time);
         services.AddSingleton(new GameRandom(seed));
         services.AddSingleton<IContentFiles, ContentFolder>();
@@ -170,5 +178,9 @@ internal sealed class GameHost<TGame> : IDisposable
     {
         Content.StopLive();
         _services.Dispose();
+        if (_throwawayFolder is not null && Directory.Exists(_throwawayFolder))
+        {
+            Directory.Delete(_throwawayFolder, recursive: true);
+        }
     }
 }
