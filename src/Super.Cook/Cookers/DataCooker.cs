@@ -36,5 +36,5 @@ public sealed class DataCooker : ICooker
 /// <summary>The cookers that ship with Super.</summary>
 public static class BuiltInCookers
 {
-    public static IReadOnlyList<ICooker> All { get; } = [new DataCooker()];
+    public static IReadOnlyList<ICooker> All { get; } = [new DataCooker(), new TextureCooker(), new SoundCooker()];
 }
