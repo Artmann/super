@@ -97,6 +97,7 @@ class Console(Input input)
 | `GamepadConnected` | Whether there's a gamepad |
 | `DeadZone` | The stick dead zone, 0.2 by default |
 | `CaptureMouse` | Set to true to hide the cursor and lock it to the window, as a first-person camera needs |
+| `HideCursor` | Set to true to hide the system cursor over the window but leave it free, when the game draws its own pointer in the interface |
 
 ## When input is read
 

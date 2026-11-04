@@ -54,6 +54,12 @@ public sealed class Input
     /// <summary>Set in Update to hide the cursor and lock it to the window, for looking around with the mouse.</summary>
     public bool CaptureMouse { get; set; }
 
+    /// <summary>
+    /// Set to hide the system cursor over the window while leaving it free, for a game that draws its own
+    /// pointer in the interface. <see cref="CaptureMouse"/> hides it anyway.
+    /// </summary>
+    public bool HideCursor { get; set; }
+
     /// <summary>Where the cursor is, in the same pixels the interface lays itself out in.</summary>
     public Vector2 MousePosition { get => Read(field); private set; }
 

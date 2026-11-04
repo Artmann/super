@@ -37,7 +37,7 @@ internal sealed unsafe class GameWindow : IDisposable
     private GlfwCallbacks.ScrollCallback? _onScroll;
     private GlfwCallbacks.CharCallback? _onChar;
     private readonly Func<int, bool> _isGamepad;
-    private bool _mouseCaptured;
+    private CursorModeValue _cursorMode = CursorModeValue.CursorNormal;
 
     public GameWindow(string title, int windowWidth, int windowHeight, bool hidden, bool validate, bool disableVsync)
     {
@@ -418,16 +418,22 @@ internal sealed unsafe class GameWindow : IDisposable
         }
     }
 
-    /// <summary>Hides and locks the cursor while the game asks for it, and gives it back when it stops.</summary>
+    /// <summary>
+    /// Hides and locks the cursor while the game captures the mouse, hides it while the game draws its own,
+    /// and gives it back when it stops.
+    /// </summary>
     private void ApplyMouseCapture(Input input)
     {
-        if (input.CaptureMouse == _mouseCaptured)
+        var mode = input.CaptureMouse ? CursorModeValue.CursorDisabled
+            : input.HideCursor ? CursorModeValue.CursorHidden
+            : CursorModeValue.CursorNormal;
+        if (mode == _cursorMode)
         {
             return;
         }
 
-        _mouseCaptured = input.CaptureMouse;
-        _glfw.SetInputMode(_window, CursorStateAttribute.Cursor, _mouseCaptured ? CursorModeValue.CursorDisabled : CursorModeValue.CursorNormal);
+        _cursorMode = mode;
+        _glfw.SetInputMode(_window, CursorStateAttribute.Cursor, mode);
     }
 
     private ulong CreateSurface(nint instance)
