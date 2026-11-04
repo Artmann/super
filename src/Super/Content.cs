@@ -507,9 +507,11 @@ public sealed class Content
     }
 
     /// <summary>
-    /// Reads everything again, all or nothing. A mistake is written to the log and the old
-    /// data stays, because a typo shouldn't end a play session. A file that can't be read
-    /// yet is likely still being saved, so it's tried again on the next tick.
+    /// Reads every catalog again, all or nothing. A mistake is written to the log and the old
+    /// catalog data stays, because a typo shouldn't end a play session. The cooked folder has
+    /// already swapped to the new manifest by then, so what's read by name afterwards sees the
+    /// new content. A file that can't be read yet is likely still being saved, so it's tried
+    /// again on the next tick.
     /// </summary>
     internal bool Reload(TextWriter log)
     {

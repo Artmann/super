@@ -34,8 +34,14 @@ Super is early. These are the known gaps, so you can plan around them.
   [Testing](testing.md#planned).
 - **`--headless` and `--json`.** A command-line run with no GPU that prints a result.
   Tests already run headless.
-- **Mods.** A mod should be a folder of JSON that adds or replaces entries by id, but only
-  one content folder can be read so far.
+- **Asset pipeline, step 2: hot reload of every asset kind.** Step 1 is done: everything
+  is cooked into a manifest and objects, and a game run from source cooks again on every
+  save. Saving a JSON file reloads its catalogs, but a model, texture or sound that is
+  already loaded keeps what it has until the game restarts. See
+  [Cooking](content.md#cooking) and [Change it while the game runs](content.md#change-it-while-the-game-runs).
+- **Mods.** A mod should be a folder of JSON that adds or replaces entries by id. Several
+  content roots can be cooked together, but a name that two of them make is a cook error,
+  so a mod can't replace anything yet.
 - **Unloading game states.** Entities can be [scoped to a state](ecs.md#entities-that-belong-to-a-state),
   but models and other content stay loaded unless you call `content.Unload`.
 - **NuGet packages.** Clone the repository and reference the projects for now.
