@@ -1,7 +1,7 @@
-namespace Super.Tests.Audio;
+namespace Super.Testing;
 
 /// <summary>Builds small WAV files in memory.</summary>
-internal static class TestWav
+public static class TestWav
 {
     /// <summary>A WAV file. Samples are interleaved. With extraChunk, a LIST chunk comes before the data.</summary>
     public static byte[] Make(int rate, int channels, float[] samples, bool asFloat, bool extraChunk = false)

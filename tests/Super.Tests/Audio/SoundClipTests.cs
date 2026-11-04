@@ -1,3 +1,4 @@
+using Super.Testing;
 namespace Super.Tests.Audio;
 
 public class SoundClipTests
