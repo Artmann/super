@@ -27,6 +27,7 @@ public sealed record CookResult(IReadOnlyList<CookProblem> Problems, int Cooked,
 /// <summary>Cooks every source in some roots into a store. The store only gets a new manifest when nothing went wrong.</summary>
 public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions options)
 {
+    /// <exception cref="IOException">A source is open in another program, or the store couldn't be written. Nothing was committed, so trying again is safe.</exception>
     public CookResult Cook(IReadOnlyList<ISourceRoot> roots, ICookedStore store)
     {
         var settings = new CookSettings(roots, cookers.Select(cooker => cooker.Id).ToHashSet(StringComparer.Ordinal));
@@ -105,7 +106,7 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
                 cookInput = new CookInput(file, file.Root.Read(file.Name), values, options.Target);
                 cooker.Cook(cookInput, output);
             }
-            catch (Exception exception) when (exception is not OutOfMemoryException)
+            catch (Exception exception) when (exception is not OutOfMemoryException && !InUse(exception))
             {
                 output.Error(exception.Message);
             }
@@ -147,6 +148,18 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
         }
 
         return new CookResult(problems, cooked, fromCache);
+    }
+
+    /// <summary>
+    /// Whether a file couldn't be read because another program has it open. That isn't a mistake in
+    /// the source, so it isn't reported as one: the <see cref="IOException"/> leaves
+    /// <see cref="Cook"/> and the caller can try again.
+    /// </summary>
+    internal static bool InUse(Exception exception)
+    {
+        const int SharingViolation = 32;
+        const int LockViolation = 33;
+        return exception is IOException && (exception.HResult & 0xFFFF) is SharingViolation or LockViolation;
     }
 
     private ICooker? FindCooker(string name)

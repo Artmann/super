@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>super-cook</AssemblyName>
+    <RootNamespace>Super.Cook.Tool</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Super.Cook\Super.Cook.csproj" />
+    <ProjectReference Include="..\..\src\Super.Cook.Models\Super.Cook.Models.csproj" />
+  </ItemGroup>
+
+</Project>

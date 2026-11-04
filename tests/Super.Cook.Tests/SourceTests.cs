@@ -57,8 +57,8 @@ public sealed class SourceTests : IDisposable
 
         var problem = Assert.Single(problems);
         Assert.True(problem.IsError);
-        Assert.Contains(Path.Combine(one, "icons/axe.png"), problem.Message);
-        Assert.Contains(Path.Combine(two, "icons/axe.png"), problem.Message);
+        Assert.Contains(Path.Combine(one, "icons", "axe.png"), problem.Message);
+        Assert.Contains(Path.Combine(two, "icons", "axe.png"), problem.Message);
         Assert.Contains("icons/axe.png", problem.Message);
         Assert.Single(files);
     }

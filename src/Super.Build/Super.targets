@@ -1,0 +1,59 @@
+<Project>
+
+  <!--
+    Cooks a game's content as part of its build. Import it in the game's project:
+
+      <Import Project="path\to\Super.targets" />
+      <ItemGroup>
+        <SuperContent Include="content" />
+        <SuperContent Include="..\..\art\content" />
+      </ItemGroup>
+
+    With no SuperContent items, the "content" folder beside the project is the root, when there is one.
+    The cooked content goes to $(OutDir)content, and content.dev.json beside it tells a game run from
+    source where its sources are. Cook errors are build errors, with file and line.
+  -->
+
+  <PropertyGroup>
+    <SuperTarget Condition="'$(SuperTarget)' == ''">desktop</SuperTarget>
+    <SuperCookProject>$(MSBuildThisFileDirectory)..\..\tools\Super.Cook.Tool\Super.Cook.Tool.csproj</SuperCookProject>
+  </PropertyGroup>
+
+  <Target Name="SuperCook" AfterTargets="Build">
+    <!-- Items are read here rather than when the project loads, so SuperContent can be listed after the import. -->
+    <ItemGroup>
+      <_SuperRoot Include="@(SuperContent)" />
+      <_SuperRoot Include="$(MSBuildProjectDirectory)\content" Condition="'@(SuperContent)' == '' and Exists('$(MSBuildProjectDirectory)\content')" />
+    </ItemGroup>
+
+    <!--
+      Every project that imports this asks for the same project with the same properties, so in a
+      build of many games MSBuild builds the tool once and the others wait for it rather than race.
+    -->
+    <MSBuild Projects="$(SuperCookProject)" Targets="Build" Properties="Configuration=$(Configuration)" Condition="'@(_SuperRoot)' != ''" />
+    <MSBuild Projects="$(SuperCookProject)" Targets="GetTargetPath" Properties="Configuration=$(Configuration)" Condition="'@(_SuperRoot)' != ''">
+      <Output TaskParameter="TargetOutputs" PropertyName="_SuperCookTool" />
+    </MSBuild>
+
+    <!-- Each cook error is a line MSBuild turns into a build error with file and line, so the exit code only matters when there were none. -->
+    <Exec Condition="'@(_SuperRoot)' != ''" IgnoreExitCode="true" ConsoleToMSBuild="true" StandardErrorImportance="high"
+          Command="dotnet &quot;$(_SuperCookTool)&quot; @(_SuperRoot->'--content &quot;%(FullPath)&quot;', ' ') --out &quot;$(OutDir)content&quot; --target $(SuperTarget) --dev-file &quot;$(OutDir)content.dev.json&quot;">
+      <Output TaskParameter="ExitCode" PropertyName="_SuperCookExit" />
+      <Output TaskParameter="ConsoleOutput" PropertyName="_SuperCookOutput" />
+    </Exec>
+    <Error Condition="'@(_SuperRoot)' != '' and '$(_SuperCookExit)' != '0' and !$(_SuperCookOutput.Contains('error SUPER001'))"
+           Text="super-cook stopped with exit code $(_SuperCookExit) and no cook error. Its output above says why." />
+  </Target>
+
+  <!-- Publishes the cooked content beside the program. content.dev.json is outside it, so it's never published. -->
+  <Target Name="SuperPublishContent" AfterTargets="Publish" Condition="Exists('$(OutDir)content')">
+    <ItemGroup>
+      <_SuperCooked Include="$(OutDir)content\**" />
+    </ItemGroup>
+
+    <!-- Objects from an earlier publish that the manifest no longer names would only take up space. -->
+    <RemoveDir Directories="$(PublishDir)content" />
+    <Copy SourceFiles="@(_SuperCooked)" DestinationFiles="@(_SuperCooked->'$(PublishDir)content\%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
+
+</Project>

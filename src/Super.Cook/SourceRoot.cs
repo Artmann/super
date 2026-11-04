@@ -37,9 +37,10 @@ public sealed class FolderRoot(string folder) : ISourceRoot
         return File.ReadAllBytes(Path.Combine(_folder, relative));
     }
 
+    /// <summary>With the separator of the OS, so an error line names the file the way the OS and editors write it.</summary>
     public string? FullPath(string relative)
     {
-        return Path.Combine(_folder, relative);
+        return Path.Combine(_folder, relative.Replace('/', Path.DirectorySeparatorChar));
     }
 
     private static void Walk(string folder, string prefix, List<string> found)
