@@ -216,7 +216,14 @@ leaves `content.dev.json` out, so a shipped game never thinks it's running from 
 
 The build restores and builds `super-cook` itself, for the machine doing the build, so a
 fresh clone needs nothing first and `dotnet publish -r linux-x64` still cooks on Windows.
-Every game in one build shares the one tool build.
+Every game in one build shares the one tool build. None of the tool's files end up beside
+the game.
+
+`dotnet publish` with a runtime, such as `-r win-x64`, compiles the game ahead of time
+(ReadyToRun), so the shipped game reaches its first frame sooner. On this repo's Fox example
+that was about 0.7 s instead of 0.87 s. A publish with no runtime is left as it is, since
+ReadyToRun needs one. To turn it off, set
+`<PublishReadyToRun>false</PublishReadyToRun>` in the game's project.
 
 ## Planned
 
