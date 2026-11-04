@@ -1,7 +1,20 @@
-namespace Rendition.Import;
+namespace Super.Cook.Models;
 
-/// <summary>The hand-written side of an import, read from a materials.json file.</summary>
-public sealed class ImportSettings
+/// <summary>
+/// The model cooker's settings, read from the <c>"model"</c> settings of <c>cook.json</c>
+/// rules and the model's sidecar.
+/// </summary>
+public sealed class ModelSettings : ImportSettings
+{
+    /// <summary>
+    /// Cooks each entry as its own asset, <c>source#key</c>, instead of the whole file. A part
+    /// takes every setting written beside <c>parts</c>, unless it sets that one itself.
+    /// </summary>
+    public Dictionary<string, ImportSettings>? Parts { get; set; }
+}
+
+/// <summary>How to turn one model file, or one part of it, into a cooked model.</summary>
+public class ImportSettings
 {
     /// <summary>Real-world size of the model's longest axis in metres; 0 keeps the source scale.</summary>
     public float TargetLength { get; set; }

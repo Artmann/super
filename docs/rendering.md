@@ -115,13 +115,11 @@ uses this.
 
 ## Models
 
-Models are cooked from FBX or glTF into Rendition's `.rmodel` format by the import tool.
-It takes the source file, a JSON file describing its materials, and where to write the
-result:
-
-```
-dotnet run -c Release --project tools/Rendition.Import -- assets/source/reef/coral/coral.glb assets/reef-coral.materials.json assets/cooked/reef/coral.rmodel
-```
+Models are cooked from FBX, glTF or OBJ into Rendition's `.rmodel` format by the model
+cooker in `Super.Cook.Models`, through the asset pipeline. Its settings are the ones
+below, read from the model's `<file>.cook.json` sidecar, and a `parts` entry cooks named
+pieces of one file, each as `file#part`. The command to run it, and the full guide, come
+with the build integration. `.rmodel` files already in `assets/cooked` keep working.
 
 A game names a model by its path inside `assets/cooked`:
 
@@ -134,7 +132,7 @@ nothing pops in; to show a loading screen instead, see
 [Game states](states.md#loading-screens). `ModelRef.Cube` and the other
 [built-in shapes](#built-in-shapes) need no file.
 
-The materials file sets the model's size and fixes up materials by name. Each rule
+The settings set the model's size and fixes up materials by name. Each rule
 applies to every material whose name contains `match`:
 
 ```json
@@ -156,12 +154,13 @@ giving you solid cards.
 `foliage` is for a tree's leaves. It points their normals out of the crown so it's lit
 as one rounded shape instead of speckled cards, lets sunlight through the back of the
 leaves, and draws both sides. Every material the rule matches counts as one crown, so
-give the trunk its own material. Re-import a model to get it.
+give the trunk its own material.
 
 Textures are looked for beside the source file, then in any folder under it, as
 Poly Haven's downloads keep them in `textures`. Some plants ship their leaf cut-outs
 as a separate grey image beside a colour JPEG with no alpha; name it with `alpha`, and
-its red becomes the colour texture's opacity:
+its red becomes the colour texture's opacity. A texture a rule names that can't be found
+stops the cook; one the model file links to only warns:
 
 ```json
 {
@@ -178,7 +177,7 @@ node with meshes matches. It's not for rigged models.
 
 Other options are the `baseColor`, `normal`, `surface` and `emissive` textures,
 `color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `twoSided`, `transparent`,
-`opacity`, `noNormalMap` and `rotateY`; see `tools/Rendition.Import/ImportSettings.cs`.
+`opacity`, `noNormalMap` and `rotateY`; see `src/Super.Cook.Models/ImportSettings.cs`.
 
 A rigged model keeps its skeleton, bone weights and clips, and `animations` adds clips
 from other files of the same rig, such as Mixamo's:
@@ -414,5 +413,4 @@ splat texture. More detail is in [design.md](design.md#custom-shaders).
 ## Using Rendition alone
 
 Rendition knows nothing of Super and can be used directly, with your own loop and
-window. Its [README](../src/Rendition/README.md) covers the API, the sample and the
-import tool, and [design.md](design.md#rendition-design) explains the frame structure.
+window. Its [README](../src/Rendition/README.md) covers the API and the sample, and [design.md](design.md#rendition-design) explains the frame structure.

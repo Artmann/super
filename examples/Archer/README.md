@@ -25,9 +25,9 @@ dotnet run -c Release --project examples/Archer -- --record out/clearing.mp4 --s
 
 ## Getting the assets
 
-The models and textures aren't in git, because of their licenses or their size. Cook
-each one with the import tool, which runs as
-`dotnet run -c Release --project tools/Rendition.Import -- <source> <materials> <cooked>`.
+The models and textures aren't in git, because of their licenses or their size. Models
+are cooked by `Super.Cook.Models` through the asset pipeline; the command to run it
+comes with the build integration.
 
 **Erika.** Download "Erika Archer With Bow Arrow" from [Mixamo](https://www.mixamo.com)
 as FBX with skin, and these animations without skin, from the Pro Longbow Pack unless

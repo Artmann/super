@@ -36,8 +36,8 @@ What exists today:
 - GPU timing for each render pass, switched on with `Renderer.MeasureGpu`
 - GLSL shaders compiled to SPIR-V at build time
 - Bindless textures and materials, normal mapping, cut-out and two-sided surfaces
-- An import tool that cooks FBX and glTF models and their textures into a `.rmodel`
-  file
+- The `.rmodel` format for models and their textures, cooked from FBX and glTF by
+  `Super.Cook.Models`
 - Custom surface shaders that a game can write and attach to a material, with eight
   `vec4` parameters, four textures and four texture arrays per material
 - Creating meshes and textures during play without waiting for the GPU: uploads ride
@@ -62,7 +62,6 @@ Decisions, the G-buffer layout and known simplifications are in
 | `src/Rendition/Shaders` | GLSL source |
 | `src/Rendition.Sample` | The window, orbit camera, model viewer and rotating cube |
 | `src/Rendition.Sample/Shaders` | An example custom surface shader, shown with `--glow` |
-| `tools/Rendition.Import` | Converts models to `.rmodel` |
 | `assets` | Per-model import rules. Source and cooked models stay out of git |
 
 ## Requirements
@@ -81,21 +80,19 @@ dotnet run -c Release --project src/Rendition.Sample
 
 Press Esc to quit. Add `-- --validate` to turn on Vulkan validation.
 
-To view a model, cook it once and pass it to the sample. Drag to orbit and scroll
-to zoom.
+To view a model, pass a cooked `.rmodel` to the sample. Drag to orbit and scroll
+to zoom. Models are cooked by `Super.Cook.Models` through the asset pipeline; the
+command to cook one for the sample comes with the build integration.
 
 ```
-dotnet run -c Release --project tools/Rendition.Import -- assets/source/ford-gt/FINAL_MODEL_05H.fbx assets/ford-gt.materials.json assets/cooked/ford-gt.rmodel
 dotnet run -c Release --project src/Rendition.Sample -- --model assets/cooked/ford-gt.rmodel
 ```
 
-The `assets/cooked` folder must exist first. The car's source files aren't in git,
-so copy them into `assets/source/ford-gt`.
+The car's source files aren't in git, so copy them into `assets/source/ford-gt`.
 
 The character works the same way, from a `.glb` copied into `assets/source/adventurer`:
 
 ```
-dotnet run -c Release --project tools/Rendition.Import -- assets/source/adventurer/adventurer.glb assets/adventurer.materials.json assets/cooked/adventurer.rmodel
 dotnet run -c Release --project src/Rendition.Sample -- --model assets/cooked/adventurer.rmodel --yaw 1.5
 ```
 

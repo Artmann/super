@@ -35,6 +35,24 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
         problems.AddRange(gatherProblems);
 
         var assets = new Dictionary<string, ManifestEntry>(StringComparer.Ordinal);
+
+        // The source each name came from, so a name made twice can name both.
+        var madeBy = new Dictionary<string, SourceFile>(StringComparer.Ordinal);
+        void AddAsset(SourceFile file, string? part, ManifestEntry entry)
+        {
+            string name = part is null ? file.Name : $"{file.Name}#{part}";
+            if (madeBy.TryGetValue(name, out var first))
+            {
+                problems.Add(new CookProblem(file.Describe(), null, first == file
+                    ? $"{file.Name} makes {name} twice."
+                    : $"{name} is made by both {first.Describe()} and {file.Describe()}. A name must come from one place.", true));
+                return;
+            }
+
+            madeBy[name] = file;
+            assets[name] = entry;
+        }
+
         var cache = options.CacheFolder is { } cacheFolder ? new CookCache(cacheFolder) : null;
         int cooked = 0;
         int fromCache = 0;
@@ -72,8 +90,7 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
 
                     foreach (var restored in hit.Outputs)
                     {
-                        assets[restored.Part is null ? file.Name : $"{file.Name}#{restored.Part}"] =
-                            new ManifestEntry(restored.Kind, restored.Hash, restored.Size);
+                        AddAsset(file, restored.Part, new ManifestEntry(restored.Kind, restored.Hash, restored.Size));
                     }
 
                     fromCache++;
@@ -111,7 +128,7 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
                     store.Put(hash, bytes);
                 }
 
-                assets[part is null ? file.Name : $"{file.Name}#{part}"] = new ManifestEntry(kind, hash, bytes.LongLength);
+                AddAsset(file, part, new ManifestEntry(kind, hash, bytes.LongLength));
             }
 
             if (key is not null && cookInput is not null)

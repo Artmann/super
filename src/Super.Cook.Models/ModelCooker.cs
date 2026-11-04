@@ -1,0 +1,556 @@
+using System.Numerics;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
+using Rendition;
+using Silk.NET.Assimp;
+using Assimp = Silk.NET.Assimp.Assimp;
+using Skeleton = Rendition.Skeleton;
+
+namespace Super.Cook.Models;
+
+/// <summary>
+/// Cooks glTF, FBX and OBJ files into <c>.rmodel</c> data with Assimp. Assimp reads the
+/// model from disk, so the files it opens on its own (glTF buffers, OBJ material libraries
+/// and extra animation files) are tracked by hand, and textures are looked up through
+/// <see cref="CookInput"/>. Textures are found by file name beside the model or under it,
+/// because model files usually hold absolute paths from the artist's machine.
+/// </summary>
+public sealed class ModelCooker : ICooker
+{
+    private static readonly JsonSerializerOptions SettingsOptions = new()
+    {
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+        PropertyNameCaseInsensitive = true,
+    };
+
+    private static readonly Lazy<Assimp> Api = new(Assimp.GetApi);
+
+    public string Id => "model";
+
+    public int Version => 1;
+
+    public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
+
+    public void Cook(CookInput input, CookOutput output)
+    {
+        if (input.FullPath is null)
+        {
+            output.Error($"{input.Name}: models can only be cooked from files on disk");
+            return;
+        }
+
+        var settings = input.SettingsAs<ModelSettings>();
+        TrackOwnFiles(input);
+
+        if (settings.Parts is null)
+        {
+            if (CookOne(input, output, settings, "") is { } bytes)
+            {
+                output.Add(ContentKind.Model, bytes);
+            }
+
+            return;
+        }
+
+        if (settings.Parts.Count == 0)
+        {
+            output.Error($"{input.Name}: parts is empty, so nothing would be cooked.");
+            return;
+        }
+
+        foreach (string part in settings.Parts.Keys.Order(StringComparer.Ordinal))
+        {
+            var partSettings = PartSettings(input.Settings, part);
+            if (CookOne(input, output, partSettings, $"part {part}: ") is { } bytes)
+            {
+                output.AddPart(part, ContentKind.Model, bytes);
+            }
+        }
+    }
+
+    // The files Assimp opens beside the model by itself, which the pipeline can't see.
+    private static void TrackOwnFiles(CookInput input)
+    {
+        string extension = Path.GetExtension(input.Name).ToLowerInvariant();
+        if (extension == ".gltf")
+        {
+            JsonNode? gltf;
+            try
+            {
+                gltf = JsonNode.Parse(input.Bytes);
+            }
+            catch (JsonException)
+            {
+                return; // Assimp says what's wrong with it.
+            }
+
+            if (gltf?["buffers"] is JsonArray buffers)
+            {
+                foreach (var buffer in buffers)
+                {
+                    if (buffer?["uri"] is JsonValue value && value.TryGetValue(out string? uri)
+                        && !uri.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        input.Track(Uri.UnescapeDataString(uri));
+                    }
+                }
+            }
+        }
+        else if (extension == ".obj")
+        {
+            foreach (string line in Encoding.UTF8.GetString(input.Bytes).Split('\n'))
+            {
+                string trimmed = line.Trim();
+                if (trimmed.StartsWith("mtllib ", StringComparison.Ordinal) || trimmed.StartsWith("mtllib\t", StringComparison.Ordinal))
+                {
+                    input.Track(trimmed["mtllib".Length..].Trim());
+                }
+            }
+        }
+    }
+
+    // The settings beside parts, with the part's own laid over them key by key.
+    private static ImportSettings PartSettings(JsonObject settings, string part)
+    {
+        var merged = new JsonObject();
+        JsonObject? partObject = null;
+        foreach (var (key, value) in settings)
+        {
+            if (key.Equals("parts", StringComparison.OrdinalIgnoreCase))
+            {
+                partObject = value?[part] as JsonObject;
+                continue;
+            }
+
+            merged[key] = value?.DeepClone();
+        }
+
+        foreach (var (key, value) in partObject ?? [])
+        {
+            foreach (string same in merged.Select(pair => pair.Key).Where(k => k.Equals(key, StringComparison.OrdinalIgnoreCase)).ToList())
+            {
+                merged.Remove(same);
+            }
+
+            merged[key] = value?.DeepClone();
+        }
+
+        return merged.Deserialize<ImportSettings>(SettingsOptions) ?? new ImportSettings();
+    }
+
+    /// <returns>The cooked bytes, or null when it failed and said why through <paramref name="output"/>.</returns>
+    private static unsafe byte[]? CookOne(CookInput input, CookOutput output, ImportSettings settings, string prefix)
+    {
+        string modelPath = input.FullPath!;
+        string sourceDirectory = Path.GetDirectoryName(modelPath)!;
+        bool isGltf = Path.GetExtension(modelPath).ToLowerInvariant() is ".glb" or ".gltf";
+        foreach (var source in settings.Animations)
+        {
+            input.Track(source.File);
+        }
+
+        var textures = new ModelTextures(input, output, prefix);
+        var vertices = new List<Vertex>();
+        var indices = new List<uint>();
+        var parts = new List<ModelPart>();
+        var materials = new List<ModelMaterial>();
+        var materialNames = new List<string>();
+
+        // Each mesh's material and the run of vertices it added.
+        var meshVertices = new List<(int Material, int First, int Count)>();
+
+        Skeleton? skeleton = null;
+        var clips = new List<AnimationClip>();
+        Vertex[] vertexArray;
+
+        var assimp = Api.Value;
+        const PostProcessSteps steps = PostProcessSteps.Triangulate
+            | PostProcessSteps.JoinIdenticalVertices
+            | PostProcessSteps.GenerateSmoothNormals
+            | PostProcessSteps.CalculateTangentSpace
+            | PostProcessSteps.FlipUVs;
+
+        var scene = Import(assimp, modelPath, steps);
+        try
+        {
+            if (scene == null || scene->MRootNode == null)
+            {
+                output.Error($"{prefix}Could not read {input.Name}: {assimp.GetErrorStringS()}");
+                return null;
+            }
+
+            // A rigged model keeps its node tree, since the joints live there. A static one is
+            // flattened into a single mesh space.
+            RigImporter? rig = null;
+            if (RigImporter.HasBones(scene))
+            {
+                rig = RigImporter.Read(scene, message => output.Warning(prefix + message));
+            }
+            else
+            {
+                if (settings.Node is { } keep)
+                {
+                    int kept = KeepNodes(scene->MRootNode, keep, false);
+                    if (kept == 0)
+                    {
+                        output.Error($"{prefix}No node with meshes has \"{keep}\" in its name.");
+                        return null;
+                    }
+                }
+
+                // On failure Assimp has already freed the scene.
+                scene = assimp.ApplyPostProcessing(scene, (uint)PostProcessSteps.PreTransformVertices);
+                if (scene == null)
+                {
+                    output.Error($"{prefix}Could not flatten {input.Name}: {assimp.GetErrorStringS()}");
+                    return null;
+                }
+            }
+
+            // glTF materials refer to images stored inside the file as "*0", "*1" and so on, while
+            // FBX materials use the image's original file name, so each is stored under both.
+            for (uint i = 0; i < scene->MNumTextures; i++)
+            {
+                var embedded = scene->MTextures[i];
+                if (embedded->MHeight == 0) // A height of 0 means the width is the size of an encoded image.
+                {
+                    byte[] encoded = new ReadOnlySpan<byte>(embedded->PcData, (int)embedded->MWidth).ToArray();
+                    textures.AddEmbedded($"*{i}", encoded);
+                    string original = embedded->MFilename.AsString;
+                    if (original.Length > 0)
+                    {
+                        textures.AddEmbedded(Path.GetFileName(original.Replace('\\', '/')), encoded);
+                    }
+                }
+            }
+
+            for (uint i = 0; i < scene->MNumMaterials; i++)
+            {
+                materials.Add(ImportMaterial(assimp, scene->MMaterials[i], settings, textures, isGltf, out string materialName));
+                materialNames.Add(materialName);
+            }
+
+            for (uint m = 0; m < scene->MNumMeshes; m++)
+            {
+                var mesh = scene->MMeshes[m];
+                meshVertices.Add(((int)mesh->MMaterialIndex, vertices.Count, (int)mesh->MNumVertices));
+                if (mesh->MTextureCoords[0] == null || mesh->MNormals == null || mesh->MTangents == null)
+                {
+                    output.Warning($"{prefix}mesh {m} ({mesh->MName.AsString}) has no UVs; using a flat tangent frame");
+                }
+
+                uint baseVertex = (uint)vertices.Count;
+                for (uint v = 0; v < mesh->MNumVertices; v++)
+                {
+                    var normal = mesh->MNormals != null ? mesh->MNormals[v] : Vector3.UnitY;
+                    var uv = mesh->MTextureCoords[0] != null ? mesh->MTextureCoords[0][v] : Vector3.Zero;
+                    var tangent = new Vector4(Vector3.UnitX, 1f);
+                    if (mesh->MTangents != null && mesh->MBitangents != null)
+                    {
+                        float sign = Vector3.Dot(Vector3.Cross(normal, mesh->MTangents[v]), mesh->MBitangents[v]) < 0f ? -1f : 1f;
+                        tangent = new Vector4(mesh->MTangents[v], sign);
+                    }
+
+                    vertices.Add(new Vertex(mesh->MVertices[v], normal, tangent, new Vector2(uv.X, uv.Y)));
+                }
+
+                rig?.Skin(mesh, (int)m, CollectionsMarshal.AsSpan(vertices).Slice((int)baseVertex, (int)mesh->MNumVertices));
+
+                uint firstIndex = (uint)indices.Count;
+                for (uint f = 0; f < mesh->MNumFaces; f++)
+                {
+                    var face = mesh->MFaces[f];
+                    if (face.MNumIndices != 3)
+                    {
+                        continue; // Stray points and lines survive triangulation.
+                    }
+
+                    indices.Add(baseVertex + face.MIndices[0]);
+                    indices.Add(baseVertex + face.MIndices[1]);
+                    indices.Add(baseVertex + face.MIndices[2]);
+                }
+
+                parts.Add(new ModelPart
+                {
+                    FirstIndex = firstIndex,
+                    IndexCount = (uint)indices.Count - firstIndex,
+                    Material = (int)mesh->MMaterialIndex,
+                });
+            }
+
+            if (rig is not null)
+            {
+                for (uint a = 0; a < scene->MNumAnimations; a++)
+                {
+                    var animation = scene->MAnimations[a];
+                    string name = animation->MName.AsString is { Length: > 0 } own ? own : $"clip{a}";
+                    AddClip(clips, rig.ReadClip(animation, name));
+                }
+
+                foreach (var source in settings.Animations)
+                {
+                    string path = Path.Combine(sourceDirectory, source.File);
+                    var extra = Import(assimp, path, steps);
+                    if (extra == null)
+                    {
+                        output.Error($"{prefix}Could not read {source.File}: {assimp.GetErrorStringS()}");
+                        return null;
+                    }
+
+                    try
+                    {
+                        string baseName = source.Name ?? Path.GetFileNameWithoutExtension(source.File);
+                        for (uint a = 0; a < extra->MNumAnimations; a++)
+                        {
+                            string name = extra->MNumAnimations == 1 ? baseName : $"{baseName}{a + 1}";
+                            AddClip(clips, rig.ReadClip(extra->MAnimations[a], name));
+                        }
+                    }
+                    finally
+                    {
+                        assimp.FreeScene(extra);
+                    }
+                }
+            }
+
+            // The turn, scale and centring go into the vertices, and for a rig into its skeleton
+            // too, so skinning lands in the same space.
+            vertexArray = vertices.ToArray();
+            var normalization = Normalization(vertexArray, settings.RotateY, settings.TargetLength);
+            Apply(vertexArray, normalization);
+            skeleton = rig?.ToSkeleton(normalization);
+        }
+        finally
+        {
+            if (scene != null)
+            {
+                assimp.FreeScene(scene);
+            }
+        }
+
+        for (int i = 0; i < materials.Count; i++)
+        {
+            if ((materials[i].Flags & MaterialFlags.Foliage) != 0)
+            {
+                PointOutOfCrown(vertexArray, meshVertices.Where(mesh => mesh.Material == i));
+            }
+        }
+
+        var model = new ModelData
+        {
+            Vertices = vertexArray,
+            Indices = indices.ToArray(),
+            Parts = parts.ToArray(),
+            Materials = materials.ToArray(),
+            Textures = textures.ToArray(),
+            Skeleton = skeleton,
+            Clips = clips.ToArray(),
+        };
+
+        // A cutoff that can't cut renders fine but wrong, so it stops the cook. Materials no
+        // part uses are never drawn, so they can't be wrong.
+        var problems = parts.Select(part => part.Material).Distinct().Order()
+            .Select(i => (Name: materialNames[i], Problem: model.CutoutProblem(i)))
+            .Where(entry => entry.Problem is not null)
+            .ToList();
+        foreach (var (materialName, problem) in problems)
+        {
+            output.Error($"{prefix}material {materialName}: {problem}");
+        }
+
+        return problems.Count > 0 ? null : model.ToBytes();
+    }
+
+    // Every mesh of one foliage material counts as one crown.
+    private static void PointOutOfCrown(Vertex[] vertices, IEnumerable<(int Material, int First, int Count)> meshes)
+    {
+        var runs = meshes.ToList();
+        var crown = runs.SelectMany(run => vertices.Skip(run.First).Take(run.Count)).ToArray();
+        FoliageNormals.PointOutOfCrown(crown);
+
+        int next = 0;
+        foreach (var run in runs)
+        {
+            crown.AsSpan(next, run.Count).CopyTo(vertices.AsSpan(run.First, run.Count));
+            next += run.Count;
+        }
+    }
+
+    private static unsafe Scene* Import(Assimp assimp, string path, PostProcessSteps steps)
+    {
+        // Mixamo FBX files otherwise sprout pivot nodes, which would break joint names
+        // between a character and its animation files.
+        var properties = assimp.CreatePropertyStore();
+        assimp.SetImportPropertyInteger(properties, "IMPORT_FBX_PRESERVE_PIVOTS", 0);
+        var scene = assimp.ImportFileExWithProperties(path, (uint)steps, null, properties);
+        assimp.ReleasePropertyStore(properties);
+        return scene;
+    }
+
+    private static void AddClip(List<AnimationClip> clips, AnimationClip? clip)
+    {
+        if (clip is null)
+        {
+            return;
+        }
+
+        if (clips.Any(existing => existing.Name == clip.Name))
+        {
+            throw new InvalidDataException($"Two clips are called {clip.Name}. Give one a name in the settings file.");
+        }
+
+        clips.Add(clip);
+    }
+
+    // Drops the meshes of every node outside the ones named, so flattening leaves them out.
+    // Returns how many nodes with meshes were kept.
+    private static unsafe int KeepNodes(Node* node, string keep, bool inside)
+    {
+        inside |= node->MName.AsString.Contains(keep, StringComparison.OrdinalIgnoreCase);
+        int kept = 0;
+        if (!inside)
+        {
+            node->MNumMeshes = 0;
+        }
+        else if (node->MNumMeshes > 0)
+        {
+            kept++;
+        }
+
+        for (uint i = 0; i < node->MNumChildren; i++)
+        {
+            kept += KeepNodes(node->MChildren[i], keep, inside);
+        }
+
+        return kept;
+    }
+
+    // The transform that turns the model by rotateY degrees around the vertical axis, scales
+    // it to real-world metres, centres it, and stands it on y = 0. The bounds are taken after
+    // the turn, so the model fits its target length the way it will face.
+    private static Matrix4x4 Normalization(Vertex[] vertices, float rotateY, float targetLength)
+    {
+        var turn = Matrix4x4.CreateRotationY(rotateY * MathF.PI / 180f);
+        var min = new Vector3(float.MaxValue);
+        var max = new Vector3(float.MinValue);
+        foreach (ref readonly var vertex in vertices.AsSpan())
+        {
+            var turned = Vector3.Transform(vertex.Position, turn);
+            min = Vector3.Min(min, turned);
+            max = Vector3.Max(max, turned);
+        }
+
+        var size = max - min;
+        float scale = targetLength > 0f ? targetLength / MathF.Max(size.X, MathF.Max(size.Y, size.Z)) : 1f;
+        var center = (min + max) * 0.5f;
+        var shift = new Vector3(-center.X, -center.Y + size.Y * 0.5f, -center.Z);
+        return turn * Matrix4x4.CreateTranslation(shift) * Matrix4x4.CreateScale(scale);
+    }
+
+    private static void Apply(Vertex[] vertices, in Matrix4x4 transform)
+    {
+        foreach (ref var vertex in vertices.AsSpan())
+        {
+            vertex.Position = Vector3.Transform(vertex.Position, transform);
+            vertex.Normal = Vector3.Normalize(Vector3.TransformNormal(vertex.Normal, transform));
+            var tangent = Vector3.TransformNormal(new Vector3(vertex.Tangent.X, vertex.Tangent.Y, vertex.Tangent.Z), transform);
+            vertex.Tangent = new Vector4(Vector3.Normalize(tangent), vertex.Tangent.W);
+        }
+    }
+
+    private static unsafe ModelMaterial ImportMaterial(
+        Assimp assimp, Silk.NET.Assimp.Material* source, ImportSettings settings, ModelTextures textures, bool isGltf,
+        out string materialName)
+    {
+        AssimpString name;
+        assimp.GetMaterialString(source, Assimp.MaterialNameBase, 0, 0, &name);
+        materialName = name.AsString;
+
+        string? linkedColor = GetTexture(assimp, source, TextureType.Diffuse) ?? GetTexture(assimp, source, TextureType.BaseColor);
+        string? linkedNormal = GetTexture(assimp, source, TextureType.Normals) ?? GetTexture(assimp, source, TextureType.Height);
+
+        // Only glTF defines these values and the combined metal and roughness texture.
+        string? linkedSurface = isGltf
+            ? GetTexture(assimp, source, TextureType.Unknown) ?? GetTexture(assimp, source, TextureType.Metalness)
+            : null;
+        float[]? fileColor = isGltf ? GetFloats(assimp, source, "$clr.base", 4) : null;
+        float[]? fileMetallic = isGltf ? GetFloats(assimp, source, "$mat.metallicFactor", 1) : null;
+        float[]? fileRoughness = isGltf ? GetFloats(assimp, source, "$mat.roughnessFactor", 1) : null;
+        float? fileCutoff = isGltf ? GetGltfCutoff(assimp, source) : null;
+
+        // Use a local copy, since lambdas can't capture an out parameter.
+        string matchName = materialName;
+        var rule = settings.Materials.FirstOrDefault(r => matchName.Contains(r.Match, StringComparison.OrdinalIgnoreCase));
+
+        // A texture the rule names must be there; one only the model file links to may not be.
+        string? named = rule is null ? null : materialName;
+        rule ??= new MaterialRule();
+        var flags = (rule.TwoSided || rule.Foliage ? MaterialFlags.TwoSided : 0)
+            | (rule.Transparent ? MaterialFlags.Transparent : 0)
+            | (rule.Foliage ? MaterialFlags.Foliage : 0);
+        var emissive = rule.EmissiveColor is { Length: 3 } e
+            ? new Vector3(e[0], e[1], e[2])
+            : rule.Emissive != null ? Vector3.One : Vector3.Zero;
+        return new ModelMaterial
+        {
+            BaseColor = rule.Color is { Length: 3 } c
+                ? new Vector4(c[0], c[1], c[2], rule.Opacity)
+                : fileColor is { } f ? new Vector4(f[0], f[1], f[2], f[3]) : new Vector4(1f, 1f, 1f, rule.Opacity),
+            Metallic = rule.Metallic ?? fileMetallic?[0] ?? 0f,
+            Roughness = rule.Roughness ?? fileRoughness?[0] ?? 0.6f,
+            AlphaCutoff = rule.AlphaCutoff ?? fileCutoff ?? 0f,
+            BaseColorTexture = textures.Add(rule.BaseColor ?? linkedColor, TextureKind.Color, alphaFile: rule.Alpha,
+                namedBy: rule.BaseColor is null ? null : named),
+            NormalTexture = textures.Add(rule.NoNormalMap ? null : rule.Normal ?? linkedNormal, TextureKind.Linear, isNormalMap: true,
+                namedBy: rule.Normal is null ? null : named),
+            SurfaceTexture = rule.Surface is not null
+                ? textures.Add(rule.Surface, TextureKind.Linear, namedBy: named)
+                : textures.Add(linkedSurface, TextureKind.Linear, isGltfSurface: true),
+            Emissive = emissive,
+            EmissiveTexture = textures.Add(rule.Emissive, TextureKind.Color, namedBy: named),
+            Clearcoat = rule.Clearcoat,
+            Flags = flags,
+        };
+    }
+
+    // glTF's MASK mode cuts out by alpha, at 0.5 unless the file says otherwise.
+    private static unsafe float? GetGltfCutoff(Assimp assimp, Silk.NET.Assimp.Material* material)
+    {
+        AssimpString mode;
+        if (assimp.GetMaterialString(material, "$mat.gltf.alphaMode", 0, 0, &mode) != Return.Success
+            || mode.AsString != "MASK")
+        {
+            return null;
+        }
+
+        return GetFloats(assimp, material, "$mat.gltf.alphaCutoff", 1)?[0] ?? 0.5f;
+    }
+
+    private static unsafe float[]? GetFloats(Assimp assimp, Silk.NET.Assimp.Material* material, string key, uint count)
+    {
+        var values = new float[count];
+        uint read = count;
+        fixed (float* pointer = values)
+        {
+            return assimp.GetMaterialFloatArray(material, key, 0, 0, pointer, &read) == Return.Success && read == count
+                ? values
+                : null;
+        }
+    }
+
+    private static unsafe string? GetTexture(Assimp assimp, Silk.NET.Assimp.Material* material, TextureType type)
+    {
+        AssimpString path;
+        var result = assimp.GetMaterialTexture(material, type, 0, &path, null, null, null, null, null, null);
+        return result == Return.Success ? Path.GetFileName(path.AsString.Replace('\\', '/')) : null;
+    }
+}
+
+/// <summary>Every cooker that ships with Super, the model cooker included.</summary>
+public static class ModelCookers
+{
+    public static IReadOnlyList<ICooker> All { get; } = [.. BuiltInCookers.All, new ModelCooker()];
+}

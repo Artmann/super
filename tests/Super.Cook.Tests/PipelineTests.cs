@@ -183,4 +183,61 @@ public sealed class PipelineTests : IDisposable
         Assert.Equal(3, one.Manifest.Assets.Count);
         Assert.Equal(one.Manifest.Serialize(), two.Manifest.Serialize());
     }
+
+    private sealed class TwicePartCooker : ICooker
+    {
+        public string Id => "twice";
+
+        public int Version => 1;
+
+        public IReadOnlyList<string> Extensions { get; } = [".twice"];
+
+        public void Cook(CookInput input, CookOutput output)
+        {
+            output.AddPart("a", ContentKind.Data, [1]);
+            output.AddPart("a", ContentKind.Data, [2]);
+        }
+    }
+
+    // Cooks a file whose name ends in #a, as a part of x.part would be named.
+    private sealed class HashACooker : ICooker
+    {
+        public string Id => "hash-a";
+
+        public int Version => 1;
+
+        public IReadOnlyList<string> Extensions { get; } = ["#a"];
+
+        public void Cook(CookInput input, CookOutput output)
+        {
+            output.Add(ContentKind.Data, [3]);
+        }
+    }
+
+    [Fact]
+    public void Part_added_twice_is_an_error_naming_it()
+    {
+        var root = new MemoryRoot { ["x.twice"] = "x" };
+        var store = new MemoryStore();
+
+        var result = new CookPipeline([new TwicePartCooker()], new CookOptions()).Cook([root], store);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("x.twice makes x.twice#a twice.", Assert.Single(result.Problems, p => p.IsError).Message);
+        Assert.Same(ContentManifest.Empty, store.Manifest);
+    }
+
+    [Fact]
+    public void File_named_like_a_part_is_an_error_naming_both()
+    {
+        var root = new MemoryRoot { ["x.part"] = "x", ["x.part#a"] = "y" };
+        var store = new MemoryStore();
+
+        var result = new CookPipeline([new PartCooker(), new HashACooker()], new CookOptions()).Cook([root], store);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("x.part#a is made by both memory:x.part and memory:x.part#a. A name must come from one place.",
+            Assert.Single(result.Problems, p => p.IsError).Message);
+        Assert.Same(ContentManifest.Empty, store.Manifest);
+    }
 }
