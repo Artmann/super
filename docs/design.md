@@ -758,6 +758,13 @@ same pass searches a wide area of the shadow map for anything above an upward-fa
 point. The result is a soft shadow under and around objects, and it costs no extra
 render pass. It works only inside the area the shadow map covers.
 
+Occlusion on its own darkens a crease as if its walls were black. Real walls pass
+some light on, so the lighting pass adds that bounced light back with Jimenez et al.'s
+multi-bounce fit from their GTAO paper (2016). It uses the surface's base colour, so a
+white crease darkens less and a red one takes on a red tint, while a dark crease keeps
+the plain result. It applies to environment light only; the direct lights that use
+occlusion in place of a shadow map keep the plain value.
+
 Bloom has no brightness threshold. Every pixel gives away a small share of its
 light, so only really bright things show a visible glow. That's physically closer
 to how a lens scatters light, and nothing pops as a surface crosses a threshold.

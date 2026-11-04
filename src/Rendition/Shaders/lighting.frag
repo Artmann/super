@@ -39,6 +39,18 @@ const float TRACE_THICKNESS = 0.25;
 const float TRACE_MAX_ROUGHNESS = 0.45;
 const float TRACE_MAX_RADIANCE = 16.0;
 
+// Light that bounces between the walls of a crease before it escapes, which plain
+// occlusion leaves out. Pale surfaces pass most of it on, so their creases darken less
+// and take on their own colour; dark surfaces absorb it and keep the plain result.
+// Jimenez et al., "Practical Real-Time Strategies for Accurate Indirect Occlusion"
+// (2016), fitted the curve to ray-traced scenes.
+vec3 multiBounceOcclusion(float visibility, vec3 albedo) {
+    vec3 a = 2.0404 * albedo - 0.3324;
+    vec3 b = -4.7951 * albedo + 0.6417;
+    vec3 c = 2.7552 * albedo + 0.6903;
+    return max(vec3(visibility), ((visibility * a + b) * visibility + c) * visibility);
+}
+
 // The first cascade whose map holds the point with room for the filter around it,
 // or -1 when none does.
 int shadowCascade(vec3 position, float inset) {
@@ -308,7 +320,7 @@ void main() {
         environmentLight = environmentLight * (1.0 - coatFresnel) + coatReflection * coatFresnel;
     }
 
-    vec3 color = environmentLight * frame.backgroundRadiance.a * ao + emissiveClearcoat.rgb;
+    vec3 color = environmentLight * frame.backgroundRadiance.a * multiBounceOcclusion(ao, baseColor) + emissiveClearcoat.rgb;
 
     for (int i = 0; i < frame.lightCount; i++) {
         vec3 l = frame.lights[i].direction.xyz;
