@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Super.Ecs\Super.Ecs.csproj" />
+    <PackageReference Include="JoltPhysicsSharp" Version="2.23.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Super.Physics.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -185,6 +185,7 @@ what lets [tests](testing.md) run in parallel.
 | `Super` | Window, game loop, input, game states, views, cameras, interfaces, content | `Rendition`, `Super.Random` |
 | `Super.Random` | Seeded random numbers. Usable alone | Nothing else here |
 | `Super.Ecs` | An optional [entity component system](ecs.md) | `Super` |
+| `Super.Physics` | [Colliders and rays](physics.md), on Jolt Physics | `Super.Ecs` |
 | `Super.Testing` | [Headless runs and seeded tests](testing.md) | `Super` |
 | `Rendition` | The renderer. Usable alone, with no engine | Nothing else here |
 

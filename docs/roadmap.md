@@ -16,16 +16,16 @@ Super is early. These are the known gaps, so you can plan around them.
   that muffle sound, Doppler or surround. There is no ducking (music dipping under
   speech), no ambience that blends by where the camera stands, and sounds can't be tied
   to animation moments yet. A `Crossed` event can start a one-shot by hand.
-- **Picking by shape.** Clicks are tested against balls, boxes and the ground, not a
-  model's triangles.
+- **Picking by shape.** Clicks are tested against balls, boxes, capsules and the ground,
+  not a model's triangles.
 - **Some camera moves.** A camera can't roll, and asymmetric views are a shift, so head
   tracking and tiled displays can't be done yet. Underwater views are wrong under an
   orthographic camera.
 - **Large numbers of objects.** Rendition's efficiency with many thousands of objects
   still has to be measured and improved.
-- **Physics.** Not in the first version. Gameplay physics has to give repeatable
-  results, so the engine needs choosing carefully. Until then, write your own movement
-  code in `Update`.
+- **Physics.** [`Super.Physics`](physics.md) answers ray queries against colliders, on
+  Jolt. Bodies that fall and collide, shape casts, overlap tests and character
+  controllers are next. Until then, write your own movement code in `Update`.
 - **Typing in interfaces.** The interface takes the mouse, but there are no text inputs,
   and it can't be used with a keyboard or gamepad yet.
 - **Saved games and levels.** `saves.Write` and `saves.Read` are the plan; see

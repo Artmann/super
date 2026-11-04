@@ -26,6 +26,7 @@ that doesn't exist yet; everything else works today.
 | [The command line](command-line.md) | `--screenshot`, `--record`, `--script` and capturing from code |
 | [Profiling](profiling.md) | `--profile` and reading its report |
 | [The ECS](ecs.md) | `Super.Ecs`: queries, drawing entities and entities scoped to a state |
+| [Physics](physics.md) | `Super.Physics`: colliders on entities, layers and rays that find them |
 | [What's not here yet](roadmap.md) | Known gaps and planned features |
 
 Background reading:

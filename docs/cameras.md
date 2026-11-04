@@ -48,7 +48,9 @@ public void Draw(View view) => view.Camera(camera);
 | `camera.Ray(pixel, screen)` | A ray through any pixel, without `Input` |
 
 Super doesn't go through your things for you, since only your game knows what can be
-clicked, and it tests these simple shapes, not a model's triangles. `input.MouseOverUi`
+clicked, and it tests these simple shapes, not a model's triangles. With the ECS, give
+entities a `Collider` and [`Super.Physics`](physics.md) finds the nearest for you, by
+layer. `input.MouseOverUi`
 is true while the cursor is over the [interface](interfaces.md#the-mouse), so a game can
 leave those clicks alone.
 
