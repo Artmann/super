@@ -7,7 +7,6 @@
     <PackageReference Include="NVorbis" Version="0.10.5" />
     <PackageReference Include="Silk.NET.OpenAL" Version="2.23.0" />
     <PackageReference Include="Silk.NET.OpenAL.Soft.Native" Version="1.23.1" />
-    <PackageReference Include="StbImageSharp" Version="2.30.16" />
     <PackageReference Include="StbTrueTypeSharp" Version="1.26.13" />
     <ProjectReference Include="..\Rendition\Rendition.csproj" />
     <ProjectReference Include="..\Super.Random\Super.Random.csproj" />

@@ -12,8 +12,8 @@ internal interface ICookProcess : IDisposable
 /// <c>super-cook --watch</c>, started by a game run from source. It cooks the sources again on every
 /// save, and the game hears the new manifest. Its output goes to the game's error stream, so cook
 /// errors show up where the game's own messages do. It's stopped, with anything it started, when
-/// it's disposed or the game exits. Its stdin is the game's, so if the game dies without either,
-/// the tool sees stdin close and stops by itself.
+/// it's disposed or the game exits. Its stdin is a pipe the game holds open and never writes to, so
+/// if the game dies without either, the pipe closes, the tool sees its stdin end and stops by itself.
 /// </summary>
 internal sealed class CookProcess : ICookProcess
 {
