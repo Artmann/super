@@ -181,8 +181,8 @@ is always safe: the next cook makes it again.
 `--watch` cooks once, then watches every root and its folders. When the files have been
 quiet for a tenth of a second it cooks again, printing problems the same way, then
 `Cooked.` or `Not cooked: 1 errors.` A failed cook keeps the old manifest. On Windows, a
-file another program has open, such as an editor in the middle of saving, is tried again
-after the same wait. Any other failure prints `Not cooked:` and why, and waits for the next
+file another program has open, such as an editor in the middle of saving or the game
+reading `content.manifest` just as the new one is written, is tried again after the same wait. Any other failure prints `Not cooked:` and why, and waits for the next
 change. It stops when stdin closes, so the game that started it ends it, or when it's killed.
 
 ### One asset

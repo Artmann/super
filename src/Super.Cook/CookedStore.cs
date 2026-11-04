@@ -112,12 +112,44 @@ public sealed class FolderStore(string folder) : ICookedStore
         return Path.Combine(_folder, ContentManifest.ObjectPath(hash).Replace('/', Path.DirectorySeparatorChar));
     }
 
+    /// <exception cref="FileInUseException">Another program, such as the game reading the manifest, has the file open.</exception>
     private static void WriteAtomically(string path, byte[] bytes)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         string temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         File.WriteAllBytes(temp, bytes);
-        File.Move(temp, path, overwrite: true);
+        try
+        {
+            File.Move(temp, path, overwrite: true);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            File.Delete(temp);
+
+            // Windows refuses to replace a file another program has open with access denied, not a
+            // sharing violation, so here, and only here, that counts as the file being in use.
+            if (exception is UnauthorizedAccessException)
+            {
+                throw new FileInUseException($"{path} is open in another program, such as the game reading it, so it couldn't be replaced.", exception);
+            }
+
+            throw;
+        }
+    }
+}
+
+/// <summary>
+/// A file couldn't be replaced because another program has it open. It carries the HResult of a
+/// sharing violation, so <see cref="CookPipeline.InUse"/> knows it and the cook can be tried again.
+/// </summary>
+public sealed class FileInUseException : IOException
+{
+    private const int SharingViolation = unchecked((int)0x80070020);
+
+    public FileInUseException(string message, Exception inner)
+        : base(message, inner)
+    {
+        HResult = SharingViolation;
     }
 }
 
