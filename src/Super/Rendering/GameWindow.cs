@@ -49,7 +49,8 @@ internal sealed unsafe class GameWindow : IDisposable
         }
 
         _glfw.WindowHint(WindowHintClientApi.ClientApi, ClientApi.NoApi);
-        _glfw.WindowHint(WindowHintBool.Visible, !hidden);
+        // Every window starts hidden, so a shown one appears already in its place rather than jumping there.
+        _glfw.WindowHint(WindowHintBool.Visible, false);
 
         // Windows shrinks a window whose title bar would push it past the screen's height,
         // and a hidden window should come out at exactly the size that was asked for.
@@ -59,6 +60,12 @@ internal sealed unsafe class GameWindow : IDisposable
         {
             _glfw.Terminate();
             throw new InvalidOperationException("Could not create a window.");
+        }
+
+        if (!hidden)
+        {
+            CentreOnScreen();
+            _glfw.ShowWindow(_window);
         }
 
         _glfw.GetFramebufferSize(_window, out int width, out int height);
@@ -71,6 +78,24 @@ internal sealed unsafe class GameWindow : IDisposable
             EnableValidation = validate,
             DisableVsync = disableVsync,
         });
+    }
+
+    // Left to itself Windows cascades new windows down the screen. This centres the window, title bar
+    // and all, in the primary monitor's work area, and keeps the title bar on screen if it doesn't fit.
+    private void CentreOnScreen()
+    {
+        var monitor = _glfw.GetPrimaryMonitor();
+        if (monitor is null)
+        {
+            return;
+        }
+
+        _glfw.GetMonitorWorkarea(monitor, out int areaX, out int areaY, out int areaWidth, out int areaHeight);
+        _glfw.GetWindowFrameSize(_window, out int left, out int top, out int right, out int bottom);
+        _glfw.GetWindowSize(_window, out int width, out int height);
+        int x = areaX + (areaWidth - (left + width + right)) / 2 + left;
+        int y = areaY + Math.Max(0, (areaHeight - (top + height + bottom)) / 2) + top;
+        _glfw.SetWindowPos(_window, x, y);
     }
 
     /// <summary>The game loop: runs whatever ticks are due, then draws one frame.</summary>
