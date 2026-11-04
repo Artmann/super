@@ -358,7 +358,9 @@ bytes: two assets with equal bytes are stored once.
 
 **The cache key** is the SHA-256 of the cooker id, the cooker's version, the target, the
 settings as canonical JSON (keys sorted, so their order in the file doesn't matter) and the
-hash of the source. A model's key also covers the files it reads, such as its textures. A
+hash of the source. Other files the cooker read, such as a model's textures, aren't part of
+the key: the cache record lists them with their hashes, and a record only counts while every
+one still matches, so editing a texture cooks its model again. A
 cooker that changes its output bumps its version, which misses every old entry. `CookCache`
 keeps what a cook made under that key, in `~/.super/cache` or the folder in `SUPER_CACHE`, and
 restores it into the store when the key matches, checking the objects' hashes first.
@@ -375,12 +377,13 @@ deeper folders winning, then `<source>.cook.json`, which wins over all of them. 
 with no source is a warning, not an error, so a clone without its licensed models still builds.
 
 **Models.** `Super.Cook.Models` reads FBX, glTF and OBJ with Assimp at cook time and writes
-`.rmodel` data (`ModelData` in Rendition). A cutoff that can't cut
-stops the cook of that model.
+`.rmodel` data (`ModelData` in Rendition). An alpha cutoff
+that would cut nothing or everything (see the foliage section below) is an error that stops
+the cook of that model.
 
 **`content.dev.json`** is written beside the cooked folder by the build, and
 only for a game run from source. It names the content roots, the `super-cook` tool and the
-target. `GameHost` finds it through `CookedFolder.Dev`; a published game has none and
+target. `Content.GoLive` reads it through `CookedFolder.Dev`; a published game has none and
 never watches anything. When the game's content goes live (`Content.GoLive`):
 
 1. It writes the JSON schemas into the first content root.
