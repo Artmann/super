@@ -165,8 +165,10 @@ give the trunk its own material.
 Textures are looked for beside the source file, then in any folder under it, as
 Poly Haven's downloads keep them in `textures`. Some plants ship their leaf cut-outs
 as a separate grey image beside a colour JPEG with no alpha; name it with `alpha`, and
-its red becomes the colour texture's opacity. A texture a rule names that can't be found
-stops the cook; one the model file links to only warns:
+its red becomes the colour texture's opacity. A mesh without UVs whose material uses a
+texture warns, since every read lands on one texel; an untextured mesh needs no UVs. A
+texture a rule names that can't be found stops the cook; one the model file links to only
+warns:
 
 ```json
 // props/fern_02/fern_02.gltf.cook.json
@@ -239,7 +241,8 @@ top of the repository, which each lists as a content root. Only the `cook.json` 
 the sidecars and its README are in git; the models themselves aren't, because of their
 licenses or their size ([CREDITS.md](../CREDITS.md)). [assets/README.md](../assets/README.md)
 says where each one comes from and the name to save it under. Without them the examples
-still build, and the missing models are reported when the game names them.
+still build: the cook warns `No source file <name>; skipped.` for each sidecar whose model
+is missing, and the game reports a missing model when it names it.
 
 ## Ghosts
 

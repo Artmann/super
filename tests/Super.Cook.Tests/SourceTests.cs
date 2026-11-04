@@ -72,17 +72,17 @@ public sealed class SourceTests : IDisposable
     }
 
     [Fact]
-    public void A_sidecar_beside_a_missing_file_is_an_error_naming_the_sidecar()
+    public void A_sidecar_beside_a_missing_file_is_a_warning_naming_the_sidecar()
     {
         var root = new MemoryRoot { ["m.glb.cook.json"] = "{}", ["other.png"] = "" };
 
-        var (_, problems) = Sources.Gather([root]);
+        var (files, problems) = Sources.Gather([root]);
 
         var problem = Assert.Single(problems);
-        Assert.True(problem.IsError);
+        Assert.False(problem.IsError);
         Assert.Equal("memory:m.glb.cook.json", problem.File);
-        Assert.Contains("m.glb.cook.json", problem.Message);
-        Assert.Contains("m.glb", problem.Message);
+        Assert.Equal("No source file m.glb; skipped.", problem.Message);
+        Assert.Equal("other.png", Assert.Single(files).Name);
     }
 
     [Fact]

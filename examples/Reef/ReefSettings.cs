@@ -1,3 +1,5 @@
+using Super;
+
 namespace Reef;
 
 /// <summary>One kind of fish and how it behaves.</summary>
@@ -21,6 +23,13 @@ internal class ReefSettings
     ];
 
     public virtual int CoralClusters => 26;
+
+    public virtual string Coral => "reef/coral/coral.glb";
+
+    public virtual string SoftCoral => "reef/softcoral/softcoral.fbx";
+
+    /// <summary>Loads a model named above. Tests draw built-in shapes, so they don't need the licensed models.</summary>
+    public virtual ModelRef Model(Content content, string name) => content.Model(name);
 
     /// <summary>Fish stay within this distance of the centre, sideways.</summary>
     public float Radius => 55f;

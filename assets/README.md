@@ -8,7 +8,13 @@ Only the cook settings are in git: `cook.json`, which says what isn't cooked, an
 `<file>.cook.json` sidecar beside each model, which sets its size, fixes its materials
 and lists its animations or parts. The models and textures themselves stay out of git,
 because of their licenses or their size, so download them and save them under the names
-below. A game names a model by its path in this folder, such as `fox/fox.glb`.
+below. A game names a model by its path in this folder, such as `fox/fox.glb`. A model
+that's missing only gives a warning when the examples build.
+
+A `cook.json` in a subfolder is git-ignored: only `assets/cook.json` and the
+`*.cook.json` sidecars are committed. That keeps local exclusions local, such as a
+`{ "rules": [{ "match": "**", "cook": false }] }` in a folder of models you've downloaded
+but no example uses.
 
 See [CREDITS.md](../CREDITS.md) for who made what.
 
