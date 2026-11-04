@@ -237,7 +237,7 @@ thousands. Only where each copy stands can differ. A different tint splits copie
 separate draws but still works. Skinned models are drawn one at a time.
 
 The Archer, Fox and Reef examples share their models through the `assets` folder at the
-top of the repository, which each lists as a content root. Only the `cook.json` files,
+top of the repository, which each lists as a content root. Only `assets/cook.json`,
 the sidecars and its README are in git; the models themselves aren't, because of their
 licenses or their size ([CREDITS.md](../CREDITS.md)). [assets/README.md](../assets/README.md)
 says where each one comes from and the name to save it under. Without them the examples

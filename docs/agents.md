@@ -55,7 +55,7 @@ dotnet run -c Release --project MyGame -- --seed 7 --ticks 300 --profile shots/p
 | See the game | `--screenshot`, `--record` and `GameCapture`, straight from the renderer |
 | Reproduce a bug | One seed and one tick number replay it exactly |
 | Fix bad data | `ContentException` lists every problem as `file:line: problem` |
-| Write valid data | JSON schemas generated for every catalog, in `content/.schemas` |
+| Write valid data | JSON schemas generated for every catalog, in `.schemas` in the first content root |
 | Find a slowdown | `--profile`, as plain text |
 | Understand the code | No hidden scheduler and no global state. `Update` calls systems in the order written |
 
@@ -97,7 +97,7 @@ A game built on Super, a C# game engine used as a library. Docs: <path to super>
 - Game state changes only in `Update`. `Draw` and `Ui` only read state.
 - Time comes from `GameTime`, randomness from `GameRandom` streams. Never the system
   clock or `System.Random`.
-- Data lives in `content/` as JSON, one record per file. Check `content/.schemas` for
+- Data lives in `content/` as JSON, one record per file. Check `.schemas` in the first content root (`content/.schemas`) for
   the fields.
 - To see the game, use `--screenshot` or `--record`. Never capture the desktop.
 - Every new behaviour gets a headless test in `MyGame.Tests`, using `HeadlessGame` and

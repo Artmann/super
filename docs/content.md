@@ -167,7 +167,9 @@ A game never reads its sources. The build cooks every file under the content fol
 into `bin/<config>/content`: a `content.manifest` naming each asset, and the cooked bytes
 it points at. The game reads only that folder, beside the program. See
 [`super-cook`](command-line.md#cooking-content) for running the cooker by hand, adding
-more content roots, and the build targets.
+more content roots, and the build targets. Cooked results are cached in `~/.super/cache`,
+or in the folder named by the `SUPER_CACHE` environment variable, so a rebuild only cooks
+what changed; deleting that folder is always safe.
 
 Every file is an asset, chosen by its extension:
 

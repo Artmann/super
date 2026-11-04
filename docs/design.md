@@ -64,7 +64,7 @@ floating point results can differ between CPU types.
 
 Rendition needs work to support this: keys passed through to per-object motion
 vectors, and a check of how it copes with many thousands of draws. Skeletal animation
-is in: the importer keeps skeletons and clips, and the vertex shader skins. Particles
+is in: the model cooker keeps skeletons and clips, and the vertex shader skins. Particles
 are in too: a `ParticleEffect` of chained emitters turns a key and an age into particles with no state
 from frame to frame; see [Particles](#particles).
 
@@ -343,6 +343,72 @@ still disposed if it throws.
 `Mixer` itself isn't `IDisposable`; this is the only place voices still playing are
 released.
 
+## Asset pipeline
+
+A game reads only cooked content: a `content.manifest` and `objects/<hash[0..2]>/<hash>`.
+It never decodes a PNG or parses a glTF or FBX. `Super.Cook` makes that folder from the
+sources, and the `Super` runtime only knows the manifest format (`ContentManifest`) and
+reads it through `CookedFolder`.
+
+**Cooking is a pure function.** An `ICooker` turns one source's bytes, its settings and the
+target into output bytes. The bytes never hold a timestamp or an absolute path, and never
+depend on the order the disk lists files in; every sort is `StringComparer.Ordinal`. So the
+same sources always make the same objects, and objects are named by the SHA-256 of their
+bytes: two assets with equal bytes are stored once.
+
+**The cache key** is the SHA-256 of the cooker id, the cooker's version, the target, the
+settings as canonical JSON (keys sorted, so their order in the file doesn't matter) and the
+hash of the source. A model's key also covers the files it reads, such as its textures. A
+cooker that changes its output bumps its version, which misses every old entry. `CookCache`
+keeps what a cook made under that key, in `~/.super/cache` or the folder in `SUPER_CACHE`, and
+restores it into the store when the key matches, checking the objects' hashes first.
+Deleting it is always safe. The models cooker is `Super.Cook.Models`, a separate project, so
+`Super.Cook` carries no Assimp.
+
+**The manifest** lists every name with its kind, hash and size. `CookPipeline` writes
+objects to an `ICookedStore` as it goes, and replaces the manifest only when nothing
+went wrong, so a failed cook leaves the last good content. A name is the path from its root
+with forward slashes and the extension, and parts are `name#part`. Names are compared
+ordinally on every OS. A name two sources make is an error that names both, which is why
+several content roots can't yet override each other. Settings come from `cook.json` rules,
+deeper folders winning, then `<source>.cook.json`, which wins over all of them. A sidecar
+with no source is a warning, not an error, so a clone without its licensed models still builds.
+
+**Models.** `Super.Cook.Models` reads FBX, glTF and OBJ with Assimp at cook time and writes
+`.rmodel` data (`ModelData` in Rendition). A cutoff that can't cut
+stops the cook of that model.
+
+**`content.dev.json`** is written beside the cooked folder by the build, and
+only for a game run from source. It names the content roots, the `super-cook` tool and the
+target. `GameHost` finds it through `CookedFolder.Dev`; a published game has none and
+never watches anything. When the game's content goes live (`Content.GoLive`):
+
+1. It writes the JSON schemas into the first content root.
+2. It starts a `ContentWatcher` on the cooked folder, filtered to `content.manifest`. The
+   watcher waits for 100 ms of quiet before it says anything, since a manifest is written in
+   several steps and writers rename a temp file over it.
+3. It starts `super-cook --watch` through `CookProcess`: `dotnet <tool> --watch --content
+   <root>... --out <folder> --target <target>`. Its output goes to the game's error stream
+   so cook errors show where the game's own messages do. The tool's stdin is the game's, so
+   it stops when the game dies. A game with no `dotnet` on the path still runs, and a cook
+   started by hand is still heard.
+
+The tool cooks once, then again after the sources have been quiet for 100 ms. When it
+commits a new manifest the watcher's timer fires on a thread-pool thread, which only sets
+`Content.ReloadWanted`. `GameHost` checks that flag at the start of a tick and calls
+`Content.Reload` on the game thread, so no catalog is ever read from two threads.
+
+`Reload` refreshes `CookedFolder`, which parses the new manifest and swaps it in, then
+reads every catalog again. The catalogs are all or nothing: a mistake in the new data is
+written to the log and every catalog keeps its old data. The reload as a whole isn't:
+`CookedFolder` already holds the new manifest, so reading something not yet loaded, such
+as a model named later, sees the new content while the catalogs show the old. The next
+successful cook sets this right. A file that can't be read yet, because the cook is still
+writing it, asks for another reload on the next tick.
+
+Only catalogs reload so far. Models, textures and sounds that are already loaded keep what
+they have; see the [roadmap](roadmap.md).
+
 # Rendition design
 
 Rendition is a deferred, PBR renderer in modern .NET, generic enough for any 3D game.
@@ -371,7 +437,7 @@ rendering. Game-facing features belong in Super, which has the audio (see
 | Window | Silk.NET.GLFW | Small and portable; the renderer never depends on it directly |
 | Shaders | GLSL compiled to SPIR-V by `glslc` at build time | No compiler in the shipped game; a game compiles its custom shaders the same way |
 | Math | System.Numerics | SIMD-accelerated value types |
-| Model import | Separate tool using Assimp, writing our own `.rmodel` | The game loads a fast flat file and never ships an FBX or glTF parser |
+| Model import | Cooked by `Super.Cook.Models` through the asset pipeline, using Assimp, writing our own `.rmodel` | The game loads a fast flat file and never ships an FBX or glTF parser; see [Asset pipeline](#asset-pipeline) |
 | Textures and materials | One global descriptor set indexed by material | Adding materials adds no binding work per draw |
 | Skinning | Four joints and weights per vertex, packed as bytes. Each frame's bone matrices go in one storage buffer (set 0, binding 1, up to `Renderer.MaxBones` = 16,384), and a draw's push constants hold its first bone, or -1 when it has none | Unskinned models use the same shaders and vertex format, and many characters cost one upload |
 
@@ -420,7 +486,7 @@ and opacity in alpha.
 
 A cut-out's opacity is the colour texture's alpha times the colour's alpha times the
 surface texture's alpha. Asset packs and glTF keep leaf alpha in the colour texture, so
-it works without a surface texture. The importer fails when a cutoff can't cut: no
+it works without a surface texture. The model cooker fails when a cutoff can't cut: no
 pixel has alpha below it, or none has alpha above it. A `foliage` rule is for a tree's
 leaves. It points the normals out of the crown, so the crown is lit as one shape and
 not as a pile of separate cards, draws both sides, and keeps back faces from flipping
@@ -448,11 +514,11 @@ opacity, not its material's: solid ghosts go to the G-buffer and see-through one
 the glass pass, where `transparent.frag` does the same swap. `SceneDraws.Belongs`
 decides this, and keeps ghosts out of the shadow maps.
 
-glTF files (`.glb`, `.gltf`) carry more of this themselves, so the importer reads their
+glTF files (`.glb`, `.gltf`) carry more of this themselves, so the model cooker reads their
 embedded images, the link to their metal and roughness texture, and their colour,
-metal and roughness values. glTF keeps metalness in blue, so the importer moves it to
+metal and roughness values. glTF keeps metalness in blue, so the cooker moves it to
 red. A rule in the sidecar still wins over the model file. The renderer has one
-UV set, and the importer keeps the first. That's fine for the adventurer model, whose four
+UV set, and the cooker keeps the first. That's fine for the adventurer model, whose four
 sets are identical.
 
 Shadows blur with distance from the object casting them: the lighting pass finds
@@ -703,11 +769,11 @@ Anything larger than a block gets its own allocation.
 - The adventurer model doesn't use its normal map. The map creases the skin, most
   visibly on the face, whichever way up it's read, and adds almost nothing to the
   clothing, so its sidecar sets `noNormalMap`.
-- The importer reads glTF's `MASK` cut-outs, but not its emissive maps, glass or
+- The model cooker reads glTF's `MASK` cut-outs, but not its emissive maps, glass or
   two-sided flags yet. Set those in the sidecar.
 - Foliage translucency is a constant in `surface.glsl`, and a material can't have both
   foliage and clearcoat, since they share a G-buffer channel.
-- Clips are sampled at 30 frames a second on import and blended linearly between
+- Clips are sampled at 30 frames a second when cooked and blended linearly between
   frames. Root motion only carries travel over the ground, not turns.
 - The adventurer model has 929,000 triangles, which suits a showcase more than a game. A
   game character would need a reduced version and levels of detail.
