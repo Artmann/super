@@ -38,25 +38,25 @@ public sealed class Clearing
     public Clearing(Content content)
     {
         var random = new Random(11);
-        var tallGrass = content.Model("props/grass-tall.rmodel");
-        var largeGrass = content.Model("props/grass-large.rmodel");
-        var fern = content.Model("props/fern.rmodel");
-        var shrub = content.Model("props/shrub.rmodel");
-        var nettle = content.Model("props/nettle.rmodel");
-        var flowers = new[] { content.Model("props/dandelion-a.rmodel"), content.Model("props/dandelion-b.rmodel") };
-        var periwinkles = new[] { content.Model("props/periwinkle-a.rmodel"), content.Model("props/periwinkle-b.rmodel") };
-        var mossyRocks = new[] { content.Model("props/mossy-rock-a.rmodel"), content.Model("props/mossy-rock-b.rmodel") };
-        var branches = content.Model("props/branches.rmodel");
-        var youngFir = content.Model("props/fir-young.rmodel");
-        var firs = new[] { content.Model("props/fir-tall.rmodel"), content.Model("props/fir-broad.rmodel"), youngFir };
+        var tallGrass = content.Model("props/grass_medium_01/grass_medium_01.gltf#tall");
+        var largeGrass = content.Model("props/grass_medium_01/grass_medium_01.gltf#large");
+        var fern = content.Model("props/fern_02/fern_02.gltf");
+        var shrub = content.Model("props/shrub_02/shrub_02.gltf");
+        var nettle = content.Model("props/nettle_plant/nettle_plant_1k.gltf");
+        var flowers = new[] { content.Model("props/dandelion_01/dandelion_01_1k.gltf#a"), content.Model("props/dandelion_01/dandelion_01_1k.gltf#b") };
+        var periwinkles = new[] { content.Model("props/periwinkle_plant/periwinkle_plant_1k.gltf#a"), content.Model("props/periwinkle_plant/periwinkle_plant_1k.gltf#b") };
+        var mossyRocks = new[] { content.Model("props/rock_moss_set_01/rock_moss_set_01_1k.gltf#a"), content.Model("props/rock_moss_set_01/rock_moss_set_01_1k.gltf#b") };
+        var branches = content.Model("props/dry_branches_medium_01/dry_branches_medium_01_1k.gltf");
+        var youngFir = content.Model("archer-props/firs.glb#young");
+        var firs = new[] { content.Model("archer-props/firs.glb#tall"), content.Model("archer-props/firs.glb#broad"), youngFir };
 
         AddGround(content);
 
         // The boulder is the larger mossy rock, sunk a little so it sits in the ground.
         _things.Add((mossyRocks[0], Matrix4x4.CreateScale(RockScale) * Matrix4x4.CreateRotationY(0.6f) * Matrix4x4.CreateTranslation(Rock), null));
-        _things.Add((content.Model("props/log.rmodel"), Matrix4x4.CreateScale(1.2f) * Matrix4x4.CreateRotationY(0.5f) * Matrix4x4.CreateTranslation(3.6f, -0.05f, 5.5f), null));
-        _things.Add((content.Model("props/stump.rmodel"), Matrix4x4.CreateRotationY(1.2f) * Matrix4x4.CreateTranslation(-9.5f, 0f, 12f), null));
-        _things.Add((content.Model("props/stump-b.rmodel"), Matrix4x4.CreateRotationY(2.4f) * Matrix4x4.CreateTranslation(8.5f, 0f, 14.5f), null));
+        _things.Add((content.Model("props/dead_tree_trunk/dead_tree_trunk.gltf"), Matrix4x4.CreateScale(1.2f) * Matrix4x4.CreateRotationY(0.5f) * Matrix4x4.CreateTranslation(3.6f, -0.05f, 5.5f), null));
+        _things.Add((content.Model("props/tree_stump_01/tree_stump_01.gltf"), Matrix4x4.CreateRotationY(1.2f) * Matrix4x4.CreateTranslation(-9.5f, 0f, 12f), null));
+        _things.Add((content.Model("props/tree_stump_02/tree_stump_02_1k.gltf"), Matrix4x4.CreateRotationY(2.4f) * Matrix4x4.CreateTranslation(8.5f, 0f, 14.5f), null));
         _things.Add((mossyRocks[0], Matrix4x4.CreateScale(0.45f) * Matrix4x4.CreateRotationY(1.9f) * Matrix4x4.CreateTranslation(-6.6f, -0.1f, 9.2f), null));
         _things.Add((mossyRocks[1], Matrix4x4.CreateScale(0.3f) * Matrix4x4.CreateRotationY(0.4f) * Matrix4x4.CreateTranslation(-7.4f, -0.05f, 6.2f), null));
 

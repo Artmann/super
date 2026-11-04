@@ -1,0 +1,5 @@
+{
+  "rules": [
+    { "match": "textures/*-normal.*", "texture": { "normalMap": true } }
+  ]
+}

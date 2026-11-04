@@ -104,8 +104,8 @@ internal sealed class ReefGame(World world, ReefSettings settings, GameRandom ra
 
     private void SpawnCoral(RandomStream stream)
     {
-        var coral = content.Model("reef/coral.rmodel");
-        var softCoral = content.Model("reef/softcoral.rmodel");
+        var coral = content.Model("reef/coral/coral.glb");
+        var softCoral = content.Model("reef/softcoral/softcoral.fbx");
         for (int cluster = 0; cluster < settings.CoralClusters; cluster++)
         {
             var center = stream.InsideCircle(settings.Radius * 1.3f);

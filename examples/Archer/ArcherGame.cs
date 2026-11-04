@@ -32,7 +32,7 @@ public sealed class ArcherGame(Content content, Director director, Input input) 
 
     public void Load()
     {
-        var rig = content.Rig("archer.rmodel");
+        var rig = content.Rig("archer/erika.fbx");
         rig.RootMotion("mixamorig:Hips");
         _controller = new AnimationController<Pose, Move>(rig) { CrossFadeSeconds = 0.2f }
             .State(Pose.Idle, rig.Clip("Idle"))
@@ -49,8 +49,8 @@ public sealed class ArcherGame(Content content, Director director, Input input) 
             .Action(Move.Cocky, rig.Clip("Cocky"), fadeSeconds: 0.3f);
 
         _clearing = new Clearing(content);
-        _dummyModel = content.Model("props/dummy.rmodel");
-        _arrowModel = content.Model("props/arrow.rmodel");
+        _dummyModel = content.Model("archer-props/dummy.glb");
+        _arrowModel = content.Model("archer-props/arrow.glb");
         Begin();
     }
 

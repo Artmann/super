@@ -3,7 +3,10 @@ obj/
 .vs/
 *.user
 *.spv
-assets/source/
-assets/cooked/
+assets/**
+!assets/**/
+!assets/cook.json
+!assets/**/*.cook.json
+!assets/README.md
 out/
 examples/Archer/content/textures/

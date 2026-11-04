@@ -188,7 +188,7 @@ change. It stops when stdin closes, so the game that started it ends it, or when
 ### One asset
 
 ```
-dotnet run --project tools/Super.Cook.Tool -- file --content assets/content models/fox.glb fox.rmodel
+dotnet run --project tools/Super.Cook.Tool -- file --content assets fox/fox.glb fox.rmodel
 ```
 
 `super-cook file --content dir name output` cooks the roots in memory and writes the bytes

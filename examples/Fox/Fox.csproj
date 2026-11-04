@@ -8,4 +8,10 @@
     <ProjectReference Include="..\..\src\Super\Super.csproj" />
   </ItemGroup>
 
+  <!-- The fox comes from the shared assets folder. -->
+  <Import Project="..\..\src\Super.Build\Super.targets" />
+  <ItemGroup>
+    <SuperContent Include="..\..\assets" />
+  </ItemGroup>
+
 </Project>

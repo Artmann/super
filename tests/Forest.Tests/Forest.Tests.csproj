@@ -16,9 +16,10 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
-  <!-- The game reads the same files in its tests. -->
+  <!-- The game reads the same cooked content in its tests. -->
+  <Import Project="..\..\src\Super.Build\Super.targets" />
   <ItemGroup>
-    <None Include="..\..\examples\Forest\content\**\*.json;..\..\examples\Forest\content\**\*.wav;..\..\examples\Forest\content\**\*.ogg" Exclude="..\..\examples\Forest\content\.schemas\**" LinkBase="content" CopyToOutputDirectory="PreserveNewest" />
+    <SuperContent Include="..\..\examples\Forest\content" />
   </ItemGroup>
 
 </Project>

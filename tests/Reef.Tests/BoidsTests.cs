@@ -178,8 +178,8 @@ public class BoidsTests
     {
         public override IReadOnlyList<Species> Species { get; } =
         [
-            new("reef/tilapia.rmodel", 0.5f, 300, 3, 1.6f, 3.2f, 0.7f, 2.5f),
-            new("reef/tuna.rmodel", 1.8f, 30, 1, 4.5f, 7f, 2.5f, 5f),
+            new("reef/tilapia/tilapia.glb", 0.5f, 300, 3, 1.6f, 3.2f, 0.7f, 2.5f),
+            new("reef/tuna/tuna.fbx", 1.8f, 30, 1, 4.5f, 7f, 2.5f, 5f),
         ];
 
         public override int CoralClusters => 2;

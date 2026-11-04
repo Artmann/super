@@ -126,7 +126,7 @@ A game names a model by its source's [name](content.md#names), the path from the
 content root:
 
 ```csharp
-readonly ModelRef coral = content.Model("reef/coral.glb");
+readonly ModelRef coral = content.Model("reef/coral/coral.glb");
 ```
 
 A name that wasn't cooked, or that isn't a model, stops with a `ContentException` when
@@ -137,10 +137,11 @@ nothing pops in; to show a loading screen instead, see
 [Game states](states.md#loading-screens). `ModelRef.Cube` and the other
 [built-in shapes](#built-in-shapes) need no file.
 
-The settings set the model's size and fixes up materials by name. Each rule
+The sidecar sets the model's size and fixes materials by name. Each rule
 applies to every material whose name contains `match`:
 
 ```json
+// models/fir.glb.cook.json
 {
   "targetLength": 6.0,
   "materials": [
@@ -168,6 +169,7 @@ its red becomes the colour texture's opacity. A texture a rule names that can't 
 stops the cook; one the model file links to only warns:
 
 ```json
+// props/fern_02/fern_02.gltf.cook.json
 {
   "node": "fern_02_a",
   "materials": [
@@ -177,8 +179,43 @@ stops the cook; one the model file links to only warns:
 ```
 
 `node` keeps only what's under the nodes whose name contains it, for files that hold
-several variants side by side, as Poly Haven's plant sets do. The import fails if no
+several variants side by side, as Poly Haven's plant sets do. The cook fails if no
 node with meshes matches. It's not for rigged models.
+
+To use several pieces of one file, list them as `parts`. Each part is cooked as its own
+model, named `file#part`, and takes every setting written beside `parts` unless it sets
+that one itself. A file with parts cooks only its parts:
+
+```json
+// props/dandelion_01/dandelion_01_1k.gltf.cook.json
+{
+  "materials": [
+    { "match": "dandelion_01", "alpha": "dandelion_01_alpha_1k.png", "alphaCutoff": 0.5, "foliage": true }
+  ],
+  "parts": {
+    "a": { "node": "dandelion_01_a" },
+    "b": { "node": "dandelion_01_b" }
+  }
+}
+```
+
+```csharp
+var flowers = new[] { content.Model("props/dandelion_01/dandelion_01_1k.gltf#a"), content.Model("props/dandelion_01/dandelion_01_1k.gltf#b") };
+```
+
+The textures a model uses are read while it cooks, so they don't need to be assets of
+their own. Turn cooking off for them with a rule in a [`cook.json`](content.md#rules-and-sidecars),
+as the shared `assets` folder does for Poly Haven's `textures` folders:
+
+```json
+// assets/cook.json
+{
+  "rules": [
+    { "match": "**/textures/**", "cook": false },
+    { "match": "reef/**/*.png", "cook": false }
+  ]
+}
+```
 
 Other options are the `baseColor`, `normal`, `surface` and `emissive` textures,
 `color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `twoSided`, `transparent`,
@@ -197,9 +234,12 @@ instanced draw, so a forest of one tree or a grid of tiles costs a few draws, no
 thousands. Only where each copy stands can differ. A different tint splits copies into
 separate draws but still works. Skinned models are drawn one at a time.
 
-Cooked assets aren't kept in git. The Reef models have their own license terms
-([CREDITS.md](../CREDITS.md)); with them in `assets/source/reef`, cook each one using the
-matching `assets/reef-*.materials.json`, then run `examples/Reef`.
+The Archer, Fox and Reef examples share their models through the `assets` folder at the
+top of the repository, which each lists as a content root. Only the `cook.json` files,
+the sidecars and its README are in git; the models themselves aren't, because of their
+licenses or their size ([CREDITS.md](../CREDITS.md)). [assets/README.md](../assets/README.md)
+says where each one comes from and the name to save it under. Without them the examples
+still build, and the missing models are reported when the game names them.
 
 ## Ghosts
 

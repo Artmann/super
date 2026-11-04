@@ -8,22 +8,23 @@ its shadow bends with it.
 `examples/Fox` is a working character: a walk-to-run blend driven by speed, an idle
 when it stops, and a head turn played over either. Put the Khronos
 [Fox.glb](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Fox) in
-`assets/source/fox` and cook it first. Models are cooked by `Super.Cook.Models` through
-the asset pipeline; the command to run it comes with the build integration.
+the shared assets folder as `assets/fox/fox.glb` (see [assets/README.md](../assets/README.md)),
+and the build cooks it.
 
 W and S, or up and down, change the pace, and Space or a click looks around.
 
 ## Importing a rigged model
 
 A rigged FBX or glTF goes through the same model cooker as any model (see
-[Rendering](rendering.md#models)). When a mesh has bones, the importer keeps the
+[Rendering](rendering.md#models)). When a mesh has bones, the cooker keeps the
 skeleton, the bone weights and every clip in the file, sampled at 30 frames a second.
 
 Mixamo and similar tools hand out one file per animation. List the extra files in the
-materials file, next to the model. Their clips are matched to the model's joints by
-name, so they must be from the same rig:
+model's `<file>.cook.json` sidecar, by their path from the model's folder. Their clips
+are matched to the model's joints by name, so they must be from the same rig:
 
 ```json
+// characters/hero.fbx.cook.json
 {
   "targetLength": 1.8,
   "animations": [
@@ -46,7 +47,7 @@ that joint.
 too, so you don't need `content.Model` for a character:
 
 ```csharp
-var rig = content.Rig("fox/Fox.glb");
+var rig = content.Rig("fox/fox.glb");
 
 ClipRef walk = rig.Clip("Walk");          // Throws, listing the clips, if there's none.
 BoneMask head = rig.Mask("b_Neck_04");    // This joint and everything under it.
