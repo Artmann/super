@@ -4,6 +4,7 @@
     <Project Path="src/Super.Random/Super.Random.csproj" />
     <Project Path="src/Super.Ecs/Super.Ecs.csproj" />
     <Project Path="src/Super.Cook/Super.Cook.csproj" />
+    <Project Path="src/Super.Cook.Models/Super.Cook.Models.csproj" />
     <Project Path="src/Super.Testing/Super.Testing.csproj" />
     <Project Path="src/Rendition/Rendition.csproj" />
     <Project Path="src/Rendition.Sample/Rendition.Sample.csproj" />
@@ -30,8 +31,5 @@
     <Project Path="tests/Super.Random.Tests/Super.Random.Tests.csproj" />
     <Project Path="tests/Super.Tests/Super.Tests.csproj" />
     <Project Path="tests/Terrain.Tests/Terrain.Tests.csproj" />
-  </Folder>
-  <Folder Name="/tools/">
-    <Project Path="tools/Rendition.Import/Rendition.Import.csproj" />
   </Folder>
 </Solution>

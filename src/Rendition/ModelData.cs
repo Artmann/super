@@ -37,7 +37,7 @@ public struct ModelPart
     public int Material;
 }
 
-/// <summary>The cooked form of a model, produced by tools/Rendition.Import.</summary>
+/// <summary>The cooked form of a model, produced by the model cooker in Super.Cook.Models.</summary>
 public sealed class ModelData
 {
     private const uint Magic = 0x4C444D52; // "RMDL"
@@ -93,6 +93,12 @@ public sealed class ModelData
 
     public void Write(string path)
     {
+        File.WriteAllBytes(path, ToBytes());
+    }
+
+    /// <summary>The bytes of a <c>.rmodel</c> file, as <see cref="Write"/> stores them.</summary>
+    public byte[] ToBytes()
+    {
         foreach (var clip in Clips)
         {
             if (Skeleton is null || clip.JointCount != Skeleton.Count)
@@ -102,7 +108,17 @@ public sealed class ModelData
             }
         }
 
-        using var writer = new BinaryWriter(File.Create(path), Encoding.UTF8);
+        var stream = new MemoryStream();
+        using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
+        {
+            WriteTo(writer);
+        }
+
+        return stream.ToArray();
+    }
+
+    private void WriteTo(BinaryWriter writer)
+    {
         writer.Write(Magic);
         writer.Write(Version);
 
@@ -151,8 +167,15 @@ public sealed class ModelData
 
     public static ModelData Read(string path)
     {
-        using var reader = new BinaryReader(new BufferedStream(File.OpenRead(path), 1 << 20), Encoding.UTF8);
-        var (skeleton, clips) = ReadRig(reader, path);
+        using var stream = new BufferedStream(File.OpenRead(path), 1 << 20);
+        return Read(stream, path);
+    }
+
+    /// <summary>Reads a model from <paramref name="stream"/>, which is left open. <paramref name="name"/> is only for messages.</summary>
+    public static ModelData Read(Stream stream, string name)
+    {
+        using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
+        var (skeleton, clips) = ReadRig(reader, name);
         var vertices = ReadArray<Vertex>(reader);
         var indices = ReadArray<uint>(reader);
         var parts = ReadArray<ModelPart>(reader);
@@ -187,15 +210,22 @@ public sealed class ModelData
     /// <summary>Reads only the skeleton and clips, which sit at the front of the file, so it's quick.</summary>
     public static (Skeleton? Skeleton, AnimationClip[] Clips) ReadRig(string path)
     {
-        using var reader = new BinaryReader(new BufferedStream(File.OpenRead(path), 1 << 16), Encoding.UTF8);
-        return ReadRig(reader, path);
+        using var stream = new BufferedStream(File.OpenRead(path), 1 << 16);
+        return ReadRig(stream, path);
     }
 
-    private static (Skeleton? Skeleton, AnimationClip[] Clips) ReadRig(BinaryReader reader, string path)
+    /// <summary>Reads only the skeleton and clips from <paramref name="stream"/>, which is left open. <paramref name="name"/> is only for messages.</summary>
+    public static (Skeleton? Skeleton, AnimationClip[] Clips) ReadRig(Stream stream, string name)
+    {
+        using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
+        return ReadRig(reader, name);
+    }
+
+    private static (Skeleton? Skeleton, AnimationClip[] Clips) ReadRig(BinaryReader reader, string name)
     {
         if (reader.ReadUInt32() != Magic || reader.ReadInt32() != Version)
         {
-            throw new InvalidDataException($"{path} is not a current model file. Re-run the importer.");
+            throw new InvalidDataException($"{name} is not a current model file. Cook it again.");
         }
 
         Skeleton? skeleton = null;
@@ -217,10 +247,10 @@ public sealed class ModelData
         var clips = new AnimationClip[reader.ReadInt32()];
         for (int i = 0; i < clips.Length; i++)
         {
-            string name = reader.ReadString();
+            string clipName = reader.ReadString();
             float frameRate = reader.ReadSingle();
             int jointCount = reader.ReadInt32();
-            clips[i] = new AnimationClip(name, frameRate, jointCount, ReadArray<JointPose>(reader));
+            clips[i] = new AnimationClip(clipName, frameRate, jointCount, ReadArray<JointPose>(reader));
         }
 
         return (skeleton, clips);

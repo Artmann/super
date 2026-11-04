@@ -1,11 +1,13 @@
 using Rendition;
 using StbImageSharp;
-using File = System.IO.File;
 
-namespace Rendition.Import;
+namespace Super.Cook.Models;
 
-/// <summary>Decodes source images, builds their mip chains, and removes duplicates.</summary>
-public sealed class TextureCooker(string sourceDirectory)
+/// <summary>
+/// Decodes a model's images, builds their mip chains, and removes duplicates. Images are
+/// read through <see cref="CookInput"/>, so a change to one cooks the model again.
+/// </summary>
+internal sealed class ModelTextures(CookInput input, CookOutput output, string prefix)
 {
     private readonly List<TextureData> _textures = [];
     private readonly Dictionary<string, int> _indices = new(StringComparer.OrdinalIgnoreCase);
@@ -18,13 +20,18 @@ public sealed class TextureCooker(string sourceDirectory)
     /// <summary>Registers an encoded image stored inside the model file, under the name its materials use.</summary>
     public void AddEmbedded(string name, byte[] encoded) => _embedded[name] = encoded;
 
-    /// <summary>Returns the index of the cooked texture, or -1 if there is none.</summary>
+    /// <summary>
+    /// Returns the index of the cooked texture, or -1 if there is none. A texture the model
+    /// file links to that isn't there is a warning. One named in the settings
+    /// (<paramref name="namedBy"/> is the material) is an error, since it's a mistake in them.
+    /// </summary>
     public int Add(
         string? fileName,
         TextureKind kind,
         bool isNormalMap = false,
         bool isGltfSurface = false,
-        string? alphaFile = null)
+        string? alphaFile = null,
+        string? namedBy = null)
     {
         if (fileName is null)
         {
@@ -40,6 +47,15 @@ public sealed class TextureCooker(string sourceDirectory)
         byte[]? encoded = Read(fileName);
         if (encoded is null)
         {
+            if (namedBy is not null)
+            {
+                output.Error($"{prefix}material {namedBy}: the texture {fileName} isn't beside the model or in a folder under it.");
+            }
+            else
+            {
+                output.Warning($"{prefix}missing texture {fileName}");
+            }
+
             return -1;
         }
 
@@ -51,7 +67,13 @@ public sealed class TextureCooker(string sourceDirectory)
 
         if (alphaFile is not null)
         {
-            byte[] alphaEncoded = Read(alphaFile) ?? throw new FileNotFoundException($"The alpha texture {alphaFile} isn't next to the model.");
+            byte[]? alphaEncoded = Read(alphaFile);
+            if (alphaEncoded is null)
+            {
+                output.Error($"{prefix}The alpha texture {alphaFile} isn't next to the model.");
+                return -1;
+            }
+
             var alpha = ImageResult.FromMemory(alphaEncoded, ColorComponents.RedGreenBlueAlpha);
             TakeAlpha(image, alpha);
         }
@@ -68,20 +90,24 @@ public sealed class TextureCooker(string sourceDirectory)
             return encoded;
         }
 
-        string path = Path.Combine(sourceDirectory, fileName);
-        if (!File.Exists(path))
+        // A name with a folder in it is a path from the model's folder. A bare name is looked
+        // for beside the model, then under it, since glTF files often keep their textures in
+        // a folder of their own, such as textures/.
+        string? relative = fileName.Contains('/') || fileName.Contains('\\') ? fileName : input.Find(fileName);
+        if (relative is not null)
         {
-            // glTF files often keep their textures in a folder of their own, such as textures/.
-            path = Directory.EnumerateFiles(sourceDirectory, fileName, SearchOption.AllDirectories).FirstOrDefault() ?? path;
+            try
+            {
+                return input.Read(relative);
+            }
+            catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
+            {
+            }
         }
 
-        if (!File.Exists(path))
-        {
-            Console.WriteLine($"  warning: missing texture {fileName}");
-            return null;
-        }
-
-        return File.ReadAllBytes(path);
+        // Track it anyway, so adding the file later cooks the model again.
+        input.Track(fileName);
+        return null;
     }
 
     // Puts the alpha image's red into the colour's alpha, sampling the nearest pixel when

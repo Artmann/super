@@ -1,9 +1,10 @@
 using System.Numerics;
+using Rendition;
 using Silk.NET.Assimp;
 using Assimp = Silk.NET.Assimp.Assimp;
 using Skeleton = Rendition.Skeleton;
 
-namespace Rendition.Import;
+namespace Super.Cook.Models;
 
 /// <summary>
 /// Reads the skeleton, bone weights and clips of a rigged scene. The joints are every
@@ -26,9 +27,11 @@ internal sealed unsafe class RigImporter
     // that hangs off a node without a skin can be placed and attached.
     private readonly List<(string Name, int Parent, Matrix4x4 Global, int Joint)> _nodes = [];
     private readonly Dictionary<int, int> _meshNode = [];
+    private readonly Action<string> _warn;
 
-    private RigImporter(Scene* scene)
+    private RigImporter(Scene* scene, Action<string> warn)
     {
+        _warn = warn;
         var boneNames = new HashSet<string>(StringComparer.Ordinal);
         for (uint m = 0; m < scene->MNumMeshes; m++)
         {
@@ -124,7 +127,8 @@ internal sealed unsafe class RigImporter
         return false;
     }
 
-    public static RigImporter Read(Scene* scene) => new(scene);
+    /// <param name="warn">Told about weights and clips that had to be dropped.</param>
+    public static RigImporter Read(Scene* scene, Action<string> warn) => new(scene, warn);
 
     /// <summary>
     /// The skeleton, with <paramref name="normalize"/> (the importer's scale, centring and
@@ -205,7 +209,7 @@ internal sealed unsafe class RigImporter
 
         if (dropped > 0)
         {
-            Console.WriteLine($"  note: {dropped} vertices of mesh {meshIndex} follow more than four joints; the weakest were dropped");
+            _warn($"{dropped} vertices of mesh {meshIndex} follow more than four joints; the weakest were dropped");
         }
     }
 
@@ -234,7 +238,7 @@ internal sealed unsafe class RigImporter
 
         if (matched == 0)
         {
-            Console.WriteLine($"  note: clip {name} moves no joint of this rig, so it's left out");
+            _warn($"clip {name} moves no joint of this rig, so it's left out");
             return null;
         }
 
@@ -254,7 +258,6 @@ internal sealed unsafe class RigImporter
             }
         }
 
-        Console.WriteLine($"  clip {name}: {seconds:0.00} s, {frameCount} frames, {matched} of {JointCount} joints move");
         return new AnimationClip(name, FrameRate, JointCount, frames);
     }
 

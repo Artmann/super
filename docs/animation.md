@@ -8,17 +8,14 @@ its shadow bends with it.
 `examples/Fox` is a working character: a walk-to-run blend driven by speed, an idle
 when it stops, and a head turn played over either. Put the Khronos
 [Fox.glb](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Fox) in
-`assets/source/fox` and cook it first:
-
-```
-dotnet run -c Release --project tools/Rendition.Import -- assets/source/fox/Fox.glb assets/fox.materials.json assets/cooked/fox.rmodel
-```
+`assets/source/fox` and cook it first. Models are cooked by `Super.Cook.Models` through
+the asset pipeline; the command to run it comes with the build integration.
 
 W and S, or up and down, change the pace, and Space or a click looks around.
 
 ## Importing a rigged model
 
-A rigged FBX or glTF goes through the same import tool as any model (see
+A rigged FBX or glTF goes through the same model cooker as any model (see
 [Rendering](rendering.md#models)). When a mesh has bones, the importer keeps the
 skeleton, the bone weights and every clip in the file, sampled at 30 frames a second.
 
