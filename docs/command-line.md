@@ -180,9 +180,10 @@ is always safe: the next cook makes it again.
 
 `--watch` cooks once, then watches every root and its folders. When the files have been
 quiet for a tenth of a second it cooks again, printing problems the same way, then
-`Cooked.` or `Not cooked: 1 errors.` A failed cook keeps the old manifest. A file another
-program has open, such as an editor in the middle of saving, is tried again after the same
-wait. It stops when stdin closes, so the game that started it ends it, or when it's killed.
+`Cooked.` or `Not cooked: 1 errors.` A failed cook keeps the old manifest. On Windows, a
+file another program has open, such as an editor in the middle of saving, is tried again
+after the same wait. Any other failure prints `Not cooked:` and why, and waits for the next
+change. It stops when stdin closes, so the game that started it ends it, or when it's killed.
 
 ### One asset
 
@@ -212,6 +213,10 @@ After the build, the cooked content is in `bin/<config>/content` and `content.de
 is beside it. Cook errors are build errors with file and line. `SuperTarget` picks the
 target, `desktop` by default. `dotnet publish` copies `content` beside the program and
 leaves `content.dev.json` out, so a shipped game never thinks it's running from source.
+
+The build restores and builds `super-cook` itself, for the machine doing the build, so a
+fresh clone needs nothing first and `dotnet publish -r linux-x64` still cooks on Windows.
+Every game in one build shares the one tool build.
 
 ## Planned
 

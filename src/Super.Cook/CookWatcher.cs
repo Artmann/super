@@ -114,11 +114,18 @@ public sealed class CookWatcher : IDisposable
                 int errors = result.Problems.Count(problem => problem.IsError);
                 _log.WriteLine(errors == 0 ? "Cooked." : $"Not cooked: {errors} errors.");
             }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            catch (Exception exception) when (CookPipeline.InUse(exception))
             {
-                // Usually another program, an editor or the game, has a file open for a moment.
+                // Another program, an editor or the game, has a file open for a moment. The check only
+                // recognises Windows' sharing and lock violations; other systems don't lock files this way.
                 _log.WriteLine($"Not cooked: {exception.Message} Trying again.");
                 _timer.Change(_quiet, Timeout.InfiniteTimeSpan);
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                // Anything else won't fix itself by waiting, so the next change tries again. Letting it
+                // out would end the process from the timer's thread.
+                _log.WriteLine($"Not cooked: {exception.Message}");
             }
         }
     }

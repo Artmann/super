@@ -155,6 +155,7 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
     /// the source, so it isn't reported as one: the <see cref="IOException"/> leaves
     /// <see cref="Cook"/> and the caller can try again.
     /// </summary>
+    /// <remarks>Windows only: it knows Windows' sharing and lock violations. Other systems don't lock files against reading.</remarks>
     internal static bool InUse(Exception exception)
     {
         const int SharingViolation = 32;

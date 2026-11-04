@@ -17,6 +17,11 @@
   <PropertyGroup>
     <SuperTarget Condition="'$(SuperTarget)' == ''">desktop</SuperTarget>
     <SuperCookProject>$(MSBuildThisFileDirectory)..\..\tools\Super.Cook.Tool\Super.Cook.Tool.csproj</SuperCookProject>
+    <!--
+      Properties set on the game's own build, such as by dotnet publish -r win-x64, that would otherwise
+      reach the tool. The tool always builds the same way, for the machine doing the build.
+    -->
+    <_SuperCookRemovedProperties>TargetFramework;TargetFrameworks;RuntimeIdentifier;RuntimeIdentifiers;SelfContained;_CommandLineDefinedRuntimeIdentifier;_CommandLineDefinedSelfContained;_IsPublishing;PublishDir;PublishProfile;PublishSingleFile;PublishTrimmed;PublishReadyToRun;PublishAot;OutDir;OutputPath;BaseOutputPath;IntermediateOutputPath;BaseIntermediateOutputPath;NoBuild;PlatformTarget</_SuperCookRemovedProperties>
   </PropertyGroup>
 
   <Target Name="SuperCook" AfterTargets="Build">
@@ -24,20 +29,27 @@
     <ItemGroup>
       <_SuperRoot Include="@(SuperContent)" />
       <_SuperRoot Include="$(MSBuildProjectDirectory)\content" Condition="'@(SuperContent)' == '' and Exists('$(MSBuildProjectDirectory)\content')" />
+      <!-- A trailing slash, as in Include="content\", would escape the closing quote on the Windows command line. -->
+      <_SuperRoot>
+        <Folder>$([System.String]::Copy('%(FullPath)').TrimEnd('\').TrimEnd('/'))</Folder>
+      </_SuperRoot>
     </ItemGroup>
 
     <!--
       Every project that imports this asks for the same project with the same properties, so in a
-      build of many games MSBuild builds the tool once and the others wait for it rather than race.
+      build of many games MSBuild restores and builds the tool once and the others wait rather than race.
+      A game's own restore doesn't cover the tool, so it's restored here. ExcludeRestorePackageImports
+      is what restore is normally evaluated with, and keeps that evaluation apart from the build's.
     -->
-    <MSBuild Projects="$(SuperCookProject)" Targets="Build" Properties="Configuration=$(Configuration)" Condition="'@(_SuperRoot)' != ''" />
-    <MSBuild Projects="$(SuperCookProject)" Targets="GetTargetPath" Properties="Configuration=$(Configuration)" Condition="'@(_SuperRoot)' != ''">
+    <MSBuild Projects="$(SuperCookProject)" Targets="Restore" Properties="Configuration=$(Configuration);ExcludeRestorePackageImports=true" RemoveProperties="$(_SuperCookRemovedProperties)" Condition="'@(_SuperRoot)' != ''" />
+    <MSBuild Projects="$(SuperCookProject)" Targets="Build" Properties="Configuration=$(Configuration)" RemoveProperties="$(_SuperCookRemovedProperties)" Condition="'@(_SuperRoot)' != ''" />
+    <MSBuild Projects="$(SuperCookProject)" Targets="GetTargetPath" Properties="Configuration=$(Configuration)" RemoveProperties="$(_SuperCookRemovedProperties)" Condition="'@(_SuperRoot)' != ''">
       <Output TaskParameter="TargetOutputs" PropertyName="_SuperCookTool" />
     </MSBuild>
 
     <!-- Each cook error is a line MSBuild turns into a build error with file and line, so the exit code only matters when there were none. -->
     <Exec Condition="'@(_SuperRoot)' != ''" IgnoreExitCode="true" ConsoleToMSBuild="true" StandardErrorImportance="high"
-          Command="dotnet &quot;$(_SuperCookTool)&quot; @(_SuperRoot->'--content &quot;%(FullPath)&quot;', ' ') --out &quot;$(OutDir)content&quot; --target $(SuperTarget) --dev-file &quot;$(OutDir)content.dev.json&quot;">
+          Command="dotnet &quot;$(_SuperCookTool)&quot; @(_SuperRoot->'--content &quot;%(Folder)&quot;', ' ') --out &quot;$(OutDir)content&quot; --target $(SuperTarget) --dev-file &quot;$(OutDir)content.dev.json&quot;">
       <Output TaskParameter="ExitCode" PropertyName="_SuperCookExit" />
       <Output TaskParameter="ConsoleOutput" PropertyName="_SuperCookOutput" />
     </Exec>

@@ -150,6 +150,100 @@ public sealed class WatcherTests : IDisposable
         Until(() => Manifest().Assets.ContainsKey("items/sword.json"), "the retry to cook the sword");
     }
 
+    [Fact]
+    public void File_in_use_while_writing_is_tried_again_after_quiet()
+    {
+        var clock = new ManualClock();
+        var inUse = new IOException("The manifest is open in the game.", unchecked((int)0x80070020));
+        using var watcher = new CookWatcher(_pipeline, [new FolderRoot(_content)], new FailingStore(_store, inUse), _log, Quiet, clock);
+
+        clock.Timer.Fire();
+
+        Assert.Contains("Not cooked: The manifest is open in the game. Trying again.", _log.Text);
+        Assert.Equal(Quiet, clock.Timer.Due);
+    }
+
+    [Fact]
+    public void Error_that_waiting_wont_fix_is_logged_and_waits_for_the_next_change()
+    {
+        var clock = new ManualClock();
+        using var watcher = new CookWatcher(_pipeline, [new FolderRoot(_content)], new FailingStore(_store, new IOException("The disk is full.")), _log, Quiet, clock);
+
+        clock.Timer.Fire();
+
+        Assert.Contains("Not cooked: The disk is full.", _log.Text);
+        Assert.DoesNotContain("Trying again", _log.Text);
+        Assert.Equal(Timeout.InfiniteTimeSpan, clock.Timer.Due);
+    }
+
+    /// <summary>A store whose commit always throws, standing in for a manifest that can't be replaced.</summary>
+    private sealed class FailingStore(ICookedStore inner, Exception failure) : ICookedStore
+    {
+        public bool Has(string hash) => inner.Has(hash);
+
+        public void Put(string hash, byte[] bytes) => inner.Put(hash, bytes);
+
+        public byte[] Get(string hash) => inner.Get(hash);
+
+        public void Commit(ContentManifest manifest) => throw failure;
+    }
+
+    /// <summary>A clock whose one timer only fires when the test says so, and remembers when it was last set to fire.</summary>
+    private sealed class ManualClock : TimeProvider
+    {
+        public ManualTimer Timer { get; private set; } = null!;
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            Timer = new ManualTimer(() => callback(state), dueTime);
+            return Timer;
+        }
+    }
+
+    private sealed class ManualTimer(Action callback, TimeSpan due) : ITimer
+    {
+        private readonly object _gate = new();
+        private TimeSpan _due = due;
+
+        public TimeSpan Due
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _due;
+                }
+            }
+        }
+
+        /// <summary>Runs the callback now, as the real timer does when it comes due.</summary>
+        public void Fire()
+        {
+            lock (_gate)
+            {
+                _due = Timeout.InfiniteTimeSpan;
+            }
+
+            callback();
+        }
+
+        public bool Change(TimeSpan dueTime, TimeSpan period)
+        {
+            lock (_gate)
+            {
+                _due = dueTime;
+            }
+
+            return true;
+        }
+
+        public void Dispose()
+        {
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
     /// <summary>A log the watcher's thread can write while the test reads it.</summary>
     private sealed class LockedLog : TextWriter
     {
