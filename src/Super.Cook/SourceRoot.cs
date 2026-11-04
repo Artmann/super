@@ -135,8 +135,9 @@ public static class Sources
                     string target = name[..^".cook.json".Length];
                     if (!all.Contains(target))
                     {
+                        // A warning, so a clone without sources that stay out of git, such as licensed models, still builds.
                         problems.Add(new CookProblem(Describe(root, name), null,
-                            $"The sidecar {name} sits beside {target}, which doesn't exist in {root.Label}.", true));
+                            $"No source file {target}; skipped.", false));
                     }
 
                     continue;

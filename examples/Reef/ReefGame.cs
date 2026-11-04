@@ -38,7 +38,7 @@ internal sealed class ReefGame(World world, ReefSettings settings, GameRandom ra
     public void Load()
     {
         var species = settings.Species;
-        _fishModels = species.Select(kind => content.Model(kind.Model)).ToArray();
+        _fishModels = species.Select(kind => settings.Model(content, kind.Model)).ToArray();
         _seabed = content.Mesh(Seabed.CreateMesh(random.Stream("sand")));
 
         SpawnCoral(random.Stream("coral"));
@@ -104,8 +104,8 @@ internal sealed class ReefGame(World world, ReefSettings settings, GameRandom ra
 
     private void SpawnCoral(RandomStream stream)
     {
-        var coral = content.Model("reef/coral/coral.glb");
-        var softCoral = content.Model("reef/softcoral/softcoral.fbx");
+        var coral = settings.Model(content, settings.Coral);
+        var softCoral = settings.Model(content, settings.SoftCoral);
         for (int cluster = 0; cluster < settings.CoralClusters; cluster++)
         {
             var center = stream.InsideCircle(settings.Radius * 1.3f);

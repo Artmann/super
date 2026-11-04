@@ -1,5 +1,6 @@
 using System.Numerics;
 using Microsoft.Extensions.DependencyInjection;
+using Super;
 using Super.Ecs;
 using Super.Testing;
 
@@ -183,5 +184,8 @@ public class BoidsTests
         ];
 
         public override int CoralClusters => 2;
+
+        // Built-in shapes stand in for the licensed models, which a fresh clone doesn't have.
+        public override ModelRef Model(Content content, string name) => name == Coral || name == SoftCoral ? ModelRef.Cylinder : ModelRef.Capsule;
     }
 }

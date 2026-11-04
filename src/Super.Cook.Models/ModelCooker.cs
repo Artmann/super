@@ -30,7 +30,7 @@ public sealed class ModelCooker : ICooker
 
     public string Id => "model";
 
-    public int Version => 1;
+    public int Version => 2; // 2: "has no UVs" warns only when the material uses a texture.
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -237,7 +237,8 @@ public sealed class ModelCooker : ICooker
             {
                 var mesh = scene->MMeshes[m];
                 meshVertices.Add(((int)mesh->MMaterialIndex, vertices.Count, (int)mesh->MNumVertices));
-                if (mesh->MTextureCoords[0] == null || mesh->MNormals == null || mesh->MTangents == null)
+                // Without UVs every texel read lands on one corner. A material with no textures doesn't care.
+                if (mesh->MTextureCoords[0] == null && SamplesTexture(materials[(int)mesh->MMaterialIndex]))
                 {
                     output.Warning($"{prefix}mesh {m} ({mesh->MName.AsString}) has no UVs; using a flat tangent frame");
                 }
@@ -388,6 +389,12 @@ public sealed class ModelCooker : ICooker
         var scene = assimp.ImportFileExWithProperties(path, (uint)steps, null, properties);
         assimp.ReleasePropertyStore(properties);
         return scene;
+    }
+
+    private static bool SamplesTexture(ModelMaterial material)
+    {
+        return material.BaseColorTexture >= 0 || material.NormalTexture >= 0
+            || material.SurfaceTexture >= 0 || material.EmissiveTexture >= 0;
     }
 
     private static void AddClip(List<AnimationClip> clips, AnimationClip? clip)

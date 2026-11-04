@@ -16,10 +16,4 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
-  <!-- The game reads the same cooked content in its tests. -->
-  <Import Project="..\..\src\Super.Build\Super.targets" />
-  <ItemGroup>
-    <SuperContent Include="..\..\assets" />
-  </ItemGroup>
-
 </Project>

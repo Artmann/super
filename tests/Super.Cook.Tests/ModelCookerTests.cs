@@ -185,6 +185,37 @@ public sealed class ModelCookerTests : IDisposable
     }
 
     [Fact]
+    public void Mesh_without_uvs_and_without_textures_cooks_without_warnings()
+    {
+        string src = Temp();
+        TinyGltf.Write(src, "a.gltf", "bark", ["a"]);
+
+        var (result, _) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Empty(result.Problems);
+    }
+
+    [Fact]
+    public void Mesh_without_uvs_whose_material_samples_a_texture_warns_naming_the_mesh()
+    {
+        string src = Temp();
+        TinyGltf.Write(src, "a.gltf", "bark", ["trunk"]);
+        File.WriteAllBytes(Path.Combine(src, "bark.png"), Png());
+        File.WriteAllText(Path.Combine(src, "cook.json"),
+            "{ \"rules\": [ { \"match\": \"*.png\", \"cook\": false } ] }");
+        File.WriteAllText(Path.Combine(src, "a.gltf.cook.json"),
+            "{ \"materials\": [ { \"match\": \"bark\", \"baseColor\": \"bark.png\" } ] }");
+
+        var (result, _) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var warning = Assert.Single(result.Problems);
+        Assert.False(warning.IsError);
+        Assert.Equal("mesh 0 (trunk) has no UVs; using a flat tangent frame", warning.Message);
+    }
+
+    [Fact]
     public void Changing_the_gltf_buffer_cooks_again()
     {
         string src = Temp();

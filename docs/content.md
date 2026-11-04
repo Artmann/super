@@ -217,7 +217,9 @@ linear, and its mips stay unit length). These settings are why `content.Texture`
 only a name: the kind is in the cooked texture. A file named `<source>.cook.json` beside
 a source holds settings for that one file and beats every rule. Models keep their import
 settings there; see [Rendering](rendering.md#models). An unknown setting is a cook error,
-so a typo can't drop one silently. Neither `cook.json` nor `*.cook.json` is an asset.
+so a typo can't drop one silently. A sidecar whose source isn't there is only a warning,
+`No source file <name>; skipped.`, so a clone without sources kept out of git, such as
+licensed models, still builds. Neither `cook.json` nor `*.cook.json` is an asset.
 
 ### Parts
 
