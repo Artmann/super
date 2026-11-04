@@ -94,6 +94,71 @@ public sealed class Rig
     }
 
     /// <summary>
+    /// An arm or a leg, for <see cref="AnimationPose.Reach(Limb, Vector3, float, Vector3)"/>: the shoulder,
+    /// elbow and wrist, or hip, knee and ankle. Each must be under the one before. The
+    /// <paramref name="tip"/> is what's carried to the goal, such as the joint a sword hangs
+    /// from; it's the end itself when left out, and must be the end or under it.
+    /// </summary>
+    public Limb Limb(string upper, string lower, string end, string? tip = null)
+    {
+        int Find(string name)
+        {
+            int joint = Skeleton.IndexOf(name);
+            return joint >= 0
+                ? joint
+                : throw new ArgumentException($"The rig has no joint called {name}. It has: {string.Join(", ", Skeleton.Names)}.", nameof(upper));
+        }
+
+        int u = Find(upper), l = Find(lower), e = Find(end), t = tip is null ? e : Find(tip);
+        Under(l, u, lower, upper);
+        Under(e, l, end, lower);
+        if (t != e)
+        {
+            Under(t, e, tip!, end);
+        }
+
+        return new Limb(this, u, l, e, t);
+    }
+
+    private void Under(int joint, int above, string name, string aboveName)
+    {
+        for (int i = Skeleton.Parents[joint]; i >= 0; i = Skeleton.Parents[i])
+        {
+            if (i == above)
+            {
+                return;
+            }
+        }
+
+        throw new ArgumentException($"A limb's joints must each be under the one before, but {name} isn't under {aboveName}.");
+    }
+
+    /// <summary>
+    /// Where a joint is in the model at a moment of a clip, played alone: the hand at the
+    /// height of a swing, say, for working out where a blow will land before it's played.
+    /// It works the whole skeleton out, so it's for planning rather than every frame.
+    /// </summary>
+    public Matrix4x4 Joint(ClipRef clip, float seconds, string joint)
+    {
+        Check(clip);
+        int index = Skeleton.IndexOf(joint);
+        if (index < 0)
+        {
+            throw new ArgumentException($"The rig has no joint called {joint}. It has: {string.Join(", ", Skeleton.Names)}.", nameof(joint));
+        }
+
+        var locals = new JointPose[Skeleton.Count];
+        Clips[clip.Index].Sample(seconds, locals);
+        var globals = new Matrix4x4[index + 1];
+        for (int i = 0; i <= index; i++)
+        {
+            globals[i] = Skeleton.Parents[i] >= 0 ? locals[i].Matrix * globals[Skeleton.Parents[i]] : locals[i].Matrix;
+        }
+
+        return globals[index] * Skeleton.RootTransform;
+    }
+
+    /// <summary>
     /// A motion that picks between clips by a number, such as speed: at 1.5 the walk,
     /// at 4 the run, and a mix between. The clips play in step, so feet keep landing
     /// together. Points must rise.

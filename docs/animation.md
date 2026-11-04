@@ -122,6 +122,7 @@ state. With the ECS, even that goes away; see below.
 | `Stop(action)` | Ends an action early |
 | `IsPlaying(action)` | Whether an action is still playing. It ends when its clip does |
 | `Crossed(action, seconds)` | True on the one tick an action passed that moment of its clip |
+| `TimeOf(action)` | How far into its clip an action is, in seconds, as of the last tick, or null when it isn't playing |
 | `Speed` | How fast everything plays, 1 by default. 0 holds the character still, such as while the game is paused |
 | `Pose` | What to draw, for `view.Model(key, model, transform, pose)` when you pick the model yourself |
 
@@ -196,7 +197,12 @@ var arrow = new Arrow(nock.Translation, direction);
 ```
 
 An unknown name throws, listing the joints the rig has. It's worked out once per tick,
-however often you ask.
+however often you ask, and again if the pose's joints are turned or reached since.
+
+To plan ahead, `rig.Joint(clip, seconds, name)` says where a joint is at a moment of a
+clip played alone, in the same model space: where the sword will be at the height of a
+swing, say, before the swing is played. It works out the whole skeleton each time, so
+it's for searching a clip once, not for every frame.
 
 ## Setting joints yourself
 
@@ -222,6 +228,33 @@ A set joint stays until it's set again or `pose.ClearJoints()` hands every joint
 the clips. `Clear()` only takes away the layers. It works on an animator's pose too
 (`animator.Pose`), so IK can go over a walk clip. The skeleton's `Rest`, `Parents` and
 `Names` give what's needed to work out where joints are in the model.
+
+**Turns.** `pose.Turn(joint, turn)` swings a joint, and everything under it, about the
+joint itself, by a turn in the model's space, on top of what the clips give. A struck
+body bending back, or a head turned to look, is a turn shared along a few joints. Turns
+go on in order down the skeleton, so turning the waist and the chest each by half bends
+the back by the whole. `Quaternion.Identity` takes the turn away.
+
+**Reaching.** `pose.Reach(limb, goal)` bends an arm or a leg so its end reaches a point
+in the model's space, solved after the clips, set joints and turns. Name the limb once
+from the rig, upper to lower to end, with the joint that's carried to the goal if it
+isn't the end:
+
+```csharp
+var arm = rig.Limb("R_shoulder", "R_elbow", "R_wrist", tip: "R_sword");
+
+// A point on the blade, in the sword joint's own units, brought to where the blow lands.
+animator.Pose.Reach(arm, goalInModel, weight, point: new Vector3(80f, 0f, 0f));
+```
+
+The hand keeps the turn the clip gives it, so a sword is brought over without twisting,
+and the elbow stays bent the way the clip bends it. A goal out of reach straightens the
+limb towards it. `weight` mixes from the clip at 0 to the goal at 1; easing it in and out
+around a moment, read from `animator.TimeOf(action)` and the view's blend, lands a swing
+on its mark and lets it go on. A reach on the same limb replaces the last, weight 0 takes
+it away, and `ClearJoints()` takes away turns and reaches too. Like set joints, turns and
+reaches aren't moved ahead between ticks, so set them in Draw from blended values; the
+clips under them still are.
 
 ## With the ECS
 

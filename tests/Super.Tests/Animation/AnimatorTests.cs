@@ -248,6 +248,22 @@ public class AnimatorTests
     }
 
     [Fact]
+    public void An_action_says_how_far_into_its_clip_it_is_while_it_plays()
+    {
+        var animator = Controller().Start(Stance.Idle);
+        Assert.Null(animator.TimeOf(Deed.Wave));
+
+        animator.Play(Deed.Wave);
+        Assert.Equal(0f, animator.TimeOf(Deed.Wave));
+
+        animator.Advance(0.25f);
+        Assert.Equal(0.25f, animator.TimeOf(Deed.Wave)!.Value, Tolerance);
+
+        animator.Advance(10f);
+        Assert.Null(animator.TimeOf(Deed.Wave));
+    }
+
+    [Fact]
     public void Crossed_is_false_for_an_action_never_played()
     {
         var animator = Controller().Start(Stance.Idle);

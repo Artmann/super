@@ -32,6 +32,7 @@ public sealed class Animator
     private JointPose[]? _locals;
     private JointPose[]? _scratch;
     private bool _jointsFresh;
+    private int _jointsVersion;
 
     internal Animator(AnimationControllerBase controller, int state)
     {
@@ -106,8 +107,9 @@ public sealed class Animator
         }
 
         var skeleton = Rig.Skeleton;
-        if (!_jointsFresh || _joints is null)
+        if (!_jointsFresh || _joints is null || _jointsVersion != Pose.Version)
         {
+            _jointsVersion = Pose.Version;
             _joints ??= new Matrix4x4[skeleton.Count];
             _locals ??= new JointPose[skeleton.Count];
             _scratch ??= new JointPose[skeleton.Count];
@@ -194,6 +196,18 @@ public sealed class Animator
         CheckAction<TAction>();
         int index = Index(action);
         return index < _actions.Length && _actions[index].Playing;
+    }
+
+    /// <summary>
+    /// How far into its clip an action is, in seconds of the clip, as of the last tick, or
+    /// null when it isn't playing. Between ticks the drawn pose is further on, by the view's
+    /// blend times the tick, times <see cref="Speed"/> and the action's own speed.
+    /// </summary>
+    public float? TimeOf<TAction>(TAction action) where TAction : struct, Enum
+    {
+        CheckAction<TAction>();
+        int index = Index(action);
+        return index < _actions.Length && _actions[index].Playing ? _actions[index].Time : null;
     }
 
     /// <summary>
