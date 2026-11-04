@@ -49,8 +49,9 @@ public sealed class CookInput
     public byte[] Read(string relative)
     {
         string name = Resolve(relative);
+        byte[] bytes = _file.Root.Read(name);
         Track(relative);
-        return _file.Root.Read(name);
+        return bytes;
     }
 
     /// <summary>Looks for a file beside the source, then in every folder under it.</summary>
@@ -77,21 +78,34 @@ public sealed class CookInput
     /// <summary>Records a file the cooker opened some other way, so a change to it counts as a change to this source.</summary>
     public void Track(string relative)
     {
-        if (!_inputs.Contains(relative, StringComparer.Ordinal))
+        string normal = Normalise(_file.Name, relative);
+        if (!_inputs.Contains(normal, StringComparer.Ordinal))
         {
-            _inputs.Add(relative);
+            _inputs.Add(normal);
         }
     }
 
     private string Folder()
     {
-        int slash = _file.Name.LastIndexOf('/');
-        return slash < 0 ? "" : _file.Name[..(slash + 1)];
+        return FolderOf(_file.Name);
+    }
+
+    private static string FolderOf(string sourceName)
+    {
+        int slash = sourceName.LastIndexOf('/');
+        return slash < 0 ? "" : sourceName[..(slash + 1)];
     }
 
     private string Resolve(string relative)
     {
-        var parts = new List<string>(Folder().Split('/', StringSplitOptions.RemoveEmptyEntries));
+        return ResolveName(_file.Name, relative)
+            ?? throw new FileNotFoundException($"{relative} leaves the source root of {_file.Name}.", relative);
+    }
+
+    /// <summary>The name in the root that <paramref name="relative"/> stands for beside <paramref name="sourceName"/>, or null when it leaves the root.</summary>
+    internal static string? ResolveName(string sourceName, string relative)
+    {
+        var parts = new List<string>(FolderOf(sourceName).Split('/', StringSplitOptions.RemoveEmptyEntries));
         foreach (string part in relative.Replace('\\', '/').Split('/'))
         {
             if (part is "" or ".")
@@ -103,7 +117,7 @@ public sealed class CookInput
             {
                 if (parts.Count == 0)
                 {
-                    throw new FileNotFoundException($"{relative} leaves the source root of {_file.Name}.", relative);
+                    return null;
                 }
 
                 parts.RemoveAt(parts.Count - 1);
@@ -115,5 +129,32 @@ public sealed class CookInput
         }
 
         return string.Join('/', parts);
+    }
+
+    /// <summary>The shortest path from the source's folder to <paramref name="relative"/>, with forward slashes.</summary>
+    private static string Normalise(string sourceName, string relative)
+    {
+        string? name = ResolveName(sourceName, relative);
+        if (name is null)
+        {
+            return relative.Replace('\\', '/');
+        }
+
+        string[] folder = FolderOf(sourceName).Split('/', StringSplitOptions.RemoveEmptyEntries);
+        string[] target = name.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        int common = 0;
+        while (common < folder.Length && common < target.Length - 1 && folder[common] == target[common])
+        {
+            common++;
+        }
+
+        var result = new List<string>();
+        for (int i = common; i < folder.Length; i++)
+        {
+            result.Add("..");
+        }
+
+        result.AddRange(target[common..]);
+        return string.Join('/', result);
     }
 }
