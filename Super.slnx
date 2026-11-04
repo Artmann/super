@@ -3,6 +3,7 @@
     <Project Path="src/Super/Super.csproj" />
     <Project Path="src/Super.Random/Super.Random.csproj" />
     <Project Path="src/Super.Ecs/Super.Ecs.csproj" />
+    <Project Path="src/Super.Cook/Super.Cook.csproj" />
     <Project Path="src/Super.Testing/Super.Testing.csproj" />
     <Project Path="src/Rendition/Rendition.csproj" />
     <Project Path="src/Rendition.Sample/Rendition.Sample.csproj" />
@@ -24,6 +25,7 @@
     <Project Path="tests/Forest.Tests/Forest.Tests.csproj" />
     <Project Path="tests/Reef.Tests/Reef.Tests.csproj" />
     <Project Path="tests/Rooms.Tests/Rooms.Tests.csproj" />
+    <Project Path="tests/Super.Cook.Tests/Super.Cook.Tests.csproj" />
     <Project Path="tests/Super.Ecs.Tests/Super.Ecs.Tests.csproj" />
     <Project Path="tests/Super.Random.Tests/Super.Random.Tests.csproj" />
     <Project Path="tests/Super.Tests/Super.Tests.csproj" />
