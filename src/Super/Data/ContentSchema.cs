@@ -40,7 +40,7 @@ internal static class ContentSchema
     private static JsonNode Describe(JsonSchemaExporterContext context, JsonNode node)
     {
         var type = context.TypeInfo.Type;
-        if (type == typeof(ModelRef) || (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Ref<>)))
+        if (type == typeof(ModelRef) || type == typeof(Rig) || (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Ref<>)))
         {
             return new JsonObject { ["type"] = "string" };
         }

@@ -54,6 +54,9 @@ BoneMask head = rig.Mask("b_Neck_04");    // This joint and everything under it.
 Motion pace = rig.Blend((walk, 0.6f), (rig.Clip("Run"), 2.4f));
 ```
 
+A [content record](content.md) can hold a `Rig` field too, written as the model's name, so
+which model a character animates lives in its file beside the rest of its data.
+
 A **mask** limits an action to part of the body: the upper body for shooting while the
 legs keep walking, or an arm for a wave. A **blend** picks between clips by a number,
 such as speed. Between two points it mixes the two clips, and beyond the ends it plays

@@ -28,6 +28,21 @@ Each file is one record, and every record needs a string `Id`. Fields are writte
 camelCase. A field with a default value in the record is optional, and the rest are
 required. A `ModelRef` is written as the model's [name](#names), such as `models/axe.glb`.
 
+A `Rig` is written the same way, for a model that's animated. It's read through
+`content.Rig`, so every record naming that model shares one rig, and it stays the same
+object through a [reload](#change-it-while-the-game-runs):
+
+```json
+// content/heroes/knight.json
+{ "id": "knight", "rig": "characters/knight.glb", "walkClipSpeed": 1.55 }
+```
+
+```csharp
+public record Hero(string Id, Rig Rig, float WalkClipSpeed);
+
+var walk = heroes["knight"].Rig.Clip("Walk");
+```
+
 A `Curve` is written as keys or as an easing, so a designer can shape motion in a file
 and tune it while the game runs:
 
@@ -90,6 +105,15 @@ instead, is reported with the file and line:
 items/axe.json:5: model models/ax.glb isn't in the cooked content. Check the name, including its case and extension.
 items/axe.json:5: model items/axe.json is a data, not a model.
 ```
+
+A rig must also name a model cooked with a skeleton:
+
+```
+heroes/knight.json:3: rig props/crate.glb was cooked without a skeleton, so it has no rig to animate.
+```
+
+A reference to a record that has mistakes of its own reports only those mistakes, not
+the reference too, so one typo gives one line.
 
 JSON that doesn't parse never gets this far: it fails the [cook](#cooking), which names
 the file and line.
@@ -257,7 +281,7 @@ run.ContentChanged();
 run.Ticks(1);
 ```
 
-A model added with `AddModel` can be named but not drawn. To read a game's real content,
+A model added with `AddModel` can be named but not drawn, and has no rig, so a `Rig` field can't name it. To read a game's real content,
 give the test a `CookedFolder` over its cooked output.
 
 ## Planned

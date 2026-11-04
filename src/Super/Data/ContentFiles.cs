@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Rendition;
 
 namespace Super;
 
@@ -129,6 +130,13 @@ internal static class ContentNames
         }
 
         return kind is { } other ? $"{name} is a {KindName(other)}, not a {KindName(wanted)}." : Missing(files, name);
+    }
+
+    /// <summary>What's wrong with animating a model, which is named, or null when nothing is. It reads only the rig at the model's front.</summary>
+    public static string? RigProblem(IContentFiles files, string name)
+    {
+        using var stream = files.Open(name);
+        return ModelData.ReadRig(stream, name).Skeleton is null ? $"{name} was cooked without a skeleton, so it has no rig to animate." : null;
     }
 
     public static string Missing(IContentFiles files, string name)

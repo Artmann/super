@@ -28,7 +28,10 @@ internal interface ICatalog
     /// <summary>The folder this was loaded from.</summary>
     string Folder { get; }
 
-    /// <summary>Whether this holds an id. During a read, that means the files just read.</summary>
+    /// <summary>
+    /// Whether this holds an id. During a read, that means the files just read, counting files that
+    /// failed their checks: what's wrong with those is reported already, so a reference to one isn't.
+    /// </summary>
     bool Has(string id);
 }
 
@@ -44,6 +47,7 @@ public sealed class Catalog<T> : IReadOnlyCollection<T>, ICatalog
     private List<T> _records = [];
     private Dictionary<string, T> _byId = [];
     private IReadOnlyList<CheckedFile>? _checked;
+    private readonly HashSet<string> _broken = [];
     private List<T>? _builtRecords;
     private Dictionary<string, T>? _builtById;
 
@@ -80,10 +84,15 @@ public sealed class Catalog<T> : IReadOnlyCollection<T>, ICatalog
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-    void ICatalog.Check(ContentReader reader, List<string> problems, List<ContentReference> references) =>
-        _checked = reader.Check(_folder, typeof(T), problems, references);
+    void ICatalog.Check(ContentReader reader, List<string> problems, List<ContentReference> references)
+    {
+        _broken.Clear();
+        _checked = reader.Check(_folder, typeof(T), problems, references, _broken);
+    }
 
-    bool ICatalog.Has(string id) => _checked is null ? _byId.ContainsKey(id) : _checked.Any(file => file.Id == id);
+    bool ICatalog.Has(string id) => _checked is null
+        ? _byId.ContainsKey(id)
+        : _broken.Contains(id) || _checked.Any(file => file.Id == id);
 
     void ICatalog.Build(ContentReader reader, List<string> problems)
     {
@@ -122,6 +131,7 @@ public sealed class Catalog<T> : IReadOnlyCollection<T>, ICatalog
     void ICatalog.Drop()
     {
         _checked = null;
+        _broken.Clear();
         _builtRecords = null;
         _builtById = null;
     }

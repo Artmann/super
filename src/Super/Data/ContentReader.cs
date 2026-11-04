@@ -30,6 +30,7 @@ internal sealed class ContentReader
         };
         options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false));
         options.Converters.Add(new ModelRefConverter(content));
+        options.Converters.Add(new RigConverter(content));
         options.Converters.Add(new RefConverterFactory());
         options.Converters.Add(new Vector3Converter());
         options.MakeReadOnly();
@@ -47,8 +48,11 @@ internal sealed class ContentReader
         }
     }
 
-    /// <summary>Reads a folder and writes down what's wrong with it. Only files that passed come back.</summary>
-    public IReadOnlyList<CheckedFile> Check(string folder, Type type, List<string> problems, List<ContentReference> references)
+    /// <summary>
+    /// Reads a folder and writes down what's wrong with it. Only files that passed come back. The ids of
+    /// files that failed go in <paramref name="broken"/>, so a reference to one isn't reported a second time.
+    /// </summary>
+    public IReadOnlyList<CheckedFile> Check(string folder, Type type, List<string> problems, List<ContentReference> references, HashSet<string> broken)
     {
         if (_files.List(folder) is not { } paths)
         {
@@ -63,15 +67,18 @@ internal sealed class ContentReader
             var json = WithoutByteOrderMark(_files.Read(path));
             var validator = new ContentValidator(path, json, Options, _files, problems, references);
             validator.Check(type);
-            if (!validator.Passed)
+            if (validator.Passed)
             {
-                continue;
+                CheckId(validator, path, ids);
             }
 
-            CheckId(validator, path, ids);
             if (validator.Passed)
             {
                 found.Add(new CheckedFile(path, json, validator.Id!));
+            }
+            else if (validator.Id is { Length: > 0 } id)
+            {
+                broken.Add(id);
             }
         }
 
@@ -165,6 +172,16 @@ internal sealed class ContentReader
             content.Model(reader.GetString()!);
 
         public override void Write(Utf8JsonWriter writer, ModelRef value, JsonSerializerOptions options) =>
+            throw new NotSupportedException("Content is only read.");
+    }
+
+    /// <summary>Reads a <see cref="Rig"/> as the name of its model, through <see cref="Content.Rig"/>, so it's the same rig every time.</summary>
+    private sealed class RigConverter(Content content) : JsonConverter<Rig>
+    {
+        public override Rig Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+            content.Rig(reader.GetString()!);
+
+        public override void Write(Utf8JsonWriter writer, Rig value, JsonSerializerOptions options) =>
             throw new NotSupportedException("Content is only read.");
     }
 }

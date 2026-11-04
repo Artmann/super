@@ -116,6 +116,12 @@ internal sealed class ContentValidator
             return;
         }
 
+        if (type == typeof(Rig))
+        {
+            RigOf(ref reader, field);
+            return;
+        }
+
         if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Ref<>))
         {
             Reference(ref reader, type.GetGenericArguments()[0], field);
@@ -272,6 +278,21 @@ internal sealed class ContentValidator
         }
     }
 
+    private void RigOf(ref Utf8JsonReader reader, string field)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            Wrong(ref reader, field, "text");
+            return;
+        }
+
+        string name = reader.GetString()!;
+        if ((ContentNames.Problem(_files, name, ContentKind.Model) ?? ContentNames.RigProblem(_files, name)) is { } problem)
+        {
+            Report(Line(reader.TokenStartIndex), $"{field} {problem}");
+        }
+    }
+
     private void Reference(ref Utf8JsonReader reader, Type target, string field)
     {
         if (reader.TokenType != JsonTokenType.String)
@@ -364,7 +385,7 @@ internal sealed class ContentValidator
 
     private static string Word(Type type)
     {
-        if (type == typeof(string) || type == typeof(ModelRef) || (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Ref<>)))
+        if (type == typeof(string) || type == typeof(ModelRef) || type == typeof(Rig) || (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Ref<>)))
         {
             return "text";
         }

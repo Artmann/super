@@ -78,6 +78,16 @@ public class ReferenceTests
     }
 
     [Fact]
+    public void A_reference_to_a_record_with_its_own_mistakes_reports_only_those()
+    {
+        var files = new MemoryContent { ["items/axe.json"] = "{ \"id\": \"axe\", \"name\": 3 }", ["recipes/chop.json"] = Chop };
+        var content = new Content(files);
+        content.LoadAll<Recipe>("recipes");
+        var error = Assert.Throws<ContentException>(() => content.LoadAll<Item>("items"));
+        Assert.Equal(["items/axe.json:1: name must be text"], error.Problems);
+    }
+
+    [Fact]
     public void A_recipe_loaded_before_its_items_still_finds_them()
     {
         var files = new MemoryContent { ["items/axe.json"] = Axe, ["recipes/chop.json"] = Chop };
