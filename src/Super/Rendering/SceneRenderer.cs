@@ -1,6 +1,5 @@
 using System.Numerics;
 using Rendition;
-using StbImageSharp;
 using Super.Profiling;
 using Super.Ui;
 
@@ -36,6 +35,7 @@ internal sealed class SceneRenderer : IDisposable
     private Bands _bakedBands;
     private int _uploadedAtlas;
     private Content? _content;
+    private IContentFiles? _files;
 
     public SceneRenderer(RendererOptions options)
     {
@@ -135,7 +135,10 @@ internal sealed class SceneRenderer : IDisposable
         Roughness = DefaultRoughness,
     };
 
-    /// <summary>Decodes a named texture and builds its mips. Runs on the background thread.</summary>
+    /// <summary>
+    /// Reads a named texture and builds its mips. Runs on the background thread. A cooked
+    /// texture's kind and normal-map flag come from its header, as its cook settings set them.
+    /// </summary>
     internal static TextureData LoadTexture(TextureItem item)
     {
         if (item.Generated is { } generated)
@@ -143,22 +146,26 @@ internal sealed class SceneRenderer : IDisposable
             return TextureData.FromPixels(generated.Size, generated.Size, item.Kind, generated.Pixels, item.NormalMap);
         }
 
-        var image = ImageResult.FromMemory(item.Files.Read(item.Path!), ColorComponents.RedGreenBlueAlpha);
-        return TextureData.FromPixels(image.Width, image.Height, item.Kind, image.Data, item.NormalMap);
+        var cooked = CookedTexture.Read(item.Files.Read(item.Name!), item.Name!);
+        return TextureData.FromPixels(cooked.Width, cooked.Height, cooked.Kind, cooked.Pixels, cooked.NormalMap);
     }
 
-    /// <summary>Decodes an interface image and builds its mips. Runs on the background thread.</summary>
+    /// <summary>Reads an interface image and builds its mips. Runs on the background thread.</summary>
     private static TextureData LoadImage(GameImage image)
     {
-        var decoded = ImageResult.FromMemory(image.File, ColorComponents.RedGreenBlueAlpha);
+        var cooked = CookedTexture.Read(image.Cooked, image.Path);
         return new TextureData
         {
-            Width = decoded.Width,
-            Height = decoded.Height,
+            Width = cooked.Width,
+            Height = cooked.Height,
             Kind = TextureKind.Color,
-            Mips = ImageMips.Build(decoded.Width, decoded.Height, decoded.Data),
+            Mips = ImageMips.Build(cooked.Width, cooked.Height, cooked.Pixels),
         };
     }
+
+    /// <summary>Reads a cooked model. Runs on the background thread.</summary>
+    private static ModelData LoadModel(string name, IContentFiles files) =>
+        ModelData.Read(new MemoryStream(files.Read(name)), name);
 
     private static byte[] LoadShader(string name)
     {
@@ -176,6 +183,8 @@ internal sealed class SceneRenderer : IDisposable
 
     private void Prepare(Content content, View view)
     {
+        // Set before anything new starts preparing, since models are read through it on background threads.
+        _files = content.Files;
         _items.Update(content);
         foreach (int index in content.PendingUnloads)
         {
@@ -223,9 +232,9 @@ internal sealed class SceneRenderer : IDisposable
     }
 
     /// <summary>The part of loading that needs no GPU, so it runs on a background thread.</summary>
-    private static object PrepareItem(object item) => item switch
+    private object PrepareItem(object item) => item switch
     {
-        string path => ModelData.Read(ContentFolder.FindCooked(path)),
+        string name => LoadModel(name, _files!),
         ShaderItem shader => LoadShader(shader.Name),
         TextureItem texture => LoadTexture(texture),
         TextureArrayItem array => Array.ConvertAll(array.Layers, LoadTexture),

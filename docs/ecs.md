@@ -63,12 +63,12 @@ Rather than write that loop in every game, give entities Super's own components 
 ```csharp
 var sheep = world.Create();
 world.Add(sheep, Transform.At(new Vector3(3f, 0f, 1f)));
-world.Add(sheep, new Model(content.Model("farm/sheep.rmodel")));
+world.Add(sheep, new Model(content.Model("farm/sheep.glb")));
 world.Add(sheep, new Smoothed());
 
 var bell = world.Create();
 world.Add(bell, Transform.At(new Vector3(0f, 0.8f, 0.5f), scale: 0.2f));
-world.Add(bell, new Model(content.Model("farm/bell.rmodel")));
+world.Add(bell, new Model(content.Model("farm/bell.glb")));
 world.Add(bell, new Parent(sheep));
 
 public void Draw(View view)

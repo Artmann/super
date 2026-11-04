@@ -62,6 +62,20 @@ public sealed class PipelineTests : IDisposable
     }
 
     [Fact]
+    public void Json_with_a_byte_order_mark_cooks_unchanged()
+    {
+        byte[] bytes = [0xEF, 0xBB, 0xBF, .. Encoding.UTF8.GetBytes("{ \"damage\": 4 }")];
+        var root = new MemoryRoot();
+        root.Add("items/axe.json", bytes);
+        var store = new MemoryStore();
+
+        var result = Pipeline().Cook([root], store);
+
+        Assert.True(result.Succeeded, string.Join(Environment.NewLine, result.Problems));
+        Assert.Equal(bytes, store.Get(store.Manifest.Assets["items/axe.json"].Hash));
+    }
+
+    [Fact]
     public void Bad_json_reports_the_line()
     {
         var root = new MemoryRoot { ["bad.json"] = "{\n \"a\": 1,\n oops\n}" };

@@ -46,7 +46,7 @@ that joint.
 too, so you don't need `content.Model` for a character:
 
 ```csharp
-var rig = content.Rig("fox.rmodel");
+var rig = content.Rig("fox/Fox.glb");
 
 ClipRef walk = rig.Clip("Walk");          // Throws, listing the clips, if there's none.
 BoneMask head = rig.Mask("b_Neck_04");    // This joint and everything under it.
@@ -163,7 +163,7 @@ the mesh leaves the character behind and snaps back when the clip ends. Root mot
 takes that travel out of the clips and hands it to your game instead:
 
 ```csharp
-var rig = content.Rig("archer.rmodel");
+var rig = content.Rig("archer.glb");
 rig.RootMotion("mixamorig:Hips");
 ```
 
@@ -202,7 +202,7 @@ relative to its parent, and puts it over whatever the clips give. The others sti
 follow the clips, or stay at rest if there are none:
 
 ```csharp
-var rig = content.Rig("bug.rmodel");
+var rig = content.Rig("bug.glb");
 var pose = new AnimationPose(rig);
 int knee = pose.JointIndex("Leg_F_Tibia_L");
 

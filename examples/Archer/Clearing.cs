@@ -102,9 +102,9 @@ public sealed class Clearing
         ];
         TextureRef[] normals =
         [
-            content.Texture("textures/grass-ground-normal.jpg", TextureKind.Linear, normalMap: true),
-            content.Texture("textures/forest-floor-normal.jpg", TextureKind.Linear, normalMap: true),
-            content.Texture("textures/leaves-normal.jpg", TextureKind.Linear, normalMap: true),
+            content.Texture("textures/grass-ground-normal.jpg"),
+            content.Texture("textures/forest-floor-normal.jpg"),
+            content.Texture("textures/leaves-normal.jpg"),
         ];
         var ground = new Surface
         {

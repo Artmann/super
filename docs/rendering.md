@@ -119,14 +119,18 @@ Models are cooked from FBX, glTF or OBJ into Rendition's `.rmodel` format by the
 cooker in `Super.Cook.Models`, through the asset pipeline. Its settings are the ones
 below, read from the model's `<file>.cook.json` sidecar, and a `parts` entry cooks named
 pieces of one file, each as `file#part`. [`super-cook`](command-line.md#cooking-content)
-runs it, and so does a build that imports `Super.targets`. `.rmodel` files already in
-`assets/cooked` keep working.
+runs it, and so does a build that imports `Super.targets`. The game reads only the
+cooked content.
 
-A game names a model by its path inside `assets/cooked`:
+A game names a model by its source's [name](content.md#names), the path from the
+content root:
 
 ```csharp
-readonly ModelRef coral = content.Model("reef/coral.rmodel");
+readonly ModelRef coral = content.Model("reef/coral.glb");
 ```
+
+A name that wasn't cooked, or that isn't a model, stops with a `ContentException` when
+it's named.
 
 Naming a model starts loading it. A model drawn before it's ready is waited for, so
 nothing pops in; to show a loading screen instead, see
@@ -288,11 +292,14 @@ var mesh = new GeneratedMesh(vertices, indices, new Surface
 ModelRef rock = content.Mesh(mesh);
 ```
 
-Textures come from a PNG in the content folder, or from pixels you made:
+Textures come from a cooked image (PNG, JPEG or TGA), or from pixels you made. Whether a
+cooked one is a normal map or linear data is a cook setting, set by a
+[`cook.json` rule](content.md#rules-and-sidecars) such as
+`{ "match": "**/*-normal.*", "texture": { "normalMap": true } }`, so code names only the file:
 
 ```csharp
 TextureRef bark = content.Texture("textures/bark.png");
-TextureRef bump = content.Texture("textures/bark-normal.png", TextureKind.Linear, normalMap: true);
+TextureRef bump = content.Texture("textures/bark-normal.png");
 TextureRef noise = content.Texture(new GeneratedTexture(256, rgbaPixels), TextureKind.Linear);
 TextureArrayRef ground = content.TextureArray(sand, grass, rock, snow);
 ```

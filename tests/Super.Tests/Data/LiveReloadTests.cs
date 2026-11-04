@@ -14,11 +14,11 @@ public class LiveReloadTests
     {
         public bool Locked { get; set; }
 
+        public ContentKind? KindOf(string name) => inner.KindOf(name);
+
         public IReadOnlyList<string>? List(string folder) => inner.List(folder);
 
-        public byte[] Read(string path) => Locked ? throw new IOException("In use.") : inner.Read(path);
-
-        public bool HasModel(string path) => inner.HasModel(path);
+        public byte[] Read(string name) => Locked ? throw new IOException("In use.") : inner.Read(name);
     }
 
     private sealed class FakeClock : TimeProvider
@@ -217,14 +217,17 @@ public class LiveReloadTests
     public void Headless_runs_do_not_notice_files_changing()
     {
         string root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-        Directory.CreateDirectory(Path.Combine(root, "items"));
-        string file = Path.Combine(root, "items", "axe.json");
+        string cooked = Path.Combine(root, "cooked");
+        Directory.CreateDirectory(Path.Combine(root, "sources", "items"));
+        string file = Path.Combine(root, "sources", "items", "axe.json");
         File.WriteAllText(file, Axe(1));
         try
         {
-            using var run = HeadlessGame.Create<Armory>(1, services => services.AddContentFiles(new ContentFolder(root)));
+            var folder = CookedTemp.Cook(Path.Combine(root, "sources"), cooked);
+            using var run = HeadlessGame.Create<Armory>(1, services => services.AddContentFiles(folder));
 
             File.WriteAllText(file, Axe(2));
+            CookedTemp.Cook(Path.Combine(root, "sources"), cooked);
             Thread.Sleep(300);
             run.Ticks(5);
 
@@ -235,13 +238,6 @@ public class LiveReloadTests
         {
             Directory.Delete(root, recursive: true);
         }
-    }
-
-    [Fact]
-    public void Only_a_folder_in_the_project_counts_as_source()
-    {
-        Assert.True(new ContentFolder(Path.Combine(Path.GetTempPath(), "game", "content")).IsSource);
-        Assert.False(new ContentFolder(Path.Combine(AppContext.BaseDirectory, "content")).IsSource);
     }
 
     [Fact]
@@ -260,7 +256,7 @@ public class LiveReloadTests
         Directory.CreateDirectory(beside);
         try
         {
-            var content = new Content(new ContentFolder(beside));
+            var content = new Content(new CookedFolder(beside));
             content.GoLive();
             Assert.False(content.IsLive);
         }
@@ -270,33 +266,6 @@ public class LiveReloadTests
             {
                 Directory.Delete(beside, recursive: true);
             }
-        }
-    }
-
-    [Fact]
-    public void A_source_folder_goes_live_writes_schemas_and_wants_a_reload_after_a_save()
-    {
-        string root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-        Directory.CreateDirectory(Path.Combine(root, "items"));
-        string file = Path.Combine(root, "items", "axe.json");
-        File.WriteAllText(file, Axe(1));
-        var content = new Content(new ContentFolder(root));
-        try
-        {
-            content.LoadAll<Item>("items");
-            content.GoLive();
-
-            Assert.True(content.IsLive);
-            Assert.True(Directory.GetFiles(Path.Combine(root, ".schemas"), "*.json").Length > 0);
-            Assert.False(content.ReloadWanted);
-
-            File.WriteAllText(file, Axe(2));
-            WaitFor(() => content.ReloadWanted);
-        }
-        finally
-        {
-            content.StopLive();
-            Directory.Delete(root, recursive: true);
         }
     }
 
