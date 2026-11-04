@@ -1,0 +1,6 @@
+{
+  "parts": {
+    "a": { "node": "rock_moss_set_01_rock02" },
+    "b": { "node": "rock_moss_set_01_rock05" }
+  }
+}

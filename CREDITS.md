@@ -1,7 +1,9 @@
 # Credits
 
 The code in this repository is under the MIT license (see [LICENSE](LICENSE)).
-That license does not cover the assets below, which belong to their authors.
+That license does not cover the assets below, which belong to their authors. Most of
+them aren't in git; [assets/README.md](assets/README.md) says where to get each one and
+where to save it.
 
 ## Third-party libraries
 

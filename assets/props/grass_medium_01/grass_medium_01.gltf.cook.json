@@ -1,6 +1,9 @@
 {
-  "node": "grass_medium_01_large_a",
   "materials": [
     { "match": "grass_medium_01", "alpha": "grass_medium_01_alpha_1k.png", "alphaCutoff": 0.5, "foliage": true }
-  ]
+  ],
+  "parts": {
+    "tall": { "node": "grass_medium_01_tall_a" },
+    "large": { "node": "grass_medium_01_large_a" }
+  }
 }

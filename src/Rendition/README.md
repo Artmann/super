@@ -62,7 +62,7 @@ Decisions, the G-buffer layout and known simplifications are in
 | `src/Rendition/Shaders` | GLSL source |
 | `src/Rendition.Sample` | The window, orbit camera, model viewer and rotating cube |
 | `src/Rendition.Sample/Shaders` | An example custom surface shader, shown with `--glow` |
-| `assets` | Per-model import rules. Source and cooked models stay out of git |
+| `assets` | The examples' shared source models and their cook settings. The models stay out of git |
 
 ## Requirements
 
@@ -81,19 +81,20 @@ dotnet run -c Release --project src/Rendition.Sample
 Press Esc to quit. Add `-- --validate` to turn on Vulkan validation.
 
 To view a model, pass a cooked `.rmodel` to the sample. Drag to orbit and scroll
-to zoom. Models are cooked by `Super.Cook.Models` through the asset pipeline; the
-command to cook one for the sample comes with the build integration.
+to zoom. The car's source files aren't in git, so save them in the shared assets folder
+as `assets/ford-gt/ford-gt.fbx` (see [assets/README.md](../../assets/README.md)), then
+cook it with `super-cook file`:
 
 ```
-dotnet run -c Release --project src/Rendition.Sample -- --model assets/cooked/ford-gt.rmodel
+dotnet run --project tools/Super.Cook.Tool -- file --content assets ford-gt/ford-gt.fbx out/ford-gt.rmodel
+dotnet run -c Release --project src/Rendition.Sample -- --model out/ford-gt.rmodel
 ```
 
-The car's source files aren't in git, so copy them into `assets/source/ford-gt`.
-
-The character works the same way, from a `.glb` copied into `assets/source/adventurer`:
+The character works the same way, from `assets/adventurer/adventurer.glb`:
 
 ```
-dotnet run -c Release --project src/Rendition.Sample -- --model assets/cooked/adventurer.rmodel --yaw 1.5
+dotnet run --project tools/Super.Cook.Tool -- file --content assets adventurer/adventurer.glb out/adventurer.rmodel
+dotnet run -c Release --project src/Rendition.Sample -- --model out/adventurer.rmodel --yaw 1.5
 ```
 
 That model is [a character model](https://sketchfab.com/3d-models/592c2f0cfaf4407bab3ef40dfc095eb1)
@@ -113,7 +114,7 @@ To save a picture, use `--screenshot`. The camera can be placed with `--yaw`,
 `--pitch`, `--distance` and `--height`.
 
 ```
-dotnet run -c Release --project src/Rendition.Sample -- --screenshot shot.png --model assets/cooked/ford-gt.rmodel --yaw -2.4
+dotnet run -c Release --project src/Rendition.Sample -- --screenshot shot.png --model out/ford-gt.rmodel --yaw -2.4
 ```
 
 Both run with validation on and never show a window, so they can run in the

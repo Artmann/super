@@ -12,4 +12,10 @@
     <InternalsVisibleTo Include="Reef.Tests" />
   </ItemGroup>
 
+  <!-- The fish and corals come from the shared assets folder. -->
+  <Import Project="..\..\src\Super.Build\Super.targets" />
+  <ItemGroup>
+    <SuperContent Include="..\..\assets" />
+  </ItemGroup>
+
 </Project>

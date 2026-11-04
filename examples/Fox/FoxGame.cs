@@ -62,7 +62,7 @@ public sealed class FoxGame(Content content, Actions<Control> actions) : IGame
         actions.Bind(Control.Pace, Binding.Axis(Key.S, Key.W), Binding.Axis(Key.Down, Key.Up));
         actions.Bind(Control.Look, Key.Space, MouseButton.Left);
 
-        var rig = content.Rig("fox.rmodel");
+        var rig = content.Rig("fox/fox.glb");
         var controller = new AnimationController<FoxState, FoxAction>(rig) { CrossFadeSeconds = 0.3f }
             .State(FoxState.Idle, rig.Clip("Survey"))
             .State(FoxState.Moving, rig.Blend((rig.Clip("Walk"), WalkSpeed), (rig.Clip("Run"), RunSpeed)))

@@ -3,8 +3,8 @@
     blender -b --python examples/Archer/models/build.py
 
 Run from the repository root, with the Poly Haven downloads from the example's README in
-assets/source. Writes firs.glb, dummy.glb and arrow.glb to assets/source/archer-props,
-ready for the import tool. Everything is seeded, so the same files come out each time.
+assets. Writes firs.glb, dummy.glb and arrow.glb to assets/archer-props, where the
+build cooks them. Everything is seeded, so the same files come out each time.
 """
 
 import math
@@ -17,7 +17,7 @@ import numpy as np
 from mathutils import Vector
 
 ROOT = os.getcwd()
-SOURCE = os.path.join(ROOT, "assets", "source")
+SOURCE = os.path.join(ROOT, "assets")
 OUT = os.path.join(SOURCE, "archer-props")
 FIR = os.path.join(SOURCE, "props", "fir_sapling_medium", "textures")
 TEXTURES = os.path.join(SOURCE, "textures")
@@ -434,7 +434,7 @@ def main():
     dummy()
     export(os.path.join(OUT, "dummy.glb"), "dummy_")
     low, high = bounds("dummy_")
-    # The importer centres a model on its bounds across the ground and stands it on its lowest point.
+    # The model cooker centres a model on its bounds across the ground and stands it on its lowest point.
     center = (low + high) / 2
     print("Dummy bullseye after import (x, y, z):", round(-center.x, 3), round(TARGET_HEIGHT - low.z, 3), round(BODY_DEPTH + BOSS_DEPTH + center.y, 3))
 

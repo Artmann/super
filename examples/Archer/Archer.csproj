@@ -10,4 +10,11 @@
 
   <Import Project="..\..\src\Shaders.targets" />
 
+  <!-- The ground textures in content, and the models in the shared assets folder. -->
+  <Import Project="..\..\src\Super.Build\Super.targets" />
+  <ItemGroup>
+    <SuperContent Include="content" />
+    <SuperContent Include="..\..\assets" />
+  </ItemGroup>
+
 </Project>

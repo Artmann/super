@@ -16,8 +16,8 @@ internal class ReefSettings
 {
     public virtual IReadOnlyList<Species> Species { get; } =
     [
-        new("reef/tilapia.rmodel", 0.5f, 6000, 16, 1.6f, 3.2f, 0.7f, 2.5f),
-        new("reef/tuna.rmodel", 1.8f, 240, 3, 4.5f, 7f, 2.5f, 5f),
+        new("reef/tilapia/tilapia.glb", 0.5f, 6000, 16, 1.6f, 3.2f, 0.7f, 2.5f),
+        new("reef/tuna/tuna.fbx", 1.8f, 240, 3, 4.5f, 7f, 2.5f, 5f),
     ];
 
     public virtual int CoralClusters => 26;

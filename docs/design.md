@@ -413,9 +413,9 @@ they can't see and pick the simplest version that strays by at most 1 pixel on s
 or 2 texels in the shadow map. `DrawItem`s written by hand have neither, and always draw
 in full.
 
-Model files often link only colour and normal maps. Each model has an
-`assets/<name>.materials.json` that connects the remaining textures and sets
-material values. The surface texture holds metalness in red, roughness in green
+Model files often link only colour and normal maps. Each model's
+`<file>.cook.json` sidecar connects the remaining textures and sets material
+values. The surface texture holds metalness in red, roughness in green
 and opacity in alpha.
 
 A cut-out's opacity is the colour texture's alpha times the colour's alpha times the
@@ -451,7 +451,7 @@ decides this, and keeps ghosts out of the shadow maps.
 glTF files (`.glb`, `.gltf`) carry more of this themselves, so the importer reads their
 embedded images, the link to their metal and roughness texture, and their colour,
 metal and roughness values. glTF keeps metalness in blue, so the importer moves it to
-red. A rule in the materials file still wins over the model file. The renderer has one
+red. A rule in the sidecar still wins over the model file. The renderer has one
 UV set, and the importer keeps the first. That's fine for the adventurer model, whose four
 sets are identical.
 
@@ -702,9 +702,9 @@ Anything larger than a block gets its own allocation.
   measured: they use the green direction the renderer expects.
 - The adventurer model doesn't use its normal map. The map creases the skin, most
   visibly on the face, whichever way up it's read, and adds almost nothing to the
-  clothing, so its materials file sets `noNormalMap`.
+  clothing, so its sidecar sets `noNormalMap`.
 - The importer reads glTF's `MASK` cut-outs, but not its emissive maps, glass or
-  two-sided flags yet. Set those in the materials file.
+  two-sided flags yet. Set those in the sidecar.
 - Foliage translucency is a constant in `surface.glsl`, and a material can't have both
   foliage and clearcoat, since they share a G-buffer channel.
 - Clips are sampled at 30 frames a second on import and blended linearly between

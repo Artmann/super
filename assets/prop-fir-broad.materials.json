@@ -1,7 +1,0 @@
-{
-  "node": "fir_broad",
-  "materials": [
-    { "match": "twigs", "alphaCutoff": 0.5, "foliage": true },
-    { "match": "bark", "roughness": 0.9 }
-  ]
-}
