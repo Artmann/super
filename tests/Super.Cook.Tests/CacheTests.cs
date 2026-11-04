@@ -433,6 +433,36 @@ public sealed class CacheTests : IDisposable
     }
 
     [Fact]
+    public void Read_with_the_wrong_case_fails_even_where_the_disk_ignores_case()
+    {
+        string src = Temp();
+        Directory.CreateDirectory(Path.Combine(src, "items"));
+        File.WriteAllText(Path.Combine(src, "items", "axe.probe"), "x");
+        File.WriteAllText(Path.Combine(src, "items", "Rock.png"), "p");
+        var root = new FolderRoot(src);
+        var input = new CookInput(new SourceFile(root, "items/axe.probe"), root.Read("items/axe.probe"), new System.Text.Json.Nodes.JsonObject(), "desktop");
+
+        var problem = Assert.Throws<FileNotFoundException>(() => input.Read("rock.png"));
+
+        Assert.Equal("items/rock.png isn't in the source root, but items/Rock.png is. Names are case-sensitive.", problem.Message);
+        Assert.Empty(input.Inputs);
+        Assert.Equal("p"u8.ToArray(), input.Read("Rock.png"));
+    }
+
+    [Fact]
+    public void Read_of_a_file_not_in_the_root_names_it()
+    {
+        string src = Temp();
+        File.WriteAllText(Path.Combine(src, "axe.probe"), "x");
+        var root = new FolderRoot(src);
+        var input = new CookInput(new SourceFile(root, "axe.probe"), root.Read("axe.probe"), new System.Text.Json.Nodes.JsonObject(), "desktop");
+
+        var problem = Assert.Throws<FileNotFoundException>(() => input.Read("textures/rock.png"));
+
+        Assert.Equal("textures/rock.png isn't in the source root.", problem.Message);
+    }
+
+    [Fact]
     public void Track_records_a_file_that_does_not_exist()
     {
         var root = new MemoryRoot();

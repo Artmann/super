@@ -373,7 +373,11 @@ one still matches, so editing a texture cooks its model again. A
 cooker that changes its output bumps its version, which misses every old entry. `CookCache`
 keeps what a cook made under that key, in `~/.super/cache` or the folder in `SUPER_CACHE`, and
 restores it into the store when the key matches, checking the objects' hashes first.
-Deleting it is always safe. The models cooker is `Super.Cook.Models`, a separate project, so
+Deleting it is always safe. A cooker reads the files beside its source only through
+`CookInput.Read` and `Find`, which check names against the root's listing ordinally, so a
+name that differs only in case fails with a message naming the file that is there, even
+though Windows would open it. The listing is taken once per source, the first time a cooker
+asks. The models cooker is `Super.Cook.Models`, a separate project, so
 `Super.Cook` carries no Assimp.
 
 **The manifest** lists every name with its kind, hash and size. `CookPipeline` writes

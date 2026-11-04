@@ -15,6 +15,7 @@ public sealed class CookInput
 
     private readonly SourceFile _file;
     private readonly List<string> _inputs = [];
+    private HashSet<string>? _names;
 
     internal CookInput(SourceFile file, byte[] bytes, JsonObject settings, string target)
     {
@@ -45,10 +46,25 @@ public sealed class CookInput
         return Settings.Deserialize<T>(SettingsOptions) ?? new T();
     }
 
-    /// <summary>Reads a file by a path relative to the source's folder.</summary>
+    /// <summary>
+    /// Reads a file by a path relative to the source's folder. The name must match the root's listing
+    /// exactly, case included, on every OS, so a cook that works on Windows works everywhere.
+    /// </summary>
+    /// <exception cref="FileNotFoundException">The root has no file by that exact name. The message names one differing only in case.</exception>
     public byte[] Read(string relative)
     {
         string name = Resolve(relative);
+        if (!Names().Contains(name))
+        {
+            string? other = Names()
+                .Where(listed => string.Equals(listed, name, StringComparison.OrdinalIgnoreCase))
+                .Order(StringComparer.Ordinal)
+                .FirstOrDefault();
+            throw new FileNotFoundException(other is null
+                ? $"{name} isn't in the source root."
+                : $"{name} isn't in the source root, but {other} is. Names are case-sensitive.", name);
+        }
+
         byte[] bytes = _file.Root.Read(name);
         Track(relative);
         return bytes;
@@ -59,7 +75,7 @@ public sealed class CookInput
     public string? Find(string fileName)
     {
         string folder = Folder();
-        string[] candidates = _file.Root.Files()
+        string[] candidates = Names()
             .Where(name => name.StartsWith(folder, StringComparison.Ordinal)
                 && name[folder.Length..].Split('/')[^1] == fileName)
             .Select(name => name[folder.Length..])
@@ -83,6 +99,12 @@ public sealed class CookInput
         {
             _inputs.Add(normal);
         }
+    }
+
+    /// <summary>The root's files, listed once per source the first time a cooker asks.</summary>
+    private HashSet<string> Names()
+    {
+        return _names ??= new HashSet<string>(_file.Root.Files(), StringComparer.Ordinal);
     }
 
     private string Folder()
