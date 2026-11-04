@@ -136,6 +136,83 @@ internal sealed class MyColony(GameCapture capture) : IGame
 - Resizing the window ends the recording, and the video stops at that point.
 - With no window there are no pictures to save, so in a headless test `Screenshot` and `StartRecording` never produce a file.
 
+## Cooking content
+
+`super-cook` turns a game's content sources into the cooked content it reads: a
+`content.manifest` and its objects. It's the cooker the build runs, as a command for
+scripts and build servers.
+
+```
+dotnet run --project tools/Super.Cook.Tool -- --content examples/Crafting/content --out out/content
+```
+
+| Option | What it does |
+| --- | --- |
+| `--content dir` | A content root. Give it once for each root. At least one is needed |
+| `--out dir` | Where the cooked content goes. Needed |
+| `--target name` | The platform to cook for, `desktop` by default |
+| `--cache dir` | Keeps cooked results in this folder between runs. See below |
+| `--no-cache` | Cooks everything again and keeps nothing. Can't be used with `--cache` |
+| `--dev-file path` | Also writes `content.dev.json` there, naming the roots, the tool and the target, for a game run from source |
+| `--watch` | After the first cook, cooks again whenever a source changes, until stdin closes |
+
+Each problem prints as one line that MSBuild and editors link to the file, with the line
+when there is one:
+
+```
+C:\game\content\items\axe.json(3): error SUPER001: 'o' is an invalid start of a property name.
+```
+
+The last line counts what happened, such as `Cooked 2, from cache 56, 0 errors.` The exit
+code is 0 when it cooked and 1 on any error. A failed cook leaves the content folder as
+it was, so the last good content stays. A mistake in the options prints what's wrong and
+how to use it.
+
+### The cache
+
+Cooking is a pure function of the sources and their settings, so the cooked result of a
+file that hasn't changed is kept and used again. The cache is in `~/.super/cache`, or in
+the folder in the `SUPER_CACHE` environment variable when that is set, so a build server
+can keep it somewhere of its own. `--cache` picks a folder for one run. Deleting the cache
+is always safe: the next cook makes it again.
+
+### Watch mode
+
+`--watch` cooks once, then watches every root and its folders. When the files have been
+quiet for a tenth of a second it cooks again, printing problems the same way, then
+`Cooked.` or `Not cooked: 1 errors.` A failed cook keeps the old manifest. A file another
+program has open, such as an editor in the middle of saving, is tried again after the same
+wait. It stops when stdin closes, so the game that started it ends it, or when it's killed.
+
+### One asset
+
+```
+dotnet run --project tools/Super.Cook.Tool -- file --content assets/content models/fox.glb fox.rmodel
+```
+
+`super-cook file --content dir name output` cooks the roots in memory and writes the bytes
+of one asset, or one part named `file#part`, to the output file. `--content` can be given
+more than once. It fails when nothing cooked has that name, and lists the parts when the
+name was cooked in parts.
+
+### In the build
+
+A game imports `src/Super.Build/Super.targets` and `dotnet build` cooks its content:
+
+```xml
+<Import Project="..\..\src\Super.Build\Super.targets" />
+<ItemGroup>
+  <!-- Optional. With none, the "content" folder beside the project is used when it exists. -->
+  <SuperContent Include="content" />
+  <SuperContent Include="..\..\assets\content" />
+</ItemGroup>
+```
+
+After the build, the cooked content is in `bin/<config>/content` and `content.dev.json`
+is beside it. Cook errors are build errors with file and line. `SuperTarget` picks the
+target, `desktop` by default. `dotnet publish` copies `content` beside the program and
+leaves `content.dev.json` out, so a shipped game never thinks it's running from source.
+
 ## Planned
 
 `--headless` and `--json`, for a run with no GPU that prints a result a script can read,

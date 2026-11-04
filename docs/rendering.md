@@ -118,8 +118,9 @@ uses this.
 Models are cooked from FBX, glTF or OBJ into Rendition's `.rmodel` format by the model
 cooker in `Super.Cook.Models`, through the asset pipeline. Its settings are the ones
 below, read from the model's `<file>.cook.json` sidecar, and a `parts` entry cooks named
-pieces of one file, each as `file#part`. The command to run it, and the full guide, come
-with the build integration. `.rmodel` files already in `assets/cooked` keep working.
+pieces of one file, each as `file#part`. [`super-cook`](command-line.md#cooking-content)
+runs it, and so does a build that imports `Super.targets`. `.rmodel` files already in
+`assets/cooked` keep working.
 
 A game names a model by its path inside `assets/cooked`:
 
