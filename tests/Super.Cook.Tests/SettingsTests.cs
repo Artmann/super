@@ -6,9 +6,9 @@ public sealed class SettingsTests
 
     private static (bool Cook, bool? Linear, List<CookProblem> Problems) Texture(MemoryRoot root, string name)
     {
-        var problems = new List<CookProblem>();
-        var (cook, settings) = CookSettings.For(new SourceFile(root, name), "texture", Cookers, problems);
-        return (cook, settings["linear"]?.GetValue<bool>(), problems);
+        var settings = new CookSettings([root], Cookers);
+        var (cook, values) = settings.For(new SourceFile(root, name), "texture");
+        return (cook, values["linear"]?.GetValue<bool>(), settings.Problems.ToList());
     }
 
     [Fact]
@@ -52,11 +52,11 @@ public sealed class SettingsTests
                 ] }
                 """,
         };
-        var problems = new List<CookProblem>();
+        var cooking = new CookSettings([root], Cookers);
 
-        var (_, settings) = CookSettings.For(new SourceFile(root, "a.png"), "texture", Cookers, problems);
+        var (_, settings) = cooking.For(new SourceFile(root, "a.png"), "texture");
 
-        Assert.Empty(problems);
+        Assert.Empty(cooking.Problems);
         Assert.True(settings["linear"]!.GetValue<bool>());
         Assert.False(settings["mipmaps"]!.GetValue<bool>());
     }
@@ -138,12 +138,47 @@ public sealed class SettingsTests
     public void Other_cookers_settings_are_not_returned()
     {
         var root = new MemoryRoot { ["cook.json"] = """{ "rules": [ { "match": "*", "model": { "scale": 2 } } ] }""" };
-        var problems = new List<CookProblem>();
+        var cooking = new CookSettings([root], Cookers);
 
-        var (_, settings) = CookSettings.For(new SourceFile(root, "a.png"), "texture", Cookers, problems);
+        var (_, settings) = cooking.For(new SourceFile(root, "a.png"), "texture");
 
-        Assert.Empty(problems);
+        Assert.Empty(cooking.Problems);
         Assert.Empty(settings);
+    }
+
+    [Fact]
+    public void A_typo_in_a_rule_that_matches_no_file_is_still_reported()
+    {
+        var root = new MemoryRoot { ["cook.json"] = """{ "rules": [ { "match": "nothing/**", "textur": {} } ] }""" };
+
+        var problem = Assert.Single(Texture(root, "a.png").Problems);
+
+        Assert.Contains("textur", problem.Message);
+    }
+
+    [Fact]
+    public void A_broken_cook_json_above_two_files_gives_one_problem()
+    {
+        var root = new MemoryRoot { ["cook.json"] = "{ nope" };
+        var cooking = new CookSettings([root], Cookers);
+
+        cooking.For(new SourceFile(root, "a.png"), "texture");
+        cooking.For(new SourceFile(root, "b.png"), "texture");
+
+        var problem = Assert.Single(cooking.Problems);
+        Assert.Equal("memory:cook.json", problem.File);
+    }
+
+    [Fact]
+    public void A_broken_sidecar_gives_one_problem_naming_it()
+    {
+        var root = new MemoryRoot { ["a.png"] = "", ["a.png.cook.json"] = "[1]" };
+        var cooking = new CookSettings([root], Cookers);
+
+        cooking.For(new SourceFile(root, "a.png"), "texture");
+        cooking.For(new SourceFile(root, "a.png"), "texture");
+
+        Assert.Equal("memory:a.png.cook.json", Assert.Single(cooking.Problems).File);
     }
 
     [Theory]
