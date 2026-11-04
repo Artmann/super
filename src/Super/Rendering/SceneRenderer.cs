@@ -163,9 +163,12 @@ internal sealed class SceneRenderer : IDisposable
         };
     }
 
-    /// <summary>Reads a cooked model. Runs on the background thread.</summary>
-    private static ModelData LoadModel(string name, IContentFiles files) =>
-        ModelData.Read(new MemoryStream(files.Read(name)), name);
+    /// <summary>Reads a cooked model as a stream, so it's never held whole beside what it builds. Runs on the background thread.</summary>
+    internal static ModelData LoadModel(string name, IContentFiles files)
+    {
+        using var stream = files.Open(name);
+        return ModelData.Read(stream, name);
+    }
 
     private static byte[] LoadShader(string name)
     {

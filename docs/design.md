@@ -350,6 +350,15 @@ It never decodes a PNG or parses a glTF or FBX. `Super.Cook` makes that folder f
 sources, and the `Super` runtime only knows the manifest format (`ContentManifest`) and
 reads it through `CookedFolder`.
 
+`IContentFiles.Read` gives an asset's bytes whole, which suits data, textures and sounds.
+Models are big (162 MB for a rigged FBX with its clips), so they go through
+`IContentFiles.Open`, a stream: `SceneRenderer.LoadModel` reads the model piece by piece on
+the loading thread and `Content.Rig` reads only the rig at the front of the file, so the raw
+file is never held whole beside what's built from it. `CookedFolder.Open` is a `FileStream`
+with a 64 KB buffer, small enough to stay off the large object heap, opened with
+`FileShare.Read | FileShare.Delete` so a cook running beside the game can still replace or
+delete the object. Content in memory gets a `MemoryStream` over `Read` by default.
+
 **Cooking is a pure function.** An `ICooker` turns one source's bytes, its settings and the
 target into output bytes. The bytes never hold a timestamp or an absolute path, and never
 depend on the order the disk lists files in; every sort is `StringComparer.Ordinal`. So the
