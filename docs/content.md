@@ -96,12 +96,11 @@ the file and line.
 
 ## Your editor can help
 
-> Now that games read cooked content, writing schemas and live reload are moving onto
-> the cooker, and neither runs until that lands. The two sections below describe how
-> they work once it has.
-
 Run the game from source and Super writes a JSON schema for each catalog into
-`content/.schemas`, which gives you autocomplete and red squiggles in VS Code. Point a
+`content/.schemas`, which gives you autocomplete and red squiggles in VS Code. It goes in
+the first content root the build lists, which is `content` beside the project unless you
+list others. Folders starting with `.` are never cooked, so the schemas don't end up in
+the game. Point a
 file at its schema with a `$schema` field, which loading ignores:
 
 ```json
@@ -120,10 +119,25 @@ The schemas help coding agents too: they say exactly which fields a record takes
 
 ## Change it while the game runs
 
-Run the game from source and saving a file updates it at the start of the next tick. If
-the file has a mistake, the error is printed and the old data stays, so a typo won't end
-your session. Live reload is off in headless runs, `--screenshot`, `--record`,
-`--profile` and shipped games, so it can't change their results.
+Run the game from source and saving a file updates it at the start of the next tick.
+
+How it works: the build writes `content.dev.json` beside the cooked `content` folder,
+naming your content roots and the `super-cook` tool. When the game window opens and finds
+that file, it starts [`super-cook --watch`](command-line.md#watch-mode) over those roots,
+cooking into the game's own `content` folder. Each save is cooked again, and when the
+cooked `content.manifest` is written the game reads its catalogs again. The tool's output,
+cook errors included, is printed to the game's error output, and you'll see `Content
+reloaded.` there each time. The tool stops when the game closes.
+
+If a save has a mistake, nothing changes in the game and the error is printed. JSON that
+doesn't parse fails the cook, which keeps the old manifest. A record that parses but is
+wrong, such as a number field holding text or a reference to an id that isn't there, fails
+the reload: `Content not reloaded:` and the problems are printed, and the old data stays
+in every catalog. A typo won't end your session; fix it and save again.
+
+Live reload is off in headless runs, `--screenshot`, `--record`, `--profile`, and
+wherever there's no `content.dev.json`, which includes every published game, so it can't
+change their results.
 
 A catalog stays the same object through a reload, so anything holding it sees the new
 data. If you copied something out of a record, refresh it:

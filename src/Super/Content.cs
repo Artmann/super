@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Rendition;
 using Super.Ui;
@@ -40,6 +41,9 @@ internal sealed record UnloadedItem
 /// </summary>
 public sealed class Content
 {
+    /// <summary>How long the cooked manifest must be quiet before a reload, since a cook can write it more than once.</summary>
+    private static readonly TimeSpan ReloadQuietTime = TimeSpan.FromMilliseconds(100);
+
     private readonly List<object> _items = [];
     private readonly List<bool> _itemLoaded = [];
     private readonly HashSet<int> _unloaded = [];
@@ -58,6 +62,7 @@ public sealed class Content
     private readonly ContentReader _reader;
     private readonly IContentFiles _files;
     private ContentWatcher? _watcher;
+    private ICookProcess? _cook;
     private volatile bool _reloadWanted;
     private int _loaded;
     private int _batchStart;
@@ -82,6 +87,9 @@ public sealed class Content
 
     /// <summary>Whether files are being watched. This never happens without a window.</summary>
     internal bool IsLive => _watcher is not null;
+
+    /// <summary>Starts <c>super-cook --watch</c> over the sources into the cooked folder. Tests swap it for a stand-in.</summary>
+    internal Func<DevSettings, string, ICookProcess> StartCook { get; set; } = (dev, outFolder) => new CookProcess(dev, outFolder);
 
     /// <summary>Set when a file changed. The next tick reads everything again.</summary>
     internal bool ReloadWanted
@@ -458,19 +466,44 @@ public sealed class Content
     }
 
     /// <summary>
-    /// Starts development help: schemas, and reloading on save. Games now read only cooked
-    /// content, which has no sources to watch, so for now this does nothing. Watching the
-    /// sources named in <c>content.dev.json</c> comes next.
+    /// Starts development help for a game run from source, which the build marks with
+    /// <c>content.dev.json</c> beside the cooked folder: it writes the schemas into the first
+    /// content root, starts <c>super-cook --watch</c>, and asks for a reload whenever the cooked
+    /// manifest is written again. Without that file, as in a published game, it does nothing.
     /// </summary>
     internal void GoLive()
     {
+        if (_watcher is not null || _files is not CookedFolder { Dev: { } dev } folder)
+        {
+            return;
+        }
+
+        if (dev.Roots.Length > 0 && Directory.Exists(dev.Roots[0]))
+        {
+            WriteSchemas(dev.Roots[0]);
+        }
+
+        // Watching starts first, so a cook that lands while the tool starts up isn't missed.
+        Directory.CreateDirectory(folder.Folder);
+        _watcher = new ContentWatcher(folder.Folder, ContentManifest.FileName, () => ReloadWanted = true, ReloadQuietTime);
+        try
+        {
+            _cook = StartCook(dev, folder.Folder);
+        }
+        catch (Win32Exception problem)
+        {
+            // Without dotnet on the path the game still runs, and a cook started by hand is still heard.
+            Console.Error.WriteLine($"Could not start super-cook to watch the content: {problem.Message}");
+        }
     }
 
-    /// <summary>Stops watching files.</summary>
+    /// <summary>Stops the cook and stops watching files.</summary>
     internal void StopLive()
     {
         _watcher?.Dispose();
         _watcher = null;
+        _cook?.Dispose();
+        _cook = null;
     }
 
     /// <summary>
@@ -484,6 +517,7 @@ public sealed class Content
         ICatalog[] all = [.. _catalogs.Values];
         try
         {
+            _files.Refresh();
             Load(all, all);
         }
         catch (ContentException mistake)
