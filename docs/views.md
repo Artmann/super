@@ -14,8 +14,8 @@ struct Box
 
 class BoxView(Content content)
 {
-    readonly ModelRef box = content.Model("props/chest.rmodel");
-    readonly ModelRef lid = content.Model("props/chest-lid.rmodel");
+    readonly ModelRef box = content.Model("props/chest.glb");
+    readonly ModelRef lid = content.Model("props/chest-lid.glb");
 
     public void Draw(in Box data, View view)
     {

@@ -265,10 +265,10 @@ internal sealed class ContentValidator
             return;
         }
 
-        string path = reader.GetString()!;
-        if (!_files.HasModel(path))
+        string name = reader.GetString()!;
+        if (ContentNames.Problem(_files, name, ContentKind.Model) is { } problem)
         {
-            Report(Line(reader.TokenStartIndex), $"{field} {path} does not exist");
+            Report(Line(reader.TokenStartIndex), $"{field} {problem}");
         }
     }
 

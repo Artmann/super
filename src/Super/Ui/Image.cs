@@ -6,23 +6,24 @@ namespace Super.Ui;
 /// <summary>A picture named by <see cref="Content.Image"/>. Its size is known at once, so layout never waits for it.</summary>
 public sealed class GameImage
 {
-    internal GameImage(string path, int width, int height, byte[] file, int index)
+    internal GameImage(string path, int width, int height, byte[] cooked, int index)
     {
         Path = path;
         Width = width;
         Height = height;
-        File = file;
+        Cooked = cooked;
         Index = index;
     }
 
+    /// <summary>The name of the cooked texture, such as <c>icons/axe.png</c>.</summary>
     public string Path { get; }
 
     public int Width { get; }
 
     public int Height { get; }
 
-    /// <summary>The file as it was read, which the window decodes in the background.</summary>
-    internal byte[] File { get; }
+    /// <summary>The cooked texture, header and pixels, which the window builds mips from in the background.</summary>
+    internal byte[] Cooked { get; }
 
     /// <summary>Its place among everything <see cref="Content"/> has named.</summary>
     internal int Index { get; }

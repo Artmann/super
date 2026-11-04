@@ -2,110 +2,148 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Super;
 
-/// <summary>Where JSON content comes from. Games use the content folder, and tests can hold it in memory.</summary>
+/// <summary>
+/// Where cooked content comes from: a manifest naming each asset, and its cooked bytes. Games read the
+/// cooked folder beside the program, and tests can cook in memory.
+/// </summary>
 public interface IContentFiles
 {
+    /// <summary>What a name holds, or null when the cooked content has no such name. Names are case-sensitive.</summary>
+    ContentKind? KindOf(string name);
+
     /// <summary>
-    /// Every .json file under a folder, as paths inside the content folder with forward
-    /// slashes, in ordinal order. Null if the folder isn't there.
+    /// The names of every data asset under a folder, in ordinal order. Null when there are none.
     /// </summary>
     IReadOnlyList<string>? List(string folder);
 
-    byte[] Read(string path);
+    /// <summary>The cooked bytes of an asset.</summary>
+    byte[] Read(string name);
 
-    /// <summary>Whether a cooked model exists. It answers true when there's no way to tell.</summary>
-    bool HasModel(string path);
+    /// <summary>The parts cooked from one source, such as <c>tall</c> and <c>young</c> for <c>firs.glb</c>, in ordinal order.</summary>
+    IReadOnlyList<string> Parts(string name) => [];
+
+    /// <summary>Reads the manifest again, after the content was cooked again.</summary>
+    void Refresh()
+    {
+    }
 }
 
 public static class ContentServices
 {
-    /// <summary>Reads JSON content from somewhere other than the content folder.</summary>
+    /// <summary>Reads content from somewhere other than the cooked folder beside the program.</summary>
     public static IServiceCollection AddContentFiles(this IServiceCollection services, IContentFiles files) =>
         services.AddSingleton(files);
 }
 
 /// <summary>
-/// The content folder on disk. A shipped game has it beside the program. A game run from
-/// source finds it further up, in the project, and that's how live reload knows it may run.
+/// A folder of cooked content: <c>content.manifest</c> and the objects it names. A game has it beside the
+/// program, in <c>content</c>. Without a manifest it's empty.
 /// </summary>
-public sealed class ContentFolder : IContentFiles
+public sealed class CookedFolder : IContentFiles
 {
     private const string FolderName = "content";
-    private const string CookedFolder = "assets/cooked";
 
-    // Textures load on background threads, so the search must finish before anyone sees it.
-    private readonly Lazy<string?> _root;
+    private readonly string _folder;
+    private readonly Lazy<DevSettings?> _dev;
+    private volatile ContentManifest _manifest = ContentManifest.Empty;
 
-    /// <summary>Finds the folder by walking up from the program.</summary>
-    public ContentFolder() =>
-        _root = new Lazy<string?>(() => Upward().Select(folder => Path.Combine(folder, FolderName)).FirstOrDefault(Directory.Exists));
-
-    public ContentFolder(string root) => _root = new Lazy<string?>(root);
-
-    /// <summary>The folder's full path, if there is one.</summary>
-    internal string? Root => _root.Value;
-
-    /// <summary>Whether this is a project's own folder rather than one shipped beside the program.</summary>
-    internal bool IsSource
+    public CookedFolder(string folder)
     {
-        get
+        _folder = Path.GetFullPath(folder);
+        _dev = new Lazy<DevSettings?>(() => DevSettings.Read(Path.Combine(_folder, "..", DevSettings.FileName)));
+        Refresh();
+    }
+
+    /// <summary>The <c>content</c> folder beside the program.</summary>
+    public static CookedFolder BesideProgram() => new(Path.Combine(AppContext.BaseDirectory, FolderName));
+
+    /// <summary>The folder's full path.</summary>
+    internal string Folder => _folder;
+
+    /// <summary>What the build wrote beside the folder when the game runs from source, or null for a shipped game.</summary>
+    internal DevSettings? Dev => _dev.Value;
+
+    public ContentKind? KindOf(string name) => _manifest.Assets.TryGetValue(name, out var entry) ? entry.Kind : null;
+
+    public IReadOnlyList<string>? List(string folder) => ContentNames.DataUnder(_manifest.Assets, folder);
+
+    public IReadOnlyList<string> Parts(string name) => ContentNames.PartsIn(_manifest.Assets.Keys, name);
+
+    public byte[] Read(string name)
+    {
+        if (!_manifest.Assets.TryGetValue(name, out var entry))
         {
-            string beside = Path.Combine(AppContext.BaseDirectory, FolderName);
-            return Root is { } root && !string.Equals(Path.GetFullPath(root), Path.GetFullPath(beside), StringComparison.OrdinalIgnoreCase);
+            throw new FileNotFoundException(ContentNames.Missing(this, name), name);
+        }
+
+        return File.ReadAllBytes(Path.Combine(_folder, ContentManifest.ObjectPath(entry.Hash)));
+    }
+
+    public void Refresh()
+    {
+        string path = Path.Combine(_folder, ContentManifest.FileName);
+        _manifest = File.Exists(path) ? ContentManifest.Parse(File.ReadAllBytes(path), path) : ContentManifest.Empty;
+    }
+}
+
+/// <summary>The checks and messages every kind of content files share.</summary>
+internal static class ContentNames
+{
+    /// <summary>Stops with a <see cref="ContentException"/> unless the name holds the wanted kind.</summary>
+    public static void Require(IContentFiles files, string name, ContentKind wanted)
+    {
+        if (Problem(files, name, wanted) is { } problem)
+        {
+            throw new ContentException([problem]);
         }
     }
 
-    public IReadOnlyList<string>? List(string folder)
+    /// <summary>What's wrong with naming this, or null when nothing is.</summary>
+    public static string? Problem(IContentFiles files, string name, ContentKind wanted)
     {
-        if (Root is not { } root || !Directory.Exists(Path.Combine(root, folder)))
+        var kind = files.KindOf(name);
+        if (kind == wanted)
         {
             return null;
         }
 
-        return Directory.GetFiles(Path.Combine(root, folder), "*.json", SearchOption.AllDirectories)
-            .Select(path => Path.GetRelativePath(root, path).Replace('\\', '/'))
+        return kind is { } other ? $"{name} is a {KindName(other)}, not a {KindName(wanted)}." : Missing(files, name);
+    }
+
+    public static string Missing(IContentFiles files, string name)
+    {
+        string message = $"{name} isn't in the cooked content. Check the name, including its case and extension.";
+        int hash = name.IndexOf('#');
+        if (hash < 0)
+        {
+            return message;
+        }
+
+        string source = name[..hash];
+        var parts = files.Parts(source);
+        return parts.Count == 0 ? message : $"{message} {source} has the parts: {string.Join(", ", parts)}.";
+    }
+
+    public static string KindName(ContentKind kind) => kind.ToString().ToLowerInvariant();
+
+    public static IReadOnlyList<string> PartsIn(IEnumerable<string> names, string source)
+    {
+        string prefix = source + "#";
+        return names
+            .Where(name => name.StartsWith(prefix, StringComparison.Ordinal))
+            .Select(name => name[prefix.Length..])
             .Order(StringComparer.Ordinal)
             .ToArray();
     }
 
-    public byte[] Read(string path)
+    public static IReadOnlyList<string>? DataUnder(IReadOnlyDictionary<string, ManifestEntry> assets, string folder)
     {
-        if (Root is not { } root)
-        {
-            throw new DirectoryNotFoundException(
-                $"Can't read {path}: there's no {FolderName} folder beside the program or in any folder above it. Make one in your game's project.");
-        }
-
-        return File.ReadAllBytes(Path.Combine(root, path));
-    }
-
-    public bool HasModel(string path)
-    {
-        string[] cooked = Upward().Select(folder => Path.Combine(folder, CookedFolder)).Where(Directory.Exists).ToArray();
-        return cooked.Length == 0 || cooked.Any(folder => File.Exists(Path.Combine(folder, path)));
-    }
-
-    /// <summary>The full path of a cooked model, looking in assets/cooked from the program's folder upward.</summary>
-    internal static string FindCooked(string path)
-    {
-        foreach (string folder in Upward())
-        {
-            string candidate = Path.Combine(folder, CookedFolder, path);
-            if (File.Exists(candidate))
-            {
-                return candidate;
-            }
-        }
-
-        throw new FileNotFoundException($"Could not find {path} in {CookedFolder}. Assets aren't in git, so it may need cooking first.", path);
-    }
-
-    /// <summary>The program's folder and each one above it.</summary>
-    internal static IEnumerable<string> Upward()
-    {
-        for (var folder = new DirectoryInfo(AppContext.BaseDirectory); folder is not null; folder = folder.Parent)
-        {
-            yield return folder.FullName;
-        }
+        string prefix = folder + "/";
+        string[] found = assets
+            .Where(pair => pair.Value.Kind == ContentKind.Data && pair.Key.StartsWith(prefix, StringComparison.Ordinal))
+            .Select(pair => pair.Key)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        return found.Length > 0 ? found : null;
     }
 }

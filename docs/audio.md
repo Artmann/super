@@ -11,7 +11,8 @@ SoundRef pop = content.Sound("sounds/pop.wav");
 AmbienceRef forest = content.Ambience("sounds/forest.ambience.json");
 ```
 
-Paths are inside the content folder. Naming the same path again gives the same ref.
+A name is the [path from the content root](content.md#names), and must have been cooked:
+a sound for `Sound`, data for `Ambience`. Naming the same name again gives the same ref.
 
 ### Formats
 

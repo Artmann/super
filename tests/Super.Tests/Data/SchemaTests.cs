@@ -91,7 +91,7 @@ public class SchemaTests
         {
             File.WriteAllText(Path.Combine(root, "plain", "a.json"), "{ \"id\": \"a\" }");
             File.WriteAllText(Path.Combine(root, "crates", "b.json"), "{ \"id\": \"b\", \"size\": 2 }");
-            var content = new Content(new ContentFolder(root));
+            var content = new Content(CookedTemp.Cook(root, root + "-cooked"));
             content.LoadAll<Plain>("plain");
             content.LoadAll<Crate>("crates");
 
@@ -115,6 +115,10 @@ public class SchemaTests
         finally
         {
             Directory.Delete(root, recursive: true);
+            if (Directory.Exists(root + "-cooked"))
+            {
+                Directory.Delete(root + "-cooked", recursive: true);
+            }
         }
     }
 }

@@ -4,6 +4,18 @@ namespace Super.Tests;
 
 public class LoadingTests
 {
+    /// <summary>Content holding every model these tests name, so naming them passes the check.</summary>
+    private static MemoryContent Models()
+    {
+        var files = new MemoryContent();
+        foreach (string name in new[] { "models/rock", "a", "b", "slow", "quick", "rock", "missing" })
+        {
+            files.AddModel(name);
+        }
+
+        return files;
+    }
+
     private class Named(Content content) : IGame
     {
         public Content Content => content;
@@ -22,7 +34,7 @@ public class LoadingTests
     /// <summary>A loader whose background work finishes only when a test says so.</summary>
     private sealed class Fake
     {
-        public Content Content { get; } = new() { Streaming = true };
+        public Content Content { get; } = new(Models()) { Streaming = true };
         public List<string> Uploaded { get; } = [];
         public Dictionary<string, TaskCompletionSource> Gates { get; } = [];
 
@@ -81,7 +93,7 @@ public class LoadingTests
     [Fact]
     public void Outside_the_window_everything_is_loaded_at_once()
     {
-        using var run = HeadlessGame.Create<Named>(1);
+        using var run = HeadlessGame.Create<Named>(1, services => services.AddContentFiles(Models()));
         Assert.True(run.Game.Content.IsLoaded);
         Assert.Equal(1f, run.Game.Content.Progress);
     }
@@ -89,7 +101,7 @@ public class LoadingTests
     [Fact]
     public void A_test_can_hold_a_load_open()
     {
-        using var run = HeadlessGame.Create<Named>(1);
+        using var run = HeadlessGame.Create<Named>(1, services => services.AddContentFiles(Models()));
         run.HoldLoading();
         Assert.False(run.Game.Content.IsLoaded);
         Assert.Equal(0f, run.Game.Content.Progress);
@@ -101,7 +113,7 @@ public class LoadingTests
     [Fact]
     public void Nothing_named_counts_as_loaded()
     {
-        var content = new Content { Streaming = true };
+        var content = new Content(Models()) { Streaming = true };
         Assert.True(content.IsLoaded);
         Assert.Equal(1f, content.Progress);
     }
@@ -109,7 +121,7 @@ public class LoadingTests
     [Fact]
     public void Streaming_reports_how_far_it_has_got()
     {
-        var content = new Content { Streaming = true };
+        var content = new Content(Models()) { Streaming = true };
         content.Model("a");
         content.Model("b");
         Assert.False(content.IsLoaded);
@@ -127,7 +139,7 @@ public class LoadingTests
     [Fact]
     public void A_second_load_starts_again_from_zero()
     {
-        var content = new Content { Streaming = true };
+        var content = new Content(Models()) { Streaming = true };
         content.Model("a");
         content.ItemLoaded(1);
 
@@ -231,7 +243,7 @@ public class LoadingTests
     [Fact]
     public void Without_streaming_everything_uploads_before_the_frame_is_drawn()
     {
-        var content = new Content();
+        var content = new Content(Models());
         var uploaded = new List<object>();
         var loader = new ContentLoader<string>("cube", item => item, (prepared, _) =>
         {

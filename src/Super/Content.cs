@@ -1,6 +1,5 @@
 using System.Runtime.InteropServices;
 using Rendition;
-using StbImageSharp;
 using Super.Ui;
 
 namespace Super;
@@ -8,7 +7,7 @@ namespace Super;
 /// <summary>Names a fragment shader. <see cref="Content.Shader"/> hands these out.</summary>
 public readonly record struct ShaderRef(int Index);
 
-/// <summary>Names a texture. <see cref="Content.Texture(string, TextureKind, bool)"/> hands these out.</summary>
+/// <summary>Names a texture. <see cref="Content.Texture(string)"/> hands these out.</summary>
 public readonly record struct TextureRef(int Index);
 
 /// <summary>Names a stack of same-sized textures. <see cref="Content.TextureArray"/> hands these out.</summary>
@@ -17,8 +16,11 @@ public readonly record struct TextureArrayRef(int Index);
 /// <summary>A shader the game named, read from shaders/&lt;name&gt;.spv beside the program.</summary>
 internal sealed record ShaderItem(string Name);
 
-/// <summary>A texture the game named: a PNG in the content folder, or pixels made in code.</summary>
-internal sealed record TextureItem(string? Path, GeneratedTexture? Generated, IContentFiles Files, TextureKind Kind, bool NormalMap);
+/// <summary>
+/// A texture the game named: a cooked texture, or pixels made in code. A cooked texture's kind and
+/// normal-map flag come from its header, so <see cref="Kind"/> and <see cref="NormalMap"/> only matter for pixels made in code.
+/// </summary>
+internal sealed record TextureItem(string? Name, GeneratedTexture? Generated, IContentFiles Files, TextureKind Kind, bool NormalMap);
 
 /// <summary>A texture array the game named, from textures named before it.</summary>
 internal sealed record TextureArrayItem(TextureItem[] Layers);
@@ -38,8 +40,6 @@ internal sealed record UnloadedItem
 /// </summary>
 public sealed class Content
 {
-    private static readonly TimeSpan ReloadQuietTime = TimeSpan.FromMilliseconds(100);
-
     private readonly List<object> _items = [];
     private readonly List<bool> _itemLoaded = [];
     private readonly HashSet<int> _unloaded = [];
@@ -52,7 +52,7 @@ public sealed class Content
     private readonly List<AmbienceDefinition> _ambiences = [];
     private readonly Dictionary<string, AmbienceRef> _ambienceRefs = [];
     private readonly Dictionary<string, ShaderRef> _shaders = [];
-    private readonly Dictionary<(string Path, TextureKind Kind, bool NormalMap), TextureRef> _textures = [];
+    private readonly Dictionary<string, TextureRef> _textures = [];
     private readonly Dictionary<(Type Type, string Folder), ICatalog> _catalogs = [];
     private readonly List<ContentReference> _waiting = [];
     private readonly ContentReader _reader;
@@ -62,14 +62,17 @@ public sealed class Content
     private int _loaded;
     private int _batchStart;
 
-    /// <summary>Reads JSON from the given files, or from the content folder if there are none.</summary>
+    /// <summary>Reads cooked content from the given files, or from the cooked folder beside the program if there are none.</summary>
     public Content(IContentFiles? files = null)
     {
-        _files = files ?? new ContentFolder();
+        _files = files ?? CookedFolder.BesideProgram();
         _reader = new ContentReader(this, _files);
     }
 
     internal IReadOnlyList<object> Items => _items;
+
+    /// <summary>Where the cooked bytes come from. The window reads models and textures through it.</summary>
+    internal IContentFiles Files => _files;
 
     /// <summary>True only in the interactive window, where loading happens over real time.</summary>
     internal bool Streaming { get; set; }
@@ -107,39 +110,44 @@ public sealed class Content
         }
     }
 
-    /// <summary>Names a cooked model, by its path inside assets/cooked. Naming it again gives the same one.</summary>
-    public ModelRef Model(string path)
+    /// <summary>
+    /// Names a cooked model by its name: the source's path and extension, such as <c>props/log.glb</c>,
+    /// with <c>#part</c> for one part of it. Naming it again gives the same one. A name that isn't in the
+    /// cooked content, or isn't a model, stops here with a <see cref="ContentException"/>.
+    /// </summary>
+    public ModelRef Model(string name)
     {
-        if (!_models.TryGetValue(path, out var model))
+        if (!_models.TryGetValue(name, out var model))
         {
-            model = Add(path);
-            _models.Add(path, model);
+            ContentNames.Require(_files, name, ContentKind.Model);
+            model = Add(name);
+            _models.Add(name, model);
         }
 
         return model;
     }
 
     /// <summary>
-    /// Reads a cooked model's skeleton and clips, by its path inside assets/cooked, so a
-    /// game can build its <see cref="AnimationController{TState, TAction}"/> at once.
-    /// The rig sits at the front of the file, so this is quick, and it's read on the
-    /// calling thread. It names the model too, and the game loop moves on every animator
-    /// started from it. Asking again gives the same rig. A model cooked without bones
-    /// stops here with an <see cref="InvalidOperationException"/>.
+    /// Reads a cooked model's skeleton and clips, by its name, so a game can build its
+    /// <see cref="AnimationController{TState, TAction}"/> at once. The rig sits at the front of
+    /// the cooked model, so this is quick, and it's read on the calling thread. It names the model
+    /// too, and the game loop moves on every animator started from it. Asking again gives the
+    /// same rig. A model cooked without bones stops here with an <see cref="InvalidOperationException"/>.
     /// </summary>
-    public Rig Rig(string path)
+    public Rig Rig(string name)
     {
-        if (!_rigs.TryGetValue(path, out var rig))
+        if (!_rigs.TryGetValue(name, out var rig))
         {
-            var (skeleton, clips) = ModelData.ReadRig(ContentFolder.FindCooked(path));
+            ContentNames.Require(_files, name, ContentKind.Model);
+            var (skeleton, clips) = ModelData.ReadRig(new MemoryStream(_files.Read(name)), name);
             if (skeleton is null)
             {
-                throw new InvalidOperationException($"{path} was cooked without a skeleton, so it has no rig to animate.");
+                throw new InvalidOperationException($"{name} was cooked without a skeleton, so it has no rig to animate.");
             }
 
-            rig = new Rig(skeleton, clips) { Model = Model(path) };
+            rig = new Rig(skeleton, clips) { Model = Model(name) };
             Adopt(rig);
-            _rigs.Add(path, rig);
+            _rigs.Add(name, rig);
         }
 
         return rig;
@@ -152,60 +160,60 @@ public sealed class Content
     internal void Adopt(Rig rig) => rig.Runner = Animators;
 
     /// <summary>
-    /// Names an image, by its path inside the content folder. Naming it again gives the
-    /// same one. A file that's missing or isn't an image stops here with a
-    /// <see cref="ContentException"/>. It's a catalog's mistake, not a drawing one.
+    /// Names an image, by the name of its cooked texture. Naming it again gives the same one.
+    /// Its size comes from the cooked header, so layout never waits for it. A name that isn't
+    /// a cooked texture stops here with a <see cref="ContentException"/>. It's a catalog's
+    /// mistake, not a drawing one.
     /// </summary>
-    public GameImage Image(string path)
+    public GameImage Image(string name)
     {
-        if (_images.TryGetValue(path, out var known))
+        if (_images.TryGetValue(name, out var known))
         {
             return known;
         }
 
-        byte[] file = ReadFile(path, "image");
-        using var stream = new MemoryStream(file);
-        if (ImageInfo.FromStream(stream) is not { } info)
-        {
-            throw new ContentException([$"{path} is not an image this can read"]);
-        }
+        ContentNames.Require(_files, name, ContentKind.Texture);
+        byte[] cooked = ReadFile(name, "image");
+        var (width, height) = CookedTexture.ReadSize(cooked, name);
 
         // The item's place is its index, as for models, because index 0 is the built-in cube.
-        var image = new GameImage(path, info.Width, info.Height, file, _items.Count + 1);
+        var image = new GameImage(name, width, height, cooked, _items.Count + 1);
         Add(image);
-        _images.Add(path, image);
+        _images.Add(name, image);
         return image;
     }
 
     /// <summary>
-    /// Names a sound by its path inside the content folder: .wav, .ogg or .mp3. Naming it
-    /// again gives the same one. A file that's missing or can't be read stops here with a
+    /// Names a cooked sound by its name, such as <c>sounds/hit.wav</c>. Naming it again gives
+    /// the same one. A name that isn't a cooked sound, or can't be read, stops here with a
     /// <see cref="ContentException"/> naming it.
     /// </summary>
-    public SoundRef Sound(string path)
+    public SoundRef Sound(string name)
     {
-        if (!_sounds.TryGetValue(path, out var sound))
+        if (!_sounds.TryGetValue(name, out var sound))
         {
-            _clips.Add(SoundClip.Read(path, ReadFile(path, "sound")));
+            ContentNames.Require(_files, name, ContentKind.Sound);
+            _clips.Add(SoundClip.Read(name, ReadFile(name, "sound")));
             sound = new SoundRef(_clips.Count - 1);
-            _sounds.Add(path, sound);
+            _sounds.Add(name, sound);
         }
 
         return sound;
     }
 
     /// <summary>
-    /// Names an ambience by the path of its .ambience.json file inside the content folder.
-    /// Naming it again gives the same one. Any mistake in the file, or in a sound it names,
-    /// stops here with a <see cref="ContentException"/> naming the file.
+    /// Names an ambience by the name of its .ambience.json file. Naming it again gives the
+    /// same one. Any mistake in the file, or in a sound it names, stops here with a
+    /// <see cref="ContentException"/> naming the file.
     /// </summary>
-    public AmbienceRef Ambience(string path)
+    public AmbienceRef Ambience(string name)
     {
-        if (!_ambienceRefs.TryGetValue(path, out var ambience))
+        if (!_ambienceRefs.TryGetValue(name, out var ambience))
         {
-            _ambiences.Add(AmbienceReader.Read(path, ReadFile(path, "ambience"), clipPath => Clip(Sound(clipPath))));
+            ContentNames.Require(_files, name, ContentKind.Data);
+            _ambiences.Add(AmbienceReader.Read(name, ReadFile(name, "ambience"), clipPath => Clip(Sound(clipPath))));
             ambience = new AmbienceRef(_ambiences.Count - 1);
-            _ambienceRefs.Add(path, ambience);
+            _ambienceRefs.Add(name, ambience);
         }
 
         return ambience;
@@ -269,15 +277,18 @@ public sealed class Content
     }
 
     /// <summary>
-    /// Names a PNG by its path inside the content folder. Naming it the same way again
-    /// gives the same one. A normal map keeps its mips unit length.
+    /// Names a cooked texture by its name, such as <c>textures/grass.png</c>. Naming it again
+    /// gives the same one. Whether it's colour or linear data, and whether it's a normal map,
+    /// is set where it's cooked, in <c>cook.json</c>. A name that isn't a cooked texture stops
+    /// here with a <see cref="ContentException"/>.
     /// </summary>
-    public TextureRef Texture(string path, TextureKind kind = TextureKind.Color, bool normalMap = false)
+    public TextureRef Texture(string name)
     {
-        if (!_textures.TryGetValue((path, kind, normalMap), out var texture))
+        if (!_textures.TryGetValue(name, out var texture))
         {
-            texture = new TextureRef(Add(new TextureItem(path, null, _files, kind, normalMap)).Index);
-            _textures.Add((path, kind, normalMap), texture);
+            ContentNames.Require(_files, name, ContentKind.Texture);
+            texture = new TextureRef(Add(new TextureItem(name, null, _files, TextureKind.Color, false)).Index);
+            _textures.Add(name, texture);
         }
 
         return texture;
@@ -342,9 +353,9 @@ public sealed class Content
         }
 
         MarkUnloaded(model.Index);
-        if (item is string path)
+        if (item is string name)
         {
-            _models.Remove(path);
+            _models.Remove(name);
         }
     }
 
@@ -365,9 +376,9 @@ public sealed class Content
         }
 
         MarkUnloaded(texture.Index);
-        if (item.Path is { } path)
+        if (item.Name is { } name)
         {
-            _textures.Remove((path, item.Kind, item.NormalMap));
+            _textures.Remove(name);
         }
     }
 
@@ -414,11 +425,6 @@ public sealed class Content
         var catalog = new Catalog<T>(folder);
         Load([catalog], [.. _catalogs.Values, catalog]);
         _catalogs.Add((typeof(T), folder), catalog);
-        if (IsLive)
-        {
-            ContentSchema.Write(((ContentFolder)_files).Root!, folder, typeof(T), _reader.Options);
-        }
-
         return catalog;
     }
 
@@ -452,16 +458,12 @@ public sealed class Content
     }
 
     /// <summary>
-    /// Starts development help: schemas, and reloading on save. It does nothing for a
-    /// shipped game, whose content sits beside the program, or for files not on disk.
+    /// Starts development help: schemas, and reloading on save. Games now read only cooked
+    /// content, which has no sources to watch, so for now this does nothing. Watching the
+    /// sources named in <c>content.dev.json</c> comes next.
     /// </summary>
     internal void GoLive()
     {
-        if (_files is ContentFolder { IsSource: true, Root: { } root } && Directory.Exists(root))
-        {
-            WriteSchemas(root);
-            _watcher = new ContentWatcher(root, () => ReloadWanted = true, ReloadQuietTime);
-        }
     }
 
     /// <summary>Stops watching files.</summary>

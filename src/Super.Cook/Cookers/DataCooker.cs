@@ -21,7 +21,14 @@ public sealed class DataCooker : ICooker
     {
         try
         {
-            using var document = JsonDocument.Parse(input.Bytes, Lenient);
+            // Editors on Windows may start a file with a byte order mark. The runtime skips it, so it isn't a mistake.
+            var json = input.Bytes.AsMemory();
+            if (json.Span.StartsWith((ReadOnlySpan<byte>)[0xEF, 0xBB, 0xBF]))
+            {
+                json = json[3..];
+            }
+
+            using var document = JsonDocument.Parse(json, Lenient);
         }
         catch (JsonException exception)
         {

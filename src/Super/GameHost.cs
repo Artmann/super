@@ -52,7 +52,7 @@ internal sealed class GameHost<TGame> : IDisposable
         services.AddSingleton(new UserData(userDataFolder ?? _throwawayFolder!));
         services.AddSingleton(time);
         services.AddSingleton(new GameRandom(seed));
-        services.AddSingleton<IContentFiles, ContentFolder>();
+        services.AddSingleton<IContentFiles>(_ => CookedFolder.BesideProgram());
         services.AddSingleton<Content>();
         services.AddSingleton(provider => new Audio(provider.GetRequiredService<Content>(), audioSeed ?? HeadlessAudioSeed));
         services.AddSingleton<Input>();

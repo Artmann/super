@@ -54,11 +54,34 @@ public class ContentTests
     [Fact]
     public void Naming_the_same_file_twice_gives_the_same_ref()
     {
-        var content = new Content(new MemoryContent());
+        var content = new Content(Textures("textures/grass.png", "textures/dirt.png"));
 
         Assert.Equal(content.Texture("textures/grass.png"), content.Texture("textures/grass.png"));
-        Assert.NotEqual(content.Texture("textures/grass.png"), content.Texture("textures/grass.png", normalMap: true));
+        Assert.NotEqual(content.Texture("textures/grass.png"), content.Texture("textures/dirt.png"));
         Assert.Equal(content.Shader("terrain"), content.Shader("terrain"));
+    }
+
+    [Fact]
+    public void A_texture_name_that_is_not_cooked_stops_at_once()
+    {
+        var content = new Content(Textures("textures/grass.png"));
+
+        var problem = Assert.Throws<ContentException>(() => content.Texture("textures/Grass.png"));
+
+        Assert.Equal("textures/Grass.png isn't in the cooked content. Check the name, including its case and extension.", problem.Message);
+        Assert.Empty(content.Items);
+    }
+
+    /// <summary>Content holding a small PNG under each name.</summary>
+    private static MemoryContent Textures(params string[] names)
+    {
+        var files = new MemoryContent();
+        foreach (string name in names)
+        {
+            files.Add(name, Ui.ImageTests.Png(2, 2));
+        }
+
+        return files;
     }
 
     [Fact]
@@ -91,7 +114,7 @@ public class ContentTests
     [Fact]
     public void Unloaded_texture_cannot_be_named_by_a_mesh_and_naming_it_again_makes_a_new_one()
     {
-        var content = new Content(new MemoryContent());
+        var content = new Content(Textures("textures/splat.png"));
         var texture = content.Texture("textures/splat.png");
 
         content.Unload(texture);
@@ -104,7 +127,7 @@ public class ContentTests
     [Fact]
     public void Texture_a_live_mesh_names_cannot_be_unloaded_until_the_mesh_is()
     {
-        var content = new Content(new MemoryContent());
+        var content = new Content(Textures("textures/splat.png"));
         var texture = content.Texture("textures/splat.png");
         var model = content.Mesh(Mesh(new Surface { ShaderTextures = [texture] }));
 
@@ -120,7 +143,7 @@ public class ContentTests
     [Fact]
     public void Unloaded_items_let_go_of_their_data()
     {
-        var content = new Content(new MemoryContent());
+        var content = new Content(Textures("textures/splat.png"));
         var texture = content.Texture("textures/splat.png");
         var model = content.Mesh(Mesh(new Surface { ColorTexture = texture }));
 
@@ -147,11 +170,11 @@ public class ContentTests
         }
 
         PngFile.Write(path, pixels, 4, 4);
-        var files = new MemoryContent();
+        var files = new MemoryContent { ["textures/cook.json"] = "{ \"rules\": [{ \"match\": \"*.png\", \"texture\": { \"linear\": true } }] }" };
         files.Add("textures/tiny.png", File.ReadAllBytes(path));
         Directory.Delete(folder, recursive: true);
         var content = new Content(files);
-        var texture = content.Texture("textures/tiny.png", TextureKind.Linear);
+        var texture = content.Texture("textures/tiny.png");
 
         var data = SceneRenderer.LoadTexture((TextureItem)content.Items[texture.Index - 1]);
 

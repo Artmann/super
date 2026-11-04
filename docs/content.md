@@ -9,7 +9,7 @@ load it. Comments and trailing commas are allowed.
   "id": "axe",
   "name": "Iron Axe",
   "chopPower": 3,
-  "model": "models/axe.rmodel",
+  "model": "models/axe.glb",
 }
 ```
 
@@ -26,7 +26,7 @@ class Armory(Content content)
 
 Each file is one record, and every record needs a string `Id`. Fields are written in
 camelCase. A field with a default value in the record is optional, and the rest are
-required. A `ModelRef` is written as its path inside `assets/cooked`.
+required. A `ModelRef` is written as the model's [name](#names), such as `models/axe.glb`.
 
 A `Curve` is written as keys or as an easing, so a designer can shape motion in a file
 and tune it while the game runs:
@@ -82,10 +82,23 @@ items/axe.json:4: chopPower must be a number
 recipes/axe.json:3: makes points at axes, but there is no Item called that
 ```
 
-Unknown fields, missing fields, repeated ids and broken references are all reported.
-Model paths are checked when `assets/cooked` exists, since cooked assets aren't in git.
+Unknown fields, missing fields, repeated ids and broken references are all reported. A
+model field must name a model in the cooked content, so a typo, or a name that holds data
+instead, is reported with the file and line:
+
+```
+items/axe.json:5: model models/ax.glb isn't in the cooked content. Check the name, including its case and extension.
+items/axe.json:5: model items/axe.json is a data, not a model.
+```
+
+JSON that doesn't parse never gets this far: it fails the [cook](#cooking), which names
+the file and line.
 
 ## Your editor can help
+
+> Now that games read cooked content, writing schemas and live reload are moving onto
+> the cooker, and neither runs until that lands. The two sections below describe how
+> they work once it has.
 
 Run the game from source and Super writes a JSON schema for each catalog into
 `content/.schemas`, which gives you autocomplete and red squiggles in VS Code. Point a
@@ -125,30 +138,99 @@ allocate.
 
 ## Images
 
-Images for the interface are named by their path inside the content folder:
+Images for the interface are named like any other asset:
 
 ```csharp
 GameImage icon = content.Image("icons/axe.png");
 ```
 
-A missing file, or one that isn't an image, stops with a `ContentException`.
+Its size comes from the cooked texture, so naming it doesn't decode it. A name that isn't
+in the cooked content, or that isn't a texture, stops with a `ContentException`.
+
+## Cooking
+
+A game never reads its sources. The build cooks every file under the content folder
+into `bin/<config>/content`: a `content.manifest` naming each asset, and the cooked bytes
+it points at. The game reads only that folder, beside the program. See
+[`super-cook`](command-line.md#cooking-content) for running the cooker by hand, adding
+more content roots, and the build targets.
+
+Every file is an asset, chosen by its extension:
+
+| Extension | Kind | Cooked form |
+| --- | --- | --- |
+| `.json` | data | The file itself, once it parses. It isn't rewritten, so line numbers in load errors still match |
+| `.png` `.jpg` `.jpeg` `.tga` | texture | Decoded RGBA pixels, sRGB unless set linear. Mips are made when it loads |
+| `.wav` `.ogg` `.mp3` | sound | The file itself, once it decodes |
+| `.glb` `.gltf` `.fbx` `.obj` | model | `.rmodel`, through `Super.Cook.Models` |
+
+A file with no cooker fails the cook unless a rule turns cooking off for it. Files and
+folders whose names start with a dot, `.bin`, `.md` and `.txt` are never assets.
+
+### Names
+
+A name is the path from the content root with forward slashes and the extension, such as
+`models/fox.glb` or `sounds/pop.wav`. Names are case-sensitive on every OS. Naming
+something that wasn't cooked stops at once, when it's named:
+
+```
+models/Fox.glb isn't in the cooked content. Check the name, including its case and extension.
+```
+
+Naming the wrong kind, such as a sound as a model, says what the name holds:
+
+```
+sounds/pop.wav is a sound, not a model.
+```
+
+### Rules and sidecars
+
+A `cook.json` in any folder sets cook settings for everything below it. Each rule matches
+a glob. A later rule beats an earlier one, and a deeper `cook.json` beats a shallower one:
+
+```json
+{
+  "rules": [
+    { "match": "**/*-normal.*", "texture": { "normalMap": true } },
+    { "match": "masks/**", "texture": { "linear": true } },
+    { "match": "notes/**", "cook": false }
+  ]
+}
+```
+
+Textures take `linear` (non-colour data, not read as sRGB) and `normalMap` (always
+linear, and its mips stay unit length). These settings are why `content.Texture` takes
+only a name: the kind is in the cooked texture. A file named `<source>.cook.json` beside
+a source holds settings for that one file and beats every rule. Models keep their import
+settings there; see [Rendering](rendering.md#models). An unknown setting is a cook error,
+so a typo can't drop one silently. Neither `cook.json` nor `*.cook.json` is an asset.
+
+### Parts
+
+A model sidecar can list `parts`, each cooked from one node of the file and named with
+`#`, such as `archer-props/firs.glb#tall`. A source with parts cooks only its parts.
+Naming a part that isn't there lists the ones that are:
+
+```
+archer-props/firs.glb#tal isn't in the cooked content. Check the name, including its case and extension. archer-props/firs.glb has the parts: tall, young.
+```
 
 ## Shipping
 
-To ship a game, publish the content folder beside the program. A game that finds
-`content` there knows it's shipped:
-
-```xml
-<Content Include="content\**\*.json" Exclude="content\.schemas\**" CopyToPublishDirectory="PreserveNewest" />
-```
+`dotnet publish` copies the cooked `content` folder beside the program and leaves
+`content.dev.json` out. That file is how a game knows it runs from source, so a game
+without it knows it's shipped. There is nothing to add to the project for it.
 
 ## In tests
 
-A test can state its data next to its checks, or link the game's real files into its
-output folder, as `tests/Rooms.Tests` does:
+A test can state its sources next to its checks. `MemoryContent` cooks them in memory
+with the built-in cookers the first time anything is read, so a test sees what a game
+would, and JSON that doesn't parse fails with the cook's message:
 
 ```csharp
 var files = new MemoryContent { ["items/axe.json"] = axeJson };
+files.Add("icons/axe.png", pngBytes);
+files.AddModel("models/axe.glb");   // models need files on disk to cook, so tests name them this way
 using var run = HeadlessGame.Create<MyGame>(seed, services => services.AddContentFiles(files));
 
 // Acts as if a file was saved, to test what your game does on a reload.
@@ -156,6 +238,9 @@ files["items/axe.json"] = strongerAxeJson;
 run.ContentChanged();
 run.Ticks(1);
 ```
+
+A model added with `AddModel` can be named but not drawn. To read a game's real content,
+give the test a `CookedFolder` over its cooked output.
 
 ## Planned
 

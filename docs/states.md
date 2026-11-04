@@ -76,7 +76,7 @@ A loading screen is another state that watches `Content`. Name what the next are
 on entering, then move on when it's ready.
 
 ```csharp
-screen.OnEnter(Screen.Loading, () => _houseModel = content.Model("models/house.rmodel"));
+screen.OnEnter(Screen.Loading, () => _houseModel = content.Model("models/house.glb"));
 
 // In Update.
 if (screen.Is(Screen.Loading) && content.IsLoaded)

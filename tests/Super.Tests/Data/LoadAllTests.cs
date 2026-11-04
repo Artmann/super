@@ -25,12 +25,13 @@ public class LoadAllTests
         "  \"id\": \"axe\",\n" +
         "  \"name\": \"Iron Axe\",\n" +
         "  \"chopPower\": 3,\n" +
-        "  \"model\": \"models/axe\",\n" +
+        "  \"model\": \"models/axe.glb\",\n" +
         "}\n";
 
     private static (Content Content, MemoryContent Files) Make(params (string Path, string Text)[] files)
     {
         var memory = new MemoryContent();
+        memory.AddModel("models/axe.glb");
         foreach (var (path, text) in files)
         {
             memory[path] = text;
@@ -105,7 +106,7 @@ public class LoadAllTests
             File.WriteAllText(Path.Combine(root, "plain", "a.json"), "{ \"id\": \"lower\", \"tags\": [] }");
             File.WriteAllText(Path.Combine(root, "plain", "B.json"), "{ \"id\": \"upper\", \"tags\": [] }");
             var ids = new List<string>();
-            foreach (var record in new Content(new ContentFolder(root)).LoadAll<Plain>("plain"))
+            foreach (var record in new Content(CookedTemp.Cook(root, root + "-cooked")).LoadAll<Plain>("plain"))
             {
                 ids.Add(record.Id);
             }
@@ -114,7 +115,7 @@ public class LoadAllTests
         }
         finally
         {
-            Directory.Delete(root, recursive: true);
+            Delete(root);
         }
     }
 
@@ -190,11 +191,11 @@ public class LoadAllTests
     }
 
     [Fact]
-    public void Broken_json_names_the_place()
+    public void Broken_json_fails_the_cook_and_names_the_place()
     {
         string[] problems = Problems<Item>("items", ("items/axe.json", "{\n  \"id\": \"axe\"\n  \"name\": \"x\"\n}"));
         string problem = Assert.Single(problems);
-        Assert.StartsWith("items/axe.json:3: ", problem);
+        Assert.StartsWith("memory:items/axe.json(3): error SUPER001: ", problem);
     }
 
     [Fact]
@@ -262,10 +263,20 @@ public class LoadAllTests
     [Fact]
     public void A_model_that_does_not_exist_is_a_broken_reference()
     {
-        var (content, files) = Make(("items/axe.json", Axe));
-        files.AddModel("models/other");
+        var files = new MemoryContent { ["items/axe.json"] = Axe };
+        files.AddModel("models/other.glb");
+        var error = Assert.Throws<ContentException>(() => new Content(files).LoadAll<Item>("items"));
+        Assert.Equal(
+            ["items/axe.json:5: model models/axe.glb isn't in the cooked content. Check the name, including its case and extension."],
+            error.Problems);
+    }
+
+    [Fact]
+    public void A_model_field_naming_data_says_what_it_names()
+    {
+        var (content, _) = Make(("items/axe.json", Axe.Replace("models/axe.glb", "items/axe.json")));
         var error = Assert.Throws<ContentException>(() => content.LoadAll<Item>("items"));
-        Assert.Equal(["items/axe.json:5: model models/axe does not exist"], error.Problems);
+        Assert.Equal(["items/axe.json:5: model items/axe.json is a data, not a model."], error.Problems);
     }
 
     [Fact]
@@ -285,12 +296,24 @@ public class LoadAllTests
         {
             File.WriteAllText(Path.Combine(root, "items", "tools", "axe.json"), "{ \"id\": \"axe\", \"tags\": [] }");
             File.WriteAllText(Path.Combine(root, "items", "notes.txt"), "not data");
-            var items = new Content(new ContentFolder(root)).LoadAll<Plain>("items");
+            var items = new Content(CookedTemp.Cook(root, root + "-cooked")).LoadAll<Plain>("items");
             Assert.Single(items);
         }
         finally
         {
-            Directory.Delete(root, recursive: true);
+            Delete(root);
+        }
+    }
+
+    /// <summary>Deletes a temp root and the folder it was cooked into.</summary>
+    private static void Delete(string root)
+    {
+        foreach (string folder in new[] { root, root + "-cooked" })
+        {
+            if (Directory.Exists(folder))
+            {
+                Directory.Delete(folder, recursive: true);
+            }
         }
     }
 
@@ -315,6 +338,7 @@ public class LoadAllTests
     public void A_headless_game_gets_its_data_from_the_test()
     {
         var files = new MemoryContent { ["items/axe.json"] = Axe };
+        files.AddModel("models/axe.glb");
         using var run = HeadlessGame.Create<Armory>(1, services => services.AddContentFiles(files));
         Assert.Equal(3, run.Game.Items["axe"].ChopPower);
     }

@@ -1,40 +1,131 @@
+using Super.Cook;
+
 namespace Super.Testing;
 
-/// <summary>Content files held in memory, so a test can state its data next to its checks.</summary>
+/// <summary>
+/// Content held in memory, so a test can state its data next to its checks. What a test adds are
+/// sources, cooked with the built-in cookers the first time anything is read after a change, just as a
+/// game's content is cooked before it runs.
+/// </summary>
 public sealed class MemoryContent : IContentFiles
 {
-    private readonly Dictionary<string, byte[]> _files = [];
-    private readonly HashSet<string> _models = [];
+    private const string EmptyHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
-    /// <summary>Adds a file, or replaces it, by its path inside the content folder.</summary>
-    public string this[string path]
+    private readonly object _gate = new();
+    private readonly MemoryRoot _root = new();
+    private readonly Dictionary<string, ManifestEntry> _models = new(StringComparer.Ordinal);
+    private MemoryStore? _cooked;
+
+    /// <summary>Adds a text source, or replaces it, by its name, such as <c>items/axe.json</c>.</summary>
+    public string this[string name]
     {
-        set => _files[path] = System.Text.Encoding.UTF8.GetBytes(value);
+        set
+        {
+            lock (_gate)
+            {
+                _root[name] = value;
+                _cooked = null;
+            }
+        }
     }
 
-    /// <summary>Adds a file that isn't text, such as an image.</summary>
-    public MemoryContent Add(string path, byte[] bytes)
+    /// <summary>Adds a source that isn't text, such as an image or a sound.</summary>
+    public MemoryContent Add(string name, byte[] bytes)
     {
-        _files[path] = bytes;
+        lock (_gate)
+        {
+            _root.Add(name, bytes);
+            _cooked = null;
+        }
+
         return this;
     }
 
-    /// <summary>Once one model is added, only added models exist. Until then every model does.</summary>
-    public void AddModel(string path) => _models.Add(path);
+    /// <summary>
+    /// Names a cooked model with no data, so content can name it. Models need files on disk to cook, so
+    /// tests add them this way. It can't be drawn.
+    /// </summary>
+    public void AddModel(string name)
+    {
+        lock (_gate)
+        {
+            _models[name] = new ManifestEntry(ContentKind.Model, EmptyHash, 0);
+        }
+    }
 
-    public void Remove(string path) => _files.Remove(path);
+    /// <summary>Removes a source, or a model added with <see cref="AddModel"/>.</summary>
+    public void Remove(string name)
+    {
+        lock (_gate)
+        {
+            _root.Remove(name);
+            _models.Remove(name);
+            _cooked = null;
+        }
+    }
+
+    public ContentKind? KindOf(string name)
+    {
+        lock (_gate)
+        {
+            return Find(name)?.Kind;
+        }
+    }
 
     public IReadOnlyList<string>? List(string folder)
     {
-        string prefix = folder + "/";
-        string[] found = _files.Keys
-            .Where(path => path.StartsWith(prefix, StringComparison.Ordinal) && path.EndsWith(".json", StringComparison.Ordinal))
-            .Order(StringComparer.Ordinal)
-            .ToArray();
-        return found.Length > 0 ? found : null;
+        lock (_gate)
+        {
+            return ContentNames.DataUnder(Cooked().Manifest.Assets, folder);
+        }
     }
 
-    public byte[] Read(string path) => _files[path];
+    public IReadOnlyList<string> Parts(string name)
+    {
+        lock (_gate)
+        {
+            return ContentNames.PartsIn(Cooked().Manifest.Assets.Keys.Concat(_models.Keys), name);
+        }
+    }
 
-    public bool HasModel(string path) => _models.Count == 0 || _models.Contains(path);
+    public byte[] Read(string name)
+    {
+        lock (_gate)
+        {
+            if (Find(name) is not { } entry)
+            {
+                throw new FileNotFoundException(ContentNames.Missing(this, name), name);
+            }
+
+            return entry.Kind == ContentKind.Model && _models.ContainsKey(name) ? [] : Cooked().Get(entry.Hash);
+        }
+    }
+
+    private ManifestEntry? Find(string name)
+    {
+        if (_models.TryGetValue(name, out var model))
+        {
+            return model;
+        }
+
+        return Cooked().Manifest.Assets.TryGetValue(name, out var entry) ? entry : null;
+    }
+
+    private MemoryStore Cooked()
+    {
+        if (_cooked is { } cooked)
+        {
+            return cooked;
+        }
+
+        var store = new MemoryStore();
+        var result = new CookPipeline(BuiltInCookers.All, new CookOptions()).Cook([_root], store);
+        if (!result.Succeeded)
+        {
+            throw new ContentException(result.Problems.Where(problem => problem.IsError).Select(problem => problem.ToString()).ToArray());
+        }
+
+        _cooked = store;
+        return store;
+    }
 }
