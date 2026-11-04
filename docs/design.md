@@ -409,7 +409,12 @@ never watches anything. When the game's content goes live (`Content.GoLive`):
    holds open and never writes to, so when the game dies the pipe closes and the tool stops. A game with no `dotnet` on the path still runs, and a cook
    started by hand is still heard.
 
-The tool cooks once, then again after the sources have been quiet for 100 ms. When it
+The tool cooks once, then again after the sources have been quiet for 100 ms. A file another
+program has open is tried again after the same wait; `CookPipeline.InUse` knows Windows'
+sharing and lock violations. Replacing the manifest while the game is reading it fails with
+access denied instead, so `FolderStore` turns access denied on its atomic move, and nowhere
+else, into a `FileInUseException` carrying a sharing violation, after deleting its temp file.
+When it
 commits a new manifest the watcher's timer fires on a thread-pool thread, which only sets
 `Content.ReloadWanted`. `GameHost` checks that flag at the start of a tick and calls
 `Content.Reload` on the game thread, so no catalog is ever read from two threads.

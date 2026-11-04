@@ -164,6 +164,35 @@ public sealed class WatcherTests : IDisposable
     }
 
     [Fact]
+    public void Manifest_the_game_is_reading_is_tried_again_after_quiet()
+    {
+        // Only Windows refuses to replace a file another program has open.
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var clock = new ManualClock();
+        using var watcher = new CookWatcher(_pipeline, [new FolderRoot(_content)], _store, _log, Quiet, clock);
+        File.WriteAllText(Path.Combine(_content, "items", "sword.json"), """{ "name": "Sword" }""");
+
+        // Opened the way the game's File.ReadAllBytes opens it while refreshing.
+        using (File.Open(ManifestPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            clock.Timer.Fire();
+        }
+
+        Assert.Contains("Trying again.", _log.Text);
+        Assert.Equal(Quiet, clock.Timer.Due);
+        Assert.False(Manifest().Assets.ContainsKey("items/sword.json"));
+        Assert.Empty(Directory.GetFiles(_out, "*.tmp"));
+
+        clock.Timer.Fire();
+
+        Assert.True(Manifest().Assets.ContainsKey("items/sword.json"));
+    }
+
+    [Fact]
     public void Error_that_waiting_wont_fix_is_logged_and_waits_for_the_next_change()
     {
         var clock = new ManualClock();
