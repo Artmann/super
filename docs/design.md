@@ -401,8 +401,8 @@ never watches anything. When the game's content goes live (`Content.GoLive`):
    several steps and writers rename a temp file over it.
 3. It starts `super-cook --watch` through `CookProcess`: `dotnet <tool> --watch --content
    <root>... --out <folder> --target <target>`. Its output goes to the game's error stream
-   so cook errors show where the game's own messages do. The tool's stdin is the game's, so
-   it stops when the game dies. A game with no `dotnet` on the path still runs, and a cook
+   so cook errors show where the game's own messages do. The tool's stdin is a pipe the game
+   holds open and never writes to, so when the game dies the pipe closes and the tool stops. A game with no `dotnet` on the path still runs, and a cook
    started by hand is still heard.
 
 The tool cooks once, then again after the sources have been quiet for 100 ms. When it
