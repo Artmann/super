@@ -32,6 +32,10 @@ Shift, with a road a cart drives round; press F for a flyover that follows the c
 Space and the keys 1 to 4 for the sound. The Reef example needs models that aren't in the repository; see
 [Rendering](rendering.md#models) for how to cook them.
 
+Start one with `dotnet watch --project examples/Crafting --non-interactive` instead, and
+code you save is applied while the game runs. See
+[Change code while the game runs](hot-reload.md).
+
 ## A first game
 
 ```csharp
@@ -59,7 +63,7 @@ class Spinner : IGame
 built-in cube, so this runs with no files at all. There are
 [other built-in shapes](rendering.md#built-in-shapes) too, such as `ModelRef.Sphere`.
 
-A game implements `IGame`, which has five members. Only `Update` and `Draw` are required:
+A game implements `IGame`, which has six members. Only `Update` and `Draw` are required:
 
 | Member | When it runs | What it's for |
 | --- | --- | --- |
@@ -68,6 +72,7 @@ A game implements `IGame`, which has five members. Only `Update` and `Draw` are 
 | `Draw(View)` | Once per displayed frame | Describe the 3D world. It only reads state |
 | `Ui` | Once per displayed frame | Describe the [interface](interfaces.md) on top. It only reads state |
 | `Scripts` | Once, after `Load` | Named input scripts for [`--script`](command-line.md#scripted-input) |
+| `CodeReloaded()` | At the start of the tick after [hot reload](hot-reload.md) changed the code | Rebuild what setup code made, often with `Reenter` |
 
 Keeping `Update` and `Draw` apart is the most important idea in Super. `Update` is the
 game. `Draw` only looks at it, so the game can run with no screen at all, and the
@@ -188,3 +193,4 @@ what lets [tests](testing.md) run in parallel.
 - [Working with coding agents](agents.md) if an agent is writing your game.
 - [Drawing with views](views.md) to put more on screen.
 - [Input](input.md) to make it playable.
+- [Change code while the game runs](hot-reload.md) to try changes without restarting.

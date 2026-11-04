@@ -15,8 +15,19 @@ public static class Game
         var arguments = GameArguments.Parse(Environment.GetCommandLineArgs().AsSpan(1));
 
         // The seed is the one thing here allowed to come from outside the game.
-        int seed = arguments.Seed ?? options.Seed ?? Random.Shared.Next();
-        Console.WriteLine($"seed {seed}");
+        int seed;
+        if ((arguments.Seed ?? options.Seed) is { } chosen)
+        {
+            seed = chosen;
+            Console.WriteLine($"seed {seed}");
+        }
+        else
+        {
+            var pick = RestartSeed.Pick(
+                Environment.GetEnvironmentVariable(RestartSeed.WatchIterationVariable), AppContext.BaseDirectory, Random.Shared.Next);
+            seed = pick.Seed;
+            Console.WriteLine(pick.Kept ? $"seed {seed}, kept from before the restart" : $"seed {seed}");
+        }
 
         bool hidden = arguments.ScreenshotPath is not null || arguments.RecordPath is not null || arguments.ProfilePath is not null;
 
@@ -28,7 +39,17 @@ public static class Game
 
         // Only live play sounds different each time. Screenshots, recordings and profiles keep the fixed audio seed.
         int? audioSeed = hidden ? null : Random.Shared.Next();
-        using var host = new GameHost<TGame>(seed, options.TicksPerSecond, services, userDataFolder, audioSeed);
+        // Only live play keeps going after an error: a screenshot, recording or profile should fail loudly.
+        bool keepRunning = !hidden && HotReload.IsOn;
+        if (keepRunning)
+        {
+            Console.WriteLine("Hot reload is on, so an error stops the game until the next change instead of closing it.");
+        }
+
+        using var host = new GameHost<TGame>(seed, options.TicksPerSecond, services, userDataFolder, audioSeed)
+        {
+            KeepsRunningAfterErrors = keepRunning,
+        };
         host.Script = FindScript<TGame>(host, arguments.ScriptName);
 
         // Validation would swamp the timings, so a profile runs without it.

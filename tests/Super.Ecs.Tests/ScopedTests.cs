@@ -60,6 +60,23 @@ public class ScopedTests
     }
 
     [Fact]
+    public void Reentering_a_state_rebuilds_its_scoped_entities_and_keeps_the_rest()
+    {
+        using var run = Run();
+        run.States<Screen>().Set(Screen.House);
+        run.Ticks(1);
+        var oldDoor = run.Game.Door;
+
+        run.States<Screen>().Reenter();
+        run.Ticks(1);
+
+        Assert.False(run.Game.World.IsAlive(oldDoor));
+        Assert.True(run.Game.World.IsAlive(run.Game.Door));
+        Assert.NotEqual(oldDoor, run.Game.Door);
+        Assert.True(run.Game.World.IsAlive(run.Game.Player));
+    }
+
+    [Fact]
     public void Exit_callbacks_still_see_the_scoped_entities()
     {
         using var run = Run();

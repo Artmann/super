@@ -56,6 +56,12 @@ public sealed class HeadlessRun<TGame> : IDisposable
     /// <summary>Acts as if a content file was saved. It lands on the next tick, as it does in the window.</summary>
     public void ContentChanged() => _host.Content.ReloadWanted = true;
 
+    /// <summary>
+    /// Acts as if hot reload changed the game's code, so <see cref="IGame.CodeReloaded"/> runs
+    /// at the start of the next tick, as it does in the window.
+    /// </summary>
+    public void CodeChanged() => _host.CodeChanged();
+
     /// <summary>What the last Draw would have shown.</summary>
     public IReadOnlyList<ModelDraw> Drawn => _host.View.Drawn.ToArray();
 
