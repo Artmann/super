@@ -168,7 +168,8 @@ as a separate grey image beside a colour JPEG with no alpha; name it with `alpha
 its red becomes the colour texture's opacity. A mesh without UVs whose material uses a
 texture warns, since every read lands on one texel; an untextured mesh needs no UVs. A
 texture a rule names that can't be found stops the cook; one the model file links to only
-warns:
+warns. A texture path must match the file's name exactly, case included, even on Windows,
+so a model that cooks there cooks on every OS:
 
 ```json
 // props/fern_02/fern_02.gltf.cook.json
