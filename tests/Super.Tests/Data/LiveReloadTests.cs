@@ -404,32 +404,6 @@ public class LiveReloadTests
     }
 
     [Fact]
-    public void A_folder_shipped_beside_the_program_never_goes_live()
-    {
-        string beside = Path.Combine(AppContext.BaseDirectory, "content");
-        Assert.False(File.Exists(Path.Combine(AppContext.BaseDirectory, DevSettings.FileName)), "The test needs no content.dev.json beside the program.");
-        bool made = !Directory.Exists(beside);
-        Directory.CreateDirectory(beside);
-        try
-        {
-            var starts = new CookStarts();
-            var content = new Content(new CookedFolder(beside)) { StartCook = starts.Start };
-
-            content.GoLive();
-
-            Assert.Empty(starts.Calls);
-            Assert.False(content.IsLive);
-        }
-        finally
-        {
-            if (made)
-            {
-                Directory.Delete(beside, recursive: true);
-            }
-        }
-    }
-
-    [Fact]
     public void The_cook_runs_the_tool_in_watch_mode_over_every_root()
     {
         var dev = new DevSettings(["/game/content", "/art/content"], "/tools/super-cook.dll", "desktop");
@@ -480,11 +454,43 @@ public class LiveReloadTests
     }
 }
 
-/// <summary>Real file watchers and real time, so these run alone.</summary>
+/// <summary>Real file watchers, real time and folders the whole process shares, so these run alone.</summary>
 [CollectionDefinition(Name, DisableParallelization = true)]
 public sealed class LiveReloadCollection
 {
     public const string Name = "Live reload";
+}
+
+/// <summary>The content folder beside the test program is shared by the whole process, so these run alone.</summary>
+[Collection(LiveReloadCollection.Name)]
+[Trait("Speed", "Slow")]
+public sealed class BesideProgramTests
+{
+    [Fact]
+    public void A_folder_shipped_beside_the_program_never_goes_live()
+    {
+        string beside = Path.Combine(AppContext.BaseDirectory, "content");
+        Assert.False(File.Exists(Path.Combine(AppContext.BaseDirectory, DevSettings.FileName)), "The test needs no content.dev.json beside the program.");
+        bool made = !Directory.Exists(beside);
+        Directory.CreateDirectory(beside);
+        try
+        {
+            var starts = new LiveReloadTests.CookStarts();
+            var content = new Content(new CookedFolder(beside)) { StartCook = starts.Start };
+
+            content.GoLive();
+
+            Assert.Empty(starts.Calls);
+            Assert.False(content.IsLive);
+        }
+        finally
+        {
+            if (made)
+            {
+                Directory.Delete(beside, recursive: true);
+            }
+        }
+    }
 }
 
 /// <summary>Live reload against real folders, with a real watcher and the cook done in the test.</summary>
