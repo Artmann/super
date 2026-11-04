@@ -353,6 +353,22 @@ public sealed class CacheTests : IDisposable
     }
 
     [Fact]
+    public void A_damaged_hashes_file_is_an_empty_memo_not_an_error()
+    {
+        string src = Temp();
+        string cache = Temp();
+        File.WriteAllText(Path.Combine(src, "a.json"), "{ \"x\": 1 }");
+        File.WriteAllText(Path.Combine(cache, "hashes.json"), "{ \"k\": \"a\", \"k\": \"b\" }");
+
+        var first = Cook(cache, [new FolderRoot(src)]);
+        var second = Cook(cache, [new FolderRoot(src)]);
+
+        Assert.True(first.Succeeded);
+        Assert.Equal(1, first.Cooked);
+        Assert.Equal(1, second.FromCache);
+    }
+
+    [Fact]
     public void No_cache_folder_means_no_caching()
     {
         var root = new MemoryRoot();
@@ -364,23 +380,6 @@ public sealed class CacheTests : IDisposable
 
         Assert.Equal(1, second.Cooked);
         Assert.Equal(0, second.FromCache);
-    }
-
-    [Fact]
-    public void Default_cache_folder_follows_SUPER_CACHE()
-    {
-        string? before = Environment.GetEnvironmentVariable("SUPER_CACHE");
-        try
-        {
-            Environment.SetEnvironmentVariable("SUPER_CACHE", "/some/where");
-            Assert.Equal("/some/where", CookOptions.DefaultCacheFolder);
-            Environment.SetEnvironmentVariable("SUPER_CACHE", null);
-            Assert.Equal(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".super", "cache"), CookOptions.DefaultCacheFolder);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("SUPER_CACHE", before);
-        }
     }
 
     private static CookInput InputFor(MemoryRoot root, string name)

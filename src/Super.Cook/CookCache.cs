@@ -239,9 +239,10 @@ internal sealed class CookCache(string folder)
                 }
             }
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+        catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             // No hashes yet, or they were damaged. Files get hashed again.
+            _hashes.Clear();
         }
 
         return _hashes;
