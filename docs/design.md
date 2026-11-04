@@ -446,6 +446,48 @@ writing it, asks for another reload on the next tick.
 Only catalogs reload so far. Models, textures and sounds that are already loaded keep what
 they have; see the [roadmap](roadmap.md).
 
+## Hot reload
+
+Super doesn't reload code itself. `dotnet watch` or an IDE applies the change through the
+runtime, and Super only reacts to it. See [the user guide](hot-reload.md).
+
+**Hearing about a change.** `[assembly: MetadataUpdateHandler(typeof(HotReload))]` makes
+the runtime call `HotReload.UpdateApplication` after each update, from its own thread. All
+it does is increment a counter. Each `GameHost` remembers the count it last saw, and at
+the start of a tick, after the content reload, it calls `IGame.CodeReloaded` if the count
+moved. So the game hears about the change on its own thread, between ticks, the same way
+content reload works. `ClearCache` is empty. Hot reload keeps type identity, so the ECS
+component ids keyed by `Type` stay right. System.Text.Json clears its own reflection cache,
+so a property added to a content record is read on the next reload.
+
+**Stopping instead of closing.** `GameHost.KeepsRunningAfterErrors` is set only by the
+window, and only when `MetadataUpdater.IsSupported` is true and nothing is being captured.
+`Tick` and `Draw` then catch exceptions and call `Stop`. `Stop` keeps the first error
+only and reports it once. It also sets `Input.Readable` back to false, since Update may
+have thrown with input still open. A stopped `Tick` returns without doing anything, so
+`Time.Tick` doesn't move, until the change counter moves or `Content.ReloadWanted` is set.
+Then it clears the stop and runs the tick, which delivers the reload and `CodeReloaded`
+before `Update`.
+
+When `Update` stopped the game, `Draw` still runs the game's `Draw`, and only the interface
+is swapped for `StoppedPanel`. When `Draw` or `Ui` threw, `_drawStopped` is set and later
+frames run `DrawStopped` instead. It begins an empty view, ends the audio frame and shows
+the panel without calling any of the game's code, so a broken Draw isn't hit every frame.
+Both paths end with `StateChanges.Open` set to true again, because a Draw that threw never
+reached the line that opens it.
+
+The tick that threw isn't undone. Rolling back would mean copying the whole game every
+tick, and a hot reload session is for development, where carrying on from a half-finished
+tick is good enough.
+
+**Keeping the seed across restarts.** A rude edit makes `dotnet watch` kill the process
+and start it again, setting `DOTNET_WATCH_ITERATION` to 1 for its first run and counting
+up for each restart. `RestartSeed.Pick` writes the seed to `super-restart-seed.txt` beside
+the program on the first run, and reads it back on later ones. Without the variable it
+writes nothing, so plain runs and published games are unaffected. The seed is written with
+the invariant culture: under a culture such as `sv-SE`, a negative number is written with
+U+2212 for the minus sign, which an invariant parse rejects.
+
 # Rendition design
 
 Rendition is a deferred, PBR renderer in modern .NET, generic enough for any 3D game.

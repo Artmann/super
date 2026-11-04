@@ -16,6 +16,7 @@ public sealed class States<TState> : IStateMachine
     private readonly Dictionary<TState, List<Action>> _exit = [];
     private bool _started;
     private bool _hasNext;
+    private bool _reenter;
     private TState _next;
 
     public States(StateChanges changes)
@@ -37,17 +38,33 @@ public sealed class States<TState> : IStateMachine
 
     /// <summary>
     /// Asks to move to a state. The rest of this tick finishes first, and the Draw after it
-    /// shows the new state. If it's asked for twice, the last one wins.
+    /// shows the new state. If it's asked for twice, the last one wins, and that includes
+    /// <see cref="Reenter"/>: a Set after it replaces it, so setting the current state stays put.
     /// </summary>
     public void Set(TState state)
     {
-        if (!_changes.Open)
-        {
-            throw new InvalidOperationException("States can't change in Draw or Ui, which only describe state. Change them in Update.");
-        }
-
+        ThrowIfClosed();
         _next = state;
         _hasNext = true;
+        _reenter = false;
+    }
+
+    /// <summary>
+    /// Asks to leave the state and enter it again, so its exit and enter callbacks run and
+    /// what belongs to it is built afresh. It lands like <see cref="Set"/>. Use it to restart
+    /// a level, or after hot reload changed the code that builds the state. After a Set in
+    /// the same tick, it reenters the state that was set.
+    /// </summary>
+    public void Reenter()
+    {
+        ThrowIfClosed();
+        if (!_hasNext)
+        {
+            _next = Current;
+            _hasNext = true;
+        }
+
+        _reenter = true;
     }
 
     /// <summary>Adds something to run on entering a state. Use it to build what the state needs.</summary>
@@ -59,7 +76,9 @@ public sealed class States<TState> : IStateMachine
     void IStateMachine.Change(IStateHook[] hooks)
     {
         var next = _hasNext ? _next : Current;
+        bool reenter = _reenter;
         _hasNext = false;
+        _reenter = false;
         if (!_started)
         {
             _started = true;
@@ -68,7 +87,7 @@ public sealed class States<TState> : IStateMachine
             return;
         }
 
-        if (Same.Equals(next, Current))
+        if (Same.Equals(next, Current) && !reenter)
         {
             return;
         }
@@ -81,6 +100,14 @@ public sealed class States<TState> : IStateMachine
 
         Previous = Current;
         Enter(next, hooks);
+    }
+
+    private void ThrowIfClosed()
+    {
+        if (!_changes.Open)
+        {
+            throw new InvalidOperationException("States can't change in Draw or Ui, which only describe state. Change them in Update.");
+        }
     }
 
     private void Enter(TState state, IStateHook[] hooks)

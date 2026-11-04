@@ -48,6 +48,7 @@ in parallel, because Super keeps no global state, so this fits in a pull request
 | `run.States<T>()` | The [game states](states.md), to read or jump to |
 | `run.HoldLoading()`, `run.FinishLoading()` | Holds a [loading screen](states.md#loading-screens) open |
 | `run.ContentChanged()` | Acts as if a [content file](content.md#in-tests) was saved |
+| `run.CodeChanged()` | Acts as if [hot reload](hot-reload.md) changed the code, so `CodeReloaded` runs on the next tick |
 | `run.Frame(blend)` | Draws once more, between ticks |
 
 ## Fakes

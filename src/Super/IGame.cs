@@ -25,6 +25,15 @@ public interface IGame
     /// </summary>
     UiView? Ui => null;
 
+    /// <summary>
+    /// Runs at the start of the next tick after hot reload changed the game's code, before
+    /// Update. Code that already ran, such as Load or a state's enter callbacks, doesn't run
+    /// again by itself; call <c>states.Reenter()</c> here to rebuild the current state.
+    /// </summary>
+    void CodeReloaded()
+    {
+    }
+
     /// <summary>Input to play by name with <c>--script</c>, read once after <see cref="Load"/>.</summary>
     IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>();
 }

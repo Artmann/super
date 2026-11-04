@@ -24,6 +24,9 @@ internal sealed class GameHost<TGame> : IDisposable
     private readonly string? _throwawayFolder;
 
     private long _scriptStart;
+    private int _codeChangesSeen = HotReload.Changes;
+    private bool _codeChanged;
+    private bool _drawStopped;
 
     /// <summary>When set, this is the player. Each tick plays what's due on it, counting from the tick it was set.</summary>
     public InputScript? Script
@@ -121,7 +124,53 @@ internal sealed class GameHost<TGame> : IDisposable
     /// <summary>Looks a service up for the test harness. Games get theirs injected instead.</summary>
     internal object GetService(Type type) => _services.GetRequiredService(type);
 
+    /// <summary>
+    /// With hot reload on, an exception in the game's code stops the game instead of closing
+    /// it, so the next saved fix carries on from where it was. Only live play turns this on.
+    /// </summary>
+    public bool KeepsRunningAfterErrors { get; init; }
+
+    /// <summary>Where a stop is reported.</summary>
+    public TextWriter Errors { get; init; } = Console.Error;
+
+    /// <summary>What stopped the game, until a change to the code or content lets it try again.</summary>
+    public Exception? Stopped { get; private set; }
+
+    /// <summary>Acts as if hot reload changed the code. It lands at the start of the next tick.</summary>
+    internal void CodeChanged() => _codeChanged = true;
+
+    private bool CodeChangeDue => _codeChanged || HotReload.Changes != _codeChangesSeen;
+
     public void Tick()
+    {
+        if (!KeepsRunningAfterErrors)
+        {
+            TickOnce();
+            return;
+        }
+
+        if (Stopped is not null)
+        {
+            if (!CodeChangeDue && !Content.ReloadWanted)
+            {
+                return;
+            }
+
+            Stopped = null;
+            _drawStopped = false;
+        }
+
+        try
+        {
+            TickOnce();
+        }
+        catch (Exception error)
+        {
+            Stop(error);
+        }
+    }
+
+    private void TickOnce()
     {
         Script?.Play(Time.Tick - _scriptStart, Input, Ui);
 
@@ -129,6 +178,14 @@ internal sealed class GameHost<TGame> : IDisposable
         if (Content.ReloadWanted)
         {
             Content.Reload(Console.Error);
+        }
+
+        // At the start of a tick, on the game's thread, however the runtime delivered the change.
+        if (CodeChangeDue)
+        {
+            _codeChanged = false;
+            _codeChangesSeen = HotReload.Changes;
+            ((IGame)Game).CodeReloaded();
         }
 
         _pointer.BeforeRoll();
@@ -171,6 +228,32 @@ internal sealed class GameHost<TGame> : IDisposable
 
     public void Draw(float blend)
     {
+        if (!KeepsRunningAfterErrors)
+        {
+            DrawOnce(blend);
+            return;
+        }
+
+        // Once Draw or Ui has thrown, it isn't called again until a change, so the error is reported once.
+        if (!_drawStopped)
+        {
+            try
+            {
+                DrawOnce(blend);
+                return;
+            }
+            catch (Exception error)
+            {
+                _drawStopped = true;
+                Stop(error);
+            }
+        }
+
+        DrawStopped(blend);
+    }
+
+    private void DrawOnce(float blend)
+    {
         _changes.Open = false;
         View.Begin(blend, Time.Tick, Time.TickSeconds, Time.Scale);
         Game.Draw(View);
@@ -191,16 +274,44 @@ internal sealed class GameHost<TGame> : IDisposable
         // and not itself.
         Stats.EndFrame();
         _pointer.Pump();
-        Ui.Update(((IGame)Game).Ui, ScreenWidth, ScreenHeight);
+        Ui.Update(Interface(), ScreenWidth, ScreenHeight);
         if (_pointer.Refresh())
         {
-            Ui.Update(((IGame)Game).Ui, ScreenWidth, ScreenHeight);
+            Ui.Update(Interface(), ScreenWidth, ScreenHeight);
         }
 
         _pointer.ShowOverlays();
         View.Ui = Ui;
         Stats.Resume();
         _changes.Open = true;
+    }
+
+    /// <summary>While stopped by Update, the world is still drawn, with the error in place of the game's interface.</summary>
+    private UiView? Interface() => Stopped is { } error ? StoppedPanel.For(error) : ((IGame)Game).Ui;
+
+    /// <summary>A frame without any of the game's code, for when Draw or Ui is what broke.</summary>
+    private void DrawStopped(float blend)
+    {
+        View.Begin(blend, Time.Tick, Time.TickSeconds, Time.Scale);
+        Audio.EndFrame(View.Shot, Time.Scale);
+        Ui.Update(StoppedPanel.For(Stopped!), ScreenWidth, ScreenHeight);
+        View.Ui = Ui;
+        _changes.Open = true;
+    }
+
+    private void Stop(Exception error)
+    {
+        // Update may have thrown part way, with input still readable. A Draw that threw leaves state changes
+        // closed, which DrawStopped opens again.
+        Input.Readable = false;
+        if (Stopped is not null)
+        {
+            return;
+        }
+
+        Stopped = error;
+        Errors.WriteLine($"{StoppedPanel.Title}: {error}");
+        Errors.WriteLine(StoppedPanel.CarryOn);
     }
 
     public void Dispose()

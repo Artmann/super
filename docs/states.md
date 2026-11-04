@@ -55,6 +55,24 @@ every system in a tick sees the same state, whatever order they run in.
 - `Set` in `Draw` or `Ui` throws, and enter and exit callbacks can't read input, for the
   same reason `Load` can't: input belongs to `Update`.
 
+## Entering a state again
+
+`Reenter` leaves the current state and enters it again. Its exit callbacks run, then its
+enter callbacks, and entities [scoped](ecs.md#entities-that-belong-to-a-state) to it are
+destroyed and built afresh. `Previous` becomes the state itself. Use it to restart a level,
+or to rebuild a state after [hot reload](hot-reload.md) changed the code that builds it.
+
+```csharp
+if (screen.Is(Screen.House) && actions.Pressed(Control.Restart))
+{
+    screen.Reenter();
+}
+```
+
+It lands like `Set`, at the end of the tick, and the same rules apply. A `Set` after it in
+the same tick replaces it, so `Set` to the current state cancels the reenter. A `Reenter`
+after a `Set` enters the state that was set.
+
 Pausing is a second enum, `States<Pause>`. Each enum runs on its own, so a game can be
 paused in any area without a state for each combination.
 

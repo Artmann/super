@@ -104,6 +104,15 @@ public class StatesTests
         public void Draw(View view) => states.Set(Screen.House);
     }
 
+    private class ReentersInDraw(States<Screen> states) : IGame
+    {
+        public void Update(GameTime time)
+        {
+        }
+
+        public void Draw(View view) => states.Reenter();
+    }
+
     private class ReadsInputOnEnter(States<Screen> states, Input input) : IGame
     {
         public void Load() => states.OnEnter(Screen.House, () => input.Down(Key.W));
@@ -157,6 +166,68 @@ public class StatesTests
         run.Game.SetOnUpdate = Screen.Menu;
         run.Ticks(1);
         Assert.Equal(["update Menu", "still Menu"], run.Game.Log);
+    }
+
+    [Fact]
+    public void Reenter_runs_the_exit_and_enter_callbacks_of_the_current_state()
+    {
+        using var run = HeadlessGame.Create<Walker>(1);
+        run.States<Screen>().Set(Screen.House);
+        run.Ticks(1);
+        run.Game.Log.Clear();
+
+        run.States<Screen>().Reenter();
+        Assert.Empty(run.Game.Log);
+        run.Ticks(1);
+
+        Assert.Equal(["update House", "exit House current House", "enter House from House"], run.Game.Log);
+        Assert.Equal(Screen.House, run.States<Screen>().Current);
+    }
+
+    [Fact]
+    public void A_set_after_reenter_wins()
+    {
+        using var run = HeadlessGame.Create<Walker>(1);
+        run.Game.Log.Clear();
+
+        run.States<Screen>().Reenter();
+        run.States<Screen>().Set(Screen.Outside);
+        run.Ticks(1);
+
+        Assert.Equal(["update Menu", "exit Menu current Menu", "enter Outside from Menu"], run.Game.Log);
+    }
+
+    [Fact]
+    public void Setting_the_current_state_after_reenter_stays_without_reentering()
+    {
+        using var run = HeadlessGame.Create<Walker>(1);
+        run.Game.Log.Clear();
+
+        run.States<Screen>().Reenter();
+        run.States<Screen>().Set(Screen.Menu);
+        run.Ticks(1);
+
+        Assert.Equal(["update Menu"], run.Game.Log);
+    }
+
+    [Fact]
+    public void A_reenter_after_set_reenters_the_state_set()
+    {
+        using var run = HeadlessGame.Create<Walker>(1);
+        run.Game.Log.Clear();
+
+        run.States<Screen>().Set(Screen.Outside);
+        run.States<Screen>().Reenter();
+        run.Ticks(1);
+
+        Assert.Equal(["update Menu", "exit Menu current Menu", "enter Outside from Menu"], run.Game.Log);
+    }
+
+    [Fact]
+    public void Reentering_in_draw_throws()
+    {
+        var error = Assert.Throws<InvalidOperationException>(() => HeadlessGame.Create<ReentersInDraw>(1));
+        Assert.Equal("States can't change in Draw or Ui, which only describe state. Change them in Update.", error.Message);
     }
 
     [Fact]

@@ -17,7 +17,8 @@ that doesn't exist yet; everything else works today.
 | [Interfaces](interfaces.md) | `Super.Ui`: views, modifiers, layout, colours, state and the mouse |
 | [Input](input.md) | Actions, bindings and the raw `Input` service |
 | [Audio](audio.md) | Sounds, music, channel volumes and ambiences |
-| [Game states](states.md) | `States<T>`, enter and exit callbacks, and loading screens |
+| [Game states](states.md) | `States<T>`, enter and exit callbacks, `Reenter` and loading screens |
+| [Change code while the game runs](hot-reload.md) | `dotnet watch`, what applies live, `CodeReloaded`, and errors that stop the game instead of closing it |
 | [JSON content](content.md) | Catalogs, references, schemas, live reload and shipping |
 | [User data](user-data.md) | `UserData`: settings and progress kept per player, outside saved games |
 | [Random numbers](random.md) | `GameRandom` and named streams |
