@@ -19,6 +19,12 @@ public interface IContentFiles
     /// <summary>The cooked bytes of an asset.</summary>
     byte[] Read(string name);
 
+    /// <summary>
+    /// The cooked bytes of an asset as a stream, for big assets such as models that are read piece by piece
+    /// rather than held whole. The caller disposes it. It fails the way <see cref="Read"/> does.
+    /// </summary>
+    Stream Open(string name) => new MemoryStream(Read(name), writable: false);
+
     /// <summary>The parts cooked from one source, such as <c>tall</c> and <c>young</c> for <c>firs.glb</c>, in ordinal order.</summary>
     IReadOnlyList<string> Parts(string name) => [];
 
@@ -71,18 +77,33 @@ public sealed class CookedFolder : IContentFiles
 
     public byte[] Read(string name)
     {
-        if (!_manifest.Assets.TryGetValue(name, out var entry))
-        {
-            throw new FileNotFoundException(ContentNames.Missing(this, name), name);
-        }
+        return File.ReadAllBytes(ObjectFile(name));
+    }
 
-        return File.ReadAllBytes(Path.Combine(_folder, ContentManifest.ObjectPath(entry.Hash)));
+    /// <summary>
+    /// Reads from the object file as the caller goes, with a buffer small enough to stay off the large
+    /// object heap. The file stays open to deleting and replacing, so a cook running beside the game
+    /// isn't stopped by a load in progress.
+    /// </summary>
+    public Stream Open(string name)
+    {
+        return new FileStream(ObjectFile(name), FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, bufferSize: 1 << 16);
     }
 
     public void Refresh()
     {
         string path = Path.Combine(_folder, ContentManifest.FileName);
         _manifest = File.Exists(path) ? ContentManifest.Parse(File.ReadAllBytes(path), path) : ContentManifest.Empty;
+    }
+
+    private string ObjectFile(string name)
+    {
+        if (!_manifest.Assets.TryGetValue(name, out var entry))
+        {
+            throw new FileNotFoundException(ContentNames.Missing(this, name), name);
+        }
+
+        return Path.Combine(_folder, ContentManifest.ObjectPath(entry.Hash));
     }
 }
 

@@ -147,7 +147,14 @@ public sealed class Content
         if (!_rigs.TryGetValue(name, out var rig))
         {
             ContentNames.Require(_files, name, ContentKind.Model);
-            var (skeleton, clips) = ModelData.ReadRig(new MemoryStream(_files.Read(name)), name);
+            // Streamed: the rig is at the front, so the rest of the model is never read.
+            Skeleton? skeleton;
+            AnimationClip[] clips;
+            using (var stream = _files.Open(name))
+            {
+                (skeleton, clips) = ModelData.ReadRig(stream, name);
+            }
+
             if (skeleton is null)
             {
                 throw new InvalidOperationException($"{name} was cooked without a skeleton, so it has no rig to animate.");

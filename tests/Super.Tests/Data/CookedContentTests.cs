@@ -100,6 +100,114 @@ public class CookedContentTests
         }
     }
 
+    /// <summary>Content whose models can only be streamed: reading one whole fails the test.</summary>
+    private sealed class StreamOnly(string name, byte[] bytes) : IContentFiles
+    {
+        public ContentKind? KindOf(string asked) => asked == name ? ContentKind.Model : null;
+
+        public IReadOnlyList<string>? List(string folder) => null;
+
+        public byte[] Read(string asked) => throw new InvalidOperationException($"{asked} was read whole.");
+
+        public Stream Open(string asked) => asked == name ? new MemoryStream(bytes) : throw new FileNotFoundException(asked);
+    }
+
+    private static byte[] RiggedModel() => new ModelData
+    {
+        Vertices = [],
+        Indices = [],
+        Parts = [],
+        Materials = [],
+        Textures = [],
+        Skeleton = Super.Tests.Animation.TestRig.Skeleton(),
+        Clips = [Super.Tests.Animation.TestRig.Idle()],
+    }.ToBytes();
+
+    [Fact]
+    public void A_model_is_streamed_not_read_whole()
+    {
+        var model = SceneRenderer.LoadModel("hero.glb", new StreamOnly("hero.glb", RiggedModel()));
+
+        Assert.Equal(2, model.Skeleton!.Count);
+    }
+
+    [Fact]
+    public void A_rig_is_streamed_not_read_whole()
+    {
+        var content = new Content(new StreamOnly("hero.glb", RiggedModel()));
+
+        var rig = content.Rig("hero.glb");
+
+        Assert.Equal("idle", Assert.Single(rig.Clips).Name);
+    }
+
+    [Fact]
+    public void CookedFolder_opens_an_object_as_a_file_with_its_cooked_bytes()
+    {
+        string root = Directory.CreateTempSubdirectory().FullName;
+        string cooked = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(root, "axe.json"), "{ \"id\": \"axe\", \"power\": 3 }");
+            var files = CookedTemp.Cook(root, cooked);
+
+            using var stream = files.Open("axe.json");
+            var read = new MemoryStream();
+            stream.CopyTo(read);
+
+            Assert.IsType<FileStream>(stream);
+            Assert.Equal(files.Read("axe.json"), read.ToArray());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+            Directory.Delete(cooked, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void An_object_open_in_the_game_can_still_be_deleted_by_the_cook()
+    {
+        string root = Directory.CreateTempSubdirectory().FullName;
+        string cooked = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(root, "axe.json"), "{ \"id\": \"axe\", \"power\": 3 }");
+            var files = CookedTemp.Cook(root, cooked);
+            string objectFile = Assert.Single(Directory.GetFiles(Path.Combine(cooked, "objects"), "*", SearchOption.AllDirectories));
+
+            using (files.Open("axe.json"))
+            {
+                File.Delete(objectFile);
+            }
+
+            Assert.False(File.Exists(objectFile));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+            Directory.Delete(cooked, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CookedFolder_opening_a_name_it_lacks_says_it_isnt_cooked()
+    {
+        string folder = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            var files = new CookedFolder(folder);
+
+            var problem = Assert.Throws<FileNotFoundException>(() => files.Open("models/fox.glb"));
+
+            Assert.Equal("models/fox.glb isn't in the cooked content. Check the name, including its case and extension.", problem.Message);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
     [Fact]
     public void CookedFolder_reads_what_FolderStore_wrote()
     {
