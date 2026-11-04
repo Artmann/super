@@ -14,6 +14,15 @@
     source where its sources are. Cook errors are build errors, with file and line.
   -->
 
+  <!--
+    A published game for one platform ships compiled ahead of time, so it starts without compiling the
+    engine's code first. It needs a runtime, as in dotnet publish -r win-x64. Set PublishReadyToRun to
+    false in the game's project to turn it off.
+  -->
+  <PropertyGroup Condition="'$(PublishReadyToRun)' == '' and '$(RuntimeIdentifier)' != ''">
+    <PublishReadyToRun>true</PublishReadyToRun>
+  </PropertyGroup>
+
   <PropertyGroup>
     <SuperTarget Condition="'$(SuperTarget)' == ''">desktop</SuperTarget>
     <SuperCookProject>$(MSBuildThisFileDirectory)..\..\tools\Super.Cook.Tool\Super.Cook.Tool.csproj</SuperCookProject>
@@ -23,6 +32,23 @@
     -->
     <_SuperCookRemovedProperties>TargetFramework;TargetFrameworks;RuntimeIdentifier;RuntimeIdentifiers;SelfContained;_CommandLineDefinedRuntimeIdentifier;_CommandLineDefinedSelfContained;_IsPublishing;PublishDir;PublishProfile;PublishSingleFile;PublishTrimmed;PublishReadyToRun;PublishAot;OutDir;OutputPath;BaseOutputPath;IntermediateOutputPath;BaseIntermediateOutputPath;NoBuild;PlatformTarget</_SuperCookRemovedProperties>
   </PropertyGroup>
+
+  <!--
+    The tool is a build-only reference: the game's own restore covers it, and it builds alongside the
+    engine rather than after the game. Nothing of it reaches the game: ReferenceOutputAssembly keeps its
+    assembly out, Private its files, and PrivateAssets keeps it from a project that references the game,
+    such as its tests. OutputItemType hands its path to SuperCook. Every game asks for the same project
+    with the same properties, so in a build of many games MSBuild builds the tool once and the others wait
+    rather than race.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="$(SuperCookProject)"
+                      ReferenceOutputAssembly="false"
+                      Private="false"
+                      PrivateAssets="all"
+                      OutputItemType="_SuperCookTool"
+                      GlobalPropertiesToRemove="$(_SuperCookRemovedProperties)" />
+  </ItemGroup>
 
   <Target Name="SuperCook" AfterTargets="Build">
     <!-- Items are read here rather than when the project loads, so SuperContent can be listed after the import. -->
@@ -35,17 +61,10 @@
       </_SuperRoot>
     </ItemGroup>
 
-    <!--
-      Every project that imports this asks for the same project with the same properties, so in a
-      build of many games MSBuild restores and builds the tool once and the others wait rather than race.
-      A game's own restore doesn't cover the tool, so it's restored here. ExcludeRestorePackageImports
-      is what restore is normally evaluated with, and keeps that evaluation apart from the build's.
-    -->
-    <MSBuild Projects="$(SuperCookProject)" Targets="Restore" Properties="Configuration=$(Configuration);ExcludeRestorePackageImports=true" RemoveProperties="$(_SuperCookRemovedProperties)" Condition="'@(_SuperRoot)' != ''" />
-    <MSBuild Projects="$(SuperCookProject)" Targets="Build" Properties="Configuration=$(Configuration)" RemoveProperties="$(_SuperCookRemovedProperties)" Condition="'@(_SuperRoot)' != ''" />
-    <MSBuild Projects="$(SuperCookProject)" Targets="GetTargetPath" Properties="Configuration=$(Configuration)" RemoveProperties="$(_SuperCookRemovedProperties)" Condition="'@(_SuperRoot)' != ''">
-      <Output TaskParameter="TargetOutputs" PropertyName="_SuperCookTool" />
-    </MSBuild>
+    <PropertyGroup>
+      <_SuperCookTool>@(_SuperCookTool)</_SuperCookTool>
+    </PropertyGroup>
+    <Error Condition="'@(_SuperRoot)' != '' and '$(_SuperCookTool)' == ''" Text="super-cook wasn't built, so the content can't be cooked." />
 
     <!-- Each cook error is a line MSBuild turns into a build error with file and line, so the exit code only matters when there were none. -->
     <Exec Condition="'@(_SuperRoot)' != ''" IgnoreExitCode="true" ConsoleToMSBuild="true" StandardErrorImportance="high"

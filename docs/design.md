@@ -398,6 +398,18 @@ with no source is a warning, not an error, so a clone without its licensed model
 that would cut nothing or everything (see the foliage section below) is an error that stops
 the cook of that model.
 
+**The build.** `Super.targets` gives a game a `ProjectReference` to `Super.Cook.Tool` that
+only builds it: `ReferenceOutputAssembly="false"` and `Private="false"` keep the tool's
+assembly and files out of the game, `PrivateAssets="all"` keeps it from the game's tests, and
+`GlobalPropertiesToRemove` drops what a publish sets, such as the runtime, so the tool always
+builds for the machine doing the build. `OutputItemType` hands the tool's path to the
+`SuperCook` target, which runs after `Build`. Because it's an ordinary reference, the game's
+own restore covers the tool and the tool builds alongside the engine. An earlier version
+restored and built it with `MSBuild` tasks inside `SuperCook`, which added about half a second
+to every build of a game with content. A game published with a runtime gets
+`PublishReadyToRun`, unless it sets it itself, so the shipped program doesn't compile the
+engine's code just in time as it starts.
+
 **`content.dev.json`** is written beside the cooked folder by the build, and
 only for a game run from source. It names the content roots, the `super-cook` tool and the
 target. `Content.GoLive` reads it through `CookedFolder.Dev`; a published game has none and
