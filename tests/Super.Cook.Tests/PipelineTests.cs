@@ -133,7 +133,7 @@ public sealed class PipelineTests : IDisposable
     }
 
     [Fact]
-    public void Deleted_source_leaves_manifest_and_object_is_pruned()
+    public void Deleted_sources_object_outlives_one_commit_for_a_game_still_on_the_old_manifest()
     {
         var root = new MemoryRoot { ["a.json"] = "{ \"a\": 1 }", ["b.json"] = "{ \"b\": 2 }" };
         string content = Temp();
@@ -149,8 +149,29 @@ public sealed class PipelineTests : IDisposable
         Assert.True(result.Succeeded);
         manifest = ContentManifest.Parse(File.ReadAllBytes(Path.Combine(content, ContentManifest.FileName)), "m");
         Assert.Equal(["a.json"], manifest.Assets.Keys);
+        Assert.True(File.Exists(bObject), "A game that read the old manifest may still be loading b.json.");
+
+        Pipeline().Cook([root], store);
+
         Assert.False(File.Exists(bObject));
         Assert.True(File.Exists(Path.Combine(content, ContentManifest.ObjectPath(manifest.Assets["a.json"].Hash))));
+    }
+
+    [Fact]
+    public void Object_no_manifest_names_is_pruned_at_once()
+    {
+        var root = new MemoryRoot { ["a.json"] = "{ \"a\": 1 }" };
+        string content = Temp();
+        var store = new FolderStore(content);
+        string stray = new('f', 64);
+        string strayFile = Path.Combine(content, ContentManifest.ObjectPath(stray));
+        store.Put(stray, [1, 2, 3]);
+        Assert.True(File.Exists(strayFile));
+
+        Pipeline().Cook([root], store);
+
+        Assert.False(File.Exists(strayFile));
+        Assert.False(Directory.Exists(Path.GetDirectoryName(strayFile)));
     }
 
     [Fact]

@@ -378,7 +378,11 @@ Deleting it is always safe. The models cooker is `Super.Cook.Models`, a separate
 
 **The manifest** lists every name with its kind, hash and size. `CookPipeline` writes
 objects to an `ICookedStore` as it goes, and replaces the manifest only when nothing
-went wrong, so a failed cook leaves the last good content. A name is the path from its root
+went wrong, so a failed cook leaves the last good content. After writing the manifest,
+`FolderStore.Commit` deletes the objects named by neither the new manifest nor the one it
+replaced: a running game may have read the old manifest and still be loading from it, so an
+object outlives its last name by one commit. An object that can't be deleted yet, because
+something has it open, is left for the next commit. A name is the path from its root
 with forward slashes and the extension, and parts are `name#part`. Names are compared
 ordinally on every OS. A name two sources make is an error that names both, which is why
 several content roots can't yet override each other. Settings come from `cook.json` rules,
