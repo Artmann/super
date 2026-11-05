@@ -606,11 +606,29 @@ Shadows blur with distance from the object casting them: the lighting pass finds
 how far away the blocker is, then widens its sampling to match. The game says
 which area the shadow map covers through `FrameView.Shadows`. A smaller area gives
 sharper shadows, so the sample fits it to the model. A wide outdoor scene asks for up
-to four cascades: each covers three times the radius of the one before, all centred on
-the target, and the lighting pass picks the first cascade a point falls inside. The
-shadow pass draws each cascade into its own layer of the same depth image, with its
-own culling and detail choice. Anything outside the last cascade, in depth as well as
-sideways, counts as lit.
+to four cascades, each a ball three times the radius of the one before.
+
+`Renderer.FitCascades` lays the balls along the view. `ShadowPass.Spread` reads how far a
+frustum corner leaves the view axis per metre of depth, and `ShadowPass.FitSlice` finds the
+deepest slice of the frustum, starting where the last one ended, whose corners still fit in
+a ball of the cascade's radius. The ball's size never depends on the camera's angle, and
+`CreateMatrix` snaps its centre to whole texels in the light's view, so edges don't crawl
+as the camera turns or moves. An orthographic view, and a probe's capture, keep every ball
+centred on the target instead. The light's depth range reaches past the ball towards the
+sun at least as far as a ball round the target would, so a tall caster just out of view
+still shadows the ground in front of the camera. A longer reach spreads depth thinner, and
+`FrameUniforms.ShadowDepthScales` carries the ratio so the shaders scale their bias to match.
+
+The lighting pass picks the first cascade a point falls inside. In the outer tenth of a map
+(`ShadowPass.HandOver`) a point uses the next cascade with a chance that grows towards the
+edge, so the seam turns into noise that temporal anti-aliasing smooths. Shadows fade out
+with distance over the last 15% of the furthest slice (`ShadowPass.FadeShare`) and near the
+edge of the last map. The shadow pass draws each cascade into its own layer of the same
+depth image, with its own culling and detail choice. Anything outside the last cascade, in
+depth as well as sideways, counts as lit.
+
+One sun casts the shadows: the one the game marks with `shadows: true`, or else the first
+(`SceneRenderer.ShadowSun`).
 
 Two frames can be in flight. Render targets are shared between frames, and
 pipeline barriers order the access; per-frame state is limited to command
@@ -882,10 +900,13 @@ Anything larger than a block gets its own allocation.
   frames. Root motion only carries travel over the ground, not turns.
 - The adventurer model has 929,000 triangles, which suits a showcase more than a game. A
   game character would need a reduced version and levels of detail.
-- Shadow cascades are centred on the camera's target rather than fitted to the view
-  frustum, so some of each map covers ground behind the camera.
+- A shadow cascade reaches towards the sun only as far as a cascade round the camera's
+  target would. Very long shadows from far-off things, like a distant ridge in a low sun,
+  can be missing in front of the camera.
+- Cascades split three times wider each, with no setting to blend between linear and
+  logarithmic spacing.
 - Only directional lights so far. Point and spot lights come later.
-- Only one light casts shadows, so the others shine through objects, held back only
+- Only one sun casts shadows, so the others shine through objects, held back only
   by ambient occlusion.
 - The environment is treated as infinitely far away, and ambient occlusion is all
   that blocks it.

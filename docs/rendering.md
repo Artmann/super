@@ -24,7 +24,15 @@ view.Sun(direction: new Vector3(-1f, 0.5f, -1f), color: new Vector3(0.4f, 0.5f, 
 ```
 
 `direction` points towards the light. Colours are linear, so a bright light goes well
-past 1. The first sun casts the shadows.
+past 1. One sun casts the shadows: the first, unless you pick another with
+`shadows: true`:
+
+```csharp
+view.Sun(new Vector3(-1f, 0.5f, -1f), new Vector3(0.4f, 0.5f, 0.8f));
+view.Sun(new Vector3(1f, 2f, 1f), new Vector3(3f), shadows: true);
+```
+
+Marking two suns in one frame throws.
 
 ## Shadows
 
@@ -32,10 +40,18 @@ past 1. The first sun casts the shadows.
 view.Shadows(40f, cascades: 3);
 ```
 
-The first number is how far from the camera the sharpest shadow map reaches, in metres.
-Each extra cascade covers three times the radius of the one before, so a wide world keeps
-sharp shadows near the camera. Orthographic cameras widen their shadows to cover the
-screen.
+The first number is the radius of the sharpest shadow map, in metres. Each extra cascade
+covers three times the radius of the one before. The cascades are laid along what the
+camera sees: the sharpest one starts at the camera, and each next one picks up where the
+last ends, so no part of a map is spent behind the camera. A cascade keeps its size as the
+camera turns and moves in whole shadow texels, so shadow edges don't shimmer or crawl.
+
+Where two cascades meet, points hand over to the coarser one gradually, so there's no line
+where the sharpness changes. Shadows fade out over the last part of the furthest cascade
+instead of stopping at an edge.
+
+An orthographic camera centres every cascade on its target instead, and widens its
+shadows to cover the screen.
 
 ## The look of the picture
 

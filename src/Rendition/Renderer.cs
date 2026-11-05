@@ -886,7 +886,8 @@ public sealed unsafe class Renderer : IDisposable
             for (int cascade = 0; cascade < _shadowCascades; cascade++)
             {
                 float texelsPerUnit = ShadowPass.Resolution / (2f * ShadowPass.CascadeRadius(view.Shadows, cascade));
-                var shadow = new DetailView(_shadowMatrices[cascade], view.CameraPosition, 0f, texelsPerUnit, ShadowDetailError);
+                var shadow = new DetailView(
+                    _shadowMatrices[cascade], view.CameraPosition, 0f, texelsPerUnit, ShadowDetailError);
                 _shadowCounts[cascade] = DrawSelection.Select(shadow, draws, _details, _shadowDraws[cascade]);
                 shadowCount += _shadowCounts[cascade];
             }
@@ -1354,6 +1355,7 @@ public sealed unsafe class Renderer : IDisposable
         _shadowCascades = ShadowPass.CascadeCount(view.Shadows);
         uniforms->ShadowCascades = _shadowCascades;
         bool castsShadow = false;
+        uniforms->ShadowDepthScales = Vector4.One;
         for (int i = 0; i < count; i++)
         {
             ref readonly var light = ref view.Lights[i];
@@ -1361,16 +1363,12 @@ public sealed unsafe class Renderer : IDisposable
             bool casts = !castsShadow && light.CastsShadow && view.Shadows.Radius > 0f;
             if (casts)
             {
-                var radii = Vector4.Zero;
+                uniforms->ShadowRadii = FitCascades(view, direction, fitToView: !capturingProbe, out uniforms->ShadowFade, out uniforms->ShadowDepthScales);
                 for (int cascade = 0; cascade < _shadowCascades; cascade++)
                 {
-                    float radius = ShadowPass.CascadeRadius(view.Shadows, cascade);
-                    _shadowMatrices[cascade] = ShadowPass.CreateMatrix(direction, view.Shadows.Center, radius);
                     uniforms->ShadowMatrices[cascade] = _shadowMatrices[cascade];
-                    radii[cascade] = radius;
                 }
 
-                uniforms->ShadowRadii = radii;
                 castsShadow = true;
             }
 
@@ -1382,6 +1380,51 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         return castsShadow;
+    }
+
+    /// <summary>
+    /// Places each cascade's map. In a perspective view each ball takes the next slice of
+    /// what the camera sees, starting at the camera, so none of it is spent behind. Its radius
+    /// never changes as the camera turns, and its centre moves in whole texels, so edges don't
+    /// shimmer. A parallel view, or a probe's capture, keeps every cascade centred on the
+    /// settings' centre. Returns
+    /// each cascade's radius, and how shadows fade out with distance.
+    /// </summary>
+    private Vector4 FitCascades(in FrameView view, Vector3 direction, bool fitToView, out Vector4 fade, out Vector4 depthScales)
+    {
+        var radii = Vector4.Zero;
+        depthScales = Vector4.One;
+        float? spread = fitToView ? ShadowPass.Spread(view.Projection) : null;
+        Matrix4x4.Invert(view.View, out var world);
+        var eye = world.Translation;
+        var forward = Vector3.Normalize(-new Vector3(world.M31, world.M32, world.M33));
+        float start = 0f;
+        for (int cascade = 0; cascade < _shadowCascades; cascade++)
+        {
+            float radius = ShadowPass.CascadeRadius(view.Shadows, cascade);
+            var center = view.Shadows.Center;
+            float reach = radius;
+            if (spread is { } opening)
+            {
+                (float along, start) = ShadowPass.FitSlice(start, radius, opening);
+                center = eye + forward * along;
+
+                // Reach towards the sun at least as far as a cascade round the target would,
+                // so tall things out of view, like the edge of a wood in a low sun, still cast.
+                reach = radius + MathF.Max(Vector3.Dot(view.Shadows.Center - center, direction), 0f);
+            }
+
+            _shadowMatrices[cascade] = ShadowPass.CreateMatrix(direction, center, radius, reach);
+            radii[cascade] = radius;
+            depthScales[cascade] = ShadowPass.DepthScale(radius, reach);
+        }
+
+        // The last slice ends where shadows do, and they fade out over its last part rather
+        // than stopping at a line. A parallel view has no such end, so only the map's edge fades.
+        fade = spread is null
+            ? new Vector4(float.MaxValue, float.MaxValue, ShadowPass.HandOver, 0f)
+            : new Vector4(start * (1f - ShadowPass.FadeShare), start, ShadowPass.HandOver, 0f);
+        return radii;
     }
 
     private void Resize(uint width, uint height)
