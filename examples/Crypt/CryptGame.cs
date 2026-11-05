@@ -96,7 +96,9 @@ public sealed class CryptGame : IGame
             view.Model(TorchKey + i, ModelRef.Cylinder, Matrix4x4.CreateScale(0.08f, 0.5f, 0.08f) * Matrix4x4.CreateTranslation(bracket), new Vector3(0.25f, 0.15f, 0.08f));
             var fire = bracket + new Vector3(0f, 0.32f, 0f);
             float flicker = 1f + (0.12f * MathF.Sin(_seconds * 11f + i * 2f)) + (0.08f * MathF.Sin(_seconds * 17f + i));
-            view.PointLight(TorchKey + i, fire + new Vector3(0f, 0.1f, 0f), new Vector3(3.2f, 1.5f, 0.5f) * flicker, range: 9f);
+            // The flame is a hand from the stone, so a radius a little bigger than the fire keeps
+            // the pillar beside it from blowing out while the room gets as much light.
+            view.PointLight(TorchKey + i, fire + new Vector3(0f, 0.1f, 0f), new Vector3(3.2f, 1.5f, 0.5f) * flicker, range: 9f, radius: 0.5f);
             DrawFire(view, FlameKey + i * 1000, Torch, fire);
         }
 

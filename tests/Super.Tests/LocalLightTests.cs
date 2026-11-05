@@ -68,6 +68,25 @@ public class LocalLightTests
     }
 
     [Fact]
+    public void A_lights_radius_reaches_the_gpu_and_none_given_means_the_default()
+    {
+        LocalLight[] lights =
+        [
+            Point(1, new Vector3(0f, 0f, -5f), 2f) with { Radius = 0.5f },
+            Point(2, new Vector3(0f, 0f, -6f), 2f),
+            Point(3, new Vector3(0f, 0f, -7f), 2f) with { Radius = float.NaN },
+            Point(4, new Vector3(0f, 0f, -8f), 2f) with { Radius = -1f },
+        ];
+
+        var (_, gpu, _) = Prepare(lights);
+
+        Assert.Equal(0.5f, gpu[0].Fade.Y);
+        Assert.Equal(0.1f, gpu[1].Fade.Y);
+        Assert.Equal(0.1f, gpu[2].Fade.Y);
+        Assert.Equal(0.1f, gpu[3].Fade.Y);
+    }
+
+    [Fact]
     public void A_point_lights_shadow_takes_six_tiles_and_a_spots_one()
     {
         LocalLight[] lights =
@@ -200,6 +219,13 @@ public class LocalLightTests
         Assert.False(view.DrawnLights[0].IsSpot);
         Assert.Equal(-Vector3.UnitY, view.DrawnLights[1].Direction);
         Assert.False(view.DrawnLights[1].CastsShadow);
+        Assert.Equal(0.1f, view.DrawnLights[0].Radius);
+        Assert.Equal(0.1f, view.DrawnLights[1].Radius);
+
+        view.PointLight(3, Vector3.Zero, Vector3.One, 9f, radius: 0.5f);
+        view.SpotLight(4, Vector3.Zero, -Vector3.UnitY, Vector3.One, 6f, 0.3f, 0.6f, radius: 0.25f);
+        Assert.Equal(0.5f, view.DrawnLights[2].Radius);
+        Assert.Equal(0.25f, view.DrawnLights[3].Radius);
 
         view.Begin(0f);
         Assert.Equal(0, view.DrawnLights.Length);
@@ -214,6 +240,13 @@ public class LocalLightTests
         Assert.Contains(
             "A light's range must be more than 0 metres.",
             Assert.Throws<ArgumentOutOfRangeException>(() => view.PointLight(1, Vector3.Zero, Vector3.One, 0f)).Message);
+        const string radius = "A light's radius must be more than 0 metres and less than its range.";
+        Assert.Contains(radius, Assert.Throws<ArgumentOutOfRangeException>(() => view.PointLight(1, Vector3.Zero, Vector3.One, 2f, radius: 0f)).Message);
+        Assert.Contains(radius, Assert.Throws<ArgumentOutOfRangeException>(() => view.PointLight(1, Vector3.Zero, Vector3.One, 2f, radius: 2f)).Message);
+        Assert.Contains(radius, Assert.Throws<ArgumentOutOfRangeException>(() => view.PointLight(1, Vector3.Zero, Vector3.One, 2f, radius: float.NaN)).Message);
+        Assert.Contains(
+            radius,
+            Assert.Throws<ArgumentOutOfRangeException>(() => view.SpotLight(1, Vector3.Zero, Vector3.UnitY, Vector3.One, 2f, 0.1f, 0.4f, radius: -1f)).Message);
         Assert.Contains(
             "A light's color can't be negative",
             Assert.Throws<ArgumentException>(() => view.PointLight(1, Vector3.Zero, -Vector3.One, 1f)).Message);

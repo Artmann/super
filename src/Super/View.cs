@@ -123,17 +123,22 @@ public sealed class View
     /// the distance, reaching nothing at the range. The key names it across frames, so its
     /// shadow stays as sharp as it moves; use a stable ID. A frame can have up to
     /// <see cref="LocalLight.MaxPerFrame"/>, and lights with shadows share an atlas, so the
-    /// biggest on screen get the sharpest ones. See "Point and spot lights" in docs/views.md.
+    /// biggest on screen get the sharpest ones. The radius is how big the glowing part is:
+    /// raise it for a light right beside a wall, such as a torch in a bracket, so the wall
+    /// isn't blown out. It also softens the shadows. See "Point and spot lights" in
+    /// docs/views.md.
     /// </summary>
-    public void PointLight(int key, Vector3 position, Vector3 color, float range, bool shadows = true)
+    public void PointLight(
+        int key, Vector3 position, Vector3 color, float range, bool shadows = true, float radius = LocalLight.DefaultRadius)
     {
-        CheckLight(position, color, range);
+        CheckLight(position, color, range, radius);
         _lights.Add(new LocalLight
         {
             Key = key,
             Position = position,
             Radiance = color,
             Range = range,
+            Radius = radius,
             CastsShadow = shadows,
         });
     }
@@ -145,9 +150,17 @@ public sealed class View
     /// Otherwise it's like <see cref="PointLight"/>, though it costs a sixth as much shadow.
     /// </summary>
     public void SpotLight(
-        int key, Vector3 position, Vector3 direction, Vector3 color, float range, float innerAngle, float outerAngle, bool shadows = true)
+        int key,
+        Vector3 position,
+        Vector3 direction,
+        Vector3 color,
+        float range,
+        float innerAngle,
+        float outerAngle,
+        bool shadows = true,
+        float radius = LocalLight.DefaultRadius)
     {
-        CheckLight(position, color, range);
+        CheckLight(position, color, range, radius);
         if (!(direction.LengthSquared() > 1e-12f) || !float.IsFinite(direction.LengthSquared()))
         {
             throw new ArgumentException($"A spot light needs a direction to shine in, not {direction}.", nameof(direction));
@@ -171,6 +184,7 @@ public sealed class View
             Position = position,
             Radiance = color,
             Range = range,
+            Radius = radius,
             Direction = Vector3.Normalize(direction),
             InnerAngle = innerAngle,
             OuterAngle = outerAngle,
@@ -178,7 +192,7 @@ public sealed class View
         });
     }
 
-    private void CheckLight(Vector3 position, Vector3 color, float range)
+    private void CheckLight(Vector3 position, Vector3 color, float range, float radius)
     {
         if (_lights.Count >= LocalLight.MaxPerFrame)
         {
@@ -189,6 +203,12 @@ public sealed class View
         if (!(range > 0f) || !float.IsFinite(range))
         {
             throw new ArgumentOutOfRangeException(nameof(range), range, "A light's range must be more than 0 metres.");
+        }
+
+        if (!(radius > 0f && radius < range))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(radius), radius, "A light's radius must be more than 0 metres and less than its range.");
         }
 
         if (!float.IsFinite(position.X + position.Y + position.Z))

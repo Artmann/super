@@ -4,9 +4,10 @@
 layout(set = 0, binding = 6) uniform sampler2DShadow shadowAtlasCompare;
 layout(set = 0, binding = 7) uniform sampler2D shadowAtlasDepth;
 
-// Every local light is treated as this wide, in metres, for the softness of its shadows:
-// about a candle's flame or a lamp's bulb.
-const float LOCAL_LIGHT_SIZE = 0.08;
+// How wide a light is taken to be for the softness of its shadows, per metre of its
+// radius: 0.08 m at the default radius of 0.1 m, about a candle's flame or a lamp's bulb.
+// A bigger light casts softer shadows.
+const float SHADOW_WIDTH_PER_RADIUS = 0.8;
 const int LOCAL_BLOCKER_SAMPLES = 12;
 const int LOCAL_SHADOW_SAMPLES = 16;
 
@@ -62,8 +63,9 @@ float localShadow(LocalLight light, vec3 position, vec3 n, vec3 l) {
     vec2 low = tile.rect.xy + 0.5 * atlasTexel;
     vec2 high = tile.rect.xy + tile.rect.zw - 0.5 * atlasTexel;
 
+    float lightSize = SHADOW_WIDTH_PER_RADIUS * light.fade.y;
     float uvPerMetre = tile.depth.z * tile.rect.z / (2.0 * receiver);
-    float searchRadius = clamp(2.0 * LOCAL_LIGHT_SIZE * uvPerMetre, 1.5 * atlasTexel, 0.05 * tile.rect.z);
+    float searchRadius = clamp(2.0 * lightSize * uvPerMetre, 1.5 * atlasTexel, 0.05 * tile.rect.z);
     float rotation = frameNoise(gl_FragCoord.xy, frame.frameNumber) * 2.0 * PI;
     float bias = texelMetres * (1.0 + 2.0 * slope);
 
@@ -83,7 +85,7 @@ float localShadow(LocalLight light, vec3 position, vec3 n, vec3 l) {
     }
 
     float blocker = blockerSum / float(blockers);
-    float penumbra = clamp(0.5 * LOCAL_LIGHT_SIZE * (receiver - blocker) / blocker * uvPerMetre, atlasTexel, searchRadius);
+    float penumbra = clamp(0.5 * lightSize * (receiver - blocker) / blocker * uvPerMetre, atlasTexel, searchRadius);
     float reference = tileDepth(max(receiver - bias - penumbra / uvPerMetre * slope, tile.depth.x), tile);
     float visibility = 0.0;
     for (int i = 0; i < LOCAL_SHADOW_SAMPLES; i++) {

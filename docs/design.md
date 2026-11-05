@@ -623,7 +623,11 @@ cluster tests every light's sphere against a sphere round the cluster's box, and
 cone too, and writes up to 256 indices, 16 bits each. The lighting pass,
 glass and particles read only their pixel's cluster. Each light is a 64-byte
 `GpuLocalLight`: position and range, radiance and its first shadow tile, direction and
-the cosine of the outer angle (-2 for a point light), and the fade's scale.
+the cosine of the outer angle (-2 for a point light), and the fade's scale and the
+light's radius. A light reaches a point as `(1 + r²) / (d² + r²)` times its windowed
+falloff: plain inverse square far away, 1 at a metre whatever the radius, and no more
+than about `1 / r²` close up, so a torch on a wall lights the room without blowing the
+wall out.
 
 Shadows share one 4096 x 4096 depth atlas in tiles of 64 to 512 pixels. Each shadowed
 light asks for a tile as wide as its reach looks on screen, rounded up to a power of
@@ -636,7 +640,7 @@ two with no gaps. Each tile's projection is widened by three texels so the soft 
 doesn't read across its edge, and its depth is reversed with the light's range at 0. The
 shadow pass draws every tile in one render pass, a viewport each, with its own culling
 and detail choice, and the shading is the sun's blocker search and filter scaled to a
-small light (`LOCAL_LIGHT_SIZE`). Glass and particles take the lights without shadows.
+light 0.8 times its radius wide (`SHADOW_WIDTH_PER_RADIUS`). Glass and particles take the lights without shadows.
 
 Two frames can be in flight. Render targets are shared between frames, and
 pipeline barriers order the access; per-frame state is limited to command

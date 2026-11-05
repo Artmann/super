@@ -155,7 +155,7 @@ internal sealed class LocalLights
                 DirectionCone = light.IsSpot
                     ? new Vector4(Vector3.Normalize(light.Direction), cosOuter)
                     : new Vector4(0f, 0f, 0f, -2f),
-                Fade = new Vector4(1f / MathF.Max(cosInner - cosOuter, 1e-4f), 0f, 0f, 0f),
+                Fade = new Vector4(1f / MathF.Max(cosInner - cosOuter, 1e-4f), RadiusOf(light), 0f, 0f),
             };
         }
     }
@@ -256,6 +256,10 @@ internal sealed class LocalLights
 
         TileCount = tiles;
     }
+
+    /// <summary>The radius the shaders use: the light's own, or the default when it's 0 or not a size.</summary>
+    internal static float RadiusOf(in LocalLight light) =>
+        light.Radius > 0f && float.IsFinite(light.Radius) ? light.Radius : LocalLight.DefaultRadius;
 
     private static (Vector3 Forward, Vector3 Up) SpotAxes(Vector3 direction)
     {

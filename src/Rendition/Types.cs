@@ -250,6 +250,17 @@ public struct LocalLight
     /// <summary>How far the light reaches, in metres. It fades smoothly to nothing there.</summary>
     public float Range;
 
+    /// <summary>The radius a light has when <see cref="Radius"/> is left at 0, in metres.</summary>
+    public const float DefaultRadius = 0.1f;
+
+    /// <summary>
+    /// How big the glowing part is, in metres, such as a torch's flame. Light can't get much
+    /// brighter than it is at this distance, so a bigger radius calms a wall right beside
+    /// the light while leaving it as bright a metre away and beyond. A bigger light also
+    /// casts softer shadows. 0 means <see cref="DefaultRadius"/>.
+    /// </summary>
+    public float Radius;
+
     /// <summary>For a spot, the unit vector it shines along. Ignored for a point light.</summary>
     public Vector3 Direction;
 

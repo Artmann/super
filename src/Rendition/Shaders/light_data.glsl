@@ -14,7 +14,7 @@ struct LocalLight {
     vec4 positionRange;  // xyz: where it is; w: how far it reaches
     vec4 radianceShadow; // rgb: colour times brightness at one metre; w: first shadow tile, or -1
     vec4 directionCone;  // xyz: which way a spot shines; w: cosine of its outer angle, or -2 for a point light
-    vec4 fade;           // x: 1 / (cos inner - cos outer)
+    vec4 fade;           // x: 1 / (cos inner - cos outer); y: the light's radius
 };
 
 // Must match GpuShadowTile in Passes/FrameUniforms.cs.
@@ -38,9 +38,6 @@ layout(std430, set = 0, binding = 5) readonly buffer Clusters {
     uint clusterLights[]; // CLUSTER_LIGHTS / 2 words per cluster, two 16-bit light indices to a word
 };
 #endif
-
-// Light this close keeps a little short of infinite brightness, as a real bulb has a size.
-const float LIGHT_SOFTNESS = 0.1;
 
 // The slice a depth in front of the camera falls in. Under perspective the slices grow in
 // step with depth, so near ones are thin; a parallel view's are all alike.
@@ -74,14 +71,20 @@ uint clusterLight(uint cluster, uint i) {
 // How much of a light reaches a point, and the unit vector towards it. It dims with the
 // square of the distance, and a window takes it smoothly to nothing at its range. A spot
 // fades between its inner and outer angles.
+//
+// The light has a radius, as a flame or a bulb has a size, so it can't get brighter than
+// about 1 / radius² however close a surface is: (1 + r²) / (d² + r²). That is 1 at a
+// metre whatever the radius, so a bigger light calms a wall beside it without dimming
+// the room.
 float localLightReaching(LocalLight light, vec3 position, out vec3 l) {
     vec3 toLight = light.positionRange.xyz - position;
     float d2 = dot(toLight, toLight);
     float range = light.positionRange.w;
+    float r2 = light.fade.y * light.fade.y;
     l = toLight * inversesqrt(max(d2, 1e-8));
     float edge = d2 / (range * range);
     float window = clamp(1.0 - edge * edge, 0.0, 1.0);
-    float reaching = window * window / (d2 + LIGHT_SOFTNESS * LIGHT_SOFTNESS);
+    float reaching = window * window * (1.0 + r2) / (d2 + r2);
 
     float cosOuter = light.directionCone.w;
     if (cosOuter > -1.5) {

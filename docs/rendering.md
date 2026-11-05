@@ -32,7 +32,7 @@ past 1. The first sun casts the shadows.
 ![The Crypt example: torches, a lantern and 246 candles](media/crypt.webp)
 
 ```csharp
-view.PointLight(torch.Id, torch.Flame, color: new Vector3(3.2f, 1.5f, 0.5f), range: 9f);
+view.PointLight(torch.Id, torch.Flame, color: new Vector3(3.2f, 1.5f, 0.5f), range: 9f, radius: 0.5f);
 view.PointLight(candle.Id, candle.Wick, new Vector3(0.12f, 0.06f, 0.02f), range: 1.4f, shadows: false);
 view.SpotLight(lantern.Id, lantern.Position, direction: -Vector3.UnitY, new Vector3(6f, 5.5f, 4.5f),
     range: 7f, innerAngle: 0.25f, outerAngle: 0.4f);
@@ -44,6 +44,16 @@ away. It dims with the square of the distance and fades smoothly to nothing at t
 range, so a small range is cheaper and keeps a candle's light on its own table. A spot
 is full inside its inner angle and fades out by its outer one. Both angles are measured
 from the direction, in radians, and the outer one must be under a right angle.
+
+A light also has a radius, the size of its glowing part, 0.1 m unless you pass
+`radius:`. No surface gets much brighter than it would be that far from the light. On
+its own, the square of the distance makes a torch a hand from a wall blow the stone out
+white while the room stays dim. A bigger radius calms the wall but leaves the light
+just as bright a metre away and beyond, so raise it for lights in brackets, sconces and
+lamps against walls. The Crypt's torches use 0.5. A bigger light also casts softer
+shadows. The radius must be less than the range.
+
+![A torch on a pillar with the default radius of 0.1 and with 0.5](media/torch-radius.webp)
 
 Draw lights in `Draw` like everything else, each frame, so a torch can flicker by
 changing its colour. The key names the light from frame to frame, the same as a model's
