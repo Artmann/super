@@ -26,7 +26,7 @@ public sealed class InputScript
     /// Moves the cursor to the middle of the view given this id with <see cref="UiExtensions.Id"/>.
     /// The view is looked up when the step runs, in the layout last shown.
     /// </summary>
-    public InputScript MoveMouse(object id) => Then((input, ui) => input.MouseMoved(Middle(ui.FrameOf(id))));
+    public InputScript MoveMouse(object id) => Then((input, ui) => input.MouseMoved(ui.ScreenMiddle(id)));
 
     /// <summary>Holds the button down until <see cref="Release(MouseButton)"/>.</summary>
     public InputScript Hold(MouseButton button) => Then(input => input.MouseButtonDown(button));
@@ -94,8 +94,6 @@ public sealed class InputScript
             }
         }
     }
-
-    internal static Vector2 Middle(UiRect frame) => new(frame.X + frame.Width / 2f, frame.Y + frame.Height / 2f);
 
     private InputScript ClickHere() => Hold(MouseButton.Left).Wait(1).Release(MouseButton.Left).Wait(1);
 }

@@ -58,7 +58,8 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
             switch (mouse.Kind)
             {
                 case MouseEventKind.Moved:
-                    Moved(mouse.Position);
+                    // The mouse is in pixels and the interface in its own units.
+                    Moved(mouse.Position / tree.Scale);
                     break;
                 case MouseEventKind.Down:
                     Down(mouse.Button);

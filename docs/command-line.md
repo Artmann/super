@@ -17,7 +17,8 @@ dotnet run -c Release --project MyColony -- --script tooltip --ticks 40 --screen
 | `--screenshot file.png` | Saves the picture at that moment, then exits |
 | `--record file.mp4 --seconds S` | Saves that many seconds of video, then exits |
 | `--fps N` | Frames per second for `--record`, 60 by default |
-| `--size WxH` | The picture size, such as `1920x1080`. The game's window size by default |
+| `--size WxH` | The picture size, such as `1920x1080`, or `1080x1920` for a vertical video. The game's window size by default |
+| `--ui-scale N` | Makes the [interface](interfaces.md#scale) this many times bigger, such as `2` or `1.5`. The game's `UiScale` by default, which is 1 |
 | `--profile file.txt` | Measures where the time goes. See [Profiling](profiling.md) |
 | `--frames N` | How many frames `--profile` measures, 60 by default |
 | `--script name` | Plays one of the game's [input scripts](#scripted-input) |
@@ -73,7 +74,7 @@ public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string
 
 | Step | What it does |
 | --- | --- |
-| `MoveMouse(position)` | Moves the cursor, in interface pixels |
+| `MoveMouse(position)` | Moves the cursor, in screen pixels, whatever the [interface scale](interfaces.md#scale) |
 | `MoveMouse(id)` | Moves the cursor to the middle of the view given `.Id(id)` |
 | `Click(position)` | Moves there and clicks the left button |
 | `Click(id)` | Clicks the middle of the view given `.Id(id)` |

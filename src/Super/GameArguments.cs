@@ -19,7 +19,8 @@ internal sealed record GameArguments(
     int Frames = GameArguments.DefaultProfileFrames,
     bool NoVsync = false,
     string? ScriptName = null,
-    string? UserDataFolder = null)
+    string? UserDataFolder = null,
+    float? UiScale = null)
 {
     public const int DefaultFramesPerSecond = 60;
 
@@ -40,6 +41,7 @@ internal sealed record GameArguments(
         bool noVsync = false;
         string? scriptName = null;
         string? userDataFolder = null;
+        float? uiScale = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -77,6 +79,9 @@ internal sealed record GameArguments(
                     break;
                 case "--user-data":
                     userDataFolder = Value(args, ++i, "--user-data");
+                    break;
+                case "--ui-scale":
+                    uiScale = PositiveScale(args, ++i);
                     break;
                 case "--no-vsync":
                     noVsync = true;
@@ -136,7 +141,15 @@ internal sealed record GameArguments(
         }
 
         return new GameArguments(
-            seed, ticks, screenshotPath, recordPath, seconds, framesPerSecond, width, height, profilePath, frames ?? DefaultProfileFrames, noVsync, scriptName, userDataFolder);
+            seed, ticks, screenshotPath, recordPath, seconds, framesPerSecond, width, height, profilePath, frames ?? DefaultProfileFrames, noVsync, scriptName, userDataFolder, uiScale);
+    }
+
+    private static float PositiveScale(ReadOnlySpan<string> args, int index)
+    {
+        string text = Value(args, index, "--ui-scale");
+        return float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float scale) && scale > 0f && float.IsFinite(scale)
+            ? scale
+            : throw new ArgumentException($"--ui-scale needs a number above zero, such as 2 or 1.5, not '{text}'.");
     }
 
     private static double PositiveSeconds(ReadOnlySpan<string> args, int index)

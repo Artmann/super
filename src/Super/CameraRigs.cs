@@ -64,6 +64,9 @@ public sealed class BoomCamera
 
     public float FieldOfView { get; set; } = MathF.PI / 4f;
 
+    /// <summary>Keeps the view at least as wide as on a screen of this shape. See <see cref="Camera.WideAs"/>.</summary>
+    public float WideAs { get; set; }
+
     /// <summary>The camera on the tick before this one.</summary>
     public Camera Previous { get; private set; }
 
@@ -94,7 +97,7 @@ public sealed class BoomCamera
         _shown = !_placed || room < _shown ? room : float.Lerp(room, _shown, CameraTurn.Remaining(seconds, ReturnLag));
 
         var arm = Arm(target);
-        var next = new Camera(arm.Origin + arm.Direction * _shown, arm.Origin, FieldOfView);
+        var next = new Camera(arm.Origin + arm.Direction * _shown, arm.Origin, FieldOfView) { WideAs = WideAs };
         Previous = _placed ? Current : next;
         Current = next;
         _placed = true;
@@ -129,6 +132,9 @@ public sealed class FirstPersonCamera
 
     public float FieldOfView { get; set; } = MathF.PI / 3f;
 
+    /// <summary>Keeps the view at least as wide as on a screen of this shape. See <see cref="Camera.WideAs"/>.</summary>
+    public float WideAs { get; set; }
+
     /// <summary>The camera on the tick before this one.</summary>
     public Camera Previous { get; private set; }
 
@@ -148,7 +154,7 @@ public sealed class FirstPersonCamera
     public void Update(Vector3 feet)
     {
         var eye = feet + Vector3.UnitY * EyeHeight;
-        var next = new Camera(eye, eye - CameraTurn.Behind(Yaw, -Pitch) * LooksAhead, FieldOfView);
+        var next = new Camera(eye, eye - CameraTurn.Behind(Yaw, -Pitch) * LooksAhead, FieldOfView) { WideAs = WideAs };
         Previous = _placed ? Current : next;
         Current = next;
         _placed = true;
@@ -195,6 +201,9 @@ public abstract class OverheadCamera
     /// <summary>Roughly how many seconds the view takes to catch up. Zero means none.</summary>
     public float Lag { get; set; } = 0.15f;
 
+    /// <summary>Keeps the view at least as wide as on a screen of this shape. See <see cref="Camera.WideAs"/>.</summary>
+    public float WideAs { get; set; }
+
     /// <summary>The camera on the tick before this one.</summary>
     public Camera Previous { get; private set; }
 
@@ -226,7 +235,7 @@ public abstract class OverheadCamera
         _shownYaw = float.Lerp(Angle, _shownYaw, kept);
 
         var position = _shownCenter + CameraTurn.Behind(_shownYaw, Tilt) * Standoff;
-        var next = Camera.Orthographic(position, _shownCenter, _shownSize);
+        var next = Camera.Orthographic(position, _shownCenter, _shownSize) with { WideAs = WideAs };
         Previous = _placed ? Current : next;
         Current = next;
         _placed = true;

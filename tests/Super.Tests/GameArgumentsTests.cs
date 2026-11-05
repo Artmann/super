@@ -119,4 +119,37 @@ public class GameArgumentsTests
     {
         Assert.Throws<ArgumentException>(() => GameArguments.Parse(args));
     }
+
+    [Fact]
+    public void Reads_an_interface_scale_with_a_point_whatever_the_language()
+    {
+        var original = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("sv-SE");
+        try
+        {
+            Assert.Equal(1.5f, GameArguments.Parse(["--ui-scale", "1.5"]).UiScale);
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = original;
+        }
+    }
+
+    [Fact]
+    public void No_interface_scale_leaves_it_to_the_game()
+    {
+        Assert.Null(GameArguments.Parse([]).UiScale);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-2")]
+    [InlineData("big")]
+    [InlineData("Infinity")]
+    public void An_interface_scale_must_be_a_number_above_zero(string scale)
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--ui-scale", scale]));
+
+        Assert.Equal($"--ui-scale needs a number above zero, such as 2 or 1.5, not '{scale}'.", error.Message);
+    }
 }

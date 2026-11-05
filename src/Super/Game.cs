@@ -51,6 +51,7 @@ public static class Game
             KeepsRunningAfterErrors = keepRunning,
         };
         host.Script = FindScript<TGame>(host, arguments.ScriptName);
+        host.Ui.Scale = arguments.UiScale ?? options.UiScale;
 
         // Validation would swamp the timings, so a profile runs without it.
         bool validate = hidden && arguments.ProfilePath is null;
