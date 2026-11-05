@@ -526,6 +526,8 @@ rendering. Game-facing features belong in Super, which has the audio (see
 
 ```
 ShadowPass    scene geometry   -> depth from the key light (2048 x 2048, up to 4 cascades)
+              scene geometry   -> point and spot light shadows, tiles of one 4096 x 4096 atlas
+cluster.comp  compute          -> the point and spot lights reaching each of 16 x 9 x 24 clusters
 GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, depth
 AoPass        fullscreen       -> ambient occlusion from depth and normals
 AoBlurPass    fullscreen       -> the same with the grain averaged away
@@ -631,6 +633,34 @@ depth as well as sideways, counts as lit.
 One sun casts the shadows: the one the game marks with `shadows: true`, or else the first
 (`SceneRenderer.ShadowSun`).
 
+Point and spot lights are clustered. `LocalLights` culls the frame's lights against
+the camera (the same `DetailView` planes as models, with a far plane at the furthest
+reach), and the cluster shader splits the view into 16 x 9 tiles and 24 slices in depth,
+spaced exponentially from the nearest any light reaches (no nearer than the camera's
+near plane) to the furthest, or evenly for an orthographic camera. One thread per
+cluster tests every light's sphere against a sphere round the cluster's box, and a spot's
+cone too, and writes up to 256 indices, 16 bits each. The lighting pass,
+glass and particles read only their pixel's cluster. Each light is a 64-byte
+`GpuLocalLight`: position and range, radiance and its first shadow tile, direction and
+the cosine of the outer angle (-2 for a point light), and the fade's scale and the
+light's radius. A light reaches a point as `(1 + r²) / (d² + r²)` times its windowed
+falloff: plain inverse square far away, 1 at a metre whatever the radius, and no more
+than about `1 / r²` close up, so a torch on a wall lights the room without blowing the
+wall out.
+
+Shadows share one 4096 x 4096 depth atlas in tiles of 64 to 512 pixels. Each shadowed
+light asks for a tile as wide as its reach looks on screen, rounded up to a power of
+two, and the lights biggest on screen choose first. A light keeps last frame's size,
+under its key, until it wants under 0.4 or over 1.2 times it, so a light near the line
+doesn't flicker between sizes. Sizes that don't fit are halved, and a light that won't
+fit at 64 gets no shadow. A point light takes six tiles, one per cube face, and a spot
+one. The tiles are laid out biggest first along a Z-order curve, which packs powers of
+two with no gaps. Each tile's projection is widened by three texels so the soft filter
+doesn't read across its edge, and its depth is reversed with the light's range at 0. The
+shadow pass draws every tile in one render pass, a viewport each, with its own culling
+and detail choice, and the shading is the sun's blocker search and filter scaled to a
+light 0.8 times its radius wide (`SHADOW_WIDTH_PER_RADIUS`). Glass and particles take the lights without shadows.
+
 Two frames can be in flight. Render targets are shared between frames, and
 pipeline barriers order the access; per-frame state is limited to command
 buffers, sync objects and the uniform buffer.
@@ -714,8 +744,8 @@ material has subsurface both blur passes are skipped.
 
 ## Particles
 
-A particle is a plain 40-byte struct: middle, width, linear colour and opacity, a turn
-and a variant that picks its lumpy outline. `FrameView.Particles` hands the renderer
+A particle is a plain 44-byte struct: middle, width, linear colour and opacity, a turn,
+a variant that picks its lumpy outline and a glow, its own light as a share of its colour. `FrameView.Particles` hands the renderer
 up to `Particle.MaxPerFrame` (32,768) a frame; more are dropped. `ParticlePass` sorts
 them furthest first along the view direction on the CPU, into the frame's own
 host-visible vertex buffer, with scratch arrays made once, so nothing allocates. Each
@@ -732,6 +762,8 @@ shadow map in the vertex shader, five filtered taps, so a puff is shaded where a
 shadow falls on it without any per-pixel shadow cost. The fragment shader lights a
 pseudo-sphere normal, bent toward the camera, with the sky's irradiance and wrapped
 sunlight, so a puff is brighter on its sunny side but never dark like a solid ball.
+Point and spot lights from the pixel's cluster are wrapped the same way, with no
+shadows. A glowing puff adds its colour times its glow, which can go past 1 for bloom.
 Haze and the underwater fade are the same as for surfaces. Colour is premultiplied.
 
 On the Super side, a `ParticleEmitter` is an immutable list of nodes, built like a
@@ -932,9 +964,13 @@ Anything larger than a block gets its own allocation.
   can be missing in front of the camera.
 - Cascades split three times wider each, with no setting to blend between linear and
   logarithmic spacing.
-- Only directional lights so far. Point and spot lights come later.
 - Only one sun casts shadows, so the others shine through objects, held back only
-  by ambient occlusion.
+  by ambient occlusion. Point and spot lights without shadows are the same.
+- Point and spot lights are left out of reflection probe captures, and glass and
+  particles get no shadows from them. A light's cluster list holds 256, so a spot
+  reached by more drops the rest.
+- Point light shadows are six tiles of the atlas, not a cube map, so a filter near a
+  face's edge can't see past it. The tiles are widened by three texels to hide it.
 - The environment is treated as infinitely far away, and ambient occlusion is all
   that blocks it.
 - The ambient occlusion radius and strength are constants in their shaders. A game

@@ -4,6 +4,7 @@
 #include "common.glsl"
 #include "brdf.glsl"
 #include "material.glsl"
+#include "light_data.glsl"
 
 layout(location = 0) in vec3 inNormal;
 layout(location = 2) in vec2 inUv;
@@ -55,6 +56,26 @@ void main() {
         float highlight = distributionGgx(max(dot(n, h), 0.0), alpha) * visibilitySmithGgx(nDotV, nDotL, alpha);
         specular += highlight * f * frame.lights[i].radiance.rgb * nDotL;
         diffuse += frame.lights[i].radiance.rgb * nDotL / PI;
+    }
+
+    // Point and spot lights from this pixel's cluster, without their shadows.
+    uint cluster = clusterAt(gl_FragCoord.xy, inPosition);
+    uint localCount = clusterLightCount(cluster);
+    for (uint i = 0; i < localCount; i++) {
+        LocalLight light = localLights[clusterLight(cluster, i)];
+        vec3 l;
+        float reaching = localLightReaching(light, inPosition, l);
+        float nDotL = max(dot(n, l), 0.0);
+        if (reaching <= 0.0 || nDotL == 0.0) {
+            continue;
+        }
+
+        vec3 radiance = light.radianceShadow.rgb * reaching;
+        vec3 h = normalize(v + l);
+        vec3 f = fresnelSchlick(max(dot(v, h), 0.0), f0);
+        float highlight = distributionGgx(max(dot(n, h), 0.0), alpha) * visibilitySmithGgx(nDotV, nDotL, alpha);
+        specular += highlight * f * radiance * nDotL;
+        diffuse += radiance * nDotL / PI;
     }
 
     float opacity = baseColor.a;

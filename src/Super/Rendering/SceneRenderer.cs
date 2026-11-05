@@ -474,6 +474,7 @@ internal sealed class SceneRenderer : IDisposable
             Overlay = view.Ui is { } ui ? ui.Quads : [],
             Particles = view.DrawnParticles,
             Transition = view.Transition,
+            LocalLights = view.DrawnLights,
         };
     }
 

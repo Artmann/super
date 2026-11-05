@@ -241,7 +241,7 @@ public sealed class ParticleEmitter
     public ParticleEmitter Size(float start, float end, Easing easing = Easing.Out, float spread = 0.3f) =>
         Then(new SizeNode(NotNegative(start, nameof(start)), NotNegative(end, nameof(end)), easing, Fraction(spread, nameof(spread), 0.9f)));
 
-    /// <summary>One color all its life, as linear red, green and blue from 0 to 1 like a model's color. The sun and sky light it.</summary>
+    /// <summary>One color all its life, as linear red, green and blue from 0 to 1 like a model's color. The sun, the sky and point and spot lights light it.</summary>
     public ParticleEmitter Color(Vector3 color) => Color(color, color);
 
     /// <summary>A color blending evenly from birth to death.</summary>
@@ -273,6 +273,13 @@ public sealed class ParticleEmitter
 
     /// <summary>How solid the middle of a particle is at most, from 0 to 1. Overlapping particles add up.</summary>
     public ParticleEmitter Opacity(float opacity) => Then(new OpacityNode(Fraction(opacity, nameof(opacity), 1f)));
+
+    /// <summary>
+    /// Makes each particle shine with its own colour times this, on top of the light that falls
+    /// on it, as a flame or a spark does. Past 1 it blooms. Without it particles only show the
+    /// light that reaches them.
+    /// </summary>
+    public ParticleEmitter Glow(float strength) => Then(new GlowNode(NotNegative(strength, nameof(strength))));
 
     /// <summary>Fades in over this part of the life and out over this last part, both from 0 to 1.</summary>
     public ParticleEmitter Fade(float fadeIn, float fadeOut) =>
@@ -363,6 +370,7 @@ public sealed class ParticleEmitter
                 Color = new Vector4(look.Color, look.Opacity),
                 Rotation = look.Rotation,
                 Variant = core.Roll(3) * 64f,
+                Glow = look.Glow,
             });
         }
     }

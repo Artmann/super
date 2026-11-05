@@ -491,11 +491,23 @@ public class ParticleTests
     [Fact]
     public void Particle_matches_the_vertex_layout_the_shader_reads()
     {
-        Assert.Equal(40, Marshal.SizeOf<Particle>());
+        Assert.Equal(44, Marshal.SizeOf<Particle>());
         Assert.Equal(0, (int)Marshal.OffsetOf<Particle>(nameof(Particle.Position)));
         Assert.Equal(12, (int)Marshal.OffsetOf<Particle>(nameof(Particle.Size)));
         Assert.Equal(16, (int)Marshal.OffsetOf<Particle>(nameof(Particle.Color)));
         Assert.Equal(32, (int)Marshal.OffsetOf<Particle>(nameof(Particle.Rotation)));
         Assert.Equal(36, (int)Marshal.OffsetOf<Particle>(nameof(Particle.Variant)));
+        Assert.Equal(40, (int)Marshal.OffsetOf<Particle>(nameof(Particle.Glow)));
+    }
+
+    [Fact]
+    public void Glow_makes_particles_shine_and_without_it_they_dont()
+    {
+        var plain = new ParticleEmitter(count: 5, lifetime: 1f);
+
+        Assert.All(Draw(plain, 0.5f), particle => Assert.Equal(0f, particle.Glow));
+        Assert.All(Draw(plain.Glow(3f), 0.5f), particle => Assert.Equal(3f, particle.Glow));
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => plain.Glow(-1f));
+        Assert.Contains("strength", error.Message);
     }
 }

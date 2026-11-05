@@ -6,7 +6,8 @@ Super hands that to Rendition each frame.
 
 What it does for every game, with no setup:
 
-- Cook-Torrance GGX shading with up to eight directional lights
+- Cook-Torrance GGX shading with up to eight directional lights, and up to 1,024 point
+  and spot lights with soft shadows
 - Soft, contact-hardening shadows, in up to four cascades
 - A generated environment that gives surfaces reflections and soft fill light
 - Screen-space reflections and box-corrected reflection probes
@@ -34,6 +35,54 @@ view.Sun(new Vector3(1f, 2f, 1f), new Vector3(3f), shadows: true);
 ```
 
 Marking two suns in one frame throws.
+
+### Point and spot lights
+
+![The Crypt example: torches, a lantern and 246 candles](media/crypt.webp)
+
+```csharp
+view.PointLight(torch.Id, torch.Flame, color: new Vector3(3.2f, 1.5f, 0.5f), range: 9f, radius: 0.5f);
+view.PointLight(candle.Id, candle.Wick, new Vector3(0.12f, 0.06f, 0.02f), range: 1.4f, shadows: false);
+view.SpotLight(lantern.Id, lantern.Position, direction: -Vector3.UnitY, new Vector3(6f, 5.5f, 4.5f),
+    range: 7f, innerAngle: 0.25f, outerAngle: 0.4f);
+```
+
+A point light shines every way from a spot, like a candle or a torch, and a spot light
+shines in a cone, like a lantern's beam. The colour is how bright the light is a metre
+away. It dims with the square of the distance and fades smoothly to nothing at the
+range, so a small range is cheaper and keeps a candle's light on its own table. A spot
+is full inside its inner angle and fades out by its outer one. Both angles are measured
+from the direction, in radians, and the outer one must be under a right angle.
+
+A light also has a radius, the size of its glowing part, 0.1 m unless you pass
+`radius:`. No surface gets much brighter than it would be that far from the light. On
+its own, the square of the distance makes a torch a hand from a wall blow the stone out
+white while the room stays dim. A bigger radius calms the wall but leaves the light
+just as bright a metre away and beyond, so raise it for lights in brackets, sconces and
+lamps against walls. The Crypt's torches use 0.5. A bigger light also casts softer
+shadows. The radius must be less than the range.
+
+![A torch on a pillar with the default radius of 0.1 and with 0.5](media/torch-radius.webp)
+
+Draw lights in `Draw` like everything else, each frame, so a torch can flicker by
+changing its colour. The key names the light from frame to frame, the same as a model's
+key, and keeps its shadow steady as the camera moves. Use the ID of the thing holding it.
+
+Lights cast soft shadows unless `shadows: false` is passed. Shadows are sharp where an
+object touches the ground and blur further away, as the sun's do. All the lights share
+one shadow atlas, and a light that is bigger on screen gets a sharper shadow. A point
+light costs six times as much shadow as a spot. When the atlas is full, the lights that
+are smallest on screen lose their shadows. Shadows are what cost the most, so leave
+them off on small lights, such as rows of candles.
+
+A frame can have up to 1,024 lights, and one more throws. Lights are culled to what the
+camera sees, and each part of the screen only works through the lights that reach it, so
+a frame can have hundreds of small lights. 256 can reach any one spot on the screen,
+and more than that are dropped there. The `Crypt` example has four torches, a lantern
+and 246 candles.
+
+Point and spot lights light models, glass and [particles](views.md#particles). Glass and
+particles get no shadows from them. They aren't seen in reflection probes.
 
 ## Shadows
 

@@ -39,6 +39,9 @@ public sealed unsafe class Renderer : IDisposable
         public GpuBuffer Uniforms;
         public GpuBuffer Bones;
         public InstanceBuffer Instances;
+        public GpuBuffer Lights;
+        public GpuBuffer ShadowTiles;
+        public GpuBuffer Clusters;
         public DescriptorSet Set;
     }
 
@@ -151,6 +154,15 @@ public sealed unsafe class Renderer : IDisposable
     private readonly Matrix4x4[] _shadowMatrices = new Matrix4x4[ShadowPass.MaxCascades];
     private int _shadowCascades;
 
+    // Point and spot lights: those the view needs, their shadow tiles and what each tile draws.
+    private readonly LocalLights _localLights = new();
+    private DrawItem[] _tileDraws = [];
+    private readonly (int First, int Count)[] _tileRanges = new (int, int)[LocalLights.MaxTiles];
+    private int _tileCount;
+    private bool _clustersNeeded;
+    private readonly PipelineLayout _clusterLayout;
+    private readonly Pipeline _clusterPipeline;
+
     public Renderer(RendererOptions options)
     {
         _context = new VulkanContext(options);
@@ -195,8 +207,8 @@ public sealed unsafe class Renderer : IDisposable
         var poolSizes = stackalloc DescriptorPoolSize[]
         {
             new(DescriptorType.UniformBuffer, FramesInFlight),
-            new(DescriptorType.StorageBuffer, 2 * FramesInFlight),
-            new(DescriptorType.CombinedImageSampler, 27),
+            new(DescriptorType.StorageBuffer, 5 * FramesInFlight),
+            new(DescriptorType.CombinedImageSampler, 27 + 2 * FramesInFlight),
         };
         var poolInfo = new DescriptorPoolCreateInfo
         {
@@ -214,6 +226,20 @@ public sealed unsafe class Renderer : IDisposable
 
         _resources = new ResourceTable(_context);
         _shadowPass = new ShadowPass(_context, _frameSetLayout, _resources);
+        foreach (ref var frame in _frames.AsSpan())
+        {
+            WriteAtlasDescriptors(frame);
+        }
+
+        var clusterSetLayout = _frameSetLayout;
+        var clusterLayoutInfo = new PipelineLayoutCreateInfo
+        {
+            SType = StructureType.PipelineLayoutCreateInfo,
+            SetLayoutCount = 1,
+            PSetLayouts = &clusterSetLayout,
+        };
+        _api.CreatePipelineLayout(_context.Device, &clusterLayoutInfo, null, out _clusterLayout).Check();
+        _clusterPipeline = PipelineFactory.CreateCompute(_context, "cluster.comp", _clusterLayout);
 
         _environment = new EnvironmentMap(_context);
         SetEnvironment(new EnvironmentDescription
@@ -552,7 +578,7 @@ public sealed unsafe class Renderer : IDisposable
         for (int face = 0; face < faces.Length; face++)
         {
             faceView.View = Matrix4x4.CreateLookAt(probe.Position, probe.Position + faces[face].Forward, faces[face].Up);
-            bool castsShadow = WriteUniforms(frame.Uniforms, faceView, Matrix4x4.Identity, Vector2.Zero, 0, false, capturingProbe: true);
+            bool castsShadow = WriteUniforms(frame, faceView, Matrix4x4.Identity, Vector2.Zero, 0, false, capturingProbe: true);
             WriteBones(frame, view.Bones);
             ResetInstances(frame, visible.Length + (castsShadow ? shadowCasters.Length * _shadowCascades : 0));
 
@@ -794,14 +820,15 @@ public sealed unsafe class Renderer : IDisposable
         var viewProjection = view.View * view.Projection;
         var shift = Jitter[_frameNumber % JitterSteps] * 2f / new Vector2(view.Width, view.Height);
         var previous = _historyReady ? _previousViewProjection : viewProjection;
-        bool castsShadow = WriteUniforms(frame.Uniforms, view, previous, shift, _frameNumber, _historyReady, capturingProbe: false);
+        bool castsShadow = WriteUniforms(frame, view, previous, shift, _frameNumber, _historyReady, capturingProbe: false);
         WriteBones(frame, view.Bones);
         _previousViewProjection = viewProjection;
         _frameNumber++;
         _transition = TransitionConstants.From(view.Transition);
         _transitionHold = view.Transition.Hold;
         var (cameraCount, shadowCount) = SelectDraws(view, viewProjection, draws, castsShadow);
-        ResetInstances(frame, cameraCount + shadowCount);
+        int tileDrawCount = SelectTileDraws(draws);
+        ResetInstances(frame, cameraCount + shadowCount + tileDrawCount);
 
         _api.ResetCommandPool(_context.Device, frame.CommandPool, 0).Check();
         var cmd = frame.CommandBuffer;
@@ -943,6 +970,31 @@ public sealed unsafe class Renderer : IDisposable
         _particleCount = _particlePass.Upload(_frameIndex, view.Particles, view.CameraPosition, forward);
     }
 
+    /// <summary>
+    /// Picks what each shadow tile of the atlas can see, one after another in
+    /// <see cref="_tileDraws"/>, and returns how many there are in all.
+    /// </summary>
+    private int SelectTileDraws(ReadOnlySpan<DrawItem> draws)
+    {
+        var tiles = _localLights.Tiles;
+        int total = 0;
+        for (int tile = 0; tile < tiles.Length; tile++)
+        {
+            if (_tileDraws.Length < total + draws.Length)
+            {
+                Array.Resize(ref _tileDraws, Math.Max(_tileDraws.Length * 2, total + draws.Length));
+            }
+
+            ref readonly var view = ref tiles[tile];
+            var shadow = new DetailView(view.Matrix, view.Eye, view.PixelsAtOneUnit, 0f, ShadowDetailError, far: true);
+            int count = DrawSelection.Select(shadow, draws, _details, _tileDraws.AsSpan(total));
+            _tileRanges[tile] = (total, count);
+            total += count;
+        }
+
+        return total;
+    }
+
     private static long CountTriangles(ReadOnlySpan<DrawItem> draws)
     {
         long indices = 0;
@@ -1012,6 +1064,8 @@ public sealed unsafe class Renderer : IDisposable
         _aoPass.Dispose();
         _gBufferPass.Dispose();
         _shadowPass.Dispose();
+        _api.DestroyPipeline(_context.Device, _clusterPipeline, null);
+        _api.DestroyPipelineLayout(_context.Device, _clusterLayout, null);
         _probes.Dispose();
         _environment.Dispose();
         _resources.Dispose();
@@ -1026,6 +1080,9 @@ public sealed unsafe class Renderer : IDisposable
             frame.Uniforms.Dispose();
             frame.Bones.Dispose();
             frame.Instances.Dispose();
+            frame.Lights.Dispose();
+            frame.ShadowTiles.Dispose();
+            frame.Clusters.Dispose();
             _api.DestroySemaphore(_context.Device, frame.ImageAvailable, null);
             _api.DestroyFence(_context.Device, frame.InFlight, null);
             _api.DestroyCommandPool(_context.Device, frame.CommandPool, null);
@@ -1222,7 +1279,30 @@ public sealed unsafe class Renderer : IDisposable
         _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
             ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess,
             layerCount: ShadowPass.MaxCascades);
+
+        // The lighting pass binds the atlas even when no light has a tile in it.
+        var atlas = _shadowPass.Atlas.Image;
+        if (_tileCount > 0)
+        {
+            _api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
+                ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, SampledStage, SampledAccess, DepthStages,
+                DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
+            _shadowPass.RecordTiles(cmd, frameSet, _localLights.Tiles, _tileDraws, _tileRanges.AsSpan(0, _tileCount), _meshes, instances);
+            _api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
+                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess);
+        }
+        else
+        {
+            _api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
+        }
+
         _gpuTimer.Mark(cmd);
+
+        if (_clustersNeeded)
+        {
+            RecordClusters(cmd, frameSet);
+        }
 
         _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
             ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, SampledStage, SampledAccess, ColorStage, ColorWrite);
@@ -1309,6 +1389,34 @@ public sealed unsafe class Renderer : IDisposable
         _gpuTimer.Mark(cmd);
     }
 
+    /// <summary>
+    /// Sorts the point and spot lights into the view's clusters on the GPU, before anything
+    /// that lights reads the lists. The last frame to use this slot's lists has finished,
+    /// as its fence was waited on, so only this frame's readers need to wait.
+    /// </summary>
+    private void RecordClusters(CommandBuffer cmd, DescriptorSet frameSet)
+    {
+        _api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _clusterPipeline);
+        _api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _clusterLayout, 0, 1, &frameSet, 0, null);
+        _api.CmdDispatch(cmd, (LocalLights.ClusterCount + 63) / 64, 1, 1);
+
+        var barrier = new MemoryBarrier2
+        {
+            SType = StructureType.MemoryBarrier2,
+            SrcStageMask = PipelineStageFlags2.ComputeShaderBit,
+            SrcAccessMask = AccessFlags2.ShaderStorageWriteBit,
+            DstStageMask = PipelineStageFlags2.FragmentShaderBit,
+            DstAccessMask = AccessFlags2.ShaderStorageReadBit,
+        };
+        var dependency = new DependencyInfo
+        {
+            SType = StructureType.DependencyInfo,
+            MemoryBarrierCount = 1,
+            PMemoryBarriers = &barrier,
+        };
+        _api.CmdPipelineBarrier2(cmd, &dependency);
+    }
+
     /// <summary>Copies the finished frame into a buffer the CPU can read, then readies it for display.</summary>
     private void RecordCapture(CommandBuffer cmd, Image swapchainImage, Extent2D extent, GpuBuffer capture)
     {
@@ -1348,7 +1456,7 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>Returns whether a light casts a shadow this frame.</summary>
     private bool WriteUniforms(
-        GpuBuffer buffer,
+        in Frame frame,
         in FrameView view,
         in Matrix4x4 previousViewProjection,
         Vector2 shift,
@@ -1359,8 +1467,9 @@ public sealed unsafe class Renderer : IDisposable
         var viewProjection = view.View * view.Projection * Matrix4x4.CreateTranslation(shift.X, shift.Y, 0f);
         Matrix4x4.Invert(viewProjection, out var inverse);
 
-        var uniforms = (FrameUniforms*)buffer.Mapped;
+        var uniforms = (FrameUniforms*)frame.Uniforms.Mapped;
         uniforms->ViewProjection = viewProjection;
+        uniforms->View = view.View;
         uniforms->InverseViewProjection = inverse;
         uniforms->PreviousViewProjection = previousViewProjection;
         uniforms->FrameNumber = frameNumber;
@@ -1422,7 +1531,43 @@ public sealed unsafe class Renderer : IDisposable
             };
         }
 
+        WriteLocalLights(frame, uniforms, view, capturingProbe);
         return castsShadow;
+    }
+
+    /// <summary>
+    /// Picks the point and spot lights the view needs and their shadow tiles, and writes
+    /// them where the shaders read them. Probe captures leave them out, so a reflection
+    /// shows the room by the sun and sky alone.
+    /// </summary>
+    private void WriteLocalLights(in Frame frame, FrameUniforms* uniforms, in FrameView view, bool capturingProbe)
+    {
+        if (view.LocalLights.Length > LocalLight.MaxPerFrame)
+        {
+            throw new ArgumentException(
+                $"A frame can have at most {LocalLight.MaxPerFrame} point and spot lights, not {view.LocalLights.Length}.", nameof(view));
+        }
+
+        if (capturingProbe)
+        {
+            _tileCount = 0;
+            _clustersNeeded = false;
+            uniforms->LocalLightCount = 0;
+            return;
+        }
+
+        _localLights.Prepare(
+            view.LocalLights,
+            view.View,
+            view.Projection,
+            view.Height,
+            new Span<GpuLocalLight>(frame.Lights.Mapped, LocalLight.MaxPerFrame),
+            new Span<GpuShadowTile>(frame.ShadowTiles.Mapped, LocalLights.MaxTiles));
+        _tileCount = _localLights.TileCount;
+        _clustersNeeded = _localLights.LightCount > 0;
+        uniforms->LocalLightCount = _localLights.LightCount;
+        uniforms->Clusters = new Vector4(_localLights.NearDepth, _localLights.FarDepth, _localLights.Parallel ? 1f : 0f, 0f);
+        uniforms->Screen = new Vector4(view.Width, view.Height, 1f / view.Width, 1f / view.Height);
     }
 
     /// <summary>
@@ -1542,10 +1687,19 @@ public sealed unsafe class Renderer : IDisposable
             _context, (ulong)sizeof(FrameUniforms), BufferUsageFlags.UniformBufferBit);
         frame.Bones = GpuBuffer.CreateHostVisible(
             _context, (ulong)(MaxBones * sizeof(Matrix4x4)), BufferUsageFlags.StorageBufferBit);
+        frame.Lights = GpuBuffer.CreateHostVisible(
+            _context, (ulong)(LocalLight.MaxPerFrame * sizeof(GpuLocalLight)), BufferUsageFlags.StorageBufferBit);
+        frame.ShadowTiles = GpuBuffer.CreateHostVisible(
+            _context, (ulong)(LocalLights.MaxTiles * sizeof(GpuShadowTile)), BufferUsageFlags.StorageBufferBit);
+        frame.Clusters = new GpuBuffer(
+            _context, LocalLights.ClusterBytes, BufferUsageFlags.StorageBufferBit, MemoryPropertyFlags.DeviceLocalBit);
         frame.Set = AllocateSet(_frameSetLayout);
 
         var uniformInfo = new DescriptorBufferInfo(frame.Uniforms.Handle, 0, (ulong)sizeof(FrameUniforms));
         var bonesInfo = new DescriptorBufferInfo(frame.Bones.Handle, 0, frame.Bones.Size);
+        var lightsInfo = new DescriptorBufferInfo(frame.Lights.Handle, 0, frame.Lights.Size);
+        var tilesInfo = new DescriptorBufferInfo(frame.ShadowTiles.Handle, 0, frame.ShadowTiles.Size);
+        var clustersInfo = new DescriptorBufferInfo(frame.Clusters.Handle, 0, frame.Clusters.Size);
         var writes = stackalloc WriteDescriptorSet[]
         {
             new()
@@ -1566,8 +1720,11 @@ public sealed unsafe class Renderer : IDisposable
                 DescriptorType = DescriptorType.StorageBuffer,
                 PBufferInfo = &bonesInfo,
             },
+            StorageWrite(frame.Set, 3, &lightsInfo),
+            StorageWrite(frame.Set, 4, &tilesInfo),
+            StorageWrite(frame.Set, 5, &clustersInfo),
         };
-        _api.UpdateDescriptorSets(_context.Device, 2, writes, 0, null);
+        _api.UpdateDescriptorSets(_context.Device, 5, writes, 0, null);
 
         frame.Instances = new InstanceBuffer(_context);
         WriteInstanceDescriptor(frame);
@@ -1585,6 +1742,45 @@ public sealed unsafe class Renderer : IDisposable
         {
             WriteInstanceDescriptor(frame);
         }
+    }
+
+    private static WriteDescriptorSet StorageWrite(DescriptorSet set, uint binding, DescriptorBufferInfo* info) => new()
+    {
+        SType = StructureType.WriteDescriptorSet,
+        DstSet = set,
+        DstBinding = binding,
+        DescriptorCount = 1,
+        DescriptorType = DescriptorType.StorageBuffer,
+        PBufferInfo = info,
+    };
+
+    /// <summary>The shadow atlas, read once with a depth comparison and once as plain depth.</summary>
+    private void WriteAtlasDescriptors(in Frame frame)
+    {
+        var compare = new DescriptorImageInfo(_shadowSampler, _shadowPass.Atlas.View, ImageLayout.ShaderReadOnlyOptimal);
+        var depth = new DescriptorImageInfo(_sampler, _shadowPass.Atlas.View, ImageLayout.ShaderReadOnlyOptimal);
+        var writes = stackalloc WriteDescriptorSet[]
+        {
+            new()
+            {
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = frame.Set,
+                DstBinding = 6,
+                DescriptorCount = 1,
+                DescriptorType = DescriptorType.CombinedImageSampler,
+                PImageInfo = &compare,
+            },
+            new()
+            {
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = frame.Set,
+                DstBinding = 7,
+                DescriptorCount = 1,
+                DescriptorType = DescriptorType.CombinedImageSampler,
+                PImageInfo = &depth,
+            },
+        };
+        _api.UpdateDescriptorSets(_context.Device, 2, writes, 0, null);
     }
 
     private void WriteInstanceDescriptor(in Frame frame)
@@ -1619,20 +1815,28 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>
     /// The frame uniforms at binding 0, the skin matrices at binding 1 and each copy's
     /// model matrix at binding 2, as Shaders/common.glsl, skinning.glsl and instances.glsl
-    /// read them.
+    /// read them. Bindings 3 to 5 hold the point and spot lights, their shadow tiles and
+    /// the cluster lists, and 6 and 7 the shadow atlas, as Shaders/light_data.glsl and
+    /// local_shadows.glsl read them.
     /// </summary>
     private DescriptorSetLayout CreateFrameSetLayout()
     {
+        const ShaderStageFlags everyStage = ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit | ShaderStageFlags.ComputeBit;
         var bindings = stackalloc DescriptorSetLayoutBinding[]
         {
-            new(0, DescriptorType.UniformBuffer, 1, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit),
+            new(0, DescriptorType.UniformBuffer, 1, everyStage),
             new(1, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit),
             new(2, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit),
+            new(3, DescriptorType.StorageBuffer, 1, everyStage),
+            new(4, DescriptorType.StorageBuffer, 1, everyStage),
+            new(5, DescriptorType.StorageBuffer, 1, everyStage),
+            new(6, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
+            new(7, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
         };
         var info = new DescriptorSetLayoutCreateInfo
         {
             SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 3,
+            BindingCount = 8,
             PBindings = bindings,
         };
         _api.CreateDescriptorSetLayout(_context.Device, &info, null, out var layout).Check();

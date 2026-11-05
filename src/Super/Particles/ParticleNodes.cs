@@ -55,6 +55,7 @@ internal struct ParticleLook
     public Vector3 Color;
     public float Opacity;
     public float Rotation;
+    public float Glow;
 }
 
 /// <summary>Any step of an emitter. Its name, with its settings, is what <see cref="ParticleEmitter.ToString"/> lists.</summary>
@@ -310,6 +311,12 @@ internal sealed record GradientNode(float[] At, Vector3[] Colors) : LookNode
 internal sealed record OpacityNode(float Opacity) : LookNode
 {
     public override void Apply(in ParticleDice dice, float age, float life, ref ParticleLook look) => look.Opacity *= Opacity;
+}
+
+/// <summary>Makes the particle give off its own light, its colour times this, on top of what falls on it.</summary>
+internal sealed record GlowNode(float Glow) : LookNode
+{
+    public override void Apply(in ParticleDice dice, float age, float life, ref ParticleLook look) => look.Glow = Glow;
 }
 
 /// <summary>Fades in over the first part of the life and out over the last, smoothly.</summary>

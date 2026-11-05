@@ -83,8 +83,11 @@ public sealed class Input
 
     public bool GamepadConnected { get => Read(field); private set; }
 
-    /// <summary>The size of the screen in the same pixels as the cursor. The host sets it each tick.</summary>
-    internal Vector2 ScreenSize { get; set; }
+    /// <summary>
+    /// The size of the screen in the same pixels as the cursor and the interface, for placing interface
+    /// over things in the world. The host sets it each tick.
+    /// </summary>
+    public Vector2 ScreenSize { get; internal set; }
 
     /// <summary>Whether reads are allowed right now. The host turns it on for Update only.</summary>
     internal bool Readable { get; set; }
