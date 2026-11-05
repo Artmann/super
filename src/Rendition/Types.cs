@@ -89,6 +89,12 @@ public enum MaterialFlags
     /// is lit as one shape and not as a pile of separate cards.
     /// </summary>
     Foliage = 4,
+
+    /// <summary>
+    /// The surface texture's blue channel says how strongly the detail textures show, from
+    /// none at black to full at white. Without it they show everywhere.
+    /// </summary>
+    DetailMask = 8,
 }
 
 /// <summary>
@@ -118,6 +124,28 @@ public struct Material
 
     /// <summary>Strength of a clear glossy layer over the surface, such as car lacquer. 0 to 1.</summary>
     public float Clearcoat;
+
+    /// <summary>
+    /// A height map in the red channel: white is the top of the surface and black its
+    /// deepest point. Parallax occlusion mapping shifts the other textures with it, so
+    /// grooves look sunk in. Needs <see cref="HeightDepth"/>.
+    /// </summary>
+    public TextureHandle? HeightTexture;
+
+    /// <summary>How far below the top black in the height map lies, in metres. 0 turns parallax off.</summary>
+    public float HeightDepth;
+
+    /// <summary>
+    /// Fine grain over the colour, tiled <see cref="DetailScale"/> times as often. Store it as
+    /// linear data: mid grey (128) leaves the colour alone, white doubles it, black darkens it to nothing.
+    /// </summary>
+    public TextureHandle? DetailColorTexture;
+
+    /// <summary>A second normal map tiled <see cref="DetailScale"/> times as often, blended over the first.</summary>
+    public TextureHandle? DetailNormalTexture;
+
+    /// <summary>How many times the detail textures repeat for each repeat of the others. 0 counts as 1.</summary>
+    public float DetailScale;
     public MaterialFlags Flags;
 
     /// <summary>
@@ -237,6 +265,60 @@ public struct DirectionalLight
 
     /// <summary>The renderer draws one shadow map, for the first light that sets this.</summary>
     public bool CastsShadow;
+}
+
+/// <summary>
+/// A light at a point, such as a torch, a lamp or a candle, that dims with distance and
+/// ends at its range. Given a cone it's a spot, shining one way only. Any number can light
+/// a frame, up to <see cref="MaxPerFrame"/>; see "Point and spot lights" in docs/rendering.md.
+/// </summary>
+public struct LocalLight
+{
+    /// <summary>The most one frame can have. The renderer throws past this.</summary>
+    public const int MaxPerFrame = 1024;
+
+    /// <summary>
+    /// Picks out a light from one frame to the next, so its shadow keeps its sharpness as it
+    /// moves. Any number, but no two lights in a frame should share one.
+    /// </summary>
+    public int Key;
+
+    public Vector3 Position;
+
+    /// <summary>Linear colour times brightness, as it falls on a surface one metre away facing it.</summary>
+    public Vector3 Radiance;
+
+    /// <summary>How far the light reaches, in metres. It fades smoothly to nothing there.</summary>
+    public float Range;
+
+    /// <summary>The radius a light has when <see cref="Radius"/> is left at 0, in metres.</summary>
+    public const float DefaultRadius = 0.1f;
+
+    /// <summary>
+    /// How big the glowing part is, in metres, such as a torch's flame. Light can't get much
+    /// brighter than it is at this distance, so a bigger radius calms a wall right beside
+    /// the light while leaving it as bright a metre away and beyond. A bigger light also
+    /// casts softer shadows. 0 means <see cref="DefaultRadius"/>.
+    /// </summary>
+    public float Radius;
+
+    /// <summary>For a spot, the unit vector it shines along. Ignored for a point light.</summary>
+    public Vector3 Direction;
+
+    /// <summary>For a spot, the angle from its axis, in radians, inside which it shines fully.</summary>
+    public float InnerAngle;
+
+    /// <summary>
+    /// For a spot, the angle from its axis, in radians, where it has faded to nothing; under
+    /// π/2. Zero makes a point light, which shines every way.
+    /// </summary>
+    public float OuterAngle;
+
+    /// <summary>Whether things block it. Shadows are drawn into a shared atlas; see docs/rendering.md.</summary>
+    public bool CastsShadow;
+
+    /// <summary>Whether it's a spot rather than a point light.</summary>
+    public readonly bool IsSpot => OuterAngle > 0f;
 }
 
 /// <summary>A glowing rectangle in the environment, such as a studio softbox.</summary>
@@ -435,6 +517,9 @@ public ref struct FrameView
     /// <summary>At most eight are used.</summary>
     public ReadOnlySpan<DirectionalLight> Lights;
 
+    /// <summary>Point and spot lights. At most <see cref="LocalLight.MaxPerFrame"/>; more throws.</summary>
+    public ReadOnlySpan<LocalLight> LocalLights;
+
     /// <summary>
     /// Every skinned draw's matrices for this frame, one after another, which draws
     /// point into with <see cref="DrawItem.Bones"/>. At most <see cref="Renderer.MaxBones"/>.
@@ -489,8 +574,9 @@ public ref struct FrameView
 
 /// <summary>
 /// A soft, see-through puff that always faces the camera, such as one wisp of dust or
-/// smoke. It's lit by the sun and the sky, falls into shadow, fades into haze, and melts
-/// into whatever it touches instead of showing a hard edge where it meets the ground.
+/// smoke. It's lit by the sun, the sky and point and spot lights, falls into the sun's
+/// shadow, fades into haze, and melts into whatever it touches instead of showing a hard
+/// edge where it meets the ground. A glowing one, such as a lick of flame, adds its own light.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 public struct Particle
@@ -512,6 +598,12 @@ public struct Particle
 
     /// <summary>Picks the lumpy outline of the puff. Any number; nearby values look alike.</summary>
     public float Variant;
+
+    /// <summary>
+    /// Light the puff gives off itself, as a multiple of its colour, on top of the light it's
+    /// lit by: 0 for dust, about 1 for embers, and past 1 for flames, which then bloom.
+    /// </summary>
+    public float Glow;
 }
 
 /// <summary>

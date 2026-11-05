@@ -270,6 +270,12 @@ internal sealed class SceneRenderer : IDisposable
             BaseColorTexture = ownedTexture ?? Texture(surface.ColorTexture, content),
             NormalTexture = Texture(surface.NormalTexture, content),
             SurfaceTexture = Texture(surface.SurfaceTexture, content),
+            HeightTexture = Texture(surface.HeightTexture, content),
+            HeightDepth = surface.HeightDepth,
+            DetailColorTexture = Texture(surface.DetailColorTexture, content),
+            DetailNormalTexture = Texture(surface.DetailNormalTexture, content),
+            DetailScale = surface.DetailScale,
+            Flags = surface.DetailMask ? MaterialFlags.DetailMask : 0,
             Subsurface = surface.Subsurface,
             Shader = surface.Shader is { } shader ? Require<LoadedShader>(shader.Index, content).Handle : null,
         };
@@ -481,6 +487,7 @@ internal sealed class SceneRenderer : IDisposable
             Overlay = view.Ui is { } ui ? ui.Quads : [],
             Particles = view.DrawnParticles,
             Transition = view.Transition,
+            LocalLights = view.DrawnLights,
         };
     }
 

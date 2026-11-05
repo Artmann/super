@@ -8,7 +8,7 @@
 
 layout(location = 0) in vec4 inPositionSize; // xyz: middle; w: width in metres
 layout(location = 1) in vec4 inColor;        // rgb: linear colour; a: opacity
-layout(location = 2) in vec2 inShape;        // x: rotation in radians; y: variant
+layout(location = 2) in vec3 inShape;        // x: rotation in radians; y: variant; z: glow
 
 layout(set = 1, binding = 1) uniform sampler2DArrayShadow shadowCompareTexture;
 
@@ -24,7 +24,7 @@ layout(location = 1) out vec2 outScreenCorner;  // the same, lined up with the s
 layout(location = 2) out vec4 outColor;
 layout(location = 3) out vec3 outPosition;      // this point on the square, in the world
 layout(location = 4) out float outSunlight;     // how much the shadow-casting light reaches
-layout(location = 5) flat out vec2 outPuff;     // x: width; y: variant
+layout(location = 5) flat out vec3 outPuff;     // x: width; y: variant; z: glow
 
 const vec2 Corners[6] = vec2[](
     vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0),
@@ -76,7 +76,7 @@ void main() {
     outScreenCorner = turned;
     outColor = inColor;
     outPosition = position;
-    outPuff = vec2(inPositionSize.w, inShape.y);
+    outPuff = vec3(inPositionSize.w, inShape.y, inShape.z);
 
     outSunlight = 1.0;
     for (int i = 0; i < frame.lightCount; i++) {

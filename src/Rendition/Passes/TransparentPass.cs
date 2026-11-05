@@ -170,6 +170,17 @@ internal sealed unsafe class TransparentPass : IDisposable
         }
 
         var api = _context.Api;
+
+        // Glass binds the scene copy even when none of it bends, as with ghosts, so the copy
+        // needs a readable layout on frames that don't make one. Its contents go unread.
+        if (glassCount > 0 && !_steps.Exists(step => step.Kind == TransparentStepKind.Copy))
+        {
+            api.Transition(cmd, targets.SceneColor.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal,
+                PipelineStageFlags2.FragmentShaderBit, AccessFlags2.None,
+                PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit, mipCount: targets.SceneColor.Mips);
+        }
+
         Begin(cmd, targets);
         var glassSets = stackalloc DescriptorSet[] { frameSet, _resources.Set, _environmentSet };
         var bound = Binding.None;

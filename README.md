@@ -109,6 +109,7 @@ marked as planned. The examples are the best place to see it running:
 | --- | --- |
 | [ColorCube](examples/ColorCube) | The game loop, input actions and seeded randomness |
 | [Shapes](examples/Shapes) | Every built-in shape, and shapes made in code with `Shapes` |
+| [Bricks](examples/Bricks) | A brick wall and a cobbled street whose mortar sinks in with height maps, with fine grit from detail maps; P and D turn them off |
 | [Rooms](examples/Rooms) | Game states, a loading screen, JSON content, clicking the ground and huts that rise on a curve |
 | [Crafting](examples/Crafting) | An inventory and crafting bench driven entirely by the mouse |
 | [Terrain](examples/Terrain) | Endless generated hills with a custom surface shader, a road built along a spline with a cart driving it, and a flyover on F |
@@ -117,6 +118,7 @@ marked as planned. The examples are the best place to see it running:
 | [Glass](examples/Glass) | Clear, frosted and tinted panes and glass balls that bend the room, with dust between them |
 | [Archer](examples/Archer) | A short film: a cutscene with slow motion, root motion, a sky and a forest clearing |
 | [Transitions](examples/Transitions) | Fades, dissolves, wipes, irises and camera blends: a showreel cutscene, then each one on a key |
+| [Crypt](examples/Crypt) | A vault lit only by fire: torches casting shadows, a lantern's beam and 246 candles with glowing flames |
 | [Wax](examples/Wax) | Skin, candle wax and jade with subsurface scattering, each beside a plain twin under a hard light |
 | [Dust](examples/Dust) | Trees falling in a clearing, throwing up soft particle dust along where they land |
 | [Forest](examples/Forest) | Sound: a looping ambience and music, a hammering builder whose sound pans as the camera circles, and channel volumes |

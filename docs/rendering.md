@@ -6,12 +6,14 @@ Super hands that to Rendition each frame.
 
 What it does for every game, with no setup:
 
-- Cook-Torrance GGX shading with up to eight directional lights
+- Cook-Torrance GGX shading with up to eight directional lights, and up to 1,024 point
+  and spot lights with soft shadows
 - Soft, contact-hardening shadows, in up to four cascades
 - A generated environment that gives surfaces reflections and soft fill light
 - Screen-space reflections and box-corrected reflection probes
 - Temporal anti-aliasing, ambient occlusion (with light bounced back from the surface's colour) and bloom
 - [Glass](#glass) that bends and frosts what's behind it, car paint clearcoat and surfaces that glow
+- [Height maps](#height-and-detail-maps) that sink mortar and grooves into a flat surface, and detail maps for fine grain
 - Skin, wax and jade that [let light spread under the surface](#skin-and-wax)
 - Soft, lit [particles](views.md#particles) for dust and smoke
 - Culling and simpler versions of distant models, for the camera and for shadows
@@ -34,6 +36,54 @@ view.Sun(new Vector3(1f, 2f, 1f), new Vector3(3f), shadows: true);
 ```
 
 Marking two suns in one frame throws.
+
+### Point and spot lights
+
+![The Crypt example: torches, a lantern and 246 candles](media/crypt.webp)
+
+```csharp
+view.PointLight(torch.Id, torch.Flame, color: new Vector3(3.2f, 1.5f, 0.5f), range: 9f, radius: 0.5f);
+view.PointLight(candle.Id, candle.Wick, new Vector3(0.12f, 0.06f, 0.02f), range: 1.4f, shadows: false);
+view.SpotLight(lantern.Id, lantern.Position, direction: -Vector3.UnitY, new Vector3(6f, 5.5f, 4.5f),
+    range: 7f, innerAngle: 0.25f, outerAngle: 0.4f);
+```
+
+A point light shines every way from a spot, like a candle or a torch, and a spot light
+shines in a cone, like a lantern's beam. The colour is how bright the light is a metre
+away. It dims with the square of the distance and fades smoothly to nothing at the
+range, so a small range is cheaper and keeps a candle's light on its own table. A spot
+is full inside its inner angle and fades out by its outer one. Both angles are measured
+from the direction, in radians, and the outer one must be under a right angle.
+
+A light also has a radius, the size of its glowing part, 0.1 m unless you pass
+`radius:`. No surface gets much brighter than it would be that far from the light. On
+its own, the square of the distance makes a torch a hand from a wall blow the stone out
+white while the room stays dim. A bigger radius calms the wall but leaves the light
+just as bright a metre away and beyond, so raise it for lights in brackets, sconces and
+lamps against walls. The Crypt's torches use 0.5. A bigger light also casts softer
+shadows. The radius must be less than the range.
+
+![A torch on a pillar with the default radius of 0.1 and with 0.5](media/torch-radius.webp)
+
+Draw lights in `Draw` like everything else, each frame, so a torch can flicker by
+changing its colour. The key names the light from frame to frame, the same as a model's
+key, and keeps its shadow steady as the camera moves. Use the ID of the thing holding it.
+
+Lights cast soft shadows unless `shadows: false` is passed. Shadows are sharp where an
+object touches the ground and blur further away, as the sun's do. All the lights share
+one shadow atlas, and a light that is bigger on screen gets a sharper shadow. A point
+light costs six times as much shadow as a spot. When the atlas is full, the lights that
+are smallest on screen lose their shadows. Shadows are what cost the most, so leave
+them off on small lights, such as rows of candles.
+
+A frame can have up to 1,024 lights, and one more throws. Lights are culled to what the
+camera sees, and each part of the screen only works through the lights that reach it, so
+a frame can have hundreds of small lights. 256 can reach any one spot on the screen,
+and more than that are dropped there. The `Crypt` example has four torches, a lantern
+and 246 candles.
+
+Point and spot lights light models, glass and [particles](views.md#particles). Glass and
+particles get no shadows from them. They aren't seen in reflection probes.
 
 ## Shadows
 
@@ -240,6 +290,8 @@ as the shared `assets` folder does for Poly Haven's `textures` folders:
 Other options are the `baseColor`, `normal`, `surface` and `emissive` textures,
 `color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `twoSided`,
 `transparent`, `opacity`, `ior`, `noNormalMap` and `rotateY`; see `src/Super.Cook.Models/ImportSettings.cs`.
+`color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `heightDepth`, `detailScale`, `detailMask`, `twoSided`,
+`transparent`, `opacity`, `noNormalMap` and `rotateY`; see `src/Super.Cook.Models/ImportSettings.cs`.
 
 A rigged model keeps its skeleton, bone weights and clips, and `animations` adds clips
 from other files of the same rig, such as Mixamo's:
@@ -438,6 +490,48 @@ game can skip one still loading instead of waiting. A texture is freed after eve
 that names it; a texture array keeps its own copy of each layer, so the single layers can
 go as soon as the array is made.
 
+## Height and detail maps
+
+A height map sinks the low parts of a flat surface, such as the mortar between bricks or
+the joints of a street, so they move with the view as deep ones would instead of looking
+painted on. It's a linear texture where white is the top and black is `HeightDepth`
+metres down. Pair it with the normal map of the same height, which shades the grooves.
+
+A detail map adds grain finer than a surface's own textures, such as grit on stone or the
+weave of cloth, without a bigger texture. `DetailColorTexture` is linear and multiplies
+the colour, with mid grey (128) leaving it as it is, so a detail colour around mid grey
+keeps the surface's own colour on average. `DetailNormalTexture` is a normal map laid
+over the surface's own normal. Both repeat `DetailScale` times (8 if left out) for each
+time the surface's textures repeat. With `DetailMask`, the surface texture's blue
+channel says how strongly the detail shows, from none at 0 to full at 1.
+
+```csharp
+TextureRef height = content.Texture("textures/bricks-height.png");
+TextureRef grit = content.Texture("textures/grit.png");
+TextureRef gritNormal = content.Texture("textures/grit-normal.png");
+
+ModelRef wall = content.Mesh(Shapes.Box(new Vector3(16f, 3f, 0.4f), new Surface
+{
+    ColorTexture = bricks,
+    NormalTexture = bricksNormal,
+    HeightTexture = height,
+    HeightDepth = 0.025f,
+    DetailColorTexture = grit,
+    DetailNormalTexture = gritNormal,
+    DetailScale = 6f,
+}, uvPerMetre: 1f / 0.9f));
+```
+
+A cooked model takes the same textures and values in its sidecar, as `height`,
+`heightDepth`, `detailColor`, `detailNormal`, `detailScale` and `detailMask` on a material
+rule. These textures are cooked as linear data, and `detailNormal` as a normal map.
+
+The depth shows up close: it fades out between 15 and 25 metres from the camera, where
+the normal map alone looks the same and costs less. Keep `HeightDepth` to a few
+centimetres. Deeper looks stretched at low angles, because the surface's edge and its
+shadows stay flat. Transparent surfaces ignore height and detail maps. The [Bricks
+example](../examples/Bricks) shows a wall and a street; P turns the height maps off and D the detail.
+
 ## Meshes along a spline
 
 `Shapes` can also build meshes that follow a [spline](splines.md), such as a road, a
@@ -525,6 +619,11 @@ shader only changes what it cares about. A shader can also read `inUv`, `inPosit
 | `Parameters`, up to 8 `Vector4` | `materials[draw.material].shaderParameters[i]` |
 | `ShaderTextures`, up to 4 | `shaderTexture(slot, uv)` |
 | `ShaderArrays`, up to 4 | `shaderLayer(slot, uv, layer)`, where a fractional layer blends two |
+
+A shader that moves its UVs can still use the material: `materialUv()` is `inUv` moved by
+the material's height map, and `materialSurface(uv)` reads the material at any UV.
+`parallaxUv(slot, uv, depth)` does the same depth trick with a shader texture as the height
+map, and `blendNormals(base, detail)` lays one tangent-space normal over another.
 
 Unset slots read white. To compile shaders, put them in a `Shaders` folder in your game
 project and import the targets file, which runs `glslc` from the Vulkan SDK:

@@ -106,7 +106,7 @@ internal sealed unsafe class ParticlePass : IDisposable
             // Position and size sit together, so they arrive as one vec4.
             new(0, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<Particle>(nameof(Particle.Position))),
             new(1, 0, Format.R32G32B32A32Sfloat, (uint)Marshal.OffsetOf<Particle>(nameof(Particle.Color))),
-            new(2, 0, Format.R32G32Sfloat, (uint)Marshal.OffsetOf<Particle>(nameof(Particle.Rotation))),
+            new(2, 0, Format.R32G32B32Sfloat, (uint)Marshal.OffsetOf<Particle>(nameof(Particle.Rotation))),
         ];
         _pipeline = PipelineFactory.Create(context, new PipelineDescription
         {

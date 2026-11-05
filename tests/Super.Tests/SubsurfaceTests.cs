@@ -74,9 +74,9 @@ public class SubsurfaceTests
     [Fact]
     public void Transmission_and_spread_sit_where_material_data_glsl_reads_them()
     {
-        // flags at 224, then transmission; the vec4 rounds up to the next 16 bytes.
+        // flags at 224, then transmission, then five height and detail fields; the vec4 rounds up to the next 16 bytes.
         Assert.Equal(228, (int)Marshal.OffsetOf<ResourceTable.GpuMaterial>(nameof(ResourceTable.GpuMaterial.Transmission)));
-        Assert.Equal(240, (int)Marshal.OffsetOf<ResourceTable.GpuMaterial>(nameof(ResourceTable.GpuMaterial.Subsurface)));
+        Assert.Equal(256, (int)Marshal.OffsetOf<ResourceTable.GpuMaterial>(nameof(ResourceTable.GpuMaterial.Subsurface)));
     }
 
     private static void AssertClose(Vector4 expected, Vector4 actual)

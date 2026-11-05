@@ -5,6 +5,8 @@
 #include "sampling.glsl"
 #include "water.glsl"
 #include "material_data.glsl"
+#include "light_data.glsl"
+#include "local_shadows.glsl"
 
 layout(location = 0) in vec2 inUv;
 
@@ -58,6 +60,55 @@ vec3 multiBounceOcclusion(float visibility, vec3 albedo) {
     vec3 b = -4.7951 * albedo + 0.6417;
     vec3 c = 2.7552 * albedo + 0.6903;
     return max(vec3(visibility), ((visibility * a + b) * visibility + c) * visibility);
+}
+
+// What a surface is made of and how it's seen, for lighting it one light at a time.
+struct Surface {
+    vec3 n;
+    vec3 v;
+    float nDotV;
+    float alpha;
+    vec3 f0;
+    vec3 baseColor;
+    float metallic;
+    float clearcoat;
+    float translucency;
+    vec3 transmissionTint;
+};
+
+// The light a surface sends to the eye from a light arriving along l, for each unit of
+// the light's brightness, kept as diffuse and specular so subsurface materials can blur
+// the diffuse: a glossy highlight, the diffuse colour beneath, the coat over both, and
+// what shines through thin parts from behind. False when none of it arrives.
+bool shade(Surface s, vec3 l, out vec3 diffuseLit, out vec3 specularLit) {
+    diffuseLit = vec3(0.0);
+    specularLit = vec3(0.0);
+    float facing = dot(s.n, l);
+    float nDotL = max(facing, 0.0);
+
+    // Leaves lit from behind glow with their own colour.
+    float transmitted = s.translucency * max(-facing, 0.0);
+    if (nDotL == 0.0 && transmitted == 0.0) {
+        return false;
+    }
+
+    vec3 h = normalize(s.v + l);
+    vec3 f = fresnelSchlick(max(dot(s.v, h), 0.0), s.f0);
+    vec3 specular = distributionGgx(max(dot(s.n, h), 0.0), s.alpha) * visibilitySmithGgx(s.nDotV, nDotL, s.alpha) * f;
+    vec3 diffuse = (1.0 - f) * (1.0 - s.metallic) * s.baseColor / PI;
+
+    diffuseLit = diffuse * nDotL;
+    specularLit = specular * nDotL;
+    if (s.clearcoat > 0.0) {
+        float coatAlpha = CLEARCOAT_ROUGHNESS * CLEARCOAT_ROUGHNESS;
+        vec3 coatF = fresnelSchlick(max(dot(s.v, h), 0.0), CLEARCOAT_F0) * s.clearcoat;
+        float coatHighlight = distributionGgx(max(dot(s.n, h), 0.0), coatAlpha) * visibilitySmithGgx(s.nDotV, nDotL, coatAlpha);
+        diffuseLit *= 1.0 - coatF;
+        specularLit = specularLit * (1.0 - coatF) + coatHighlight * coatF * nDotL;
+    }
+
+    diffuseLit += (1.0 - s.metallic) * s.baseColor / PI * transmitted * s.transmissionTint;
+    return true;
 }
 
 // How far inside a cascade's map the point is, as a share of the map from its nearest
@@ -380,7 +431,6 @@ void main() {
     vec3 environmentLight = environmentDiffuse + environmentSpecular;
 
     // The coat reflects first and what it lets through lights the layers below.
-    float coatAlpha = CLEARCOAT_ROUGHNESS * CLEARCOAT_ROUGHNESS;
     vec3 coatFresnel = fresnelSchlick(nDotV, CLEARCOAT_F0) * clearcoat;
     if (clearcoat > 0.0) {
         vec3 coatReflection = sampleReflection(position, reflect(-v, n), CLEARCOAT_ROUGHNESS * REFLECTION_LODS);
@@ -390,36 +440,20 @@ void main() {
 
     vec3 color = environmentLight * occlusion + emissiveClearcoat.rgb;
 
+    // Subsurface materials keep the diffuse light of every light apart, for the blur.
+    Surface surface = Surface(n, v, nDotV, alpha, f0, baseColor, metallic, clearcoat, translucency, transmissionTint);
     for (int i = 0; i < frame.lightCount; i++) {
         vec3 l = frame.lights[i].direction.xyz;
-        float facing = dot(n, l);
-        float nDotL = max(facing, 0.0);
-
-        // Leaves lit from behind glow with their own colour.
-        float transmitted = translucency * max(-facing, 0.0);
-        if (nDotL == 0.0 && transmitted == 0.0) {
+        vec3 diffuseLit;
+        vec3 specularLit;
+        if (!shade(surface, l, diffuseLit, specularLit)) {
             continue;
         }
-
-        vec3 h = normalize(v + l);
-        vec3 f = fresnelSchlick(max(dot(v, h), 0.0), f0);
-        vec3 specular = distributionGgx(max(dot(n, h), 0.0), alpha) * visibilitySmithGgx(nDotV, nDotL, alpha) * f;
-        vec3 diffuse = (1.0 - f) * (1.0 - metallic) * baseColor / PI;
-
-        vec3 diffuseLit = diffuse * nDotL;
-        vec3 specularLit = specular * nDotL;
-        if (clearcoat > 0.0) {
-            vec3 coatF = fresnelSchlick(max(dot(v, h), 0.0), CLEARCOAT_F0) * clearcoat;
-            float coatHighlight = distributionGgx(max(dot(n, h), 0.0), coatAlpha) * visibilitySmithGgx(nDotV, nDotL, coatAlpha);
-            diffuseLit *= 1.0 - coatF;
-            specularLit = specularLit * (1.0 - coatF) + coatHighlight * coatF * nDotL;
-        }
-        diffuseLit += (1.0 - metallic) * baseColor / PI * transmitted * transmissionTint;
 
         // A light without a shadow map would shine through everything, so nearby
         // surfaces are all that can block it. Light from behind is looked up from the
         // side it arrives on.
-        vec3 lightSide = facing >= 0.0 ? n : -n;
+        vec3 lightSide = dot(n, l) >= 0.0 ? n : -n;
         float visibility = frame.lights[i].direction.w > 0.5 ? shadowVisibility(position, lightSide, l) : screenAo;
         vec3 reaching = sunlightReaching(position, l, i) * visibility;
         if (subsurface) {
@@ -427,6 +461,35 @@ void main() {
             color += specularLit * reaching;
         } else {
             color += (diffuseLit + specularLit) * reaching;
+        }
+    }
+
+    // Point and spot lights, only those listed for this pixel's cluster. Those without a
+    // shadow are blocked by nearby surfaces only, as suns without one are.
+    uint cluster = clusterAt(gl_FragCoord.xy, position);
+    uint localCount = clusterLightCount(cluster);
+    for (uint i = 0; i < localCount; i++) {
+        LocalLight light = localLights[clusterLight(cluster, i)];
+        vec3 l;
+        float reaching = localLightReaching(light, position, l);
+        if (reaching <= 0.0) {
+            continue;
+        }
+
+        vec3 diffuseLit;
+        vec3 specularLit;
+        if (!shade(surface, l, diffuseLit, specularLit)) {
+            continue;
+        }
+
+        vec3 lightSide = dot(n, l) >= 0.0 ? n : -n;
+        float visibility = light.radianceShadow.w >= 0.0 ? localShadow(light, position, lightSide, l) : screenAo;
+        vec3 arriving = light.radianceShadow.rgb * reaching * visibility;
+        if (subsurface) {
+            scattered += diffuseLit * arriving;
+            color += specularLit * arriving;
+        } else {
+            color += (diffuseLit + specularLit) * arriving;
         }
     }
 

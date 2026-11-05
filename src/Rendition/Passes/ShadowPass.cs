@@ -9,6 +9,7 @@ namespace Rendition.Passes;
 /// Renders the scene's depth as seen from the shadow-casting light, once per cascade.
 /// Each cascade covers three times the radius of the one before, in its own layer, and
 /// is fitted to the next slice of what the camera sees.
+/// Point and spot lights' shadows go into tiles of one shared atlas; see <see cref="LocalLights"/>.
 /// </summary>
 internal sealed unsafe class ShadowPass : IDisposable
 {
@@ -32,12 +33,18 @@ internal sealed unsafe class ShadowPass : IDisposable
 
     public readonly RenderTarget Target;
 
+    /// <summary>Every point and spot light's shadow, each in its own square of it.</summary>
+    public readonly RenderTarget Atlas;
+
     public ShadowPass(VulkanContext context, DescriptorSetLayout frameSetLayout, ResourceTable resources)
     {
         _context = context;
         _resources = resources;
         Target = new RenderTarget(
             context, GBuffer.DepthFormat, Extent, ImageUsageFlags.DepthStencilAttachmentBit, ImageAspectFlags.DepthBit, MaxCascades);
+        Atlas = new RenderTarget(
+            context, GBuffer.DepthFormat, new Extent2D(LocalLights.AtlasSize, LocalLights.AtlasSize),
+            ImageUsageFlags.DepthStencilAttachmentBit, ImageAspectFlags.DepthBit);
 
         var setLayouts = stackalloc DescriptorSetLayout[] { frameSetLayout, resources.Layout };
         var pushRange = SceneDraws.PushRange;
@@ -227,6 +234,56 @@ internal sealed unsafe class ShadowPass : IDisposable
         api.CmdEndRendering(cmd);
     }
 
+    /// <summary>
+    /// Draws every tile of the atlas in one pass, each through its own viewport.
+    /// <paramref name="ranges"/> says which of <paramref name="draws"/> belong to each tile.
+    /// </summary>
+    public void RecordTiles(
+        CommandBuffer cmd,
+        DescriptorSet frameSet,
+        ReadOnlySpan<ShadowView> tiles,
+        ReadOnlySpan<DrawItem> draws,
+        ReadOnlySpan<(int First, int Count)> ranges,
+        List<Mesh?> meshes,
+        InstanceBuffer instances)
+    {
+        var api = _context.Api;
+        var extent = new Extent2D(LocalLights.AtlasSize, LocalLights.AtlasSize);
+        var depthAttachment = new RenderingAttachmentInfo
+        {
+            SType = StructureType.RenderingAttachmentInfo,
+            ImageView = Atlas.View,
+            ImageLayout = ImageLayout.DepthAttachmentOptimal,
+            LoadOp = AttachmentLoadOp.Clear,
+            StoreOp = AttachmentStoreOp.Store,
+            ClearValue = new ClearValue(depthStencil: new ClearDepthStencilValue(0f, 0)), // Reversed-Z far plane.
+        };
+        var rendering = new RenderingInfo
+        {
+            SType = StructureType.RenderingInfo,
+            RenderArea = new Rect2D(default, extent),
+            LayerCount = 1,
+            PDepthAttachment = &depthAttachment,
+        };
+
+        api.CmdBeginRendering(cmd, &rendering);
+        var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set };
+        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
+        for (int tile = 0; tile < tiles.Length; tile++)
+        {
+            ref readonly var view = ref tiles[tile];
+            var viewport = new Viewport(view.X, view.Y, view.Size, view.Size, 0, 1);
+            var scissor = new Rect2D(new Offset2D(view.X, view.Y), new Extent2D((uint)view.Size, (uint)view.Size));
+            api.CmdSetViewport(cmd, 0, 1, &viewport);
+            api.CmdSetScissor(cmd, 0, 1, &scissor);
+            var (first, count) = ranges[tile];
+            SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws.Slice(first, count), meshes, instances,
+                ScenePass.Shadow, solid: _solid, cascade: MaxCascades + tile);
+        }
+
+        api.CmdEndRendering(cmd);
+    }
+
     public void Dispose()
     {
         _context.Api.DestroyPipeline(_context.Device, _solid.TwoSided, null);
@@ -235,5 +292,6 @@ internal sealed unsafe class ShadowPass : IDisposable
         _context.Api.DestroyPipeline(_context.Device, _pipelines[0].Culled, null);
         _context.Api.DestroyPipelineLayout(_context.Device, _layout, null);
         Target.Dispose();
+        Atlas.Dispose();
     }
 }

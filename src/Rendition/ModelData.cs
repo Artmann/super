@@ -26,6 +26,11 @@ public struct ModelMaterial
     public Vector3 Emissive;
     public int EmissiveTexture;
     public float Clearcoat;
+    public int HeightTexture;
+    public float HeightDepth;
+    public int DetailColorTexture;
+    public int DetailNormalTexture;
+    public float DetailScale;
     public MaterialFlags Flags;
     public float Ior;
     public Subsurface Subsurface;
@@ -43,7 +48,7 @@ public struct ModelPart
 public sealed class ModelData
 {
     private const uint Magic = 0x4C444D52; // "RMDL"
-    private const int Version = 5; // 4: materials gained Subsurface. 5: materials gained Ior.
+    private const int Version = 6; // 4: materials gained Subsurface. 5: height and detail textures. 6: materials gained Ior.
 
     public required Vertex[] Vertices { get; init; }
     public required uint[] Indices { get; init; }
