@@ -47,12 +47,17 @@ float sunlightAt(vec3 position) {
         }
 
         // Reversed-Z: the point is lit when it's at least as near the light as the map.
-        float reference = projected.z + 2.0 * texel;
+        float reference = projected.z + 2.0 * texel * frame.shadowDepthScales[c];
         float lit = 0.0;
         for (int i = 0; i < SHADOW_TAPS; i++) {
             lit += texture(shadowCompareTexture, vec4(uv + ShadowTaps[i] * texel, float(c), reference));
         }
-        return lit / float(SHADOW_TAPS);
+
+        // Shadows fade out towards their furthest reach, as they do on surfaces.
+        float distance = length(position - frame.cameraPosition.xyz);
+        float fadeOut = frame.shadowFade.x < frame.shadowFade.y
+            ? smoothstep(frame.shadowFade.x, frame.shadowFade.y, distance) : 0.0;
+        return mix(lit / float(SHADOW_TAPS), 1.0, fadeOut);
     }
     return 1.0;
 }

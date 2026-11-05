@@ -60,18 +60,48 @@ vec3 multiBounceOcclusion(float visibility, vec3 albedo) {
     return max(vec3(visibility), ((visibility * a + b) * visibility + c) * visibility);
 }
 
-// The first cascade whose map holds the point with room for the filter around it,
-// or -1 when none does.
-int shadowCascade(vec3 position, float inset) {
+// How far inside a cascade's map the point is, as a share of the map from its nearest
+// edge, leaving room for the filter: below 0 is outside.
+float cascadeMargin(int c, vec3 position, float inset) {
+    vec4 projected = frame.shadowMatrices[c] * vec4(position, 1.0);
+    vec2 uv = projected.xy * 0.5 + 0.5;
+    vec2 margins = min(uv - inset, 1.0 - inset - uv);
+    return projected.z > 0.0 && projected.z < 1.0 ? min(margins.x, margins.y) : -1.0;
+}
+
+// The first cascade whose map holds the point with room for the filter around it, or -1
+// when none does. Near the edge of its map a point hands over to the next cascade, more
+// often the nearer it is, so the line where the sharpness changes melts into noise that
+// anti-aliasing smooths. In the last map, edge says how far into that band it is.
+int shadowCascade(vec3 position, float inset, out float edge) {
+    edge = 0.0;
+    float band = frame.shadowFade.z;
     for (int c = 0; c < frame.shadowCascades; c++) {
-        vec4 projected = frame.shadowMatrices[c] * vec4(position, 1.0);
-        vec2 uv = projected.xy * 0.5 + 0.5;
-        if (all(greaterThan(uv, vec2(inset))) && all(lessThan(uv, vec2(1.0 - inset)))
-            && projected.z > 0.0 && projected.z < 1.0) {
+        float margin = cascadeMargin(c, position, inset);
+        if (margin <= 0.0) {
+            continue;
+        }
+
+        float handOver = 1.0 - clamp(margin / band, 0.0, 1.0);
+        if (c + 1 == frame.shadowCascades) {
+            edge = handOver;
             return c;
         }
+
+        bool next = handOver > 0.0 && frameNoise(gl_FragCoord.xy + 37.0, frame.frameNumber) < handOver
+            && cascadeMargin(c + 1, position, inset) > 0.0;
+        return next ? c + 1 : c;
     }
     return -1;
+}
+
+// How far shadows have faded out at a point, from 0 to 1: with distance from the camera,
+// so they end smoothly rather than at a line, and at the edge of the last map.
+float shadowFadeOut(vec3 position, float edge) {
+    float distance = length(position - frame.cameraPosition.xyz);
+    float far = frame.shadowFade.x < frame.shadowFade.y
+        ? smoothstep(frame.shadowFade.x, frame.shadowFade.y, distance) : 0.0;
+    return max(far, smoothstep(0.0, 1.0, edge));
 }
 
 // Soft shadow that is sharp where an object touches the surface and blurs with
@@ -81,8 +111,14 @@ float shadowVisibility(vec3 position, vec3 n, vec3 l) {
     float nDotL = clamp(dot(n, l), 0.05, 1.0);
     float texel = 1.0 / float(textureSize(shadowDepthTexture, 0).x);
 
-    int cascade = shadowCascade(position, 2.0 * texel);
+    float edge;
+    int cascade = shadowCascade(position, 2.0 * texel, edge);
     if (cascade < 0) {
+        return 1.0;
+    }
+
+    float fadeOut = shadowFadeOut(position, edge);
+    if (fadeOut >= 1.0) {
         return 1.0;
     }
 
@@ -95,8 +131,9 @@ float shadowVisibility(vec3 position, vec3 n, vec3 l) {
         return 1.0;
     }
 
-    // In this projection one unit of depth covers the same distance as one unit of uv,
-    // so a slope's bias is simply the sample offset times the slope.
+    // One unit across the map covers as far as depthScale units of depth do, so a slope's
+    // bias is the sample offset times the slope, times depthScale.
+    float depthScale = frame.shadowDepthScales[cascade];
     float slope = min(sqrt(1.0 - nDotL * nDotL) / nDotL, 2.0);
     float layer = float(cascade);
     float rotation = frameNoise(gl_FragCoord.xy, frame.frameNumber) * 2.0 * PI;
@@ -108,7 +145,7 @@ float shadowVisibility(vec3 position, vec3 n, vec3 l) {
     for (int i = 0; i < BLOCKER_SAMPLES; i++) {
         vec2 offset = diskSample(i, BLOCKER_SAMPLES, rotation) * searchRadius;
         float stored = texture(shadowDepthTexture, vec3(uv + offset, layer)).r;
-        if (stored > depth + 2.0 * texel + searchRadius * slope) {
+        if (stored > depth + (2.0 * texel + searchRadius * slope) * depthScale) {
             blockerSum += stored;
             blockers++;
         }
@@ -117,14 +154,14 @@ float shadowVisibility(vec3 position, vec3 n, vec3 l) {
         return 1.0;
     }
 
-    float penumbra = clamp((blockerSum / float(blockers) - depth) * lightAngle, 1.5 * texel, searchRadius);
-    float reference = depth + 2.0 * texel + penumbra * slope;
+    float penumbra = clamp((blockerSum / float(blockers) - depth) / depthScale * lightAngle, 1.5 * texel, searchRadius);
+    float reference = depth + (2.0 * texel + penumbra * slope) * depthScale;
     float visibility = 0.0;
     for (int i = 0; i < SHADOW_SAMPLES; i++) {
         vec2 offset = diskSample(i, SHADOW_SAMPLES, rotation) * penumbra;
         visibility += texture(shadowCompareTexture, vec4(uv + offset, layer, reference));
     }
-    return visibility / float(SHADOW_SAMPLES);
+    return mix(visibility / float(SHADOW_SAMPLES), 1.0, fadeOut);
 }
 
 // Looks up what the room's probes saw in a direction, or the studio where there is no
