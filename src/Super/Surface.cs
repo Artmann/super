@@ -22,6 +22,9 @@ public sealed record Surface
     public TextureRef? NormalTexture { get; init; }
     public TextureRef? SurfaceTexture { get; init; }
 
+    /// <summary>Light that spreads under the surface, for skin, wax and marble. Off by default.</summary>
+    public Subsurface Subsurface { get; init; }
+
     /// <summary>A fragment shader named through <see cref="Content.Shader"/>, or the standard one.</summary>
     public ShaderRef? Shader { get; init; }
 

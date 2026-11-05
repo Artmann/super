@@ -273,6 +273,7 @@ internal sealed class SceneRenderer : IDisposable
             BaseColorTexture = ownedTexture ?? Texture(surface.ColorTexture, content),
             NormalTexture = Texture(surface.NormalTexture, content),
             SurfaceTexture = Texture(surface.SurfaceTexture, content),
+            Subsurface = surface.Subsurface,
             Shader = surface.Shader is { } shader ? Require<LoadedShader>(shader.Index, content).Handle : null,
         };
         for (int i = 0; i < surface.Parameters.Length; i++)

@@ -12,6 +12,7 @@ What it does for every game, with no setup:
 - Screen-space reflections and box-corrected reflection probes
 - Temporal anti-aliasing, ambient occlusion (with light bounced back from the surface's colour) and bloom
 - Glass, car paint clearcoat and surfaces that glow
+- Skin, wax and jade that [let light spread under the surface](#skin-and-wax)
 - Soft, lit [particles](views.md#particles) for dust and smoke
 - Culling and simpler versions of distant models, for the camera and for shadows
 - ACES filmic tonemapping, colour grading, sharpening, vignette, grain and dithering
@@ -221,8 +222,8 @@ as the shared `assets` folder does for Poly Haven's `textures` folders:
 ```
 
 Other options are the `baseColor`, `normal`, `surface` and `emissive` textures,
-`color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `twoSided`, `transparent`,
-`opacity`, `noNormalMap` and `rotateY`; see `src/Super.Cook.Models/ImportSettings.cs`.
+`color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `twoSided`,
+`transparent`, `opacity`, `noNormalMap` and `rotateY`; see `src/Super.Cook.Models/ImportSettings.cs`.
 
 A rigged model keeps its skeleton, bone weights and clips, and `animations` adds clips
 from other files of the same rig, such as Mixamo's:
@@ -244,6 +245,44 @@ licenses or their size ([CREDITS.md](../CREDITS.md)). [assets/README.md](../asse
 says where each one comes from and the name to save it under. Without them the examples
 still build: the cook warns `No source file <name>; skipped.` for each sidecar whose model
 is missing, and the game reports a missing model when it names it.
+
+## Skin and wax
+
+Light goes a little way into skin, wax, jade and marble before it comes back out, so
+shadow edges on them are soft and warm instead of sharp and grey. A `Subsurface` on the
+material turns this on:
+
+![Skin, wax and jade, each plain on the left and with subsurface scattering on the right](media/wax.webp)
+
+```csharp
+var skin = new Surface
+{
+    Color = new Vector3(0.85f, 0.6f, 0.48f),
+    Subsurface = new Subsurface
+    {
+        Radius = 0.012f,                     // metres
+        Color = new Vector3(1f, 0.4f, 0.25f), // red travels furthest
+        Transmission = 0.3f,                 // light from behind through thin parts
+    },
+};
+```
+
+`Radius` is how far light travels under the surface, in metres: about 0.01 for skin, a
+few centimetres for wax. `Color` is how far red, green and blue each go, as fractions of
+the radius; leave it out and they all go the same distance. `Transmission`, from 0 to 1,
+lets light from behind shine through thin parts such as ears or a candle's rim, tinted by
+the colour and by `Color`.
+
+A model sets it per material in its cook settings:
+
+```json
+{ "match": "skin", "subsurface": { "radius": 0.01, "color": [1, 0.4, 0.25], "transmission": 0.3 } }
+```
+
+Subsurface can't be combined with `clearcoat` or `foliage`. The renderer refuses such a
+material and the cook stops with an error naming it. Under water the light isn't spread.
+When no material in the world scatters light the blur doesn't run, so it costs nothing.
+The [Wax](../examples/Wax) example puts each kind beside a plain twin.
 
 ## Ghosts
 
