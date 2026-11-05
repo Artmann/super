@@ -30,7 +30,7 @@ public sealed class ModelCooker : ICooker
 
     public string Id => "model";
 
-    public int Version => 3; // 2: "has no UVs" warns only when the material uses a texture. 3: subsurface.
+    public int Version => 4; // 2: "has no UVs" warns only when the material uses a texture. 3: subsurface. 4: height and detail textures.
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -398,7 +398,8 @@ public sealed class ModelCooker : ICooker
     private static bool SamplesTexture(ModelMaterial material)
     {
         return material.BaseColorTexture >= 0 || material.NormalTexture >= 0
-            || material.SurfaceTexture >= 0 || material.EmissiveTexture >= 0;
+            || material.SurfaceTexture >= 0 || material.EmissiveTexture >= 0
+            || material.HeightTexture >= 0 || material.DetailColorTexture >= 0 || material.DetailNormalTexture >= 0;
     }
 
     private static void AddClip(List<AnimationClip> clips, AnimationClip? clip)
@@ -501,7 +502,8 @@ public sealed class ModelCooker : ICooker
         rule ??= new MaterialRule();
         var flags = (rule.TwoSided || rule.Foliage ? MaterialFlags.TwoSided : 0)
             | (rule.Transparent ? MaterialFlags.Transparent : 0)
-            | (rule.Foliage ? MaterialFlags.Foliage : 0);
+            | (rule.Foliage ? MaterialFlags.Foliage : 0)
+            | (rule.DetailMask ? MaterialFlags.DetailMask : 0);
         var emissive = rule.EmissiveColor is { Length: 3 } e
             ? new Vector3(e[0], e[1], e[2])
             : rule.Emissive != null ? Vector3.One : Vector3.Zero;
@@ -523,6 +525,11 @@ public sealed class ModelCooker : ICooker
             Emissive = emissive,
             EmissiveTexture = textures.Add(rule.Emissive, TextureKind.Color, namedBy: named),
             Clearcoat = rule.Clearcoat,
+            HeightTexture = textures.Add(rule.Height, TextureKind.Linear, namedBy: named),
+            HeightDepth = rule.HeightDepth,
+            DetailColorTexture = textures.Add(rule.DetailColor, TextureKind.Linear, namedBy: named),
+            DetailNormalTexture = textures.Add(rule.DetailNormal, TextureKind.Linear, isNormalMap: true, namedBy: named),
+            DetailScale = rule.DetailScale,
             Flags = flags,
             Subsurface = rule.Subsurface is { } subsurface
                 ? new Subsurface

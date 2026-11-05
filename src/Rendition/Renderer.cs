@@ -710,6 +710,11 @@ public sealed unsafe class Renderer : IDisposable
                 Emissive = source.Emissive,
                 EmissiveTexture = source.EmissiveTexture >= 0 ? textures[source.EmissiveTexture] : null,
                 Clearcoat = source.Clearcoat,
+                HeightTexture = source.HeightTexture >= 0 ? textures[source.HeightTexture] : null,
+                HeightDepth = source.HeightDepth,
+                DetailColorTexture = source.DetailColorTexture >= 0 ? textures[source.DetailColorTexture] : null,
+                DetailNormalTexture = source.DetailNormalTexture >= 0 ? textures[source.DetailNormalTexture] : null,
+                DetailScale = source.DetailScale,
                 Flags = source.Flags,
                 Subsurface = source.Subsurface,
             });

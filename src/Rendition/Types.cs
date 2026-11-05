@@ -89,6 +89,12 @@ public enum MaterialFlags
     /// is lit as one shape and not as a pile of separate cards.
     /// </summary>
     Foliage = 4,
+
+    /// <summary>
+    /// The surface texture's blue channel says how strongly the detail textures show, from
+    /// none at black to full at white. Without it they show everywhere.
+    /// </summary>
+    DetailMask = 8,
 }
 
 /// <summary>
@@ -118,6 +124,28 @@ public struct Material
 
     /// <summary>Strength of a clear glossy layer over the surface, such as car lacquer. 0 to 1.</summary>
     public float Clearcoat;
+
+    /// <summary>
+    /// A height map in the red channel: white is the top of the surface and black its
+    /// deepest point. Parallax occlusion mapping shifts the other textures with it, so
+    /// grooves look sunk in. Needs <see cref="HeightDepth"/>.
+    /// </summary>
+    public TextureHandle? HeightTexture;
+
+    /// <summary>How far below the top black in the height map lies, in metres. 0 turns parallax off.</summary>
+    public float HeightDepth;
+
+    /// <summary>
+    /// Fine grain over the colour, tiled <see cref="DetailScale"/> times as often. Store it as
+    /// linear data: mid grey (128) leaves the colour alone, white doubles it, black darkens it to nothing.
+    /// </summary>
+    public TextureHandle? DetailColorTexture;
+
+    /// <summary>A second normal map tiled <see cref="DetailScale"/> times as often, blended over the first.</summary>
+    public TextureHandle? DetailNormalTexture;
+
+    /// <summary>How many times the detail textures repeat for each repeat of the others. 0 counts as 1.</summary>
+    public float DetailScale;
     public MaterialFlags Flags;
 
     /// <summary>

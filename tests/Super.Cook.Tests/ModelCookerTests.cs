@@ -219,6 +219,51 @@ public sealed class ModelCookerTests : IDisposable
     }
 
     [Fact]
+    public void Height_and_detail_textures_named_in_settings_reach_the_material()
+    {
+        string src = Temp();
+        TinyGltf.Write(src, "a.gltf", "wall", ["a"]);
+        foreach (string name in new[] { "height.png", "grit.png", "grit_normal.png" })
+        {
+            File.WriteAllBytes(Path.Combine(src, name), Png());
+        }
+
+        File.WriteAllText(Path.Combine(src, "cook.json"),
+            "{ \"rules\": [ { \"match\": \"**/*.png\", \"cook\": false } ] }");
+        File.WriteAllText(Path.Combine(src, "a.gltf.cook.json"), """
+            { "materials": [ { "match": "wall", "height": "height.png", "heightDepth": 0.03,
+              "detailColor": "grit.png", "detailNormal": "grit_normal.png", "detailScale": 6, "detailMask": true } ] }
+            """);
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var model = Model(store, "a.gltf");
+        var material = model.Materials[0];
+        Assert.Equal(3, model.Textures.Length);
+        Assert.Equal([0, 1, 2], new[] { material.HeightTexture, material.DetailColorTexture, material.DetailNormalTexture }.Order());
+        Assert.Equal(-1, material.BaseColorTexture);
+        Assert.Equal(0.03f, material.HeightDepth);
+        Assert.Equal(6f, material.DetailScale);
+        Assert.Equal(MaterialFlags.DetailMask, material.Flags);
+        Assert.All(model.Textures, texture => Assert.Equal(TextureKind.Linear, texture.Kind));
+    }
+
+    [Fact]
+    public void Material_without_height_or_detail_textures_names_none()
+    {
+        string src = Temp();
+        TinyGltf.Write(src, "a.gltf", "wall", ["a"]);
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var material = Model(store, "a.gltf").Materials[0];
+        Assert.Equal((-1, -1, -1), (material.HeightTexture, material.DetailColorTexture, material.DetailNormalTexture));
+        Assert.Equal(0f, material.HeightDepth);
+    }
+
+    [Fact]
     public void Mesh_without_uvs_and_without_textures_cooks_without_warnings()
     {
         string src = Temp();

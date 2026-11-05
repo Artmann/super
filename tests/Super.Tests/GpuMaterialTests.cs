@@ -20,17 +20,27 @@ public class GpuMaterialTests
             + 8 * vec4          // shaderParameters[8]
             + 4 * scalar        // shaderTextures[4]
             + 4 * scalar        // shaderArrays[4]
-            + 4 * scalar        // flags, transmission, then padding to the next vec4
+            + 4 * scalar        // flags, transmission, heightTexture, heightDepth
+            + 4 * scalar        // detailColorTexture, detailNormalTexture, detailScale, then padding to the next vec4
             + vec4;             // subsurface
 
         Assert.Equal(expected, Unsafe.SizeOf<ResourceTable.GpuMaterial>());
     }
 
-    [Fact]
-    public void Flags_sit_right_after_the_shader_arrays_as_in_material_glsl()
+    // 64 bytes of fixed values, 128 of shader parameters, 16 and 16 of slots, then the
+    // flags, transmission and the height and detail fields, four bytes each, then subsurface.
+    [Theory]
+    [InlineData(nameof(ResourceTable.GpuMaterial.Flags), 224)]
+    [InlineData(nameof(ResourceTable.GpuMaterial.Transmission), 228)]
+    [InlineData(nameof(ResourceTable.GpuMaterial.HeightTexture), 232)]
+    [InlineData(nameof(ResourceTable.GpuMaterial.HeightDepth), 236)]
+    [InlineData(nameof(ResourceTable.GpuMaterial.DetailColorTexture), 240)]
+    [InlineData(nameof(ResourceTable.GpuMaterial.DetailNormalTexture), 244)]
+    [InlineData(nameof(ResourceTable.GpuMaterial.DetailScale), 248)]
+    [InlineData(nameof(ResourceTable.GpuMaterial.Subsurface), 256)]
+    public void Field_sits_where_material_glsl_reads_it(string field, int offset)
     {
-        // 64 bytes of fixed values, 128 of shader parameters, then 16 and 16 of slots.
-        Assert.Equal(224, (int)Marshal.OffsetOf<ResourceTable.GpuMaterial>(nameof(ResourceTable.GpuMaterial.Flags)));
+        Assert.Equal(offset, (int)Marshal.OffsetOf<ResourceTable.GpuMaterial>(field));
     }
 
     [Fact]

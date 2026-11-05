@@ -82,6 +82,24 @@ public sealed class MaterialRule
 
     public float Clearcoat { get; set; }
 
+    /// <summary>A height map in red, white at the top. Needs <see cref="HeightDepth"/>.</summary>
+    public string? Height { get; set; }
+
+    /// <summary>How far below the top black in the height map lies, in metres.</summary>
+    public float HeightDepth { get; set; }
+
+    /// <summary>Fine grain over the colour, where mid grey changes nothing. Tiled <see cref="DetailScale"/> times as often.</summary>
+    public string? DetailColor { get; set; }
+
+    /// <summary>A second normal map, tiled <see cref="DetailScale"/> times as often and blended over the first.</summary>
+    public string? DetailNormal { get; set; }
+
+    /// <summary>How many times the detail textures repeat for each repeat of the others.</summary>
+    public float DetailScale { get; set; } = 8f;
+
+    /// <summary>The surface texture's blue channel says where the detail textures show.</summary>
+    public bool DetailMask { get; set; }
+
     /// <summary>Light that spreads under the surface, for skin, wax and marble. Off by default.</summary>
     public SubsurfaceRule? Subsurface { get; set; }
 

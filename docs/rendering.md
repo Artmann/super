@@ -13,6 +13,7 @@ What it does for every game, with no setup:
 - Screen-space reflections and box-corrected reflection probes
 - Temporal anti-aliasing, ambient occlusion (with light bounced back from the surface's colour) and bloom
 - Glass, car paint clearcoat and surfaces that glow
+- [Height maps](#height-and-detail-maps) that sink mortar and grooves into a flat surface, and detail maps for fine grain
 - Skin, wax and jade that [let light spread under the surface](#skin-and-wax)
 - Soft, lit [particles](views.md#particles) for dust and smoke
 - Culling and simpler versions of distant models, for the camera and for shadows
@@ -286,8 +287,8 @@ as the shared `assets` folder does for Poly Haven's `textures` folders:
 }
 ```
 
-Other options are the `baseColor`, `normal`, `surface` and `emissive` textures,
-`color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `twoSided`,
+Other options are the `baseColor`, `normal`, `surface`, `emissive`, `height`, `detailColor` and `detailNormal` textures,
+`color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `heightDepth`, `detailScale`, `detailMask`, `twoSided`,
 `transparent`, `opacity`, `noNormalMap` and `rotateY`; see `src/Super.Cook.Models/ImportSettings.cs`.
 
 A rigged model keeps its skeleton, bone weights and clips, and `animations` adds clips
@@ -458,6 +459,48 @@ game can skip one still loading instead of waiting. A texture is freed after eve
 that names it; a texture array keeps its own copy of each layer, so the single layers can
 go as soon as the array is made.
 
+## Height and detail maps
+
+A height map sinks the low parts of a flat surface, such as the mortar between bricks or
+the joints of a street, so they move with the view as deep ones would instead of looking
+painted on. It's a linear texture where white is the top and black is `HeightDepth`
+metres down. Pair it with the normal map of the same height, which shades the grooves.
+
+A detail map adds grain finer than a surface's own textures, such as grit on stone or the
+weave of cloth, without a bigger texture. `DetailColorTexture` is linear and multiplies
+the colour, with mid grey (128) leaving it as it is, so a detail colour around mid grey
+keeps the surface's own colour on average. `DetailNormalTexture` is a normal map laid
+over the surface's own normal. Both repeat `DetailScale` times (8 if left out) for each
+time the surface's textures repeat. With `DetailMask`, the surface texture's blue
+channel says how strongly the detail shows, from none at 0 to full at 1.
+
+```csharp
+TextureRef height = content.Texture("textures/bricks-height.png");
+TextureRef grit = content.Texture("textures/grit.png");
+TextureRef gritNormal = content.Texture("textures/grit-normal.png");
+
+ModelRef wall = content.Mesh(Shapes.Box(new Vector3(16f, 3f, 0.4f), new Surface
+{
+    ColorTexture = bricks,
+    NormalTexture = bricksNormal,
+    HeightTexture = height,
+    HeightDepth = 0.025f,
+    DetailColorTexture = grit,
+    DetailNormalTexture = gritNormal,
+    DetailScale = 6f,
+}, uvPerMetre: 1f / 0.9f));
+```
+
+A cooked model takes the same textures and values in its sidecar, as `height`,
+`heightDepth`, `detailColor`, `detailNormal`, `detailScale` and `detailMask` on a material
+rule. These textures are cooked as linear data, and `detailNormal` as a normal map.
+
+The depth shows up close: it fades out between 15 and 25 metres from the camera, where
+the normal map alone looks the same and costs less. Keep `HeightDepth` to a few
+centimetres. Deeper looks stretched at low angles, because the surface's edge and its
+shadows stay flat. Transparent surfaces ignore height and detail maps. The [Bricks
+example](../examples/Bricks) shows a wall and a street; P turns the height maps off and D the detail.
+
 ## Meshes along a spline
 
 `Shapes` can also build meshes that follow a [spline](splines.md), such as a road, a
@@ -545,6 +588,11 @@ shader only changes what it cares about. A shader can also read `inUv`, `inPosit
 | `Parameters`, up to 8 `Vector4` | `materials[draw.material].shaderParameters[i]` |
 | `ShaderTextures`, up to 4 | `shaderTexture(slot, uv)` |
 | `ShaderArrays`, up to 4 | `shaderLayer(slot, uv, layer)`, where a fractional layer blends two |
+
+A shader that moves its UVs can still use the material: `materialUv()` is `inUv` moved by
+the material's height map, and `materialSurface(uv)` reads the material at any UV.
+`parallaxUv(slot, uv, depth)` does the same depth trick with a shader texture as the height
+map, and `blendNormals(base, detail)` lays one tangent-space normal over another.
 
 Unset slots read white. To compile shaders, put them in a `Shaders` folder in your game
 project and import the targets file, which runs `glslc` from the Vulkan SDK:

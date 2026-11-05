@@ -824,6 +824,38 @@ is a working example, shown by `--glow`.
 Each shader adds a pair of pipelines to the G-buffer pass, built while loading. Picking
 one in `Render` is an array lookup, so it allocates nothing.
 
+## Height and detail maps
+
+`materialSurface()` moves the UV by the height map before it reads anything, using
+parallax occlusion mapping: it steps along the view ray in tangent space until the ray
+drops below the height field, then interpolates between the last two steps to find where
+it crossed. Grazing views take more steps, from 8 looking straight on to 32 edge on, and
+the view's slope is clamped at 0.1 so the slide can't run off to infinity at the horizon.
+`HeightDepth` is in metres, so the shader turns it into UV units with the surface's UV
+density, found from the screen derivatives of `inPosition` and `inUv` (`uvPerMetre` in
+`surface.glsl`). A box and a plane built with the same `uvPerMetre` then sink the same
+depth whatever their size. Every texture read after the shift uses `textureGrad` with the
+derivatives of the original UV, because the shifted UV jumps at the edges of the grooves
+and plain `texture` would pick the wrong mip there, which shows as a speckled outline.
+The derivatives are taken before any branch, as GLSL needs them in uniform control flow.
+
+The effect fades out between 15 and 25 metres from the camera: past that a groove is a
+pixel or two and the normal map carries it, and the steps would cost a full-screen pass
+of texture reads for nothing. A material without a height map gets white and a depth of
+0, and returns at once.
+
+The detail colour divides by 128/255, so mid grey is neutral and the detail can lighten as
+well as darken. The detail normal is laid over the surface's normal with reoriented normal
+mapping (`blendNormals`), which keeps the detail following the larger bumps instead of
+averaging them flat. Unset detail textures are a mid grey built-in texture (`_grey` in
+`ResourceTable`) and the flat normal, and a `DetailScale` of 0 on the GPU skips the reads.
+
+Each material owns seven texture slots now: colour, normal, surface, emissive, height,
+detail colour and detail normal, then the shader textures. `GpuMaterial` grew to 256
+bytes; `GpuMaterialTests` checks the offsets against the std430 layout of `Material`
+in `material.glsl`, so the two can't drift. The `.rmodel` format is version 4 and the
+model cook version 3, so existing models cook again with the new fields.
+
 ## Post-processing
 
 Ambient occlusion darkens creases and contact areas by checking how much of the
@@ -950,6 +982,16 @@ Anything larger than a block gets its own allocation.
   clothing, so its sidecar sets `noNormalMap`.
 - The model cooker reads glTF's `MASK` cut-outs, but not its emissive maps, glass or
   two-sided flags yet. Set those in the sidecar.
+- Height maps move the UV only. The depth buffer stays flat (writing `gl_FragDepth`
+  would turn off early depth testing for every G-buffer draw), the grooves cast no
+  shadow of their own, and the surface's outline and its shadow map stay flat.
+  Transparent materials and the shadow pass ignore height and detail maps.
+- `uvPerMetre` in `surface.glsl` assumes UVs stretch the same both ways. On a texture
+  stretched more one way, the depth is right along one axis only.
+- `DetailMask` reads the surface texture's blue channel, which glTF conversion leaves
+  holding the metalness. A glTF model that wants a detail mask needs a surface texture
+  made for it.
+- The distance where height maps fade out, 15 to 25 metres, is fixed in `surface.glsl`.
 - Foliage translucency is a constant in `surface.glsl`, and foliage, clearcoat and
   subsurface exclude one another, since they share a G-buffer channel.
 - Subsurface blurs the lit diffuse light, colour included, so a skin texture softens a

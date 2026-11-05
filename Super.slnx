@@ -14,6 +14,7 @@
     <Project Path="tools/Super.Cook.Tool/Super.Cook.Tool.csproj" />
   </Folder>
   <Folder Name="/examples/">
+    <Project Path="examples/Bricks/Bricks.csproj" />
     <Project Path="examples/ColorCube/ColorCube.csproj" />
     <Project Path="examples/Crafting/Crafting.csproj" />
     <Project Path="examples/Crypt/Crypt.csproj" />
