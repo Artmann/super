@@ -2,7 +2,7 @@
 
 `view.Camera(position, lookAt)` is all a fixed camera needs. For anything else, keep a
 `Camera` in your game. A `Camera` is a plain value: a position, a target, a field of
-view and optionally a `Size` and a `Shift`.
+view and optionally a `Size`, a `Shift` and a `WideAs`.
 
 ## Clicking on things
 
@@ -193,6 +193,24 @@ var beside = camera with { Shift = new Vector2(0.5f, 0f) };
 ```
 
 Clicking works the same with all of them, because `input.MouseRay` asks the camera.
+
+## Tall screens
+
+The field of view is the angle from top to bottom, so a narrower screen shows less from
+side to side. A game made for a widescreen window loses its sides when it's recorded as
+a vertical video with `--size 1080x1920`. Set `WideAs` to the shape the game was made for,
+and on a narrower screen the view grows taller instead:
+
+```csharp
+var camera = new Camera(eye, target) { WideAs = 16f / 9f };
+var orbit = new OrbitCamera { WideAs = 16f / 9f };
+```
+
+A screen held upright then shows everything a widescreen one shows from side to side,
+with more above and below. On a screen as wide as `WideAs` or wider, nothing changes.
+It works with orthographic cameras too, where it grows `Size`, and every camera helper has
+the setting. It's zero, and so off, unless you set it. Clicking stays right, because
+`input.MouseRay` uses the same view.
 
 ## Limits
 

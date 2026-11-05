@@ -49,17 +49,23 @@ internal sealed class GlyphAtlas
     /// <summary>A spot that's solid, for drawing plain rectangles.</summary>
     public Vector2 SolidUv { get; } = new Vector2(SolidBlock / 2f) / Size;
 
+    /// <summary>
+    /// How many pixels an interface unit covers. Characters are drawn and measured at their
+    /// size in pixels, so they stay sharp, and lengths go in and out in interface units.
+    /// </summary>
+    public float Scale { get; set; } = 1f;
+
     public UiSize Measure(string text, in TextStyle style, float? maxWidth)
     {
         var face = FaceFor(style);
-        Wrap(text, face, style, maxWidth);
+        Wrap(text, face, style, maxWidth * Scale);
         float width = 0f;
         foreach (var line in _lines)
         {
             width = Math.Max(width, line.Width);
         }
 
-        return new UiSize(width, _lines.Count * face.LineHeight);
+        return new UiSize(width / Scale, _lines.Count * face.LineHeight / Scale);
     }
 
     /// <summary>
@@ -73,19 +79,20 @@ internal sealed class GlyphAtlas
             return text;
         }
 
-        Wrap(text, FaceFor(style), style, width);
+        Wrap(text, FaceFor(style), style, width * Scale);
         var last = _lines[^1];
         return last.Cut ? string.Concat(text.AsSpan(0, last.End), Ellipsis.ToString()) : text;
     }
 
     public void Draw(UiTree tree, string text, in TextStyle style, UiRect frame)
     {
+        // Worked out in pixels, so characters land on whole pixels, then handed back in interface units.
         var face = FaceFor(style);
-        Wrap(text, face, style, frame.Width);
-        float baseline = MathF.Round(frame.Y) + face.Ascent;
+        Wrap(text, face, style, frame.Width * Scale);
+        float baseline = MathF.Round(frame.Y * Scale) + face.Ascent;
         foreach (var line in _lines)
         {
-            float pen = MathF.Round(frame.X);
+            float pen = MathF.Round(frame.X * Scale);
             char previous = '\0';
             for (int i = line.Start; i < line.End; i++)
             {
@@ -96,7 +103,7 @@ internal sealed class GlyphAtlas
                 if (glyph.Width > 0)
                 {
                     var box = new UiRect(MathF.Round(pen + cell) + glyph.OffsetX, baseline + glyph.OffsetY, glyph.Width, glyph.Height);
-                    tree.AddQuad(box, glyph.UvMin, glyph.UvMax, style.Color);
+                    tree.AddQuad(Units(box), glyph.UvMin, glyph.UvMax, style.Color);
                 }
 
                 pen += advance;
@@ -109,13 +116,15 @@ internal sealed class GlyphAtlas
                 if (glyph.Width > 0)
                 {
                     var box = new UiRect(MathF.Round(pen) + glyph.OffsetX, baseline + glyph.OffsetY, glyph.Width, glyph.Height);
-                    tree.AddQuad(box, glyph.UvMin, glyph.UvMax, style.Color);
+                    tree.AddQuad(Units(box), glyph.UvMin, glyph.UvMax, style.Color);
                 }
             }
 
             baseline += face.LineHeight;
         }
     }
+
+    private UiRect Units(UiRect pixels) => new(pixels.X / Scale, pixels.Y / Scale, pixels.Width / Scale, pixels.Height / Scale);
 
     private static StbTrueType.stbtt_fontinfo LoadFont(string name)
     {
@@ -250,7 +259,7 @@ internal sealed class GlyphAtlas
 
     private Face FaceFor(in TextStyle style)
     {
-        int size = Math.Max((int)MathF.Round(style.Size), 1);
+        int size = Math.Max((int)MathF.Round(style.Size * Scale), 1);
         if (_faces.TryGetValue((style.Bold, size), out var face))
         {
             return face;

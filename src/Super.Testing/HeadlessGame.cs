@@ -39,6 +39,13 @@ public sealed class HeadlessRun<TGame> : IDisposable
     /// <summary>The size the interface lays itself out in, in pixels.</summary>
     public Vector2 ScreenSize => new(_host.ScreenWidth, _host.ScreenHeight);
 
+    /// <summary>How many pixels one unit of the interface covers, as <c>--ui-scale</c> sets it. See <see cref="UiTree.Scale"/>.</summary>
+    public float UiScale
+    {
+        get => _host.Ui.Scale;
+        set => _host.Ui.Scale = value;
+    }
+
     /// <summary>Key presses, clicks and actions to play. They land on the next tick.</summary>
     public ScriptedInput Input { get; }
 
