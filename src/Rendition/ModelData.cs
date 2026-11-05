@@ -28,6 +28,7 @@ public struct ModelMaterial
     public float Clearcoat;
     public MaterialFlags Flags;
     public float Ior;
+    public Subsurface Subsurface;
 }
 
 /// <summary>One run of triangles sharing a material.</summary>
@@ -42,7 +43,7 @@ public struct ModelPart
 public sealed class ModelData
 {
     private const uint Magic = 0x4C444D52; // "RMDL"
-    private const int Version = 4; // 4: materials gained Ior.
+    private const int Version = 5; // 4: materials gained Subsurface. 5: materials gained Ior.
 
     public required Vertex[] Vertices { get; init; }
     public required uint[] Indices { get; init; }

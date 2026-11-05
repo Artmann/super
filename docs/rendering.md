@@ -12,6 +12,7 @@ What it does for every game, with no setup:
 - Screen-space reflections and box-corrected reflection probes
 - Temporal anti-aliasing, ambient occlusion (with light bounced back from the surface's colour) and bloom
 - [Glass](#glass) that bends and frosts what's behind it, car paint clearcoat and surfaces that glow
+- Skin, wax and jade that [let light spread under the surface](#skin-and-wax)
 - Soft, lit [particles](views.md#particles) for dust and smoke
 - Culling and simpler versions of distant models, for the camera and for shadows
 - ACES filmic tonemapping, colour grading, sharpening, vignette, grain and dithering
@@ -24,7 +25,15 @@ view.Sun(direction: new Vector3(-1f, 0.5f, -1f), color: new Vector3(0.4f, 0.5f, 
 ```
 
 `direction` points towards the light. Colours are linear, so a bright light goes well
-past 1. The first sun casts the shadows.
+past 1. One sun casts the shadows: the first, unless you pick another with
+`shadows: true`:
+
+```csharp
+view.Sun(new Vector3(-1f, 0.5f, -1f), new Vector3(0.4f, 0.5f, 0.8f));
+view.Sun(new Vector3(1f, 2f, 1f), new Vector3(3f), shadows: true);
+```
+
+Marking two suns in one frame throws.
 
 ## Shadows
 
@@ -32,10 +41,18 @@ past 1. The first sun casts the shadows.
 view.Shadows(40f, cascades: 3);
 ```
 
-The first number is how far from the camera the sharpest shadow map reaches, in metres.
-Each extra cascade covers three times the radius of the one before, so a wide world keeps
-sharp shadows near the camera. Orthographic cameras widen their shadows to cover the
-screen.
+The first number is the radius of the sharpest shadow map, in metres. Each extra cascade
+covers three times the radius of the one before. The cascades are laid along what the
+camera sees: the sharpest one starts at the camera, and each next one picks up where the
+last ends, so no part of a map is spent behind the camera. A cascade keeps its size as the
+camera turns and moves in whole shadow texels, so shadow edges don't shimmer or crawl.
+
+Where two cascades meet, points hand over to the coarser one gradually, so there's no line
+where the sharpness changes. Shadows fade out over the last part of the furthest cascade
+instead of stopping at an edge.
+
+An orthographic camera centres every cascade on its target instead, and widens its
+shadows to cover the screen.
 
 ## The look of the picture
 
@@ -221,8 +238,8 @@ as the shared `assets` folder does for Poly Haven's `textures` folders:
 ```
 
 Other options are the `baseColor`, `normal`, `surface` and `emissive` textures,
-`color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `twoSided`, `transparent`,
-`opacity`, `ior`, `noNormalMap` and `rotateY`; see `src/Super.Cook.Models/ImportSettings.cs`.
+`color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `twoSided`,
+`transparent`, `opacity`, `ior`, `noNormalMap` and `rotateY`; see `src/Super.Cook.Models/ImportSettings.cs`.
 
 A rigged model keeps its skeleton, bone weights and clips, and `animations` adds clips
 from other files of the same rig, such as Mixamo's:
@@ -273,6 +290,44 @@ much light it lets through, and even clear glass keeps a quarter of its shadow, 
 bent light spreads. Glass reflects the sky, not probes or screen-space reflections.
 The `Glass` example shows each kind, and `--flat` draws it all without bending or
 frosting.
+
+## Skin and wax
+
+Light goes a little way into skin, wax, jade and marble before it comes back out, so
+shadow edges on them are soft and warm instead of sharp and grey. A `Subsurface` on the
+material turns this on:
+
+![Skin, wax and jade, each plain on the left and with subsurface scattering on the right](media/wax.webp)
+
+```csharp
+var skin = new Surface
+{
+    Color = new Vector3(0.85f, 0.6f, 0.48f),
+    Subsurface = new Subsurface
+    {
+        Radius = 0.012f,                     // metres
+        Color = new Vector3(1f, 0.4f, 0.25f), // red travels furthest
+        Transmission = 0.3f,                 // light from behind through thin parts
+    },
+};
+```
+
+`Radius` is how far light travels under the surface, in metres: about 0.01 for skin, a
+few centimetres for wax. `Color` is how far red, green and blue each go, as fractions of
+the radius; leave it out and they all go the same distance. `Transmission`, from 0 to 1,
+lets light from behind shine through thin parts such as ears or a candle's rim, tinted by
+the colour and by `Color`.
+
+A model sets it per material in its cook settings:
+
+```json
+{ "match": "skin", "subsurface": { "radius": 0.01, "color": [1, 0.4, 0.25], "transmission": 0.3 } }
+```
+
+Subsurface can't be combined with `clearcoat` or `foliage`. The renderer refuses such a
+material and the cook stops with an error naming it. Under water the light isn't spread.
+When no material in the world scatters light the blur doesn't run, so it costs nothing.
+The [Wax](../examples/Wax) example puts each kind beside a plain twin.
 
 ## Ghosts
 

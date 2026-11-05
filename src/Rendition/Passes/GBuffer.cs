@@ -30,6 +30,10 @@ internal sealed class GBuffer : IDisposable
     /// <summary>Last frame's Resolved, for anti-aliasing and reflections.</summary>
     public readonly RenderTarget History;
 
+    /// <summary>The diffuse light of subsurface materials, before and after spreading across the screen.</summary>
+    public readonly RenderTarget Scatter;
+    public readonly RenderTarget ScatterBlurred;
+
     public readonly RenderTarget Ao;
     public readonly RenderTarget AoBlurred;
     public readonly RenderTarget Ldr;
@@ -50,6 +54,8 @@ internal sealed class GBuffer : IDisposable
         Hdr = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
         Resolved = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
         History = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.TransferDstBit, ImageAspectFlags.ColorBit);
+        Scatter = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
+        ScatterBlurred = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         Ao = new RenderTarget(context, AoFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         AoBlurred = new RenderTarget(context, AoFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         Ldr = new RenderTarget(context, LdrFormat, extent, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
@@ -72,6 +78,8 @@ internal sealed class GBuffer : IDisposable
         Hdr.Dispose();
         Resolved.Dispose();
         History.Dispose();
+        Scatter.Dispose();
+        ScatterBlurred.Dispose();
         Ao.Dispose();
         AoBlurred.Dispose();
         Ldr.Dispose();

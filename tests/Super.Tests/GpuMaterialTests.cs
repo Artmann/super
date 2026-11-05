@@ -20,7 +20,8 @@ public class GpuMaterialTests
             + 8 * vec4          // shaderParameters[8]
             + 4 * scalar        // shaderTextures[4]
             + 4 * scalar        // shaderArrays[4]
-            + vec4;             // flags and ior, rounded up to the struct's vec4 alignment
+            + 4 * scalar        // flags, transmission, ior, then padding to the next vec4
+            + vec4;             // subsurface
 
         Assert.Equal(expected, Unsafe.SizeOf<ResourceTable.GpuMaterial>());
     }
@@ -33,9 +34,9 @@ public class GpuMaterialTests
     }
 
     [Fact]
-    public void Ior_sits_right_after_the_flags_as_in_material_glsl()
+    public void Ior_sits_after_the_flags_and_transmission_as_in_material_data_glsl()
     {
-        Assert.Equal(228, (int)Marshal.OffsetOf<ResourceTable.GpuMaterial>(nameof(ResourceTable.GpuMaterial.Ior)));
+        Assert.Equal(232, (int)Marshal.OffsetOf<ResourceTable.GpuMaterial>(nameof(ResourceTable.GpuMaterial.Ior)));
     }
 
     [Fact]

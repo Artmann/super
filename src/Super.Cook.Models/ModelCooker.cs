@@ -30,7 +30,7 @@ public sealed class ModelCooker : ICooker
 
     public string Id => "model";
 
-    public int Version => 3; // 3: materials gained Ior.
+    public int Version => 4; // 2: "has no UVs" warns only when the material uses a texture. 3: subsurface. 4: materials gained Ior.
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -351,10 +351,11 @@ public sealed class ModelCooker : ICooker
             Clips = clips.ToArray(),
         };
 
-        // A cutoff that can't cut renders fine but wrong, so it stops the cook. Materials no
-        // part uses are never drawn, so they can't be wrong.
+        // A cutoff that can't cut renders fine but wrong, and the renderer refuses a
+        // subsurface it can't store, so both stop the cook. Materials no part uses are
+        // never drawn, so they can't be wrong.
         var problems = parts.Select(part => part.Material).Distinct().Order()
-            .Select(i => (Name: materialNames[i], Problem: model.CutoutProblem(i)))
+            .Select(i => (Name: materialNames[i], Problem: model.CutoutProblem(i) ?? SubsurfaceProblem(model.Materials[i])))
             .Where(entry => entry.Problem is not null)
             .ToList();
         foreach (var (materialName, problem) in problems)
@@ -364,6 +365,9 @@ public sealed class ModelCooker : ICooker
 
         return problems.Count > 0 ? null : model.ToBytes();
     }
+
+    private static string? SubsurfaceProblem(in ModelMaterial material) =>
+        material.Subsurface.Problem(material.Clearcoat, material.Flags);
 
     // Every mesh of one foliage material counts as one crown.
     private static void PointOutOfCrown(Vertex[] vertices, IEnumerable<(int Material, int First, int Count)> meshes)
@@ -521,6 +525,14 @@ public sealed class ModelCooker : ICooker
             Clearcoat = rule.Clearcoat,
             Flags = flags,
             Ior = rule.Ior,
+            Subsurface = rule.Subsurface is { } subsurface
+                ? new Subsurface
+                {
+                    Radius = subsurface.Radius,
+                    Color = subsurface.Color is { Length: 3 } spread ? new Vector3(spread[0], spread[1], spread[2]) : Vector3.Zero,
+                    Transmission = subsurface.Transmission,
+                }
+                : default,
         };
     }
 

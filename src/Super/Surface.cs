@@ -31,6 +31,9 @@ public sealed record Surface
     /// <summary>How much glass bends what's behind it: 1 is straight through, as a window, and about 1.5 is a bottle or a marble.</summary>
     public float Ior { get; init; } = 1f;
 
+    /// <summary>Light that spreads under the surface, for skin, wax and marble. Off by default.</summary>
+    public Subsurface Subsurface { get; init; }
+
     /// <summary>A fragment shader named through <see cref="Content.Shader"/>, or the standard one.</summary>
     public ShaderRef? Shader { get; init; }
 

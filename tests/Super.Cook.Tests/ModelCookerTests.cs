@@ -163,6 +163,40 @@ public sealed class ModelCookerTests : IDisposable
     }
 
     [Fact]
+    public void Subsurface_rule_reaches_the_cooked_material()
+    {
+        string src = Temp();
+        TinyGltf.Write(src, "a.gltf", "skin", ["a"]);
+        File.WriteAllText(Path.Combine(src, "a.gltf.cook.json"),
+            "{ \"materials\": [ { \"match\": \"skin\", \"subsurface\": { \"radius\": 0.01, \"color\": [1, 0.4, 0.25], \"transmission\": 0.3 } } ] }");
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var model = Model(store, "a.gltf");
+        var subsurface = model.Materials[Assert.Single(model.Parts).Material].Subsurface;
+        Assert.Equal(0.01f, subsurface.Radius);
+        Assert.Equal(new System.Numerics.Vector3(1f, 0.4f, 0.25f), subsurface.Color);
+        Assert.Equal(0.3f, subsurface.Transmission);
+    }
+
+    [Fact]
+    public void Subsurface_with_clearcoat_is_an_error_naming_the_material()
+    {
+        string src = Temp();
+        TinyGltf.Write(src, "a.gltf", "skin", ["a"]);
+        File.WriteAllText(Path.Combine(src, "a.gltf.cook.json"),
+            "{ \"materials\": [ { \"match\": \"skin\", \"clearcoat\": 1, \"subsurface\": { \"radius\": 0.01 } } ] }");
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("material skin: subsurface can't be combined with clearcoat, because they share a G-buffer channel.",
+            Assert.Single(result.Problems, p => p.IsError).Message);
+        Assert.Same(ContentManifest.Empty, store.Manifest);
+    }
+
+    [Fact]
     public void Missing_texture_named_in_settings_is_an_error_naming_it()
     {
         string src = Temp();

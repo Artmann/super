@@ -82,6 +82,9 @@ public sealed class MaterialRule
 
     public float Clearcoat { get; set; }
 
+    /// <summary>Light that spreads under the surface, for skin, wax and marble. Off by default.</summary>
+    public SubsurfaceRule? Subsurface { get; set; }
+
     /// <summary>Overrides the value in the model file, if it has one. The default is 0.</summary>
     public float? Metallic { get; set; }
 
@@ -109,4 +112,17 @@ public sealed class MaterialRule
 
     /// <summary>For transparent glass: 1 is straight through, as a window, and about 1.5 bends the view like a bottle or a marble.</summary>
     public float Ior { get; set; } = 1f;
+}
+
+/// <summary>How light spreads under a material's surface. See Rendition.Subsurface.</summary>
+public sealed class SubsurfaceRule
+{
+    /// <summary>How far light travels under the surface, in metres. Skin is about 0.01.</summary>
+    public float Radius { get; set; }
+
+    /// <summary>How far red, green and blue travel, as fractions of the radius. The default spreads them all the same.</summary>
+    public float[]? Color { get; set; }
+
+    /// <summary>How much light from behind shines through thin parts, from 0 to 1.</summary>
+    public float Transmission { get; set; }
 }

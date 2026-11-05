@@ -83,6 +83,8 @@ public sealed unsafe class Renderer : IDisposable
     private readonly DescriptorSetLayout _oneTextureSetLayout;
     private readonly DescriptorSet _aoSet;
     private readonly DescriptorSet _aoBlurSet;
+    private readonly DescriptorSet _scatterAcrossSet;
+    private readonly DescriptorSet _scatterDownSet;
     private readonly DescriptorSet _lightingSet;
     private readonly DescriptorSet _taaSet;
     private readonly DescriptorSet _tonemapSet;
@@ -97,6 +99,8 @@ public sealed unsafe class Renderer : IDisposable
     private readonly FullscreenPass _aoPass;
     private readonly FullscreenPass _aoBlurPass;
     private readonly FullscreenPass _lightingPass;
+    private readonly FullscreenPass _scatterAcrossPass;
+    private readonly FullscreenPass _scatterDownPass;
     private readonly TransparentPass _transparentPass;
     private readonly ParticlePass _particlePass;
     private ParticlePass.CameraConstants _particleCamera;
@@ -198,12 +202,12 @@ public sealed unsafe class Renderer : IDisposable
         {
             new(DescriptorType.UniformBuffer, FramesInFlight),
             new(DescriptorType.StorageBuffer, 2 * FramesInFlight),
-            new(DescriptorType.CombinedImageSampler, 23),
+            new(DescriptorType.CombinedImageSampler, 27),
         };
         var poolInfo = new DescriptorPoolCreateInfo
         {
             SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = FramesInFlight + 7,
+            MaxSets = FramesInFlight + 9,
             PoolSizeCount = 3,
             PPoolSizes = poolSizes,
         };
@@ -228,6 +232,8 @@ public sealed unsafe class Renderer : IDisposable
 
         _aoSet = AllocateSet(_threeTextureSetLayout);
         _aoBlurSet = AllocateSet(_twoTextureSetLayout);
+        _scatterAcrossSet = AllocateSet(_twoTextureSetLayout);
+        _scatterDownSet = AllocateSet(_twoTextureSetLayout);
         _lightingSet = AllocateSet(_lightingSetLayout);
         _taaSet = AllocateSet(_threeTextureSetLayout);
         _tonemapSet = AllocateSet(_twoTextureSetLayout);
@@ -241,7 +247,12 @@ public sealed unsafe class Renderer : IDisposable
         _gBufferPass = new GBufferPass(_context, _frameSetLayout, _resources);
         _aoPass = new FullscreenPass(_context, "ao.frag", GBuffer.AoFormat, [_frameSetLayout, _threeTextureSetLayout]);
         _aoBlurPass = new FullscreenPass(_context, "ao_blur.frag", GBuffer.AoFormat, [_twoTextureSetLayout]);
-        _lightingPass = new FullscreenPass(_context, "lighting.frag", GBuffer.HdrFormat, [_frameSetLayout, _lightingSetLayout]);
+        _lightingPass = new FullscreenPass(_context, "lighting.frag", [GBuffer.HdrFormat, GBuffer.HdrFormat],
+            [_frameSetLayout, _lightingSetLayout, _resources.Layout]);
+        _scatterAcrossPass = new FullscreenPass(_context, "sss_blur.frag", [GBuffer.HdrFormat],
+            [_frameSetLayout, _twoTextureSetLayout, _resources.Layout], BlurConstants.Size);
+        _scatterDownPass = new FullscreenPass(_context, "sss_blur.frag", [GBuffer.HdrFormat],
+            [_frameSetLayout, _twoTextureSetLayout, _resources.Layout], BlurConstants.Size, blend: true);
         _taaPass = new FullscreenPass(_context, "taa.frag", GBuffer.HdrFormat, [_frameSetLayout, _threeTextureSetLayout]);
         _tonemapPass = new FullscreenPass(_context, "tonemap.frag", GBuffer.LdrFormat, [_frameSetLayout, _twoTextureSetLayout]);
         _finishPass = new FullscreenPass(_context, "finish.frag", _swapchain.Format, [_frameSetLayout, _twoTextureSetLayout], TransitionConstants.Size);
@@ -623,6 +634,11 @@ public sealed unsafe class Renderer : IDisposable
 
     private void ValidateMaterial(in Material material)
     {
+        if (material.Subsurface.Problem(material.Clearcoat, material.Flags) is { } problem)
+        {
+            throw new ArgumentException($"The material's {problem}", nameof(material));
+        }
+
         if (material.Shader is { } shader)
         {
             if (shader.Index <= 0 || shader.Index >= _gBufferPass.ShaderCount)
@@ -677,6 +693,7 @@ public sealed unsafe class Renderer : IDisposable
                 Clearcoat = source.Clearcoat,
                 Flags = source.Flags,
                 Ior = source.Ior,
+                Subsurface = source.Subsurface,
             });
         }
 
@@ -894,7 +911,8 @@ public sealed unsafe class Renderer : IDisposable
             for (int cascade = 0; cascade < _shadowCascades; cascade++)
             {
                 float texelsPerUnit = ShadowPass.Resolution / (2f * ShadowPass.CascadeRadius(view.Shadows, cascade));
-                var shadow = new DetailView(_shadowMatrices[cascade], view.CameraPosition, 0f, texelsPerUnit, ShadowDetailError);
+                var shadow = new DetailView(
+                    _shadowMatrices[cascade], view.CameraPosition, 0f, texelsPerUnit, ShadowDetailError);
                 _shadowCounts[cascade] = DrawSelection.Select(shadow, draws, _details, _shadowDraws[cascade]);
                 shadowCount += _shadowCounts[cascade];
             }
@@ -997,6 +1015,8 @@ public sealed unsafe class Renderer : IDisposable
         _transparentPass.Dispose();
         _particlePass.Dispose();
         _lightingPass.Dispose();
+        _scatterAcrossPass.Dispose();
+        _scatterDownPass.Dispose();
         _aoBlurPass.Dispose();
         _aoPass.Dispose();
         _gBufferPass.Dispose();
@@ -1250,9 +1270,33 @@ public sealed unsafe class Renderer : IDisposable
         _gpuTimer.Mark(cmd);
 
         _api.BeginColorTarget(cmd, targets.Hdr.Image);
+        _api.BeginColorTarget(cmd, targets.Scatter.Image);
 
-        ReadOnlySpan<DescriptorSet> lightingSets = [frameSet, _lightingSet];
-        _lightingPass.Record(cmd, targets.Hdr.View, extent, lightingSets);
+        ReadOnlySpan<DescriptorSet> lightingSets = [frameSet, _lightingSet, _resources.Set];
+        _lightingPass.Record(cmd, [targets.Hdr.View, targets.Scatter.View], extent, lightingSets, []);
+        _api.EndColorTarget(cmd, targets.Scatter.Image);
+        _gpuTimer.Mark(cmd);
+
+        // The diffuse light of skin and wax spreads across the screen, then down it and
+        // onto the lit image. Nothing to spread when no material scatters.
+        if (_resources.AnySubsurface)
+        {
+            var across = BlurConstants.Across;
+            ReadOnlySpan<DescriptorSet> acrossSets = [frameSet, _scatterAcrossSet, _resources.Set];
+            _api.BeginColorTarget(cmd, targets.ScatterBlurred.Image);
+            _scatterAcrossPass.Record(cmd, targets.ScatterBlurred.View, extent, acrossSets,
+                new ReadOnlySpan<byte>(&across, (int)BlurConstants.Size));
+            _api.EndColorTarget(cmd, targets.ScatterBlurred.Image);
+
+            var down = BlurConstants.Down;
+            ReadOnlySpan<DescriptorSet> downSets = [frameSet, _scatterDownSet, _resources.Set];
+            _api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
+                ColorWrite | AccessFlags2.ColorAttachmentReadBit);
+            _scatterDownPass.Record(cmd, targets.Hdr.View, extent, downSets,
+                new ReadOnlySpan<byte>(&down, (int)BlurConstants.Size));
+        }
+
         _gpuTimer.Mark(cmd);
 
         // Glass and particles blend over the lit image, furthest first. Depth is read-only
@@ -1359,6 +1403,7 @@ public sealed unsafe class Renderer : IDisposable
         _shadowCascades = ShadowPass.CascadeCount(view.Shadows);
         uniforms->ShadowCascades = _shadowCascades;
         bool castsShadow = false;
+        uniforms->ShadowDepthScales = Vector4.One;
         for (int i = 0; i < count; i++)
         {
             ref readonly var light = ref view.Lights[i];
@@ -1366,16 +1411,12 @@ public sealed unsafe class Renderer : IDisposable
             bool casts = !castsShadow && light.CastsShadow && view.Shadows.Radius > 0f;
             if (casts)
             {
-                var radii = Vector4.Zero;
+                uniforms->ShadowRadii = FitCascades(view, direction, fitToView: !capturingProbe, out uniforms->ShadowFade, out uniforms->ShadowDepthScales);
                 for (int cascade = 0; cascade < _shadowCascades; cascade++)
                 {
-                    float radius = ShadowPass.CascadeRadius(view.Shadows, cascade);
-                    _shadowMatrices[cascade] = ShadowPass.CreateMatrix(direction, view.Shadows.Center, radius);
                     uniforms->ShadowMatrices[cascade] = _shadowMatrices[cascade];
-                    radii[cascade] = radius;
                 }
 
-                uniforms->ShadowRadii = radii;
                 castsShadow = true;
             }
 
@@ -1387,6 +1428,51 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         return castsShadow;
+    }
+
+    /// <summary>
+    /// Places each cascade's map. In a perspective view each ball takes the next slice of
+    /// what the camera sees, starting at the camera, so none of it is spent behind. Its radius
+    /// never changes as the camera turns, and its centre moves in whole texels, so edges don't
+    /// shimmer. A parallel view, or a probe's capture, keeps every cascade centred on the
+    /// settings' centre. Returns
+    /// each cascade's radius, and how shadows fade out with distance.
+    /// </summary>
+    private Vector4 FitCascades(in FrameView view, Vector3 direction, bool fitToView, out Vector4 fade, out Vector4 depthScales)
+    {
+        var radii = Vector4.Zero;
+        depthScales = Vector4.One;
+        float? spread = fitToView ? ShadowPass.Spread(view.Projection) : null;
+        Matrix4x4.Invert(view.View, out var world);
+        var eye = world.Translation;
+        var forward = Vector3.Normalize(-new Vector3(world.M31, world.M32, world.M33));
+        float start = 0f;
+        for (int cascade = 0; cascade < _shadowCascades; cascade++)
+        {
+            float radius = ShadowPass.CascadeRadius(view.Shadows, cascade);
+            var center = view.Shadows.Center;
+            float reach = radius;
+            if (spread is { } opening)
+            {
+                (float along, start) = ShadowPass.FitSlice(start, radius, opening);
+                center = eye + forward * along;
+
+                // Reach towards the sun at least as far as a cascade round the target would,
+                // so tall things out of view, like the edge of a wood in a low sun, still cast.
+                reach = radius + MathF.Max(Vector3.Dot(view.Shadows.Center - center, direction), 0f);
+            }
+
+            _shadowMatrices[cascade] = ShadowPass.CreateMatrix(direction, center, radius, reach);
+            radii[cascade] = radius;
+            depthScales[cascade] = ShadowPass.DepthScale(radius, reach);
+        }
+
+        // The last slice ends where shadows do, and they fade out over its last part rather
+        // than stopping at a line. A parallel view has no such end, so only the map's edge fades.
+        fade = spread is null
+            ? new Vector4(float.MaxValue, float.MaxValue, ShadowPass.HandOver, 0f)
+            : new Vector4(start * (1f - ShadowPass.FadeShare), start, ShadowPass.HandOver, 0f);
+        return radii;
     }
 
     private void Resize(uint width, uint height)
@@ -1621,6 +1707,17 @@ public sealed unsafe class Renderer : IDisposable
         // Glass and particles read depth while it's also attached for glass to test against.
         var testedDepth = new DescriptorImageInfo(_sampler, _gBuffer.Depth.View, ImageLayout.DepthReadOnlyOptimal);
         _transparentPass.WriteTargets(new(_mipSampler, _gBuffer.SceneColor.View, ImageLayout.ShaderReadOnlyOptimal), testedDepth);
+
+        WriteImages(_scatterAcrossSet,
+        [
+            new(_sampler, _gBuffer.Scatter.View, ImageLayout.ShaderReadOnlyOptimal),
+            depth,
+        ]);
+        WriteImages(_scatterDownSet,
+        [
+            new(_sampler, _gBuffer.ScatterBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
+            depth,
+        ]);
         _particlePass.WriteTargets(
             testedDepth,
             new(_shadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
