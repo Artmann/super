@@ -279,6 +279,7 @@ internal sealed class SceneRenderer : IDisposable
             DetailNormalTexture = Texture(surface.DetailNormalTexture, content),
             DetailScale = surface.DetailScale,
             Flags = surface.DetailMask ? MaterialFlags.DetailMask : 0,
+            Subsurface = surface.Subsurface,
             Shader = surface.Shader is { } shader ? Require<LoadedShader>(shader.Index, content).Handle : null,
         };
         for (int i = 0; i < surface.Parameters.Length; i++)
@@ -418,17 +419,32 @@ internal sealed class SceneRenderer : IDisposable
     /// <summary>Where the haze is measured from: the camera's focus when the sky asks for it, else the camera.</summary>
     internal static Vector3? HazeOrigin(SkySettings? sky, Camera shot) => sky is { HazeFromFocus: true } ? shot.Target : null;
 
+    /// <summary>Which sun casts the shadows: the one marked to, or else the first.</summary>
+    internal static int ShadowSun(ReadOnlySpan<SunLight> suns)
+    {
+        for (int i = 0; i < suns.Length; i++)
+        {
+            if (suns[i].CastsShadows)
+            {
+                return i;
+            }
+        }
+
+        return 0;
+    }
+
     private FrameView CreateFrame(View view, int width, int height, float time)
     {
         var suns = view.Suns;
         int lightCount = Math.Min(suns.Length, MaxLights);
+        int shadowSun = ShadowSun(suns);
         for (int i = 0; i < lightCount; i++)
         {
             _lights[i] = new DirectionalLight
             {
                 Direction = suns[i].Direction,
                 Radiance = suns[i].Color,
-                CastsShadow = i == 0,
+                CastsShadow = i == shadowSun,
             };
         }
 

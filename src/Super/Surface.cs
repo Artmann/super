@@ -46,6 +46,9 @@ public sealed record Surface
     /// <summary>Lets the surface texture's blue channel say where the detail shows, from none at black to full at white.</summary>
     public bool DetailMask { get; init; }
 
+    /// <summary>Light that spreads under the surface, for skin, wax and marble. Off by default.</summary>
+    public Subsurface Subsurface { get; init; }
+
     /// <summary>A fragment shader named through <see cref="Content.Shader"/>, or the standard one.</summary>
     public ShaderRef? Shader { get; init; }
 

@@ -94,6 +94,15 @@ internal struct FrameUniforms
     /// <summary>The radius each shadow cascade covers, in metres.</summary>
     public Vector4 ShadowRadii;
 
+    /// <summary>
+    /// x, y: distance from the camera where shadows start to fade out and where they're gone;
+    /// z: the share of a cascade's map, at its edges, over which it hands over to the next.
+    /// </summary>
+    public Vector4 ShadowFade;
+
+    /// <summary>How many units of depth one unit across each cascade's map covers. Below 1 when a cascade reaches further towards the sun.</summary>
+    public Vector4 ShadowDepthScales;
+
     public int LightCount;
     public float Time;
     public int FrameNumber;

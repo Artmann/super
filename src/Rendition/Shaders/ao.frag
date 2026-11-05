@@ -52,7 +52,7 @@ float overheadOcclusion(vec3 position, vec3 n, float rotation) {
 
         // The map holds 0 where nothing was drawn. Near its far limit the surface's expected
         // depth can dip below that, and empty space must not count as a blocker.
-        float surfaceDepth = max(projected.z + dot(offset, slope) + OVERHEAD_BIAS, 0.0);
+        float surfaceDepth = max(projected.z + dot(offset, slope) + OVERHEAD_BIAS * frame.shadowDepthScales.x, 0.0);
         if (insideMap && texture(shadowDepthTexture, vec3(sampleUv, 0.0)).r > surfaceDepth) {
             blocked += 1.0;
         }

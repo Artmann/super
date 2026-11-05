@@ -194,8 +194,10 @@ vec4 shaderLayer(int slot, vec2 uv, float layer) {
 }
 
 // Applies the draw's tint, so every surface shader gets it. Foliage has no clearcoat, so
-// its translucency travels in the same channel as a negative number. A ghost keeps only
-// the surface's shape: one matte colour that glows a little, whatever the material.
+// its translucency travels in the same channel as a negative number, and a subsurface
+// material puts its index there, plus SUBSURFACE_MARK, so the lighting and blur find it.
+// A ghost keeps only the surface's shape: one matte colour that glows a little,
+// whatever the material.
 void writeSurface(Surface surface) {
     if (draw.ghost.a > 0.0) {
         vec3 color = clamp(draw.ghost.rgb, 0.0, 1.0);
@@ -205,8 +207,13 @@ void writeSurface(Surface surface) {
         return;
     }
 
-    bool foliage = (materials[draw.material].flags & MATERIAL_FOLIAGE) != 0u;
+    Material material = materials[draw.material];
+    bool foliage = (material.flags & MATERIAL_FOLIAGE) != 0u;
+    float channel = foliage ? -FOLIAGE_TRANSLUCENCY : surface.clearcoat;
+    if (material.subsurface.w > 0.0) {
+        channel = SUBSURFACE_MARK + float(draw.material);
+    }
     outBaseColorMetallic = vec4(surface.baseColor * draw.tint.rgb, surface.metallic);
     outNormalRoughnessAo = vec4(octahedralEncode(surface.normal), surface.roughness, 1.0);
-    outEmissiveClearcoat = vec4(surface.emissive, foliage ? -FOLIAGE_TRANSLUCENCY : surface.clearcoat);
+    outEmissiveClearcoat = vec4(surface.emissive, channel);
 }

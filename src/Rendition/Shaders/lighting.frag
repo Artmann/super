@@ -4,6 +4,7 @@
 #include "brdf.glsl"
 #include "sampling.glsl"
 #include "water.glsl"
+#include "material_data.glsl"
 
 layout(location = 0) in vec2 inUv;
 
@@ -19,7 +20,15 @@ layout(set = 1, binding = 8) uniform sampler2D ambientOcclusionTexture;
 layout(set = 1, binding = 9) uniform sampler2D historyTexture;
 layout(set = 1, binding = 10) uniform samplerCubeArray probeTexture;
 
+layout(std430, set = 2, binding = 1) readonly buffer Materials {
+    Material materials[];
+};
+
 layout(location = 0) out vec4 outColor;
+
+// The diffuse light of subsurface materials, which sss_blur.frag spreads and adds to
+// outColor. Alpha holds the material's index plus one, or 0 for every other pixel.
+layout(location = 1) out vec4 outScatter;
 
 const int BLOCKER_SAMPLES = 16;
 const int SHADOW_SAMPLES = 24;
@@ -51,18 +60,48 @@ vec3 multiBounceOcclusion(float visibility, vec3 albedo) {
     return max(vec3(visibility), ((visibility * a + b) * visibility + c) * visibility);
 }
 
-// The first cascade whose map holds the point with room for the filter around it,
-// or -1 when none does.
-int shadowCascade(vec3 position, float inset) {
+// How far inside a cascade's map the point is, as a share of the map from its nearest
+// edge, leaving room for the filter: below 0 is outside.
+float cascadeMargin(int c, vec3 position, float inset) {
+    vec4 projected = frame.shadowMatrices[c] * vec4(position, 1.0);
+    vec2 uv = projected.xy * 0.5 + 0.5;
+    vec2 margins = min(uv - inset, 1.0 - inset - uv);
+    return projected.z > 0.0 && projected.z < 1.0 ? min(margins.x, margins.y) : -1.0;
+}
+
+// The first cascade whose map holds the point with room for the filter around it, or -1
+// when none does. Near the edge of its map a point hands over to the next cascade, more
+// often the nearer it is, so the line where the sharpness changes melts into noise that
+// anti-aliasing smooths. In the last map, edge says how far into that band it is.
+int shadowCascade(vec3 position, float inset, out float edge) {
+    edge = 0.0;
+    float band = frame.shadowFade.z;
     for (int c = 0; c < frame.shadowCascades; c++) {
-        vec4 projected = frame.shadowMatrices[c] * vec4(position, 1.0);
-        vec2 uv = projected.xy * 0.5 + 0.5;
-        if (all(greaterThan(uv, vec2(inset))) && all(lessThan(uv, vec2(1.0 - inset)))
-            && projected.z > 0.0 && projected.z < 1.0) {
+        float margin = cascadeMargin(c, position, inset);
+        if (margin <= 0.0) {
+            continue;
+        }
+
+        float handOver = 1.0 - clamp(margin / band, 0.0, 1.0);
+        if (c + 1 == frame.shadowCascades) {
+            edge = handOver;
             return c;
         }
+
+        bool next = handOver > 0.0 && frameNoise(gl_FragCoord.xy + 37.0, frame.frameNumber) < handOver
+            && cascadeMargin(c + 1, position, inset) > 0.0;
+        return next ? c + 1 : c;
     }
     return -1;
+}
+
+// How far shadows have faded out at a point, from 0 to 1: with distance from the camera,
+// so they end smoothly rather than at a line, and at the edge of the last map.
+float shadowFadeOut(vec3 position, float edge) {
+    float distance = length(position - frame.cameraPosition.xyz);
+    float far = frame.shadowFade.x < frame.shadowFade.y
+        ? smoothstep(frame.shadowFade.x, frame.shadowFade.y, distance) : 0.0;
+    return max(far, smoothstep(0.0, 1.0, edge));
 }
 
 // Soft shadow that is sharp where an object touches the surface and blurs with
@@ -72,8 +111,14 @@ float shadowVisibility(vec3 position, vec3 n, vec3 l) {
     float nDotL = clamp(dot(n, l), 0.05, 1.0);
     float texel = 1.0 / float(textureSize(shadowDepthTexture, 0).x);
 
-    int cascade = shadowCascade(position, 2.0 * texel);
+    float edge;
+    int cascade = shadowCascade(position, 2.0 * texel, edge);
     if (cascade < 0) {
+        return 1.0;
+    }
+
+    float fadeOut = shadowFadeOut(position, edge);
+    if (fadeOut >= 1.0) {
         return 1.0;
     }
 
@@ -86,8 +131,9 @@ float shadowVisibility(vec3 position, vec3 n, vec3 l) {
         return 1.0;
     }
 
-    // In this projection one unit of depth covers the same distance as one unit of uv,
-    // so a slope's bias is simply the sample offset times the slope.
+    // One unit across the map covers as far as depthScale units of depth do, so a slope's
+    // bias is the sample offset times the slope, times depthScale.
+    float depthScale = frame.shadowDepthScales[cascade];
     float slope = min(sqrt(1.0 - nDotL * nDotL) / nDotL, 2.0);
     float layer = float(cascade);
     float rotation = frameNoise(gl_FragCoord.xy, frame.frameNumber) * 2.0 * PI;
@@ -99,7 +145,7 @@ float shadowVisibility(vec3 position, vec3 n, vec3 l) {
     for (int i = 0; i < BLOCKER_SAMPLES; i++) {
         vec2 offset = diskSample(i, BLOCKER_SAMPLES, rotation) * searchRadius;
         float stored = texture(shadowDepthTexture, vec3(uv + offset, layer)).r;
-        if (stored > depth + 2.0 * texel + searchRadius * slope) {
+        if (stored > depth + (2.0 * texel + searchRadius * slope) * depthScale) {
             blockerSum += stored;
             blockers++;
         }
@@ -108,14 +154,14 @@ float shadowVisibility(vec3 position, vec3 n, vec3 l) {
         return 1.0;
     }
 
-    float penumbra = clamp((blockerSum / float(blockers) - depth) * lightAngle, 1.5 * texel, searchRadius);
-    float reference = depth + 2.0 * texel + penumbra * slope;
+    float penumbra = clamp((blockerSum / float(blockers) - depth) / depthScale * lightAngle, 1.5 * texel, searchRadius);
+    float reference = depth + (2.0 * texel + penumbra * slope) * depthScale;
     float visibility = 0.0;
     for (int i = 0; i < SHADOW_SAMPLES; i++) {
         vec2 offset = diskSample(i, SHADOW_SAMPLES, rotation) * penumbra;
         visibility += texture(shadowCompareTexture, vec4(uv + offset, layer, reference));
     }
-    return visibility / float(SHADOW_SAMPLES);
+    return mix(visibility / float(SHADOW_SAMPLES), 1.0, fadeOut);
 }
 
 // Looks up what the room's probes saw in a direction, or the studio where there is no
@@ -241,6 +287,8 @@ vec4 traceReflection(vec3 position, vec3 n, vec3 direction, float noise) {
 void main() {
     float depth = texture(depthTexture, inUv).r;
 
+    outScatter = vec4(0.0);
+
     // Reversed-Z: a depth of 0 is the far plane, so nothing was drawn here.
     if (depth == 0.0) {
         if (isUnderwater()) {
@@ -270,11 +318,23 @@ void main() {
     float roughness = clamp(normalRoughnessAo.z, 0.045, 1.0);
     float screenAo = texture(ambientOcclusionTexture, inUv).r;
     float ao = normalRoughnessAo.w * screenAo;
-    // Alpha holds the clearcoat, or for foliage how much light shines through as a
-    // negative number. writeSurface() in surface.glsl packs it.
+    // Alpha holds the clearcoat, for foliage how much light shines through as a negative
+    // number, or for a subsurface material its index plus SUBSURFACE_MARK.
+    // writeSurface() in surface.glsl packs it.
     vec4 emissiveClearcoat = texture(emissiveClearcoatTexture, inUv);
-    float clearcoat = max(emissiveClearcoat.a, 0.0);
+    bool subsurface = emissiveClearcoat.a >= SUBSURFACE_MARK - 0.5;
+    int materialIndex = subsurface ? int(emissiveClearcoat.a - SUBSURFACE_MARK + 0.5) : 0;
+    float clearcoat = subsurface ? 0.0 : max(emissiveClearcoat.a, 0.0);
     float translucency = max(-emissiveClearcoat.a, 0.0);
+
+    // Light through a thin part of a subsurface material comes out in the colours that
+    // travel furthest, which for skin is red.
+    vec3 transmissionTint = vec3(1.0);
+    if (subsurface) {
+        vec4 spread = materials[materialIndex].subsurface;
+        translucency = materials[materialIndex].transmission;
+        transmissionTint = spread.rgb / max(spread.w, 1e-6);
+    }
 
     vec4 clip = vec4(inUv * 2.0 - 1.0, depth, 1.0);
     vec4 world = frame.inverseViewProjection * clip;
@@ -306,7 +366,15 @@ void main() {
     vec3 environmentSpecular = reflectedLight * (f0 * brdf.x + brdf.y);
     vec3 environmentDiffuse = texture(irradianceTexture, n).rgb * baseColor * (1.0 - metallic);
     if (translucency > 0.0) {
-        environmentDiffuse += texture(irradianceTexture, -n).rgb * baseColor * (1.0 - metallic) * translucency;
+        environmentDiffuse += texture(irradianceTexture, -n).rgb * baseColor * (1.0 - metallic) * translucency * transmissionTint;
+    }
+
+    // Subsurface materials keep their diffuse light apart, for the blur to spread.
+    vec3 occlusion = frame.backgroundRadiance.a * multiBounceOcclusion(ao, baseColor);
+    vec3 scattered = vec3(0.0);
+    if (subsurface) {
+        scattered = environmentDiffuse * occlusion;
+        environmentDiffuse = vec3(0.0);
     }
 
     vec3 environmentLight = environmentDiffuse + environmentSpecular;
@@ -320,7 +388,7 @@ void main() {
         environmentLight = environmentLight * (1.0 - coatFresnel) + coatReflection * coatFresnel;
     }
 
-    vec3 color = environmentLight * frame.backgroundRadiance.a * multiBounceOcclusion(ao, baseColor) + emissiveClearcoat.rgb;
+    vec3 color = environmentLight * occlusion + emissiveClearcoat.rgb;
 
     for (int i = 0; i < frame.lightCount; i++) {
         vec3 l = frame.lights[i].direction.xyz;
@@ -338,24 +406,34 @@ void main() {
         vec3 specular = distributionGgx(max(dot(n, h), 0.0), alpha) * visibilitySmithGgx(nDotV, nDotL, alpha) * f;
         vec3 diffuse = (1.0 - f) * (1.0 - metallic) * baseColor / PI;
 
-        vec3 lit = (diffuse + specular) * nDotL;
+        vec3 diffuseLit = diffuse * nDotL;
+        vec3 specularLit = specular * nDotL;
         if (clearcoat > 0.0) {
             vec3 coatF = fresnelSchlick(max(dot(v, h), 0.0), CLEARCOAT_F0) * clearcoat;
             float coatHighlight = distributionGgx(max(dot(n, h), 0.0), coatAlpha) * visibilitySmithGgx(nDotV, nDotL, coatAlpha);
-            lit = lit * (1.0 - coatF) + coatHighlight * coatF * nDotL;
+            diffuseLit *= 1.0 - coatF;
+            specularLit = specularLit * (1.0 - coatF) + coatHighlight * coatF * nDotL;
         }
-        lit += (1.0 - metallic) * baseColor / PI * transmitted;
+        diffuseLit += (1.0 - metallic) * baseColor / PI * transmitted * transmissionTint;
 
         // A light without a shadow map would shine through everything, so nearby
         // surfaces are all that can block it. Light from behind is looked up from the
         // side it arrives on.
         vec3 lightSide = facing >= 0.0 ? n : -n;
         float visibility = frame.lights[i].direction.w > 0.5 ? shadowVisibility(position, lightSide, l) : screenAo;
-        color += lit * sunlightReaching(position, l, i) * visibility;
+        vec3 reaching = sunlightReaching(position, l, i) * visibility;
+        if (subsurface) {
+            scattered += diffuseLit * reaching;
+            color += specularLit * reaching;
+        } else {
+            color += (diffuseLit + specularLit) * reaching;
+        }
     }
 
+    // Water tints everything on its way to the camera, which the blur can't redo, so
+    // under water the light isn't spread.
     if (isUnderwater()) {
-        outColor = vec4(throughWater(color, position), 1.0);
+        outColor = vec4(throughWater(color + scattered, position), 1.0);
         return;
     }
 
@@ -372,8 +450,13 @@ void main() {
             behind = textureLod(reflectionTexture, normalize(away), 0.0).rgb * frame.backgroundRadiance.a;
         }
 
-        color = mix(color, behind, smoothstep(fadeStart, fadeEnd, hazeDistance(position)));
+        float fade = smoothstep(fadeStart, fadeEnd, hazeDistance(position));
+        color = mix(color, behind, fade);
+        scattered *= 1.0 - fade;
     }
 
     outColor = vec4(color, 1.0);
+    if (subsurface) {
+        outScatter = vec4(scattered, float(materialIndex) + 1.0);
+    }
 }

@@ -100,6 +100,9 @@ public sealed class MaterialRule
     /// <summary>The surface texture's blue channel says where the detail textures show.</summary>
     public bool DetailMask { get; set; }
 
+    /// <summary>Light that spreads under the surface, for skin, wax and marble. Off by default.</summary>
+    public SubsurfaceRule? Subsurface { get; set; }
+
     /// <summary>Overrides the value in the model file, if it has one. The default is 0.</summary>
     public float? Metallic { get; set; }
 
@@ -124,4 +127,17 @@ public sealed class MaterialRule
     public bool Foliage { get; set; }
 
     public bool Transparent { get; set; }
+}
+
+/// <summary>How light spreads under a material's surface. See Rendition.Subsurface.</summary>
+public sealed class SubsurfaceRule
+{
+    /// <summary>How far light travels under the surface, in metres. Skin is about 0.01.</summary>
+    public float Radius { get; set; }
+
+    /// <summary>How far red, green and blue travel, as fractions of the radius. The default spreads them all the same.</summary>
+    public float[]? Color { get; set; }
+
+    /// <summary>How much light from behind shines through thin parts, from 0 to 1.</summary>
+    public float Transmission { get; set; }
 }

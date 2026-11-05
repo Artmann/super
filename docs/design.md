@@ -529,7 +529,8 @@ ShadowPass    scene geometry   -> depth from the key light (2048 x 2048, up to 4
 GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, depth
 AoPass        fullscreen       -> ambient occlusion from depth and normals
 AoBlurPass    fullscreen       -> the same with the grain averaged away
-LightingPass  fullscreen       -> HDR colour (Cook-Torrance GGX PBR, traced reflections, probes)
+LightingPass  fullscreen       -> HDR colour (Cook-Torrance GGX PBR, traced reflections, probes), subsurface diffuse apart
+SssBlurPass   fullscreen x 2   -> subsurface diffuse spread across, then down and added to HDR colour
 ParticlePass  camera squares   -> soft puffs blended over HDR colour, back to front
 TransparentPass  glass         -> blended over HDR colour, forward shaded
 TaaPass       fullscreen       -> this frame blended with history, then copied to history
@@ -544,7 +545,7 @@ G-buffer layout:
 | --- | --- | --- |
 | 0 | `R8G8B8A8_SRGB` | base colour, metallic |
 | 1 | `R16G16B16A16_SFLOAT` | octahedral normal (xy), roughness, AO |
-| 2 | `R16G16B16A16_SFLOAT` | emissive colour, clearcoat (or minus the translucency, for foliage) |
+| 2 | `R16G16B16A16_SFLOAT` | emissive colour, clearcoat (or minus the translucency, for foliage, or 2 plus the material index, for subsurface) |
 | depth | `D32_SFLOAT` | reversed-Z, position is reconstructed from it |
 
 Games talk to the renderer with plain structs: `Renderer.Render(in FrameView,
@@ -606,11 +607,29 @@ Shadows blur with distance from the object casting them: the lighting pass finds
 how far away the blocker is, then widens its sampling to match. The game says
 which area the shadow map covers through `FrameView.Shadows`. A smaller area gives
 sharper shadows, so the sample fits it to the model. A wide outdoor scene asks for up
-to four cascades: each covers three times the radius of the one before, all centred on
-the target, and the lighting pass picks the first cascade a point falls inside. The
-shadow pass draws each cascade into its own layer of the same depth image, with its
-own culling and detail choice. Anything outside the last cascade, in depth as well as
-sideways, counts as lit.
+to four cascades, each a ball three times the radius of the one before.
+
+`Renderer.FitCascades` lays the balls along the view. `ShadowPass.Spread` reads how far a
+frustum corner leaves the view axis per metre of depth, and `ShadowPass.FitSlice` finds the
+deepest slice of the frustum, starting where the last one ended, whose corners still fit in
+a ball of the cascade's radius. The ball's size never depends on the camera's angle, and
+`CreateMatrix` snaps its centre to whole texels in the light's view, so edges don't crawl
+as the camera turns or moves. An orthographic view, and a probe's capture, keep every ball
+centred on the target instead. The light's depth range reaches past the ball towards the
+sun at least as far as a ball round the target would, so a tall caster just out of view
+still shadows the ground in front of the camera. A longer reach spreads depth thinner, and
+`FrameUniforms.ShadowDepthScales` carries the ratio so the shaders scale their bias to match.
+
+The lighting pass picks the first cascade a point falls inside. In the outer tenth of a map
+(`ShadowPass.HandOver`) a point uses the next cascade with a chance that grows towards the
+edge, so the seam turns into noise that temporal anti-aliasing smooths. Shadows fade out
+with distance over the last 15% of the furthest slice (`ShadowPass.FadeShare`) and near the
+edge of the last map. The shadow pass draws each cascade into its own layer of the same
+depth image, with its own culling and detail choice. Anything outside the last cascade, in
+depth as well as sideways, counts as lit.
+
+One sun casts the shadows: the one the game marks with `shadows: true`, or else the first
+(`SceneRenderer.ShadowSun`).
 
 Two frames can be in flight. Render targets are shared between frames, and
 pipeline barriers order the access; per-frame state is limited to command
@@ -669,6 +688,29 @@ shaded as it's drawn, after lighting, and tests against the depth of the opaque 
 without writing to it. Its reflection stays at full strength however clear the glass
 is, and only its tint is scaled by opacity. The colour is premultiplied so the
 blend can express that.
+
+## Subsurface scattering
+
+Skin, wax and jade follow Jimenez et al., "Separable Subsurface Scattering" (2015): the
+lighting pass writes the diffuse light of subsurface pixels to a second target, `Scatter`,
+and leaves it out of the HDR colour. Two passes of `sss_blur.frag` then spread it across
+the screen and down it, the second adding the result onto the HDR colour with a
+premultiplied blend whose alpha is 0. Specular light and glow stay sharp.
+
+The G-buffer has no room for another channel, so a subsurface pixel puts its material
+index, plus 2, where clearcoat goes. Clearcoat stays within 0 and 1 and foliage is
+negative, so the three can't be mistaken for one another, and half floats hold whole
+numbers exactly up to 2048, beyond the 1024 materials. The lighting pass and the blur
+bind the material table as set 2 to read the spread and transmission. `Scatter` carries
+the index plus 1 in its alpha, 0 for every other pixel.
+
+Each tap is weighed by a Gaussian of the distance between the two points in the world,
+per colour channel, with a standard deviation of half the spread. Distance in the world
+rather than on screen keeps the blur the same size at any range and stops light from
+bleeding across a silhouette to whatever is behind, so there is no halo. The taps reach
+three standard deviations of the widest colour, at most 96 pixels, and shift a little
+every frame so anti-aliasing turns the gaps between them into smooth grain. When no
+material has subsurface both blur passes are skipped.
 
 ## Particles
 
@@ -918,16 +960,22 @@ Anything larger than a block gets its own allocation.
   holding the metalness. A glTF model that wants a detail mask needs a surface texture
   made for it.
 - The distance where height maps fade out, 15 to 25 metres, is fixed in `surface.glsl`.
-- Foliage translucency is a constant in `surface.glsl`, and a material can't have both
-  foliage and clearcoat, since they share a G-buffer channel.
+- Foliage translucency is a constant in `surface.glsl`, and foliage, clearcoat and
+  subsurface exclude one another, since they share a G-buffer channel.
+- Subsurface blurs the lit diffuse light, colour included, so a skin texture softens a
+  little along with the light. Transmission uses the shadow map like foliage does, not
+  the real thickness, and under water the light isn't spread.
 - Clips are sampled at 30 frames a second when cooked and blended linearly between
   frames. Root motion only carries travel over the ground, not turns.
 - The adventurer model has 929,000 triangles, which suits a showcase more than a game. A
   game character would need a reduced version and levels of detail.
-- Shadow cascades are centred on the camera's target rather than fitted to the view
-  frustum, so some of each map covers ground behind the camera.
+- A shadow cascade reaches towards the sun only as far as a cascade round the camera's
+  target would. Very long shadows from far-off things, like a distant ridge in a low sun,
+  can be missing in front of the camera.
+- Cascades split three times wider each, with no setting to blend between linear and
+  logarithmic spacing.
 - Only directional lights so far. Point and spot lights come later.
-- Only one light casts shadows, so the others shine through objects, held back only
+- Only one sun casts shadows, so the others shine through objects, held back only
   by ambient occlusion.
 - The environment is treated as infinitely far away, and ambient occlusion is all
   that blocks it.

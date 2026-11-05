@@ -20,22 +20,24 @@ public class GpuMaterialTests
             + 8 * vec4          // shaderParameters[8]
             + 4 * scalar        // shaderTextures[4]
             + 4 * scalar        // shaderArrays[4]
-            + 4 * scalar        // flags, heightTexture, heightDepth, detailColorTexture
-            + 2 * scalar        // detailNormalTexture, detailScale
-            + 2 * scalar;       // rounded up to the struct's vec4 alignment
+            + 4 * scalar        // flags, transmission, heightTexture, heightDepth
+            + 4 * scalar        // detailColorTexture, detailNormalTexture, detailScale, then padding to the next vec4
+            + vec4;             // subsurface
 
         Assert.Equal(expected, Unsafe.SizeOf<ResourceTable.GpuMaterial>());
     }
 
     // 64 bytes of fixed values, 128 of shader parameters, 16 and 16 of slots, then the
-    // flags and the height and detail fields, four bytes each.
+    // flags, transmission and the height and detail fields, four bytes each, then subsurface.
     [Theory]
     [InlineData(nameof(ResourceTable.GpuMaterial.Flags), 224)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.HeightTexture), 228)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.HeightDepth), 232)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.DetailColorTexture), 236)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.DetailNormalTexture), 240)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.DetailScale), 244)]
+    [InlineData(nameof(ResourceTable.GpuMaterial.Transmission), 228)]
+    [InlineData(nameof(ResourceTable.GpuMaterial.HeightTexture), 232)]
+    [InlineData(nameof(ResourceTable.GpuMaterial.HeightDepth), 236)]
+    [InlineData(nameof(ResourceTable.GpuMaterial.DetailColorTexture), 240)]
+    [InlineData(nameof(ResourceTable.GpuMaterial.DetailNormalTexture), 244)]
+    [InlineData(nameof(ResourceTable.GpuMaterial.DetailScale), 248)]
+    [InlineData(nameof(ResourceTable.GpuMaterial.Subsurface), 256)]
     public void Field_sits_where_material_glsl_reads_it(string field, int offset)
     {
         Assert.Equal(offset, (int)Marshal.OffsetOf<ResourceTable.GpuMaterial>(field));
