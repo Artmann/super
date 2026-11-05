@@ -23,6 +23,15 @@ public sealed record Surface
     public TextureRef? SurfaceTexture { get; init; }
 
     /// <summary>
+    /// Below 1 the surface is glass: the world shows through it, tinted by
+    /// <see cref="Color"/>, and its shadow is lighter. 0 is perfectly clear.
+    /// </summary>
+    public float Opacity { get; init; } = 1f;
+
+    /// <summary>How much glass bends what's behind it: 1 is straight through, as a window, and about 1.5 is a bottle or a marble.</summary>
+    public float Ior { get; init; } = 1f;
+
+    /// <summary>
     /// A height map in red, white at the top of the surface. The other textures shift with
     /// it as the view moves, so grooves such as mortar look sunk in. Needs <see cref="HeightDepth"/>.
     /// </summary>

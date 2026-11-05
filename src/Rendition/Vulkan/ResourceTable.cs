@@ -49,8 +49,8 @@ internal sealed unsafe class ResourceTable : IDisposable
         /// <summary>0 when the material has no detail textures, so the shader skips them.</summary>
         public float DetailScale;
 
-        // std430 starts the next vec4 on a 16-byte boundary.
-        private readonly int _padding0;
+        /// <summary>1 or more; 1 bends nothing.</summary>
+        public float Ior;
 
         /// <summary>How far red, green and blue spread under the surface, in metres, and the widest of them in w.</summary>
         public Vector4 Subsurface;
@@ -436,6 +436,7 @@ internal sealed unsafe class ResourceTable : IDisposable
             DetailScale = material.DetailColorTexture is null && material.DetailNormalTexture is null
                 ? 0f
                 : material.DetailScale > 0f ? material.DetailScale : 1f,
+            Ior = MathF.Max(material.Ior, 1f),
             Transmission = material.Subsurface.IsOn ? Math.Clamp(material.Subsurface.Transmission, 0f, 1f) : 0f,
             Subsurface = Spread(material.Subsurface),
         };

@@ -21,14 +21,14 @@ public class GpuMaterialTests
             + 4 * scalar        // shaderTextures[4]
             + 4 * scalar        // shaderArrays[4]
             + 4 * scalar        // flags, transmission, heightTexture, heightDepth
-            + 4 * scalar        // detailColorTexture, detailNormalTexture, detailScale, then padding to the next vec4
+            + 4 * scalar        // detailColorTexture, detailNormalTexture, detailScale, ior
             + vec4;             // subsurface
 
         Assert.Equal(expected, Unsafe.SizeOf<ResourceTable.GpuMaterial>());
     }
 
     // 64 bytes of fixed values, 128 of shader parameters, 16 and 16 of slots, then the
-    // flags, transmission and the height and detail fields, four bytes each, then subsurface.
+    // flags, transmission, the height and detail fields and ior, four bytes each, then subsurface.
     [Theory]
     [InlineData(nameof(ResourceTable.GpuMaterial.Flags), 224)]
     [InlineData(nameof(ResourceTable.GpuMaterial.Transmission), 228)]
@@ -37,6 +37,7 @@ public class GpuMaterialTests
     [InlineData(nameof(ResourceTable.GpuMaterial.DetailColorTexture), 240)]
     [InlineData(nameof(ResourceTable.GpuMaterial.DetailNormalTexture), 244)]
     [InlineData(nameof(ResourceTable.GpuMaterial.DetailScale), 248)]
+    [InlineData(nameof(ResourceTable.GpuMaterial.Ior), 252)]
     [InlineData(nameof(ResourceTable.GpuMaterial.Subsurface), 256)]
     public void Field_sits_where_material_glsl_reads_it(string field, int offset)
     {

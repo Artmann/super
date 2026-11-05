@@ -94,6 +94,7 @@ public sealed unsafe class Renderer : IDisposable
     private readonly DescriptorSet _finishSet;
     private readonly Sampler _sampler;
     private readonly Sampler _linearSampler;
+    private readonly Sampler _mipSampler;
     private readonly Sampler _shadowSampler;
 
     private readonly ShadowPass _shadowPass;
@@ -106,6 +107,7 @@ public sealed unsafe class Renderer : IDisposable
     private readonly TransparentPass _transparentPass;
     private readonly ParticlePass _particlePass;
     private ParticlePass.CameraConstants _particleCamera;
+    private TransparentView _transparentView;
     private int _particleCount;
     private readonly FullscreenPass _taaPass;
     private readonly BloomPass _bloomPass;
@@ -188,6 +190,10 @@ public sealed unsafe class Renderer : IDisposable
         var linearSamplerInfo = samplerInfo with { MagFilter = Filter.Linear, MinFilter = Filter.Linear };
         _api.CreateSampler(_context.Device, &linearSamplerInfo, null, out _linearSampler).Check();
 
+        // Frosted glass reads the blurrier mips of the scene copy.
+        var mipSamplerInfo = linearSamplerInfo with { MipmapMode = SamplerMipmapMode.Linear, MaxLod = Vk.LodClampNone };
+        _api.CreateSampler(_context.Device, &mipSamplerInfo, null, out _mipSampler).Check();
+
         // Reversed-Z: a point is lit when it is at least as near the light as the map says.
         var shadowSamplerInfo = samplerInfo with
         {
@@ -261,6 +267,7 @@ public sealed unsafe class Renderer : IDisposable
         _overlaySet = AllocateSet(_oneTextureSetLayout);
         _bloomPass = new BloomPass(_context, _linearSampler, _gBuffer.Resolved.View, _gBuffer.Extent);
         _particlePass = new ParticlePass(_context, _frameSetLayout, FramesInFlight);
+        _transparentPass = new TransparentPass(_context, _frameSetLayout, _resources, _environment);
         WriteTargetDescriptors();
 
         _gBufferPass = new GBufferPass(_context, _frameSetLayout, _resources);
@@ -272,7 +279,6 @@ public sealed unsafe class Renderer : IDisposable
             [_frameSetLayout, _twoTextureSetLayout, _resources.Layout], BlurConstants.Size);
         _scatterDownPass = new FullscreenPass(_context, "sss_blur.frag", [GBuffer.HdrFormat],
             [_frameSetLayout, _twoTextureSetLayout, _resources.Layout], BlurConstants.Size, blend: true);
-        _transparentPass = new TransparentPass(_context, _frameSetLayout, _resources, _environment);
         _taaPass = new FullscreenPass(_context, "taa.frag", GBuffer.HdrFormat, [_frameSetLayout, _threeTextureSetLayout]);
         _tonemapPass = new FullscreenPass(_context, "tonemap.frag", GBuffer.LdrFormat, [_frameSetLayout, _twoTextureSetLayout]);
         _finishPass = new FullscreenPass(_context, "finish.frag", _swapchain.Format, [_frameSetLayout, _twoTextureSetLayout], TransitionConstants.Size);
@@ -590,7 +596,8 @@ public sealed unsafe class Renderer : IDisposable
                 Flags = CommandBufferUsageFlags.OneTimeSubmitBit,
             };
             _api.BeginCommandBuffer(cmd, &beginInfo).Check();
-            RecordScene(cmd, frame.Set, visible, castsShadow ? shadowCasters : [], shadowsSelected: false);
+            RecordScene(cmd, frame.Set, visible, castsShadow ? shadowCasters : [], shadowsSelected: false,
+                TransparentView.From(faceView.View, faceView.Projection));
             _probes.RecordFace(cmd, _gBuffer.Hdr.Image, face);
             _api.EndCommandBuffer(cmd).Check();
 
@@ -716,6 +723,7 @@ public sealed unsafe class Renderer : IDisposable
                 DetailNormalTexture = source.DetailNormalTexture >= 0 ? textures[source.DetailNormalTexture] : null,
                 DetailScale = source.DetailScale,
                 Flags = source.Flags,
+                Ior = source.Ior,
                 Subsurface = source.Subsurface,
             });
         }
@@ -973,6 +981,7 @@ public sealed unsafe class Renderer : IDisposable
             Forward = new Vector4(forward, 0f),
         };
         _particleCount = _particlePass.Upload(_frameIndex, view.Particles, view.CameraPosition, forward);
+        _transparentView = TransparentView.From(view.View, view.Projection);
     }
 
     /// <summary>
@@ -1101,6 +1110,7 @@ public sealed unsafe class Renderer : IDisposable
         _api.DestroyDescriptorSetLayout(_context.Device, _frameSetLayout, null);
         _api.DestroySampler(_context.Device, _shadowSampler, null);
         _api.DestroySampler(_context.Device, _linearSampler, null);
+        _api.DestroySampler(_context.Device, _mipSampler, null);
         _api.DestroySampler(_context.Device, _sampler, null);
         _gBuffer.Dispose();
         _swapchain.Dispose();
@@ -1125,7 +1135,7 @@ public sealed unsafe class Renderer : IDisposable
             _heldNumber = _transitionHold;
         }
 
-        RecordScene(cmd, frameSet, draws, [], shadowsSelected: true, _particleCount);
+        RecordScene(cmd, frameSet, draws, [], shadowsSelected: true, _transparentView, _particleCount);
 
         ReadOnlySpan<DescriptorSet> taaSets = [frameSet, _taaSet];
         _api.BeginColorTarget(cmd, targets.Resolved.Image);
@@ -1255,6 +1265,7 @@ public sealed unsafe class Renderer : IDisposable
         ReadOnlySpan<DrawItem> draws,
         ReadOnlySpan<DrawItem> shadowCasters,
         bool shadowsSelected,
+        in TransparentView view,
         int particleCount = 0)
     {
         var targets = _gBuffer;
@@ -1373,22 +1384,16 @@ public sealed unsafe class Renderer : IDisposable
 
         _gpuTimer.Mark(cmd);
 
-        // Particles blend over the lit image, reading depth as a texture to melt into
-        // surfaces, so depth stays readable by shaders until glass needs it for testing.
-        _api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
-            ColorWrite | AccessFlags2.ColorAttachmentReadBit);
-        _particlePass.Record(cmd, targets, frameSet, _frameIndex, particleCount, _particleCamera);
-        _gpuTimer.Mark(cmd);
-
-        // Glass blends over the lit image and is hidden by whatever stands in front of it.
+        // Glass and particles blend over the lit image, furthest first. Depth is read-only
+        // throughout: glass tests against it, and both read it to see what's behind them.
         _api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
             ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
             ColorWrite | AccessFlags2.ColorAttachmentReadBit);
         _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
-            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal, SampledStage, SampledAccess, DepthStages,
-            AccessFlags2.DepthStencilAttachmentReadBit);
-        _transparentPass.Record(cmd, targets, frameSet, draws, _meshes, instances);
+            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal, SampledStage, SampledAccess, DepthStages | SampledStage,
+            AccessFlags2.DepthStencilAttachmentReadBit | SampledAccess);
+        _transparentPass.Record(cmd, targets, frameSet, draws, _meshes, _details, instances, view,
+            _particlePass, _frameIndex, particleCount, _particleCamera);
 
         _api.EndColorTarget(cmd, targets.Hdr.Image);
         _gpuTimer.Mark(cmd);
@@ -1908,6 +1913,10 @@ public sealed unsafe class Renderer : IDisposable
             new(_environment.Sampler, _probes.View, ImageLayout.ShaderReadOnlyOptimal),
         ]);
 
+        // Glass and particles read depth while it's also attached for glass to test against.
+        var testedDepth = new DescriptorImageInfo(_sampler, _gBuffer.Depth.View, ImageLayout.DepthReadOnlyOptimal);
+        _transparentPass.WriteTargets(new(_mipSampler, _gBuffer.SceneColor.View, ImageLayout.ShaderReadOnlyOptimal), testedDepth);
+
         WriteImages(_scatterAcrossSet,
         [
             new(_sampler, _gBuffer.Scatter.View, ImageLayout.ShaderReadOnlyOptimal),
@@ -1918,10 +1927,8 @@ public sealed unsafe class Renderer : IDisposable
             new(_sampler, _gBuffer.ScatterBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
             depth,
         ]);
-
-        // Particles read depth after lighting, before glass moves it into a testing layout.
         _particlePass.WriteTargets(
-            depth,
+            testedDepth,
             new(_shadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_environment.Sampler, _environment.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
             new(_environment.Sampler, _environment.Reflections, ImageLayout.ShaderReadOnlyOptimal));

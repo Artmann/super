@@ -302,8 +302,9 @@ Particles are lit by the sun, the sky and point and spot lights, shaded by the s
 shadows, fade into haze and melt softly into the ground and anything they touch. A
 glowing particle gives off its own light on top, but doesn't light what's round it: put
 a `view.PointLight` at a fire for that. They cast no shadow, and underwater
-they fade with distance but miss the shafts of light. Glass drawn in front of them
-covers them correctly, but glass behind a puff also covers it. `Cached` keeps only
+they fade with distance but miss the shafts of light. They're sorted with
+[glass](rendering.md#glass), so a puff in front of a pane covers it and one behind is
+seen through it. `Cached` keeps only
 models, so draw particles outside it. A frame holds at most 32,768 particles; more
 are dropped. The `Dust` example drops trees in a clearing.
 

@@ -30,7 +30,7 @@ public sealed class ModelCooker : ICooker
 
     public string Id => "model";
 
-    public int Version => 4; // 2: "has no UVs" warns only when the material uses a texture. 3: subsurface. 4: height and detail textures.
+    public int Version => 5; // 2: "has no UVs" warns only when the material uses a texture. 3: subsurface. 4: height and detail textures. 5: materials gained Ior.
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -531,6 +531,7 @@ public sealed class ModelCooker : ICooker
             DetailNormalTexture = textures.Add(rule.DetailNormal, TextureKind.Linear, isNormalMap: true, namedBy: named),
             DetailScale = rule.DetailScale,
             Flags = flags,
+            Ior = rule.Ior,
             Subsurface = rule.Subsurface is { } subsurface
                 ? new Subsurface
                 {

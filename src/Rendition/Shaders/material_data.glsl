@@ -23,9 +23,11 @@ struct Material {
     uint detailColorTexture;
     uint detailNormalTexture;
     float detailScale; // 0 for no detail textures.
+    float ior; // 1 or more; 1 bends nothing.
     vec4 subsurface; // How far red, green and blue spread under the surface in metres; w is the widest, 0 for none.
 };
 
+const uint MATERIAL_TRANSPARENT = 2u;
 const uint MATERIAL_FOLIAGE = 4u;
 const uint MATERIAL_DETAIL_MASK = 8u;
 

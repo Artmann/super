@@ -149,6 +149,12 @@ public struct Material
     public MaterialFlags Flags;
 
     /// <summary>
+    /// How much transparent glass bends what's behind it: 1 or less is straight through,
+    /// as a thin window, and about 1.5 is solid glass, such as a bottle or a marble.
+    /// </summary>
+    public float Ior;
+
+    /// <summary>
     /// Light that spreads under the surface before it comes back out, as in skin, wax and
     /// marble. A radius of 0, the default, turns it off. It can't be combined with
     /// clearcoat or foliage, which use the same G-buffer channel.
