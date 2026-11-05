@@ -29,9 +29,15 @@ struct Material {
     uint shaderTextures[4];
     uint shaderArrays[4];
     uint flags; // MaterialFlags in Types.cs.
+    uint heightTexture;
+    float heightDepth; // Metres, 0 for no parallax.
+    uint detailColorTexture;
+    uint detailNormalTexture;
+    float detailScale; // 0 for no detail textures.
 };
 
 const uint MATERIAL_FOLIAGE = 4u;
+const uint MATERIAL_DETAIL_MASK = 8u;
 
 layout(set = 1, binding = 0) uniform sampler2D textures[];
 layout(set = 1, binding = 2) uniform sampler2DArray textureArrays[];

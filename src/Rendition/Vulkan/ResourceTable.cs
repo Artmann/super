@@ -40,11 +40,17 @@ internal sealed unsafe class ResourceTable : IDisposable
         public TextureSlots ShaderTextures;
         public TextureSlots ShaderArrays;
         public uint Flags;
+        public uint HeightTexture;
+        public float HeightDepth;
+        public uint DetailColorTexture;
+        public uint DetailNormalTexture;
+
+        /// <summary>0 when the material has no detail textures, so the shader skips them.</summary>
+        public float DetailScale;
 
         // std430 rounds the struct up to its vec4 alignment.
         private readonly int _padding0;
         private readonly int _padding1;
-        private readonly int _padding2;
     }
 
     private readonly VulkanContext _context;
@@ -65,14 +71,18 @@ internal sealed unsafe class ResourceTable : IDisposable
     private readonly bool[] _materialLive = new bool[MaxMaterials];
     private readonly TextureHandle _white;
     private readonly TextureHandle _flatNormal;
+    private readonly TextureHandle _grey;
     private readonly TextureArrayHandle _whiteArray;
     private int _materialCount;
 
     /// <summary>
-    /// Texture slots a material can name: base colour, normal, surface, emissive, then
-    /// the four shader textures.
+    /// Texture slots a material can name: base colour, normal, surface, emissive, height,
+    /// detail colour and detail normal, then the four shader textures.
     /// </summary>
-    public const int TexturesPerMaterial = 4 + ShaderTextures.Length;
+    public const int TexturesPerMaterial = OwnTextures + ShaderTextures.Length;
+
+    /// <summary>How many of a material's texture slots come before its shader textures.</summary>
+    private const int OwnTextures = 7;
 
     public readonly DescriptorSetLayout Layout;
     public readonly DescriptorSet Set;
@@ -165,6 +175,7 @@ internal sealed unsafe class ResourceTable : IDisposable
 
         _white = AddTexture(SolidTexture(255, 255, 255));
         _flatNormal = AddTexture(SolidTexture(128, 128, 255));
+        _grey = AddTexture(SolidTexture(128, 128, 128));
         _whiteArray = AddTextureArray(new GpuTexture(context, [SolidTexture(255, 255, 255)]));
     }
 
@@ -232,7 +243,7 @@ internal sealed unsafe class ResourceTable : IDisposable
     public TextureHandle AddTexture(TextureData data) => AddTexture(new GpuTexture(_context, data));
 
     /// <summary>Whether the handle is one of the table's own textures, which can't be destroyed.</summary>
-    public bool IsBuiltIn(TextureHandle texture) => texture == _white || texture == _flatNormal;
+    public bool IsBuiltIn(TextureHandle texture) => texture == _white || texture == _flatNormal || texture == _grey;
 
     /// <summary>Whether a handle names a texture that hasn't been destroyed.</summary>
     public bool IsLive(TextureHandle texture) =>
@@ -381,6 +392,13 @@ internal sealed unsafe class ResourceTable : IDisposable
             Emissive = new Vector4(material.Emissive, 0f),
             ShaderParameters = material.ShaderParameters,
             Flags = (uint)material.Flags,
+            HeightTexture = (uint)(material.HeightTexture ?? _white).Index,
+            HeightDepth = material.HeightTexture is null ? 0f : MathF.Max(material.HeightDepth, 0f),
+            DetailColorTexture = (uint)(material.DetailColorTexture ?? _grey).Index,
+            DetailNormalTexture = (uint)(material.DetailNormalTexture ?? _flatNormal).Index,
+            DetailScale = material.DetailColorTexture is null && material.DetailNormalTexture is null
+                ? 0f
+                : material.DetailScale > 0f ? material.DetailScale : 1f,
         };
         for (int i = 0; i < ShaderTextures.Length; i++)
         {
@@ -397,9 +415,12 @@ internal sealed unsafe class ResourceTable : IDisposable
         owned[1] = material.NormalTexture?.Index ?? -1;
         owned[2] = material.SurfaceTexture?.Index ?? -1;
         owned[3] = material.EmissiveTexture?.Index ?? -1;
+        owned[4] = material.HeightTexture?.Index ?? -1;
+        owned[5] = material.DetailColorTexture?.Index ?? -1;
+        owned[6] = material.DetailNormalTexture?.Index ?? -1;
         for (int i = 0; i < ShaderTextures.Length; i++)
         {
-            owned[4 + i] = material.ShaderTextures[i]?.Index ?? -1;
+            owned[OwnTextures + i] = material.ShaderTextures[i]?.Index ?? -1;
         }
     }
 

@@ -255,6 +255,9 @@ public sealed class Content
         RequireTexture(surface.ColorTexture, nameof(surface.ColorTexture));
         RequireTexture(surface.NormalTexture, nameof(surface.NormalTexture));
         RequireTexture(surface.SurfaceTexture, nameof(surface.SurfaceTexture));
+        RequireTexture(surface.HeightTexture, nameof(surface.HeightTexture));
+        RequireTexture(surface.DetailColorTexture, nameof(surface.DetailColorTexture));
+        RequireTexture(surface.DetailNormalTexture, nameof(surface.DetailNormalTexture));
         if (surface.Shader is { } shader)
         {
             Require<ShaderItem>(shader.Index, nameof(surface.Shader), "shader");
@@ -399,7 +402,8 @@ public sealed class Content
 
     private static bool Names(Surface surface, TextureRef texture)
     {
-        if (surface.ColorTexture == texture || surface.NormalTexture == texture || surface.SurfaceTexture == texture)
+        if (surface.ColorTexture == texture || surface.NormalTexture == texture || surface.SurfaceTexture == texture
+            || surface.HeightTexture == texture || surface.DetailColorTexture == texture || surface.DetailNormalTexture == texture)
         {
             return true;
         }
