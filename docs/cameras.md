@@ -207,7 +207,12 @@ var orbit = new OrbitCamera { WideAs = 16f / 9f };
 ```
 
 A screen held upright then shows everything a widescreen one shows from side to side,
-with more above and below. On a screen as wide as `WideAs` or wider, nothing changes.
+with more above and below.
+
+![The Forest example at 1080x1920. On the left, the camera as it was made for
+widescreen, cut off at the sides. On the right, with WideAs = 16/9 and --ui-scale 2.5.](media/tall-screens.webp)
+
+ On a screen as wide as `WideAs` or wider, nothing changes.
 It works with orthographic cameras too, where it grows `Size`, and every camera helper has
 the setting. It's zero, and so off, unless you set it. Clicking stays right, because
 `input.MouseRay` uses the same view.
