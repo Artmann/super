@@ -47,7 +47,7 @@ internal static unsafe class SceneDraws
         public int Material;
         public SwimMotion Swim;
 
-        /// <summary>Which shadow cascade the shadow pass is drawing. Other passes ignore it.</summary>
+        /// <summary>Which sun cascade the shadow pass is drawing, or from <see cref="ShadowPass.MaxCascades"/> on, which tile of the atlas. Other passes ignore it.</summary>
         public int Cascade;
 
         /// <summary>Where this draw's skin matrices start in the frame's bone buffer, or -1 for no skin.</summary>

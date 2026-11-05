@@ -53,6 +53,9 @@ internal struct FrameUniforms
     /// <summary>Last frame's, without its anti-aliasing shift.</summary>
     public Matrix4x4 PreviousViewProjection;
 
+    /// <summary>World to the camera's own space, where it looks down -z.</summary>
+    public Matrix4x4 View;
+
     public Vector4 CameraPosition;
 
     /// <summary>rgb: background; a: environment intensity.</summary>
@@ -94,6 +97,15 @@ internal struct FrameUniforms
     /// <summary>The radius each shadow cascade covers, in metres.</summary>
     public Vector4 ShadowRadii;
 
+    /// <summary>
+    /// How the view's depth is cut into the clusters' slices. x, y: the nearest and furthest
+    /// depth any light reaches; z: 1 when the view is parallel, so the slices are even.
+    /// </summary>
+    public Vector4 Clusters;
+
+    /// <summary>x, y: the size of the render targets in pixels.</summary>
+    public Vector4 Screen;
+
     public int LightCount;
     public float Time;
     public int FrameNumber;
@@ -101,7 +113,38 @@ internal struct FrameUniforms
     public int ProbeCount;
     public int ShowEnvironment;
     public int ShadowCascades;
-    private readonly int _padding;
+    public int LocalLightCount;
     public GpuLightArray Lights;
     public GpuReflectionProbeArray Probes;
+}
+
+/// <summary>One point or spot light as the shaders read it. Must match LocalLight in Shaders/light_data.glsl.</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct GpuLocalLight
+{
+    /// <summary>xyz: where it is; w: its range.</summary>
+    public Vector4 PositionRange;
+
+    /// <summary>rgb: colour times brightness; w: its first shadow tile, or -1 for none.</summary>
+    public Vector4 RadianceShadow;
+
+    /// <summary>xyz: which way a spot shines; w: the cosine of its outer angle, or -2 for a point light.</summary>
+    public Vector4 DirectionCone;
+
+    /// <summary>x: one over the cosines between the inner and outer angles, for the spot's fade.</summary>
+    public Vector4 Fade;
+}
+
+/// <summary>Where one view of a light sits in the shadow atlas. Must match ShadowTile in Shaders/light_data.glsl.</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct GpuShadowTile
+{
+    /// <summary>World to the tile's clip space, reversed-Z between its near and far planes.</summary>
+    public Matrix4x4 Matrix;
+
+    /// <summary>xy: the tile's corner in the atlas; zw: its size, both as fractions of the atlas.</summary>
+    public Vector4 Rect;
+
+    /// <summary>x, y: the near and far planes; z: the projection's scale, 1 / tan of half the view.</summary>
+    public Vector4 Depth;
 }

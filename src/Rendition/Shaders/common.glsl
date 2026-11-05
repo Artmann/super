@@ -15,6 +15,7 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     mat4 inverseViewProjection;
     mat4 shadowMatrices[4];      // One per cascade, each covering three times the last.
     mat4 previousViewProjection; // Last frame's, without its anti-aliasing shift.
+    mat4 view;                   // World to the camera's own space, where it looks down -z.
     vec4 cameraPosition;
     vec4 backgroundRadiance; // rgb: background; a: environment intensity
     vec4 parameters;         // x, y: background fade start, end; z: shadow light angle; w: normal offset
@@ -29,6 +30,8 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 waterDeep;          // rgb: colour of the water looking down; a: strength of the light shafts
     vec4 waterLight;         // x: strength of the caustics; y: how small they are; z: reach of the shafts
     vec4 shadowRadii;        // The radius each cascade covers, in metres.
+    vec4 clusters;           // x, y: nearest and furthest depth a local light reaches; z: 1 for even slices
+    vec4 screen;             // xy: the render targets' size in pixels
     int lightCount;
     float time;              // Seconds, as set by the game.
     int frameNumber;
@@ -36,6 +39,7 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     int probeCount;
     int showEnvironment;     // 1 draws the environment where nothing was drawn.
     int shadowCascades;      // How many of shadowMatrices are in use.
+    int localLightCount;     // Point and spot lights in light_data.glsl's lights.
     Light lights[8];
     ReflectionProbe probes[4];
 } frame;

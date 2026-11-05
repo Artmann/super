@@ -63,14 +63,28 @@ public class PostGradeTests
     [Fact]
     public void The_lift_gain_and_haze_follow_the_finish_in_the_frame_block_of_common_glsl()
     {
-        // std140: seven mat4s (two, four shadow cascades, one previous) of 64 bytes, then the
-        // vec4s cameraPosition, backgroundRadiance, parameters, grade and finish.
-        int finish = (7 * 64) + (4 * 16);
+        // std140: eight mat4s (two, four shadow cascades, the previous one and the view) of 64
+        // bytes, then the vec4s cameraPosition, backgroundRadiance, parameters, grade and finish.
+        int finish = (8 * 64) + (4 * 16);
         Assert.Equal(finish, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Finish)));
         Assert.Equal(finish + 16, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Lift)));
         Assert.Equal(finish + 32, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Gain)));
         Assert.Equal(finish + 48, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.HazeOrigin)));
         Assert.Equal(finish + 64, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.HazeColor)));
         Assert.Equal(finish + 80, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.WaterAbsorption)));
+    }
+
+    [Fact]
+    public void The_view_clusters_and_local_light_count_sit_where_common_glsl_reads_them()
+    {
+        Assert.Equal(7 * 64, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.View)));
+
+        // After shadowRadii come clusters and screen, then eight ints, the last the local light count.
+        int radii = (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.ShadowRadii));
+        Assert.Equal(radii + 16, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Clusters)));
+        Assert.Equal(radii + 32, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Screen)));
+        Assert.Equal(radii + 48, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.LightCount)));
+        Assert.Equal(radii + 48 + 28, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.LocalLightCount)));
+        Assert.Equal(radii + 48 + 32, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Lights)));
     }
 }

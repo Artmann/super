@@ -55,6 +55,8 @@ component on its entity instead. See [Audio](audio.md).
 | `view.Camera(position, lookAt, fieldOfView)` | A fixed camera. See [Cameras](cameras.md) for the rest |
 | `view.Camera(camera)` | A `Camera` value the game keeps |
 | `view.Sun(direction, color)` | A directional light. `color` is linear and can go past 1 |
+| `view.PointLight(key, position, color, range, shadows)` | A light shining every way, like a candle or a torch. See [Point and spot lights](rendering.md#point-and-spot-lights) |
+| `view.SpotLight(key, position, direction, color, range, innerAngle, outerAngle, shadows)` | A light shining in a cone, like a lantern's beam |
 | `view.Model(key, model, transform, color)` | A model. `color`, if given, tints it and keeps its textures. `ModelRef.Cube`, `Sphere`, `Capsule`, `Cylinder`, `Cone`, `Plane`, `Quad` and `Torus` are [built in](rendering.md#built-in-shapes) |
 | `view.Ghost(key, model, transform, color, opacity)` | A model in one colour that glows a little, as a [preview of where something will go](rendering.md#ghosts) |
 | `view.Shadows(radius, cascades)` | How far shadows reach. See [Rendering](rendering.md#shadows) |
@@ -251,12 +253,13 @@ sizes, colours and opacities multiply.
 | Motion | `Wobble(metres, perSecond)` | A smooth wandering sway, like eddies in the air |
 | | `Swirl(turnsPerSecond)` | Turns them round the upright axis through the middle, like a dust devil |
 | Look | `Size(start, end, easing, spread)` | Width in metres over the life. The default `Easing.Out` grows fast, then slowly |
-| | `Color(color)`, `Color(start, end)` | Linear colour like a model's, lit by the sun and sky |
+| | `Color(color)`, `Color(start, end)` | Linear colour like a model's, lit by the sun, the sky and point and spot lights |
 | | `Gradient((0f, a), (0.3f, b), (1f, c))` | Colours at points through the life, blending between them |
 | | `Opacity(amount)` | How solid the middle is at most, from 0 to 1. Overlapping puffs add up |
 | | `Fade(in, out)` | The parts of the life, from 0 to 1, spent fading in and out |
 | | `Flicker(amount, perSecond)` | Dips the opacity, each particle at its own beat |
 | | `Spin(radiansPerSecond)` | Turns each at its own speed, up to that fast either way |
+| | `Glow(strength)` | Shines with its own colour times this, like a flame or a spark. Past 1 it blooms |
 
 A setting out of range throws with the reason, and `ToString()` lists the nodes in
 order, which helps when a puff doesn't look as expected.
@@ -295,8 +298,10 @@ allocates nothing.
 
 ### How they look
 
-Particles are lit by the sun and sky, shaded by shadows, fade into haze and melt
-softly into the ground and anything they touch. They cast no shadow, and underwater
+Particles are lit by the sun, the sky and point and spot lights, shaded by the sun's
+shadows, fade into haze and melt softly into the ground and anything they touch. A
+glowing particle gives off its own light on top, but doesn't light what's round it: put
+a `view.PointLight` at a fire for that. They cast no shadow, and underwater
 they fade with distance but miss the shafts of light. Glass drawn in front of them
 covers them correctly, but glass behind a puff also covers it. `Cached` keeps only
 models, so draw particles outside it. A frame holds at most 32,768 particles; more

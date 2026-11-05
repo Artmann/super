@@ -226,6 +226,49 @@ public struct DirectionalLight
     public bool CastsShadow;
 }
 
+/// <summary>
+/// A light at a point, such as a torch, a lamp or a candle, that dims with distance and
+/// ends at its range. Given a cone it's a spot, shining one way only. Any number can light
+/// a frame, up to <see cref="MaxPerFrame"/>; see "Point and spot lights" in docs/rendering.md.
+/// </summary>
+public struct LocalLight
+{
+    /// <summary>The most one frame can have. The renderer throws past this.</summary>
+    public const int MaxPerFrame = 1024;
+
+    /// <summary>
+    /// Picks out a light from one frame to the next, so its shadow keeps its sharpness as it
+    /// moves. Any number, but no two lights in a frame should share one.
+    /// </summary>
+    public int Key;
+
+    public Vector3 Position;
+
+    /// <summary>Linear colour times brightness, as it falls on a surface one metre away facing it.</summary>
+    public Vector3 Radiance;
+
+    /// <summary>How far the light reaches, in metres. It fades smoothly to nothing there.</summary>
+    public float Range;
+
+    /// <summary>For a spot, the unit vector it shines along. Ignored for a point light.</summary>
+    public Vector3 Direction;
+
+    /// <summary>For a spot, the angle from its axis, in radians, inside which it shines fully.</summary>
+    public float InnerAngle;
+
+    /// <summary>
+    /// For a spot, the angle from its axis, in radians, where it has faded to nothing; under
+    /// π/2. Zero makes a point light, which shines every way.
+    /// </summary>
+    public float OuterAngle;
+
+    /// <summary>Whether things block it. Shadows are drawn into a shared atlas; see docs/rendering.md.</summary>
+    public bool CastsShadow;
+
+    /// <summary>Whether it's a spot rather than a point light.</summary>
+    public readonly bool IsSpot => OuterAngle > 0f;
+}
+
 /// <summary>A glowing rectangle in the environment, such as a studio softbox.</summary>
 public struct EnvironmentPanel
 {
@@ -422,6 +465,9 @@ public ref struct FrameView
     /// <summary>At most eight are used.</summary>
     public ReadOnlySpan<DirectionalLight> Lights;
 
+    /// <summary>Point and spot lights. At most <see cref="LocalLight.MaxPerFrame"/>; more throws.</summary>
+    public ReadOnlySpan<LocalLight> LocalLights;
+
     /// <summary>
     /// Every skinned draw's matrices for this frame, one after another, which draws
     /// point into with <see cref="DrawItem.Bones"/>. At most <see cref="Renderer.MaxBones"/>.
@@ -476,8 +522,9 @@ public ref struct FrameView
 
 /// <summary>
 /// A soft, see-through puff that always faces the camera, such as one wisp of dust or
-/// smoke. It's lit by the sun and the sky, falls into shadow, fades into haze, and melts
-/// into whatever it touches instead of showing a hard edge where it meets the ground.
+/// smoke. It's lit by the sun, the sky and point and spot lights, falls into the sun's
+/// shadow, fades into haze, and melts into whatever it touches instead of showing a hard
+/// edge where it meets the ground. A glowing one, such as a lick of flame, adds its own light.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 public struct Particle
@@ -499,6 +546,12 @@ public struct Particle
 
     /// <summary>Picks the lumpy outline of the puff. Any number; nearby values look alike.</summary>
     public float Variant;
+
+    /// <summary>
+    /// Light the puff gives off itself, as a multiple of its colour, on top of the light it's
+    /// lit by: 0 for dust, about 1 for embers, and past 1 for flames, which then bloom.
+    /// </summary>
+    public float Glow;
 }
 
 /// <summary>

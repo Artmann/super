@@ -67,6 +67,7 @@ public sealed class View
     private readonly List<ModelDraw> _models = [];
     private readonly List<SunLight> _suns = [];
     private readonly List<Particle> _particles = [];
+    private readonly List<LocalLight> _lights = [];
     private readonly ViewMemory _memory = new();
     private long _frame;
     private long _tick;
@@ -94,6 +95,9 @@ public sealed class View
     /// <summary>Everything drawn so far this frame.</summary>
     public ReadOnlySpan<ModelDraw> Drawn => CollectionsMarshal.AsSpan(_models);
 
+    /// <summary>Every point and spot light so far this frame.</summary>
+    public ReadOnlySpan<LocalLight> DrawnLights => CollectionsMarshal.AsSpan(_lights);
+
     /// <summary>Every particle drawn so far this frame, in no particular order.</summary>
     public ReadOnlySpan<Particle> DrawnParticles => CollectionsMarshal.AsSpan(_particles);
 
@@ -112,6 +116,91 @@ public sealed class View
     /// unit long. Colors above 1 are brighter. The first sun casts the shadows.
     /// </summary>
     public void Sun(Vector3 direction, Vector3 color) => _suns.Add(new SunLight(Vector3.Normalize(direction), color));
+
+    /// <summary>
+    /// Adds a light that shines every way from a point, such as a candle or a torch. The
+    /// color is how bright it is on a surface a metre away, and it dims with the square of
+    /// the distance, reaching nothing at the range. The key names it across frames, so its
+    /// shadow stays as sharp as it moves; use a stable ID. A frame can have up to
+    /// <see cref="LocalLight.MaxPerFrame"/>, and lights with shadows share an atlas, so the
+    /// biggest on screen get the sharpest ones. See "Point and spot lights" in docs/views.md.
+    /// </summary>
+    public void PointLight(int key, Vector3 position, Vector3 color, float range, bool shadows = true)
+    {
+        CheckLight(position, color, range);
+        _lights.Add(new LocalLight
+        {
+            Key = key,
+            Position = position,
+            Radiance = color,
+            Range = range,
+            CastsShadow = shadows,
+        });
+    }
+
+    /// <summary>
+    /// Adds a light that shines one way in a cone, such as a lantern's beam. It's full
+    /// inside the inner angle and fades to nothing at the outer one; both are measured
+    /// from the direction, in radians, and the outer must be under a right angle.
+    /// Otherwise it's like <see cref="PointLight"/>, though it costs a sixth as much shadow.
+    /// </summary>
+    public void SpotLight(
+        int key, Vector3 position, Vector3 direction, Vector3 color, float range, float innerAngle, float outerAngle, bool shadows = true)
+    {
+        CheckLight(position, color, range);
+        if (!(direction.LengthSquared() > 1e-12f) || !float.IsFinite(direction.LengthSquared()))
+        {
+            throw new ArgumentException($"A spot light needs a direction to shine in, not {direction}.", nameof(direction));
+        }
+
+        if (!(outerAngle > 0f && outerAngle < MathF.PI / 2f))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(outerAngle), outerAngle, "A spot light's outer angle must be more than 0 and less than π/2 radians.");
+        }
+
+        if (!(innerAngle >= 0f && innerAngle <= outerAngle))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(innerAngle), innerAngle, "A spot light's inner angle must be from 0 up to its outer angle.");
+        }
+
+        _lights.Add(new LocalLight
+        {
+            Key = key,
+            Position = position,
+            Radiance = color,
+            Range = range,
+            Direction = Vector3.Normalize(direction),
+            InnerAngle = innerAngle,
+            OuterAngle = outerAngle,
+            CastsShadow = shadows,
+        });
+    }
+
+    private void CheckLight(Vector3 position, Vector3 color, float range)
+    {
+        if (_lights.Count >= LocalLight.MaxPerFrame)
+        {
+            throw new InvalidOperationException(
+                $"A frame can have at most {LocalLight.MaxPerFrame} point and spot lights. Leave out those too far away to see.");
+        }
+
+        if (!(range > 0f) || !float.IsFinite(range))
+        {
+            throw new ArgumentOutOfRangeException(nameof(range), range, "A light's range must be more than 0 metres.");
+        }
+
+        if (!float.IsFinite(position.X + position.Y + position.Z))
+        {
+            throw new ArgumentException($"A light can't be at {position}.", nameof(position));
+        }
+
+        if (!(color.X >= 0f && color.Y >= 0f && color.Z >= 0f) || !float.IsFinite(color.X + color.Y + color.Z))
+        {
+            throw new ArgumentException($"A light's color can't be negative, but it was {color}.", nameof(color));
+        }
+    }
 
     /// <summary>
     /// Draws a model. The key names it across frames, so use a stable ID from your game.
@@ -388,6 +477,7 @@ public sealed class View
         _models.Clear();
         _suns.Clear();
         _particles.Clear();
+        _lights.Clear();
         WaterSettings = default;
         SkySettings = null;
         Post = new PostSettings { Vignette = 0.3f, Sharpen = 0.4f };

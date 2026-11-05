@@ -90,6 +90,7 @@ class Console(Input input)
 | `Down`, `Pressed`, `Released` | For a `Key`, `MouseButton` or `GamepadButton` |
 | `Stick(GamepadStick)`, `Trigger(GamepadTrigger)` | The first gamepad. Sticks give forward as positive y |
 | `MousePosition` | In the same pixels the interface lays out in |
+| `ScreenSize` | The screen's size in those pixels, for placing interface over the world |
 | `MouseDelta`, `Scroll` | Movement and wheel notches this tick |
 | `MouseRay(camera)` | A ray into the world, for [clicking](cameras.md#clicking-on-things) |
 | `MouseOverUi` | True while the cursor is over the [interface](interfaces.md#the-mouse) |
