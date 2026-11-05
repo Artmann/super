@@ -20,7 +20,8 @@ public class GpuMaterialTests
             + 8 * vec4          // shaderParameters[8]
             + 4 * scalar        // shaderTextures[4]
             + 4 * scalar        // shaderArrays[4]
-            + vec4;             // flags, rounded up to the struct's vec4 alignment
+            + 4 * scalar        // flags, transmission, then padding to the next vec4
+            + vec4;             // subsurface
 
         Assert.Equal(expected, Unsafe.SizeOf<ResourceTable.GpuMaterial>());
     }

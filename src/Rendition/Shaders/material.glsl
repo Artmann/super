@@ -13,25 +13,7 @@ layout(push_constant) uniform Draw {
 // How brightly a ghost glows, so its colour reads in shadow and on the dark side.
 const float GHOST_GLOW = 0.35;
 
-// Must match GpuMaterial in Vulkan/ResourceTable.cs.
-struct Material {
-    vec4 baseColor;
-    float metallic;
-    float roughness;
-    float alphaCutoff;
-    uint baseColorTexture;
-    uint normalTexture;
-    uint surfaceTexture;
-    uint emissiveTexture;
-    float clearcoat;
-    vec4 emissive; // rgb
-    vec4 shaderParameters[8];
-    uint shaderTextures[4];
-    uint shaderArrays[4];
-    uint flags; // MaterialFlags in Types.cs.
-};
-
-const uint MATERIAL_FOLIAGE = 4u;
+#include "material_data.glsl"
 
 layout(set = 1, binding = 0) uniform sampler2D textures[];
 layout(set = 1, binding = 2) uniform sampler2DArray textureArrays[];

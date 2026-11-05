@@ -83,6 +83,8 @@ public sealed unsafe class Renderer : IDisposable
     private readonly DescriptorSetLayout _oneTextureSetLayout;
     private readonly DescriptorSet _aoSet;
     private readonly DescriptorSet _aoBlurSet;
+    private readonly DescriptorSet _scatterAcrossSet;
+    private readonly DescriptorSet _scatterDownSet;
     private readonly DescriptorSet _lightingSet;
     private readonly DescriptorSet _taaSet;
     private readonly DescriptorSet _tonemapSet;
@@ -96,6 +98,8 @@ public sealed unsafe class Renderer : IDisposable
     private readonly FullscreenPass _aoPass;
     private readonly FullscreenPass _aoBlurPass;
     private readonly FullscreenPass _lightingPass;
+    private readonly FullscreenPass _scatterAcrossPass;
+    private readonly FullscreenPass _scatterDownPass;
     private readonly TransparentPass _transparentPass;
     private readonly ParticlePass _particlePass;
     private ParticlePass.CameraConstants _particleCamera;
@@ -192,12 +196,12 @@ public sealed unsafe class Renderer : IDisposable
         {
             new(DescriptorType.UniformBuffer, FramesInFlight),
             new(DescriptorType.StorageBuffer, 2 * FramesInFlight),
-            new(DescriptorType.CombinedImageSampler, 23),
+            new(DescriptorType.CombinedImageSampler, 27),
         };
         var poolInfo = new DescriptorPoolCreateInfo
         {
             SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = FramesInFlight + 7,
+            MaxSets = FramesInFlight + 9,
             PoolSizeCount = 3,
             PPoolSizes = poolSizes,
         };
@@ -222,6 +226,8 @@ public sealed unsafe class Renderer : IDisposable
 
         _aoSet = AllocateSet(_threeTextureSetLayout);
         _aoBlurSet = AllocateSet(_twoTextureSetLayout);
+        _scatterAcrossSet = AllocateSet(_twoTextureSetLayout);
+        _scatterDownSet = AllocateSet(_twoTextureSetLayout);
         _lightingSet = AllocateSet(_lightingSetLayout);
         _taaSet = AllocateSet(_threeTextureSetLayout);
         _tonemapSet = AllocateSet(_twoTextureSetLayout);
@@ -234,7 +240,12 @@ public sealed unsafe class Renderer : IDisposable
         _gBufferPass = new GBufferPass(_context, _frameSetLayout, _resources);
         _aoPass = new FullscreenPass(_context, "ao.frag", GBuffer.AoFormat, [_frameSetLayout, _threeTextureSetLayout]);
         _aoBlurPass = new FullscreenPass(_context, "ao_blur.frag", GBuffer.AoFormat, [_twoTextureSetLayout]);
-        _lightingPass = new FullscreenPass(_context, "lighting.frag", GBuffer.HdrFormat, [_frameSetLayout, _lightingSetLayout]);
+        _lightingPass = new FullscreenPass(_context, "lighting.frag", [GBuffer.HdrFormat, GBuffer.HdrFormat],
+            [_frameSetLayout, _lightingSetLayout, _resources.Layout]);
+        _scatterAcrossPass = new FullscreenPass(_context, "sss_blur.frag", [GBuffer.HdrFormat],
+            [_frameSetLayout, _twoTextureSetLayout, _resources.Layout], BlurConstants.Size);
+        _scatterDownPass = new FullscreenPass(_context, "sss_blur.frag", [GBuffer.HdrFormat],
+            [_frameSetLayout, _twoTextureSetLayout, _resources.Layout], BlurConstants.Size, blend: true);
         _transparentPass = new TransparentPass(_context, _frameSetLayout, _resources, _environment);
         _taaPass = new FullscreenPass(_context, "taa.frag", GBuffer.HdrFormat, [_frameSetLayout, _threeTextureSetLayout]);
         _tonemapPass = new FullscreenPass(_context, "tonemap.frag", GBuffer.LdrFormat, [_frameSetLayout, _twoTextureSetLayout]);
@@ -616,6 +627,11 @@ public sealed unsafe class Renderer : IDisposable
 
     private void ValidateMaterial(in Material material)
     {
+        if (material.Subsurface.Problem(material.Clearcoat, material.Flags) is { } problem)
+        {
+            throw new ArgumentException($"The material's {problem}", nameof(material));
+        }
+
         if (material.Shader is { } shader)
         {
             if (shader.Index <= 0 || shader.Index >= _gBufferPass.ShaderCount)
@@ -669,6 +685,7 @@ public sealed unsafe class Renderer : IDisposable
                 EmissiveTexture = source.EmissiveTexture >= 0 ? textures[source.EmissiveTexture] : null,
                 Clearcoat = source.Clearcoat,
                 Flags = source.Flags,
+                Subsurface = source.Subsurface,
             });
         }
 
@@ -988,6 +1005,8 @@ public sealed unsafe class Renderer : IDisposable
         _transparentPass.Dispose();
         _particlePass.Dispose();
         _lightingPass.Dispose();
+        _scatterAcrossPass.Dispose();
+        _scatterDownPass.Dispose();
         _aoBlurPass.Dispose();
         _aoPass.Dispose();
         _gBufferPass.Dispose();
@@ -1239,9 +1258,33 @@ public sealed unsafe class Renderer : IDisposable
         _gpuTimer.Mark(cmd);
 
         _api.BeginColorTarget(cmd, targets.Hdr.Image);
+        _api.BeginColorTarget(cmd, targets.Scatter.Image);
 
-        ReadOnlySpan<DescriptorSet> lightingSets = [frameSet, _lightingSet];
-        _lightingPass.Record(cmd, targets.Hdr.View, extent, lightingSets);
+        ReadOnlySpan<DescriptorSet> lightingSets = [frameSet, _lightingSet, _resources.Set];
+        _lightingPass.Record(cmd, [targets.Hdr.View, targets.Scatter.View], extent, lightingSets, []);
+        _api.EndColorTarget(cmd, targets.Scatter.Image);
+        _gpuTimer.Mark(cmd);
+
+        // The diffuse light of skin and wax spreads across the screen, then down it and
+        // onto the lit image. Nothing to spread when no material scatters.
+        if (_resources.AnySubsurface)
+        {
+            var across = BlurConstants.Across;
+            ReadOnlySpan<DescriptorSet> acrossSets = [frameSet, _scatterAcrossSet, _resources.Set];
+            _api.BeginColorTarget(cmd, targets.ScatterBlurred.Image);
+            _scatterAcrossPass.Record(cmd, targets.ScatterBlurred.View, extent, acrossSets,
+                new ReadOnlySpan<byte>(&across, (int)BlurConstants.Size));
+            _api.EndColorTarget(cmd, targets.ScatterBlurred.Image);
+
+            var down = BlurConstants.Down;
+            ReadOnlySpan<DescriptorSet> downSets = [frameSet, _scatterDownSet, _resources.Set];
+            _api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
+                ColorWrite | AccessFlags2.ColorAttachmentReadBit);
+            _scatterDownPass.Record(cmd, targets.Hdr.View, extent, downSets,
+                new ReadOnlySpan<byte>(&down, (int)BlurConstants.Size));
+        }
+
         _gpuTimer.Mark(cmd);
 
         // Particles blend over the lit image, reading depth as a texture to melt into
@@ -1611,6 +1654,17 @@ public sealed unsafe class Renderer : IDisposable
             new(_sampler, _gBuffer.AoBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_linearSampler, _gBuffer.History.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_environment.Sampler, _probes.View, ImageLayout.ShaderReadOnlyOptimal),
+        ]);
+
+        WriteImages(_scatterAcrossSet,
+        [
+            new(_sampler, _gBuffer.Scatter.View, ImageLayout.ShaderReadOnlyOptimal),
+            depth,
+        ]);
+        WriteImages(_scatterDownSet,
+        [
+            new(_sampler, _gBuffer.ScatterBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
+            depth,
         ]);
 
         // Particles read depth after lighting, before glass moves it into a testing layout.

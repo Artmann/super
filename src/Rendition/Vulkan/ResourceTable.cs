@@ -40,11 +40,12 @@ internal sealed unsafe class ResourceTable : IDisposable
         public TextureSlots ShaderTextures;
         public TextureSlots ShaderArrays;
         public uint Flags;
-
-        // std430 rounds the struct up to its vec4 alignment.
+        public float Transmission;
         private readonly int _padding0;
         private readonly int _padding1;
-        private readonly int _padding2;
+
+        /// <summary>How far red, green and blue spread under the surface, in metres, and the widest of them in w.</summary>
+        public Vector4 Subsurface;
     }
 
     private readonly VulkanContext _context;
@@ -54,6 +55,7 @@ internal sealed unsafe class ResourceTable : IDisposable
     private readonly MaterialFlags[] _materialFlags = new MaterialFlags[MaxMaterials];
     private readonly int[] _materialShaders = new int[MaxMaterials];
     private readonly bool[] _materialCutouts = new bool[MaxMaterials];
+    private readonly bool[] _materialSubsurface = new bool[MaxMaterials];
     private readonly int[] _materialTextures = new int[MaxMaterials * TexturesPerMaterial];
     private readonly List<GpuTexture?> _textures = [];
     private readonly List<GpuTexture?> _textureArrays = [];
@@ -174,6 +176,23 @@ internal sealed unsafe class ResourceTable : IDisposable
 
     /// <summary>Whether the material's texture cuts holes in it.</summary>
     public bool HasCutouts(MaterialHandle material) => _materialCutouts[material.Index];
+
+    /// <summary>True when a live material scatters light under its surface, so the frame needs the subsurface blur.</summary>
+    public bool AnySubsurface
+    {
+        get
+        {
+            for (int i = 0; i < _materialCount; i++)
+            {
+                if (_materialLive[i] && _materialSubsurface[i])
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+    }
 
     /// <summary>
     /// Takes a slot for a texture and points it at the image. The slot is free in every
@@ -364,6 +383,22 @@ internal sealed unsafe class ResourceTable : IDisposable
         WriteMaterial(handle.Index, material);
     }
 
+    /// <summary>
+    /// How far each colour spreads in metres, with the widest in w, or zero when the
+    /// surface doesn't scatter. A colour of zero spreads all three channels the full radius.
+    /// </summary>
+    internal static Vector4 Spread(in Subsurface subsurface)
+    {
+        if (!subsurface.IsOn)
+        {
+            return Vector4.Zero;
+        }
+
+        var color = subsurface.Color == Vector3.Zero ? Vector3.One : Vector3.Max(subsurface.Color, Vector3.Zero);
+        var spread = color * subsurface.Radius;
+        return new Vector4(spread, MathF.Max(spread.X, MathF.Max(spread.Y, spread.Z)));
+    }
+
     private void WriteMaterial(int index, in Material material)
     {
         ref var gpu = ref ((GpuMaterial*)_materials.Mapped)[index];
@@ -381,6 +416,8 @@ internal sealed unsafe class ResourceTable : IDisposable
             Emissive = new Vector4(material.Emissive, 0f),
             ShaderParameters = material.ShaderParameters,
             Flags = (uint)material.Flags,
+            Transmission = material.Subsurface.IsOn ? Math.Clamp(material.Subsurface.Transmission, 0f, 1f) : 0f,
+            Subsurface = Spread(material.Subsurface),
         };
         for (int i = 0; i < ShaderTextures.Length; i++)
         {
@@ -391,6 +428,7 @@ internal sealed unsafe class ResourceTable : IDisposable
         _materialFlags[index] = material.Flags;
         _materialShaders[index] = material.Shader?.Index ?? 0;
         _materialCutouts[index] = material.AlphaCutoff > 0f;
+        _materialSubsurface[index] = material.Subsurface.IsOn;
 
         var owned = _materialTextures.AsSpan(index * TexturesPerMaterial, TexturesPerMaterial);
         owned[0] = material.BaseColorTexture?.Index ?? -1;

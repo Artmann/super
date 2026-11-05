@@ -529,7 +529,8 @@ ShadowPass    scene geometry   -> depth from the key light (2048 x 2048, up to 4
 GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, depth
 AoPass        fullscreen       -> ambient occlusion from depth and normals
 AoBlurPass    fullscreen       -> the same with the grain averaged away
-LightingPass  fullscreen       -> HDR colour (Cook-Torrance GGX PBR, traced reflections, probes)
+LightingPass  fullscreen       -> HDR colour (Cook-Torrance GGX PBR, traced reflections, probes), subsurface diffuse apart
+SssBlurPass   fullscreen x 2   -> subsurface diffuse spread across, then down and added to HDR colour
 ParticlePass  camera squares   -> soft puffs blended over HDR colour, back to front
 TransparentPass  glass         -> blended over HDR colour, forward shaded
 TaaPass       fullscreen       -> this frame blended with history, then copied to history
@@ -544,7 +545,7 @@ G-buffer layout:
 | --- | --- | --- |
 | 0 | `R8G8B8A8_SRGB` | base colour, metallic |
 | 1 | `R16G16B16A16_SFLOAT` | octahedral normal (xy), roughness, AO |
-| 2 | `R16G16B16A16_SFLOAT` | emissive colour, clearcoat (or minus the translucency, for foliage) |
+| 2 | `R16G16B16A16_SFLOAT` | emissive colour, clearcoat (or minus the translucency, for foliage, or 2 plus the material index, for subsurface) |
 | depth | `D32_SFLOAT` | reversed-Z, position is reconstructed from it |
 
 Games talk to the renderer with plain structs: `Renderer.Render(in FrameView,
@@ -669,6 +670,29 @@ shaded as it's drawn, after lighting, and tests against the depth of the opaque 
 without writing to it. Its reflection stays at full strength however clear the glass
 is, and only its tint is scaled by opacity. The colour is premultiplied so the
 blend can express that.
+
+## Subsurface scattering
+
+Skin, wax and jade follow Jimenez et al., "Separable Subsurface Scattering" (2015): the
+lighting pass writes the diffuse light of subsurface pixels to a second target, `Scatter`,
+and leaves it out of the HDR colour. Two passes of `sss_blur.frag` then spread it across
+the screen and down it, the second adding the result onto the HDR colour with a
+premultiplied blend whose alpha is 0. Specular light and glow stay sharp.
+
+The G-buffer has no room for another channel, so a subsurface pixel puts its material
+index, plus 2, where clearcoat goes. Clearcoat stays within 0 and 1 and foliage is
+negative, so the three can't be mistaken for one another, and half floats hold whole
+numbers exactly up to 2048, beyond the 1024 materials. The lighting pass and the blur
+bind the material table as set 2 to read the spread and transmission. `Scatter` carries
+the index plus 1 in its alpha, 0 for every other pixel.
+
+Each tap is weighed by a Gaussian of the distance between the two points in the world,
+per colour channel, with a standard deviation of half the spread. Distance in the world
+rather than on screen keeps the blur the same size at any range and stops light from
+bleeding across a silhouette to whatever is behind, so there is no halo. The taps reach
+three standard deviations of the widest colour, at most 96 pixels, and shift a little
+every frame so anti-aliasing turns the gaps between them into smooth grain. When no
+material has subsurface both blur passes are skipped.
 
 ## Particles
 
@@ -876,8 +900,11 @@ Anything larger than a block gets its own allocation.
   clothing, so its sidecar sets `noNormalMap`.
 - The model cooker reads glTF's `MASK` cut-outs, but not its emissive maps, glass or
   two-sided flags yet. Set those in the sidecar.
-- Foliage translucency is a constant in `surface.glsl`, and a material can't have both
-  foliage and clearcoat, since they share a G-buffer channel.
+- Foliage translucency is a constant in `surface.glsl`, and foliage, clearcoat and
+  subsurface exclude one another, since they share a G-buffer channel.
+- Subsurface blurs the lit diffuse light, colour included, so a skin texture softens a
+  little along with the light. Transmission uses the shadow map like foliage does, not
+  the real thickness, and under water the light isn't spread.
 - Clips are sampled at 30 frames a second when cooked and blended linearly between
   frames. Root motion only carries travel over the ground, not turns.
 - The adventurer model has 929,000 triangles, which suits a showcase more than a game. A
