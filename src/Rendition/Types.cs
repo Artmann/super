@@ -120,6 +120,12 @@ public struct Material
     public float Clearcoat;
     public MaterialFlags Flags;
 
+    /// <summary>
+    /// How much transparent glass bends what's behind it: 1 or less is straight through,
+    /// as a thin window, and about 1.5 is solid glass, such as a bottle or a marble.
+    /// </summary>
+    public float Ior;
+
     /// <summary>Replaces the standard surface shader. Transparent materials can't use one yet.</summary>
     public SurfaceShaderHandle? Shader;
 

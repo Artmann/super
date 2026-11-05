@@ -11,7 +11,7 @@ What it does for every game, with no setup:
 - A generated environment that gives surfaces reflections and soft fill light
 - Screen-space reflections and box-corrected reflection probes
 - Temporal anti-aliasing, ambient occlusion (with light bounced back from the surface's colour) and bloom
-- Glass, car paint clearcoat and surfaces that glow
+- [Glass](#glass) that bends and frosts what's behind it, car paint clearcoat and surfaces that glow
 - Soft, lit [particles](views.md#particles) for dust and smoke
 - Culling and simpler versions of distant models, for the camera and for shadows
 - ACES filmic tonemapping, colour grading, sharpening, vignette, grain and dithering
@@ -222,7 +222,7 @@ as the shared `assets` folder does for Poly Haven's `textures` folders:
 
 Other options are the `baseColor`, `normal`, `surface` and `emissive` textures,
 `color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `twoSided`, `transparent`,
-`opacity`, `noNormalMap` and `rotateY`; see `src/Super.Cook.Models/ImportSettings.cs`.
+`opacity`, `ior`, `noNormalMap` and `rotateY`; see `src/Super.Cook.Models/ImportSettings.cs`.
 
 A rigged model keeps its skeleton, bone weights and clips, and `animations` adds clips
 from other files of the same rig, such as Mixamo's:
@@ -244,6 +244,35 @@ licenses or their size ([CREDITS.md](../CREDITS.md)). [assets/README.md](../asse
 says where each one comes from and the name to save it under. Without them the examples
 still build: the cook warns `No source file <name>; skipped.` for each sidecar whose model
 is missing, and the game reports a missing model when it names it.
+
+## Glass
+
+![Glass panes before coloured posts: a clear one, a frosted one and a green one, with glass balls bending the floor and dust rising between the panes](media/glass.webp)
+
+A surface below full opacity is glass. Its colour shows by its opacity, and the rest
+lets through what's behind it. Roughness frosts it, blurring what's seen through, and
+`Ior` bends it. Leave `Ior` at 1 for a thin pane, which hardly bends light, and use
+about 1.5 for solid glass such as a marble or a bottle.
+
+```csharp
+var window = new Surface { Color = new Vector3(0.75f, 0.85f, 0.95f), Roughness = 0.05f, Opacity = 0.12f };
+var frosted = new Surface { Color = new Vector3(0.9f), Roughness = 0.45f, Opacity = 0.2f };
+var marble = new Surface { Color = new Vector3(0.95f), Roughness = 0.02f, Opacity = 0.08f, Ior = 1.5f };
+```
+
+A cooked model's material is glass with `"transparent": true` and an `opacity`, and
+bends with `"ior": 1.5` in its [material rule](#models).
+
+Glass and particles are drawn together, furthest first, so a pane in front of dust
+covers it and dust in front of a pane covers that. Glass sees the scene through a copy
+of the picture, made again before a pane that something drawn since overlaps, at most
+four times a frame. Past that, overlapping glass still blends but doesn't bend or
+frost. What's behind is bent once, at the near side, and followed half a metre at
+most, so solid glass looks right but isn't exact. Glass casts a lighter shadow, by how
+much light it lets through, and even clear glass keeps a quarter of its shadow, as
+bent light spreads. Glass reflects the sky, not probes or screen-space reflections.
+The `Glass` example shows each kind, and `--flat` draws it all without bending or
+frosting.
 
 ## Ghosts
 
@@ -323,8 +352,8 @@ same size on every shape whatever its size. Round shapes measure round their wid
 
 A mesh built in code, such as ground from a height function, is handed over with
 `content.Mesh`. Its `Surface` says how it looks: a colour, roughness and metalness,
-optional colour, normal and surface textures, and optionally a surface shader with its
-own parameters and textures.
+optional colour, normal and surface textures, opacity and IOR for [glass](#glass), and
+optionally a surface shader with its own parameters and textures.
 
 ```csharp
 var mesh = new GeneratedMesh(vertices, indices, new Surface

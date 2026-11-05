@@ -265,11 +265,8 @@ internal sealed class SceneRenderer : IDisposable
     {
         var surface = mesh.Surface;
         TextureHandle? ownedTexture = owned is null ? null : _renderer.CreateTexture(owned);
-        var material = new Material
+        var material = MaterialOf(surface) with
         {
-            BaseColor = new Vector4(surface.Color, 1f),
-            Roughness = surface.Roughness,
-            Metallic = surface.Metallic,
             BaseColorTexture = ownedTexture ?? Texture(surface.ColorTexture, content),
             NormalTexture = Texture(surface.NormalTexture, content),
             SurfaceTexture = Texture(surface.SurfaceTexture, content),
@@ -294,6 +291,16 @@ internal sealed class SceneRenderer : IDisposable
         var part = _renderer.CreateDrawItem(mesh.Vertices, mesh.Indices, handle, mesh.Simplify);
         return new LoadedModel([part], handle, ownedTexture);
     }
+
+    /// <summary>A surface's own values as a material, before its textures and shader are found. Below full opacity it's glass.</summary>
+    internal static Material MaterialOf(Surface surface) => new()
+    {
+        BaseColor = new Vector4(surface.Color, Math.Clamp(surface.Opacity, 0f, 1f)),
+        Roughness = surface.Roughness,
+        Metallic = surface.Metallic,
+        Flags = surface.Opacity < 1f ? MaterialFlags.Transparent : MaterialFlags.None,
+        Ior = surface.Ior,
+    };
 
     private TextureHandle? Texture(TextureRef? texture, Content content) =>
         texture is { } named ? Require<LoadedTexture>(named.Index, content).Handle : null;

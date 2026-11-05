@@ -20,7 +20,7 @@ public class GpuMaterialTests
             + 8 * vec4          // shaderParameters[8]
             + 4 * scalar        // shaderTextures[4]
             + 4 * scalar        // shaderArrays[4]
-            + vec4;             // flags, rounded up to the struct's vec4 alignment
+            + vec4;             // flags and ior, rounded up to the struct's vec4 alignment
 
         Assert.Equal(expected, Unsafe.SizeOf<ResourceTable.GpuMaterial>());
     }
@@ -30,6 +30,12 @@ public class GpuMaterialTests
     {
         // 64 bytes of fixed values, 128 of shader parameters, then 16 and 16 of slots.
         Assert.Equal(224, (int)Marshal.OffsetOf<ResourceTable.GpuMaterial>(nameof(ResourceTable.GpuMaterial.Flags)));
+    }
+
+    [Fact]
+    public void Ior_sits_right_after_the_flags_as_in_material_glsl()
+    {
+        Assert.Equal(228, (int)Marshal.OffsetOf<ResourceTable.GpuMaterial>(nameof(ResourceTable.GpuMaterial.Ior)));
     }
 
     [Fact]

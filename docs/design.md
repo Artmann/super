@@ -530,8 +530,8 @@ GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive
 AoPass        fullscreen       -> ambient occlusion from depth and normals
 AoBlurPass    fullscreen       -> the same with the grain averaged away
 LightingPass  fullscreen       -> HDR colour (Cook-Torrance GGX PBR, traced reflections, probes)
-ParticlePass  camera squares   -> soft puffs blended over HDR colour, back to front
-TransparentPass  glass         -> blended over HDR colour, forward shaded
+TransparentPass  glass and particles -> blended over HDR colour together, back to front;
+                                  glass forward shaded, seeing a mipped copy of HDR
 TaaPass       fullscreen       -> this frame blended with history, then copied to history
 BloomPass     fullscreen x 9   -> glow, by shrinking and regrowing the image
 TonemapPass   fullscreen       -> display colour (ACES filmic, colour grade)
@@ -576,7 +576,7 @@ their normal. The lighting pass then lets sunlight through the leaves from behin
 Copies are drawn instanced. `SceneDraws.Batch` sorts a pass's opaque and shadow draws
 by mesh, part, material, tint, ghost and swim, and each run of draws that match is one
 `vkCmdDrawIndexed`. Skinned draws never match. The order is safe because the depth test
-decides what shows. Glass keeps its order and only joins neighbours. Each copy's model
+decides what shows. Glass is sorted by `TransparentPlan` and drawn one at a time. Each copy's model
 matrix goes into the frame's `InstanceBuffer` (set 0, binding 2, `instances.glsl`), and
 the vertex shaders read it by `gl_InstanceIndex`. The buffer grows before a frame is
 recorded, sized from the selected draws. The push constants hold only what copies
@@ -593,7 +593,8 @@ matte colour with a little of it as emission (`GHOST_GLOW` in `material.glsl`), 
 ghost reads the same over any material and in shadow. A ghost picks its pass by its own
 opacity, not its material's: solid ghosts go to the G-buffer and see-through ones to
 the glass pass, where `transparent.frag` does the same swap. `SceneDraws.Belongs`
-decides this, and keeps ghosts out of the shadow maps.
+decides this, and keeps ghosts out of the shadow maps. Glass that isn't a ghost casts a
+shadow.
 
 glTF files (`.glb`, `.gltf`) carry more of this themselves, so the model cooker reads their
 embedded images, the link to their metal and roughness texture, and their colour,
@@ -667,8 +668,32 @@ how much coat a surface has.
 The G-buffer holds one surface per pixel, so glass can't go through it. Glass is
 shaded as it's drawn, after lighting, and tests against the depth of the opaque scene
 without writing to it. Its reflection stays at full strength however clear the glass
-is, and only its tint is scaled by opacity. The colour is premultiplied so the
-blend can express that.
+is, and only its own colour is scaled by opacity.
+
+`TransparentPass` draws glass and particles in one render pass, in the order
+`TransparentPlan` gives: glass sorted furthest first by the middle of its bounds along
+the view, with runs of the already sorted particles between. Particles are depth
+tested by hand in their shader, so their pipeline keeps the depth attachment format
+but turns the test off (`PipelineDescription.IgnoreDepth`), and depth stays in
+`DepthReadOnlyOptimal` throughout, both attached and sampled.
+
+Glass sees what's behind it through `GBuffer.SceneColor`, a copy of HDR with up to 7
+mips, each blitted from the one before. Frosted glass reads a blurrier mip, about 8
+mips per unit of roughness. The rendering pauses for a copy before the first glass
+that can use one, and again before glass whose screen rectangle overlaps anything
+drawn since the last copy, so a pane sees the panes and dust behind it. Rectangles come
+from the draw's bounds sphere, or the whole screen when that reaches behind the eye.
+After `TransparentPlan.MaxCopies` (4) copies, overlapping glass falls back to
+premultiplied blending without bending. That fallback, and see-through ghosts, which
+never copy, set the push constant `tint.w` to 0. Glass that sees the copy adds it,
+times what its coverage lets through, and writes alpha 1.
+
+Bending is one refraction at the near surface, `refract(-v, n, 1/ior)`, followed to
+the opaque surface behind or half a metre, whichever is nearer, then projected to the
+screen. A lookup that would land on something in front of the glass uses the straight
+line instead. Glass casts a dithered shadow: `shadow.frag` drops a share of its texels
+from a 4x4 ordered pattern, as much as `(1 - opacity) * 0.75`, and the soft shadow
+filter and TAA average the pattern into a lighter shadow.
 
 ## Particles
 
@@ -679,8 +704,9 @@ them furthest first along the view direction on the CPU, into the frame's own
 host-visible vertex buffer, with scratch arrays made once, so nothing allocates. Each
 particle is one instance of a six-vertex square facing the camera.
 
-The pass runs after lighting and before glass, so glass in front of dust still covers
-it. It has no depth attachment. The fragment shader reads the depth buffer itself and
+They're drawn after lighting, sorted together with glass (see Paint and glass), so
+glass covers dust behind it and dust covers glass behind it. They aren't depth
+tested by the pipeline. The fragment shader reads the depth buffer itself and
 thins a puff over half its width as it nears the surface behind, so dust melts into the
 ground instead of showing a hard line where it crosses it. It also thins puffs the
 camera is about to pass through.
@@ -861,13 +887,16 @@ Anything larger than a block gets its own allocation.
 - Textures are uncompressed RGBA8 with mips. Block compression (BC7) would use
   far less GPU memory.
 - The table holds at most 1024 textures, 1024 materials and 256 texture arrays.
-- Transparent draws aren't sorted, so overlapping glass can blend in the wrong order.
-  Glass also casts no shadow and shows no refraction.
+- Glass is sorted by the middle of each draw, not per triangle, so two panes that cross
+  or a pane inside a bigger one can blend in the wrong order. There's no way to set a
+  draw's order by hand. Bending is one refraction at the near side, followed at most
+  half a metre, not traced through the glass, and a frame makes at most four copies
+  of the scene for glass to see. Glass shadows are the same grey for any colour.
 - Particles cast no shadow, don't show in probes or reflections, and give no motion
   vectors, so fast puffs can smear slightly under temporal anti-aliasing. Underwater
-  they fade with distance but miss the shafts of light. Particles and glass are sorted
-  separately, so a puff behind glass is drawn under it correctly but a puff in front of
-  glass is covered by it.
+  they fade with distance but miss the shafts of light. Glass in the same place as dust
+  is sorted against the whole puff run by its middle, so a big pane reaching through a
+  cloud can't be partly in front and partly behind.
 - The car's surface map channels are an educated guess, because the model has no
   documentation. The paint's metalness is set to 0.2 by eye. Its normal maps were
   measured: they use the green direction the renderer expects.

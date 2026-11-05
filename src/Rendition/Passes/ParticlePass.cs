@@ -6,10 +6,11 @@ using Rendition.Vulkan;
 namespace Rendition.Passes;
 
 /// <summary>
-/// Blends soft puffs over the lit image, before glass. Each particle is a square facing
-/// the camera, drawn from one instance of a vertex buffer, back to front. There's no
-/// depth attachment: the fragment shader reads the depth buffer itself, so a puff thins
-/// out as it nears a surface instead of being cut off by it.
+/// Blends soft puffs over the lit image, in turn with glass. Each particle is a square
+/// facing the camera, drawn from one instance of a vertex buffer, back to front. Depth
+/// isn't tested: the fragment shader reads the depth buffer itself, so a puff thins out
+/// as it nears a surface instead of being cut off by it. <see cref="TransparentPass"/>
+/// begins the rendering and draws runs of particles between panes of glass.
 /// </summary>
 internal sealed unsafe class ParticlePass : IDisposable
 {
@@ -24,6 +25,8 @@ internal sealed unsafe class ParticlePass : IDisposable
     private readonly GpuBuffer[] _buffers;
     private readonly float[] _keys = new float[MaxParticles];
     private readonly int[] _order = new int[MaxParticles];
+    private readonly Particle[] _sorted = new Particle[MaxParticles];
+    private int _count;
 
     /// <summary>Must match the Camera block in particle.vert and particle.frag.</summary>
     [StructLayout(LayoutKind.Sequential)]
@@ -111,7 +114,8 @@ internal sealed unsafe class ParticlePass : IDisposable
             FragmentShader = "particle.frag",
             Layout = _layout,
             ColorFormats = [GBuffer.HdrFormat],
-            DepthFormat = Format.Undefined,
+            DepthFormat = GBuffer.DepthFormat,
+            IgnoreDepth = true,
             VertexBindings = vertexBindings,
             VertexAttributes = attributes,
             Transparent = true,
@@ -140,12 +144,16 @@ internal sealed unsafe class ParticlePass : IDisposable
         _context.Api.UpdateDescriptorSets(_context.Device, 4, writes, 0, null);
     }
 
+    /// <summary>This frame's particles as uploaded, furthest first.</summary>
+    public ReadOnlySpan<Particle> Sorted => _sorted.AsSpan(0, _count);
+
     /// <summary>Copies this frame's particles to the GPU, furthest first, and returns how many fit.</summary>
     public int Upload(int frameIndex, ReadOnlySpan<Particle> particles, Vector3 camera, Vector3 forward)
     {
         var fitting = particles[..Math.Min(particles.Length, MaxParticles)];
-        var target = new Span<Particle>(_buffers[frameIndex].Mapped, MaxParticles);
-        SortBackToFront(fitting, camera, forward, _keys, _order, target);
+        SortBackToFront(fitting, camera, forward, _keys, _order, _sorted);
+        _sorted.AsSpan(0, fitting.Length).CopyTo(new Span<Particle>(_buffers[frameIndex].Mapped, MaxParticles));
+        _count = fitting.Length;
         return fitting.Length;
     }
 
@@ -174,35 +182,11 @@ internal sealed unsafe class ParticlePass : IDisposable
         }
     }
 
-    public void Record(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, int frameIndex, int count, in CameraConstants camera)
+    /// <summary>Readies drawing particles inside rendering that another pass began.</summary>
+    public void Bind(CommandBuffer cmd, DescriptorSet frameSet, int frameIndex, in CameraConstants camera)
     {
-        if (count == 0)
-        {
-            return;
-        }
-
         var api = _context.Api;
-        var colorAttachment = new RenderingAttachmentInfo
-        {
-            SType = StructureType.RenderingAttachmentInfo,
-            ImageView = targets.Hdr.View,
-            ImageLayout = ImageLayout.ColorAttachmentOptimal,
-            LoadOp = AttachmentLoadOp.Load,
-            StoreOp = AttachmentStoreOp.Store,
-        };
-        var rendering = new RenderingInfo
-        {
-            SType = StructureType.RenderingInfo,
-            RenderArea = new Rect2D(default, targets.Extent),
-            LayerCount = 1,
-            ColorAttachmentCount = 1,
-            PColorAttachments = &colorAttachment,
-        };
-
-        api.CmdBeginRendering(cmd, &rendering);
         api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipeline);
-        api.SetFullViewport(cmd, targets.Extent);
-
         var sets = stackalloc DescriptorSet[] { frameSet, _set };
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
         var constants = camera;
@@ -212,9 +196,11 @@ internal sealed unsafe class ParticlePass : IDisposable
         var buffer = _buffers[frameIndex].Handle;
         ulong offset = 0;
         api.CmdBindVertexBuffers(cmd, 0, 1, &buffer, &offset);
-        api.CmdDraw(cmd, 6, (uint)count, 0, 0);
-        api.CmdEndRendering(cmd);
     }
+
+    /// <summary>Draws <paramref name="count"/> particles of the sorted list from <paramref name="first"/>, after <see cref="Bind"/>.</summary>
+    public void Draw(CommandBuffer cmd, int first, int count) =>
+        _context.Api.CmdDraw(cmd, 6, (uint)count, 0, (uint)first);
 
     public void Dispose()
     {

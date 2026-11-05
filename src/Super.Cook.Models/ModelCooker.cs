@@ -30,7 +30,7 @@ public sealed class ModelCooker : ICooker
 
     public string Id => "model";
 
-    public int Version => 2; // 2: "has no UVs" warns only when the material uses a texture.
+    public int Version => 3; // 3: materials gained Ior.
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -520,6 +520,7 @@ public sealed class ModelCooker : ICooker
             EmissiveTexture = textures.Add(rule.Emissive, TextureKind.Color, namedBy: named),
             Clearcoat = rule.Clearcoat,
             Flags = flags,
+            Ior = rule.Ior,
         };
     }
 

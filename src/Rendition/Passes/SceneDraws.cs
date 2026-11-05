@@ -38,7 +38,7 @@ internal static unsafe class SceneDraws
     [StructLayout(LayoutKind.Sequential)]
     internal struct DrawConstants
     {
-        /// <summary>rgb multiplies the material's colour; w is unused. Comes before the scalars to keep std430 alignment.</summary>
+        /// <summary>rgb multiplies the material's colour. For glass, w is 1 when it sees the scene through the copy and 0 when it only blends over it. Comes before the scalars to keep std430 alignment.</summary>
         public Vector4 Tint;
 
         /// <summary>rgb is the ghost colour and w its opacity, or 0 when the draw is no ghost.</summary>
@@ -72,8 +72,8 @@ internal static unsafe class SceneDraws
     ];
 
     /// <summary>
-    /// Whether a draw belongs in a pass. Glass goes with the transparent pass and casts no
-    /// shadow. A ghost goes where its opacity says, whatever its material, and casts no shadow.
+    /// Whether a draw belongs in a pass. Glass goes with the transparent pass and casts a
+    /// lighter shadow. A ghost goes where its opacity says, whatever its material, and casts no shadow.
     /// </summary>
     public static bool Belongs(in DrawItem draw, MaterialFlags flags, ScenePass pass)
     {
@@ -82,7 +82,7 @@ internal static unsafe class SceneDraws
         {
             ScenePass.Opaque => !transparent,
             ScenePass.Transparent => transparent,
-            _ => !transparent && draw.Ghost is null,
+            _ => draw.Ghost is null,
         };
     }
 
@@ -184,10 +184,10 @@ internal static unsafe class SceneDraws
     /// <summary>
     /// Draws the items that belong in <paramref name="pass"/>, with copies that look the
     /// same as one instanced draw. Solid things and shadows are drawn in any order, which
-    /// brings copies together. Glass keeps the given order. A pass with one entry in
-    /// <paramref name="pipelines"/> draws everything with it. Otherwise each material picks
-    /// its surface shader. Materials without cut-out holes use <paramref name="solid"/>
-    /// when it's given. Each copy's matrix goes into <paramref name="instances"/>.
+    /// brings copies together. A pass with one entry in <paramref name="pipelines"/> draws
+    /// everything with it. Otherwise each material picks its surface shader. Materials
+    /// without cut-out holes, and that aren't glass, use <paramref name="solid"/> when it's
+    /// given. Each copy's matrix goes into <paramref name="instances"/>.
     /// </summary>
     public static void Record(
         Vk api,
@@ -216,44 +216,72 @@ internal static unsafe class SceneDraws
         var batches = _batches ??= [];
         Batch(draws, order, keepOrder: pass == ScenePass.Transparent, batches);
 
-        var boundPipeline = default(Pipeline);
-        int boundMesh = -1;
+        var bound = new Bound();
         foreach (var batch in batches)
         {
-            ref readonly var draw = ref draws[order[batch.First]];
-            var flags = resources.GetFlags(draw.Material);
-            var variants = solid is { } solidVariants && !resources.HasCutouts(draw.Material)
-                ? solidVariants
-                : pipelines[pipelines.Count > 1 ? resources.GetShader(draw.Material) : 0];
-            var pipeline = (flags & MaterialFlags.TwoSided) != 0 ? variants.TwoSided : variants.Culled;
-            if (pipeline.Handle != boundPipeline.Handle)
-            {
-                api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, pipeline);
-                boundPipeline = pipeline;
-            }
-
-            if (draw.Mesh.Index != boundMesh)
-            {
-                var mesh = meshes[draw.Mesh.Index]!;
-                var vertexBuffer = mesh.Vertices.Handle;
-                ulong offset = 0;
-                api.CmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
-                api.CmdBindIndexBuffer(cmd, mesh.Indices.Handle, 0, IndexType.Uint32);
-                boundMesh = draw.Mesh.Index;
-            }
-
-            int firstInstance = instances.Count;
-            foreach (int index in order.Slice(batch.First, batch.Count))
-            {
-                instances.Add(draws[index].Transform);
-            }
-
-            var constants = Constants(draw, cascade);
-            api.CmdPushConstants(cmd, layout, PushStages, 0, (uint)sizeof(DrawConstants), &constants);
-            api.CmdDrawIndexed(cmd, draw.IndexCount, (uint)batch.Count, draw.FirstIndex, 0, (uint)firstInstance);
+            var constants = Constants(draws[order[batch.First]], cascade);
+            Draw(api, cmd, layout, pipelines, resources, draws, order.Slice(batch.First, batch.Count), meshes, instances, constants, solid, ref bound);
         }
 
         ArrayPool<int>.Shared.Return(pooled);
+    }
+
+    /// <summary>What a command buffer has bound, so the same pipeline or mesh isn't bound twice in a row.</summary>
+    public struct Bound()
+    {
+        public Pipeline Pipeline;
+        public int Mesh = -1;
+    }
+
+    /// <summary>
+    /// Draws <paramref name="copies"/>, which all look like the first, as one instanced
+    /// draw with <paramref name="constants"/>.
+    /// </summary>
+    public static void Draw(
+        Vk api,
+        CommandBuffer cmd,
+        PipelineLayout layout,
+        List<PipelineVariants> pipelines,
+        ResourceTable resources,
+        ReadOnlySpan<DrawItem> draws,
+        ReadOnlySpan<int> copies,
+        List<Mesh?> meshes,
+        InstanceBuffer instances,
+        DrawConstants constants,
+        PipelineVariants? solid,
+        ref Bound bound)
+    {
+        ref readonly var draw = ref draws[copies[0]];
+        var flags = resources.GetFlags(draw.Material);
+        bool needsFragments = resources.HasCutouts(draw.Material) || (flags & MaterialFlags.Transparent) != 0;
+        var variants = solid is { } solidVariants && !needsFragments
+            ? solidVariants
+            : pipelines[pipelines.Count > 1 ? resources.GetShader(draw.Material) : 0];
+        var pipeline = (flags & MaterialFlags.TwoSided) != 0 ? variants.TwoSided : variants.Culled;
+        if (pipeline.Handle != bound.Pipeline.Handle)
+        {
+            api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, pipeline);
+            bound.Pipeline = pipeline;
+        }
+
+        if (draw.Mesh.Index != bound.Mesh)
+        {
+            var mesh = meshes[draw.Mesh.Index]!;
+            var vertexBuffer = mesh.Vertices.Handle;
+            ulong offset = 0;
+            api.CmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
+            api.CmdBindIndexBuffer(cmd, mesh.Indices.Handle, 0, IndexType.Uint32);
+            bound.Mesh = draw.Mesh.Index;
+        }
+
+        int firstInstance = instances.Count;
+        foreach (int index in copies)
+        {
+            instances.Add(draws[index].Transform);
+        }
+
+        api.CmdPushConstants(cmd, layout, PushStages, 0, (uint)sizeof(DrawConstants), &constants);
+        api.CmdDrawIndexed(cmd, draw.IndexCount, (uint)copies.Length, draw.FirstIndex, 0, (uint)firstInstance);
     }
 
     [ThreadStatic]

@@ -1,6 +1,6 @@
 // Must match DrawConstants in Passes/SceneDraws.cs.
 layout(push_constant) uniform Draw {
-    vec4 tint; // rgb multiplies the material's colour, for this draw only.
+    vec4 tint; // rgb multiplies the material's colour, for this draw only. w: 1 when glass sees the scene through the copy.
     vec4 ghost; // rgb is the colour of a ghost and a its opacity, or 0 for no ghost.
     int material;
     float swimAmplitude;
@@ -29,8 +29,10 @@ struct Material {
     uint shaderTextures[4];
     uint shaderArrays[4];
     uint flags; // MaterialFlags in Types.cs.
+    float ior; // 1 or more; 1 bends nothing.
 };
 
+const uint MATERIAL_TRANSPARENT = 2u;
 const uint MATERIAL_FOLIAGE = 4u;
 
 layout(set = 1, binding = 0) uniform sampler2D textures[];

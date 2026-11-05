@@ -106,4 +106,7 @@ public sealed class MaterialRule
     public bool Foliage { get; set; }
 
     public bool Transparent { get; set; }
+
+    /// <summary>For transparent glass: 1 is straight through, as a window, and about 1.5 bends the view like a bottle or a marble.</summary>
+    public float Ior { get; set; } = 1f;
 }

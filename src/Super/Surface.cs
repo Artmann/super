@@ -22,6 +22,15 @@ public sealed record Surface
     public TextureRef? NormalTexture { get; init; }
     public TextureRef? SurfaceTexture { get; init; }
 
+    /// <summary>
+    /// Below 1 the surface is glass: the world shows through it, tinted by
+    /// <see cref="Color"/>, and its shadow is lighter. 0 is perfectly clear.
+    /// </summary>
+    public float Opacity { get; init; } = 1f;
+
+    /// <summary>How much glass bends what's behind it: 1 is straight through, as a window, and about 1.5 is a bottle or a marble.</summary>
+    public float Ior { get; init; } = 1f;
+
     /// <summary>A fragment shader named through <see cref="Content.Shader"/>, or the standard one.</summary>
     public ShaderRef? Shader { get; init; }
 

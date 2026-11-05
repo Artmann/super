@@ -148,6 +148,21 @@ public sealed class ModelCookerTests : IDisposable
     }
 
     [Fact]
+    public void Ior_rule_reaches_the_cooked_material()
+    {
+        string src = Temp();
+        TinyGltf.Write(src, "a.gltf", "bottle", ["a"]);
+        File.WriteAllText(Path.Combine(src, "a.gltf.cook.json"),
+            "{ \"materials\": [ { \"match\": \"bottle\", \"opacity\": 0.1, \"ior\": 1.45 } ] }");
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var model = Model(store, "a.gltf");
+        Assert.Equal(1.45f, model.Materials[Assert.Single(model.Parts).Material].Ior);
+    }
+
+    [Fact]
     public void Missing_texture_named_in_settings_is_an_error_naming_it()
     {
         string src = Temp();

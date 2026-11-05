@@ -40,9 +40,9 @@ internal sealed unsafe class ResourceTable : IDisposable
         public TextureSlots ShaderTextures;
         public TextureSlots ShaderArrays;
         public uint Flags;
+        public float Ior;
 
         // std430 rounds the struct up to its vec4 alignment.
-        private readonly int _padding0;
         private readonly int _padding1;
         private readonly int _padding2;
     }
@@ -381,6 +381,7 @@ internal sealed unsafe class ResourceTable : IDisposable
             Emissive = new Vector4(material.Emissive, 0f),
             ShaderParameters = material.ShaderParameters,
             Flags = (uint)material.Flags,
+            Ior = MathF.Max(material.Ior, 1f),
         };
         for (int i = 0; i < ShaderTextures.Length; i++)
         {

@@ -22,6 +22,12 @@ internal ref struct PipelineDescription
 
     /// <summary>Blends premultiplied colour and leaves depth alone.</summary>
     public bool Transparent;
+
+    /// <summary>
+    /// Runs inside a pass with a depth attachment but neither tests nor writes it, nor
+    /// culls, for camera-facing squares that read depth themselves.
+    /// </summary>
+    public bool IgnoreDepth;
 }
 
 internal static unsafe class PipelineFactory
@@ -59,7 +65,7 @@ internal static unsafe class PipelineFactory
             PName = (byte*)entryPoint,
         };
 
-        bool hasDepth = description.DepthFormat != Format.Undefined;
+        bool hasDepth = description.DepthFormat != Format.Undefined && !description.IgnoreDepth;
         var inputAssembly = new PipelineInputAssemblyStateCreateInfo
         {
             SType = StructureType.PipelineInputAssemblyStateCreateInfo,
