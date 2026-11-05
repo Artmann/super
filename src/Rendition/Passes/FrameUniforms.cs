@@ -98,6 +98,15 @@ internal struct FrameUniforms
     public Vector4 ShadowRadii;
 
     /// <summary>
+    /// x, y: distance from the camera where shadows start to fade out and where they're gone;
+    /// z: the share of a cascade's map, at its edges, over which it hands over to the next.
+    /// </summary>
+    public Vector4 ShadowFade;
+
+    /// <summary>How many units of depth one unit across each cascade's map covers. Below 1 when a cascade reaches further towards the sun.</summary>
+    public Vector4 ShadowDepthScales;
+
+    /// <summary>
     /// How the view's depth is cut into the clusters' slices. x, y: the nearest and furthest
     /// depth any light reaches; z: 1 when the view is parallel, so the slices are even.
     /// </summary>

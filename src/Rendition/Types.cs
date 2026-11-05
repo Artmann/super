@@ -120,6 +120,13 @@ public struct Material
     public float Clearcoat;
     public MaterialFlags Flags;
 
+    /// <summary>
+    /// Light that spreads under the surface before it comes back out, as in skin, wax and
+    /// marble. A radius of 0, the default, turns it off. It can't be combined with
+    /// clearcoat or foliage, which use the same G-buffer channel.
+    /// </summary>
+    public Subsurface Subsurface;
+
     /// <summary>Replaces the standard surface shader. Transparent materials can't use one yet.</summary>
     public SurfaceShaderHandle? Shader;
 
@@ -675,4 +682,59 @@ public sealed class RendererOptions
     /// tear. Displays that can't do this keep vsync on.
     /// </summary>
     public bool DisableVsync { get; init; }
+}
+
+/// <summary>
+/// How light spreads under a surface. The lighting pass blurs the diffuse light of these
+/// surfaces across the screen, further for the colours that travel further, so shadow
+/// edges soften and take on a warm rim, as on skin.
+/// </summary>
+public struct Subsurface
+{
+    /// <summary>The longest distance light spreads under the surface, in metres. Skin is about 0.01. 0 turns it off.</summary>
+    public float Radius;
+
+    /// <summary>
+    /// How far red, green and blue each spread, as fractions of <see cref="Radius"/>.
+    /// Skin lets red go furthest, so about (1, 0.4, 0.25). Zero counts as one for all three.
+    /// </summary>
+    public Vector3 Color;
+
+    /// <summary>
+    /// How much light from behind shines through thin parts, such as ears or a candle's
+    /// rim, from 0 to 1. It's tinted by the base colour and <see cref="Color"/>.
+    /// </summary>
+    public float Transmission;
+
+    /// <summary>True when the surface scatters light at all.</summary>
+    public readonly bool IsOn => Radius > 0f;
+
+    /// <summary>
+    /// What stops a material from having this subsurface, or null when nothing does.
+    /// Clearcoat, foliage and subsurface share a G-buffer channel.
+    /// </summary>
+    public readonly string? Problem(float clearcoat, MaterialFlags flags)
+    {
+        if (float.IsNaN(Radius) || Radius < 0f)
+        {
+            return "subsurface radius must be 0 or more.";
+        }
+
+        if (!IsOn)
+        {
+            return null;
+        }
+
+        if (clearcoat > 0f)
+        {
+            return "subsurface can't be combined with clearcoat, because they share a G-buffer channel.";
+        }
+
+        if ((flags & MaterialFlags.Foliage) != 0)
+        {
+            return "subsurface can't be combined with foliage, because they share a G-buffer channel.";
+        }
+
+        return null;
+    }
 }

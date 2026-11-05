@@ -21,8 +21,11 @@ public readonly record struct ModelDraw(
     float PoseAhead = 0f,
     Ghost? Ghost = null);
 
-/// <summary>A light as far away as the sun, shining the same way everywhere.</summary>
-public readonly record struct SunLight(Vector3 Direction, Vector3 Color);
+/// <summary>
+/// A light as far away as the sun, shining the same way everywhere. One sun casts the
+/// shadows: the one marked with <see cref="CastsShadows"/>, or else the first.
+/// </summary>
+public readonly record struct SunLight(Vector3 Direction, Vector3 Color, bool CastsShadows = false);
 
 /// <summary>
 /// Names a model. <see cref="Content"/> hands these out, and there are built-in shapes one
@@ -113,9 +116,25 @@ public sealed class View
 
     /// <summary>
     /// Adds a sun. The direction points from the ground towards it, and needn't be one
-    /// unit long. Colors above 1 are brighter. The first sun casts the shadows.
+    /// unit long. Colors above 1 are brighter. One sun casts the shadows: the one added
+    /// with <paramref name="shadows"/> set, or else the first. Marking two throws.
     /// </summary>
-    public void Sun(Vector3 direction, Vector3 color) => _suns.Add(new SunLight(Vector3.Normalize(direction), color));
+    public void Sun(Vector3 direction, Vector3 color, bool shadows = false)
+    {
+        if (shadows)
+        {
+            foreach (var sun in _suns)
+            {
+                if (sun.CastsShadows)
+                {
+                    throw new InvalidOperationException(
+                        "Only one sun can cast shadows, and another already does this frame. Pass shadows: true to one sun only.");
+                }
+            }
+        }
+
+        _suns.Add(new SunLight(Vector3.Normalize(direction), color, shadows));
+    }
 
     /// <summary>
     /// Adds a light that shines every way from a point, such as a candle or a torch. The

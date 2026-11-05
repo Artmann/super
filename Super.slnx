@@ -26,6 +26,7 @@
     <Project Path="examples/Shapes/Shapes.csproj" />
     <Project Path="examples/Terrain/Terrain.csproj" />
     <Project Path="examples/Transitions/Transitions.csproj" />
+    <Project Path="examples/Wax/Wax.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Crafting.Tests/Crafting.Tests.csproj" />

@@ -79,12 +79,15 @@ public class PostGradeTests
     {
         Assert.Equal(7 * 64, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.View)));
 
-        // After shadowRadii come clusters and screen, then eight ints, the last the local light count.
+        // After shadowRadii come shadowFade, shadowDepthScales, clusters and screen, then
+        // eight ints, the last the local light count.
         int radii = (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.ShadowRadii));
-        Assert.Equal(radii + 16, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Clusters)));
-        Assert.Equal(radii + 32, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Screen)));
-        Assert.Equal(radii + 48, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.LightCount)));
-        Assert.Equal(radii + 48 + 28, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.LocalLightCount)));
-        Assert.Equal(radii + 48 + 32, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Lights)));
+        Assert.Equal(radii + 16, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.ShadowFade)));
+        Assert.Equal(radii + 32, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.ShadowDepthScales)));
+        Assert.Equal(radii + 48, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Clusters)));
+        Assert.Equal(radii + 64, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Screen)));
+        Assert.Equal(radii + 80, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.LightCount)));
+        Assert.Equal(radii + 80 + 28, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.LocalLightCount)));
+        Assert.Equal(radii + 80 + 32, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Lights)));
     }
 }

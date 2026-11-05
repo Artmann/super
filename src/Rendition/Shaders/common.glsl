@@ -13,7 +13,7 @@ struct ReflectionProbe {
 layout(std140, set = 0, binding = 0) uniform Frame {
     mat4 viewProjection;
     mat4 inverseViewProjection;
-    mat4 shadowMatrices[4];      // One per cascade, each covering three times the last.
+    mat4 shadowMatrices[4];      // One per cascade, each covering three times the last, fitted to the view.
     mat4 previousViewProjection; // Last frame's, without its anti-aliasing shift.
     mat4 view;                   // World to the camera's own space, where it looks down -z.
     vec4 cameraPosition;
@@ -30,6 +30,8 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 waterDeep;          // rgb: colour of the water looking down; a: strength of the light shafts
     vec4 waterLight;         // x: strength of the caustics; y: how small they are; z: reach of the shafts
     vec4 shadowRadii;        // The radius each cascade covers, in metres.
+    vec4 shadowFade;         // x, y: distance where shadows start fading and are gone; z: the hand-over band
+    vec4 shadowDepthScales;  // depth units per unit across each cascade's map, below 1 when it reaches further sunward
     vec4 clusters;           // x, y: nearest and furthest depth a local light reaches; z: 1 for even slices
     vec4 screen;             // xy: the render targets' size in pixels
     int lightCount;
