@@ -115,6 +115,7 @@ marked as planned. The examples are the best place to see it running:
 | [Reef](examples/Reef) | 6,240 schooling fish with the ECS, water and a stats panel |
 | [Fox](examples/Fox) | A skinned character blending walk into run, with a head turn played over it |
 | [Archer](examples/Archer) | A short film: a cutscene with slow motion, root motion, a sky and a forest clearing |
+| [Transitions](examples/Transitions) | Fades, dissolves, wipes, irises and camera blends: a showreel cutscene, then each one on a key |
 | [Dust](examples/Dust) | Trees falling in a clearing, throwing up soft particle dust along where they land |
 | [Forest](examples/Forest) | Sound: a looping ambience and music, a hammering builder whose sound pans as the camera circles, and channel volumes |
 

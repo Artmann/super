@@ -535,7 +535,7 @@ TransparentPass  glass         -> blended over HDR colour, forward shaded
 TaaPass       fullscreen       -> this frame blended with history, then copied to history
 BloomPass     fullscreen x 9   -> glow, by shrinking and regrowing the image
 TonemapPass   fullscreen       -> display colour (ACES filmic, colour grade)
-FinishPass    fullscreen       -> swapchain, with sharpening, vignette, grain and dither
+FinishPass    fullscreen       -> swapchain, with sharpening, a transition, vignette, grain and dither
 ```
 
 G-buffer layout:
@@ -788,6 +788,23 @@ couldn't remove shimmer.
 `FrameView.Post` holds the look of the image: bloom, exposure, contrast and saturation,
 then lift and gain after ACES, in the tonemap pass, then sharpening, vignette and film grain in the finish pass. Grain and
 dither also hide the steps an 8-bit screen would show in slow gradients.
+
+Transitions happen in the finish pass too, so they work on the display picture and not
+on HDR light. `FrameView.Transition` carries a style, an amount from 0 to 1, a colour, a
+wipe direction, an iris centre, a softness and a hold number, and the pass gets all but
+the hold as 48 bytes of push constants (`TransitionConstants`). A fade mixes towards
+the colour. A dissolve, wipe or iris mixes from the `Held` target, a copy of the last
+picture, to the new one. A wipe measures along its direction with the screen's aspect,
+so it crosses corner to corner. An iris measures the distance from its centre against the
+furthest corner. Both soften the edge with a smoothstep. Vignette and dither come after the
+mix, so they don't move.
+
+The Super side (`Transitions`) raises the hold number each time a transition that needs
+the old picture starts. When the renderer sees a new number, it copies the LDR target,
+which still holds the last frame, into `Held` before drawing the new one. `Held` is cleared
+to black when there is no last frame yet, such as on the first frame or after a resize.
+A blend never reaches the renderer: Super moves the camera between the last camera shown
+and the one `Draw` sets.
 
 ## Verification without a window
 
