@@ -10,8 +10,9 @@ Super is early. These are the known gaps, so you can plan around them.
   smoke. There are no textured, glowing or stretched sparks yet, and they cast no
   shadow. Nodes must work from the age alone, so particles can't bounce off the
   ground or react to what they hit.
-- **Film effects.** [Cutscenes](cutscenes.md) cut between shots, but there's no depth
-  of field, motion blur or cross-fade yet.
+- **Film effects.** [Cutscenes](cutscenes.md) have [transitions](transitions.md) between
+  shots, but there's no depth of field or motion blur yet, and no transitions that move
+  both pictures, such as a push or a slide.
 - **More from audio.** [Audio](audio.md) plays stereo sound with no echo or reverb, walls
   that muffle sound, Doppler or surround. There is no ducking (music dipping under
   speech), no ambience that blends by where the camera stands, and sounds can't be tied

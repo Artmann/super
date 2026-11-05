@@ -75,6 +75,9 @@ public sealed class HeadlessRun<TGame> : IDisposable
     /// <summary>The camera the last frame showed. Call <see cref="Frame"/> first.</summary>
     public Camera Camera => _host.View.Shot;
 
+    /// <summary>How the last frame moved between pictures: its style, how far along, and which held picture. Call <see cref="Frame"/> first.</summary>
+    public Rendition.ScreenTransition Transition => _host.View.Transition;
+
     /// <summary>
     /// What the mixer is playing now: each voice's clip, channel, gain, pan and how far in it is. A sound started
     /// in an Update shows up once that tick's Draw has handed it over, so after the tick.

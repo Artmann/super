@@ -64,6 +64,7 @@ internal sealed class GameHost<TGame> : IDisposable
         services.AddSingleton(typeof(States<>));
         services.AddSingleton(provider => new GameCapture(provider.GetRequiredService<Audio>()));
         services.AddSingleton<GameStats>();
+        services.AddSingleton<Transitions>();
         services.AddSingleton<Director>();
         services.AddSingleton<TGame>();
 
@@ -81,6 +82,7 @@ internal sealed class GameHost<TGame> : IDisposable
         Capture = _services.GetRequiredService<GameCapture>();
         Stats = _services.GetRequiredService<GameStats>();
         Director = _services.GetRequiredService<Director>();
+        Transitions = _services.GetRequiredService<Transitions>();
         Audio = _services.GetRequiredService<Audio>();
         Game = _services.GetRequiredService<TGame>();
         _hooks = _services.GetServices<ITickHook>().ToArray();
@@ -109,6 +111,8 @@ internal sealed class GameHost<TGame> : IDisposable
     public GameStats Stats { get; }
 
     public Director Director { get; }
+
+    public Transitions Transitions { get; }
 
     public Audio Audio { get; }
 
@@ -201,7 +205,9 @@ internal sealed class GameHost<TGame> : IDisposable
 
         _pointer.Deliver();
 
-        // Before Update, so the game sees a cutscene's moments and time scale this tick.
+        // Before Update, so a fade's change lands while the screen is all colour, and the
+        // game sees it and a cutscene's moments and time scale this tick.
+        Transitions.BeforeUpdate();
         Director.BeforeUpdate();
 
         // Before Update, so this tick's audio is what was asked for up to the last frame. A sound started in this
@@ -257,10 +263,13 @@ internal sealed class GameHost<TGame> : IDisposable
         _changes.Open = false;
         View.Begin(blend, Time.Tick, Time.TickSeconds, Time.Scale);
         Game.Draw(View);
-        if (Director.IsPlaying)
+        if (Director.HasCamera)
         {
             View.Camera(Director.At(blend));
         }
+
+        // After the camera is placed, since a blend starts from the last one shown.
+        Transitions.Apply(View);
 
         foreach (var hook in _drawHooks)
         {

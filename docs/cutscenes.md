@@ -30,7 +30,9 @@ Ask for the `Director` in your game's constructor, like any other service.
 
 ## Shots
 
-`Then` adds a shot after the last one, and moving from one shot to the next is a cut.
+`Then` adds a shot after the last one, and moving from one shot to the next is a cut,
+unless `Then(shot, transition)` gives it a fade, dissolve, wipe, iris or blend: see
+[Transitions](transitions.md#in-cutscenes).
 The cutscene lasts as long as its shots end to end.
 
 | Shot | What it does |
@@ -121,5 +123,4 @@ ffmpeg -i out/draft.mp4 -vf "scale=400:-1,tile=4x4" out/sheet-%02d.png
 
 - The camera can't roll, so there are no dutch angles.
 - There's no depth of field or motion blur yet.
-- Shots cut; there are no cross-fades or wipes between them.
 - A cutscene is code. There's no timeline editor and no file format for one.

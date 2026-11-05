@@ -85,6 +85,9 @@ public sealed class View
     internal int ShadowCascades { get; private set; }
     internal UiTree? Ui { get; set; }
 
+    /// <summary>How the screen moves between pictures this frame. Set by <see cref="Transitions"/>.</summary>
+    internal ScreenTransition Transition { get; set; }
+
     /// <summary>What the game named, so drawing something it unloaded fails where the mistake is.</summary>
     internal Content? Content { get; set; }
 
@@ -390,6 +393,9 @@ public sealed class View
         Post = new PostSettings { Vignette = 0.3f, Sharpen = 0.4f };
         ShadowRadius = 8f;
         ShadowCascades = 1;
+
+        // The hold stays, since changing it is what tells the renderer to keep a picture.
+        Transition = new ScreenTransition { Hold = Transition.Hold };
         Camera(new Vector3(0f, 0f, 5f), Vector3.Zero);
     }
 }

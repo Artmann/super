@@ -118,6 +118,14 @@ public sealed unsafe class Renderer : IDisposable
     private bool _historyReady;
     private Matrix4x4 _previousViewProjection;
 
+    // Moving between pictures: what the frame asks for, which hold the held picture
+    // belongs to, and whether the held picture and the last finished frame exist yet.
+    private TransitionConstants _transition;
+    private int _transitionHold;
+    private int _heldNumber;
+    private bool _heldReady;
+    private bool _ldrReady;
+
     /// <summary>Vulkan validation messages so far. Always zero when validation is off.</summary>
     public int ValidationErrors => _context.ValidationErrors;
 
@@ -217,7 +225,7 @@ public sealed unsafe class Renderer : IDisposable
         _lightingSet = AllocateSet(_lightingSetLayout);
         _taaSet = AllocateSet(_threeTextureSetLayout);
         _tonemapSet = AllocateSet(_twoTextureSetLayout);
-        _finishSet = AllocateSet(_oneTextureSetLayout);
+        _finishSet = AllocateSet(_twoTextureSetLayout);
         _overlaySet = AllocateSet(_oneTextureSetLayout);
         _bloomPass = new BloomPass(_context, _linearSampler, _gBuffer.Resolved.View, _gBuffer.Extent);
         _particlePass = new ParticlePass(_context, _frameSetLayout, FramesInFlight);
@@ -230,7 +238,7 @@ public sealed unsafe class Renderer : IDisposable
         _transparentPass = new TransparentPass(_context, _frameSetLayout, _resources, _environment);
         _taaPass = new FullscreenPass(_context, "taa.frag", GBuffer.HdrFormat, [_frameSetLayout, _threeTextureSetLayout]);
         _tonemapPass = new FullscreenPass(_context, "tonemap.frag", GBuffer.LdrFormat, [_frameSetLayout, _twoTextureSetLayout]);
-        _finishPass = new FullscreenPass(_context, "finish.frag", _swapchain.Format, [_frameSetLayout, _oneTextureSetLayout]);
+        _finishPass = new FullscreenPass(_context, "finish.frag", _swapchain.Format, [_frameSetLayout, _twoTextureSetLayout], TransitionConstants.Size);
         _overlayPass = new OverlayPass(_context, _swapchain.Format, _oneTextureSetLayout, _resources, FramesInFlight);
         _gpuTimer = new GpuTimer(_context, FramesInFlight);
     }
@@ -773,6 +781,8 @@ public sealed unsafe class Renderer : IDisposable
         WriteBones(frame, view.Bones);
         _previousViewProjection = viewProjection;
         _frameNumber++;
+        _transition = TransitionConstants.From(view.Transition);
+        _transitionHold = view.Transition.Hold;
         var (cameraCount, shadowCount) = SelectDraws(view, viewProjection, draws, castsShadow);
         ResetInstances(frame, cameraCount + shadowCount);
 
@@ -1026,6 +1036,13 @@ public sealed unsafe class Renderer : IDisposable
         var extent = targets.Extent;
         var swapchainImage = _swapchain.Images[imageIndex];
 
+        // Ldr still holds the last frame, so it's kept before this frame draws over it.
+        if (_transitionHold != _heldNumber || !_heldReady)
+        {
+            RecordHold(cmd, targets, copyLastFrame: _transitionHold != _heldNumber && _ldrReady);
+            _heldNumber = _transitionHold;
+        }
+
         RecordScene(cmd, frameSet, draws, [], shadowsSelected: true, _particleCount);
 
         ReadOnlySpan<DescriptorSet> taaSets = [frameSet, _taaSet];
@@ -1047,7 +1064,10 @@ public sealed unsafe class Renderer : IDisposable
             ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, ColorStage, AccessFlags2.None, ColorStage, ColorWrite);
 
         ReadOnlySpan<DescriptorSet> finishSets = [frameSet, _finishSet];
-        _finishPass.Record(cmd, _swapchain.Views[imageIndex], extent, finishSets);
+        var transition = _transition;
+        _finishPass.Record(cmd, _swapchain.Views[imageIndex], extent, finishSets,
+            new ReadOnlySpan<byte>(&transition, (int)TransitionConstants.Size));
+        _ldrReady = true;
         _gpuTimer.Mark(cmd);
 
         if (overlayQuads > 0)
@@ -1066,6 +1086,51 @@ public sealed unsafe class Renderer : IDisposable
         _api.Transition(cmd, swapchainImage, ImageAspectFlags.ColorBit,
             ImageLayout.ColorAttachmentOptimal, ImageLayout.PresentSrcKhr, ColorStage, ColorWrite,
             PipelineStageFlags2.None, AccessFlags2.None);
+    }
+
+    /// <summary>
+    /// Keeps the last finished frame for a dissolve or wipe to show over the new ones,
+    /// or black if there is none yet. Leaves both images ready to sample.
+    /// </summary>
+    private void RecordHold(CommandBuffer cmd, GBuffer targets, bool copyLastFrame)
+    {
+        // The finish pass sampled both in the frame before.
+        _api.Transition(cmd, targets.Held.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.TransferDstOptimal, SampledStage, SampledAccess,
+            PipelineStageFlags2.CopyBit | PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit);
+
+        if (copyLastFrame)
+        {
+            _api.Transition(cmd, targets.Ldr.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferSrcOptimal, SampledStage, SampledAccess,
+                PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit);
+
+            var region = new ImageCopy
+            {
+                SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
+                DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
+                Extent = new Extent3D(targets.Extent.Width, targets.Extent.Height, 1),
+            };
+            _api.CmdCopyImage(cmd, targets.Ldr.Image, ImageLayout.TransferSrcOptimal,
+                targets.Held.Image, ImageLayout.TransferDstOptimal, 1, &region);
+
+            // Tonemapping waits on the fragment stage before it writes Ldr, which comes after this.
+            _api.Transition(cmd, targets.Ldr.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal,
+                PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit, SampledStage, AccessFlags2.None);
+        }
+        else
+        {
+            var black = new ClearColorValue(0f, 0f, 0f, 1f);
+            var range = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, 1);
+            _api.CmdClearColorImage(cmd, targets.Held.Image, ImageLayout.TransferDstOptimal, &black, 1, &range);
+        }
+
+        _api.Transition(cmd, targets.Held.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
+            PipelineStageFlags2.CopyBit | PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit,
+            SampledStage, SampledAccess);
+        _heldReady = true;
     }
 
     /// <summary>Keeps this frame for the next one, and leaves it ready to sample.</summary>
@@ -1567,7 +1632,15 @@ public sealed unsafe class Renderer : IDisposable
             new(_sampler, _gBuffer.Resolved.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_linearSampler, _bloomPass.Result, ImageLayout.ShaderReadOnlyOptimal),
         ]);
-        WriteImages(_finishSet, [new(_linearSampler, _gBuffer.Ldr.View, ImageLayout.ShaderReadOnlyOptimal)]);
+        WriteImages(_finishSet,
+        [
+            new(_linearSampler, _gBuffer.Ldr.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_linearSampler, _gBuffer.Held.View, ImageLayout.ShaderReadOnlyOptimal),
+        ]);
+
+        // New targets start empty, so neither a held picture nor a last frame survives them.
+        _heldReady = false;
+        _ldrReady = false;
     }
 
     private void WriteImages(DescriptorSet set, ReadOnlySpan<DescriptorImageInfo> images)

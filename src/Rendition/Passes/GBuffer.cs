@@ -31,6 +31,9 @@ internal sealed class GBuffer : IDisposable
     public readonly RenderTarget AoBlurred;
     public readonly RenderTarget Ldr;
 
+    /// <summary>An earlier frame's Ldr, kept for a dissolve or wipe to show over the new one.</summary>
+    public readonly RenderTarget Held;
+
     public GBuffer(VulkanContext context, Extent2D extent)
     {
         Extent = extent;
@@ -43,7 +46,8 @@ internal sealed class GBuffer : IDisposable
         History = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.TransferDstBit, ImageAspectFlags.ColorBit);
         Ao = new RenderTarget(context, AoFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         AoBlurred = new RenderTarget(context, AoFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
-        Ldr = new RenderTarget(context, LdrFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
+        Ldr = new RenderTarget(context, LdrFormat, extent, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
+        Held = new RenderTarget(context, LdrFormat, extent, ImageUsageFlags.TransferDstBit, ImageAspectFlags.ColorBit);
     }
 
     public void Dispose()
@@ -58,5 +62,6 @@ internal sealed class GBuffer : IDisposable
         Ao.Dispose();
         AoBlurred.Dispose();
         Ldr.Dispose();
+        Held.Dispose();
     }
 }

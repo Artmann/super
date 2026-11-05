@@ -12,6 +12,7 @@ that doesn't exist yet; everything else works today.
 | [Rendering](rendering.md) | Lights, shadows, the sky, water, post-processing, meshes made by code and along splines, surface shaders, terrain and models |
 | [Animation](animation.md) | Rigged models, Mixamo clips, states, actions, blends, masks, root motion and joints |
 | [Cutscenes](cutscenes.md) | Shots, moments, slow motion and the `Director` |
+| [Transitions](transitions.md) | Fades, dissolves, wipes, irises and camera blends, in play and between shots |
 | [Tweens and curves](tweens.md) | Easings, curves drawn by key or in JSON, tweens, sequences and groups |
 | [Splines](splines.md) | Paths for rails, roads and patrols: asking where, following, camera rails and meshes along them |
 | [Interfaces](interfaces.md) | `Super.Ui`: views, modifiers, layout, colours, state and the mouse |

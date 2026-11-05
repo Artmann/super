@@ -302,6 +302,61 @@ public struct PostSettings
     public Vector3 Gain;
 }
 
+/// <summary>How a <see cref="ScreenTransition"/> brings in the new picture.</summary>
+public enum TransitionStyle
+{
+    /// <summary>The frame as it is.</summary>
+    None,
+
+    /// <summary>Mixes the frame towards <see cref="ScreenTransition.Color"/>.</summary>
+    Fade,
+
+    /// <summary>Mixes the held picture into the frame evenly.</summary>
+    Dissolve,
+
+    /// <summary>The frame sweeps across the held picture behind a straight edge.</summary>
+    Wipe,
+
+    /// <summary>The frame opens out of a circle over the held picture.</summary>
+    Iris,
+}
+
+/// <summary>
+/// Moves from one picture to another. A fade mixes the frame towards a colour. A dissolve,
+/// wipe or iris shows a held picture, one frame kept from earlier, over the frame, and
+/// takes it away as <see cref="Amount"/> goes from 0 to 1. Leaving Style at None shows the
+/// frame as it is. It changes the scene's picture only: the overlay is drawn on top.
+/// </summary>
+public struct ScreenTransition
+{
+    public TransitionStyle Style;
+
+    /// <summary>
+    /// How far along, from 0 to 1. For a fade, how much of the colour shows. For the
+    /// others, 0 shows only the held picture and 1 only the frame.
+    /// </summary>
+    public float Amount;
+
+    /// <summary>What a fade goes to, linear red, green and blue.</summary>
+    public Vector3 Color;
+
+    /// <summary>Which way a wipe's edge travels across the screen, with x to the right and y down. Zero goes to the right.</summary>
+    public Vector2 Direction;
+
+    /// <summary>Where an iris opens from, as a fraction of the screen: (0.5, 0.5) is the middle.</summary>
+    public Vector2 Center;
+
+    /// <summary>How soft a wipe's or an iris's edge is, as a fraction of the way it travels.</summary>
+    public float Softness;
+
+    /// <summary>
+    /// Changing this number holds a new picture: the frame drawn just before this one, as it
+    /// looked before the overlay. Keep it the same to keep the picture held. Before any frame
+    /// has been drawn, the held picture is black.
+    /// </summary>
+    public int Hold;
+}
+
 /// <summary>Puts the camera underwater. Leaving Absorption at zero means there's no water.</summary>
 public struct UnderwaterSettings
 {
@@ -414,6 +469,9 @@ public ref struct FrameView
     /// <see cref="Particle.MaxPerFrame"/> are drawn; the rest are dropped.
     /// </summary>
     public ReadOnlySpan<Particle> Particles;
+
+    /// <summary>A fade, dissolve or wipe between two pictures, or none.</summary>
+    public ScreenTransition Transition;
 }
 
 /// <summary>
