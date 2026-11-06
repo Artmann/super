@@ -4,6 +4,7 @@
     <ProjectReference Include="..\Super.Cook\Super.Cook.csproj" />
     <ProjectReference Include="..\Super.Materials\Super.Materials.csproj" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />
+    <PackageReference Include="StbImageSharp" Version="2.30.16" />
   </ItemGroup>
 
 </Project>

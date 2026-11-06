@@ -27,12 +27,6 @@ public sealed class MaterialCooker : ICooker
 
     public void Cook(CookInput input, CookOutput output)
     {
-        if (input.Name.EndsWith(".material.json", StringComparison.OrdinalIgnoreCase))
-        {
-            output.Error($"{input.Name}: material variants aren't supported yet.");
-            return;
-        }
-
         var settings = input.SettingsAs<MaterialSettings>();
         if (settings.Size < Constants.MinSize || settings.Size > Constants.MaxSize || !BitOperations.IsPow2(settings.Size))
         {
@@ -40,7 +34,32 @@ public sealed class MaterialCooker : ICooker
             return;
         }
 
-        var compiled = GraphCompiler.Compile(input.Name, input.Bytes, output);
+        Variant? variant = null;
+        string graphName = input.Name;
+        byte[] graphSource = input.Bytes;
+        if (input.Name.EndsWith(".material.json", StringComparison.OrdinalIgnoreCase))
+        {
+            variant = Variant.Read(input.Name, input.Bytes, output);
+            if (variant is null)
+            {
+                return;
+            }
+
+            // The graph's path is relative to the variant. Reading it makes a change to the graph cook the variant again.
+            try
+            {
+                graphSource = input.Read(variant.Graph);
+            }
+            catch (FileNotFoundException exception)
+            {
+                output.Error(exception.Message);
+                return;
+            }
+
+            graphName = input.Name[..(input.Name.LastIndexOf('/') + 1)] + variant.Graph;
+        }
+
+        var compiled = GraphCompiler.Compile(graphName, graphSource, output);
         if (compiled is null)
         {
             return;
@@ -50,7 +69,12 @@ public sealed class MaterialCooker : ICooker
         try
         {
             var graph = (MaterialGraph)Activator.CreateInstance(compiled.Type)!;
-            images = GraphRunner.Run(graph, settings.Size);
+            if (variant is not null && !variant.Apply(graph, input.Name, output))
+            {
+                return;
+            }
+
+            images = GraphRunner.Run(graph, settings.Size, new CookImages(input));
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
