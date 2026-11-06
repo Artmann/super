@@ -7,10 +7,17 @@ namespace Courtyard;
 /// A sunlit courtyard modelled in Blender (art/courtyard.py): a brick wall with an arched
 /// window, a dry-stone wall, a flagstone path through trodden mud and a puddle. Its bricks, stone,
 /// mud, wood, rust and window glass are the material graphs, put on the model by its cook sidecar.
+/// M turns the materials off and on, to judge the lighting and the shapes on their own.
 /// </summary>
-public sealed class CourtyardGame(Content content) : IGame
+public sealed class CourtyardGame(Content content, Input input, Graphics graphics) : IGame
 {
     private ModelRef _courtyard;
+
+    public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
+    {
+        // The courtyard in plain clay, through the same key a player presses.
+        ["plain"] = new InputScript().Press(Key.M).Wait(1),
+    };
 
     public void Load()
     {
@@ -19,6 +26,10 @@ public sealed class CourtyardGame(Content content) : IGame
 
     public void Update(GameTime time)
     {
+        if (input.Pressed(Key.M))
+        {
+            graphics.Materials = !graphics.Materials;
+        }
     }
 
     public void Draw(View view)

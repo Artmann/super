@@ -22,6 +22,15 @@ To change the scene, edit the script, run it in Blender and cook again.
 
 There are no point lights yet, so the lamp only glows through its bulb's `emissiveColor`.
 
+Press M to turn the materials off and on. Without them, the whole courtyard is plain grey
+clay, so you can judge the sunlight, the shadows and the shapes of the models without the
+textures in the way. It flips [`Graphics.Materials`](../../docs/rendering.md#graphics-settings).
+The `plain` script presses M for a screenshot:
+
+```
+dotnet run -c Release --project examples/Courtyard -- --script plain --screenshot shots/courtyard-plain.png --validate --seed 1 --ticks 60 --size 1600x900
+```
+
 ## The lineup
 
 `--lineup` shows the graphs one by one instead: a row for each, with a sphere, a cube and
