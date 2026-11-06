@@ -54,6 +54,7 @@ the rest is not yet.
 | Tweens | `Tween<T>` is a struct the game keeps and moves with `Update(time)`, blending by checking `typeof(T)` for the six supported types. Curves are cubic Hermite with slopes worked out once when built | No allocation per tick, no scheduler to own them, and they follow the tick clock and `Scale`, so a seed replays the same. Checking the type compiles away for each struct, so no interface is needed on `Vector3` or `Color` |
 | Splines | Every spline is stored as cubic Bézier pieces; points become pieces by centripetal Catmull-Rom (Barry–Goldman). Length is a table of 16 Gauss–Legendre steps per piece, refined to the curve by Newton steps. Minimal frames come from double reflection, with a closed spline's leftover twist spread by distance. `SplineFollower` is a struct that keeps distance within one trip | One evaluator serves both kinds of spline. Centripetal points don't overshoot or loop. Distances come out within a millimetre on a few-metre piece without a big table, frames never flip and close without a snap, and a follower running for hours keeps its place since its float never grows |
 | Content folder | The game reads only cooked content, through `IContentFiles`: `CookedFolder` over the `content` folder beside the program, which holds `content.manifest` and objects stored by hash. Names are the source path with its extension, compared ordinally, and `Content` checks each name's kind in the manifest when it's named. Textures carry their kind and normal-map flag in the cooked header. `MemoryContent` cooks a test's sources with the built-in cookers and the material cooker on first read. The manifest sits in a volatile field, replaced whole by `Refresh` | A typo or a wrong case fails where it's named, on every OS, instead of when it's drawn. Settings live in cook rules rather than code. Background texture loads always see one whole manifest. Tests run the same cookers a build does |
+| Material graphs | A material is a C# recipe of lazy nodes, run on the CPU at cook time into ordinary textures. Sine, cosine, power, exponent, log and atan2 come from `DMath`, never `Math`. Each node gets its seed from the graph's seed and its place in the graph. Each graph compiles alone, and the cooker's version comes from module ids | The renderer can't tell a graph from a texture set, and nothing runs at play time. The CPU gives the same bytes on every machine and thread count, which the GPU can't promise, and the cache and tests rely on that. `Math` and `MathF` can differ between machines. A node's pixels depend on the seed and its position, so adding a node later in the graph moves nothing before it |
 | Animation states | States and actions are the game's enums. One base state loops, keeping its phase across changes; actions play once over it, optionally masked to part of the skeleton | Walk and wave, or run and shoot, need no state per combination |
 | Audio mixing | Super's own `Mixer` writes 48 kHz stereo floats into a span, with a fixed 64 voice slots; OpenAL only plays the result. See [Audio mixer](#audio-mixer) | The same code runs with a device or without one, so headless runs and tests hear exactly what a player would, sample for sample |
 
@@ -407,10 +408,12 @@ the cooker's own `Super.Materials`, so `MaterialGraph` is one type on both sides
 exception's line is the first stack frame in that assembly. Compiles are cached by the
 SHA-256 of the source, 32 at most, and the oldest is dropped when a 33rd comes. It isn't
 unloaded, since another cook may still be running it, so its context goes once nothing
-holds it. Graphs compile in debug, so error lines are exact. A second tree,
+holds it. Graphs compile in debug, so error lines are exact, at the cost of unoptimised code in `Pixel` bodies. A second tree,
 `GlobalUsings.g.cs`, gives each graph `System`, `System.Collections.Generic` and
-`System.Linq`, and nullable is on, so a graph that builds in the game's IDE cooks the same.
-Its errors never appear, since they can't happen. Graphs compile twice on purpose. The cook
+`System.Linq`, and nullable is on. The game's build only matches that when it has
+`ImplicitUsings` and `Nullable` on, so a graph that names `System.IO` or the like can build
+in the game and still fail to cook. The usings tree is fixed text, so it adds no errors of
+its own, but a graph's compile errors are reported with their lines as usual. Graphs compile twice on purpose. The cook
 compiles each alone so its bytes are the whole input, and the game's build compiles them
 all together, via a `ProjectReference` to `Super.Materials` in `Super.targets`, only so the
 editor can complete and check them. That output is never used, and `Private="false"` keeps

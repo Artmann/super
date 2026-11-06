@@ -64,11 +64,13 @@ The cooker compiles the file on its own, against `Super.Materials` and the core 
 `System`, LINQ, the collections and the `System.Numerics` vectors. It can't use helpers
 from another graph file or from the game.
 
-Three namespaces are always there, as in the game's own build: `System`,
-`System.Collections.Generic` and `System.Linq`. Write `using Super.Materials;` yourself,
-and any other `using` line the file needs. `System.IO`, `System.Threading` and
-`System.Net.Http` are left out on purpose, so a graph that names them fails to cook.
-Nullable warnings are not reported by the cook.
+The cooker always adds three namespaces and nothing else: `System`,
+`System.Collections.Generic` and `System.Linq`. The game's own build adds the same three
+only when the game has `ImplicitUsings` and `Nullable` turned on, so a graph that relies on
+them is best written for the cooker's list. Write `using Super.Materials;` yourself, and any
+other `using` line the file needs. `System.IO`, `System.Threading` and `System.Net.Http`
+are left out on purpose, so a graph that names them fails to cook, even if the game's
+build accepts it. Nullable is on in the cook, but its warnings are not reported.
 
 A graph must give the same pixels every time it cooks. It must not read files, the clock
 or `System.Random`. Its randomness comes from its seed.
@@ -184,6 +186,15 @@ materials/bricks.material.cs: size must be a power of two from 16 to 4096, not 1
 Sizes and distances in nodes are fractions of the image, so a graph looks the same at
 every size, only sharper. The one exception is `RandomGray`, described below.
 
+### Cook time
+
+The time a graph takes grows with the number of pixels, so 2048 costs about four times
+1024. The six Courtyard graphs take 0.33 to 0.75 seconds each at 1024 and 1.0 to 2.25
+seconds each at 2048. Each run of the cook tool also spends about 1.45 seconds starting up
+the compiler, however small the graph. Both are measured on one machine, so take them as a
+rough guide. A graph that hasn't changed isn't cooked again, since its result is cached
+(see [the cache](command-line.md#the-cache)).
+
 ## Variants
 
 A variant makes a second material from the same graph, with other values. It is a small
@@ -228,7 +239,10 @@ var height = rock.ToGray().Multiply(0.5f);
 ```
 
 The picture is stretched to the graph's size with bilinear sampling, wrapping at the
-edges. Alpha is ignored. The colours are used as they are stored in the file, 0..1, with
+edges. Bilinear sampling reads 4 pixels for each pixel of the graph, so a picture much
+larger than the graph's size is not averaged down and can alias, with sparkle or jagged
+lines in fine detail. Shrink such a picture to about the cook size first, or cook the graph
+at a size near the picture's. Alpha is ignored. The colours are used as they are stored in the file, 0..1, with
 no conversion from sRGB, just as `Rgb.Of("#8c4632")` is. The file is read when `Image` is
 called, even if the graph never uses the result, and a change to it cooks the graph again.
 A file that isn't there stops the cook with the line of the call.
@@ -500,8 +514,8 @@ over a box around the island's pixel centres. An island that crosses an edge is 
 one piece, laid out across the edge. The gaps are 0, and so is an island one pixel across.
 An island that wraps all the way round the image, such as a full-width band or the mortar of
 an inverted `Bricks` mask, has no end to measure from, so its gradient has a seam where it
-joins up: the unwrapped island is a long strip, and the 1 edge meets the 0 edge. The angle does not snap. `angle` must be a finite number. Use it
-to give every brick its own gradient, or to shade each one from one side.
+joins up: the unwrapped island is a long strip, and the 1 edge meets the 0 edge. The angle
+does not snap. `angle` must be a finite number. Use it to give every brick its own gradient, or to shade each one from one side.
 
 ### Combining
 
@@ -596,6 +610,10 @@ Inputs are numbered from 0 in the order given. An input of the wrong kind is not
 `Rgb` throws `InvalidOperationException` ("Gray(0) needs a one-channel input, but input 0 has three. Use Rgb(0)
 for it."), so use `ToGray()` first. An index with no input throws `ArgumentOutOfRangeException`
 ("Gray(1) has no input 1: the node has 1 input."). Both stop the cook with the line of the graph.
+
+Graphs compile as Debug, so error lines are exact. The cost is that the code in a `Pixel`
+body, lambdas included, runs unoptimised. It is called once per pixel, so a heavy body at
+size 2048 is slow. See [Cook time](#cook-time).
 
 The body runs for rows in parallel, so it must not change anything outside itself. It must give the
 same answer for the same pixel. Use `DMath` for `Sin`, `Cos`, `Pow` and the like and not `Math` or
