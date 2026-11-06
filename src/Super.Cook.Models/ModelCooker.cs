@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Rendition;
+using Super.Cook.Materials;
 using Silk.NET.Assimp;
 using Assimp = Silk.NET.Assimp.Assimp;
 using Skeleton = Rendition.Skeleton;
@@ -674,7 +675,7 @@ public sealed class ModelCooker : ICooker
 /// <summary>Every cooker that ships with Super, the model cooker included.</summary>
 public static class ModelCookers
 {
-    public static IReadOnlyList<ICooker> All { get; } = [.. BuiltInCookers.All, new ModelCooker()];
+    public static IReadOnlyList<ICooker> All { get; } = [.. BuiltInCookers.All, new MaterialCooker(), new ModelCooker()];
 
     /// <summary>
     /// A cooked model with every texture inside it, so it can be read on its own, away from the store its

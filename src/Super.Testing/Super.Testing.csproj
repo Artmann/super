@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Super\Super.csproj" />
     <ProjectReference Include="..\Super.Cook\Super.Cook.csproj" />
+    <ProjectReference Include="..\Super.Cook.Materials\Super.Cook.Materials.csproj" />
     <PackageReference Include="xunit.extensibility.core" Version="2.9.3" />
   </ItemGroup>
 

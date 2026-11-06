@@ -6,6 +6,7 @@
     <Project Path="src/Super.Ecs/Super.Ecs.csproj" />
     <Project Path="src/Super.Physics/Super.Physics.csproj" />
     <Project Path="src/Super.Cook/Super.Cook.csproj" />
+    <Project Path="src/Super.Cook.Materials/Super.Cook.Materials.csproj" />
     <Project Path="src/Super.Cook.Models/Super.Cook.Models.csproj" />
     <Project Path="src/Super.Testing/Super.Testing.csproj" />
     <Project Path="src/Rendition/Rendition.csproj" />
