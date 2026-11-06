@@ -9,7 +9,7 @@ that doesn't exist yet; everything else works today.
 | [Working with coding agents](agents.md) | How an agent builds, runs, tests and sees a Super game |
 | [Drawing with views](views.md) | `Draw`, keys, view memory, smoothing, `Cached` and state versus view |
 | [Cameras and clicking](cameras.md) | `Camera`, the camera helpers, orthographic and shifted views, and picking |
-| [Rendering](rendering.md) | Lights, shadows, the sky, water, post-processing, meshes made by code and along splines, surface shaders, terrain and models |
+| [Rendering](rendering.md) | Graphics settings for speed, lights, shadows, the sky, water, post-processing, meshes made by code and along splines, surface shaders, terrain and models |
 | [Animation](animation.md) | Rigged models, Mixamo clips, states, actions, blends, masks, root motion and joints |
 | [Cutscenes](cutscenes.md) | Shots, moments, slow motion and the `Director` |
 | [Transitions](transitions.md) | Fades, dissolves, wipes, irises and camera blends, in play and between shots |

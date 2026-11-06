@@ -666,6 +666,31 @@ Two frames can be in flight. Render targets are shared between frames, and
 pipeline barriers order the access; per-frame state is limited to command
 buffers, sync objects and the uniform buffer.
 
+### Effects left out
+
+`FrameView.Off` is a set of `RenderEffects` the frame skips, filled from Super's `Graphics`.
+A skipped pass records nothing but still calls `GpuTimer.Mark`, since the timer's pass names
+are fixed. Every image a later pass binds must still be in a valid layout, so a skipped
+pass moves its output from `Undefined` to `ShaderReadOnlyOptimal` instead (the sun's shadow
+map, the blurred AO, bloom's result). The contents are then undefined, so the shaders that
+bind them read the same set from `FrameUniforms.Off` (`frame.off` and `isOff()` in
+`common.glsl`) and don't sample them: lighting takes AO as 1 and no traced reflection, and
+tonemapping skips the bloom mix. The sun's shadows off sends no cascades, so lighting counts
+every point as lit, and light shadows off hands out no atlas tiles, so every light's tile is -1.
+
+Without anti-aliasing the camera isn't jittered, and bloom and tonemapping read the HDR image
+in place of the resolved one. Those descriptor sets can't change while a frame is in
+flight, so the switch waits for the device to go idle once and rewrites them. Traced
+reflections still need last frame's picture, so the HDR image is copied to history instead
+of the resolved one. With reflections off too, nothing is copied and history counts as
+stale. Vsync switches by remaking the swapchain on the next frame.
+
+The frame limit lives in Super's window loop, not the renderer (`FrameLimiter`). Each frame
+gets a slot one period after the last, so a long frame is made up by a shorter wait. A frame
+more than a period past its slot starts the count again instead of rushing to catch up. It
+sleeps in 1 ms steps, with the Windows timer set to 1 ms while a limit is on, and spins the
+last 2 ms.
+
 ## Environment lighting
 
 `Renderer.SetEnvironment` describes the surroundings as colour bands plus up to

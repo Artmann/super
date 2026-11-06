@@ -108,7 +108,8 @@ dotnet run -c Release --project MyColony -- --no-vsync
 `--no-vsync` stops waiting for the display, so a game draws as fast as the machine can and
 the frame rate shows what it can really do. Fast movement may tear, and displays that
 can't run this way keep vsync on. It's for playing in the window, so it can't be combined
-with `--screenshot`, `--record` or `--profile`.
+with `--screenshot`, `--record` or `--profile`. It does the same as setting
+[`Graphics.Vsync`](rendering.md#graphics-settings) to false, which a game can also do from code.
 
 ## Capturing from code
 

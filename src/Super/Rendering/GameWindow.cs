@@ -39,8 +39,12 @@ internal sealed unsafe class GameWindow : IDisposable
     private readonly Func<int, bool> _isGamepad;
     private CursorModeValue _cursorMode = CursorModeValue.CursorNormal;
 
+    /// <summary>Screenshots, recordings and profiles keep vsync, so they're the same on every computer.</summary>
+    private readonly bool _hidden;
+
     public GameWindow(string title, int windowWidth, int windowHeight, bool hidden, bool validate, bool disableVsync)
     {
+        _hidden = hidden;
         _glfw = Glfw.GetApi();
         _isGamepad = slot => _glfw.JoystickIsGamepad(slot);
         if (!_glfw.Init())
@@ -76,7 +80,7 @@ internal sealed unsafe class GameWindow : IDisposable
             Width = width,
             Height = height,
             EnableValidation = validate,
-            DisableVsync = disableVsync,
+            DisableVsync = disableVsync && !hidden,
         });
     }
 
@@ -115,29 +119,52 @@ internal sealed unsafe class GameWindow : IDisposable
         host.Content.Streaming = true;
         host.Content.GoLive();
 
-        while (!_glfw.WindowShouldClose(_window))
+        var limiter = new FrameLimiter(TimeProvider.System);
+        IDisposable? fineSleep = null;
+        try
         {
-            _glfw.PollEvents();
-            if (host.Script is null)
+            while (!_glfw.WindowShouldClose(_window))
             {
-                PollGamepad(host.Input);
+                PlayFrame(host, clock, realTime, ref last, ref played);
+
+                int limit = host.Graphics.MaxFramesPerSecond;
+                if (limit > 0)
+                {
+                    fineSleep ??= FrameLimiter.FineSleep();
+                }
+
+                FrameLimiter.Wait(limiter.Next(limit));
             }
-
-            double now = realTime.Elapsed.TotalSeconds;
-            double step = host.Capture.IsRecording ? 1.0 / host.Capture.FramesPerSecond : now - last;
-            last = now;
-            played += step;
-
-            int ticks = clock.Advance(step);
-            for (int i = 0; i < ticks; i++)
-            {
-                host.Tick();
-            }
-
-            ApplyMouseCapture(host.Input);
-            Draw(host, clock.Blend);
-            Show(host, (float)played);
         }
+        finally
+        {
+            fineSleep?.Dispose();
+        }
+    }
+
+    private void PlayFrame<TGame>(GameHost<TGame> host, FixedStepClock clock, Stopwatch realTime, ref double last, ref double played)
+        where TGame : class, IGame
+    {
+        _glfw.PollEvents();
+        if (host.Script is null)
+        {
+            PollGamepad(host.Input);
+        }
+
+        double now = realTime.Elapsed.TotalSeconds;
+        double step = host.Capture.IsRecording ? 1.0 / host.Capture.FramesPerSecond : now - last;
+        last = now;
+        played += step;
+
+        int ticks = clock.Advance(step);
+        for (int i = 0; i < ticks; i++)
+        {
+            host.Tick();
+        }
+
+        ApplyMouseCapture(host.Input);
+        Draw(host, clock.Blend);
+        Show(host, (float)played);
     }
 
     /// <summary>Plays the given number of ticks and saves the picture. Returns the validation message count.</summary>
@@ -279,6 +306,7 @@ internal sealed unsafe class GameWindow : IDisposable
             if (i >= ticks - ScreenshotPlayedTicks)
             {
                 Draw(host, 1f);
+                ApplyGraphics(host.Graphics);
                 _scene.Render(host.View, host.Content, width, height, (float)host.Time.TotalSeconds);
             }
         }
@@ -290,6 +318,7 @@ internal sealed unsafe class GameWindow : IDisposable
         _glfw.GetFramebufferSize(_window, out int width, out int height);
         for (int i = 0; i < frames; i++)
         {
+            ApplyGraphics(host.Graphics);
             _scene.Render(host.View, host.Content, width, height, time);
         }
     }
@@ -313,12 +342,21 @@ internal sealed unsafe class GameWindow : IDisposable
         // A minimized window has no pixels to read.
         if (!host.Capture.WantsFrame || width == 0 || height == 0)
         {
+            ApplyGraphics(host.Graphics);
             _scene.Render(host.View, host.Content, width, height, time);
             return;
         }
 
+        ApplyGraphics(host.Graphics);
         byte[] pixels = _scene.Capture(host.View, host.Content, width, height, time, out int capturedWidth, out int capturedHeight);
         host.Capture.Accept(pixels, capturedWidth, capturedHeight);
+    }
+
+    /// <summary>Hands the game's graphics settings, as they are now, to the renderer for the next frame.</summary>
+    private void ApplyGraphics(Graphics graphics)
+    {
+        _scene.Off = graphics.Off;
+        _scene.Vsync = _hidden || graphics.Vsync;
     }
 
     /// <summary>Feeds the window's events into the game's input. Only the interactive loop does this.</summary>

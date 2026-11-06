@@ -88,6 +88,16 @@ internal sealed class SceneRenderer : IDisposable
         set => _renderer.MeasureGpu = value;
     }
 
+    /// <summary>Waits for the display before showing a frame. A change takes effect on the next frame.</summary>
+    public bool Vsync
+    {
+        get => _renderer.Vsync;
+        set => _renderer.Vsync = value;
+    }
+
+    /// <summary>The effects left out of every frame from now on.</summary>
+    public RenderEffects Off { get; set; }
+
     public ReadOnlySpan<GpuPassTime> GpuTimes => _renderer.GpuTimes;
 
     public double WaitMilliseconds => _renderer.WaitMilliseconds;
@@ -487,6 +497,7 @@ internal sealed class SceneRenderer : IDisposable
             Overlay = view.Ui is { } ui ? ui.Quads : [],
             Particles = view.DrawnParticles,
             Transition = view.Transition,
+            Off = Off,
             LocalLights = view.DrawnLights,
         };
     }
