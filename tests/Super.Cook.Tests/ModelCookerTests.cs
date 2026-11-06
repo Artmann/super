@@ -484,6 +484,35 @@ public sealed class ModelCookerTests : IDisposable
     }
 
     [Fact]
+    public void A_graph_material_has_no_height_or_detail_textures_and_glass_bends_nothing_unless_its_rule_says()
+    {
+        string src = GraphFolder("""{ "match": "bark", "graph": "../materials/flat.material.cs", "graphSize": 16, "transparent": true }""");
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var material = Model(store, "models/a.gltf").Materials[0];
+        // 0 would be the graph's own colour texture, laid over the surface again as height and detail.
+        Assert.Equal((-1, -1, -1), (material.HeightTexture, material.DetailColorTexture, material.DetailNormalTexture));
+        // 0 would bend the scene behind glass the wrong way.
+        Assert.Equal(1f, material.Ior);
+    }
+
+    [Fact]
+    public void A_graph_rule_keeps_the_ior_it_sets()
+    {
+        string src = GraphFolder("""
+            { "match": "bark", "graph": "../materials/flat.material.cs", "graphSize": 16,
+              "transparent": true, "ior": 1.5 }
+            """);
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Equal(1.5f, Model(store, "models/a.gltf").Materials[0].Ior);
+    }
+
+    [Fact]
     public void A_graph_variant_rule_runs_its_graph_with_its_values()
     {
         string src = GraphFolder("""{ "match": "bark", "graph": "../materials/red.material.json", "graphSize": 16 }""");
