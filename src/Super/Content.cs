@@ -50,6 +50,7 @@ public sealed class Content
     private readonly List<int> _pendingUnloads = [];
     private readonly Dictionary<string, ModelRef> _models = [];
     private readonly Dictionary<string, Rig> _rigs = [];
+    private readonly Dictionary<int, string[]> _partNames = [];
     private readonly Dictionary<string, GameImage> _images = [];
     private readonly List<SoundClip> _clips = [];
     private readonly Dictionary<string, SoundRef> _sounds = [];
@@ -166,6 +167,99 @@ public sealed class Content
         }
 
         return rig;
+    }
+
+    /// <summary>
+    /// Picks the parts of a cooked model that have these names, for a draw to show only those. A
+    /// part is one mesh of the source file, named by the mesh's name in it, such as <c>Head_05b</c>.
+    /// A name picks every part with it, since names can repeat, and names must match exactly. The
+    /// names are read from the front of the cooked model, so the geometry is never read. A name the
+    /// model has no part called, an empty list, a model that isn't cooked, or a static model cooked
+    /// without <c>keepMeshes</c> stops here with an <see cref="ArgumentException"/> or an
+    /// <see cref="InvalidOperationException"/>. Not the same as <c>file#part</c> in a model's name,
+    /// which is a split made at cook time.
+    /// </summary>
+    public PartMask Parts(ModelRef model, params ReadOnlySpan<string> names)
+    {
+        if (names.IsEmpty)
+        {
+            throw new ArgumentException("A part mask needs at least one part name.", nameof(names));
+        }
+
+        string[] all = PartNamesOf(model, nameof(model));
+        var kept = new List<int>();
+        foreach (string name in names)
+        {
+            int before = kept.Count;
+            for (int part = 0; part < all.Length; part++)
+            {
+                if (all[part] == name)
+                {
+                    kept.Add(part);
+                }
+            }
+
+            if (kept.Count == before)
+            {
+                throw new ArgumentException(MissingPart(ModelName(model.Index), name, all), nameof(names));
+            }
+        }
+
+        return new PartMask(model.Index, all.Length, CollectionsMarshal.AsSpan(kept));
+    }
+
+    /// <summary>The names of a cooked model's parts, in the order they're cooked, so a game can see what <see cref="Parts"/> takes.</summary>
+    public IReadOnlyList<string> PartNames(ModelRef model) => Array.AsReadOnly(PartNamesOf(model, nameof(model)));
+
+    private string[] PartNamesOf(ModelRef model, string field)
+    {
+        if (model.IsBuiltIn)
+        {
+            throw new ArgumentException("The built-in shapes, such as the cube, are not cooked, so they have no part names.", field);
+        }
+
+        if (model.Index < 1 || model.Index > _items.Count)
+        {
+            throw new ArgumentException($"{field} names {model.Index}, which this content never named, so it has no part names.", field);
+        }
+
+        RequireLoaded(model.Index, field);
+        if (_partNames.TryGetValue(model.Index, out var known))
+        {
+            return known;
+        }
+
+        if (_items[model.Index - 1] is not string name)
+        {
+            throw new ArgumentException($"{field} names {model.Index}, which was made in code, not cooked, so it has no part names.", field);
+        }
+
+        string[] names;
+        using (var stream = _files.Open(name))
+        {
+            names = ModelData.ReadPartNames(stream, name);
+        }
+
+        if (names.Length == 0)
+        {
+            throw new InvalidOperationException(
+                $"{name} has no part names, because its file was cooked without them. A rigged model always has them. " +
+                $"A static model needs \"keepMeshes\": true in {name}.cook.json, and then to be cooked again.");
+        }
+
+        _partNames.Add(model.Index, names);
+        return names;
+    }
+
+    private string ModelName(int index) => _items[index - 1] as string ?? $"model {index}";
+
+    // The first 20 names are listed, so a model with hundreds of parts still gives a short message.
+    private static string MissingPart(string model, string name, string[] all)
+    {
+        const int Shown = 20;
+        string list = string.Join(", ", all.Take(Shown));
+        string more = all.Length > Shown ? $", and {all.Length - Shown} more" : "";
+        return $"{model} has no part called {name}. It has {all.Length} {(all.Length == 1 ? "part" : "parts")}: {list}{more}.";
     }
 
     /// <summary>The animators the game loop moves on each tick: every one started from a rig this content read.</summary>

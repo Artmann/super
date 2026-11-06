@@ -9,7 +9,8 @@ namespace Super.Cook.Models;
 /// <summary>
 /// Reads the skeleton, bone weights and clips of a rigged scene. The joints are every
 /// node a mesh's bone names, and every node between one of those and the root, in
-/// parent-first order. Clips are sampled at <see cref="FrameRate"/>.
+/// parent-first order, and the parent of each node that holds an unskinned mesh. Clips are
+/// sampled at <see cref="FrameRate"/>.
 /// </summary>
 internal sealed unsafe class RigImporter
 {
@@ -44,8 +45,19 @@ internal sealed unsafe class RigImporter
 
         Walk(scene->MRootNode, -1, Matrix4x4.Identity);
 
-        // A node is a joint when it is a bone or has one below it.
+        // A node is a joint when it is a bone or has one below it. The parent of a node that
+        // carries an unskinned mesh is a joint too, so the mesh follows that container's
+        // animated chain. A container is no bone, so its inverse bind is its rest pose's inverse
+        // in the node tree, where Skin placed the mesh's vertices.
         var isJoint = new bool[_nodes.Count];
+        foreach (var (mesh, node) in _meshNode)
+        {
+            if (scene->MMeshes[mesh]->MNumBones == 0 && _nodes[node].Parent >= 0)
+            {
+                isJoint[_nodes[node].Parent] = true;
+            }
+        }
+
         for (int i = _nodes.Count - 1; i >= 0; i--)
         {
             if (boneNames.Contains(_nodes[i].Name))

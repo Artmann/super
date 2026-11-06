@@ -257,6 +257,39 @@ Naming a part that isn't there lists the ones that are:
 archer-props/firs.glb#tal isn't in the cooked content. Check the name, including its case and extension. archer-props/firs.glb has the parts: tall, young.
 ```
 
+### Part names
+
+A rigged model keeps the name of each of its parts: the name of its mesh in the source
+file, such as `Head_05b`. A static model keeps them only when its sidecar sets
+`"keepMeshes": true`, and is cooked again. These are not the `#part` splits above. A split is cut
+when the file is cooked, and each one is a model of its own. A part name is a mesh inside
+one model, which a game can show or hide on each draw. `content.Parts` picks them by name
+and gives a [`PartMask`](rendering.md#showing-some-parts-of-a-model):
+
+```csharp
+PartMask mask = content.Parts(model, "Body_03a", "Head_05b");
+```
+
+A name picks every part with it, since a file can repeat one, and names match exactly,
+case included. A name the model doesn't have stops here with an `ArgumentException` that
+lists the first 20 parts it has, and their count:
+
+```
+hero.glb has no part called Helmet. It has 3 parts: Body_03a, Head_05b, w_spear.
+```
+
+`content.PartNames(model)` lists them in the order they were cooked. The names are read
+from the front of the cooked file, so picking them never reads the geometry. A static model
+cooked without `keepMeshes` has no names, so `content.Parts` stops with an
+`InvalidOperationException` that says why and what to do:
+
+```
+old.glb has no part names, because its file was cooked without them. A rigged model always has them. A static model needs "keepMeshes": true in old.glb.cook.json, and then to be cooked again.
+```
+
+A model file from before part names were kept is not a current model file, and fails with
+the message to cook it again.
+
 ## Shipping
 
 `dotnet publish` copies the cooked `content` folder beside the program and leaves

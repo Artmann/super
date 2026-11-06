@@ -51,7 +51,7 @@ dotnet run -c Release --project MyGame -- --seed 7 --ticks 300 --profile shots/p
 | --- | --- |
 | Know the game still works | Headless tests with seeds, invariants and played input |
 | Check the interface without a screen | `run.ShownText`: every label and where it landed, with real layout and fonts |
-| Check the world without a screen | `run.Drawn`: every model, key and transform the game described |
+| Check the world without a screen | `run.Drawn`: every model, key, transform and part mask the game described |
 | See the game | `--screenshot`, `--record` and `GameCapture`, straight from the renderer |
 | Reproduce a bug | One seed and one tick number replay it exactly |
 | Fix bad data | `ContentException` lists every problem as `file:line: problem` |

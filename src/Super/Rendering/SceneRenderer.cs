@@ -118,20 +118,35 @@ internal sealed class SceneRenderer : IDisposable
         return _renderer.Capture(CreateFrame(view, width, height, time), _draws.AsSpan(0, count), out capturedWidth, out capturedHeight);
     }
 
-    /// <summary>Adds up what the view drew, model by model.</summary>
+    /// <summary>
+    /// Adds up what the view drew, model by model. Copies that show different parts are
+    /// counted apart, since each one costs its own kept triangles.
+    /// </summary>
     internal List<ModelCost> CountModels(View view, Content content)
     {
-        var copies = new Dictionary<int, int>();
+        var copies = new Dictionary<(int Model, PartMask? Parts), int>();
         foreach (ref readonly var draw in view.Drawn)
         {
-            copies[draw.Model.Index] = copies.GetValueOrDefault(draw.Model.Index) + 1;
+            var key = (draw.Model.Index, draw.Parts);
+            copies[key] = copies.GetValueOrDefault(key) + 1;
         }
 
         var costs = new List<ModelCost>();
-        foreach (var (model, count) in copies)
+        foreach (var ((model, mask), count) in copies)
         {
             string name = Name(model, content, "generated mesh");
-            costs.Add(new ModelCost(name, count, Parts(model, content).Sum(part => (long)part.IndexCount) / 3));
+            var parts = Parts(model, content);
+            KeptCount(parts.Length, mask); // Throws if the mask was made for a model with another part count.
+            long indices = 0;
+            for (int p = 0; p < parts.Length; p++)
+            {
+                if (ShowsPart(mask, p))
+                {
+                    indices += parts[p].IndexCount;
+                }
+            }
+
+            costs.Add(new ModelCost(name, count, indices / 3));
         }
 
         return costs;
@@ -375,16 +390,28 @@ internal sealed class SceneRenderer : IDisposable
         {
             var model = Model(draw.Model.Index, content);
             var parts = model.Parts;
-            if (count + parts.Length > _draws.Length)
+            int kept = KeptCount(parts.Length, draw.Parts);
+            if (kept == 0)
             {
-                Array.Resize(ref _draws, (count + parts.Length) * 2);
+                continue;
             }
 
-            var bones = draw.Pose is { } pose ? Skin(pose, draw.PoseAhead, model, draw.Model.Index, content) : default;
-            foreach (ref readonly var part in parts.AsSpan())
+            if (count + kept > _draws.Length)
             {
+                Array.Resize(ref _draws, (count + kept) * 2);
+            }
+
+            // Skinned once per draw, and only when a part is kept, so a mask that keeps nothing costs no bones.
+            var bones = draw.Pose is { } pose ? Skin(pose, draw.PoseAhead, model, draw.Model.Index, content) : default;
+            for (int p = 0; p < parts.Length; p++)
+            {
+                if (!ShowsPart(draw.Parts, p))
+                {
+                    continue;
+                }
+
                 ref var item = ref _draws[count++];
-                item = part;
+                item = parts[p];
                 item.Transform = draw.Transform;
                 item.Swim = draw.Swim;
                 item.Tint = draw.Color ?? (draw.Model.IsBuiltIn ? CubeColor : null);
@@ -395,6 +422,26 @@ internal sealed class SceneRenderer : IDisposable
 
         return count;
     }
+
+    /// <summary>How many of a model's parts a draw shows. A null mask shows them all. Throws if the mask was made for a model with another part count.</summary>
+    internal static int KeptCount(int partCount, PartMask? mask)
+    {
+        if (mask is null)
+        {
+            return partCount;
+        }
+
+        if (mask.Count != partCount)
+        {
+            throw new InvalidOperationException(
+                $"The parts mask was made for a model with {mask.Count} parts, but the model being drawn has {partCount}. Make it from the same cooked file.");
+        }
+
+        return mask.Kept;
+    }
+
+    /// <summary>Whether a draw with this mask shows the part. A null mask shows every part.</summary>
+    internal static bool ShowsPart(PartMask? mask, int part) => mask is null || mask.Shows(part);
 
     /// <summary>
     /// Samples a pose into this frame's bone matrices. Once the frame's bones are full,
