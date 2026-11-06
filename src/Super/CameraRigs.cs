@@ -64,6 +64,9 @@ public sealed class BoomCamera
 
     public float FieldOfView { get; set; } = MathF.PI / 4f;
 
+    /// <summary>Keeps the view at least as wide as on a screen of this shape. See <see cref="Camera.WideAs"/>.</summary>
+    public float WideAs { get; set; }
+
     /// <summary>The camera on the tick before this one.</summary>
     public Camera Previous { get; private set; }
 
@@ -94,7 +97,7 @@ public sealed class BoomCamera
         _shown = !_placed || room < _shown ? room : float.Lerp(room, _shown, CameraTurn.Remaining(seconds, ReturnLag));
 
         var arm = Arm(target);
-        var next = new Camera(arm.Origin + arm.Direction * _shown, arm.Origin, FieldOfView);
+        var next = new Camera(arm.Origin + arm.Direction * _shown, arm.Origin, FieldOfView) { WideAs = WideAs };
         Previous = _placed ? Current : next;
         Current = next;
         _placed = true;
@@ -129,6 +132,9 @@ public sealed class FirstPersonCamera
 
     public float FieldOfView { get; set; } = MathF.PI / 3f;
 
+    /// <summary>Keeps the view at least as wide as on a screen of this shape. See <see cref="Camera.WideAs"/>.</summary>
+    public float WideAs { get; set; }
+
     /// <summary>The camera on the tick before this one.</summary>
     public Camera Previous { get; private set; }
 
@@ -148,7 +154,7 @@ public sealed class FirstPersonCamera
     public void Update(Vector3 feet)
     {
         var eye = feet + Vector3.UnitY * EyeHeight;
-        var next = new Camera(eye, eye - CameraTurn.Behind(Yaw, -Pitch) * LooksAhead, FieldOfView);
+        var next = new Camera(eye, eye - CameraTurn.Behind(Yaw, -Pitch) * LooksAhead, FieldOfView) { WideAs = WideAs };
         Previous = _placed ? Current : next;
         Current = next;
         _placed = true;
@@ -176,7 +182,7 @@ public abstract class OverheadCamera
     private float _shownYaw;
     private bool _placed;
 
-    private protected OverheadCamera(float yaw, float pitch)
+    protected OverheadCamera(float yaw, float pitch)
     {
         Angle = yaw;
         Tilt = pitch;
@@ -192,20 +198,37 @@ public abstract class OverheadCamera
 
     public float MaxSize { get; set; } = 500f;
 
-    /// <summary>Roughly how many seconds the view takes to catch up. Zero means none.</summary>
+    /// <summary>
+    /// Roughly how many seconds the view takes to catch up with a followed center, a zoom or
+    /// a turn. Zero means none. <see cref="Pan"/> doesn't wait for it.
+    /// </summary>
     public float Lag { get; set; } = 0.15f;
+
+    /// <summary>Keeps the view at least as wide as on a screen of this shape. See <see cref="Camera.WideAs"/>.</summary>
+    public float WideAs { get; set; }
 
     /// <summary>The camera on the tick before this one.</summary>
     public Camera Previous { get; private set; }
 
     public Camera Current { get; private set; }
 
-    private protected float Angle { get; set; }
+    /// <summary>The turn around the center, in radians, for a subclass to pass on or expose.</summary>
+    protected float Angle { get; set; }
 
-    private protected float Tilt { get; set; }
+    /// <summary>How high above the ground it looks, in radians.</summary>
+    protected float Tilt { get; set; }
 
-    /// <summary>Moves the center over the ground, x to the right of the screen and y up it.</summary>
-    public void Pan(Vector2 distance) => Center += CameraTurn.Walk(Angle, distance);
+    /// <summary>
+    /// Moves the center over the ground, x to the right of the screen and y up it. The view
+    /// moves by the same amount on the next update, with no <see cref="Lag"/>, so a camera
+    /// the player steers doesn't trail their keys or drift after they let go.
+    /// </summary>
+    public void Pan(Vector2 distance)
+    {
+        var step = CameraTurn.Walk(Angle, distance);
+        Center += step;
+        _shownCenter += step;
+    }
 
     /// <summary>Shows less by this many wheel notches, as in <c>camera.Zoom(input.Scroll)</c>.</summary>
     public void Zoom(float notches) => Size = Math.Clamp(Size * MathF.Pow(CameraTurn.ZoomStep, notches), MinSize, MaxSize);
@@ -225,12 +248,19 @@ public abstract class OverheadCamera
         _shownSize = float.Lerp(Size, _shownSize, kept);
         _shownYaw = float.Lerp(Angle, _shownYaw, kept);
 
-        var position = _shownCenter + CameraTurn.Behind(_shownYaw, Tilt) * Standoff;
-        var next = Camera.Orthographic(position, _shownCenter, _shownSize);
+        var next = Build(_shownCenter, _shownSize, _shownYaw) with { WideAs = WideAs };
         Previous = _placed ? Current : next;
         Current = next;
         _placed = true;
     }
+
+    /// <summary>
+    /// The camera for a center, size and turn, which <see cref="Update(float)"/> calls once a tick. It looks down
+    /// at the tilt from far away, orthographic. Override it to look from somewhere else, such as a perspective
+    /// camera at a distance of <paramref name="size"/>, and the rig still blends it between ticks.
+    /// </summary>
+    protected virtual Camera Build(Vector3 center, float size, float yaw) =>
+        Camera.Orthographic(center + CameraTurn.Behind(yaw, Tilt) * Standoff, center, size);
 
     /// <summary>
     /// Puts the camera straight in place on the next update, with no blend, for when the

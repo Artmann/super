@@ -6,15 +6,75 @@ Super hands that to Rendition each frame.
 
 What it does for every game, with no setup:
 
-- Cook-Torrance GGX shading with up to eight directional lights
+- Cook-Torrance GGX shading with up to eight directional lights, and up to 1,024 point
+  and spot lights with soft shadows
 - Soft, contact-hardening shadows, in up to four cascades
 - A generated environment that gives surfaces reflections and soft fill light
 - Screen-space reflections and box-corrected reflection probes
 - Temporal anti-aliasing, ambient occlusion (with light bounced back from the surface's colour) and bloom
-- Glass, car paint clearcoat and surfaces that glow
+- [Glass](#glass) that bends and frosts what's behind it, car paint clearcoat and surfaces that glow
+- [Height maps](#height-and-detail-maps) that sink mortar and grooves into a flat surface, and detail maps for fine grain
+- Skin, wax and jade that [let light spread under the surface](#skin-and-wax)
 - Soft, lit [particles](views.md#particles) for dust and smoke
 - Culling and simpler versions of distant models, for the camera and for shadows
 - ACES filmic tonemapping, colour grading, sharpening, vignette, grain and dithering
+
+## Graphics settings
+
+Everything above is on by default, and vsync keeps the frame rate at the display's, often 60.
+A game that must run fast on modest hardware turns off what it doesn't need:
+
+```csharp
+Game.StartWindowsGameLoop<MyGame>(new GameOptions
+{
+    Title = "My game",
+    Graphics = new Graphics { AmbientOcclusion = false, Reflections = false, MaxFramesPerSecond = 144 },
+});
+```
+
+`Graphics.Fastest()` turns every effect and vsync off (but keeps the materials), a start to turn back on only what
+the game needs. Ask for `Graphics` in a constructor to change it while the game runs; the
+next frame follows, so it can back an options menu.
+
+| Setting | Off, or set |
+|---|---|
+| `Vsync` | Frames come as fast as the machine draws them, and fast movement may tear. `--no-vsync` turns it off too |
+| `MaxFramesPerSecond` | The most frames drawn a second. 0, the default, is no limit. It saves power, and with vsync off it holds a steady rate |
+| `SunShadows` | Nothing is drawn into the sun's shadow maps, often the biggest saving. Ambient occlusion still darkens nooks |
+| `LightShadows` | Point and spot lights shine through walls |
+| `AmbientOcclusion` | Corners and creases are as bright as open ground |
+| `Reflections` | Shiny surfaces and water reflect only the sky and reflection probes, not what's on screen |
+| `AntiAliasing` | Edges show their pixels, and moving things stay sharp |
+| `Bloom` | No glow round bright things. `PostSettings.Bloom` only changes how much there is |
+| `Materials` | Every surface is the same light grey, matte clay, shaped only by its mesh, so you can judge the lighting and the models without textures in the way. Glows still glow, cut-outs still cut and glass stays see-through. `--no-materials` turns it off too |
+
+`Materials` is for looking, not for speed, so `Graphics.Fastest()` leaves it on. A key that
+flips it while the game runs makes a handy lighting check:
+
+```csharp
+internal sealed class MyGame(Graphics graphics, Input input) : IGame
+{
+    public void Update(GameTime time)
+    {
+        if (input.Pressed(Key.M))
+        {
+            graphics.Materials = !graphics.Materials;
+        }
+    }
+}
+```
+
+![The Shapes example with its materials, and with Materials off](media/graphics-materials.webp)
+
+An effect turned off skips its work on the GPU, not only its look. In the Crypt, the
+GPU time of a frame halves:
+
+![Crypt with every effect on, 4.4 ms of GPU a frame, and with Graphics.Fastest, 2.0 ms](media/graphics-fastest.webp)
+
+Screenshots, recordings and profiles keep vsync and ignore the frame limit, so they come
+out the same on every machine, but they do follow the effect switches. Turning
+`AntiAliasing` on or off waits for the GPU to finish once, so do it from a menu rather than
+every frame.
 
 ## Lights
 
@@ -24,7 +84,63 @@ view.Sun(direction: new Vector3(-1f, 0.5f, -1f), color: new Vector3(0.4f, 0.5f, 
 ```
 
 `direction` points towards the light. Colours are linear, so a bright light goes well
-past 1. The first sun casts the shadows.
+past 1. One sun casts the shadows: the first, unless you pick another with
+`shadows: true`:
+
+```csharp
+view.Sun(new Vector3(-1f, 0.5f, -1f), new Vector3(0.4f, 0.5f, 0.8f));
+view.Sun(new Vector3(1f, 2f, 1f), new Vector3(3f), shadows: true);
+```
+
+Marking two suns in one frame throws.
+
+### Point and spot lights
+
+![The Crypt example: torches, candelabras, a lantern's beam and 126 candles](media/crypt.webp)
+
+```csharp
+view.PointLight(torch.Id, torch.Flame, color: new Vector3(3.2f, 1.5f, 0.5f), range: 9f, radius: 0.5f);
+view.PointLight(candle.Id, candle.Wick, new Vector3(0.12f, 0.06f, 0.02f), range: 1.4f, shadows: false);
+view.SpotLight(lantern.Id, lantern.Position, direction: -Vector3.UnitY, new Vector3(6f, 5.5f, 4.5f),
+    range: 7f, innerAngle: 0.25f, outerAngle: 0.4f);
+```
+
+A point light shines every way from a spot, like a candle or a torch, and a spot light
+shines in a cone, like a lantern's beam. The colour is how bright the light is a metre
+away. It dims with the square of the distance and fades smoothly to nothing at the
+range, so a small range is cheaper and keeps a candle's light on its own table. A spot
+is full inside its inner angle and fades out by its outer one. Both angles are measured
+from the direction, in radians, and the outer one must be under a right angle.
+
+A light also has a radius, the size of its glowing part, 0.1 m unless you pass
+`radius:`. No surface gets much brighter than it would be that far from the light. On
+its own, the square of the distance makes a torch a hand from a wall blow the stone out
+white while the room stays dim. A bigger radius calms the wall but leaves the light
+just as bright a metre away and beyond, so raise it for lights in brackets, sconces and
+lamps against walls. The Crypt's torches use 0.5. A bigger light also casts softer
+shadows. The radius must be less than the range.
+
+![A torch on a pillar with the default radius of 0.1 and with 0.5](media/torch-radius.webp)
+
+Draw lights in `Draw` like everything else, each frame, so a torch can flicker by
+changing its colour. The key names the light from frame to frame, the same as a model's
+key, and keeps its shadow steady as the camera moves. Use the ID of the thing holding it.
+
+Lights cast soft shadows unless `shadows: false` is passed. Shadows are sharp where an
+object touches the ground and blur further away, as the sun's do. All the lights share
+one shadow atlas, and a light that is bigger on screen gets a sharper shadow. A point
+light costs six times as much shadow as a spot. When the atlas is full, the lights that
+are smallest on screen lose their shadows. Shadows are what cost the most, so leave
+them off on small lights, such as rows of candles.
+
+A frame can have up to 1,024 lights, and one more throws. Lights are culled to what the
+camera sees, and each part of the screen only works through the lights that reach it, so
+a frame can have hundreds of small lights. 256 can reach any one spot on the screen,
+and more than that are dropped there. The `Crypt` example has four torches, five
+candelabras, a lantern, a beam from a grate and 126 candles, about 150 lights.
+
+Point and spot lights light models, glass and [particles](views.md#particles). Glass and
+particles get no shadows from them. They aren't seen in reflection probes.
 
 ## Shadows
 
@@ -32,10 +148,18 @@ past 1. The first sun casts the shadows.
 view.Shadows(40f, cascades: 3);
 ```
 
-The first number is how far from the camera the sharpest shadow map reaches, in metres.
-Each extra cascade covers three times the radius of the one before, so a wide world keeps
-sharp shadows near the camera. Orthographic cameras widen their shadows to cover the
-screen.
+The first number is the radius of the sharpest shadow map, in metres. Each extra cascade
+covers three times the radius of the one before. The cascades are laid along what the
+camera sees: the sharpest one starts at the camera, and each next one picks up where the
+last ends, so no part of a map is spent behind the camera. A cascade keeps its size as the
+camera turns and moves in whole shadow texels, so shadow edges don't shimmer or crawl.
+
+Where two cascades meet, points hand over to the coarser one gradually, so there's no line
+where the sharpness changes. Shadows fade out over the last part of the furthest cascade
+instead of stopping at an edge.
+
+An orthographic camera centres every cascade on its target instead, and widens its
+shadows to cover the screen.
 
 ## The look of the picture
 
@@ -185,6 +309,20 @@ so a model that cooks there cooks on every OS:
 several variants side by side, as Poly Haven's plant sets do. The cook fails if no
 node with meshes matches. It's not for rigged models.
 
+`keepMeshes` keeps each mesh of a static model as its own part, named by the node that holds
+it, instead of merging the meshes that share a material. It's `false` by default, so a static
+model has one part per material and no mesh names. Set it to `true` to
+[show some of its meshes](#showing-some-meshes-of-a-model). Each kept mesh is its own draw
+call, so a model of hundreds of small meshes costs more to draw with it. Rigged models always
+keep their meshes.
+
+`keepOrigin` keeps the file's own origin. The model is still turned by `rotateY` and scaled by
+`targetLength`, but about that origin: it isn't centred or stood on the ground, so it stays where
+the file put it. Use it when the origin means something, such as a character whose file also holds
+a few hundred alternative weapons, heads and shields spread around. Those would move the bounds,
+and the character would end up shifted by an amount you can't predict. A rigged model's skeleton
+stays in the same place as its mesh. It's `false` by default.
+
 To use several pieces of one file, list them as `parts`. Each part is cooked as its own
 model, named `file#part`, and takes every setting written beside `parts` unless it sets
 that one itself. A file with parts cooks only its parts:
@@ -206,6 +344,26 @@ that one itself. A file with parts cooks only its parts:
 var flowers = new[] { content.Model("props/dandelion_01/dandelion_01_1k.gltf#a"), content.Model("props/dandelion_01/dandelion_01_1k.gltf#b") };
 ```
 
+### Showing some meshes of a model
+
+One file can hold many looks: several bodies, heads and weapons for one character, of which
+each draw shows one of each. A rigged model keeps every mesh in its source file, named by the
+node that holds it, the name an artist sees in the outliner. A static model keeps them too,
+but only with `"keepMeshes": true` in its sidecar, since by default its meshes that share a
+material merge into one part with no name. Cook the model again after adding it. Pick the
+meshes by name with `content.Meshes` once, and keep the mask. Each draw then shows only
+those meshes. This is different from the `#part` files above, which are separate models cut
+at cook time:
+
+```csharp
+MeshMask mask = content.Meshes(model, "Body_03a", "Head_05b");
+view.Model(key, model, transform, mask);
+```
+
+A mask fits only the model it was made for, so make it from the model you draw. See
+[Mesh names](content.md#mesh-names) for the rules and the error when a name isn't there,
+and [Showing some meshes](views.md#showing-some-meshes) for how a draw uses it.
+
 The textures a model uses are read while it cooks, so they don't need to be assets of
 their own. Turn cooking off for them with a rule in a [`cook.json`](content.md#rules-and-sidecars),
 as the shared `assets` folder does for Poly Haven's `textures` folders:
@@ -221,9 +379,9 @@ as the shared `assets` folder does for Poly Haven's `textures` folders:
 ```
 
 Other options are the `baseColor`, `normal`, `surface` and `emissive` textures,
-`color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `twoSided`, `transparent`,
-`opacity`, `noNormalMap` and `rotateY`, and `graph` and `graphSize`, below; see
-`src/Super.Cook.Models/ImportSettings.cs`.
+`color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `heightDepth`,
+`detailScale`, `detailMask`, `twoSided`, `transparent`, `opacity`, `ior`, `noNormalMap` and
+`rotateY`, and `graph` and `graphSize`, below; see `src/Super.Cook.Models/ImportSettings.cs`.
 
 ### A material graph on a model
 
@@ -300,6 +458,73 @@ says where each one comes from and the name to save it under. Without them the e
 still build: the cook warns `No source file <name>; skipped.` for each sidecar whose model
 is missing, and the game reports a missing model when it names it.
 
+## Glass
+
+![Glass panes before coloured posts: a clear one, a frosted one and a green one, with glass balls bending the floor and dust rising between the panes](media/glass.webp)
+
+A surface below full opacity is glass. Its colour shows by its opacity, and the rest
+lets through what's behind it. Roughness frosts it, blurring what's seen through, and
+`Ior` bends it. Leave `Ior` at 1 for a thin pane, which hardly bends light, and use
+about 1.5 for solid glass such as a marble or a bottle.
+
+```csharp
+var window = new Surface { Color = new Vector3(0.75f, 0.85f, 0.95f), Roughness = 0.05f, Opacity = 0.12f };
+var frosted = new Surface { Color = new Vector3(0.9f), Roughness = 0.45f, Opacity = 0.2f };
+var marble = new Surface { Color = new Vector3(0.95f), Roughness = 0.02f, Opacity = 0.08f, Ior = 1.5f };
+```
+
+A cooked model's material is glass with `"transparent": true` and an `opacity`, and
+bends with `"ior": 1.5` in its [material rule](#models).
+
+Glass and particles are drawn together, furthest first, so a pane in front of dust
+covers it and dust in front of a pane covers that. Glass sees the scene through a copy
+of the picture, made again before a pane that something drawn since overlaps, at most
+four times a frame. Past that, overlapping glass still blends but doesn't bend or
+frost. What's behind is bent once, at the near side, and followed half a metre at
+most, so solid glass looks right but isn't exact. Glass casts a lighter shadow, by how
+much light it lets through, and even clear glass keeps a quarter of its shadow, as
+bent light spreads. Glass reflects the sky, not probes or screen-space reflections.
+The `Glass` example shows each kind, and `--flat` draws it all without bending or
+frosting.
+
+## Skin and wax
+
+Light goes a little way into skin, wax, jade and marble before it comes back out, so
+shadow edges on them are soft and warm instead of sharp and grey. A `Subsurface` on the
+material turns this on:
+
+![Skin, wax and jade, each plain on the left and with subsurface scattering on the right](media/wax.webp)
+
+```csharp
+var skin = new Surface
+{
+    Color = new Vector3(0.85f, 0.6f, 0.48f),
+    Subsurface = new Subsurface
+    {
+        Radius = 0.012f,                     // metres
+        Color = new Vector3(1f, 0.4f, 0.25f), // red travels furthest
+        Transmission = 0.3f,                 // light from behind through thin parts
+    },
+};
+```
+
+`Radius` is how far light travels under the surface, in metres: about 0.01 for skin, a
+few centimetres for wax. `Color` is how far red, green and blue each go, as fractions of
+the radius; leave it out and they all go the same distance. `Transmission`, from 0 to 1,
+lets light from behind shine through thin parts such as ears or a candle's rim, tinted by
+the colour and by `Color`.
+
+A model sets it per material in its cook settings:
+
+```json
+{ "match": "skin", "subsurface": { "radius": 0.01, "color": [1, 0.4, 0.25], "transmission": 0.3 } }
+```
+
+Subsurface can't be combined with `clearcoat` or `foliage`. The renderer refuses such a
+material and the cook stops with an error naming it. Under water the light isn't spread.
+When no material in the world scatters light the blur doesn't run, so it costs nothing.
+The [Wax](../examples/Wax) example puts each kind beside a plain twin.
+
 ## Ghosts
 
 `view.Ghost` draws a model as a preview, such as a building the player is about to
@@ -315,7 +540,9 @@ A ghost leaves out the model's own colours, textures and tint, and is one matte 
 that glows a little, so it reads the same over a dark model or a light one, in sun or
 in shadow. Its shape still shows through the light. The colour is linear, from 0 to 1.
 Opacity is 1 by default, and below 1 the world shows through, as with glass. It must be
-more than 0 and at most 1. A ghost casts no shadow.
+more than 0 and at most 1. A ghost casts no shadow. Pass a
+[mesh mask](#showing-some-meshes-of-a-model) before the colour to preview only some of a
+model's meshes, such as a unit in the look it will have.
 
 ## Built-in shapes
 
@@ -382,8 +609,8 @@ the shape throws an `ArgumentOutOfRangeException` naming it.
 
 A mesh built in code, such as ground from a height function, is handed over with
 `content.Mesh`. Its `Surface` says how it looks: a colour, roughness and metalness,
-optional colour, normal and surface textures, and optionally a surface shader with its
-own parameters and textures.
+optional colour, normal and surface textures, opacity and IOR for [glass](#glass), and
+optionally a surface shader with its own parameters and textures.
 
 ```csharp
 var mesh = new GeneratedMesh(vertices, indices, new Surface
@@ -412,6 +639,48 @@ the frames in flight. `content.IsReady(model)` says whether a mesh is on the GPU
 game can skip one still loading instead of waiting. A texture is freed after every mesh
 that names it; a texture array keeps its own copy of each layer, so the single layers can
 go as soon as the array is made.
+
+## Height and detail maps
+
+A height map sinks the low parts of a flat surface, such as the mortar between bricks or
+the joints of a street, so they move with the view as deep ones would instead of looking
+painted on. It's a linear texture where white is the top and black is `HeightDepth`
+metres down. Pair it with the normal map of the same height, which shades the grooves.
+
+A detail map adds grain finer than a surface's own textures, such as grit on stone or the
+weave of cloth, without a bigger texture. `DetailColorTexture` is linear and multiplies
+the colour, with mid grey (128) leaving it as it is, so a detail colour around mid grey
+keeps the surface's own colour on average. `DetailNormalTexture` is a normal map laid
+over the surface's own normal. Both repeat `DetailScale` times (8 if left out) for each
+time the surface's textures repeat. With `DetailMask`, the surface texture's blue
+channel says how strongly the detail shows, from none at 0 to full at 1.
+
+```csharp
+TextureRef height = content.Texture("textures/bricks-height.png");
+TextureRef grit = content.Texture("textures/grit.png");
+TextureRef gritNormal = content.Texture("textures/grit-normal.png");
+
+ModelRef wall = content.Mesh(Shapes.Box(new Vector3(16f, 3f, 0.4f), new Surface
+{
+    ColorTexture = bricks,
+    NormalTexture = bricksNormal,
+    HeightTexture = height,
+    HeightDepth = 0.025f,
+    DetailColorTexture = grit,
+    DetailNormalTexture = gritNormal,
+    DetailScale = 6f,
+}, uvPerMetre: 1f / 0.9f));
+```
+
+A cooked model takes the same textures and values in its sidecar, as `height`,
+`heightDepth`, `detailColor`, `detailNormal`, `detailScale` and `detailMask` on a material
+rule. These textures are cooked as linear data, and `detailNormal` as a normal map.
+
+The depth shows up close: it fades out between 15 and 25 metres from the camera, where
+the normal map alone looks the same and costs less. Keep `HeightDepth` to a few
+centimetres. Deeper looks stretched at low angles, because the surface's edge and its
+shadows stay flat. Transparent surfaces ignore height and detail maps. The [Bricks
+example](../examples/Bricks) shows a wall and a street; P turns the height maps off and D the detail.
 
 ## Meshes along a spline
 
@@ -500,6 +769,11 @@ shader only changes what it cares about. A shader can also read `inUv`, `inPosit
 | `Parameters`, up to 8 `Vector4` | `materials[draw.material].shaderParameters[i]` |
 | `ShaderTextures`, up to 4 | `shaderTexture(slot, uv)` |
 | `ShaderArrays`, up to 4 | `shaderLayer(slot, uv, layer)`, where a fractional layer blends two |
+
+A shader that moves its UVs can still use the material: `materialUv()` is `inUv` moved by
+the material's height map, and `materialSurface(uv)` reads the material at any UV.
+`parallaxUv(slot, uv, depth)` does the same depth trick with a shader texture as the height
+map, and `blendNormals(base, detail)` lays one tangent-space normal over another.
 
 Unset slots read white. To compile shaders, put them in a `Shaders` folder in your game
 project and import the targets file, which runs `glslc` from the Vulkan SDK:

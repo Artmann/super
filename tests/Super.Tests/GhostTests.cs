@@ -100,7 +100,7 @@ public class GhostTests
         Assert.False(SceneDraws.Belongs(plain, MaterialFlags.None, ScenePass.Transparent));
         Assert.True(SceneDraws.Belongs(plain, MaterialFlags.Transparent, ScenePass.Transparent));
         Assert.False(SceneDraws.Belongs(plain, MaterialFlags.Transparent, ScenePass.Opaque));
-        Assert.False(SceneDraws.Belongs(plain, MaterialFlags.Transparent, ScenePass.Shadow));
+        Assert.True(SceneDraws.Belongs(plain, MaterialFlags.Transparent, ScenePass.Shadow));
     }
 
     [Fact]

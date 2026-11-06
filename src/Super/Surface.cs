@@ -28,6 +28,42 @@ public sealed record Surface
     /// </summary>
     public float? TileWidth { get; init; }
 
+    /// <summary>
+    /// Below 1 the surface is glass: the world shows through it, tinted by
+    /// <see cref="Color"/>, and its shadow is lighter. 0 is perfectly clear.
+    /// </summary>
+    public float Opacity { get; init; } = 1f;
+
+    /// <summary>How much glass bends what's behind it: 1 is straight through, as a window, and about 1.5 is a bottle or a marble.</summary>
+    public float Ior { get; init; } = 1f;
+
+    /// <summary>
+    /// A height map in red, white at the top of the surface. The other textures shift with
+    /// it as the view moves, so grooves such as mortar look sunk in. Needs <see cref="HeightDepth"/>.
+    /// </summary>
+    public TextureRef? HeightTexture { get; init; }
+
+    /// <summary>How far below the top black in the height map lies, in metres, such as 0.02 for brick.</summary>
+    public float HeightDepth { get; init; }
+
+    /// <summary>
+    /// Fine grain over the colour, tiled <see cref="DetailScale"/> times as often. Make it
+    /// linear data: mid grey (128) changes nothing, lighter brightens and darker darkens.
+    /// </summary>
+    public TextureRef? DetailColorTexture { get; init; }
+
+    /// <summary>A second normal map, tiled <see cref="DetailScale"/> times as often and blended over the first.</summary>
+    public TextureRef? DetailNormalTexture { get; init; }
+
+    /// <summary>How many times the detail textures repeat for each repeat of the others.</summary>
+    public float DetailScale { get; init; } = 8f;
+
+    /// <summary>Lets the surface texture's blue channel say where the detail shows, from none at black to full at white.</summary>
+    public bool DetailMask { get; init; }
+
+    /// <summary>Light that spreads under the surface, for skin, wax and marble. Off by default.</summary>
+    public Subsurface Subsurface { get; init; }
+
     /// <summary>A fragment shader named through <see cref="Content.Shader"/>, or the standard one.</summary>
     public ShaderRef? Shader { get; init; }
 

@@ -9,7 +9,8 @@ namespace Super.Cook.Models;
 /// <summary>
 /// Reads the skeleton, bone weights and clips of a rigged scene. The joints are every
 /// node a mesh's bone names, and every node between one of those and the root, in
-/// parent-first order. Clips are sampled at <see cref="FrameRate"/>.
+/// parent-first order, and the parent of each node that holds an unskinned mesh. Clips are
+/// sampled at <see cref="FrameRate"/>.
 /// </summary>
 internal sealed unsafe class RigImporter
 {
@@ -44,8 +45,20 @@ internal sealed unsafe class RigImporter
 
         Walk(scene->MRootNode, -1, Matrix4x4.Identity);
 
-        // A node is a joint when it is a bone or has one below it.
+        // A node is a joint when it is a bone or has one below it. The parent of a node that
+        // carries an unskinned mesh is a joint too, so the mesh follows that container's
+        // animated chain. A container that isn't a bone gets its rest pose's inverse as its inverse
+        // bind. A container that is a bone keeps the bone's, and Skin moves the mesh's vertices to
+        // match it. Every container and its ancestors count towards Skeleton.MaxJoints.
         var isJoint = new bool[_nodes.Count];
+        foreach (var (mesh, node) in _meshNode)
+        {
+            if (scene->MMeshes[mesh]->MNumBones == 0 && _nodes[node].Parent >= 0)
+            {
+                isJoint[_nodes[node].Parent] = true;
+            }
+        }
+
         for (int i = _nodes.Count - 1; i >= 0; i--)
         {
             if (boneNames.Contains(_nodes[i].Name))
@@ -161,8 +174,19 @@ internal sealed unsafe class RigImporter
         if (mesh->MNumBones == 0)
         {
             int node = NodeOfMesh(meshIndex);
-            var global = _nodes[node].Global;
             int joint = NearestJoint(node);
+
+            // Skinning multiplies by the joint's inverse bind. For a bone that's the skinned mesh's
+            // bind, which needn't match the node tree's rest pose, so a mesh placed in the node tree
+            // would land off by the difference. Taking the vertices to the bind's space first makes
+            // the mesh sit where the file puts it at rest. For a joint that isn't a bone the inverse
+            // bind is the rest pose's inverse, and this leaves the vertices alone.
+            var global = _nodes[node].Global;
+            if (Matrix4x4.Invert(_restGlobal[joint], out var fromRest) && Matrix4x4.Invert(_inverseBind[joint], out var bind))
+            {
+                global = global * fromRest * bind;
+            }
+
             foreach (ref var vertex in vertices)
             {
                 vertex.Position = Vector3.Transform(vertex.Position, global);
@@ -305,6 +329,9 @@ internal sealed unsafe class RigImporter
     }
 
     private int NodeOfMesh(int mesh) => _meshNode.GetValueOrDefault(mesh, 0);
+
+    /// <summary>The name of the node that holds a mesh, which names the mesh's part.</summary>
+    public string NodeOfMeshName(int mesh) => _nodes[NodeOfMesh(mesh)].Name;
 
     private int NearestJoint(int node)
     {

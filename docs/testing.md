@@ -39,7 +39,7 @@ in parallel, because Super keeps no global state, so this fits in a pull request
 | `run.Time`, `run.Seed` | The game's clock and seed |
 | `run.Invariant(name, game => ...)` | A rule checked after every tick |
 | `run.Input` | Plays keys, mouse, gamepad and actions |
-| `run.Drawn` | The models the last `Draw` described, with their keys and transforms |
+| `run.Drawn` | The models the last `Draw` described, with their keys, transforms and `Meshes` (the [mesh mask](views.md#showing-some-meshes), or null for every mesh) |
 | `run.Sounds` | What the mixer is playing: each sound's clip, channel, gain, pan and position in the clip. See [Audio in tests](audio.md#in-tests) |
 | `run.ShownText` | Every piece of text the interface showed, with where it landed, its colour, size and weight. Text cut by a [line limit](interfaces.md#text-that-doesnt-fit) ends in "…" |
 | `run.FrameOf(id)` | Where the view given `.Id(id)` was laid out, so a test can [find it](#finding-a-view) |

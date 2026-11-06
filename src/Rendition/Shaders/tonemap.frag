@@ -37,7 +37,11 @@ vec3 acesFilmic(vec3 color) {
 void main() {
     // Every pixel gives a little light to its surroundings, so bright things glow by
     // themselves and no brightness threshold is needed.
-    vec3 color = mix(texture(hdrTexture, inUv).rgb, texture(bloomTexture, inUv).rgb, frame.lift.a);
+    // Left out, the bloom pass never ran, so its target holds nothing to read.
+    vec3 color = texture(hdrTexture, inUv).rgb;
+    if (!isOff(OFF_BLOOM)) {
+        color = mix(color, texture(bloomTexture, inUv).rgb, frame.lift.a);
+    }
 
     color = max(color * frame.grade.x, vec3(0.0));
     color = pow(color / MIDDLE_GREY + 1e-5, vec3(frame.grade.y)) * MIDDLE_GREY;

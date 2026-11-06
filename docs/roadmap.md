@@ -5,13 +5,16 @@ Super is early. These are the known gaps, so you can plan around them.
 - **Bone attachment.** Skeletal [animation](animation.md) works, but `view.Bone`, for
   hanging a model on a joint, doesn't exist yet. See
   [Drawing with views](views.md#planned). Until then, `animator.Joint` gives a joint's
-  place for drawing a model there by hand.
+  place for drawing a model there by hand. A sword that is a mesh in the character's own
+  file follows its hand already, and a [mesh mask](views.md#showing-some-meshes) shows
+  only the one you want.
 - **More from particles.** [Particles](views.md#particles) are soft puffs for dust and
-  smoke. There are no textured, glowing or stretched sparks yet, and they cast no
-  shadow. Nodes must work from the age alone, so particles can't bounce off the
+  smoke, and can glow, as flames. There are no textured or stretched sparks yet, and
+  they cast no shadow. Nodes must work from the age alone, so particles can't bounce off the
   ground or react to what they hit.
-- **Film effects.** [Cutscenes](cutscenes.md) cut between shots, but there's no depth
-  of field, motion blur or cross-fade yet.
+- **Film effects.** [Cutscenes](cutscenes.md) have [transitions](transitions.md) between
+  shots, but there's no depth of field or motion blur yet, and no transitions that move
+  both pictures, such as a push or a slide.
 - **More from audio.** [Audio](audio.md) plays stereo sound with no echo or reverb, walls
   that muffle sound, Doppler or surround. There is no ducking (music dipping under
   speech), no ambience that blends by where the camera stands, and sounds can't be tied
@@ -23,9 +26,13 @@ Super is early. These are the known gaps, so you can plan around them.
   orthographic camera.
 - **Large numbers of objects.** Rendition's efficiency with many thousands of objects
   still has to be measured and improved.
-- **Physics.** [`Super.Physics`](physics.md) answers ray queries against colliders, on
-  Jolt. Bodies that fall and collide, shape casts, overlap tests and character
-  controllers are next. Until then, write your own movement code in `Update`.
+- **Render scale.** [Graphics settings](rendering.md#graphics-settings) turn effects off,
+  but the picture is always drawn at the window's full size. Drawing it smaller and
+  scaling it up, for slow GPUs on big screens, isn't there yet.
+- **More from physics.** [`Super.Physics`](physics.md) has bodies that fall and collide,
+  characters, trigger areas, rays, shape casts and overlap tests, on Jolt. There are no
+  mesh or height-field colliders, joints, ragdolls, vehicles or contact events between
+  solid bodies yet.
 - **Typing in interfaces.** The interface takes the mouse, but there are no text inputs,
   and it can't be used with a keyboard or gamepad yet.
 - **Saved games and levels.** `saves.Write` and `saves.Read` are the plan; see

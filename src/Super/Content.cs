@@ -50,6 +50,7 @@ public sealed class Content
     private readonly List<int> _pendingUnloads = [];
     private readonly Dictionary<string, ModelRef> _models = [];
     private readonly Dictionary<string, Rig> _rigs = [];
+    private readonly Dictionary<int, string[]> _meshNames = [];
     private readonly Dictionary<string, GameImage> _images = [];
     private readonly List<SoundClip> _clips = [];
     private readonly Dictionary<string, SoundRef> _sounds = [];
@@ -150,9 +151,10 @@ public sealed class Content
             // Streamed: the rig is at the front, so the rest of the model is never read.
             Skeleton? skeleton;
             AnimationClip[] clips;
+            string[] meshNames;
             using (var stream = _files.Open(name))
             {
-                (skeleton, clips) = ModelData.ReadRig(stream, name);
+                (skeleton, clips) = ModelData.ReadRig(stream, name, out meshNames);
             }
 
             if (skeleton is null)
@@ -161,11 +163,117 @@ public sealed class Content
             }
 
             rig = new Rig(skeleton, clips) { Model = Model(name) };
+
+            // The mesh names sit just before the rig, so they're kept for Meshes, which then needn't open the file again.
+            if (meshNames.Length > 0)
+            {
+                _meshNames.TryAdd(rig.Model.Value.Index, meshNames);
+            }
+
             Adopt(rig);
             _rigs.Add(name, rig);
         }
 
         return rig;
+    }
+
+    /// <summary>
+    /// Picks the meshes of a cooked model that have these names, for a draw to show only those. A
+    /// mesh is named by the node that holds it in the source file, the name an artist sees in the
+    /// outliner, such as <c>Head_05b</c>. A mesh with several materials is cooked as several pieces
+    /// under one name, and a name picks all of them. Names must match exactly. They're read from the
+    /// front of the cooked model, so the geometry is never read. A name the model has no mesh called,
+    /// an empty list, a model that isn't cooked, or a static model cooked without <c>keepMeshes</c>
+    /// stops here with an <see cref="ArgumentException"/> or an <see cref="InvalidOperationException"/>.
+    /// Not the same as <c>file#part</c> in a model's name, which is a split made at cook time into
+    /// separate models.
+    /// </summary>
+    public MeshMask Meshes(ModelRef model, params ReadOnlySpan<string> names)
+    {
+        if (names.IsEmpty)
+        {
+            throw new ArgumentException("A mesh mask needs at least one mesh name.", nameof(names));
+        }
+
+        string[] all = MeshNamesOf(model, nameof(model));
+        var kept = new List<int>();
+        foreach (string name in names)
+        {
+            int before = kept.Count;
+            for (int part = 0; part < all.Length; part++)
+            {
+                if (all[part] == name)
+                {
+                    kept.Add(part);
+                }
+            }
+
+            if (kept.Count == before)
+            {
+                throw new ArgumentException(MissingMesh(ModelName(model.Index), name, all), nameof(names));
+            }
+        }
+
+        return new MeshMask(model.Index, all.Length, CollectionsMarshal.AsSpan(kept));
+    }
+
+    /// <summary>
+    /// The mesh names of a cooked model, once each, in the order they were cooked, so a game can
+    /// see what <see cref="Meshes"/> takes.
+    /// </summary>
+    public IReadOnlyList<string> MeshNames(ModelRef model) => MeshNamesOf(model, nameof(model)).Distinct().ToArray();
+
+    // One name for each piece the model is drawn in, so a name repeats for a mesh with several materials.
+    private string[] MeshNamesOf(ModelRef model, string field)
+    {
+        if (model.IsBuiltIn)
+        {
+            throw new ArgumentException("The built-in shapes, such as the cube, are not cooked, so they have no mesh names.", field);
+        }
+
+        if (model.Index < 1 || model.Index > _items.Count)
+        {
+            throw new ArgumentException($"{field} names {model.Index}, which this content never named, so it has no mesh names.", field);
+        }
+
+        RequireLoaded(model.Index, field);
+        if (_meshNames.TryGetValue(model.Index, out var known))
+        {
+            return known;
+        }
+
+        if (_items[model.Index - 1] is not string name)
+        {
+            throw new ArgumentException($"{field} names {model.Index}, which was made in code, not cooked, so it has no mesh names.", field);
+        }
+
+        string[] names;
+        using (var stream = _files.Open(name))
+        {
+            names = ModelData.ReadMeshNames(stream, name);
+        }
+
+        if (names.Length == 0)
+        {
+            throw new InvalidOperationException(
+                $"{name} has no mesh names, because its file was cooked without them. A rigged model always has them. " +
+                $"A static model needs \"keepMeshes\": true in {name}.cook.json, and then to be cooked again.");
+        }
+
+        _meshNames.Add(model.Index, names);
+        return names;
+    }
+
+    private string ModelName(int index) => _items[index - 1] as string ?? $"model {index}";
+
+    // The first 20 names are listed, so a model with hundreds of meshes still gives a short message.
+    private static string MissingMesh(string model, string name, string[] all)
+    {
+        const int Shown = 20;
+        string[] distinct = all.Distinct().ToArray();
+        string list = string.Join(", ", distinct.Take(Shown));
+        string more = distinct.Length > Shown ? $", and {distinct.Length - Shown} more" : "";
+        return $"{model} has no mesh called {name}. It has {distinct.Length} {(distinct.Length == 1 ? "mesh" : "meshes")}: {list}{more}.";
     }
 
     /// <summary>The animators the game loop moves on each tick: every one started from a rig this content read.</summary>
@@ -196,6 +304,49 @@ public sealed class Content
         Add(image);
         _images.Add(name, image);
         return image;
+    }
+
+    /// <summary>
+    /// Hands over an image painted in code, to show in the interface like a cooked one. Each
+    /// call makes a new one, so a picture that changes is painted again and the old one let go
+    /// with <see cref="Unload(GameImage)"/>. <paramref name="pixels"/> are rows from the top,
+    /// four bytes each (red, green, blue, alpha), in sRGB with straight alpha, and are kept as
+    /// they are, so don't change them afterwards.
+    /// </summary>
+    public GameImage Image(int width, int height, byte[] pixels)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
+        ArgumentNullException.ThrowIfNull(pixels);
+        if (pixels.Length != width * height * 4)
+        {
+            throw new ArgumentException($"A {width} by {height} image takes {width * height * 4} bytes, four a pixel, not {pixels.Length}.", nameof(pixels));
+        }
+
+        var image = new GameImage(width, height, pixels, _items.Count + 1);
+        Add(image);
+        return image;
+    }
+
+    /// <summary>
+    /// Lets go of an image. The window frees it, and showing it afterwards fails. Naming the
+    /// same file again later makes a new one.
+    /// </summary>
+    public void Unload(GameImage image)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        RequireNamed(image.Index, nameof(image));
+        RequireLoaded(image.Index, nameof(image));
+        if (!ReferenceEquals(_items[image.Index - 1], image))
+        {
+            throw new ArgumentException($"{nameof(image)} isn't one this content made.", nameof(image));
+        }
+
+        MarkUnloaded(image.Index);
+        if (image.Cooked is not null)
+        {
+            _images.Remove(image.Path);
+        }
     }
 
     /// <summary>
@@ -255,6 +406,9 @@ public sealed class Content
         RequireTexture(surface.ColorTexture, nameof(surface.ColorTexture));
         RequireTexture(surface.NormalTexture, nameof(surface.NormalTexture));
         RequireTexture(surface.SurfaceTexture, nameof(surface.SurfaceTexture));
+        RequireTexture(surface.HeightTexture, nameof(surface.HeightTexture));
+        RequireTexture(surface.DetailColorTexture, nameof(surface.DetailColorTexture));
+        RequireTexture(surface.DetailNormalTexture, nameof(surface.DetailNormalTexture));
         if (surface.Shader is { } shader)
         {
             Require<ShaderItem>(shader.Index, nameof(surface.Shader), "shader");
@@ -411,6 +565,7 @@ public sealed class Content
         }
 
         MarkUnloaded(model.Index);
+        _meshNames.Remove(model.Index);
         if (item is string name)
         {
             _models.Remove(name);
@@ -442,7 +597,8 @@ public sealed class Content
 
     private static bool Names(Surface surface, TextureRef texture)
     {
-        if (surface.ColorTexture == texture || surface.NormalTexture == texture || surface.SurfaceTexture == texture)
+        if (surface.ColorTexture == texture || surface.NormalTexture == texture || surface.SurfaceTexture == texture
+            || surface.HeightTexture == texture || surface.DetailColorTexture == texture || surface.DetailNormalTexture == texture)
         {
             return true;
         }

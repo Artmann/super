@@ -5,16 +5,21 @@ namespace Rendition;
 /// <summary>Where a list of draws will be seen from, which decides what can be left out or simplified.</summary>
 internal readonly struct DetailView
 {
-    private const int PlaneCount = 5;
+    private const int PlaneCount = 6;
 
     private readonly Plane _left;
     private readonly Plane _right;
     private readonly Plane _top;
     private readonly Plane _bottom;
     private readonly Plane _near;
+    private readonly Plane _far;
 
-    /// <summary>Takes the planes from clip space, where what's visible has |x| and |y| and z no larger than w.</summary>
-    public DetailView(in Matrix4x4 clip, Vector3 eye, float pixelsAtOneUnit, float pixelsPerUnit, float maxError)
+    /// <summary>
+    /// Takes the planes from clip space, where what's visible has |x| and |y| and z no larger than w.
+    /// With <paramref name="far"/>, z must also be at least 0, for a view with a far plane, such as a
+    /// light's into a shadow tile; the camera's reaches forever and has none.
+    /// </summary>
+    public DetailView(in Matrix4x4 clip, Vector3 eye, float pixelsAtOneUnit, float pixelsPerUnit, float maxError, bool far = false)
     {
         var x = new Vector4(clip.M11, clip.M21, clip.M31, clip.M41);
         var y = new Vector4(clip.M12, clip.M22, clip.M32, clip.M42);
@@ -25,6 +30,7 @@ internal readonly struct DetailView
         _top = Normalized(w + y);
         _bottom = Normalized(w - y);
         _near = Normalized(w - z);
+        _far = far ? Normalized(z) : new Plane(0f, 0f, 0f, 1f);
         Eye = eye;
         PixelsAtOneUnit = pixelsAtOneUnit;
         PixelsPerUnit = pixelsPerUnit;
@@ -44,7 +50,7 @@ internal readonly struct DetailView
 
     public bool CanSee(Vector3 center, float radius)
     {
-        ReadOnlySpan<Plane> planes = [_left, _right, _top, _bottom, _near];
+        ReadOnlySpan<Plane> planes = [_left, _right, _top, _bottom, _near, _far];
         for (int i = 0; i < PlaneCount; i++)
         {
             if (Plane.DotCoordinate(planes[i], center) < -radius)

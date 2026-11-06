@@ -78,7 +78,7 @@ public static class ViewExtensions
                     var pose = animator?.Pose;
                     if (swims is null)
                     {
-                        view.Model(entities[i].Id, model.Value, matrix, model.Color, default, pose);
+                        view.Model(entities[i].Id, model.Value, matrix, model.Color, default, pose, model.Meshes);
                         continue;
                     }
 
@@ -86,7 +86,7 @@ public static class ViewExtensions
                     float phase = smoothed is not null && smoothed[i].HasPrevious
                         ? float.Lerp(smoothed[i].PreviousPhase, swim.Phase, blend)
                         : swim.Phase;
-                    view.Model(entities[i].Id, model.Value, matrix, model.Color, new SwimMotion(swim.Amplitude, swim.BodyLength, phase), pose);
+                    view.Model(entities[i].Id, model.Value, matrix, model.Color, new SwimMotion(swim.Amplitude, swim.BodyLength, phase), pose, model.Meshes);
                 }
             }
         }

@@ -12,8 +12,20 @@ public sealed class GameOptions
     public int Width { get; init; } = 1280;
     public int Height { get; init; } = 720;
 
+    /// <summary>
+    /// How many pixels one unit of the interface covers, so 2 makes all of it twice as big.
+    /// <c>--ui-scale</c> overrides it. See <see cref="Ui.UiTree.Scale"/>.
+    /// </summary>
+    public float UiScale { get; init; } = 1f;
+
     /// <summary>How many times per second Update runs.</summary>
     public int TicksPerSecond { get; init; } = 30;
+
+    /// <summary>
+    /// How the game is drawn: vsync, a frame limit, and which effects are on. Ask for
+    /// <see cref="Super.Graphics"/> in a constructor to change it while the game runs.
+    /// </summary>
+    public Graphics Graphics { get; init; } = new();
 
     /// <summary>Picks the random numbers. Left empty, each run gets a new seed and prints it.</summary>
     public int? Seed { get; init; }

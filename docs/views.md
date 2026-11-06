@@ -54,8 +54,11 @@ component on its entity instead. See [Audio](audio.md).
 | --- | --- |
 | `view.Camera(position, lookAt, fieldOfView)` | A fixed camera. See [Cameras](cameras.md) for the rest |
 | `view.Camera(camera)` | A `Camera` value the game keeps |
-| `view.Sun(direction, color)` | A directional light. `color` is linear and can go past 1 |
+| `view.Sun(direction, color, shadows)` | A directional light. `color` is linear and can go past 1. The first sun casts shadows unless `shadows: true` picks another |
+| `view.PointLight(key, position, color, range, shadows, radius)` | A light shining every way, like a candle or a torch. See [Point and spot lights](rendering.md#point-and-spot-lights) |
+| `view.SpotLight(key, position, direction, color, range, innerAngle, outerAngle, shadows, radius)` | A light shining in a cone, like a lantern's beam |
 | `view.Model(key, model, transform, color)` | A model. `color`, if given, tints it and keeps its textures. `ModelRef.Cube`, `Sphere`, `Capsule`, `Cylinder`, `Cone`, `Plane`, `Quad` and `Torus` are [built in](rendering.md#built-in-shapes) |
+| `view.Model(key, model, transform, meshes)` | Only the meshes a `MeshMask` shows, such as a body without its helmet. See [Showing some meshes](#showing-some-meshes) |
 | `view.Ghost(key, model, transform, color, opacity)` | A model in one colour that glows a little, as a [preview of where something will go](rendering.md#ghosts) |
 | `view.Shadows(radius, cascades)` | How far shadows reach. See [Rendering](rendering.md#shadows) |
 | `view.Water(settings)` | Puts the camera underwater. See [Rendering](rendering.md#water) |
@@ -174,7 +177,47 @@ smooth as the frame rate:
 view.Model(FoxKey, _animator, transform);
 ```
 
+To draw a pose on a model without an animator, pass the model and the pose. Both forms
+take a mesh mask too, [see below](#showing-some-meshes):
+
+```csharp
+view.Model(FoxKey, foxModel, transform, pose);
+view.Model(FoxKey, _animator, transform, meshes);
+view.Model(FoxKey, foxModel, transform, pose, meshes);
+```
+
 [Animation](animation.md) covers importing rigs, states, actions and blends.
+
+## Showing some meshes
+
+A model cooked from a file with several meshes can be drawn in part: one body, the
+helmet off, the sword in the other hand. Make a `MeshMask` once with `Content.Meshes`,
+naming the meshes to show, and keep it. A static model has mesh names only with
+`"keepMeshes": true` in its sidecar, see [Models](rendering.md#showing-some-meshes-of-a-model).
+Each draw then shows only those meshes:
+
+```csharp
+MeshMask knight = content.Meshes(armoured, "body", "legs");
+view.Model(KnightKey, armoured, transform, knight);
+```
+
+With entities, give the `Model` component the mask, and `view.Models(world)` draws with it:
+
+```csharp
+world.Add(knight, new Model(armoured, Meshes: knightMeshes));
+```
+
+A mask belongs to the model it was made for. Drawing it with another model throws, and
+the message says which model the mask was made for. A mask never changes, so a running
+game draws with it without allocating.
+
+- Meshes the mask leaves out are not drawn, and cost no triangles. The profiler counts
+  each mask's copies apart, by the triangles they show.
+- A draw with a pose or an animator still skins the whole skeleton once, however few
+  meshes it shows.
+- A ghost takes a mask too, as `view.Ghost(key, model, transform, meshes, color, opacity)`.
+- `run.Drawn` entries carry the mask as `Meshes`, or null for a draw that shows every
+  mesh. See [Testing](testing.md).
 
 ## Particles
 
@@ -251,12 +294,13 @@ sizes, colours and opacities multiply.
 | Motion | `Wobble(metres, perSecond)` | A smooth wandering sway, like eddies in the air |
 | | `Swirl(turnsPerSecond)` | Turns them round the upright axis through the middle, like a dust devil |
 | Look | `Size(start, end, easing, spread)` | Width in metres over the life. The default `Easing.Out` grows fast, then slowly |
-| | `Color(color)`, `Color(start, end)` | Linear colour like a model's, lit by the sun and sky |
+| | `Color(color)`, `Color(start, end)` | Linear colour like a model's, lit by the sun, the sky and point and spot lights |
 | | `Gradient((0f, a), (0.3f, b), (1f, c))` | Colours at points through the life, blending between them |
 | | `Opacity(amount)` | How solid the middle is at most, from 0 to 1. Overlapping puffs add up |
 | | `Fade(in, out)` | The parts of the life, from 0 to 1, spent fading in and out |
 | | `Flicker(amount, perSecond)` | Dips the opacity, each particle at its own beat |
 | | `Spin(radiansPerSecond)` | Turns each at its own speed, up to that fast either way |
+| | `Glow(strength)` | Shines with its own colour times this, like a flame or a spark. Past 1 it blooms |
 
 A setting out of range throws with the reason, and `ToString()` lists the nodes in
 order, which helps when a puff doesn't look as expected.
@@ -295,10 +339,13 @@ allocates nothing.
 
 ### How they look
 
-Particles are lit by the sun and sky, shaded by shadows, fade into haze and melt
-softly into the ground and anything they touch. They cast no shadow, and underwater
-they fade with distance but miss the shafts of light. Glass drawn in front of them
-covers them correctly, but glass behind a puff also covers it. `Cached` keeps only
+Particles are lit by the sun, the sky and point and spot lights, shaded by the sun's
+shadows, fade into haze and melt softly into the ground and anything they touch. A
+glowing particle gives off its own light on top, but doesn't light what's round it: put
+a `view.PointLight` at a fire for that. They cast no shadow, and underwater
+they fade with distance but miss the shafts of light. They're sorted with
+[glass](rendering.md#glass), so a puff in front of a pane covers it and one behind is
+seen through it. `Cached` keeps only
 models, so draw particles outside it. A frame holds at most 32,768 particles; more
 are dropped. The `Dust` example drops trees in a clearing.
 

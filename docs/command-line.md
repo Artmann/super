@@ -17,11 +17,13 @@ dotnet run -c Release --project MyColony -- --script tooltip --ticks 40 --screen
 | `--screenshot file.png` | Saves the picture at that moment, then exits |
 | `--record file.mp4 --seconds S` | Saves that many seconds of video, then exits |
 | `--fps N` | Frames per second for `--record`, 60 by default |
-| `--size WxH` | The picture size, such as `1920x1080`. The game's window size by default |
+| `--size WxH` | The picture size, such as `1920x1080`, or `1080x1920` for a vertical video. The game's window size by default |
+| `--ui-scale N` | Makes the [interface](interfaces.md#scale) this many times bigger, such as `2` or `1.5`. The game's `UiScale` by default, which is 1 |
 | `--profile file.txt` | Measures where the time goes. See [Profiling](profiling.md) |
 | `--frames N` | How many frames `--profile` measures, 60 by default |
 | `--script name` | Plays one of the game's [input scripts](#scripted-input) |
 | `--no-vsync` | Plays in the window without waiting for the display |
+| `--no-materials` | Draws every surface as plain grey clay, to judge the lighting. Works in the window and with `--screenshot`, `--record` and `--profile`. Same as [`Graphics.Materials`](rendering.md#graphics-settings) set to false |
 | `--user-data folder` | Keeps [user data](user-data.md) in this folder. Without it, the window uses the player's folder and runs without a window use a throwaway one |
 
 `--screenshot`, `--record` and `--profile` can't run together. A mistake in the options
@@ -73,7 +75,7 @@ public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string
 
 | Step | What it does |
 | --- | --- |
-| `MoveMouse(position)` | Moves the cursor, in interface pixels |
+| `MoveMouse(position)` | Moves the cursor, in screen pixels, whatever the [interface scale](interfaces.md#scale) |
 | `MoveMouse(id)` | Moves the cursor to the middle of the view given `.Id(id)` |
 | `Click(position)` | Moves there and clicks the left button |
 | `Click(id)` | Clicks the middle of the view given `.Id(id)` |
@@ -107,7 +109,8 @@ dotnet run -c Release --project MyColony -- --no-vsync
 `--no-vsync` stops waiting for the display, so a game draws as fast as the machine can and
 the frame rate shows what it can really do. Fast movement may tear, and displays that
 can't run this way keep vsync on. It's for playing in the window, so it can't be combined
-with `--screenshot`, `--record` or `--profile`.
+with `--screenshot`, `--record` or `--profile`. It does the same as setting
+[`Graphics.Vsync`](rendering.md#graphics-settings) to false, which a game can also do from code.
 
 ## Capturing from code
 

@@ -230,6 +230,28 @@ A `ListView` compares its list by reference, so hand it a new one when the items
 
 [The crafting bench](../examples/Crafting/CraftingGame.cs) uses all of this.
 
+## Scale
+
+Sizes in an interface are pixels, until you scale it. At a scale of 2, one unit covers two
+pixels, so text, padding, borders and corners are all twice as big. That's what an
+interface made for a desktop window needs to be read in a video watched on a phone:
+
+```
+dotnet run -c Release --project MyColony -- --size 1080x1920 --ui-scale 2.5 --record clip.mp4 --seconds 15
+```
+
+`--ui-scale` overrides `GameOptions.UiScale`, which is 1 unless the game sets it. The
+interface lays itself out in the screen's size divided by the scale, so a 1080 pixel wide
+screen at 2.5 is 432 units wide. Text is drawn at its size in pixels, not stretched, so it
+stays sharp. `FrameOf`, `ShownText` and everything else the interface reports are in
+units. The mouse is turned into units for you, and an `InputScript` or a test that clicks
+a view by its id aims at where it's drawn. `InputScript.MoveMouse(position)` and
+`Input.MousePosition` stay in pixels. A headless test sets the scale with `run.UiScale`.
+
+A scale that isn't a number above zero is refused. The characters all share one 1024 by
+1024 image, so very large text at a large scale can run out of room, and characters that
+don't fit aren't drawn.
+
 ## How it stays cheap
 
 This is a virtual tree, like React's and SwiftUI's. The records are cheap descriptions

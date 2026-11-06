@@ -31,9 +31,11 @@ public sealed class ModelCooker : ICooker
 
     public string Id => "model";
 
-    // 2: "has no UVs" warns only when the material uses a texture. 3: material graphs. The graphs' own version is folded
-    // in, so a change to Super.Materials cooks every model again, since one may use a graph.
-    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 3);
+    // 2: "has no UVs" warns only when the material uses a texture. 3: subsurface. 4: height and detail textures.
+    // 5: materials gained Ior. 6: parts keep the name of their mesh's node, keepMeshes and keepOrigin, and unskinned
+    // meshes follow their container node. 7: material graphs. The graphs' own version is folded in, so a change to
+    // Super.Materials cooks every model again, since one may use a graph.
+    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 7);
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -160,6 +162,7 @@ public sealed class ModelCooker : ICooker
         var vertices = new List<Vertex>();
         var indices = new List<uint>();
         var parts = new List<ModelPart>();
+        var meshNames = new List<string>();
         var materials = new List<ModelMaterial>();
         var materialNames = new List<string>();
 
@@ -190,7 +193,9 @@ public sealed class ModelCooker : ICooker
             }
 
             // A rigged model keeps its node tree, since the joints live there. A static one is
-            // flattened into a single mesh space.
+            // flattened into a single mesh space, which merges the meshes that share a material. With
+            // keepMeshes it keeps its node tree instead, and each mesh is placed by its node, so every
+            // mesh stays its own part with its name.
             RigImporter? rig = null;
             if (RigImporter.HasBones(scene))
             {
@@ -208,14 +213,20 @@ public sealed class ModelCooker : ICooker
                     }
                 }
 
-                // On failure Assimp has already freed the scene.
-                scene = assimp.ApplyPostProcessing(scene, (uint)PostProcessSteps.PreTransformVertices);
-                if (scene == null)
+                if (!settings.KeepMeshes)
                 {
-                    output.Error($"{prefix}Could not flatten {input.Name}: {assimp.GetErrorStringS()}");
-                    return null;
+                    // On failure Assimp has already freed the scene.
+                    scene = assimp.ApplyPostProcessing(scene, (uint)PostProcessSteps.PreTransformVertices);
+                    if (scene == null)
+                    {
+                        output.Error($"{prefix}Could not flatten {input.Name}: {assimp.GetErrorStringS()}");
+                        return null;
+                    }
                 }
             }
+
+            // Only a placed mesh keeps its name. A merged part has no single mesh to name it after.
+            bool named = rig is not null || settings.KeepMeshes;
 
             // glTF materials refer to images stored inside the file as "*0", "*1" and so on, while
             // FBX materials use the image's original file name, so each is stored under both.
@@ -242,7 +253,7 @@ public sealed class ModelCooker : ICooker
                 graphWidths.Add(graphWidth);
             }
 
-            for (uint m = 0; m < scene->MNumMeshes; m++)
+            foreach (var (m, world, node) in Placements(scene, rig is null && settings.KeepMeshes))
             {
                 var mesh = scene->MMeshes[m];
                 meshVertices.Add(((int)mesh->MMaterialIndex, vertices.Count, (int)mesh->MNumVertices));
@@ -252,6 +263,9 @@ public sealed class ModelCooker : ICooker
                     output.Warning($"{prefix}mesh {m} ({mesh->MName.AsString}) has no UVs; using a flat tangent frame");
                 }
 
+                // A mirroring placement turns the tangent frame over, so its sign flips.
+                var normals = NormalMatrix(world);
+                bool mirrored = world.GetDeterminant() < 0f;
                 uint baseVertex = (uint)vertices.Count;
                 float graphWidth = graphWidths[(int)mesh->MMaterialIndex];
                 for (uint v = 0; v < mesh->MNumVertices; v++)
@@ -270,7 +284,12 @@ public sealed class ModelCooker : ICooker
                         tangent = new Vector4(mesh->MTangents[v], sign);
                     }
 
-                    vertices.Add(new Vertex(mesh->MVertices[v], normal, tangent, new Vector2(uv.X, uv.Y)));
+                    var direction = Vector3.TransformNormal(new Vector3(tangent.X, tangent.Y, tangent.Z), world);
+                    vertices.Add(new Vertex(
+                        Vector3.Transform(mesh->MVertices[v], world),
+                        Vector3.TransformNormal(normal, normals),
+                        new Vector4(direction, mirrored ? -tangent.W : tangent.W),
+                        new Vector2(uv.X, uv.Y)));
                 }
 
                 rig?.Skin(mesh, (int)m, CollectionsMarshal.AsSpan(vertices).Slice((int)baseVertex, (int)mesh->MNumVertices));
@@ -295,6 +314,10 @@ public sealed class ModelCooker : ICooker
                     IndexCount = (uint)indices.Count - firstIndex,
                     Material = (int)mesh->MMaterialIndex,
                 });
+                if (named)
+                {
+                    meshNames.Add(MeshName(rig?.NodeOfMeshName((int)m) ?? node, mesh));
+                }
             }
 
             if (rig is not null)
@@ -335,7 +358,7 @@ public sealed class ModelCooker : ICooker
             // The turn, scale and centring go into the vertices, and for a rig into its skeleton
             // too, so skinning lands in the same space.
             vertexArray = vertices.ToArray();
-            var normalization = Normalization(vertexArray, settings.RotateY, settings.TargetLength);
+            var normalization = Normalization(vertexArray, settings.RotateY, settings.TargetLength, settings.KeepOrigin);
             Apply(vertexArray, normalization);
             skeleton = rig?.ToSkeleton(normalization);
         }
@@ -360,16 +383,18 @@ public sealed class ModelCooker : ICooker
             Vertices = vertexArray,
             Indices = indices.ToArray(),
             Parts = parts.ToArray(),
+            MeshNames = meshNames.ToArray(),
             Materials = materials.ToArray(),
             Textures = textures.ToArray(),
             Skeleton = skeleton,
             Clips = clips.ToArray(),
         };
 
-        // A cutoff that can't cut renders fine but wrong, so it stops the cook. Materials no
-        // part uses are never drawn, so they can't be wrong.
+        // A cutoff that can't cut renders fine but wrong, and the renderer refuses a
+        // subsurface it can't store, so both stop the cook. Materials no part uses are
+        // never drawn, so they can't be wrong.
         var problems = parts.Select(part => part.Material).Distinct().Order()
-            .Select(i => (Name: materialNames[i], Problem: model.CutoutProblem(i)))
+            .Select(i => (Name: materialNames[i], Problem: model.CutoutProblem(i) ?? SubsurfaceProblem(model.Materials[i])))
             .Where(entry => entry.Problem is not null)
             .ToList();
         foreach (var (materialName, problem) in problems)
@@ -379,6 +404,9 @@ public sealed class ModelCooker : ICooker
 
         return problems.Count > 0 ? null : model.ToBytes();
     }
+
+    private static string? SubsurfaceProblem(in ModelMaterial material) =>
+        material.Subsurface.Problem(material.Clearcoat, material.Flags);
 
     // Every mesh of one foliage material counts as one crown.
     private static void PointOutOfCrown(Vertex[] vertices, IEnumerable<(int Material, int First, int Count)> meshes)
@@ -409,7 +437,8 @@ public sealed class ModelCooker : ICooker
     private static bool SamplesTexture(ModelMaterial material)
     {
         return material.BaseColorTexture >= 0 || material.NormalTexture >= 0
-            || material.SurfaceTexture >= 0 || material.EmissiveTexture >= 0;
+            || material.SurfaceTexture >= 0 || material.EmissiveTexture >= 0
+            || material.HeightTexture >= 0 || material.DetailColorTexture >= 0 || material.DetailNormalTexture >= 0;
     }
 
     private static void AddClip(List<AnimationClip> clips, AnimationClip? clip)
@@ -426,6 +455,55 @@ public sealed class ModelCooker : ICooker
 
         clips.Add(clip);
     }
+
+    // The meshes to cook, each with the transform that puts it in the model's space. With byNode, they
+    // come in the order the nodes hold them, and each is placed by its node. Otherwise every mesh is
+    // already in the model's space: a rig's meshes stay in their own space, since the rig importer
+    // places them and the joints move them, and a merged static scene was flattened by Assimp.
+    // Node is the name of the node holding the mesh when placed by node, and null otherwise.
+    private static unsafe List<(uint Mesh, Matrix4x4 World, string? Node)> Placements(Scene* scene, bool byNode)
+    {
+        var placed = new List<(uint Mesh, Matrix4x4 World, string? Node)>();
+        if (byNode)
+        {
+            Place(scene->MRootNode, Matrix4x4.Identity, placed);
+        }
+        else
+        {
+            for (uint m = 0; m < scene->MNumMeshes; m++)
+            {
+                placed.Add((m, Matrix4x4.Identity, null));
+            }
+        }
+
+        return placed;
+    }
+
+    private static unsafe void Place(Node* node, in Matrix4x4 parent, List<(uint Mesh, Matrix4x4 World, string? Node)> placed)
+    {
+        // Assimp stores matrices for column vectors; this engine multiplies row vectors.
+        var world = Matrix4x4.Transpose(node->MTransformation) * parent;
+        string name = node->MName.AsString;
+        for (uint i = 0; i < node->MNumMeshes; i++)
+        {
+            placed.Add((node->MMeshes[i], world, name));
+        }
+
+        for (uint c = 0; c < node->MNumChildren; c++)
+        {
+            Place(node->MChildren[c], world, placed);
+        }
+    }
+
+    // A part is named by the node that holds its mesh: that's the name an artist sees in the outliner,
+    // and it stays whole where Assimp splits a mesh with several materials into several meshes or
+    // suffixes their names. A node with no name falls back to the mesh's own name.
+    private static unsafe string MeshName(string? node, Mesh* mesh) =>
+        string.IsNullOrEmpty(node) ? mesh->MName.AsString : node;
+
+    // Normals keep pointing off the surface when a placement stretches it, so they use the inverse transpose.
+    private static Matrix4x4 NormalMatrix(in Matrix4x4 world) =>
+        Matrix4x4.Invert(world, out var inverse) ? Matrix4x4.Transpose(inverse) : Matrix4x4.Identity;
 
     // Drops the meshes of every node outside the ones named, so flattening leaves them out.
     // Returns how many nodes with meshes were kept.
@@ -452,8 +530,9 @@ public sealed class ModelCooker : ICooker
 
     // The transform that turns the model by rotateY degrees around the vertical axis, scales
     // it to real-world metres, centres it, and stands it on y = 0. The bounds are taken after
-    // the turn, so the model fits its target length the way it will face.
-    private static Matrix4x4 Normalization(Vertex[] vertices, float rotateY, float targetLength)
+    // the turn, so the model fits its target length the way it will face. With keepOrigin the
+    // turn and scale are about the file's own origin, and nothing is moved.
+    private static Matrix4x4 Normalization(Vertex[] vertices, float rotateY, float targetLength, bool keepOrigin)
     {
         var turn = Matrix4x4.CreateRotationY(rotateY * MathF.PI / 180f);
         var min = new Vector3(float.MaxValue);
@@ -467,6 +546,11 @@ public sealed class ModelCooker : ICooker
 
         var size = max - min;
         float scale = targetLength > 0f ? targetLength / MathF.Max(size.X, MathF.Max(size.Y, size.Z)) : 1f;
+        if (keepOrigin)
+        {
+            return turn * Matrix4x4.CreateScale(scale);
+        }
+
         var center = (min + max) * 0.5f;
         var shift = new Vector3(-center.X, -center.Y + size.Y * 0.5f, -center.Z);
         return turn * Matrix4x4.CreateTranslation(shift) * Matrix4x4.CreateScale(scale);
@@ -585,7 +669,8 @@ public sealed class ModelCooker : ICooker
         rule ??= new MaterialRule();
         var flags = (rule.TwoSided || rule.Foliage ? MaterialFlags.TwoSided : 0)
             | (rule.Transparent ? MaterialFlags.Transparent : 0)
-            | (rule.Foliage ? MaterialFlags.Foliage : 0);
+            | (rule.Foliage ? MaterialFlags.Foliage : 0)
+            | (rule.DetailMask ? MaterialFlags.DetailMask : 0);
         var emissive = rule.EmissiveColor is { Length: 3 } e
             ? new Vector3(e[0], e[1], e[2])
             : rule.Emissive != null ? Vector3.One : Vector3.Zero;
@@ -633,7 +718,21 @@ public sealed class ModelCooker : ICooker
             Emissive = emissive,
             EmissiveTexture = textures.Add(rule.Emissive, TextureKind.Color, namedBy: named),
             Clearcoat = rule.Clearcoat,
+            HeightTexture = textures.Add(rule.Height, TextureKind.Linear, namedBy: named),
+            HeightDepth = rule.HeightDepth,
+            DetailColorTexture = textures.Add(rule.DetailColor, TextureKind.Linear, namedBy: named),
+            DetailNormalTexture = textures.Add(rule.DetailNormal, TextureKind.Linear, isNormalMap: true, namedBy: named),
+            DetailScale = rule.DetailScale,
             Flags = flags,
+            Ior = rule.Ior,
+            Subsurface = rule.Subsurface is { } subsurface
+                ? new Subsurface
+                {
+                    Radius = subsurface.Radius,
+                    Color = subsurface.Color is { Length: 3 } spread ? new Vector3(spread[0], spread[1], spread[2]) : Vector3.Zero,
+                    Transmission = subsurface.Transmission,
+                }
+                : default,
         };
     }
 

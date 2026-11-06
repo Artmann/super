@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Super\Super.csproj" />
+  </ItemGroup>
+
+  <!-- The stone textures in content, and the props in the shared assets folder. -->
+  <Import Project="..\..\src\Super.Build\Super.targets" />
+  <ItemGroup>
+    <SuperContent Include="content" />
+    <SuperContent Include="..\..\assets" />
+  </ItemGroup>
+
+</Project>

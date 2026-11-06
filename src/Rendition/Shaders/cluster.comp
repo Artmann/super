@@ -1,0 +1,108 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#define CLUSTER_WRITER
+#include "common.glsl"
+#include "light_data.glsl"
+
+// Lists, for each cluster of the view, the point and spot lights that reach it. One
+// thread per cluster tests every light against the box round its piece of the view.
+
+layout(local_size_x = 64) in;
+
+layout(std430, set = 0, binding = 5) writeonly buffer Clusters {
+    uint clusterCounts[CLUSTER_COUNT];
+    uint clusterLights[];
+};
+
+// Where on the view's ray through a point of the screen a depth falls, in the camera's
+// space. Two points on the ray, at two depths, give the rest by moving along it, which
+// suits a perspective and a parallel view alike.
+vec3 alongRay(vec2 ndc, float viewDepth) {
+    vec4 a = frame.inverseViewProjection * vec4(ndc, 1.0, 1.0);
+    vec4 b = frame.inverseViewProjection * vec4(ndc, 0.5, 1.0);
+    vec3 nearPoint = (frame.view * vec4(a.xyz / a.w, 1.0)).xyz;
+    vec3 farPoint = (frame.view * vec4(b.xyz / b.w, 1.0)).xyz;
+    float t = (viewDepth + nearPoint.z) / (nearPoint.z - farPoint.z);
+    return mix(nearPoint, farPoint, t);
+}
+
+float sliceDepth(uint slice) {
+    float nearest = frame.clusters.x;
+    float furthest = frame.clusters.y;
+    float t = float(slice) / float(CLUSTER_Z);
+    return frame.clusters.z > 0.5 ? mix(nearest, furthest, t) : nearest * pow(furthest / nearest, t);
+}
+
+// Whether a spot's cone misses a sphere, after Bart Wronski's test. The cone's angle is under
+// a right angle.
+bool coneMisses(vec3 origin, vec3 axis, float range, float cosAngle, vec3 center, float radius) {
+    vec3 v = center - origin;
+    float along = dot(v, axis);
+    float sinAngle = sqrt(max(1.0 - cosAngle * cosAngle, 0.0));
+    float across = cosAngle * sqrt(max(dot(v, v) - along * along, 0.0)) - along * sinAngle;
+    return across > radius || along > radius + range || along < -radius;
+}
+
+void main() {
+    uint cluster = gl_GlobalInvocationID.x;
+    if (cluster >= CLUSTER_COUNT) {
+        return;
+    }
+
+    uint x = cluster % CLUSTER_X;
+    uint y = (cluster / CLUSTER_X) % CLUSTER_Y;
+    uint z = cluster / (CLUSTER_X * CLUSTER_Y);
+
+    // The box round this piece of the view, in the camera's space. The slices are cut at
+    // the edges' depths, so the box is fattened to cover their bulge.
+    vec2 low = vec2(x, y) / vec2(CLUSTER_X, CLUSTER_Y) * 2.0 - 1.0;
+    vec2 high = vec2(x + 1, y + 1) / vec2(CLUSTER_X, CLUSTER_Y) * 2.0 - 1.0;
+    float nearDepth = sliceDepth(z);
+    float farDepth = sliceDepth(z + 1);
+    vec3 boxMin = vec3(1e30);
+    vec3 boxMax = vec3(-1e30);
+    for (int corner = 0; corner < 4; corner++) {
+        vec2 ndc = vec2((corner & 1) == 0 ? low.x : high.x, (corner & 2) == 0 ? low.y : high.y);
+        vec3 a = alongRay(ndc, nearDepth);
+        vec3 b = alongRay(ndc, farDepth);
+        boxMin = min(boxMin, min(a, b));
+        boxMax = max(boxMax, max(a, b));
+    }
+
+    vec3 boxCenter = 0.5 * (boxMin + boxMax);
+    float boxRadius = length(boxMax - boxCenter);
+
+    uint count = 0;
+    uint pending = 0;
+    uint base = cluster * (CLUSTER_LIGHTS / 2);
+    for (int i = 0; i < frame.localLightCount && count < CLUSTER_LIGHTS; i++) {
+        LocalLight light = localLights[i];
+        vec3 position = (frame.view * vec4(light.positionRange.xyz, 1.0)).xyz;
+        float range = light.positionRange.w;
+        vec3 nearest = clamp(position, boxMin, boxMax);
+        vec3 gap = nearest - position;
+        if (dot(gap, gap) > range * range) {
+            continue;
+        }
+
+        if (light.directionCone.w > -1.5) {
+            vec3 axis = (frame.view * vec4(light.directionCone.xyz, 0.0)).xyz;
+            if (coneMisses(position, axis, range, light.directionCone.w, boxCenter, boxRadius)) {
+                continue;
+            }
+        }
+
+        if ((count & 1u) == 0u) {
+            pending = uint(i);
+        } else {
+            clusterLights[base + count / 2] = pending | (uint(i) << 16);
+        }
+        count++;
+    }
+
+    if ((count & 1u) == 1u) {
+        clusterLights[base + count / 2] = pending;
+    }
+
+    clusterCounts[cluster] = count;
+}

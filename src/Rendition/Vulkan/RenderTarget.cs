@@ -17,14 +17,19 @@ internal sealed unsafe class RenderTarget : IDisposable
     public readonly ImageView[] LayerViews;
 
     public readonly Format Format;
+
+    /// <summary>How many mip levels the image has. <see cref="View"/> covers them all.</summary>
+    public readonly uint Mips;
+
     public readonly ImageAspectFlags Aspect;
 
     public RenderTarget(
-        VulkanContext context, Format format, Extent2D extent, ImageUsageFlags usage, ImageAspectFlags aspect, uint layers = 1)
+        VulkanContext context, Format format, Extent2D extent, ImageUsageFlags usage, ImageAspectFlags aspect, uint layers = 1, uint mips = 1)
     {
         _context = context;
         Format = format;
         Aspect = aspect;
+        Mips = mips;
         var api = context.Api;
 
         var imageInfo = new ImageCreateInfo
@@ -33,7 +38,7 @@ internal sealed unsafe class RenderTarget : IDisposable
             ImageType = ImageType.Type2D,
             Format = format,
             Extent = new Extent3D(extent.Width, extent.Height, 1),
-            MipLevels = 1,
+            MipLevels = mips,
             ArrayLayers = layers,
             Samples = SampleCountFlags.Count1Bit,
             Tiling = ImageTiling.Optimal,
@@ -53,7 +58,7 @@ internal sealed unsafe class RenderTarget : IDisposable
             Image = Image,
             ViewType = layers > 1 ? ImageViewType.Type2DArray : ImageViewType.Type2D,
             Format = format,
-            SubresourceRange = new ImageSubresourceRange(aspect, 0, 1, 0, layers),
+            SubresourceRange = new ImageSubresourceRange(aspect, 0, mips, 0, layers),
         };
         api.CreateImageView(context.Device, &viewInfo, null, out View).Check();
 

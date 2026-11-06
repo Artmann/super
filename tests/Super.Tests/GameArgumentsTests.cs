@@ -65,6 +65,14 @@ public class GameArgumentsTests
     }
 
     [Fact]
+    public void Reads_no_materials_in_a_window_and_with_a_screenshot()
+    {
+        Assert.True(GameArguments.Parse(["--no-materials"]).NoMaterials);
+        Assert.True(GameArguments.Parse(["--no-materials", "--screenshot", "day.png"]).NoMaterials);
+        Assert.False(GameArguments.Parse(["--screenshot", "day.png"]).NoMaterials);
+    }
+
+    [Fact]
     public void No_vsync_is_only_for_playing_in_a_window()
     {
         Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--no-vsync", "--profile", "reef.txt"]));
@@ -118,5 +126,38 @@ public class GameArgumentsTests
     public void Refuses_a_bad_command_line(params string[] args)
     {
         Assert.Throws<ArgumentException>(() => GameArguments.Parse(args));
+    }
+
+    [Fact]
+    public void Reads_an_interface_scale_with_a_point_whatever_the_language()
+    {
+        var original = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("sv-SE");
+        try
+        {
+            Assert.Equal(1.5f, GameArguments.Parse(["--ui-scale", "1.5"]).UiScale);
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = original;
+        }
+    }
+
+    [Fact]
+    public void No_interface_scale_leaves_it_to_the_game()
+    {
+        Assert.Null(GameArguments.Parse([]).UiScale);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-2")]
+    [InlineData("big")]
+    [InlineData("Infinity")]
+    public void An_interface_scale_must_be_a_number_above_zero(string scale)
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--ui-scale", scale]));
+
+        Assert.Equal($"--ui-scale needs a number above zero, such as 2 or 1.5, not '{scale}'.", error.Message);
     }
 }

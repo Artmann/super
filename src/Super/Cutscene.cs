@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Numerics;
 
 namespace Super;
@@ -122,6 +123,8 @@ public sealed class Cutscene
     private readonly List<(float Start, Shot Shot)> _shots = [];
     private readonly List<(float At, Action Action)> _cues = [];
     private readonly List<(float From, float To, float Scale, float Ramp)> _slows = [];
+    private readonly List<(float At, Transition Transition, float Skip)> _transitions = [];
+    private Transition? _end;
 
     /// <summary>How long the cutscene lasts: the shots end to end.</summary>
     public float Seconds { get; private set; }
@@ -131,9 +134,105 @@ public sealed class Cutscene
     /// <summary>Adds a shot after the last one. Moving from one shot to the next is a cut.</summary>
     public Cutscene Then(Shot shot)
     {
+        if (_end is not null)
+        {
+            throw new InvalidOperationException("The cutscene's end is already set. Add every shot before End.");
+        }
+
         _shots.Add((Seconds, shot));
         Seconds += shot.Seconds;
         return this;
+    }
+
+    /// <summary>
+    /// Adds a shot after the last one, moving into it with <paramref name="transition"/>.
+    /// A fade is centred on the change, so its first half plays over the end of the shot
+    /// before; on the first shot, it fades in from its colour. A blend into the first shot
+    /// starts from the game's camera. The others start as the shot does.
+    /// </summary>
+    public Cutscene Then(Shot shot, Transition transition)
+    {
+        ArgumentNullException.ThrowIfNull(shot);
+        ArgumentNullException.ThrowIfNull(transition);
+        float start = Seconds;
+        float half = transition.Seconds / 2f;
+        bool fade = transition.Kind == TransitionKind.Fade;
+        if (fade && _shots.Count > 0 && half > _shots[^1].Shot.Seconds)
+        {
+            throw new ArgumentException(
+                string.Create(CultureInfo.InvariantCulture, $"The fade's first half, {half:0.###} seconds, must fit in the shot before it, which lasts {_shots[^1].Shot.Seconds:0.###}."),
+                nameof(transition));
+        }
+
+        float into = fade ? half : transition.Seconds;
+        if (into > shot.Seconds)
+        {
+            throw new ArgumentException(
+                string.Create(CultureInfo.InvariantCulture, $"The transition's {into:0.###} seconds into the shot must fit in it, and it lasts {shot.Seconds:0.###}."),
+                nameof(transition));
+        }
+
+        Then(shot);
+        if (transition.Kind == TransitionKind.Cut)
+        {
+            return this;
+        }
+
+        if (fade)
+        {
+            _transitions.Add(start == 0f ? (0f, transition, half) : (start - half, transition, 0f));
+        }
+        else
+        {
+            _transitions.Add((start, transition, 0f));
+        }
+
+        return this;
+    }
+
+    /// <summary>
+    /// Moves back to the game with <paramref name="transition"/> when the cutscene runs to
+    /// its end. A fade goes out over the last shot and comes in on the game. Stopping it
+    /// early skips this. Add it after the last shot.
+    /// </summary>
+    public Cutscene End(Transition transition)
+    {
+        ArgumentNullException.ThrowIfNull(transition);
+        if (_shots.Count == 0)
+        {
+            throw new InvalidOperationException("The cutscene has no shots to end. Add them with Then first.");
+        }
+
+        float half = transition.Seconds / 2f;
+        if (transition.Kind == TransitionKind.Fade && half > _shots[^1].Shot.Seconds)
+        {
+            throw new ArgumentException(
+                string.Create(CultureInfo.InvariantCulture, $"The fade's first half, {half:0.###} seconds, must fit in the last shot, which lasts {_shots[^1].Shot.Seconds:0.###}."),
+                nameof(transition));
+        }
+
+        _end = transition;
+        if (transition.Kind == TransitionKind.Fade)
+        {
+            _transitions.Add((Seconds - half, transition, 0f));
+        }
+
+        return this;
+    }
+
+    /// <summary>What plays when the cutscene ends on its own and isn't a fade, which starts before the end.</summary>
+    internal Transition? EndTransition => _end is { Kind: not TransitionKind.Fade } end ? end : null;
+
+    /// <summary>Starts the transitions due after <paramref name="from"/> up to and including <paramref name="to"/>.</summary>
+    internal void StartTransitions(float from, float to, Transitions transitions)
+    {
+        foreach (var (at, transition, skip) in _transitions)
+        {
+            if (from < at && at <= to)
+            {
+                transitions.Start(transition, null, skip);
+            }
+        }
     }
 
     /// <summary>

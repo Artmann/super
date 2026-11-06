@@ -89,6 +89,19 @@ internal sealed unsafe class BloomPass : IDisposable
         CreateTargets(hdr, extent);
     }
 
+    /// <summary>Reads a different HDR image from the next frame on. Frames still in flight must have finished.</summary>
+    public void SetSource(ImageView hdr) => WriteSet(_downSets[0], hdr, hdr);
+
+    /// <summary>
+    /// Leaves bloom out of this frame. Nothing reads <see cref="Result"/> then, but tonemapping
+    /// still binds it, so it's made ready to sample.
+    /// </summary>
+    public void RecordSkipped(CommandBuffer cmd) =>
+        _context.Api.Transition(cmd, _up[0].Image, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal,
+            PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit,
+            PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit);
+
     /// <summary>Expects the HDR image to be ready for sampling.</summary>
     public void Record(CommandBuffer cmd)
     {

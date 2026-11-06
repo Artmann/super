@@ -114,6 +114,62 @@ public class ImageTests
     }
 
     [Fact]
+    public void A_painted_image_has_the_size_it_was_painted_at()
+    {
+        var image = new Content(new MemoryContent()).Image(3, 2, new byte[24]);
+        Assert.Equal((3, 2), (image.Width, image.Height));
+        Assert.Equal(new Vector2(3f, 2f), Draw(new Image(image)).Size);
+    }
+
+    [Fact]
+    public void Each_painting_is_a_new_image()
+    {
+        var content = new Content(new MemoryContent());
+        Assert.NotSame(content.Image(1, 1, new byte[4]), content.Image(1, 1, new byte[4]));
+    }
+
+    [Fact]
+    public void Pixels_must_fill_the_painted_image()
+    {
+        var content = new Content(new MemoryContent());
+        var error = Assert.Throws<ArgumentException>(() => content.Image(2, 2, new byte[12]));
+        Assert.Contains("16 bytes", error.Message);
+    }
+
+    [Fact]
+    public void A_cooked_image_gives_its_pixels()
+    {
+        var pixels = Load(Wide).ReadPixels();
+        Assert.Equal(4 * 2 * 4, pixels.Length);
+        Assert.All(pixels, value => Assert.Equal(255, value));
+    }
+
+    [Fact]
+    public void A_painted_image_gives_back_its_pixels()
+    {
+        byte[] painted = [1, 2, 3, 4];
+        Assert.Equal(painted, new Content(new MemoryContent()).Image(1, 1, painted).ReadPixels());
+    }
+
+    [Fact]
+    public void An_image_can_be_let_go_once()
+    {
+        var content = new Content(new MemoryContent());
+        var image = content.Image(1, 1, new byte[4]);
+        content.Unload(image);
+        Assert.Throws<ArgumentException>(() => content.Unload(image));
+    }
+
+    [Fact]
+    public void Naming_an_image_after_letting_it_go_makes_a_new_one()
+    {
+        var content = new Content(new MemoryContent().Add("a.png", Wide));
+        var first = content.Image("a.png");
+        content.Unload(first);
+        Assert.NotSame(first, content.Image("a.png"));
+    }
+
+    [Fact]
     public void An_image_draws_at_its_natural_size()
     {
         Assert.Equal(new Vector2(4f, 2f), Draw(new Image(Load(Wide))).Size);

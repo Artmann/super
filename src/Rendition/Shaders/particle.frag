@@ -4,13 +4,14 @@
 #include "brdf.glsl"
 #include "sampling.glsl"
 #include "water.glsl"
+#include "light_data.glsl"
 
 layout(location = 0) in vec2 inCorner;
 layout(location = 1) in vec2 inScreenCorner;
 layout(location = 2) in vec4 inColor;
 layout(location = 3) in vec3 inPosition;
 layout(location = 4) in float inSunlight;
-layout(location = 5) flat in vec2 inPuff;
+layout(location = 5) flat in vec3 inPuff; // x: width; y: variant; z: glow
 
 layout(set = 1, binding = 0) uniform sampler2D depthTexture;
 layout(set = 1, binding = 2) uniform samplerCube irradianceTexture;
@@ -91,7 +92,19 @@ void main() {
         light += sunlightReaching(inPosition, l, i) * wrapped * shadow * SCATTER / PI;
     }
 
-    vec3 color = inColor.rgb * light;
+    // Point and spot lights from this pixel's cluster, without their shadows.
+    uint cluster = clusterAt(gl_FragCoord.xy, inPosition);
+    uint localCount = clusterLightCount(cluster);
+    for (uint i = 0; i < localCount; i++) {
+        LocalLight local = localLights[clusterLight(cluster, i)];
+        vec3 l;
+        float reaching = localLightReaching(local, inPosition, l);
+        float wrapped = clamp(dot(n, l) * 0.5 + 0.5, 0.0, 1.0);
+        light += local.radianceShadow.rgb * reaching * wrapped * SCATTER / PI;
+    }
+
+    // A glowing puff, such as a flame, gives off light of its own colour.
+    vec3 color = inColor.rgb * (light + inPuff.z);
     vec3 away = inPosition - frame.cameraPosition.xyz;
     if (isUnderwater()) {
         // The shafts of light are left out: they'd be added once per puff.

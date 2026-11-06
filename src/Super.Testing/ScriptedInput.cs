@@ -97,7 +97,7 @@ public sealed class ScriptedInput
     /// </summary>
     public void Click(object id)
     {
-        Queue((input, ui) => input.MouseMoved(InputScript.Middle(ui.FrameOf(id))));
+        Queue((input, ui) => input.MouseMoved(ui.ScreenMiddle(id)));
         Press(MouseButton.Left);
     }
 

@@ -9,9 +9,10 @@ that doesn't exist yet; everything else works today.
 | [Working with coding agents](agents.md) | How an agent builds, runs, tests and sees a Super game |
 | [Drawing with views](views.md) | `Draw`, keys, view memory, smoothing, `Cached` and state versus view |
 | [Cameras and clicking](cameras.md) | `Camera`, the camera helpers, orthographic and shifted views, and picking |
-| [Rendering](rendering.md) | Lights, shadows, the sky, water, post-processing, meshes made by code and along splines, surface shaders, terrain and models |
+| [Rendering](rendering.md) | Graphics settings for speed, lights, shadows, the sky, water, post-processing, meshes made by code and along splines, surface shaders, terrain and models |
 | [Animation](animation.md) | Rigged models, Mixamo clips, states, actions, blends, masks, root motion and joints |
 | [Cutscenes](cutscenes.md) | Shots, moments, slow motion and the `Director` |
+| [Transitions](transitions.md) | Fades, dissolves, wipes, irises and camera blends, in play and between shots |
 | [Tweens and curves](tweens.md) | Easings, curves drawn by key or in JSON, tweens, sequences and groups |
 | [Splines](splines.md) | Paths for rails, roads and patrols: asking where, following, camera rails and meshes along them |
 | [Interfaces](interfaces.md) | `Super.Ui`: views, modifiers, layout, colours, state and the mouse |
@@ -27,7 +28,7 @@ that doesn't exist yet; everything else works today.
 | [The command line](command-line.md) | `--screenshot`, `--record`, `--script` and capturing from code |
 | [Profiling](profiling.md) | `--profile` and reading its report |
 | [The ECS](ecs.md) | `Super.Ecs`: queries, drawing entities and entities scoped to a state |
-| [Physics](physics.md) | `Super.Physics`: colliders on entities, layers and rays that find them |
+| [Physics](physics.md) | `Super.Physics`: bodies that fall and collide, characters, trigger areas, rays and shape casts |
 | [What's not here yet](roadmap.md) | Known gaps and planned features |
 
 Background reading:

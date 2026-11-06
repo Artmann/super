@@ -28,6 +28,20 @@ public class ImportSettings
     /// </summary>
     public string? Node { get; set; }
 
+    /// <summary>
+    /// Keeps each mesh of a static model as its own part, named by the mesh, instead of merging the
+    /// meshes that share a material. Needed to show some parts with <c>Content.Parts</c>. Rigged
+    /// models always keep their meshes.
+    /// </summary>
+    public bool KeepMeshes { get; set; }
+
+    /// <summary>
+    /// Keeps the file's own origin: the model is turned and scaled about it, but not centred or
+    /// stood on the ground. For a model whose origin means something, such as a character whose
+    /// file also holds alternative parts that would throw off the bounds.
+    /// </summary>
+    public bool KeepOrigin { get; set; }
+
     public List<MaterialRule> Materials { get; set; } = [];
 
     /// <summary>
@@ -94,6 +108,27 @@ public sealed class MaterialRule
 
     public float Clearcoat { get; set; }
 
+    /// <summary>A height map in red, white at the top. Needs <see cref="HeightDepth"/>.</summary>
+    public string? Height { get; set; }
+
+    /// <summary>How far below the top black in the height map lies, in metres.</summary>
+    public float HeightDepth { get; set; }
+
+    /// <summary>Fine grain over the colour, where mid grey changes nothing. Tiled <see cref="DetailScale"/> times as often.</summary>
+    public string? DetailColor { get; set; }
+
+    /// <summary>A second normal map, tiled <see cref="DetailScale"/> times as often and blended over the first.</summary>
+    public string? DetailNormal { get; set; }
+
+    /// <summary>How many times the detail textures repeat for each repeat of the others.</summary>
+    public float DetailScale { get; set; } = 8f;
+
+    /// <summary>The surface texture's blue channel says where the detail textures show.</summary>
+    public bool DetailMask { get; set; }
+
+    /// <summary>Light that spreads under the surface, for skin, wax and marble. Off by default.</summary>
+    public SubsurfaceRule? Subsurface { get; set; }
+
     /// <summary>
     /// Overrides the value in the model file, if it has one. The default is 0, or 1 with a
     /// <see cref="Graph"/>, since it multiplies the graph's metalness.
@@ -124,4 +159,20 @@ public sealed class MaterialRule
     public bool Foliage { get; set; }
 
     public bool Transparent { get; set; }
+
+    /// <summary>For transparent glass: 1 is straight through, as a window, and about 1.5 bends the view like a bottle or a marble.</summary>
+    public float Ior { get; set; } = 1f;
+}
+
+/// <summary>How light spreads under a material's surface. See Rendition.Subsurface.</summary>
+public sealed class SubsurfaceRule
+{
+    /// <summary>How far light travels under the surface, in metres. Skin is about 0.01.</summary>
+    public float Radius { get; set; }
+
+    /// <summary>How far red, green and blue travel, as fractions of the radius. The default spreads them all the same.</summary>
+    public float[]? Color { get; set; }
+
+    /// <summary>How much light from behind shines through thin parts, from 0 to 1.</summary>
+    public float Transmission { get; set; }
 }

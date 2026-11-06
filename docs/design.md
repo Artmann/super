@@ -25,11 +25,13 @@ the rest is not yet.
 | Interface code | CPU only, in `Super.Ui`. Rendition only sees textured quads | Layout and text run for real in headless tests, and Rendition stays usable alone |
 | Interface mouse | Two speeds: hover, press and scrolling follow the mouse each frame, while clicks and drops queue and run just before `Update` | Ticks are too slow to feel right under a cursor, but anything that changes game state has to land on a tick for a seed to replay |
 | Interface clipping | Per pixel in `overlay.frag`, each quad carrying a rounded clip rectangle, not scissor rectangles | One draw call, draw order kept, and rounded corners clip what's inside them |
+| Interface scale | Layout runs in units, the screen divided by `UiTree.Scale`, and `UiTree.Add` multiplies each quad into pixels. `GlyphAtlas` rasterises, measures and wraps at the size in pixels and hands lengths back in units. `UiPointer` divides the mouse by the scale | Text stays sharp instead of stretched, measuring and drawing wrap at the same words, and no view has to know about the scale |
 | Interface box | Background, border, radius, opacity and margin written side by side merge into one box. Padding and frame go by order | It reads like CSS, where these never depend on order, and `UiNode` only sees one box |
 | Hierarchy | Flat, with attachment by transform or bone | Colony and dungeon games have thousands of independent things and little nesting |
 | Cameras | A `Camera` is a plain value the game keeps, since picking happens in `Update` and showing in `Draw` | Input can only be read in `Update`, so the camera can't belong to `Draw` alone |
 | Camera kinds | Perspective by default, orthographic with `Size`, asymmetric with `Shift` in half screens | A shift keeps working when the window changes shape, which fixed frustum edges wouldn't |
-| Camera boom | The game tests `BoomCamera.Arm` against its own walls and passes in the distance | Super.Physics is optional and has no shape casts yet, and this needs no delegate |
+| Tall screens | `Camera.WideAs` widens the vertical field of view or `Size` in `Camera.Fitted(aspect)`, which the projection, `Ray` and shadow radius all go through. Off by default | One place keeps drawing and clicking in step, and games made for one window shape don't change |
+| Camera boom | The game tests `BoomCamera.Arm` against its own walls and passes in the distance, by hand or with a `Super.Physics` shape cast | Super.Physics is optional, so the core can't call it, and this needs no delegate |
 | Orthographic shading | Super gives the renderer an eye far behind the camera | Shaders keep one way of finding the view direction |
 | Unchanging objects | `View.Cached`, by key and version number | Static worlds aren't described again each frame |
 | Dependency injection | `Microsoft.Extensions.DependencyInjection`, resolved at startup only | Familiar, makes fakes one line, and costs nothing per frame |
@@ -46,7 +48,14 @@ the rest is not yet.
 | JSON content | One record per file, read into a `Catalog<T>` by `LoadAll` from the cooked data under a folder. JSON that doesn't parse fails the cook, not the load. Live reload runs only in the window and only from source: when `content.dev.json` sits beside the cooked folder, the window writes the schemas into the first root, starts `super-cook --watch` as a child process (killed with its tree when the game stops or exits, and stopped by stdin closing if the game dies), and watches `content.manifest`; a manifest written again sets `ReloadWanted`, and the next tick's `Reload` calls `Refresh` before reading the catalogs again | Every mistake is reported with its file and line at load, and a reload can't change a seeded run. See `docs/superpowers/specs/2026-11-01-json-content-design.md` |
 | Saves and levels | JSON early on, expected to be replaced | Easy to read and repair during development |
 | User data | `UserData` keeps one JSON file per class in the platform's per-user folder, named by `GameOptions.Id`. `Get` loads once and shares the copy; `Save` writes a `.tmp` file and moves it over the old one; a broken file is renamed `.broken` and defaults are used. `GameHost` uses a throwaway temp folder unless given one, and the window only passes the player's folder when it's visible | Players can read and fix the files, a crash mid-save can't lose settings, and a screenshot, recording or test can neither read nor change the player's own settings, so it repeats the same anywhere |
-| Physics | `Super.Physics`, an optional package on Jolt Physics (JoltPhysicsSharp). Queries only so far: a `Collider` component, kinematic Jolt bodies synced to `Transform` by an `ITickHook` before each Update, and ray casts filtered by 16 layer bits, with hits sorted by distance then entity | Jolt is deterministic for the same build, fast, and has a maintained C# binding; a separate package keeps the native library out of games that don't need it. Sorting hits keeps a seeded run from depending on Jolt's callback order |
+| Physics | `Super.Physics`, an optional package on Jolt Physics (JoltPhysicsSharp). A `Collider` component, with an optional `Body` (static, kinematic or dynamic), `Trigger` or `Character`. An `ITickHook` steps the world before each Update, after the ECS remembers transforms for smoothing: sync colliders to `Transform`, simulate, write dynamic Transforms, check triggers. Rays, shape casts and overlaps are filtered by 16 layer bits, with hits sorted by distance then entity | Jolt is deterministic for the same build, fast, and has a maintained C# binding; a separate package keeps the native library out of games that don't need it. Sorting hits and events keeps a seeded run from depending on Jolt's callback order. Stepping before Update means Update sees where things are drawn, and smoothing blends from where they were |
+| Physics layers | Each body's Jolt object layer packs its collider's layers as the group and what it collides with as the mask (`ObjectLayerPairFilterMask`); two bodies collide when each one's group is in the other's mask. Triggers have an empty mask | Sixteen layer bits fit both halves of Jolt's 32-bit layer, so no table is needed |
+| Kinematic colliders | A collider with no `Body` is kinematic. When its Transform changes, the step's sync calls `MoveKinematic`, so it sweeps there and pushes dynamic bodies; once it stops, its velocity is cleared. `Physics.Sync()` in Update teleports instead | Doors and platforms push crates without extra code, and the old ray-only behaviour stays the same |
+| Dynamic bodies | Physics writes a dynamic body's world Transform after each step, so it can't have a `Parent`. It remembers what it wrote, and a Transform that differs at the next step was set by the game: the body teleports there, keeping its velocity. A new shape or `Body` rebuilds the body, keeping its velocity | The ECS Transform stays the one source of truth for drawing, and teleporting needs no extra call |
+| Triggers | Jolt sensors with an empty layer mask, so they take no part in the simulation. After each step Super asks Jolt for each trigger's overlaps (`CollideShape` with the body's own centre-of-mass transform) and compares them with last step's sorted list | Jolt's sensor contact callbacks arrive on worker threads in no promised order, and miss static bodies by default; a query per trigger is simple, sorted and sees everything |
+| Characters | A Jolt `CharacterVirtual` per `Character` entity, built from its collider and moved by `Physics.Move` with `ExtendedUpdate`, which climbs stairs and sticks to the floor. Its collider is also a kinematic body for rays, triggers and falling things, which the character's own move skips | `CharacterVirtual` is Jolt's controller for players: it isn't simulated, so the game decides gravity and jumps and it moves at once in Update |
+| Physics queries | Query shapes are cached by collider and scale. Overlaps collect body IDs through an `[UnmanagedCallersOnly]` callback, because JoltPhysicsSharp's list overload allocates every call. Jolt matrices act on column vectors, so Super transposes System.Numerics matrices it passes in. `CollideShape` takes a centre-of-mass transform, `CastShape` the shape's own | Stepping and querying a settled world allocate nothing, which a test checks |
+| Physics threads | Each `Physics` has its own Jolt job system, made at its first step. joltc shares one scratch allocator between all physics systems, so stepping and `Move` take a process-wide lock | Without it, games stepping in parallel test threads crash; with it they only take turns |
 | Animation | An `Animator` per character is gameplay state. The game sets it in `Update`, and `GameHost` moves every animator from a `content.Rig` rig on one tick right after, through `Content.Animators`, which holds them weakly. It writes its blend as clip layers into an `AnimationPose`, which the renderer samples at draw time, `PoseAhead` seconds past the tick. Joints the game sets itself with `SetJoint`, such as IK, are copied over the layers last and not moved ahead, since the game blends them in Draw | Games never step or hand over poses themselves, dropped characters stop being run without a call, clips stay smooth at any frame rate, gameplay can wait on moments in a clip, and a seed replays the same, since an animator nothing holds can't affect the game |
 | Root motion | `Rig.RootMotion` strips one joint's travel over the ground out of every clip at load and keeps it as a track per clip; the animator mixes it by layer weight into `RootMotion` each tick | The game owns where a character stands, so travel has to come back as state rather than live in the pose |
 | Cutscenes | A `Cutscene` is a list of shots, moments and slow stretches built in code; the `Director` runs it on the tick clock, cueing before `Update` and placing the camera after it, and sets `GameTime.Scale` | Moments land on ticks, so a recorded film replays the same. Shots keep real time while the world slows. The camera sees where things are once they've moved |
@@ -356,8 +365,8 @@ reads it through `CookedFolder`.
 `IContentFiles.Read` gives an asset's bytes whole, which suits data, textures and sounds.
 Models are big (162 MB for a rigged FBX with its clips), so they go through
 `IContentFiles.Open`, a stream: `SceneRenderer.LoadModel` reads the model piece by piece on
-the loading thread and `Content.Rig` reads only the rig at the front of the file, so the raw
-file is never held whole beside what's built from it. `CookedFolder.Open` is a `FileStream`
+the loading thread, `Content.Rig` reads only the rig at the front of the file and
+`Content.Meshes` only the mesh names before it, so the raw file is never held whole beside what's built from it. `CookedFolder.Open` is a `FileStream`
 with a 64 KB buffer, small enough to stay off the large object heap, opened with
 `FileShare.Read | FileShare.Delete` so a cook running beside the game can still replace or
 delete the object. Content in memory gets a `MemoryStream` over `Read` by default.
@@ -390,7 +399,8 @@ went wrong, so a failed cook leaves the last good content. After writing the man
 replaced: a running game may have read the old manifest and still be loading from it, so an
 object outlives its last name by one commit. An object that can't be deleted yet, because
 something has it open, is left for the next commit. A name is the path from its root
-with forward slashes and the extension, and parts are `name#part`. Names are compared
+with forward slashes and the extension, and parts are `name#part`, which is a split made at
+cook time. The names of the meshes inside a model are a different thing, see Models below. Names are compared
 ordinally on every OS. A name two sources make is an error that names both, which is why
 several content roots can't yet override each other. Settings come from `cook.json` rules,
 deeper folders winning, then `<source>.cook.json`, which wins over all of them. A sidecar
@@ -474,6 +484,42 @@ file's bottom-up v, so the cook turns v back, divides and turns it again, `1 - (
 v keeps its direction and a tile's edge stays at the file's UV origin. The model cooker's
 `Version` folds in `MaterialGraphs.Version`, so a change to `Super.Materials` cooks every
 model again, not only those with graphs, which is simpler and correct.
+
+A rigged model keeps each mesh of the source as its own part, one per material, in the order
+the nodes hold them, and the rig importer places each mesh by its node. Each part is named by
+the node that holds its mesh, falling back to the mesh's own name when the node has none, so
+the names are the ones an artist sees in the outliner and a multi-material mesh repeats its
+name. The names go in `ModelData.MeshNames`, the same length as `Parts`.
+
+A mesh without bones follows a joint. Its container node (the parent of the node that holds
+it) becomes a joint of its own when it isn't a bone already, so a head under a neck or a sword
+in a hand node moves with that container's animated chain. Each such container counts towards
+`Skeleton.MaxJoints`. The mesh is placed by `global * inverse(restGlobal[J]) * inverse(inverseBind[J])`
+for its joint `J`, so at rest it skins back to where the node tree put it. That matters when
+`J` is a real bone: its inverse bind is the bone's offset matrix, which comes from the bind
+pose, and the bind pose need not be the rest pose.
+
+A static model is flattened by Assimp's `PreTransformVertices` by default, which merges the
+meshes that share a material into one part and gives no names. With the opt-in `keepMeshes`
+setting, a static model keeps its node tree instead, and `Placements` applies each mesh's node
+transform by hand: points by the transform, normals by its inverse transpose, and the tangent
+sign flips for a mirroring transform. Each mesh then stays its own named part, and its own
+draw call. `ModelData.ToBytes` refuses a name count that isn't zero or the part count, so a
+model with no names writes none. The names are the first thing after the header in the
+`.rmodel`, before the rig, so `ModelData.ReadMeshNames` and `Content.Meshes` read them without
+the geometry, and `ModelData.ReadRig` reads them on its way to the rig, so `Content.Rig` caches
+them for `Content.Meshes`. `Content` caches each model's names by index and drops them when the
+model is unloaded.
+
+At draw time a `MeshMask` is a bitset over the model's parts, made for one `ModelRef`.
+`View.Model` checks the mask's model, and `SceneRenderer.AddShown` copies only the shown parts
+into the frame's draw list, checking that the mask's part count matches the loaded model. A
+masked draw still skins the whole skeleton once. The profiler keys copies by model and mask,
+so `ShownTriangles` counts only what each mask shows.
+
+The `.rmodel` format is version 7 and the model cook version 7, with the material graphs'
+version folded in. Their history is in the comments on `ModelData.Version` and
+`ModelCooker.Version`, and an old file fails with "Cook it again" when it is read.
 
 **The build.** `Super.targets` gives a game a `ProjectReference` to `Super.Cook.Tool` that
 only builds it: `ReferenceOutputAssembly="false"` and `Private="false"` keep the tool's
@@ -601,16 +647,19 @@ rendering. Game-facing features belong in Super, which has the audio (see
 
 ```
 ShadowPass    scene geometry   -> depth from the key light (2048 x 2048, up to 4 cascades)
+              scene geometry   -> point and spot light shadows, tiles of one 4096 x 4096 atlas
+cluster.comp  compute          -> the point and spot lights reaching each of 16 x 9 x 24 clusters
 GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, depth
 AoPass        fullscreen       -> ambient occlusion from depth and normals
 AoBlurPass    fullscreen       -> the same with the grain averaged away
-LightingPass  fullscreen       -> HDR colour (Cook-Torrance GGX PBR, traced reflections, probes)
-ParticlePass  camera squares   -> soft puffs blended over HDR colour, back to front
-TransparentPass  glass         -> blended over HDR colour, forward shaded
+LightingPass  fullscreen       -> HDR colour (Cook-Torrance GGX PBR, traced reflections, probes), subsurface diffuse apart
+SssBlurPass   fullscreen x 2   -> subsurface diffuse spread across, then down and added to HDR colour
+TransparentPass  glass and particles -> blended over HDR colour together, back to front;
+                                  glass forward shaded, seeing a mipped copy of HDR
 TaaPass       fullscreen       -> this frame blended with history, then copied to history
 BloomPass     fullscreen x 9   -> glow, by shrinking and regrowing the image
 TonemapPass   fullscreen       -> display colour (ACES filmic, colour grade)
-FinishPass    fullscreen       -> swapchain, with sharpening, vignette, grain and dither
+FinishPass    fullscreen       -> swapchain, with sharpening, a transition, vignette, grain and dither
 ```
 
 G-buffer layout:
@@ -619,7 +668,7 @@ G-buffer layout:
 | --- | --- | --- |
 | 0 | `R8G8B8A8_SRGB` | base colour, metallic |
 | 1 | `R16G16B16A16_SFLOAT` | octahedral normal (xy), roughness, AO |
-| 2 | `R16G16B16A16_SFLOAT` | emissive colour, clearcoat (or minus the translucency, for foliage) |
+| 2 | `R16G16B16A16_SFLOAT` | emissive colour, clearcoat (or minus the translucency, for foliage, or 2 plus the material index, for subsurface) |
 | depth | `D32_SFLOAT` | reversed-Z, position is reconstructed from it |
 
 Games talk to the renderer with plain structs: `Renderer.Render(in FrameView,
@@ -651,7 +700,7 @@ their normal. The lighting pass then lets sunlight through the leaves from behin
 Copies are drawn instanced. `SceneDraws.Batch` sorts a pass's opaque and shadow draws
 by mesh, part, material, tint, ghost and swim, and each run of draws that match is one
 `vkCmdDrawIndexed`. Skinned draws never match. The order is safe because the depth test
-decides what shows. Glass keeps its order and only joins neighbours. Each copy's model
+decides what shows. Glass is sorted by `TransparentPlan` and drawn one at a time. Each copy's model
 matrix goes into the frame's `InstanceBuffer` (set 0, binding 2, `instances.glsl`), and
 the vertex shaders read it by `gl_InstanceIndex`. The buffer grows before a frame is
 recorded, sized from the selected draws. The push constants hold only what copies
@@ -668,7 +717,8 @@ matte colour with a little of it as emission (`GHOST_GLOW` in `material.glsl`), 
 ghost reads the same over any material and in shadow. A ghost picks its pass by its own
 opacity, not its material's: solid ghosts go to the G-buffer and see-through ones to
 the glass pass, where `transparent.frag` does the same swap. `SceneDraws.Belongs`
-decides this, and keeps ghosts out of the shadow maps.
+decides this, and keeps ghosts out of the shadow maps. Glass that isn't a ghost casts a
+shadow.
 
 glTF files (`.glb`, `.gltf`) carry more of this themselves, so the model cooker reads their
 embedded images, the link to their metal and roughness texture, and their colour,
@@ -681,15 +731,94 @@ Shadows blur with distance from the object casting them: the lighting pass finds
 how far away the blocker is, then widens its sampling to match. The game says
 which area the shadow map covers through `FrameView.Shadows`. A smaller area gives
 sharper shadows, so the sample fits it to the model. A wide outdoor scene asks for up
-to four cascades: each covers three times the radius of the one before, all centred on
-the target, and the lighting pass picks the first cascade a point falls inside. The
-shadow pass draws each cascade into its own layer of the same depth image, with its
-own culling and detail choice. Anything outside the last cascade, in depth as well as
-sideways, counts as lit.
+to four cascades, each a ball three times the radius of the one before.
+
+`Renderer.FitCascades` lays the balls along the view. `ShadowPass.Spread` reads how far a
+frustum corner leaves the view axis per metre of depth, and `ShadowPass.FitSlice` finds the
+deepest slice of the frustum, starting where the last one ended, whose corners still fit in
+a ball of the cascade's radius. The ball's size never depends on the camera's angle, and
+`CreateMatrix` snaps its centre to whole texels in the light's view, so edges don't crawl
+as the camera turns or moves. An orthographic view, and a probe's capture, keep every ball
+centred on the target instead. The light's depth range reaches past the ball towards the
+sun at least as far as a ball round the target would, so a tall caster just out of view
+still shadows the ground in front of the camera. A longer reach spreads depth thinner, and
+`FrameUniforms.ShadowDepthScales` carries the ratio so the shaders scale their bias to match.
+
+The lighting pass picks the first cascade a point falls inside. In the outer tenth of a map
+(`ShadowPass.HandOver`) a point uses the next cascade with a chance that grows towards the
+edge, so the seam turns into noise that temporal anti-aliasing smooths. Shadows fade out
+with distance over the last 15% of the furthest slice (`ShadowPass.FadeShare`) and near the
+edge of the last map. The shadow pass draws each cascade into its own layer of the same
+depth image, with its own culling and detail choice. Anything outside the last cascade, in
+depth as well as sideways, counts as lit.
+
+One sun casts the shadows: the one the game marks with `shadows: true`, or else the first
+(`SceneRenderer.ShadowSun`).
+
+Point and spot lights are clustered. `LocalLights` culls the frame's lights against
+the camera (the same `DetailView` planes as models, with a far plane at the furthest
+reach), and the cluster shader splits the view into 16 x 9 tiles and 24 slices in depth,
+spaced exponentially from the nearest any light reaches (no nearer than the camera's
+near plane) to the furthest, or evenly for an orthographic camera. One thread per
+cluster tests every light's sphere against a sphere round the cluster's box, and a spot's
+cone too, and writes up to 256 indices, 16 bits each. The lighting pass,
+glass and particles read only their pixel's cluster. Each light is a 64-byte
+`GpuLocalLight`: position and range, radiance and its first shadow tile, direction and
+the cosine of the outer angle (-2 for a point light), and the fade's scale and the
+light's radius. A light reaches a point as `(1 + r²) / (d² + r²)` times its windowed
+falloff: plain inverse square far away, 1 at a metre whatever the radius, and no more
+than about `1 / r²` close up, so a torch on a wall lights the room without blowing the
+wall out.
+
+Shadows share one 4096 x 4096 depth atlas in tiles of 64 to 512 pixels. Each shadowed
+light asks for a tile as wide as its reach looks on screen, rounded up to a power of
+two, and the lights biggest on screen choose first. A light keeps last frame's size,
+under its key, until it wants under 0.4 or over 1.2 times it, so a light near the line
+doesn't flicker between sizes. Sizes that don't fit are halved, and a light that won't
+fit at 64 gets no shadow. A point light takes six tiles, one per cube face, and a spot
+one. The tiles are laid out biggest first along a Z-order curve, which packs powers of
+two with no gaps. Each tile's projection is widened by three texels so the soft filter
+doesn't read across its edge, and its depth is reversed with the light's range at 0. The
+shadow pass draws every tile in one render pass, a viewport each, with its own culling
+and detail choice, and the shading is the sun's blocker search and filter scaled to a
+light 0.8 times its radius wide (`SHADOW_WIDTH_PER_RADIUS`). Glass and particles take the lights without shadows.
 
 Two frames can be in flight. Render targets are shared between frames, and
 pipeline barriers order the access; per-frame state is limited to command
 buffers, sync objects and the uniform buffer.
+
+### Effects left out
+
+`FrameView.Off` is a set of `RenderEffects` the frame skips, filled from Super's `Graphics`.
+A skipped pass records nothing but still calls `GpuTimer.Mark`, since the timer's pass names
+are fixed. Every image a later pass binds must still be in a valid layout, so a skipped
+pass moves its output from `Undefined` to `ShaderReadOnlyOptimal` instead (the sun's shadow
+map, the blurred AO, bloom's result). The contents are then undefined, so the shaders that
+bind them read the same set from `FrameUniforms.Off` (`frame.off` and `isOff()` in
+`common.glsl`) and don't sample them: lighting takes AO as 1 and no traced reflection, and
+tonemapping skips the bloom mix. The sun's shadows off sends no cascades, so lighting counts
+every point as lit, and light shadows off hands out no atlas tiles, so every light's tile is -1.
+
+Without anti-aliasing the camera isn't jittered, and bloom and tonemapping read the HDR image
+in place of the resolved one. Those descriptor sets can't change while a frame is in
+flight, so the switch waits for the device to go idle once and rewrites them. Traced
+reflections still need last frame's picture, so the HDR image is copied to history instead
+of the resolved one. With reflections off too, nothing is copied and history counts as
+stale. Vsync switches by remaking the swapchain on the next frame.
+
+`RenderEffects.Materials` skips no pass. It's read where surfaces are written: `writeSurface()`
+in `surface.glsl` writes `PLAIN_COLOR` and `PLAIN_ROUGHNESS` from `common.glsl`, no metal, full
+AO and the mesh's own normal, after the surface shader has run, so every custom material is
+covered with no change of its own. Emissive and foliage translucency are kept, and a cut-out
+still discards before it gets there. `transparent.frag` keeps the surface's alpha but takes the
+plain colour and roughness, and samples the scene straight behind with no refraction or frost.
+Ghosts are left as they are, since they're already a flat colour.
+
+The frame limit lives in Super's window loop, not the renderer (`FrameLimiter`). Each frame
+gets a slot one period after the last, so a long frame is made up by a shorter wait. A frame
+more than a period past its slot starts the count again instead of rushing to catch up. It
+sleeps in 1 ms steps, with the Windows timer set to 1 ms while a limit is on, and spins the
+last 2 ms.
 
 ## Environment lighting
 
@@ -742,20 +871,68 @@ how much coat a surface has.
 The G-buffer holds one surface per pixel, so glass can't go through it. Glass is
 shaded as it's drawn, after lighting, and tests against the depth of the opaque scene
 without writing to it. Its reflection stays at full strength however clear the glass
-is, and only its tint is scaled by opacity. The colour is premultiplied so the
-blend can express that.
+is, and only its own colour is scaled by opacity.
+
+`TransparentPass` draws glass and particles in one render pass, in the order
+`TransparentPlan` gives: glass sorted furthest first by the middle of its bounds along
+the view, with runs of the already sorted particles between. Particles are depth
+tested by hand in their shader, so their pipeline keeps the depth attachment format
+but turns the test off (`PipelineDescription.IgnoreDepth`), and depth stays in
+`DepthReadOnlyOptimal` throughout, both attached and sampled.
+
+Glass sees what's behind it through `GBuffer.SceneColor`, a copy of HDR with up to 7
+mips, each blitted from the one before. Frosted glass reads a blurrier mip, about 8
+mips per unit of roughness. The rendering pauses for a copy before the first glass
+that can use one, and again before glass whose screen rectangle overlaps anything
+drawn since the last copy, so a pane sees the panes and dust behind it. Rectangles come
+from the draw's bounds sphere, or the whole screen when that reaches behind the eye.
+After `TransparentPlan.MaxCopies` (4) copies, overlapping glass falls back to
+premultiplied blending without bending. That fallback, and see-through ghosts, which
+never copy, set the push constant `tint.w` to 0. Glass that sees the copy adds it,
+times what its coverage lets through, and writes alpha 1.
+
+Bending is one refraction at the near surface, `refract(-v, n, 1/ior)`, followed to
+the opaque surface behind or half a metre, whichever is nearer, then projected to the
+screen. A lookup that would land on something in front of the glass uses the straight
+line instead. Glass casts a dithered shadow: `shadow.frag` drops a share of its texels
+from a 4x4 ordered pattern, as much as `(1 - opacity) * 0.75`, and the soft shadow
+filter and TAA average the pattern into a lighter shadow.
+
+## Subsurface scattering
+
+Skin, wax and jade follow Jimenez et al., "Separable Subsurface Scattering" (2015): the
+lighting pass writes the diffuse light of subsurface pixels to a second target, `Scatter`,
+and leaves it out of the HDR colour. Two passes of `sss_blur.frag` then spread it across
+the screen and down it, the second adding the result onto the HDR colour with a
+premultiplied blend whose alpha is 0. Specular light and glow stay sharp.
+
+The G-buffer has no room for another channel, so a subsurface pixel puts its material
+index, plus 2, where clearcoat goes. Clearcoat stays within 0 and 1 and foliage is
+negative, so the three can't be mistaken for one another, and half floats hold whole
+numbers exactly up to 2048, beyond the 1024 materials. The lighting pass and the blur
+bind the material table as set 2 to read the spread and transmission. `Scatter` carries
+the index plus 1 in its alpha, 0 for every other pixel.
+
+Each tap is weighed by a Gaussian of the distance between the two points in the world,
+per colour channel, with a standard deviation of half the spread. Distance in the world
+rather than on screen keeps the blur the same size at any range and stops light from
+bleeding across a silhouette to whatever is behind, so there is no halo. The taps reach
+three standard deviations of the widest colour, at most 96 pixels, and shift a little
+every frame so anti-aliasing turns the gaps between them into smooth grain. When no
+material has subsurface both blur passes are skipped.
 
 ## Particles
 
-A particle is a plain 40-byte struct: middle, width, linear colour and opacity, a turn
-and a variant that picks its lumpy outline. `FrameView.Particles` hands the renderer
+A particle is a plain 44-byte struct: middle, width, linear colour and opacity, a turn,
+a variant that picks its lumpy outline and a glow, its own light as a share of its colour. `FrameView.Particles` hands the renderer
 up to `Particle.MaxPerFrame` (32,768) a frame; more are dropped. `ParticlePass` sorts
 them furthest first along the view direction on the CPU, into the frame's own
 host-visible vertex buffer, with scratch arrays made once, so nothing allocates. Each
 particle is one instance of a six-vertex square facing the camera.
 
-The pass runs after lighting and before glass, so glass in front of dust still covers
-it. It has no depth attachment. The fragment shader reads the depth buffer itself and
+They're drawn after lighting, sorted together with glass (see Paint and glass), so
+glass covers dust behind it and dust covers glass behind it. They aren't depth
+tested by the pipeline. The fragment shader reads the depth buffer itself and
 thins a puff over half its width as it nears the surface behind, so dust melts into the
 ground instead of showing a hard line where it crosses it. It also thins puffs the
 camera is about to pass through.
@@ -765,6 +942,8 @@ shadow map in the vertex shader, five filtered taps, so a puff is shaded where a
 shadow falls on it without any per-pixel shadow cost. The fragment shader lights a
 pseudo-sphere normal, bent toward the camera, with the sky's irradiance and wrapped
 sunlight, so a puff is brighter on its sunny side but never dark like a solid ball.
+Point and spot lights from the pixel's cluster are wrapped the same way, with no
+shadows. A glowing puff adds its colour times its glow, which can go past 1 for bloom.
 Haze and the underwater fade are the same as for surfaces. Colour is premultiplied.
 
 On the Super side, a `ParticleEmitter` is an immutable list of nodes, built like a
@@ -825,6 +1004,38 @@ is a working example, shown by `--glow`.
 Each shader adds a pair of pipelines to the G-buffer pass, built while loading. Picking
 one in `Render` is an array lookup, so it allocates nothing.
 
+## Height and detail maps
+
+`materialSurface()` moves the UV by the height map before it reads anything, using
+parallax occlusion mapping: it steps along the view ray in tangent space until the ray
+drops below the height field, then interpolates between the last two steps to find where
+it crossed. Grazing views take more steps, from 8 looking straight on to 32 edge on, and
+the view's slope is clamped at 0.1 so the slide can't run off to infinity at the horizon.
+`HeightDepth` is in metres, so the shader turns it into UV units with the surface's UV
+density, found from the screen derivatives of `inPosition` and `inUv` (`uvPerMetre` in
+`surface.glsl`). A box and a plane built with the same `uvPerMetre` then sink the same
+depth whatever their size. Every texture read after the shift uses `textureGrad` with the
+derivatives of the original UV, because the shifted UV jumps at the edges of the grooves
+and plain `texture` would pick the wrong mip there, which shows as a speckled outline.
+The derivatives are taken before any branch, as GLSL needs them in uniform control flow.
+
+The effect fades out between 15 and 25 metres from the camera: past that a groove is a
+pixel or two and the normal map carries it, and the steps would cost a full-screen pass
+of texture reads for nothing. A material without a height map gets white and a depth of
+0, and returns at once.
+
+The detail colour divides by 128/255, so mid grey is neutral and the detail can lighten as
+well as darken. The detail normal is laid over the surface's normal with reoriented normal
+mapping (`blendNormals`), which keeps the detail following the larger bumps instead of
+averaging them flat. Unset detail textures are a mid grey built-in texture (`_grey` in
+`ResourceTable`) and the flat normal, and a `DetailScale` of 0 on the GPU skips the reads.
+
+Each material owns seven texture slots now: colour, normal, surface, emissive, height,
+detail colour and detail normal, then the shader textures. `GpuMaterial` grew to 256
+bytes; `GpuMaterialTests` checks the offsets against the std430 layout of `Material`
+in `material.glsl`, so the two can't drift. The `.rmodel` format and the model cook version
+are the ones in the asset pipeline section above, so existing models cook again.
+
 ## Post-processing
 
 Ambient occlusion darkens creases and contact areas by checking how much of the
@@ -863,6 +1074,23 @@ couldn't remove shimmer.
 `FrameView.Post` holds the look of the image: bloom, exposure, contrast and saturation,
 then lift and gain after ACES, in the tonemap pass, then sharpening, vignette and film grain in the finish pass. Grain and
 dither also hide the steps an 8-bit screen would show in slow gradients.
+
+Transitions happen in the finish pass too, so they work on the display picture and not
+on HDR light. `FrameView.Transition` carries a style, an amount from 0 to 1, a colour, a
+wipe direction, an iris centre, a softness and a hold number, and the pass gets all but
+the hold as 48 bytes of push constants (`TransitionConstants`). A fade mixes towards
+the colour. A dissolve, wipe or iris mixes from the `Held` target, a copy of the last
+picture, to the new one. A wipe measures along its direction with the screen's aspect,
+so it crosses corner to corner. An iris measures the distance from its centre against the
+furthest corner. Both soften the edge with a smoothstep. Vignette and dither come after the
+mix, so they don't move.
+
+The Super side (`Transitions`) raises the hold number each time a transition that needs
+the old picture starts. When the renderer sees a new number, it copies the LDR target,
+which still holds the last frame, into `Held` before drawing the new one. `Held` is cleared
+to black when there is no last frame yet, such as on the first frame or after a resize.
+A blend never reaches the renderer: Super moves the camera between the last camera shown
+and the one `Draw` sets.
 
 ## Verification without a window
 
@@ -919,13 +1147,16 @@ Anything larger than a block gets its own allocation.
 - Textures are uncompressed RGBA8 with mips. Block compression (BC7) would use
   far less GPU memory.
 - The table holds at most 1024 textures, 1024 materials and 256 texture arrays.
-- Transparent draws aren't sorted, so overlapping glass can blend in the wrong order.
-  Glass also casts no shadow and shows no refraction.
+- Glass is sorted by the middle of each draw, not per triangle, so two panes that cross
+  or a pane inside a bigger one can blend in the wrong order. There's no way to set a
+  draw's order by hand. Bending is one refraction at the near side, followed at most
+  half a metre, not traced through the glass, and a frame makes at most four copies
+  of the scene for glass to see. Glass shadows are the same grey for any colour.
 - Particles cast no shadow, don't show in probes or reflections, and give no motion
   vectors, so fast puffs can smear slightly under temporal anti-aliasing. Underwater
-  they fade with distance but miss the shafts of light. Particles and glass are sorted
-  separately, so a puff behind glass is drawn under it correctly but a puff in front of
-  glass is covered by it.
+  they fade with distance but miss the shafts of light. Glass in the same place as dust
+  is sorted against the whole puff run by its middle, so a big pane reaching through a
+  cloud can't be partly in front and partly behind.
 - The car's surface map channels are an educated guess, because the model has no
   documentation. The paint's metalness is set to 0.2 by eye. Its normal maps were
   measured: they use the green direction the renderer expects.
@@ -934,17 +1165,37 @@ Anything larger than a block gets its own allocation.
   clothing, so its sidecar sets `noNormalMap`.
 - The model cooker reads glTF's `MASK` cut-outs, but not its emissive maps, glass or
   two-sided flags yet. Set those in the sidecar.
-- Foliage translucency is a constant in `surface.glsl`, and a material can't have both
-  foliage and clearcoat, since they share a G-buffer channel.
+- Height maps move the UV only. The depth buffer stays flat (writing `gl_FragDepth`
+  would turn off early depth testing for every G-buffer draw), the grooves cast no
+  shadow of their own, and the surface's outline and its shadow map stay flat.
+  Transparent materials and the shadow pass ignore height and detail maps.
+- `uvPerMetre` in `surface.glsl` assumes UVs stretch the same both ways. On a texture
+  stretched more one way, the depth is right along one axis only.
+- `DetailMask` reads the surface texture's blue channel, which glTF conversion leaves
+  holding the metalness. A glTF model that wants a detail mask needs a surface texture
+  made for it.
+- The distance where height maps fade out, 15 to 25 metres, is fixed in `surface.glsl`.
+- Foliage translucency is a constant in `surface.glsl`, and foliage, clearcoat and
+  subsurface exclude one another, since they share a G-buffer channel.
+- Subsurface blurs the lit diffuse light, colour included, so a skin texture softens a
+  little along with the light. Transmission uses the shadow map like foliage does, not
+  the real thickness, and under water the light isn't spread.
 - Clips are sampled at 30 frames a second when cooked and blended linearly between
   frames. Root motion only carries travel over the ground, not turns.
 - The adventurer model has 929,000 triangles, which suits a showcase more than a game. A
   game character would need a reduced version and levels of detail.
-- Shadow cascades are centred on the camera's target rather than fitted to the view
-  frustum, so some of each map covers ground behind the camera.
-- Only directional lights so far. Point and spot lights come later.
-- Only one light casts shadows, so the others shine through objects, held back only
-  by ambient occlusion.
+- A shadow cascade reaches towards the sun only as far as a cascade round the camera's
+  target would. Very long shadows from far-off things, like a distant ridge in a low sun,
+  can be missing in front of the camera.
+- Cascades split three times wider each, with no setting to blend between linear and
+  logarithmic spacing.
+- Only one sun casts shadows, so the others shine through objects, held back only
+  by ambient occlusion. Point and spot lights without shadows are the same.
+- Point and spot lights are left out of reflection probe captures, and glass and
+  particles get no shadows from them. A light's cluster list holds 256, so a spot
+  reached by more drops the rest.
+- Point light shadows are six tiles of the atlas, not a cube map, so a filter near a
+  face's edge can't see past it. The tiles are widened by three texels to hide it.
 - The environment is treated as infinitely far away, and ambient occlusion is all
   that blocks it.
 - The ambient occlusion radius and strength are constants in their shaders. A game

@@ -88,6 +88,16 @@ internal sealed class SceneRenderer : IDisposable
         set => _renderer.MeasureGpu = value;
     }
 
+    /// <summary>Waits for the display before showing a frame. A change takes effect on the next frame.</summary>
+    public bool Vsync
+    {
+        get => _renderer.Vsync;
+        set => _renderer.Vsync = value;
+    }
+
+    /// <summary>The effects left out of every frame from now on.</summary>
+    public RenderEffects Off { get; set; }
+
     public ReadOnlySpan<GpuPassTime> GpuTimes => _renderer.GpuTimes;
 
     public double WaitMilliseconds => _renderer.WaitMilliseconds;
@@ -108,20 +118,24 @@ internal sealed class SceneRenderer : IDisposable
         return _renderer.Capture(CreateFrame(view, width, height, time), _draws.AsSpan(0, count), out capturedWidth, out capturedHeight);
     }
 
-    /// <summary>Adds up what the view drew, model by model.</summary>
+    /// <summary>
+    /// Adds up what the view drew, model by model. Copies with different mesh masks are
+    /// counted apart, since each one costs only the triangles it shows.
+    /// </summary>
     internal List<ModelCost> CountModels(View view, Content content)
     {
-        var copies = new Dictionary<int, int>();
+        var copies = new Dictionary<(int Model, MeshMask? Meshes), int>();
         foreach (ref readonly var draw in view.Drawn)
         {
-            copies[draw.Model.Index] = copies.GetValueOrDefault(draw.Model.Index) + 1;
+            var key = (draw.Model.Index, draw.Meshes);
+            copies[key] = copies.GetValueOrDefault(key) + 1;
         }
 
         var costs = new List<ModelCost>();
-        foreach (var (model, count) in copies)
+        foreach (var ((model, mask), count) in copies)
         {
             string name = Name(model, content, "generated mesh");
-            costs.Add(new ModelCost(name, count, Parts(model, content).Sum(part => (long)part.IndexCount) / 3));
+            costs.Add(new ModelCost(name, count, ShownTriangles(Parts(model, content), mask)));
         }
 
         return costs;
@@ -153,7 +167,18 @@ internal sealed class SceneRenderer : IDisposable
     /// <summary>Reads an interface image and builds its mips. Runs on the background thread.</summary>
     private static TextureData LoadImage(GameImage image)
     {
-        var cooked = CookedTexture.Read(image.Cooked, image.Path);
+        if (image.Pixels is { } pixels)
+        {
+            return new TextureData
+            {
+                Width = image.Width,
+                Height = image.Height,
+                Kind = TextureKind.Color,
+                Mips = ImageMips.Build(image.Width, image.Height, pixels),
+            };
+        }
+
+        var cooked = CookedTexture.Read(image.Cooked!, image.Path);
         return new TextureData
         {
             Width = cooked.Width,
@@ -265,14 +290,18 @@ internal sealed class SceneRenderer : IDisposable
     {
         var surface = mesh.Surface;
         TextureHandle? ownedTexture = owned is null ? null : _renderer.CreateTexture(owned);
-        var material = new Material
+        var material = MaterialOf(surface) with
         {
-            BaseColor = new Vector4(surface.Color, 1f),
-            Roughness = surface.Roughness,
-            Metallic = surface.Metallic,
             BaseColorTexture = ownedTexture ?? Texture(surface.ColorTexture, content),
             NormalTexture = Texture(surface.NormalTexture, content),
             SurfaceTexture = Texture(surface.SurfaceTexture, content),
+            HeightTexture = Texture(surface.HeightTexture, content),
+            HeightDepth = surface.HeightDepth,
+            DetailColorTexture = Texture(surface.DetailColorTexture, content),
+            DetailNormalTexture = Texture(surface.DetailNormalTexture, content),
+            DetailScale = surface.DetailScale,
+            Flags = surface.DetailMask ? MaterialFlags.DetailMask : 0,
+            Subsurface = surface.Subsurface,
             Shader = surface.Shader is { } shader ? Require<LoadedShader>(shader.Index, content).Handle : null,
         };
         for (int i = 0; i < surface.Parameters.Length; i++)
@@ -294,6 +323,16 @@ internal sealed class SceneRenderer : IDisposable
         var part = _renderer.CreateDrawItem(mesh.Vertices, mesh.Indices, handle, mesh.Simplify);
         return new LoadedModel([part], handle, ownedTexture);
     }
+
+    /// <summary>A surface's own values as a material, before its textures and shader are found. Below full opacity it's glass.</summary>
+    internal static Material MaterialOf(Surface surface) => new()
+    {
+        BaseColor = new Vector4(surface.Color, Math.Clamp(surface.Opacity, 0f, 1f)),
+        Roughness = surface.Roughness,
+        Metallic = surface.Metallic,
+        Flags = surface.Opacity < 1f ? MaterialFlags.Transparent : MaterialFlags.None,
+        Ior = surface.Ior,
+    };
 
     private TextureHandle? Texture(TextureRef? texture, Content content) =>
         texture is { } named ? Require<LoadedTexture>(named.Index, content).Handle : null;
@@ -350,17 +389,18 @@ internal sealed class SceneRenderer : IDisposable
         foreach (ref readonly var draw in view.Drawn)
         {
             var model = Model(draw.Model.Index, content);
-            var parts = model.Parts;
-            if (count + parts.Length > _draws.Length)
+            int first = count;
+            count = AddShown(model.Parts, draw.Meshes, ref _draws, count);
+            if (count == first)
             {
-                Array.Resize(ref _draws, (count + parts.Length) * 2);
+                continue;
             }
 
+            // Skinned once per draw, however many of its parts are shown.
             var bones = draw.Pose is { } pose ? Skin(pose, draw.PoseAhead, model, draw.Model.Index, content) : default;
-            foreach (ref readonly var part in parts.AsSpan())
+            for (int i = first; i < count; i++)
             {
-                ref var item = ref _draws[count++];
-                item = part;
+                ref var item = ref _draws[i];
                 item.Transform = draw.Transform;
                 item.Swim = draw.Swim;
                 item.Tint = draw.Color ?? (draw.Model.IsBuiltIn ? CubeColor : null);
@@ -370,6 +410,63 @@ internal sealed class SceneRenderer : IDisposable
         }
 
         return count;
+    }
+
+    /// <summary>
+    /// Copies the parts a mask shows onto the end of <paramref name="draws"/>, from
+    /// <paramref name="count"/> on, growing it when needed, and gives the new count. A null mask
+    /// shows every part. Throws if the mask was made for a model with another part count.
+    /// </summary>
+    internal static int AddShown(DrawItem[] parts, MeshMask? mask, ref DrawItem[] draws, int count)
+    {
+        int kept = KeptCount(parts.Length, mask);
+        if (count + kept > draws.Length)
+        {
+            Array.Resize(ref draws, (count + kept) * 2);
+        }
+
+        for (int p = 0; p < parts.Length; p++)
+        {
+            if (mask is null || mask.Shows(p))
+            {
+                draws[count++] = parts[p];
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>The triangles a draw with this mask shows. Throws if the mask was made for a model with another part count.</summary>
+    internal static long ShownTriangles(DrawItem[] parts, MeshMask? mask)
+    {
+        KeptCount(parts.Length, mask);
+        long indices = 0;
+        for (int p = 0; p < parts.Length; p++)
+        {
+            if (mask is null || mask.Shows(p))
+            {
+                indices += parts[p].IndexCount;
+            }
+        }
+
+        return indices / 3;
+    }
+
+    /// <summary>How many of a model's parts a draw shows. A null mask shows them all. Throws if the mask was made for a model with another part count.</summary>
+    internal static int KeptCount(int partCount, MeshMask? mask)
+    {
+        if (mask is null)
+        {
+            return partCount;
+        }
+
+        if (mask.Count != partCount)
+        {
+            throw new InvalidOperationException(
+                $"The mesh mask was made for a model drawn in {mask.Count} parts, but the model being drawn has {partCount}. Make it from the same cooked file.");
+        }
+
+        return mask.Kept;
     }
 
     /// <summary>
@@ -412,17 +509,32 @@ internal sealed class SceneRenderer : IDisposable
     /// <summary>Where the haze is measured from: the camera's focus when the sky asks for it, else the camera.</summary>
     internal static Vector3? HazeOrigin(SkySettings? sky, Camera shot) => sky is { HazeFromFocus: true } ? shot.Target : null;
 
+    /// <summary>Which sun casts the shadows: the one marked to, or else the first.</summary>
+    internal static int ShadowSun(ReadOnlySpan<SunLight> suns)
+    {
+        for (int i = 0; i < suns.Length; i++)
+        {
+            if (suns[i].CastsShadows)
+            {
+                return i;
+            }
+        }
+
+        return 0;
+    }
+
     private FrameView CreateFrame(View view, int width, int height, float time)
     {
         var suns = view.Suns;
         int lightCount = Math.Min(suns.Length, MaxLights);
+        int shadowSun = ShadowSun(suns);
         for (int i = 0; i < lightCount; i++)
         {
             _lights[i] = new DirectionalLight
             {
                 Direction = suns[i].Direction,
                 Radiance = suns[i].Color,
-                CastsShadow = i == 0,
+                CastsShadow = i == shadowSun,
             };
         }
 
@@ -457,6 +569,9 @@ internal sealed class SceneRenderer : IDisposable
             Water = view.WaterSettings,
             Overlay = view.Ui is { } ui ? ui.Quads : [],
             Particles = view.DrawnParticles,
+            Transition = view.Transition,
+            Off = Off,
+            LocalLights = view.DrawnLights,
         };
     }
 

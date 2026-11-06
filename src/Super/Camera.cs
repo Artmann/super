@@ -30,6 +30,15 @@ public readonly record struct Camera(Vector3 Position, Vector3 Target, float Fie
     /// </summary>
     public Vector2 Shift { get; init; }
 
+    /// <summary>
+    /// Keeps the view at least as wide as on a screen of this shape, width over height. On
+    /// a narrower screen, such as a phone held upright, the view grows taller instead of
+    /// losing its sides. <c>16f / 9f</c> shows a tall screen everything a widescreen one
+    /// shows from side to side. Zero, the default, keeps <see cref="FieldOfView"/> or
+    /// <see cref="Size"/> as they are on every screen.
+    /// </summary>
+    public float WideAs { get; init; }
+
     public bool IsOrthographic => Size > 0f;
 
     /// <summary>A camera with no perspective, showing this many world units from bottom to top.</summary>
@@ -58,7 +67,8 @@ public readonly record struct Camera(Vector3 Position, Vector3 Target, float Fie
         var right = Vector3.Normalize(Vector3.Cross(forward, Up));
         var up = Vector3.Cross(right, forward);
 
-        float height = IsOrthographic ? Size / 2f : MathF.Tan(FieldOfView / 2f);
+        var shown = Fitted(screen.X / screen.Y);
+        float height = IsOrthographic ? shown.Size / 2f : MathF.Tan(shown.FieldOfView / 2f);
         float across = (pixel.X / screen.X * 2f - 1f - Shift.X) * height * (screen.X / screen.Y);
         float above = (1f - pixel.Y / screen.Y * 2f - Shift.Y) * height;
         var sideways = right * across + up * above;
@@ -76,6 +86,7 @@ public readonly record struct Camera(Vector3 Position, Vector3 Target, float Fie
             float.Lerp(from.FieldOfView, to.FieldOfView, amount))
         {
             Shift = Vector2.Lerp(from.Shift, to.Shift, amount),
+            WideAs = float.Lerp(from.WideAs, to.WideAs, amount),
         };
 
         if (from.IsOrthographic != to.IsOrthographic)
@@ -87,9 +98,30 @@ public readonly record struct Camera(Vector3 Position, Vector3 Target, float Fie
     }
 
     /// <summary>The renderer's projection for a screen of this shape.</summary>
-    internal Matrix4x4 Matrix(float aspect) => IsOrthographic
-        ? Projection.OrthographicReversedZ(Size, aspect, NearPlane, OrthographicReach, Shift)
-        : Projection.PerspectiveInfiniteReversedZ(FieldOfView, aspect, NearPlane, Shift);
+    internal Matrix4x4 Matrix(float aspect)
+    {
+        var shown = Fitted(aspect);
+        return IsOrthographic
+            ? Projection.OrthographicReversedZ(shown.Size, aspect, NearPlane, OrthographicReach, Shift)
+            : Projection.PerspectiveInfiniteReversedZ(shown.FieldOfView, aspect, NearPlane, Shift);
+    }
+
+    /// <summary>
+    /// This camera as it shows on a screen of this shape: taller when the screen is
+    /// narrower than <see cref="WideAs"/>, so the view keeps its width.
+    /// </summary>
+    internal Camera Fitted(float aspect)
+    {
+        if (WideAs <= 0f || aspect >= WideAs)
+        {
+            return this;
+        }
+
+        float taller = WideAs / aspect;
+        return IsOrthographic
+            ? this with { Size = Size * taller }
+            : this with { FieldOfView = 2f * MathF.Atan(MathF.Tan(FieldOfView / 2f) * taller) };
+    }
 
     /// <summary>
     /// Where shading looks from. An orthographic view has no eye, so this one sits so far
@@ -100,7 +132,7 @@ public readonly record struct Camera(Vector3 Position, Vector3 Target, float Fie
         : Position;
 
     /// <summary>How far shadows should reach. An orthographic view shows everything at once, so it can't be less than the view.</summary>
-    internal float ShadowRadius(float asked, float aspect) => MathF.Max(asked, Size * MathF.Max(aspect, 1f));
+    internal float ShadowRadius(float asked, float aspect) => MathF.Max(asked, Fitted(aspect).Size * MathF.Max(aspect, 1f));
 
     private Vector3 Forward => Vector3.Normalize(Target - Position);
 }
@@ -180,6 +212,9 @@ public sealed class OrbitCamera
 
     public float FieldOfView { get; set; } = MathF.PI / 4f;
 
+    /// <summary>Keeps the view at least as wide as on a screen of this shape. See <see cref="Camera.WideAs"/>.</summary>
+    public float WideAs { get; set; }
+
     /// <summary>The camera on the tick before this one.</summary>
     public Camera Previous { get; private set; }
 
@@ -198,7 +233,7 @@ public sealed class OrbitCamera
     /// <summary>Call once a tick, after turning and zooming.</summary>
     public void Update(Vector3 target)
     {
-        var next = new Camera(target + CameraTurn.Behind(Yaw, Pitch) * Distance, target, FieldOfView);
+        var next = new Camera(target + CameraTurn.Behind(Yaw, Pitch) * Distance, target, FieldOfView) { WideAs = WideAs };
         Previous = _placed ? Current : next;
         Current = next;
         _placed = true;
@@ -222,6 +257,9 @@ public sealed class FollowCamera
 
     public float FieldOfView { get; set; } = MathF.PI / 4f;
 
+    /// <summary>Keeps the view at least as wide as on a screen of this shape. See <see cref="Camera.WideAs"/>.</summary>
+    public float WideAs { get; set; }
+
     /// <summary>The camera on the tick before this one.</summary>
     public Camera Previous { get; private set; }
 
@@ -231,7 +269,7 @@ public sealed class FollowCamera
     public void Update(Vector3 target, float seconds)
     {
         _target = _placed && Lag > 0f ? Vector3.Lerp(target, _target, MathF.Exp(-seconds / Lag)) : target;
-        var next = new Camera(_target + Offset, _target, FieldOfView);
+        var next = new Camera(_target + Offset, _target, FieldOfView) { WideAs = WideAs };
         Previous = _placed ? Current : next;
         Current = next;
         _placed = true;

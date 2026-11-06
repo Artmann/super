@@ -173,6 +173,44 @@ public class ContentTests
         Assert.NotEqual(texture, content.Texture("textures/splat.png"));
     }
 
+    [Theory]
+    [InlineData(nameof(Surface.HeightTexture))]
+    [InlineData(nameof(Surface.DetailColorTexture))]
+    [InlineData(nameof(Surface.DetailNormalTexture))]
+    public void Mesh_naming_an_unloaded_height_or_detail_texture_says_which(string field)
+    {
+        var content = new Content(Textures("textures/splat.png"));
+        var texture = content.Texture("textures/splat.png");
+        content.Unload(texture);
+
+        var problem = Assert.Throws<ArgumentException>(() => content.Mesh(Mesh(Naming(field, texture))));
+
+        Assert.Equal($"{field} names {texture.Index}, which was unloaded. (Parameter '{field}')", problem.Message);
+    }
+
+    [Theory]
+    [InlineData(nameof(Surface.HeightTexture))]
+    [InlineData(nameof(Surface.DetailColorTexture))]
+    [InlineData(nameof(Surface.DetailNormalTexture))]
+    public void Height_or_detail_texture_a_live_mesh_names_cannot_be_unloaded(string field)
+    {
+        var content = new Content(Textures("textures/splat.png"));
+        var texture = content.Texture("textures/splat.png");
+        var model = content.Mesh(Mesh(Naming(field, texture)));
+
+        var problem = Assert.Throws<InvalidOperationException>(() => content.Unload(texture));
+
+        Assert.Equal($"Texture {texture.Index} is still named by model {model.Index}. Unload the model first.", problem.Message);
+    }
+
+    private static Surface Naming(string field, TextureRef texture) => field switch
+    {
+        nameof(Surface.HeightTexture) => new Surface { HeightTexture = texture, HeightDepth = 0.02f },
+        nameof(Surface.DetailColorTexture) => new Surface { DetailColorTexture = texture },
+        nameof(Surface.DetailNormalTexture) => new Surface { DetailNormalTexture = texture },
+        _ => throw new ArgumentException($"No surface field {field}.", nameof(field)),
+    };
+
     [Fact]
     public void Texture_a_live_mesh_names_cannot_be_unloaded_until_the_mesh_is()
     {

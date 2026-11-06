@@ -35,6 +35,7 @@ public sealed class UiTree
     private int _height;
     private Clip? _clip;
     private float _opacity = 1f;
+    private float _scale = 1f;
     private bool _layoutWanted;
 #if !DEBUG
     private bool _reportedTooManyQuads;
@@ -42,11 +43,40 @@ public sealed class UiTree
 
     public IReadOnlyList<ShownText> ShownText => _shownText;
 
-    internal GlyphAtlas Atlas => _atlas ??= new GlyphAtlas();
+    internal GlyphAtlas Atlas => _atlas ??= new GlyphAtlas { Scale = _scale };
 
     internal ReadOnlySpan<OverlayQuad> Quads => CollectionsMarshal.AsSpan(_quads);
 
-    /// <summary>Shows this description at this size. Pass null to show nothing.</summary>
+    /// <summary>
+    /// How many pixels one unit of the interface covers. At 2, text, padding and frames are
+    /// all twice as big, so an interface made for a desktop window can be read in a video
+    /// watched on a phone. Text is drawn at the bigger size, so it stays sharp. Layout,
+    /// <see cref="FrameOf"/> and <see cref="ShownText"/> are all in interface units, which
+    /// are pixels at the default of 1. The mouse is turned into interface units for you.
+    /// </summary>
+    public float Scale
+    {
+        get => _scale;
+        set
+        {
+            if (!(value > 0f) || !float.IsFinite(value))
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), value, "The interface scale must be a number above zero.");
+            }
+
+            if (value != _scale)
+            {
+                _scale = value;
+                Atlas.Scale = value;
+                _layoutWanted = true;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Shows this description on a screen of this size in pixels. The interface lays itself
+    /// out in that size divided by <see cref="Scale"/>. Pass null to show nothing.
+    /// </summary>
     public void Update(UiView? view, int width, int height)
     {
         bool changed = Reconcile(view) | width != _width | height != _height | _layoutWanted;
@@ -130,6 +160,18 @@ public sealed class UiTree
 
     /// <summary>What the mouse touches at this point, in the layout last shown.</summary>
     internal UiNode? Hit(float x, float y) => _root?.Hit(x, y);
+
+    /// <summary>The middle of the view with this id, in screen pixels, for moving the mouse there.</summary>
+    internal Vector2 ScreenMiddle(object id)
+    {
+        var frame = FrameOf(id);
+        return new Vector2(frame.X + frame.Width / 2f, frame.Y + frame.Height / 2f) * _scale;
+    }
+
+    /// <summary>The screen's width in interface units.</summary>
+    private float Wide => _width / _scale;
+
+    private float High => _height / _scale;
 
     /// <summary>
     /// Draws what floats above everything and belongs to no place in the tree, each time
@@ -261,12 +303,15 @@ public sealed class UiTree
             return;
         }
 
-        quad.Position = new Vector2(frame.X, frame.Y);
-        quad.Size = new Vector2(frame.Width, frame.Height);
+        // Laid out in interface units, drawn in pixels.
+        quad.Position = new Vector2(frame.X, frame.Y) * _scale;
+        quad.Size = new Vector2(frame.Width, frame.Height) * _scale;
+        quad.CornerRadius *= _scale;
+        quad.BorderWidth *= _scale;
         if (_clip is { } active)
         {
-            quad.Clip = new Vector4(active.Rect.X, active.Rect.Y, active.Rect.Width, active.Rect.Height);
-            quad.ClipRadius = active.Radius;
+            quad.Clip = new Vector4(active.Rect.X, active.Rect.Y, active.Rect.Width, active.Rect.Height) * _scale;
+            quad.ClipRadius = active.Radius * _scale;
         }
 
         _quads.Add(quad);
@@ -312,12 +357,12 @@ public sealed class UiTree
     {
         float x = cursor.X + TooltipOffsetX;
         float y = cursor.Y + TooltipOffsetY;
-        if (x + size.Width > _width)
+        if (x + size.Width > Wide)
         {
             x = cursor.X - TooltipOffsetX - size.Width;
         }
 
-        if (y + size.Height > _height)
+        if (y + size.Height > High)
         {
             y = cursor.Y - TooltipOffsetY - size.Height;
         }
@@ -360,8 +405,8 @@ public sealed class UiTree
         }
 
         _root.ForgetLayout();
-        var screen = new UiRect(0f, 0f, _width, _height);
-        _root.Place(screen.Align(_root.Measure(new Proposal(_width, _height)), Alignment.Center));
+        var screen = new UiRect(0f, 0f, Wide, High);
+        _root.Place(screen.Align(_root.Measure(new Proposal(Wide, High)), Alignment.Center));
         _root.Emit();
         _treeQuads = _quads.Count;
         _treeImageQuads = _imageQuads.Count;

@@ -112,7 +112,7 @@ public sealed class ForestGame(
     public Builder Builder { get; } = new();
 
     /// <summary>The camera circling the cabin. Tests turn it to hear the hammering pan.</summary>
-    public OrbitCamera Camera { get; } = new() { Distance = 16f, Pitch = 0.5f, MinDistance = 6f, MaxDistance = 40f };
+    public OrbitCamera Camera { get; } = new() { Distance = 16f, Pitch = 0.5f, MinDistance = 6f, MaxDistance = 40f, WideAs = 16f / 9f };
 
     /// <summary>How fast the camera circles on its own, in radians a second. Dragging with the mouse turns it as well.</summary>
     public float OrbitSpeed { get; set; } = OrbitRadiansPerSecond;

@@ -46,16 +46,27 @@ public static class Game
             Console.WriteLine("Hot reload is on, so an error stops the game until the next change instead of closing it.");
         }
 
-        using var host = new GameHost<TGame>(seed, options.TicksPerSecond, services, userDataFolder, audioSeed)
+        if (arguments.NoVsync)
+        {
+            options.Graphics.Vsync = false;
+        }
+
+        if (arguments.NoMaterials)
+        {
+            options.Graphics.Materials = false;
+        }
+
+        using var host = new GameHost<TGame>(seed, options.TicksPerSecond, services, userDataFolder, audioSeed, options.Graphics)
         {
             KeepsRunningAfterErrors = keepRunning,
         };
         host.Script = FindScript<TGame>(host, arguments.ScriptName);
+        host.Ui.Scale = arguments.UiScale ?? options.UiScale;
 
         // Validation would swamp the timings, so a profile runs without it.
         bool validate = hidden && arguments.ProfilePath is null;
         using var window = new GameWindow(
-            options.Title, arguments.Width ?? options.Width, arguments.Height ?? options.Height, hidden, validate, arguments.NoVsync);
+            options.Title, arguments.Width ?? options.Width, arguments.Height ?? options.Height, hidden, validate, !host.Graphics.Vsync);
 
         if (arguments.ProfilePath is { } report)
         {

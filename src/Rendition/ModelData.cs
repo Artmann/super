@@ -26,7 +26,14 @@ public struct ModelMaterial
     public Vector3 Emissive;
     public int EmissiveTexture;
     public float Clearcoat;
+    public int HeightTexture;
+    public float HeightDepth;
+    public int DetailColorTexture;
+    public int DetailNormalTexture;
+    public float DetailScale;
     public MaterialFlags Flags;
+    public float Ior;
+    public Subsurface Subsurface;
 }
 
 /// <summary>One run of triangles sharing a material.</summary>
@@ -41,13 +48,20 @@ public struct ModelPart
 public sealed class ModelData
 {
     private const uint Magic = 0x4C444D52; // "RMDL"
-    private const int Version = 3;
+    private const int Version = 7; // 4: materials gained Subsurface. 5: height and detail textures. 6: materials gained Ior. 7: part names sit at the front.
 
     public required Vertex[] Vertices { get; init; }
     public required uint[] Indices { get; init; }
     public required ModelPart[] Parts { get; init; }
     public required ModelMaterial[] Materials { get; init; }
     public required TextureData[] Textures { get; init; }
+
+    /// <summary>
+    /// For each part, the name of the source mesh it was cooked from: the node that holds the mesh.
+    /// In the same order as <see cref="Parts"/>. Names repeat when a mesh with several materials is
+    /// cooked as several parts. Empty when the model has none; otherwise it must be as long as <see cref="Parts"/>.
+    /// </summary>
+    public string[] MeshNames { get; init; } = [];
 
     /// <summary>The joints the vertices follow, for a rigged model. Null for a static one.</summary>
     public Skeleton? Skeleton { get; init; }
@@ -108,6 +122,12 @@ public sealed class ModelData
             }
         }
 
+        if (MeshNames.Length != 0 && MeshNames.Length != Parts.Length)
+        {
+            throw new InvalidOperationException(
+                $"The model has {Parts.Length} parts and {MeshNames.Length} mesh names. Give one name to each part, or none.");
+        }
+
         var stream = new MemoryStream();
         using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
         {
@@ -122,7 +142,14 @@ public sealed class ModelData
         writer.Write(Magic);
         writer.Write(Version);
 
-        // The rig comes first, so a game can read it without the geometry and textures behind it.
+        // The part names come first, then the rig, so a game can read either without the geometry
+        // and textures behind them.
+        writer.Write(MeshNames.Length);
+        foreach (string meshName in MeshNames)
+        {
+            writer.Write(meshName);
+        }
+
         writer.Write(Skeleton is not null);
         if (Skeleton is { } skeleton)
         {
@@ -175,7 +202,9 @@ public sealed class ModelData
     public static ModelData Read(Stream stream, string name)
     {
         using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
-        var (skeleton, clips) = ReadRig(reader, name);
+        ReadHeader(reader, name);
+        string[] meshNames = ReadNames(reader);
+        var (skeleton, clips) = ReadRigBody(reader);
         var vertices = ReadArray<Vertex>(reader);
         var indices = ReadArray<uint>(reader);
         var parts = ReadArray<ModelPart>(reader);
@@ -204,6 +233,7 @@ public sealed class ModelData
             Textures = textures,
             Skeleton = skeleton,
             Clips = clips,
+            MeshNames = meshNames,
         };
     }
 
@@ -215,19 +245,53 @@ public sealed class ModelData
     }
 
     /// <summary>Reads only the skeleton and clips from <paramref name="stream"/>, which is left open. <paramref name="name"/> is only for messages.</summary>
-    public static (Skeleton? Skeleton, AnimationClip[] Clips) ReadRig(Stream stream, string name)
+    public static (Skeleton? Skeleton, AnimationClip[] Clips) ReadRig(Stream stream, string name) =>
+        ReadRig(stream, name, out _);
+
+    /// <summary>
+    /// Reads only the skeleton and clips, and the mesh names that sit before them, from
+    /// <paramref name="stream"/>, which is left open. <paramref name="name"/> is only for messages.
+    /// </summary>
+    public static (Skeleton? Skeleton, AnimationClip[] Clips) ReadRig(Stream stream, string name, out string[] meshNames)
     {
         using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
-        return ReadRig(reader, name);
+        ReadHeader(reader, name);
+        meshNames = ReadNames(reader);
+        return ReadRigBody(reader);
     }
 
-    private static (Skeleton? Skeleton, AnimationClip[] Clips) ReadRig(BinaryReader reader, string name)
+    /// <summary>
+    /// Reads only the mesh names, which sit at the very front of the file, so a game can pick
+    /// meshes without reading the rig or the geometry. <paramref name="name"/> is only for messages.
+    /// </summary>
+    public static string[] ReadMeshNames(Stream stream, string name)
+    {
+        using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
+        ReadHeader(reader, name);
+        return ReadNames(reader);
+    }
+
+    private static void ReadHeader(BinaryReader reader, string name)
     {
         if (reader.ReadUInt32() != Magic || reader.ReadInt32() != Version)
         {
             throw new InvalidDataException($"{name} is not a current model file. Cook it again.");
         }
+    }
 
+    private static string[] ReadNames(BinaryReader reader)
+    {
+        var names = new string[reader.ReadInt32()];
+        for (int i = 0; i < names.Length; i++)
+        {
+            names[i] = reader.ReadString();
+        }
+
+        return names;
+    }
+
+    private static (Skeleton? Skeleton, AnimationClip[] Clips) ReadRigBody(BinaryReader reader)
+    {
         Skeleton? skeleton = null;
         if (reader.ReadBoolean())
         {

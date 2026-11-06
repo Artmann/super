@@ -149,6 +149,55 @@ public sealed class ModelCookerTests : IDisposable
     }
 
     [Fact]
+    public void Ior_rule_reaches_the_cooked_material()
+    {
+        string src = Temp();
+        TinyGltf.Write(src, "a.gltf", "bottle", ["a"]);
+        File.WriteAllText(Path.Combine(src, "a.gltf.cook.json"),
+            "{ \"materials\": [ { \"match\": \"bottle\", \"opacity\": 0.1, \"ior\": 1.45 } ] }");
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var model = Model(store, "a.gltf");
+        Assert.Equal(1.45f, model.Materials[Assert.Single(model.Parts).Material].Ior);
+    }
+
+    [Fact]
+    public void Subsurface_rule_reaches_the_cooked_material()
+    {
+        string src = Temp();
+        TinyGltf.Write(src, "a.gltf", "skin", ["a"]);
+        File.WriteAllText(Path.Combine(src, "a.gltf.cook.json"),
+            "{ \"materials\": [ { \"match\": \"skin\", \"subsurface\": { \"radius\": 0.01, \"color\": [1, 0.4, 0.25], \"transmission\": 0.3 } } ] }");
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var model = Model(store, "a.gltf");
+        var subsurface = model.Materials[Assert.Single(model.Parts).Material].Subsurface;
+        Assert.Equal(0.01f, subsurface.Radius);
+        Assert.Equal(new System.Numerics.Vector3(1f, 0.4f, 0.25f), subsurface.Color);
+        Assert.Equal(0.3f, subsurface.Transmission);
+    }
+
+    [Fact]
+    public void Subsurface_with_clearcoat_is_an_error_naming_the_material()
+    {
+        string src = Temp();
+        TinyGltf.Write(src, "a.gltf", "skin", ["a"]);
+        File.WriteAllText(Path.Combine(src, "a.gltf.cook.json"),
+            "{ \"materials\": [ { \"match\": \"skin\", \"clearcoat\": 1, \"subsurface\": { \"radius\": 0.01 } } ] }");
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("material skin: subsurface can't be combined with clearcoat, because they share a G-buffer channel.",
+            Assert.Single(result.Problems, p => p.IsError).Message);
+        Assert.Same(ContentManifest.Empty, store.Manifest);
+    }
+
+    [Fact]
     public void Missing_texture_named_in_settings_is_an_error_naming_it()
     {
         string src = Temp();
@@ -183,6 +232,51 @@ public sealed class ModelCookerTests : IDisposable
         var texture = Assert.Single(model.Textures);
         Assert.Equal((2, 1), (texture.Width, texture.Height));
         Assert.Equal(0, model.Materials[0].BaseColorTexture);
+    }
+
+    [Fact]
+    public void Height_and_detail_textures_named_in_settings_reach_the_material()
+    {
+        string src = Temp();
+        TinyGltf.Write(src, "a.gltf", "wall", ["a"]);
+        foreach (string name in new[] { "height.png", "grit.png", "grit_normal.png" })
+        {
+            File.WriteAllBytes(Path.Combine(src, name), Png());
+        }
+
+        File.WriteAllText(Path.Combine(src, "cook.json"),
+            "{ \"rules\": [ { \"match\": \"**/*.png\", \"cook\": false } ] }");
+        File.WriteAllText(Path.Combine(src, "a.gltf.cook.json"), """
+            { "materials": [ { "match": "wall", "height": "height.png", "heightDepth": 0.03,
+              "detailColor": "grit.png", "detailNormal": "grit_normal.png", "detailScale": 6, "detailMask": true } ] }
+            """);
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var model = Model(store, "a.gltf");
+        var material = model.Materials[0];
+        Assert.Equal(3, model.Textures.Length);
+        Assert.Equal([0, 1, 2], new[] { material.HeightTexture, material.DetailColorTexture, material.DetailNormalTexture }.Order());
+        Assert.Equal(-1, material.BaseColorTexture);
+        Assert.Equal(0.03f, material.HeightDepth);
+        Assert.Equal(6f, material.DetailScale);
+        Assert.Equal(MaterialFlags.DetailMask, material.Flags);
+        Assert.All(model.Textures, texture => Assert.Equal(TextureKind.Linear, texture.Kind));
+    }
+
+    [Fact]
+    public void Material_without_height_or_detail_textures_names_none()
+    {
+        string src = Temp();
+        TinyGltf.Write(src, "a.gltf", "wall", ["a"]);
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var material = Model(store, "a.gltf").Materials[0];
+        Assert.Equal((-1, -1, -1), (material.HeightTexture, material.DetailColorTexture, material.DetailNormalTexture));
+        Assert.Equal(0f, material.HeightDepth);
     }
 
     [Fact]

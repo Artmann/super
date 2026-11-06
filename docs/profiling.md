@@ -69,3 +69,5 @@ A `.nettrace` file lands next to the report. Open it in
 
 For a live figure while playing, show [`GameStats`](interfaces.md#showing-how-the-game-runs)
 in a panel, and run with `--no-vsync` to see the frame rate the machine can reach.
+To see what an effect costs, turn it off in [`Graphics`](rendering.md#graphics-settings) and
+profile again: its pass drops to nothing in the GPU list.

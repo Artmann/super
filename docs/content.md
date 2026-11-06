@@ -185,6 +185,23 @@ GameImage icon = content.Image("icons/axe.png");
 Its size comes from the cooked texture, so naming it doesn't decode it. A name that isn't
 in the cooked content, or that isn't a texture, stops with a `ContentException`.
 
+A game can also paint an image itself and show it like a cooked one:
+
+```csharp
+byte[] pixels = new byte[width * height * 4];   // rows from the top: red, green, blue, alpha
+// ... paint ...
+GameImage map = content.Image(width, height, pixels);
+```
+
+The pixels are sRGB with straight alpha, and are kept as they are, so don't change them
+afterwards. Each call makes a new image: when the picture changes, paint a new one and let
+the old one go with `content.Unload(image)`. Showing an image after it's unloaded fails, and
+naming a cooked file again after unloading it makes a new one.
+
+`image.ReadPixels()` gives an image's pixels in the same layout, to paint new images from,
+such as a texture tiled under a painting. A cooked image is decoded afresh on every call, so
+keep what it returns rather than asking every frame.
+
 ## Cooking
 
 A game never reads its sources. The build cooks every file under the content folder
@@ -268,6 +285,42 @@ A material graph is named with `content.Surface("materials/bricks.material.cs")`
 gives a `Surface` with the graph's textures and its width in metres as `TileWidth`. It
 stops with a `ContentException` for a name that has no `#material` part. See
 [materials.md](materials.md).
+
+### Mesh names
+
+A rigged model keeps the name of each of its meshes: the name of the node that holds the
+mesh in the source file, such as `Head_05b`, which is the name an artist sees in the
+outliner. When a node has no name, the mesh's own name is used. A static model keeps them
+only when its sidecar sets `"keepMeshes": true`, and is cooked again. These are not the
+`#part` splits above. A split is cut when the file is cooked, and each one is a model of its
+own. A mesh name is a mesh inside one model, which a game can show or hide on each draw.
+`content.Meshes` picks them by name and gives a
+[`MeshMask`](rendering.md#showing-some-meshes-of-a-model):
+
+```csharp
+MeshMask mask = content.Meshes(model, "Body_03a", "Head_05b");
+```
+
+A mesh with several materials is drawn in several pieces, and its name picks all of them.
+Names match exactly, case included. A name the model doesn't have stops here with an
+`ArgumentException` that lists the first 20 meshes it has, and their count:
+
+```
+hero.glb has no mesh called Helmet. It has 3 meshes: Body_03a, Head_05b, w_spear.
+```
+
+`content.MeshNames(model)` lists them once each, in the order they were cooked. The names
+are read from the front of the cooked file, so picking them never reads the geometry, and
+`content.Rig` keeps them when it reads the rig, so the file isn't opened again. A static
+model cooked without `keepMeshes` has no names, so `content.Meshes` stops with an
+`InvalidOperationException` that says why and what to do:
+
+```
+old.glb has no mesh names, because its file was cooked without them. A rigged model always has them. A static model needs "keepMeshes": true in old.glb.cook.json, and then to be cooked again.
+```
+
+A model file from before mesh names were kept is not a current model file, and fails with
+the message to cook it again.
 
 ## Shipping
 

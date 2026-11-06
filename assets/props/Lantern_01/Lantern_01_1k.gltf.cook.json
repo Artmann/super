@@ -1,0 +1,5 @@
+{
+  "materials": [
+    { "match": "glass", "transparent": true, "opacity": 0.15, "emissiveColor": [3.0, 2.0, 0.9] }
+  ]
+}

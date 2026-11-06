@@ -40,11 +40,20 @@ internal sealed unsafe class ResourceTable : IDisposable
         public TextureSlots ShaderTextures;
         public TextureSlots ShaderArrays;
         public uint Flags;
+        public float Transmission;
+        public uint HeightTexture;
+        public float HeightDepth;
+        public uint DetailColorTexture;
+        public uint DetailNormalTexture;
 
-        // std430 rounds the struct up to its vec4 alignment.
-        private readonly int _padding0;
-        private readonly int _padding1;
-        private readonly int _padding2;
+        /// <summary>0 when the material has no detail textures, so the shader skips them.</summary>
+        public float DetailScale;
+
+        /// <summary>1 or more; 1 bends nothing.</summary>
+        public float Ior;
+
+        /// <summary>How far red, green and blue spread under the surface, in metres, and the widest of them in w.</summary>
+        public Vector4 Subsurface;
     }
 
     private readonly VulkanContext _context;
@@ -54,6 +63,7 @@ internal sealed unsafe class ResourceTable : IDisposable
     private readonly MaterialFlags[] _materialFlags = new MaterialFlags[MaxMaterials];
     private readonly int[] _materialShaders = new int[MaxMaterials];
     private readonly bool[] _materialCutouts = new bool[MaxMaterials];
+    private readonly bool[] _materialSubsurface = new bool[MaxMaterials];
     private readonly int[] _materialTextures = new int[MaxMaterials * TexturesPerMaterial];
     private readonly List<GpuTexture?> _textures = [];
     private readonly List<GpuTexture?> _textureArrays = [];
@@ -65,14 +75,18 @@ internal sealed unsafe class ResourceTable : IDisposable
     private readonly bool[] _materialLive = new bool[MaxMaterials];
     private readonly TextureHandle _white;
     private readonly TextureHandle _flatNormal;
+    private readonly TextureHandle _grey;
     private readonly TextureArrayHandle _whiteArray;
     private int _materialCount;
 
     /// <summary>
-    /// Texture slots a material can name: base colour, normal, surface, emissive, then
-    /// the four shader textures.
+    /// Texture slots a material can name: base colour, normal, surface, emissive, height,
+    /// detail colour and detail normal, then the four shader textures.
     /// </summary>
-    public const int TexturesPerMaterial = 4 + ShaderTextures.Length;
+    public const int TexturesPerMaterial = OwnTextures + ShaderTextures.Length;
+
+    /// <summary>How many of a material's texture slots come before its shader textures.</summary>
+    private const int OwnTextures = 7;
 
     public readonly DescriptorSetLayout Layout;
     public readonly DescriptorSet Set;
@@ -165,6 +179,7 @@ internal sealed unsafe class ResourceTable : IDisposable
 
         _white = AddTexture(SolidTexture(255, 255, 255));
         _flatNormal = AddTexture(SolidTexture(128, 128, 255));
+        _grey = AddTexture(SolidTexture(128, 128, 128));
         _whiteArray = AddTextureArray(new GpuTexture(context, [SolidTexture(255, 255, 255)]));
     }
 
@@ -174,6 +189,23 @@ internal sealed unsafe class ResourceTable : IDisposable
 
     /// <summary>Whether the material's texture cuts holes in it.</summary>
     public bool HasCutouts(MaterialHandle material) => _materialCutouts[material.Index];
+
+    /// <summary>True when a live material scatters light under its surface, so the frame needs the subsurface blur.</summary>
+    public bool AnySubsurface
+    {
+        get
+        {
+            for (int i = 0; i < _materialCount; i++)
+            {
+                if (_materialLive[i] && _materialSubsurface[i])
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+    }
 
     /// <summary>
     /// Takes a slot for a texture and points it at the image. The slot is free in every
@@ -232,7 +264,7 @@ internal sealed unsafe class ResourceTable : IDisposable
     public TextureHandle AddTexture(TextureData data) => AddTexture(new GpuTexture(_context, data));
 
     /// <summary>Whether the handle is one of the table's own textures, which can't be destroyed.</summary>
-    public bool IsBuiltIn(TextureHandle texture) => texture == _white || texture == _flatNormal;
+    public bool IsBuiltIn(TextureHandle texture) => texture == _white || texture == _flatNormal || texture == _grey;
 
     /// <summary>Whether a handle names a texture that hasn't been destroyed.</summary>
     public bool IsLive(TextureHandle texture) =>
@@ -364,6 +396,22 @@ internal sealed unsafe class ResourceTable : IDisposable
         WriteMaterial(handle.Index, material);
     }
 
+    /// <summary>
+    /// How far each colour spreads in metres, with the widest in w, or zero when the
+    /// surface doesn't scatter. A colour of zero spreads all three channels the full radius.
+    /// </summary>
+    internal static Vector4 Spread(in Subsurface subsurface)
+    {
+        if (!subsurface.IsOn)
+        {
+            return Vector4.Zero;
+        }
+
+        var color = subsurface.Color == Vector3.Zero ? Vector3.One : Vector3.Max(subsurface.Color, Vector3.Zero);
+        var spread = color * subsurface.Radius;
+        return new Vector4(spread, MathF.Max(spread.X, MathF.Max(spread.Y, spread.Z)));
+    }
+
     private void WriteMaterial(int index, in Material material)
     {
         ref var gpu = ref ((GpuMaterial*)_materials.Mapped)[index];
@@ -381,6 +429,16 @@ internal sealed unsafe class ResourceTable : IDisposable
             Emissive = new Vector4(material.Emissive, 0f),
             ShaderParameters = material.ShaderParameters,
             Flags = (uint)material.Flags,
+            HeightTexture = (uint)(material.HeightTexture ?? _white).Index,
+            HeightDepth = material.HeightTexture is null ? 0f : MathF.Max(material.HeightDepth, 0f),
+            DetailColorTexture = (uint)(material.DetailColorTexture ?? _grey).Index,
+            DetailNormalTexture = (uint)(material.DetailNormalTexture ?? _flatNormal).Index,
+            DetailScale = material.DetailColorTexture is null && material.DetailNormalTexture is null
+                ? 0f
+                : material.DetailScale > 0f ? material.DetailScale : 1f,
+            Ior = MathF.Max(material.Ior, 1f),
+            Transmission = material.Subsurface.IsOn ? Math.Clamp(material.Subsurface.Transmission, 0f, 1f) : 0f,
+            Subsurface = Spread(material.Subsurface),
         };
         for (int i = 0; i < ShaderTextures.Length; i++)
         {
@@ -391,15 +449,19 @@ internal sealed unsafe class ResourceTable : IDisposable
         _materialFlags[index] = material.Flags;
         _materialShaders[index] = material.Shader?.Index ?? 0;
         _materialCutouts[index] = material.AlphaCutoff > 0f;
+        _materialSubsurface[index] = material.Subsurface.IsOn;
 
         var owned = _materialTextures.AsSpan(index * TexturesPerMaterial, TexturesPerMaterial);
         owned[0] = material.BaseColorTexture?.Index ?? -1;
         owned[1] = material.NormalTexture?.Index ?? -1;
         owned[2] = material.SurfaceTexture?.Index ?? -1;
         owned[3] = material.EmissiveTexture?.Index ?? -1;
+        owned[4] = material.HeightTexture?.Index ?? -1;
+        owned[5] = material.DetailColorTexture?.Index ?? -1;
+        owned[6] = material.DetailNormalTexture?.Index ?? -1;
         for (int i = 0; i < ShaderTextures.Length; i++)
         {
-            owned[4 + i] = material.ShaderTextures[i]?.Index ?? -1;
+            owned[OwnTextures + i] = material.ShaderTextures[i]?.Index ?? -1;
         }
     }
 

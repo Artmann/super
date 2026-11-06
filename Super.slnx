@@ -16,17 +16,22 @@
     <Project Path="tools/Super.Cook.Tool/Super.Cook.Tool.csproj" />
   </Folder>
   <Folder Name="/examples/">
+    <Project Path="examples/Bricks/Bricks.csproj" />
     <Project Path="examples/ColorCube/ColorCube.csproj" />
     <Project Path="examples/Courtyard/Courtyard.csproj" />
     <Project Path="examples/Crafting/Crafting.csproj" />
+    <Project Path="examples/Crypt/Crypt.csproj" />
     <Project Path="examples/Dust/Dust.csproj" />
     <Project Path="examples/Archer/Archer.csproj" />
     <Project Path="examples/Forest/Forest.csproj" />
     <Project Path="examples/Fox/Fox.csproj" />
+    <Project Path="examples/Glass/Glass.csproj" />
     <Project Path="examples/Reef/Reef.csproj" />
     <Project Path="examples/Rooms/Rooms.csproj" />
     <Project Path="examples/Shapes/Shapes.csproj" />
     <Project Path="examples/Terrain/Terrain.csproj" />
+    <Project Path="examples/Transitions/Transitions.csproj" />
+    <Project Path="examples/Wax/Wax.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Courtyard.Tests/Courtyard.Tests.csproj" />

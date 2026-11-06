@@ -38,8 +38,15 @@ are matched to the model's joints by name, so they must be from the same rig:
 Without a `name`, a clip is named after its file. Download Mixamo clips "without skin"
 to keep them small; the character itself comes from one file "with skin".
 
-A mesh without bones that sits under a joint, such as a sword in a hand node, follows
-that joint.
+A mesh without bones, such as a sword or a head, follows its container node: the parent of
+the node that holds the mesh, such as a hand or a neck. That container is a joint of its own,
+so it plays the clips that move it, and a container with no clip moving it stays at rest with
+its parent. At rest the mesh sits where the file's node tree puts it, even when its bone was
+bound in another pose. The mesh follows its container, not its own node, so a clip that
+moves the mesh's own node, such as a lantern swinging on its hook, doesn't move it. Each
+container that isn't a bone already counts towards the 256
+joints a model can have, so a file with hundreds of loose meshes in their own empty nodes
+can run out.
 
 ## The rig
 
@@ -58,9 +65,11 @@ A [content record](content.md) can hold a `Rig` field too, written as the model'
 which model a character animates lives in its file beside the rest of its data.
 
 A **mask** limits an action to part of the body: the upper body for shooting while the
-legs keep walking, or an arm for a wave. A **blend** picks between clips by a number,
-such as speed. Between two points it mixes the two clips, and beyond the ends it plays
-the nearest one.
+legs keep walking, or an arm for a wave. A `BoneMask` masks joints, so it decides which
+bones a clip moves. A `MeshMask` is different: it decides which meshes of a model are drawn
+at all. See [Showing some meshes](views.md#showing-some-meshes). A **blend** picks between
+clips by a number, such as speed. Between two points it mixes the two clips, and beyond the
+ends it plays the nearest one.
 
 ## The controller
 
@@ -277,12 +286,16 @@ a tint, or to draw a different model with the same rig.
   past that in one frame are drawn in their bind pose.
 - The pose given to `view.Model` must come from the model's own rig, and the model must
   have been cooked with a skeleton. Drawing a pose whose joint count differs throws.
+- A masked draw still skins the whole skeleton once. A `MeshMask` saves triangles, not
+  bones, so it doesn't make a model cheaper to animate.
 - Clips are sampled at 30 frames a second when imported, and blended linearly between
   frames.
 - Root motion only carries travel over the ground. Turns in a clip, such as a turn on
   the spot, stay in the pose and don't turn the character.
-- Attaching a model to a bone, such as a sword to a hand, isn't built in. Draw it
-  yourself at `animator.Joint(name)` times the character's transform; see
-  [Drawing with views](views.md#planned).
+- Attaching a separate model to a bone, such as a sword to a hand, isn't built in. Draw
+  it yourself at `animator.Joint(name)` times the character's transform; see
+  [Drawing with views](views.md#planned). A sword that is a mesh in the character's own
+  file already follows its hand, and a [mesh mask](views.md#showing-some-meshes) picks
+  which of several to show.
 - Skinned models don't give temporal anti-aliasing motion vectors yet, so fast limbs can
   show slight smearing.

@@ -89,6 +89,12 @@ public enum MaterialFlags
     /// is lit as one shape and not as a pile of separate cards.
     /// </summary>
     Foliage = 4,
+
+    /// <summary>
+    /// The surface texture's blue channel says how strongly the detail textures show, from
+    /// none at black to full at white. Without it they show everywhere.
+    /// </summary>
+    DetailMask = 8,
 }
 
 /// <summary>
@@ -118,7 +124,42 @@ public struct Material
 
     /// <summary>Strength of a clear glossy layer over the surface, such as car lacquer. 0 to 1.</summary>
     public float Clearcoat;
+
+    /// <summary>
+    /// A height map in the red channel: white is the top of the surface and black its
+    /// deepest point. Parallax occlusion mapping shifts the other textures with it, so
+    /// grooves look sunk in. Needs <see cref="HeightDepth"/>.
+    /// </summary>
+    public TextureHandle? HeightTexture;
+
+    /// <summary>How far below the top black in the height map lies, in metres. 0 turns parallax off.</summary>
+    public float HeightDepth;
+
+    /// <summary>
+    /// Fine grain over the colour, tiled <see cref="DetailScale"/> times as often. Store it as
+    /// linear data: mid grey (128) leaves the colour alone, white doubles it, black darkens it to nothing.
+    /// </summary>
+    public TextureHandle? DetailColorTexture;
+
+    /// <summary>A second normal map tiled <see cref="DetailScale"/> times as often, blended over the first.</summary>
+    public TextureHandle? DetailNormalTexture;
+
+    /// <summary>How many times the detail textures repeat for each repeat of the others. 0 counts as 1.</summary>
+    public float DetailScale;
     public MaterialFlags Flags;
+
+    /// <summary>
+    /// How much transparent glass bends what's behind it: 1 or less is straight through,
+    /// as a thin window, and about 1.5 is solid glass, such as a bottle or a marble.
+    /// </summary>
+    public float Ior;
+
+    /// <summary>
+    /// Light that spreads under the surface before it comes back out, as in skin, wax and
+    /// marble. A radius of 0, the default, turns it off. It can't be combined with
+    /// clearcoat or foliage, which use the same G-buffer channel.
+    /// </summary>
+    public Subsurface Subsurface;
 
     /// <summary>Replaces the standard surface shader. Transparent materials can't use one yet.</summary>
     public SurfaceShaderHandle? Shader;
@@ -226,6 +267,60 @@ public struct DirectionalLight
     public bool CastsShadow;
 }
 
+/// <summary>
+/// A light at a point, such as a torch, a lamp or a candle, that dims with distance and
+/// ends at its range. Given a cone it's a spot, shining one way only. Any number can light
+/// a frame, up to <see cref="MaxPerFrame"/>; see "Point and spot lights" in docs/rendering.md.
+/// </summary>
+public struct LocalLight
+{
+    /// <summary>The most one frame can have. The renderer throws past this.</summary>
+    public const int MaxPerFrame = 1024;
+
+    /// <summary>
+    /// Picks out a light from one frame to the next, so its shadow keeps its sharpness as it
+    /// moves. Any number, but no two lights in a frame should share one.
+    /// </summary>
+    public int Key;
+
+    public Vector3 Position;
+
+    /// <summary>Linear colour times brightness, as it falls on a surface one metre away facing it.</summary>
+    public Vector3 Radiance;
+
+    /// <summary>How far the light reaches, in metres. It fades smoothly to nothing there.</summary>
+    public float Range;
+
+    /// <summary>The radius a light has when <see cref="Radius"/> is left at 0, in metres.</summary>
+    public const float DefaultRadius = 0.1f;
+
+    /// <summary>
+    /// How big the glowing part is, in metres, such as a torch's flame. Light can't get much
+    /// brighter than it is at this distance, so a bigger radius calms a wall right beside
+    /// the light while leaving it as bright a metre away and beyond. A bigger light also
+    /// casts softer shadows. 0 means <see cref="DefaultRadius"/>.
+    /// </summary>
+    public float Radius;
+
+    /// <summary>For a spot, the unit vector it shines along. Ignored for a point light.</summary>
+    public Vector3 Direction;
+
+    /// <summary>For a spot, the angle from its axis, in radians, inside which it shines fully.</summary>
+    public float InnerAngle;
+
+    /// <summary>
+    /// For a spot, the angle from its axis, in radians, where it has faded to nothing; under
+    /// π/2. Zero makes a point light, which shines every way.
+    /// </summary>
+    public float OuterAngle;
+
+    /// <summary>Whether things block it. Shadows are drawn into a shared atlas; see docs/rendering.md.</summary>
+    public bool CastsShadow;
+
+    /// <summary>Whether it's a spot rather than a point light.</summary>
+    public readonly bool IsSpot => OuterAngle > 0f;
+}
+
 /// <summary>A glowing rectangle in the environment, such as a studio softbox.</summary>
 public struct EnvironmentPanel
 {
@@ -302,6 +397,61 @@ public struct PostSettings
     public Vector3 Gain;
 }
 
+/// <summary>How a <see cref="ScreenTransition"/> brings in the new picture.</summary>
+public enum TransitionStyle
+{
+    /// <summary>The frame as it is.</summary>
+    None,
+
+    /// <summary>Mixes the frame towards <see cref="ScreenTransition.Color"/>.</summary>
+    Fade,
+
+    /// <summary>Mixes the held picture into the frame evenly.</summary>
+    Dissolve,
+
+    /// <summary>The frame sweeps across the held picture behind a straight edge.</summary>
+    Wipe,
+
+    /// <summary>The frame opens out of a circle over the held picture.</summary>
+    Iris,
+}
+
+/// <summary>
+/// Moves from one picture to another. A fade mixes the frame towards a colour. A dissolve,
+/// wipe or iris shows a held picture, one frame kept from earlier, over the frame, and
+/// takes it away as <see cref="Amount"/> goes from 0 to 1. Leaving Style at None shows the
+/// frame as it is. It changes the scene's picture only: the overlay is drawn on top.
+/// </summary>
+public struct ScreenTransition
+{
+    public TransitionStyle Style;
+
+    /// <summary>
+    /// How far along, from 0 to 1. For a fade, how much of the colour shows. For the
+    /// others, 0 shows only the held picture and 1 only the frame.
+    /// </summary>
+    public float Amount;
+
+    /// <summary>What a fade goes to, linear red, green and blue.</summary>
+    public Vector3 Color;
+
+    /// <summary>Which way a wipe's edge travels across the screen, with x to the right and y down. Zero goes to the right.</summary>
+    public Vector2 Direction;
+
+    /// <summary>Where an iris opens from, as a fraction of the screen: (0.5, 0.5) is the middle.</summary>
+    public Vector2 Center;
+
+    /// <summary>How soft a wipe's or an iris's edge is, as a fraction of the way it travels.</summary>
+    public float Softness;
+
+    /// <summary>
+    /// Changing this number holds a new picture: the frame drawn just before this one, as it
+    /// looked before the overlay. Keep it the same to keep the picture held. Before any frame
+    /// has been drawn, the held picture is black.
+    /// </summary>
+    public int Hold;
+}
+
 /// <summary>Puts the camera underwater. Leaving Absorption at zero means there's no water.</summary>
 public struct UnderwaterSettings
 {
@@ -367,6 +517,9 @@ public ref struct FrameView
     /// <summary>At most eight are used.</summary>
     public ReadOnlySpan<DirectionalLight> Lights;
 
+    /// <summary>Point and spot lights. At most <see cref="LocalLight.MaxPerFrame"/>; more throws.</summary>
+    public ReadOnlySpan<LocalLight> LocalLights;
+
     /// <summary>
     /// Every skinned draw's matrices for this frame, one after another, which draws
     /// point into with <see cref="DrawItem.Bones"/>. At most <see cref="Renderer.MaxBones"/>.
@@ -414,12 +567,56 @@ public ref struct FrameView
     /// <see cref="Particle.MaxPerFrame"/> are drawn; the rest are dropped.
     /// </summary>
     public ReadOnlySpan<Particle> Particles;
+
+    /// <summary>A fade, dissolve or wipe between two pictures, or none.</summary>
+    public ScreenTransition Transition;
+
+    /// <summary>Effects to leave out of this frame. Left empty, every effect is drawn.</summary>
+    public RenderEffects Off;
+}
+
+/// <summary>
+/// The parts of the picture that cost GPU time and can be left out. Each one left out skips
+/// its work, not only its look, so a frame without any of them is as cheap as the renderer gets.
+/// </summary>
+[Flags]
+public enum RenderEffects
+{
+    None = 0,
+
+    /// <summary>The sun's shadow maps. Without them sunlight is blocked only by nearby surfaces, as ambient occlusion sees them.</summary>
+    SunShadows = 1 << 0,
+
+    /// <summary>Point and spot light shadows. Without them those lights, too, are blocked only by nearby surfaces.</summary>
+    LightShadows = 1 << 1,
+
+    /// <summary>Darkening in corners and creases, worked out from the screen.</summary>
+    AmbientOcclusion = 1 << 2,
+
+    /// <summary>Shiny surfaces mirroring what's on screen. Without them they reflect only the sky and reflection probes.</summary>
+    Reflections = 1 << 3,
+
+    /// <summary>Smoothing jagged edges over several frames. Without it edges show their pixels.</summary>
+    AntiAliasing = 1 << 4,
+
+    /// <summary>The glow round bright things.</summary>
+    Bloom = 1 << 5,
+
+    /// <summary>
+    /// Every material's colour, textures, normal maps and shine. Without them every surface is the same
+    /// light grey, matte clay, shaped only by its mesh, which shows the lighting and the models on their own.
+    /// Cut-outs still cut, glows still glow and see-through things stay see-through.
+    /// </summary>
+    Materials = 1 << 6,
+
+    All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials,
 }
 
 /// <summary>
 /// A soft, see-through puff that always faces the camera, such as one wisp of dust or
-/// smoke. It's lit by the sun and the sky, falls into shadow, fades into haze, and melts
-/// into whatever it touches instead of showing a hard edge where it meets the ground.
+/// smoke. It's lit by the sun, the sky and point and spot lights, falls into the sun's
+/// shadow, fades into haze, and melts into whatever it touches instead of showing a hard
+/// edge where it meets the ground. A glowing one, such as a lick of flame, adds its own light.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 public struct Particle
@@ -441,6 +638,12 @@ public struct Particle
 
     /// <summary>Picks the lumpy outline of the puff. Any number; nearby values look alike.</summary>
     public float Variant;
+
+    /// <summary>
+    /// Light the puff gives off itself, as a multiple of its colour, on top of the light it's
+    /// lit by: 0 for dust, about 1 for embers, and past 1 for flames, which then bloom.
+    /// </summary>
+    public float Glow;
 }
 
 /// <summary>
@@ -553,4 +756,59 @@ public sealed class RendererOptions
     /// tear. Displays that can't do this keep vsync on.
     /// </summary>
     public bool DisableVsync { get; init; }
+}
+
+/// <summary>
+/// How light spreads under a surface. The lighting pass blurs the diffuse light of these
+/// surfaces across the screen, further for the colours that travel further, so shadow
+/// edges soften and take on a warm rim, as on skin.
+/// </summary>
+public struct Subsurface
+{
+    /// <summary>The longest distance light spreads under the surface, in metres. Skin is about 0.01. 0 turns it off.</summary>
+    public float Radius;
+
+    /// <summary>
+    /// How far red, green and blue each spread, as fractions of <see cref="Radius"/>.
+    /// Skin lets red go furthest, so about (1, 0.4, 0.25). Zero counts as one for all three.
+    /// </summary>
+    public Vector3 Color;
+
+    /// <summary>
+    /// How much light from behind shines through thin parts, such as ears or a candle's
+    /// rim, from 0 to 1. It's tinted by the base colour and <see cref="Color"/>.
+    /// </summary>
+    public float Transmission;
+
+    /// <summary>True when the surface scatters light at all.</summary>
+    public readonly bool IsOn => Radius > 0f;
+
+    /// <summary>
+    /// What stops a material from having this subsurface, or null when nothing does.
+    /// Clearcoat, foliage and subsurface share a G-buffer channel.
+    /// </summary>
+    public readonly string? Problem(float clearcoat, MaterialFlags flags)
+    {
+        if (float.IsNaN(Radius) || Radius < 0f)
+        {
+            return "subsurface radius must be 0 or more.";
+        }
+
+        if (!IsOn)
+        {
+            return null;
+        }
+
+        if (clearcoat > 0f)
+        {
+            return "subsurface can't be combined with clearcoat, because they share a G-buffer channel.";
+        }
+
+        if ((flags & MaterialFlags.Foliage) != 0)
+        {
+            return "subsurface can't be combined with foliage, because they share a G-buffer channel.";
+        }
+
+        return null;
+    }
 }

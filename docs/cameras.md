@@ -2,7 +2,7 @@
 
 `view.Camera(position, lookAt)` is all a fixed camera needs. For anything else, keep a
 `Camera` in your game. A `Camera` is a plain value: a position, a target, a field of
-view and optionally a `Size` and a `Shift`.
+view and optionally a `Size`, a `Shift` and a `WideAs`.
 
 ## Clicking on things
 
@@ -122,7 +122,14 @@ public void Update(GameTime time)
 ```
 
 The arm pulls in at once, so the camera never shows the inside of a wall, and eases back
-out once the way is clear. With several walls, pass the nearest hit. `Walk` turns a stick
+out once the way is clear. With several walls, pass the nearest hit. With
+[`Super.Physics`](physics.md#queries), a shape cast tests every wall at once, and a ball
+keeps the camera's near plane out of them too:
+
+```csharp
+var blocked = physics.ShapeCast(Collider.Ball(0.3f), arm.Origin, arm.Direction, reach: boom.Length, layers: Walls);
+boom.Update(player.Position, time.TickSeconds, blockedAt: blocked?.Distance);
+``` `Walk` turns a stick
 into a direction on the ground, so forward goes where the camera faces.
 
 ### First person
@@ -165,6 +172,11 @@ public void Update(GameTime time)
 }
 ```
 
+`Lag` eases the view towards a center it follows, a zoom or a turn. `Pan` moves the view
+straight away, so a camera steered with keys doesn't trail them or drift after they're
+let go. Pan or follow in a tick, not both: following sets `Center` again, so the view would jump
+by the pan and then ease back.
+
 `Turn` walks an isometric camera around by quarter turns, easing there. A top-down camera
 can't rotate. For a top-down view with perspective, use `FollowCamera` with an `Offset`
 straight up.
@@ -193,6 +205,29 @@ var beside = camera with { Shift = new Vector2(0.5f, 0f) };
 ```
 
 Clicking works the same with all of them, because `input.MouseRay` asks the camera.
+
+## Tall screens
+
+The field of view is the angle from top to bottom, so a narrower screen shows less from
+side to side. A game made for a widescreen window loses its sides when it's recorded as
+a vertical video with `--size 1080x1920`. Set `WideAs` to the shape the game was made for,
+and on a narrower screen the view grows taller instead:
+
+```csharp
+var camera = new Camera(eye, target) { WideAs = 16f / 9f };
+var orbit = new OrbitCamera { WideAs = 16f / 9f };
+```
+
+A screen held upright then shows everything a widescreen one shows from side to side,
+with more above and below.
+
+![The Forest example at 1080x1920. On the left, the camera as it was made for
+widescreen, cut off at the sides. On the right, with WideAs = 16/9 and --ui-scale 2.5.](media/tall-screens.webp)
+
+ On a screen as wide as `WideAs` or wider, nothing changes.
+It works with orthographic cameras too, where it grows `Size`, and every camera helper has
+the setting. It's zero, and so off, unless you set it. Clicking stays right, because
+`input.MouseRay` uses the same view.
 
 ## Limits
 

@@ -9,7 +9,8 @@ namespace Super;
 /// <summary>
 /// A model to draw. It only exists until the next frame describes the world again. A
 /// pose skins a rigged model; PoseAhead is how many seconds past the last tick the
-/// display is, so clips keep moving between ticks. A ghost draws it in one colour.
+/// display is, so clips keep moving between ticks. A ghost draws it in one colour. Meshes,
+/// when set, shows only the masked meshes of the model; null shows them all.
 /// </summary>
 public readonly record struct ModelDraw(
     int Key,
@@ -19,10 +20,14 @@ public readonly record struct ModelDraw(
     SwimMotion Swim = default,
     AnimationPose? Pose = null,
     float PoseAhead = 0f,
-    Ghost? Ghost = null);
+    Ghost? Ghost = null,
+    MeshMask? Meshes = null);
 
-/// <summary>A light as far away as the sun, shining the same way everywhere.</summary>
-public readonly record struct SunLight(Vector3 Direction, Vector3 Color);
+/// <summary>
+/// A light as far away as the sun, shining the same way everywhere. One sun casts the
+/// shadows: the one marked with <see cref="CastsShadows"/>, or else the first.
+/// </summary>
+public readonly record struct SunLight(Vector3 Direction, Vector3 Color, bool CastsShadows = false);
 
 /// <summary>
 /// Names a model. <see cref="Content"/> hands these out, and there are built-in shapes one
@@ -67,6 +72,7 @@ public sealed class View
     private readonly List<ModelDraw> _models = [];
     private readonly List<SunLight> _suns = [];
     private readonly List<Particle> _particles = [];
+    private readonly List<LocalLight> _lights = [];
     private readonly ViewMemory _memory = new();
     private long _frame;
     private long _tick;
@@ -85,11 +91,17 @@ public sealed class View
     internal int ShadowCascades { get; private set; }
     internal UiTree? Ui { get; set; }
 
+    /// <summary>How the screen moves between pictures this frame. Set by <see cref="Transitions"/>.</summary>
+    internal ScreenTransition Transition { get; set; }
+
     /// <summary>What the game named, so drawing something it unloaded fails where the mistake is.</summary>
     internal Content? Content { get; set; }
 
     /// <summary>Everything drawn so far this frame.</summary>
     public ReadOnlySpan<ModelDraw> Drawn => CollectionsMarshal.AsSpan(_models);
+
+    /// <summary>Every point and spot light so far this frame.</summary>
+    public ReadOnlySpan<LocalLight> DrawnLights => CollectionsMarshal.AsSpan(_lights);
 
     /// <summary>Every particle drawn so far this frame, in no particular order.</summary>
     public ReadOnlySpan<Particle> DrawnParticles => CollectionsMarshal.AsSpan(_particles);
@@ -106,9 +118,130 @@ public sealed class View
 
     /// <summary>
     /// Adds a sun. The direction points from the ground towards it, and needn't be one
-    /// unit long. Colors above 1 are brighter. The first sun casts the shadows.
+    /// unit long. Colors above 1 are brighter. One sun casts the shadows: the one added
+    /// with <paramref name="shadows"/> set, or else the first. Marking two throws.
     /// </summary>
-    public void Sun(Vector3 direction, Vector3 color) => _suns.Add(new SunLight(Vector3.Normalize(direction), color));
+    public void Sun(Vector3 direction, Vector3 color, bool shadows = false)
+    {
+        if (shadows)
+        {
+            foreach (var sun in _suns)
+            {
+                if (sun.CastsShadows)
+                {
+                    throw new InvalidOperationException(
+                        "Only one sun can cast shadows, and another already does this frame. Pass shadows: true to one sun only.");
+                }
+            }
+        }
+
+        _suns.Add(new SunLight(Vector3.Normalize(direction), color, shadows));
+    }
+
+    /// <summary>
+    /// Adds a light that shines every way from a point, such as a candle or a torch. The
+    /// color is how bright it is on a surface a metre away, and it dims with the square of
+    /// the distance, reaching nothing at the range. The key names it across frames, so its
+    /// shadow stays as sharp as it moves; use a stable ID. A frame can have up to
+    /// <see cref="LocalLight.MaxPerFrame"/>, and lights with shadows share an atlas, so the
+    /// biggest on screen get the sharpest ones. The radius is how big the glowing part is:
+    /// raise it for a light right beside a wall, such as a torch in a bracket, so the wall
+    /// isn't blown out. It also softens the shadows. See "Point and spot lights" in
+    /// docs/views.md.
+    /// </summary>
+    public void PointLight(
+        int key, Vector3 position, Vector3 color, float range, bool shadows = true, float radius = LocalLight.DefaultRadius)
+    {
+        CheckLight(position, color, range, radius);
+        _lights.Add(new LocalLight
+        {
+            Key = key,
+            Position = position,
+            Radiance = color,
+            Range = range,
+            Radius = radius,
+            CastsShadow = shadows,
+        });
+    }
+
+    /// <summary>
+    /// Adds a light that shines one way in a cone, such as a lantern's beam. It's full
+    /// inside the inner angle and fades to nothing at the outer one; both are measured
+    /// from the direction, in radians, and the outer must be under a right angle.
+    /// Otherwise it's like <see cref="PointLight"/>, though it costs a sixth as much shadow.
+    /// </summary>
+    public void SpotLight(
+        int key,
+        Vector3 position,
+        Vector3 direction,
+        Vector3 color,
+        float range,
+        float innerAngle,
+        float outerAngle,
+        bool shadows = true,
+        float radius = LocalLight.DefaultRadius)
+    {
+        CheckLight(position, color, range, radius);
+        if (!(direction.LengthSquared() > 1e-12f) || !float.IsFinite(direction.LengthSquared()))
+        {
+            throw new ArgumentException($"A spot light needs a direction to shine in, not {direction}.", nameof(direction));
+        }
+
+        if (!(outerAngle > 0f && outerAngle < MathF.PI / 2f))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(outerAngle), outerAngle, "A spot light's outer angle must be more than 0 and less than π/2 radians.");
+        }
+
+        if (!(innerAngle >= 0f && innerAngle <= outerAngle))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(innerAngle), innerAngle, "A spot light's inner angle must be from 0 up to its outer angle.");
+        }
+
+        _lights.Add(new LocalLight
+        {
+            Key = key,
+            Position = position,
+            Radiance = color,
+            Range = range,
+            Radius = radius,
+            Direction = Vector3.Normalize(direction),
+            InnerAngle = innerAngle,
+            OuterAngle = outerAngle,
+            CastsShadow = shadows,
+        });
+    }
+
+    private void CheckLight(Vector3 position, Vector3 color, float range, float radius)
+    {
+        if (_lights.Count >= LocalLight.MaxPerFrame)
+        {
+            throw new InvalidOperationException(
+                $"A frame can have at most {LocalLight.MaxPerFrame} point and spot lights. Leave out those too far away to see.");
+        }
+
+        if (!(range > 0f) || !float.IsFinite(range))
+        {
+            throw new ArgumentOutOfRangeException(nameof(range), range, "A light's range must be more than 0 metres.");
+        }
+
+        if (!(radius > 0f && radius < range))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(radius), radius, "A light's radius must be more than 0 metres and less than its range.");
+        }
+
+        if (!float.IsFinite(position.X + position.Y + position.Z))
+        {
+            throw new ArgumentException($"A light can't be at {position}.", nameof(position));
+        }
+
+        if (!(color.X >= 0f && color.Y >= 0f && color.Z >= 0f) || !float.IsFinite(color.X + color.Y + color.Z))
+        {
+            throw new ArgumentException($"A light's color can't be negative, but it was {color}.", nameof(color));
+        }
+    }
 
     /// <summary>
     /// Draws a model. The key names it across frames, so use a stable ID from your game.
@@ -131,6 +264,21 @@ public sealed class View
         Model(key, model, transform, color, swim, null);
 
     /// <summary>
+    /// Draws only some meshes of a model, the ones <see cref="Content.Meshes"/> picked for
+    /// the mask. Meshes it leaves out are not drawn, and cost no triangles. The mask must have
+    /// been made for this model.
+    /// </summary>
+    public void Model(int key, ModelRef model, Matrix4x4 transform, MeshMask meshes, Vector3? color = null) =>
+        Model(key, model, transform, color, default, null, meshes);
+
+    /// <summary>
+    /// Draws some meshes of a rigged model in a pose, as <see cref="Model(int, ModelRef, Matrix4x4, AnimationPose, Vector3?)"/>
+    /// does, but only the meshes the mask shows. The whole skeleton is still skinned once.
+    /// </summary>
+    public void Model(int key, ModelRef model, Matrix4x4 transform, AnimationPose pose, MeshMask meshes, Vector3? color = null) =>
+        Model(key, model, transform, color, default, pose, meshes);
+
+    /// <summary>
     /// Draws a rigged model in a pose from an <see cref="Animator"/>. The model must have
     /// been cooked with a skeleton, and the pose's rig must be the model's own. Clips
     /// keep moving between ticks, like <see cref="Smooth"/> does for transforms.
@@ -143,18 +291,35 @@ public sealed class View
     /// <see cref="Content.Rig"/>, which knows the model; otherwise pass the model and
     /// <see cref="Animator.Pose"/> instead.
     /// </summary>
-    public void Model(int key, Animator animator, Matrix4x4 transform, Vector3? color = null)
+    public void Model(int key, Animator animator, Matrix4x4 transform, Vector3? color = null) =>
+        DrawAnimated(key, animator, transform, color, null);
+
+    /// <summary>
+    /// Draws an animated character in its current pose, with only the meshes the mask shows.
+    /// The skeleton is still skinned once for the draw, not once per part.
+    /// </summary>
+    public void Model(int key, Animator animator, Matrix4x4 transform, MeshMask meshes, Vector3? color = null) =>
+        DrawAnimated(key, animator, transform, color, meshes);
+
+    private void DrawAnimated(int key, Animator animator, Matrix4x4 transform, Vector3? color, MeshMask? meshes)
     {
         if (animator.Rig.Model is not { } model)
         {
             throw new InvalidOperationException("The animator's rig wasn't read with content.Rig, so it has no model. Pass the model and the animator's Pose instead.");
         }
 
-        Model(key, model, transform, color, default, animator.Pose);
+        Model(key, model, transform, color, default, animator.Pose, meshes);
     }
 
     /// <summary>Draws a model with a color, a swimming motion and a pose, any of which may be left out.</summary>
-    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim, AnimationPose? pose)
+    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim, AnimationPose? pose) =>
+        Model(key, model, transform, color, swim, pose, null);
+
+    /// <summary>
+    /// The full draw: a color, a swimming motion, a pose and the meshes to show, any of which
+    /// may be left out. Throws if the mask was made for another model.
+    /// </summary>
+    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim, AnimationPose? pose, MeshMask? meshes)
     {
         if (model.Index < -Shapes.BuiltInNames.Length)
         {
@@ -166,7 +331,12 @@ public sealed class View
             throw new InvalidOperationException($"Model {model.Index} was unloaded, so it can't be drawn.");
         }
 
-        _models.Add(new ModelDraw(key, model, transform, color, swim, pose, pose is null ? 0f : Blend * _tickSeconds * _timeScale));
+        if (meshes is { } mask && mask.Model != model.Index)
+        {
+            throw new ArgumentException($"The mesh mask was made for model {mask.Model}, not model {model.Index}. Make it with Content.Meshes for this model.", nameof(meshes));
+        }
+
+        _models.Add(new ModelDraw(key, model, transform, color, swim, pose, pose is null ? 0f : Blend * _tickSeconds * _timeScale, null, meshes));
     }
 
     /// <summary>
@@ -176,14 +346,21 @@ public sealed class View
     /// An opacity below 1 lets the world show through. A ghost casts no shadow. The colour
     /// is linear, from 0 to 1.
     /// </summary>
-    public void Ghost(int key, ModelRef model, Matrix4x4 transform, Vector3 color, float opacity = 1f)
+    public void Ghost(int key, ModelRef model, Matrix4x4 transform, Vector3 color, float opacity = 1f) =>
+        Ghost(key, model, transform, null, color, opacity);
+
+    /// <summary>
+    /// Draws only the meshes a <see cref="MeshMask"/> shows as a ghost, such as a preview of a
+    /// unit in the look it will have. The mask must have been made for this model.
+    /// </summary>
+    public void Ghost(int key, ModelRef model, Matrix4x4 transform, MeshMask? meshes, Vector3 color, float opacity = 1f)
     {
         if (!(opacity > 0f && opacity <= 1f))
         {
             throw new ArgumentOutOfRangeException(nameof(opacity), opacity, "A ghost's opacity must be more than 0 and at most 1.");
         }
 
-        Model(key, model, transform, null);
+        Model(key, model, transform, null, default, null, meshes);
         _models[^1] = _models[^1] with { Ghost = new Ghost(color, opacity) };
     }
 
@@ -385,11 +562,15 @@ public sealed class View
         _models.Clear();
         _suns.Clear();
         _particles.Clear();
+        _lights.Clear();
         WaterSettings = default;
         SkySettings = null;
         Post = new PostSettings { Vignette = 0.3f, Sharpen = 0.4f };
         ShadowRadius = 8f;
         ShadowCascades = 1;
+
+        // The hold stays, since changing it is what tells the renderer to keep a picture.
+        Transition = new ScreenTransition { Hold = Transition.Hold };
         Camera(new Vector3(0f, 0f, 5f), Vector3.Zero);
     }
 }

@@ -5,7 +5,7 @@ namespace Super;
 /// cutscene plays, the director holds the camera, whatever Draw sets, and the time scale,
 /// and runs its moments just before each Update. When it ends, both go back to the game.
 /// </summary>
-public sealed class Director(GameTime time)
+public sealed class Director(GameTime time, Transitions transitions)
 {
     private Cutscene? _scene;
     private long _ticks;
@@ -25,6 +25,13 @@ public sealed class Director(GameTime time)
     internal Camera Previous { get; private set; }
 
     internal Camera Current { get; private set; }
+
+    /// <summary>
+    /// Whether a cutscene has placed a camera. It starts on the tick after Play, so until
+    /// then the game's camera shows, or the last cutscene's, and a blend into the first
+    /// shot starts from it.
+    /// </summary>
+    internal bool HasCamera { get; private set; }
 
     /// <summary>Starts a cutscene from its beginning on the next tick, ending any that's playing.</summary>
     public void Play(Cutscene cutscene)
@@ -53,6 +60,7 @@ public sealed class Director(GameTime time)
         }
 
         _scene = null;
+        HasCamera = false;
         time.Scale = _scaleBefore;
     }
 
@@ -68,18 +76,27 @@ public sealed class Director(GameTime time)
         _ticks++;
         if (Seconds > _scene.Seconds)
         {
+            // Started before Stop, so a blend sets off from the cutscene's last camera.
+            var scene = _scene;
+            scene.StartTransitions(from, scene.Seconds, transitions);
             Stop();
+            if (scene.EndTransition is { } end)
+            {
+                transitions.Start(end, null, 0f);
+            }
+
             return;
         }
 
         time.Scale = _scene.ScaleAt(Seconds);
+        _scene.StartTransitions(from, Seconds, transitions);
         _scene.Cue(from, Seconds);
     }
 
     /// <summary>Places the camera once the tick has moved everything, so it sees where things are now.</summary>
     internal void AfterUpdate()
     {
-        if (_scene is null)
+        if (_scene is null || _ticks < 0)
         {
             return;
         }
@@ -91,6 +108,7 @@ public sealed class Director(GameTime time)
         Previous = shot == _shot ? Current : camera;
         Current = camera;
         _shot = shot;
+        HasCamera = true;
     }
 
     /// <summary>The camera a frame shows, between the last two ticks.</summary>
