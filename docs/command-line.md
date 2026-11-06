@@ -23,6 +23,7 @@ dotnet run -c Release --project MyColony -- --script tooltip --ticks 40 --screen
 | `--frames N` | How many frames `--profile` measures, 60 by default |
 | `--script name` | Plays one of the game's [input scripts](#scripted-input) |
 | `--no-vsync` | Plays in the window without waiting for the display |
+| `--no-materials` | Draws every surface as plain grey clay, to judge the lighting. Works in the window and with `--screenshot`, `--record` and `--profile`. Same as [`Graphics.Materials`](rendering.md#graphics-settings) set to false |
 | `--user-data folder` | Keeps [user data](user-data.md) in this folder. Without it, the window uses the player's folder and runs without a window use a throwaway one |
 
 `--screenshot`, `--record` and `--profile` can't run together. A mistake in the options

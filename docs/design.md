@@ -861,6 +861,14 @@ reflections still need last frame's picture, so the HDR image is copied to histo
 of the resolved one. With reflections off too, nothing is copied and history counts as
 stale. Vsync switches by remaking the swapchain on the next frame.
 
+`RenderEffects.Materials` skips no pass. It's read where surfaces are written: `writeSurface()`
+in `surface.glsl` writes `PLAIN_COLOR` and `PLAIN_ROUGHNESS` from `common.glsl`, no metal, full
+AO and the mesh's own normal, after the surface shader has run, so every custom material is
+covered with no change of its own. Emissive and foliage translucency are kept, and a cut-out
+still discards before it gets there. `transparent.frag` keeps the surface's alpha but takes the
+plain colour and roughness, and samples the scene straight behind with no refraction or frost.
+Ghosts are left as they are, since they're already a flat colour.
+
 The frame limit lives in Super's window loop, not the renderer (`FrameLimiter`). Each frame
 gets a slot one period after the last, so a long frame is made up by a shorter wait. A frame
 more than a period past its slot starts the count again instead of rushing to catch up. It

@@ -75,6 +75,14 @@ void main() {
         roughnessOfSurface = 0.7;
     }
 
+    // With materials off, see-through things keep how see-through they are, and only that:
+    // plain clay in colour, matte, and clear, with no bending or frosting of what's behind.
+    bool plain = isOff(OFF_MATERIALS) && draw.ghost.a <= 0.0;
+    if (plain) {
+        baseColor.rgb = PLAIN_COLOR;
+        roughnessOfSurface = PLAIN_ROUGHNESS;
+    }
+
     vec3 n = normalize(gl_FrontFacing ? inNormal : -inNormal);
     vec3 v = normalize(frame.cameraPosition.xyz - inPosition);
     float nDotV = max(dot(n, v), 1e-4);
@@ -131,8 +139,8 @@ void main() {
     }
 
     vec2 here = gl_FragCoord.xy / vec2(textureSize(sceneDepth, 0));
-    vec2 uv = refractedUv(here, v, n, material.ior);
-    float lod = min(roughnessOfSurface * FROST_LODS, float(textureQueryLevels(sceneColor) - 1));
+    vec2 uv = plain ? here : refractedUv(here, v, n, material.ior);
+    float lod = plain ? 0.0 : min(roughnessOfSurface * FROST_LODS, float(textureQueryLevels(sceneColor) - 1));
     vec3 transmitted = textureLod(sceneColor, uv, lod).rgb;
     outColor = vec4(own + (1.0 - coverage) * transmitted, 1.0);
 }

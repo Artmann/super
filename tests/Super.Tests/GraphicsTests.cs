@@ -34,6 +34,7 @@ public class GraphicsTests
     [InlineData(nameof(Graphics.Reflections), RenderEffects.Reflections)]
     [InlineData(nameof(Graphics.AntiAliasing), RenderEffects.AntiAliasing)]
     [InlineData(nameof(Graphics.Bloom), RenderEffects.Bloom)]
+    [InlineData(nameof(Graphics.Materials), RenderEffects.Materials)]
     public void Each_switch_turned_off_leaves_out_only_its_own_effect(string setting, RenderEffects effect)
     {
         var graphics = new Graphics();
@@ -43,12 +44,29 @@ public class GraphicsTests
     }
 
     [Fact]
-    public void Fastest_leaves_out_every_effect_and_turns_vsync_off()
+    public void Fastest_leaves_out_every_effect_but_keeps_the_materials_and_turns_vsync_off()
     {
         var graphics = Graphics.Fastest();
 
-        Assert.Equal(RenderEffects.All, graphics.Off);
+        Assert.Equal(
+            RenderEffects.SunShadows | RenderEffects.LightShadows | RenderEffects.AmbientOcclusion
+            | RenderEffects.Reflections | RenderEffects.AntiAliasing | RenderEffects.Bloom,
+            graphics.Off);
+        Assert.True(graphics.Materials);
         Assert.False(graphics.Vsync);
+    }
+
+    [Fact]
+    public void Materials_can_be_turned_off_and_back_on_while_the_game_runs()
+    {
+        var given = new Graphics();
+        using var host = new GameHost<Settings>(1, 30, null, graphics: given);
+
+        host.Game.Graphics.Materials = false;
+        Assert.Equal(RenderEffects.Materials, host.Graphics.Off);
+
+        host.Game.Graphics.Materials = true;
+        Assert.Equal(RenderEffects.None, host.Graphics.Off);
     }
 
     [Fact]

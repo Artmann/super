@@ -602,7 +602,14 @@ public enum RenderEffects
     /// <summary>The glow round bright things.</summary>
     Bloom = 1 << 5,
 
-    All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom,
+    /// <summary>
+    /// Every material's colour, textures, normal maps and shine. Without them every surface is the same
+    /// light grey, matte clay, shaped only by its mesh, which shows the lighting and the models on their own.
+    /// Cut-outs still cut, glows still glow and see-through things stay see-through.
+    /// </summary>
+    Materials = 1 << 6,
+
+    All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials,
 }
 
 /// <summary>
