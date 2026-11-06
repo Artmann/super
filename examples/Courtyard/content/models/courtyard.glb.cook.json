@@ -2,13 +2,14 @@
   "materials": [
     { "match": "graph_bricks", "graph": "../materials/bricks.material.cs" },
     { "match": "graph_stone", "graph": "../materials/stone.material.cs" },
-    { "match": "graph_cobble", "graph": "../materials/stone.material.cs", "color": [0.92, 0.9, 0.86] },
+    { "match": "graph_flagstone", "graph": "../materials/stone.material.cs", "color": [0.92, 0.9, 0.86] },
     { "match": "graph_dirt", "graph": "../materials/mud.material.cs", "graphSize": 2048 },
     { "match": "graph_wood", "graph": "../materials/wood.material.cs" },
     { "match": "graph_rust", "graph": "../materials/rusty-metal.material.cs" },
     { "match": "cy_ivy", "twoSided": true },
     { "match": "cy_dead_leaf", "twoSided": true },
     { "match": "cy_plaster", "twoSided": true },
+    { "match": "cy_grass", "twoSided": true },
     { "match": "cy_bulb", "emissiveColor": [8.0, 5.6, 3.0] },
     { "match": "graph_glass", "graph": "../materials/glass.material.cs", "transparent": true },
     { "match": "cy_water", "roughness": 0.02, "metallic": 0 }

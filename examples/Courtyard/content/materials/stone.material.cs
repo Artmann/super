@@ -1,6 +1,6 @@
 using Super.Materials;
 
-/// <summary>Weathered grey-brown stone with pits, fine grit and patches of moss, for the rough stones of the walls and the cobbles.</summary>
+/// <summary>Weathered grey-brown stone with pits, fine grit and patches of moss, for the stones of the walls, the plinth, the sill and the flagstones.</summary>
 public sealed class Stone : MaterialGraph
 {
     public override Material Build()
