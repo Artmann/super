@@ -135,6 +135,55 @@ materials/bricks.material.cs: size must be a power of two from 16 to 4096, not 1
 Sizes and distances in nodes are fractions of the image, so a graph looks the same at
 every size, only sharper. The one exception is `RandomGray`, described below.
 
+## Variants
+
+A variant makes a second material from the same graph, with other values. It is a small
+`*.material.json` file:
+
+```json
+// content/materials/mossy_bricks.material.json
+{ "graph": "bricks.material.cs", "seed": 7, "moss": 0.8 }
+```
+
+`graph` is the path of the graph file, relative to the variant's folder. It must be a
+`.material.cs` file, not another variant. The other names set the graph's parameters, and
+the case doesn't matter. A parameter is a public `init` property of the graph class, of
+type `float`, `int`, `bool` or `string`:
+
+```csharp
+public sealed class Bricks : MaterialGraph
+{
+    public float Moss { get; init; } = 0.2f;
+
+    public override Material Build() { /* uses Moss */ }
+}
+```
+
+Every graph also has `Seed`, so `"seed"` works in any variant. A graph cooked by itself
+has seed 0. A parameter you leave out keeps the value the graph gives it. A number for an
+`int` must be whole.
+
+A variant cooks to its own parts, such as `mossy_bricks.material.json#color`, and its size
+comes from the same settings as any other material. It cooks again when the variant or the
+graph changes.
+
+## Images
+
+`Image("rock.png")` reads a picture into the graph as an `Rgb`. The path is relative to the
+file being cooked, so for a variant it is relative to the variant. Use it to start from a
+photo or a hand-painted mask:
+
+```csharp
+var rock = Image("rock.png");
+var height = rock.Multiply(Gray.Of(0.5f));
+```
+
+The picture is stretched to the graph's size with bilinear sampling, wrapping at the
+edges. Alpha is ignored. The colours are used as they are stored in the file, 0..1, with
+no conversion from sRGB, just as `Rgb.Of("#8c4632")` is. The file is read when `Image` is
+called, even if the graph never uses the result, and a change to it cooks the graph again.
+A file that isn't there stops the cook with the line of the call.
+
 ## Mistakes
 
 A graph that doesn't compile fails the cook with the compiler's message and the line it
@@ -156,6 +205,19 @@ node:
 ```
 C:\game\content\materials\bricks.material.cs(9): error SUPER001: scale must be at least 1, not 0. (Parameter 'scale')
 ```
+
+A variant that can't be used says why, with the variant's name first:
+
+```
+mossy.material.json needs "graph", the .material.cs file it sets values for.
+mossy.material.json: graph must be a .material.cs file, not other.material.json.
+mossy.material.json: Bricks has no parameter called mos. It has mortar, moss, seed.
+mossy.material.json: moss is a number, not "lots".
+```
+
+The parameter names in the list are lower case, in alphabetical order. The other types
+say `is a whole number`, `is true or false` and `is text`. A graph path that is missing,
+or that differs from the real file only in case, is an error that names the file.
 
 ## Nodes
 
@@ -282,9 +344,3 @@ horizon in eight directions, out to `radius` of the image, 0 to 1. 1 is open and
 hidden. A radius under one pixel finds nothing, so at the default radius occlusion
 vanishes below about size 20. The cooker multiplies the material's occlusion into the
 colour for you.
-
-## Not yet
-
-Variants, small `*.material.json` files that set a graph's parameters and seed, are
-planned. A `.material.json` file fails the cook for now. Reading images into a graph with
-`Image("rock.png")` is planned too.

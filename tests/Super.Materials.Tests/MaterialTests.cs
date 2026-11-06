@@ -134,11 +134,13 @@ public class MaterialTests
     }
 
     [Fact]
-    public void Images_in_a_graph_are_not_built_yet()
+    public void An_image_without_a_way_to_read_images_is_an_error()
     {
         var graph = new ImageGraph();
 
-        Assert.Throws<NotSupportedException>(() => GraphRunner.Run(graph, 8));
+        var error = Assert.Throws<InvalidOperationException>(() => GraphRunner.Run(graph, 8));
+
+        Assert.Equal("This graph was run without a way to read images.", error.Message);
     }
 
     sealed class ImageGraph : MaterialGraph

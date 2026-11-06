@@ -4,7 +4,7 @@ using Super.Cook.Materials;
 
 namespace Super.Cook.Tests;
 
-public sealed class MaterialCookerTests
+public sealed class MaterialCookerTests : IDisposable
 {
     private const string SmallSize = """{ "rules": [{ "match": "*.material.*", "material": { "size": 16 } }] }""";
 
@@ -201,15 +201,6 @@ public sealed class MaterialCookerTests
     }
 
     [Fact]
-    public void A_material_variant_is_not_supported_yet()
-    {
-        var (result, _) = Cook(("x.material.json", """{ "graph": "bricks.material.cs" }"""));
-
-        Assert.Equal("x.material.json: material variants aren't supported yet.",
-            Assert.Single(result.Problems, p => p.IsError).Message);
-    }
-
-    [Fact]
     public void Nan_is_written_as_zero_with_a_warning()
     {
         // NanHeight sets Height = Gray.Of(float.NaN). The normal and colour may warn too,
@@ -247,5 +238,280 @@ public sealed class MaterialCookerTests
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
         Assert.Equal("""{"width":6}""", Encoding.UTF8.GetString(Data(store, "linq.material.cs#material")));
+    }
+
+    private const string Moss = """
+        using Super.Materials;
+
+        public sealed class Bricks : MaterialGraph
+        {
+            public float Moss { get; init; } = 0.2f;
+
+            public float Mortar { get; init; } = 0.5f;
+
+            public override Material Build() => new Material { Color = Rgb.Of(Moss, Mortar, 0f) };
+        }
+        """;
+
+    private const string Typed = """
+        using Super.Materials;
+
+        public sealed class Typed : MaterialGraph
+        {
+            public int Count { get; init; } = 3;
+
+            public bool Wet { get; init; }
+
+            public string Label { get; init; } = "";
+
+            public float Moss { get; init; }
+
+            // Not parameters: one has no setter, one a plain set, and one a type a variant can't set.
+            public float Fixed { get; } = 1f;
+
+            public float Loose { get; set; }
+
+            public int[] Many { get; init; } = [];
+
+            public override Material Build() => new Material { Width = Count + (Wet ? 100 : 0) + Label.Length };
+        }
+        """;
+
+    private readonly List<string> _folders = [];
+
+    public void Dispose()
+    {
+        foreach (string folder in _folders)
+        {
+            Directory.Delete(folder, true);
+        }
+    }
+
+    private string Temp()
+    {
+        string folder = Path.Combine(Path.GetTempPath(), "super-materials-" + Guid.NewGuid().ToString("N"));
+        _folders.Add(folder);
+        Directory.CreateDirectory(folder);
+        return folder;
+    }
+
+    private static string FirstProblem(CookResult result)
+    {
+        return Assert.Single(result.Problems, p => p.IsError).Message;
+    }
+
+    private static byte[] Png(int width, int height, byte[] rgba)
+    {
+        string path = Path.Combine(Path.GetTempPath(), "super-materials-" + Guid.NewGuid().ToString("N") + ".png");
+        try
+        {
+            PngFile.Write(path, rgba, width, height);
+            return File.ReadAllBytes(path);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    private static string Hash(MemoryStore store, string name) => store.Manifest.Assets[name].Hash;
+
+    private static CookResult CookFolder(string source, string cache, MemoryStore store)
+    {
+        return new CookPipeline([.. BuiltInCookers.All, new MaterialCooker()], new CookOptions(CacheFolder: cache)).Cook([new FolderRoot(source)], store);
+    }
+
+    [Fact]
+    public void A_variant_changes_the_pixels()
+    {
+        var (result, store) = Cook(("bricks.material.cs", Moss), ("mossy.material.json", """{ "graph": "bricks.material.cs", "moss": 0.8 }"""));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Equal([51, 128, 0, 255], Texture(store, "bricks.material.cs#color").Pixels[..4]);
+        Assert.Equal([204, 128, 0, 255], Texture(store, "mossy.material.json#color").Pixels[..4]);
+        Assert.NotEqual(Hash(store, "bricks.material.cs#color"), Hash(store, "mossy.material.json#color"));
+    }
+
+    [Fact]
+    public void A_variant_sets_ints_bools_and_text()
+    {
+        var (result, store) = Cook(("typed.material.cs", Typed), ("v.material.json", """{ "graph": "typed.material.cs", "COUNT": 4, "wet": true, "Label": "ab" }"""));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Equal("""{"width":106}""", Encoding.UTF8.GetString(Data(store, "v.material.json#material")));
+    }
+
+    [Fact]
+    public void A_variant_finds_its_graph_beside_itself()
+    {
+        var (result, store) = Cook(("a/bricks.material.cs", Moss), ("a/mossy.material.json", """{ "graph": "bricks.material.cs", "moss": 0.8 }"""));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Equal([204, 128, 0, 255], Texture(store, "a/mossy.material.json#color").Pixels[..4]);
+    }
+
+    [Fact]
+    public void A_variant_cooks_again_when_its_graph_changes()
+    {
+        string source = Temp();
+        string cache = Temp();
+        File.WriteAllText(Path.Combine(source, "cook.json"), SmallSize);
+        File.WriteAllText(Path.Combine(source, "bricks.material.cs"), Moss);
+        File.WriteAllText(Path.Combine(source, "mossy.material.json"), """{ "graph": "bricks.material.cs", "mortar": 1 }""");
+
+        var firstStore = new MemoryStore();
+        Assert.True(CookFolder(source, cache, firstStore).Succeeded);
+        File.WriteAllText(Path.Combine(source, "bricks.material.cs"), Moss.Replace("0.2f", "0.4f"));
+        var secondStore = new MemoryStore();
+        Assert.True(CookFolder(source, cache, secondStore).Succeeded);
+
+        Assert.Equal([51, 255, 0, 255], Texture(firstStore, "mossy.material.json#color").Pixels[..4]);
+        Assert.Equal([102, 255, 0, 255], Texture(secondStore, "mossy.material.json#color").Pixels[..4]);
+        Assert.NotEqual(Hash(firstStore, "mossy.material.json#color"), Hash(secondStore, "mossy.material.json#color"));
+    }
+
+    [Fact]
+    public void A_variant_without_a_graph_says_what_it_needs()
+    {
+        var (result, _) = Cook(("mossy.material.json", """{ "moss": 0.8 }"""));
+
+        Assert.Equal("mossy.material.json needs \"graph\", the .material.cs file it sets values for.", FirstProblem(result));
+    }
+
+    [Fact]
+    public void A_variant_cannot_name_another_variant()
+    {
+        var (result, _) = Cook(("a.material.json", """{ "graph": "b.material.json" }"""));
+
+        Assert.Equal("a.material.json: graph must be a .material.cs file, not b.material.json.", FirstProblem(result));
+    }
+
+    [Fact]
+    public void An_unknown_parameter_lists_the_ones_there_are()
+    {
+        var (result, _) = Cook(("bricks.material.cs", Moss), ("mossy.material.json", """{ "graph": "bricks.material.cs", "mos": 0.8 }"""));
+
+        Assert.Equal("mossy.material.json: Bricks has no parameter called mos. It has mortar, moss, seed.", FirstProblem(result));
+    }
+
+    [Fact]
+    public void A_parameter_of_the_wrong_type_says_what_it_wants()
+    {
+        var (result, _) = Cook(
+            ("bricks.material.cs", Moss),
+            ("typed.material.cs", Typed),
+            ("number.material.json", """{ "graph": "bricks.material.cs", "moss": "lots" }"""),
+            ("whole.material.json", """{ "graph": "typed.material.cs", "count": 1.5 }"""),
+            ("bool.material.json", """{ "graph": "typed.material.cs", "wet": 1 }"""),
+            ("text.material.json", """{ "graph": "typed.material.cs", "label": 7 }"""),
+            ("seed.material.json", """{ "graph": "typed.material.cs", "seed": "x" }"""));
+
+        string[] messages = [.. result.Problems.Where(p => p.IsError).Select(p => p.Message).Order(StringComparer.Ordinal)];
+        Assert.Equal(
+            [
+                "bool.material.json: wet is true or false, not 1.",
+                "number.material.json: moss is a number, not \"lots\".",
+                "seed.material.json: seed is a whole number, not \"x\".",
+                "text.material.json: label is text, not 7.",
+                "whole.material.json: count is a whole number, not 1.5.",
+            ],
+            messages);
+    }
+
+    [Fact]
+    public void Only_public_init_parameters_of_simple_types_are_listed()
+    {
+        var (result, _) = Cook(("typed.material.cs", Typed), ("v.material.json", """{ "graph": "typed.material.cs", "fixed": 2 }"""));
+
+        Assert.Equal("v.material.json: Typed has no parameter called fixed. It has count, label, moss, seed, wet.", FirstProblem(result));
+    }
+
+    [Fact]
+    public void A_graph_that_is_missing_is_an_error()
+    {
+        var (result, _) = Cook(("mossy.material.json", """{ "graph": "nope.material.cs" }"""));
+
+        Assert.Equal("nope.material.cs isn't in the source root.", FirstProblem(result));
+    }
+
+    [Fact]
+    public void A_graph_named_in_the_wrong_case_says_so()
+    {
+        var (result, _) = Cook(("bricks.material.cs", Moss), ("mossy.material.json", """{ "graph": "Bricks.material.cs" }"""));
+
+        Assert.Contains("but bricks.material.cs is. Names are case-sensitive.", FirstProblem(result));
+    }
+
+    [Fact]
+    public void A_variant_that_is_not_json_is_an_error()
+    {
+        var (result, _) = Cook(("mossy.material.json", "{ nope"));
+
+        Assert.StartsWith("mossy.material.json: ", FirstProblem(result));
+    }
+
+    [Fact]
+    public void Seed_in_a_variant_reaches_the_graph()
+    {
+        const string noisy = """
+            using Super.Materials;
+
+            public sealed class Noisy : MaterialGraph
+            {
+                public override Material Build() => new Material { Height = Noise.Perlin(scale: 4) };
+            }
+            """;
+
+        var (result, store) = Cook(
+            ("noisy.material.cs", noisy),
+            ("one.material.json", """{ "graph": "noisy.material.cs", "seed": 1 }"""),
+            ("two.material.json", """{ "graph": "noisy.material.cs", "seed": 2 }"""));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.NotEqual(Hash(store, "one.material.json#height"), Hash(store, "two.material.json#height"));
+        Assert.NotEqual(Hash(store, "noisy.material.cs#height"), Hash(store, "one.material.json#height"));
+    }
+
+    [Fact]
+    public void An_image_is_resampled_with_bilinear_wrap()
+    {
+        var root = new MemoryRoot { ["cook.json"] = SmallSize, ["rock.material.cs"] = Graph("        return new Material { Color = Image(\"rock.png\").Multiply(Gray.Of(1f)) };") };
+        root.Add("rock.png", Png(2, 1, [255, 0, 0, 255, 0, 0, 255, 255]));
+        var store = new MemoryStore();
+
+        var result = new CookPipeline([.. BuiltInCookers.All, new MaterialCooker()], new CookOptions()).Cook([root], store);
+
+        // Pixel 0 is at u 1/32, so it is 0.5625 of the way from the wrapped-round blue to the red, and not linearised.
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Equal([143, 0, 112, 255], Texture(store, "rock.material.cs#color").Pixels[..4]);
+    }
+
+    [Fact]
+    public void An_image_input_is_tracked()
+    {
+        string source = Temp();
+        string cache = Temp();
+        File.WriteAllText(Path.Combine(source, "cook.json"), SmallSize);
+        File.WriteAllText(Path.Combine(source, "rock.material.cs"), Graph("        return new Material { Color = Image(\"rock.png\").Multiply(Gray.Of(1f)) };"));
+        File.WriteAllBytes(Path.Combine(source, "rock.png"), Png(1, 1, [255, 0, 0, 255]));
+
+        var firstStore = new MemoryStore();
+        Assert.True(CookFolder(source, cache, firstStore).Succeeded);
+        File.WriteAllBytes(Path.Combine(source, "rock.png"), Png(1, 1, [0, 0, 255, 255]));
+        var secondStore = new MemoryStore();
+        Assert.True(CookFolder(source, cache, secondStore).Succeeded);
+
+        Assert.Equal([255, 0, 0, 255], Texture(firstStore, "rock.material.cs#color").Pixels[..4]);
+        Assert.Equal([0, 0, 255, 255], Texture(secondStore, "rock.material.cs#color").Pixels[..4]);
+    }
+
+    [Fact]
+    public void An_image_that_is_not_there_is_an_error_at_the_graph_line()
+    {
+        var (result, _) = Cook(("rock.material.cs", Graph("        return new Material { Color = Image(\"nope.png\").Multiply(Gray.Of(1f)) };")));
+
+        var error = Assert.Single(result.Problems, p => p.IsError);
+        Assert.Equal("nope.png isn't in the source root.", error.Message);
+        Assert.Equal(8, error.Line);
     }
 }
