@@ -53,12 +53,11 @@ static class DistanceTransform
             return result;
         }
 
-        var columns = new double[size * size];
+        // Squared distances along a column are at most (size / 2)^2, so a float holds them exactly up to size 8192.
+        var columns = new float[size * size];
 
-        context.Rows(x =>
+        context.Rows(() => new Line(size), (x, line) =>
         {
-            var line = new Line(size);
-
             for (var k = 0; k < 3 * size; k++)
             {
                 line.F[k] = seeds[k % size * size + x] ? 0.0 : Far;
@@ -68,17 +67,18 @@ static class DistanceTransform
 
             for (var y = 0; y < size; y++)
             {
-                columns[y * size + x] = line.D[size + y];
+                var d = line.D[size + y];
+
+                // A column with no seed holds about Far, which a float would round, so it is stored as infinity.
+                columns[y * size + x] = d >= Far / 2 ? float.PositiveInfinity : (float)d;
             }
         });
 
-        context.Rows(y =>
+        context.Rows(() => new Line(size), (y, line) =>
         {
-            var line = new Line(size);
-
             for (var k = 0; k < 3 * size; k++)
             {
-                line.F[k] = columns[y * size + k % size];
+                line.F[k] = float.IsPositiveInfinity(columns[y * size + k % size]) ? Far : columns[y * size + k % size];
             }
 
             line.Run();

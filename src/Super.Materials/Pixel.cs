@@ -72,9 +72,9 @@ public readonly ref struct PixelArgs
     {
         if (input < 0 || input >= _inputs.Length)
         {
-            var count = _inputs.Length == 1 ? "1 input" : $"{_inputs.Length} inputs";
+            var count = _inputs.Length == 1 ? "1 input" : FormattableString.Invariant($"{_inputs.Length} inputs");
 
-            throw new ArgumentOutOfRangeException(nameof(input), $"{used}({input}) has no input {input}: the node has {count}.");
+            throw new ArgumentOutOfRangeException(nameof(input), FormattableString.Invariant($"{used}({input}) has no input {input}: the node has {count}."));
         }
 
         if (_channels[input] != channels)
@@ -82,7 +82,7 @@ public readonly ref struct PixelArgs
             var needs = channels == 1 ? "one" : "three";
             var has = _channels[input] == 1 ? "one" : "three";
 
-            throw new InvalidOperationException($"{used}({input}) needs a {needs}-channel input, but input {input} has {has}. Use {instead}({input}) for it.");
+            throw new InvalidOperationException(FormattableString.Invariant($"{used}({input}) needs a {needs}-channel input, but input {input} has {has}. Use {instead}({input}) for it."));
         }
     }
 }
