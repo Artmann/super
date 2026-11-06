@@ -6,6 +6,7 @@
     { "match": "graph_dirt", "graph": "../materials/mud.material.cs", "graphSize": 2048 },
     { "match": "graph_wood", "graph": "../materials/wood.material.cs" },
     { "match": "graph_rust", "graph": "../materials/rusty-metal.material.cs" },
+    { "match": "graph_sack", "graph": "../materials/burlap.material.cs" },
     { "match": "cy_ivy", "twoSided": true },
     { "match": "cy_dead_leaf", "twoSided": true },
     { "match": "cy_plaster", "twoSided": true },
