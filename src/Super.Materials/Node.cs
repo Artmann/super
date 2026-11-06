@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Super.Materials;
 
 /// <summary>
@@ -16,7 +18,7 @@ internal abstract class Node
         Inputs = inputs;
         Index = context.TakeIndex();
         _graphSeed = context.Seed;
-        Seed = SeedFor($"node {Index}");
+        Seed = SeedFor(string.Create(CultureInfo.InvariantCulture, $"node {Index}"));
     }
 
     public int Index { get; }
@@ -30,7 +32,7 @@ internal abstract class Node
     /// <summary>For a node that takes a <c>seed:</c>. Mixes it into this node's seed.</summary>
     protected void UseSeed(int seed)
     {
-        Seed = SeedFor($"node {Index} seed {seed}");
+        Seed = SeedFor(string.Create(CultureInfo.InvariantCulture, $"node {Index} seed {seed}"));
     }
 
     internal abstract void Evaluate(EvaluationContext context, float[][] inputs, float[] output);

@@ -140,6 +140,32 @@ public class GeneratorTests
     }
 
     [Fact]
+    public void A_negative_seed_gives_the_same_pixels_under_a_swedish_culture()
+    {
+        // sv-SE writes a negative number with U+2212, not '-'. The seed's name must not depend on that.
+        var english = InCulture("en-US", () => GraphRunner.Evaluate(() => Noise.White(seed: -3), 16, maxThreads: 1));
+        var swedish = InCulture("sv-SE", () => GraphRunner.Evaluate(() => Noise.White(seed: -3), 16, maxThreads: 1));
+
+        Assert.Equal(english, swedish);
+    }
+
+    static T InCulture<T>(string name, Func<T> work)
+    {
+        var before = System.Globalization.CultureInfo.CurrentCulture;
+
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo(name);
+
+            return work();
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = before;
+        }
+    }
+
+    [Fact]
     public void Cells_id_gives_each_cell_one_value()
     {
         // Scale 2 at size 32 with no jitter: points are at the middle of each 16 pixel cell, and Id is flat around each.
