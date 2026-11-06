@@ -20,7 +20,12 @@ public class GeneratorTests
 
             foreach (var row in SmoothGenerators)
             {
-                all.Add((string)row[0], (Func<Image>)row[1]);
+                // Id jumps at cell borders, so whether the seam is rougher than the inside is down to the seed.
+                // Cells_id_wraps_at_the_edges checks its wrap exactly instead.
+                if ((string)row[0] != "Cells Id")
+                {
+                    all.Add((string)row[0], (Func<Image>)row[1]);
+                }
             }
 
             all.Add("White", () => Noise.White());
@@ -130,6 +135,38 @@ public class GeneratorTests
         var p = GraphRunner.Evaluate(() => Noise.Cells(2, CellOutput.Id, jitter: 0f), 32);
         Assert.Equal(p[8 * 32 + 8], p[7 * 32 + 7]);
         Assert.Equal(4, new[] { p[8 * 32 + 8], p[8 * 32 + 24], p[24 * 32 + 8], p[24 * 32 + 24] }.Distinct().Count());
+    }
+
+    [Fact]
+    public void Cells_id_wraps_at_the_edges()
+    {
+        // 5 x 5 cells with full jitter at 16 pixels per cell. A pixel near an edge often has its nearest point in a
+        // cell across the edge, and that cell's id must be the id of the cell on the far side, not a new value.
+        var p = GraphRunner.Evaluate(() => Noise.Cells(5, CellOutput.Id), 80);
+        Assert.True(p.Distinct().Count() <= 25, $"{p.Distinct().Count()} ids for 25 cells.");
+    }
+
+    [Fact]
+    public void Cells_with_jitter_outside_zero_to_one_names_the_range()
+    {
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Evaluate(() => Noise.Cells(4, jitter: 1.5f), 8));
+        Assert.StartsWith("jitter must be from 0 to 1, not 1.5.", error.Message);
+        Assert.Equal("jitter", error.ParamName);
+    }
+
+    [Fact]
+    public void Bricks_that_would_not_tile_vertically_say_why()
+    {
+        var error = Assert.Throws<ArgumentException>(() => GraphRunner.Evaluate(() => Tiles.Bricks(4, 5), 8));
+        Assert.Equal("offset × rows must be a whole number so the bricks tile, not 0.5 × 5 = 2.5. Use an even number of rows, or an offset of 0 or 1.", error.Message);
+    }
+
+    [Fact]
+    public void Odd_rows_are_fine_without_an_offset_or_with_a_whole_one()
+    {
+        GraphRunner.Evaluate(() => Tiles.Grid(4, 5), 8);
+        GraphRunner.Evaluate(() => Tiles.Bricks(4, 5, offset: 1f), 8);
+        GraphRunner.Evaluate(() => Tiles.Bricks(4, 6, offset: 0.5f), 8);
     }
 
     [Fact]

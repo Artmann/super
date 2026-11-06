@@ -11,6 +11,16 @@ internal static class Arguments
         }
     }
 
+    public static void Between(float value, float minimum, float maximum, string name)
+    {
+        if (!(value >= minimum && value <= maximum))
+        {
+            var text = FormattableString.Invariant($"{name} must be from {minimum} to {maximum}, not {value}.");
+
+            throw new ArgumentOutOfRangeException(name, value, text);
+        }
+    }
+
     public static void Between(int value, int minimum, int maximum, string name)
     {
         if (value < minimum || value > maximum)

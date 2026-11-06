@@ -38,6 +38,7 @@ public static class Noise
     public static Gray Cells(int scale, CellOutput output = CellOutput.F1, float jitter = 1f, int? seed = null)
     {
         Arguments.AtLeast(scale, 1, nameof(scale));
+        Arguments.Between(jitter, 0f, 1f, nameof(jitter));
 
         return new Gray(new CellsNode(scale, output, jitter, seed));
     }
