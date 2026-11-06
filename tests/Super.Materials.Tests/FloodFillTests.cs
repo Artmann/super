@@ -43,6 +43,29 @@ public class FloodFillTests
     }
 
     [Fact]
+    public void An_island_across_the_top_and_bottom_edges_is_one_island()
+    {
+        var pixels = new float[Size * Size];
+
+        for (var y = 0; y < Size; y++)
+        {
+            if (y < 3 || y >= Size - 3)
+            {
+                for (var x = 10; x < 14; x++)
+                {
+                    pixels[y * Size + x] = 1f;
+                }
+            }
+        }
+
+        var p = GraphRunner.Evaluate(() => Gray.FromArray(pixels).FloodFill().RandomGray(), Size);
+
+        Assert.NotEqual(0f, p[1 * Size + 11]);
+        Assert.Equal(p[1 * Size + 11], p[(Size - 2) * Size + 11]);
+        Assert.Equal(1, Distinct(p, background: 0f));
+    }
+
+    [Fact]
     public void Separate_islands_get_different_values()
     {
         var p = GraphRunner.Evaluate(() => Gray.FromArray(Squares()).FloodFill().RandomGray(), Size);
