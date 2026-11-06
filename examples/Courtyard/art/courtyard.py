@@ -746,67 +746,112 @@ def build_deck(sc, M):
     emit(sc, "deck", bm, [M["wood"]])
 
 
-def build_crate(sc, M):
-    bm = bmesh.new()
-    cx, cy, size = 8.75, 3.25, 0.9
-    yaw = math.radians(-6)
-    lo = Vector((-size / 2, -size / 2, 0.095))
-    hi = Vector((size / 2, size / 2, 0.095 + size))
-    post = 0.075
-    slat, gap = 0.19, 0.022
-    plank = 0
-    # Corner posts.
-    for sx in (-1, 1):
-        for sy in (-1, 1):
-            px = lo.x if sx < 0 else hi.x - post
-            py = lo.y if sy < 0 else hi.y - post
-            faces = box(bm, (px, py, lo.z), (px + post, py + post, hi.z), 0, bevel=0.006)
-            plank_uv(bm, faces, "z", plank, rng.uniform(0, 3))
-            plank += 1
-    # Slats on four sides, set just outside the posts' faces.
-    z = lo.z + 0.02
-    while z + slat <= hi.z + 0.001:
-        for side in range(4):
-            t = 0.022
-            if side == 0:
-                a, b = (lo.x + post, lo.y - t, z), (hi.x - post, lo.y + 0.004, z + slat)
-                axis = "x"
-            elif side == 1:
-                a, b = (lo.x + post, hi.y - 0.004, z), (hi.x - post, hi.y + t, z + slat)
-                axis = "x"
-            elif side == 2:
-                a, b = (lo.x - t, lo.y + post, z), (lo.x + 0.004, hi.y - post, z + slat)
-                axis = "y"
+crate_rng = random.Random(11)
+
+
+def board(bm, length, width, thick, origin, ax, ay, az, index):
+    """One bevelled board, laid out along ax, across ay and thick along az from origin. Its UVs
+    are made before it's placed: u runs along it, and v keeps it inside one of the wood graph's
+    six planks, so each board has its own grain and no seam."""
+    faces = box(bm, (0, 0, 0), (length, width, thick), 0, bevel=min(0.006, thick * 0.3))
+    uv = uv_layer(bm)
+    along = crate_rng.uniform(0, 3)
+    band = (index % 6) / 6.0 + 0.012
+    for f in faces:
+        f.normal_update()
+        n = f.normal
+        for loop in f.loops:
+            x, y, z = loop.vert.co
+            if abs(n.x) > 0.7:
+                loop[uv].uv = (y + along, band + z * 0.9)
+            elif abs(n.y) > 0.7:
+                loop[uv].uv = (x + along, band + z * 0.9)
             else:
-                a, b = (hi.x - 0.004, lo.y + post, z), (hi.x + t, hi.y - post, z + slat)
-                axis = "y"
-            faces = box(bm, a, b, 0, bevel=0.004)
-            plank_uv(bm, faces, axis, plank, rng.uniform(0, 3))
-            plank += 1
-        z += slat + gap
-    # The lid: boards across the top.
-    y = lo.y
-    while y < hi.y - 0.01:
-        w = min(0.18, hi.y - y)
-        faces = box(bm, (lo.x - 0.01, y, hi.z), (hi.x + 0.01, y + w - 0.008, hi.z + 0.022), 0, bevel=0.004)
-        plank_uv(bm, faces, "x", plank, rng.uniform(0, 3))
-        plank += 1
-        y += w
-    # A dark inside, so the gaps show shadow.
-    box(bm, (lo.x + 0.01, lo.y + 0.01, lo.z), (hi.x - 0.01, hi.y - 0.01, hi.z - 0.01), 1)
-    # Iron corner brackets.
-    for sx in (-1, 1):
-        for sy in (-1, 1):
-            for z0 in (lo.z + 0.03, hi.z - 0.13):
-                px = lo.x - 0.026 if sx < 0 else hi.x - 0.1
-                py = lo.y - 0.026 if sy < 0 else hi.y - 0.1
-                box(bm, (px, py, z0), (px + 0.126, py + 0.126, z0 + 0.1), 2)
+                loop[uv].uv = (x + along, band + y * 0.9)
+    verts = {v for f in faces for v in f.verts}
+    for v in verts:
+        x, y, z = v.co
+        v.co = origin + ax * x + ay * y + az * z
+    bmesh.ops.recalc_face_normals(bm, faces=faces)
+    return faces
+
+
+def build_crate(sc, M):
+    """A wooden crate: boards across each side, a raised frame with a diagonal brace over them,
+    and a boarded lid. The sides butt at the corners, the x sides covering the y sides' ends."""
+    bm = bmesh.new()
+    # The crate draws from its own generator. The old crate took 25 numbers from the shared one,
+    # so take them still, and the ivy and leaves built after it stay where they were.
+    crate_rng.seed(11)
+    for _ in range(25):
+        rng.uniform(0, 3)
+    cx, cy, base = 8.35, 2.75, 0.095
+    yaw = math.radians(-28)
+    h = 0.38           # half the width of the box the boards are nailed to
+    H = 0.74           # height of the sides
+    t = 0.02           # board thickness
+    fw = 0.085         # frame boards
+    rows, gap = 5, 0.01
+    Z = Vector((0, 0, 1))
+    index = 0
+
+    for normal, tangent, extra in (
+        (Vector((0, -1, 0)), Vector((1, 0, 0)), 0.0),
+        (Vector((0, 1, 0)), Vector((-1, 0, 0)), 0.0),
+        (Vector((1, 0, 0)), Vector((0, 1, 0)), t),
+        (Vector((-1, 0, 0)), Vector((0, -1, 0)), t),
+    ):
+        def at(u, v, d):
+            return normal * (h + d) + tangent * u + Z * v
+
+        # The boards: rows across the side with a small gap between them.
+        half = h + extra
+        bh = (H - gap * (rows - 1)) / rows
+        for r in range(rows):
+            v0 = r * (bh + gap)
+            board(bm, 2 * half, bh, t, at(-half, v0, 0), tangent, Z, normal, index)
+            index += 1
+        # The frame over them: rails at top and bottom, a stile at each end.
+        half = h + extra + t
+        board(bm, 2 * half, fw, t, at(-half, 0, t), tangent, Z, normal, index)
+        board(bm, 2 * half, fw, t, at(-half, H - fw, t), tangent, Z, normal, index + 1)
+        board(bm, H - 2 * fw, fw, t, at(-half, fw, t), Z, tangent, normal, index + 2)
+        board(bm, H - 2 * fw, fw, t, at(half - fw, fw, t), Z, tangent, normal, index + 3)
+        index += 4
+        # The brace, corner to corner between the stiles and rails, a little below the frame's
+        # face so its ends tuck into the rails.
+        ua, ub = -half + fw, half - fw
+        va, vb = fw, H - fw
+        direction = (tangent * (ub - ua) + Z * (vb - va)).normalized()
+        across = normal.cross(direction).normalized()
+        if across.dot(Z) < 0:
+            across = -across
+        start = at(ua, va, t) - across * (fw / 2) - direction * 0.03
+        length = (Vector((ub - ua, vb - va))).length + 0.06
+        board(bm, length, fw, t - 0.003, start, direction, across, normal, index)
+        index += 1
+
+    # The lid: boards from front to back, then a frame round its edge.
+    lid_half = h + 2 * t
+    lid_rows = 5
+    bw = (2 * lid_half - gap * (lid_rows - 1)) / lid_rows
+    for r in range(lid_rows):
+        x0 = -lid_half + r * (bw + gap)
+        board(bm, 2 * lid_half, bw, t, Vector((x0, -lid_half, H)), Vector((0, 1, 0)), Vector((1, 0, 0)), Z, index)
+        index += 1
+    board(bm, 2 * lid_half, fw, t, Vector((-lid_half, -lid_half, H + t)), Vector((1, 0, 0)), Vector((0, 1, 0)), Z, index)
+    board(bm, 2 * lid_half, fw, t, Vector((-lid_half, lid_half - fw, H + t)), Vector((1, 0, 0)), Vector((0, 1, 0)), Z, index + 1)
+
+    # A dark inside, so the gaps between the boards show shadow.
+    box(bm, (-h + 0.005, -h + 0.005, 0.0), (h - 0.005, h - 0.005, H - 0.005), 1)
+
     cos_y, sin_y = math.cos(yaw), math.sin(yaw)
     for v in bm.verts:
         x, y = v.co.x, v.co.y
         v.co.x = cx + x * cos_y - y * sin_y
         v.co.y = cy + x * sin_y + y * cos_y
-    emit(sc, "crate", bm, [M["wood"], M["interior"], M["iron"]])
+        v.co.z += base
+    emit(sc, "crate", bm, [M["wood"], M["interior"]])
 
 
 def build_barrel(sc, M):
