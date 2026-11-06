@@ -34,9 +34,10 @@ public sealed class ModelCooker : ICooker
     // 2: "has no UVs" warns only when the material uses a texture. 3: subsurface. 4: height and detail textures.
     // 5: materials gained Ior. 6: parts keep the name of their mesh's node, keepMeshes and keepOrigin, and unskinned
     // meshes follow their container node. 7: textures are objects of their own that models point to by hash.
-    // 8: material graphs. The graphs' own version is folded in, so a change to Super.Materials cooks every model
-    // again, since one may use a graph.
-    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 8);
+    // 8: material graphs. 9: graph materials have no height or detail textures unless their rule names them, and an
+    // ior of 1. The graphs' own version is folded in, so a change to Super.Materials cooks every model again, since one
+    // may use a graph.
+    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 9);
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -715,7 +716,14 @@ public sealed class ModelCooker : ICooker
                 Emissive = emissive,
                 EmissiveTexture = textures.Add(rule.Emissive, TextureKind.Color, namedBy: named),
                 Clearcoat = rule.Clearcoat,
+                HeightTexture = textures.Add(rule.Height, TextureKind.Linear, namedBy: named),
+                HeightDepth = rule.HeightDepth,
+                DetailColorTexture = textures.Add(rule.DetailColor, TextureKind.Linear, namedBy: named),
+                DetailNormalTexture = textures.Add(rule.DetailNormal, TextureKind.Linear, isNormalMap: true, namedBy: named),
+                DetailScale = rule.DetailScale,
                 Flags = flags,
+                Ior = rule.Ior,
+                Subsurface = Subsurface(rule),
             };
         }
 
@@ -744,16 +752,19 @@ public sealed class ModelCooker : ICooker
             DetailScale = rule.DetailScale,
             Flags = flags,
             Ior = rule.Ior,
-            Subsurface = rule.Subsurface is { } subsurface
-                ? new Subsurface
-                {
-                    Radius = subsurface.Radius,
-                    Color = subsurface.Color is { Length: 3 } spread ? new Vector3(spread[0], spread[1], spread[2]) : Vector3.Zero,
-                    Transmission = subsurface.Transmission,
-                }
-                : default,
+            Subsurface = Subsurface(rule),
         };
     }
+
+    private static Subsurface Subsurface(MaterialRule rule) =>
+        rule.Subsurface is { } subsurface
+            ? new Subsurface
+            {
+                Radius = subsurface.Radius,
+                Color = subsurface.Color is { Length: 3 } spread ? new Vector3(spread[0], spread[1], spread[2]) : Vector3.Zero,
+                Transmission = subsurface.Transmission,
+            }
+            : default;
 
     // glTF's MASK mode cuts out by alpha, at 0.5 unless the file says otherwise.
     private static unsafe float? GetGltfCutoff(Assimp assimp, Silk.NET.Assimp.Material* material)

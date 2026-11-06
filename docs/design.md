@@ -466,42 +466,6 @@ resolver refuses a model that names them by hash.
 that would cut nothing or everything (see the foliage section below) is an error that stops
 the cook of that model.
 
-A rigged model keeps each mesh of the source as its own part, one per material, in the order
-the nodes hold them, and the rig importer places each mesh by its node. Each part is named by
-the node that holds its mesh, falling back to the mesh's own name when the node has none, so
-the names are the ones an artist sees in the outliner and a multi-material mesh repeats its
-name. The names go in `ModelData.MeshNames`, the same length as `Parts`.
-
-A mesh without bones follows a joint. Its container node (the parent of the node that holds
-it) becomes a joint of its own when it isn't a bone already, so a head under a neck or a sword
-in a hand node moves with that container's animated chain. Each such container counts towards
-`Skeleton.MaxJoints`. The mesh is placed by `global * inverse(restGlobal[J]) * inverse(inverseBind[J])`
-for its joint `J`, so at rest it skins back to where the node tree put it. That matters when
-`J` is a real bone: its inverse bind is the bone's offset matrix, which comes from the bind
-pose, and the bind pose need not be the rest pose.
-
-A static model is flattened by Assimp's `PreTransformVertices` by default, which merges the
-meshes that share a material into one part and gives no names. With the opt-in `keepMeshes`
-setting, a static model keeps its node tree instead, and `Placements` applies each mesh's node
-transform by hand: points by the transform, normals by its inverse transpose, and the tangent
-sign flips for a mirroring transform. Each mesh then stays its own named part, and its own
-draw call. `ModelData.ToBytes` refuses a name count that isn't zero or the part count, so a
-model with no names writes none. The names are the first thing after the header in the
-`.rmodel`, before the rig, so `ModelData.ReadMeshNames` and `Content.Meshes` read them without
-the geometry, and `ModelData.ReadRig` reads them on its way to the rig, so `Content.Rig` caches
-them for `Content.Meshes`. `Content` caches each model's names by index and drops them when the
-model is unloaded.
-
-At draw time a `MeshMask` is a bitset over the model's parts, made for one `ModelRef`.
-`View.Model` checks the mask's model, and `SceneRenderer.AddShown` copies only the shown parts
-into the frame's draw list, checking that the mask's part count matches the loaded model. A
-masked draw still skins the whole skeleton once. The profiler keys copies by model and mask,
-so `ShownTriangles` counts only what each mask shows.
-
-The `.rmodel` format is version 8 and the model cook version 8, with the material graphs'
-version folded in. Their history is in the comments on `ModelData.Version` and
-`ModelCooker.Version`, and an old file fails with "Cook it again" when it is read.
-
 Material graphs are cooked by `Super.Cook.Materials`. Each `*.material.cs` file is
 compiled by itself with Roslyn, against `Super.Materials`, `Super.Random` and a few
 runtime assemblies taken from the trusted platform list, so the file's bytes are the whole
@@ -575,6 +539,42 @@ file's bottom-up v, so the cook turns v back, divides and turns it again, `1 - (
 v keeps its direction and a tile's edge stays at the file's UV origin. The model cooker's
 `Version` folds in `MaterialGraphs.Version`, so a change to `Super.Materials` cooks every
 model again, not only those with graphs, which is simpler and correct.
+
+A rigged model keeps each mesh of the source as its own part, one per material, in the order
+the nodes hold them, and the rig importer places each mesh by its node. Each part is named by
+the node that holds its mesh, falling back to the mesh's own name when the node has none, so
+the names are the ones an artist sees in the outliner and a multi-material mesh repeats its
+name. The names go in `ModelData.MeshNames`, the same length as `Parts`.
+
+A mesh without bones follows a joint. Its container node (the parent of the node that holds
+it) becomes a joint of its own when it isn't a bone already, so a head under a neck or a sword
+in a hand node moves with that container's animated chain. Each such container counts towards
+`Skeleton.MaxJoints`. The mesh is placed by `global * inverse(restGlobal[J]) * inverse(inverseBind[J])`
+for its joint `J`, so at rest it skins back to where the node tree put it. That matters when
+`J` is a real bone: its inverse bind is the bone's offset matrix, which comes from the bind
+pose, and the bind pose need not be the rest pose.
+
+A static model is flattened by Assimp's `PreTransformVertices` by default, which merges the
+meshes that share a material into one part and gives no names. With the opt-in `keepMeshes`
+setting, a static model keeps its node tree instead, and `Placements` applies each mesh's node
+transform by hand: points by the transform, normals by its inverse transpose, and the tangent
+sign flips for a mirroring transform. Each mesh then stays its own named part, and its own
+draw call. `ModelData.ToBytes` refuses a name count that isn't zero or the part count, so a
+model with no names writes none. The names are the first thing after the header in the
+`.rmodel`, before the rig, so `ModelData.ReadMeshNames` and `Content.Meshes` read them without
+the geometry, and `ModelData.ReadRig` reads them on its way to the rig, so `Content.Rig` caches
+them for `Content.Meshes`. `Content` caches each model's names by index and drops them when the
+model is unloaded.
+
+At draw time a `MeshMask` is a bitset over the model's parts, made for one `ModelRef`.
+`View.Model` checks the mask's model, and `SceneRenderer.AddShown` copies only the shown parts
+into the frame's draw list, checking that the mask's part count matches the loaded model. A
+masked draw still skins the whole skeleton once. The profiler keys copies by model and mask,
+so `ShownTriangles` counts only what each mask shows.
+
+The `.rmodel` format is version 8 and the model cook version 9, with the material graphs'
+version folded in. Their history is in the comments on `ModelData.Version` and
+`ModelCooker.Version`, and an old file fails with "Cook it again" when it is read.
 
 **The build.** `Super.targets` gives a game a `ProjectReference` to `Super.Cook.Tool` that
 only builds it: `ReferenceOutputAssembly="false"` and `Private="false"` keep the tool's
