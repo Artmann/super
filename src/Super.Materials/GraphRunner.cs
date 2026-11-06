@@ -1,3 +1,5 @@
+using System.Runtime.ExceptionServices;
+
 namespace Super.Materials;
 
 /// <summary>What a node needs while it is evaluated.</summary>
@@ -8,7 +10,15 @@ internal sealed class EvaluationContext(int size, int maxThreads)
     /// <summary>Runs <paramref name="row"/> for every row, in parallel. Rows must not depend on each other.</summary>
     public void Rows(Action<int> row)
     {
-        Parallel.For(0, Size, new ParallelOptions { MaxDegreeOfParallelism = maxThreads }, row);
+        try
+        {
+            Parallel.For(0, Size, new ParallelOptions { MaxDegreeOfParallelism = maxThreads }, row);
+        }
+        catch (AggregateException error) when (error.InnerExceptions.Count > 0)
+        {
+            // Parallel.For wraps what rows throw, and several rows can fail the same way. Callers should see the original, the first one.
+            ExceptionDispatchInfo.Capture(error.InnerExceptions[0]).Throw();
+        }
     }
 }
 
