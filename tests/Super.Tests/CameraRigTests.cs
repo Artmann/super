@@ -331,4 +331,27 @@ public class CameraRigTests
 
         Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
     }
+
+    [Fact]
+    public void A_camera_blend_shows_the_first_camera_as_it_is_then_blends_to_each_new_one()
+    {
+        var shown = new CameraBlend();
+        shown.Update(new Camera(new Vector3(0f, 5f, 5f), Vector3.Zero));
+        AssertNear(new Vector3(0f, 5f, 5f), shown.At(0.5f).Position);
+
+        shown.Update(new Camera(new Vector3(10f, 5f, 5f), new Vector3(10f, 0f, 0f)));
+        AssertNear(new Vector3(5f, 5f, 5f), shown.At(0.5f).Position);
+        AssertNear(new Vector3(5f, 0f, 0f), shown.At(0.5f).Target);
+        AssertNear(shown.Current.Position, shown.At(1f).Position);
+    }
+
+    [Fact]
+    public void A_camera_blend_jump_skips_the_blend()
+    {
+        var shown = new CameraBlend();
+        shown.Update(new Camera(Vector3.Zero, Vector3.UnitZ));
+        shown.Jump();
+        shown.Update(new Camera(new Vector3(50f, 0f, 0f), new Vector3(50f, 0f, 1f)));
+        AssertNear(shown.Current.Position, shown.At(0f).Position);
+    }
 }

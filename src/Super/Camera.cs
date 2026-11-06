@@ -193,6 +193,35 @@ public readonly record struct Ray(Vector3 Origin, Vector3 Direction)
     }
 }
 
+/// <summary>
+/// Lets a camera you work out yourself move smoothly. Update only runs once a tick, so a camera drawn as it
+/// was left stays still for the frames between ticks and then jumps. Give this the camera each tick and draw
+/// <c>At(view.Blend)</c>. The rigs, such as <see cref="OrbitCamera"/>, already do this. Keep one in your game.
+/// </summary>
+public sealed class CameraBlend
+{
+    private bool _placed;
+
+    /// <summary>The camera on the tick before this one.</summary>
+    public Camera Previous { get; private set; }
+
+    public Camera Current { get; private set; }
+
+    /// <summary>Call once a tick with the camera as it is now. The first one is shown as it is, with no blend.</summary>
+    public void Update(in Camera next)
+    {
+        Previous = _placed ? Current : next;
+        Current = next;
+        _placed = true;
+    }
+
+    /// <summary>Shows the next update's camera straight away, for when the view teleports.</summary>
+    public void Jump() => _placed = false;
+
+    /// <summary>The camera between the last two ticks, as in <c>view.Camera(blend.At(view.Blend))</c>.</summary>
+    public Camera At(float blend) => Camera.Lerp(Previous, Current, blend);
+}
+
 /// <summary>Circles a target at a distance, for looking around something. Keep one in your game.</summary>
 public sealed class OrbitCamera
 {

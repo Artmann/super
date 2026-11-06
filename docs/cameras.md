@@ -181,6 +181,26 @@ by the pan and then ease back.
 can't rotate. For a top-down view with perspective, use `FollowCamera` with an `Offset`
 straight up.
 
+### Your own camera
+
+A camera you work out yourself, such as a pan and zoom that fit your map, needs the same
+treatment, or it moves once a tick and stutters between. Give a `CameraBlend` the camera in
+`Update` and draw `At(view.Blend)`:
+
+```csharp
+readonly CameraBlend shown = new();
+
+public void Update(GameTime time)
+{
+    // Move your own camera, then hand it over once.
+    shown.Update(new Camera(center + offset, center));
+}
+
+public void Draw(View view) => view.Camera(shown.At(view.Blend));
+```
+
+`Jump()` shows the next camera as it is, with no blend. Pick with `shown.Current`.
+
 ## Orthographic cameras
 
 A camera is perspective unless you say otherwise. An orthographic camera has no
