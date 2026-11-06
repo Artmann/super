@@ -1,12 +1,13 @@
 namespace Super.Materials;
 
-/// <summary>
-/// Where cooked images that a graph reads (such as a texture loaded by name) come from.
-/// Later tasks give this its members.
-/// </summary>
-internal interface IImageSource
+/// <summary>Where cooked images that a graph reads (such as a texture loaded by name) come from.</summary>
+public interface IImageSource
 {
+    DecodedImage Read(string path);
 }
+
+/// <summary>An image read from disk: <paramref name="Rgba"/> is four floats per pixel, row 0 first.</summary>
+public sealed record DecodedImage(int Width, int Height, float[] Rgba);
 
 /// <summary>
 /// The graph being built on this thread. Nodes take their index and seed from it.

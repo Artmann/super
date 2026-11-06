@@ -11,6 +11,26 @@ internal static class Arguments
         }
     }
 
+    public static void AtLeast(float value, float minimum, string name)
+    {
+        if (!(value >= minimum))
+        {
+            var text = FormattableString.Invariant($"{name} must be at least {minimum}, not {value}.");
+
+            throw new ArgumentOutOfRangeException(name, value, text);
+        }
+    }
+
+    public static void MoreThan(float value, float minimum, string name)
+    {
+        if (!(value > minimum))
+        {
+            var text = FormattableString.Invariant($"{name} must be more than {minimum}, not {value}.");
+
+            throw new ArgumentOutOfRangeException(name, value, text);
+        }
+    }
+
     public static void Between(float value, float minimum, float maximum, string name)
     {
         if (!(value >= minimum && value <= maximum))

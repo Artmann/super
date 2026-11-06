@@ -23,8 +23,56 @@ internal sealed class EvaluationContext(int size, int maxThreads)
 }
 
 /// <summary>Works a graph out, one node at a time, each after its inputs.</summary>
-internal static class GraphRunner
+public static class GraphRunner
 {
+    /// <summary>
+    /// Builds the graph and works out all its parts in one go, so an image several parts share is made once.
+    /// <paramref name="size"/> is the width and height in pixels. <paramref name="maxThreads"/> limits the rows worked at once.
+    /// </summary>
+    public static MaterialImages Run(MaterialGraph graph, int size, IImageSource? images = null, int? maxThreads = null)
+    {
+        Arguments.AtLeast(size, 1, nameof(size));
+
+        Node[] roots;
+        float width;
+
+        using (GraphContext.Use(graph.Seed, images))
+        {
+            var material = graph.Build();
+
+            Arguments.MoreThan(material.Width, 0f, nameof(Material.Width));
+            Arguments.AtLeast(material.Depth, 0f, nameof(Material.Depth));
+            Arguments.Between(material.Occlusion, 0f, 1f, nameof(Material.Occlusion));
+
+            width = material.Width;
+
+            var height = material.Height ?? Gray.Of(0.5f);
+            var normal = height.HeightToNormal(material.Width, material.Depth);
+
+            if (material.Normal is not null)
+            {
+                normal = new Normals(new NormalOverNode(normal.Node, material.Normal.Node));
+            }
+
+            var occlusion = height.HeightToOcclusion(material.Width, material.Depth);
+            var color = new Rgb(new OccludedColorNode((material.Color ?? Rgb.Of(0.5f, 0.5f, 0.5f)).Node, occlusion.Node, material.Occlusion));
+
+            roots =
+            [
+                color.Node,
+                normal.Node,
+                (material.Roughness ?? Gray.Of(0.6f)).Node,
+                (material.Metallic ?? Gray.Of(0f)).Node,
+                (material.Opacity ?? Gray.Of(1f)).Node,
+                height.Node
+            ];
+        }
+
+        var parts = Execute(roots, size, maxThreads ?? -1);
+
+        return new MaterialImages(size, width, parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]);
+    }
+
     /// <summary>
     /// Builds the graph and returns the root's pixels, interleaved, <c>size * size * channels</c> floats.
     /// </summary>
@@ -37,39 +85,47 @@ internal static class GraphRunner
             root = build();
         }
 
-        return Run(root.Node, size, maxThreads ?? -1);
+        return Execute([root.Node], size, maxThreads ?? -1)[0];
     }
 
-    static float[] Run(Node root, int size, int maxThreads)
+    /// <summary>Works out every root, sharing the nodes between them. The roots' buffers are never reused.</summary>
+    static float[][] Execute(Node[] roots, int size, int maxThreads)
     {
         // Post-order walk, so every node comes after its inputs, and each is listed once.
         var order = new List<Node>();
         var seen = new HashSet<Node>(ReferenceEqualityComparer.Instance);
         var stack = new Stack<(Node Node, int Next)>();
 
-        seen.Add(root);
-        stack.Push((root, 0));
-
-        while (stack.Count > 0)
+        foreach (var root in roots)
         {
-            var (node, next) = stack.Pop();
-
-            if (next < node.Inputs.Length)
+            if (seen.Add(root))
             {
-                stack.Push((node, next + 1));
+                stack.Push((root, 0));
+            }
 
-                var input = node.Inputs[next];
+            while (stack.Count > 0)
+            {
+                var (node, next) = stack.Pop();
 
-                if (seen.Add(input))
+                if (next < node.Inputs.Length)
                 {
-                    stack.Push((input, 0));
+                    stack.Push((node, next + 1));
+
+                    var input = node.Inputs[next];
+
+                    if (seen.Add(input))
+                    {
+                        stack.Push((input, 0));
+                    }
+                }
+                else
+                {
+                    order.Add(node);
                 }
             }
-            else
-            {
-                order.Add(node);
-            }
         }
+
+        var isRoot = new HashSet<Node>(roots, ReferenceEqualityComparer.Instance);
 
         // How many input slots still wait for each node's buffer.
         var remaining = new Dictionary<Node, int>(ReferenceEqualityComparer.Instance);
@@ -102,7 +158,7 @@ internal static class GraphRunner
             // A node that reads one input twice counts it twice, so the buffer is returned once, at the last read.
             foreach (var input in node.Inputs)
             {
-                if (--remaining[input] == 0)
+                if (--remaining[input] == 0 && !isRoot.Contains(input))
                 {
                     var buffer = buffers[input];
 
@@ -118,7 +174,7 @@ internal static class GraphRunner
             }
         }
 
-        return buffers[root];
+        return roots.Select(root => buffers[root]).ToArray();
     }
 
     static float[] Rent(Dictionary<int, Stack<float[]>> pool, int length)
