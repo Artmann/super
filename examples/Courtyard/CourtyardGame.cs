@@ -6,7 +6,7 @@ namespace Courtyard;
 /// <summary>
 /// A sunlit courtyard modelled in Blender (art/courtyard.py): a brick wall with an arched
 /// window, a dry-stone wall, a cobble path through wet mud and a puddle. Its bricks, stone,
-/// mud, wood and rust are the material graphs, put on the model by its cook sidecar.
+/// mud, wood, rust and window glass are the material graphs, put on the model by its cook sidecar.
 /// </summary>
 public sealed class CourtyardGame(Content content) : IGame
 {
