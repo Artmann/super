@@ -75,12 +75,13 @@ public class PostGradeTests
     }
 
     [Fact]
-    public void The_view_clusters_and_local_light_count_sit_where_common_glsl_reads_them()
+    public void The_view_clusters_light_counts_and_effects_left_out_sit_where_common_glsl_reads_them()
     {
         Assert.Equal(7 * 64, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.View)));
 
         // After shadowRadii come shadowFade, shadowDepthScales, clusters and screen, then
-        // eight ints, the last the local light count.
+        // eight ints, the last the local light count, then the effects left out and three
+        // ints of padding, so the lights start on a 16 byte boundary.
         int radii = (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.ShadowRadii));
         Assert.Equal(radii + 16, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.ShadowFade)));
         Assert.Equal(radii + 32, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.ShadowDepthScales)));
@@ -88,6 +89,7 @@ public class PostGradeTests
         Assert.Equal(radii + 64, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Screen)));
         Assert.Equal(radii + 80, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.LightCount)));
         Assert.Equal(radii + 80 + 28, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.LocalLightCount)));
-        Assert.Equal(radii + 80 + 32, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Lights)));
+        Assert.Equal(radii + 80 + 32, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Off)));
+        Assert.Equal(radii + 80 + 48, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Lights)));
     }
 }

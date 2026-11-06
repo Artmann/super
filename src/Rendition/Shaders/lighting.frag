@@ -367,7 +367,8 @@ void main() {
     float metallic = baseColorMetallic.a;
     vec3 n = octahedralDecode(normalRoughnessAo.xy);
     float roughness = clamp(normalRoughnessAo.z, 0.045, 1.0);
-    float screenAo = texture(ambientOcclusionTexture, inUv).r;
+    // Left out, the occlusion pass never ran, so its target holds nothing to read.
+    float screenAo = isOff(OFF_AMBIENT_OCCLUSION) ? 1.0 : texture(ambientOcclusionTexture, inUv).r;
     float ao = normalRoughnessAo.w * screenAo;
     // Alpha holds the clearcoat, for foliage how much light shines through as a negative
     // number, or for a subsurface material its index plus SUBSURFACE_MARK.
@@ -400,7 +401,8 @@ void main() {
     vec3 reflectedLight = sampleReflection(position, reflect(-v, n), roughness * REFLECTION_LODS);
 
     // Coated surfaces are traced for their mirror-like coat, which then serves both layers.
-    float traceStrength = clearcoat > 0.0 ? 1.0 : 1.0 - smoothstep(TRACE_MAX_ROUGHNESS * 0.5, TRACE_MAX_ROUGHNESS, roughness);
+    float traceStrength = isOff(OFF_REFLECTIONS) ? 0.0
+        : clearcoat > 0.0 ? 1.0 : 1.0 - smoothstep(TRACE_MAX_ROUGHNESS * 0.5, TRACE_MAX_ROUGHNESS, roughness);
     vec4 traced = vec4(0.0);
     if (traceStrength > 0.0) {
         // Two independent numbers per pixel, each visiting new values every frame.
