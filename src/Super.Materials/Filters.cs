@@ -39,6 +39,59 @@ public sealed partial class Gray
         return new Gray(new MapNode(Node, v => Math.Clamp((v - t) / w + 0.5f, 0f, 1f)));
     }
 
+    /// <summary>
+    /// Maps each value through straight lines between <paramref name="points"/>, each an input and the output it gives.
+    /// The inputs must go up. Below the first input the value is the first output, and above the last it is the last.
+    /// There must be at least two points.
+    /// </summary>
+    public Gray Curve(params (float In, float Out)[] points)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+
+        if (points.Length < 2)
+        {
+            throw new ArgumentException($"A curve needs at least two points, not {points.Length}.", nameof(points));
+        }
+
+        for (var i = 0; i < points.Length; i++)
+        {
+            Arguments.Finite(points[i].In, "In");
+            Arguments.Finite(points[i].Out, "Out");
+
+            if (i > 0 && !(points[i].In > points[i - 1].In))
+            {
+                var text = FormattableString.Invariant($"Curve points must go up in In: {points[i].In} comes after {points[i - 1].In}.");
+
+                throw new ArgumentException(text, nameof(points));
+            }
+        }
+
+        var copy = ((float In, float Out)[])points.Clone();
+
+        return new Gray(new MapNode(Node, v => CurveAt(copy, v)));
+    }
+
+    static float CurveAt((float In, float Out)[] points, float v)
+    {
+        if (v <= points[0].In)
+        {
+            return points[0].Out;
+        }
+
+        for (var i = 1; i < points.Length; i++)
+        {
+            if (v <= points[i].In)
+            {
+                var from = points[i - 1];
+                var to = points[i];
+
+                return from.Out + (to.Out - from.Out) * ((v - from.In) / (to.In - from.In));
+            }
+        }
+
+        return points[^1].Out;
+    }
+
     /// <summary>A Gaussian blur whose deviation is <paramref name="radius"/> of the image size. Wraps at the edges.</summary>
     public Gray Blur(float radius)
     {

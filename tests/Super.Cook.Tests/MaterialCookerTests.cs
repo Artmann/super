@@ -555,7 +555,7 @@ public sealed class MaterialCookerTests : IDisposable
         string source = Temp();
         string cache = Temp();
         File.WriteAllText(Path.Combine(source, "cook.json"), SmallSize);
-        File.WriteAllText(Path.Combine(source, "rock.material.cs"), Graph("        return new Material { Color = Image(\"rock.png\").Multiply(Gray.Of(1f)) };"));
+        File.WriteAllText(Path.Combine(source, "rock.material.cs"), Graph("        return new Material { Color = Image(\"rock.png\").ToGray().GradientMap(Ramp.Of(\"#000000\", \"#ffffff\")) };"));
         File.WriteAllBytes(Path.Combine(source, "rock.png"), Png(1, 1, [255, 0, 0, 255]));
 
         var firstStore = new MemoryStore();
@@ -564,8 +564,9 @@ public sealed class MaterialCookerTests : IDisposable
         var secondStore = new MemoryStore();
         Assert.True(CookFolder(source, cache, secondStore).Succeeded);
 
-        Assert.Equal([255, 0, 0, 255], Texture(firstStore, "rock.material.cs#color").Pixels[..4]);
-        Assert.Equal([0, 0, 255, 255], Texture(secondStore, "rock.material.cs#color").Pixels[..4]);
+        // Rec. 709 weights: red is 0.2126 (54 of 255) and blue is 0.0722 (18 of 255).
+        Assert.Equal([54, 54, 54, 255], Texture(firstStore, "rock.material.cs#color").Pixels[..4]);
+        Assert.Equal([18, 18, 18, 255], Texture(secondStore, "rock.material.cs#color").Pixels[..4]);
     }
 
     [Fact]

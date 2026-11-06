@@ -192,4 +192,107 @@ public class WarpTests
         // Cell edges are steps, so the slope direction there depends on the size. Looser than the default.
         NodeChecks.SameAtSizes(() => Tiles.Bricks(4, 8).SlopeBlur(Noise.Cells(6), 0.02f), tolerance: 0.06f);
     }
+
+    static float[] MarkerColumn(int column)
+    {
+        var values = new float[Size * Size];
+
+        for (var y = 0; y < Size; y++)
+        {
+            values[y * Size + column] = 1f;
+        }
+
+        return values;
+    }
+
+    static float[] MarkerRow(int row)
+    {
+        var values = new float[Size * Size];
+
+        for (var x = 0; x < Size; x++)
+        {
+            values[row * Size + x] = 1f;
+        }
+
+        return values;
+    }
+
+    [Fact]
+    public void Directional_warp_moves_pixels_right_by_amount_at_zero_degrees()
+    {
+        // 0.25 of 64 is 16 pixels, so the marker at column 10 lands on column 26.
+        var p = GraphRunner.Evaluate(() => Gray.FromArray(MarkerColumn(10)).DirectionalWarp(Gray.Of(1f), 0.25f, 0f), Size);
+
+        Assert.Equal(1f, p[5 * Size + 26], 4);
+        Assert.Equal(0f, p[5 * Size + 10], 4);
+        Assert.Equal(0f, p[5 * Size + 25], 4);
+    }
+
+    [Fact]
+    public void Directional_warp_at_ninety_degrees_moves_pixels_up_the_image_and_wraps()
+    {
+        // Up is towards row 0: row 10 moves 16 rows to row -6, which is row 58.
+        var p = GraphRunner.Evaluate(() => Gray.FromArray(MarkerRow(10)).DirectionalWarp(Gray.Of(1f), 0.25f, 90f), Size);
+
+        Assert.Equal(1f, p[58 * Size + 7], 3);
+        Assert.Equal(0f, p[10 * Size + 7], 3);
+    }
+
+    [Fact]
+    public void Directional_warp_scales_the_move_by_the_warp_image()
+    {
+        // A warp image of 0.5 moves half as far: 8 pixels, to column 18. A warp image of 0 moves nothing.
+        var half = GraphRunner.Evaluate(() => Gray.FromArray(MarkerColumn(10)).DirectionalWarp(Gray.Of(0.5f), 0.25f, 0f), Size);
+        var none = GraphRunner.Evaluate(() => Gray.FromArray(MarkerColumn(10)).DirectionalWarp(Gray.Of(0f), 0.25f, 0f), Size);
+
+        Assert.Equal(1f, half[18], 4);
+        Assert.Equal(0f, half[26], 4);
+        Assert.Equal(1f, none[10], 4);
+    }
+
+    [Fact]
+    public void Directional_warp_with_a_negative_amount_moves_the_other_way()
+    {
+        var p = GraphRunner.Evaluate(() => Gray.FromArray(MarkerColumn(10)).DirectionalWarp(Gray.Of(1f), -0.25f, 0f), Size);
+
+        Assert.Equal(1f, p[58], 4);
+    }
+
+    [Fact]
+    public void Rgb_directional_warp_moves_every_channel()
+    {
+        var p = GraphRunner.Evaluate(
+            () => Gray.FromArray(MarkerColumn(10)).GradientMap(Ramp.Of("#000000", "#ff8000")).DirectionalWarp(Gray.Of(1f), 0.25f, 0f),
+            Size);
+
+        Assert.Equal(1f, p[26 * 3], 4);
+        Assert.Equal(0.5019608f, p[26 * 3 + 1], 4);
+        Assert.Equal(0f, p[26 * 3 + 2], 4);
+        Assert.Equal(0f, p[10 * 3], 4);
+    }
+
+    [Theory]
+    [InlineData(2f, "amount must be from -1 to 1, not 2. (Parameter 'amount')")]
+    [InlineData(-1.5f, "amount must be from -1 to 1, not -1.5. (Parameter 'amount')")]
+    public void Directional_warp_amount_must_be_from_minus_one_to_one(float amount, string message)
+    {
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Evaluate(() => Gray.Of(0.5f).DirectionalWarp(Gray.Of(0.5f), amount, 0f), 16));
+
+        Assert.Equal(message, error.Message);
+    }
+
+    [Fact]
+    public void Directional_warp_angle_must_be_a_number()
+    {
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Evaluate(() => Gray.Of(0.5f).DirectionalWarp(Gray.Of(0.5f), 0.1f, float.NaN), 16));
+
+        Assert.Equal("angle must be a finite number, not NaN. (Parameter 'angle')", error.Message);
+    }
+
+    [Fact]
+    public void Directional_warp_tiles_and_matches_across_sizes()
+    {
+        NodeChecks.Tiles(() => Noise.Perlin(4).DirectionalWarp(Noise.Perlin(3), 0.1f, 30f));
+        NodeChecks.SameAtSizes(() => Noise.Perlin(4).DirectionalWarp(Noise.Perlin(3), 0.1f, 30f));
+    }
 }

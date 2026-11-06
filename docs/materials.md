@@ -217,7 +217,7 @@ photo or a hand-painted mask:
 
 ```csharp
 var rock = Image("rock.png");
-var height = rock.Multiply(Gray.Of(0.5f));
+var height = rock.ToGray().Multiply(0.5f);
 ```
 
 The picture is stretched to the graph's size with bilinear sampling, wrapping at the
@@ -361,7 +361,7 @@ of rows.
 
 ### Filters
 
-These are methods on `Gray`. `Blur`, `Warp` and `SlopeBlur` work on `Rgb` too.
+These are methods on `Gray`. `Blur`, `Warp`, `DirectionalWarp` and `SlopeBlur` work on `Rgb` too.
 
 `Levels(inLow = 0, inHigh = 1, outLow = 0, outHigh = 1, gamma = 1)` clamps the input to
 `inLow`..`inHigh` and stretches it onto `outLow`..`outHigh`. `inHigh` must differ from
@@ -384,6 +384,34 @@ across the whole image moves pixels by `amount` of the image. `amount` is −1 t
 slope of `slope`, reaching `amount` of the image, 0 to 1, from `samples` reads, 1 or more. Where the
 slope is flat the pixel is kept. `Min` and `Max` modes keep the darkest or brightest
 read instead of the average.
+
+`Curve((in, out), (in, out), ...)` maps each value through straight lines between the
+points. The `in` values must go up, each above the one before, and there must be at least
+two points. Below the first `in` the result is the first `out`, and above the last it is the last
+`out`. The points must be finite. Fewer than two points throws "A curve needs at least two
+points, not 1.", and points that don't go up throw "Curve points must go up in In: 0.2
+comes after 0.5."
+
+`DirectionalWarp(by, amount, angle)` moves each pixel along `angle` by `amount` of the image
+times the value of the grey image `by` at that pixel, so a `by` of 1 and an `amount` of
+0.25 shifts the image a quarter of its width. `amount` is −1 to 1 and a negative amount
+moves the other way. `angle` is in degrees, counter-clockwise from the right, so 90 is up
+the image, and it does not snap (see [Angles](#angles)), since the image is moved and not
+patterned. Reads wrap at the edges and use bilinear filtering.
+
+`Distance(reach)` grows a mask out from the bright parts. A pixel above 0.5 is 1. Any other
+pixel is `1 − d / reach`, held at 0 or above, where `d` is the straight-line distance to the nearest
+pixel above 0.5, as a fraction of the image, measured between pixel centres and wrapping at the
+edges. `reach` is more than 0 and at most 0.5. An image with nothing above 0.5 gives all 0.
+The distance is exact and found in two passes over the image, so it costs the same at any
+`reach`: about 0.14 s extra at 2048 pixels, and about 1 s at 4096.
+
+`EdgeDetect(width = 0.01f)` is 1 where the image crosses 0.5 and 0 elsewhere. A pixel is 1
+when a pixel on the other side of 0.5 (above it, or at or below it) is within `width` of the image,
+as a straight-line distance that wraps at the edges, so both sides of a seam are 1. The
+distance is at least one pixel, so a very thin width still marks the pixel next door.
+`width` must be more than 0. It costs about twice a `Distance`. Edges are whole pixels, so a width
+of a few pixels looks a little different at different sizes; from about 0.1 of the image up the sizes agree.
 
 ### Transforms
 
@@ -453,6 +481,14 @@ Run it on bricks or tiles to tell them apart.
 gaps 0. The value comes from the island's first pixel in row order, so the same graph at
 a different size can give an island a different value.
 
+`ToGradient(angle = 0f)` on the islands turns each island into a 0 to 1 ramp along `angle`,
+in degrees counter-clockwise from the right, so 90 is up the image. Each island is measured
+on its own: 0 is its pixel furthest back along the angle and 1 the furthest forward, taken
+over a box around the island's pixel centres. An island that crosses an edge is measured as
+one piece, laid out across the edge. The gaps are 0, and so is an island one pixel across.
+The angle does not snap. `angle` must be a finite number. Use it to give every brick its own
+gradient, or to shade each one from one side.
+
 ### Combining
 
 `Blend(top, mode = BlendMode.Copy, mask = null, opacity = 1f)` mixes `top` over the image.
@@ -487,6 +523,14 @@ as the position. `Ramp.Of("#5a2a1e", "#a8604a")` spreads its colours evenly.
 position from 0 to 1, in order. Before the first stop and after the last, a ramp holds
 their colour.
 
+`Hsl(hue, saturation, lightness)` on an `Rgb` shifts the colour. `hue` is added in turns, so 0.5
+is the opposite colour and the result wraps round. `saturation` and `lightness` are added and the
+result is held to 0..1. The colour is clamped to 0..1 first. All three must be finite.
+`Hsl(0, 0, 0)` changes nothing.
+
+`ToGray()` on an `Rgb` is the brightness as a `Gray`: `0.2126 r + 0.7152 g + 0.0722 b`. Use it to
+make a height or a mask from a picture.
+
 ### Surface
 
 `HeightToNormal(width, depth)` turns a height into a normal map. `width` is how many
@@ -499,3 +543,45 @@ horizon in eight directions, out to `radius` of the image, 0 to 1. 1 is open and
 hidden. A radius under one pixel finds nothing, so at the default radius occlusion
 vanishes below about size 20. The cooker multiplies the material's occlusion into the
 colour for you.
+
+`Normals.Combine(detail)` lays `detail` over the normals with reoriented normal mapping, the
+same as the material's `Normal`. The order matters: the base is the surface and the detail is
+what sits on it. Where the detail is flat the base is kept.
+
+`Normals.Curvature()` is a grey image: 0.5 on flat ground, above it on convex parts such as
+ridges and edges, and below it in crevices. It is `0.5 + (divergence of the normals) / 32`,
+where the divergence is measured per image width with central differences, so a full-range
+change of 16 per image width gives 1 or 0 and the result is clamped. Sizes agree, since it
+is per image width and not per pixel. Use it for edge wear and dirt in crevices.
+
+### Pixel
+
+`Pixel.Gray(body, inputs...)` and `Pixel.Rgb(body, inputs...)` make an image from a function that
+runs for every pixel, for the odd effect no node gives. `inputs` are any images. The body
+is called with a `PixelArgs`:
+
+```csharp
+var rings = Pixel.Gray(p => 0.5f + 0.5f * DMath.Sin(40f * (p.Uv - new Vector2(0.5f)).Length()));
+var edge = Pixel.Gray(p => p.Gray(0) * (1f - p.Gray(1)), height, mask);
+var tint = Pixel.Rgb(p => p.Rgb(0) * p.Gray(1), color, mask);
+```
+
+`Pixel.Gray` returns a `float`, and `Pixel.Rgb` a `Vector3`. `PixelArgs` is passed by value, so
+`p => ...` works. It has:
+
+| Member | Gives |
+| --- | --- |
+| `Uv` | The pixel's centre as a `Vector2`, 0..1, `(x + 0.5) / size`. Row 0 is the top |
+| `Gray(i)` | Input `i` at this pixel, which must be a `Gray` |
+| `Rgb(i)` | Input `i` at this pixel, which must be an `Rgb` |
+| `SampleGray(i, uv)` | Input `i`, a `Gray`, read with bilinear filtering at `uv`, wrapping |
+| `SampleRgb(i, uv)` | Input `i`, an `Rgb`, read the same way |
+
+Inputs are numbered from 0 in the order given. An input of the wrong kind is not converted: `Gray(0)` on an
+`Rgb` throws `InvalidOperationException` ("Gray(0) needs a one-channel input, but input 0 has three. Use Rgb(0)
+for it."), so use `ToGray()` first. An index with no input throws `ArgumentOutOfRangeException`
+("Gray(1) has no input 1: the node has 1 input."). Both stop the cook with the line of the graph.
+
+The body runs for rows in parallel, so it must not change anything outside itself. It must give the
+same answer for the same pixel. Use `DMath` for `Sin`, `Cos`, `Pow` and the like and not `Math` or
+`MathF`, which can differ between machines, and a cooked material must come out the same on every one.

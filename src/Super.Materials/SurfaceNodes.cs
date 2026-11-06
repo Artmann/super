@@ -199,3 +199,57 @@ sealed class OccludedColorNode(Node color, Node occlusion, float strength) : Nod
         });
     }
 }
+
+public sealed partial class Normals
+{
+    /// <summary>
+    /// Lays <paramref name="detail"/> over this normal map with reoriented normal mapping, the same maths the cooker
+    /// uses for a material's <c>Normal</c>. A flat detail gives this map back, and a flat map gives the detail.
+    /// </summary>
+    public Normals Combine(Normals detail)
+    {
+        ArgumentNullException.ThrowIfNull(detail);
+
+        return new Normals(new NormalOverNode(Node, detail.Node));
+    }
+
+    /// <summary>
+    /// How the surface bends: 0.5 where it is flat, above that where it is convex (a ridge or the top of a bump) and below
+    /// it where it is concave (a pit or a crease). It is <c>0.5 + (divergence of the x, y normal) / 32</c>, with the
+    /// divergence taken per image width, so a normal that turns by 0.5 across a tenth of the image (a divergence of
+    /// about 10) lands near 0.8. Values past 0..1 carry on, as in any node, and are held when the texture is written.
+    /// </summary>
+    public Gray Curvature() => new(new CurvatureNode(Node));
+}
+
+sealed class CurvatureNode(Node input) : Node(1, input)
+{
+    // The divergence at which curvature reaches 0 or 1, per image width.
+    const float DivergenceForFullRange = 16f;
+
+    internal override void Evaluate(EvaluationContext context, float[][] inputs, float[] output)
+    {
+        var size = context.Size;
+        var normals = inputs[0];
+        var scale = size * 0.5f / (2f * DivergenceForFullRange);
+
+        context.Rows(y =>
+        {
+            var up = Sampling.Wrap(y - 1, size) * size;
+            var mid = y * size;
+            var down = Sampling.Wrap(y + 1, size) * size;
+
+            for (var x = 0; x < size; x++)
+            {
+                var left = Sampling.Wrap(x - 1, size);
+                var right = Sampling.Wrap(x + 1, size);
+
+                // Central differences per image width. Green points towards row 0, so the rise in y is up minus down.
+                var dx = normals[(mid + right) * 3] - normals[(mid + left) * 3];
+                var dy = normals[(up + x) * 3 + 1] - normals[(down + x) * 3 + 1];
+
+                output[mid + x] = 0.5f + (dx + dy) * scale;
+            }
+        });
+    }
+}

@@ -22,6 +22,20 @@ public sealed partial class Gray
     }
 
     /// <summary>
+    /// Moves each pixel along <paramref name="angle"/> (degrees, counter-clockwise from +x, so 90 is up the image) by
+    /// <paramref name="amount"/> of the image times the value of <paramref name="by"/> there. A <c>by</c> of 1 and an
+    /// <paramref name="amount"/> of 0.25 shifts the image a quarter of its width. A negative amount moves the other way.
+    /// Wraps at the edges, and the angle does not snap, since the image is moved rather than patterned.
+    /// </summary>
+    public Gray DirectionalWarp(Gray by, float amount, float angle)
+    {
+        Arguments.Between(amount, -1f, 1f, nameof(amount));
+        Arguments.Finite(angle, nameof(angle));
+
+        return new Gray(new DirectionalWarpNode(Node, 1, by.Node, amount, angle));
+    }
+
+    /// <summary>
     /// Blurs along the slope of <paramref name="slope"/>, reaching <paramref name="amount"/> of the image, from
     /// <paramref name="samples"/> reads. Where the slope is flat, the pixel is copied.
     /// </summary>
@@ -42,6 +56,15 @@ public sealed partial class Rgb
         Arguments.Between(amount, -1f, 1f, nameof(amount));
 
         return new Rgb(new WarpNode(Node, 3, by.Node, amount));
+    }
+
+    /// <summary>The same as <see cref="Gray.DirectionalWarp"/>, for each channel.</summary>
+    public Rgb DirectionalWarp(Gray by, float amount, float angle)
+    {
+        Arguments.Between(amount, -1f, 1f, nameof(amount));
+        Arguments.Finite(angle, nameof(angle));
+
+        return new Rgb(new DirectionalWarpNode(Node, 3, by.Node, amount, angle));
     }
 
     /// <summary>The same as <see cref="Gray.SlopeBlur"/>, for each channel.</summary>
@@ -81,6 +104,36 @@ sealed class WarpNode(Node input, int channels, Node by, float amount) : Node(ch
                 var (gx, gy) = Slope.At(map, size, x, y);
                 var u = (x + 0.5f) / size - amount * gx;
                 var v = (y + 0.5f) / size - amount * gy;
+
+                for (var c = 0; c < Channels; c++)
+                {
+                    output[(y * size + x) * Channels + c] = Sampling.Bilinear(source, size, Channels, c, u, v);
+                }
+            }
+        });
+    }
+}
+
+sealed class DirectionalWarpNode(Node input, int channels, Node by, float amount, float angle) : Node(channels, input, by)
+{
+    internal override void Evaluate(EvaluationContext context, float[][] inputs, float[] output)
+    {
+        var size = context.Size;
+        var source = inputs[0];
+        var map = inputs[1];
+        var radians = angle * (MathF.PI / 180f);
+
+        // Up the image is towards row 0, so the row part of the direction is the negative of the sine.
+        var dx = DMath.Cos(radians);
+        var dy = -DMath.Sin(radians);
+
+        context.Rows(y =>
+        {
+            for (var x = 0; x < size; x++)
+            {
+                var move = amount * map[y * size + x];
+                var u = (x + 0.5f) / size - move * dx;
+                var v = (y + 0.5f) / size - move * dy;
 
                 for (var c = 0; c < Channels; c++)
                 {
