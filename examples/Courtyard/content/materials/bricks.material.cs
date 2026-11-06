@@ -5,7 +5,8 @@ public sealed class Bricks : MaterialGraph
 {
     public override Material Build()
     {
-        // 8 bricks of 25 cm across the 2 m, 26 courses of about 7.7 cm.
+        // 8 bricks of 37.5 cm across the 3 m, 26 courses of about 11.5 cm: big old bricks,
+        // so they read at the distance the courtyard is seen from.
         var bricks = Tiles.Bricks(columns: 8, rows: 26, gap: 0.14f, bevel: 0.15f);
         var ids = bricks.FloodFill();
 
@@ -29,7 +30,7 @@ public sealed class Bricks : MaterialGraph
 
         return new Material
         {
-            Width = 2f,
+            Width = 3f,
             Depth = 0.02f,
             Height = height,
             Color = color,

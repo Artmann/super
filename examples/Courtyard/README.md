@@ -42,7 +42,7 @@ dotnet run -c Release --project examples/Courtyard -- --lineup
 | `LineupGame.cs` | The lineup |
 | `art/courtyard.py` | The Blender script that builds and exports the courtyard |
 | `content/models/courtyard.glb.cook.json` | Which graph each of the model's materials wears, plus the glass, water, leaves and bulb |
-| `content/materials/bricks.material.cs` | Red bricks 25 cm long in pale mortar, 2 m wide. Each brick is found with `FloodFill` and gets its own tilt and colour, and `SlopeBlur` with cells chips the edges |
+| `content/materials/bricks.material.cs` | Big old red bricks 37.5 cm long in pale mortar, 3 m wide. Each brick is found with `FloodFill` and gets its own tilt and colour, and `SlopeBlur` with cells chips the edges |
 | `content/materials/stone.material.cs` | Weathered grey stone, 1 m wide, for the dry-stone wall, the plinth, the sill and the cobbles. Perlin lumps, pits from cells, and moss in the low places |
 | `content/materials/mud.material.cs` | Wet mud, 2 m wide. Churned clods from warped cells, pebbles stamped with `Splatter` and `HeightBlend`, and dark, glossy water in the hollows |
 | `content/materials/flagstones.material.cs` | Irregular stones, 2 m wide. The joints are the edges of `Noise.Cells`, cut with `HistogramScan` and bent with `Warp`, and `HeightBlend` fills them with grit |
