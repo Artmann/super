@@ -262,6 +262,13 @@ Naming a part that isn't there lists the ones that are:
 archer-props/firs.glb#tal isn't in the cooked content. Check the name, including its case and extension. archer-props/firs.glb has the parts: tall, young.
 ```
 
+### Materials
+
+A material graph is named with `content.Surface("materials/bricks.material.cs")`, which
+gives a `Surface` with the graph's textures and its width in metres as `TileWidth`. It
+stops with a `ContentException` for a name that has no `#material` part. See
+[materials.md](materials.md).
+
 ## Shipping
 
 `dotnet publish` copies the cooked `content` folder beside the program and leaves

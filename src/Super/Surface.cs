@@ -22,6 +22,12 @@ public sealed record Surface
     public TextureRef? NormalTexture { get; init; }
     public TextureRef? SurfaceTexture { get; init; }
 
+    /// <summary>
+    /// How many metres the textures cover before they repeat, from a material graph's width.
+    /// Shapes tile at this size unless given <c>uvPerMetre</c>. Null when the surface isn't from a graph.
+    /// </summary>
+    public float? TileWidth { get; init; }
+
     /// <summary>A fragment shader named through <see cref="Content.Shader"/>, or the standard one.</summary>
     public ShaderRef? Shader { get; init; }
 

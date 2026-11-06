@@ -260,9 +260,9 @@ public sealed class Content
             Require<ShaderItem>(shader.Index, nameof(surface.Shader), "shader");
         }
 
-        RequireCount(surface.Parameters.Length, Surface.MaxParameters, nameof(surface.Parameters));
-        RequireCount(surface.ShaderTextures.Length, Surface.MaxShaderTextures, nameof(surface.ShaderTextures));
-        RequireCount(surface.ShaderArrays.Length, Surface.MaxShaderTextures, nameof(surface.ShaderArrays));
+        RequireCount(surface.Parameters.Length, Super.Surface.MaxParameters, nameof(surface.Parameters));
+        RequireCount(surface.ShaderTextures.Length, Super.Surface.MaxShaderTextures, nameof(surface.ShaderTextures));
+        RequireCount(surface.ShaderArrays.Length, Super.Surface.MaxShaderTextures, nameof(surface.ShaderArrays));
         for (int i = 0; i < surface.ShaderTextures.Length; i++)
         {
             RequireTexture(surface.ShaderTextures[i], $"{nameof(surface.ShaderTextures)}[{i}]");
@@ -307,6 +307,49 @@ public sealed class Content
         }
 
         return texture;
+    }
+
+    /// <summary>
+    /// A surface for a cooked material graph or variant, such as <c>materials/bricks.material.cs</c>.
+    /// It holds the graph's colour, normal and surface textures and its width in metres, which
+    /// shapes tile at unless given <c>uvPerMetre</c>. Colour, roughness and metallic are 1, because
+    /// the surface texture's values pass straight through. A name that isn't a cooked material stops
+    /// here with a <see cref="ContentException"/>.
+    /// </summary>
+    public Surface Surface(string name)
+    {
+        string part = name + "#material";
+        if (_files.KindOf(part) != ContentKind.Data)
+        {
+            if (_files.KindOf(name) is null)
+            {
+                throw new ContentException([ContentNames.Missing(_files, name)]);
+            }
+
+            throw new ContentException([$"{name} is not a cooked material. Materials are .material.cs and .material.json files."]);
+        }
+
+        float width;
+        try
+        {
+            using var json = System.Text.Json.JsonDocument.Parse(ReadFile(part, "material"));
+            width = json.RootElement.GetProperty("width").GetSingle();
+        }
+        catch (Exception problem) when (problem is System.Text.Json.JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
+        {
+            throw new ContentException([$"{part} can't be read: {problem.Message}"]);
+        }
+
+        return new Surface
+        {
+            Color = System.Numerics.Vector3.One,
+            Roughness = 1f,
+            Metallic = 1f,
+            ColorTexture = Texture(name + "#color"),
+            NormalTexture = Texture(name + "#normal"),
+            SurfaceTexture = Texture(name + "#surface"),
+            TileWidth = width,
+        };
     }
 
     /// <summary>Names an image made in code. Each call makes a new one.</summary>

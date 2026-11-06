@@ -318,6 +318,9 @@ prism and hex have sharp edges. Every call also takes a `Surface`, which default
 grey. UVs stretch once across each part, such as each face of a box or the side of a
 cylinder, unless `uvPerMetre` is given; then they count metres, so a tiled texture is the
 same size on every shape whatever its size. Round shapes measure round their widest point.
+A surface from `content.Surface` (a material graph) tiles at its graph's width when
+`uvPerMetre` is not given, and `uvPerMetre` wins when it is. Ribbons, tubes and extrusions
+follow the same rule.
 
 ## Meshes made by code
 
@@ -380,7 +383,7 @@ anticlockwise faces outwards, and a flat road listed from right to left faces up
 `closedOutline` joins the last point back to the first. Edges are sharp across the
 outline unless it's `smooth`, as for a pipe. The ends are left open. A ring of vertices
 goes every `step` metres. UVs are in metres: u runs across the outline and v runs along
-the spline, scaled by `uvPerMetre`.
+the spline, scaled by `uvPerMetre`, which is 1 unless the surface has a `TileWidth`.
 
 `Bend` measures along the spline from the back of the mesh (its lowest z). Each vertex
 keeps its x and y across the spline, so the mesh keeps its length. Past the end of an

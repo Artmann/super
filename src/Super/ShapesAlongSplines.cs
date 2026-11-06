@@ -23,13 +23,14 @@ public static partial class Shapes
         bool smooth = false,
         float step = 0.5f,
         Surface? surface = null,
-        float uvPerMetre = 1f)
+        float? uvPerMetre = null)
     {
         ArgumentNullException.ThrowIfNull(spline);
         ArgumentNullException.ThrowIfNull(outline);
         CheckOutline(outline, closedOutline);
         RequirePositive(step, nameof(step), "step");
-        RequirePositive(uvPerMetre, nameof(uvPerMetre), "UV scale");
+        float perMetre = PerMetre(uvPerMetre, surface) ?? 1f;
+        RequirePositive(perMetre, nameof(uvPerMetre), "UV scale");
 
         int rings = Math.Max(1, (int)MathF.Ceiling(spline.Length / step - 1e-4f));
         var poses = new SplinePose[rings + 1];
@@ -56,7 +57,7 @@ public static partial class Shapes
                     pose.Position + Vector3.Transform(new Vector3(-corner.Point.X, corner.Point.Y, 0f), pose.Rotation),
                     normal,
                     new Vector4(across, handedness),
-                    new Vector2(corner.U, along[row]) * uvPerMetre);
+                    new Vector2(corner.U, along[row]) * perMetre);
             });
         }
 
@@ -67,14 +68,14 @@ public static partial class Shapes
     /// A flat strip along a spline, facing up, such as a road or a river. It's
     /// <paramref name="width"/> metres across, centred on the spline.
     /// </summary>
-    public static GeneratedMesh Ribbon(Spline spline, float width, float step = 0.5f, Surface? surface = null, float uvPerMetre = 1f)
+    public static GeneratedMesh Ribbon(Spline spline, float width, float step = 0.5f, Surface? surface = null, float? uvPerMetre = null)
     {
         RequirePositive(width, nameof(width), "width");
         return Extrude(spline, [new Vector2(width * 0.5f, 0f), new Vector2(-width * 0.5f, 0f)], step: step, surface: surface, uvPerMetre: uvPerMetre);
     }
 
     /// <summary>A round pipe along a spline, for rails, cables, ropes and pipes. Sides go round it.</summary>
-    public static GeneratedMesh Tube(Spline spline, float radius = 0.25f, int sides = 12, float step = 0.5f, Surface? surface = null, float uvPerMetre = 1f)
+    public static GeneratedMesh Tube(Spline spline, float radius = 0.25f, int sides = 12, float step = 0.5f, Surface? surface = null, float? uvPerMetre = null)
     {
         RequirePositive(radius, nameof(radius), "radius");
         RequireAtLeast(sides, 3, nameof(sides));

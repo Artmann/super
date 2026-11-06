@@ -84,6 +84,55 @@ public class ContentTests
         return files;
     }
 
+    private const string SmallSize = """{ "rules": [{ "match": "*.material.*", "material": { "size": 16 } }] }""";
+
+    private const string Plain = """
+        using Super.Materials;
+
+        public sealed class Plain : MaterialGraph
+        {
+            public override Material Build() => new Material { Width = 2f };
+        }
+        """;
+
+    [Fact]
+    public void Surface_from_a_graph_has_its_textures_and_width()
+    {
+        var files = new MemoryContent();
+        files["cook.json"] = SmallSize;
+        files["plain.material.cs"] = Plain;
+        var content = new Content(files);
+
+        var surface = content.Surface("plain.material.cs");
+
+        Assert.Equal(content.Texture("plain.material.cs#color"), surface.ColorTexture);
+        Assert.Equal(content.Texture("plain.material.cs#normal"), surface.NormalTexture);
+        Assert.Equal(content.Texture("plain.material.cs#surface"), surface.SurfaceTexture);
+        Assert.Equal(2f, surface.TileWidth);
+        Assert.Equal((Vector3.One, 1f, 1f), (surface.Color, surface.Roughness, surface.Metallic));
+    }
+
+    [Fact]
+    public void Surface_of_a_texture_explains_what_a_material_is()
+    {
+        var files = Textures("a.png");
+        var content = new Content(files);
+
+        var problem = Assert.Throws<ContentException>(() => content.Surface("a.png"));
+
+        Assert.Contains("a.png is not a cooked material. Materials are .material.cs and .material.json files.", problem.Message);
+    }
+
+    [Fact]
+    public void Surface_of_a_missing_name_gives_the_usual_missing_message()
+    {
+        var content = new Content(new MemoryContent());
+
+        var problem = Assert.Throws<ContentException>(() => content.Surface("nope.material.cs"));
+
+        Assert.Contains("nope.material.cs isn't in the cooked content. Check the name, including its case and extension.", problem.Message);
+    }
+
     [Fact]
     public void IsReady_is_true_without_a_window()
     {
