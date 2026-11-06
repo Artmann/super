@@ -19,8 +19,8 @@ internal sealed class Variant
     /// <summary>The path of the graph file, relative to the variant.</summary>
     public string Graph { get; }
 
-    /// <returns>The variant, or null after reporting what is wrong with the file to <paramref name="output"/>.</returns>
-    public static Variant? Read(string name, byte[] bytes, CookOutput output)
+    /// <returns>The variant, or null after reporting what is wrong with the file to <paramref name="error"/>.</returns>
+    public static Variant? Read(string name, byte[] bytes, Action<string> error)
     {
         JsonDocument document;
         try
@@ -29,7 +29,7 @@ internal sealed class Variant
         }
         catch (JsonException exception)
         {
-            output.Error($"{name}: {exception.Message}");
+            error($"{name}: {exception.Message}");
             return null;
         }
 
@@ -38,7 +38,7 @@ internal sealed class Variant
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
             {
-                output.Error($"{name}: a variant is a JSON object, such as {{ \"graph\": \"bricks.material.cs\" }}.");
+                error($"{name}: a variant is a JSON object, such as {{ \"graph\": \"bricks.material.cs\" }}.");
                 return null;
             }
 
@@ -59,13 +59,13 @@ internal sealed class Variant
 
             if (string.IsNullOrEmpty(graph))
             {
-                output.Error($"{name} needs \"graph\", the .material.cs file it sets values for.");
+                error($"{name} needs \"graph\", the .material.cs file it sets values for.");
                 return null;
             }
 
             if (!graph.EndsWith(".material.cs", StringComparison.OrdinalIgnoreCase))
             {
-                output.Error($"{name}: graph must be a .material.cs file, not {graph}.");
+                error($"{name}: graph must be a .material.cs file, not {graph}.");
                 return null;
             }
 
@@ -77,7 +77,7 @@ internal sealed class Variant
 
     /// <summary>Sets the values on <paramref name="graph"/>. Reports each one that can't be set.</summary>
     /// <returns>Whether every value was set.</returns>
-    public bool Apply(object graph, string name, CookOutput output)
+    public bool Apply(object graph, string name, Action<string> error)
     {
         var type = graph.GetType();
         var parameters = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
@@ -91,14 +91,14 @@ internal sealed class Variant
             if (!parameters.TryGetValue(lower, out var property))
             {
                 string[] known = [.. parameters.Keys.Order(StringComparer.Ordinal)];
-                output.Error($"{name}: {type.Name} has no parameter called {key}. It has {string.Join(", ", known)}.");
+                error($"{name}: {type.Name} has no parameter called {key}. It has {string.Join(", ", known)}.");
                 ok = false;
                 continue;
             }
 
             if (!TryConvert(property.PropertyType, value, out object? converted, out string wanted))
             {
-                output.Error($"{name}: {lower} is {wanted}, not {value.GetRawText()}.");
+                error($"{name}: {lower} is {wanted}, not {value.GetRawText()}.");
                 ok = false;
                 continue;
             }
