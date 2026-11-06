@@ -70,6 +70,19 @@ The low-poly coral pack is not used, because its author and license are unknown.
   [Creative Commons Attribution](http://creativecommons.org/licenses/by/4.0/).
 - The Ford GT model's author and license are not recorded yet.
 
+## Crypt example
+
+- From [Poly Haven](https://polyhaven.com), all under
+  [CC0](https://creativecommons.org/publicdomain/zero/1.0/):
+  - gothic_statue by Benny Weimer;
+  - treasure_chest by Rico Cilliers;
+  - wine_barrel_01 by James Ray Cock;
+  - brass_candleholders by Tina;
+  - Lantern_01 by Rajil Jose Macatangay;
+  - the monastery_stone_floor texture by Amal Kumar;
+  - the old_stone_wall texture by Charlotte Baglioni;
+  - the large_sandstone_blocks texture by Rob Tuytel.
+
 ## Forest example
 
 - The sounds and music in `examples/Forest/content` are from the

@@ -77,7 +77,7 @@ Marking two suns in one frame throws.
 
 ### Point and spot lights
 
-![The Crypt example: torches, a lantern and 246 candles](media/crypt.webp)
+![The Crypt example: torches, candelabras, a lantern's beam and 126 candles](media/crypt.webp)
 
 ```csharp
 view.PointLight(torch.Id, torch.Flame, color: new Vector3(3.2f, 1.5f, 0.5f), range: 9f, radius: 0.5f);
@@ -117,8 +117,8 @@ them off on small lights, such as rows of candles.
 A frame can have up to 1,024 lights, and one more throws. Lights are culled to what the
 camera sees, and each part of the screen only works through the lights that reach it, so
 a frame can have hundreds of small lights. 256 can reach any one spot on the screen,
-and more than that are dropped there. The `Crypt` example has four torches, a lantern
-and 246 candles.
+and more than that are dropped there. The `Crypt` example has four torches, five
+candelabras, a lantern, a beam from a grate and 126 candles, about 150 lights.
 
 Point and spot lights light models, glass and [particles](views.md#particles). Glass and
 particles get no shadows from them. They aren't seen in reflection probes.
