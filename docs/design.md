@@ -538,6 +538,14 @@ one error. A graph that fails the check isn't loaded or cached. `System.Threadin
 falls under `System.Threading`, which costs nothing, because the runner already spreads
 each node's rows over the cores.
 
+`Blur` is two passes, across then down, each working a whole row at a time so it reads
+memory in order. Its kernel stops at 3 deviations. When that is longer than the image, the
+weights are folded onto the pixels they wrap to, summed in doubles, so a pass never takes
+more than `size` taps. At 2048 pixels a blur of radius 0.1 went from 17 seconds to 5, and
+one of radius 1, whose kernel is 12,289 taps, from 225 seconds to 8. The folded weights
+are the same numbers in the same order on every run, and each tap is a multiply then an
+add, never fused, so the bytes stay the same on any thread count.
+
 Graphs compile twice on purpose. The cook compiles each alone so its bytes are the whole
 input, and the game's build compiles them all together, via a `ProjectReference` to `Super.Materials` in
 `Super.targets`, only so the editor can complete and check them. That output is never used, and `Private="false"` keeps
