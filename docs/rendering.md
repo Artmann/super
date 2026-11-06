@@ -468,7 +468,9 @@ A ghost leaves out the model's own colours, textures and tint, and is one matte 
 that glows a little, so it reads the same over a dark model or a light one, in sun or
 in shadow. Its shape still shows through the light. The colour is linear, from 0 to 1.
 Opacity is 1 by default, and below 1 the world shows through, as with glass. It must be
-more than 0 and at most 1. A ghost casts no shadow.
+more than 0 and at most 1. A ghost casts no shadow. Pass a
+[mesh mask](#showing-some-meshes-of-a-model) before the colour to preview only some of a
+model's meshes, such as a unit in the look it will have.
 
 ## Built-in shapes
 

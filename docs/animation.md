@@ -42,7 +42,9 @@ A mesh without bones, such as a sword or a head, follows its container node: the
 the node that holds the mesh, such as a hand or a neck. That container is a joint of its own,
 so it plays the clips that move it, and a container with no clip moving it stays at rest with
 its parent. At rest the mesh sits where the file's node tree puts it, even when its bone was
-bound in another pose. Each container that isn't a bone already counts towards the 256
+bound in another pose. The mesh follows its container, not its own node, so a clip that
+moves the mesh's own node, such as a lantern swinging on its hook, doesn't move it. Each
+container that isn't a bone already counts towards the 256
 joints a model can have, so a file with hundreds of loose meshes in their own empty nodes
 can run out.
 

@@ -26,6 +26,32 @@ public class MeshMaskDrawTests
     }
 
     [Fact]
+    public void A_ghost_keeps_its_mesh_mask()
+    {
+        var view = new View();
+        var mask = new MeshMask(3, 4, [2]);
+        view.Begin(0f);
+
+        view.Ghost(7, Body, Matrix4x4.Identity, mask, new Vector3(0f, 1f, 0f), 0.5f);
+
+        var drawn = Assert.Single(view.Drawn.ToArray());
+        Assert.Same(mask, drawn.Meshes);
+        Assert.Equal(new Ghost(new Vector3(0f, 1f, 0f), 0.5f), drawn.Ghost);
+    }
+
+    [Fact]
+    public void A_ghost_with_a_mask_for_another_model_is_explained()
+    {
+        var view = new View();
+        view.Begin(0f);
+
+        var problem = Assert.Throws<ArgumentException>(
+            () => view.Ghost(7, Body, Matrix4x4.Identity, new MeshMask(5, 4, [0]), Vector3.One));
+
+        Assert.StartsWith("The mesh mask was made for model 5, not model 3.", problem.Message);
+    }
+
+    [Fact]
     public void A_mask_for_a_model_with_another_part_count_is_explained()
     {
         var mask = new MeshMask(3, 4, [0]);

@@ -215,7 +215,7 @@ game draws with it without allocating.
   each mask's copies apart, by the triangles they show.
 - A draw with a pose or an animator still skins the whole skeleton once, however few
   meshes it shows.
-- A ghost draws the whole model. `Ghost` has no mask.
+- A ghost takes a mask too, as `view.Ghost(key, model, transform, meshes, color, opacity)`.
 - `run.Drawn` entries carry the mask as `Meshes`, or null for a draw that shows every
   mesh. See [Testing](testing.md).
 

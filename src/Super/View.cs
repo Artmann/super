@@ -346,14 +346,21 @@ public sealed class View
     /// An opacity below 1 lets the world show through. A ghost casts no shadow. The colour
     /// is linear, from 0 to 1.
     /// </summary>
-    public void Ghost(int key, ModelRef model, Matrix4x4 transform, Vector3 color, float opacity = 1f)
+    public void Ghost(int key, ModelRef model, Matrix4x4 transform, Vector3 color, float opacity = 1f) =>
+        Ghost(key, model, transform, null, color, opacity);
+
+    /// <summary>
+    /// Draws only the meshes a <see cref="MeshMask"/> shows as a ghost, such as a preview of a
+    /// unit in the look it will have. The mask must have been made for this model.
+    /// </summary>
+    public void Ghost(int key, ModelRef model, Matrix4x4 transform, MeshMask? meshes, Vector3 color, float opacity = 1f)
     {
         if (!(opacity > 0f && opacity <= 1f))
         {
             throw new ArgumentOutOfRangeException(nameof(opacity), opacity, "A ghost's opacity must be more than 0 and at most 1.");
         }
 
-        Model(key, model, transform, null);
+        Model(key, model, transform, null, default, null, meshes);
         _models[^1] = _models[^1] with { Ghost = new Ghost(color, opacity) };
     }
 
