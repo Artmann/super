@@ -99,6 +99,13 @@ input. Asking for a name the game doesn't have lists the ones it does. The
 dotnet run --project examples/Crafting -- --script tooltip --ticks 40 --screenshot tooltip.png
 ```
 
+The [Parts example](../examples/Parts) has `unmasked`, which presses Space to draw every part of
+its figures, as the before picture in [Showing some parts](rendering.md#showing-some-parts-of-a-model):
+
+```
+dotnet run --project examples/Parts -- --script unmasked --ticks 120 --size 1280x720 --screenshot before.png
+```
+
 ## Playing without vsync
 
 ```

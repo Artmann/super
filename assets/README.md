@@ -16,6 +16,11 @@ A `cook.json` in a subfolder is git-ignored: only `assets/cook.json` and the
 `{ "rules": [{ "match": "**", "cook": false }] }` in a folder of models you've downloaded
 but no example uses.
 
+`parts/figures.gltf` is the one model that is in git. It's made by
+[examples/Parts/build_figures.py](../examples/Parts/build_figures.py), which writes it with
+only the Python standard library, so there's no licence to name. Run the script again to
+change it, and commit the result with its sidecar.
+
 See [CREDITS.md](../CREDITS.md) for who made what.
 
 ## Fox

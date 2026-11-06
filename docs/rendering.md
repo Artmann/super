@@ -338,6 +338,12 @@ PartMask mask = content.Parts(model, "Body_03a", "Head_05b");
 view.Model(key, model, transform, mask);
 ```
 
+The [Parts example](../examples/Parts) draws nine figures from one static model of eight named
+meshes, three bodies, three heads and two hats, all in one spot. Each figure shows one body and
+one head, and a hat on six of them. Space shows every part at once, the pile on the left:
+
+![Before: every part drawn at once, the nine figures stacked in one spot. After: each figure shows one body, one head and a hat on six of them](media/parts-before-after.webp)
+
 A mask fits only the model it was made for, so make it from the model you draw. See
 [Part names](content.md#part-names) for the rules and the error when a name isn't there,
 and [Showing some parts](views.md#showing-some-parts) for how a draw uses it.

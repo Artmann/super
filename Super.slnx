@@ -21,6 +21,7 @@
     <Project Path="examples/Dust/Dust.csproj" />
     <Project Path="examples/Archer/Archer.csproj" />
     <Project Path="examples/Forest/Forest.csproj" />
+    <Project Path="examples/Parts/Parts.csproj" />
     <Project Path="examples/Fox/Fox.csproj" />
     <Project Path="examples/Glass/Glass.csproj" />
     <Project Path="examples/Reef/Reef.csproj" />
@@ -33,6 +34,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Crafting.Tests/Crafting.Tests.csproj" />
     <Project Path="tests/Forest.Tests/Forest.Tests.csproj" />
+    <Project Path="tests/Parts.Tests/Parts.Tests.csproj" />
     <Project Path="tests/Reef.Tests/Reef.Tests.csproj" />
     <Project Path="tests/Rooms.Tests/Rooms.Tests.csproj" />
     <Project Path="tests/Super.Cook.Tests/Super.Cook.Tests.csproj" />
