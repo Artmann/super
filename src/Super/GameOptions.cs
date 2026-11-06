@@ -13,6 +13,18 @@ public sealed class GameOptions
     public int Height { get; init; } = 720;
 
     /// <summary>
+    /// Opens the window maximized, filling the screen's work area (the screen without the taskbar), instead of
+    /// at <see cref="Width"/> by <see cref="Height"/>. Runs without a window, such as <c>--screenshot</c>, ignore it.
+    /// </summary>
+    public bool Maximized { get; init; }
+
+    /// <summary>
+    /// Opens the window without a title bar or frame. With <see cref="Maximized"/> that fills the work area.
+    /// Runs without a window ignore it.
+    /// </summary>
+    public bool Borderless { get; init; }
+
+    /// <summary>
     /// How many pixels one unit of the interface covers, so 2 makes all of it twice as big.
     /// <c>--ui-scale</c> overrides it. See <see cref="Ui.UiTree.Scale"/>.
     /// </summary>

@@ -42,7 +42,8 @@ internal sealed unsafe class GameWindow : IDisposable
     /// <summary>Screenshots, recordings and profiles keep vsync, so they're the same on every computer.</summary>
     private readonly bool _hidden;
 
-    public GameWindow(string title, int windowWidth, int windowHeight, bool hidden, bool validate, bool disableVsync)
+    public GameWindow(
+        string title, int windowWidth, int windowHeight, bool hidden, bool validate, bool disableVsync, bool maximized = false, bool borderless = false)
     {
         _hidden = hidden;
         _glfw = Glfw.GetApi();
@@ -58,7 +59,11 @@ internal sealed unsafe class GameWindow : IDisposable
 
         // Windows shrinks a window whose title bar would push it past the screen's height,
         // and a hidden window should come out at exactly the size that was asked for.
-        _glfw.WindowHint(WindowHintBool.Decorated, !hidden);
+        // A window with no screen to fill (a screenshot, a recording) keeps the size that was asked for, so it ignores both options.
+        maximized &= !hidden;
+        borderless &= !hidden;
+        _glfw.WindowHint(WindowHintBool.Decorated, !hidden && !borderless);
+        _glfw.WindowHint(WindowHintBool.Maximized, maximized);
         _window = _glfw.CreateWindow(windowWidth, windowHeight, title, null, null);
         if (_window is null)
         {
@@ -68,7 +73,12 @@ internal sealed unsafe class GameWindow : IDisposable
 
         if (!hidden)
         {
-            CentreOnScreen();
+            // A maximized window is already in its place, and centring it would pull it off the corner.
+            if (!maximized)
+            {
+                CentreOnScreen();
+            }
+
             _glfw.ShowWindow(_window);
         }
 
