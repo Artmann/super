@@ -109,6 +109,79 @@ public class FilterTests
     }
 
     [Fact]
+    public void A_blur_as_wide_as_the_image_spreads_an_impulse_evenly()
+    {
+        // A deviation of the whole image wraps round many times, so every pixel gets close to 1/256 of the impulse. The
+        // kernel stops at 3 deviations, 97 taps over 16 pixels, so the pixel at the centre gets one wrap more than the
+        // rest: about 1 part in 200 more, which the 1% allowance covers.
+        var impulse = new float[16 * 16];
+
+        impulse[0] = 1f;
+
+        var p = GraphRunner.Evaluate(() => Gray.FromArray(impulse).Blur(1f), 16);
+
+        Assert.All(p, v => Assert.InRange(v, 0.99f / 256f, 1.01f / 256f));
+        Assert.Equal(1f, p.Sum(), 4);
+    }
+
+    [Theory]
+    [InlineData(0.1f)]
+    [InlineData(0.3f)]
+    [InlineData(1f)]
+    public void A_wide_blur_matches_the_gaussian_summed_over_every_wrap(float radius)
+    {
+        // Worked out the slow way: every tap from -3 deviations to +3, in doubles, with no folding.
+        const int Size = 16;
+        var values = new float[Size * Size];
+
+        for (var i = 0; i < values.Length; i++)
+        {
+            values[i] = (i * 7 % 13) / 13f;
+        }
+
+        var sigma = radius * Size;
+        var half = (int)Math.Ceiling(3 * sigma);
+        var weights = Enumerable.Range(-half, half * 2 + 1).Select(k => Math.Exp(-(double)k * k / (2 * sigma * sigma))).ToArray();
+        var total = weights.Sum();
+        var expected = new double[Size * Size];
+
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                double sum = 0;
+
+                for (var j = -half; j <= half; j++)
+                {
+                    for (var i = -half; i <= half; i++)
+                    {
+                        var at = ((y + j) % Size + Size) % Size * Size + ((x + i) % Size + Size) % Size;
+
+                        sum += weights[j + half] * weights[i + half] / (total * total) * values[at];
+                    }
+                }
+
+                expected[y * Size + x] = sum;
+            }
+        }
+
+        var p = GraphRunner.Evaluate(() => Gray.FromArray(values).Blur(radius), Size);
+
+        for (var i = 0; i < p.Length; i++)
+        {
+            Assert.InRange(p[i], expected[i] - 1e-6, expected[i] + 1e-6);
+        }
+    }
+
+    [Fact]
+    public void A_wide_rgb_blur_gives_the_same_bytes_on_any_thread_count()
+    {
+        Func<Image> build = () => Noise.White().GradientMap(Ramp.Of("#102030", "#f0e0d0")).Blur(0.7f);
+
+        Assert.Equal(GraphRunner.Evaluate(build, 64, maxThreads: 1), GraphRunner.Evaluate(build, 64, maxThreads: 8));
+    }
+
+    [Fact]
     public void Blur_of_zero_copies()
     {
         var values = new float[16 * 16];

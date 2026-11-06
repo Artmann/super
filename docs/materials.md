@@ -423,7 +423,10 @@ them, so `Remap(1, 0)` is the same as `Invert`.
 `HistogramScan(position, contrast = 0.5f)` turns a gradient into a mask. A `position` of
 0.3 on an even gradient leaves 30% of it white. A low `contrast` softens the edge.
 
-`Blur(radius)` is a Gaussian blur whose deviation is `radius` of the image, 0 to 1.
+`Blur(radius)` is a Gaussian blur whose deviation is `radius` of the image, 0 to 1. It
+wraps round the edges like everything else, so a wide blur evens the image out. Its cost
+grows with the radius until the radius is about a sixth, and stays the same after that.
+At 2048 pixels a blur takes about 5 seconds at radius 0.1 and 8 at radius 1.
 
 `Warp(by, amount)` moves each pixel along the slope of the grey image `by`. A 0 to 1 ramp
 across the whole image moves pixels by `amount` of the image. `amount` is −1 to 1. Noise is
