@@ -102,10 +102,6 @@ Game.StartWindowsGameLoop<MyGame>(new GameOptions
 });
 ```
 
-`Maximized` opens the window filling the screen's work area (the screen without the taskbar), and
-`Borderless` takes away the title bar and frame. Together they give a window that fills the screen
-with no frame. Both are off by default, and a run without a window, such as `--screenshot`, ignores them.
-
 Without a `Seed`, each run picks a new one. `--seed` on the command line overrides it.
 `Id` names the folder the player's [user data](user-data.md) is kept in, and shouldn't
 change once the game ships. Without it, the title is used.
