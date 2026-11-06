@@ -40,9 +40,10 @@ Super is early. These are the known gaps, so you can plan around them.
   already loaded keeps what it has until the game restarts. See
   [Cooking](content.md#cooking) and [Change it while the game runs](content.md#change-it-while-the-game-runs).
 - Step 1 of [material graphs](materials.md) is done: graphs cook into textures, with the
-  Courtyard lineup of six starter graphs. Steps 2 to 6 are next: the Courtyard scene with a
-  puddle surface shader, hot reload of a saved graph in the running game, `graph` and
-  `repeat` in model sidecars, mesh bakes with a `Triplanar` node, and curvature and
+  Courtyard lineup of six starter graphs. `graph` in model sidecars is done too, and the
+  Courtyard is now a scene modelled in Blender that wears the graphs. Next: a rising-water
+  puddle surface shader, hot reload of a saved graph in the running game, `repeat` in model
+  sidecars, mesh bakes with a `Triplanar` node, and curvature and
   occlusion bakes as graph inputs. Graphs run only at cook time, and there is no node editor
   and no way to share helpers between graph files.
 - **Mods.** A mod should be a folder of JSON that adds or replaces entries by id. Several
