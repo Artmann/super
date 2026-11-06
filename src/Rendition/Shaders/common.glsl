@@ -42,9 +42,22 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     int showEnvironment;     // 1 draws the environment where nothing was drawn.
     int shadowCascades;      // How many of shadowMatrices are in use.
     int localLightCount;     // Point and spot lights in light_data.glsl's lights.
+    int off;                 // The RenderEffects left out of this frame: see the OFF_ bits below.
+    int pad0;
+    int pad1;
+    int pad2;
     Light lights[8];
     ReflectionProbe probes[4];
 } frame;
+
+// Bits of frame.off. Must match RenderEffects in Types.cs.
+const int OFF_AMBIENT_OCCLUSION = 1 << 2;
+const int OFF_REFLECTIONS = 1 << 3;
+const int OFF_BLOOM = 1 << 5;
+
+bool isOff(int effect) {
+    return (frame.off & effect) != 0;
+}
 
 // How far into the haze a point is: from the camera, or across the ground from the view's haze origin.
 float hazeDistance(vec3 position) {

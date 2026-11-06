@@ -570,6 +570,39 @@ public ref struct FrameView
 
     /// <summary>A fade, dissolve or wipe between two pictures, or none.</summary>
     public ScreenTransition Transition;
+
+    /// <summary>Effects to leave out of this frame. Left empty, every effect is drawn.</summary>
+    public RenderEffects Off;
+}
+
+/// <summary>
+/// The parts of the picture that cost GPU time and can be left out. Each one left out skips
+/// its work, not only its look, so a frame without any of them is as cheap as the renderer gets.
+/// </summary>
+[Flags]
+public enum RenderEffects
+{
+    None = 0,
+
+    /// <summary>The sun's shadow maps. Without them sunlight is blocked only by nearby surfaces, as ambient occlusion sees them.</summary>
+    SunShadows = 1 << 0,
+
+    /// <summary>Point and spot light shadows. Without them those lights, too, are blocked only by nearby surfaces.</summary>
+    LightShadows = 1 << 1,
+
+    /// <summary>Darkening in corners and creases, worked out from the screen.</summary>
+    AmbientOcclusion = 1 << 2,
+
+    /// <summary>Shiny surfaces mirroring what's on screen. Without them they reflect only the sky and reflection probes.</summary>
+    Reflections = 1 << 3,
+
+    /// <summary>Smoothing jagged edges over several frames. Without it edges show their pixels.</summary>
+    AntiAliasing = 1 << 4,
+
+    /// <summary>The glow round bright things.</summary>
+    Bloom = 1 << 5,
+
+    All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom,
 }
 
 /// <summary>

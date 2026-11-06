@@ -27,12 +27,14 @@ What exists today:
   `FrameView.Particles`
 - Car paint clearcoat, and surfaces that give off light
 - Screen-space reflections and box-corrected reflection probes
-- Temporal anti-aliasing, ambient occlusion and bloom
+- Temporal anti-aliasing, ambient occlusion and bloom, each of which, like both kinds of
+  shadow and screen-space reflections, a frame can leave out with `FrameView.Off`
 - Colour grading, sharpening, vignette, film grain and dithering
 - A tonemap pass that takes HDR colour to display colour with ACES filmic
 - An overlay of flat textured quads drawn over the finished picture, for text and
   interfaces. Fill `FrameView.Overlay` and call `Renderer.SetOverlayAtlas`
-- Two frames in flight and window resize handling
+- Two frames in flight, window resize handling, and vsync that switches on and off with
+  `Renderer.Vsync`
 - GPU timing for each render pass, switched on with `Renderer.MeasureGpu`
 - GLSL shaders compiled to SPIR-V at build time
 - Bindless textures and materials, normal mapping, cut-out and two-sided surfaces

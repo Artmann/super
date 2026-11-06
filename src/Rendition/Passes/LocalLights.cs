@@ -78,7 +78,8 @@ internal sealed class LocalLights
     /// <summary>
     /// Picks the lights the view needs and their shadow tiles, and writes them out for the
     /// shaders. <paramref name="gpuLights"/> needs room for every light and
-    /// <paramref name="gpuTiles"/> for <see cref="MaxTiles"/>.
+    /// <paramref name="gpuTiles"/> for <see cref="MaxTiles"/>. With <paramref name="shadows"/>
+    /// false no light gets a tile, as if none cast a shadow.
     /// </summary>
     public void Prepare(
         ReadOnlySpan<LocalLight> lights,
@@ -86,7 +87,8 @@ internal sealed class LocalLights
         in Matrix4x4 projection,
         int screenHeight,
         Span<GpuLocalLight> gpuLights,
-        Span<GpuShadowTile> gpuTiles)
+        Span<GpuShadowTile> gpuTiles,
+        bool shadows = true)
     {
         if (lights.Length > LocalLight.MaxPerFrame)
         {
@@ -119,7 +121,7 @@ internal sealed class LocalLights
             // How many pixels the light's reach spans on screen, from its middle to its edge.
             float pixels = light.Range * (pixelsPerUnit + pixelsAtOneUnit / MathF.Max(seen.Length(), light.Range));
             _pixels[kept] = pixels;
-            if (light.CastsShadow)
+            if (shadows && light.CastsShadow)
             {
                 _shadowed[shadowed] = kept;
                 _priority[shadowed] = -pixels; // Biggest first.

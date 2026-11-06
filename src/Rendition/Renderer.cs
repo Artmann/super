@@ -46,7 +46,8 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     private readonly VulkanContext _context;
-    private readonly bool _disableVsync;
+    private bool _disableVsync;
+    private bool _vsyncChanged;
     private readonly Vk _api;
     private readonly Frame[] _frames = new Frame[FramesInFlight];
     // How far a simpler model may stray. Shadows are soft, so they can afford more.
@@ -127,6 +128,14 @@ public sealed unsafe class Renderer : IDisposable
     private bool _historyReady;
     private Matrix4x4 _previousViewProjection;
 
+    // The effects this frame leaves out, and whether tonemapping and bloom are bound to the
+    // anti-aliased image or, with anti-aliasing left out, straight to the lit one.
+    private RenderEffects _off;
+    private bool _readsAntiAliased = true;
+
+    // Whether a sun casts its shadow this frame, so its maps are drawn.
+    private bool _sunShadowsDrawn;
+
     // Moving between pictures: what the frame asks for, which hold the held picture
     // belongs to, and whether the held picture and the last finished frame exist yet.
     private TransitionConstants _transition;
@@ -137,6 +146,24 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>Vulkan validation messages so far. Always zero when validation is off.</summary>
     public int ValidationErrors => _context.ValidationErrors;
+
+    /// <summary>
+    /// Waits for the display before showing each frame, so the picture never tears, and the
+    /// frame rate stops at the display's. Turned off, frames are shown as soon as they're done.
+    /// Displays that can't do that keep it on. A change takes effect on the next frame.
+    /// </summary>
+    public bool Vsync
+    {
+        get => !_disableVsync;
+        set
+        {
+            if (value != !_disableVsync)
+            {
+                _disableVsync = !value;
+                _vsyncChanged = true;
+            }
+        }
+    }
 
     /// <summary>Times the render passes. Off by default, because reading the times costs a little.</summary>
     public bool MeasureGpu { get; set; }
@@ -789,9 +816,24 @@ public sealed unsafe class Renderer : IDisposable
             return; // Minimized: there is nothing to present to.
         }
 
-        if ((uint)view.Width != _swapchain.Extent.Width || (uint)view.Height != _swapchain.Extent.Height)
+        if (_vsyncChanged || (uint)view.Width != _swapchain.Extent.Width || (uint)view.Height != _swapchain.Extent.Height)
         {
             Resize((uint)view.Width, (uint)view.Height);
+        }
+
+        _off = view.Off & RenderEffects.All;
+        bool antiAliased = !_off.HasFlag(RenderEffects.AntiAliasing);
+        if (antiAliased != _readsAntiAliased)
+        {
+            // Frames in flight still read the sets being rewritten. Changing this is rare.
+            _api.DeviceWaitIdle(_context.Device).Check();
+            _readsAntiAliased = antiAliased;
+            _bloomPass.SetSource(DisplaySource);
+            WriteImages(_tonemapSet,
+            [
+                new(_sampler, DisplaySource, ImageLayout.ShaderReadOnlyOptimal),
+                new(_linearSampler, _bloomPass.Result, ImageLayout.ShaderReadOnlyOptimal),
+            ]);
         }
 
         ref Frame frame = ref _frames[_frameIndex];
@@ -830,8 +872,9 @@ public sealed unsafe class Renderer : IDisposable
 
         // A shift of less than a pixel, different every frame, lets anti-aliasing gather
         // detail from between the pixels.
+        // Without anti-aliasing to gather it, the shift would only make the picture shake.
         var viewProjection = view.View * view.Projection;
-        var shift = Jitter[_frameNumber % JitterSteps] * 2f / new Vector2(view.Width, view.Height);
+        var shift = antiAliased ? Jitter[_frameNumber % JitterSteps] * 2f / new Vector2(view.Width, view.Height) : Vector2.Zero;
         var previous = _historyReady ? _previousViewProjection : viewProjection;
         bool castsShadow = WriteUniforms(frame, view, previous, shift, _frameNumber, _historyReady, capturingProbe: false);
         WriteBones(frame, view.Bones);
@@ -1137,13 +1180,35 @@ public sealed unsafe class Renderer : IDisposable
 
         RecordScene(cmd, frameSet, draws, [], shadowsSelected: true, _transparentView, _particleCount);
 
-        ReadOnlySpan<DescriptorSet> taaSets = [frameSet, _taaSet];
-        _api.BeginColorTarget(cmd, targets.Resolved.Image);
-        _taaPass.Record(cmd, targets.Resolved.View, extent, taaSets);
-        RecordHistoryCopy(cmd, targets);
+        // Anti-aliasing blends in the last frame, and reflections read it, so it's kept for
+        // the next while either wants it. Without anti-aliasing the lit image is the frame.
+        if (_readsAntiAliased)
+        {
+            ReadOnlySpan<DescriptorSet> taaSets = [frameSet, _taaSet];
+            _api.BeginColorTarget(cmd, targets.Resolved.Image);
+            _taaPass.Record(cmd, targets.Resolved.View, extent, taaSets);
+            RecordHistoryCopy(cmd, targets.Resolved.Image, drawnJustNow: true);
+        }
+        else if (!_off.HasFlag(RenderEffects.Reflections))
+        {
+            RecordHistoryCopy(cmd, targets.Hdr.Image, drawnJustNow: false);
+        }
+        else
+        {
+            _historyReady = false;
+        }
+
         _gpuTimer.Mark(cmd);
 
-        _bloomPass.Record(cmd);
+        if (_off.HasFlag(RenderEffects.Bloom))
+        {
+            _bloomPass.RecordSkipped(cmd);
+        }
+        else
+        {
+            _bloomPass.Record(cmd);
+        }
+
         _gpuTimer.Mark(cmd);
 
         ReadOnlySpan<DescriptorSet> tonemapSets = [frameSet, _tonemapSet];
@@ -1225,12 +1290,26 @@ public sealed unsafe class Renderer : IDisposable
         _heldReady = true;
     }
 
-    /// <summary>Keeps this frame for the next one, and leaves it ready to sample.</summary>
-    private void RecordHistoryCopy(CommandBuffer cmd, GBuffer targets)
+    /// <summary>
+    /// Keeps this frame for the next one, and leaves it ready to sample. The frame is still
+    /// a target when it was <paramref name="drawnJustNow"/>, and already ready to sample when not.
+    /// </summary>
+    private void RecordHistoryCopy(CommandBuffer cmd, Image frame, bool drawnJustNow)
     {
-        _api.Transition(cmd, targets.Resolved.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferSrcOptimal, ColorStage, ColorWrite,
-            PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit);
+        var targets = _gBuffer;
+        if (drawnJustNow)
+        {
+            _api.Transition(cmd, frame, ImageAspectFlags.ColorBit,
+                ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferSrcOptimal, ColorStage, ColorWrite,
+                PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit);
+        }
+        else
+        {
+            _api.Transition(cmd, frame, ImageAspectFlags.ColorBit,
+                ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferSrcOptimal, SampledStage, SampledAccess,
+                PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit);
+        }
+
         _api.Transition(cmd, targets.History.Image, ImageAspectFlags.ColorBit,
             ImageLayout.Undefined, ImageLayout.TransferDstOptimal, SampledStage, SampledAccess,
             PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit);
@@ -1241,13 +1320,13 @@ public sealed unsafe class Renderer : IDisposable
             DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
             Extent = new Extent3D(targets.Extent.Width, targets.Extent.Height, 1),
         };
-        _api.CmdCopyImage(cmd, targets.Resolved.Image, ImageLayout.TransferSrcOptimal,
+        _api.CmdCopyImage(cmd, frame, ImageLayout.TransferSrcOptimal,
             targets.History.Image, ImageLayout.TransferDstOptimal, 1, &region);
 
         _api.Transition(cmd, targets.History.Image, ImageAspectFlags.ColorBit,
             ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
             PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit, SampledStage, SampledAccess);
-        _api.Transition(cmd, targets.Resolved.Image, ImageAspectFlags.ColorBit,
+        _api.Transition(cmd, frame, ImageAspectFlags.ColorBit,
             ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal,
             PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit, SampledStage, SampledAccess);
         _historyReady = true;
@@ -1281,20 +1360,30 @@ public sealed unsafe class Renderer : IDisposable
 
         // Targets are shared between frames in flight, so each first use waits for the
         // previous frame's sampling to finish. Contents are discarded via Undefined.
-        // Runs without draws when nothing casts a shadow: the lighting pass still binds the map.
+        // When no sun casts a shadow the maps aren't drawn, or even cleared, and nothing
+        // reads them, but the lighting pass still binds them.
         var shadowMap = _shadowPass.Target.Image;
-        _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
-            ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, SampledStage, SampledAccess, DepthStages,
-            DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit, layerCount: ShadowPass.MaxCascades);
-        for (int cascade = 0; cascade < _shadowCascades; cascade++)
+        if (_sunShadowsDrawn)
         {
-            var casters = shadowsSelected ? _shadowDraws[cascade].AsSpan(0, _shadowCounts[cascade]) : shadowCasters;
-            _shadowPass.Record(cmd, frameSet, casters, _meshes, instances, cascade);
-        }
+            _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
+                ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, SampledStage, SampledAccess, DepthStages,
+                DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit, layerCount: ShadowPass.MaxCascades);
+            for (int cascade = 0; cascade < _shadowCascades; cascade++)
+            {
+                var casters = shadowsSelected ? _shadowDraws[cascade].AsSpan(0, _shadowCounts[cascade]) : shadowCasters;
+                _shadowPass.Record(cmd, frameSet, casters, _meshes, instances, cascade);
+            }
 
-        _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
-            ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess,
-            layerCount: ShadowPass.MaxCascades);
+            _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
+                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess,
+                layerCount: ShadowPass.MaxCascades);
+        }
+        else
+        {
+            _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess,
+                layerCount: ShadowPass.MaxCascades);
+        }
 
         // The lighting pass binds the atlas even when no light has a tile in it.
         var atlas = _shadowPass.Atlas.Image;
@@ -1342,17 +1431,28 @@ public sealed unsafe class Renderer : IDisposable
             ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess);
         _gpuTimer.Mark(cmd);
 
-        ReadOnlySpan<DescriptorSet> aoSets = [frameSet, _aoSet];
-        _api.BeginColorTarget(cmd, targets.Ao.Image);
-        _aoPass.Record(cmd, targets.Ao.View, extent, aoSets);
-        _api.EndColorTarget(cmd, targets.Ao.Image);
-        _gpuTimer.Mark(cmd);
+        // Left out, the lighting pass reads no occlusion, but it still binds the target.
+        if (_off.HasFlag(RenderEffects.AmbientOcclusion))
+        {
+            _api.Transition(cmd, targets.AoBlurred.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
+            _gpuTimer.Mark(cmd);
+            _gpuTimer.Mark(cmd);
+        }
+        else
+        {
+            ReadOnlySpan<DescriptorSet> aoSets = [frameSet, _aoSet];
+            _api.BeginColorTarget(cmd, targets.Ao.Image);
+            _aoPass.Record(cmd, targets.Ao.View, extent, aoSets);
+            _api.EndColorTarget(cmd, targets.Ao.Image);
+            _gpuTimer.Mark(cmd);
 
-        ReadOnlySpan<DescriptorSet> aoBlurSets = [_aoBlurSet];
-        _api.BeginColorTarget(cmd, targets.AoBlurred.Image);
-        _aoBlurPass.Record(cmd, targets.AoBlurred.View, extent, aoBlurSets);
-        _api.EndColorTarget(cmd, targets.AoBlurred.Image);
-        _gpuTimer.Mark(cmd);
+            ReadOnlySpan<DescriptorSet> aoBlurSets = [_aoBlurSet];
+            _api.BeginColorTarget(cmd, targets.AoBlurred.Image);
+            _aoBlurPass.Record(cmd, targets.AoBlurred.View, extent, aoBlurSets);
+            _api.EndColorTarget(cmd, targets.AoBlurred.Image);
+            _gpuTimer.Mark(cmd);
+        }
 
         _api.BeginColorTarget(cmd, targets.Hdr.Image);
         _api.BeginColorTarget(cmd, targets.Scatter.Image);
@@ -1522,7 +1622,7 @@ public sealed unsafe class Renderer : IDisposable
         {
             ref readonly var light = ref view.Lights[i];
             var direction = Vector3.Normalize(light.Direction);
-            bool casts = !castsShadow && light.CastsShadow && view.Shadows.Radius > 0f;
+            bool casts = !castsShadow && light.CastsShadow && view.Shadows.Radius > 0f && !_off.HasFlag(RenderEffects.SunShadows);
             if (casts)
             {
                 uniforms->ShadowRadii = FitCascades(view, direction, fitToView: !capturingProbe, out uniforms->ShadowFade, out uniforms->ShadowDepthScales);
@@ -1541,6 +1641,10 @@ public sealed unsafe class Renderer : IDisposable
             };
         }
 
+        // With no sun shadow there are no maps to look up, so nothing walks the cascades.
+        uniforms->ShadowCascades = castsShadow ? _shadowCascades : 0;
+        uniforms->Off = (int)_off;
+        _sunShadowsDrawn = castsShadow;
         WriteLocalLights(frame, uniforms, view, capturingProbe);
         return castsShadow;
     }
@@ -1572,7 +1676,8 @@ public sealed unsafe class Renderer : IDisposable
             view.Projection,
             view.Height,
             new Span<GpuLocalLight>(frame.Lights.Mapped, LocalLight.MaxPerFrame),
-            new Span<GpuShadowTile>(frame.ShadowTiles.Mapped, LocalLights.MaxTiles));
+            new Span<GpuShadowTile>(frame.ShadowTiles.Mapped, LocalLights.MaxTiles),
+            shadows: !_off.HasFlag(RenderEffects.LightShadows));
         _tileCount = _localLights.TileCount;
         _clustersNeeded = _localLights.LightCount > 0;
         uniforms->LocalLightCount = _localLights.LightCount;
@@ -1625,14 +1730,18 @@ public sealed unsafe class Renderer : IDisposable
         return radii;
     }
 
+    /// <summary>What tonemapping and bloom read: the anti-aliased image, or the lit one when anti-aliasing is left out.</summary>
+    private ImageView DisplaySource => _readsAntiAliased ? _gBuffer.Resolved.View : _gBuffer.Hdr.View;
+
     private void Resize(uint width, uint height)
     {
         _api.DeviceWaitIdle(_context.Device).Check();
         _gBuffer.Dispose();
         _swapchain.Dispose();
         _swapchain = new Swapchain(_context, width, height, _disableVsync);
+        _vsyncChanged = false;
         _gBuffer = new GBuffer(_context, _swapchain.Extent);
-        _bloomPass.Resize(_gBuffer.Resolved.View, _gBuffer.Extent);
+        _bloomPass.Resize(DisplaySource, _gBuffer.Extent);
         WriteTargetDescriptors();
         _historyReady = false;
     }
@@ -1942,7 +2051,7 @@ public sealed unsafe class Renderer : IDisposable
         ]);
         WriteImages(_tonemapSet,
         [
-            new(_sampler, _gBuffer.Resolved.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_sampler, DisplaySource, ImageLayout.ShaderReadOnlyOptimal),
             new(_linearSampler, _bloomPass.Result, ImageLayout.ShaderReadOnlyOptimal),
         ]);
         WriteImages(_finishSet,

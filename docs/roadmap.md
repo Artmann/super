@@ -24,6 +24,9 @@ Super is early. These are the known gaps, so you can plan around them.
   orthographic camera.
 - **Large numbers of objects.** Rendition's efficiency with many thousands of objects
   still has to be measured and improved.
+- **Render scale.** [Graphics settings](rendering.md#graphics-settings) turn effects off,
+  but the picture is always drawn at the window's full size. Drawing it smaller and
+  scaling it up, for slow GPUs on big screens, isn't there yet.
 - **Physics.** [`Super.Physics`](physics.md) answers ray queries against colliders, on
   Jolt. Bodies that fall and collide, shape casts, overlap tests and character
   controllers are next. Until then, write your own movement code in `Update`.

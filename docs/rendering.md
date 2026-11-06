@@ -19,6 +19,44 @@ What it does for every game, with no setup:
 - Culling and simpler versions of distant models, for the camera and for shadows
 - ACES filmic tonemapping, colour grading, sharpening, vignette, grain and dithering
 
+## Graphics settings
+
+Everything above is on by default, and vsync keeps the frame rate at the display's, often 60.
+A game that must run fast on modest hardware turns off what it doesn't need:
+
+```csharp
+Game.StartWindowsGameLoop<MyGame>(new GameOptions
+{
+    Title = "My game",
+    Graphics = new Graphics { AmbientOcclusion = false, Reflections = false, MaxFramesPerSecond = 144 },
+});
+```
+
+`Graphics.Fastest()` turns every effect and vsync off, a start to turn back on only what
+the game needs. Ask for `Graphics` in a constructor to change it while the game runs; the
+next frame follows, so it can back an options menu.
+
+| Setting | Off, or set |
+|---|---|
+| `Vsync` | Frames come as fast as the machine draws them, and fast movement may tear. `--no-vsync` turns it off too |
+| `MaxFramesPerSecond` | The most frames drawn a second. 0, the default, is no limit. It saves power, and with vsync off it holds a steady rate |
+| `SunShadows` | Nothing is drawn into the sun's shadow maps, often the biggest saving. Ambient occlusion still darkens nooks |
+| `LightShadows` | Point and spot lights shine through walls |
+| `AmbientOcclusion` | Corners and creases are as bright as open ground |
+| `Reflections` | Shiny surfaces and water reflect only the sky and reflection probes, not what's on screen |
+| `AntiAliasing` | Edges show their pixels, and moving things stay sharp |
+| `Bloom` | No glow round bright things. `PostSettings.Bloom` only changes how much there is |
+
+An effect turned off skips its work on the GPU, not only its look. In the Crypt, the
+GPU time of a frame halves:
+
+![Crypt with every effect on, 4.4 ms of GPU a frame, and with Graphics.Fastest, 2.0 ms](media/graphics-fastest.webp)
+
+Screenshots, recordings and profiles keep vsync and ignore the frame limit, so they come
+out the same on every machine, but they do follow the effect switches. Turning
+`AntiAliasing` on or off waits for the GPU to finish once, so do it from a menu rather than
+every frame.
+
 ## Lights
 
 ```csharp

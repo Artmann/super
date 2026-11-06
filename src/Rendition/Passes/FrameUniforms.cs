@@ -123,6 +123,12 @@ internal struct FrameUniforms
     public int ShowEnvironment;
     public int ShadowCascades;
     public int LocalLightCount;
+
+    /// <summary>The <see cref="RenderEffects"/> left out of this frame, which the shaders skip.</summary>
+    public int Off;
+    private int _pad0;
+    private int _pad1;
+    private int _pad2;
     public GpuLightArray Lights;
     public GpuReflectionProbeArray Probes;
 }

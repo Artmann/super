@@ -108,6 +108,23 @@ public class LocalLightTests
     }
 
     [Fact]
+    public void With_light_shadows_off_no_tiles_are_drawn_and_every_light_still_shines()
+    {
+        LocalLight[] lights =
+        [
+            Point(1, new Vector3(0f, 0f, -5f), 2f),
+            Point(2, new Vector3(1f, 0f, -5f), 2f),
+        ];
+
+        var (prepared, gpu, _) = Prepare(lights, shadows: false);
+
+        Assert.Equal(0, prepared.TileCount);
+        Assert.Equal(2, prepared.LightCount);
+        Assert.Equal(-1f, gpu[0].RadianceShadow.W);
+        Assert.Equal(-1f, gpu[1].RadianceShadow.W);
+    }
+
+    [Fact]
     public void Tiles_fill_the_atlas_without_overlapping_and_the_biggest_on_screen_get_the_sharpest()
     {
         // Rows of lamps going away from the camera, more than the atlas holds even at its smallest
@@ -282,12 +299,12 @@ public class LocalLightTests
         CastsShadow = true,
     };
 
-    private static (LocalLights Prepared, GpuLocalLight[] Lights, GpuShadowTile[] Tiles) Prepare(LocalLight[] lights)
+    private static (LocalLights Prepared, GpuLocalLight[] Lights, GpuShadowTile[] Tiles) Prepare(LocalLight[] lights, bool shadows = true)
     {
         var prepared = new LocalLights();
         var gpu = new GpuLocalLight[LocalLight.MaxPerFrame];
         var tiles = new GpuShadowTile[LocalLights.MaxTiles];
-        prepared.Prepare(lights, LookingDownZ, Perspective, Height, gpu, tiles);
+        prepared.Prepare(lights, LookingDownZ, Perspective, Height, gpu, tiles, shadows);
         return (prepared, gpu, tiles);
     }
 }
