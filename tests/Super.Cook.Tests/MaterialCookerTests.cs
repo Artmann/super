@@ -322,6 +322,13 @@ public sealed class MaterialCookerTests : IDisposable
     [InlineData("        var now = DateTime.Now;", "System.DateTime.Now")]
     [InlineData("        var random = new Random();", "System.Random")]
     [InlineData("        System.Threading.Thread.Sleep(1);", "System.Threading.Thread.Sleep")]
+    [InlineData("        string cores = Environment.ProcessorCount.ToString();", "System.Environment.ProcessorCount")]
+    [InlineData("        int hash = \"seed\".GetHashCode();", "System.String.GetHashCode")]
+    [InlineData("        int hash = HashCode.Combine(1, 2);", "System.HashCode.Combine")]
+    [InlineData("        var now = TimeProvider.System.GetUtcNow();", "System.TimeProvider.GetUtcNow")]
+    [InlineData("        var id = Guid.CreateVersion7();", "System.Guid.CreateVersion7")]
+    [InlineData("        var file = Type.GetType(\"System.IO.File\");", "System.Type.GetType")]
+    [InlineData("        object? made = Activator.CreateInstance(typeof(int));", "System.Activator.CreateInstance")]
     public void A_graph_that_reads_files_the_clock_or_threads_is_an_error_on_its_line(string line, string symbol)
     {
         var (result, _) = Cook(("impure.material.cs", Graph(line + "\n        return new Material();")));
@@ -342,9 +349,10 @@ public sealed class MaterialCookerTests : IDisposable
     }
 
     [Fact]
-    public void Linq_math_and_mathf_stay_allowed()
+    public void Linq_math_mathf_and_nullable_attributes_stay_allowed()
     {
-        string build = "        float sum = new[] { 1f, 2f }.Select(v => v * 2f).Sum();\n"
+        string build = "        [System.Diagnostics.CodeAnalysis.SuppressMessage(\"a\", \"b\")] float Twice(float v) => v * 2f;\n"
+            + "        float sum = new[] { 1f, 2f }.Select(Twice).Sum();\n"
             + "        return new Material { Width = sum + (float)Math.Max(1.0, 2.0) + MathF.Sqrt(9f) };";
         var (result, store) = Cook(("pure.material.cs", Graph(build)));
 

@@ -162,7 +162,10 @@ internal static class GraphCompiler
         while (pending.Count > 0)
         {
             var node = pending.Pop();
-            if (node is ExpressionSyntax && model.GetSymbolInfo(node).Symbol is { } symbol && Banned(symbol) is { } banned)
+            if (node is ExpressionSyntax
+                && model.GetSymbolInfo(node).Symbol is { } symbol
+                && !(symbol is INamespaceSymbol && QualifiesALongerName(node))
+                && Banned(symbol) is { } banned)
             {
                 // The outermost name is enough: File.Exists is one mistake, not three.
                 int line = node.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
@@ -195,7 +198,18 @@ internal static class GraphCompiler
         "System.Runtime.InteropServices",
     ];
 
-    private static readonly string[] BannedTypes = ["System.Random", "System.Environment"];
+    // The nullable attributes change no pixels, so they stay allowed.
+    private static readonly string[] AllowedNamespaces = ["System.Diagnostics.CodeAnalysis"];
+
+    // TimeProvider reads the clock, HashCode is seeded per process, and Activator builds any type by name.
+    private static readonly string[] BannedTypes =
+    [
+        "System.Random",
+        "System.Environment",
+        "System.TimeProvider",
+        "System.HashCode",
+        "System.Activator",
+    ];
 
     private static readonly string[] BannedMembers =
     [
@@ -205,12 +219,19 @@ internal static class GraphCompiler
         "System.DateTimeOffset.Now",
         "System.DateTimeOffset.UtcNow",
         "System.Guid.NewGuid",
+        "System.Guid.CreateVersion7",
+        // A string's hash code changes every time the process starts.
+        "System.String.GetHashCode",
+        "System.Object.GetHashCode",
+        // Both reach any type or method by its name, such as System.IO.File.Exists.
+        "System.Type.GetType",
+        "System.Delegate.CreateDelegate",
     ];
 
     // System.IO.File.Exists, System.DateTime.Now, System.Random: namespaces and types, no parameters.
     private static readonly SymbolDisplayFormat Shown = new(
         typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
-        genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters,
+        genericsOptions: SymbolDisplayGenericsOptions.None,
         memberOptions: SymbolDisplayMemberOptions.IncludeContainingType);
 
     /// <summary>The symbol to name in the error when <paramref name="symbol"/> is banned, otherwise null.</summary>
@@ -253,8 +274,37 @@ internal static class GraphCompiler
         return symbol.ContainingNamespace is { } container && InBannedNamespace(container.ToDisplayString()) ? symbol : null;
     }
 
+    /// <summary>
+    /// Whether <paramref name="node"/> is the left part of a dotted name, such as <c>System.Diagnostics</c> in
+    /// <c>System.Diagnostics.CodeAnalysis</c>. Only used for namespaces: the whole name decides, so an allowed
+    /// namespace inside a banned one isn't reported for its prefix. A type or member on the left is still checked,
+    /// so <c>Environment.ProcessorCount.ToString()</c> is caught.
+    /// </summary>
+    private static bool QualifiesALongerName(SyntaxNode node)
+    {
+        // Diagnostics in System.Diagnostics names the same namespace as the whole, so climb to the whole first.
+        while (node.Parent is QualifiedNameSyntax right && right.Right == node
+            || node.Parent is MemberAccessExpressionSyntax member && member.Name == node)
+        {
+            node = node.Parent;
+        }
+
+        return node.Parent switch
+        {
+            QualifiedNameSyntax qualified => qualified.Left == node,
+            MemberAccessExpressionSyntax access => access.Expression == node,
+            AliasQualifiedNameSyntax alias => alias.Alias == node,
+            _ => false,
+        };
+    }
+
     private static bool InBannedNamespace(string space)
     {
+        if (AllowedNamespaces.Any(allowed => space == allowed || space.StartsWith(allowed + ".", StringComparison.Ordinal)))
+        {
+            return false;
+        }
+
         return BannedNamespaces.Any(banned => space == banned || space.StartsWith(banned + ".", StringComparison.Ordinal));
     }
 
