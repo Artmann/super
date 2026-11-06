@@ -317,6 +317,42 @@ public sealed class MaterialCookerTests : IDisposable
         Assert.Equal("""{"width":6}""", Encoding.UTF8.GetString(Data(store, "linq.material.cs#material")));
     }
 
+    [Theory]
+    [InlineData("        bool there = System.IO.File.Exists(\"a\");", "System.IO.File.Exists")]
+    [InlineData("        var now = DateTime.Now;", "System.DateTime.Now")]
+    [InlineData("        var random = new Random();", "System.Random")]
+    [InlineData("        System.Threading.Thread.Sleep(1);", "System.Threading.Thread.Sleep")]
+    public void A_graph_that_reads_files_the_clock_or_threads_is_an_error_on_its_line(string line, string symbol)
+    {
+        var (result, _) = Cook(("impure.material.cs", Graph(line + "\n        return new Material();")));
+
+        var error = Assert.Single(result.Problems, p => p.IsError);
+        Assert.Equal($"impure.material.cs: a graph can't use {symbol}, since it must give the same pixels every time.", error.Message);
+        Assert.Equal(8, error.Line);
+    }
+
+    [Fact]
+    public void A_using_line_for_a_banned_namespace_is_an_error_even_when_nothing_uses_it()
+    {
+        var (result, _) = Cook(("io.material.cs", "using System.IO;\n" + Graph("        return new Material();")));
+
+        var error = Assert.Single(result.Problems, p => p.IsError);
+        Assert.Equal("io.material.cs: a graph can't use System.IO, since it must give the same pixels every time.", error.Message);
+        Assert.Equal(1, error.Line);
+    }
+
+    [Fact]
+    public void Linq_math_and_mathf_stay_allowed()
+    {
+        string build = "        float sum = new[] { 1f, 2f }.Select(v => v * 2f).Sum();\n"
+            + "        return new Material { Width = sum + (float)Math.Max(1.0, 2.0) + MathF.Sqrt(9f) };";
+        var (result, store) = Cook(("pure.material.cs", Graph(build)));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        // (1 + 2) * 2 = 6, plus max(1, 2) = 2, plus sqrt(9) = 3.
+        Assert.Equal("""{"width":11}""", Encoding.UTF8.GetString(Data(store, "pure.material.cs#material")));
+    }
+
     private const string Moss = """
         using Super.Materials;
 

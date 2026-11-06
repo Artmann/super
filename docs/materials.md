@@ -66,13 +66,30 @@ from another graph file or from the game.
 
 The cooker always adds three namespaces and nothing else: `System`,
 `System.Collections.Generic` and `System.Linq`. A game with `ImplicitUsings` gets those
-three and more, such as `System.IO`, `System.Threading` and `System.Net.Http`, so a
-graph can build in the game and still fail to cook. Write `using Super.Materials;`, and any
-other `using` line the file needs, yourself. Nullable is on in both, but the cook doesn't
-report its warnings.
+three and more, such as `System.IO` and `System.Threading`. Write `using Super.Materials;`,
+and any other `using` line the file needs, yourself. The cook turns Nullable on but
+doesn't report its warnings. A game may have Nullable on or off.
 
-A graph must give the same pixels every time it cooks. It must not read files, the clock
-or `System.Random`. Its randomness comes from its seed.
+A graph must give the same pixels every time it cooks, so the cook refuses anything that
+reads files, the network, threads, the clock or the process. After the file compiles, every
+name in it is checked, and each of these is an error on its line:
+
+- anything in `System.IO`, `System.Net`, `System.Threading` (with `System.Threading.Tasks`),
+  `System.Diagnostics`, `System.Reflection` or `System.Runtime.InteropServices`, or in a
+  namespace under one of them;
+- `System.Random` and `System.Environment`;
+- `Now`, `UtcNow` and `Today` on `DateTime` and `DateTimeOffset`, and `Guid.NewGuid`.
+
+A `using System.IO;` line is an error too, even when nothing in the file uses it, so the
+game's build and the cook agree on what the file may reach. The error reads:
+
+```text
+bricks.material.cs(12): error SUPER001: bricks.material.cs: a graph can't use System.IO.File.Exists, since it must give the same pixels every time.
+```
+
+LINQ, `Math`, `MathF` and the collections are fine. A graph's randomness comes from its
+seed, and the cooker already spreads the work over every core, so a graph never needs
+threads of its own.
 
 ## Autocomplete
 
