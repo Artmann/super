@@ -198,7 +198,10 @@ public abstract class OverheadCamera
 
     public float MaxSize { get; set; } = 500f;
 
-    /// <summary>Roughly how many seconds the view takes to catch up. Zero means none.</summary>
+    /// <summary>
+    /// Roughly how many seconds the view takes to catch up with a followed center, a zoom or
+    /// a turn. Zero means none. <see cref="Pan"/> doesn't wait for it.
+    /// </summary>
     public float Lag { get; set; } = 0.15f;
 
     /// <summary>Keeps the view at least as wide as on a screen of this shape. See <see cref="Camera.WideAs"/>.</summary>
@@ -213,8 +216,17 @@ public abstract class OverheadCamera
 
     private protected float Tilt { get; set; }
 
-    /// <summary>Moves the center over the ground, x to the right of the screen and y up it.</summary>
-    public void Pan(Vector2 distance) => Center += CameraTurn.Walk(Angle, distance);
+    /// <summary>
+    /// Moves the center over the ground, x to the right of the screen and y up it. The view
+    /// moves by the same amount on the next update, with no <see cref="Lag"/>, so a camera
+    /// the player steers doesn't trail their keys or drift after they let go.
+    /// </summary>
+    public void Pan(Vector2 distance)
+    {
+        var step = CameraTurn.Walk(Angle, distance);
+        Center += step;
+        _shownCenter += step;
+    }
 
     /// <summary>Shows less by this many wheel notches, as in <c>camera.Zoom(input.Scroll)</c>.</summary>
     public void Zoom(float notches) => Size = Math.Clamp(Size * MathF.Pow(CameraTurn.ZoomStep, notches), MinSize, MaxSize);
