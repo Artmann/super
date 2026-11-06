@@ -21,7 +21,7 @@ public sealed class LineupTests
         // The problems are the message, so a failure prints every warning in full.
         Assert.True(result.Problems.Count == 0, string.Join(Environment.NewLine, result.Problems.Select(problem => problem.ToString())));
         // The game's own list, so a graph the lineup shows can't go missing from the cook unnoticed.
-        foreach (string material in global::Courtyard.CourtyardGame.Materials)
+        foreach (string material in global::Courtyard.LineupGame.Materials)
         {
             Assert.Contains($"{material}#material", store.Manifest.Assets.Keys);
         }

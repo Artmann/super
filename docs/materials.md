@@ -10,9 +10,10 @@ Graphs run when content is cooked, never while the game runs.
 
 ![The Courtyard lineup: bricks, flagstones and dirt on the left, wood, leather and rusty metal on the right, each on a sphere, a cube and a 1 m tile, lit by a low sun from the right](media/material-lineup.webp)
 
-Six starter graphs, from the [Courtyard](../examples/Courtyard) example. Each is drawn on
-a sphere, a cube and a flat tile 1 m across, at the graph's own width, so a brick is the
-size of a brick. The graphs are in `examples/Courtyard/content/materials` and make a good
+Six starter graphs, from the [Courtyard](../examples/Courtyard) example's lineup
+(`--lineup`). Each is drawn on a sphere, a cube and a flat tile 1 m across, at the graph's
+own width, so a brick is the size of a brick. The example itself is a courtyard modelled
+in Blender, wearing these graphs and two more, stone and mud, through its model sidecar. The graphs are in `examples/Courtyard/content/materials` and make a good
 place to start a new one.
 
 ## Writing a graph
