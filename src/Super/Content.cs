@@ -199,6 +199,49 @@ public sealed class Content
     }
 
     /// <summary>
+    /// Hands over an image painted in code, to show in the interface like a cooked one. Each
+    /// call makes a new one, so a picture that changes is painted again and the old one let go
+    /// with <see cref="Unload(GameImage)"/>. <paramref name="pixels"/> are rows from the top,
+    /// four bytes each (red, green, blue, alpha), in sRGB with straight alpha, and are kept as
+    /// they are, so don't change them afterwards.
+    /// </summary>
+    public GameImage Image(int width, int height, byte[] pixels)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
+        ArgumentNullException.ThrowIfNull(pixels);
+        if (pixels.Length != width * height * 4)
+        {
+            throw new ArgumentException($"A {width} by {height} image takes {width * height * 4} bytes, four a pixel, not {pixels.Length}.", nameof(pixels));
+        }
+
+        var image = new GameImage(width, height, pixels, _items.Count + 1);
+        Add(image);
+        return image;
+    }
+
+    /// <summary>
+    /// Lets go of an image. The window frees it, and showing it afterwards fails. Naming the
+    /// same file again later makes a new one.
+    /// </summary>
+    public void Unload(GameImage image)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        RequireNamed(image.Index, nameof(image));
+        RequireLoaded(image.Index, nameof(image));
+        if (!ReferenceEquals(_items[image.Index - 1], image))
+        {
+            throw new ArgumentException($"{nameof(image)} isn't one this content made.", nameof(image));
+        }
+
+        MarkUnloaded(image.Index);
+        if (image.Cooked is not null)
+        {
+            _images.Remove(image.Path);
+        }
+    }
+
+    /// <summary>
     /// Names a cooked sound by its name, such as <c>sounds/hit.wav</c>. Naming it again gives
     /// the same one. A name that isn't a cooked sound, or can't be read, stops here with a
     /// <see cref="ContentException"/> naming it.
