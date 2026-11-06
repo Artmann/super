@@ -340,6 +340,38 @@ public class GeneratorTests
     }
 
     [Fact]
+    public void A_stamp_edge_does_not_blend_in_the_far_edge_of_the_image()
+    {
+        // The source is 1 except its right column, which is 0. A stamp's left edge reads the source's left columns,
+        // so the first pixel of every row of a stamp is exactly 1. Wrapping there would mix in the 0 column. Whether
+        // a pixel lands within half a source pixel of the edge is down to where the stamp falls, so try 20 seeds.
+        const int size = 64;
+        var source = new float[size * size];
+
+        for (var i = 0; i < source.Length; i++)
+        {
+            source[i] = i % size == size - 1 ? 0f : 1f;
+        }
+
+        for (var seed = 1; seed <= 20; seed++)
+        {
+            var s = seed;
+            var p = GraphRunner.Evaluate(() => Gray.FromArray(source).Splatter(1, sizeMin: 0.5f, sizeMax: 0.5f, rotate: false, seed: s), size);
+
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    if (p[y * size + x] > 0f && p[y * size + (x + size - 1) % size] == 0f)
+                    {
+                        Assert.True(p[y * size + x] == 1f, $"Seed {s}, row {y}: the stamp starts at {p[y * size + x]}, not 1.");
+                    }
+                }
+            }
+        }
+    }
+
+    [Fact]
     public void Splatter_is_the_same_on_one_thread_and_many()
     {
         Func<Image> build = () => Noise.Perlin(4).Splatter(60, mode: BlendMode.Add);
