@@ -185,6 +185,23 @@ GameImage icon = content.Image("icons/axe.png");
 Its size comes from the cooked texture, so naming it doesn't decode it. A name that isn't
 in the cooked content, or that isn't a texture, stops with a `ContentException`.
 
+A game can also paint an image itself and show it like a cooked one:
+
+```csharp
+byte[] pixels = new byte[width * height * 4];   // rows from the top: red, green, blue, alpha
+// ... paint ...
+GameImage map = content.Image(width, height, pixels);
+```
+
+The pixels are sRGB with straight alpha, and are kept as they are, so don't change them
+afterwards. Each call makes a new image: when the picture changes, paint a new one and let
+the old one go with `content.Unload(image)`. Showing an image after it's unloaded fails, and
+naming a cooked file again after unloading it makes a new one.
+
+`image.ReadPixels()` gives an image's pixels in the same layout, to paint new images from,
+such as a texture tiled under a painting. A cooked image is decoded afresh on every call, so
+keep what it returns rather than asking every frame.
+
 ## Cooking
 
 A game never reads its sources. The build cooks every file under the content folder

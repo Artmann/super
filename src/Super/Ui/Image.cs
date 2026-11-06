@@ -3,7 +3,10 @@ using Rendition;
 
 namespace Super.Ui;
 
-/// <summary>A picture named by <see cref="Content.Image"/>. Its size is known at once, so layout never waits for it.</summary>
+/// <summary>
+/// A picture named by <see cref="Content.Image(string)"/>, or painted in code and handed to
+/// <see cref="Content.Image(int, int, byte[])"/>. Its size is known at once, so layout never waits for it.
+/// </summary>
 public sealed class GameImage
 {
     internal GameImage(string path, int width, int height, byte[] cooked, int index)
@@ -15,7 +18,16 @@ public sealed class GameImage
         Index = index;
     }
 
-    /// <summary>The name of the cooked texture, such as <c>icons/axe.png</c>.</summary>
+    internal GameImage(int width, int height, byte[] pixels, int index)
+    {
+        Path = "painted";
+        Width = width;
+        Height = height;
+        Pixels = pixels;
+        Index = index;
+    }
+
+    /// <summary>The name of the cooked texture, such as <c>icons/axe.png</c>, or <c>painted</c> for one made in code.</summary>
     public string Path { get; }
 
     public int Width { get; }
@@ -23,7 +35,19 @@ public sealed class GameImage
     public int Height { get; }
 
     /// <summary>The cooked texture, header and pixels, which the window builds mips from in the background.</summary>
-    internal byte[] Cooked { get; }
+    internal byte[]? Cooked { get; }
+
+    /// <summary>A painted image's pixels: rows from the top, four bytes each, in sRGB with straight alpha.</summary>
+    internal byte[]? Pixels { get; }
+
+    /// <summary>
+    /// Its pixels: rows from the top, four bytes each (red, green, blue, alpha), in sRGB with
+    /// straight alpha. A cooked image is read afresh each time, so keep what's returned rather
+    /// than asking every frame; it's for painting new images from, not for drawing.
+    /// </summary>
+    public byte[] ReadPixels() => Pixels is { } painted
+        ? (byte[])painted.Clone()
+        : CookedTexture.Read(Cooked!, Path).Pixels;
 
     /// <summary>Its place among everything <see cref="Content"/> has named.</summary>
     internal int Index { get; }

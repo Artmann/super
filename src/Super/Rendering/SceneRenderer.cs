@@ -167,7 +167,18 @@ internal sealed class SceneRenderer : IDisposable
     /// <summary>Reads an interface image and builds its mips. Runs on the background thread.</summary>
     private static TextureData LoadImage(GameImage image)
     {
-        var cooked = CookedTexture.Read(image.Cooked, image.Path);
+        if (image.Pixels is { } pixels)
+        {
+            return new TextureData
+            {
+                Width = image.Width,
+                Height = image.Height,
+                Kind = TextureKind.Color,
+                Mips = ImageMips.Build(image.Width, image.Height, pixels),
+            };
+        }
+
+        var cooked = CookedTexture.Read(image.Cooked!, image.Path);
         return new TextureData
         {
             Width = cooked.Width,
