@@ -9,7 +9,7 @@ namespace Courtyard;
 /// </summary>
 public sealed class CourtyardGame(Content content) : IGame
 {
-    /// <summary>The graphs on show, front row first.</summary>
+    /// <summary>The graphs on show: the first three are the left block and the rest the right, each from the back row to the front.</summary>
     public static readonly string[] Materials =
     [
         "materials/bricks.material.cs",
