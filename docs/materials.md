@@ -170,6 +170,23 @@ a number is written as 0, and the cook warns:
 materials/bricks.material.cs: height has pixels that aren't numbers. They were written as 0.
 ```
 
+## On a model
+
+A model's cook sidecar can put a graph on one of the model's materials, so a model made
+in Blender gets the same bricks as a generated wall. A material rule's `graph` names the
+graph or a variant, from the model's folder:
+
+```json
+// models/courtyard.glb.cook.json
+{ "materials": [{ "match": "graph_bricks", "graph": "../materials/bricks.material.cs" }] }
+```
+
+The graph runs while the model cooks, at the rule's `graphSize` (1024 by default), and its
+colour, normal and surface textures go into the model. The model's UVs are read in metres
+and divided by the graph's `Width`, so unwrap it at real-world scale. The graph's errors
+stop the model's cook, and editing the graph cooks the model again. See [A material graph
+on a model](rendering.md#a-material-graph-on-a-model) for the details.
+
 ## The material
 
 `Material` is what `Build` returns. Every part is optional:
@@ -254,8 +271,9 @@ graph changes.
 ## Images
 
 `Image("rock.png")` reads a picture into the graph as an `Rgb`. The path is relative to the
-file being cooked, so for a variant it is relative to the variant. Use it to start from a
-photo or a hand-painted mask:
+file being cooked, so for a variant it is relative to the variant. When a model's rule
+names the graph, it is relative to the graph or variant the rule names. Use it to start
+from a photo or a hand-painted mask:
 
 ```csharp
 var rock = Image("rock.png");

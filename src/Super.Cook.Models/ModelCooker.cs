@@ -31,7 +31,12 @@ public sealed class ModelCooker : ICooker
 
     public string Id => "model";
 
-    public int Version => 7; // 2: "has no UVs" warns only when the material uses a texture. 3: subsurface. 4: height and detail textures. 5: materials gained Ior. 6: parts keep the name of their mesh's node, keepMeshes and keepOrigin, and unskinned meshes follow their container node. 7: textures are objects of their own that models point to by hash.
+    // 2: "has no UVs" warns only when the material uses a texture. 3: subsurface. 4: height and detail textures.
+    // 5: materials gained Ior. 6: parts keep the name of their mesh's node, keepMeshes and keepOrigin, and unskinned
+    // meshes follow their container node. 7: textures are objects of their own that models point to by hash.
+    // 8: material graphs. The graphs' own version is folded in, so a change to Super.Materials cooks every model
+    // again, since one may use a graph.
+    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 8);
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -45,10 +50,11 @@ public sealed class ModelCooker : ICooker
 
         var settings = input.SettingsAs<ModelSettings>();
         TrackOwnFiles(input);
+        var graphs = new GraphRuns(input);
 
         if (settings.Parts is null)
         {
-            if (CookOne(input, output, settings, "") is { } bytes)
+            if (CookOne(input, output, settings, "", graphs) is { } bytes)
             {
                 output.Add(ContentKind.Model, bytes);
             }
@@ -65,7 +71,7 @@ public sealed class ModelCooker : ICooker
         foreach (string part in settings.Parts.Keys.Order(StringComparer.Ordinal))
         {
             var partSettings = PartSettings(input.Settings, part);
-            if (CookOne(input, output, partSettings, $"part {part}: ") is { } bytes)
+            if (CookOne(input, output, partSettings, $"part {part}: ", graphs) is { } bytes)
             {
                 output.AddPart(part, ContentKind.Model, bytes);
             }
@@ -143,7 +149,7 @@ public sealed class ModelCooker : ICooker
     }
 
     /// <returns>The cooked bytes, or null when it failed and said why through <paramref name="output"/>.</returns>
-    private static unsafe byte[]? CookOne(CookInput input, CookOutput output, ImportSettings settings, string prefix)
+    private static unsafe byte[]? CookOne(CookInput input, CookOutput output, ImportSettings settings, string prefix, GraphRuns graphs)
     {
         string modelPath = input.FullPath!;
         string sourceDirectory = Path.GetDirectoryName(modelPath)!;
@@ -160,6 +166,9 @@ public sealed class ModelCooker : ICooker
         var meshNames = new List<string>();
         var materials = new List<ModelMaterial>();
         var materialNames = new List<string>();
+
+        // The width in metres of each material's graph, or 0 for a material without one.
+        var graphWidths = new List<float>();
 
         // Each mesh's material and the run of vertices it added.
         var meshVertices = new List<(int Material, int First, int Count)>();
@@ -248,8 +257,10 @@ public sealed class ModelCooker : ICooker
 
             for (uint i = 0; i < scene->MNumMaterials; i++)
             {
-                materials.Add(ImportMaterial(assimp, scene->MMaterials[i], settings, textures, isGltf, out string materialName));
+                var context = new MaterialContext(settings, textures, graphs, output, prefix, isGltf);
+                materials.Add(ImportMaterial(assimp, scene->MMaterials[i], context, out string materialName, out float graphWidth));
                 materialNames.Add(materialName);
+                graphWidths.Add(graphWidth);
             }
 
             foreach (var (m, world, node) in Placements(scene, rig is null && settings.KeepMeshes))
@@ -266,10 +277,16 @@ public sealed class ModelCooker : ICooker
                 var normals = NormalMatrix(world);
                 bool mirrored = world.GetDeterminant() < 0f;
                 uint baseVertex = (uint)vertices.Count;
+                float graphWidth = graphWidths[(int)mesh->MMaterialIndex];
                 for (uint v = 0; v < mesh->MNumVertices; v++)
                 {
                     var normal = mesh->MNormals != null ? mesh->MNormals[v] : Vector3.UnitY;
                     var uv = mesh->MTextureCoords[0] != null ? mesh->MTextureCoords[0][v] : Vector3.Zero;
+                    if (graphWidth > 0f)
+                    {
+                        uv = GraphUv(uv, graphWidth);
+                    }
+
                     var tangent = new Vector4(Vector3.UnitX, 1f);
                     if (mesh->MTangents != null && mesh->MBitangents != null)
                     {
@@ -569,10 +586,83 @@ public sealed class ModelCooker : ICooker
         }
     }
 
-    private static unsafe ModelMaterial ImportMaterial(
-        Assimp assimp, Silk.NET.Assimp.Material* source, ImportSettings settings, ModelTextures textures, bool isGltf,
-        out string materialName)
+    // A graph's UVs are in metres, so they're divided by its width. FlipUVs has turned v upside down, so v is turned back
+    // first and again after. That keeps v running the way it did, and lines a tile's edge up with the file's own UV origin,
+    // so a brick wall laid out from its foot in Blender starts a row of bricks at its foot.
+    private static Vector3 GraphUv(Vector3 uv, float width)
     {
+        return new Vector3(uv.X / width, 1f - (1f - uv.Y) / width, uv.Z);
+    }
+
+    private sealed record MaterialContext(
+        ImportSettings Settings, ModelTextures Textures, GraphRuns Graphs, CookOutput Output, string Prefix, bool IsGltf);
+
+    /// <summary>One graph's images, packed into the pixels of its textures.</summary>
+    private sealed record GraphRun(string Key, int Size, float Width, MaterialPixels Pixels);
+
+    /// <summary>The graphs a model's materials name, each run once per (path, size) however many materials or parts use it.</summary>
+    private sealed class GraphRuns(CookInput input)
+    {
+        private readonly Dictionary<string, GraphRun?> _runs = new(StringComparer.Ordinal);
+
+        /// <returns>The run, or null after reporting why there is none to <paramref name="error"/>.</returns>
+        public GraphRun? Run(string path, int size, Action<string> error, Action<string> warning)
+        {
+            path = path.Replace('\\', '/');
+            string key = $"{path}@{size}";
+            if (_runs.TryGetValue(key, out var known))
+            {
+                return known;
+            }
+
+            GraphRun? run = null;
+            if (MaterialGraphs.Run(input, path, size, error) is { } images)
+            {
+                var pixels = MaterialPixels.Pack(images);
+                foreach (string part in pixels.NotNumbers)
+                {
+                    warning($"{path}: {part} has pixels that aren't numbers. They were written as 0.");
+                }
+
+                run = new GraphRun(key, images.Size, images.Width, pixels);
+            }
+
+            _runs[key] = run;
+            return run;
+        }
+    }
+
+    /// <returns>The graph's run, or null when the rule has no graph or it failed, which was reported.</returns>
+    private static GraphRun? RunGraph(MaterialRule rule, string materialName, MaterialContext context)
+    {
+        if (rule.Graph is not { } path)
+        {
+            return null;
+        }
+
+        void Error(string message) => context.Output.Error($"{context.Prefix}material {materialName}: {message}");
+
+        if (rule.BaseColor is not null || rule.Normal is not null || rule.Surface is not null || rule.Alpha is not null)
+        {
+            Error("graph makes the colour, normal and surface textures, so it can't be used with baseColor, normal, surface or alpha.");
+            return null;
+        }
+
+        int size = rule.GraphSize ?? MaterialGraphs.DefaultSize;
+        if (MaterialGraphs.SizeProblem("graphSize", size) is { } problem)
+        {
+            Error(problem);
+            return null;
+        }
+
+        return context.Graphs.Run(path, size, Error,
+            message => context.Output.Warning($"{context.Prefix}material {materialName}: {message}"));
+    }
+
+    private static unsafe ModelMaterial ImportMaterial(
+        Assimp assimp, Silk.NET.Assimp.Material* source, MaterialContext context, out string materialName, out float graphWidth)
+    {
+        var (settings, textures, isGltf) = (context.Settings, context.Textures, context.IsGltf);
         AssimpString name;
         assimp.GetMaterialString(source, Assimp.MaterialNameBase, 0, 0, &name);
         materialName = name.AsString;
@@ -603,6 +693,32 @@ public sealed class ModelCooker : ICooker
         var emissive = rule.EmissiveColor is { Length: 3 } e
             ? new Vector3(e[0], e[1], e[2])
             : rule.Emissive != null ? Vector3.One : Vector3.Zero;
+
+        var graph = RunGraph(rule, materialName, context);
+        graphWidth = graph?.Width ?? 0f;
+        if (graph is not null)
+        {
+            // The graph's textures hold the colour, metalness and roughness, which these values multiply, so they're 1
+            // unless the rule says otherwise. The model file's own values were for its own textures.
+            int size = graph.Size;
+            return new ModelMaterial
+            {
+                BaseColor = rule.Color is { Length: 3 } gc ? new Vector4(gc[0], gc[1], gc[2], rule.Opacity) : new Vector4(1f, 1f, 1f, rule.Opacity),
+                Metallic = rule.Metallic ?? 1f,
+                Roughness = rule.Roughness ?? 1f,
+                AlphaCutoff = rule.AlphaCutoff ?? 0f,
+                BaseColorTexture = textures.AddPixels(graph.Key + "#color", size, size, TextureKind.Color, graph.Pixels.Color),
+                NormalTexture = rule.NoNormalMap
+                    ? -1
+                    : textures.AddPixels(graph.Key + "#normal", size, size, TextureKind.Linear, graph.Pixels.Normal, isNormalMap: true),
+                SurfaceTexture = textures.AddPixels(graph.Key + "#surface", size, size, TextureKind.Linear, graph.Pixels.Surface),
+                Emissive = emissive,
+                EmissiveTexture = textures.Add(rule.Emissive, TextureKind.Color, namedBy: named),
+                Clearcoat = rule.Clearcoat,
+                Flags = flags,
+            };
+        }
+
         return new ModelMaterial
         {
             BaseColor = rule.Color is { Length: 3 } c

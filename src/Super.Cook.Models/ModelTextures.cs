@@ -93,6 +93,24 @@ internal sealed class ModelTextures(CookInput input, CookOutput output, string p
     }
 
     /// <summary>
+    /// Adds a texture from its RGBA8 pixels, row by row, such as one a material graph made, and returns its index.
+    /// Pixels added again under the same <paramref name="key"/> give the first one's index.
+    /// </summary>
+    public int AddPixels(string key, int width, int height, TextureKind kind, byte[] rgba, bool isNormalMap = false)
+    {
+        // A file's key always holds a '|', and this one starts with one, so the two never meet.
+        key = $"|pixels|{key}";
+        if (_indices.TryGetValue(key, out int existing))
+        {
+            return existing;
+        }
+
+        _textures.Add(TextureData.FromPixels(width, height, kind, rgba, isNormalMap));
+        _indices[key] = _textures.Count - 1;
+        return _textures.Count - 1;
+    }
+
+    /// <summary>
     /// Decoded and filtered images, by the hash of their bytes and how they're cooked, shared by every model of a cook
     /// and the cooks after it in the same process. Cooking is a pure function of the bytes, so a hit is always right.
     /// </summary>

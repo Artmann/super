@@ -360,10 +360,61 @@ as the shared `assets` folder does for Poly Haven's `textures` folders:
 ```
 
 Other options are the `baseColor`, `normal`, `surface` and `emissive` textures,
-`color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `twoSided`,
-`transparent`, `opacity`, `ior`, `noNormalMap` and `rotateY`; see `src/Super.Cook.Models/ImportSettings.cs`.
-`color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `heightDepth`, `detailScale`, `detailMask`, `twoSided`,
-`transparent`, `opacity`, `noNormalMap` and `rotateY`; see `src/Super.Cook.Models/ImportSettings.cs`.
+`color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `heightDepth`,
+`detailScale`, `detailMask`, `twoSided`, `transparent`, `opacity`, `ior`, `noNormalMap` and
+`rotateY`, and `graph` and `graphSize`, below; see `src/Super.Cook.Models/ImportSettings.cs`.
+
+### A material graph on a model
+
+A rule's `graph` gives the materials it matches a [material graph](materials.md), so a
+model exported from Blender can wear procedural bricks, dirt or wood. The path is from the
+model's folder and names a `.material.cs` graph or a `.material.json` variant:
+
+```json
+// models/courtyard.glb.cook.json
+{
+  "materials": [
+    { "match": "graph_bricks", "graph": "../materials/bricks.material.cs" },
+    { "match": "graph_dirt", "graph": "../materials/dirt.material.cs", "graphSize": 512 }
+  ]
+}
+```
+
+The graph runs while the model cooks, at `graphSize` pixels across, 1024 unless you give
+one. Like a graph's own [size](materials.md#size), it must be a power of two from 16 to
+4096, and anything else stops the cook:
+
+```text
+material graph_dirt: graphSize must be a power of two from 16 to 4096, not 500.
+```
+
+The graph's colour, normal and surface textures go into the model like any other textures.
+The material's colour is white and its `metallic` and `roughness` are 1, because they
+multiply the textures. Set `color`, `metallic` or `roughness` in the rule to tint or scale
+them. The model file's own colour and factors are ignored, since they were meant for its
+own textures. Since the graph makes the textures, a rule that also sets `baseColor`,
+`normal`, `surface` or `alpha` stops the cook. `emissive`, `noNormalMap`, `alphaCutoff` and
+the other switches work as usual.
+
+A graph material reads its UVs in metres. The cook divides the UVs of every mesh that uses
+it by the graph's `Width`, so a 2 m brick graph repeats once every 2 units of UV. In
+Blender, unwrap the surfaces at real-world scale, one UV unit to a metre, and a tile starts
+at the UV origin, so a wall unwrapped from its foot starts a row of bricks there. The
+division happens before `targetLength` is applied. A model cooked with `targetLength`
+changes size but keeps its UVs, so its bricks grow or shrink with it.
+
+Errors in the graph stop the model's cook and name the material, and the graph and its
+line where there is one:
+
+```text
+material graph_bricks: ../materials/bricks.material.cs line 12: scale must be at least 1, not 0. (Parameter 'scale')
+material graph_dirt: materials/dirt.material.cs isn't in the source root.
+```
+
+Editing the graph, its variant or an image it reads cooks the model again. A graph that
+several materials or parts use runs once per model cook at each size. The graph is a
+source of its own too, so it also cooks to its own textures. If only models use it, turn
+that off with a `"cook": false` rule in `cook.json`, as you would for a model's textures.
 
 A rigged model keeps its skeleton, bone weights and clips, and `animations` adds clips
 from other files of the same rig, such as Mixamo's:

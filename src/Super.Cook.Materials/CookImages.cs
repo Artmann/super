@@ -3,12 +3,15 @@ using StbImageSharp;
 
 namespace Super.Cook.Materials;
 
-/// <summary>Reads the pictures a graph asks for through <see cref="CookInput.Read"/>, so the cook tracks them.</summary>
-internal sealed class CookImages(CookInput input) : IImageSource
+/// <summary>
+/// Reads the pictures a graph asks for through <see cref="CookInput.Read"/>, so the cook tracks them. A path is relative
+/// to <paramref name="folder"/>, the folder of the graph or variant from the source's folder, such as <c>../materials/</c>.
+/// </summary>
+internal sealed class CookImages(CookInput input, string folder) : IImageSource
 {
     public DecodedImage Read(string path)
     {
-        byte[] bytes = input.Read(path);
+        byte[] bytes = input.Read(folder + path);
 
         ImageResult image;
         try

@@ -498,9 +498,9 @@ into the frame's draw list, checking that the mask's part count matches the load
 masked draw still skins the whole skeleton once. The profiler keys copies by model and mask,
 so `ShownTriangles` counts only what each mask shows.
 
-The `.rmodel` format is version 8 and the model cook version 7. Their history is in the
-comments on `ModelData.Version` and `ModelCooker.Version`, and an old file fails with
-"Cook it again" when it is read.
+The `.rmodel` format is version 8 and the model cook version 8, with the material graphs'
+version folded in. Their history is in the comments on `ModelData.Version` and
+`ModelCooker.Version`, and an old file fails with "Cook it again" when it is read.
 
 Material graphs are cooked by `Super.Cook.Materials`. Each `*.material.cs` file is
 compiled by itself with Roslyn, against `Super.Materials`, `Super.Random` and a few
@@ -510,8 +510,13 @@ embedded portable PDB and loaded into a collectible `AssemblyLoadContext` that h
 the cooker's own `Super.Materials`, so `MaterialGraph` is one type on both sides. An
 exception's line is the first stack frame in that assembly. `GraphCompiler` reports
 through a callback rather than to `CookOutput`, because `CookPipeline` files every problem
-under the file being cooked: for a `.material.json` variant, `MaterialCooker` moves the
-graph's line into the message as `bricks.material.cs line 9: ` and passes no line. Compiles are cached by the
+under the file being cooked: for a `.material.json` variant, `MaterialGraphs` moves the
+graph's line into the message as `bricks.material.cs line 9: ` and passes no line.
+`MaterialGraphs` holds the compile, variant and run steps for both cookers. The material
+cooker runs its own source through it, and the model cooker calls `MaterialGraphs.Run`
+with a graph's path from the model, so a graph's errors read the same in both, with the
+model's `material <name>: ` in front. Every file it reads goes through `CookInput.Read`,
+which tracks it, and images are read from the folder of the graph or variant named. Compiles are cached by the
 SHA-256 of the source, 32 at most, and the oldest is dropped when a 33rd comes. It isn't
 unloaded, since another cook may still be running it, so its context goes once nothing
 holds it. Graphs compile in debug, so error lines are exact, at the cost of
@@ -559,6 +564,17 @@ the library out of the game's folder. The cooker's `Version` is
 folded from the module version ids of `Super.Materials`, `Super.Random` and
 `Super.Cook.Materials`, so rebuilding any of them with a change cooks every graph again.
 The model cooker's list and `MemoryContent` both include it.
+
+A model's material rule can name a graph with `graph`. The model cooker runs each
+distinct path and size once per cook of the model, parts included, packs the images into
+RGBA8 with `MaterialPixels`, the same code `MaterialWriter` uses, and hands the colour,
+normal and surface pixels to `ModelTextures.AddPixels`, deduplicated by path, size and
+part. A graph material's UVs are divided by the graph's `Width` as the vertices are read,
+before the turn and `targetLength`. Assimp's `FlipUVs` has already made v `1 - v` of the
+file's bottom-up v, so the cook turns v back, divides and turns it again, `1 - (1 - v) / w`:
+v keeps its direction and a tile's edge stays at the file's UV origin. The model cooker's
+`Version` folds in `MaterialGraphs.Version`, so a change to `Super.Materials` cooks every
+model again, not only those with graphs, which is simpler and correct.
 
 **The build.** `Super.targets` gives a game a `ProjectReference` to `Super.Cook.Tool` that
 only builds it: `ReferenceOutputAssembly="false"` and `Private="false"` keep the tool's
