@@ -127,13 +127,14 @@ sealed class BlendNode(int width, Node baseImage, Node top, Node? mask, BlendMod
                     var a = inputs[0][pixel * Channels + c];
                     var b = inputs[1][pixel * topChannels + (topChannels == 1 ? 0 : c)];
 
-                    output[pixel * Channels + c] = a + (Combine(a, b) - a) * amount;
+                    output[pixel * Channels + c] = a + (Combine(mode, a, b) - a) * amount;
                 }
             }
         });
     }
 
-    float Combine(float a, float b)
+    /// <summary><paramref name="mode"/> applied to the base <paramref name="a"/> and the top <paramref name="b"/>.</summary>
+    internal static float Combine(BlendMode mode, float a, float b)
     {
         switch (mode)
         {

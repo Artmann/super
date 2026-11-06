@@ -10,6 +10,17 @@ public class GeneratorTests
         { "Cells Id", () => Noise.Cells(5, CellOutput.Id) },
         { "Bricks", () => Tiles.Bricks(4, 8) },
         { "Grid", () => Tiles.Grid(3, 3) },
+        { "Directional", () => Noise.Directional(4) },
+        { "Directional at 30", () => Noise.Directional(4, angle: 30f, stretch: 4f) },
+        { "Linear gradient", () => Gradient.Linear() },
+        { "Linear gradient at 45", () => Gradient.Linear(45f) },
+        { "Radial gradient", () => Gradient.Radial() },
+        { "Disc", () => Shape.Of(ShapeKind.Disc, 0.8f) },
+        { "Square", () => Shape.Of(ShapeKind.Square, 0.8f) },
+        { "Gradient shape", () => Shape.Of(ShapeKind.Gradient, 0.8f) },
+        { "Bell", () => Shape.Of(ShapeKind.Bell) },
+        { "Pyramid", () => Shape.Of(ShapeKind.Pyramid) },
+        { "Splatter", () => Shape.Of(ShapeKind.Bell).Splatter(12, sizeMin: 0.2f, sizeMax: 0.4f) },
     };
 
     public static TheoryData<string, Func<Image>> Generators
@@ -219,6 +230,211 @@ public class GeneratorTests
     }
 
     [Fact]
+    public void A_disc_is_one_inside_and_zero_outside()
+    {
+        var p = GraphRunner.Evaluate(() => Shape.Of(ShapeKind.Disc, 0.5f), 64);
+        Assert.Equal(1f, p[32 * 64 + 32]);
+        Assert.Equal(0f, p[2 * 64 + 2]);
+        // Pixel (16, 32) is 15.5 pixels left of the middle, inside a radius of 16. Pixel (15, 32) is 16.5 away.
+        Assert.Equal(1f, p[32 * 64 + 16]);
+        Assert.Equal(0f, p[32 * 64 + 15]);
+    }
+
+    [Fact]
+    public void A_square_reaches_its_corners()
+    {
+        // Half the image wide: pixels 16 to 47 on each axis.
+        var p = GraphRunner.Evaluate(() => Shape.Of(ShapeKind.Square, 0.5f), 64);
+        Assert.Equal(1f, p[16 * 64 + 16]);
+        Assert.Equal(1f, p[47 * 64 + 47]);
+        Assert.Equal(0f, p[15 * 64 + 16]);
+        Assert.Equal(0f, p[32 * 64 + 48]);
+    }
+
+    [Fact]
+    public void A_gradient_shape_rises_from_its_left_edge_to_its_right()
+    {
+        // Half the image wide. Pixel 24 is at (24.5 - 32) / 16 = -0.46875 of the half width, so (1 - 0.46875) / 2 up.
+        var p = GraphRunner.Evaluate(() => Shape.Of(ShapeKind.Gradient, 0.5f), 64);
+        Assert.Equal(0.265625f, p[32 * 64 + 24], 5);
+        Assert.Equal(0.984375f, p[32 * 64 + 47], 5);
+        Assert.Equal(0f, p[32 * 64 + 48]);
+        Assert.Equal(0f, p[10 * 64 + 32]);
+    }
+
+    [Fact]
+    public void A_pyramid_falls_with_the_larger_distance_from_the_middle()
+    {
+        // Pixel (15, 31) is 16.5 / 32 = 0.515625 across and 0.5 / 32 down from the middle, so 1 - 0.515625.
+        var p = GraphRunner.Evaluate(() => Shape.Of(ShapeKind.Pyramid), 64);
+        Assert.Equal(0.484375f, p[31 * 64 + 15], 5);
+        Assert.Equal(0.984375f, p[31 * 64 + 31], 5);
+    }
+
+    [Fact]
+    public void A_bell_falls_as_a_cosine_from_the_middle()
+    {
+        // Pixel (15, 31) is r = sqrt(0.515625^2 + 0.015625^2) = 0.515862 from the middle: 0.5 + 0.5 cos(pi r) = 0.475094.
+        var p = GraphRunner.Evaluate(() => Shape.Of(ShapeKind.Bell), 64);
+        Assert.Equal(0.475094f, p[31 * 64 + 15], 4);
+        Assert.Equal(0f, p[0]);
+        Assert.Equal(0.998795f, p[31 * 64 + 31], 4); // r = sqrt(2) / 64 = 0.022097
+    }
+
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(1.5f)]
+    public void A_shape_size_outside_zero_to_one_names_the_range(float size)
+    {
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Evaluate(() => Shape.Of(ShapeKind.Disc, size), 8));
+        Assert.StartsWith(FormattableString.Invariant($"size must be more than 0 and at most 1, not {size}."), error.Message);
+        Assert.Equal("size", error.ParamName);
+    }
+
+    [Fact]
+    public void Linear_gradient_rises_across_half_the_image_and_falls_back()
+    {
+        // u = 16.5 / 64 and 47.5 / 64 sit either side of the middle, 15.5 pixels away. Both are 2 * 16.5 / 64 = 0.515625.
+        var p = GraphRunner.Evaluate(() => Gradient.Linear(), 64);
+        Assert.Equal(0.515625f, p[16], 5);
+        Assert.Equal(p[16], p[47], 5);
+        Assert.Equal(p.Max(), p[31]);
+        Assert.Equal(p[31], p[32], 5);
+        Assert.Equal(p[16], p[50 * 64 + 16]);
+    }
+
+    [Fact]
+    public void Linear_gradient_at_90_degrees_runs_down_the_image()
+    {
+        var p = GraphRunner.Evaluate(() => Gradient.Linear(90f), 64);
+        Assert.Equal(0.515625f, p[16 * 64 + 5], 5);
+        Assert.Equal(p[16 * 64 + 5], p[16 * 64 + 40]);
+    }
+
+    [Fact]
+    public void Radial_gradient_is_one_at_the_middle_and_zero_at_the_corners()
+    {
+        // Pixel (31, 31) is 1/64 of the way from the middle to a corner, and pixel (0, 0) is 31.5 / 32 of the way.
+        var p = GraphRunner.Evaluate(() => Gradient.Radial(), 64);
+        Assert.Equal(0.984375f, p[31 * 64 + 31], 5);
+        Assert.Equal(0.015625f, p[0], 5);
+        Assert.Equal(p[0], p[63 * 64 + 63], 5);
+    }
+
+    [Fact]
+    public void Splatter_with_max_never_goes_below_zero_and_reaches_one()
+    {
+        var p = GraphRunner.Evaluate(() => Shape.Of(ShapeKind.Disc).Splatter(20), 128);
+        Assert.All(p, v => Assert.InRange(v, 0f, 1f));
+        Assert.Equal(1f, p.Max());
+        Assert.Equal(0f, p.Min());
+    }
+
+    [Fact]
+    public void Splatter_with_add_covers_as_much_as_its_stamps()
+    {
+        // Four unrotated stamps a quarter of the image wide, each over 1/16 of the image, add up to 4/16 on average.
+        var p = GraphRunner.Evaluate(() => Gray.Of(1f).Splatter(4, sizeMin: 0.25f, sizeMax: 0.25f, rotate: false, mode: BlendMode.Add), 64);
+        Assert.Equal(0.25, p.Average(v => (double)v), 2);
+        Assert.Equal(0f, p.Min());
+    }
+
+    [Fact]
+    public void Splatter_is_the_same_on_one_thread_and_many()
+    {
+        Func<Image> build = () => Noise.Perlin(4).Splatter(60, mode: BlendMode.Add);
+        Assert.Equal(GraphRunner.Evaluate(build, 64, maxThreads: 1), GraphRunner.Evaluate(build, 64, maxThreads: 8));
+    }
+
+    [Fact]
+    public void Splatter_with_its_own_seed_moves_its_stamps()
+    {
+        var a = GraphRunner.Evaluate(() => Shape.Of(ShapeKind.Disc).Splatter(5, seed: 1), 64);
+        var b = GraphRunner.Evaluate(() => Shape.Of(ShapeKind.Disc).Splatter(5, seed: 2), 64);
+        Assert.NotEqual(a, b);
+    }
+
+    [Fact]
+    public void Splatter_sizes_name_the_range()
+    {
+        var tooBig = Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Evaluate(() => Gray.Of(1f).Splatter(3, sizeMax: 0.6f), 8));
+        Assert.StartsWith("sizeMax must be from 0.05 to 0.5, not 0.6.", tooBig.Message);
+
+        var zero = Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Evaluate(() => Gray.Of(1f).Splatter(3, sizeMin: 0f), 8));
+        Assert.StartsWith("sizeMin must be more than 0 and at most 0.5, not 0.", zero.Message);
+
+        var count = Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Evaluate(() => Gray.Of(1f).Splatter(0), 8));
+        Assert.StartsWith("count must be at least 1, not 0.", count.Message);
+    }
+
+    [Fact]
+    public void Directional_snaps_its_angle_and_says_so_in_the_docs()
+    {
+        var snapped = MathF.Atan(0.5f) * 180f / MathF.PI;
+        var thirty = GraphRunner.Evaluate(() => Noise.Directional(4, angle: 30f), 64);
+        Assert.Equal(GraphRunner.Evaluate(() => Noise.Directional(4, angle: snapped), 64), thirty);
+        Assert.NotEqual(GraphRunner.Evaluate(() => Noise.Directional(4, angle: 36.87f), 64), thirty);
+
+        var docs = File.ReadAllText(Docs.Path("materials.md"));
+        Assert.Contains("26.57°", docs);
+        Assert.Contains("snaps", docs);
+    }
+
+    [Fact]
+    public void A_tie_between_two_directions_snaps_to_the_smaller_angle()
+    {
+        // 0° and atan(1/4) are neighbours. Exactly half way between them goes down to 0°.
+        var quarter = Directions.Snap(14f).Degrees;
+        Assert.Equal(14.0362f, quarter, 3);
+        Assert.Equal((4, 1), (Directions.Snap(14f).Run, Directions.Snap(14f).Rise));
+        Assert.Equal(0f, Directions.Snap(quarter / 2f).Degrees);
+        Assert.Equal((-1, 1), (Directions.Snap(133f).Run, Directions.Snap(133f).Rise));
+        Assert.Equal((1, -3), (Directions.Snap(-71f).Run, Directions.Snap(-71f).Rise));
+    }
+
+    [Fact]
+    public void An_angle_just_under_a_full_turn_snaps_round_to_zero()
+    {
+        // 358° is 2° from 360° but 12.04° from the nearest direction below it, 345.96° (run 4, rise -1).
+        Assert.Equal((1, 0), (Directions.Snap(358f).Run, Directions.Snap(358f).Rise));
+        Assert.Equal((1, 0), (Directions.Snap(-2f).Run, Directions.Snap(-2f).Rise));
+        Assert.Equal((1, 0), (Directions.Snap(722f).Run, Directions.Snap(722f).Rise));
+    }
+
+    [Fact]
+    public void Directional_noise_changes_slowly_along_its_angle()
+    {
+        static (double AlongX, double AlongY) Roughness(float[] p, int size)
+        {
+            double x = 0, y = 0;
+
+            for (var row = 0; row < size; row++)
+            {
+                for (var column = 0; column < size; column++)
+                {
+                    x += Math.Abs(p[row * size + (column + 1) % size] - p[row * size + column]);
+                    y += Math.Abs(p[(row + 1) % size * size + column] - p[row * size + column]);
+                }
+            }
+
+            return (x, y);
+        }
+
+        var flat = Roughness(GraphRunner.Evaluate(() => Noise.Directional(8), 64), 64);
+        Assert.True(flat.AlongX * 3 < flat.AlongY, $"Along x {flat.AlongX}, along y {flat.AlongY}.");
+
+        var upright = Roughness(GraphRunner.Evaluate(() => Noise.Directional(8, angle: 90f), 64), 64);
+        Assert.True(upright.AlongY * 3 < upright.AlongX, $"Along x {upright.AlongX}, along y {upright.AlongY}.");
+    }
+
+    [Fact]
+    public void Directional_stretch_below_one_names_the_range()
+    {
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Evaluate(() => Noise.Directional(4, stretch: 0.5f), 8));
+        Assert.StartsWith("stretch must be at least 1, not 0.5.", error.Message);
+    }
+
+    [Fact]
     public void Bricks_with_no_columns_or_rows_name_the_parameter()
     {
         var columns = Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Evaluate(() => Tiles.Bricks(0, 2), 8));
@@ -226,5 +442,24 @@ public class GeneratorTests
 
         var rows = Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Evaluate(() => Tiles.Grid(2, -1), 8));
         Assert.StartsWith("rows must be at least 1, not -1.", rows.Message);
+    }
+}
+
+/// <summary>Finds the repository's docs from the test's output folder.</summary>
+internal static class Docs
+{
+    public static string Path(string name)
+    {
+        for (var folder = new DirectoryInfo(AppContext.BaseDirectory); folder is not null; folder = folder.Parent)
+        {
+            var candidate = System.IO.Path.Combine(folder.FullName, "docs", name);
+
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        throw new FileNotFoundException($"No docs/{name} above {AppContext.BaseDirectory}.");
     }
 }

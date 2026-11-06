@@ -31,6 +31,26 @@ internal static class Arguments
         }
     }
 
+    public static void MoreThanUpTo(float value, float minimum, float maximum, string name)
+    {
+        if (!(value > minimum && value <= maximum))
+        {
+            var text = FormattableString.Invariant($"{name} must be more than {minimum} and at most {maximum}, not {value}.");
+
+            throw new ArgumentOutOfRangeException(name, text);
+        }
+    }
+
+    public static void Finite(float value, string name)
+    {
+        if (!float.IsFinite(value))
+        {
+            var text = FormattableString.Invariant($"{name} must be a finite number, not {value}.");
+
+            throw new ArgumentOutOfRangeException(name, text);
+        }
+    }
+
     public static void Between(float value, float minimum, float maximum, string name)
     {
         if (!(value >= minimum && value <= maximum))

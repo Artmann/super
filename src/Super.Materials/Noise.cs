@@ -28,7 +28,27 @@ public static class Noise
         Arguments.AtLeast(scale, 1, nameof(scale));
         Arguments.Between(octaves, 1, 12, nameof(octaves));
 
-        return new Gray(new PerlinNode(scale, octaves, persistence, seed));
+        return new Gray(new PerlinNode(scale, scale, new Direction(1, 0, 0f), octaves, persistence, seed));
+    }
+
+    /// <summary>
+    /// <see cref="Perlin"/> stretched <paramref name="stretch"/> times longer along <paramref name="angle"/> (degrees,
+    /// counter-clockwise from +x) than across it, for grain, streaks and brushed metal. So that it tiles, the angle snaps
+    /// to the nearest direction whose run and rise are whole numbers from -4 to 4 (see <see cref="Directions"/>).
+    /// Along a direction of run a and rise b the noise repeats every 1/√(a² + b²) of the image, so the cell counts are
+    /// <c>scale / √(a² + b²)</c> across and that divided by <paramref name="stretch"/> along, rounded, at least 1.
+    /// </summary>
+    public static Gray Directional(int scale, float angle = 0f, float stretch = 8f, int octaves = 3, int? seed = null)
+    {
+        Arguments.AtLeast(scale, 1, nameof(scale));
+        Arguments.AtLeast(stretch, 1f, nameof(stretch));
+        Arguments.Between(octaves, 1, 12, nameof(octaves));
+
+        var direction = Directions.Snap(angle, nameof(angle));
+        var across = Math.Max(1, (int)MathF.Floor(scale / direction.Length + 0.5f));
+        var along = Math.Max(1, (int)MathF.Floor(scale / (direction.Length * stretch) + 0.5f));
+
+        return new Gray(new PerlinNode(along, across, direction, octaves, 0.5f, seed));
     }
 
     /// <summary>
@@ -52,13 +72,23 @@ sealed class PerlinNode : Node
     // Above this many lattice points per side the gradients are worked out per pixel instead of stored.
     const int TableLimit = 512;
 
-    readonly int _scale;
+    readonly int _along;
+    readonly int _across;
+    readonly Direction _direction;
     readonly int _octaves;
     readonly float _persistence;
 
-    public PerlinNode(int scale, int octaves, float persistence, int? seed) : base(1)
+    /// <summary>
+    /// The lattice has <paramref name="along"/> cells per period along <paramref name="direction"/> and
+    /// <paramref name="across"/> across it. With a direction of run a and rise b, the lattice coordinates are
+    /// <c>s = a u - b v</c> and <c>t = b u + a v</c> (v points down the image, rise up), which move by whole numbers
+    /// when u or v does, so the noise tiles.
+    /// </summary>
+    public PerlinNode(int along, int across, Direction direction, int octaves, float persistence, int? seed) : base(1)
     {
-        _scale = scale;
+        _along = along;
+        _across = across;
+        _direction = direction;
         _octaves = octaves;
         _persistence = persistence;
 
@@ -77,10 +107,12 @@ sealed class PerlinNode : Node
 
         for (var o = 0; o < _octaves; o++)
         {
-            var cells = _scale << o;
+            var cellsX = _along << o;
+            var cellsY = _across << o;
             var seed = Seed + (ulong)o * 0x9E3779B97F4A7C15UL;
+            var small = cellsX <= TableLimit && cellsY <= TableLimit;
 
-            octaves[o] = new Octave(cells, seed, amplitude, cells <= TableLimit ? Gradients(cells, seed) : null);
+            octaves[o] = new Octave(cellsX, cellsY, seed, amplitude, small ? Gradients(cellsX, cellsY, seed) : null);
             total += amplitude * amplitude;
             amplitude *= _persistence;
         }
@@ -88,6 +120,8 @@ sealed class PerlinNode : Node
         // The octaves are independent, so their spread adds as the root of the sum of squares. Dividing by that keeps
         // the spread the same however many octaves there are. 0.8 puts about 3 standard deviations across 0..1.
         var scale = 0.8f / MathF.Sqrt(total);
+        var a = _direction.Run;
+        var b = _direction.Rise;
 
         context.Rows(y =>
         {
@@ -96,11 +130,16 @@ sealed class PerlinNode : Node
             for (var x = 0; x < size; x++)
             {
                 var u = (x + 0.5f) / size;
+                var s = a * u - b * v;
+                var t = b * u + a * v;
                 var sum = 0f;
+
+                s -= MathF.Floor(s);
+                t -= MathF.Floor(t);
 
                 foreach (var octave in octaves)
                 {
-                    sum += octave.Amplitude * Sample(octave, u, v);
+                    sum += octave.Amplitude * Sample(octave, s, t);
                 }
 
                 output[y * size + x] = Math.Clamp(0.5f + sum * scale, 0f, 1f);
@@ -108,15 +147,15 @@ sealed class PerlinNode : Node
         });
     }
 
-    static (float, float)[] Gradients(int cells, ulong seed)
+    static (float, float)[] Gradients(int cellsX, int cellsY, ulong seed)
     {
-        var table = new (float, float)[cells * cells];
+        var table = new (float, float)[cellsX * cellsY];
 
-        for (var j = 0; j < cells; j++)
+        for (var j = 0; j < cellsY; j++)
         {
-            for (var i = 0; i < cells; i++)
+            for (var i = 0; i < cellsX; i++)
             {
-                table[j * cells + i] = Gradient(seed, i, j);
+                table[j * cellsX + i] = Gradient(seed, i, j);
             }
         }
 
@@ -130,17 +169,19 @@ sealed class PerlinNode : Node
         return (DMath.Cos(angle), DMath.Sin(angle));
     }
 
+    // u and v are from 0 up to 1, one period of the lattice.
     static float Sample(Octave octave, float u, float v)
     {
-        var cells = octave.Cells;
-        var px = u * cells;
-        var py = v * cells;
+        var px = u * octave.CellsX;
+        var py = v * octave.CellsY;
         var fx0 = MathF.Floor(px);
         var fy0 = MathF.Floor(py);
-        var x0 = (int)fx0;
-        var y0 = (int)fy0;
-        var x1 = x0 + 1 == cells ? 0 : x0 + 1;
-        var y1 = y0 + 1 == cells ? 0 : y0 + 1;
+
+        // Rounding can carry a value just under 1 up to a whole period.
+        var x0 = Sampling.Wrap((int)fx0, octave.CellsX);
+        var y0 = Sampling.Wrap((int)fy0, octave.CellsY);
+        var x1 = x0 + 1 == octave.CellsX ? 0 : x0 + 1;
+        var y1 = y0 + 1 == octave.CellsY ? 0 : y0 + 1;
         var fx = px - fx0;
         var fy = py - fy0;
 
@@ -159,14 +200,14 @@ sealed class PerlinNode : Node
 
     static float Corner(Octave octave, int i, int j, float dx, float dy)
     {
-        var (gx, gy) = octave.Table is { } table ? table[j * octave.Cells + i] : Gradient(octave.Seed, i, j);
+        var (gx, gy) = octave.Table is { } table ? table[j * octave.CellsX + i] : Gradient(octave.Seed, i, j);
 
         return gx * dx + gy * dy;
     }
 
     static float Fade(float t) => t * t * t * (t * (t * 6f - 15f) + 10f);
 
-    readonly record struct Octave(int Cells, ulong Seed, float Amplitude, (float, float)[]? Table);
+    readonly record struct Octave(int CellsX, int CellsY, ulong Seed, float Amplitude, (float, float)[]? Table);
 }
 
 sealed class CellsNode : Node

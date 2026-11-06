@@ -312,6 +312,36 @@ middle of its cell, 0 to 1. `output` picks what it shows:
 
 `Noise.White(seed = null)` is one random value from 0 to 1 per pixel.
 
+`Noise.Directional(scale, angle = 0f, stretch = 8f, octaves = 3, seed = null)` is Perlin
+noise stretched `stretch` times longer along `angle` than across it, for wood grain,
+streaks and brushed metal. `angle` is in degrees, counter-clockwise from +x, and snaps to
+a direction that tiles (see [Angles](#angles)). `stretch` is 1 or more. Across the
+direction there are about `scale` cells per image, and along it `scale / stretch`, each
+rounded to a whole number of at least 1. Exactly, along a direction of run a and rise b the
+noise repeats every 1/√(a² + b²) of the image, so the counts are `scale / √(a² + b²)` and
+that divided by `stretch`, rounded. At 0° with the defaults, `Directional(8)` has 8 cells from
+top to bottom and 1 from left to right.
+
+`Gradient.Linear(angle = 0f)` rises from 0 to 1 over half the image along `angle` and
+falls back over the other half, a triangle wave, so it tiles. At 0° it is 0 at the left
+and right edges and 1 in the middle. `angle` snaps like `Directional`, and along a
+direction of run a and rise b the ramp repeats √(a² + b²) times across the image.
+
+`Gradient.Radial()` is 1 at the middle and falls straight with the distance to 0 at the
+corners.
+
+`Shape.Of(kind, size = 1f)` draws one shape in the middle of the image, `size` of the
+image wide, more than 0 and at most 1. With r the distance from the middle in half widths
+(so the shape's edge is at 1) and `box` the larger of the distances across and down:
+
+| `ShapeKind` | Value |
+| --- | --- |
+| `Disc` | 1 where r ≤ 1, else 0 |
+| `Square` | 1 where `box` ≤ 1, else 0 |
+| `Gradient` | Inside the square, rises from 0 at its left edge to 1 at its right. 0 outside |
+| `Bell` | `0.5 + 0.5 cos(π r)` where r < 1, else 0 |
+| `Pyramid` | `1 − box`, and 0 outside the square |
+
 `Tiles.Bricks(columns, rows, gap = 0.04f, bevel = 0.1f, offset = 0.5f, heightVariation = 0f, seed = null)`
 draws rows of bricks. `columns` and `rows` are 1 or more. `gap` and `bevel` are
 fractions of a brick's height. The output is 0 in the gaps and rises over the bevel to 1,
@@ -350,6 +380,57 @@ across the whole image moves pixels by `amount` of the image. `amount` is −1 t
 slope of `slope`, reaching `amount` of the image, 0 to 1, from `samples` reads, 1 or more. Where the
 slope is flat the pixel is kept. `Min` and `Max` modes keep the darkest or brightest
 read instead of the average.
+
+### Transforms
+
+`Transform(offset = default, rotate = 0f, scale = 1f, tile = 1)` on a `Gray` or an `Rgb`
+moves, turns and repeats the image. It is shrunk to 1/`tile` and repeated `tile` times
+across and down, scaled by `scale`, turned `rotate` degrees counter-clockwise about its
+middle, then moved by `offset`, a `Vector2` in fractions of the image, right and down.
+Moving by a whole image changes nothing. So that it tiles, `tile / scale` must be a whole
+number, or `Transform` throws: a `scale` of 0.5 is the same as `tile: 2`, and a `scale`
+of 2 needs a `tile` of 2, 4 and so on. `scale` is more than 0 and `tile` 1 or more.
+`rotate` snaps (see [Angles](#angles)), and a turn by a direction of run a and rise b
+also shrinks the image by √(a² + b²), so it shows a² + b² copies: 2 at 45°, 5 at 26.57°.
+A quarter turn shows one. Pixels are read with bilinear filtering, wrapping at the edges.
+
+`Gray.Splatter(count, sizeMin = 0.05f, sizeMax = 0.1f, rotate = true, mode = BlendMode.Max, seed = null)`
+stamps the image, shrunk to a random width from `sizeMin` to `sizeMax` of the image, at
+`count` random places over black. Sizes are more than 0 and at most 0.5, and `count` is 1
+or more. With `rotate`, each stamp turns by a random angle, which needs no snapping since
+each stamp is read back from the image and wraps by itself. Each stamp is combined with
+what is under it by `mode`, in order, so with `Max` the brightest wins, with `Add` they pile
+up and with `Copy` the last one is on top. Stamps that cross an edge wrap. Splatter
+`Shape.Of(ShapeKind.Disc)` for pebbles, or a brick for scattered stones. The time it takes
+grows with `count` times the area of a stamp.
+
+### Angles
+
+A pattern laid along an angle only tiles when the angle's direction meets the image's
+edges at whole numbers of steps. So `Noise.Directional`, `Gradient.Linear` and
+`Transform`'s `rotate` snap their angle to the nearest direction (run, rise) whose run
+and rise are whole numbers from −4 to 4. A tie between two directions goes to the smaller
+angle, counting from 0 up to 360. In the first quarter turn the angles are:
+
+| Run, rise | Angle |
+| --- | --- |
+| 1, 0 | 0° |
+| 4, 1 | 14.04° |
+| 3, 1 | 18.43° |
+| 2, 1 | 26.57° |
+| 3, 2 | 33.69° |
+| 4, 3 | 36.87° |
+| 1, 1 | 45° |
+| 3, 4 | 53.13° |
+| 2, 3 | 56.31° |
+| 1, 2 | 63.43° |
+| 1, 3 | 71.57° |
+| 1, 4 | 75.96° |
+| 0, 1 | 90° |
+
+The other three quarters repeat these, 90°, 180° and 270° on. So 30° snaps to 26.57°,
+and 40° to 36.87°. A direction of run a and rise b repeats every 1/√(a² + b²) of the image,
+so steep diagonals make patterns smaller, as each node above says.
 
 ### Flood fill
 
