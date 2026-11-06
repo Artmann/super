@@ -508,7 +508,14 @@ the cooker's own `Super.Materials`, so `MaterialGraph` is one type on both sides
 exception's line is the first stack frame in that assembly. Compiles are cached by the
 SHA-256 of the source, 32 at most, and the oldest is dropped when a 33rd comes. It isn't
 unloaded, since another cook may still be running it, so its context goes once nothing
-holds it. Graphs compile in debug, so error lines are exact. The cooker's `Version` is
+holds it. Graphs compile in debug, so error lines are exact. A second tree,
+`GlobalUsings.g.cs`, gives each graph `System`, `System.Collections.Generic` and
+`System.Linq`, and nullable is on, so a graph that builds in the game's IDE cooks the same.
+Its errors never appear, since they can't happen. Graphs compile twice on purpose. The cook
+compiles each alone so its bytes are the whole input, and the game's build compiles them
+all together, via a `ProjectReference` to `Super.Materials` in `Super.targets`, only so the
+editor can complete and check them. That output is never used, and `Private="false"` keeps
+the library out of the game's folder. The cooker's `Version` is
 folded from the module version ids of `Super.Materials`, `Super.Random` and
 `Super.Cook.Materials`, so rebuilding any of them with a change cooks every graph again.
 The model cooker's list and `MemoryContent` both include it.

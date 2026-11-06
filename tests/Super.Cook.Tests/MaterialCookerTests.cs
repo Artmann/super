@@ -129,6 +129,47 @@ public sealed class MaterialCookerTests : IDisposable
     }
 
     [Fact]
+    public void A_graph_gets_the_usings_a_game_build_gives_it()
+    {
+        // Collections and LINQ with no using lines, as the game's ImplicitUsings allow, so the IDE and the cook agree.
+        var (result, store) = Cook(("implicit.material.cs", """
+            using Super.Materials;
+
+            public sealed class Implicit : MaterialGraph
+            {
+                public override Material Build()
+                {
+                    var widths = new List<float> { 1f, 2f };
+                    return new Material { Width = widths.Sum() };
+                }
+            }
+            """));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Equal("""{"width":3}""", Encoding.UTF8.GetString(Data(store, "implicit.material.cs#material")));
+    }
+
+    [Fact]
+    public void System_IO_is_not_among_the_usings_a_graph_gets()
+    {
+        var (result, _) = Cook(("io.material.cs", """
+            using Super.Materials;
+
+            public sealed class Io : MaterialGraph
+            {
+                public override Material Build()
+                {
+                    return new Material { Width = File.Exists("a") ? 1f : 2f };
+                }
+            }
+            """));
+
+        var error = Assert.Single(result.Problems, p => p.IsError);
+        Assert.Equal(7, error.Line);
+        Assert.Contains("File", error.Message);
+    }
+
+    [Fact]
     public void A_type_the_cooker_does_not_reference_is_a_cook_error_not_a_crash()
     {
         var (result, _) = Cook(("net.material.cs", Graph("        var client = new System.Net.Http.HttpClient();\n        return new Material();")));
