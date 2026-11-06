@@ -56,7 +56,7 @@ leave those clicks alone.
 
 ## Camera helpers
 
-Six helpers cover the usual kinds of game. They all work the same way: keep one in your
+Seven helpers cover the usual kinds of game. They all work the same way: keep one in your
 game, step it once a tick in `Update`, and draw `At(view.Blend)` so it moves smoothly at
 any frame rate. `Current` is the camera as of the last tick, which is the one to pass to
 `input.MouseRay`.
@@ -67,6 +67,7 @@ any frame rate. `Current` is the camera as of the last tick, which is the one to
 | `FollowCamera` | Trailing behind a target with some lag |
 | `BoomCamera` | Third person, on an arm that shortens when a wall is in the way |
 | `FirstPersonCamera` | Looking out from the eyes |
+| `MapCamera` | A tilted perspective view of a map, with pan, drag and zoom by distance |
 | `TopDownCamera` | Looking straight down, orthographic |
 | `IsometricCamera` | The true isometric angle, orthographic, turning by quarter turns |
 
@@ -149,6 +150,32 @@ public void Update(GameTime time)
 
 `FirstPersonCamera` looks out from `EyeHeight` above the feet. `Walk` stays level wherever
 you look, so looking up doesn't slow you down.
+
+### Map
+
+`MapCamera` looks down at a map at a fixed `Pitch`. Panning, dragging and zooming all scale
+with `Distance`, so a zoomed-out map slides as fast as it looks. They change where the camera
+should be, and `Update` once a tick makes that the camera, so draw `At(view.Blend)` and it
+moves on every frame, not once a tick:
+
+```csharp
+readonly MapCamera map = new() { Center = new Vector3(20, 0, 20), Distance = 30f };
+
+public void Update(GameTime time)
+{
+    map.Pan(actions.Vector(Control.Pan), time.TickSeconds);
+    map.Zoom(input.Scroll);
+
+    if (input.Down(MouseButton.Middle) && !input.MouseOverUi)
+    {
+        map.Drag(input.MouseDelta, input.ScreenSize.Y);
+    }
+
+    map.Update();
+}
+
+public void Draw(View view) => view.Camera(map.At(view.Blend));
+```
 
 ### Top-down and isometric
 

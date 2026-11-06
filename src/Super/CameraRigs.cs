@@ -291,3 +291,91 @@ public sealed class IsometricCamera() : OverheadCamera(MathF.PI / 4f, TrueAngle)
     /// <summary>Walks the camera around the center by this many quarter turns.</summary>
     public void Turn(int quarters) => Angle += quarters * QuarterTurn;
 }
+
+/// <summary>
+/// A perspective camera looking down at the ground at a fixed tilt, for strategy and
+/// management games. It pans, zooms and drags by how far away it is, so a zoomed-out map
+/// slides as fast as it looks. Keep one in your game.
+/// </summary>
+public sealed class MapCamera
+{
+    private Vector3 _center;
+    private float _distance = 20f;
+    private bool _placed;
+
+    /// <summary>The spot on the ground in the middle of the screen.</summary>
+    public Vector3 Center
+    {
+        get => _center;
+        set => _center = value;
+    }
+
+    /// <summary>How far the camera is from <see cref="Center"/>. Zooming changes it.</summary>
+    public float Distance
+    {
+        get => _distance;
+        set => _distance = Math.Clamp(value, MinDistance, MaxDistance);
+    }
+
+    public float MinDistance { get; set; } = 4f;
+
+    public float MaxDistance { get; set; } = 80f;
+
+    /// <summary>How high above the ground the camera looks from, in radians. The camera sits towards +z, so screen up is -z.</summary>
+    public float Pitch { get; set; } = 1f;
+
+    /// <summary>How many ground units a full stick pans in a second, for each unit of <see cref="Distance"/>.</summary>
+    public float PanSpeed { get; set; } = 0.5f;
+
+    public float FieldOfView { get; set; } = MathF.PI / 4f;
+
+    /// <summary>Keeps the view at least as wide as on a screen of this shape. See <see cref="Camera.WideAs"/>.</summary>
+    public float WideAs { get; set; }
+
+    /// <summary>The camera on the tick before this one.</summary>
+    public Camera Previous { get; private set; }
+
+    public Camera Current { get; private set; }
+
+    /// <summary>Pans by a stick for this many seconds, x to the right and y up the screen, as in <c>map.Pan(actions.Vector(Control.Pan), time.TickSeconds)</c>.</summary>
+    public void Pan(Vector2 stick, float seconds)
+    {
+        float step = PanSpeed * _distance * seconds;
+        _center += new Vector3(stick.X * step, 0f, -stick.Y * step);
+    }
+
+    /// <summary>
+    /// Pulls the ground along with the cursor, as in <c>map.Drag(input.MouseDelta, input.ScreenSize.Y)</c>
+    /// while a button is down. The ground under the cursor stays under it. Sideways, a screen
+    /// height is one <see cref="Distance"/> of ground. Up and down covers more ground because of the tilt.
+    /// </summary>
+    public void Drag(Vector2 pixels, float screenHeight)
+    {
+        if (screenHeight <= 0f)
+        {
+            return;
+        }
+
+        float perPixel = _distance / screenHeight;
+        _center.X -= pixels.X * perPixel;
+        _center.Z -= pixels.Y * perPixel / MathF.Sin(Pitch);
+    }
+
+    /// <summary>Moves in by this many wheel notches, as in <c>map.Zoom(input.Scroll)</c>.</summary>
+    public void Zoom(float notches) => Distance *= MathF.Pow(CameraTurn.ZoomStep, notches);
+
+    /// <summary>Call once a tick, after panning, dragging and zooming. This is what makes it move on every frame, not once a tick.</summary>
+    public void Update()
+    {
+        var next = new Camera(_center + CameraTurn.Behind(0f, Pitch) * _distance, _center, FieldOfView) { WideAs = WideAs };
+        Previous = _placed ? Current : next;
+        Current = next;
+        _placed = true;
+    }
+
+    /// <summary>Puts the camera straight in place on the next update, for when the view teleports.</summary>
+    public void Jump() => _placed = false;
+
+    /// <summary>The camera between the last two ticks, as in <c>view.Camera(map.At(view.Blend))</c>.</summary>
+    public Camera At(float blend) => Camera.Lerp(Previous, Current, blend);
+}

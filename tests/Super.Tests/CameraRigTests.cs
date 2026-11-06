@@ -331,4 +331,63 @@ public class CameraRigTests
 
         Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
     }
+
+    [Fact]
+    public void A_map_camera_looks_at_its_center_from_the_south()
+    {
+        var map = new MapCamera { Center = new Vector3(3f, 0f, 5f), Distance = 10f, Pitch = MathF.PI / 2f };
+        map.Update();
+        AssertNear(new Vector3(3f, 10f, 5f), map.Current.Position);
+        AssertNear(new Vector3(3f, 0f, 5f), map.Current.Target);
+    }
+
+    [Fact]
+    public void A_map_camera_shows_the_pan_only_after_the_tick_and_blends_to_it()
+    {
+        var map = new MapCamera { Distance = 10f };
+        map.Update();
+        map.Pan(new Vector2(1f, 0f), 1f);
+        map.Update();
+        float step = map.PanSpeed * 10f;
+        Assert.Equal(0f, map.Previous.Target.X, 3);
+        Assert.Equal(step, map.Current.Target.X, 3);
+        Assert.Equal(step / 2f, map.At(0.5f).Target.X, 3);
+    }
+
+    [Fact]
+    public void Panning_up_the_screen_moves_towards_negative_z_and_scales_with_distance()
+    {
+        var near = new MapCamera { Distance = 10f };
+        var far = new MapCamera { Distance = 40f };
+        near.Pan(Vector2.UnitY, 1f);
+        far.Pan(Vector2.UnitY, 1f);
+        Assert.True(near.Center.Z < 0f);
+        Assert.Equal(near.Center.Z * 4f, far.Center.Z, 3);
+    }
+
+    [Fact]
+    public void Dragging_pulls_the_ground_along_with_the_cursor()
+    {
+        var map = new MapCamera { Distance = 10f, Pitch = MathF.PI / 2f };
+        map.Drag(new Vector2(100f, 0f), 1000f);
+        Assert.Equal(-1f, map.Center.X, 3);
+        map.Drag(new Vector2(0f, 100f), 1000f);
+        Assert.Equal(-1f, map.Center.Z, 3);
+    }
+
+    [Fact]
+    public void Zooming_stays_within_its_limits_and_jump_skips_the_blend()
+    {
+        var map = new MapCamera { Distance = 10f, MinDistance = 5f, MaxDistance = 12f };
+        map.Zoom(100f);
+        Assert.Equal(5f, map.Distance);
+        map.Zoom(-100f);
+        Assert.Equal(12f, map.Distance);
+
+        map.Update();
+        map.Center = new Vector3(50f, 0f, 0f);
+        map.Jump();
+        map.Update();
+        AssertNear(map.Current.Target, map.Previous.Target);
+    }
 }
