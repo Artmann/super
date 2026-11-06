@@ -112,6 +112,24 @@ public class MaterialTests
         Assert.StartsWith("Depth must be at least 0, not -0.5.", error.Message);
     }
 
+    [Theory]
+    [InlineData(float.PositiveInfinity, "Width must be a finite number, not Infinity. (Parameter 'Width')")]
+    [InlineData(float.NaN, "Width must be a finite number, not NaN. (Parameter 'Width')")]
+    public void A_width_that_is_not_finite_names_the_property(float width, string message)
+    {
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Run(new TestGraph(() => new Material { Width = width }), 8));
+
+        Assert.Equal(message, error.Message);
+    }
+
+    [Fact]
+    public void A_depth_that_is_not_finite_names_the_property()
+    {
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Run(new TestGraph(() => new Material { Depth = float.PositiveInfinity }), 8));
+
+        Assert.Equal("Depth must be a finite number, not Infinity. (Parameter 'Depth')", error.Message);
+    }
+
     [Fact]
     public void An_occlusion_above_one_names_the_property()
     {

@@ -61,7 +61,9 @@ public static class GraphRunner
         {
             var material = graph.Build();
 
+            Arguments.Finite(material.Width, nameof(Material.Width));
             Arguments.MoreThan(material.Width, 0f, nameof(Material.Width));
+            Arguments.Finite(material.Depth, nameof(Material.Depth));
             Arguments.AtLeast(material.Depth, 0f, nameof(Material.Depth));
             Arguments.Between(material.Occlusion, 0f, 1f, nameof(Material.Occlusion));
 

@@ -168,8 +168,8 @@ materials/bricks.material.cs: height has pixels that aren't numbers. They were w
 
 | Property | Default | What it is |
 | --- | --- | --- |
-| `Width` | 1 | How many metres across the texture is. Must be more than 0 |
-| `Depth` | 0.02 | How many metres high a height of 1 is. 0 or more |
+| `Width` | 1 | How many metres across the texture is. A finite number more than 0 |
+| `Depth` | 0.02 | How many metres high a height of 1 is. A finite number, 0 or more |
 | `Height` | 0.5 everywhere | The height map |
 | `Color` | 0.5 grey | The base colour |
 | `Roughness` | 0.6 | |
@@ -398,8 +398,8 @@ image wide, more than 0 and at most 1. With r the distance from the middle in ha
 draws rows of bricks. `columns` and `rows` are 1 or more. `gap` and `bevel` are
 fractions of a brick's height. The output is 0 in the gaps and rises over the bevel to 1,
 then each brick is lowered by up to `heightVariation` at random. Each row shifts by
-`offset` of a brick times its row number. So that the bricks tile, `offset` × `rows` must
-be a whole number, or `Bricks` throws. With the default offset of 0.5, use an even number
+`offset` of a brick times its row number. So that the bricks tile, `offset` must be a
+finite number and `offset` × `rows` a whole number, or `Bricks` throws. With the default offset of 0.5, use an even number
 of rows.
 
 `Tiles.Grid(columns, rows, gap = 0.04f, bevel = 0.1f, heightVariation = 0f, seed = null)` is `Bricks` with no offset.
