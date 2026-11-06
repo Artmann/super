@@ -96,7 +96,7 @@ def make_materials():
         "arch3": material("arch_brick_c", (0.36, 0.12, 0.08), roughness=0.85),
         "iron": material("iron", (0.05, 0.048, 0.045), metallic=0.8, roughness=0.45),
         "frame": material("window_frame", (0.04, 0.035, 0.03), metallic=0.6, roughness=0.5),
-        "glass": material("glass", (0.02, 0.022, 0.025), roughness=0.04),
+        "glass": material("graph_glass", (0.3, 0.36, 0.34), roughness=0.05),
         "interior": material("interior", (0.015, 0.013, 0.012), roughness=1.0),
         "shade": material("shade_inner", (0.8, 0.75, 0.65), roughness=0.5),
         "bulb": material("bulb", (1.0, 0.85, 0.6), emission=(1.0, 0.75, 0.45), strength=12.0),
@@ -410,9 +410,15 @@ def build_window(sc, M, x0, x1):
     box_uv(bm, bm.faces[:])
     emit(sc, "window_frame", bm, [M["frame"]])
 
-    # The glass, and a dark room behind it.
+    # The glass, one pane facing the courtyard so the light passes through one layer, and a
+    # dark room behind it.
     bm = bmesh.new()
-    prism(bm, [(x0 + 0.01, SILL_Z + 0.03)] + [(x, z - 0.01) for x, z in arch[1:-1]] + [(x1 - 0.01, SILL_Z + 0.03)], y - t * 0.5, y - t * 0.45, 0)
+    outline = [(x0 + 0.01, SILL_Z + 0.03)] + [(x, z - 0.01) for x, z in arch[1:-1]] + [(x1 - 0.01, SILL_Z + 0.03)]
+    face = bm.faces.new([bm.verts.new((x, y - t * 0.5, z)) for x, z in outline])
+    face.normal_update()
+    if face.normal.y > 0:
+        face.normal_flip()
+    box_uv(bm, [face])
     emit(sc, "glass", bm, [M["glass"]])
     bm = bmesh.new()
     box(bm, (x0 - 0.3, y + 0.05, 0.4), (x1 + 0.3, y + 3.5, SPRING_Z + 1.2), 0)

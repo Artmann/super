@@ -394,7 +394,9 @@ multiply the textures. Set `color`, `metallic` or `roughness` in the rule to tin
 them. The model file's own colour and factors are ignored, since they were meant for its
 own textures. Since the graph makes the textures, a rule that also sets `baseColor`,
 `normal`, `surface` or `alpha` stops the cook. `emissive`, `noNormalMap`, `alphaCutoff` and
-the other switches work as usual.
+the other switches work as usual. A graph's `Opacity` goes into the surface texture's alpha,
+so for glass whose grime clouds it, add `"transparent": true` and the graph's opacity
+scales the tint, as the Courtyard's window does.
 
 A graph material reads its UVs in metres. The cook divides the UVs of every mesh that uses
 it by the graph's `Width`, so a 2 m brick graph repeats once every 2 units of UV. In
