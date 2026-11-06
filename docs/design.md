@@ -355,8 +355,8 @@ reads it through `CookedFolder`.
 `IContentFiles.Read` gives an asset's bytes whole, which suits data, textures and sounds.
 Models are big (162 MB for a rigged FBX with its clips), so they go through
 `IContentFiles.Open`, a stream: `SceneRenderer.LoadModel` reads the model piece by piece on
-the loading thread and `Content.Rig` reads only the rig at the front of the file, so the raw
-file is never held whole beside what's built from it. `CookedFolder.Open` is a `FileStream`
+the loading thread, `Content.Rig` reads only the rig at the front of the file and
+`Content.Meshes` only the mesh names before it, so the raw file is never held whole beside what's built from it. `CookedFolder.Open` is a `FileStream`
 with a 64 KB buffer, small enough to stay off the large object heap, opened with
 `FileShare.Read | FileShare.Delete` so a cook running beside the game can still replace or
 delete the object. Content in memory gets a `MemoryStream` over `Read` by default.
@@ -389,7 +389,8 @@ went wrong, so a failed cook leaves the last good content. After writing the man
 replaced: a running game may have read the old manifest and still be loading from it, so an
 object outlives its last name by one commit. An object that can't be deleted yet, because
 something has it open, is left for the next commit. A name is the path from its root
-with forward slashes and the extension, and parts are `name#part`. Names are compared
+with forward slashes and the extension, and parts are `name#part`, which is a split made at
+cook time. The names of the meshes inside a model are a different thing, see Models below. Names are compared
 ordinally on every OS. A name two sources make is an error that names both, which is why
 several content roots can't yet override each other. Settings come from `cook.json` rules,
 deeper folders winning, then `<source>.cook.json`, which wins over all of them. A sidecar
@@ -399,6 +400,42 @@ with no source is a warning, not an error, so a clone without its licensed model
 `.rmodel` data (`ModelData` in Rendition). An alpha cutoff
 that would cut nothing or everything (see the foliage section below) is an error that stops
 the cook of that model.
+
+A rigged model keeps each mesh of the source as its own part, one per material, in the order
+the nodes hold them, and the rig importer places each mesh by its node. Each part is named by
+the node that holds its mesh, falling back to the mesh's own name when the node has none, so
+the names are the ones an artist sees in the outliner and a multi-material mesh repeats its
+name. The names go in `ModelData.MeshNames`, the same length as `Parts`.
+
+A mesh without bones follows a joint. Its container node (the parent of the node that holds
+it) becomes a joint of its own when it isn't a bone already, so a head under a neck or a sword
+in a hand node moves with that container's animated chain. Each such container counts towards
+`Skeleton.MaxJoints`. The mesh is placed by `global * inverse(restGlobal[J]) * inverse(inverseBind[J])`
+for its joint `J`, so at rest it skins back to where the node tree put it. That matters when
+`J` is a real bone: its inverse bind is the bone's offset matrix, which comes from the bind
+pose, and the bind pose need not be the rest pose.
+
+A static model is flattened by Assimp's `PreTransformVertices` by default, which merges the
+meshes that share a material into one part and gives no names. With the opt-in `keepMeshes`
+setting, a static model keeps its node tree instead, and `Placements` applies each mesh's node
+transform by hand: points by the transform, normals by its inverse transpose, and the tangent
+sign flips for a mirroring transform. Each mesh then stays its own named part, and its own
+draw call. `ModelData.ToBytes` refuses a name count that isn't zero or the part count, so a
+model with no names writes none. The names are the first thing after the header in the
+`.rmodel`, before the rig, so `ModelData.ReadMeshNames` and `Content.Meshes` read them without
+the geometry, and `ModelData.ReadRig` reads them on its way to the rig, so `Content.Rig` caches
+them for `Content.Meshes`. `Content` caches each model's names by index and drops them when the
+model is unloaded.
+
+At draw time a `MeshMask` is a bitset over the model's parts, made for one `ModelRef`.
+`View.Model` checks the mask's model, and `SceneRenderer.AddShown` copies only the shown parts
+into the frame's draw list, checking that the mask's part count matches the loaded model. A
+masked draw still skins the whole skeleton once. The profiler keys copies by model and mask,
+so `ShownTriangles` counts only what each mask shows.
+
+The `.rmodel` format is version 7 and the model cook version 6. Their history is in the
+comments on `ModelData.Version` and `ModelCooker.Version`, and an old file fails with
+"Cook it again" when it is read.
 
 **The build.** `Super.targets` gives a game a `ProjectReference` to `Super.Cook.Tool` that
 only builds it: `ReferenceOutputAssembly="false"` and `Private="false"` keep the tool's
@@ -904,8 +941,8 @@ averaging them flat. Unset detail textures are a mid grey built-in texture (`_gr
 Each material owns seven texture slots now: colour, normal, surface, emissive, height,
 detail colour and detail normal, then the shader textures. `GpuMaterial` grew to 256
 bytes; `GpuMaterialTests` checks the offsets against the std430 layout of `Material`
-in `material.glsl`, so the two can't drift. The `.rmodel` format is version 4 and the
-model cook version 3, so existing models cook again with the new fields.
+in `material.glsl`, so the two can't drift. The `.rmodel` format and the model cook version
+are the ones in the asset pipeline section above, so existing models cook again.
 
 ## Post-processing
 

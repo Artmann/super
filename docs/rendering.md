@@ -290,6 +290,20 @@ so a model that cooks there cooks on every OS:
 several variants side by side, as Poly Haven's plant sets do. The cook fails if no
 node with meshes matches. It's not for rigged models.
 
+`keepMeshes` keeps each mesh of a static model as its own part, named by the node that holds
+it, instead of merging the meshes that share a material. It's `false` by default, so a static
+model has one part per material and no mesh names. Set it to `true` to
+[show some of its meshes](#showing-some-meshes-of-a-model). Each kept mesh is its own draw
+call, so a model of hundreds of small meshes costs more to draw with it. Rigged models always
+keep their meshes.
+
+`keepOrigin` keeps the file's own origin. The model is still turned by `rotateY` and scaled by
+`targetLength`, but about that origin: it isn't centred or stood on the ground, so it stays where
+the file put it. Use it when the origin means something, such as a character whose file also holds
+a few hundred alternative weapons, heads and shields spread around. Those would move the bounds,
+and the character would end up shifted by an amount you can't predict. A rigged model's skeleton
+stays in the same place as its mesh. It's `false` by default.
+
 To use several pieces of one file, list them as `parts`. Each part is cooked as its own
 model, named `file#part`, and takes every setting written beside `parts` unless it sets
 that one itself. A file with parts cooks only its parts:
@@ -310,6 +324,26 @@ that one itself. A file with parts cooks only its parts:
 ```csharp
 var flowers = new[] { content.Model("props/dandelion_01/dandelion_01_1k.gltf#a"), content.Model("props/dandelion_01/dandelion_01_1k.gltf#b") };
 ```
+
+### Showing some meshes of a model
+
+One file can hold many looks: several bodies, heads and weapons for one character, of which
+each draw shows one of each. A rigged model keeps every mesh in its source file, named by the
+node that holds it, the name an artist sees in the outliner. A static model keeps them too,
+but only with `"keepMeshes": true` in its sidecar, since by default its meshes that share a
+material merge into one part with no name. Cook the model again after adding it. Pick the
+meshes by name with `content.Meshes` once, and keep the mask. Each draw then shows only
+those meshes. This is different from the `#part` files above, which are separate models cut
+at cook time:
+
+```csharp
+MeshMask mask = content.Meshes(model, "Body_03a", "Head_05b");
+view.Model(key, model, transform, mask);
+```
+
+A mask fits only the model it was made for, so make it from the model you draw. See
+[Mesh names](content.md#mesh-names) for the rules and the error when a name isn't there,
+and [Showing some meshes](views.md#showing-some-meshes) for how a draw uses it.
 
 The textures a model uses are read while it cooks, so they don't need to be assets of
 their own. Turn cooking off for them with a rule in a [`cook.json`](content.md#rules-and-sidecars),

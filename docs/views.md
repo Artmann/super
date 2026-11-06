@@ -58,6 +58,7 @@ component on its entity instead. See [Audio](audio.md).
 | `view.PointLight(key, position, color, range, shadows, radius)` | A light shining every way, like a candle or a torch. See [Point and spot lights](rendering.md#point-and-spot-lights) |
 | `view.SpotLight(key, position, direction, color, range, innerAngle, outerAngle, shadows, radius)` | A light shining in a cone, like a lantern's beam |
 | `view.Model(key, model, transform, color)` | A model. `color`, if given, tints it and keeps its textures. `ModelRef.Cube`, `Sphere`, `Capsule`, `Cylinder`, `Cone`, `Plane`, `Quad` and `Torus` are [built in](rendering.md#built-in-shapes) |
+| `view.Model(key, model, transform, meshes)` | Only the meshes a `MeshMask` shows, such as a body without its helmet. See [Showing some meshes](#showing-some-meshes) |
 | `view.Ghost(key, model, transform, color, opacity)` | A model in one colour that glows a little, as a [preview of where something will go](rendering.md#ghosts) |
 | `view.Shadows(radius, cascades)` | How far shadows reach. See [Rendering](rendering.md#shadows) |
 | `view.Water(settings)` | Puts the camera underwater. See [Rendering](rendering.md#water) |
@@ -176,7 +177,47 @@ smooth as the frame rate:
 view.Model(FoxKey, _animator, transform);
 ```
 
+To draw a pose on a model without an animator, pass the model and the pose. Both forms
+take a mesh mask too, [see below](#showing-some-meshes):
+
+```csharp
+view.Model(FoxKey, foxModel, transform, pose);
+view.Model(FoxKey, _animator, transform, meshes);
+view.Model(FoxKey, foxModel, transform, pose, meshes);
+```
+
 [Animation](animation.md) covers importing rigs, states, actions and blends.
+
+## Showing some meshes
+
+A model cooked from a file with several meshes can be drawn in part: one body, the
+helmet off, the sword in the other hand. Make a `MeshMask` once with `Content.Meshes`,
+naming the meshes to show, and keep it. A static model has mesh names only with
+`"keepMeshes": true` in its sidecar, see [Models](rendering.md#showing-some-meshes-of-a-model).
+Each draw then shows only those meshes:
+
+```csharp
+MeshMask knight = content.Meshes(armoured, "body", "legs");
+view.Model(KnightKey, armoured, transform, knight);
+```
+
+With entities, give the `Model` component the mask, and `view.Models(world)` draws with it:
+
+```csharp
+world.Add(knight, new Model(armoured, Meshes: knightMeshes));
+```
+
+A mask belongs to the model it was made for. Drawing it with another model throws, and
+the message says which model the mask was made for. A mask never changes, so a running
+game draws with it without allocating.
+
+- Meshes the mask leaves out are not drawn, and cost no triangles. The profiler counts
+  each mask's copies apart, by the triangles they show.
+- A draw with a pose or an animator still skins the whole skeleton once, however few
+  meshes it shows.
+- A ghost draws the whole model. `Ghost` has no mask.
+- `run.Drawn` entries carry the mask as `Meshes`, or null for a draw that shows every
+  mesh. See [Testing](testing.md).
 
 ## Particles
 

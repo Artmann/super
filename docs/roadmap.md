@@ -5,7 +5,9 @@ Super is early. These are the known gaps, so you can plan around them.
 - **Bone attachment.** Skeletal [animation](animation.md) works, but `view.Bone`, for
   hanging a model on a joint, doesn't exist yet. See
   [Drawing with views](views.md#planned). Until then, `animator.Joint` gives a joint's
-  place for drawing a model there by hand.
+  place for drawing a model there by hand. A sword that is a mesh in the character's own
+  file follows its hand already, and a [mesh mask](views.md#showing-some-meshes) shows
+  only the one you want.
 - **More from particles.** [Particles](views.md#particles) are soft puffs for dust and
   smoke, and can glow, as flames. There are no textured or stretched sparks yet, and
   they cast no shadow. Nodes must work from the age alone, so particles can't bounce off the
