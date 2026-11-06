@@ -37,6 +37,8 @@ public static class Noise
     /// to the nearest direction whose run and rise are whole numbers from -4 to 4 (see <see cref="Directions"/>).
     /// Along a direction of run a and rise b the noise repeats every 1/√(a² + b²) of the image, so the cell counts are
     /// <c>scale / √(a² + b²)</c> across and that divided by <paramref name="stretch"/> along, rounded, at least 1.
+    /// Since there is at least one cell along, the stretch reaches at most about <c>scale / √(a² + b²)</c>, which on
+    /// steep diagonals is less than the default 8. Each octave counts half as much as the one before (persistence 0.5).
     /// </summary>
     public static Gray Directional(int scale, float angle = 0f, float stretch = 8f, int octaves = 3, int? seed = null)
     {

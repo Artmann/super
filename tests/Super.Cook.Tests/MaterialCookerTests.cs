@@ -129,6 +129,28 @@ public sealed class MaterialCookerTests : IDisposable
     }
 
     [Fact]
+    public void A_graph_can_move_an_image_by_a_vector()
+    {
+        // Transform's offset is a Vector2, so the cooker must reference System.Numerics like the game does.
+        var (result, store) = Cook(("moved.material.cs", """
+            using System.Numerics;
+            using Super.Materials;
+
+            public sealed class Moved : MaterialGraph
+            {
+                public override Material Build()
+                {
+                    return new Material { Width = 2f, Height = Noise.Perlin(4).Transform(new Vector2(0.25f, 0f), tile: 2) };
+                }
+            }
+            """));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Equal("""{"width":2}""", Encoding.UTF8.GetString(Data(store, "moved.material.cs#material")));
+        Assert.Equal(16, Texture(store, "moved.material.cs#height").Width);
+    }
+
+    [Fact]
     public void A_graph_gets_the_usings_a_game_build_gives_it()
     {
         // Collections and LINQ with no using lines, as the game's ImplicitUsings allow, so the IDE and the cook agree.

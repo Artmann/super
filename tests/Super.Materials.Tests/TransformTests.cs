@@ -146,6 +146,44 @@ public class TransformTests
     }
 
     [Fact]
+    public void More_than_4096_copies_across_says_why()
+    {
+        var tile = Assert.Throws<ArgumentException>(() => GraphRunner.Evaluate(() => Noise.Perlin(4).Transform(tile: 5000), 8));
+        Assert.Equal("tile / scale must be at most 4096 copies across, not 5000 / 1 = 5000.", tile.Message);
+
+        var scale = Assert.Throws<ArgumentException>(() => GraphRunner.Evaluate(() => Noise.Perlin(4).Transform(scale: 1e-30f), 8));
+        Assert.StartsWith("tile / scale must be at most 4096 copies across, not 1 / ", scale.Message);
+
+        GraphRunner.Evaluate(() => Noise.Perlin(4).Transform(tile: 4096), 8);
+    }
+
+    [Fact]
+    public void A_45_degree_turn_repeats_along_the_diagonals_and_not_across()
+    {
+        // At 45° the image shrinks by √2 and its copies sit half an image apart on the diagonals: moving half an
+        // image right and half down reads one whole step further in the source, but moving only right reads half a step.
+        var source = Ramp();
+        var p = GraphRunner.Evaluate(() => Gray.FromArray(source).Transform(rotate: 45f), Size);
+        var half = Size / 2;
+        var across = 0;
+
+        for (var y = 0; y < half; y++)
+        {
+            for (var x = 0; x < half; x++)
+            {
+                Assert.Equal(p[y * Size + x], p[(y + half) * Size + x + half], 4);
+
+                if (MathF.Abs(p[y * Size + x] - p[y * Size + x + half]) > 1e-3f)
+                {
+                    across++;
+                }
+            }
+        }
+
+        Assert.True(across > half * half / 2, $"Only {across} of {half * half} pixels differ half an image across.");
+    }
+
+    [Fact]
     public void A_scale_that_divides_tile_is_fine()
     {
         var p = GraphRunner.Evaluate(() => Noise.Perlin(4).Transform(scale: 2f, tile: 2), Size);

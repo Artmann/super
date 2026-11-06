@@ -320,7 +320,11 @@ direction there are about `scale` cells per image, and along it `scale / stretch
 rounded to a whole number of at least 1. Exactly, along a direction of run a and rise b the
 noise repeats every 1/√(a² + b²) of the image, so the counts are `scale / √(a² + b²)` and
 that divided by `stretch`, rounded. At 0° with the defaults, `Directional(8)` has 8 cells from
-top to bottom and 1 from left to right.
+top to bottom and 1 from left to right. Since there is always at least one cell along, the
+stretch reaches at most about `scale / √(a² + b²)`: `Directional(4, angle: 45f)` has 3
+cells across and 1 along, so it is stretched about 3 times, whatever `stretch` says. Raise
+`scale` for more. Each octave has twice the cells and counts half as much as the one
+before, a fixed persistence of 0.5.
 
 `Gradient.Linear(angle = 0f)` rises from 0 to 1 over half the image along `angle` and
 falls back over the other half, a triangle wave, so it tiles. At 0° it is 0 at the left
@@ -392,13 +396,20 @@ number, or `Transform` throws: a `scale` of 0.5 is the same as `tile: 2`, and a 
 of 2 needs a `tile` of 2, 4 and so on. `scale` is more than 0 and `tile` 1 or more.
 `rotate` snaps (see [Angles](#angles)), and a turn by a direction of run a and rise b
 also shrinks the image by √(a² + b²), so it shows a² + b² copies: 2 at 45°, 5 at 26.57°.
-A quarter turn shows one. Pixels are read with bilinear filtering, wrapping at the edges.
+A quarter turn shows one, so use `rotate` mainly for quarter turns, and lay patterns along an
+angle with the generators' own `angle` instead. `tile / scale` is at most 4096 copies
+across. Pixels are read with bilinear filtering, wrapping at the edges. `offset` is a
+`System.Numerics.Vector2`, so a graph that passes one starts with `using System.Numerics;`.
+Game code needs the same line, since neither gets that namespace without it, so a graph
+that builds in the game builds in the cook.
 
 `Gray.Splatter(count, sizeMin = 0.05f, sizeMax = 0.1f, rotate = true, mode = BlendMode.Max, seed = null)`
 stamps the image, shrunk to a random width from `sizeMin` to `sizeMax` of the image, at
 `count` random places over black. Sizes are more than 0 and at most 0.5, and `count` is 1
 or more. With `rotate`, each stamp turns by a random angle, which needs no snapping since
-each stamp is read back from the image and wraps by itself. Each stamp is combined with
+each stamp is read back from the image and wraps by itself. A stamp holds the image's edge
+pixels at its own edges rather than wrapping, so the far side of the image never shows as a
+fringe. Each stamp is combined with
 what is under it by `mode`, in order, so with `Max` the brightest wins, with `Add` they pile
 up and with `Copy` the last one is on top. Stamps that cross an edge wrap. Splatter
 `Shape.Of(ShapeKind.Disc)` for pebbles, or a brick for scattered stones. The time it takes

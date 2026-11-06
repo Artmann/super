@@ -9,7 +9,8 @@ public sealed partial class Gray
     /// across, scaled by <paramref name="scale"/>, turned <paramref name="rotate"/> degrees counter-clockwise about its
     /// middle, then moved by <paramref name="offset"/> (fractions of the image, right and down). So that it tiles,
     /// <c>tile / scale</c> must be a whole number and the rotation snaps like <see cref="Noise.Directional"/>. A
-    /// direction of run a and rise b also shrinks the image by √(a² + b²), so a turned image shows a² + b² copies.
+    /// direction of run a and rise b also shrinks the image by √(a² + b²), so a turned image shows a² + b² copies,
+    /// and <paramref name="rotate"/> is mostly for quarter turns. At most 4096 copies across.
     /// </summary>
     public Gray Transform(Vector2 offset = default, float rotate = 0f, float scale = 1f, int tile = 1)
     {
@@ -139,6 +140,9 @@ internal static class Directions
 
 sealed class TransformNode : Node
 {
+    /// <summary>The most copies across, one per pixel at the largest cook size.</summary>
+    public const int MostCopies = 4096;
+
     readonly Vector2 _offset;
     readonly Direction _direction;
     readonly int _copies;
@@ -158,6 +162,13 @@ sealed class TransformNode : Node
         Arguments.AtLeast(tile, 1, nameof(tile));
 
         var copies = tile / scale;
+
+        // Checked before the cast below, so a huge or infinite count never wraps round.
+        if (!(copies <= MostCopies))
+        {
+            throw new ArgumentException(FormattableString.Invariant($"tile / scale must be at most {MostCopies} copies across, not {tile} / {scale} = {copies}."));
+        }
+
         var whole = MathF.Round(copies);
 
         if (whole < 1f || MathF.Abs(copies - whole) > 1e-4f * whole)
@@ -281,7 +292,8 @@ sealed class SplatterNode : Node
                         continue;
                     }
 
-                    var value = Sampling.Bilinear(source, size, 1, 0, lu, lv);
+                    // Clamped, not wrapped: a stamp's edge must not blend in the far edge of the image.
+                    var value = Sampling.BilinearClamped(source, size, lu, lv);
 
                     output[row + x] = BlendNode.Combine(_mode, output[row + x], value);
                 }
