@@ -19,7 +19,7 @@ import bmesh
 import math
 import os
 import random
-from mathutils import Vector, noise
+from mathutils import Matrix, Vector, noise
 
 SCENE = "Courtyard"
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "content", "models", "courtyard.glb")
@@ -57,6 +57,10 @@ PUDDLE = (3.0, 0.9, 1.7, 0.95)  # centre x, y and radii
 
 # The flagstone path: in from the front left, round past the barrel and along the wall's foot.
 PATH = [(-0.6, -9.0), (-0.4, -5.0), (0.2, -2.0), (0.9, 0.2), (1.2, 1.8), (2.0, 2.9), (3.4, 3.25), (4.6, 3.3)]
+# A second arm leaves it left of the puddle and comes straight at the camera, so the
+# paving runs out of the bottom of the frame.
+SPUR = [(0.5, -0.9), (2.2, -2.0), (3.6, -3.0), (4.6, -4.4), (5.3, -6.4), (5.6, -9.0)]
+PATHS = [PATH, SPUR]
 
 
 # ---------------------------------------------------------------------------------------
@@ -464,10 +468,12 @@ def build_window(sc, M, x0, x1):
 
 
 def build_plinth(sc, M):
-    """A course of big rough stones along the foot of the brick wall."""
-    """One unbroken course: rough blocks of mixed length butted together, the joints between
-    them narrow and filled with mortar, standing a little proud of the brickwork."""
+    """One unbroken course of big rough stones along the foot of the brick wall: blocks of
+    mixed length butted together, the joints between them narrow and filled with mortar.
+    The course stands well proud of the brickwork, about 30 cm, so its rounded fronts catch
+    the sun and throw a shadow on the ground."""
     bm = bmesh.new()
+    depth = 0.52
     x = WALL_X0 - 0.05
     while x < WALL_X1:
         length = rng.uniform(0.38, 0.75)
@@ -475,20 +481,21 @@ def build_plinth(sc, M):
         cx = x + length / 2
         # In front of the pier the course steps out with it.
         front = WALL_Y - (PIER_DEPTH if PIER_X0 - 0.1 < cx < PIER_X1 + 0.1 else 0.0)
-        rock(bm, (cx, front + 0.03 + rng.uniform(-0.015, 0.015), height / 2 - 0.05), (length + 0.03, 0.34, height), 0,
-             power=5.0, bumps=0.09, yaw=rng.uniform(-0.03, 0.03), segments=(20, 14), detail=0.03, flat_front=0.7)
+        # The face is dressed only lightly, so most of the stone's round shoulder shows.
+        rock(bm, (cx, front - 0.06 + rng.uniform(-0.03, 0.03), height / 2 - 0.05), (length + 0.03, depth, height), 0,
+             power=4.0, bumps=0.1, yaw=rng.uniform(-0.05, 0.05), segments=(20, 14), detail=0.03, flat_front=0.85)
         x += length
     # The corner: stones down the building's side too.
-    y = WALL_Y
+    y = WALL_Y - 0.3
     while y < WALL_Y + 4.0:
         length = rng.uniform(0.38, 0.75)
         height = rng.uniform(0.46, 0.58)
-        rock(bm, (WALL_X0 - 0.03, y + length / 2, height / 2 - 0.05), (0.34, length + 0.03, height), 0,
-             power=5.0, bumps=0.09, segments=(20, 14), detail=0.03)
+        rock(bm, (WALL_X0 - 0.06, y + length / 2, height / 2 - 0.05), (depth, length + 0.03, height), 0,
+             power=4.0, bumps=0.1, segments=(20, 14), detail=0.03)
         y += length
     # Mortar behind the stones, so a joint is a dark line and not a gap.
-    box(bm, (WALL_X0 - 0.12, WALL_Y - 0.06, 0.0), (WALL_X1, WALL_Y + 0.05, 0.42), 1)
-    box(bm, (PIER_X0 + 0.02, WALL_Y - PIER_DEPTH - 0.04, 0.0), (PIER_X1 - 0.02, WALL_Y, 0.42), 1)
+    box(bm, (WALL_X0 - 0.2, WALL_Y - 0.17, 0.0), (WALL_X1, WALL_Y + 0.05, 0.42), 1)
+    box(bm, (PIER_X0 + 0.02, WALL_Y - PIER_DEPTH - 0.17, 0.0), (PIER_X1 - 0.02, WALL_Y, 0.42), 1)
     emit(sc, "plinth", bm, [M["stone"], M["mortar"]])
 
 
@@ -590,12 +597,14 @@ def build_dry_wall(sc, M):
 # The ground: mud with a puddle, footprints and a rut, flagstones, pebbles and a deck
 
 def path_distance(x, y):
+    """How far (x, y) is from the middle of the nearest arm of the path."""
     best = 1e9
-    for (ax, ay), (bx, by) in zip(PATH, PATH[1:]):
-        abx, aby = bx - ax, by - ay
-        t = max(0.0, min(1.0, ((x - ax) * abx + (y - ay) * aby) / (abx * abx + aby * aby)))
-        px, py = ax + abx * t, ay + aby * t
-        best = min(best, math.hypot(x - px, y - py))
+    for path in PATHS:
+        for (ax, ay), (bx, by) in zip(path, path[1:]):
+            abx, aby = bx - ax, by - ay
+            t = max(0.0, min(1.0, ((x - ax) * abx + (y - ay) * aby) / (abx * abx + aby * aby)))
+            px, py = ax + abx * t, ay + aby * t
+            best = min(best, math.hypot(x - px, y - py))
     return best
 
 
@@ -635,7 +644,8 @@ def walk(points, stride):
 FOOTPRINTS = []
 
 # A wheelbarrow's rut: one track across the mud, deep where it was wettest.
-RUT = [(1.2, -4.0), (2.6, -2.2), (4.6, -0.8), (6.4, 0.4), (7.8, 1.6)]
+# It keeps to the right of the path's second arm.
+RUT = [(7.4, -6.0), (7.2, -3.4), (7.0, -1.3), (7.3, 0.2), (7.8, 1.6)]
 
 
 def footprint_depth(x, y):
@@ -842,12 +852,13 @@ def build_pebbles(sc, M):
     for _ in range(70):
         # Along the foot of the walls and the edges of the path.
         if rng.random() < 0.5:
-            x, y = rng.uniform(DRY_X + 0.15, 10.5), WALL_Y - rng.uniform(0.25, 0.9)
+            x, y = rng.uniform(DRY_X + 0.15, 10.5), WALL_Y - rng.uniform(0.38, 0.95)
         else:
+            path = rng.choice(PATHS)
             t = rng.random()
-            k = min(int(t * (len(PATH) - 1)), len(PATH) - 2)
-            f = t * (len(PATH) - 1) - k
-            (ax, ay), (bx, by) = PATH[k], PATH[k + 1]
+            k = min(int(t * (len(path) - 1)), len(path) - 2)
+            f = t * (len(path) - 1) - k
+            (ax, ay), (bx, by) = path[k], path[k + 1]
             side = rng.choice((-1, 1)) * rng.uniform(PATH_HALF_WIDTH + 0.05, PATH_HALF_WIDTH + 0.5)
             dx, dy = bx - ax, by - ay
             length = math.hypot(dx, dy)
@@ -913,11 +924,11 @@ def build_deck(sc, M):
 crate_rng = random.Random(11)
 
 
-def board(bm, length, width, thick, origin, ax, ay, az, index):
+def board(bm, length, width, thick, origin, ax, ay, az, index, bevel=None):
     """One bevelled board, laid out along ax, across ay and thick along az from origin. Its UVs
     are made before it's placed: u runs along it, and v keeps it inside one of the wood graph's
     six planks, so each board has its own grain and no seam."""
-    faces = box(bm, (0, 0, 0), (length, width, thick), 0, bevel=min(0.006, thick * 0.3))
+    faces = box(bm, (0, 0, 0), (length, width, thick), 0, bevel=bevel if bevel is not None else min(0.006, thick * 0.3))
     uv = uv_layer(bm)
     along = crate_rng.uniform(0, 3)
     band = (index % 6) / 6.0 + 0.012
@@ -940,68 +951,152 @@ def board(bm, length, width, thick, origin, ax, ay, az, index):
     return faces
 
 
+def nail(bm, position, normal, mat):
+    """A rusty nail head: a squat disc standing about 5 mm out of the wood along normal."""
+    turn = Vector((0, 0, 1)).rotation_difference(normal).to_matrix().to_4x4()
+    made = bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=8, radius1=0.0075,
+                                 radius2=0.006, depth=0.008,
+                                 matrix=Matrix.Translation(position + normal * 0.001) @ turn)
+    faces = faces_of(made["verts"])
+    for f in faces:
+        f.material_index = mat
+        f.normal_update()
+    box_uv(bm, faces, (crate_rng.uniform(0, 1), crate_rng.uniform(0, 1), 0))
+
+
 def build_crate(sc, M):
-    """A wooden crate: plain boards across each side between a rail at the top and bottom,
-    square corner posts standing proud of them, and a boarded lid with a rim."""
+    """A wooden crate, knocked together by hand. Each side is rows of boards of uneven width,
+    each a little out of true, with a rail across the top and bottom and a diagonal brace
+    between them. Thick bevelled posts stand proud at the corners. The lid overhangs the
+    sides, has two cleats across it and has been put back a little crooked. Every board is
+    held by rusty nail heads where it meets a post, a rail or a cleat."""
     bm = bmesh.new()
     crate_rng.seed(11)
-    cx, cy, base = 7.0, WALL_Y - 0.95, DECK_TOP
+    cx, cy, base = 7.0, WALL_Y - 1.2, DECK_TOP
     yaw = math.radians(-6)
-    h = 0.45           # half the width of the box the boards are nailed to
-    H = 0.86           # height of the sides
-    t = 0.022          # board thickness
-    fw = 0.1           # rails
-    post = 0.075       # the corner posts' side
-    rows, gap = 5, 0.012
+    h = 0.42           # half the width of the box the boards are nailed to
+    H = 0.8            # height of the sides
+    t = 0.024          # board thickness
+    fw = 0.11          # rails and brace
+    post = 0.095       # the corner posts' side
+    rows = 5
     Z = Vector((0, 0, 1))
+    WOOD, INSIDE, IRON = 0, 1, 2
     index = 0
 
-    for normal, tangent in (
+    for side, (normal, tangent) in enumerate((
         (Vector((0, -1, 0)), Vector((1, 0, 0))),
         (Vector((0, 1, 0)), Vector((-1, 0, 0))),
         (Vector((1, 0, 0)), Vector((0, 1, 0))),
         (Vector((-1, 0, 0)), Vector((0, -1, 0))),
-    ):
+    )):
         def at(u, v, d):
             return normal * (h + d) + tangent * u + Z * v
 
-        # The boards: rows across the side between the posts, with a small gap between them.
+        # The boards: rows of uneven width with uneven gaps, each one a touch skew and
+        # standing a little in or out, as a board does when it's nailed up by hand.
         half = h - 0.002
-        bh = (H - gap * (rows - 1)) / rows
+        gaps = [crate_rng.uniform(0.006, 0.02) for _ in range(rows - 1)]
+        weights = [crate_rng.uniform(0.8, 1.2) for _ in range(rows)]
+        unit = (H - sum(gaps)) / sum(weights)
+        v0 = 0.0
+        centres = []
         for r in range(rows):
-            v0 = r * (bh + gap)
-            board(bm, 2 * half, bh, t, at(-half, v0, 0), tangent, Z, normal, index)
+            bh = weights[r] * unit
+            tilt = crate_rng.uniform(-0.006, 0.006)
+            along = tangent * math.cos(tilt) + Z * math.sin(tilt)
+            up = Z * math.cos(tilt) - tangent * math.sin(tilt)
+            board(bm, 2 * half, bh, t, at(-half, v0, crate_rng.uniform(-0.002, 0.002)), along, up, normal, index,
+                  bevel=0.005)
+            centres.append(v0 + bh / 2)
             index += 1
+            v0 += bh + (gaps[r] if r < rows - 1 else 0.0)
         # Rails over the boards at the top and bottom, running between the posts.
         rail = h - 0.01
-        board(bm, 2 * rail, fw, t, at(-rail, 0.01, t), tangent, Z, normal, index)
-        board(bm, 2 * rail, fw, t, at(-rail, H - fw - 0.01, t), tangent, Z, normal, index + 1)
+        lo, hi = 0.01, H - fw - 0.01
+        board(bm, 2 * rail, fw, t, at(-rail, lo, t), tangent, Z, normal, index, bevel=0.007)
+        board(bm, 2 * rail, fw, t, at(-rail, hi, t), tangent, Z, normal, index + 1, bevel=0.007)
         index += 2
+        # A brace from one rail to the other, corner to corner, a little thinner than the rails
+        # so its square ends tuck in behind them. Opposite sides lean opposite ways.
+        lean = 1 if side % 2 == 0 else -1
+        u0, u1 = -lean * (rail - 0.08), lean * (rail - 0.08)
+        v_lo, v_hi = lo + fw, hi
+        du, dv = u1 - u0, v_hi - v_lo
+        length = math.hypot(du, dv)
+        cu, sv = du / length, dv / length
+        reach = abs(cu) * fw / (2 * sv) + 0.01
+        along = tangent * cu + Z * sv
+        across = Z * cu - tangent * sv
+        start = at(u0 - cu * reach, v_lo - sv * reach, t) - across * (fw / 2)
+        board(bm, length + 2 * reach, fw, t * 0.85, start, along, across, normal, index, bevel=0.006)
+        index += 1
 
-    # The corner posts: square timbers outside the boards, a little taller than the sides.
+        # Nails: through each board into the posts, two to an end, missing the rows the
+        # rails cover; two at each end of each rail; and one where the brace crosses a board.
+        for r in range(1, rows - 1):
+            for end in (-1, 1):
+                for dz in (-0.028, 0.028):
+                    nail(bm, at(end * (half - 0.04), centres[r] + dz, t), normal, IRON)
+        for v in (lo + fw / 2, hi + fw / 2):
+            for end in (-1, 1):
+                for dz in (-0.028, 0.028):
+                    nail(bm, at(end * (rail - 0.045), v + dz, 2 * t), normal, IRON)
+        for r in range(rows):
+            # Where the brace's middle line crosses this board's middle.
+            k = (centres[r] - v_lo) / dv
+            if 0.05 < k < 0.95:
+                nail(bm, at(u0 + du * k, centres[r], t + t * 0.85), normal, IRON)
+
+    # The corner posts: square timbers outside the boards, a little taller than the sides,
+    # with their edges worn round.
     for sx in (-1, 1):
         for sy in (-1, 1):
             # Inside edge just within the boards' ends, so it covers them and stands out
             # past the rails.
             px = sx * (h - 0.01 + post / 2)
             py = sy * (h - 0.01 + post / 2)
-            board(bm, H + 0.02, post, post, Vector((px - post / 2, py - post / 2, 0.0)),
-                  Z, Vector((1, 0, 0)), Vector((0, 1, 0)), index)
+            board(bm, H + 0.01, post, post, Vector((px - post / 2, py - post / 2, 0.0)),
+                  Z, Vector((1, 0, 0)), Vector((0, 1, 0)), index, bevel=0.012)
             index += 1
 
-    # The lid: boards from front to back, then a rim round its edge.
-    lid_half = h - 0.01 + post
-    lid_rows = 5
-    bw = (2 * lid_half - gap * (lid_rows - 1)) / lid_rows
-    for r in range(lid_rows):
-        x0 = -lid_half + r * (bw + gap)
-        board(bm, 2 * lid_half, bw, t, Vector((x0, -lid_half, H + 0.02)), Vector((0, 1, 0)), Vector((1, 0, 0)), Z, index)
-        index += 1
-    board(bm, 2 * lid_half, fw, t, Vector((-lid_half, -lid_half, H + 0.02 + t)), Vector((1, 0, 0)), Vector((0, 1, 0)), Z, index)
-    board(bm, 2 * lid_half, fw, t, Vector((-lid_half, lid_half - fw, H + 0.02 + t)), Vector((1, 0, 0)), Vector((0, 1, 0)), Z, index + 1)
-
     # A dark inside, so the gaps between the boards show shadow.
-    box(bm, (-h + 0.005, -h + 0.005, 0.0), (h - 0.005, h - 0.005, H - 0.005), 1)
+    box(bm, (-h + 0.005, -h + 0.005, 0.0), (h - 0.005, h - 0.005, H - 0.005), INSIDE)
+
+    # The lid: boards from front to back that overhang the posts, and two cleats across
+    # them. It is built square, then turned and slid as if it was dropped back on.
+    before = set(bm.verts)
+    lid_half = h - 0.01 + post + 0.03
+    lid_t = 0.028
+    lid_z = H + 0.01
+    lid_rows = 6
+    lid_gaps = [crate_rng.uniform(0.004, 0.014) for _ in range(lid_rows - 1)]
+    lid_weights = [crate_rng.uniform(0.85, 1.15) for _ in range(lid_rows)]
+    unit = (2 * lid_half - sum(lid_gaps)) / sum(lid_weights)
+    x0 = -lid_half
+    lid_centres = []
+    for r in range(lid_rows):
+        bw = lid_weights[r] * unit
+        sag = crate_rng.uniform(-0.002, 0.002)
+        board(bm, 2 * lid_half + crate_rng.uniform(-0.01, 0.01), bw, lid_t, Vector((x0, -lid_half, lid_z + sag)),
+              Vector((0, 1, 0)), Vector((1, 0, 0)), Z, index, bevel=0.008)
+        lid_centres.append(x0 + bw / 2)
+        index += 1
+        x0 += bw + (lid_gaps[r] if r < lid_rows - 1 else 0.0)
+    cleat = 0.095
+    for y0 in (-lid_half + 0.06, lid_half - 0.06 - cleat):
+        board(bm, 2 * lid_half - 0.08, cleat, t, Vector((-lid_half + 0.04, y0, lid_z + lid_t)),
+              Vector((1, 0, 0)), Vector((0, 1, 0)), Z, index, bevel=0.007)
+        index += 1
+        for x in lid_centres:
+            nail(bm, Vector((x, y0 + cleat / 2, lid_z + lid_t + t)), Z, IRON)
+    lid = [v for v in bm.verts if v not in before]
+    turn = math.radians(2.5)
+    cos_l, sin_l = math.cos(turn), math.sin(turn)
+    for v in lid:
+        x, y = v.co.x, v.co.y
+        v.co.x = x * cos_l - y * sin_l + 0.012
+        v.co.y = x * sin_l + y * cos_l - 0.01
 
     cos_y, sin_y = math.cos(yaw), math.sin(yaw)
     for v in bm.verts:
@@ -1009,7 +1104,7 @@ def build_crate(sc, M):
         v.co.x = cx + x * cos_y - y * sin_y
         v.co.y = cy + x * sin_y + y * cos_y
         v.co.z += base
-    emit(sc, "crate", bm, [M["wood"], M["interior"]])
+    emit(sc, "crate", bm, [M["wood"], M["interior"], M["rust"]])
 
 
 def build_barrel(sc, M):
@@ -1347,19 +1442,23 @@ def build_grass(sc, M):
     spots = []
     # Along the foot of the plinth and the low wall.
     for _ in range(40):
-        spots.append((rng.uniform(DRY_X + 0.2, WALL_X1 - 0.5), WALL_Y - rng.uniform(0.2, 0.45), rng.uniform(0.7, 1.4)))
+        spots.append((rng.uniform(DRY_X + 0.2, WALL_X1 - 0.5), WALL_Y - rng.uniform(0.32, 0.55), rng.uniform(0.7, 1.4)))
     for _ in range(26):
         spots.append((DRY_X + rng.uniform(0.15, 0.4), rng.uniform(WALL_Y - DRY_LENGTH, WALL_Y - 0.3), rng.uniform(0.8, 1.6)))
     # Along the flagstones' edges.
-    for _ in range(40):
+    for _ in range(55):
+        path = rng.choice(PATHS)
         t = rng.random()
-        k = min(int(t * (len(PATH) - 1)), len(PATH) - 2)
-        f = t * (len(PATH) - 1) - k
-        (ax, ay), (bx, by) = PATH[k], PATH[k + 1]
+        k = min(int(t * (len(path) - 1)), len(path) - 2)
+        f = t * (len(path) - 1) - k
+        (ax, ay), (bx, by) = path[k], path[k + 1]
         dx, dy = bx - ax, by - ay
         length = math.hypot(dx, dy)
         side = rng.choice((-1, 1)) * (PATH_HALF_WIDTH + rng.uniform(0.0, 0.25))
-        spots.append((ax + dx * f - dy / length * side, ay + dy * f + dx / length * side, rng.uniform(0.6, 1.2)))
+        x, y = ax + dx * f - dy / length * side, ay + dy * f + dx / length * side
+        # Not out in the middle of the other arm.
+        if path_distance(x, y) > PATH_HALF_WIDTH - 0.1:
+            spots.append((x, y, rng.uniform(0.6, 1.2)))
     # Round the deck.
     for _ in range(20):
         if rng.random() < 0.5:

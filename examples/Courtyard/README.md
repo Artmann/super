@@ -2,8 +2,10 @@
 
 Materials made in code, on a scene made in Blender. A sunlit courtyard has a brick wall
 with a pier and an arched window, ivy and a peeling patch of whitewash, a gooseneck lamp
-and a dry-stone wall. A flagstone path runs through mud marked with footprints and a rut,
-past a puddle, a barrel, tufts of grass and fallen leaves, to a deck with a crate on it. Its
+and a dry-stone wall, with a course of big rounded stones along the wall's foot. A flagstone
+path forks round a puddle, one arm running out towards the camera, through mud marked with
+a rut, past a barrel, tufts of grass and fallen leaves, to a deck. On the deck is a crate
+with a diagonal brace on each side, thick corner posts, nail heads and a crooked lid. Its
 bricks, stone, mud, wood, rust and window glass are [material graphs](../../docs/materials.md) that
 are cooked into textures when the game builds, so the example needs no downloads.
 
