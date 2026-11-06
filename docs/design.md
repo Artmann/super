@@ -53,7 +53,7 @@ the rest is not yet.
 | Time scale | `GameTime.Scale` scales `DeltaSeconds`, never the tick rate | Input and the camera stay smooth in slow motion, and a frozen world still ticks |
 | Tweens | `Tween<T>` is a struct the game keeps and moves with `Update(time)`, blending by checking `typeof(T)` for the six supported types. Curves are cubic Hermite with slopes worked out once when built | No allocation per tick, no scheduler to own them, and they follow the tick clock and `Scale`, so a seed replays the same. Checking the type compiles away for each struct, so no interface is needed on `Vector3` or `Color` |
 | Splines | Every spline is stored as cubic Bézier pieces; points become pieces by centripetal Catmull-Rom (Barry–Goldman). Length is a table of 16 Gauss–Legendre steps per piece, refined to the curve by Newton steps. Minimal frames come from double reflection, with a closed spline's leftover twist spread by distance. `SplineFollower` is a struct that keeps distance within one trip | One evaluator serves both kinds of spline. Centripetal points don't overshoot or loop. Distances come out within a millimetre on a few-metre piece without a big table, frames never flip and close without a snap, and a follower running for hours keeps its place since its float never grows |
-| Content folder | The game reads only cooked content, through `IContentFiles`: `CookedFolder` over the `content` folder beside the program, which holds `content.manifest` and objects stored by hash. Names are the source path with its extension, compared ordinally, and `Content` checks each name's kind in the manifest when it's named. Textures carry their kind and normal-map flag in the cooked header. `MemoryContent` cooks a test's sources with the built-in cookers on first read. The manifest sits in a volatile field, replaced whole by `Refresh` | A typo or a wrong case fails where it's named, on every OS, instead of when it's drawn. Settings live in cook rules rather than code. Background texture loads always see one whole manifest. Tests run the same cookers a build does |
+| Content folder | The game reads only cooked content, through `IContentFiles`: `CookedFolder` over the `content` folder beside the program, which holds `content.manifest` and objects stored by hash. Names are the source path with its extension, compared ordinally, and `Content` checks each name's kind in the manifest when it's named. Textures carry their kind and normal-map flag in the cooked header. `MemoryContent` cooks a test's sources with the built-in cookers and the material cooker on first read. The manifest sits in a volatile field, replaced whole by `Refresh` | A typo or a wrong case fails where it's named, on every OS, instead of when it's drawn. Settings live in cook rules rather than code. Background texture loads always see one whole manifest. Tests run the same cookers a build does |
 | Animation states | States and actions are the game's enums. One base state loops, keeping its phase across changes; actions play once over it, optionally masked to part of the skeleton | Walk and wave, or run and shoot, need no state per combination |
 | Audio mixing | Super's own `Mixer` writes 48 kHz stereo floats into a span, with a fixed 64 voice slots; OpenAL only plays the result. See [Audio mixer](#audio-mixer) | The same code runs with a device or without one, so headless runs and tests hear exactly what a player would, sample for sample |
 
@@ -397,6 +397,18 @@ with no source is a warning, not an error, so a clone without its licensed model
 `.rmodel` data (`ModelData` in Rendition). An alpha cutoff
 that would cut nothing or everything (see the foliage section below) is an error that stops
 the cook of that model.
+
+Material graphs are cooked by `Super.Cook.Materials`. Each `*.material.cs` file is
+compiled by itself with Roslyn, against `Super.Materials`, `Super.Random` and a few
+runtime assemblies taken from the trusted platform list, so the file's bytes are the whole
+input and editing game code never cooks a material again. The assembly is emitted with an
+embedded portable PDB and loaded into a collectible `AssemblyLoadContext` that hands back
+the cooker's own `Super.Materials`, so `MaterialGraph` is one type on both sides. An
+exception's line is the first stack frame in that assembly. Compiles are cached by the
+SHA-256 of the source, 32 at most, and the oldest context is unloaded when a 33rd comes.
+The cooker's `Version` is folded from the module version ids of `Super.Materials` and
+`Super.Cook.Materials`, so rebuilding either with a change cooks every graph again. The
+model cooker's list and `MemoryContent` both include it.
 
 **The build.** `Super.targets` gives a game a `ProjectReference` to `Super.Cook.Tool` that
 only builds it: `ReferenceOutputAssembly="false"` and `Private="false"` keep the tool's

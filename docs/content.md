@@ -203,6 +203,11 @@ Every file is an asset, chosen by its extension:
 | `.png` `.jpg` `.jpeg` `.tga` | texture | Decoded RGBA pixels, sRGB unless set linear. Mips are made when it loads |
 | `.wav` `.ogg` `.mp3` | sound | The file itself, once it decodes |
 | `.glb` `.gltf` `.fbx` `.obj` | model | `.rmodel`, through `Super.Cook.Models` |
+| `.material.cs` | material | A [material graph](materials.md), compiled and run into `#color`, `#normal`, `#surface` and `#height` textures and a `#material` data part |
+
+The longest matching extension wins, so `bricks.material.cs` is a material graph, not
+code. A graph cooks at 1024 pixels unless a rule sets its `size`; see
+[Material graphs](materials.md#size).
 
 A file with no cooker fails the cook unless a rule turns cooking off for it. Files and
 folders whose names start with a dot, `.bin`, `.md` and `.txt` are never assets.
@@ -266,8 +271,8 @@ without it knows it's shipped. There is nothing to add to the project for it.
 ## In tests
 
 A test can state its sources next to its checks. `MemoryContent` cooks them in memory
-with the built-in cookers the first time anything is read, so a test sees what a game
-would, and JSON that doesn't parse fails with the cook's message:
+with the built-in cookers and the material cooker the first time anything is read, so a
+test sees what a game would, and JSON that doesn't parse fails with the cook's message:
 
 ```csharp
 var files = new MemoryContent { ["items/axe.json"] = axeJson };

@@ -20,6 +20,7 @@ that doesn't exist yet; everything else works today.
 | [Game states](states.md) | `States<T>`, enter and exit callbacks, `Reenter` and loading screens |
 | [Change code while the game runs](hot-reload.md) | `dotnet watch`, what applies live, `CodeReloaded`, and errors that stop the game instead of closing it |
 | [JSON content](content.md) | Catalogs, references, schemas, live reload and shipping |
+| [Material graphs](materials.md) | Materials written as C# recipes of noises, tiles and filters, cooked into textures |
 | [User data](user-data.md) | `UserData`: settings and progress kept per player, outside saved games |
 | [Random numbers](random.md) | `GameRandom` and named streams |
 | [Testing](testing.md) | Headless runs, seeds, invariants, played input and checking the screen |
