@@ -122,7 +122,6 @@ marked as planned. The examples are the best place to see it running:
 | [Wax](examples/Wax) | Skin, candle wax and jade with subsurface scattering, each beside a plain twin under a hard light |
 | [Dust](examples/Dust) | Trees falling in a clearing, throwing up soft particle dust along where they land |
 | [Forest](examples/Forest) | Sound: a looping ambience and music, a hammering builder whose sound pans as the camera circles, and channel volumes |
-| [Parts](examples/Parts) | Part masks: nine figures from one model, each showing one body, one head and a hat on six; Space shows every part |
 
 ## License
 

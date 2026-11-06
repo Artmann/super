@@ -7,7 +7,6 @@ assets/**
 !assets/**/
 !assets/cook.json
 !assets/**/*.cook.json
-!assets/parts/figures.gltf
 !assets/README.md
 out/
 examples/Archer/content/textures/
