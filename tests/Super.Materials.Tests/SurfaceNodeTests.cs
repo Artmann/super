@@ -145,4 +145,136 @@ public class SurfaceNodeTests
 
         Assert.True(centre < 0.8f * rim, $"Centre {centre} is not darker than rim {rim}.");
     }
+
+    // Rises 3/256 per pixel towards the right at size 64, so with a width of 1 and a depth of 1 the slope is 0.75
+    // and the normal is (-0.6, 0, 0.8) away from the edges.
+    static float[] Ramp75(int size)
+    {
+        var values = new float[size * size];
+
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                values[y * size + x] = x * 3f / 256f;
+            }
+        }
+
+        return values;
+    }
+
+    // -c r^2 about pixel (32, 32), with c = 2, and the sign flipped for a pit. Its second derivative is -4c per image width.
+    static float[] Paraboloid(float sign, bool across = true, bool down = true)
+    {
+        var values = new float[64 * 64];
+
+        for (var y = 0; y < 64; y++)
+        {
+            for (var x = 0; x < 64; x++)
+            {
+                var u = across ? (x - 32) / 64f : 0f;
+                var v = down ? (y - 32) / 64f : 0f;
+
+                values[y * 64 + x] = sign * -2f * (u * u + v * v);
+            }
+        }
+
+        return values;
+    }
+
+    [Fact]
+    public void Combining_with_a_flat_normal_gives_the_normal_back()
+    {
+        var bump = GraphRunner.Evaluate(() => Gray.FromArray(SineInU(32)).HeightToNormal(1f, 0.1f), 32);
+        var over = GraphRunner.Evaluate(() => Gray.FromArray(SineInU(32)).HeightToNormal(1f, 0.1f).Combine(Gray.Of(0.5f).HeightToNormal(1f, 0.1f)), 32);
+        var under = GraphRunner.Evaluate(() => Gray.Of(0.5f).HeightToNormal(1f, 0.1f).Combine(Gray.FromArray(SineInU(32)).HeightToNormal(1f, 0.1f)), 32);
+
+        Assert.Equal(32 * 32 * 3, bump.Length);
+        Assert.NotEqual(0f, bump[0]);
+
+        for (var i = 0; i < bump.Length; i++)
+        {
+            Assert.Equal(bump[i], over[i], 5);
+            Assert.Equal(bump[i], under[i], 5);
+        }
+    }
+
+    [Fact]
+    public void Combining_two_equal_tilts_doubles_the_tilt()
+    {
+        // Two tilts of 36.87 degrees (sin 0.6, cos 0.8) make one of 73.74 degrees (sin 0.96, cos 0.28).
+        var p = GraphRunner.Evaluate(() => Gray.FromArray(Ramp75(64)).HeightToNormal(1f, 1f).Combine(Gray.FromArray(Ramp75(64)).HeightToNormal(1f, 1f)), 64);
+        var at = (32 * 64 + 32) * 3;
+
+        Assert.Equal(-0.96f, p[at], 4);
+        Assert.Equal(0f, p[at + 1], 4);
+        Assert.Equal(0.28f, p[at + 2], 4);
+    }
+
+    static float[] RampUp75(int size)
+    {
+        var values = new float[size * size];
+
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                values[y * size + x] = (size - 1 - y) * 3f / 256f;
+            }
+        }
+
+        return values;
+    }
+
+    [Fact]
+    public void Combining_lays_the_detail_over_the_base_and_not_the_other_way_round()
+    {
+        // The base leans left (-0.6, 0, 0.8) and the detail leans down the image (0, -0.6, 0.8). Worked by hand:
+        // t = (-0.6, 0, 1.8), u = (0, 0.6, 0.8), t.u = 1.44, so the result is t * 0.8 - u = (-0.48, -0.6, 0.64).
+        // With the two the other way round it would be (-0.6, -0.48, 0.64).
+        var p = GraphRunner.Evaluate(() => Gray.FromArray(Ramp75(64)).HeightToNormal(1f, 1f).Combine(Gray.FromArray(RampUp75(64)).HeightToNormal(1f, 1f)), 64);
+        var at = (32 * 64 + 32) * 3;
+
+        Assert.Equal(-0.48f, p[at], 4);
+        Assert.Equal(-0.6f, p[at + 1], 4);
+        Assert.Equal(0.64f, p[at + 2], 4);
+    }
+
+    [Fact]
+    public void Curvature_of_a_flat_height_is_half()
+    {
+        Assert.All(GraphRunner.Evaluate(() => Gray.Of(0.3f).HeightToNormal(1f, 1f).Curvature(), 32), v => Assert.Equal(0.5f, v));
+    }
+
+    [Fact]
+    public void Curvature_is_above_half_at_a_peak_and_below_at_a_pit()
+    {
+        // The divergence of the normal at the middle is 8 per image width (4 across and 4 down), a little less
+        // because the normal is a unit vector. The curvature adds 1/32 of that to a half.
+        var peak = GraphRunner.Evaluate(() => Gray.FromArray(Paraboloid(1f)).HeightToNormal(1f, 1f).Curvature(), 64);
+        var pit = GraphRunner.Evaluate(() => Gray.FromArray(Paraboloid(-1f)).HeightToNormal(1f, 1f).Curvature(), 64);
+
+        Assert.Equal(0.75f, peak[32 * 64 + 32], 0.005f);
+        Assert.Equal(0.25f, pit[32 * 64 + 32], 0.005f);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void Curvature_counts_each_direction_the_same_way_up(bool across, bool down)
+    {
+        // A ridge along one direction has half the divergence: 0.5 + 4 / 32.
+        var peak = GraphRunner.Evaluate(() => Gray.FromArray(Paraboloid(1f, across, down)).HeightToNormal(1f, 1f).Curvature(), 64);
+        var pit = GraphRunner.Evaluate(() => Gray.FromArray(Paraboloid(-1f, across, down)).HeightToNormal(1f, 1f).Curvature(), 64);
+
+        Assert.Equal(0.625f, peak[32 * 64 + 32], 0.005f);
+        Assert.Equal(0.375f, pit[32 * 64 + 32], 0.005f);
+    }
+
+    [Fact]
+    public void Curvature_tiles_and_matches_across_sizes()
+    {
+        NodeChecks.Tiles(() => Noise.Perlin(4).HeightToNormal(1f, 0.1f).Curvature());
+        NodeChecks.SameAtSizes(() => Noise.Perlin(4).HeightToNormal(1f, 0.1f).Curvature());
+    }
 }

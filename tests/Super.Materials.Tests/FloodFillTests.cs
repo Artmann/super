@@ -129,6 +129,116 @@ public class FloodFillTests
         Assert.Equal("threshold must be a finite number, not NaN. (Parameter 'threshold')", error.Message);
     }
 
+    static float[] Box(int left, int top, int width, int height)
+    {
+        var pixels = new float[Size * Size];
+
+        for (var y = top; y < top + height; y++)
+        {
+            for (var x = left; x < left + width; x++)
+            {
+                pixels[(y % Size) * Size + x % Size] = 1f;
+            }
+        }
+
+        return pixels;
+    }
+
+    [Fact]
+    public void To_gradient_runs_from_zero_at_the_left_pixel_to_one_at_the_right_pixel()
+    {
+        var p = GraphRunner.Evaluate(() => Gray.FromArray(Box(10, 20, 16, 8)).FloodFill().ToGradient(), Size);
+
+        Assert.Equal(0f, p[22 * Size + 10], 5);
+        Assert.Equal(1f, p[22 * Size + 25], 5);
+        Assert.Equal(7f / 15f, p[22 * Size + 17], 5);
+        Assert.Equal(0f, p[22 * Size + 9], 5);
+        Assert.Equal(0f, p[22 * Size + 26], 5);
+        Assert.Equal(0f, p[5 * Size + 5], 5);
+    }
+
+    [Fact]
+    public void To_gradient_at_ninety_degrees_rises_up_the_image()
+    {
+        var p = GraphRunner.Evaluate(() => Gray.FromArray(Box(10, 20, 4, 8)).FloodFill().ToGradient(90f), Size);
+
+        // Rows 20 to 27. The bottom row, 27, is 0 and the top row, 20, is 1. Row 23 is 4 of 7 of the way up.
+        Assert.Equal(0f, p[27 * Size + 11], 3);
+        Assert.Equal(1f, p[20 * Size + 11], 3);
+        Assert.Equal(4f / 7f, p[23 * Size + 11], 3);
+    }
+
+    [Fact]
+    public void To_gradient_at_forty_five_degrees_is_half_on_the_other_diagonal()
+    {
+        var p = GraphRunner.Evaluate(() => Gray.FromArray(Box(10, 20, 8, 8)).FloodFill().ToGradient(45f), Size);
+
+        Assert.Equal(0f, p[27 * Size + 10], 4);
+        Assert.Equal(1f, p[20 * Size + 17], 4);
+        Assert.Equal(0.5f, p[20 * Size + 10], 4);
+        Assert.Equal(0.5f, p[27 * Size + 17], 4);
+    }
+
+    [Fact]
+    public void To_gradient_measures_an_island_across_the_edge_as_one_box()
+    {
+        // Columns 60 to 63 and 0 to 3 are one island 8 wide. It runs from column 60 to column 3.
+        var p = GraphRunner.Evaluate(() => Gray.FromArray(Box(60, 20, 8, 4)).FloodFill().ToGradient(), Size);
+
+        Assert.Equal(0f, p[21 * Size + 60], 5);
+        Assert.Equal(3f / 7f, p[21 * Size + 63], 5);
+        Assert.Equal(4f / 7f, p[21 * Size + 0], 5);
+        Assert.Equal(1f, p[21 * Size + 3], 5);
+    }
+
+    [Fact]
+    public void To_gradient_measures_an_island_across_the_bottom_edge_as_one_box()
+    {
+        // Rows 62, 63, 0 and 1, climbing from row 1 (0) to row 62 (1).
+        var p = GraphRunner.Evaluate(() => Gray.FromArray(Box(5, 62, 3, 4)).FloodFill().ToGradient(90f), Size);
+
+        Assert.Equal(0f, p[1 * Size + 6], 3);
+        Assert.Equal(1f / 3f, p[0 * Size + 6], 3);
+        Assert.Equal(2f / 3f, p[63 * Size + 6], 3);
+        Assert.Equal(1f, p[62 * Size + 6], 3);
+    }
+
+    [Fact]
+    public void To_gradient_gives_each_island_its_own_zero_to_one()
+    {
+        var pixels = Box(10, 10, 8, 4);
+        var other = Box(40, 40, 4, 4);
+
+        for (var i = 0; i < pixels.Length; i++)
+        {
+            pixels[i] = Math.Max(pixels[i], other[i]);
+        }
+
+        var p = GraphRunner.Evaluate(() => Gray.FromArray(pixels).FloodFill().ToGradient(), Size);
+
+        Assert.Equal(0f, p[11 * Size + 10], 5);
+        Assert.Equal(1f, p[11 * Size + 17], 5);
+        Assert.Equal(0f, p[41 * Size + 40], 5);
+        Assert.Equal(1f, p[41 * Size + 43], 5);
+        Assert.Equal(1f / 3f, p[41 * Size + 41], 5);
+    }
+
+    [Fact]
+    public void To_gradient_of_a_single_pixel_is_zero()
+    {
+        var p = GraphRunner.Evaluate(() => Gray.FromArray(Box(7, 7, 1, 1)).FloodFill().ToGradient(), Size);
+
+        Assert.Equal(0f, p[7 * Size + 7]);
+    }
+
+    [Fact]
+    public void To_gradient_angle_must_be_a_number()
+    {
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Evaluate(() => Gray.Of(1f).FloodFill().ToGradient(float.PositiveInfinity), 16));
+
+        Assert.Equal("angle must be a finite number, not Infinity. (Parameter 'angle')", error.Message);
+    }
+
     [Fact]
     public void Random_gray_tiles()
     {
