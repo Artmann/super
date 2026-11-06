@@ -7,7 +7,7 @@ internal static class Arguments
     {
         if (value < minimum)
         {
-            throw new ArgumentOutOfRangeException(name, $"{name} must be at least {minimum}, not {value}.");
+            throw new ArgumentOutOfRangeException(name, FormattableString.Invariant($"{name} must be at least {minimum}, not {value}."));
         }
     }
 
@@ -65,7 +65,7 @@ internal static class Arguments
     {
         if (value < minimum || value > maximum)
         {
-            throw new ArgumentOutOfRangeException(name, $"{name} must be from {minimum} to {maximum}, not {value}.");
+            throw new ArgumentOutOfRangeException(name, FormattableString.Invariant($"{name} must be from {minimum} to {maximum}, not {value}."));
         }
     }
 }

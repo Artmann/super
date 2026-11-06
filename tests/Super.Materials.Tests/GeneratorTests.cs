@@ -192,6 +192,27 @@ public class GeneratorTests
     }
 
     [Fact]
+    public void Bricks_with_an_offset_that_is_not_a_number_say_so()
+    {
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Evaluate(() => Tiles.Bricks(4, 4, offset: float.NaN), 8));
+        Assert.Equal("offset must be a finite number, not NaN. (Parameter 'offset')", error.Message);
+    }
+
+    [Fact]
+    public void A_negative_whole_number_below_its_minimum_is_written_with_a_plain_minus_under_a_swedish_culture()
+    {
+        var error = InCulture("sv-SE", () => Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Evaluate(() => Noise.Perlin(scale: -1), 8, maxThreads: 1)));
+        Assert.Equal("scale must be at least 1, not -1. (Parameter 'scale')", error.Message);
+    }
+
+    [Fact]
+    public void A_negative_whole_number_outside_its_range_is_written_with_a_plain_minus_under_a_swedish_culture()
+    {
+        var error = InCulture("sv-SE", () => Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Evaluate(() => Noise.Perlin(4, octaves: -2), 8, maxThreads: 1)));
+        Assert.Equal("octaves must be from 1 to 12, not -2. (Parameter 'octaves')", error.Message);
+    }
+
+    [Fact]
     public void Bricks_that_would_not_tile_vertically_say_why()
     {
         var error = Assert.Throws<ArgumentException>(() => GraphRunner.Evaluate(() => Tiles.Bricks(4, 5), 8));

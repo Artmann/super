@@ -184,8 +184,9 @@ public class PixelTests
         {
             System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("sv-SE");
 
+            // One thread, so the body runs on this thread, in this culture, and not on a pool thread in the machine's.
             Func<Image> build = () => Pixel.Gray(a => a.Gray(-1), Gray.Of(0.5f));
-            var error = Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Evaluate(build, 16));
+            var error = Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Evaluate(build, 16, maxThreads: 1));
 
             Assert.Equal("Gray(-1) has no input -1: the node has 1 input. (Parameter 'input')", error.Message);
         }

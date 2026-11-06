@@ -15,6 +15,8 @@ public static class Tiles
         Arguments.AtLeast(columns, 1, nameof(columns));
         Arguments.AtLeast(rows, 1, nameof(rows));
 
+        Arguments.Finite(offset, nameof(offset));
+
         // The top row meets the bottom one, so the shift must come round to a whole number of bricks.
         var shift = offset * rows;
 
