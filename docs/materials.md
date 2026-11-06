@@ -219,6 +219,27 @@ The parameter names in the list are lower case, in alphabetical order. The other
 say `is a whole number`, `is true or false` and `is text`. A graph path that is missing,
 or that differs from the real file only in case, is an error that names the file.
 
+## Checks
+
+After a graph is cooked, the cooker looks at the values and warns about ones no real
+surface has. A warning never fails the cook. Pixels that aren't numbers are left out, as
+they already have a warning of their own.
+
+The base colour is judged by the bytes it is written as. A pixel is dark when its
+brightest channel is below 30, and bright when its darkest channel is above 240. If more
+than 10% of the pixels are dark, the cook warns, because nothing real is that dark:
+charcoal is about 50. If more than 10% are bright it warns too, because fresh snow is
+about 240. The message gives the share, rounded to a whole number.
+
+If more than half of the metalness is between 0.1 and 0.9, the cook warns. Surfaces are
+metal or not, and in-between values look like plastic. The ends, 0.1 and 0.9, count as in
+between.
+
+If the roughness has a standard deviation below 0.02 over all pixels, the cook warns.
+Real surfaces have smudges and wear, so vary the roughness by a few percent at least.
+A material that leaves the roughness out gets the flat default of 0.6 and so gets this
+warning.
+
 ## Nodes
 
 Every node wraps at the edges, so everything tiles. Sizes and distances are fractions of

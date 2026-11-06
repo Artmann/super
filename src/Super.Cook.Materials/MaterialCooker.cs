@@ -86,6 +86,10 @@ public sealed class MaterialCooker : ICooker
         }
 
         MaterialWriter.Write(images, input.Name, output);
+        foreach (string problem in MaterialChecks.Problems(images, input.Name))
+        {
+            output.Warning(problem);
+        }
     }
 
     /// <summary>The line of the first stack frame in the graph's own code, or null when the graph's code isn't on the stack.</summary>

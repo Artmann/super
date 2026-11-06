@@ -514,4 +514,62 @@ public sealed class MaterialCookerTests : IDisposable
         Assert.Equal("nope.png isn't in the source root.", error.Message);
         Assert.Equal(8, error.Line);
     }
+
+    private static string[] Warnings(CookResult result) => [.. result.Problems.Where(p => !p.IsError).Select(p => p.Message)];
+
+    private const string Grain = "        var grain = Noise.Perlin(scale: 4);\n";
+
+    [Fact]
+    public void A_dark_base_colour_is_a_warning_not_an_error()
+    {
+        var (result, _) = Cook(("dark.material.cs", Graph(Grain + "        return new Material { Color = Rgb.Of(\"#101010\"), Roughness = grain.Remap(0.5f, 0.8f) };")));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Equal(
+            ["dark.material.cs: 100% of the base colour is darker than sRGB 30. Nothing real is that dark. Charcoal is about 50."],
+            Warnings(result));
+    }
+
+    [Fact]
+    public void A_bright_base_colour_warns()
+    {
+        var (result, _) = Cook(("bright.material.cs", Graph(Grain + "        return new Material { Color = Rgb.Of(\"#f8f8f8\"), Roughness = grain.Remap(0.5f, 0.8f) };")));
+
+        Assert.Equal(
+            ["bright.material.cs: 100% of the base colour is brighter than sRGB 240. Fresh snow is about 240."],
+            Warnings(result));
+    }
+
+    [Fact]
+    public void Half_metal_warns()
+    {
+        var (result, _) = Cook(("half.material.cs", Graph(Grain + "        return new Material { Metallic = Gray.Of(0.5f), Roughness = grain.Remap(0.5f, 0.8f) };")));
+
+        Assert.Equal(
+            ["half.material.cs: most of the metalness is between 0.1 and 0.9. Surfaces are metal or not, and in-between values look like plastic."],
+            Warnings(result));
+    }
+
+    [Fact]
+    public void Flat_roughness_warns()
+    {
+        var (result, _) = Cook(("flat.material.cs", Graph("        return new Material { Roughness = Gray.Of(0.6f) };")));
+
+        Assert.Equal(
+            ["flat.material.cs: the roughness hardly varies. Real surfaces have smudges and wear, so vary it by a few percent at least."],
+            Warnings(result));
+    }
+
+    [Fact]
+    public void A_good_material_has_no_warnings()
+    {
+        var (result, _) = Cook(("good.material.cs", Graph(Grain
+            + "        return new Material\n        {\n"
+            + "            Color = grain.GradientMap(Ramp.Of(\"#707070\", \"#b0b0b0\")),\n"
+            + "            Roughness = Noise.Perlin(scale: 4, seed: 3).Remap(0.5f, 0.8f),\n"
+            + "            Metallic = Gray.Of(0f),\n        };")));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Empty(Warnings(result));
+    }
 }
