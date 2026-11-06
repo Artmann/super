@@ -49,6 +49,25 @@ public class ModelsTests
     }
 
     [Fact]
+    public void A_models_mesh_mask_goes_with_its_draw_swimming_or_not()
+    {
+        var hero = new ModelRef(4);
+        var mask = new MeshMask(4, 2, [1]);
+        var still = _world.Create();
+        _world.Add(still, Transform.Identity);
+        _world.Add(still, new Model(hero, Meshes: mask));
+        var swimming = _world.Create();
+        _world.Add(swimming, Transform.Identity);
+        _world.Add(swimming, new Model(hero, Meshes: mask));
+        _world.Add(swimming, new Swim(0.1f, 1f, 0f));
+
+        var drawn = Draw(0f).ToArray();
+
+        Assert.Equal(2, drawn.Length);
+        Assert.All(drawn, draw => Assert.Same(mask, draw.Meshes));
+    }
+
+    [Fact]
     public void A_world_with_no_transforms_draws_nothing()
     {
         _world.Create();

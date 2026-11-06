@@ -9,7 +9,8 @@ namespace Super;
 /// <summary>
 /// A model to draw. It only exists until the next frame describes the world again. A
 /// pose skins a rigged model; PoseAhead is how many seconds past the last tick the
-/// display is, so clips keep moving between ticks. A ghost draws it in one colour.
+/// display is, so clips keep moving between ticks. A ghost draws it in one colour. Meshes,
+/// when set, shows only the masked meshes of the model; null shows them all.
 /// </summary>
 public readonly record struct ModelDraw(
     int Key,
@@ -19,7 +20,8 @@ public readonly record struct ModelDraw(
     SwimMotion Swim = default,
     AnimationPose? Pose = null,
     float PoseAhead = 0f,
-    Ghost? Ghost = null);
+    Ghost? Ghost = null,
+    MeshMask? Meshes = null);
 
 /// <summary>
 /// A light as far away as the sun, shining the same way everywhere. One sun casts the
@@ -262,6 +264,21 @@ public sealed class View
         Model(key, model, transform, color, swim, null);
 
     /// <summary>
+    /// Draws only some meshes of a model, the ones <see cref="Content.Meshes"/> picked for
+    /// the mask. Meshes it leaves out are not drawn, and cost no triangles. The mask must have
+    /// been made for this model.
+    /// </summary>
+    public void Model(int key, ModelRef model, Matrix4x4 transform, MeshMask meshes, Vector3? color = null) =>
+        Model(key, model, transform, color, default, null, meshes);
+
+    /// <summary>
+    /// Draws some meshes of a rigged model in a pose, as <see cref="Model(int, ModelRef, Matrix4x4, AnimationPose, Vector3?)"/>
+    /// does, but only the meshes the mask shows. The whole skeleton is still skinned once.
+    /// </summary>
+    public void Model(int key, ModelRef model, Matrix4x4 transform, AnimationPose pose, MeshMask meshes, Vector3? color = null) =>
+        Model(key, model, transform, color, default, pose, meshes);
+
+    /// <summary>
     /// Draws a rigged model in a pose from an <see cref="Animator"/>. The model must have
     /// been cooked with a skeleton, and the pose's rig must be the model's own. Clips
     /// keep moving between ticks, like <see cref="Smooth"/> does for transforms.
@@ -274,18 +291,35 @@ public sealed class View
     /// <see cref="Content.Rig"/>, which knows the model; otherwise pass the model and
     /// <see cref="Animator.Pose"/> instead.
     /// </summary>
-    public void Model(int key, Animator animator, Matrix4x4 transform, Vector3? color = null)
+    public void Model(int key, Animator animator, Matrix4x4 transform, Vector3? color = null) =>
+        DrawAnimated(key, animator, transform, color, null);
+
+    /// <summary>
+    /// Draws an animated character in its current pose, with only the meshes the mask shows.
+    /// The skeleton is still skinned once for the draw, not once per part.
+    /// </summary>
+    public void Model(int key, Animator animator, Matrix4x4 transform, MeshMask meshes, Vector3? color = null) =>
+        DrawAnimated(key, animator, transform, color, meshes);
+
+    private void DrawAnimated(int key, Animator animator, Matrix4x4 transform, Vector3? color, MeshMask? meshes)
     {
         if (animator.Rig.Model is not { } model)
         {
             throw new InvalidOperationException("The animator's rig wasn't read with content.Rig, so it has no model. Pass the model and the animator's Pose instead.");
         }
 
-        Model(key, model, transform, color, default, animator.Pose);
+        Model(key, model, transform, color, default, animator.Pose, meshes);
     }
 
     /// <summary>Draws a model with a color, a swimming motion and a pose, any of which may be left out.</summary>
-    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim, AnimationPose? pose)
+    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim, AnimationPose? pose) =>
+        Model(key, model, transform, color, swim, pose, null);
+
+    /// <summary>
+    /// The full draw: a color, a swimming motion, a pose and the meshes to show, any of which
+    /// may be left out. Throws if the mask was made for another model.
+    /// </summary>
+    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim, AnimationPose? pose, MeshMask? meshes)
     {
         if (model.Index < -Shapes.BuiltInNames.Length)
         {
@@ -297,7 +331,12 @@ public sealed class View
             throw new InvalidOperationException($"Model {model.Index} was unloaded, so it can't be drawn.");
         }
 
-        _models.Add(new ModelDraw(key, model, transform, color, swim, pose, pose is null ? 0f : Blend * _tickSeconds * _timeScale));
+        if (meshes is { } mask && mask.Model != model.Index)
+        {
+            throw new ArgumentException($"The mesh mask was made for model {mask.Model}, not model {model.Index}. Make it with Content.Meshes for this model.", nameof(meshes));
+        }
+
+        _models.Add(new ModelDraw(key, model, transform, color, swim, pose, pose is null ? 0f : Blend * _tickSeconds * _timeScale, null, meshes));
     }
 
     /// <summary>
@@ -307,14 +346,21 @@ public sealed class View
     /// An opacity below 1 lets the world show through. A ghost casts no shadow. The colour
     /// is linear, from 0 to 1.
     /// </summary>
-    public void Ghost(int key, ModelRef model, Matrix4x4 transform, Vector3 color, float opacity = 1f)
+    public void Ghost(int key, ModelRef model, Matrix4x4 transform, Vector3 color, float opacity = 1f) =>
+        Ghost(key, model, transform, null, color, opacity);
+
+    /// <summary>
+    /// Draws only the meshes a <see cref="MeshMask"/> shows as a ghost, such as a preview of a
+    /// unit in the look it will have. The mask must have been made for this model.
+    /// </summary>
+    public void Ghost(int key, ModelRef model, Matrix4x4 transform, MeshMask? meshes, Vector3 color, float opacity = 1f)
     {
         if (!(opacity > 0f && opacity <= 1f))
         {
             throw new ArgumentOutOfRangeException(nameof(opacity), opacity, "A ghost's opacity must be more than 0 and at most 1.");
         }
 
-        Model(key, model, transform, null);
+        Model(key, model, transform, null, default, null, meshes);
         _models[^1] = _models[^1] with { Ghost = new Ghost(color, opacity) };
     }
 

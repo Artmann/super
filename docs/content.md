@@ -257,6 +257,42 @@ Naming a part that isn't there lists the ones that are:
 archer-props/firs.glb#tal isn't in the cooked content. Check the name, including its case and extension. archer-props/firs.glb has the parts: tall, young.
 ```
 
+### Mesh names
+
+A rigged model keeps the name of each of its meshes: the name of the node that holds the
+mesh in the source file, such as `Head_05b`, which is the name an artist sees in the
+outliner. When a node has no name, the mesh's own name is used. A static model keeps them
+only when its sidecar sets `"keepMeshes": true`, and is cooked again. These are not the
+`#part` splits above. A split is cut when the file is cooked, and each one is a model of its
+own. A mesh name is a mesh inside one model, which a game can show or hide on each draw.
+`content.Meshes` picks them by name and gives a
+[`MeshMask`](rendering.md#showing-some-meshes-of-a-model):
+
+```csharp
+MeshMask mask = content.Meshes(model, "Body_03a", "Head_05b");
+```
+
+A mesh with several materials is drawn in several pieces, and its name picks all of them.
+Names match exactly, case included. A name the model doesn't have stops here with an
+`ArgumentException` that lists the first 20 meshes it has, and their count:
+
+```
+hero.glb has no mesh called Helmet. It has 3 meshes: Body_03a, Head_05b, w_spear.
+```
+
+`content.MeshNames(model)` lists them once each, in the order they were cooked. The names
+are read from the front of the cooked file, so picking them never reads the geometry, and
+`content.Rig` keeps them when it reads the rig, so the file isn't opened again. A static
+model cooked without `keepMeshes` has no names, so `content.Meshes` stops with an
+`InvalidOperationException` that says why and what to do:
+
+```
+old.glb has no mesh names, because its file was cooked without them. A rigged model always has them. A static model needs "keepMeshes": true in old.glb.cook.json, and then to be cooked again.
+```
+
+A model file from before mesh names were kept is not a current model file, and fails with
+the message to cook it again.
+
 ## Shipping
 
 `dotnet publish` copies the cooked `content` folder beside the program and leaves

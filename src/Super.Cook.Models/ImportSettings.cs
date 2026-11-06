@@ -28,6 +28,20 @@ public class ImportSettings
     /// </summary>
     public string? Node { get; set; }
 
+    /// <summary>
+    /// Keeps each mesh of a static model as its own part, named by the mesh, instead of merging the
+    /// meshes that share a material. Needed to show some parts with <c>Content.Parts</c>. Rigged
+    /// models always keep their meshes.
+    /// </summary>
+    public bool KeepMeshes { get; set; }
+
+    /// <summary>
+    /// Keeps the file's own origin: the model is turned and scaled about it, but not centred or
+    /// stood on the ground. For a model whose origin means something, such as a character whose
+    /// file also holds alternative parts that would throw off the bounds.
+    /// </summary>
+    public bool KeepOrigin { get; set; }
+
     public List<MaterialRule> Materials { get; set; } = [];
 
     /// <summary>
