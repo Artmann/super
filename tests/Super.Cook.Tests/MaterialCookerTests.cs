@@ -507,6 +507,48 @@ public sealed class MaterialCookerTests : IDisposable
         Assert.Equal("mossy.material.json: Bricks has no parameter called mos. It has mortar, moss, seed.", FirstProblem(result));
     }
 
+    private const string ScaledGrain = """
+        using Super.Materials;
+
+        public sealed class Grain : MaterialGraph
+        {
+            public int Scale { get; init; } = 4;
+
+            public override Material Build() => new Material { Height = Noise.Perlin(Scale) };
+        }
+        """;
+
+    [Fact]
+    public void A_variant_whose_graph_throws_names_the_graph_and_its_line_with_no_line_on_the_variant()
+    {
+        var (result, _) = Cook(("grain.material.cs", ScaledGrain), ("fine.material.json", """{ "graph": "grain.material.cs", "scale": 0 }"""));
+
+        var error = Assert.Single(result.Problems, p => p.IsError);
+        Assert.EndsWith("fine.material.json", error.File);
+        Assert.Null(error.Line);
+        Assert.Equal("grain.material.cs line 7: scale must be at least 1, not 0. (Parameter 'scale')", error.Message);
+    }
+
+    [Fact]
+    public void A_variant_whose_graph_does_not_compile_names_the_graph_and_its_line()
+    {
+        var (result, _) = Cook(("bad.material.cs", Graph("        return new Material { Width = nope };")), ("v.material.json", """{ "graph": "bad.material.cs" }"""));
+
+        var error = Assert.Single(result.Problems, p => p.IsError && p.File.EndsWith("v.material.json", StringComparison.Ordinal));
+        Assert.Null(error.Line);
+        Assert.Equal("bad.material.cs line 8: The name 'nope' does not exist in the current context", error.Message);
+    }
+
+    [Fact]
+    public void A_variant_whose_graph_uses_a_banned_symbol_names_the_graph_once()
+    {
+        var (result, _) = Cook(("now.material.cs", Graph("        var now = DateTime.Now;\n        return new Material();")), ("v.material.json", """{ "graph": "now.material.cs" }"""));
+
+        var error = Assert.Single(result.Problems, p => p.IsError && p.File.EndsWith("v.material.json", StringComparison.Ordinal));
+        Assert.Null(error.Line);
+        Assert.Equal("now.material.cs line 8: a graph can't use System.DateTime.Now, since it must give the same pixels every time.", error.Message);
+    }
+
     [Fact]
     public void A_parameter_of_the_wrong_type_says_what_it_wants()
     {

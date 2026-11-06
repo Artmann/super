@@ -508,7 +508,10 @@ runtime assemblies taken from the trusted platform list, so the file's bytes are
 input and editing game code never cooks a material again. The assembly is emitted with an
 embedded portable PDB and loaded into a collectible `AssemblyLoadContext` that hands back
 the cooker's own `Super.Materials`, so `MaterialGraph` is one type on both sides. An
-exception's line is the first stack frame in that assembly. Compiles are cached by the
+exception's line is the first stack frame in that assembly. `GraphCompiler` reports
+through a callback rather than to `CookOutput`, because `CookPipeline` files every problem
+under the file being cooked: for a `.material.json` variant, `MaterialCooker` moves the
+graph's line into the message as `bricks.material.cs line 9: ` and passes no line. Compiles are cached by the
 SHA-256 of the source, 32 at most, and the oldest is dropped when a 33rd comes. It isn't
 unloaded, since another cook may still be running it, so its context goes once nothing
 holds it. Graphs compile in debug, so error lines are exact, at the cost of
