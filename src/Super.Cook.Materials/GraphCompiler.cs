@@ -27,6 +27,10 @@ internal static class GraphCompiler
         "System.Collections",
     ];
 
+    // What a game's own build gives every file (ImplicitUsings), less the namespaces for files, threads and the network.
+    // A graph must not use those, so naming them stays a compile error. Nullable warnings are never reported: only errors are.
+    private const string ImplicitUsings = "global using System;\nglobal using System.Collections.Generic;\nglobal using System.Linq;\n";
+
     private static readonly Lazy<MetadataReference[]> References = new(LoadReferences);
 
     private static readonly Lock CacheLock = new();
@@ -92,11 +96,16 @@ internal static class GraphCompiler
     {
         var text = SourceText.From(source, source.Length);
         var tree = CSharpSyntaxTree.ParseText(text, CSharpParseOptions.Default, path: name);
+        var usings = CSharpSyntaxTree.ParseText(SourceText.From(ImplicitUsings, System.Text.Encoding.UTF8), CSharpParseOptions.Default, path: "GlobalUsings.g.cs");
         var compilation = CSharpCompilation.Create(
             "graph-" + hash[..16],
-            [tree],
+            [tree, usings],
             References.Value,
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Debug, deterministic: true));
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: OptimizationLevel.Debug,
+                deterministic: true,
+                nullableContextOptions: NullableContextOptions.Enable));
 
         using var image = new MemoryStream();
         var result = compilation.Emit(image, options: new EmitOptions(debugInformationFormat: DebugInformationFormat.Embedded));

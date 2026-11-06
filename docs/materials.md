@@ -53,13 +53,41 @@ There are three image types. A `Gray` has one channel, an `Rgb` has three, and `
 holds a direction per pixel. All of them are 32-bit floats while the graph runs. Nothing
 is clamped until the textures are written, so a value can go above 1 or below 0 on the way.
 
-The file is compiled on its own, against `Super.Materials` and the core of .NET: `System`,
-LINQ, the collections and the `System.Numerics` vectors. It gets no implicit usings, so
-write the `using` lines it needs. It can't use helpers from another graph file or from the
-game.
+The cooker compiles the file on its own, against `Super.Materials` and the core of .NET:
+`System`, LINQ, the collections and the `System.Numerics` vectors. It can't use helpers
+from another graph file or from the game.
+
+Three namespaces are always there, as in the game's own build: `System`,
+`System.Collections.Generic` and `System.Linq`. Write `using Super.Materials;` yourself,
+and any other `using` line the file needs. `System.IO`, `System.Threading` and
+`System.Net.Http` are left out on purpose, so a graph that names them fails to cook.
+Nullable warnings are not reported by the cook.
 
 A graph must give the same pixels every time it cooks. It must not read files, the clock
 or `System.Random`. Its randomness comes from its seed.
+
+## Autocomplete
+
+The game's own build compiles the graph files too. They are `.cs` files in the game's
+folder, and `Super.targets` references `Super.Materials` for them, so your editor offers
+completion and shows errors as you type. The library isn't copied to the game's output.
+A type error in a graph is a build error on its line, before the cook runs.
+
+Because the game compiles every graph together, each graph class needs a name that is
+unique within the game. Two graphs that both declare `Bricks` stop the build with CS0101.
+A graph's class is in the global namespace unless you add a namespace yourself, and that
+gives no warning.
+
+A content folder outside the game's folder, such as `..\..\art\content`, isn't compiled by
+the game, so its graphs get no autocomplete. Add them to the project to get it:
+
+```xml
+<ItemGroup>
+  <Compile Include="..\..\art\content\**\*.material.cs" />
+</ItemGroup>
+```
+
+The cook doesn't need this, and works the same either way.
 
 ## What gets cooked
 
