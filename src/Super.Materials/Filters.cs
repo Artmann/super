@@ -15,7 +15,7 @@ public sealed partial class Gray
 
         if (!(gamma > 0f))
         {
-            throw new ArgumentOutOfRangeException(nameof(gamma), gamma, $"gamma must be above 0, not {gamma}.");
+            throw new ArgumentOutOfRangeException(nameof(gamma), FormattableString.Invariant($"gamma must be above 0, not {gamma}."));
         }
 
         return new Gray(new LevelsNode(Node, inLow, inHigh, outLow, outHigh, gamma));

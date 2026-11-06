@@ -405,10 +405,12 @@ input and editing game code never cooks a material again. The assembly is emitte
 embedded portable PDB and loaded into a collectible `AssemblyLoadContext` that hands back
 the cooker's own `Super.Materials`, so `MaterialGraph` is one type on both sides. An
 exception's line is the first stack frame in that assembly. Compiles are cached by the
-SHA-256 of the source, 32 at most, and the oldest context is unloaded when a 33rd comes.
-The cooker's `Version` is folded from the module version ids of `Super.Materials` and
-`Super.Cook.Materials`, so rebuilding either with a change cooks every graph again. The
-model cooker's list and `MemoryContent` both include it.
+SHA-256 of the source, 32 at most, and the oldest is dropped when a 33rd comes. It isn't
+unloaded, since another cook may still be running it, so its context goes once nothing
+holds it. Graphs compile in debug, so error lines are exact. The cooker's `Version` is
+folded from the module version ids of `Super.Materials`, `Super.Random` and
+`Super.Cook.Materials`, so rebuilding any of them with a change cooks every graph again.
+The model cooker's list and `MemoryContent` both include it.
 
 **The build.** `Super.targets` gives a game a `ProjectReference` to `Super.Cook.Tool` that
 only builds it: `ReferenceOutputAssembly="false"` and `Private="false"` keep the tool's

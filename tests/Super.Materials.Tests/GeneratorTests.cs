@@ -193,7 +193,7 @@ public class GeneratorTests
     public void A_scale_of_zero_names_the_parameter()
     {
         var error = Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Evaluate(() => Noise.Perlin(0), 8));
-        Assert.StartsWith("scale must be at least 1, not 0.", error.Message);
+        Assert.Equal("scale must be at least 1, not 0. (Parameter 'scale')", error.Message);
         Assert.Equal("scale", error.ParamName);
     }
 
@@ -215,7 +215,7 @@ public class GeneratorTests
     public void Cells_with_scale_zero_names_the_parameter()
     {
         var error = Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Evaluate(() => Noise.Cells(0), 8));
-        Assert.StartsWith("scale must be at least 1, not 0.", error.Message);
+        Assert.Equal("scale must be at least 1, not 0. (Parameter 'scale')", error.Message);
     }
 
     [Fact]
