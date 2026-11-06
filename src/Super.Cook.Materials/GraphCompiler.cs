@@ -4,6 +4,7 @@ using System.Runtime.Loader;
 using System.Security.Cryptography;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.Text;
 using Super.Materials;
@@ -28,7 +29,8 @@ internal static class GraphCompiler
     ];
 
     // What a game's own build gives every file (ImplicitUsings), less the namespaces for files, threads and the network.
-    // A graph must not use those, so naming them stays a compile error. Nullable warnings are never reported: only errors are.
+    // Leaving them out doesn't stop a graph reaching them by full name: UsesOnlyPureApis does that. Nullable warnings are
+    // never reported: only errors are.
     private const string ImplicitUsings = "global using System;\nglobal using System.Collections.Generic;\nglobal using System.Linq;\n";
 
     private static readonly Lazy<MetadataReference[]> References = new(LoadReferences);
@@ -120,6 +122,12 @@ internal static class GraphCompiler
             return null;
         }
 
+        // Only the graph's own file: the usings tree is fixed text.
+        if (!UsesOnlyPureApis(name, tree, compilation.GetSemanticModel(tree), output))
+        {
+            return null;
+        }
+
         image.Position = 0;
         var context = new GraphLoadContext();
         var assembly = context.LoadFromStream(image);
@@ -137,6 +145,116 @@ internal static class GraphCompiler
         }
 
         return new CompiledGraph(graphs[0], context);
+    }
+
+    /// <summary>
+    /// Reports every name in <paramref name="tree"/> that reaches files, the network, threads, the clock, the process or
+    /// <c>System.Random</c>. CoreLib holds all of those, so leaving their usings out isn't enough.
+    /// A <c>using</c> line for one of those namespaces is reported too, even when nothing uses it.
+    /// </summary>
+    /// <returns>Whether nothing was reported.</returns>
+    private static bool UsesOnlyPureApis(string name, SyntaxTree tree, SemanticModel model, CookOutput output)
+    {
+        var reported = new HashSet<(int Line, string Symbol)>();
+        var pending = new Stack<SyntaxNode>();
+        pending.Push(tree.GetRoot());
+        while (pending.Count > 0)
+        {
+            var node = pending.Pop();
+            if (node is ExpressionSyntax && model.GetSymbolInfo(node).Symbol is { } symbol && Banned(symbol) is { } banned)
+            {
+                // The outermost name is enough: File.Exists is one mistake, not three.
+                int line = node.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+                string shown = banned.ToDisplayString(Shown);
+                if (reported.Add((line, shown)))
+                {
+                    output.Error($"{name}: a graph can't use {shown}, since it must give the same pixels every time.", line);
+                }
+
+                continue;
+            }
+
+            // Pushed in reverse, so errors come out in the order they appear in the file.
+            foreach (var child in node.ChildNodes().Reverse())
+            {
+                pending.Push(child);
+            }
+        }
+
+        return reported.Count == 0;
+    }
+
+    private static readonly string[] BannedNamespaces =
+    [
+        "System.IO",
+        "System.Net",
+        "System.Threading",
+        "System.Diagnostics",
+        "System.Reflection",
+        "System.Runtime.InteropServices",
+    ];
+
+    private static readonly string[] BannedTypes = ["System.Random", "System.Environment"];
+
+    private static readonly string[] BannedMembers =
+    [
+        "System.DateTime.Now",
+        "System.DateTime.UtcNow",
+        "System.DateTime.Today",
+        "System.DateTimeOffset.Now",
+        "System.DateTimeOffset.UtcNow",
+        "System.Guid.NewGuid",
+    ];
+
+    // System.IO.File.Exists, System.DateTime.Now, System.Random: namespaces and types, no parameters.
+    private static readonly SymbolDisplayFormat Shown = new(
+        typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
+        genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters,
+        memberOptions: SymbolDisplayMemberOptions.IncludeContainingType);
+
+    /// <summary>The symbol to name in the error when <paramref name="symbol"/> is banned, otherwise null.</summary>
+    private static ISymbol? Banned(ISymbol symbol)
+    {
+        if (symbol is INamespaceSymbol space)
+        {
+            return InBannedNamespace(space.ToDisplayString()) ? space : null;
+        }
+
+        // The graph's own code is never banned, only what it calls.
+        if (symbol.Locations.Any(location => location.IsInSource))
+        {
+            return null;
+        }
+
+        // new Random() binds to the constructor. Name the type instead.
+        if (symbol is IMethodSymbol { MethodKind: MethodKind.Constructor } constructor)
+        {
+            symbol = constructor.ContainingType;
+        }
+
+        // values.Sum() binds to Sum on IEnumerable<float>. Name the class that declares it instead.
+        if (symbol is IMethodSymbol { ReducedFrom: { } extension })
+        {
+            symbol = extension;
+        }
+
+        var type = symbol as INamedTypeSymbol ?? symbol.ContainingType;
+        if (type is not null && BannedTypes.Contains(type.OriginalDefinition.ToDisplayString(Shown), StringComparer.Ordinal))
+        {
+            return symbol;
+        }
+
+        if (symbol is IPropertySymbol or IMethodSymbol && BannedMembers.Contains(symbol.ToDisplayString(Shown), StringComparer.Ordinal))
+        {
+            return symbol;
+        }
+
+        return symbol.ContainingNamespace is { } container && InBannedNamespace(container.ToDisplayString()) ? symbol : null;
+    }
+
+    private static bool InBannedNamespace(string space)
+    {
+        return BannedNamespaces.Any(banned => space == banned || space.StartsWith(banned + ".", StringComparison.Ordinal));
     }
 
     private static MetadataReference[] LoadReferences()

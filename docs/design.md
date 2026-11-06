@@ -514,10 +514,26 @@ unloaded, since another cook may still be running it, so its context goes once n
 holds it. Graphs compile in debug, so error lines are exact, at the cost of
 unoptimised code in `Pixel` bodies. A second tree, `GlobalUsings.g.cs`, gives each
 graph `System`, `System.Collections.Generic` and `System.Linq`, and nullable is on. A game with
-`ImplicitUsings` gets those three and more, such as `System.IO`, so a graph can build in
-the game and still fail to cook. Nullable is on in both. The usings tree is fixed text, so it
-adds no errors of its own, but a graph's compile errors are reported with their lines as
-usual.
+`ImplicitUsings` gets those three and more, such as `System.IO`. The cook turns Nullable
+on, and a game may or may not. The usings tree is fixed text, so it adds no errors of its
+own, but a graph's compile errors are reported with their lines as usual.
+
+Leaving `System.IO` out of the usings doesn't keep a graph from files, since
+`System.Private.CoreLib` holds `File`, `Thread`, `DateTime.Now` and `System.Random`, and
+`System.Runtime` forwards them. So once the graph emits, `GraphCompiler` walks its own
+tree (not the usings tree) with the semantic model, top down. Each expression that binds
+to a banned symbol is one error on its line, and its children aren't checked, so
+`System.IO.File.Exists` is one error, not three. Banned are the namespaces `System.IO`,
+`System.Net`, `System.Threading`, `System.Diagnostics`, `System.Reflection` and
+`System.Runtime.InteropServices` with everything under them, the types `System.Random`
+and `System.Environment`, and the members `Now`, `UtcNow` and `Today` on `DateTime` and
+`DateTimeOffset` and `Guid.NewGuid`. A `using` line names a namespace, so `using System.IO;`
+is an error even when nothing uses it. Symbols declared in the graph itself are never
+banned. A constructor is named by its type and an extension method by its declaring
+class, and an error is reported once per line and symbol, so `var r = new Random();` is
+one error. A graph that fails the check isn't loaded or cached. `System.Threading.Tasks`
+falls under `System.Threading`, which costs nothing, because the runner already spreads
+each node's rows over the cores.
 
 Graphs compile twice on purpose. The cook compiles each alone so its bytes are the whole
 input, and the game's build compiles them all together, via a `ProjectReference` to `Super.Materials` in
