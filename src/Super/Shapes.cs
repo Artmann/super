@@ -359,12 +359,28 @@ public static partial class Shapes
     /// <summary>The tiling to use: the one given, else one tile per <see cref="Surface.TileWidth"/> metres, else none.</summary>
     internal static float? PerMetre(float? uvPerMetre, Surface? surface)
     {
-        if (uvPerMetre is not null)
+        if (uvPerMetre is { } given)
         {
-            return uvPerMetre;
+            if (!(given > 0f) || !float.IsFinite(given))
+            {
+                throw new ArgumentOutOfRangeException(nameof(uvPerMetre), FormattableString.Invariant($"uvPerMetre must be a finite number above zero, not {given}."));
+            }
+
+            return given;
         }
 
-        return surface?.TileWidth is { } width ? 1f / width : null;
+        if (surface?.TileWidth is not { } width)
+        {
+            return null;
+        }
+
+        // A width so small that one over it overflows is as unusable as zero.
+        if (!(width > 0f) || !float.IsFinite(width) || !float.IsFinite(1f / width))
+        {
+            throw new ArgumentOutOfRangeException(nameof(surface), FormattableString.Invariant($"The surface's TileWidth must be a finite number above zero, not {width}."));
+        }
+
+        return 1f / width;
     }
 
     private static Vector2 Tiling(float? uvPerMetre, float width, float height)

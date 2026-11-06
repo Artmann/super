@@ -259,6 +259,36 @@ public class ShapesTests
         Assert.Equal(new Vector2(3f, 2f), MaxUv(plane));
     }
 
+    [Theory]
+    [InlineData(0f, "0")]
+    [InlineData(float.NaN, "NaN")]
+    [InlineData(float.PositiveInfinity, "Infinity")]
+    [InlineData(1e-40f, "1E-40")]
+    public void A_surface_width_that_is_not_a_finite_number_above_zero_is_refused(float width, string shown)
+    {
+        var problem = Assert.Throws<ArgumentOutOfRangeException>(() => Shapes.Sphere(surface: new Surface { TileWidth = width }));
+
+        Assert.Equal($"The surface's TileWidth must be a finite number above zero, not {shown}. (Parameter 'surface')", problem.Message);
+    }
+
+    [Fact]
+    public void A_negative_uv_per_metre_is_refused_with_a_plain_minus_under_a_swedish_culture()
+    {
+        var before = System.Globalization.CultureInfo.CurrentCulture;
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("sv-SE");
+
+            var problem = Assert.Throws<ArgumentOutOfRangeException>(() => Shapes.Box(Vector3.One, uvPerMetre: -0.5f));
+
+            Assert.Equal("uvPerMetre must be a finite number above zero, not -0.5. (Parameter 'uvPerMetre')", problem.Message);
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = before;
+        }
+    }
+
     [Fact]
     public void A_given_uv_per_metre_beats_the_surfaces_width()
     {

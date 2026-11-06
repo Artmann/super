@@ -320,7 +320,8 @@ cylinder, unless `uvPerMetre` is given; then they count metres, so a tiled textu
 same size on every shape whatever its size. Round shapes measure round their widest point.
 A surface from `content.Surface` (a material graph) tiles at its graph's width when
 `uvPerMetre` is not given, and `uvPerMetre` wins when it is. Ribbons, tubes and extrusions
-follow the same rule.
+follow the same rule. A `uvPerMetre` or `TileWidth` must be a finite number above zero, or
+the shape throws an `ArgumentOutOfRangeException` naming it.
 
 ## Meshes made by code
 
