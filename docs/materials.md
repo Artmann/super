@@ -385,7 +385,10 @@ them, so `Remap(1, 0)` is the same as `Invert`.
 `Blur(radius)` is a Gaussian blur whose deviation is `radius` of the image, 0 to 1.
 
 `Warp(by, amount)` moves each pixel along the slope of the grey image `by`. A 0 to 1 ramp
-across the whole image moves pixels by `amount` of the image. `amount` is −1 to 1.
+across the whole image moves pixels by `amount` of the image. `amount` is −1 to 1. Noise is
+much steeper than a ramp across the whole image, and each octave steeper again, so with a
+noise as `by` start with an `amount` near 0.005 and use few octaves. Larger amounts scramble
+the image rather than bend it.
 
 `SlopeBlur(slope, amount, samples = 16, mode = SlopeBlurMode.Average)` blurs along the
 slope of `slope`, reaching `amount` of the image, 0 to 1, from `samples` reads, 1 or more. Where the

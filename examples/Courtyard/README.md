@@ -25,7 +25,7 @@ dotnet run -c Release --project examples/Courtyard -- --screenshot shots/lineup.
 | `content/materials/flagstones.material.cs` | Irregular stones, 2 m wide. The joints are the edges of `Noise.Cells`, cut with `HistogramScan` and bent with `Warp`, and `HeightBlend` fills them with grit |
 | `content/materials/dirt.material.cs` | Packed dirt, 2 m wide. Perlin noise and white grit, pebbles stamped with `Splatter`, and cracks from cell edges |
 | `content/materials/wood.material.cs` | Planks, 1 m wide. Rings are a repeated `Gradient.Linear` bent by `Warp`, and the grain is `Noise.Directional` |
-| `content/materials/leather.material.cs` | Leather, 0.5 m wide. A soft grain of blurred cells, smoother and paler where Perlin wear is high |
+| `content/materials/leather.material.cs` | Leather, 0.5 m wide. Broad Perlin folds and creases from warped cell edges over a fine grain of blurred cells, smoother and paler where Perlin wear is high |
 | `content/materials/rusty-metal.material.cs` | Steel plate, 1 m wide. Perlin patches through `HistogramScan` are rust, rough with metalness 0, and the rest is brushed steel with metalness 1 |
 
 The graphs pass the cook's checks with no warnings: the colours stay between sRGB 30 and

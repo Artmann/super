@@ -6,8 +6,6 @@ namespace Courtyard.Tests;
 
 public sealed class LineupTests
 {
-    private static readonly string[] Materials = ["bricks", "flagstones", "dirt", "wood", "leather", "rusty-metal"];
-
     /// <summary>The example's content folder, found from this file so the test reads the real graphs.</summary>
     private static string ContentFolder([CallerFilePath] string here = "")
     {
@@ -22,9 +20,10 @@ public sealed class LineupTests
 
         // The problems are the message, so a failure prints every warning in full.
         Assert.True(result.Problems.Count == 0, string.Join(Environment.NewLine, result.Problems.Select(problem => problem.ToString())));
-        foreach (string material in Materials)
+        // The game's own list, so a graph the lineup shows can't go missing from the cook unnoticed.
+        foreach (string material in global::Courtyard.CourtyardGame.Materials)
         {
-            Assert.Contains($"materials/{material}.material.cs#material", store.Manifest.Assets.Keys);
+            Assert.Contains($"{material}#material", store.Manifest.Assets.Keys);
         }
     }
 }
