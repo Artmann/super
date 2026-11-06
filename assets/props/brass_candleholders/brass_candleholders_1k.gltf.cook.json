@@ -1,0 +1,10 @@
+{
+  "materials": [
+    { "match": "flame", "emissive": "brass_candleholders_flame_diff_1k.jpg", "emissiveColor": [6.0, 3.2, 1.2], "color": [0.0, 0.0, 0.0], "twoSided": true }
+  ],
+  "parts": {
+    "seven": { "node": "brass_candleholder_03" },
+    "three": { "node": "brass_candleholder_02" },
+    "one": { "node": "brass_candleholder_01" }
+  }
+}
