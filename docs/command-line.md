@@ -83,6 +83,7 @@ public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string
 | `Press(key)` | Taps a key: down on one tick and up on the next. It takes a tick |
 | `Hold(key)`, `Release(key)` | Holds a key down, or lets it go |
 | `Drag(from, to)` | Presses at one place, moves and lets go at the other |
+| `Drag(fromId, toId, button)` | The same between two views found by id, with any button (left if left out) |
 | `Scroll(notches)` | Turns the wheel |
 | `LeaveWindow()` | Moves the cursor out of the window |
 | `Wait(ticks)` | Waits before the next step |

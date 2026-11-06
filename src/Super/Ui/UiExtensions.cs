@@ -98,10 +98,19 @@ public static class UiExtensions
     /// <summary>Lets the mouse through to whatever's behind, as CSS's <c>pointer-events: none</c> does.</summary>
     public static UiView IgnoresPointer(this UiView view) => new IgnoresPointerModifier(view);
 
-    /// <summary>Lets the mouse carry <paramref name="payload"/> from here. <paramref name="preview"/> follows the cursor.</summary>
+    /// <summary>Lets the left button carry <paramref name="payload"/> from here. <paramref name="preview"/> follows the cursor.</summary>
     public static UiView Draggable<T>(this UiView view, T payload, UiView? preview = null)
         where T : notnull =>
-        new DragModifier(view, payload, preview);
+        new DragModifier(view, start => start.Button == MouseButton.Left ? payload : null, _ => preview);
+
+    /// <summary>
+    /// Lets any mouse button carry something from here, chosen at the press: <paramref name="grab"/> is told the
+    /// button and the modifier keys held, and returns what to carry, or null for a press that doesn't drag. It
+    /// only chooses, so it mustn't change the game. <paramref name="preview"/> follows the cursor, made from what's carried.
+    /// </summary>
+    public static UiView Draggable<T>(this UiView view, Func<DragStart, T?> grab, Func<T, UiView?>? preview = null)
+        where T : class =>
+        new DragModifier(view, start => grab(start), payload => preview?.Invoke((T)payload));
 
     /// <summary>
     /// Takes what's dropped here, on the next tick. <paramref name="canDrop"/> can turn

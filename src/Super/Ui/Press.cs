@@ -62,7 +62,10 @@ internal sealed record IgnoresPointerModifier(UiView Child) : Modifier(Child)
     internal override bool PassesPointer => true;
 }
 
-internal sealed record DragModifier(UiView Child, object Payload, UiView? Preview) : PointerModifier(Child);
+internal sealed record DragModifier(UiView Child, Func<DragStart, object?> Grab, Func<object, UiView?> Preview) : PointerModifier(Child);
+
+/// <summary>How a drag began: the button pressed, and which modifier keys were held at that moment.</summary>
+public readonly record struct DragStart(MouseButton Button, bool Shift = false, bool Control = false, bool Alt = false);
 
 /// <summary>Lets the pointer offer a payload without knowing its type.</summary>
 internal abstract record DropModifier(UiView Child) : PointerModifier(Child)
