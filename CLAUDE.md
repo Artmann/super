@@ -20,6 +20,31 @@ Never capture the desktop: that can pick up the user's other windows.
 Use conventional commits (`feat:`, `fix:`, `docs:`, `chore:`). Don't list Claude
 as an author and don't add Co-Authored-By lines.
 
+## Pull requests
+
+Keep the description short: what changed and why, how it was tested, and what it
+still can't do. Don't add a "Generated with Claude Code" line.
+
+**When a change shows on screen** (rendering, lighting, effects, UI, an example scene),
+show it in the PR:
+
+- Take shots with `--screenshot` and `--validate` from the example that shows the
+  change best, and say in the PR how many validation messages there were. Use the
+  same `--seed`, `--ticks` and `--size` for every shot so they compare.
+- When the default camera doesn't show the change, aim one closer for the shot only,
+  then put it back.
+- Prefer before and after side by side with a label on each, made with ffmpeg
+  (`hstack`, `drawtext` with `fontfile='C\:/Windows/Fonts/segoeui.ttf'`).
+  Crop to the part that changed.
+- Save them as `.webp` in `docs/media/` (`-c:v libwebp`), about 1200 pixels wide, and use
+  them in the docs too.
+- Link them in the PR by commit, so they still show after the branch is deleted:
+  `https://github.com/Artmann/super/blob/<sha>/docs/media/<file>.webp?raw=true`.
+- Look at every image before posting it, and check that its label is true.
+
+**When nothing on screen changes** (engine internals, tools, tests, docs), skip the
+pictures.
+
 ## Writing tests
 
 Lessons from a full review of the test suite. Follow them when you add tests.
