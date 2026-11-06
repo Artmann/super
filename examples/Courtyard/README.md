@@ -1,8 +1,9 @@
 # Courtyard
 
 Materials made in code, on a scene made in Blender. A sunlit courtyard has a brick wall
-with an arched window, ivy and a peeling patch of whitewash, a lamp, a dry-stone wall, a
-cobble path through wet mud, a puddle, a barrel, a crate and a deck. Its
+with a pier and an arched window, ivy and a peeling patch of whitewash, a gooseneck lamp
+and a dry-stone wall. A flagstone path runs through mud marked with footprints and a rut,
+past a puddle, a barrel, tufts of grass and fallen leaves, to a deck with a crate on it. Its
 bricks, stone, mud, wood, rust and window glass are [material graphs](../../docs/materials.md) that
 are cooked into textures when the game builds, so the example needs no downloads.
 
@@ -41,10 +42,10 @@ dotnet run -c Release --project examples/Courtyard -- --lineup
 | `CourtyardGame.cs` | The courtyard model, the camera, the sun and the sky |
 | `LineupGame.cs` | The lineup |
 | `art/courtyard.py` | The Blender script that builds and exports the courtyard |
-| `content/models/courtyard.glb.cook.json` | Which graph each of the model's materials wears, plus the water, leaves and bulb |
+| `content/models/courtyard.glb.cook.json` | Which graph each of the model's materials wears, plus the water, the bulb, and the leaves and grass that are seen from both sides |
 | `content/materials/glass.material.cs` | Old window glass, 1 m wide and transparent. Clean glass is a faint green tint with ripples from `Noise.Directional` that bend the reflection. Dust from Perlin, rain streaks running down and specks from blurred white noise raise its opacity and roughness |
 | `content/materials/bricks.material.cs` | Big old red bricks 37.5 cm long in pale mortar, 3 m wide. Each brick is found with `FloodFill` and gets its own tilt and colour, and `SlopeBlur` with cells chips the edges |
-| `content/materials/stone.material.cs` | Weathered grey stone, 1 m wide, for the dry-stone wall, the plinth, the sill and the cobbles. Perlin lumps, pits from cells, and moss in the low places |
+| `content/materials/stone.material.cs` | Weathered grey stone, 1 m wide, for the dry-stone wall, the plinth, the sill and the flagstones. Perlin lumps, pits from cells, and moss in the low places |
 | `content/materials/mud.material.cs` | Wet mud, 2 m wide. Churned clods from warped cells, pebbles stamped with `Splatter` and `HeightBlend`, and dark, glossy water in the hollows |
 | `content/materials/flagstones.material.cs` | Irregular stones, 2 m wide. The joints are the edges of `Noise.Cells`, cut with `HistogramScan` and bent with `Warp`, and `HeightBlend` fills them with grit |
 | `content/materials/dirt.material.cs` | Packed dirt, 2 m wide. Perlin noise and white grit, pebbles stamped with `Splatter`, and cracks from cell edges |

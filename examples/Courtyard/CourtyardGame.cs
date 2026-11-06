@@ -5,7 +5,7 @@ namespace Courtyard;
 
 /// <summary>
 /// A sunlit courtyard modelled in Blender (art/courtyard.py): a brick wall with an arched
-/// window, a dry-stone wall, a cobble path through wet mud and a puddle. Its bricks, stone,
+/// window, a dry-stone wall, a flagstone path through trodden mud and a puddle. Its bricks, stone,
 /// mud, wood, rust and window glass are the material graphs, put on the model by its cook sidecar.
 /// </summary>
 public sealed class CourtyardGame(Content content) : IGame
@@ -23,12 +23,12 @@ public sealed class CourtyardGame(Content content) : IGame
 
     public void Draw(View view)
     {
-        // Standing off to the right and turned left towards the window, as in the reference
-        // photo: the plinth falls away to the right and the low wall, which runs out square
-        // from the building, comes towards us along the left edge.
-        view.Camera(position: new Vector3(7.5f, 2f, 10f), lookAt: new Vector3(1.2f, 0.5f, -4f), fieldOfView: 0.85f);
+        // Standing back at eye height, off to the right and turned left towards the window, as
+        // in the reference photo: the low wall, which runs out square from the building, closes
+        // the left of the frame, the path runs in to the puddle and the deck fills the right.
+        view.Camera(position: new Vector3(6.4f, 1.7f, 7.6f), lookAt: new Vector3(2f, 1.5f, -4f), fieldOfView: 0.85f);
 
-        // A warm afternoon sun, low from the front left, so the wall's bricks and the cobbles throw shadows.
+        // A warm afternoon sun, low from the front left, so the wall's bricks and the flagstones throw shadows.
         view.Sun(direction: new Vector3(-0.8f, 0.55f, 0.6f), color: new Vector3(4.4f, 3.8f, 3f));
         view.Sky(new SkySettings
         {
