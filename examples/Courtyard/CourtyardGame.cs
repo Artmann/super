@@ -1,4 +1,5 @@
 using System.Numerics;
+using Rendition;
 using Super;
 
 namespace Courtyard;
@@ -39,16 +40,21 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         // the left of the frame, the path runs in to the puddle and the deck fills the right.
         view.Camera(position: new Vector3(6.4f, 1.7f, 7.6f), lookAt: new Vector3(2f, 1.5f, -4f), fieldOfView: 0.85f);
 
-        // A warm afternoon sun, low from the front left, so the wall's bricks and the flagstones throw shadows.
-        view.Sun(direction: new Vector3(-0.8f, 0.55f, 0.6f), color: new Vector3(4.4f, 3.8f, 3f));
+        // A warm afternoon sun, low from the left and only a little in front of the wall, so it
+        // rakes across the bricks: every stone of the plinth has a lit side and a shadow side
+        // and throws a long shadow to the right.
+        view.Sun(direction: new Vector3(-0.85f, 0.5f, 0.28f), color: new Vector3(6.2f, 5.1f, 3.7f));
+        // A dimmer, bluer sky than the sun, so the shade is clearly darker and a little cool.
         view.Sky(new SkySettings
         {
-            Zenith = new Vector3(0.35f, 0.47f, 0.68f),
-            Horizon = new Vector3(0.72f, 0.74f, 0.76f),
-            Ground = new Vector3(0.22f, 0.18f, 0.14f),
-            Brightness = 1f,
+            Zenith = new Vector3(0.3f, 0.43f, 0.7f),
+            Horizon = new Vector3(0.7f, 0.72f, 0.76f),
+            Ground = new Vector3(0.16f, 0.13f, 0.1f),
+            Brightness = 0.6f,
         });
         view.Shadows(9f, 3);
+        // A little more contrast and a soft vignette, to hold the eye on the window and the path.
+        view.Finish(new PostSettings { Contrast = 0.08f, Saturation = 0.05f, Vignette = 0.3f, Sharpen = 0.2f });
         view.Model(0, _courtyard, Matrix4x4.Identity);
     }
 }

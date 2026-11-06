@@ -1,13 +1,21 @@
 # Courtyard
 
 Materials made in code, on a scene made in Blender. A sunlit courtyard has a brick wall
-with a pier and an arched window, ivy and a peeling patch of whitewash, a gooseneck lamp
-and a dry-stone wall, with a course of big rounded stones along the wall's foot. A flagstone
-path forks round a puddle, one arm running out towards the camera, through mud marked with
-a rut, past a barrel, tufts of grass and fallen leaves, to a deck. On the deck is a crate
-with a diagonal brace on each side, thick corner posts, nail heads and a crooked lid. Its
+with a pier and a deep-set arched window, ivy, a peeling patch of whitewash, a gooseneck
+lamp and a cast-iron drainpipe that runs down past the pier onto a splash stone. Along the
+wall's foot is a plinth of big rounded stones of mixed heights, a few with a chipped corner,
+and a cart wheel leans against it. The dry-stone wall mixes big footing stones with small
+ones and pinning stones in the joints, and is capped with stones set on edge. A path of
+flat, chipped flagstones with tight joints forks round a puddle with a raised bank. One arm
+runs out towards the camera through mud marked with a rut and boot prints, past a barrel,
+fallen leaves and grass that grows in patches along the walls, the path's edges and the
+joints, to a deck. On the deck are a big crate with a diagonal brace on each side, thick
+corner posts, nail heads and a crooked lid, a smaller crate and three tied sacks. Its
 bricks, stone, mud, wood, rust and window glass are [material graphs](../../docs/materials.md) that
 are cooked into textures when the game builds, so the example needs no downloads.
+
+The sun is low from the left so it rakes across the bricks and the plinth, the sky is
+dimmer and bluer so the shade reads, and a light finish adds contrast and a vignette.
 
 ```
 dotnet run -c Release --project examples/Courtyard
@@ -50,7 +58,7 @@ dotnet run -c Release --project examples/Courtyard -- --lineup
 
 | File | What's in it |
 | --- | --- |
-| `CourtyardGame.cs` | The courtyard model, the camera, the sun and the sky |
+| `CourtyardGame.cs` | The courtyard model, the camera, the sun, the sky and the finish |
 | `LineupGame.cs` | The lineup |
 | `art/courtyard.py` | The Blender script that builds and exports the courtyard |
 | `content/models/courtyard.glb.cook.json` | Which graph each of the model's materials wears, plus the water, the bulb, and the leaves and grass that are seen from both sides |

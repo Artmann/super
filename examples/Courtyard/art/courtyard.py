@@ -40,7 +40,7 @@ WIN_W = 2.0
 SILL_Z = 1.15
 SPRING_Z = 3.55
 ARCH_RISE = 0.36
-REVEAL = 0.34
+REVEAL = 0.48
 
 # A brick pier standing out from the wall to the right of the lamp.
 PIER_X0 = 6.3
@@ -118,6 +118,8 @@ def make_materials():
         "dead_leaf_orange": material("dead_leaf_orange", (0.7, 0.36, 0.08), roughness=0.75),
         "grass": material("grass", (0.2, 0.3, 0.08), roughness=0.7),
         "grass_dry": material("grass_dry", (0.42, 0.4, 0.18), roughness=0.8),
+        "sack": material("sack", (0.27, 0.21, 0.13), roughness=0.95),
+        "twine": material("twine", (0.18, 0.14, 0.09), roughness=0.9),
     }
 
 
@@ -475,16 +477,39 @@ def build_plinth(sc, M):
     bm = bmesh.new()
     depth = 0.52
     x = WALL_X0 - 0.05
+    count = 0
     while x < WALL_X1:
-        length = rng.uniform(0.38, 0.75)
-        height = rng.uniform(0.46, 0.58)
+        # Mostly long, squat stones, with now and then a short tall one or a long low one,
+        # so the top of the course steps up and down instead of running level.
+        kind = rng.random()
+        if kind < 0.2:
+            length, height = rng.uniform(0.3, 0.42), rng.uniform(0.64, 0.72)
+        elif kind < 0.4:
+            length, height = rng.uniform(0.75, 1.0), rng.uniform(0.47, 0.53)
+        else:
+            length, height = rng.uniform(0.42, 0.75), rng.uniform(0.52, 0.62)
         cx = x + length / 2
         # In front of the pier the course steps out with it.
         front = WALL_Y - (PIER_DEPTH if PIER_X0 - 0.1 < cx < PIER_X1 + 0.1 else 0.0)
         # The face is dressed only lightly, so most of the stone's round shoulder shows.
-        rock(bm, (cx, front - 0.06 + rng.uniform(-0.03, 0.03), height / 2 - 0.05), (length + 0.03, depth, height), 0,
-             power=4.0, bumps=0.1, yaw=rng.uniform(-0.05, 0.05), segments=(20, 14), detail=0.03, flat_front=0.85)
+        # Some stones were set a little forward or back, or have sunk.
+        sink = rng.uniform(0.0, 0.03)
+        verts = rock(bm, (cx, front - 0.06 + rng.uniform(-0.04, 0.04), height / 2 - 0.05 - sink),
+                     (length + 0.03, depth * rng.uniform(0.9, 1.05), height), 0,
+                     power=rng.uniform(3.4, 4.6), bumps=rng.uniform(0.08, 0.14), yaw=rng.uniform(-0.06, 0.06),
+                     segments=(20, 14), detail=0.03, flat_front=0.85)
+        # Every few stones one has lost a corner: a bite out of a top front corner.
+        if count % 5 == 3:
+            side = rng.choice((-1, 1))
+            corner = Vector((cx + side * length / 2, front - 0.3, height - 0.05 - sink))
+            normal = Vector((side * rng.uniform(0.6, 1.0), -1.0, rng.uniform(0.8, 1.3))).normalized()
+            cut = rng.uniform(0.12, 0.18)
+            for v in verts:
+                d = (v.co - corner).dot(normal) + cut
+                if d > 0:
+                    v.co -= normal * d
         x += length
+        count += 1
     # The corner: stones down the building's side too.
     y = WALL_Y - 0.3
     while y < WALL_Y + 4.0:
@@ -494,8 +519,8 @@ def build_plinth(sc, M):
              power=4.0, bumps=0.1, segments=(20, 14), detail=0.03)
         y += length
     # Mortar behind the stones, so a joint is a dark line and not a gap.
-    box(bm, (WALL_X0 - 0.2, WALL_Y - 0.17, 0.0), (WALL_X1, WALL_Y + 0.05, 0.42), 1)
-    box(bm, (PIER_X0 + 0.02, WALL_Y - PIER_DEPTH - 0.17, 0.0), (PIER_X1 - 0.02, WALL_Y, 0.42), 1)
+    box(bm, (WALL_X0 - 0.2, WALL_Y - 0.17, 0.0), (WALL_X1, WALL_Y + 0.05, 0.34), 1)
+    box(bm, (PIER_X0 + 0.02, WALL_Y - PIER_DEPTH - 0.17, 0.0), (PIER_X1 - 0.02, WALL_Y, 0.34), 1)
     emit(sc, "plinth", bm, [M["stone"], M["mortar"]])
 
 
@@ -560,28 +585,61 @@ def build_dry_wall(sc, M):
     course = 0
     # Big blocky stones of mixed sizes with dressed, nearly flat faces, laid in uneven courses
     # with the joints tight. The bottom courses use the biggest stones.
-    while z < 1.25:
+    def face_stone(cx, cz, length, height):
+        proud = rng.uniform(-0.03, 0.02)
+        rock(bm, (cx, y0 + proud + 0.13, cz), (length + 0.03, 0.36, height + 0.025), 0,
+             power=rng.uniform(3.8, 4.8), bumps=rng.uniform(0.08, 0.13), yaw=rng.uniform(-0.06, 0.06),
+             segments=(18, 12), detail=0.025, flat_front=0.75)
+
+    # Where a stone's corner meets its neighbours there is a gap, and a waller knocks a small
+    # pinning stone into it so the big ones can't rock.
+    pins = []
+    while z < 1.2:
         h = rng.uniform(0.24, 0.36) if course < 2 else rng.uniform(0.17, 0.3)
         x = x_start + rng.uniform(0.0, 0.25)
         while x < x_end:
-            length = rng.uniform(0.32, 0.95) if course < 2 else rng.uniform(0.25, 0.7)
-            hh = h * rng.uniform(0.82, 1.0)
+            kind = rng.random()
+            if course < 2 and kind < 0.25:
+                # A big footing stone.
+                length = rng.uniform(0.85, 1.25)
+            elif kind < 0.2:
+                # A short one.
+                length = rng.uniform(0.18, 0.3)
+            else:
+                length = rng.uniform(0.32, 0.9) if course < 2 else rng.uniform(0.25, 0.65)
             cx = min(x + length / 2, x_end - length / 2 + 0.05)
-            proud = rng.uniform(-0.025, 0.02)
-            rock(bm, (cx, y0 + proud + 0.13, z + hh / 2), (length + 0.03, 0.36, hh + 0.025), 0,
-                 power=4.5, bumps=0.1, yaw=rng.uniform(-0.05, 0.05), segments=(18, 12), detail=0.025, flat_front=0.75)
+            if 0.35 < length < 0.7 and rng.random() < 0.18:
+                # Two thin stones in one slot, one on the other.
+                lower = h * rng.uniform(0.42, 0.55)
+                face_stone(cx + rng.uniform(-0.03, 0.03), z + lower / 2, length * rng.uniform(0.9, 1.0), lower - 0.01)
+                upper = h - lower
+                face_stone(cx + rng.uniform(-0.03, 0.03), z + lower + upper / 2, length * rng.uniform(0.85, 1.0), upper - 0.02)
+            else:
+                hh = h * rng.uniform(0.82, 1.0)
+                face_stone(cx, z + hh / 2, length, hh)
             # A second stone behind, so the wall looks the same from the far side.
-            rock(bm, (cx + 0.1, y0 + thickness - 0.16, z + hh / 2), (length, 0.34, hh), 0,
+            rock(bm, (cx + 0.1, y0 + thickness - 0.16, z + h / 2), (length, 0.34, h * 0.9), 0,
                  power=4.0, bumps=0.12, yaw=rng.uniform(-0.08, 0.08), segments=(12, 8))
+            if rng.random() < 0.6 and x_start + 0.2 < x < x_end - 0.2:
+                pins.append((x, z + rng.uniform(0.2, 0.8) * h))
             x += length
         z += h * 0.97
         course += 1
-    # Cope stones laid flat along the top, slightly wider than the wall.
+    for px, pz in pins:
+        s = rng.uniform(0.06, 0.11)
+        rock(bm, (px + rng.uniform(-0.02, 0.02), y0 + 0.06, pz), (s * rng.uniform(0.6, 1.0), 0.16, s * rng.uniform(0.5, 0.8)), 0,
+             power=2.6, bumps=0.18, yaw=rng.uniform(-0.3, 0.3), segments=(10, 7), detail=0.04)
+    # The coping: thin stones stood on edge across the top, leaning a little, with a taller
+    # one every so often, so the top of the wall has a ragged comb along it.
     x = x_start
     while x < x_end:
-        w = rng.uniform(0.35, 0.7)
-        rock(bm, (x + w / 2, y0 + thickness / 2, z + 0.07), (w + 0.03, thickness + 0.06, 0.17), 0,
-             power=4.0, bumps=0.1, yaw=rng.uniform(-0.04, 0.04), segments=(16, 10), detail=0.025)
+        w = rng.uniform(0.09, 0.17)
+        tall = rng.uniform(0.24, 0.3) if rng.random() < 0.2 else rng.uniform(0.17, 0.24)
+        lean = rng.uniform(-0.12, 0.12)
+        verts = rock(bm, (x + w / 2, y0 + thickness / 2, z + tall / 2 - 0.03), (w + 0.02, thickness + rng.uniform(0.0, 0.08), tall), 0,
+                     power=rng.uniform(3.0, 4.0), bumps=0.14, yaw=rng.uniform(-0.08, 0.08), segments=(12, 10), detail=0.04)
+        for v in verts:
+            v.co.x += (v.co.z - z) * lean
         x += w
     # The hearting: a dark core, so the gaps between stones are shadow and not sky.
     box(bm, (x_start, y0 + 0.08, 0.0), (x_end, y0 + thickness - 0.1, z + 0.05), 1)
@@ -643,6 +701,9 @@ def walk(points, stride):
 # Someone walked from the path round the puddle to the crate, and back another way.
 FOOTPRINTS = []
 
+# The corners of the flagstones, where the joints meet, for grass to grow in.
+JOINTS = []
+
 # A wheelbarrow's rut: one track across the mud, deep where it was wettest.
 # It keeps to the right of the path's second arm.
 RUT = [(7.4, -6.0), (7.2, -3.4), (7.0, -1.3), (7.3, 0.2), (7.8, 1.6)]
@@ -669,25 +730,32 @@ def rut_depth(x, y):
         abx, aby = bx - ax, by - ay
         t = max(0.0, min(1.0, ((x - ax) * abx + (y - ay) * aby) / (abx * abx + aby * aby)))
         best = min(best, math.hypot(x - ax - abx * t, y - ay - aby * t))
-    # A trough 8 cm wide with a lip of pushed-up mud either side.
-    return smoothstep(0.07, 0.0, best) - 0.35 * smoothstep(0.16, 0.09, best) * smoothstep(0.04, 0.09, best)
+    # A trough 10 cm wide with steep sides and a lip of pushed-up mud either side.
+    return smoothstep(0.065, 0.03, best) - 0.45 * smoothstep(0.17, 0.1, best) * smoothstep(0.05, 0.1, best)
 
 
 def ground_height(x, y):
-    h = 0.03 * noise.fractal(Vector((x * 0.6, y * 0.6, 0.0)), 0.7, 2.0, 4)
+    h = ground_broad(x, y)
+    # Under the flagstones the mud is packed into the joints, so it has no clods to poke
+    # up through them.
+    paved = smoothstep(PATH_HALF_WIDTH + 0.3, PATH_HALF_WIDTH - 0.1, path_distance(x, y))
+    rough = 1.0 - 0.8 * paved
     # Churned clods: sharp lumps from turbulence, strongest out in the open mud.
-    h += 0.022 * noise.turbulence(Vector((x * 3.2, y * 3.2, 1.0)), 3, False, amplitude_scale=0.5)
-    h += 0.01 * noise.noise(Vector((x * 9.0, y * 9.0, 4.0)))
+    h += 0.022 * rough * noise.turbulence(Vector((x * 3.2, y * 3.2, 1.0)), 3, False, amplitude_scale=0.5)
+    h += 0.01 * rough * noise.noise(Vector((x * 9.0, y * 9.0, 4.0)))
     # Soft dents where the mud was trodden.
     h -= 0.02 * max(0.0, noise.noise(Vector((x * 2.5, y * 2.5, 9.0))))
-    h -= 0.035 * footprint_depth(x, y)
-    h -= 0.06 * rut_depth(x, y)
-    h -= 0.09 * puddle_depth(x, y)
-    # A muddy bank round the puddle, pushed up where feet went round it.
     edge = puddle_shape(x, y)
-    h += 0.03 * math.exp(-((edge - 1.3) / 0.25) ** 2)
+    # Prints sink deeper in the soft mud near the water.
+    wet = smoothstep(2.4, 1.2, edge)
+    h -= (0.03 + 0.03 * wet) * footprint_depth(x, y)
+    h -= 0.085 * rut_depth(x, y)
+    # The puddle drops off steeply from a bank, then flattens out under the water.
+    h -= 0.06 * smoothstep(1.12, 0.92, edge) + 0.04 * puddle_depth(x, y)
+    # A muddy bank round the puddle, pushed up where feet went round it, with a sharp lip.
+    h += 0.035 * math.exp(-((edge - 1.2) / 0.13) ** 2) + 0.012 * math.exp(-((edge - 1.45) / 0.3) ** 2)
     # Under the flagstones the ground sits low, so only their tops show.
-    h -= 0.03 * smoothstep(PATH_HALF_WIDTH + 0.3, PATH_HALF_WIDTH - 0.1, path_distance(x, y))
+    h -= 0.04 * paved
     # Behind the low wall it's a little higher and drier.
     h += 0.08 * smoothstep(WALL_Y + 0.6, WALL_Y + 1.5, y)
     # Pushed up against the foot of the walls.
@@ -740,17 +808,26 @@ def build_ground(sc, M):
     emit(sc, "puddle", bm, [M["water"]])
 
 
-def voronoi_cell(p, neighbours, max_radius, joint):
-    """The cell around p, clipped by the bisectors with its neighbours, pulled in by half the joint."""
-    poly = [(p[0] + max_radius * math.cos(a), p[1] + max_radius * math.sin(a))
-            for a in (2 * math.pi * k / 20 for k in range(20))]
+def voronoi_cell(p, neighbours, max_radius, joint, weights=None):
+    """The cell around p, clipped by the bisectors with its neighbours, pulled in by half the joint.
+    With weights, a power diagram: a stone with a bigger weight pushes its joints further out.
+    Where no neighbour clips it, at the edge of the paving, the cell ends in a broken outline
+    rather than a circle."""
+    corners = 9
+    start = rng.uniform(0, math.pi)
+    poly = []
+    for k in range(corners):
+        a = start + 2 * math.pi * (k + rng.uniform(-0.25, 0.25)) / corners
+        r = max_radius * rng.uniform(0.82, 1.0)
+        poly.append((p[0] + r * math.cos(a), p[1] + r * math.sin(a)))
     for q in neighbours:
         nx, ny = q[0] - p[0], q[1] - p[1]
         dist = math.hypot(nx, ny)
         if dist < 1e-6:
             continue
         nx, ny = nx / dist, ny / dist
-        limit = dist / 2 - joint / 2
+        shift = 0.0 if weights is None else (weights[p] - weights[q]) / (2 * dist)
+        limit = max(dist / 2 + shift, 0.12) - joint / 2
         out = []
         for k in range(len(poly)):
             a, b = poly[k], poly[(k + 1) % len(poly)]
@@ -767,82 +844,149 @@ def voronoi_cell(p, neighbours, max_radius, joint):
     return poly
 
 
-def chaikin(poly, rounds=2):
-    for _ in range(rounds):
-        out = []
-        for k in range(len(poly)):
-            a, b = poly[k], poly[(k + 1) % len(poly)]
-            out.append((a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25))
-            out.append((a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75))
-        poly = out
-    return poly
-
-
-def slab(bm, poly, centre, base_z, top, mat):
-    """A flagstone: straight sides from below the ground up to a narrow chamfer, then a flat,
-    gently uneven top that leans a little one way."""
-    seed = Vector((rng.uniform(-50, 50), rng.uniform(-50, 50), 0))
-    tilt = (rng.uniform(-0.025, 0.025), rng.uniform(-0.025, 0.025))
-
-    def height(px, py, z):
-        bump = 0.005 * noise.noise(Vector((px * 4, py * 4, 0)) + seed)
-        return z + bump + (px - centre[0]) * tilt[0] + (py - centre[1]) * tilt[1]
-
-    def ring(shrink, inset, z):
-        out = []
-        for x, y in poly:
-            dx, dy = x - centre[0], y - centre[1]
-            length = math.hypot(dx, dy) or 1.0
-            px = centre[0] + dx * shrink - dx / length * inset
-            py = centre[1] + dy * shrink - dy / length * inset
-            out.append(bm.verts.new((px, py, height(px, py, z))))
-        return out
-
-    rings = [
-        ring(1.0, 0.0, base_z - 0.07),
-        ring(1.0, 0.0, base_z + top - 0.018),
-        ring(1.0, 0.012, base_z + top - 0.004),
-        ring(1.0, 0.024, base_z + top),
-        # An inner ring, so the top can carry a little unevenness of its own.
-        ring(0.55, 0.0, base_z + top + 0.003),
-    ]
-    faces = []
+def knock_corners(poly, chance):
+    """Knocks the tip off some corners of a cut outline, as wear and frost do."""
+    out = []
     n = len(poly)
+    for k in range(n):
+        a, p, b = poly[k - 1], poly[k], poly[(k + 1) % n]
+        if rng.random() >= chance:
+            out.append(p)
+            continue
+        for q in (a, b):
+            length = math.hypot(q[0] - p[0], q[1] - p[1])
+            t = min(rng.uniform(0.03, 0.07), length * 0.35) / max(length, 1e-6)
+            out.append((p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t))
+    return out
+
+
+def densify(poly, step):
+    """The outline with points every step along its edges, so they can be bent and chipped."""
+    out = []
+    n = len(poly)
+    for k in range(n):
+        a, b = poly[k], poly[(k + 1) % n]
+        count = max(1, int(math.hypot(b[0] - a[0], b[1] - a[1]) / step))
+        for s in range(count):
+            t = s / count
+            out.append((a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t))
+    return out
+
+
+def ground_broad(x, y):
+    """The broad lie of the land, without the clods and dents on top of it."""
+    return 0.03 * noise.fractal(Vector((x * 0.6, y * 0.6, 0.0)), 0.7, 2.0, 4)
+
+
+def slab(bm, poly, centre, level, mat):
+    """A flagstone: sheer sides from below the mud, a narrow arris that is broken away in
+    places, and a flat top that leans a little one way. The top has its own vertices, so its
+    smooth shading stops at the arris and the edge reads as a crisp line."""
+    seed = Vector((rng.uniform(-50, 50), rng.uniform(-50, 50), 0))
+    # Most stones lie almost level. A few have rocked, and stand a little proud on one side.
+    rocked = rng.random() < 0.12
+    lean = 0.045 if rocked else 0.018
+    tilt = (rng.uniform(-lean, lean), rng.uniform(-lean, lean))
+    cx, cy = centre
+
+    def top_z(px, py):
+        wave = 0.003 * noise.noise(Vector((px * 5, py * 5, 0)) + seed)
+        return level + wave + (px - cx) * tilt[0] + (py - cy) * tilt[1]
+
+    outline = densify(knock_corners(poly, 0.35), 0.035)
+    # How badly each point of the arris is chipped: mostly a hair, now and then a bite.
+    chips = []
+    for x, y in outline:
+        n = noise.noise(Vector((x * 9, y * 9, 2.0)) + seed)
+        chips.append(smoothstep(0.15, 0.6, n))
+
+    def toward_centre(x, y, inset):
+        dx, dy = x - cx, y - cy
+        length = math.hypot(dx, dy) or 1.0
+        return x - dx / length * inset, y - dy / length * inset
+
+    # The edge wanders in and out a little, as a hand-cut stone does.
+    edge = []
+    for (x, y), chip in zip(outline, chips):
+        wander = 0.006 * noise.noise(Vector((x * 6, y * 6, 4.0)) + seed)
+        edge.append(toward_centre(x, y, 0.004 + wander + 0.006 * chip))
+
+    bottom = [bm.verts.new((x, y, top_z(x, y) - 0.1)) for x, y in edge]
+    shoulder = []
+    lip = []
+    for (x, y), chip in zip(edge, chips):
+        z = top_z(x, y)
+        shoulder.append(bm.verts.new((x, y, z - 0.008 - 0.016 * chip)))
+        ix, iy = toward_centre(x, y, 0.005 + 0.022 * chip)
+        lip.append((ix, iy, z - 0.006 * chip))
+    arris = [bm.verts.new(p) for p in lip]
+
+    n = len(edge)
+    hard = []
+    for ring_a, ring_b in ((bottom, shoulder), (shoulder, arris)):
+        for k in range(n):
+            k1 = (k + 1) % n
+            hard.append(bm.faces.new((ring_a[k], ring_a[k1], ring_b[k1], ring_b[k])))
+    for f in hard:
+        f.material_index = mat
+        f.smooth = False
+
+    # The top: the arris again, then rings closing in on the middle.
+    rings = [[bm.verts.new(p) for p in lip]]
+    for shrink in (0.75, 0.48, 0.22):
+        ring = []
+        for x, y, _ in lip:
+            px, py = cx + (x - cx) * shrink, cy + (y - cy) * shrink
+            ring.append(bm.verts.new((px, py, top_z(px, py))))
+        rings.append(ring)
+    middle = bm.verts.new((cx, cy, top_z(cx, cy)))
+    soft = []
     for r in range(len(rings) - 1):
         for k in range(n):
             k1 = (k + 1) % n
-            faces.append(bm.faces.new((rings[r][k], rings[r][k1], rings[r + 1][k1], rings[r + 1][k])))
-    faces.append(bm.faces.new(rings[-1]))
-    for f in faces:
+            soft.append(bm.faces.new((rings[r][k], rings[r][k1], rings[r + 1][k1], rings[r + 1][k])))
+    for k in range(n):
+        soft.append(bm.faces.new((rings[-1][k], rings[-1][(k + 1) % n], middle)))
+    for f in soft:
         f.material_index = mat
         f.smooth = True
+    faces = hard + soft
     bmesh.ops.recalc_face_normals(bm, faces=faces)
     box_uv(bm, faces, (rng.uniform(0, 2), rng.uniform(0, 2), 0))
 
 
 def build_flagstones(sc, M):
-    """Big flat stones cut from a Voronoi pattern, so they fit together with narrow joints."""
+    """Big flat stones of mixed sizes cut from a power diagram, so they fit together with
+    tight joints, laid nearly flush with the mud."""
     bm = bmesh.new()
     points = []
-    spacing = 0.62
+    weights = {}
+    spacing = 0.66
     for j in range(-30, 30):
         for i in range(-30, 30):
-            x = i * spacing + (spacing / 2 if j % 2 else 0) + rng.uniform(-0.16, 0.16) - 1.0
-            y = j * spacing * 0.87 + rng.uniform(-0.16, 0.16) - 3.0
+            x = i * spacing + (spacing / 2 if j % 2 else 0) + rng.uniform(-0.2, 0.2) - 1.0
+            y = j * spacing * 0.87 + rng.uniform(-0.2, 0.2) - 3.0
             edge = PATH_HALF_WIDTH + 0.15 * noise.noise(Vector((x * 1.3, y * 1.3, 3.0)))
             if path_distance(x, y) < edge and y < WALL_Y - 0.45 and puddle_depth(x, y) < 0.4:
                 points.append((x, y))
+                # A big stone pushes its neighbours' joints back; a small one fills between.
+                weights[(x, y)] = rng.choice((-0.05, -0.02, 0.0, 0.02, 0.06))
     for p in points:
-        near = [q for q in points if q is not p and abs(q[0] - p[0]) < 1.3 and abs(q[1] - p[1]) < 1.3]
-        cell = voronoi_cell(p, near, rng.uniform(0.38, 0.46), rng.uniform(0.025, 0.045))
+        near = [q for q in points if q is not p and abs(q[0] - p[0]) < 1.4 and abs(q[1] - p[1]) < 1.4]
+        cell = voronoi_cell(p, near, rng.uniform(0.44, 0.54), rng.uniform(0.012, 0.022), weights)
         if cell is None:
             continue
-        # Round the corners only a little: these are cut stones, not cobbles.
-        cell = chaikin(cell, 1)
         cx = sum(c[0] for c in cell) / len(cell)
         cy = sum(c[1] for c in cell) / len(cell)
-        base = ground_height(cx, cy)
-        slab(bm, cell, (cx, cy), max(base, -0.03), rng.uniform(0.035, 0.05), 0)
+        # The tops sit a centimetre or so above the mud, some a little higher or lower than
+        # their neighbours, so the light catches a step here and there.
+        # The mud must never come up over a stone, so the lowest the top can sit is just above
+        # the highest mud anywhere under it.
+        under = max(ground_height(x, y) for x, y in cell + [(cx, cy)])
+        level = max(ground_broad(cx, cy) + 0.012, under + 0.012)
+        level += rng.choice((-0.004, 0.0, 0.0, 0.004, 0.01))
+        slab(bm, cell, (cx, cy), level, 0)
+        JOINTS.extend(cell)
     emit(sc, "flagstones", bm, [M["flagstone"]])
 
 
@@ -964,16 +1108,17 @@ def nail(bm, position, normal, mat):
     box_uv(bm, faces, (crate_rng.uniform(0, 1), crate_rng.uniform(0, 1), 0))
 
 
-def build_crate(sc, M):
+def build_crate(sc, M, name="crate", cx=7.0, cy=WALL_Y - 1.2, degrees=-6.0, size=1.0, seed=11, lid_turn=2.5):
     """A wooden crate, knocked together by hand. Each side is rows of boards of uneven width,
     each a little out of true, with a rail across the top and bottom and a diagonal brace
     between them. Thick bevelled posts stand proud at the corners. The lid overhangs the
     sides, has two cleats across it and has been put back a little crooked. Every board is
-    held by rusty nail heads where it meets a post, a rail or a cleat."""
+    held by rusty nail heads where it meets a post, a rail or a cleat. size scales the whole
+    crate, boards and all."""
     bm = bmesh.new()
-    crate_rng.seed(11)
-    cx, cy, base = 7.0, WALL_Y - 1.2, DECK_TOP
-    yaw = math.radians(-6)
+    crate_rng.seed(seed)
+    base = DECK_TOP
+    yaw = math.radians(degrees)
     h = 0.42           # half the width of the box the boards are nailed to
     H = 0.8            # height of the sides
     t = 0.024          # board thickness
@@ -1091,7 +1236,7 @@ def build_crate(sc, M):
         for x in lid_centres:
             nail(bm, Vector((x, y0 + cleat / 2, lid_z + lid_t + t)), Z, IRON)
     lid = [v for v in bm.verts if v not in before]
-    turn = math.radians(2.5)
+    turn = math.radians(lid_turn)
     cos_l, sin_l = math.cos(turn), math.sin(turn)
     for v in lid:
         x, y = v.co.x, v.co.y
@@ -1100,11 +1245,149 @@ def build_crate(sc, M):
 
     cos_y, sin_y = math.cos(yaw), math.sin(yaw)
     for v in bm.verts:
-        x, y = v.co.x, v.co.y
+        x, y = v.co.x * size, v.co.y * size
         v.co.x = cx + x * cos_y - y * sin_y
         v.co.y = cy + x * sin_y + y * cos_y
-        v.co.z += base
-    emit(sc, "crate", bm, [M["wood"], M["interior"], M["rust"]])
+        v.co.z = v.co.z * size + base
+    emit(sc, name, bm, [M["wood"], M["interior"], M["rust"]])
+
+
+def build_drainpipe(sc, M):
+    """A cast-iron downpipe beside the pier: a hopper head high up, the pipe held off the
+    bricks by collars, then a dog-leg out over the plinth and a shoe that spills onto a
+    flat stone."""
+    bm = bmesh.new()
+    x = PIER_X1 + 0.13
+    wall = WALL_Y - 0.09
+    out = WALL_Y - 0.53
+    r = 0.05
+    head_z = 5.55
+    # Down the wall, then a smooth dog-leg out over the plinth, straight down, and the shoe.
+    points = [(x, wall, head_z + 0.02), (x, wall, 1.12)]
+    for k in range(1, 12):
+        t = k / 12
+        s = t * t * (3 - 2 * t)
+        points.append((x, wall + (out - wall) * s, 1.12 - 0.36 * t))
+    points.append((x, out, 0.76))
+    points.append((x, out, 0.3))
+    for k in range(1, 7):
+        a = (math.pi / 2) * k / 6
+        points.append((x, out - 0.12 * (1 - math.cos(a)), 0.3 - 0.12 * math.sin(a)))
+    pipe = tube(bm, points, r, 0, segments=16)
+    # Sockets: a slightly fatter band where each length of pipe fits into the next.
+    collars = []
+    for z in (1.5, 3.3, 5.0):
+        collars += lathe(bm, [(r + 0.001, -0.05), (r + 0.012, -0.045), (r + 0.012, 0.045), (r + 0.001, 0.05)], 20, (x, wall, z), 0)
+        # The ears that nail it to the wall.
+        box(bm, (x - 0.085, wall + 0.02, z - 0.035), (x + 0.085, WALL_Y + 0.005, z + 0.035), 0, bevel=0.006)
+    # The hopper head: a square funnel, wide at the top, with a lip round it.
+    hopper = lathe(bm, [(0.06, -0.06), (0.07, 0.0), (0.2, 0.17), (0.2, 0.36), (0.225, 0.37), (0.225, 0.4), (0.19, 0.4), (0.19, 0.2), (0.0, 0.2)],
+                   4, (x, wall - 0.04, head_z), 0, angle0=math.pi / 4, angle1=math.pi / 4 + 2 * math.pi)
+    for f in hopper:
+        f.smooth = False
+    for f in pipe + collars:
+        f.smooth = True
+    box_uv(bm, pipe)
+    # The stone the water falls on.
+    splash = bmesh.new()
+    sx, sy = x, out - 0.24
+    rock(splash, (sx, sy, ground_height(sx, sy) + 0.02), (0.34, 0.42, 0.08), 0, power=4.0, bumps=0.08,
+         yaw=rng.uniform(-0.2, 0.2), segments=(16, 8), detail=0.02)
+    emit(sc, "splash_stone", splash, [M["stone"]])
+    emit(sc, "drainpipe", bm, [M["iron"]])
+
+
+def build_wheel(sc, M):
+    """An old cart wheel leaning against the plinth: a wooden rim of felloes with an iron tyre,
+    twelve spokes and a fat hub with iron bands. It is built flat about Z, then stood up and
+    tipped back against the stones."""
+    bm = bmesh.new()
+    R = 0.56
+    wood_faces = []
+    iron_faces = []
+    # The felloes: a deep wooden rim.
+    wood_faces += lathe(bm, [(0.47, -0.035), (0.545, -0.035), (0.545, 0.035), (0.47, 0.035), (0.47, -0.035)], 64, (0, 0, 0), 0)
+    # The tyre, wider than the rim and worn round.
+    iron_faces += lathe(bm, [(0.544, -0.04), (R, -0.037), (R + 0.004, 0.0), (R, 0.037), (0.544, 0.04), (0.544, -0.04)], 64, (0, 0, 0), 1)
+    # The hub: a turned drum, fatter in the middle, with the axle hole through it.
+    wood_faces += lathe(bm, [(0.035, -0.13), (0.075, -0.13), (0.1, -0.09), (0.115, -0.03), (0.115, 0.03), (0.1, 0.09), (0.075, 0.13), (0.035, 0.13)], 24, (0, 0, 0), 0)
+    for z in (-0.095, 0.095):
+        iron_faces += lathe(bm, [(0.104, z - 0.012), (0.112, z - 0.01), (0.112, z + 0.01), (0.104, z + 0.012)], 24, (0, 0, 0), 1)
+    # The spokes, staggered a little either side of the middle, as a dished wheel's are.
+    spokes = 12
+    for k in range(spokes):
+        a = 2 * math.pi * (k + 0.5) / spokes
+        dz = 0.012 if k % 2 else -0.012
+        c, s = math.cos(a), math.sin(a)
+        wood_faces += tube(bm, [(0.1 * c, 0.1 * s, dz), (0.3 * c, 0.3 * s, dz * 0.6), (0.49 * c, 0.49 * s, 0.0)], 0.02, 0, segments=8)
+    for f in iron_faces:
+        f.material_index = 1
+    for f in wood_faces + iron_faces:
+        f.smooth = True
+    # Stand it up: the wheel's Z becomes the axle, square to a plane leaning back at 30
+    # degrees and turned a touch off the line of the wall.
+    lean = math.radians(30)
+    turn = math.radians(8)
+    up = Vector((0, math.sin(lean), math.cos(lean)))
+    along = Vector((math.cos(turn), math.sin(turn) * math.cos(lean), 0)).normalized()
+    axle = along.cross(up).normalized()
+    up = axle.cross(along).normalized()
+    foot = Vector((5.55, WALL_Y - 0.76, 0.0))
+    foot.z = max(ground_height(foot.x, foot.y), 0.0) + 0.01
+    centre = foot + up * R
+    for v in bm.verts:
+        p = v.co.copy()
+        v.co = centre + along * p.x + up * p.y + axle * p.z
+    bm.normal_update()
+    box_uv(bm, [f for f in wood_faces if f.is_valid], (0.3, 0.7, 0.1))
+    emit(sc, "wheel", bm, [M["wood"], M["iron"]])
+
+
+def sack(bm, base, size, lean, yaw):
+    """A full grain sack: a soft lump that sags and bulges at the bottom, gathered into a neck
+    and tied at the top."""
+    w, d, h = 0.46 * size, 0.34 * size, 0.56 * size
+    verts = rock(bm, (base.x, base.y, base.z + h / 2), (w, d, h), 0, power=3.4, bumps=0.1, yaw=yaw, segments=(24, 18), detail=0.02)
+    seed = Vector((rng.uniform(-50, 50), rng.uniform(-50, 50), 0.0))
+    for v in verts:
+        t = (v.co.z - base.z) / h
+        # Sit it down flat and let it spread a little at the foot.
+        if t < 0.08:
+            v.co.z = base.z + 0.08 * h * (0.2 + 0.8 * t / 0.08)
+        spread = 1.0 + 0.14 * max(0.0, 0.45 - t)
+        # The grain holds the sides out; only the very top is gathered in to the neck.
+        pinch = 1.0 - 0.6 * smoothstep(0.78, 1.0, t)
+        # Loose cloth creases round it, mostly across.
+        crease = 0.03 * noise.noise(Vector((v.co.x * 6.0, v.co.y * 6.0, v.co.z * 22.0)) + seed)
+        k = spread * pinch * (1.0 + crease)
+        v.co.x = base.x + (v.co.x - base.x) * k + lean[0] * t * t * h
+        v.co.y = base.y + (v.co.y - base.y) * k + lean[1] * t * t * h
+    top = base + Vector((lean[0] * h, lean[1] * h, h))
+    # The neck and the twine round it, and the frayed mouth above.
+    neck = lathe(bm, [(0.05 * size, -0.03), (0.04 * size, 0.0), (0.042 * size, 0.04), (0.075 * size, 0.1 * size), (0.09 * size, 0.11 * size)], 14, tuple(top), 0)
+    twine = lathe(bm, [(0.043 * size, 0.0), (0.052 * size, 0.008), (0.052 * size, 0.022), (0.043 * size, 0.03)], 14, tuple(top), 1)
+    for f in neck + twine:
+        f.smooth = True
+    box_uv(bm, neck)
+
+
+def build_sacks(sc, M):
+    """Two sacks propped against the crate's side and one lying on the deck in front."""
+    bm = bmesh.new()
+    deck = DECK_TOP
+    sack(bm, Vector((6.28, 2.95, deck)), 1.0, (0.18, 0.05), 0.3)
+    sack(bm, Vector((6.32, 2.4, deck)), 0.9, (0.25, 0.12), -0.4)
+    # One lying on its side: built standing, then tipped over.
+    before = set(bm.verts)
+    sack(bm, Vector((0.0, 0.0, 0.0)), 0.85, (0.0, 0.0), 0.0)
+    laid = [v for v in bm.verts if v not in before]
+    tip = Matrix.Rotation(math.radians(84), 4, "Y")
+    spin = Matrix.Rotation(math.radians(-25), 4, "Z")
+    for v in laid:
+        v.co = spin @ tip @ v.co
+        v.co += Vector((6.75, 1.85, deck + 0.175))
+    bm.normal_update()
+    emit(sc, "sacks", bm, [M["sack"], M["twine"]])
 
 
 def build_barrel(sc, M):
@@ -1435,18 +1718,47 @@ def tuft(bm, x, y, z, size):
               a + rng.uniform(-0.4, 0.4), rng.uniform(0.006, 0.01), 1 if rng.random() < 0.25 else 0)
 
 
+def growth(x, y):
+    """Where grass has taken hold: high in broad patches, nothing in between."""
+    return smoothstep(-0.15, 0.35, noise.noise(Vector((x * 0.9, y * 0.9, 11.0))))
+
+
+def clump(bm, x, y, size):
+    """A patch of grass: a big tuft or two with smaller ones and short blades round them."""
+    for k in range(rng.randint(2, 5)):
+        a = rng.uniform(0, 2 * math.pi)
+        r = 0.0 if k == 0 else rng.uniform(0.06, 0.2) * size
+        px, py = x + math.cos(a) * r, y + math.sin(a) * r
+        if puddle_depth(px, py) > 0.05 or rut_depth(px, py) > 0.1 or path_distance(px, py) < PATH_HALF_WIDTH - 0.15:
+            continue
+        s = size * (1.0 if k == 0 else rng.uniform(0.35, 0.75))
+        tuft(bm, px, py, ground_height(px, py), s)
+
+
 def build_grass(sc, M):
-    """Tufts where feet and wheels don't go: the foot of both walls, the edges of the flagstones
-    and the deck."""
+    """Grass where feet and wheels don't go: the foot of both walls, the edges of the flagstones
+    and the deck. It grows in patches, with bare mud between them, and in a few of the joints
+    between the flagstones where nobody steps."""
     bm = bmesh.new()
     spots = []
-    # Along the foot of the plinth and the low wall.
-    for _ in range(40):
-        spots.append((rng.uniform(DRY_X + 0.2, WALL_X1 - 0.5), WALL_Y - rng.uniform(0.32, 0.55), rng.uniform(0.7, 1.4)))
-    for _ in range(26):
-        spots.append((DRY_X + rng.uniform(0.15, 0.4), rng.uniform(WALL_Y - DRY_LENGTH, WALL_Y - 0.3), rng.uniform(0.8, 1.6)))
+    # Along the foot of the plinth and the low wall, thick where it has taken hold.
+    for _ in range(90):
+        x, y = rng.uniform(DRY_X + 0.2, WALL_X1 - 0.5), WALL_Y - rng.uniform(0.3, 0.5)
+        if rng.random() < growth(x, y):
+            spots.append((x, y, rng.uniform(0.8, 1.4)))
+    for _ in range(50):
+        x, y = DRY_X + rng.uniform(0.12, 0.35), rng.uniform(WALL_Y - DRY_LENGTH, WALL_Y - 0.3)
+        if rng.random() < growth(x, y):
+            spots.append((x, y, rng.uniform(0.9, 1.6)))
+    for x, y, size in spots:
+        clump(bm, x, y, size)
+    spots = []
+    # In the joints between flagstones, away from the middle of the path where feet go.
+    for x, y in rng.sample(JOINTS, min(len(JOINTS), 700)):
+        if path_distance(x, y) > 0.55 and rng.random() < 0.12 * (0.3 + growth(x, y)):
+            tuft(bm, x, y, ground_height(x, y) + 0.01, rng.uniform(0.22, 0.4))
     # Along the flagstones' edges.
-    for _ in range(55):
+    for _ in range(80):
         path = rng.choice(PATHS)
         t = rng.random()
         k = min(int(t * (len(path) - 1)), len(path) - 2)
@@ -1457,7 +1769,7 @@ def build_grass(sc, M):
         side = rng.choice((-1, 1)) * (PATH_HALF_WIDTH + rng.uniform(0.0, 0.25))
         x, y = ax + dx * f - dy / length * side, ay + dy * f + dx / length * side
         # Not out in the middle of the other arm.
-        if path_distance(x, y) > PATH_HALF_WIDTH - 0.1:
+        if path_distance(x, y) > PATH_HALF_WIDTH - 0.1 and rng.random() < 0.15 + growth(x, y):
             spots.append((x, y, rng.uniform(0.6, 1.2)))
     # Round the deck.
     for _ in range(20):
@@ -1467,9 +1779,7 @@ def build_grass(sc, M):
             x, y = rng.uniform(DECK[0], DECK[1]), DECK[2] - rng.uniform(0.05, 0.3)
         spots.append((x, y, rng.uniform(0.7, 1.3)))
     for x, y, size in spots:
-        if puddle_depth(x, y) > 0.05 or rut_depth(x, y) > 0.1:
-            continue
-        tuft(bm, x, y, ground_height(x, y), size)
+        clump(bm, x, y, size)
     emit(sc, "grass", bm, [M["grass"], M["grass_dry"]])
 
 
@@ -1482,6 +1792,7 @@ def build():
     # Footprints first: the ground, the stones on it and the grass all ask how high it is.
     FOOTPRINTS[:] = walk([(1.0, -1.7), (3.0, -0.6), (5.0, 0.0), (6.0, 0.6)], 0.34)
     FOOTPRINTS.extend(walk([(2.2, -3.6), (3.8, -2.0), (5.6, -1.3), (7.2, -0.4)], 0.34))
+    JOINTS.clear()
     build_wall(sc, M)
     build_plinth(sc, M)
     build_lamp(sc, M)
@@ -1491,6 +1802,10 @@ def build():
     build_pebbles(sc, M)
     build_deck(sc, M)
     build_crate(sc, M)
+    build_crate(sc, M, name="small_crate", cx=7.6, cy=1.2, degrees=22.0, size=0.62, seed=23, lid_turn=-4.0)
+    build_sacks(sc, M)
+    build_wheel(sc, M)
+    build_drainpipe(sc, M)
     build_barrel(sc, M)
     build_ivy(sc, M)
     build_plaster(sc, M)
