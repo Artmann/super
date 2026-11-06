@@ -866,32 +866,6 @@ def build_barrel(sc, M):
     emit(sc, "barrel", bm, [M["wood"], M["rust"]])
 
 
-def build_spheres(sc, M):
-    def sphere(name, centre, r, m):
-        bm = bmesh.new()
-        result = bmesh.ops.create_uvsphere(bm, u_segments=48, v_segments=24, radius=r)
-        uv = uv_layer(bm)
-        for v in result["verts"]:
-            v.co += Vector(centre)
-        for f in bm.faces:
-            f.smooth = True
-            us = []
-            for loop in f.loops:
-                d = (loop.vert.co - Vector(centre)) / r
-                us.append(math.atan2(d.y, d.x))
-            # Keep a face from wrapping right round where the angle jumps.
-            if max(us) - min(us) > math.pi:
-                us = [u + 2 * math.pi if u < 0 else u for u in us]
-            for loop, u in zip(f.loops, us):
-                d = (loop.vert.co - Vector(centre)) / r
-                loop[uv].uv = (u * r, math.asin(max(-1.0, min(1.0, d.z))) * r)
-        emit(sc, name, bm, [m])
-
-    sphere("ball_bricks", (DRY_X + 0.5, WALL_Y - 1.0, 0.36), 0.38, M["bricks"])
-    sphere("ball_iron", (6.95, WALL_Y - 0.45, 0.47), 0.48, M["rust"])
-    sphere("ball_rust", (6.2, WALL_Y - 1.35, 0.35), 0.36, M["rust"])
-
-
 # ---------------------------------------------------------------------------------------
 # Ivy: vines up the wall with leaves along them
 
@@ -1038,7 +1012,6 @@ def build():
     build_deck(sc, M)
     build_crate(sc, M)
     build_barrel(sc, M)
-    build_spheres(sc, M)
     build_ivy(sc, M)
     build_plaster(sc, M)
     build_fallen_leaves(sc, M)
