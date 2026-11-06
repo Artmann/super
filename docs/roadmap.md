@@ -27,9 +27,10 @@ Super is early. These are the known gaps, so you can plan around them.
 - **Render scale.** [Graphics settings](rendering.md#graphics-settings) turn effects off,
   but the picture is always drawn at the window's full size. Drawing it smaller and
   scaling it up, for slow GPUs on big screens, isn't there yet.
-- **Physics.** [`Super.Physics`](physics.md) answers ray queries against colliders, on
-  Jolt. Bodies that fall and collide, shape casts, overlap tests and character
-  controllers are next. Until then, write your own movement code in `Update`.
+- **More from physics.** [`Super.Physics`](physics.md) has bodies that fall and collide,
+  characters, trigger areas, rays, shape casts and overlap tests, on Jolt. There are no
+  mesh or height-field colliders, joints, ragdolls, vehicles or contact events between
+  solid bodies yet.
 - **Typing in interfaces.** The interface takes the mouse, but there are no text inputs,
   and it can't be used with a keyboard or gamepad yet.
 - **Saved games and levels.** `saves.Write` and `saves.Read` are the plan; see

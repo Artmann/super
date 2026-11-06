@@ -122,7 +122,14 @@ public void Update(GameTime time)
 ```
 
 The arm pulls in at once, so the camera never shows the inside of a wall, and eases back
-out once the way is clear. With several walls, pass the nearest hit. `Walk` turns a stick
+out once the way is clear. With several walls, pass the nearest hit. With
+[`Super.Physics`](physics.md#queries), a shape cast tests every wall at once, and a ball
+keeps the camera's near plane out of them too:
+
+```csharp
+var blocked = physics.ShapeCast(Collider.Ball(0.3f), arm.Origin, arm.Direction, reach: boom.Length, layers: Walls);
+boom.Update(player.Position, time.TickSeconds, blockedAt: blocked?.Distance);
+``` `Walk` turns a stick
 into a direction on the ground, so forward goes where the camera faces.
 
 ### First person

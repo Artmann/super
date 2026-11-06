@@ -7,6 +7,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Super.Ecs.Tests" />
     <InternalsVisibleTo Include="Super.Physics" />
+    <InternalsVisibleTo Include="Super.Physics.Tests" />
   </ItemGroup>
 
 </Project>

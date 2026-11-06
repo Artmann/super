@@ -11,8 +11,10 @@ public enum ColliderShape
 }
 
 /// <summary>
-/// A shape on an entity that rays can hit, such as for clicking on it. It needs a <see cref="Super.Ecs.Transform"/>,
-/// and moves, turns and scales with it, following <see cref="Super.Ecs.Parent"/> too. Make one with
+/// A solid shape on an entity, that rays and shape casts can hit and bodies bump into. It needs a
+/// <see cref="Super.Ecs.Transform"/>, and moves, turns and scales with it, following <see cref="Super.Ecs.Parent"/> too.
+/// Without a <see cref="Body"/> it's kinematic; add one to make it static or dynamic, or a <see cref="Trigger"/> to make
+/// it an area. Make one with
 /// <see cref="Ball"/>, <see cref="Box"/> or <see cref="Capsule"/>; the offset is in the entity's own space.
 /// <see cref="Layers"/> says which of up to 16 layers it's on, as bits, so a query can pick some and skip the rest.
 /// </summary>
@@ -65,3 +67,9 @@ public readonly record struct Collider
 
 /// <summary>Where a ray met a <see cref="Collider"/>: whose it is, how far along the ray, and the point in the world.</summary>
 public readonly record struct RayHit(Super.Ecs.Entity Entity, float Distance, Vector3 Point);
+
+/// <summary>
+/// Where a shape cast met a <see cref="Collider"/>: whose it is, how far the shape travelled, the point of contact, and
+/// the hit surface's normal, pointing back at the shape.
+/// </summary>
+public readonly record struct ShapeHit(Super.Ecs.Entity Entity, float Distance, Vector3 Point, Vector3 Normal);
