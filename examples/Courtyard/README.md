@@ -2,17 +2,23 @@
 
 Materials made in code, on a scene made in Blender. A sunlit courtyard has a brick wall
 with a pier and a deep-set arched window, ivy, a peeling patch of whitewash, a gooseneck
-lamp and a cast-iron drainpipe that runs down past the pier onto a splash stone. Along the
-wall's foot is a plinth of big rounded stones of mixed heights, a few with a chipped corner,
-and a cart wheel leans against it. The dry-stone wall mixes big footing stones with small
-ones and pinning stones in the joints, and is capped with stones set on edge. A path of
-flat, chipped flagstones with tight joints forks round a puddle with a raised bank. One arm
-runs out towards the camera through mud marked with a rut and boot prints, past a barrel,
-fallen leaves and grass that grows in patches along the walls, the path's edges and the
-joints, to a deck. On the deck are a big crate with a diagonal brace on each side, thick
-corner posts, nail heads and a crooked lid, a smaller crate and three tied sacks. Its
-bricks, stone, mud, wood, rust and window glass are [material graphs](../../docs/materials.md) that
-are cooked into textures when the game builds, so the example needs no downloads.
+lamp and a cast-iron drainpipe that runs down past the pier onto a splash stone. Above the
+window a string course of two projecting courses and a row of dentils runs across the wall
+and round the pier, the window's jambs are edged with long and short quoins, and two iron
+anchor plates hold the wall in. Along the wall's foot is a plinth of dressed stone blocks of
+mixed heights with crisp edges, a few with a chipped corner, and a cart wheel leans against
+it. The dry-stone wall is built of rough-squared stones in courses, big footing stones low
+down and pinning stones in the joints, and is capped with slabs set on edge that lean
+together. A path of flat flagstones, laid flush with tight joints, forks round a puddle with
+a raised bank. One arm runs out towards the camera through mud marked with a rut and boot
+prints with water standing in them, past a barrel, a plank dropped in the mud, scattered
+rubble and broken bricks, small curled leaves and grass that grows in patches along the
+walls, the path's edges and the joints, to a deck. On the deck are a big crate with a
+diagonal brace on each side, thick corner posts, nail heads and a crooked lid, a smaller
+crate, and three slumped grain sacks: one tied at the neck with a ragged ruffle above the
+twine, and two with their mouths folded flat. Its bricks, stone, mud, wood, rust, sacking
+and window glass are [material graphs](../../docs/materials.md) that are cooked into textures
+when the game builds, so the example needs no downloads.
 
 The sun is low from the left so it rakes across the bricks and the plinth, the sky is
 dimmer and bluer so the shade reads, and a light finish adds contrast and a vignette.
@@ -70,6 +76,7 @@ dotnet run -c Release --project examples/Courtyard -- --lineup
 | `content/materials/dirt.material.cs` | Packed dirt, 2 m wide. Perlin noise and white grit, pebbles stamped with `Splatter`, and cracks from cell edges |
 | `content/materials/wood.material.cs` | Planks, 1 m wide. Rings are a repeated `Gradient.Linear` bent by `Warp`, and the grain is `Noise.Directional` |
 | `content/materials/leather.material.cs` | Leather, 0.5 m wide. Broad Perlin folds and creases from warped cell edges over a fine grain of blurred cells, smoother and paler where Perlin wear is high |
+| `content/materials/burlap.material.cs` | Coarse jute sacking, 0.5 m wide, for the sacks. A plain weave of 96 round threads each way, each one thicker and thinner along its length from stretched `Noise.Directional`, with dark gaps between them, loose fibres, creases from warped cell edges and grubby Perlin patches |
 | `content/materials/rusty-metal.material.cs` | Steel plate, 1 m wide. Perlin patches through `HistogramScan` are rust, rough with metalness 0, and the rest is brushed steel with metalness 1 |
 
 The graphs and the model pass the cook's checks with no warnings: the colours stay
