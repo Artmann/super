@@ -198,6 +198,39 @@ public class CameraRigTests
     }
 
     [Fact]
+    public void Panning_shows_on_the_next_tick_while_zooming_still_eases()
+    {
+        var top = new TopDownCamera { Size = 20f, Lag = 0.5f };
+        top.Update(Vector3.Zero, Tick);
+        top.Pan(new Vector2(3f, 2f));
+        top.Zoom(1f);
+        top.Update(Tick);
+        AssertNear(new Vector3(3f, 0f, -2f), top.Current.Target);
+        Assert.InRange(top.Current.Size, top.Size + 0.01f, 19.99f);
+    }
+
+    [Fact]
+    public void Panning_while_following_keeps_the_rest_of_the_ease()
+    {
+        // Followed from 0 to 10 along x, the view is partway. A pan up the screen moves
+        // it by exactly the pan, and the ease towards x = 10 carries on from there.
+        var eased = new TopDownCamera { Lag = 0.5f };
+        eased.Update(Vector3.Zero, Tick);
+        eased.Update(new Vector3(10f, 0f, 0f), Tick);
+        var before = eased.Current.Target;
+        eased.Pan(new Vector2(0f, 4f));
+        eased.Update(Tick);
+
+        var unpanned = new TopDownCamera { Lag = 0.5f };
+        unpanned.Update(Vector3.Zero, Tick);
+        unpanned.Update(new Vector3(10f, 0f, 0f), Tick);
+        unpanned.Update(Tick);
+
+        Assert.InRange(before.X, 0.1f, 5f);
+        AssertNear(unpanned.Current.Target + new Vector3(0f, 0f, -4f), eased.Current.Target);
+    }
+
+    [Fact]
     public void A_jumped_overhead_camera_is_at_its_new_center_size_and_turn_after_one_update()
     {
         var iso = new IsometricCamera { Size = 20f, Lag = 0.5f };

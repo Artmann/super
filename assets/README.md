@@ -1,6 +1,6 @@
 # Shared assets
 
-The source models for the examples live here. Archer, Fox and Reef list this folder as a
+The source models for the examples live here. Archer, Crypt, Fox and Reef list this folder as a
 content root, so their build cooks whatever is in it (see
 [Content](../docs/content.md) and [Rendering](../docs/rendering.md#models)).
 
@@ -102,6 +102,25 @@ The three firs are parts of one file: `archer-props/firs.glb#tall`, `#broad` and
 
 The ground textures are the Archer example's own; see its
 [README](../examples/Archer/README.md#getting-the-assets).
+
+## Crypt
+
+Download these [Poly Haven](https://polyhaven.com/models) models as 1k glTF, each
+unzipped into its own folder under `props`, keeping Poly Haven's file names:
+
+| Model name | Poly Haven model |
+| --- | --- |
+| `props/gothic_statue/gothic_statue_1k.gltf` | gothic_statue |
+| `props/treasure_chest/treasure_chest_1k.gltf` | treasure_chest |
+| `props/wine_barrel_01/wine_barrel_01_1k.gltf` | wine_barrel_01 |
+| `props/Lantern_01/Lantern_01_1k.gltf` | Lantern_01 |
+| `props/brass_candleholders/brass_candleholders_1k.gltf#seven`, `#three` and `#one` | brass_candleholders |
+
+The candleholders' sidecar makes their flames glow and splits the set into its three
+holders. The lantern's makes its glass clear and lit from inside.
+
+The stone textures are the Crypt example's own; see its
+[README](../examples/Crypt/README.md#getting-the-assets).
 
 ## Rendition sample
 

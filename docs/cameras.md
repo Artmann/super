@@ -165,6 +165,11 @@ public void Update(GameTime time)
 }
 ```
 
+`Lag` eases the view towards a center it follows, a zoom or a turn. `Pan` moves the view
+straight away, so a camera steered with keys doesn't trail them or drift after they're
+let go. Pan or follow in a tick, not both: following sets `Center` again, so the view would jump
+by the pan and then ease back.
+
 `Turn` walks an isometric camera around by quarter turns, easing there. A top-down camera
 can't rotate. For a top-down view with perspective, use `FollowCamera` with an `Offset`
 straight up.

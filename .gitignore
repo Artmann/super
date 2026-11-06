@@ -10,3 +10,4 @@ assets/**
 !assets/README.md
 out/
 examples/Archer/content/textures/
+examples/Crypt/content/textures/
