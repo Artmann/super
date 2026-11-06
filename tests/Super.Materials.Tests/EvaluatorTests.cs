@@ -30,6 +30,38 @@ public class EvaluatorTests
     }
 
     [Fact]
+    public void A_shared_input_is_not_released_early_or_overwritten_in_a_diamond()
+    {
+        // (a + b) + (a + c), where a is read by two nodes that both finish before the last add.
+        var pixels = GraphRunner.Evaluate(() =>
+        {
+            var a = Gray.FromArray([1f, 2f, 3f, 4f]);
+            var b = Gray.FromArray([10f, 20f, 30f, 40f]);
+            var c = Gray.Of(100f);
+            return a.Add(b).Add(a.Add(c));
+        }, size: 2);
+
+        Assert.Equal([112f, 124f, 136f, 148f], pixels);
+    }
+
+    [Fact]
+    public void An_exception_in_a_row_reaches_the_caller_as_itself()
+    {
+        var error = Assert.Throws<InvalidOperationException>(() => GraphRunner.Evaluate(() => new ThrowingNode().AsGray(), 16));
+        Assert.Equal("row failed", error.Message);
+    }
+
+    sealed class ThrowingNode() : Node(1)
+    {
+        public Gray AsGray() => new(this);
+
+        internal override void Evaluate(EvaluationContext context, float[][] inputs, float[] output)
+        {
+            context.Rows(y => throw new InvalidOperationException("row failed"));
+        }
+    }
+
+    [Fact]
     public void Making_a_node_outside_a_graph_explains_where_nodes_are_made()
     {
         var error = Assert.Throws<InvalidOperationException>(() => Gray.Of(1f));
