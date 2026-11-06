@@ -42,9 +42,15 @@ SPRING_Z = 3.15
 ARCH_RISE = 0.28
 REVEAL = 0.24
 
-PUDDLE = (1.2, -0.7, 1.7, 0.85)  # centre x, y and radii
+# The low dry-stone wall runs straight out from the building, square to it, towards the camera.
+# Its courtyard face is at DRY_X, and it reaches DRY_LENGTH out from the plinth.
+DRY_X = -1.6
+DRY_THICKNESS = 0.65
+DRY_LENGTH = 7.0
 
-PATH = [(-3.4, -9.0), (-3.1, -6.0), (-2.6, -3.4), (-1.6, -1.2), (-0.2, 0.7), (1.6, 2.0), (4.0, 2.75), (6.0, 3.0)]
+PUDDLE = (2.5, -0.6, 1.5, 0.8)  # centre x, y and radii
+
+PATH = [(3.5, -9.0), (2.6, -5.5), (1.6, -2.8), (0.6, -0.6), (0.1, 1.2), (0.8, 2.4), (2.2, 2.9), (3.2, 3.1)]
 
 
 # ---------------------------------------------------------------------------------------
@@ -472,10 +478,12 @@ def build_lamp(sc, M):
 # The low dry-stone wall on the left
 
 def build_dry_wall(sc, M):
+    """Built lying along X with its good face towards -Y, then turned a quarter so it runs
+    out from the building towards -Y with that face towards the courtyard, +X."""
     bm = bmesh.new()
-    x_start, x_end = -11.0, WALL_X0 - 0.05
-    y0 = WALL_Y + 0.15
-    thickness = 0.65
+    x_start, x_end = -DRY_LENGTH, 0.0
+    y0 = 0.0
+    thickness = DRY_THICKNESS
     z = 0.0
     course = 0
     while z < 1.45:
@@ -503,6 +511,11 @@ def build_dry_wall(sc, M):
         x += w * 0.95
     # The hearting: a dark core, so the gaps between stones are shadow and not sky.
     box(bm, (x_start, y0 + 0.05, 0.0), (x_end, y0 + thickness - 0.1, z + 0.05), 1)
+    # A quarter turn: along the wall becomes -Y from the plinth's face, and the good face becomes +X.
+    for v in bm.verts:
+        x, y = v.co.x, v.co.y
+        v.co.x = DRY_X - (y - y0)
+        v.co.y = WALL_Y - 0.1 + (x - x_end)
     emit(sc, "dry_wall", bm, [M["stone"], M["mortar"]])
 
 
@@ -673,7 +686,7 @@ def build_pebbles(sc, M):
     for _ in range(70):
         # Along the foot of the walls and the edges of the path.
         if rng.random() < 0.5:
-            x, y = rng.uniform(WALL_X0, 10.5), WALL_Y - rng.uniform(0.25, 0.9)
+            x, y = rng.uniform(DRY_X + 0.15, 10.5), WALL_Y - rng.uniform(0.25, 0.9)
         else:
             t = rng.random()
             k = min(int(t * (len(PATH) - 1)), len(PATH) - 2)
@@ -792,7 +805,7 @@ def build_crate(sc, M):
 
 def build_barrel(sc, M):
     bm = bmesh.new()
-    cx, cy = -0.9, WALL_Y - 0.45
+    cx, cy = -0.2, WALL_Y - 0.45
     height, r_end, r_mid = 0.95, 0.27, 0.33
     staves = 20
     gap = 0.004
@@ -868,7 +881,7 @@ def build_spheres(sc, M):
                 loop[uv].uv = (u * r, math.asin(max(-1.0, min(1.0, d.z))) * r)
         emit(sc, name, bm, [m])
 
-    sphere("ball_bricks", (-3.6, WALL_Y - 0.75, 0.36), 0.38, M["bricks"])
+    sphere("ball_bricks", (DRY_X + 0.5, WALL_Y - 1.0, 0.36), 0.38, M["bricks"])
     sphere("ball_iron", (6.95, WALL_Y - 0.45, 0.47), 0.48, M["rust"])
     sphere("ball_rust", (6.2, WALL_Y - 1.35, 0.35), 0.36, M["rust"])
 
@@ -914,18 +927,19 @@ def build_ivy(sc, M):
                      size, rng.uniform(0, 2 * math.pi))
 
     # Hanging from the top of the wall, mostly on its left half, and one climbing the corner.
-    for sx in (-2.5, -1.7, -0.5, 0.75):
+    for sx in (-1.4, -0.6, 0.4, 1.1):
         grow(sx + rng.uniform(-0.15, 0.15), WALL_TOP + 0.05, -math.pi / 2 + rng.uniform(-0.3, 0.3),
              rng.randint(40, 80), 0, WALL_Y)
-    grow(WALL_X0 + 0.2, 0.6, math.pi / 2, 60, 1, WALL_Y)
+    # One climbing up from where the low wall meets the building.
+    grow(DRY_X + 0.2, 0.6, math.pi / 2, 60, 1, WALL_Y)
 
-    # Spilling over the top of the low wall near the corner.
+    # Spilling over the top of the low wall, thickest where it meets the building.
     for _ in range(140):
-        x = rng.uniform(WALL_X0 - 3.0, WALL_X0 - 0.1)
-        if rng.random() > (x - (WALL_X0 - 3.0)) / 3.0:
+        y = rng.uniform(WALL_Y - 3.1, WALL_Y - 0.1)
+        if rng.random() > (y - (WALL_Y - 3.1)) / 3.0:
             continue
         z = 1.55 + rng.uniform(-0.05, 0.2)
-        y = WALL_Y + 0.15 + rng.uniform(-0.05, 0.6)
+        x = DRY_X + 0.05 - rng.uniform(-0.05, 0.6)
         leaf(leaves, (x, y, z), rng.uniform(0.06, 0.11), rng.uniform(0, 2 * math.pi), flat=True)
 
     emit(sc, "ivy_vines", vines, [M["vine"]], smooth=True)

@@ -23,8 +23,10 @@ public sealed class CourtyardGame(Content content) : IGame
 
     public void Draw(View view)
     {
-        // Standing on the path at eye height, looking at the window.
-        view.Camera(position: new Vector3(2.6f, 1.8f, 8.5f), lookAt: new Vector3(3.2f, 1.3f, -4f), fieldOfView: 0.95f);
+        // Standing off to the right and turned left towards the window, as in the reference
+        // photo: the plinth falls away to the right and the low wall, which runs out square
+        // from the building, comes towards us along the left edge.
+        view.Camera(position: new Vector3(7.5f, 2f, 10f), lookAt: new Vector3(1.2f, 0.5f, -4f), fieldOfView: 0.85f);
 
         // A warm afternoon sun, low from the front left, so the wall's bricks and the cobbles throw shadows.
         view.Sun(direction: new Vector3(-0.8f, 0.55f, 0.6f), color: new Vector3(4.4f, 3.8f, 3f));
