@@ -528,10 +528,16 @@ tree (not the usings tree) with the semantic model, top down. Each expression th
 to a banned symbol is one error on its line, and its children aren't checked, so
 `System.IO.File.Exists` is one error, not three. Banned are the namespaces `System.IO`,
 `System.Net`, `System.Threading`, `System.Diagnostics`, `System.Reflection` and
-`System.Runtime.InteropServices` with everything under them, the types `System.Random`
-and `System.Environment`, and the members `Now`, `UtcNow` and `Today` on `DateTime` and
-`DateTimeOffset` and `Guid.NewGuid`. A `using` line names a namespace, so `using System.IO;`
-is an error even when nothing uses it. Symbols declared in the graph itself are never
+`System.Runtime.InteropServices` with everything under them (except
+`System.Diagnostics.CodeAnalysis`, the nullable attributes), the types `System.Random`,
+`System.Environment`, `TimeProvider`, `HashCode` and `Activator`, and the members `Now`,
+`UtcNow` and `Today` on `DateTime` and `DateTimeOffset`, `Guid.NewGuid`,
+`Guid.CreateVersion7`, `GetHashCode` on `string` and `object` (seeded per process),
+`Type.GetType` and `Delegate.CreateDelegate`. A namespace on the left of a longer dotted
+name isn't judged alone, so `System.Diagnostics.CodeAnalysis.NotNull` passes. A type or
+member there still is, so `Environment.ProcessorCount.ToString()` doesn't. The list catches
+mistakes. It isn't a sandbox, since graphs are the project's own trusted code. A `using`
+line names a namespace, so `using System.IO;` is an error even when nothing uses it. Symbols declared in the graph itself are never
 banned. A constructor is named by its type and an extension method by its declaring
 class, and an error is reported once per line and symbol, so `var r = new Random();` is
 one error. A graph that fails the check isn't loaded or cached. `System.Threading.Tasks`

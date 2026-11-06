@@ -77,8 +77,16 @@ name in it is checked, and each of these is an error on its line:
 - anything in `System.IO`, `System.Net`, `System.Threading` (with `System.Threading.Tasks`),
   `System.Diagnostics`, `System.Reflection` or `System.Runtime.InteropServices`, or in a
   namespace under one of them;
-- `System.Random` and `System.Environment`;
-- `Now`, `UtcNow` and `Today` on `DateTime` and `DateTimeOffset`, and `Guid.NewGuid`.
+  `System.Diagnostics.CodeAnalysis`, which holds the nullable attributes, is allowed;
+- `System.Random`, `System.Environment`, `TimeProvider`, `HashCode` and `Activator`;
+- `Now`, `UtcNow` and `Today` on `DateTime` and `DateTimeOffset`, `Guid.NewGuid` and
+  `Guid.CreateVersion7`;
+- `GetHashCode` on a string or an `object`, since a string's hash changes every time the
+  process starts, so it can't be a seed;
+- `Type.GetType` and `Delegate.CreateDelegate`, which reach any type or method by name.
+
+The check catches mistakes, not a determined graph. Graphs are your project's own code,
+not a sandbox.
 
 A `using System.IO;` line is an error too, even when nothing in the file uses it, so the
 game's build and the cook agree on what the file may reach. The error reads:
