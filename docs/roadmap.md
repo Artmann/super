@@ -39,12 +39,12 @@ Super is early. These are the known gaps, so you can plan around them.
   save. Saving a JSON file reloads its catalogs, but a model, texture or sound that is
   already loaded keeps what it has until the game restarts. See
   [Cooking](content.md#cooking) and [Change it while the game runs](content.md#change-it-while-the-game-runs).
-- **Material graphs, steps 2 to 6.** Step 1 is done: [material graphs](materials.md) cook
-  into textures, with the Courtyard lineup of six starter graphs. Next come the Courtyard
-  scene with a puddle surface shader, hot reload of a saved graph in the running game,
-  `graph` and `repeat` in model sidecars, mesh bakes with a `Triplanar` node, and
-  curvature and occlusion bakes as graph inputs. Graphs run only at cook time, and there
-  is no node editor and no way to share helpers between graph files.
+- Step 1 of [material graphs](materials.md) is done: graphs cook into textures, with the
+  Courtyard lineup of six starter graphs. Steps 2 to 6 are next: the Courtyard scene with a
+  puddle surface shader, hot reload of a saved graph in the running game, `graph` and
+  `repeat` in model sidecars, mesh bakes with a `Triplanar` node, and curvature and
+  occlusion bakes as graph inputs. Graphs run only at cook time, and there is no node editor
+  and no way to share helpers between graph files.
 - **Mods.** A mod should be a folder of JSON that adds or replaces entries by id. Several
   content roots can be cooked together, but a name that two of them make is a cook error,
   so a mod can't replace anything yet.
