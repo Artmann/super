@@ -181,6 +181,21 @@ by the pan and then ease back.
 can't rotate. For a top-down view with perspective, use `FollowCamera` with an `Offset`
 straight up.
 
+### Your own overhead camera
+
+`TopDownCamera` and `IsometricCamera` are two angles of `OverheadCamera`, which you can
+derive from for a third. Override `Build` to return the camera for a center, `Size` and
+turn, and the rig keeps blending it between ticks. A perspective map camera, with `Size`
+as the distance:
+
+```csharp
+sealed class MapCamera() : OverheadCamera(0f, 1f)
+{
+    protected override Camera Build(Vector3 center, float size, float yaw) =>
+        new(center + size * new Vector3(0f, MathF.Sin(Tilt), MathF.Cos(Tilt)), center);
+}
+```
+
 ## Orthographic cameras
 
 A camera is perspective unless you say otherwise. An orthographic camera has no
