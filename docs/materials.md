@@ -404,13 +404,13 @@ pixel is `1 − d / reach`, held at 0 or above, where `d` is the straight-line d
 pixel above 0.5, as a fraction of the image, measured between pixel centres and wrapping at the
 edges. `reach` is more than 0 and at most 0.5. An image with nothing above 0.5 gives all 0.
 The distance is exact and found in two passes over the image, so it costs the same at any
-`reach`: about 0.14 s extra at 2048 pixels, and about 1 s at 4096.
+`reach`, and a little more than the noise it is run on at large sizes.
 
 `EdgeDetect(width = 0.01f)` is 1 where the image crosses 0.5 and 0 elsewhere. A pixel is 1
 when a pixel on the other side of 0.5 (above it, or at or below it) is within `width` of the image,
 as a straight-line distance that wraps at the edges, so both sides of a seam are 1. The
 distance is at least one pixel, so a very thin width still marks the pixel next door.
-`width` must be more than 0. It costs about twice a `Distance`. Edges are whole pixels, so a width
+`width` must be more than 0. It costs about two `Distance` passes. Edges are whole pixels, so a width
 of a few pixels looks a little different at different sizes; from about 0.1 of the image up the sizes agree.
 
 ### Transforms
@@ -475,7 +475,9 @@ so steep diagonals make patterns smaller, as each node above says.
 
 `FloodFill(threshold = 0f)` finds islands: pixels above `threshold` that touch on a side
 are one island, and islands wrap at all four edges. `threshold` must be a finite number.
-Run it on bricks or tiles to tell them apart.
+Run it on bricks or tiles to tell them apart. The result holds island numbers: 0, 1, 2 in row
+order, and -1 in the gaps. A `Pixel` body that reads an islands input with `Gray(i)` gets those raw
+numbers, so pass it through `RandomGray` or `ToGradient` first for values that make a picture.
 
 `RandomGray(seed = null)` on the islands gives each island one random value from 0 to 1, and the
 gaps 0. The value comes from the island's first pixel in row order, so the same graph at
@@ -486,8 +488,10 @@ in degrees counter-clockwise from the right, so 90 is up the image. Each island 
 on its own: 0 is its pixel furthest back along the angle and 1 the furthest forward, taken
 over a box around the island's pixel centres. An island that crosses an edge is measured as
 one piece, laid out across the edge. The gaps are 0, and so is an island one pixel across.
-The angle does not snap. `angle` must be a finite number. Use it to give every brick its own
-gradient, or to shade each one from one side.
+An island that wraps all the way round the image, such as a full-width band or the mortar of
+an inverted `Bricks` mask, has no end to measure from, so its gradient has a seam where it
+joins up: the unwrapped island is a long strip, and the 1 edge meets the 0 edge. The angle does not snap. `angle` must be a finite number. Use it
+to give every brick its own gradient, or to shade each one from one side.
 
 ### Combining
 
@@ -550,8 +554,9 @@ what sits on it. Where the detail is flat the base is kept.
 
 `Normals.Curvature()` is a grey image: 0.5 on flat ground, above it on convex parts such as
 ridges and edges, and below it in crevices. It is `0.5 + (divergence of the normals) / 32`,
-where the divergence is measured per image width with central differences, so a full-range
-change of 16 per image width gives 1 or 0 and the result is clamped. Sizes agree, since it
+where the divergence is measured per image width with central differences, so a change
+of 16 per image width gives 1 or 0. It is not clamped: values carry on past 0 to 1 and are held to
+that range when written to a texture. Sizes agree, since it
 is per image width and not per pixel. Use it for edge wear and dirt in crevices.
 
 ### Pixel

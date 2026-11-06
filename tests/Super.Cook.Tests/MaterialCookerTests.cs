@@ -244,6 +244,20 @@ public sealed class MaterialCookerTests : IDisposable
     }
 
     [Fact]
+    public void A_pixel_body_that_throws_names_its_line_and_message()
+    {
+        // The body runs on worker threads when the cook works the graph out, long after Build has returned.
+        var build = "        var height = Pixel.Gray(p =>\n"
+            + "            throw new InvalidOperationException(\"boom\"));\n"
+            + "        return new Material { Height = height };";
+        var (result, _) = Cook(("pixel.material.cs", Graph(build)));
+
+        var error = Assert.Single(result.Problems, p => p.IsError);
+        Assert.Equal(9, error.Line);
+        Assert.Contains("boom", error.Message);
+    }
+
+    [Fact]
     public void A_bad_node_argument_names_the_line_in_the_graph_that_made_the_node()
     {
         var (result, _) = Cook(("perlin.material.cs", Graph("        var noise = Noise.Perlin(scale: 0);\n        return new Material { Height = noise };")));

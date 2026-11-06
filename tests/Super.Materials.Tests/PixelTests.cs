@@ -176,6 +176,26 @@ public class PixelTests
     }
 
     [Fact]
+    public void A_negative_input_is_written_with_a_plain_minus_under_a_swedish_culture()
+    {
+        var before = System.Globalization.CultureInfo.CurrentCulture;
+
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("sv-SE");
+
+            Func<Image> build = () => Pixel.Gray(a => a.Gray(-1), Gray.Of(0.5f));
+            var error = Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Evaluate(build, 16));
+
+            Assert.Equal("Gray(-1) has no input -1: the node has 1 input. (Parameter 'input')", error.Message);
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = before;
+        }
+    }
+
+    [Fact]
     public void A_node_with_no_inputs_says_so()
     {
         var error = Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Evaluate(() => Pixel.Gray(a => a.Gray(0)), 16));

@@ -20,6 +20,27 @@ internal sealed class EvaluationContext(int size, int maxThreads)
             ExceptionDispatchInfo.Capture(error.InnerExceptions[0]).Throw();
         }
     }
+
+    /// <summary>
+    /// Like <see cref="Rows(Action{int})"/>, with scratch space made once for each worker thread by <paramref name="create"/>
+    /// instead of once for each row. A row must not rely on what an earlier row left in it.
+    /// </summary>
+    public void Rows<T>(Func<T> create, Action<int, T> row)
+    {
+        try
+        {
+            Parallel.For(0, Size, new ParallelOptions { MaxDegreeOfParallelism = maxThreads }, create, (y, _, scratch) =>
+            {
+                row(y, scratch);
+
+                return scratch;
+            }, _ => { });
+        }
+        catch (AggregateException error) when (error.InnerExceptions.Count > 0)
+        {
+            ExceptionDispatchInfo.Capture(error.InnerExceptions[0]).Throw();
+        }
+    }
 }
 
 /// <summary>Works a graph out, one node at a time, each after its inputs.</summary>
