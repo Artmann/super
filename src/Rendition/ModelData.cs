@@ -57,10 +57,11 @@ public sealed class ModelData
     public required TextureData[] Textures { get; init; }
 
     /// <summary>
-    /// The name of each part, the source mesh's name, in the same order as <see cref="Parts"/>.
-    /// Names can repeat. Empty when the model has none; otherwise it must be as long as <see cref="Parts"/>.
+    /// For each part, the name of the source mesh it was cooked from: the node that holds the mesh.
+    /// In the same order as <see cref="Parts"/>. Names repeat when a mesh with several materials is
+    /// cooked as several parts. Empty when the model has none; otherwise it must be as long as <see cref="Parts"/>.
     /// </summary>
-    public string[] PartNames { get; init; } = [];
+    public string[] MeshNames { get; init; } = [];
 
     /// <summary>The joints the vertices follow, for a rigged model. Null for a static one.</summary>
     public Skeleton? Skeleton { get; init; }
@@ -121,10 +122,10 @@ public sealed class ModelData
             }
         }
 
-        if (PartNames.Length != 0 && PartNames.Length != Parts.Length)
+        if (MeshNames.Length != 0 && MeshNames.Length != Parts.Length)
         {
             throw new InvalidOperationException(
-                $"The model has {Parts.Length} parts and {PartNames.Length} part names. Give one name to each part, or none.");
+                $"The model has {Parts.Length} parts and {MeshNames.Length} mesh names. Give one name to each part, or none.");
         }
 
         var stream = new MemoryStream();
@@ -143,10 +144,10 @@ public sealed class ModelData
 
         // The part names come first, then the rig, so a game can read either without the geometry
         // and textures behind them.
-        writer.Write(PartNames.Length);
-        foreach (string partName in PartNames)
+        writer.Write(MeshNames.Length);
+        foreach (string meshName in MeshNames)
         {
-            writer.Write(partName);
+            writer.Write(meshName);
         }
 
         writer.Write(Skeleton is not null);
@@ -202,7 +203,7 @@ public sealed class ModelData
     {
         using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
         ReadHeader(reader, name);
-        string[] partNames = ReadNames(reader);
+        string[] meshNames = ReadNames(reader);
         var (skeleton, clips) = ReadRigBody(reader);
         var vertices = ReadArray<Vertex>(reader);
         var indices = ReadArray<uint>(reader);
@@ -232,7 +233,7 @@ public sealed class ModelData
             Textures = textures,
             Skeleton = skeleton,
             Clips = clips,
-            PartNames = partNames,
+            MeshNames = meshNames,
         };
     }
 
@@ -244,19 +245,26 @@ public sealed class ModelData
     }
 
     /// <summary>Reads only the skeleton and clips from <paramref name="stream"/>, which is left open. <paramref name="name"/> is only for messages.</summary>
-    public static (Skeleton? Skeleton, AnimationClip[] Clips) ReadRig(Stream stream, string name)
+    public static (Skeleton? Skeleton, AnimationClip[] Clips) ReadRig(Stream stream, string name) =>
+        ReadRig(stream, name, out _);
+
+    /// <summary>
+    /// Reads only the skeleton and clips, and the mesh names that sit before them, from
+    /// <paramref name="stream"/>, which is left open. <paramref name="name"/> is only for messages.
+    /// </summary>
+    public static (Skeleton? Skeleton, AnimationClip[] Clips) ReadRig(Stream stream, string name, out string[] meshNames)
     {
         using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
         ReadHeader(reader, name);
-        ReadNames(reader);
+        meshNames = ReadNames(reader);
         return ReadRigBody(reader);
     }
 
     /// <summary>
-    /// Reads only the part names, which sit at the very front of the file, so a game can name parts
-    /// without reading the rig or the geometry. <paramref name="name"/> is only for messages.
+    /// Reads only the mesh names, which sit at the very front of the file, so a game can pick
+    /// meshes without reading the rig or the geometry. <paramref name="name"/> is only for messages.
     /// </summary>
-    public static string[] ReadPartNames(Stream stream, string name)
+    public static string[] ReadMeshNames(Stream stream, string name)
     {
         using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
         ReadHeader(reader, name);

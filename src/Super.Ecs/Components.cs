@@ -4,9 +4,10 @@ namespace Super.Ecs;
 
 /// <summary>
 /// What an entity looks like. With a <see cref="Transform"/>, <see cref="ViewExtensions.Models"/>
-/// draws it, keyed by the entity's ID. A color tints the model and keeps its textures.
+/// draws it, keyed by the entity's ID. A color tints the model and keeps its textures. A mesh
+/// mask from <see cref="Content.Meshes"/> shows only some of its meshes; null shows them all.
 /// </summary>
-public record struct Model(ModelRef Value, Vector3? Color = null);
+public record struct Model(ModelRef Value, Vector3? Color = null, MeshMask? Meshes = null);
 
 /// <summary>
 /// Makes an entity move smoothly between ticks. Super remembers its transform before each

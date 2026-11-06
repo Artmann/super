@@ -9,8 +9,8 @@ namespace Super;
 /// <summary>
 /// A model to draw. It only exists until the next frame describes the world again. A
 /// pose skins a rigged model; PoseAhead is how many seconds past the last tick the
-/// display is, so clips keep moving between ticks. A ghost draws it in one colour. Parts,
-/// when set, shows only the masked parts of the model; null shows them all.
+/// display is, so clips keep moving between ticks. A ghost draws it in one colour. Meshes,
+/// when set, shows only the masked meshes of the model; null shows them all.
 /// </summary>
 public readonly record struct ModelDraw(
     int Key,
@@ -21,7 +21,7 @@ public readonly record struct ModelDraw(
     AnimationPose? Pose = null,
     float PoseAhead = 0f,
     Ghost? Ghost = null,
-    PartMask? Parts = null);
+    MeshMask? Meshes = null);
 
 /// <summary>
 /// A light as far away as the sun, shining the same way everywhere. One sun casts the
@@ -264,19 +264,19 @@ public sealed class View
         Model(key, model, transform, color, swim, null);
 
     /// <summary>
-    /// Draws only some parts of a model, the ones <see cref="Content.Parts"/> picked for
-    /// the mask. Parts it leaves out are not drawn, and cost nothing. The mask must have
+    /// Draws only some meshes of a model, the ones <see cref="Content.Meshes"/> picked for
+    /// the mask. Meshes it leaves out are not drawn, and cost no triangles. The mask must have
     /// been made for this model.
     /// </summary>
-    public void Model(int key, ModelRef model, Matrix4x4 transform, PartMask parts, Vector3? color = null) =>
-        Model(key, model, transform, color, default, null, parts);
+    public void Model(int key, ModelRef model, Matrix4x4 transform, MeshMask meshes, Vector3? color = null) =>
+        Model(key, model, transform, color, default, null, meshes);
 
     /// <summary>
-    /// Draws some parts of a rigged model in a pose, as <see cref="Model(int, ModelRef, Matrix4x4, AnimationPose, Vector3?)"/>
-    /// does, but only the parts the mask shows. The whole skeleton is still skinned once.
+    /// Draws some meshes of a rigged model in a pose, as <see cref="Model(int, ModelRef, Matrix4x4, AnimationPose, Vector3?)"/>
+    /// does, but only the meshes the mask shows. The whole skeleton is still skinned once.
     /// </summary>
-    public void Model(int key, ModelRef model, Matrix4x4 transform, AnimationPose pose, PartMask parts, Vector3? color = null) =>
-        Model(key, model, transform, color, default, pose, parts);
+    public void Model(int key, ModelRef model, Matrix4x4 transform, AnimationPose pose, MeshMask meshes, Vector3? color = null) =>
+        Model(key, model, transform, color, default, pose, meshes);
 
     /// <summary>
     /// Draws a rigged model in a pose from an <see cref="Animator"/>. The model must have
@@ -295,20 +295,20 @@ public sealed class View
         DrawAnimated(key, animator, transform, color, null);
 
     /// <summary>
-    /// Draws an animated character in its current pose, with only the parts the mask shows.
+    /// Draws an animated character in its current pose, with only the meshes the mask shows.
     /// The skeleton is still skinned once for the draw, not once per part.
     /// </summary>
-    public void Model(int key, Animator animator, Matrix4x4 transform, PartMask parts, Vector3? color = null) =>
-        DrawAnimated(key, animator, transform, color, parts);
+    public void Model(int key, Animator animator, Matrix4x4 transform, MeshMask meshes, Vector3? color = null) =>
+        DrawAnimated(key, animator, transform, color, meshes);
 
-    private void DrawAnimated(int key, Animator animator, Matrix4x4 transform, Vector3? color, PartMask? parts)
+    private void DrawAnimated(int key, Animator animator, Matrix4x4 transform, Vector3? color, MeshMask? meshes)
     {
         if (animator.Rig.Model is not { } model)
         {
             throw new InvalidOperationException("The animator's rig wasn't read with content.Rig, so it has no model. Pass the model and the animator's Pose instead.");
         }
 
-        Model(key, model, transform, color, default, animator.Pose, parts);
+        Model(key, model, transform, color, default, animator.Pose, meshes);
     }
 
     /// <summary>Draws a model with a color, a swimming motion and a pose, any of which may be left out.</summary>
@@ -316,10 +316,10 @@ public sealed class View
         Model(key, model, transform, color, swim, pose, null);
 
     /// <summary>
-    /// The full draw: a color, a swimming motion, a pose and the parts to show, any of which
+    /// The full draw: a color, a swimming motion, a pose and the meshes to show, any of which
     /// may be left out. Throws if the mask was made for another model.
     /// </summary>
-    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim, AnimationPose? pose, PartMask? parts)
+    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim, AnimationPose? pose, MeshMask? meshes)
     {
         if (model.Index < -Shapes.BuiltInNames.Length)
         {
@@ -331,12 +331,12 @@ public sealed class View
             throw new InvalidOperationException($"Model {model.Index} was unloaded, so it can't be drawn.");
         }
 
-        if (parts is { } mask && mask.Model != model.Index)
+        if (meshes is { } mask && mask.Model != model.Index)
         {
-            throw new ArgumentException($"The parts mask was made for model {mask.Model}, not model {model.Index}. Make it with Content.Parts for this model.", nameof(parts));
+            throw new ArgumentException($"The mesh mask was made for model {mask.Model}, not model {model.Index}. Make it with Content.Meshes for this model.", nameof(meshes));
         }
 
-        _models.Add(new ModelDraw(key, model, transform, color, swim, pose, pose is null ? 0f : Blend * _tickSeconds * _timeScale, null, parts));
+        _models.Add(new ModelDraw(key, model, transform, color, swim, pose, pose is null ? 0f : Blend * _tickSeconds * _timeScale, null, meshes));
     }
 
     /// <summary>

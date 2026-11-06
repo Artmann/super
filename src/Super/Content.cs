@@ -50,7 +50,7 @@ public sealed class Content
     private readonly List<int> _pendingUnloads = [];
     private readonly Dictionary<string, ModelRef> _models = [];
     private readonly Dictionary<string, Rig> _rigs = [];
-    private readonly Dictionary<int, string[]> _partNames = [];
+    private readonly Dictionary<int, string[]> _meshNames = [];
     private readonly Dictionary<string, GameImage> _images = [];
     private readonly List<SoundClip> _clips = [];
     private readonly Dictionary<string, SoundRef> _sounds = [];
@@ -151,9 +151,10 @@ public sealed class Content
             // Streamed: the rig is at the front, so the rest of the model is never read.
             Skeleton? skeleton;
             AnimationClip[] clips;
+            string[] meshNames;
             using (var stream = _files.Open(name))
             {
-                (skeleton, clips) = ModelData.ReadRig(stream, name);
+                (skeleton, clips) = ModelData.ReadRig(stream, name, out meshNames);
             }
 
             if (skeleton is null)
@@ -162,6 +163,13 @@ public sealed class Content
             }
 
             rig = new Rig(skeleton, clips) { Model = Model(name) };
+
+            // The mesh names sit just before the rig, so they're kept for Meshes, which then needn't open the file again.
+            if (meshNames.Length > 0)
+            {
+                _meshNames.TryAdd(rig.Model.Value.Index, meshNames);
+            }
+
             Adopt(rig);
             _rigs.Add(name, rig);
         }
@@ -170,23 +178,24 @@ public sealed class Content
     }
 
     /// <summary>
-    /// Picks the parts of a cooked model that have these names, for a draw to show only those. A
-    /// part is one mesh of the source file, named by the mesh's name in it, such as <c>Head_05b</c>.
-    /// A name picks every part with it, since names can repeat, and names must match exactly. The
-    /// names are read from the front of the cooked model, so the geometry is never read. A name the
-    /// model has no part called, an empty list, a model that isn't cooked, or a static model cooked
-    /// without <c>keepMeshes</c> stops here with an <see cref="ArgumentException"/> or an
-    /// <see cref="InvalidOperationException"/>. Not the same as <c>file#part</c> in a model's name,
-    /// which is a split made at cook time.
+    /// Picks the meshes of a cooked model that have these names, for a draw to show only those. A
+    /// mesh is named by the node that holds it in the source file, the name an artist sees in the
+    /// outliner, such as <c>Head_05b</c>. A mesh with several materials is cooked as several pieces
+    /// under one name, and a name picks all of them. Names must match exactly. They're read from the
+    /// front of the cooked model, so the geometry is never read. A name the model has no mesh called,
+    /// an empty list, a model that isn't cooked, or a static model cooked without <c>keepMeshes</c>
+    /// stops here with an <see cref="ArgumentException"/> or an <see cref="InvalidOperationException"/>.
+    /// Not the same as <c>file#part</c> in a model's name, which is a split made at cook time into
+    /// separate models.
     /// </summary>
-    public PartMask Parts(ModelRef model, params ReadOnlySpan<string> names)
+    public MeshMask Meshes(ModelRef model, params ReadOnlySpan<string> names)
     {
         if (names.IsEmpty)
         {
-            throw new ArgumentException("A part mask needs at least one part name.", nameof(names));
+            throw new ArgumentException("A mesh mask needs at least one mesh name.", nameof(names));
         }
 
-        string[] all = PartNamesOf(model, nameof(model));
+        string[] all = MeshNamesOf(model, nameof(model));
         var kept = new List<int>();
         foreach (string name in names)
         {
@@ -201,65 +210,70 @@ public sealed class Content
 
             if (kept.Count == before)
             {
-                throw new ArgumentException(MissingPart(ModelName(model.Index), name, all), nameof(names));
+                throw new ArgumentException(MissingMesh(ModelName(model.Index), name, all), nameof(names));
             }
         }
 
-        return new PartMask(model.Index, all.Length, CollectionsMarshal.AsSpan(kept));
+        return new MeshMask(model.Index, all.Length, CollectionsMarshal.AsSpan(kept));
     }
 
-    /// <summary>The names of a cooked model's parts, in the order they're cooked, so a game can see what <see cref="Parts"/> takes.</summary>
-    public IReadOnlyList<string> PartNames(ModelRef model) => Array.AsReadOnly(PartNamesOf(model, nameof(model)));
+    /// <summary>
+    /// The mesh names of a cooked model, once each, in the order they were cooked, so a game can
+    /// see what <see cref="Meshes"/> takes.
+    /// </summary>
+    public IReadOnlyList<string> MeshNames(ModelRef model) => MeshNamesOf(model, nameof(model)).Distinct().ToArray();
 
-    private string[] PartNamesOf(ModelRef model, string field)
+    // One name for each piece the model is drawn in, so a name repeats for a mesh with several materials.
+    private string[] MeshNamesOf(ModelRef model, string field)
     {
         if (model.IsBuiltIn)
         {
-            throw new ArgumentException("The built-in shapes, such as the cube, are not cooked, so they have no part names.", field);
+            throw new ArgumentException("The built-in shapes, such as the cube, are not cooked, so they have no mesh names.", field);
         }
 
         if (model.Index < 1 || model.Index > _items.Count)
         {
-            throw new ArgumentException($"{field} names {model.Index}, which this content never named, so it has no part names.", field);
+            throw new ArgumentException($"{field} names {model.Index}, which this content never named, so it has no mesh names.", field);
         }
 
         RequireLoaded(model.Index, field);
-        if (_partNames.TryGetValue(model.Index, out var known))
+        if (_meshNames.TryGetValue(model.Index, out var known))
         {
             return known;
         }
 
         if (_items[model.Index - 1] is not string name)
         {
-            throw new ArgumentException($"{field} names {model.Index}, which was made in code, not cooked, so it has no part names.", field);
+            throw new ArgumentException($"{field} names {model.Index}, which was made in code, not cooked, so it has no mesh names.", field);
         }
 
         string[] names;
         using (var stream = _files.Open(name))
         {
-            names = ModelData.ReadPartNames(stream, name);
+            names = ModelData.ReadMeshNames(stream, name);
         }
 
         if (names.Length == 0)
         {
             throw new InvalidOperationException(
-                $"{name} has no part names, because its file was cooked without them. A rigged model always has them. " +
+                $"{name} has no mesh names, because its file was cooked without them. A rigged model always has them. " +
                 $"A static model needs \"keepMeshes\": true in {name}.cook.json, and then to be cooked again.");
         }
 
-        _partNames.Add(model.Index, names);
+        _meshNames.Add(model.Index, names);
         return names;
     }
 
     private string ModelName(int index) => _items[index - 1] as string ?? $"model {index}";
 
-    // The first 20 names are listed, so a model with hundreds of parts still gives a short message.
-    private static string MissingPart(string model, string name, string[] all)
+    // The first 20 names are listed, so a model with hundreds of meshes still gives a short message.
+    private static string MissingMesh(string model, string name, string[] all)
     {
         const int Shown = 20;
-        string list = string.Join(", ", all.Take(Shown));
-        string more = all.Length > Shown ? $", and {all.Length - Shown} more" : "";
-        return $"{model} has no part called {name}. It has {all.Length} {(all.Length == 1 ? "part" : "parts")}: {list}{more}.";
+        string[] distinct = all.Distinct().ToArray();
+        string list = string.Join(", ", distinct.Take(Shown));
+        string more = distinct.Length > Shown ? $", and {distinct.Length - Shown} more" : "";
+        return $"{model} has no mesh called {name}. It has {distinct.Length} {(distinct.Length == 1 ? "mesh" : "meshes")}: {list}{more}.";
     }
 
     /// <summary>The animators the game loop moves on each tick: every one started from a rig this content read.</summary>
@@ -465,6 +479,7 @@ public sealed class Content
         }
 
         MarkUnloaded(model.Index);
+        _meshNames.Remove(model.Index);
         if (item is string name)
         {
             _models.Remove(name);

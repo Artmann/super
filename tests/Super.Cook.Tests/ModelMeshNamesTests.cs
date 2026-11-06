@@ -5,7 +5,7 @@ using Super.Cook.Models;
 
 namespace Super.Cook.Tests;
 
-public sealed class ModelPartNamesTests : IDisposable
+public sealed class ModelMeshNamesTests : IDisposable
 {
     private readonly List<string> _folders = [];
 
@@ -49,7 +49,7 @@ public sealed class ModelPartNamesTests : IDisposable
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
         var model = Model(store, "pair.gltf");
         Assert.Single(model.Parts);
-        Assert.Empty(model.PartNames);
+        Assert.Empty(model.MeshNames);
     }
 
     [Fact]
@@ -64,7 +64,47 @@ public sealed class ModelPartNamesTests : IDisposable
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
         var model = Model(store, "pair.gltf");
         Assert.Equal(2, model.Parts.Length);
-        Assert.Equal(["left", "right"], model.PartNames);
+        Assert.Equal(["left", "right"], model.MeshNames);
+    }
+
+    [Fact]
+    public void Keep_meshes_names_each_part_by_the_node_that_holds_it_not_the_mesh()
+    {
+        string src = Temp();
+        TinyGltf.Write(src, "pair.gltf", "bark", ["left", "right"]);
+        var gltf = JsonNode.Parse(File.ReadAllText(Path.Combine(src, "pair.gltf")))!.AsObject();
+        gltf["nodes"]![0]!.AsObject()["name"] = "Left_Hand";
+        File.WriteAllText(Path.Combine(src, "pair.gltf"), gltf.ToJsonString());
+        File.WriteAllText(Path.Combine(src, "pair.gltf.cook.json"), "{ \"keepMeshes\": true }");
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Equal(["Left_Hand", "right"], Model(store, "pair.gltf").MeshNames);
+    }
+
+    [Fact]
+    public void A_mesh_with_two_materials_gives_two_parts_with_one_name()
+    {
+        string src = Temp();
+        TinyGltf.Write(src, "two.gltf", "bark", ["trunk", "unused"]);
+        var gltf = JsonNode.Parse(File.ReadAllText(Path.Combine(src, "two.gltf")))!.AsObject();
+        gltf["meshes"]![0]!["primitives"]!.AsArray().Add(new JsonObject
+        {
+            ["attributes"] = new JsonObject { ["POSITION"] = 1 },
+            ["material"] = 1,
+        });
+        gltf["materials"]!.AsArray().Add(new JsonObject { ["name"] = "leaf" });
+        gltf["nodes"]!.AsArray().RemoveAt(1);
+        gltf["meshes"]!.AsArray().RemoveAt(1);
+        gltf["scenes"]![0]!["nodes"] = new JsonArray(0);
+        File.WriteAllText(Path.Combine(src, "two.gltf"), gltf.ToJsonString());
+        File.WriteAllText(Path.Combine(src, "two.gltf.cook.json"), "{ \"keepMeshes\": true }");
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Equal(["trunk", "trunk"], Model(store, "two.gltf").MeshNames);
     }
 
     [Fact]
@@ -123,7 +163,7 @@ public sealed class ModelPartNamesTests : IDisposable
         Assert.True(named.Result.Succeeded, string.Join("; ", named.Result.Problems));
         Assert.Equal((1, 0), (merged.Result.Cooked, merged.Result.FromCache));
         Assert.Equal((1, 0), (named.Result.Cooked, named.Result.FromCache));
-        Assert.Equal(["left", "right"], Model(named.Store, "pair.gltf").PartNames);
+        Assert.Equal(["left", "right"], Model(named.Store, "pair.gltf").MeshNames);
     }
 
     [Fact]
@@ -316,7 +356,7 @@ public sealed class ModelPartNamesTests : IDisposable
         var skeleton = model.Skeleton!;
         int holder = JointNamed(skeleton, "holder");
         Assert.Equal(JointNamed(skeleton, "hips"), skeleton.Parents[holder]);
-        int part = Array.IndexOf(model.PartNames, "sword");
+        int part = Array.IndexOf(model.MeshNames, "sword");
         Assert.True(part >= 0, "The model has no sword part.");
         foreach (var vertex in PartVertices(model, part))
         {
@@ -366,7 +406,50 @@ public sealed class ModelPartNamesTests : IDisposable
     }
 
     [Fact]
-    public void Rigged_meshes_stay_separate_parts_named_by_their_meshes()
+    public void Unskinned_mesh_under_a_bone_sits_where_the_file_puts_it_when_the_bind_pose_differs_from_rest()
+    {
+        string src = Temp();
+        WriteHeldSword(src, "held.gltf", inHolder: false, bindHeight: 1f);
+        File.WriteAllText(Path.Combine(src, "held.gltf.cook.json"), "{ \"keepOrigin\": true }");
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        // The hips rest 2 metres up but were bound at 1, so at rest their skin matrix lifts a
+        // vertex 1 metre. The sword hangs straight off the hips, so the file puts its triangle at
+        // y = 2 to 3. Skinned at rest, it must land there, not a metre higher.
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var model = Model(store, "held.gltf");
+        var skeleton = model.Skeleton!;
+        var skin = new Matrix4x4[skeleton.Count];
+        skeleton.SkinMatrices(skeleton.Rest, skin);
+        int part = Array.IndexOf(model.MeshNames, "sword");
+        Assert.True(part >= 0, "The model has no sword part.");
+        var lowest = new Vector3(float.MaxValue);
+        foreach (var vertex in PartVertices(model, part))
+        {
+            Assert.Equal((uint)JointNamed(skeleton, "hips"), vertex.Joints & 0xffu);
+            var placed = Vector3.Transform(vertex.Position, skin[(int)(vertex.Joints & 0xffu)] * skeleton.RootTransform);
+            lowest = Vector3.Min(lowest, placed);
+        }
+
+        AssertNear(new Vector3(0f, 2f, 0f), lowest);
+    }
+
+    [Fact]
+    public void Rigged_meshes_are_named_by_the_node_that_holds_them()
+    {
+        string src = Temp();
+        WriteHeldSword(src, "held.gltf");
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        // The body's node is "body" and its mesh "Body_03a"; the node's name is the one kept.
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Equal(["body", "sword"], Model(store, "held.gltf").MeshNames.Order());
+    }
+
+    [Fact]
+    public void Rigged_meshes_stay_separate_parts()
     {
         string src = Temp();
         WriteSkinned(src, "hero.gltf", ["Body_03a", "Head_05b"]);
@@ -377,7 +460,7 @@ public sealed class ModelPartNamesTests : IDisposable
         var model = Model(store, "hero.gltf");
         Assert.NotNull(model.Skeleton);
         Assert.Equal(2, model.Parts.Length);
-        Assert.Equal(["Body_03a", "Head_05b"], model.PartNames);
+        Assert.Equal(["Body_03a", "Head_05b"], model.MeshNames);
     }
 
     /// <summary>
@@ -452,9 +535,11 @@ public sealed class ModelPartNamesTests : IDisposable
     /// <summary>
     /// Writes a rig with a bone, <c>hips</c>, two metres up, that has a child node <c>holder</c>
     /// with no bones, one metre above the hips. A <c>sword</c> mesh with no skin hangs under the
-    /// holder, and a <c>body</c> mesh is skinned fully to the hips so the file has bones.
+    /// holder, and a <c>body</c> mesh is skinned fully to the hips so the file has bones. Without
+    /// <paramref name="inHolder"/> the sword hangs straight off the hips and there is no holder. The
+    /// hips' inverse bind matrix says they were bound <paramref name="bindHeight"/> metres up.
     /// </summary>
-    private static void WriteHeldSword(string folder, string name)
+    private static void WriteHeldSword(string folder, string name, bool inHolder = true, float bindHeight = 2f)
     {
         var buffer = new List<byte>();
         var views = new JsonArray();
@@ -478,15 +563,22 @@ public sealed class ModelPartNamesTests : IDisposable
         int bodyPosition = Accessor(Floats([0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f, 0f]), 5126, 3, "VEC3");
         int joints = Accessor(Shorts([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), 5123, 3, "VEC4");
         int weights = Accessor(Floats([1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f]), 5126, 3, "VEC4");
-        int inverseBind = Accessor(Floats([1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, -2f, 0f, 1f]), 5126, 1, "MAT4");
+        int inverseBind = Accessor(Floats([1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, -bindHeight, 0f, 1f]), 5126, 1, "MAT4");
 
-        var nodes = new JsonArray
-        {
-            new JsonObject { ["name"] = "hips", ["translation"] = new JsonArray(0f, 2f, 0f), ["children"] = new JsonArray(1, 3) },
-            new JsonObject { ["name"] = "holder", ["translation"] = new JsonArray(0f, 1f, 0f), ["children"] = new JsonArray(2) },
-            new JsonObject { ["name"] = "sword", ["mesh"] = 0 },
-            new JsonObject { ["name"] = "body", ["mesh"] = 1, ["skin"] = 0 },
-        };
+        var nodes = inHolder
+            ? new JsonArray
+            {
+                new JsonObject { ["name"] = "hips", ["translation"] = new JsonArray(0f, 2f, 0f), ["children"] = new JsonArray(1, 3) },
+                new JsonObject { ["name"] = "holder", ["translation"] = new JsonArray(0f, 1f, 0f), ["children"] = new JsonArray(2) },
+                new JsonObject { ["name"] = "sword", ["mesh"] = 0 },
+                new JsonObject { ["name"] = "body", ["mesh"] = 1, ["skin"] = 0 },
+            }
+            : new JsonArray
+            {
+                new JsonObject { ["name"] = "hips", ["translation"] = new JsonArray(0f, 2f, 0f), ["children"] = new JsonArray(1, 2) },
+                new JsonObject { ["name"] = "sword", ["mesh"] = 0 },
+                new JsonObject { ["name"] = "body", ["mesh"] = 1, ["skin"] = 0 },
+            };
         var meshes = new JsonArray
         {
             new JsonObject

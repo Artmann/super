@@ -30,7 +30,7 @@ public sealed class ModelCooker : ICooker
 
     public string Id => "model";
 
-    public int Version => 9; // 2: "has no UVs" warns only when the material uses a texture. 3: subsurface. 4: height and detail textures. 5: materials gained Ior. 6: keepMeshes places each mesh by its node, and rigged parts keep their mesh names. 7: drops cooks made while keepMeshes was still being decided. 8: keepOrigin keeps the file's own origin. 9: unskinned meshes follow their container node, a joint of its own.
+    public int Version => 6; // 2: "has no UVs" warns only when the material uses a texture. 3: subsurface. 4: height and detail textures. 5: materials gained Ior. 6: parts keep the name of their mesh's node, keepMeshes and keepOrigin, and unskinned meshes follow their container node.
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -156,7 +156,7 @@ public sealed class ModelCooker : ICooker
         var vertices = new List<Vertex>();
         var indices = new List<uint>();
         var parts = new List<ModelPart>();
-        var partNames = new List<string>();
+        var meshNames = new List<string>();
         var materials = new List<ModelMaterial>();
         var materialNames = new List<string>();
 
@@ -242,7 +242,7 @@ public sealed class ModelCooker : ICooker
                 materialNames.Add(materialName);
             }
 
-            foreach (var (m, world) in Placements(scene, rig is null && settings.KeepMeshes))
+            foreach (var (m, world, node) in Placements(scene, rig is null && settings.KeepMeshes))
             {
                 var mesh = scene->MMeshes[m];
                 meshVertices.Add(((int)mesh->MMaterialIndex, vertices.Count, (int)mesh->MNumVertices));
@@ -299,7 +299,7 @@ public sealed class ModelCooker : ICooker
                 });
                 if (named)
                 {
-                    partNames.Add(mesh->MName.AsString);
+                    meshNames.Add(MeshName(rig?.NodeOfMeshName((int)m) ?? node, mesh));
                 }
             }
 
@@ -366,7 +366,7 @@ public sealed class ModelCooker : ICooker
             Vertices = vertexArray,
             Indices = indices.ToArray(),
             Parts = parts.ToArray(),
-            PartNames = partNames.ToArray(),
+            MeshNames = meshNames.ToArray(),
             Materials = materials.ToArray(),
             Textures = textures.ToArray(),
             Skeleton = skeleton,
@@ -443,9 +443,10 @@ public sealed class ModelCooker : ICooker
     // come in the order the nodes hold them, and each is placed by its node. Otherwise every mesh is
     // already in the model's space: a rig's meshes stay in their own space, since the rig importer
     // places them and the joints move them, and a merged static scene was flattened by Assimp.
-    private static unsafe List<(uint Mesh, Matrix4x4 World)> Placements(Scene* scene, bool byNode)
+    // Node is the name of the node holding the mesh when placed by node, and null otherwise.
+    private static unsafe List<(uint Mesh, Matrix4x4 World, string? Node)> Placements(Scene* scene, bool byNode)
     {
-        var placed = new List<(uint Mesh, Matrix4x4 World)>();
+        var placed = new List<(uint Mesh, Matrix4x4 World, string? Node)>();
         if (byNode)
         {
             Place(scene->MRootNode, Matrix4x4.Identity, placed);
@@ -454,20 +455,21 @@ public sealed class ModelCooker : ICooker
         {
             for (uint m = 0; m < scene->MNumMeshes; m++)
             {
-                placed.Add((m, Matrix4x4.Identity));
+                placed.Add((m, Matrix4x4.Identity, null));
             }
         }
 
         return placed;
     }
 
-    private static unsafe void Place(Node* node, in Matrix4x4 parent, List<(uint Mesh, Matrix4x4 World)> placed)
+    private static unsafe void Place(Node* node, in Matrix4x4 parent, List<(uint Mesh, Matrix4x4 World, string? Node)> placed)
     {
         // Assimp stores matrices for column vectors; this engine multiplies row vectors.
         var world = Matrix4x4.Transpose(node->MTransformation) * parent;
+        string name = node->MName.AsString;
         for (uint i = 0; i < node->MNumMeshes; i++)
         {
-            placed.Add((node->MMeshes[i], world));
+            placed.Add((node->MMeshes[i], world, name));
         }
 
         for (uint c = 0; c < node->MNumChildren; c++)
@@ -475,6 +477,12 @@ public sealed class ModelCooker : ICooker
             Place(node->MChildren[c], world, placed);
         }
     }
+
+    // A part is named by the node that holds its mesh: that's the name an artist sees in the outliner,
+    // and it stays whole where Assimp splits a mesh with several materials into several meshes or
+    // suffixes their names. A node with no name falls back to the mesh's own name.
+    private static unsafe string MeshName(string? node, Mesh* mesh) =>
+        string.IsNullOrEmpty(node) ? mesh->MName.AsString : node;
 
     // Normals keep pointing off the surface when a placement stretches it, so they use the inverse transpose.
     private static Matrix4x4 NormalMatrix(in Matrix4x4 world) =>

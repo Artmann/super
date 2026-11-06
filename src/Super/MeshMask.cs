@@ -1,17 +1,17 @@
 namespace Super;
 
 /// <summary>
-/// Which parts of one model a draw shows. A model is cooked in parts, one for each mesh in the
-/// source file, and a mask picks some of them, so one file can hold many looks, such as
-/// several bodies, heads and weapons, and each draw shows one of each. Make a mask once, with
-/// <see cref="Content.Parts"/>, and keep it: a mask never changes and drawing with it allocates
-/// nothing. It only fits the model it was made for.
+/// Which meshes of one model a draw shows, so one file can hold many looks, such as several
+/// bodies, heads and weapons, and each draw shows one of each. Make a mask once, with
+/// <see cref="Content.Meshes"/>, and keep it: a mask never changes and drawing with it allocates
+/// nothing. It only fits the model it was made for. Underneath it picks the model's parts, the
+/// pieces it is drawn in, which a mesh with several materials has one of for each.
 /// </summary>
-public sealed class PartMask
+public sealed class MeshMask
 {
     private readonly ulong[] _bits;
 
-    internal PartMask(int model, int count, ReadOnlySpan<int> kept)
+    internal MeshMask(int model, int count, ReadOnlySpan<int> kept)
     {
         _bits = new ulong[(count + 63) / 64];
         Model = model;
@@ -35,12 +35,12 @@ public sealed class PartMask
     /// <summary>The index of the <see cref="ModelRef"/> the mask was made for.</summary>
     internal int Model { get; }
 
-    /// <summary>How many parts the model has, shown or not.</summary>
+    /// <summary>How many parts the model is drawn in, shown or not.</summary>
     public int Count { get; }
 
-    /// <summary>How many parts the mask shows.</summary>
+    /// <summary>How many of those parts the mask shows.</summary>
     public int Kept { get; private set; }
 
-    /// <summary>Whether the part, counted from 0 in the order the model's meshes were cooked, is shown.</summary>
+    /// <summary>Whether the part, counted from 0 in the order the model was cooked, is shown.</summary>
     public bool Shows(int part) => (uint)part < (uint)Count && (_bits[part >> 6] & (1UL << (part & 63))) != 0;
 }

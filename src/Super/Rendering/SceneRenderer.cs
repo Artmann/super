@@ -119,15 +119,15 @@ internal sealed class SceneRenderer : IDisposable
     }
 
     /// <summary>
-    /// Adds up what the view drew, model by model. Copies that show different parts are
-    /// counted apart, since each one costs its own kept triangles.
+    /// Adds up what the view drew, model by model. Copies with different mesh masks are
+    /// counted apart, since each one costs only the triangles it shows.
     /// </summary>
     internal List<ModelCost> CountModels(View view, Content content)
     {
-        var copies = new Dictionary<(int Model, PartMask? Parts), int>();
+        var copies = new Dictionary<(int Model, MeshMask? Meshes), int>();
         foreach (ref readonly var draw in view.Drawn)
         {
-            var key = (draw.Model.Index, draw.Parts);
+            var key = (draw.Model.Index, draw.Meshes);
             copies[key] = copies.GetValueOrDefault(key) + 1;
         }
 
@@ -135,18 +135,7 @@ internal sealed class SceneRenderer : IDisposable
         foreach (var ((model, mask), count) in copies)
         {
             string name = Name(model, content, "generated mesh");
-            var parts = Parts(model, content);
-            KeptCount(parts.Length, mask); // Throws if the mask was made for a model with another part count.
-            long indices = 0;
-            for (int p = 0; p < parts.Length; p++)
-            {
-                if (ShowsPart(mask, p))
-                {
-                    indices += parts[p].IndexCount;
-                }
-            }
-
-            costs.Add(new ModelCost(name, count, indices / 3));
+            costs.Add(new ModelCost(name, count, ShownTriangles(Parts(model, content), mask)));
         }
 
         return costs;
@@ -389,29 +378,18 @@ internal sealed class SceneRenderer : IDisposable
         foreach (ref readonly var draw in view.Drawn)
         {
             var model = Model(draw.Model.Index, content);
-            var parts = model.Parts;
-            int kept = KeptCount(parts.Length, draw.Parts);
-            if (kept == 0)
+            int first = count;
+            count = AddShown(model.Parts, draw.Meshes, ref _draws, count);
+            if (count == first)
             {
                 continue;
             }
 
-            if (count + kept > _draws.Length)
-            {
-                Array.Resize(ref _draws, (count + kept) * 2);
-            }
-
-            // Skinned once per draw, and only when a part is kept, so a mask that keeps nothing costs no bones.
+            // Skinned once per draw, however many of its parts are shown.
             var bones = draw.Pose is { } pose ? Skin(pose, draw.PoseAhead, model, draw.Model.Index, content) : default;
-            for (int p = 0; p < parts.Length; p++)
+            for (int i = first; i < count; i++)
             {
-                if (!ShowsPart(draw.Parts, p))
-                {
-                    continue;
-                }
-
-                ref var item = ref _draws[count++];
-                item = parts[p];
+                ref var item = ref _draws[i];
                 item.Transform = draw.Transform;
                 item.Swim = draw.Swim;
                 item.Tint = draw.Color ?? (draw.Model.IsBuiltIn ? CubeColor : null);
@@ -423,8 +401,48 @@ internal sealed class SceneRenderer : IDisposable
         return count;
     }
 
+    /// <summary>
+    /// Copies the parts a mask shows onto the end of <paramref name="draws"/>, from
+    /// <paramref name="count"/> on, growing it when needed, and gives the new count. A null mask
+    /// shows every part. Throws if the mask was made for a model with another part count.
+    /// </summary>
+    internal static int AddShown(DrawItem[] parts, MeshMask? mask, ref DrawItem[] draws, int count)
+    {
+        int kept = KeptCount(parts.Length, mask);
+        if (count + kept > draws.Length)
+        {
+            Array.Resize(ref draws, (count + kept) * 2);
+        }
+
+        for (int p = 0; p < parts.Length; p++)
+        {
+            if (mask is null || mask.Shows(p))
+            {
+                draws[count++] = parts[p];
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>The triangles a draw with this mask shows. Throws if the mask was made for a model with another part count.</summary>
+    internal static long ShownTriangles(DrawItem[] parts, MeshMask? mask)
+    {
+        KeptCount(parts.Length, mask);
+        long indices = 0;
+        for (int p = 0; p < parts.Length; p++)
+        {
+            if (mask is null || mask.Shows(p))
+            {
+                indices += parts[p].IndexCount;
+            }
+        }
+
+        return indices / 3;
+    }
+
     /// <summary>How many of a model's parts a draw shows. A null mask shows them all. Throws if the mask was made for a model with another part count.</summary>
-    internal static int KeptCount(int partCount, PartMask? mask)
+    internal static int KeptCount(int partCount, MeshMask? mask)
     {
         if (mask is null)
         {
@@ -434,14 +452,11 @@ internal sealed class SceneRenderer : IDisposable
         if (mask.Count != partCount)
         {
             throw new InvalidOperationException(
-                $"The parts mask was made for a model with {mask.Count} parts, but the model being drawn has {partCount}. Make it from the same cooked file.");
+                $"The mesh mask was made for a model drawn in {mask.Count} parts, but the model being drawn has {partCount}. Make it from the same cooked file.");
         }
 
         return mask.Kept;
     }
-
-    /// <summary>Whether a draw with this mask shows the part. A null mask shows every part.</summary>
-    internal static bool ShowsPart(PartMask? mask, int part) => mask is null || mask.Shows(part);
 
     /// <summary>
     /// Samples a pose into this frame's bone matrices. Once the frame's bones are full,

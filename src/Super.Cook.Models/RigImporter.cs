@@ -47,8 +47,9 @@ internal sealed unsafe class RigImporter
 
         // A node is a joint when it is a bone or has one below it. The parent of a node that
         // carries an unskinned mesh is a joint too, so the mesh follows that container's
-        // animated chain. A container is no bone, so its inverse bind is its rest pose's inverse
-        // in the node tree, where Skin placed the mesh's vertices.
+        // animated chain. A container that isn't a bone gets its rest pose's inverse as its inverse
+        // bind. A container that is a bone keeps the bone's, and Skin moves the mesh's vertices to
+        // match it. Every container and its ancestors count towards Skeleton.MaxJoints.
         var isJoint = new bool[_nodes.Count];
         foreach (var (mesh, node) in _meshNode)
         {
@@ -173,8 +174,19 @@ internal sealed unsafe class RigImporter
         if (mesh->MNumBones == 0)
         {
             int node = NodeOfMesh(meshIndex);
-            var global = _nodes[node].Global;
             int joint = NearestJoint(node);
+
+            // Skinning multiplies by the joint's inverse bind. For a bone that's the skinned mesh's
+            // bind, which needn't match the node tree's rest pose, so a mesh placed in the node tree
+            // would land off by the difference. Taking the vertices to the bind's space first makes
+            // the mesh sit where the file puts it at rest. For a joint that isn't a bone the inverse
+            // bind is the rest pose's inverse, and this leaves the vertices alone.
+            var global = _nodes[node].Global;
+            if (Matrix4x4.Invert(_restGlobal[joint], out var fromRest) && Matrix4x4.Invert(_inverseBind[joint], out var bind))
+            {
+                global = global * fromRest * bind;
+            }
+
             foreach (ref var vertex in vertices)
             {
                 vertex.Position = Vector3.Transform(vertex.Position, global);
@@ -317,6 +329,9 @@ internal sealed unsafe class RigImporter
     }
 
     private int NodeOfMesh(int mesh) => _meshNode.GetValueOrDefault(mesh, 0);
+
+    /// <summary>The name of the node that holds a mesh, which names the mesh's part.</summary>
+    public string NodeOfMeshName(int mesh) => _nodes[NodeOfMesh(mesh)].Name;
 
     private int NearestJoint(int node)
     {
