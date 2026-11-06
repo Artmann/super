@@ -43,8 +43,9 @@ internal static class GraphCompiler
     /// <summary>
     /// Compiles <paramref name="source"/>, named <paramref name="name"/> in diagnostics and stack frames, and finds its graph class.
     /// </summary>
-    /// <returns>The graph, or null after reporting why there isn't one to <paramref name="output"/>.</returns>
-    public static CompiledGraph? Compile(string name, byte[] source, CookOutput output)
+    /// <param name="error">Takes each error and the line in the graph it is on, when it has one.</param>
+    /// <returns>The graph, or null after reporting why there isn't one to <paramref name="error"/>.</returns>
+    public static CompiledGraph? Compile(string name, byte[] source, Action<string, int?> error)
     {
         string hash = Convert.ToHexStringLower(SHA256.HashData(source));
         lock (CacheLock)
@@ -55,7 +56,7 @@ internal static class GraphCompiler
             }
         }
 
-        var compiled = CompileNew(name, hash, source, output);
+        var compiled = CompileNew(name, hash, source, error);
         if (compiled is null)
         {
             return null;
@@ -94,7 +95,7 @@ internal static class GraphCompiler
         return null;
     }
 
-    private static CompiledGraph? CompileNew(string name, string hash, byte[] source, CookOutput output)
+    private static CompiledGraph? CompileNew(string name, string hash, byte[] source, Action<string, int?> error)
     {
         var text = SourceText.From(source, source.Length);
         var tree = CSharpSyntaxTree.ParseText(text, CSharpParseOptions.Default, path: name);
@@ -116,14 +117,14 @@ internal static class GraphCompiler
             foreach (var diagnostic in result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error))
             {
                 var span = diagnostic.Location.GetLineSpan();
-                output.Error(diagnostic.GetMessage(CultureInfo.InvariantCulture), span.IsValid ? span.StartLinePosition.Line + 1 : null);
+                error(diagnostic.GetMessage(CultureInfo.InvariantCulture), span.IsValid ? span.StartLinePosition.Line + 1 : null);
             }
 
             return null;
         }
 
         // Only the graph's own file: the usings tree is fixed text.
-        if (!UsesOnlyPureApis(name, tree, compilation.GetSemanticModel(tree), output))
+        if (!UsesOnlyPureApis(name, tree, compilation.GetSemanticModel(tree), error))
         {
             return null;
         }
@@ -140,7 +141,7 @@ internal static class GraphCompiler
         {
             context.Unload();
             string has = graphs.Length == 0 ? "none" : $"{graphs.Length}: {string.Join(", ", graphs.Select(type => type.Name))}";
-            output.Error($"{name} must hold one class that derives from MaterialGraph. It has {has}.");
+            error($"{name} must hold one class that derives from MaterialGraph. It has {has}.", null);
             return null;
         }
 
@@ -153,7 +154,7 @@ internal static class GraphCompiler
     /// A <c>using</c> line for one of those namespaces is reported too, even when nothing uses it.
     /// </summary>
     /// <returns>Whether nothing was reported.</returns>
-    private static bool UsesOnlyPureApis(string name, SyntaxTree tree, SemanticModel model, CookOutput output)
+    private static bool UsesOnlyPureApis(string name, SyntaxTree tree, SemanticModel model, Action<string, int?> error)
     {
         var reported = new HashSet<(int Line, string Symbol)>();
         var pending = new Stack<SyntaxNode>();
@@ -168,7 +169,7 @@ internal static class GraphCompiler
                 string shown = banned.ToDisplayString(Shown);
                 if (reported.Add((line, shown)))
                 {
-                    output.Error($"{name}: a graph can't use {shown}, since it must give the same pixels every time.", line);
+                    error($"{name}: a graph can't use {shown}, since it must give the same pixels every time.", line);
                 }
 
                 continue;

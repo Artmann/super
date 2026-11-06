@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Diagnostics;
+using System.Globalization;
 using System.Numerics;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -59,7 +60,27 @@ public sealed class MaterialCooker : ICooker
             graphName = input.Name[..(input.Name.LastIndexOf('/') + 1)] + variant.Graph;
         }
 
-        var compiled = GraphCompiler.Compile(graphName, graphSource, output);
+        // A line in the graph means nothing in the variant, which is the file the error is filed under. So a variant's error
+        // names the graph and the line in its text instead, and has no line of its own.
+        void GraphError(string message, int? line)
+        {
+            if (variant is null)
+            {
+                output.Error(message, line);
+                return;
+            }
+
+            string own = graphName + ": ";
+            if (message.StartsWith(own, StringComparison.Ordinal))
+            {
+                message = message[own.Length..];
+            }
+
+            string where = line is { } number ? $"{variant.Graph} line {number.ToString(CultureInfo.InvariantCulture)}" : variant.Graph;
+            output.Error($"{where}: {message}");
+        }
+
+        var compiled = GraphCompiler.Compile(graphName, graphSource, GraphError);
         if (compiled is null)
         {
             return;
@@ -81,7 +102,7 @@ public sealed class MaterialCooker : ICooker
             var thrown = exception is TargetInvocationException { InnerException: { } inner } ? inner : exception;
             // A cook error is one line. Some exceptions add more, such as the actual value of an argument.
             string message = thrown.Message.Split('\n')[0].TrimEnd('\r');
-            output.Error(message, LineIn(thrown, compiled.Type.Assembly));
+            GraphError(message, LineIn(thrown, compiled.Type.Assembly));
             return;
         }
 

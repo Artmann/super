@@ -298,6 +298,16 @@ The parameter names in the list are lower case, in alphabetical order. The other
 say `is a whole number`, `is true or false` and `is text`. A graph path that is missing,
 or that differs from the real file only in case, is an error that names the file.
 
+When the graph fails for a variant, because it doesn't compile, uses something it can't,
+or throws with the variant's values, the error is filed under the variant, since that is
+what was being cooked. A line in the graph would point at the wrong file there, so the
+error has no line of its own and names the graph and its line at the start of the message
+instead:
+
+```
+C:\game\content\materials\mossy.material.json: error SUPER001: bricks.material.cs line 9: scale must be at least 1, not 0. (Parameter 'scale')
+```
+
 ## Checks
 
 After a graph is cooked, the cooker looks at the values and warns about ones no real
