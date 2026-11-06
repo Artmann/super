@@ -309,8 +309,9 @@ the image. Counts across the image, such as `scale`, `columns` and `rows`, are w
 numbers so the pattern meets itself at the edges.
 
 A node's randomness comes from the graph's `Seed` and the node's place in the graph, so
-the same graph always cooks the same pixels. Nodes that take a `seed:` mix it in, which
-gives that node a different pattern without changing any other.
+the same graph always cooks the same pixels, whatever language the machine is set to.
+Nodes that take a `seed:` mix it in, which gives that node a different pattern without
+changing any other.
 
 ### Generators
 
