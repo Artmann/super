@@ -32,7 +32,7 @@ Game.StartWindowsGameLoop<MyGame>(new GameOptions
 });
 ```
 
-`Graphics.Fastest()` turns every effect and vsync off, a start to turn back on only what
+`Graphics.Fastest()` turns every effect and vsync off (but keeps the materials), a start to turn back on only what
 the game needs. Ask for `Graphics` in a constructor to change it while the game runs; the
 next frame follows, so it can back an options menu.
 
@@ -46,6 +46,25 @@ next frame follows, so it can back an options menu.
 | `Reflections` | Shiny surfaces and water reflect only the sky and reflection probes, not what's on screen |
 | `AntiAliasing` | Edges show their pixels, and moving things stay sharp |
 | `Bloom` | No glow round bright things. `PostSettings.Bloom` only changes how much there is |
+| `Materials` | Every surface is the same light grey, matte clay, shaped only by its mesh, so you can judge the lighting and the models without textures in the way. Glows still glow, cut-outs still cut and glass stays see-through. `--no-materials` turns it off too |
+
+`Materials` is for looking, not for speed, so `Graphics.Fastest()` leaves it on. A key that
+flips it while the game runs makes a handy lighting check:
+
+```csharp
+internal sealed class MyGame(Graphics graphics, Input input) : IGame
+{
+    public void Update(GameTime time)
+    {
+        if (input.Pressed(Key.M))
+        {
+            graphics.Materials = !graphics.Materials;
+        }
+    }
+}
+```
+
+![The Shapes example with its materials, and with Materials off](media/graphics-materials.webp)
 
 An effect turned off skips its work on the GPU, not only its look. In the Crypt, the
 GPU time of a frame halves:

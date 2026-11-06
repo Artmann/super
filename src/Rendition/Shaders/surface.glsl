@@ -209,6 +209,16 @@ void writeSurface(Surface surface) {
 
     Material material = materials[draw.material];
     bool foliage = (material.flags & MATERIAL_FOLIAGE) != 0u;
+
+    // With materials off, every surface is the same plain clay, shaped only by its mesh: no
+    // colour, tint, normal map, shine, coat or subsurface. Cut-outs still cut and glows still glow.
+    if (isOff(OFF_MATERIALS)) {
+        outBaseColorMetallic = vec4(PLAIN_COLOR, 0.0);
+        outNormalRoughnessAo = vec4(octahedralEncode(surfaceFrame()[2]), PLAIN_ROUGHNESS, 1.0);
+        outEmissiveClearcoat = vec4(surface.emissive, foliage ? -FOLIAGE_TRANSLUCENCY : 0.0);
+        return;
+    }
+
     float channel = foliage ? -FOLIAGE_TRANSLUCENCY : surface.clearcoat;
     if (material.subsurface.w > 0.0) {
         channel = SUBSURFACE_MARK + float(draw.material);

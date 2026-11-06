@@ -51,6 +51,11 @@ public static class Game
             options.Graphics.Vsync = false;
         }
 
+        if (arguments.NoMaterials)
+        {
+            options.Graphics.Materials = false;
+        }
+
         using var host = new GameHost<TGame>(seed, options.TicksPerSecond, services, userDataFolder, audioSeed, options.Graphics)
         {
             KeepsRunningAfterErrors = keepRunning,

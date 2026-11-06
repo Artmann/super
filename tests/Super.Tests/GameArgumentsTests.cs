@@ -65,6 +65,14 @@ public class GameArgumentsTests
     }
 
     [Fact]
+    public void Reads_no_materials_in_a_window_and_with_a_screenshot()
+    {
+        Assert.True(GameArguments.Parse(["--no-materials"]).NoMaterials);
+        Assert.True(GameArguments.Parse(["--no-materials", "--screenshot", "day.png"]).NoMaterials);
+        Assert.False(GameArguments.Parse(["--screenshot", "day.png"]).NoMaterials);
+    }
+
+    [Fact]
     public void No_vsync_is_only_for_playing_in_a_window()
     {
         Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--no-vsync", "--profile", "reef.txt"]));

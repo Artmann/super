@@ -52,6 +52,14 @@ public sealed class Graphics
     public bool Bloom { get; set; } = true;
 
     /// <summary>
+    /// Every surface's own colour, textures, normal maps and shine. Off, everything is the same light grey,
+    /// matte clay, shaped only by its mesh, so the lighting and the models can be judged without the
+    /// textures in the way. Glows still glow, cut-outs still cut and glass stays see-through. It's
+    /// for looking, not for speed, so <see cref="Fastest"/> leaves it on.
+    /// </summary>
+    public bool Materials { get; set; } = true;
+
+    /// <summary>
     /// Every effect off and vsync off: the fastest the engine draws, and a start for a game that
     /// must run on modest hardware. Turn back on only what it needs.
     /// </summary>
@@ -73,5 +81,6 @@ public sealed class Graphics
         | (AmbientOcclusion ? 0 : RenderEffects.AmbientOcclusion)
         | (Reflections ? 0 : RenderEffects.Reflections)
         | (AntiAliasing ? 0 : RenderEffects.AntiAliasing)
-        | (Bloom ? 0 : RenderEffects.Bloom);
+        | (Bloom ? 0 : RenderEffects.Bloom)
+        | (Materials ? 0 : RenderEffects.Materials);
 }
