@@ -331,4 +331,23 @@ public class CameraRigTests
 
         Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
     }
+
+    private sealed class LowCamera() : OverheadCamera(0f, 1f)
+    {
+        protected override Camera Build(Vector3 center, float size, float yaw) =>
+            new(center + new Vector3(0f, size, 0f), center);
+    }
+
+    [Fact]
+    public void A_derived_overhead_camera_builds_its_own_camera_and_still_blends()
+    {
+        var low = new LowCamera { Lag = 0f, Size = 10f };
+        low.Update(Vector3.Zero, Tick);
+        Assert.False(low.Current.IsOrthographic);
+        AssertNear(new Vector3(0f, 10f, 0f), low.Current.Position);
+
+        low.Update(new Vector3(4f, 0f, 0f), Tick);
+        AssertNear(Vector3.Zero, low.Previous.Target);
+        AssertNear(new Vector3(2f, 0f, 0f), low.At(0.5f).Target);
+    }
 }

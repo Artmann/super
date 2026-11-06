@@ -182,7 +182,7 @@ public abstract class OverheadCamera
     private float _shownYaw;
     private bool _placed;
 
-    private protected OverheadCamera(float yaw, float pitch)
+    protected OverheadCamera(float yaw, float pitch)
     {
         Angle = yaw;
         Tilt = pitch;
@@ -212,9 +212,11 @@ public abstract class OverheadCamera
 
     public Camera Current { get; private set; }
 
-    private protected float Angle { get; set; }
+    /// <summary>The turn around the center, in radians, for a subclass to pass on or expose.</summary>
+    protected float Angle { get; set; }
 
-    private protected float Tilt { get; set; }
+    /// <summary>How high above the ground it looks, in radians.</summary>
+    protected float Tilt { get; set; }
 
     /// <summary>
     /// Moves the center over the ground, x to the right of the screen and y up it. The view
@@ -246,12 +248,19 @@ public abstract class OverheadCamera
         _shownSize = float.Lerp(Size, _shownSize, kept);
         _shownYaw = float.Lerp(Angle, _shownYaw, kept);
 
-        var position = _shownCenter + CameraTurn.Behind(_shownYaw, Tilt) * Standoff;
-        var next = Camera.Orthographic(position, _shownCenter, _shownSize) with { WideAs = WideAs };
+        var next = Build(_shownCenter, _shownSize, _shownYaw) with { WideAs = WideAs };
         Previous = _placed ? Current : next;
         Current = next;
         _placed = true;
     }
+
+    /// <summary>
+    /// The camera for a center, size and turn, which <see cref="Update(float)"/> calls once a tick. It looks down
+    /// at the tilt from far away, orthographic. Override it to look from somewhere else, such as a perspective
+    /// camera at a distance of <paramref name="size"/>, and the rig still blends it between ticks.
+    /// </summary>
+    protected virtual Camera Build(Vector3 center, float size, float yaw) =>
+        Camera.Orthographic(center + CameraTurn.Behind(yaw, Tilt) * Standoff, center, size);
 
     /// <summary>
     /// Puts the camera straight in place on the next update, with no blend, for when the
