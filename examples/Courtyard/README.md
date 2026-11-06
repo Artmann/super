@@ -2,7 +2,7 @@
 
 Materials made in code, on a scene made in Blender. A sunlit courtyard has a brick wall
 with an arched window, ivy and a peeling patch of whitewash, a lamp, a dry-stone wall, a
-cobble path through wet mud, a puddle, a barrel, a crate, a deck and three spheres. Its
+cobble path through wet mud, a puddle, a barrel, a crate and a deck. Its
 bricks, stone, mud, wood, rust and window glass are [material graphs](../../docs/materials.md) that
 are cooked into textures when the game builds, so the example needs no downloads.
 
@@ -15,8 +15,8 @@ The model is `content/models/courtyard.glb`, written by `art/courtyard.py` in Bl
 The script builds everything from code into its own scene, called Courtyard, and unwraps
 the UVs in metres. A material named `cy_graph_*` is only a placeholder. The model's
 sidecar, `courtyard.glb.cook.json`, gives it a graph, and the cooker divides its UVs by
-the graph's `Width`, so a brick is the size of a real brick on the wall, the arch and the
-spheres alike. See [A material graph on a model](../../docs/rendering.md#a-material-graph-on-a-model).
+the graph's `Width`, so the bricks, stones and planks keep the size their graph gives
+them however big the surface is. See [A material graph on a model](../../docs/rendering.md#a-material-graph-on-a-model).
 To change the scene, edit the script, run it in Blender and cook again.
 
 There are no point lights yet, so the lamp only glows through its bulb's `emissiveColor`.
