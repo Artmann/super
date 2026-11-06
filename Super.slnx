@@ -18,6 +18,7 @@
   <Folder Name="/examples/">
     <Project Path="examples/Bricks/Bricks.csproj" />
     <Project Path="examples/ColorCube/ColorCube.csproj" />
+    <Project Path="examples/Courtyard/Courtyard.csproj" />
     <Project Path="examples/Crafting/Crafting.csproj" />
     <Project Path="examples/Crypt/Crypt.csproj" />
     <Project Path="examples/Dust/Dust.csproj" />
@@ -33,6 +34,7 @@
     <Project Path="examples/Wax/Wax.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Courtyard.Tests/Courtyard.Tests.csproj" />
     <Project Path="tests/Crafting.Tests/Crafting.Tests.csproj" />
     <Project Path="tests/Forest.Tests/Forest.Tests.csproj" />
     <Project Path="tests/Reef.Tests/Reef.Tests.csproj" />
