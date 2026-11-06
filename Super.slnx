@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/Super/Super.csproj" />
     <Project Path="src/Super.Random/Super.Random.csproj" />
+    <Project Path="src/Super.Materials/Super.Materials.csproj" />
     <Project Path="src/Super.Ecs/Super.Ecs.csproj" />
     <Project Path="src/Super.Physics/Super.Physics.csproj" />
     <Project Path="src/Super.Cook/Super.Cook.csproj" />
@@ -33,6 +34,7 @@
     <Project Path="tests/Super.Cook.Tests/Super.Cook.Tests.csproj" />
     <Project Path="tests/Super.Ecs.Tests/Super.Ecs.Tests.csproj" />
     <Project Path="tests/Super.Physics.Tests/Super.Physics.Tests.csproj" />
+    <Project Path="tests/Super.Materials.Tests/Super.Materials.Tests.csproj" />
     <Project Path="tests/Super.Random.Tests/Super.Random.Tests.csproj" />
     <Project Path="tests/Super.Tests/Super.Tests.csproj" />
     <Project Path="tests/Terrain.Tests/Terrain.Tests.csproj" />
