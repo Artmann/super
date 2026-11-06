@@ -20,7 +20,7 @@ public sealed class MaterialCooker : ICooker
 
     public string Id => "material";
 
-    /// <summary>Changes whenever <c>Super.Materials</c> or this library is rebuilt with a change, so every graph cooks again.</summary>
+    /// <summary>Changes whenever <c>Super.Materials</c>, <c>Super.Random</c> or this library is rebuilt with a change, so every graph cooks again.</summary>
     public int Version { get; } = FoldVersion();
 
     public IReadOnlyList<string> Extensions { get; } = [".material.cs", ".material.json"];
@@ -55,7 +55,9 @@ public sealed class MaterialCooker : ICooker
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             var thrown = exception is TargetInvocationException { InnerException: { } inner } ? inner : exception;
-            output.Error(thrown.Message, LineIn(thrown, compiled.Type.Assembly));
+            // A cook error is one line. Some exceptions add more, such as the actual value of an argument.
+            string message = thrown.Message.Split('\n')[0].TrimEnd('\r');
+            output.Error(message, LineIn(thrown, compiled.Type.Assembly));
             return;
         }
 
@@ -80,6 +82,7 @@ public sealed class MaterialCooker : ICooker
     {
         byte[] ids = [
             .. typeof(MaterialGraph).Assembly.ManifestModule.ModuleVersionId.ToByteArray(),
+            .. typeof(GameRandom).Assembly.ManifestModule.ModuleVersionId.ToByteArray(),
             .. typeof(MaterialCooker).Assembly.ManifestModule.ModuleVersionId.ToByteArray(),
             .. BitConverter.GetBytes(FormatVersion),
         ];

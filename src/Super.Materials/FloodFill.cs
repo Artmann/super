@@ -24,7 +24,7 @@ public sealed partial class Gray
     {
         if (!float.IsFinite(threshold))
         {
-            throw new ArgumentOutOfRangeException(nameof(threshold), threshold, $"threshold must be a finite number, not {threshold}.");
+            throw new ArgumentOutOfRangeException(nameof(threshold), FormattableString.Invariant($"threshold must be a finite number, not {threshold}."));
         }
 
         return new Islands(new FloodFillNode(Node, threshold));

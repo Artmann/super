@@ -158,6 +158,14 @@ public class FilterTests
     {
         var error = Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Evaluate(() => Gray.Of(0.5f).Blur(-0.1f), 16));
 
-        Assert.Contains("radius", error.Message);
+        Assert.Equal("radius must be from 0 to 1, not -0.1. (Parameter 'radius')", error.Message);
+    }
+
+    [Fact]
+    public void Levels_rejects_a_gamma_of_zero_in_one_line()
+    {
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Evaluate(() => Gray.Of(0.5f).Levels(gamma: 0f), 16));
+
+        Assert.Equal("gamma must be above 0, not 0. (Parameter 'gamma')", error.Message);
     }
 }

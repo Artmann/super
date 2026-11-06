@@ -126,7 +126,7 @@ public class FloodFillTests
     {
         var error = Assert.Throws<ArgumentOutOfRangeException>(() => GraphRunner.Evaluate(() => Gray.Of(1f).FloodFill(float.NaN), Size));
 
-        Assert.Contains("threshold must be a finite number", error.Message);
+        Assert.Equal("threshold must be a finite number, not NaN. (Parameter 'threshold')", error.Message);
     }
 
     [Fact]

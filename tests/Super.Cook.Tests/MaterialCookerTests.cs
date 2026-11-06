@@ -187,7 +187,26 @@ public sealed class MaterialCookerTests
 
         var error = Assert.Single(result.Problems, p => p.IsError);
         Assert.Equal(8, error.Line);
-        Assert.Contains("scale must be at least 1, not 0.", error.Message);
+        Assert.Equal("scale must be at least 1, not 0. (Parameter 'scale')", error.Message);
+    }
+
+    [Fact]
+    public void An_error_message_of_several_lines_is_reported_as_its_first_line()
+    {
+        var (result, _) = Cook(("lines.material.cs", Graph("        throw new InvalidOperationException(\"first line\\nsecond line\");")));
+
+        var error = Assert.Single(result.Problems, p => p.IsError);
+        Assert.Equal("first line", error.Message);
+        Assert.DoesNotContain('\n', error.Message);
+    }
+
+    [Fact]
+    public void A_material_variant_is_not_supported_yet()
+    {
+        var (result, _) = Cook(("x.material.json", """{ "graph": "bricks.material.cs" }"""));
+
+        Assert.Equal("x.material.json: material variants aren't supported yet.",
+            Assert.Single(result.Problems, p => p.IsError).Message);
     }
 
     [Fact]

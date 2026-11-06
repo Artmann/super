@@ -43,12 +43,9 @@ internal static class GraphCompiler
         string hash = Convert.ToHexStringLower(SHA256.HashData(source));
         lock (CacheLock)
         {
-            for (var node = Cache.First; node is not null; node = node.Next)
+            if (Find(hash) is { } cached)
             {
-                if (node.Value.Hash == hash)
-                {
-                    return node.Value.Graph;
-                }
+                return cached;
             }
         }
 
@@ -60,15 +57,35 @@ internal static class GraphCompiler
 
         lock (CacheLock)
         {
+            // Another thread may have compiled the same source meanwhile. Everyone gets the first one.
+            if (Find(hash) is { } first)
+            {
+                return first;
+            }
+
             Cache.AddLast((hash, compiled));
             while (Cache.Count > CacheLimit)
             {
-                Cache.First!.Value.Graph.Context.Unload();
+                // Not unloaded here: another thread may still be running it. The context goes once nothing holds it.
                 Cache.RemoveFirst();
             }
         }
 
         return compiled;
+    }
+
+    /// <summary>The cached graph for <paramref name="hash"/>, or null. Call it holding <see cref="CacheLock"/>.</summary>
+    private static CompiledGraph? Find(string hash)
+    {
+        for (var node = Cache.First; node is not null; node = node.Next)
+        {
+            if (node.Value.Hash == hash)
+            {
+                return node.Value.Graph;
+            }
+        }
+
+        return null;
     }
 
     private static CompiledGraph? CompileNew(string name, string hash, byte[] source, CookOutput output)
@@ -79,7 +96,7 @@ internal static class GraphCompiler
             "graph-" + hash[..16],
             [tree],
             References.Value,
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release, deterministic: true));
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Debug, deterministic: true));
 
         using var image = new MemoryStream();
         var result = compilation.Emit(image, options: new EmitOptions(debugInformationFormat: DebugInformationFormat.Embedded));

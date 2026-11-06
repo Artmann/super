@@ -155,7 +155,6 @@ node:
 
 ```
 C:\game\content\materials\bricks.material.cs(9): error SUPER001: scale must be at least 1, not 0. (Parameter 'scale')
-Actual value was 0.
 ```
 
 ## Nodes
@@ -170,12 +169,12 @@ gives that node a different pattern without changing any other.
 
 ### Generators
 
-`Noise.Perlin(scale, octaves = 1, persistence = 0.5f)` is smooth gradient noise from 0 to
+`Noise.Perlin(scale, octaves = 1, persistence = 0.5f, seed = null)` is smooth gradient noise from 0 to
 1. `scale` is how many cells the first octave has across the image, 1 or more. `octaves`
 is 1 to 12, each with twice the cells of the one before, and each counts `persistence`
 times as much.
 
-`Noise.Cells(scale, output = CellOutput.F1, jitter = 1f)` is cellular noise with one
+`Noise.Cells(scale, output = CellOutput.F1, jitter = 1f, seed = null)` is cellular noise with one
 point in each of `scale` × `scale` cells. `jitter` is how far a point strays from the
 middle of its cell, 0 to 1. `output` picks what it shows:
 
@@ -186,9 +185,9 @@ middle of its cell, 0 to 1. `output` picks what it shows:
 | `Edge` | `F2` minus `F1`, which is 0 on the borders between cells |
 | `Id` | A random value per cell |
 
-`Noise.White()` is one random value from 0 to 1 per pixel.
+`Noise.White(seed = null)` is one random value from 0 to 1 per pixel.
 
-`Tiles.Bricks(columns, rows, gap = 0.04f, bevel = 0.1f, offset = 0.5f, heightVariation = 0f)`
+`Tiles.Bricks(columns, rows, gap = 0.04f, bevel = 0.1f, offset = 0.5f, heightVariation = 0f, seed = null)`
 draws rows of bricks. `columns` and `rows` are 1 or more. `gap` and `bevel` are
 fractions of a brick's height. The output is 0 in the gaps and rises over the bevel to 1,
 then each brick is lowered by up to `heightVariation` at random. Each row shifts by
@@ -196,7 +195,7 @@ then each brick is lowered by up to `heightVariation` at random. Each row shifts
 be a whole number, or `Bricks` throws. With the default offset of 0.5, use an even number
 of rows.
 
-`Tiles.Grid(columns, rows, gap, bevel, heightVariation)` is `Bricks` with no offset.
+`Tiles.Grid(columns, rows, gap = 0.04f, bevel = 0.1f, heightVariation = 0f, seed = null)` is `Bricks` with no offset.
 
 `Gray.Of(value)` and `Rgb.Of(r, g, b)` are flat images. `Rgb.Of("#8c4632")` reads a
 `#rrggbb` colour straight to 0..1, as sRGB, the way Substance Designer does.
@@ -223,7 +222,7 @@ them, so `Remap(1, 0)` is the same as `Invert`.
 across the whole image moves pixels by `amount` of the image. `amount` is −1 to 1.
 
 `SlopeBlur(slope, amount, samples = 16, mode = SlopeBlurMode.Average)` blurs along the
-slope of `slope`, reaching `amount` of the image, 0 to 1, from `samples` reads. Where the
+slope of `slope`, reaching `amount` of the image, 0 to 1, from `samples` reads, 1 or more. Where the
 slope is flat the pixel is kept. `Min` and `Max` modes keep the darkest or brightest
 read instead of the average.
 
@@ -233,7 +232,7 @@ read instead of the average.
 are one island, and islands wrap at all four edges. `threshold` must be a finite number.
 Run it on bricks or tiles to tell them apart.
 
-`RandomGray()` on the islands gives each island one random value from 0 to 1, and the
+`RandomGray(seed = null)` on the islands gives each island one random value from 0 to 1, and the
 gaps 0. The value comes from the island's first pixel in row order, so the same graph at
 a different size can give an island a different value.
 
@@ -279,7 +278,7 @@ Normals are OpenGL style: red points right and green points up the image. The co
 does this for you from the material's height.
 
 `HeightToOcclusion(width, depth, radius = 0.05f)` darkens crevices by looking for the
-horizon in eight directions, out to `radius` of the image. 1 is open and lower is more
+horizon in eight directions, out to `radius` of the image, 0 to 1. 1 is open and lower is more
 hidden. A radius under one pixel finds nothing, so at the default radius occlusion
 vanishes below about size 20. The cooker multiplies the material's occlusion into the
 colour for you.
