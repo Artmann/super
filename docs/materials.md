@@ -88,6 +88,20 @@ Surface bricks = new()
 };
 ```
 
+Most of the time, take all of that from one call. `content.Surface` returns a surface
+with the colour, normal and surface textures set, `Color`, `Roughness` and `Metallic` at 1,
+and `TileWidth` set to the graph's `Width`:
+
+```csharp
+Surface bricks = content.Surface("materials/bricks.material.cs");
+ModelRef wall = content.Mesh(Shapes.Plane(new Vector2(6f, 4f), surface: bricks));
+```
+
+A shape tiles a surface with a `TileWidth` once every `TileWidth` metres, so a 2 m wide
+graph on a 6 m by 4 m plane repeats 3 times by 2. Give `uvPerMetre` to tile it at some other
+size, which wins over the width. Naming something that isn't a cooked material, such as a
+`.png`, stops with a `ContentException`.
+
 Each value is clamped to 0..1 and rounded to the nearest of 256 steps. A value that isn't
 a number is written as 0, and the cook warns:
 

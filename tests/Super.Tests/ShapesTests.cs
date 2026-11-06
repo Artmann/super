@@ -251,6 +251,65 @@ public class ShapesTests
     }
 
     [Fact]
+    public void A_plane_tiles_at_its_surfaces_width()
+    {
+        var plane = Shapes.Plane(new Vector2(6f, 4f), surface: new Surface { TileWidth = 2f });
+
+        // One tile every 2 m: 6 m is 3 tiles and 4 m is 2.
+        Assert.Equal(new Vector2(3f, 2f), MaxUv(plane));
+    }
+
+    [Fact]
+    public void A_given_uv_per_metre_beats_the_surfaces_width()
+    {
+        var plane = Shapes.Plane(new Vector2(6f, 4f), surface: new Surface { TileWidth = 2f }, uvPerMetre: 1f);
+
+        Assert.Equal(new Vector2(6f, 4f), MaxUv(plane));
+    }
+
+    [Fact]
+    public void Without_a_width_a_plane_stretches_its_texture_once()
+    {
+        var plane = Shapes.Plane(new Vector2(6f, 4f), surface: new Surface());
+
+        Assert.Equal(new Vector2(1f, 1f), MaxUv(plane));
+    }
+
+    [Fact]
+    public void A_cylinder_tiles_at_its_surfaces_width()
+    {
+        var cylinder = Shapes.Cylinder(1f, 1f, 2f, segments: 8, surface: new Surface { TileWidth = 2f });
+
+        // Round the side is 2π m and down it is 2 m, at one tile per 2 m.
+        var side = cylinder.Vertices.Where(vertex => MathF.Abs(vertex.Normal.Y) < 0.5f);
+        var most = MaxUv(side);
+        Assert.Equal(MathF.PI, most.X, Tolerance);
+        Assert.Equal(1f, most.Y, Tolerance);
+    }
+
+    [Fact]
+    public void A_sphere_tiles_at_its_surfaces_width()
+    {
+        var sphere = Shapes.Sphere(1f, segments: 8, rings: 4, surface: new Surface { TileWidth = 2f });
+
+        // Round the middle is 2π m and pole to pole is π m, at one tile per 2 m.
+        var most = MaxUv(sphere);
+        Assert.Equal(MathF.PI, most.X, Tolerance);
+        Assert.Equal(MathF.PI * 0.5f, most.Y, Tolerance);
+    }
+
+    [Fact]
+    public void A_ribbon_tiles_at_its_surfaces_width()
+    {
+        var straight = Spline.Through([Vector3.Zero, new Vector3(0f, 0f, 10f)]);
+
+        var mesh = Shapes.Ribbon(straight, 4f, surface: new Surface { TileWidth = 2f });
+
+        // 4 m across and 10 m along, one tile per 2 m.
+        Assert.Equal(new Vector2(2f, 5f), MaxUv(mesh));
+    }
+
+    [Fact]
     public void Box_faces_tile_by_their_own_size()
     {
         var box = Shapes.Box(new Vector3(3f, 1f, 2f), uvPerMetre: 1f);
