@@ -23,9 +23,6 @@ public sealed partial class Gray : Image
     public static Gray Of(float value) => new(new ConstantNode([value]));
 
     internal static Gray FromArray(float[] values) => new(new ArrayNode(values));
-
-    /// <summary>Adds two images pixel by pixel. Stands in for Blend until blend modes exist.</summary>
-    public Gray Add(Gray other) => new(new AddNode(Node, other.Node));
 }
 
 /// <summary>Three channels, red, green and blue, as sRGB values as authored.</summary>
@@ -39,12 +36,20 @@ public sealed partial class Rgb : Image
 
     public static Rgb Of(string hex)
     {
+        var (r, g, b) = ParseHex(hex);
+
+        return Of(r, g, b);
+    }
+
+    /// <summary>Reads #rrggbb straight to 0..1. Makes no node, so a ramp can use it outside a graph.</summary>
+    internal static (float R, float G, float B) ParseHex(string hex)
+    {
         if (hex.Length != 7 || hex[0] != '#' || !int.TryParse(hex.AsSpan(1), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var value))
         {
             throw new ArgumentException($"Colours are written #rrggbb, not {hex}.");
         }
 
-        return Of(((value >> 16) & 0xff) / 255f, ((value >> 8) & 0xff) / 255f, (value & 0xff) / 255f);
+        return (((value >> 16) & 0xff) / 255f, ((value >> 8) & 0xff) / 255f, (value & 0xff) / 255f);
     }
 }
 
@@ -87,21 +92,5 @@ sealed class ArrayNode(float[] values) : Node(1)
         }
 
         Array.Copy(values, output, expected);
-    }
-}
-
-sealed class AddNode(Node a, Node b) : Node(1, a, b)
-{
-    internal override void Evaluate(EvaluationContext context, float[][] inputs, float[] output)
-    {
-        context.Rows(y =>
-        {
-            var start = y * context.Size;
-
-            for (var x = start; x < start + context.Size; x++)
-            {
-                output[x] = inputs[0][x] + inputs[1][x];
-            }
-        });
     }
 }
