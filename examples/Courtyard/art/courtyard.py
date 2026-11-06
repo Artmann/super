@@ -811,8 +811,8 @@ def build_crate(sc, M):
 
 def build_barrel(sc, M):
     bm = bmesh.new()
-    cx, cy = -0.2, WALL_Y - 0.45
-    height, r_end, r_mid = 0.95, 0.27, 0.33
+    cx, cy = 0.05, WALL_Y - 0.6
+    height, r_end, r_mid = 1.3, 0.37, 0.45
     staves = 20
     gap = 0.004
     z0 = ground_height(cx, cy) - 0.01
@@ -859,7 +859,7 @@ def build_barrel(sc, M):
     for f in head:
         plank_uv(bm, [f], "x", 2, 0.0)
     # The hoops: thin bands of rusty iron standing out from the staves.
-    for zc in (0.08, 0.27, height - 0.27, height - 0.08):
+    for zc in (height * 0.08, height * 0.28, height * 0.72, height * 0.92):
         r0 = radius(zc) + 0.002
         band = [(r0, zc - 0.022), (r0 + 0.006, zc - 0.02), (r0 + 0.006, zc + 0.02), (r0, zc + 0.022)]
         lathe(bm, band, 48, (cx, cy, z0), 1)
