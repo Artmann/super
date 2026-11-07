@@ -32,7 +32,7 @@ Game.StartWindowsGameLoop<MyGame>(new GameOptions
 });
 ```
 
-`Graphics.Fastest()` turns every effect and vsync off, a start to turn back on only what
+`Graphics.Fastest()` turns every effect and vsync off (but keeps the materials), a start to turn back on only what
 the game needs. Ask for `Graphics` in a constructor to change it while the game runs; the
 next frame follows, so it can back an options menu.
 
@@ -46,6 +46,25 @@ next frame follows, so it can back an options menu.
 | `Reflections` | Shiny surfaces and water reflect only the sky and reflection probes, not what's on screen |
 | `AntiAliasing` | Edges show their pixels, and moving things stay sharp |
 | `Bloom` | No glow round bright things. `PostSettings.Bloom` only changes how much there is |
+| `Materials` | Every surface is the same light grey, matte clay, shaped only by its mesh, so you can judge the lighting and the models without textures in the way. Glows still glow, cut-outs still cut and glass stays see-through. `--no-materials` turns it off too |
+
+`Materials` is for looking, not for speed, so `Graphics.Fastest()` leaves it on. A key that
+flips it while the game runs makes a handy lighting check:
+
+```csharp
+internal sealed class MyGame(Graphics graphics, Input input) : IGame
+{
+    public void Update(GameTime time)
+    {
+        if (input.Pressed(Key.M))
+        {
+            graphics.Materials = !graphics.Materials;
+        }
+    }
+}
+```
+
+![The Shapes example with its materials, and with Materials off](media/graphics-materials.webp)
 
 An effect turned off skips its work on the GPU, not only its look. In the Crypt, the
 GPU time of a frame halves:
@@ -141,6 +160,19 @@ instead of stopping at an edge.
 
 An orthographic camera centres every cascade on its target instead, and widens its
 shadows to cover the screen.
+
+Things out of frame still cast into it. A tree behind the camera or off to the side, up-sun
+of what you see, throws its shade into the picture, up to six cascade radii away.
+
+```csharp
+view.Shadows(7f, cascades: 3, sunSize: 0.02f);
+```
+
+`sunSize` is how wide the sun looks, in radians, from 0 to 0.5. It sets how fast a shadow
+blurs with distance from what casts it. The default of 0.12 is a soft, hazy sun that keeps
+shadows gentle. The real sun is about 0.01, and something near that lets a canopy several
+metres up throw crisp dappled light, where the default blurs it into one soft patch.
+0 gives hard edges everywhere.
 
 ## The look of the picture
 
@@ -360,10 +392,63 @@ as the shared `assets` folder does for Poly Haven's `textures` folders:
 ```
 
 Other options are the `baseColor`, `normal`, `surface` and `emissive` textures,
-`color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `twoSided`,
-`transparent`, `opacity`, `ior`, `noNormalMap` and `rotateY`; see `src/Super.Cook.Models/ImportSettings.cs`.
-`color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `heightDepth`, `detailScale`, `detailMask`, `twoSided`,
-`transparent`, `opacity`, `noNormalMap` and `rotateY`; see `src/Super.Cook.Models/ImportSettings.cs`.
+`color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `heightDepth`,
+`detailScale`, `detailMask`, `twoSided`, `transparent`, `opacity`, `ior`, `noNormalMap` and
+`rotateY`, and `graph` and `graphSize`, below; see `src/Super.Cook.Models/ImportSettings.cs`.
+
+### A material graph on a model
+
+A rule's `graph` gives the materials it matches a [material graph](materials.md), so a
+model exported from Blender can wear procedural bricks, dirt or wood. The path is from the
+model's folder and names a `.material.cs` graph or a `.material.json` variant:
+
+```json
+// models/courtyard.glb.cook.json
+{
+  "materials": [
+    { "match": "graph_bricks", "graph": "../materials/bricks.material.cs" },
+    { "match": "graph_dirt", "graph": "../materials/dirt.material.cs", "graphSize": 512 }
+  ]
+}
+```
+
+The graph runs while the model cooks, at `graphSize` pixels across, 1024 unless you give
+one. Like a graph's own [size](materials.md#size), it must be a power of two from 16 to
+4096, and anything else stops the cook:
+
+```text
+material graph_dirt: graphSize must be a power of two from 16 to 4096, not 500.
+```
+
+The graph's colour, normal and surface textures go into the model like any other textures.
+The material's colour is white and its `metallic` and `roughness` are 1, because they
+multiply the textures. Set `color`, `metallic` or `roughness` in the rule to tint or scale
+them. The model file's own colour and factors are ignored, since they were meant for its
+own textures. Since the graph makes the textures, a rule that also sets `baseColor`,
+`normal`, `surface` or `alpha` stops the cook. `emissive`, `noNormalMap`, `alphaCutoff` and
+the other switches work as usual. A graph's `Opacity` goes into the surface texture's alpha,
+so for glass whose grime clouds it, add `"transparent": true` and the graph's opacity
+scales the tint, as the Courtyard's window does.
+
+A graph material reads its UVs in metres. The cook divides the UVs of every mesh that uses
+it by the graph's `Width`, so a 2 m brick graph repeats once every 2 units of UV. In
+Blender, unwrap the surfaces at real-world scale, one UV unit to a metre, and a tile starts
+at the UV origin, so a wall unwrapped from its foot starts a row of bricks there. The
+division happens before `targetLength` is applied. A model cooked with `targetLength`
+changes size but keeps its UVs, so its bricks grow or shrink with it.
+
+Errors in the graph stop the model's cook and name the material, and the graph and its
+line where there is one:
+
+```text
+material graph_bricks: ../materials/bricks.material.cs line 12: scale must be at least 1, not 0. (Parameter 'scale')
+material graph_dirt: materials/dirt.material.cs isn't in the source root.
+```
+
+Editing the graph, its variant or an image it reads cooks the model again. A graph that
+several materials or parts use runs once per model cook at each size. The graph is a
+source of its own too, so it also cooks to its own textures. If only models use it, turn
+that off with a `"cook": false` rule in `cook.json`, as you would for a model's textures.
 
 A rigged model keeps its skeleton, bone weights and clips, and `animations` adds clips
 from other files of the same rig, such as Mixamo's:
@@ -528,6 +613,10 @@ prism and hex have sharp edges. Every call also takes a `Surface`, which default
 grey. UVs stretch once across each part, such as each face of a box or the side of a
 cylinder, unless `uvPerMetre` is given; then they count metres, so a tiled texture is the
 same size on every shape whatever its size. Round shapes measure round their widest point.
+A surface from `content.Surface` (a material graph) tiles at its graph's width when
+`uvPerMetre` is not given, and `uvPerMetre` wins when it is. Ribbons, tubes and extrusions
+follow the same rule. A `uvPerMetre` or `TileWidth` must be a finite number above zero, or
+the shape throws an `ArgumentOutOfRangeException` naming it.
 
 ## Meshes made by code
 
@@ -632,7 +721,7 @@ anticlockwise faces outwards, and a flat road listed from right to left faces up
 `closedOutline` joins the last point back to the first. Edges are sharp across the
 outline unless it's `smooth`, as for a pipe. The ends are left open. A ring of vertices
 goes every `step` metres. UVs are in metres: u runs across the outline and v runs along
-the spline, scaled by `uvPerMetre`.
+the spline, scaled by `uvPerMetre`, which is 1 unless the surface has a `TileWidth`.
 
 `Bend` measures along the spline from the back of the mesh (its lowest z). Each vertex
 keeps its x and y across the spline, so the mesh keeps its length. Past the end of an

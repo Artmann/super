@@ -1,10 +1,11 @@
 using Super.Cook;
+using Super.Cook.Materials;
 
 namespace Super.Testing;
 
 /// <summary>
 /// Content held in memory, so a test can state its data next to its checks. What a test adds are
-/// sources, cooked with the built-in cookers the first time anything is read after a change, just as a
+/// sources, cooked with the built-in cookers and the material cooker the first time anything is read after a change, just as a
 /// game's content is cooked before it runs.
 /// </summary>
 public sealed class MemoryContent : IContentFiles
@@ -119,7 +120,7 @@ public sealed class MemoryContent : IContentFiles
         }
 
         var store = new MemoryStore();
-        var result = new CookPipeline(BuiltInCookers.All, new CookOptions()).Cook([_root], store);
+        var result = new CookPipeline([.. BuiltInCookers.All, new MaterialCooker()], new CookOptions()).Cook([_root], store);
         if (!result.Succeeded)
         {
             throw new ContentException(result.Problems.Where(problem => problem.IsError).Select(problem => problem.ToString()).ToArray());

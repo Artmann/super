@@ -62,14 +62,17 @@ the rest is not yet.
 | Time scale | `GameTime.Scale` scales `DeltaSeconds`, never the tick rate | Input and the camera stay smooth in slow motion, and a frozen world still ticks |
 | Tweens | `Tween<T>` is a struct the game keeps and moves with `Update(time)`, blending by checking `typeof(T)` for the six supported types. Curves are cubic Hermite with slopes worked out once when built | No allocation per tick, no scheduler to own them, and they follow the tick clock and `Scale`, so a seed replays the same. Checking the type compiles away for each struct, so no interface is needed on `Vector3` or `Color` |
 | Splines | Every spline is stored as cubic Bézier pieces; points become pieces by centripetal Catmull-Rom (Barry–Goldman). Length is a table of 16 Gauss–Legendre steps per piece, refined to the curve by Newton steps. Minimal frames come from double reflection, with a closed spline's leftover twist spread by distance. `SplineFollower` is a struct that keeps distance within one trip | One evaluator serves both kinds of spline. Centripetal points don't overshoot or loop. Distances come out within a millimetre on a few-metre piece without a big table, frames never flip and close without a snap, and a follower running for hours keeps its place since its float never grows |
-| Content folder | The game reads only cooked content, through `IContentFiles`: `CookedFolder` over the `content` folder beside the program, which holds `content.manifest` and objects stored by hash. Names are the source path with its extension, compared ordinally, and `Content` checks each name's kind in the manifest when it's named. Textures carry their kind and normal-map flag in the cooked header. `MemoryContent` cooks a test's sources with the built-in cookers on first read. The manifest sits in a volatile field, replaced whole by `Refresh` | A typo or a wrong case fails where it's named, on every OS, instead of when it's drawn. Settings live in cook rules rather than code. Background texture loads always see one whole manifest. Tests run the same cookers a build does |
+| Content folder | The game reads only cooked content, through `IContentFiles`: `CookedFolder` over the `content` folder beside the program, which holds `content.manifest` and objects stored by hash. Names are the source path with its extension, compared ordinally, and `Content` checks each name's kind in the manifest when it's named. Textures carry their kind and normal-map flag in the cooked header. `MemoryContent` cooks a test's sources with the built-in cookers and the material cooker on first read. The manifest sits in a volatile field, replaced whole by `Refresh` | A typo or a wrong case fails where it's named, on every OS, instead of when it's drawn. Settings live in cook rules rather than code. Background texture loads always see one whole manifest. Tests run the same cookers a build does |
+| Material graphs | A material is a C# recipe of lazy nodes, run on the CPU at cook time into ordinary textures. Sine, cosine, power, exponent, log and atan2 come from `DMath`, never `Math`. Each node gets its seed from the graph's seed and its place in the graph, through a stream name written with the invariant culture. Each graph compiles alone, and the cooker's version comes from module ids | The renderer can't tell a graph from a texture set, and nothing runs at play time. The same graph, settings and seed give the same bytes on any thread count, and on any machine because `DMath` replaces the functions that can differ between CPUs. The GPU can't promise that, and the cache and tests rely on it. A node's pixels depend on the seed and its position, so adding a node later in the graph moves nothing before it |
 | Animation states | States and actions are the game's enums. One base state loops, keeping its phase across changes; actions play once over it, optionally masked to part of the skeleton | Walk and wave, or run and shoot, need no state per combination |
 | Audio mixing | Super's own `Mixer` writes 48 kHz stereo floats into a span, with a fixed 64 voice slots; OpenAL only plays the result. See [Audio mixer](#audio-mixer) | The same code runs with a device or without one, so headless runs and tests hear exactly what a player would, sample for sample |
 
 The rule for dividing data: if gameplay cares, it's state; if only the eyes care, it's
 view. Views read state and never write it, so animation can't change a simulation's
 outcome. Repeatability is promised for the same build on the same kind of CPU, because
-floating point results can differ between CPU types.
+floating point results can differ between CPU types. Cooked material graphs are held to more:
+their sine, cosine, power, exponent, log and atan2 come from `DMath`, so a graph cooks to the
+same bytes on any machine.
 
 Rendition needs work to support this: keys passed through to per-object motion
 vectors, and a check of how it copes with many thousands of draws. Skeletal animation
@@ -408,6 +411,80 @@ with no source is a warning, not an error, so a clone without its licensed model
 that would cut nothing or everything (see the foliage section below) is an error that stops
 the cook of that model.
 
+Material graphs are cooked by `Super.Cook.Materials`. Each `*.material.cs` file is
+compiled by itself with Roslyn, against `Super.Materials`, `Super.Random` and a few
+runtime assemblies taken from the trusted platform list, so the file's bytes are the whole
+input and editing game code never cooks a material again. The assembly is emitted with an
+embedded portable PDB and loaded into a collectible `AssemblyLoadContext` that hands back
+the cooker's own `Super.Materials`, so `MaterialGraph` is one type on both sides. An
+exception's line is the first stack frame in that assembly. `GraphCompiler` reports
+through a callback rather than to `CookOutput`, because `CookPipeline` files every problem
+under the file being cooked: for a `.material.json` variant, `MaterialGraphs` moves the
+graph's line into the message as `bricks.material.cs line 9: ` and passes no line.
+`MaterialGraphs` holds the compile, variant and run steps for both cookers. The material
+cooker runs its own source through it, and the model cooker calls `MaterialGraphs.Run`
+with a graph's path from the model, so a graph's errors read the same in both, with the
+model's `material <name>: ` in front. Every file it reads goes through `CookInput.Read`,
+which tracks it, and images are read from the folder of the graph or variant named. Compiles are cached by the
+SHA-256 of the source, 32 at most, and the oldest is dropped when a 33rd comes. It isn't
+unloaded, since another cook may still be running it, so its context goes once nothing
+holds it. Graphs compile in debug, so error lines are exact, at the cost of
+unoptimised code in `Pixel` bodies. A second tree, `GlobalUsings.g.cs`, gives each
+graph `System`, `System.Collections.Generic` and `System.Linq`, and nullable is on. A game with
+`ImplicitUsings` gets those three and more, such as `System.IO`. The cook turns Nullable
+on, and a game may or may not. The usings tree is fixed text, so it adds no errors of its
+own, but a graph's compile errors are reported with their lines as usual.
+
+Leaving `System.IO` out of the usings doesn't keep a graph from files, since
+`System.Private.CoreLib` holds `File`, `Thread`, `DateTime.Now` and `System.Random`, and
+`System.Runtime` forwards them. So once the graph emits, `GraphCompiler` walks its own
+tree (not the usings tree) with the semantic model, top down. Each expression that binds
+to a banned symbol is one error on its line, and its children aren't checked, so
+`System.IO.File.Exists` is one error, not three. Banned are the namespaces `System.IO`,
+`System.Net`, `System.Threading`, `System.Diagnostics`, `System.Reflection` and
+`System.Runtime.InteropServices` with everything under them (except
+`System.Diagnostics.CodeAnalysis`, the nullable attributes), the types `System.Random`,
+`System.Environment`, `TimeProvider`, `HashCode` and `Activator`, and the members `Now`,
+`UtcNow` and `Today` on `DateTime` and `DateTimeOffset`, `Guid.NewGuid`,
+`Guid.CreateVersion7`, `GetHashCode` on `string` and `object` (seeded per process),
+`Type.GetType` and `Delegate.CreateDelegate`. A namespace on the left of a longer dotted
+name isn't judged alone, so `System.Diagnostics.CodeAnalysis.NotNull` passes. A type or
+member there still is, so `Environment.ProcessorCount.ToString()` doesn't. The list catches
+mistakes. It isn't a sandbox, since graphs are the project's own trusted code. A `using`
+line names a namespace, so `using System.IO;` is an error even when nothing uses it. Symbols declared in the graph itself are never
+banned. A constructor is named by its type and an extension method by its declaring
+class, and an error is reported once per line and symbol, so `var r = new Random();` is
+one error. A graph that fails the check isn't loaded or cached. `System.Threading.Tasks`
+falls under `System.Threading`, which costs nothing, because the runner already spreads
+each node's rows over the cores.
+
+`Blur` is two passes, across then down, each working a whole row at a time so it reads
+memory in order. Its kernel stops at 3 deviations. When that is longer than the image, the
+weights are folded onto the pixels they wrap to, summed in doubles, so a pass never takes
+more than `size` taps. At 2048 pixels a blur of radius 0.1 went from 17 seconds to 5, and
+one of radius 1, whose kernel is 12,289 taps, from 225 seconds to 8. The folded weights
+are the same numbers in the same order on every run, and each tap is a multiply then an
+add, never fused, so the bytes stay the same on any thread count.
+
+Graphs compile twice on purpose. The cook compiles each alone so its bytes are the whole
+input, and the game's build compiles them all together, via a `ProjectReference` to `Super.Materials` in
+`Super.targets`, only so the editor can complete and check them. That output is never used, and `Private="false"` keeps
+the library out of the game's folder. The cooker's `Version` is
+folded from the module version ids of `Super.Materials`, `Super.Random` and
+`Super.Cook.Materials`, so rebuilding any of them with a change cooks every graph again.
+The model cooker's list and `MemoryContent` both include it.
+
+A model's material rule can name a graph with `graph`. The model cooker runs each
+distinct path and size once per cook of the model, parts included, packs the images into
+RGBA8 with `MaterialPixels`, the same code `MaterialWriter` uses, and hands the colour,
+normal and surface pixels to `ModelTextures.AddPixels`, deduplicated by path, size and
+part. A graph material's UVs are divided by the graph's `Width` as the vertices are read,
+before the turn and `targetLength`. Assimp's `FlipUVs` has already made v `1 - v` of the
+file's bottom-up v, so the cook turns v back, divides and turns it again, `1 - (1 - v) / w`:
+v keeps its direction and a tile's edge stays at the file's UV origin. The model cooker's
+`Version` folds in `MaterialGraphs.Version`, so a change to `Super.Materials` cooks every
+model again, not only those with graphs, which is simpler and correct.
+
 A rigged model keeps each mesh of the source as its own part, one per material, in the order
 the nodes hold them, and the rig importer places each mesh by its node. Each part is named by
 the node that holds its mesh, falling back to the mesh's own name when the node has none, so
@@ -440,9 +517,9 @@ into the frame's draw list, checking that the mask's part count matches the load
 masked draw still skins the whole skeleton once. The profiler keys copies by model and mask,
 so `ShownTriangles` counts only what each mask shows.
 
-The `.rmodel` format is version 7 and the model cook version 6. Their history is in the
-comments on `ModelData.Version` and `ModelCooker.Version`, and an old file fails with
-"Cook it again" when it is read.
+The `.rmodel` format is version 7 and the model cook version 8, with the material graphs'
+version folded in. Their history is in the comments on `ModelData.Version` and
+`ModelCooker.Version`, and an old file fails with "Cook it again" when it is read.
 
 **The build.** `Super.targets` gives a game a `ProjectReference` to `Super.Cook.Tool` that
 only builds it: `ReferenceOutputAssembly="false"` and `Private="false"` keep the tool's
@@ -651,7 +728,8 @@ UV set, and the cooker keeps the first. That's fine for the adventurer model, wh
 sets are identical.
 
 Shadows blur with distance from the object casting them: the lighting pass finds
-how far away the blocker is, then widens its sampling to match. The game says
+how far away the blocker is, then widens its sampling to match, by the sun's size
+(`ShadowSettings.LightAngle`, from `view.Shadows`' `sunSize`). The game says
 which area the shadow map covers through `FrameView.Shadows`. A smaller area gives
 sharper shadows, so the sample fits it to the model. A wide outdoor scene asks for up
 to four cascades, each a ball three times the radius of the one before.
@@ -664,7 +742,11 @@ a ball of the cascade's radius. The ball's size never depends on the camera's an
 as the camera turns or moves. An orthographic view, and a probe's capture, keep every ball
 centred on the target instead. The light's depth range reaches past the ball towards the
 sun at least as far as a ball round the target would, so a tall caster just out of view
-still shadows the ground in front of the camera. A longer reach spreads depth thinner, and
+still shadows the ground in front of the camera. It also reaches far enough to take in
+every draw whose ball overlaps the column the map sees towards the sun
+(`ShadowPass.CasterReach`, over the balls `DrawSelection.Bounds` works out each frame), so
+a tree out of frame still dapples a wall in it. A caster can stretch the reach to no more
+than six radii (`ShadowPass.MaxReach`). A longer reach spreads depth thinner, and
 `FrameUniforms.ShadowDepthScales` carries the ratio so the shaders scale their bias to match.
 
 The lighting pass picks the first cascade a point falls inside. In the outer tenth of a map
@@ -728,6 +810,14 @@ flight, so the switch waits for the device to go idle once and rewrites them. Tr
 reflections still need last frame's picture, so the HDR image is copied to history instead
 of the resolved one. With reflections off too, nothing is copied and history counts as
 stale. Vsync switches by remaking the swapchain on the next frame.
+
+`RenderEffects.Materials` skips no pass. It's read where surfaces are written: `writeSurface()`
+in `surface.glsl` writes `PLAIN_COLOR` and `PLAIN_ROUGHNESS` from `common.glsl`, no metal, full
+AO and the mesh's own normal, after the surface shader has run, so every custom material is
+covered with no change of its own. Emissive and foliage translucency are kept, and a cut-out
+still discards before it gets there. `transparent.frag` keeps the surface's alpha but takes the
+plain colour and roughness, and samples the scene straight behind with no refraction or frost.
+Ghosts are left as they are, since they're already a flat colour.
 
 The frame limit lives in Super's window loop, not the renderer (`FrameLimiter`). Each frame
 gets a slot one period after the last, so a long frame is made up by a shorter wait. A frame
@@ -1099,9 +1189,9 @@ Anything larger than a block gets its own allocation.
   frames. Root motion only carries travel over the ground, not turns.
 - The adventurer model has 929,000 triangles, which suits a showcase more than a game. A
   game character would need a reduced version and levels of detail.
-- A shadow cascade reaches towards the sun only as far as a cascade round the camera's
-  target would. Very long shadows from far-off things, like a distant ridge in a low sun,
-  can be missing in front of the camera.
+- A caster can stretch a shadow cascade's reach towards the sun to at most six of its
+  radii. Very long shadows from far-off things, like a distant ridge in a low sun, can be
+  missing in front of the camera. Draws without bounds don't stretch it at all.
 - Cascades split three times wider each, with no setting to blend between linear and
   logarithmic spacing.
 - Only one sun casts shadows, so the others shine through objects, held back only

@@ -220,6 +220,11 @@ Every file is an asset, chosen by its extension:
 | `.png` `.jpg` `.jpeg` `.tga` | texture | Decoded RGBA pixels, sRGB unless set linear. Mips are made when it loads |
 | `.wav` `.ogg` `.mp3` | sound | The file itself, once it decodes |
 | `.glb` `.gltf` `.fbx` `.obj` | model | `.rmodel`, through `Super.Cook.Models` |
+| `.material.cs` | material | A [material graph](materials.md), compiled and run into `#color`, `#normal`, `#surface` and `#height` textures and a `#material` data part |
+
+The longest matching extension wins, so `bricks.material.cs` is a material graph, not
+code. A graph cooks at 1024 pixels unless a rule sets its `size`; see
+[Material graphs](materials.md#size).
 
 A file with no cooker fails the cook unless a rule turns cooking off for it. Files and
 folders whose names start with a dot, `.bin`, `.md` and `.txt` are never assets.
@@ -274,6 +279,13 @@ Naming a part that isn't there lists the ones that are:
 archer-props/firs.glb#tal isn't in the cooked content. Check the name, including its case and extension. archer-props/firs.glb has the parts: tall, young.
 ```
 
+### Materials
+
+A material graph is named with `content.Surface("materials/bricks.material.cs")`, which
+gives a `Surface` with the graph's textures and its width in metres as `TileWidth`. It
+stops with a `ContentException` for a name that has no `#material` part. See
+[materials.md](materials.md).
+
 ### Mesh names
 
 A rigged model keeps the name of each of its meshes: the name of the node that holds the
@@ -319,8 +331,8 @@ without it knows it's shipped. There is nothing to add to the project for it.
 ## In tests
 
 A test can state its sources next to its checks. `MemoryContent` cooks them in memory
-with the built-in cookers the first time anything is read, so a test sees what a game
-would, and JSON that doesn't parse fails with the cook's message:
+with the built-in cookers and the material cooker the first time anything is read, so a
+test sees what a game would, and JSON that doesn't parse fails with the cook's message:
 
 ```csharp
 var files = new MemoryContent { ["items/axe.json"] = axeJson };

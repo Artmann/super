@@ -63,6 +63,9 @@ vec2 refractedUv(vec2 here, vec3 v, vec3 n, float ior) {
 void main() {
     Material material = materials[draw.material];
     vec4 baseColor = texture(textures[material.baseColorTexture], inUv) * material.baseColor * vec4(draw.tint.rgb, 1.0);
+    // Opacity can come from either texture, as in surface.glsl and shadow.frag: a material
+    // graph keeps it in the surface texture's alpha.
+    baseColor.a *= texture(textures[material.surfaceTexture], inUv).a;
     vec3 emissive = texture(textures[material.emissiveTexture], inUv).rgb * material.emissive.rgb;
     float roughnessOfSurface = material.roughness;
 
@@ -73,6 +76,14 @@ void main() {
         baseColor = vec4(color, draw.ghost.a);
         emissive = color * GHOST_GLOW * draw.ghost.a;
         roughnessOfSurface = 0.7;
+    }
+
+    // With materials off, see-through things keep how see-through they are, and only that:
+    // plain clay in colour, matte, and clear, with no bending or frosting of what's behind.
+    bool plain = isOff(OFF_MATERIALS) && draw.ghost.a <= 0.0;
+    if (plain) {
+        baseColor.rgb = PLAIN_COLOR;
+        roughnessOfSurface = PLAIN_ROUGHNESS;
     }
 
     vec3 n = normalize(gl_FrontFacing ? inNormal : -inNormal);
@@ -131,8 +142,8 @@ void main() {
     }
 
     vec2 here = gl_FragCoord.xy / vec2(textureSize(sceneDepth, 0));
-    vec2 uv = refractedUv(here, v, n, material.ior);
-    float lod = min(roughnessOfSurface * FROST_LODS, float(textureQueryLevels(sceneColor) - 1));
+    vec2 uv = plain ? here : refractedUv(here, v, n, material.ior);
+    float lod = plain ? 0.0 : min(roughnessOfSurface * FROST_LODS, float(textureQueryLevels(sceneColor) - 1));
     vec3 transmitted = textureLod(sceneColor, uv, lod).rgb;
     outColor = vec4(own + (1.0 - coverage) * transmitted, 1.0);
 }

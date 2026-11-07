@@ -155,6 +155,9 @@ public sealed class Input
 
     internal void Listen(IInputListener listener) => _listeners.Add(listener);
 
+    /// <summary>Whether the key is down right now, between ticks, for the interface to read as a press happens.</summary>
+    internal bool Held(Key key) => _keys.Physical((int)key);
+
     internal void KeyDown(Key key) => _keys.Press((int)key);
 
     internal void KeyUp(Key key) => _keys.Release((int)key);
@@ -303,6 +306,8 @@ public sealed class Input
         private readonly State[] _states = new State[count];
 
         public bool Down(int index) => _states[index].Down;
+
+        public bool Physical(int index) => _states[index].Physical;
 
         public bool Pressed(int index) => _states[index].Pressed;
 

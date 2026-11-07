@@ -23,6 +23,9 @@ internal sealed unsafe class ShadowPass : IDisposable
     /// <summary>The share of the furthest reach over which shadows fade out.</summary>
     public const float FadeShare = 0.15f;
 
+    /// <summary>The furthest, in radii, that a caster can stretch a cascade towards the light.</summary>
+    public const float MaxReach = 6f;
+
     private static readonly Extent2D Extent = new(Resolution, Resolution);
 
     private readonly VulkanContext _context;
@@ -195,6 +198,34 @@ internal sealed unsafe class ShadowPass : IDisposable
             0f, 0f, 1f / (reach + radius), 0f,
             0f, 0f, 1f, 1f);
         return view * projection;
+    }
+
+    /// <summary>
+    /// How far a cascade centred at <paramref name="center"/> must reach towards the light to
+    /// take in every caster that could shade it: those whose ball, x, y and z with the radius
+    /// in w, overlaps the column the map sees towards the light. Never less than
+    /// <paramref name="reach"/>, and a caster can stretch it to no more than
+    /// <see cref="MaxReach"/> radii, since a longer reach spreads depth thinner.
+    /// </summary>
+    public static float CasterReach(Vector3 center, float radius, Vector3 lightDirection, float reach, ReadOnlySpan<Vector4> casters)
+    {
+        float limit = radius * MaxReach;
+        // The map is a square, so its corners are root two radii out.
+        float column = radius * MathF.Sqrt(2f);
+        foreach (var caster in casters)
+        {
+            var offset = new Vector3(caster.X, caster.Y, caster.Z) - center;
+            float along = Vector3.Dot(offset, lightDirection);
+            float aside = (offset - lightDirection * along).Length();
+            if (aside > column + caster.W)
+            {
+                continue;
+            }
+
+            reach = MathF.Max(reach, MathF.Min(along + caster.W, limit));
+        }
+
+        return reach;
     }
 
     /// <summary>

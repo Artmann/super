@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Super.Random\Super.Random.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Super.Materials.Tests" />
+    <InternalsVisibleTo Include="Super.Cook.Materials" />
+  </ItemGroup>
+
+</Project>

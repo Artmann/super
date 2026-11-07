@@ -69,6 +69,23 @@ public sealed class InputScript
         return Release(MouseButton.Left).Wait(1);
     }
 
+    /// <summary>
+    /// Presses <paramref name="button"/> on the view given the id <paramref name="from"/>, moves to the one given
+    /// <paramref name="to"/> in a few steps, and lets go. Both are looked up when each step runs.
+    /// </summary>
+    public InputScript Drag(object from, object to, MouseButton button = MouseButton.Left)
+    {
+        MoveMouse(from).Wait(1).Hold(button).Wait(1);
+        const int Steps = 4;
+        for (int step = 1; step <= Steps; step++)
+        {
+            float share = step / (float)Steps;
+            Then((input, ui) => input.MouseMoved(Vector2.Lerp(ui.ScreenMiddle(from), ui.ScreenMiddle(to), share))).Wait(1);
+        }
+
+        return Release(button).Wait(1);
+    }
+
     /// <summary>Adds something to happen now, or this many ticks from now without moving on.</summary>
     internal InputScript Then(Action<Input> apply, long ticksFromNow = 0) => Then((input, _) => apply(input), ticksFromNow);
 

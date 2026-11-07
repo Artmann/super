@@ -67,6 +67,18 @@ public sealed class AnimationSource
 public sealed class MaterialRule
 {
     public string Match { get; set; } = "";
+
+    /// <summary>
+    /// A material graph, <c>*.material.cs</c>, or a variant of one, <c>*.material.json</c>, by its path from the
+    /// model's folder. It runs while the model cooks and gives the material its colour, normal and surface textures,
+    /// so it can't be used with <see cref="BaseColor"/>, <see cref="Normal"/>, <see cref="Surface"/> or
+    /// <see cref="Alpha"/>. The meshes' UVs are read in metres: they're divided by the graph's width.
+    /// </summary>
+    public string? Graph { get; set; }
+
+    /// <summary>The size the graph runs at, in pixels across: a power of two from 16 to 4096. The default is 1024.</summary>
+    public int? GraphSize { get; set; }
+
     public string? BaseColor { get; set; }
 
     /// <summary>
@@ -117,10 +129,16 @@ public sealed class MaterialRule
     /// <summary>Light that spreads under the surface, for skin, wax and marble. Off by default.</summary>
     public SubsurfaceRule? Subsurface { get; set; }
 
-    /// <summary>Overrides the value in the model file, if it has one. The default is 0.</summary>
+    /// <summary>
+    /// Overrides the value in the model file, if it has one. The default is 0, or 1 with a
+    /// <see cref="Graph"/>, since it multiplies the graph's metalness.
+    /// </summary>
     public float? Metallic { get; set; }
 
-    /// <summary>Overrides the value in the model file, if it has one. The default is 0.6.</summary>
+    /// <summary>
+    /// Overrides the value in the model file, if it has one. The default is 0.6, or 1 with a
+    /// <see cref="Graph"/>, since it multiplies the graph's roughness.
+    /// </summary>
     public float? Roughness { get; set; }
 
     /// <summary>

@@ -2,9 +2,11 @@
   <Folder Name="/src/">
     <Project Path="src/Super/Super.csproj" />
     <Project Path="src/Super.Random/Super.Random.csproj" />
+    <Project Path="src/Super.Materials/Super.Materials.csproj" />
     <Project Path="src/Super.Ecs/Super.Ecs.csproj" />
     <Project Path="src/Super.Physics/Super.Physics.csproj" />
     <Project Path="src/Super.Cook/Super.Cook.csproj" />
+    <Project Path="src/Super.Cook.Materials/Super.Cook.Materials.csproj" />
     <Project Path="src/Super.Cook.Models/Super.Cook.Models.csproj" />
     <Project Path="src/Super.Testing/Super.Testing.csproj" />
     <Project Path="src/Rendition/Rendition.csproj" />
@@ -16,6 +18,7 @@
   <Folder Name="/examples/">
     <Project Path="examples/Bricks/Bricks.csproj" />
     <Project Path="examples/ColorCube/ColorCube.csproj" />
+    <Project Path="examples/Courtyard/Courtyard.csproj" />
     <Project Path="examples/Crafting/Crafting.csproj" />
     <Project Path="examples/Crypt/Crypt.csproj" />
     <Project Path="examples/Dust/Dust.csproj" />
@@ -31,6 +34,7 @@
     <Project Path="examples/Wax/Wax.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Courtyard.Tests/Courtyard.Tests.csproj" />
     <Project Path="tests/Crafting.Tests/Crafting.Tests.csproj" />
     <Project Path="tests/Forest.Tests/Forest.Tests.csproj" />
     <Project Path="tests/Reef.Tests/Reef.Tests.csproj" />
@@ -38,6 +42,7 @@
     <Project Path="tests/Super.Cook.Tests/Super.Cook.Tests.csproj" />
     <Project Path="tests/Super.Ecs.Tests/Super.Ecs.Tests.csproj" />
     <Project Path="tests/Super.Physics.Tests/Super.Physics.Tests.csproj" />
+    <Project Path="tests/Super.Materials.Tests/Super.Materials.Tests.csproj" />
     <Project Path="tests/Super.Random.Tests/Super.Random.Tests.csproj" />
     <Project Path="tests/Super.Tests/Super.Tests.csproj" />
     <Project Path="tests/Terrain.Tests/Terrain.Tests.csproj" />

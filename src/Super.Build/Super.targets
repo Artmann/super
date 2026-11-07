@@ -50,6 +50,17 @@
                       GlobalPropertiesToRemove="$(_SuperCookRemovedProperties)" />
   </ItemGroup>
 
+  <!--
+    Material graphs (*.material.cs) are C# files in the game's folder, so the game's own build compiles them
+    too. That gives them autocomplete and errors in the editor. They need Super.Materials for it, and only
+    for that: the cook compiles each graph on its own, and nothing of the library reaches the game's output.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\Super.Materials\Super.Materials.csproj"
+                      Private="false"
+                      PrivateAssets="all" />
+  </ItemGroup>
+
   <Target Name="SuperCook" AfterTargets="Build">
     <!-- Items are read here rather than when the project loads, so SuperContent can be listed after the import. -->
     <ItemGroup>

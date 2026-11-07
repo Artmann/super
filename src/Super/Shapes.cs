@@ -9,13 +9,16 @@ namespace Super;
 /// zero with y up, its triangles face outwards, and its normals, tangents and UVs are set.
 /// Curved shapes are smooth; <see cref="Flat"/> gives any mesh hard, faceted edges.
 /// UVs stretch once across each part unless <c>uvPerMetre</c> is given, which makes them
-/// tile in metres instead, so a texture keeps its size whatever the shape's size.
+/// tile in metres instead, so a texture keeps its size whatever the shape's size. A surface
+/// from <see cref="Content.Surface(string)"/> tiles at its material's width when
+/// <c>uvPerMetre</c> isn't given.
 /// </summary>
 public static partial class Shapes
 {
     /// <summary>A box with this width, height and depth. One texture covers each face.</summary>
     public static GeneratedMesh Box(Vector3 size, Surface? surface = null, float? uvPerMetre = null)
     {
+        uvPerMetre = PerMetre(uvPerMetre, surface);
         RequirePositive(size.X, nameof(size), "width");
         RequirePositive(size.Y, nameof(size), "height");
         RequirePositive(size.Z, nameof(size), "depth");
@@ -55,6 +58,7 @@ public static partial class Shapes
     /// </summary>
     public static GeneratedMesh Sphere(float radius = 0.5f, int segments = 32, int rings = 16, Surface? surface = null, float? uvPerMetre = null)
     {
+        uvPerMetre = PerMetre(uvPerMetre, surface);
         RequirePositive(radius, nameof(radius), "radius");
         RequireAtLeast(segments, 3, nameof(segments));
         RequireAtLeast(rings, 2, nameof(rings));
@@ -72,6 +76,7 @@ public static partial class Shapes
     /// </summary>
     public static GeneratedMesh Hemisphere(float radius = 0.5f, int segments = 32, int rings = 8, Surface? surface = null, float? uvPerMetre = null)
     {
+        uvPerMetre = PerMetre(uvPerMetre, surface);
         RequirePositive(radius, nameof(radius), "radius");
         RequireAtLeast(segments, 3, nameof(segments));
         RequireAtLeast(rings, 1, nameof(rings));
@@ -91,6 +96,7 @@ public static partial class Shapes
     /// </summary>
     public static GeneratedMesh Capsule(float radius = 0.5f, float height = 2f, int segments = 32, int rings = 8, Surface? surface = null, float? uvPerMetre = null)
     {
+        uvPerMetre = PerMetre(uvPerMetre, surface);
         RequirePositive(radius, nameof(radius), "radius");
         RequireAtLeast(segments, 3, nameof(segments));
         RequireAtLeast(rings, 1, nameof(rings));
@@ -115,6 +121,7 @@ public static partial class Shapes
     /// </summary>
     public static GeneratedMesh Cylinder(float topRadius = 0.5f, float bottomRadius = 0.5f, float height = 1f, int segments = 32, Surface? surface = null, float? uvPerMetre = null)
     {
+        uvPerMetre = PerMetre(uvPerMetre, surface);
         RequireAtLeastZero(topRadius, nameof(topRadius));
         RequireAtLeastZero(bottomRadius, nameof(bottomRadius));
         if (topRadius == 0f && bottomRadius == 0f)
@@ -163,6 +170,7 @@ public static partial class Shapes
     /// </summary>
     public static GeneratedMesh Plane(Vector2 size, int subdivisions = 1, Surface? surface = null, float? uvPerMetre = null)
     {
+        uvPerMetre = PerMetre(uvPerMetre, surface);
         RequirePositive(size.X, nameof(size), "width");
         RequirePositive(size.Y, nameof(size), "depth");
         RequireAtLeast(subdivisions, 1, nameof(subdivisions));
@@ -185,6 +193,7 @@ public static partial class Shapes
     /// </summary>
     public static GeneratedMesh Quad(Vector2 size, Surface? surface = null, float? uvPerMetre = null)
     {
+        uvPerMetre = PerMetre(uvPerMetre, surface);
         RequirePositive(size.X, nameof(size), "width");
         RequirePositive(size.Y, nameof(size), "height");
 
@@ -206,6 +215,7 @@ public static partial class Shapes
     /// </summary>
     public static GeneratedMesh Torus(float radius = 0.375f, float tube = 0.125f, int segments = 32, int sides = 16, Surface? surface = null, float? uvPerMetre = null)
     {
+        uvPerMetre = PerMetre(uvPerMetre, surface);
         RequirePositive(radius, nameof(radius), "radius");
         RequirePositive(tube, nameof(tube), "tube");
         if (tube >= radius)
@@ -344,6 +354,33 @@ public static partial class Shapes
         }
 
         return MathF.SinCos(angle);
+    }
+
+    /// <summary>The tiling to use: the one given, else one tile per <see cref="Surface.TileWidth"/> metres, else none.</summary>
+    internal static float? PerMetre(float? uvPerMetre, Surface? surface)
+    {
+        if (uvPerMetre is { } given)
+        {
+            if (!(given > 0f) || !float.IsFinite(given))
+            {
+                throw new ArgumentOutOfRangeException(nameof(uvPerMetre), FormattableString.Invariant($"uvPerMetre must be a finite number above zero, not {given}."));
+            }
+
+            return given;
+        }
+
+        if (surface?.TileWidth is not { } width)
+        {
+            return null;
+        }
+
+        // A width so small that one over it overflows is as unusable as zero.
+        if (!(width > 0f) || !float.IsFinite(width) || !float.IsFinite(1f / width))
+        {
+            throw new ArgumentOutOfRangeException(nameof(surface), FormattableString.Invariant($"The surface's TileWidth must be a finite number above zero, not {width}."));
+        }
+
+        return 1f / width;
     }
 
     private static Vector2 Tiling(float? uvPerMetre, float width, float height)
