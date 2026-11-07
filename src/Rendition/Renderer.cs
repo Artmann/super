@@ -178,6 +178,9 @@ public sealed unsafe class Renderer : IDisposable
     public (long Camera, long Shadows) DrawnTriangles { get; private set; }
 
     private DrawItem[] _cameraDraws = [];
+
+    // The world-space ball round each draw this frame, for fitting sun shadows to what casts them.
+    private Vector4[] _casterBounds = [];
     private readonly DrawItem[][] _shadowDraws = new DrawItem[ShadowPass.MaxCascades][];
     private readonly int[] _shadowCounts = new int[ShadowPass.MaxCascades];
     private readonly Matrix4x4[] _shadowMatrices = new Matrix4x4[ShadowPass.MaxCascades];
@@ -611,7 +614,7 @@ public sealed unsafe class Renderer : IDisposable
         for (int face = 0; face < faces.Length; face++)
         {
             faceView.View = Matrix4x4.CreateLookAt(probe.Position, probe.Position + faces[face].Forward, faces[face].Up);
-            bool castsShadow = WriteUniforms(frame, faceView, Matrix4x4.Identity, Vector2.Zero, 0, false, capturingProbe: true);
+            bool castsShadow = WriteUniforms(frame, faceView, Matrix4x4.Identity, Vector2.Zero, 0, false, capturingProbe: true, []);
             WriteBones(frame, view.Bones);
             ResetInstances(frame, visible.Length + (castsShadow ? shadowCasters.Length * _shadowCascades : 0));
 
@@ -876,7 +879,14 @@ public sealed unsafe class Renderer : IDisposable
         var viewProjection = view.View * view.Projection;
         var shift = antiAliased ? Jitter[_frameNumber % JitterSteps] * 2f / new Vector2(view.Width, view.Height) : Vector2.Zero;
         var previous = _historyReady ? _previousViewProjection : viewProjection;
-        bool castsShadow = WriteUniforms(frame, view, previous, shift, _frameNumber, _historyReady, capturingProbe: false);
+        if (_casterBounds.Length < draws.Length)
+        {
+            _casterBounds = new Vector4[draws.Length * 2];
+        }
+
+        int casters = DrawSelection.Bounds(draws, _details, _casterBounds);
+        bool castsShadow = WriteUniforms(
+            frame, view, previous, shift, _frameNumber, _historyReady, capturingProbe: false, _casterBounds.AsSpan(0, casters));
         WriteBones(frame, view.Bones);
         _previousViewProjection = viewProjection;
         _frameNumber++;
@@ -1572,7 +1582,8 @@ public sealed unsafe class Renderer : IDisposable
         Vector2 shift,
         int frameNumber,
         bool historyValid,
-        bool capturingProbe)
+        bool capturingProbe,
+        ReadOnlySpan<Vector4> casters)
     {
         var viewProjection = view.View * view.Projection * Matrix4x4.CreateTranslation(shift.X, shift.Y, 0f);
         Matrix4x4.Invert(viewProjection, out var inverse);
@@ -1625,7 +1636,7 @@ public sealed unsafe class Renderer : IDisposable
             bool casts = !castsShadow && light.CastsShadow && view.Shadows.Radius > 0f && !_off.HasFlag(RenderEffects.SunShadows);
             if (casts)
             {
-                uniforms->ShadowRadii = FitCascades(view, direction, fitToView: !capturingProbe, out uniforms->ShadowFade, out uniforms->ShadowDepthScales);
+                uniforms->ShadowRadii = FitCascades(view, direction, fitToView: !capturingProbe, casters, out uniforms->ShadowFade, out uniforms->ShadowDepthScales);
                 for (int cascade = 0; cascade < _shadowCascades; cascade++)
                 {
                     uniforms->ShadowMatrices[cascade] = _shadowMatrices[cascade];
@@ -1693,7 +1704,8 @@ public sealed unsafe class Renderer : IDisposable
     /// settings' centre. Returns
     /// each cascade's radius, and how shadows fade out with distance.
     /// </summary>
-    private Vector4 FitCascades(in FrameView view, Vector3 direction, bool fitToView, out Vector4 fade, out Vector4 depthScales)
+    private Vector4 FitCascades(
+        in FrameView view, Vector3 direction, bool fitToView, ReadOnlySpan<Vector4> casters, out Vector4 fade, out Vector4 depthScales)
     {
         var radii = Vector4.Zero;
         depthScales = Vector4.One;
@@ -1715,6 +1727,10 @@ public sealed unsafe class Renderer : IDisposable
                 // Reach towards the sun at least as far as a cascade round the target would,
                 // so tall things out of view, like the edge of a wood in a low sun, still cast.
                 reach = radius + MathF.Max(Vector3.Dot(view.Shadows.Center - center, direction), 0f);
+
+                // And far enough to take in whatever stands up-sun of it, like a tree out of
+                // frame whose shade falls on a wall in it.
+                reach = ShadowPass.CasterReach(center, radius, direction, reach, casters);
             }
 
             _shadowMatrices[cascade] = ShadowPass.CreateMatrix(direction, center, radius, reach);
