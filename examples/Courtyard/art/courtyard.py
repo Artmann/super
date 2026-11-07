@@ -19,7 +19,7 @@ import bmesh
 import math
 import os
 import random
-from mathutils import Matrix, Vector, noise
+from mathutils import Matrix, Quaternion, Vector, noise
 
 SCENE = "Courtyard"
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "content", "models", "courtyard.glb")
@@ -108,12 +108,17 @@ def make_materials():
         "frame": material("window_frame", (0.04, 0.035, 0.03), metallic=0.6, roughness=0.5),
         "glass": material("graph_glass", (0.3, 0.36, 0.34), roughness=0.05),
         "interior": material("interior", (0.015, 0.013, 0.012), roughness=1.0),
+        "room": material("room", (0.38, 0.31, 0.23), roughness=0.95),
+        "bark": material("bark", (0.16, 0.13, 0.1), roughness=0.9),
+        "tree_leaf": material("tree_leaf", (0.11, 0.19, 0.05), roughness=0.7),
+        # A barn lamp in glossy bottle-green enamel, white enamel inside the shade.
+        "enamel": material("enamel", (0.03, 0.075, 0.05), roughness=0.28),
         "shade": material("shade_inner", (0.8, 0.75, 0.65), roughness=0.5),
         "bulb": material("bulb", (1.0, 0.85, 0.6), emission=(1.0, 0.75, 0.45), strength=12.0),
         "water": material("water", (0.03, 0.025, 0.02), roughness=0.02),
         "ivy": material("ivy", (0.12, 0.2, 0.06), roughness=0.7),
         "vine": material("vine", (0.12, 0.09, 0.06), roughness=0.9),
-        "plaster": material("plaster", (0.72, 0.7, 0.66), roughness=0.95),
+        "plaster": material("graph_whitewash", (0.72, 0.7, 0.66), roughness=0.95),
         "dead_leaf": material("dead_leaf", (0.42, 0.24, 0.1), roughness=0.8),
         "dead_leaf_orange": material("dead_leaf_orange", (0.7, 0.36, 0.08), roughness=0.75),
         "grass": material("grass", (0.2, 0.3, 0.08), roughness=0.7),
@@ -244,6 +249,20 @@ def rock(bm, center, dims, mat, power=3.0, bumps=0.12, yaw=0.0, segments=(14, 9)
     return verts
 
 
+def connected_faces(start):
+    """Every face joined to start through shared edges: one whole object in a shared bmesh."""
+    seen = {start}
+    stack = [start]
+    while stack:
+        f = stack.pop()
+        for e in f.edges:
+            for g in e.link_faces:
+                if g not in seen:
+                    seen.add(g)
+                    stack.append(g)
+    return list(seen)
+
+
 def block_axis(h, bevel, step):
     """Grid positions along one axis of a block from -h to h: four steps round each bevel, so
     it turns in a smooth quarter circle, and an even spacing of about step across the face."""
@@ -315,18 +334,34 @@ def block(bm, center, half, mat, bevel=0.03, yaw=0.0, roll=(0.0, 0.0), warp=0.0,
             faces.append(bm.faces.new((vert(nx, j, k), vert(nx, j + 1, k), vert(nx, j + 1, k + 1), vert(nx, j, k + 1))))
     verts = list(grid.values())
 
-    # Knocked corners: everything beyond a plane across the corner is pushed back onto it, and
-    # the broken face is left rough, with a conchoidal scoop.
+    # Knocked corners: the corner is cut off along a plane, so the break has a clean edge
+    # rather than following the grid in steps, and the hole is closed with a fan from a point
+    # sunk a little into the stone, so the break is a shallow scoop. It's flat shaded, so it
+    # reads as a fresh fracture against the worn faces. The middle of the bottom face is never
+    # chipped, so the block is found from it.
+    keep = grid[(nx // 2, ny // 2, 0)]
+    flat = []
     for corner, size in chips:
         sx, sy, sz = corner
         tip = Vector((sx * hx, sy * hy, sz * hz))
         normal = Vector((sx * rng.uniform(0.6, 1.2), sy * rng.uniform(0.6, 1.2), sz * rng.uniform(0.6, 1.2))).normalized()
         plane = tip - normal * size
-        for v in verts:
-            d = (v.co - plane).dot(normal)
-            if d > 0:
-                scoop = 0.25 * size * max(0.0, 1.0 - (v.co - plane).length / (size * 1.6))
-                v.co -= normal * (d + scoop + 0.004 * noise.noise(v.co * 40.0 + seed))
+        edges = list({e for f in faces for e in f.edges})
+        cut = bmesh.ops.bisect_plane(bm, geom=verts + edges + faces, plane_co=plane, plane_no=normal, dist=1e-5,
+                                     clear_outer=True)
+        rim = [e for e in cut["geom_cut"] if isinstance(e, bmesh.types.BMEdge) and e.is_valid and e.is_boundary]
+        if not rim:
+            faces = connected_faces(keep.link_faces[0])
+            verts = list({v for f in faces for v in f.verts})
+            continue
+        broken = bmesh.ops.holes_fill(bm, edges=rim, sides=0)["faces"]
+        poked = bmesh.ops.poke(bm, faces=broken)
+        for v in poked["verts"]:
+            v.co -= normal * size * 0.12
+        flat.extend(poked["faces"])
+        faces = connected_faces(keep.link_faces[0])
+        verts = list({v for f in faces for v in f.verts})
+        bmesh.ops.recalc_face_normals(bm, faces=faces)
 
     # Rolled and turned into place.
     turn = Matrix.Rotation(yaw, 3, "Z") @ Matrix.Rotation(roll[1], 3, "Y") @ Matrix.Rotation(roll[0], 3, "X")
@@ -336,6 +371,9 @@ def block(bm, center, half, mat, bevel=0.03, yaw=0.0, roll=(0.0, 0.0), warp=0.0,
     for f in faces:
         f.material_index = mat
         f.smooth = True
+    for f in flat:
+        if f.is_valid:
+            f.smooth = False
     bm.normal_update()
     box_uv(bm, faces, (rng.uniform(0, 2), rng.uniform(0, 2), rng.uniform(0, 2)))
     return verts
@@ -636,7 +674,7 @@ def build_window(sc, M, x0, x1):
     emit(sc, "window_frame", bm, [M["frame"]])
 
     # The glass, one pane facing the courtyard so the light passes through one layer, and a
-    # dark room behind it.
+    # room behind it with limewashed walls, which the game lights from inside.
     bm = bmesh.new()
     outline = [(x0 + 0.01, SILL_Z + 0.03)] + [(x, z - 0.01) for x, z in arch[1:-1]] + [(x1 - 0.01, SILL_Z + 0.03)]
     face = bm.faces.new([bm.verts.new((x, y - t * 0.5, z)) for x, z in outline])
@@ -648,7 +686,7 @@ def build_window(sc, M, x0, x1):
     bm = bmesh.new()
     box(bm, (x0 - 0.3, y + 0.05, 0.4), (x1 + 0.3, y + 3.5, SPRING_Z + 1.2), 0)
     bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
-    emit(sc, "interior", bm, [M["interior"]])
+    emit(sc, "room", bm, [M["room"]])
 
 
 def build_plinth(sc, M):
@@ -736,17 +774,22 @@ def build_lamp(sc, M):
     # The shade: a neck, a low dome, and a wide, shallow skirt with a rolled rim, so from the
     # ground you see into it.
     sz = lz - 0.08
+    # The inside follows the outside about a centimetre lower, so the pale enamel faces the
+    # bulb and the ground. The outside is capped at the neck, where the arm goes in.
     outer = [(0.035, 0.06), (0.06, 0.05), (0.08, 0.0), (0.16, -0.045), (0.3, -0.085), (0.42, -0.115), (0.45, -0.125), (0.455, -0.14)]
-    inner = [(0.445, -0.135), (0.41, -0.11), (0.29, -0.078), (0.15, -0.035), (0.07, 0.005), (0.0, 0.02)]
-    turned = lathe(bm, outer, 48, (sx, sy, sz), 0, close_top=True)
-    turned += lathe(bm, inner, 48, (sx, sy, sz), 1)
-    turned += lathe(bm, [(0.455, -0.14), (0.445, -0.135)], 48, (sx, sy, sz), 0)
-    # The bulb holder under the dome.
-    turned += lathe(bm, [(0.0, -0.01), (0.045, -0.01), (0.045, -0.06), (0.0, -0.06)], 16, (sx, sy, sz), 0)
+    inner = [(0.445, -0.147), (0.41, -0.127), (0.29, -0.097), (0.15, -0.057), (0.075, -0.012), (0.055, 0.035), (0.0, 0.045)]
+    turned = lathe(bm, outer, 48, (sx, sy, sz), 0, close_bottom=True)
+    # lathe's normal fix guesses outwards on an open surface, which here is up into the dome.
+    inside = lathe(bm, inner, 48, (sx, sy, sz), 1)
+    bmesh.ops.reverse_faces(bm, faces=inside)
+    turned += inside
+    turned += lathe(bm, [(0.455, -0.14), (0.445, -0.147)], 48, (sx, sy, sz), 0)
+    # The bulb holder, hanging from the inside of the dome.
+    turned += lathe(bm, [(0.0, 0.04), (0.045, 0.04), (0.045, -0.06), (0.0, -0.06)], 16, (sx, sy, sz), 0)
     for f in turned + boss:
         f.smooth = True
     # The plate stays flat shaded, so its bevels read as edges.
-    emit(sc, "lamp", bm, [M["iron"], M["shade"]])
+    emit(sc, "lamp", bm, [M["enamel"], M["shade"]])
 
     bm = bmesh.new()
     bulb = bmesh.ops.create_uvsphere(bm, u_segments=16, v_segments=10, radius=0.075)
@@ -1204,9 +1247,11 @@ def slab(bm, poly, centre, step, mat):
         for k in range(n):
             k1 = (k + 1) % n
             hard.append(bm.faces.new((ring_a[k], ring_a[k1], ring_b[k1], ring_b[k])))
+    # Smooth round the stone, so the narrow strips don't each catch the sun as a flat patch.
+    # The top has its own vertices, so the edge where it meets the arris stays sharp.
     for f in hard:
         f.material_index = mat
-        f.smooth = False
+        f.smooth = True
 
     # The top: the arris again, then rings closing in on the middle.
     rings = [[bm.verts.new(p) for p in lip]]
@@ -1738,9 +1783,10 @@ def build_sacks(sc, M):
 
 def build_barrel(sc, M):
     bm = bmesh.new()
-    cx, cy = 0.15, WALL_Y - 0.62
-    height, r_end, r_mid = 1.3, 0.36, 0.48
-    staves = 20
+    cx, cy = 0.2, WALL_Y - 0.75
+    height, r_end, r_mid = 1.6, 0.46, 0.61
+    # Few, broad staves, about 32 cm across at the bulge, as an old barrel's are.
+    staves = 12
     gap = 0.004
     z0 = ground_height(cx, cy) - 0.01
 
@@ -1779,8 +1825,9 @@ def build_barrel(sc, M):
             for loop in f.loops:
                 co = loop.vert.co
                 a = math.atan2(co.y - cy, co.x - cx)
-                local = ((a - a0) % (2 * math.pi)) * r_mid
-                loop[uv].uv = (co.z + s * 0.37, (s % 6) / 6.0 + 0.012 + local * 0.9 % (1 / 6.0 - 0.024))
+                # Each stave wears one of the wood graph's six planks, stretched across its width.
+                across = min(1.0, ((a - a0) % (2 * math.pi)) / (a1 - a0))
+                loop[uv].uv = (co.z + s * 0.37, (s % 6) / 6.0 + 0.012 + across * (1 / 6.0 - 0.024))
     # The head, set well down inside the top so the staves' ends stand round it as a rim.
     head = lathe(bm, [(0.0, height - 0.07), (r_end - 0.025, height - 0.07)], 32, (cx, cy, z0), 0)
     for f in head:
@@ -2153,6 +2200,55 @@ def build_grass(sc, M):
 
 # ---------------------------------------------------------------------------------------
 
+# A tree beyond the low wall, out of the picture to the left, stands between the low sun and
+# the building, so its leaves throw dappled shade over the left of the wall. Its centre is
+# on the line from the wall left of the window back towards the sun.
+TREE = (-8.2, -1.15)
+CANOPY = (-7.9, -0.95, 6.15)
+
+
+def build_tree(sc, M):
+    """A trunk, a few limbs and a canopy of leaf clusters with gaps between them, so the sun
+    comes through in patches."""
+    tree_rng = random.Random(31)
+    tx, ty = TREE
+    cx, cy, cz = CANOPY
+    bm = bmesh.new()
+    base = Vector((tx, ty, ground_height(tx, ty) - 0.1))
+    fork = Vector((tx + 0.15, ty + 0.1, 3.2))
+    tube(bm, [tuple(base), tuple(base.lerp(fork, 0.5) + Vector((0.08, 0.0, 0.0))), tuple(fork)], 0.28, 0, segments=14)
+
+    # Clusters over a broad, flattened dome, each with a limb running out to it from the fork.
+    clusters = []
+    while len(clusters) < 34:
+        d = Vector((tree_rng.uniform(-1, 1), tree_rng.uniform(-1, 1), tree_rng.uniform(-1, 1)))
+        if d.length > 1.0:
+            continue
+        clusters.append(Vector((cx + d.x * 2.6, cy + d.y * 2.4, cz + d.z * 1.6)))
+    for c in clusters[:14]:
+        mid = fork.lerp(c, 0.5) + Vector((0, 0, 0.35))
+        tube(bm, [tuple(fork), tuple(mid), tuple(fork.lerp(c, 0.92))], 0.07, 0, segments=6)
+    emit(sc, "tree", bm, [M["bark"]], smooth=True)
+
+    bm = bmesh.new()
+    # Each cluster is a dense clump, so it throws a solid patch of shade even through the
+    # soft edge a shadow gets this far from what casts it, and the gaps between let sun through.
+    for c in clusters:
+        spread = tree_rng.uniform(0.3, 0.45)
+        for _ in range(110):
+            p = Vector((tree_rng.gauss(0, spread), tree_rng.gauss(0, spread), tree_rng.gauss(0, spread * 0.7)))
+            centre = c + p
+            # A leaf is a small diamond turned any way, mostly facing up.
+            n = Vector((tree_rng.uniform(-0.6, 0.6), tree_rng.uniform(-0.6, 0.6), 1.0)).normalized()
+            t = n.orthogonal().normalized()
+            t.rotate(Quaternion(n, tree_rng.uniform(0, 2 * math.pi)))
+            b = n.cross(t)
+            size = tree_rng.uniform(0.13, 0.2)
+            corners = [centre + t * size * 1.3, centre + b * size * 0.6, centre - t * size * 1.3, centre - b * size * 0.6]
+            bm.faces.new([bm.verts.new(tuple(v)) for v in corners])
+    emit(sc, "tree_leaf", bm, [M["tree_leaf"]])
+
+
 def build():
     rng.seed(7)
     sc = fresh_scene()
@@ -2180,6 +2276,7 @@ def build():
     build_plaster(sc, M)
     build_fallen_leaves(sc, M)
     build_grass(sc, M)
+    build_tree(sc, M)
     return sc
 
 
