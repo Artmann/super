@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -89,6 +90,7 @@ public sealed class View
     internal PostSettings Post { get; private set; }
     internal float ShadowRadius { get; private set; }
     internal int ShadowCascades { get; private set; }
+    internal float SunSize { get; private set; }
     internal UiTree? Ui { get; set; }
 
     /// <summary>How the screen moves between pictures this frame. Set by <see cref="Transitions"/>.</summary>
@@ -449,8 +451,11 @@ public sealed class View
     /// Sets how far around the camera's target the sharpest shadows reach, in metres,
     /// and how many maps to draw, 1 to 4. Each map covers three times the radius of the
     /// one before, so a wide world keeps sharp shadows near the camera.
+    /// <paramref name="sunSize"/> is how wide the sun looks, in radians, which sets how fast
+    /// its shadows blur with distance from what casts them: 0 is hard, the real sun is about
+    /// 0.01, and the default of 0.12 is a soft, hazy sun.
     /// </summary>
-    public void Shadows(float radius, int cascades = 1)
+    public void Shadows(float radius, int cascades = 1, float sunSize = DefaultSunSize)
     {
         if (!(radius > 0f))
         {
@@ -462,9 +467,22 @@ public sealed class View
             throw new ArgumentOutOfRangeException(nameof(cascades), cascades, "There can be 1 to 4 shadow cascades.");
         }
 
+        if (!(sunSize is >= 0f and <= MaxSunSize))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(sunSize), sunSize, $"The sun's size must be from 0 to {MaxSunSize.ToString(CultureInfo.InvariantCulture)} radians.");
+        }
+
         ShadowRadius = radius;
         ShadowCascades = cascades;
+        SunSize = sunSize;
     }
+
+    /// <summary>How wide the sun looks, in radians, unless <see cref="Shadows"/> says otherwise.</summary>
+    public const float DefaultSunSize = 0.12f;
+
+    /// <summary>The widest a sun can look, in radians. Wider would blur shadows away.</summary>
+    public const float MaxSunSize = 0.5f;
 
     /// <summary>
     /// Blends between a thing's transform on the last two ticks, which keeps motion
@@ -568,6 +586,7 @@ public sealed class View
         Post = new PostSettings { Vignette = 0.3f, Sharpen = 0.4f };
         ShadowRadius = 8f;
         ShadowCascades = 1;
+        SunSize = DefaultSunSize;
 
         // The hold stays, since changing it is what tells the renderer to keep a picture.
         Transition = new ScreenTransition { Hold = Transition.Hold };

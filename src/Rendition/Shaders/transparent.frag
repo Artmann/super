@@ -63,6 +63,9 @@ vec2 refractedUv(vec2 here, vec3 v, vec3 n, float ior) {
 void main() {
     Material material = materials[draw.material];
     vec4 baseColor = texture(textures[material.baseColorTexture], inUv) * material.baseColor * vec4(draw.tint.rgb, 1.0);
+    // Opacity can come from either texture, as in surface.glsl and shadow.frag: a material
+    // graph keeps it in the surface texture's alpha.
+    baseColor.a *= texture(textures[material.surfaceTexture], inUv).a;
     vec3 emissive = texture(textures[material.emissiveTexture], inUv).rgb * material.emissive.rgb;
     float roughnessOfSurface = material.roughness;
 

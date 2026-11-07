@@ -137,6 +137,75 @@ public class ShadowCascadeTests
         Assert.Equal("Only one sun can cast shadows, and another already does this frame. Pass shadows: true to one sun only.", error.Message);
     }
 
+    // A cascade round the origin with a radius of 2 and the sun straight up. Its map sees a
+    // square column up to the sun whose corners are 2√2 ≈ 2.83 out.
+    private static float Reach(Vector4 caster, float reach = 2f) =>
+        ShadowPass.CasterReach(Vector3.Zero, 2f, Vector3.UnitY, reach, [caster]);
+
+    [Fact]
+    public void Caster_up_sun_stretches_the_reach_to_its_far_side()
+    {
+        // A ball of radius 1, 7 up: its far side is 8 up.
+        Assert.Equal(8f, Reach(new Vector4(0f, 7f, 0f, 1f)), 4);
+    }
+
+    [Fact]
+    public void Caster_overlapping_a_corner_of_the_column_counts()
+    {
+        // 3.5 aside is past the radius of 2 but within 2.83 + 1 of the column's corner.
+        Assert.Equal(8f, Reach(new Vector4(3.5f, 7f, 0f, 1f)), 4);
+    }
+
+    [Fact]
+    public void Caster_beside_the_column_is_left_out()
+    {
+        // 5 aside is further than 2.83 + 1, so it can't shade anything in the cascade.
+        Assert.Equal(2f, Reach(new Vector4(5f, 7f, 0f, 1f)), 4);
+    }
+
+    [Fact]
+    public void Caster_far_up_sun_stretches_the_reach_only_to_six_radii()
+    {
+        Assert.Equal(12f, Reach(new Vector4(0f, 30f, 0f, 1f)), 4);
+    }
+
+    [Fact]
+    public void Caster_nearer_than_the_reach_leaves_it_as_it_was()
+    {
+        // Down-sun, and up-sun but inside a reach of 5 already.
+        Assert.Equal(2f, Reach(new Vector4(0f, -5f, 0f, 1f)), 4);
+        Assert.Equal(5f, Reach(new Vector4(0f, 1f, 0f, 1f), reach: 5f), 4);
+    }
+
+    [Fact]
+    public void Sun_size_lasts_until_the_next_frame_begins()
+    {
+        var view = new View();
+        view.Begin(0f);
+        view.Shadows(7f, 3, sunSize: 0.02f);
+
+        Assert.Equal(0.02f, view.SunSize);
+
+        view.Begin(0f);
+
+        Assert.Equal(0.12f, view.SunSize);
+    }
+
+    [Theory]
+    [InlineData(-0.01f)]
+    [InlineData(0.51f)]
+    [InlineData(float.NaN)]
+    public void Sun_size_out_of_range_explains_the_range(float sunSize)
+    {
+        var view = new View();
+        view.Begin(0f);
+
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Shadows(7f, 3, sunSize));
+
+        Assert.StartsWith("The sun's size must be from 0 to 0.5 radians.", error.Message);
+        Assert.Equal("sunSize", error.ParamName);
+    }
+
     private static float Depth(Matrix4x4 matrix, Vector3 point)
     {
         var clip = Vector4.Transform(new Vector4(point, 1f), matrix);

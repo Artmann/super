@@ -161,6 +161,19 @@ instead of stopping at an edge.
 An orthographic camera centres every cascade on its target instead, and widens its
 shadows to cover the screen.
 
+Things out of frame still cast into it. A tree behind the camera or off to the side, up-sun
+of what you see, throws its shade into the picture, up to six cascade radii away.
+
+```csharp
+view.Shadows(7f, cascades: 3, sunSize: 0.02f);
+```
+
+`sunSize` is how wide the sun looks, in radians, from 0 to 0.5. It sets how fast a shadow
+blurs with distance from what casts it. The default of 0.12 is a soft, hazy sun that keeps
+shadows gentle. The real sun is about 0.01, and something near that lets a canopy several
+metres up throw crisp dappled light, where the default blurs it into one soft patch.
+0 gives hard edges everywhere.
+
 ## The look of the picture
 
 ```csharp

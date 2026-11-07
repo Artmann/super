@@ -728,7 +728,8 @@ UV set, and the cooker keeps the first. That's fine for the adventurer model, wh
 sets are identical.
 
 Shadows blur with distance from the object casting them: the lighting pass finds
-how far away the blocker is, then widens its sampling to match. The game says
+how far away the blocker is, then widens its sampling to match, by the sun's size
+(`ShadowSettings.LightAngle`, from `view.Shadows`' `sunSize`). The game says
 which area the shadow map covers through `FrameView.Shadows`. A smaller area gives
 sharper shadows, so the sample fits it to the model. A wide outdoor scene asks for up
 to four cascades, each a ball three times the radius of the one before.
@@ -741,7 +742,11 @@ a ball of the cascade's radius. The ball's size never depends on the camera's an
 as the camera turns or moves. An orthographic view, and a probe's capture, keep every ball
 centred on the target instead. The light's depth range reaches past the ball towards the
 sun at least as far as a ball round the target would, so a tall caster just out of view
-still shadows the ground in front of the camera. A longer reach spreads depth thinner, and
+still shadows the ground in front of the camera. It also reaches far enough to take in
+every draw whose ball overlaps the column the map sees towards the sun
+(`ShadowPass.CasterReach`, over the balls `DrawSelection.Bounds` works out each frame), so
+a tree out of frame still dapples a wall in it. A caster can stretch the reach to no more
+than six radii (`ShadowPass.MaxReach`). A longer reach spreads depth thinner, and
 `FrameUniforms.ShadowDepthScales` carries the ratio so the shaders scale their bias to match.
 
 The lighting pass picks the first cascade a point falls inside. In the outer tenth of a map
@@ -1184,9 +1189,9 @@ Anything larger than a block gets its own allocation.
   frames. Root motion only carries travel over the ground, not turns.
 - The adventurer model has 929,000 triangles, which suits a showcase more than a game. A
   game character would need a reduced version and levels of detail.
-- A shadow cascade reaches towards the sun only as far as a cascade round the camera's
-  target would. Very long shadows from far-off things, like a distant ridge in a low sun,
-  can be missing in front of the camera.
+- A caster can stretch a shadow cascade's reach towards the sun to at most six of its
+  radii. Very long shadows from far-off things, like a distant ridge in a low sun, can be
+  missing in front of the camera. Draws without bounds don't stretch it at all.
 - Cascades split three times wider each, with no setting to blend between linear and
   logarithmic spacing.
 - Only one sun casts shadows, so the others shine through objects, held back only
