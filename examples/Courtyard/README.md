@@ -16,12 +16,21 @@ rubble and broken bricks, small curled leaves and grass that grows in patches al
 walls, the path's edges and the joints, to a deck. On the deck are a big crate with a
 diagonal brace on each side, thick corner posts, nail heads and a crooked lid, a smaller
 crate, and three slumped grain sacks: one tied at the neck with a ragged ruffle above the
-twine, and two with their mouths folded flat. Its bricks, stone, mud, wood, rust, sacking
-and window glass are [material graphs](../../docs/materials.md) that are cooked into textures
-when the game builds, so the example needs no downloads.
+twine, and two with their mouths folded flat. Behind the window is a small room. Out of
+frame, up-sun to the left, stands a tree. Its bricks, stone, mud, wood, rust, sacking,
+whitewash and window glass are [material graphs](../../docs/materials.md) that are cooked
+into textures when the game builds, so the example needs no downloads.
 
-The sun is low from the left so it rakes across the bricks and the plinth, the sky is
-dimmer and bluer so the shade reads, and a light finish adds contrast and a vignette.
+It's late golden hour. The sun is low from the left so it rakes across the bricks and the
+plinth, and the tree's canopy breaks it into dappled light across the wall, the window and
+the barrel. The sun is set close to its real size with `view.Shadows(7f, 3, sunSize: 0.02f)`,
+so the leaves' shade stays crisp though they are 10 m from the wall. See
+[Shadows](../../docs/rendering.md#shadows). The sky is gold at the horizon and deep blue
+overhead, so the shade is cooler than the light. The gooseneck lamp, in green enamel, is a
+spot light that throws a warm pool down the wall. The spot only shines down, so a second,
+short point light at the bulb lights the white enamel inside the shade. A point light at the back of the room makes the old
+glass glow, as if someone is home. A light finish adds contrast, a cool lift in the shade,
+a warm gain in the light, bloom round the lamp and a vignette.
 
 ```
 dotnet run -c Release --project examples/Courtyard
@@ -36,7 +45,9 @@ the graph's `Width`, so the bricks, stones and planks keep the size their graph 
 them however big the surface is. See [A material graph on a model](../../docs/rendering.md#a-material-graph-on-a-model).
 To change the scene, edit the script, run it in Blender and cook again.
 
-There are no point lights yet, so the lamp only glows through its bulb's `emissiveColor`.
+The sidecar sets `keepOrigin`, so the model keeps Blender's origin and a point in the script
+is the same point in the game, with Blender's z as y and its y as -z. That's how
+`CourtyardGame.cs` places its lights at the lamp's bulb and in the room.
 
 Press M to turn the materials off and on. Without them, the whole courtyard is plain grey
 clay, so you can judge the sunlight, the shadows and the shapes of the models without the
@@ -64,10 +75,11 @@ dotnet run -c Release --project examples/Courtyard -- --lineup
 
 | File | What's in it |
 | --- | --- |
-| `CourtyardGame.cs` | The courtyard model, the camera, the sun, the sky and the finish |
+| `CourtyardGame.cs` | The courtyard model, the camera, the sun and its shadows, the sky, the lamp and the room's light, and the finish |
 | `LineupGame.cs` | The lineup |
 | `art/courtyard.py` | The Blender script that builds and exports the courtyard |
-| `content/models/courtyard.glb.cook.json` | Which graph each of the model's materials wears, plus the water, the bulb, and the leaves and grass that are seen from both sides |
+| `content/models/courtyard.glb.cook.json` | Which graph each of the model's materials wears, plus the water, the bulb, the leaves, grass and whitewash that are seen from both sides, and `keepOrigin` |
+| `content/materials/whitewash.material.cs` | Old limewash, 1 m wide, for the flakes on the wall. Off-white Perlin patches with grime streaks from `Noise.Directional` running down, heavier in some places than others |
 | `content/materials/glass.material.cs` | Old window glass, 1 m wide and transparent. Clean glass is a faint green tint with ripples from `Noise.Directional` that bend the reflection. Dust from Perlin, rain streaks running down and specks from blurred white noise raise its opacity and roughness |
 | `content/materials/bricks.material.cs` | Big old red bricks 37.5 cm long in pale mortar, 3 m wide. Each brick is found with `FloodFill` and gets its own tilt and colour, and `SlopeBlur` with cells chips the edges |
 | `content/materials/stone.material.cs` | Weathered grey stone, 1 m wide, for the dry-stone wall, the plinth, the sill and the flagstones. Perlin lumps, pits from cells, and moss in the low places |
