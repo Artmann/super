@@ -43,7 +43,8 @@ internal sealed unsafe class GameWindow : IDisposable
     private readonly bool _hidden;
 
     public GameWindow(
-        string title, int windowWidth, int windowHeight, bool hidden, bool validate, bool disableVsync, bool maximized = false, bool borderless = false)
+        string title, int windowWidth, int windowHeight, bool hidden, bool validate, bool disableVsync, int shadowResolution,
+        bool maximized = false, bool borderless = false)
     {
         _hidden = hidden;
         _glfw = Glfw.GetApi();
@@ -91,6 +92,7 @@ internal sealed unsafe class GameWindow : IDisposable
             Height = height,
             EnableValidation = validate,
             DisableVsync = disableVsync && !hidden,
+            ShadowResolution = shadowResolution,
         });
     }
 
@@ -365,9 +367,15 @@ internal sealed unsafe class GameWindow : IDisposable
     /// <summary>Hands the game's graphics settings, as they are now, to the renderer for the next frame.</summary>
     private void ApplyGraphics(Graphics graphics)
     {
-        _scene.Off = graphics.Off;
-        _scene.Vsync = _hidden || graphics.Vsync;
+        (_scene.Off, _scene.Vsync, _scene.ShadowResolution) = RendererSettings(graphics, _hidden);
     }
+
+    /// <summary>
+    /// What the renderer is told from the game's graphics settings: the effects left out, whether to wait
+    /// for the display, which a hidden window always does, and the sun's shadow map size.
+    /// </summary>
+    internal static (RenderEffects Off, bool Vsync, int ShadowResolution) RendererSettings(Graphics graphics, bool hidden) =>
+        (graphics.Off, hidden || graphics.Vsync, graphics.ShadowResolution);
 
     /// <summary>Feeds the window's events into the game's input. Only the interactive loop does this.</summary>
     private void ListenForInput(Input input)

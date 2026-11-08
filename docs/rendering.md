@@ -8,7 +8,7 @@ What it does for every game, with no setup:
 
 - Cook-Torrance GGX shading with up to eight directional lights, and up to 1,024 point
   and spot lights with soft shadows
-- Soft, contact-hardening shadows, in up to four cascades
+- Soft, contact-hardening shadows, in up to four cascades, with screen-space contact shadows where things meet the ground
 - A generated environment that gives surfaces reflections and soft fill light
 - Screen-space reflections and box-corrected reflection probes
 - Temporal anti-aliasing, [ambient occlusion](#ambient-occlusion) (with light bounced back from the surface's colour) and bloom
@@ -41,6 +41,8 @@ next frame follows, so it can back an options menu.
 | `Vsync` | Frames come as fast as the machine draws them, and fast movement may tear. `--no-vsync` turns it off too |
 | `MaxFramesPerSecond` | The most frames drawn a second. 0, the default, is no limit. It saves power, and with vsync off it holds a steady rate |
 | `SunShadows` | Nothing is drawn into the sun's shadow maps, often the biggest saving. Ambient occlusion still darkens nooks |
+| `ShadowResolution` | How many texels across each of the sun's shadow maps is: 1024, 2048 (the default) or 4096. Each step up sharpens shadow edges for four times the memory. A change rebuilds the maps before the next frame, which waits for the GPU once |
+| `ContactShadows` | No thin dark line where things meet the ground in sunlight, only what the shadow maps show. `view.Shadows`' `contact` only changes [how far they look](#shadows) |
 | `LightShadows` | Point and spot lights shine through walls |
 | `AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. `view.AmbientOcclusion` only changes [how far and how dark](#ambient-occlusion) |
 | `Reflections` | Shiny surfaces and water reflect only the sky and reflection probes, not what's on screen |
@@ -173,6 +175,23 @@ blurs with distance from what casts it. The default of 0.12 is a soft, hazy sun 
 shadows gentle. The real sun is about 0.01, and something near that lets a canopy several
 metres up throw crisp dappled light, where the default blurs it into one soft patch.
 0 gives hard edges everywhere.
+
+Each map is 2048 texels across unless `Graphics.ShadowResolution` asks for 1024 or 4096, so
+a 7 m radius gives texels about 7 mm wide. That's too coarse for the last centimetre where
+a barrel stands on the floor, so the sun also has contact shadows. Each pixel looks towards
+the sun through what the camera sees, and darkens where something is in the way, which
+draws a thin dark line where things touch the ground:
+
+```csharp
+view.Shadows(7f, cascades: 3, sunSize: 0.02f, contact: 0.3f);
+```
+
+`contact` is how far each pixel looks, in metres. The default of 0.25 suits barrels, crates
+and people; a longer one reaches under bigger things and costs no more. 0 turns them off, as
+`Graphics.ContactShadows` does. They're drawn only inside the first cascade's radius, fading
+out over its last tenth, since further away a centimetre is less than a pixel. They can only
+see what's on screen, so something just out of frame or hidden behind another object casts
+none.
 
 ## Ambient occlusion
 

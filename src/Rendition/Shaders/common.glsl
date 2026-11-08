@@ -30,7 +30,7 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 waterDeep;          // rgb: colour of the water looking down; a: strength of the light shafts
     vec4 waterLight;         // x: strength of the caustics; y: how small they are; z: reach of the shafts
     vec4 shadowRadii;        // The radius each cascade covers, in metres.
-    vec4 shadowFade;         // x, y: distance where shadows start fading and are gone; z: the hand-over band
+    vec4 shadowFade;         // x, y: distance where shadows start fading and are gone; z: the hand-over band; w: contact shadow length in metres, 0 for none
     vec4 shadowDepthScales;  // depth units per unit across each cascade's map, below 1 when it reaches further sunward
     vec4 clusters;           // x, y: nearest and furthest depth a local light reaches; z: 1 for even slices
     vec4 screen;             // xy: the render targets' size in pixels

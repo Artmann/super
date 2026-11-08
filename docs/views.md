@@ -60,7 +60,7 @@ component on its entity instead. See [Audio](audio.md).
 | `view.Model(key, model, transform, color)` | A model. `color`, if given, tints it and keeps its textures. `ModelRef.Cube`, `Sphere`, `Capsule`, `Cylinder`, `Cone`, `Plane`, `Quad` and `Torus` are [built in](rendering.md#built-in-shapes) |
 | `view.Model(key, model, transform, meshes)` | Only the meshes a `MeshMask` shows, such as a body without its helmet. See [Showing some meshes](#showing-some-meshes) |
 | `view.Ghost(key, model, transform, color, opacity)` | A model in one colour that glows a little, as a [preview of where something will go](rendering.md#ghosts) |
-| `view.Shadows(radius, cascades, sunSize)` | How far shadows reach, and how soft they are. See [Rendering](rendering.md#shadows) |
+| `view.Shadows(radius, cascades, sunSize, contact)` | How far shadows reach, how soft they are, and how far contact shadows look where things meet the ground. See [Rendering](rendering.md#shadows) |
 | `view.AmbientOcclusion(radius, strength)` | How far corners and creases reach out to darken the soft light, and how dark. See [Rendering](rendering.md#ambient-occlusion) |
 | `view.Water(settings)` | Puts the camera underwater. See [Rendering](rendering.md#water) |
 | `view.Finish(settings)` | Exposure, contrast, vignette and other [post-processing](rendering.md#the-look-of-the-picture) |

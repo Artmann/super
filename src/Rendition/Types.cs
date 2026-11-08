@@ -513,6 +513,19 @@ public struct ShadowSettings
     /// faster with distance from the object casting them.
     /// </summary>
     public float LightAngle;
+
+    /// <summary>
+    /// How far, in metres, each pixel looks along the light through the depth buffer for
+    /// something touching it, which darkens the last few centimetres the shadow maps are
+    /// too coarse to see. Only inside the first cascade's radius. 0 turns it off.
+    /// </summary>
+    public float ContactLength = DefaultContactLength;
+
+    public const float DefaultContactLength = 0.25f;
+
+    public ShadowSettings()
+    {
+    }
 }
 
 /// <summary>
@@ -558,7 +571,7 @@ public ref struct FrameView
     /// </summary>
     public ReadOnlySpan<Matrix4x4> Bones;
 
-    public ShadowSettings Shadows;
+    public ShadowSettings Shadows = new();
 
     /// <summary>How nearby surfaces darken the soft light. See docs/rendering.md.</summary>
     public OcclusionSettings Occlusion = new();
@@ -644,7 +657,13 @@ public enum RenderEffects
     /// </summary>
     Materials = 1 << 6,
 
-    All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials,
+    /// <summary>
+    /// The sun's contact shadows, the last centimetres where things meet the ground, found on screen.
+    /// Without them the sun's shadow maps alone shade those, as <see cref="ShadowSettings.ContactLength"/> 0 does.
+    /// </summary>
+    ContactShadows = 1 << 7,
+
+    All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows,
 }
 
 /// <summary>
@@ -791,6 +810,9 @@ public sealed class RendererOptions
     /// tear. Displays that can't do this keep vsync on.
     /// </summary>
     public bool DisableVsync { get; init; }
+
+    /// <summary>How many texels across each of the sun's cascade maps starts: 1024, 2048 or 4096. See <see cref="Renderer.ShadowResolution"/>.</summary>
+    public int ShadowResolution { get; init; } = 2048;
 }
 
 /// <summary>

@@ -701,7 +701,7 @@ rendering. Game-facing features belong in Super, which has the audio (see
 ## Frame structure
 
 ```
-ShadowPass    scene geometry   -> depth from the key light (2048 x 2048, up to 4 cascades)
+ShadowPass    scene geometry   -> depth from the key light (1024, 2048 or 4096 square, up to 4 cascades)
               scene geometry   -> point and spot light shadows, tiles of one 4096 x 4096 atlas
 cluster.comp  compute          -> the point and spot lights reaching each of 16 x 9 x 24 clusters
 GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, depth
@@ -811,6 +811,28 @@ with distance over the last 15% of the furthest slice (`ShadowPass.FadeShare`) a
 edge of the last map. The shadow pass draws each cascade into its own layer of the same
 depth image, with its own culling and detail choice. Anything outside the last cascade, in
 depth as well as sideways, counts as lit.
+
+The image is `ShadowPass.Resolution` texels square, 2048 unless `RendererOptions.ShadowResolution`
+or `Renderer.ShadowResolution` (Super's `Graphics.ShadowResolution`) asks for 1024 or 4096.
+A change takes effect at the start of the next `Render`: the renderer waits for the device to
+go idle, `ShadowPass.Resize` replaces the image, and `WriteTargetDescriptors` points the AO,
+lighting and particle sets at it. That rewrite also drops a held transition picture, as a
+window resize does. The texel size feeds `CreateMatrix`'s snapping, the normal offset and the
+shadow passes' detail choice.
+
+Contact shadows (`contactShadow` in `lighting.frag`) cover the centimetres the maps can't.
+For the sun with the shadow, the lighting pass walks 12 steps along the light over
+`ShadowSettings.ContactLength` metres (`FrameUniforms.ShadowFade.w`), from a random offset
+per pixel and frame that anti-aliasing averages. Each step is projected with the camera's
+matrix and `depthGap` compares its linear depth with the depth buffer's. A step more than
+0.02 m behind what the camera sees there is blocked, unless it's more than twice the ray's
+length behind: that is a nearer object passing in front, not something touching, and
+counting it would draw a dark halo round everything in front of a wall. A hit in the last
+quarter of the ray fades, and the whole effect fades over the outer tenth of the first
+cascade's map (the length of the point's x and y in its matrix) and stops past it. The
+result multiplies the PCSS visibility. The length is 0, so the walk is skipped, when
+`RenderEffects.ContactShadows` is left out and during probe captures
+(`ShadowPass.ContactLength`), and the sun's shadows left out skip it with the rest.
 
 One sun casts the shadows: the one the game marks with `shadows: true`, or else the first
 (`SceneRenderer.ShadowSun`).
@@ -1322,6 +1344,9 @@ Anything larger than a block gets its own allocation.
   missing in front of the camera. Draws without bounds don't stretch it at all.
 - Cascades split three times wider each, with no setting to blend between linear and
   logarithmic spacing.
+- Contact shadows only see the screen: a blocker out of frame or behind another object
+  casts none, and a ray passing behind something thicker than twice its length counts it as
+  in front. Only the sun with the shadow has them, not point or spot lights.
 - Only one sun casts shadows, so the others shine through objects, held back only
   by ambient occlusion. Point and spot lights without shadows are the same.
 - Point and spot lights are left out of reflection probe captures, and glass and

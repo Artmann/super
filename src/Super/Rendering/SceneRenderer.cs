@@ -95,6 +95,13 @@ internal sealed class SceneRenderer : IDisposable
         set => _renderer.Vsync = value;
     }
 
+    /// <summary>How many texels across each sun shadow map is. A change rebuilds the maps before the next frame.</summary>
+    public int ShadowResolution
+    {
+        get => _renderer.ShadowResolution;
+        set => _renderer.ShadowResolution = value;
+    }
+
     /// <summary>The effects left out of every frame from now on.</summary>
     public RenderEffects Off { get; set; }
 
@@ -528,6 +535,20 @@ internal sealed class SceneRenderer : IDisposable
         return 0;
     }
 
+    /// <summary>The sun's shadows as the view asks for them, round its camera's target, for a picture this wide over its height.</summary>
+    internal static ShadowSettings FrameShadows(View view, float aspect)
+    {
+        var shot = view.Shot;
+        return new ShadowSettings
+        {
+            Center = shot.Target,
+            Radius = shot.ShadowRadius(view.ShadowRadius, aspect),
+            Cascades = view.ShadowCascades,
+            LightAngle = view.SunSize,
+            ContactLength = view.ShadowContact,
+        };
+    }
+
     private FrameView CreateFrame(View view, int width, int height, float time)
     {
         var suns = view.Suns;
@@ -556,13 +577,7 @@ internal sealed class SceneRenderer : IDisposable
             Time = time,
             Lights = _lights.AsSpan(0, lightCount),
             Bones = _bones.AsSpan(0, _boneCount),
-            Shadows = new ShadowSettings
-            {
-                Center = shot.Target,
-                Radius = shot.ShadowRadius(view.ShadowRadius, aspect),
-                Cascades = view.ShadowCascades,
-                LightAngle = view.SunSize,
-            },
+            Shadows = FrameShadows(view, aspect),
             Occlusion = view.Occlusion,
             EnvironmentIntensity = sky is null ? 0.8f : sky.Value.Brightness > 0f ? sky.Value.Brightness : 1f,
             BackgroundRadiance = new Vector3(0.15f, 0.16f, 0.18f),

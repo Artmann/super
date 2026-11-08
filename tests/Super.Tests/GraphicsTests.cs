@@ -25,6 +25,41 @@ public class GraphicsTests
         Assert.Equal(RenderEffects.None, graphics.Off);
         Assert.True(graphics.Vsync);
         Assert.Equal(0, graphics.MaxFramesPerSecond);
+        Assert.Equal(2048, graphics.ShadowResolution);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(3000)]
+    [InlineData(8192)]
+    public void Shadow_resolution_must_be_1024_2048_or_4096(int resolution)
+    {
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => new Graphics { ShadowResolution = resolution });
+
+        Assert.StartsWith("Shadow maps can be 1024, 2048 or 4096 texels across.", error.Message);
+        Assert.Equal("value", error.ParamName);
+    }
+
+    [Theory]
+    [InlineData(1024)]
+    [InlineData(4096)]
+    public void Shadow_resolution_takes_each_of_the_three_sizes(int resolution)
+    {
+        var graphics = new Graphics { ShadowResolution = resolution };
+
+        Assert.Equal(resolution, graphics.ShadowResolution);
+    }
+
+    [Fact]
+    public void Changing_shadow_resolution_while_running_is_applied_next_frame()
+    {
+        var given = new Graphics();
+        using var host = new GameHost<Settings>(1, 30, null, graphics: given);
+
+        host.Game.Graphics.ShadowResolution = 4096;
+
+        // What the window hands the renderer before the next frame.
+        Assert.Equal(4096, GameWindow.RendererSettings(host.Graphics, hidden: false).ShadowResolution);
     }
 
     [Theory]
@@ -35,6 +70,7 @@ public class GraphicsTests
     [InlineData(nameof(Graphics.AntiAliasing), RenderEffects.AntiAliasing)]
     [InlineData(nameof(Graphics.Bloom), RenderEffects.Bloom)]
     [InlineData(nameof(Graphics.Materials), RenderEffects.Materials)]
+    [InlineData(nameof(Graphics.ContactShadows), RenderEffects.ContactShadows)]
     public void Each_switch_turned_off_leaves_out_only_its_own_effect(string setting, RenderEffects effect)
     {
         var graphics = new Graphics();
@@ -50,7 +86,7 @@ public class GraphicsTests
 
         Assert.Equal(
             RenderEffects.SunShadows | RenderEffects.LightShadows | RenderEffects.AmbientOcclusion
-            | RenderEffects.Reflections | RenderEffects.AntiAliasing | RenderEffects.Bloom,
+            | RenderEffects.Reflections | RenderEffects.AntiAliasing | RenderEffects.Bloom | RenderEffects.ContactShadows,
             graphics.Off);
         Assert.True(graphics.Materials);
         Assert.False(graphics.Vsync);

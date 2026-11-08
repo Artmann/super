@@ -35,6 +35,11 @@ layout(location = 1) out vec4 outScatter;
 const int BLOCKER_SAMPLES = 16;
 const int SHADOW_SAMPLES = 24;
 
+// Contact shadows walk this many steps towards the sun, and count a surface as in the way
+// when the ray passes more than this many metres behind it.
+const int CONTACT_STEPS = 12;
+const float CONTACT_THICKNESS = 0.02;
+
 // The clear lacquer over car paint is very smooth and reflects like glass.
 const float CLEARCOAT_ROUGHNESS = 0.06;
 const vec3 CLEARCOAT_F0 = vec3(0.04);
@@ -287,6 +292,50 @@ float depthGap(vec4 clip, out vec2 uv) {
     return clip.w - clip.z / stored;
 }
 
+// Light blocked by something touching the surface, nearer than the shadow maps' texels can
+// tell: walks frame.shadowFade.w metres towards the light, seeing each step where the camera
+// sees it, and darkens the light where the step is behind what the camera sees there. A
+// surface far more in front of the ray than the ray is long is a nearer object passing
+// across it, not something touching, so it doesn't count. Hits near the ray's end fade, as
+// does the whole effect towards the edge of the first cascade, past which it isn't drawn.
+// Returns 1 for fully lit.
+float contactShadow(vec3 position, vec3 n, vec3 l) {
+    float reach = frame.shadowFade.w;
+    if (reach <= 0.0) {
+        return 1.0;
+    }
+
+    // The first cascade's map spans its radius each way from its centre.
+    vec4 inFirst = frame.shadowMatrices[0] * vec4(position, 1.0);
+    float strength = 1.0 - smoothstep(0.9, 1.0, length(inFirst.xy));
+    if (strength <= 0.0) {
+        return 1.0;
+    }
+
+    float stepLength = reach / float(CONTACT_STEPS);
+    float noise = frameNoise(gl_FragCoord.xy + 71.0, frame.frameNumber);
+    vec3 start = position + n * 0.005;
+    for (int i = 0; i < CONTACT_STEPS; i++) {
+        float travelled = (float(i) + noise) * stepLength;
+        vec4 clip = frame.viewProjection * vec4(start + l * travelled, 1.0);
+        if (clip.w <= 0.0) {
+            break;
+        }
+
+        vec2 uv;
+        float gap = depthGap(clip, uv);
+        if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+            break;
+        }
+
+        if (gap > CONTACT_THICKNESS && gap < 2.0 * reach) {
+            float blocked = 1.0 - smoothstep(0.75, 1.0, travelled / reach);
+            return 1.0 - blocked * strength;
+        }
+    }
+    return 1.0;
+}
+
 // Screen-space reflection: walks along the ray until it passes behind something the
 // camera sees, then reads that spot from the previous finished frame. rgb is the colour
 // and a is how far to trust it, since rays leaving the screen know nothing.
@@ -482,7 +531,9 @@ void main() {
         // surfaces are all that can block it. Light from behind is looked up from the
         // side it arrives on.
         vec3 lightSide = dot(n, l) >= 0.0 ? n : -n;
-        float visibility = frame.lights[i].direction.w > 0.5 ? shadowVisibility(position, lightSide, l) : screenAo;
+        float visibility = frame.lights[i].direction.w > 0.5
+            ? shadowVisibility(position, lightSide, l) * contactShadow(position, lightSide, l)
+            : screenAo;
         vec3 reaching = sunlightReaching(position, l, i) * visibility;
         if (subsurface) {
             scattered += diffuseLit * reaching;

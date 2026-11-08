@@ -36,6 +36,25 @@ public sealed class Graphics
     /// </summary>
     public bool SunShadows { get; set; } = true;
 
+    /// <summary>
+    /// How many texels across each of the sun's shadow maps is: 1024, 2048 or 4096. Each step up
+    /// gives sharper shadow edges for four times the memory and more drawing. A change while the
+    /// game runs rebuilds the maps before the next frame.
+    /// </summary>
+    public int ShadowResolution
+    {
+        get;
+        set => field = value is 1024 or 2048 or 4096
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), value, "Shadow maps can be 1024, 2048 or 4096 texels across.");
+    } = 2048;
+
+    /// <summary>
+    /// The sun's contact shadows: the thin dark line where things meet the ground, found on screen, which
+    /// the shadow maps are too coarse to draw. Off, only the maps shade there. See <see cref="View.Shadows"/>.
+    /// </summary>
+    public bool ContactShadows { get; set; } = true;
+
     /// <summary>Point and spot light shadows. Off, those lights are blocked only by nearby surfaces, as the sun is without its shadows.</summary>
     public bool LightShadows { get; set; } = true;
 
@@ -67,6 +86,7 @@ public sealed class Graphics
     {
         Vsync = false,
         SunShadows = false,
+        ContactShadows = false,
         LightShadows = false,
         AmbientOcclusion = false,
         Reflections = false,
@@ -77,6 +97,7 @@ public sealed class Graphics
     /// <summary>The effects the renderer leaves out.</summary>
     internal RenderEffects Off =>
         (SunShadows ? 0 : RenderEffects.SunShadows)
+        | (ContactShadows ? 0 : RenderEffects.ContactShadows)
         | (LightShadows ? 0 : RenderEffects.LightShadows)
         | (AmbientOcclusion ? 0 : RenderEffects.AmbientOcclusion)
         | (Reflections ? 0 : RenderEffects.Reflections)

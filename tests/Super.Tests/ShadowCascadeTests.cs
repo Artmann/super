@@ -1,4 +1,5 @@
 using System.Numerics;
+using Rendition;
 using Rendition.Passes;
 
 namespace Super.Tests;
@@ -77,7 +78,7 @@ public class ShadowCascadeTests
     {
         var sun = Vector3.UnitY;
         var center = new Vector3(0f, 0f, 0f);
-        var matrix = ShadowPass.CreateMatrix(sun, center, radius: 10f, reach: 30f);
+        var matrix = ShadowPass.CreateMatrix(sun, center, radius: 10f, reach: 30f, resolution: 2048);
 
         // Reversed-Z: the point 30 m sunward is the near plane at 1, the one 10 m away the far plane at 0.
         Assert.Equal(1f, Depth(matrix, new Vector3(0f, 30f, 0f)), 4);
@@ -88,7 +89,7 @@ public class ShadowCascadeTests
     [Fact]
     public void Cascade_reaching_less_than_its_radius_reaches_its_radius()
     {
-        var matrix = ShadowPass.CreateMatrix(Vector3.UnitY, Vector3.Zero, radius: 10f, reach: 2f);
+        var matrix = ShadowPass.CreateMatrix(Vector3.UnitY, Vector3.Zero, radius: 10f, reach: 2f, resolution: 2048);
 
         Assert.Equal(1f, Depth(matrix, new Vector3(0f, 10f, 0f)), 4);
         Assert.Equal(0.5f, Depth(matrix, Vector3.Zero), 4);
@@ -204,6 +205,105 @@ public class ShadowCascadeTests
 
         Assert.StartsWith("The sun's size must be from 0 to 0.5 radians.", error.Message);
         Assert.Equal("sunSize", error.ParamName);
+    }
+
+    [Fact]
+    public void Contact_length_reaches_the_frame()
+    {
+        var view = new View();
+        view.Begin(0f);
+        view.Shadows(7f, 3, contact: 0.4f);
+
+        Assert.Equal(0.4f, SceneRenderer.FrameShadows(view, 16f / 9f).ContactLength);
+    }
+
+    [Fact]
+    public void Contact_length_is_a_quarter_metre_until_a_frame_sets_it()
+    {
+        var view = new View();
+        view.Begin(0f);
+        view.Shadows(7f, 3, contact: 0f);
+
+        Assert.Equal(0f, SceneRenderer.FrameShadows(view, 1f).ContactLength);
+
+        view.Begin(0f);
+
+        Assert.Equal(0.25f, SceneRenderer.FrameShadows(view, 1f).ContactLength);
+    }
+
+    [Theory]
+    [InlineData(-0.01f)]
+    [InlineData(float.NaN)]
+    public void A_contact_length_below_zero_is_refused(float contact)
+    {
+        var view = new View();
+        view.Begin(0f);
+
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Shadows(7f, 3, contact: contact));
+
+        Assert.StartsWith("The contact shadows' length must be 0 or more metres, and 0 turns them off.", error.Message);
+        Assert.Equal("contact", error.ParamName);
+    }
+
+    [Fact]
+    public void Renderer_draws_contact_shadows_the_settings_length()
+    {
+        var shadows = new ShadowSettings { ContactLength = 0.4f };
+
+        Assert.Equal(0.4f, ShadowPass.ContactLength(shadows, RenderEffects.Bloom, capturingProbe: false));
+    }
+
+    [Fact]
+    public void Contact_shadows_left_out_reach_the_renderer_as_no_length()
+    {
+        var graphics = new Graphics { ContactShadows = false };
+        var shadows = new ShadowSettings { ContactLength = 0.4f };
+
+        Assert.Equal(0f, ShadowPass.ContactLength(shadows, graphics.Off, capturingProbe: false));
+    }
+
+    [Fact]
+    public void Reflection_probes_are_captured_without_contact_shadows()
+    {
+        var shadows = new ShadowSettings { ContactLength = 0.4f };
+
+        Assert.Equal(0f, ShadowPass.ContactLength(shadows, RenderEffects.None, capturingProbe: true));
+    }
+
+    [Theory]
+    [InlineData(1024)]
+    [InlineData(2048)]
+    [InlineData(4096)]
+    public void Cascade_maps_can_be_1024_2048_or_4096_texels_across(int resolution)
+    {
+        Assert.Equal(resolution, ShadowPass.CheckResolution(resolution));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(3000)]
+    [InlineData(8192)]
+    public void Renderer_refuses_other_cascade_map_sizes(int resolution)
+    {
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => ShadowPass.CheckResolution(resolution));
+
+        Assert.StartsWith("Shadow maps can be 1024, 2048 or 4096 texels across.", error.Message);
+        Assert.Equal("resolution", error.ParamName);
+    }
+
+    [Fact]
+    public void Finer_maps_snap_cascades_to_finer_steps()
+    {
+        // A 20 m wide map: a 1024 map's texel is 20 / 1024 = 1.95 cm, a 4096 map's 0.488 cm.
+        // A centre 0.6 cm aside snaps back to 0 on the coarse map, so the origin is in the
+        // middle, and one texel aside on the fine map, so the origin sits 0.488 cm / 10 m off it.
+        var center = new Vector3(0.006f, 0f, 0f);
+        var coarse = ShadowPass.CreateMatrix(Vector3.UnitY, center, radius: 10f, reach: 10f, resolution: 1024);
+        var fine = ShadowPass.CreateMatrix(Vector3.UnitY, center, radius: 10f, reach: 10f, resolution: 4096);
+        var origin = new Vector4(0f, 0f, 0f, 1f);
+
+        Assert.Equal(0f, Vector4.Transform(origin, coarse).X, 6);
+        Assert.Equal(0.00048828f, MathF.Abs(Vector4.Transform(origin, fine).X), 6);
     }
 
     private static float Depth(Matrix4x4 matrix, Vector3 point)

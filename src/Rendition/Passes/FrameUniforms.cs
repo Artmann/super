@@ -99,7 +99,8 @@ internal struct FrameUniforms
 
     /// <summary>
     /// x, y: distance from the camera where shadows start to fade out and where they're gone;
-    /// z: the share of a cascade's map, at its edges, over which it hands over to the next.
+    /// z: the share of a cascade's map, at its edges, over which it hands over to the next;
+    /// w: how far contact shadows look along the sun, in metres, with 0 for none.
     /// </summary>
     public Vector4 ShadowFade;
 

@@ -53,6 +53,8 @@ public sealed unsafe class Renderer : IDisposable
     private readonly VulkanContext _context;
     private bool _disableVsync;
     private bool _vsyncChanged;
+    // The cascade map size asked for, which the next frame rebuilds the maps at if it differs.
+    private int _shadowResolution;
     private readonly Vk _api;
     private readonly Frame[] _frames = new Frame[FramesInFlight];
     // How far a simpler model may stray. Shadows are soft, so they can afford more.
@@ -170,6 +172,17 @@ public sealed unsafe class Renderer : IDisposable
         }
     }
 
+    /// <summary>
+    /// How many texels across each of the sun's cascade maps is: 1024, 2048 or 4096. Finer maps
+    /// give sharper shadows for four times the memory and drawing each step up. A change
+    /// rebuilds the maps before the next frame.
+    /// </summary>
+    public int ShadowResolution
+    {
+        get => _shadowResolution;
+        set => _shadowResolution = ShadowPass.CheckResolution(value);
+    }
+
     /// <summary>Times the render passes. Off by default, because reading the times costs a little.</summary>
     public bool MeasureGpu { get; set; }
 
@@ -266,7 +279,8 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         _resources = new ResourceTable(_context);
-        _shadowPass = new ShadowPass(_context, _frameSetLayout, _resources);
+        _shadowResolution = ShadowPass.CheckResolution(options.ShadowResolution);
+        _shadowPass = new ShadowPass(_context, _frameSetLayout, _resources, _shadowResolution);
         foreach (ref var frame in _frames.AsSpan())
         {
             WriteAtlasDescriptors(frame);
@@ -829,6 +843,14 @@ public sealed unsafe class Renderer : IDisposable
             Resize((uint)view.Width, (uint)view.Height);
         }
 
+        if (_shadowResolution != _shadowPass.Resolution)
+        {
+            // Frames in flight still read the maps being replaced. Changing this is rare.
+            _api.DeviceWaitIdle(_context.Device).Check();
+            _shadowPass.Resize(_shadowResolution);
+            WriteTargetDescriptors();
+        }
+
         _off = view.Off & RenderEffects.All;
         bool antiAliased = !_off.HasFlag(RenderEffects.AntiAliasing);
         if (antiAliased != _readsAntiAliased)
@@ -1000,7 +1022,7 @@ public sealed unsafe class Renderer : IDisposable
         {
             for (int cascade = 0; cascade < _shadowCascades; cascade++)
             {
-                float texelsPerUnit = ShadowPass.Resolution / (2f * ShadowPass.CascadeRadius(view.Shadows, cascade));
+                float texelsPerUnit = _shadowPass.Resolution / (2f * ShadowPass.CascadeRadius(view.Shadows, cascade));
                 var shadow = new DetailView(
                     _shadowMatrices[cascade], view.CameraPosition, 0f, texelsPerUnit, ShadowDetailError);
                 _shadowCounts[cascade] = DrawSelection.Select(shadow, draws, _details, _shadowDraws[cascade]);
@@ -1618,7 +1640,7 @@ public sealed unsafe class Renderer : IDisposable
 
         // Moving points two texels of the first cascade off their surface stops them
         // shadowing themselves. The lighting pass works this out per cascade itself.
-        float normalOffset = view.Shadows.Radius * 4f / ShadowPass.Resolution;
+        float normalOffset = view.Shadows.Radius * 4f / _shadowPass.Resolution;
         uniforms->Parameters = new Vector4(
             view.BackgroundFadeStart, view.BackgroundFadeEnd, view.Shadows.LightAngle, normalOffset);
 
@@ -1643,6 +1665,7 @@ public sealed unsafe class Renderer : IDisposable
             if (casts)
             {
                 uniforms->ShadowRadii = FitCascades(view, direction, fitToView: !capturingProbe, casters, out uniforms->ShadowFade, out uniforms->ShadowDepthScales);
+                uniforms->ShadowFade.W = ShadowPass.ContactLength(view.Shadows, _off, capturingProbe);
                 for (int cascade = 0; cascade < _shadowCascades; cascade++)
                 {
                     uniforms->ShadowMatrices[cascade] = _shadowMatrices[cascade];
@@ -1740,7 +1763,7 @@ public sealed unsafe class Renderer : IDisposable
                 reach = ShadowPass.CasterReach(center, radius, direction, reach, casters);
             }
 
-            _shadowMatrices[cascade] = ShadowPass.CreateMatrix(direction, center, radius, reach);
+            _shadowMatrices[cascade] = ShadowPass.CreateMatrix(direction, center, radius, reach, _shadowPass.Resolution);
             radii[cascade] = radius;
             depthScales[cascade] = ShadowPass.DepthScale(radius, reach);
         }

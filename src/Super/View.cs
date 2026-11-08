@@ -91,6 +91,7 @@ public sealed class View
     internal float ShadowRadius { get; private set; }
     internal int ShadowCascades { get; private set; }
     internal float SunSize { get; private set; }
+    internal float ShadowContact { get; private set; } = ShadowSettings.DefaultContactLength;
     internal OcclusionSettings Occlusion { get; private set; } = new();
     internal UiTree? Ui { get; set; }
 
@@ -455,8 +456,11 @@ public sealed class View
     /// <paramref name="sunSize"/> is how wide the sun looks, in radians, which sets how fast
     /// its shadows blur with distance from what casts them: 0 is hard, the real sun is about
     /// 0.01, and the default of 0.12 is a soft, hazy sun.
+    /// <paramref name="contact"/> is how far, in metres, each pixel looks towards the sun on screen
+    /// for something touching it, which darkens the last centimetres where things meet the ground
+    /// that the maps are too coarse to see. It works only inside the first map's radius; 0 turns it off.
     /// </summary>
-    public void Shadows(float radius, int cascades = 1, float sunSize = DefaultSunSize)
+    public void Shadows(float radius, int cascades = 1, float sunSize = DefaultSunSize, float contact = ShadowSettings.DefaultContactLength)
     {
         if (!(radius > 0f))
         {
@@ -474,9 +478,16 @@ public sealed class View
                 nameof(sunSize), sunSize, $"The sun's size must be from 0 to {MaxSunSize.ToString(CultureInfo.InvariantCulture)} radians.");
         }
 
+        if (!(float.IsFinite(contact) && contact >= 0f))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(contact), contact, "The contact shadows' length must be 0 or more metres, and 0 turns them off.");
+        }
+
         ShadowRadius = radius;
         ShadowCascades = cascades;
         SunSize = sunSize;
+        ShadowContact = contact;
     }
 
     /// <summary>
@@ -609,6 +620,7 @@ public sealed class View
         ShadowRadius = 8f;
         ShadowCascades = 1;
         SunSize = DefaultSunSize;
+        ShadowContact = ShadowSettings.DefaultContactLength;
         Occlusion = new OcclusionSettings();
 
         // The hold stays, since changing it is what tells the renderer to keep a picture.
