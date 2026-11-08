@@ -36,6 +36,7 @@ internal sealed class SceneRenderer : IDisposable
     private int _uploadedAtlas;
     private Content? _content;
     private IContentFiles? _files;
+    private readonly ReflectionProbeSchedule _reflectionProbes = new();
 
     public SceneRenderer(RendererOptions options)
     {
@@ -115,14 +116,69 @@ internal sealed class SceneRenderer : IDisposable
     {
         Prepare(content, view);
         int count = PrepareDraws(view, content);
-        _renderer.Render(CreateFrame(view, width, height, time), _draws.AsSpan(0, count));
+        var frame = CreateFrame(view, width, height, time);
+        CaptureReflectionProbes(view, frame, _draws.AsSpan(0, count));
+        _renderer.Render(frame, _draws.AsSpan(0, count));
     }
 
     public byte[] Capture(View view, Content content, int width, int height, float time, out int capturedWidth, out int capturedHeight)
     {
         Prepare(content, view);
         int count = PrepareDraws(view, content);
-        return _renderer.Capture(CreateFrame(view, width, height, time), _draws.AsSpan(0, count), out capturedWidth, out capturedHeight);
+        var frame = CreateFrame(view, width, height, time);
+        CaptureReflectionProbes(view, frame, _draws.AsSpan(0, count));
+        return _renderer.Capture(frame, _draws.AsSpan(0, count), out capturedWidth, out capturedHeight);
+    }
+
+    /// <summary>The reflection probes to keep: the view's, or none while reflections are off.</summary>
+    internal static ReadOnlySpan<ReflectionProbeRequest> WantedReflectionProbes(View view, RenderEffects off) =>
+        off.HasFlag(RenderEffects.Reflections) ? [] : view.ReflectionProbes;
+
+    /// <summary>
+    /// Photographs each of the view's reflection probes the first frame it's placed, and again when
+    /// it moves or the lighting changes. A probe that's gone takes the others with it, and they're
+    /// photographed again in their new slots.
+    /// </summary>
+    private void CaptureReflectionProbes(View view, in FrameView frame, ReadOnlySpan<DrawItem> draws)
+    {
+        var wanted = WantedReflectionProbes(view, Off);
+        if (_reflectionProbes.Forget(wanted))
+        {
+            _renderer.ClearReflectionProbes();
+        }
+
+        if (wanted.IsEmpty)
+        {
+            return;
+        }
+
+        int lighting = _renderer.CaptureLighting(frame);
+        foreach (var request in wanted)
+        {
+            if (!_reflectionProbes.ShouldCapture(request, lighting))
+            {
+                continue;
+            }
+
+            var probe = new ReflectionProbe
+            {
+                Position = request.Position,
+                BoxMin = request.Min,
+                BoxMax = request.Max,
+                BlendDistance = request.Blend,
+            };
+
+            // The probe stands in the open, so it sees every draw, and every draw casts its shadow.
+            var handle = new ReflectionProbeHandle(_reflectionProbes.SlotOf(request.Key));
+            if (handle.Index < _renderer.ReflectionProbeCount)
+            {
+                _renderer.RecaptureReflectionProbe(handle, probe, frame, draws, draws);
+            }
+            else
+            {
+                _renderer.CaptureReflectionProbe(probe, frame, draws, draws);
+            }
+        }
     }
 
     /// <summary>

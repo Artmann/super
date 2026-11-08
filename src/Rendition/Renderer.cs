@@ -25,6 +25,9 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>The most skin matrices one frame can hold across every skinned draw.</summary>
     public const int MaxBones = 16384;
 
+    /// <summary>The most reflection probes the renderer holds at once.</summary>
+    public const int MaxReflectionProbes = FrameUniforms.MaxProbes;
+
     private const PipelineStageFlags2 SampledStage = PipelineStageFlags2.FragmentShaderBit;
     private const AccessFlags2 SampledAccess = AccessFlags2.ShaderSampledReadBit;
     private const PipelineStageFlags2 ColorStage = PipelineStageFlags2.ColorAttachmentOutputBit;
@@ -329,7 +332,7 @@ public sealed unsafe class Renderer : IDisposable
         _overlaySet = AllocateSet(_oneTextureSetLayout);
         _bloomPass = new BloomPass(_context, _linearSampler, _gBuffer.Resolved.View, _gBuffer.Extent);
         _particlePass = new ParticlePass(_context, _frameSetLayout, FramesInFlight);
-        _transparentPass = new TransparentPass(_context, _frameSetLayout, _resources, _environment);
+        _transparentPass = new TransparentPass(_context, _frameSetLayout, _resources, _environment, _probes);
         WriteTargetDescriptors();
 
         _gBufferPass = new GBufferPass(_context, _frameSetLayout, _resources);
@@ -605,7 +608,8 @@ public sealed unsafe class Renderer : IDisposable
     /// there. A probe usually sits inside an object, so <paramref name="visible"/> should
     /// leave that object out while <paramref name="shadowCasters"/> keeps it, which still
     /// puts its shadow in the picture. The view supplies the lights and shadow settings.
-    /// This takes a moment and waits for the GPU, so call it while loading.
+    /// This takes a moment and waits for the GPU, so call it while loading, or when
+    /// <see cref="CaptureLighting"/> changes. At most <see cref="MaxReflectionProbes"/> fit.
     /// </summary>
     public ReflectionProbeHandle CaptureReflectionProbe(
         in ReflectionProbe probe,
@@ -613,8 +617,60 @@ public sealed unsafe class Renderer : IDisposable
         ReadOnlySpan<DrawItem> visible,
         ReadOnlySpan<DrawItem> shadowCasters)
     {
+        if (_probes.Count == MaxReflectionProbes)
+        {
+            throw new InvalidOperationException($"Only {MaxReflectionProbes} reflection probes are supported.");
+        }
+
+        CaptureProbeFaces(probe, view, visible, shadowCasters);
+        return _probes.Add(probe);
+    }
+
+    /// <summary>
+    /// Photographs the scene again for a probe <see cref="CaptureReflectionProbe"/> made, which can
+    /// also move it or change its box. Surfaces reflect the new picture from the next frame.
+    /// </summary>
+    public void RecaptureReflectionProbe(
+        ReflectionProbeHandle handle,
+        in ReflectionProbe probe,
+        in FrameView view,
+        ReadOnlySpan<DrawItem> visible,
+        ReadOnlySpan<DrawItem> shadowCasters)
+    {
+        if ((uint)handle.Index >= (uint)_probes.Count)
+        {
+            throw new ArgumentException($"Reflection probe {handle.Index} does not exist; there are {_probes.Count}.", nameof(handle));
+        }
+
+        CaptureProbeFaces(probe, view, visible, shadowCasters);
+        _probes.Replace(handle, probe);
+    }
+
+    /// <summary>How many reflection probes have been captured and not cleared.</summary>
+    public int ReflectionProbeCount => _probes.Count;
+
+    /// <summary>Forgets every reflection probe, so surfaces reflect only the sky from the next frame.</summary>
+    public void ClearReflectionProbes() => _probes.Clear();
+
+    /// <summary>
+    /// A number that changes whenever something that lights a reflection probe's picture changes:
+    /// the suns, the sky, the shadows, the light probes and which effects are off. Capture the
+    /// probes again when it does. Moving things doesn't change it.
+    /// </summary>
+    public int CaptureLighting(in FrameView view)
+    {
+        // Light probes fill in over a few frames, and probes captured before then look wrong.
+        bool lightProbesSettled = _lightProbesInUse && _lightProbes.Schedule.Round > 2;
+        return HashCode.Combine(LightingHash(view), _lightProbesInUse, lightProbesSettled);
+    }
+
+    private void CaptureProbeFaces(in ReflectionProbe probe, in FrameView view, ReadOnlySpan<DrawItem> visible, ReadOnlySpan<DrawItem> shadowCasters)
+    {
         _api.DeviceWaitIdle(_context.Device).Check();
         _uploads.Flush();
+
+        // The picture follows the view's switches, which Render hasn't applied yet this frame.
+        _off = view.Off & RenderEffects.All;
 
         // The passes are bound to the current targets, so small ones stand in for a while.
         var screenTargets = _gBuffer;
@@ -624,13 +680,10 @@ public sealed unsafe class Renderer : IDisposable
 
         CaptureFaces(view, probe.Position, visible, shadowCasters, _probes.Capture);
 
-        var handle = _probes.Add(probe);
-
         _gBuffer.Dispose();
         _gBuffer = screenTargets;
         WriteTargetDescriptors();
         _historyReady = false;
-        return handle;
     }
 
     /// <summary>
@@ -799,7 +852,7 @@ public sealed unsafe class Renderer : IDisposable
         hash.Add(view.Shadows.LightAngle);
 
         // Plain materials change what colour the bounced light picks up.
-        hash.Add(_off & (RenderEffects.SunShadows | RenderEffects.Materials));
+        hash.Add(view.Off & (RenderEffects.SunShadows | RenderEffects.Materials));
         hash.Add(view.LightProbes);
         return hash.ToHashCode();
     }

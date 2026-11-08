@@ -63,6 +63,7 @@ component on its entity instead. See [Audio](audio.md).
 | `view.Shadows(radius, cascades, sunSize, contact)` | How far shadows reach, how soft they are, and how far contact shadows look where things meet the ground. See [Rendering](rendering.md#shadows) |
 | `view.AmbientOcclusion(radius, strength)` | How far corners and creases reach out to darken the soft light, and how dark. See [Rendering](rendering.md#ambient-occlusion) |
 | `view.LightProbes(min, max, spacing)` | A box of light probes that gives what's inside light bounced off the walls and ground. See [Rendering](rendering.md#bounced-light) |
+| `view.ReflectionProbe(key, position, boxMin, boxMax, blend)` | A photograph of the scene from one spot, which shiny surfaces and glass in its box reflect. Up to 4 a frame. See [Rendering](rendering.md#reflections) |
 | `view.Water(settings)` | Puts the camera underwater. See [Rendering](rendering.md#water) |
 | `view.Finish(settings)` | Exposure, contrast, vignette and other [post-processing](rendering.md#the-look-of-the-picture) |
 | `view.Models(world)` | Every entity with a model, from [`Super.Ecs`](ecs.md#drawing-entities) |

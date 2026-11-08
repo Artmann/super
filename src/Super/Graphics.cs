@@ -67,7 +67,7 @@ public sealed class Graphics
     /// <summary>Darkening in corners, creases and under things. Off, they're as bright as open ground.</summary>
     public bool AmbientOcclusion { get; set; } = true;
 
-    /// <summary>Shiny surfaces and water mirroring what's on screen. Off, they reflect only the sky and reflection probes.</summary>
+    /// <summary>Shiny surfaces and water mirroring what's on screen, and reflection probes. Off, they and glass reflect only the sky.</summary>
     public bool Reflections { get; set; } = true;
 
     /// <summary>Smoothing jagged edges over several frames. Off, edges show their pixels, and nothing blurs as the camera moves.</summary>

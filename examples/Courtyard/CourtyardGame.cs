@@ -15,6 +15,7 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
     // Light keys, apart from the model's key of 0.
     private const int LampKey = 1;
     private const int RoomKey = 2;
+    private const int YardProbeKey = 1;
 
     // The model keeps Blender's origin (keepOrigin in its sidecar), so a point from
     // art/courtyard.py is the same here, with Blender's z as y and its y as -z.
@@ -70,6 +71,9 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         view.Shadows(7f, 3, sunSize: 0.02f);
         // Light probes over the yard, a metre apart, so the sunlit brick warms the shade round it.
         view.LightProbes(new(-2f, -0.5f, -9f), new(9f, 5f, 6f), 1f);
+        // A reflection probe at head height in the middle of the yard, so the window and the
+        // puddle mirror the wall, the deck and the house rather than only the sky.
+        view.ReflectionProbe(YardProbeKey, position: new(3.5f, 1.6f, -1.5f), boxMin: new(-3f, -1f, -10f), boxMax: new(10f, 6f, 7f));
 
         // The lantern is on, shining every way through its glass. In daylight it only warms
         // the wall just round it. It casts no shadows: the light sits inside the bulb and the lantern round it, and

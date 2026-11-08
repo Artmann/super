@@ -39,14 +39,15 @@ internal sealed unsafe class TransparentPass : IDisposable
         VulkanContext context,
         DescriptorSetLayout frameSetLayout,
         ResourceTable resources,
-        EnvironmentMap environment)
+        EnvironmentMap environment,
+        ReflectionProbes probes)
     {
         _context = context;
         _resources = resources;
         var api = context.Api;
 
-        // The studio's reflections and light, the copy of the scene and depth.
-        const int bindingCount = 4;
+        // The studio's reflections and light, the copy of the scene, depth and the reflection probes.
+        const int bindingCount = 5;
         var bindings = stackalloc DescriptorSetLayoutBinding[bindingCount];
         for (int i = 0; i < bindingCount; i++)
         {
@@ -86,6 +87,7 @@ internal sealed unsafe class TransparentPass : IDisposable
             new(environment.Sampler, environment.Reflections, ImageLayout.ShaderReadOnlyOptimal),
             new(environment.Sampler, environment.Irradiance, ImageLayout.ShaderReadOnlyOptimal),
         ]);
+        WriteImages(4, [new(environment.Sampler, probes.View, ImageLayout.ShaderReadOnlyOptimal)]);
 
         var setLayouts = stackalloc DescriptorSetLayout[] { frameSetLayout, resources.Layout, _environmentLayout };
         var pushRange = SceneDraws.PushRange;

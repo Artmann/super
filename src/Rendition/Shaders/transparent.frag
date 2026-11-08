@@ -5,6 +5,7 @@
 #include "brdf.glsl"
 #include "material.glsl"
 #include "light_data.glsl"
+#include "reflection_probes.glsl"
 
 layout(location = 0) in vec3 inNormal;
 layout(location = 2) in vec2 inUv;
@@ -14,6 +15,7 @@ layout(set = 2, binding = 0) uniform samplerCube reflectionTexture;
 layout(set = 2, binding = 1) uniform samplerCube irradianceTexture;
 layout(set = 2, binding = 2) uniform sampler2D sceneColor; // The picture behind, with blurrier mips.
 layout(set = 2, binding = 3) uniform sampler2D sceneDepth;
+layout(set = 2, binding = 4) uniform samplerCubeArray probeTexture;
 
 layout(location = 0) out vec4 outColor;
 
@@ -94,7 +96,8 @@ void main() {
     vec3 f0 = vec3(0.04);
 
     vec2 brdf = environmentBrdf(roughness, nDotV);
-    vec3 reflectedLight = textureLod(reflectionTexture, reflect(-v, n), roughness * REFLECTION_LODS).rgb;
+    // Glass reflects the yard or room round it where a reflection probe sees it, as lit surfaces do.
+    vec3 reflectedLight = probeReflection(probeTexture, reflectionTexture, inPosition, reflect(-v, n), roughness * REFLECTION_LODS);
     vec3 specular = reflectedLight * (f0 * brdf.x + brdf.y) * frame.backgroundRadiance.a;
     vec3 diffuse = texture(irradianceTexture, n).rgb * frame.backgroundRadiance.a;
 

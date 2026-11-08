@@ -147,7 +147,27 @@ internal sealed unsafe class ReflectionProbes : IDisposable
             throw new InvalidOperationException($"Only {FrameUniforms.MaxProbes} reflection probes are supported.");
         }
 
-        int index = Count;
+        Store(Count, probe);
+        Count++;
+        return new ReflectionProbeHandle(Count - 1);
+    }
+
+    /// <summary>Blurs the six captured faces into an existing probe, in place of what it held.</summary>
+    public void Replace(ReflectionProbeHandle handle, in ReflectionProbe probe)
+    {
+        if ((uint)handle.Index >= (uint)Count)
+        {
+            throw new ArgumentException($"Reflection probe {handle.Index} does not exist; there are {Count}.", nameof(handle));
+        }
+
+        Store(handle.Index, probe);
+    }
+
+    /// <summary>Forgets every probe. Surfaces reflect the sky again from the next frame.</summary>
+    public void Clear() => Count = 0;
+
+    private void Store(int index, in ReflectionProbe probe)
+    {
         for (int mip = 0; mip < Mips; mip++)
         {
             FilterLevel(index, mip);
@@ -159,8 +179,6 @@ internal sealed unsafe class ReflectionProbes : IDisposable
             BoxMin = new Vector4(probe.BoxMin, 0f),
             BoxMax = new Vector4(probe.BoxMax, 0f),
         };
-        Count++;
-        return new ReflectionProbeHandle(index);
     }
 
     public void Dispose()

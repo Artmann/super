@@ -948,7 +948,22 @@ so it belongs in loading. Each probe has a box for the space it describes, and a
 reflected ray runs on to that box before the lookup, so reflections line up with where
 they really land instead of sliding as the camera moves. Up to four probes blend at
 their box edges. The sample leaves the car out of its probe, because the probe sits
-inside the car, and captures only the floor and the shadow on it.
+inside the car, and captures only the floor and the shadow on it. The lookup lives in
+`reflection_probes.glsl` (`probeReflection`), shared by `lighting.frag` and
+`transparent.frag`, so glass reflects the probes the same way lit surfaces do; the glass
+pass binds the probe cube array at set 2, binding 4. Glass sees no screen-space reflection.
+
+`RecaptureReflectionProbe` draws a probe again into its own slot, and
+`ClearReflectionProbes` forgets them all, since a slot in the middle can't be dropped.
+`Renderer.CaptureLighting` combines `LightingHash` (see below) with whether the light probes
+are in use and have finished both rounds, so a probe captured while they fill in is redone
+once they settle. Super places probes with `view.ReflectionProbe`: `SceneRenderer`, before
+each frame's `Render`, asks `ReflectionProbeSchedule` whether each key's request or the
+lighting hash differs from its last capture, captures new keys into the next slot and
+recaptures changed ones in place. A key missing from a frame clears every probe, and the
+rest are captured again. With the `Reflections` switch off Super wants no probes, so it
+clears them and glass falls back to the studio cube. Captures set the renderer's switches
+from the view first, since `Render` hasn't applied this frame's yet.
 
 ## Light probes
 
@@ -1019,8 +1034,9 @@ how much coat a surface has.
 
 The G-buffer holds one surface per pixel, so glass can't go through it. Glass is
 shaded as it's drawn, after lighting, and tests against the depth of the opaque scene
-without writing to it. Its reflection stays at full strength however clear the glass
-is, and only its own colour is scaled by opacity.
+without writing to it. Its reflection, from the reflection probes where they cover it and
+the studio elsewhere, stays at full strength however clear the glass is, and only its own
+colour is scaled by opacity.
 
 `TransparentPass` draws glass and particles in one render pass, in the order
 `TransparentPlan` gives: glass sorted furthest first by the middle of its bounds along
@@ -1432,8 +1448,9 @@ Anything larger than a block gets its own allocation.
   objects rely on the colour clamp and can show rough edges. Skinned models, now
   supported, will need motion vectors from the G-buffer pass too.
 - Screen-space reflections only know what is on screen, and read last frame's image.
-  Glass still reflects the studio, not probes or traced rays.
-- Reflection probes are captured once and don't update, and a scene gets at most four.
+  Glass reflects probes and the studio, not traced rays.
+- Reflection probes are captured again only when they move or the lighting changes, not when
+  things move, and a scene gets at most four. Removing one recaptures the rest.
 - Light probes are captured again only when the lighting or the box changes, not when
   things move, and a sun that moves every frame keeps them capturing. Each capture frame
   waits for the GPU face by face, so it hitches.

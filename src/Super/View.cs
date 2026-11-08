@@ -31,6 +31,12 @@ public readonly record struct ModelDraw(
 public readonly record struct SunLight(Vector3 Direction, Vector3 Color, bool CastsShadows = false);
 
 /// <summary>
+/// A reflection probe placed with <see cref="View.ReflectionProbe"/>: where it photographs the scene
+/// from, the box its reflections are bent to land on, and how far towards the box's sides it fades out.
+/// </summary>
+public readonly record struct ReflectionProbeRequest(int Key, Vector3 Position, Vector3 Min, Vector3 Max, float Blend);
+
+/// <summary>
 /// Names a model. <see cref="Content"/> hands these out, and there are built-in shapes one
 /// unit wide, centred on zero. Build other sizes with <see cref="Shapes"/>.
 /// </summary>
@@ -74,6 +80,7 @@ public sealed class View
     private readonly List<SunLight> _suns = [];
     private readonly List<Particle> _particles = [];
     private readonly List<LocalLight> _lights = [];
+    private readonly List<ReflectionProbeRequest> _reflectionProbes = [];
     private readonly ViewMemory _memory = new();
     private long _frame;
     private long _tick;
@@ -110,6 +117,9 @@ public sealed class View
 
     /// <summary>Every particle drawn so far this frame, in no particular order.</summary>
     public ReadOnlySpan<Particle> DrawnParticles => CollectionsMarshal.AsSpan(_particles);
+
+    /// <summary>The reflection probes placed so far this frame, in the order they were placed.</summary>
+    public ReadOnlySpan<ReflectionProbeRequest> ReflectionProbes => CollectionsMarshal.AsSpan(_reflectionProbes);
 
     /// <summary>How far the display is between the last tick and the next, from 0 to 1.</summary>
     public float Blend { get; private set; }
@@ -550,6 +560,62 @@ public sealed class View
         LightProbeVolume = settings;
     }
 
+    /// <summary>
+    /// Places a reflection probe: a photograph of the scene in every direction from
+    /// <paramref name="position"/>, which shiny surfaces and glass inside the box from
+    /// <paramref name="boxMin"/> to <paramref name="boxMax"/> reflect in place of the sky. The box
+    /// should match the room or yard round it, since a reflection is bent to land on its walls.
+    /// Towards the box's sides the probe fades out over <paramref name="blend"/> metres. The key
+    /// names it across frames: it is photographed the first frame it's placed, and again only
+    /// when it moves or the lighting changes, so place it every frame. At most
+    /// <see cref="Renderer.MaxReflectionProbes"/> fit. See docs/rendering.md.
+    /// </summary>
+    public void ReflectionProbe(int key, Vector3 position, Vector3 boxMin, Vector3 boxMax, float blend = 0.5f)
+    {
+        if (_reflectionProbes.Count == Renderer.MaxReflectionProbes)
+        {
+            throw new InvalidOperationException(
+                $"At most {Renderer.MaxReflectionProbes.ToString(CultureInfo.InvariantCulture)} reflection probes fit in a frame.");
+        }
+
+        foreach (var placed in _reflectionProbes)
+        {
+            if (placed.Key == key)
+            {
+                throw new ArgumentException(
+                    $"Reflection probe {key.ToString(CultureInfo.InvariantCulture)} was already placed this frame. Give each probe its own key.",
+                    nameof(key));
+            }
+        }
+
+        if (!(float.IsFinite(blend) && blend >= 0f))
+        {
+            throw new ArgumentOutOfRangeException(nameof(blend), blend, "The reflection probe's blend must be 0 or more metres.");
+        }
+
+        for (int axis = 0; axis < 3; axis++)
+        {
+            if (!(float.IsFinite(boxMin[axis]) && float.IsFinite(boxMax[axis]) && boxMax[axis] > boxMin[axis]))
+            {
+                string name = axis == 0 ? "x" : axis == 1 ? "y" : "z";
+                throw new ArgumentException(
+                    $"The reflection probe's box must reach further along {name} than it starts, but it runs from {boxMin[axis].ToString(CultureInfo.InvariantCulture)} to {boxMax[axis].ToString(CultureInfo.InvariantCulture)}.",
+                    nameof(boxMax));
+            }
+        }
+
+        if (!(Vector3.Clamp(position, boxMin, boxMax) == position))
+        {
+            throw new ArgumentException(
+                $"The reflection probe's position {Format(position)} must be inside its box, from {Format(boxMin)} to {Format(boxMax)}.",
+                nameof(position));
+        }
+
+        _reflectionProbes.Add(new ReflectionProbeRequest(key, position, boxMin, boxMax, blend));
+    }
+
+    private static string Format(Vector3 value) => value.ToString(null, CultureInfo.InvariantCulture);
+
     /// <summary>How wide the sun looks, in radians, unless <see cref="Shadows"/> says otherwise.</summary>
     public const float DefaultSunSize = 0.12f;
 
@@ -662,6 +728,7 @@ public sealed class View
         ShadowContact = ShadowSettings.DefaultContactLength;
         Occlusion = new OcclusionSettings();
         LightProbeVolume = null;
+        _reflectionProbes.Clear();
 
         // The hold stays, since changing it is what tells the renderer to keep a picture.
         Transition = new ScreenTransition { Hold = Transition.Hold };

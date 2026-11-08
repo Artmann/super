@@ -11,7 +11,7 @@ What it does for every game, with no setup:
 - Soft, contact-hardening shadows, in up to four cascades, with screen-space contact shadows where things meet the ground
 - A generated environment that gives surfaces reflections and soft fill light
 - [Bounced light](#bounced-light) from a volume of light probes, which doesn't leak through walls
-- Screen-space reflections and box-corrected reflection probes
+- Screen-space reflections and box-corrected [reflection probes](#reflections), which glass reflects too
 - Temporal anti-aliasing, [ambient occlusion](#ambient-occlusion) (with light bounced back from the surface's colour) and bloom
 - [Glass](#glass) that bends and frosts what's behind it, car paint clearcoat and surfaces that glow
 - [Height maps](#height-and-detail-maps) that sink mortar and grooves into a flat surface, and detail maps for fine grain
@@ -47,7 +47,7 @@ next frame follows, so it can back an options menu.
 | `LightShadows` | Point and spot lights shine through walls |
 | `AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. `view.AmbientOcclusion` only changes [how far and how dark](#ambient-occlusion) |
 | `LightProbes` | No [bounced light](#bounced-light): shade takes its soft light from the sky alone, as if no `view.LightProbes` were set, and no probes are captured |
-| `Reflections` | Shiny surfaces and water reflect only the sky and reflection probes, not what's on screen |
+| `Reflections` | Shiny surfaces, water and glass reflect only the sky: not what's on screen, and no [reflection probes](#reflections) are photographed |
 | `AntiAliasing` | Edges show their pixels, and moving things stay sharp |
 | `Bloom` | No glow round bright things. `PostSettings.Bloom` only changes how much there is |
 | `Materials` | Every surface is the same light grey, matte clay, shaped only by its mesh, so you can judge the lighting and the models without textures in the way. Glows still glow, cut-outs still cut and glass stays see-through. `--no-materials` turns it off too |
@@ -250,6 +250,34 @@ old and new probes mix and the new ones have only one bounce. A change to the bo
 old probes away, and the sky lights the scene until the first round is done. Moving or adding objects doesn't, so
 probes suit what stands still. Each frame that draws probes takes longer, so a sun that moves
 every frame keeps them drawing; set it once and leave it, or turn `Graphics.LightProbes` off.
+
+## Reflections
+
+```csharp
+view.ReflectionProbe(key: 1, position: new(3.5f, 1.6f, -1.5f), boxMin: new(-3f, -1f, -10f), boxMax: new(10f, 6f, 7f));
+```
+
+Shiny surfaces first mirror what's on screen. What they'd see off the edge of the screen, and
+everything glass sees, comes from the sky unless a reflection probe covers it. A reflection
+probe is a photograph of the scene in every direction from one spot, so a window in a yard
+reflects the walls and the house opposite rather than a sky it can't see. Put it at about head
+height in the middle of the space, and make the box match the space's walls, ground and
+roof: a reflected ray runs on to the box before it looks the probe up, so what it shows lands
+where it would really be and doesn't slide as the camera moves. Towards the sides of its box a
+probe fades out over `blend` metres, 0.5 by default, into the sky or the next probe.
+
+The key names the probe across frames, so place it every frame like a light. It is
+photographed the first frame it's placed and again only when it moves, its box changes or the
+lighting does: the sun, the sky, the shadow settings, the `Materials` switch or the [light
+probes](#bounced-light) filling in. Moving or adding objects doesn't, so probes suit what
+stands still. Each photograph waits for the GPU and takes a moment, so a sun that moves
+every frame keeps them drawing. A probe left out of a frame is dropped, and the rest are
+photographed again.
+
+At most 4 probes fit in a frame, and a fifth throws. The position must be inside the box,
+`boxMax` above `boxMin` on every axis, `blend` 0 or more, and each key used once a frame.
+With `Graphics.Reflections` off, no probes are photographed and shiny surfaces and glass
+reflect only the sky.
 
 ## The look of the picture
 
@@ -635,7 +663,7 @@ four times a frame. Past that, overlapping glass still blends but doesn't bend o
 frost. What's behind is bent once, at the near side, and followed half a metre at
 most, so solid glass looks right but isn't exact. Glass casts a lighter shadow, by how
 much light it lets through, and even clear glass keeps a quarter of its shadow, as
-bent light spreads. Glass reflects the sky, not probes or screen-space reflections.
+bent light spreads. Glass reflects [reflection probes](#reflections) where they cover it and the sky elsewhere, but not what's on screen.
 The `Glass` example shows each kind, and `--flat` draws it all without bending or
 frosting.
 
