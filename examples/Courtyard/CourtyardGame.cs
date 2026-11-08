@@ -15,12 +15,11 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
     // Light keys, apart from the model's key of 0.
     private const int LampKey = 1;
     private const int RoomKey = 2;
-    private const int ShadeKey = 3;
 
     // The model keeps Blender's origin (keepOrigin in its sidecar), so a point from
     // art/courtyard.py is the same here, with Blender's z as y and its y as -z.
-    // Just under the bulb in the lamp's shade (build_lamp).
-    private static readonly Vector3 LampBulb = new(4.55f, 3.8f, -3.5f);
+    // The middle of the bulb in the wall lantern (build_lamp), 0.31 m out from the wall.
+    private static readonly Vector3 LampBulb = new(4.7f, 3.95f, -3.688f);
 
     // A lamp hung near the back of the room behind the window (build_window), a little to the
     // left, so its walls fall off from warm to dark.
@@ -56,32 +55,32 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
 
         // Mid-afternoon. The sun is high on the left and a little in front of the wall, still
         // low enough to rake across the bricks and throw shadows to the right.
-        view.Sun(direction: new Vector3(-0.75f, 0.5f, 0.42f), color: new Vector3(5.0f, 4.7f, 4.2f));
-        // A clear blue sky, paler at the horizon, so the shade is cooler than the sunlight.
+        view.Sun(direction: new Vector3(-0.75f, 0.5f, 0.42f), color: new Vector3(7.2f, 6.7f, 5.8f));
+        // A clear blue sky, paler at the horizon, so the shade is cooler than the sunlight. It is
+        // dim next to the sun, so the shade is a clear step darker than the light.
         view.Sky(new SkySettings
         {
             Zenith = new Vector3(0.2f, 0.38f, 0.8f),
             Horizon = new Vector3(0.75f, 0.8f, 0.85f),
             Ground = new Vector3(0.2f, 0.17f, 0.14f),
-            Brightness = 1.0f,
+            Brightness = 0.75f,
         });
         // A sun close to its real size, so the tree out of frame to the left, 10 m up-sun of
         // the wall, dapples it with crisp leafy shade rather than one soft patch.
         view.Shadows(7f, 3, sunSize: 0.02f);
 
-        // The lamp is on, shining down from under its shade onto the wall and the path.
-        view.SpotLight(LampKey, LampBulb, direction: -Vector3.UnitY, color: new Vector3(10f, 6.8f, 3.4f),
-            range: 8f, innerAngle: 0.5f, outerAngle: 1.3f, radius: 0.12f);
-        // The spot only shines down, so the bulb's light on the pale inside of its own shade
-        // is a small light of its own. It reaches no further than the shade's rim.
-        view.PointLight(ShadeKey, LampBulb, color: new Vector3(0.5f, 0.34f, 0.17f), range: 0.7f, radius: 0.08f);
+        // The lantern is on, shining every way through its glass. In daylight it only warms
+        // the wall just round it. It casts no shadows: the light sits inside the bulb and the lantern round it, and
+        // they would hide it.
+        view.PointLight(LampKey, LampBulb, color: new Vector3(1.6f, 1.08f, 0.54f), range: 4f, radius: 0.15f, shadows: false);
         // Someone is home: a warm light in the room, seen through the old glass.
         view.PointLight(RoomKey, RoomLamp, color: new Vector3(2.2f, 1.2f, 0.45f), range: 6f, radius: 0.25f);
 
-        // A cool lift in the shade, a touch of warmth in the light, and a little bloom round the lamp.
+        // About a third of a stop brighter to keep the sunlit wall bright against the darker shade, a
+        // cool lift in the shade, a touch of warmth in the light, and a little bloom round the lamp.
         view.Finish(new PostSettings
         {
-            Exposure = 0.1f,
+            Exposure = 0.35f,
             Contrast = 0.1f,
             Saturation = 0.05f,
             Vignette = 0.35f,

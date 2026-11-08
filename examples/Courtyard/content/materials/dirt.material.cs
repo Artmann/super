@@ -30,6 +30,7 @@ public sealed class Dirt : MaterialGraph
         {
             Width = 2f,
             Depth = 0.04f,
+            Occlusion = 0.85f,
             Height = blend.Height,
             Color = color,
             Roughness = blend.Mask.Remap(0.95f, 0.75f).Add(Noise.Perlin(scale: 12, octaves: 3).Remap(-0.04f, 0.04f)),

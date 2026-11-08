@@ -30,6 +30,7 @@ public sealed class Flagstones : MaterialGraph
         {
             Width = 2f,
             Depth = 0.04f,
+            Occlusion = 0.85f,
             Height = blend.Height,
             Color = color,
             Roughness = blend.Mask.Remap(0.7f, 0.95f).Add(Noise.Perlin(scale: 16, octaves: 4).Remap(-0.08f, 0.08f)),

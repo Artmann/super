@@ -31,6 +31,7 @@ public sealed class Wood : MaterialGraph
         {
             Width = 1f,
             Depth = 0.01f,
+            Occlusion = 0.85f,
             Height = height,
             Color = color,
             Roughness = grain.Remap(0.62f, 0.8f).Add(rings.Multiply(0.05f)),

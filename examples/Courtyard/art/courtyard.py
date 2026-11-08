@@ -23,6 +23,13 @@ from mathutils import Matrix, Quaternion, Vector, noise
 
 SCENE = "Courtyard"
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "content", "models", "courtyard.glb")
+# Models downloaded from Sketchfab under CC BY 4.0: the lantern, the crates and the wheel.
+# The README credits them.
+ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+# Where the lantern's plate meets the wall, level with its bulb, right of the window.
+LAMP_X = 4.7
+LAMP_Z = 3.95
+LAMP_SIZE = 0.26
 
 rng = random.Random(7)
 noise.seed_set(7)
@@ -97,23 +104,27 @@ def make_materials():
         "bricks": material("graph_bricks", (0.45, 0.16, 0.1)),
         "stone": material("graph_stone", (0.45, 0.43, 0.38)),
         "flagstone": material("graph_flagstone", (0.4, 0.4, 0.38)),
+        # The dry wall's stones, one graph tinted per slot in the sidecar, so each stone can
+        # take its own colour.
+        "dry_warm": material("graph_drystone_warm", (0.47, 0.42, 0.36)),
+        "dry_cool": material("graph_drystone_cool", (0.4, 0.42, 0.44)),
+        "dry_pale": material("graph_drystone_pale", (0.52, 0.5, 0.46)),
+        "dry_damp": material("graph_drystone_damp", (0.32, 0.32, 0.3)),
+        "dry_core": material("graph_drystone_core", (0.24, 0.23, 0.22)),
         "dirt": material("graph_dirt", (0.25, 0.17, 0.11)),
         "wood": material("graph_wood", (0.5, 0.34, 0.2)),
-        "rust": material("graph_rust", (0.35, 0.2, 0.12)),
         "mortar": material("mortar", (0.32, 0.3, 0.27), roughness=0.95),
         "arch1": material("arch_brick_a", (0.42, 0.13, 0.07), roughness=0.85),
         "arch2": material("arch_brick_b", (0.5, 0.17, 0.09), roughness=0.85),
         "arch3": material("arch_brick_c", (0.36, 0.12, 0.08), roughness=0.85),
         "iron": material("iron", (0.05, 0.048, 0.045), metallic=0.8, roughness=0.45),
+        "hoop": material("graph_hoop", (0.25, 0.14, 0.08), metallic=0.5, roughness=0.6),
         "frame": material("window_frame", (0.04, 0.035, 0.03), metallic=0.6, roughness=0.5),
         "glass": material("graph_glass", (0.3, 0.36, 0.34), roughness=0.05),
         "interior": material("interior", (0.015, 0.013, 0.012), roughness=1.0),
         "room": material("room", (0.38, 0.31, 0.23), roughness=0.95),
         "bark": material("bark", (0.16, 0.13, 0.1), roughness=0.9),
         "tree_leaf": material("tree_leaf", (0.11, 0.19, 0.05), roughness=0.7),
-        # A barn lamp in glossy bottle-green enamel, white enamel inside the shade.
-        "enamel": material("enamel", (0.03, 0.075, 0.05), roughness=0.28),
-        "shade": material("shade_inner", (0.8, 0.75, 0.65), roughness=0.5),
         "bulb": material("bulb", (1.0, 0.85, 0.6), emission=(1.0, 0.75, 0.45), strength=12.0),
         "water": material("water", (0.03, 0.025, 0.02), roughness=0.02),
         "ivy": material("ivy", (0.12, 0.2, 0.06), roughness=0.7),
@@ -125,7 +136,101 @@ def make_materials():
         "grass_dry": material("grass_dry", (0.42, 0.4, 0.18), roughness=0.8),
         "sack": material("graph_sack", (0.5, 0.4, 0.27), roughness=0.95),
         "twine": material("twine", (0.18, 0.14, 0.09), roughness=0.9),
+        "damp": material("graph_damp", (0.2, 0.18, 0.15), roughness=0.7),
+        "drip": material("graph_drip", (0.2, 0.18, 0.15), roughness=0.7),
+        "rust": material("graph_rust", (0.35, 0.18, 0.08), roughness=0.8),
     }
+
+
+def textured(name, folder, color, roughness, metallic, normal):
+    """A material from a downloaded model's image textures, in its folder under art/assets.
+    The glTF export embeds the images, so the cook needs nothing else."""
+    m = bpy.data.materials.get("cy_" + name) or bpy.data.materials.new("cy_" + name)
+    m.use_nodes = True
+    nodes, links = m.node_tree.nodes, m.node_tree.links
+    nodes.clear()
+    out = nodes.new("ShaderNodeOutputMaterial")
+    bsdf = nodes.new("ShaderNodeBsdfPrincipled")
+    links.new(bsdf.outputs[0], out.inputs[0])
+
+    def image(file, data):
+        img = bpy.data.images.load(os.path.join(ASSETS, folder, file), check_existing=True)
+        img.colorspace_settings.is_data = data
+        node = nodes.new("ShaderNodeTexImage")
+        node.image = img
+        return node
+
+    links.new(image(color, False).outputs["Color"], bsdf.inputs["Base Color"])
+    links.new(image(roughness, True).outputs["Color"], bsdf.inputs["Roughness"])
+    if metallic is None:
+        bsdf.inputs["Metallic"].default_value = 0.0
+    else:
+        links.new(image(metallic, True).outputs["Color"], bsdf.inputs["Metallic"])
+    bump = nodes.new("ShaderNodeNormalMap")
+    links.new(image(normal, True).outputs["Color"], bump.inputs["Color"])
+    links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+    return m
+
+
+def import_asset(sc, path):
+    """Imports a downloaded model into sc and returns its meshes, with their parents' moves
+    baked into the vertices so each stands in world space where the file put it. The empties
+    the file came with are removed, and so is anything new it brought that isn't used."""
+    before = (set(bpy.data.objects), set(bpy.data.materials), set(bpy.data.images))
+    window = bpy.context.window
+    previous = window.scene
+    window.scene = sc
+    try:
+        ext = os.path.splitext(path)[1].lower()
+        if ext == ".glb":
+            bpy.ops.import_scene.gltf(filepath=path)
+        elif ext == ".fbx":
+            bpy.ops.import_scene.fbx(filepath=path)
+        else:
+            bpy.ops.wm.obj_import(filepath=path)
+        bpy.context.view_layer.update()
+    finally:
+        window.scene = previous
+    new = [o for o in bpy.data.objects if o not in before[0]]
+    meshes = [o for o in new if o.type == "MESH"]
+    for o in meshes:
+        world = o.matrix_world.copy()
+        o.parent = None
+        o.data.transform(world)
+        o.matrix_world = Matrix.Identity(4)
+        o.data.materials.clear()
+    for o in new:
+        if o.type != "MESH":
+            bpy.data.objects.remove(o, do_unlink=True)
+    for m in set(bpy.data.materials) - before[1]:
+        if m.users == 0:
+            bpy.data.materials.remove(m)
+    for img in set(bpy.data.images) - before[2]:
+        if img.users == 0:
+            bpy.data.images.remove(img)
+    return meshes
+
+
+def bounds(obs):
+    vs = [v.co for o in obs for v in o.data.vertices]
+    return (Vector([min(v[i] for v in vs) for i in range(3)]), Vector([max(v[i] for v in vs) for i in range(3)]))
+
+
+def adopt(o, name, mats, matrix):
+    """Moves an imported mesh by matrix and names it as the script's own."""
+    o.data.transform(matrix)
+    o.name = "cy_" + name
+    o.data.name = "cy_" + name
+    for m in mats:
+        o.data.materials.append(m)
+    return o
+
+
+def remove_mesh(o):
+    me = o.data
+    bpy.data.objects.remove(o, do_unlink=True)
+    if me.users == 0:
+        bpy.data.meshes.remove(me)
 
 
 def emit(sc, name, bm, mats, smooth=False):
@@ -516,6 +621,10 @@ def build_wall(sc, M):
             faces = prism(bm, outline, WALL_Y - 0.03 - rng.uniform(0, 0.012), back, 0)
             for f in faces:
                 f.material_index = rng.randrange(3)
+            # Each brick takes its own part of the brick-face graph. Its own random stream, so
+            # the rest of the scene's draws stay the same.
+            pick = random.Random(ring * 100 + i)
+            box_uv(bm, faces, (pick.uniform(0, 1), pick.uniform(0, 1), pick.uniform(0, 1)))
     # Mortar behind the arch bricks, so the gaps between them aren't holes.
     outer_r = radius + 2 * ring_depth + 0.012
     ring = []
@@ -546,17 +655,17 @@ def build_wall(sc, M):
     build_brick_details(sc, M, x0, x1)
 
 
-# The bricks graph lays 26 courses in its 3 m, so these are the heights its joints fall at.
-COURSE = 3.0 / 26
-BRICK = 0.375
-# A string course two courses deep, standing out from the wall above the window, and a row of
+# The bricks graph lays 12 courses in its 3.5 m, so these are the heights its joints fall at.
+COURSE = 3.5 / 12
+BRICK = 0.4375
+# A string course one course deep, standing out from the wall above the window, and a row of
 # dentils under it: every other brick end stood out a little, so it casts a row of teeth.
-BAND_Z0, BAND_Z1 = 40 * COURSE, 42 * COURSE
+BAND_Z0, BAND_Z1 = 16 * COURSE, 17 * COURSE
 BAND_OUT = 0.035
 
 
 def build_brick_details(sc, M, x0, x1):
-    """Brickwork that stands out of the wall's flat face, so the low sun has something to catch:
+    """Brickwork that stands out of the wall's flat face, so the raking sun has something to catch:
     the string course and its dentils, quoins round the window and two iron anchor plates."""
     bm = bmesh.new()
 
@@ -572,16 +681,16 @@ def build_brick_details(sc, M, x0, x1):
 
     def run(xa, xb, wall_y, out, start):
         """A string course along the wall face at wall_y from xa to xb, with dentils under it."""
-        for row, (z0, z1) in enumerate(((BAND_Z0, BAND_Z0 + COURSE), (BAND_Z0 + COURSE, BAND_Z1))):
+        for row, (z0, z1) in enumerate(((BAND_Z0, BAND_Z1),)):
             x = xa - (start + row * BRICK / 2) % BRICK
             while x < xb:
                 brick(max(x, xa), min(x + BRICK, xb), z0, z1, wall_y - out - row * 0.006, wall_y + 0.02)
                 x += BRICK
         # The dentils: headers, a quarter brick wide, every other one.
         x = xa + 0.02
-        while x + 0.094 < xb:
-            brick(x, x + 0.094, BAND_Z0 - COURSE, BAND_Z0, wall_y - out * 0.6, wall_y + 0.02)
-            x += 0.188
+        while x + BRICK / 4 < xb:
+            brick(x, x + BRICK / 4, BAND_Z0 - COURSE, BAND_Z0, wall_y - out * 0.6, wall_y + 0.02)
+            x += BRICK / 2
         box(bm, (xa, wall_y - out + 0.008, BAND_Z0 + 0.004), (xb, wall_y + 0.01, BAND_Z1 - 0.004), 3)
 
     front = WALL_Y - PIER_DEPTH
@@ -590,13 +699,13 @@ def build_brick_details(sc, M, x0, x1):
     run(PIER_X1, WALL_X1, WALL_Y, BAND_OUT, 0.19)
     # The course turns the pier's corners: short returns along its sides.
     for side, (sx0, sx1) in ((-1, (PIER_X0 - BAND_OUT, PIER_X0 + 0.01)), (1, (PIER_X1 - 0.01, PIER_X1 + BAND_OUT))):
-        for z0, z1 in ((BAND_Z0, BAND_Z0 + COURSE), (BAND_Z0 + COURSE, BAND_Z1)):
+        for z0, z1 in ((BAND_Z0, BAND_Z1),):
             box(bm, (sx0, front - BAND_OUT + 0.005, z0 + 0.005), (sx1, WALL_Y, z1 - 0.005), rng.randrange(3), bevel=0.004)
 
     # Quoins up each side of the window: bricks standing a little proud, long and short in
     # turn, each one returning round the corner into the reveal.
     for jamb, outward in ((x0, -1), (x1, 1)):
-        for course in range(10, 30):
+        for course in range(math.ceil(SILL_Z / COURSE), int(SPRING_Z / COURSE)):
             z0, z1 = course * COURSE, (course + 1) * COURSE
             length = BRICK if course % 2 == 0 else BRICK / 2 + 0.005
             if outward < 0:
@@ -629,6 +738,43 @@ def build_pier(sc, M):
     box(bm, (PIER_X0, WALL_Y - PIER_DEPTH, 0.0), (PIER_X1, WALL_Y + 0.02, WALL_TOP + 0.08), 0)
     box_uv(bm, bm.faces[:], (0.19, 0.0, 0.0))
     emit(sc, "pier", bm, [M["bricks"]])
+
+
+def stain(bm, x0, x1, z_solid, z_faded, y, mat, streak=False):
+    """A flat quad just in front of the wall at y, for a dithered grime graph. Its V runs from
+    0 at z_solid, where the stain is solid, to 1 at z_faded, where it has faded out. A streak's
+    U runs from 0 to 2 across it, so the graph fades it at both sides; a band's U is in metres."""
+    corners = [Vector((x0, y, z_solid)), Vector((x1, y, z_solid)), Vector((x1, y, z_faded)), Vector((x0, y, z_faded))]
+    if z_faded < z_solid:
+        # Keep the face looking out of the wall, towards -y.
+        corners = [corners[1], corners[0], corners[3], corners[2]]
+    face = bm.faces.new([bm.verts.new(c) for c in corners])
+    face.material_index = mat
+    uv = uv_layer(bm)
+    for loop in face.loops:
+        co = loop.vert.co
+        u = 2 * (co.x - x0) / (x1 - x0) if streak else co.x
+        loop[uv].uv = (u, (co.z - z_solid) / (z_faded - z_solid))
+
+
+def build_stains(sc, M):
+    """Grime laid over the brickwork as dithered decals: rising damp along the foot of the
+    wall above the plinth, dirty water run off the sill, and rust washed down from the two
+    anchor plates. Each sits a millimetre or two in front of the wall."""
+    bm = bmesh.new()
+    # The damp stops below the sill, so it doesn't cross the window opening.
+    # It starts solid just under the top of the plinth, so the wet edge shows above it.
+    bottom, top = 0.42, SILL_Z - 0.05
+    stain(bm, WALL_X0, PIER_X0, bottom, top, WALL_Y - 0.0015, 0)
+    stain(bm, PIER_X1, WALL_X1, bottom, top, WALL_Y - 0.0015, 0)
+    stain(bm, PIER_X0, PIER_X1, bottom, top - 0.1, WALL_Y - PIER_DEPTH - 0.0015, 0)
+    # Off the sill, a little wider than the window, in front of the damp.
+    half = WIN_W / 2 + 0.12
+    stain(bm, WIN_X - half, WIN_X + half, SILL_Z - 0.2, SILL_Z - 0.95, WALL_Y - 0.003, 1, streak=True)
+    # Under each anchor plate, from behind its disc.
+    for ax in (-1.2, 10.1):
+        stain(bm, ax - 0.16, ax + 0.16, 5.38, 4.3, WALL_Y - 0.002, 2, streak=True)
+    emit(sc, "stains", bm, [M["damp"], M["drip"], M["rust"]])
 
 
 def build_window(sc, M, x0, x1):
@@ -747,55 +893,36 @@ def build_plinth(sc, M):
 
 
 def build_lamp(sc, M):
-    """A barn lamp: a tall plate on the wall, a gooseneck arm that rises out of it, curls over
-    and drops into a wide dome shade, dark outside and pale inside."""
-    bm = bmesh.new()
-    lx, lz = WIN_X + 2.45, SPRING_Z + 0.55  # where the arm leaves the plate
-    y = WALL_Y
-    # The plate: a rounded slab standing on end, and a boss where the arm comes out.
-    box(bm, (lx - 0.075, y - 0.035, lz - 0.24), (lx + 0.075, y + 0.01, lz + 0.1), 0, bevel=0.012)
-    boss = lathe(bm, [(0.0, 0.0), (0.045, 0.0), (0.045, 0.035), (0.032, 0.05), (0.0, 0.05)], 20, (0, 0, 0), 0)
-    for v in faces_verts(boss):
-        v.co = Vector((lx + v.co.x, y - 0.03 - v.co.z, lz + v.co.y))
-    # The gooseneck: out of the boss, then up and over in a half circle that swings out from
-    # the wall and across towards the window, then straight down into the shade.
-    start = Vector((lx, y - 0.08, lz))
-    reach = Vector((-0.3, -0.42, 0.0))
-    bend = reach.length / 2
-    out = reach.normalized()
-    arm = [(lx, y - 0.04, lz), tuple(start)]
-    for i in range(1, 25):
-        a = math.pi * i / 24
-        p = start + out * (bend - bend * math.cos(a)) + Vector((0, 0, bend * 0.8 * math.sin(a)))
-        arm.append(tuple(p))
-    sx, sy = start.x + reach.x, start.y + reach.y
-    arm.append((sx, sy, lz - 0.06))
-    tube(bm, arm, 0.026, 0, segments=12)
-    # The shade: a neck, a low dome, and a wide, shallow skirt with a rolled rim, so from the
-    # ground you see into it.
-    sz = lz - 0.08
-    # The inside follows the outside about a centimetre lower, so the pale enamel faces the
-    # bulb and the ground. The outside is capped at the neck, where the arm goes in.
-    outer = [(0.035, 0.06), (0.06, 0.05), (0.08, 0.0), (0.16, -0.045), (0.3, -0.085), (0.42, -0.115), (0.45, -0.125), (0.455, -0.14)]
-    inner = [(0.445, -0.147), (0.41, -0.127), (0.29, -0.097), (0.15, -0.057), (0.075, -0.012), (0.055, 0.035), (0.0, 0.045)]
-    turned = lathe(bm, outer, 48, (sx, sy, sz), 0, close_bottom=True)
-    # lathe's normal fix guesses outwards on an open surface, which here is up into the dome.
-    inside = lathe(bm, inner, 48, (sx, sy, sz), 1)
-    bmesh.ops.reverse_faces(bm, faces=inside)
-    turned += inside
-    turned += lathe(bm, [(0.455, -0.14), (0.445, -0.147)], 48, (sx, sy, sz), 0)
-    # The bulb holder, hanging from the inside of the dome.
-    turned += lathe(bm, [(0.0, 0.04), (0.045, 0.04), (0.045, -0.06), (0.0, -0.06)], 16, (sx, sy, sz), 0)
-    for f in turned + boss:
-        f.smooth = True
-    # The plate stays flat shaded, so its bevels read as edges.
-    emit(sc, "lamp", bm, [M["enamel"], M["shade"]])
+    """A wall lantern (rsg3tank's "Outdoor wall lamps"): an oval plate, a short arm, and a
+    six-sided glass lantern with a pointed roof and a bulb inside. The file holds four lamps
+    in a row along y; this is the one at y 13.6. Its plate is at -x and the lantern stands
+    out along +x, so it is turned to stand out from the wall, and scaled to 0.78 m tall."""
+    obs = import_asset(sc, os.path.join(ASSETS, "outdoor-wall-lamps", "outdoor_wall_lamps.glb"))
+    lamp = []
+    for o in obs:
+        lo, hi = bounds([o])
+        if 12.5 < (lo.y + hi.y) / 2 < 14.6:
+            lamp.append(o)
+        else:
+            remove_mesh(o)
+    # By size: the body and its plate, the glass round the bulb, and the bulb.
+    lamp.sort(key=lambda o: (bounds([o])[1] - bounds([o])[0]).length, reverse=True)
+    body, glass, bulb = lamp
+    lo, _ = bounds([body])
+    b_lo, b_hi = bounds([bulb])
+    middle = (b_lo + b_hi) / 2
+    # The back of the plate goes on the wall, level with the bulb's middle.
+    anchor = Vector((lo.x, middle.y, middle.z))
+    place = (Matrix.Translation((LAMP_X, WALL_Y, LAMP_Z)) @ Matrix.Rotation(-math.pi / 2, 4, "Z")
+             @ Matrix.Scale(LAMP_SIZE, 4) @ Matrix.Translation(-anchor))
+    for o in (glass, bulb):
+        if not o.data.uv_layers:
+            o.data.uv_layers.new()
+    adopt(body, "lamp", [M["frame"]], place)
+    adopt(glass, "lamp_glass", [M["glass"]], place)
+    adopt(bulb, "bulb", [M["bulb"]], place)
+    print("bulb at", tuple(round(c, 3) for c in place @ middle))
 
-    bm = bmesh.new()
-    bulb = bmesh.ops.create_uvsphere(bm, u_segments=16, v_segments=10, radius=0.075)
-    for v in bulb["verts"]:
-        v.co += Vector((sx, sy, sz - 0.11))
-    emit(sc, "bulb", bm, [M["bulb"]], smooth=True)
 
 
 # ---------------------------------------------------------------------------------------
@@ -804,32 +931,73 @@ def build_lamp(sc, M):
 def build_dry_wall(sc, M):
     """Built lying along X with its good face towards -Y, then turned a quarter so it runs
     out from the building towards -Y with that face towards the courtyard, +X."""
+    # The wall draws from its own random stream and puts the shared one back afterwards, so
+    # changing the wall doesn't move the grass, leaves and rubble placed after it.
+    saved = rng.getstate()
+    rng.seed(11)
+    try:
+        build_dry_wall_stones(sc, M)
+    finally:
+        rng.setstate(saved)
+
+
+def build_dry_wall_stones(sc, M):
     bm = bmesh.new()
     x_start, x_end = -DRY_LENGTH, 0.0
     y0 = 0.0
     thickness = DRY_THICKNESS
-    z = 0.0
-    course = 0
-    # Rough-squared stones of mixed sizes: flat beds and a flat face, but never quite square,
-    # with broken corners. Laid in uneven courses with tight joints, the biggest at the bottom.
-    def face_stone(cx, cz, length, height):
-        proud = rng.uniform(-0.025, 0.02)
-        chips = []
-        for _ in range(rng.choice((0, 1, 1, 2))):
-            chips.append(((rng.choice((-1, 1)), -1, rng.choice((-1, 1))), rng.uniform(0.03, 0.07) + 0.08 * min(length, height)))
-        block(bm, (cx, y0 + proud + 0.15, cz), (length / 2 - 0.004, 0.15, height / 2 - 0.004), 0,
-              bevel=rng.uniform(0.018, 0.032), yaw=rng.uniform(-0.04, 0.04),
-              roll=(rng.uniform(-0.03, 0.03), rng.uniform(-0.04, 0.04)),
-              warp=0.012 + 0.035 * min(length, height), rough=0.008, bulge=rng.uniform(0.008, 0.022),
-              chips=chips, step=0.065)
+    # The stones' material slots: one graph, tinted in the sidecar. Most stones are one of the
+    # three colours the quarry gave; the bottom course is mostly darkened by rising damp, and
+    # the hearting behind the face is darker still, as it's always in shadow.
+    warm, cool, pale, damp, core = range(5)
+
+    def tint(course):
+        if course == 0 and rng.random() < 0.6:
+            return damp
+        return rng.choices((warm, cool, pale), weights=(5, 3, 2))[0]
+
+    # Split, rough-squared stones of mixed sizes: flat beds, but a broken, uneven face with
+    # sharp arrises and knocked corners, each stone standing out from the wall by its own
+    # amount and tipped a little, so the light catches each one differently. Laid in uneven
+    # courses with tight joints, the biggest at the bottom.
+    front_corners = [(sx, -1, sz) for sx in (-1, 1) for sz in (-1, 1)]
+
+    def face_stone(cx, cz, length, height, course, proud=None, depth=0.3):
+        if proud is None:
+            proud = rng.uniform(-0.035, 0.03)
+        chips = [(corner, rng.uniform(0.015, 0.035) + 0.05 * min(length, height))
+                 for corner in rng.sample(front_corners, rng.choice((0, 1, 1, 2)))]
+        block(bm, (cx, y0 + proud + depth / 2, cz), (length / 2 - 0.003, depth / 2, height / 2 - 0.003), tint(course),
+              bevel=rng.uniform(0.006, 0.014), yaw=rng.uniform(-0.05, 0.05),
+              roll=(rng.uniform(-0.06, 0.06), rng.uniform(-0.04, 0.04)),
+              warp=0.008 + 0.02 * min(length, height), rough=0.012, bulge=rng.uniform(0.0, 0.008),
+              chips=chips, step=0.05)
+
+    # The courses' heights, chosen first so a tall stone can jump up through two of them.
+    heights = []
+    top = 0.0
+    while top < 1.2:
+        h = rng.uniform(0.24, 0.36) if len(heights) < 2 else rng.uniform(0.17, 0.3)
+        heights.append(h)
+        top += h * 0.97
+    # The spans along each course already filled by a jumper from the course below.
+    taken = [[] for _ in heights]
+    # A through-stone every metre and a half or so along the middle course, running right
+    # through the wall to tie its two faces together, and sticking out of the face.
+    through_course = len(heights) // 2
+    last_through = x_start
 
     # Where a stone's corner meets its neighbours there is a gap, and a waller knocks a small
     # pinning stone into it so the big ones can't rock.
     pins = []
-    while z < 1.2:
-        h = rng.uniform(0.24, 0.36) if course < 2 else rng.uniform(0.17, 0.3)
+    z = 0.0
+    for course, h in enumerate(heights):
         x = x_start + rng.uniform(0.0, 0.25)
         while x < x_end:
+            span = next((s for s in taken[course] if s[0] - 0.02 <= x < s[1]), None)
+            if span is not None:
+                x = span[1]
+                continue
             kind = rng.random()
             if course < 2 and kind < 0.25:
                 # A big footing stone.
@@ -839,28 +1007,44 @@ def build_dry_wall(sc, M):
                 length = rng.uniform(0.18, 0.3)
             else:
                 length = rng.uniform(0.32, 0.9) if course < 2 else rng.uniform(0.25, 0.65)
+            # Stop short of a jumper ahead, filling right up to it.
+            ahead = min((s[0] for s in taken[course] if s[0] > x), default=None)
+            if ahead is not None and x + length > ahead - 0.15:
+                length = ahead - x
+                if length < 0.06:
+                    x = ahead
+                    continue
             cx = min(x + length / 2, x_end - length / 2 + 0.05)
-            if 0.35 < length < 0.7 and rng.random() < 0.18:
+            if course == through_course and x - last_through > 1.3 and 0.25 < length < 0.5 and rng.random() < 0.6:
+                hh = h * rng.uniform(0.95, 1.0)
+                face_stone(cx, z + hh / 2, length, hh, course, proud=-rng.uniform(0.04, 0.065), depth=thickness + 0.08)
+                last_through = x
+            elif 0.35 < length < 0.7 and rng.random() < 0.18:
                 # Two thin stones in one slot, one on the other.
                 lower = h * rng.uniform(0.42, 0.55)
-                face_stone(cx + rng.uniform(-0.03, 0.03), z + lower / 2, length * rng.uniform(0.9, 1.0), lower - 0.01)
-                upper = h - lower
-                face_stone(cx + rng.uniform(-0.03, 0.03), z + lower + upper / 2, length * rng.uniform(0.85, 1.0), upper - 0.02)
+                face_stone(cx + rng.uniform(-0.03, 0.03), z + lower / 2, length * rng.uniform(0.92, 1.0), lower - 0.006, course)
+                upper = h * 0.99 - lower
+                face_stone(cx + rng.uniform(-0.03, 0.03), z + lower + upper / 2, length * rng.uniform(0.9, 1.0), upper - 0.006, course)
+            elif 1 <= course < len(heights) - 1 and 0.28 < length < 0.6 and rng.random() < 0.1:
+                # A jumper: a tall stone that rises through this course and the next.
+                hh = h * 0.97 + heights[course + 1] * rng.uniform(0.95, 1.0)
+                face_stone(cx, z + hh / 2, length, hh, course)
+                taken[course + 1].append((cx - length / 2, cx + length / 2))
             else:
-                hh = h * rng.uniform(0.82, 1.0)
-                face_stone(cx, z + hh / 2, length, hh)
+                hh = h * rng.uniform(0.94, 1.0)
+                face_stone(cx, z + hh / 2, length, hh, course)
             # A second stone behind, so the wall looks the same from the far side.
-            rock(bm, (cx + 0.1, y0 + thickness - 0.16, z + h / 2), (length, 0.34, h * 0.9), 0,
+            rock(bm, (cx + 0.1, y0 + thickness - 0.16, z + h / 2), (length, 0.34, h * 0.9), tint(course),
                  power=4.0, bumps=0.12, yaw=rng.uniform(-0.08, 0.08), segments=(12, 8))
             if rng.random() < 0.6 and x_start + 0.2 < x < x_end - 0.2:
-                pins.append((x, z + rng.uniform(0.2, 0.8) * h))
+                pins.append((x, z + rng.uniform(0.2, 0.8) * h, course))
             x += length
         z += h * 0.97
-        course += 1
-    for px, pz in pins:
+    for px, pz, course in pins:
         s = rng.uniform(0.06, 0.11)
-        block(bm, (px + rng.uniform(-0.02, 0.02), y0 + 0.09, pz), (s * rng.uniform(0.3, 0.5), 0.09, s * rng.uniform(0.25, 0.4)), 0,
-              bevel=0.01, yaw=rng.uniform(-0.3, 0.3), roll=(0.0, rng.uniform(-0.5, 0.5)), warp=0.012, rough=0.004, step=0.03)
+        block(bm, (px + rng.uniform(-0.02, 0.02), y0 + 0.09 + rng.uniform(0.0, 0.015), pz),
+              (s * rng.uniform(0.3, 0.5), 0.09, s * rng.uniform(0.25, 0.4)), tint(course),
+              bevel=0.006, yaw=rng.uniform(-0.3, 0.3), roll=(0.0, rng.uniform(-0.5, 0.5)), warp=0.012, rough=0.006, step=0.03)
     # The coping: thin slabs stood on edge across the top, all leaning the same way as a
     # waller sets them, a tall one and a shorter one in turn, so the top of the wall has a
     # clear, even comb along it.
@@ -873,18 +1057,19 @@ def build_dry_wall(sc, M):
         across = thickness + rng.uniform(0.0, 0.06)
         chips = [((rng.choice((-1, 1)), rng.choice((-1, 1)), 1), rng.uniform(0.03, 0.06))] if rng.random() < 0.5 else []
         block(bm, (x + w / 2 + math.sin(lean) * tall / 2, y0 + thickness / 2 + rng.uniform(-0.02, 0.02), z + math.cos(lean) * tall / 2 - 0.03),
-              (w / 2, across / 2, tall / 2), 0, bevel=0.016, yaw=rng.uniform(-0.05, 0.05), roll=(0.0, lean),
-              warp=0.012, rough=0.006, bulge=0.006, chips=chips, step=0.06)
+              (w / 2, across / 2, tall / 2), tint(len(heights)), bevel=0.008, yaw=rng.uniform(-0.05, 0.05), roll=(0.0, lean),
+              warp=0.014, rough=0.01, bulge=0.003, chips=chips, step=0.05)
         x += w / math.cos(lean) + rng.uniform(0.004, 0.012)
         k += 1
-    # The hearting: a dark core, so the gaps between stones are shadow and not sky.
-    box(bm, (x_start, y0 + 0.08, 0.0), (x_end, y0 + thickness - 0.1, z + 0.05), 1)
+    # The hearting: small stones packed in behind the face, so a joint shows stone deep in
+    # shadow rather than a hole.
+    box(bm, (x_start, y0 + 0.07, 0.0), (x_end, y0 + thickness - 0.1, z + 0.05), core)
     # A quarter turn: along the wall becomes -Y from the plinth's face, and the good face becomes +X.
     for v in bm.verts:
         x, y = v.co.x, v.co.y
         v.co.x = DRY_X - (y - y0)
         v.co.y = WALL_Y - 0.1 + (x - x_end)
-    emit(sc, "dry_wall", bm, [M["stone"], M["mortar"]])
+    emit(sc, "dry_wall", bm, [M["dry_warm"], M["dry_cool"], M["dry_pale"], M["dry_damp"], M["dry_core"]])
 
 
 # ---------------------------------------------------------------------------------------
@@ -1431,161 +1616,23 @@ def board(bm, length, width, thick, origin, ax, ay, az, index, bevel=None):
     return faces
 
 
-def nail(bm, position, normal, mat):
-    """A rusty nail head: a squat disc standing about 5 mm out of the wood along normal."""
-    turn = Vector((0, 0, 1)).rotation_difference(normal).to_matrix().to_4x4()
-    made = bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=8, radius1=0.0075,
-                                 radius2=0.006, depth=0.008,
-                                 matrix=Matrix.Translation(position + normal * 0.001) @ turn)
-    faces = faces_of(made["verts"])
-    for f in faces:
-        f.material_index = mat
-        f.normal_update()
-    box_uv(bm, faces, (crate_rng.uniform(0, 1), crate_rng.uniform(0, 1), 0))
-
-
-def build_crate(sc, M, name="crate", cx=7.0, cy=WALL_Y - 1.2, degrees=-6.0, size=1.0, seed=11, lid_turn=2.5):
-    """A wooden crate, knocked together by hand. Each side is rows of boards of uneven width,
-    each a little out of true, with a rail across the top and bottom and a diagonal brace
-    between them. Thick bevelled posts stand proud at the corners. The lid overhangs the
-    sides, has two cleats across it and has been put back a little crooked. Every board is
-    held by rusty nail heads where it meets a post, a rail or a cleat. size scales the whole
-    crate, boards and all."""
-    bm = bmesh.new()
-    crate_rng.seed(seed)
-    base = DECK_TOP
-    yaw = math.radians(degrees)
-    h = 0.42           # half the width of the box the boards are nailed to
-    H = 0.8            # height of the sides
-    t = 0.024          # board thickness
-    fw = 0.11          # rails and brace
-    post = 0.095       # the corner posts' side
-    rows = 5
-    Z = Vector((0, 0, 1))
-    WOOD, INSIDE, IRON = 0, 1, 2
-    index = 0
-
-    for side, (normal, tangent) in enumerate((
-        (Vector((0, -1, 0)), Vector((1, 0, 0))),
-        (Vector((0, 1, 0)), Vector((-1, 0, 0))),
-        (Vector((1, 0, 0)), Vector((0, 1, 0))),
-        (Vector((-1, 0, 0)), Vector((0, -1, 0))),
-    )):
-        def at(u, v, d):
-            return normal * (h + d) + tangent * u + Z * v
-
-        # The boards: rows of uneven width with uneven gaps, each one a touch skew and
-        # standing a little in or out, as a board does when it's nailed up by hand.
-        half = h - 0.002
-        gaps = [crate_rng.uniform(0.006, 0.02) for _ in range(rows - 1)]
-        weights = [crate_rng.uniform(0.8, 1.2) for _ in range(rows)]
-        unit = (H - sum(gaps)) / sum(weights)
-        v0 = 0.0
-        centres = []
-        for r in range(rows):
-            bh = weights[r] * unit
-            tilt = crate_rng.uniform(-0.006, 0.006)
-            along = tangent * math.cos(tilt) + Z * math.sin(tilt)
-            up = Z * math.cos(tilt) - tangent * math.sin(tilt)
-            board(bm, 2 * half, bh, t, at(-half, v0, crate_rng.uniform(-0.002, 0.002)), along, up, normal, index,
-                  bevel=0.005)
-            centres.append(v0 + bh / 2)
-            index += 1
-            v0 += bh + (gaps[r] if r < rows - 1 else 0.0)
-        # Rails over the boards at the top and bottom, running between the posts.
-        rail = h - 0.01
-        lo, hi = 0.01, H - fw - 0.01
-        board(bm, 2 * rail, fw, t, at(-rail, lo, t), tangent, Z, normal, index, bevel=0.007)
-        board(bm, 2 * rail, fw, t, at(-rail, hi, t), tangent, Z, normal, index + 1, bevel=0.007)
-        index += 2
-        # A brace from one rail to the other, corner to corner, a little thinner than the rails
-        # so its square ends tuck in behind them. Opposite sides lean opposite ways.
-        lean = 1 if side % 2 == 0 else -1
-        u0, u1 = -lean * (rail - 0.08), lean * (rail - 0.08)
-        v_lo, v_hi = lo + fw, hi
-        du, dv = u1 - u0, v_hi - v_lo
-        length = math.hypot(du, dv)
-        cu, sv = du / length, dv / length
-        reach = abs(cu) * fw / (2 * sv) + 0.01
-        along = tangent * cu + Z * sv
-        across = Z * cu - tangent * sv
-        start = at(u0 - cu * reach, v_lo - sv * reach, t) - across * (fw / 2)
-        board(bm, length + 2 * reach, fw, t * 0.85, start, along, across, normal, index, bevel=0.006)
-        index += 1
-
-        # Nails: through each board into the posts, two to an end, missing the rows the
-        # rails cover; two at each end of each rail; and one where the brace crosses a board.
-        for r in range(1, rows - 1):
-            for end in (-1, 1):
-                for dz in (-0.028, 0.028):
-                    nail(bm, at(end * (half - 0.04), centres[r] + dz, t), normal, IRON)
-        for v in (lo + fw / 2, hi + fw / 2):
-            for end in (-1, 1):
-                for dz in (-0.028, 0.028):
-                    nail(bm, at(end * (rail - 0.045), v + dz, 2 * t), normal, IRON)
-        for r in range(rows):
-            # Where the brace's middle line crosses this board's middle.
-            k = (centres[r] - v_lo) / dv
-            if 0.05 < k < 0.95:
-                nail(bm, at(u0 + du * k, centres[r], t + t * 0.85), normal, IRON)
-
-    # The corner posts: square timbers outside the boards, a little taller than the sides,
-    # with their edges worn round.
-    for sx in (-1, 1):
-        for sy in (-1, 1):
-            # Inside edge just within the boards' ends, so it covers them and stands out
-            # past the rails.
-            px = sx * (h - 0.01 + post / 2)
-            py = sy * (h - 0.01 + post / 2)
-            board(bm, H + 0.01, post, post, Vector((px - post / 2, py - post / 2, 0.0)),
-                  Z, Vector((1, 0, 0)), Vector((0, 1, 0)), index, bevel=0.012)
-            index += 1
-
-    # A dark inside, so the gaps between the boards show shadow.
-    box(bm, (-h + 0.005, -h + 0.005, 0.0), (h - 0.005, h - 0.005, H - 0.005), INSIDE)
-
-    # The lid: boards from front to back that overhang the posts, and two cleats across
-    # them. It is built square, then turned and slid as if it was dropped back on.
-    before = set(bm.verts)
-    lid_half = h - 0.01 + post + 0.03
-    lid_t = 0.028
-    lid_z = H + 0.01
-    lid_rows = 6
-    lid_gaps = [crate_rng.uniform(0.004, 0.014) for _ in range(lid_rows - 1)]
-    lid_weights = [crate_rng.uniform(0.85, 1.15) for _ in range(lid_rows)]
-    unit = (2 * lid_half - sum(lid_gaps)) / sum(lid_weights)
-    x0 = -lid_half
-    lid_centres = []
-    for r in range(lid_rows):
-        bw = lid_weights[r] * unit
-        sag = crate_rng.uniform(-0.002, 0.002)
-        board(bm, 2 * lid_half + crate_rng.uniform(-0.01, 0.01), bw, lid_t, Vector((x0, -lid_half, lid_z + sag)),
-              Vector((0, 1, 0)), Vector((1, 0, 0)), Z, index, bevel=0.008)
-        lid_centres.append(x0 + bw / 2)
-        index += 1
-        x0 += bw + (lid_gaps[r] if r < lid_rows - 1 else 0.0)
-    cleat = 0.095
-    for y0 in (-lid_half + 0.06, lid_half - 0.06 - cleat):
-        board(bm, 2 * lid_half - 0.08, cleat, t, Vector((-lid_half + 0.04, y0, lid_z + lid_t)),
-              Vector((1, 0, 0)), Vector((0, 1, 0)), Z, index, bevel=0.007)
-        index += 1
-        for x in lid_centres:
-            nail(bm, Vector((x, y0 + cleat / 2, lid_z + lid_t + t)), Z, IRON)
-    lid = [v for v in bm.verts if v not in before]
-    turn = math.radians(lid_turn)
-    cos_l, sin_l = math.cos(turn), math.sin(turn)
-    for v in lid:
-        x, y = v.co.x, v.co.y
-        v.co.x = x * cos_l - y * sin_l + 0.012
-        v.co.y = x * sin_l + y * cos_l - 0.01
-
-    cos_y, sin_y = math.cos(yaw), math.sin(yaw)
-    for v in bm.verts:
-        x, y = v.co.x * size, v.co.y * size
-        v.co.x = cx + x * cos_y - y * sin_y
-        v.co.y = cy + x * sin_y + y * cos_y
-        v.co.z = v.co.z * size + base
-    emit(sc, name, bm, [M["wood"], M["interior"], M["rust"]])
+def build_crates(sc, M):
+    """Two of Memorie's "Wooden Crate"s on the deck: a big one by the wall and a small one at
+    the front, each turned a little off square."""
+    (big,) = import_asset(sc, os.path.join(ASSETS, "wooden-crate", "wooden-crate.fbx"))
+    lo, hi = bounds([big])
+    # Stood on its middle, foot at zero.
+    base = Matrix.Translation((-(lo.x + hi.x) / 2, -(lo.y + hi.y) / 2, -lo.z))
+    small = big.copy()
+    small.data = big.data.copy()
+    sc.collection.objects.link(small)
+    wood = textured("crate_wood", "wooden-crate", "DefaultMaterial_Base_color.png", "DefaultMaterial_Roughness.png",
+                    "DefaultMaterial_Metallic.png", "DefaultMaterial_Normal_OpenGL.png")
+    # The file's crate is 2.3 m across. The big one comes out 0.97 m across and 0.78 m tall.
+    for ob, name, x, y, degrees, size in ((big, "crate", 7.0, WALL_Y - 1.2, -6.0, 0.42),
+                                          (small, "small_crate", 7.6, 1.2, 22.0, 0.26)):
+        place = Matrix.Translation((x, y, DECK_TOP)) @ Matrix.Rotation(math.radians(degrees), 4, "Z") @ Matrix.Scale(size, 4)
+        adopt(ob, name, [wood], place @ base)
 
 
 def build_drainpipe(sc, M):
@@ -1634,34 +1681,16 @@ def build_drainpipe(sc, M):
 
 
 def build_wheel(sc, M):
-    """An old cart wheel leaning against the plinth: a wooden rim of felloes with an iron tyre,
-    twelve spokes and a fat hub with iron bands. It is built flat about Z, then stood up and
-    tipped back against the stones."""
-    bm = bmesh.new()
+    """An old cart wheel (DOMNIN's "Wooden_wheel") leaning against the plinth, tipped back
+    against the stones. The file's axle runs along x; it is centred and scaled to 1.12 m
+    across."""
+    (wheel,) = import_asset(sc, os.path.join(ASSETS, "wooden-wheel", "Wheel_01.obj"))
+    lo, hi = bounds([wheel])
     R = 0.56
-    wood_faces = []
-    iron_faces = []
-    # The felloes: a deep wooden rim.
-    wood_faces += lathe(bm, [(0.47, -0.035), (0.545, -0.035), (0.545, 0.035), (0.47, 0.035), (0.47, -0.035)], 64, (0, 0, 0), 0)
-    # The tyre, wider than the rim and worn round.
-    iron_faces += lathe(bm, [(0.544, -0.04), (R, -0.037), (R + 0.004, 0.0), (R, 0.037), (0.544, 0.04), (0.544, -0.04)], 64, (0, 0, 0), 1)
-    # The hub: a turned drum, fatter in the middle, with the axle hole through it.
-    wood_faces += lathe(bm, [(0.035, -0.13), (0.075, -0.13), (0.1, -0.09), (0.115, -0.03), (0.115, 0.03), (0.1, 0.09), (0.075, 0.13), (0.035, 0.13)], 24, (0, 0, 0), 0)
-    for z in (-0.095, 0.095):
-        iron_faces += lathe(bm, [(0.104, z - 0.012), (0.112, z - 0.01), (0.112, z + 0.01), (0.104, z + 0.012)], 24, (0, 0, 0), 1)
-    # The spokes, staggered a little either side of the middle, as a dished wheel's are.
-    spokes = 12
-    for k in range(spokes):
-        a = 2 * math.pi * (k + 0.5) / spokes
-        dz = 0.012 if k % 2 else -0.012
-        c, s = math.cos(a), math.sin(a)
-        wood_faces += tube(bm, [(0.1 * c, 0.1 * s, dz), (0.3 * c, 0.3 * s, dz * 0.6), (0.49 * c, 0.49 * s, 0.0)], 0.02, 0, segments=8)
-    for f in iron_faces:
-        f.material_index = 1
-    for f in wood_faces + iron_faces:
-        f.smooth = True
-    # Stand it up: the wheel's Z becomes the axle, square to a plane leaning back at 30
-    # degrees and turned a touch off the line of the wall.
+    size = 2 * R / max(hi.y - lo.y, hi.z - lo.z)
+    middle = Matrix.Translation(-(lo + hi) / 2)
+    # Stand it up: the axle is square to a plane leaning back at 30 degrees and turned a
+    # touch off the line of the wall.
     lean = math.radians(30)
     turn = math.radians(8)
     up = Vector((0, math.sin(lean), math.cos(lean)))
@@ -1671,12 +1700,11 @@ def build_wheel(sc, M):
     foot = Vector((5.55, WALL_Y - 0.76, 0.0))
     foot.z = max(ground_height(foot.x, foot.y), 0.0) + 0.01
     centre = foot + up * R
-    for v in bm.verts:
-        p = v.co.copy()
-        v.co = centre + along * p.x + up * p.y + axle * p.z
-    bm.normal_update()
-    box_uv(bm, [f for f in wood_faces if f.is_valid], (0.3, 0.7, 0.1))
-    emit(sc, "wheel", bm, [M["wood"], M["iron"]])
+    # The file's x, y and z go to the axle, along the wall and up the leaning plane.
+    stand = Matrix((axle, along, up)).transposed().to_4x4()
+    wood = textured("wheel_wood", "wooden-wheel", "Wheel_01_None_color.jpg", "Wheel_01_None_rough.jpg",
+                    None, "Wheel_01_None_nmap.jpg")
+    adopt(wheel, "wheel", [wood], Matrix.Translation(centre) @ stand @ Matrix.Scale(size, 4) @ middle)
 
 
 def sack(bm, base, size, lean, yaw, tied=True):
@@ -1832,16 +1860,16 @@ def build_barrel(sc, M):
     head = lathe(bm, [(0.0, height - 0.07), (r_end - 0.025, height - 0.07)], 32, (cx, cy, z0), 0)
     for f in head:
         plank_uv(bm, [f], "x", 2, 0.0)
-    # The hoops: broad, dark iron bands standing well out from the staves, following the
-    # bulge, with their edges rounded over.
+    # The hoops: broad bands of dark iron flaking with rust, standing well out from the staves,
+    # following the bulge, with their edges rounded over.
     for zc, width in ((height * 0.06, 0.07), (height * 0.27, 0.06), (height * 0.73, 0.06), (height * 0.94, 0.07)):
         za, zb = zc - width / 2, zc + width / 2
         ra, rb = radius(za) + 0.003, radius(zb) + 0.003
-        band = [(ra, za), (ra + 0.01, za + 0.004), (rb + 0.01, zb - 0.004), (rb, zb)]
+        band = [(ra, za), (ra + 0.012, za + 0.005), (rb + 0.012, zb - 0.005), (rb, zb)]
         hoop = lathe(bm, band, 48, (cx, cy, z0), 1)
         for f in hoop:
             f.smooth = True
-    emit(sc, "barrel", bm, [M["wood"], M["iron"]])
+    emit(sc, "barrel", bm, [M["wood"], M["hoop"]])
 
 
 # ---------------------------------------------------------------------------------------
@@ -2200,11 +2228,11 @@ def build_grass(sc, M):
 
 # ---------------------------------------------------------------------------------------
 
-# A tree beyond the low wall, out of the picture to the left, stands between the low sun and
-# the building, so its leaves throw dappled shade over the left of the wall. Its centre is
-# on the line from the wall left of the window back towards the sun.
-TREE = (-8.2, -1.15)
-CANOPY = (-7.9, -0.95, 6.15)
+# A tree beyond the low wall, out of the picture to the left, stands between the afternoon
+# sun and the building, so its leaves throw dappled shade over the left of the wall. Its
+# centre is on the line from the wall left of the window back towards the sun.
+TREE = (-7.4, -0.7)
+CANOPY = (-7.1, -0.5, 7.35)
 
 
 def build_tree(sc, M):
@@ -2259,6 +2287,7 @@ def build():
     JOINTS.clear()
     build_wall(sc, M)
     build_plinth(sc, M)
+    build_stains(sc, M)
     build_lamp(sc, M)
     build_dry_wall(sc, M)
     build_ground(sc, M)
@@ -2266,8 +2295,7 @@ def build():
     build_pebbles(sc, M)
     build_clutter(sc, M)
     build_deck(sc, M)
-    build_crate(sc, M)
-    build_crate(sc, M, name="small_crate", cx=7.6, cy=1.2, degrees=22.0, size=0.62, seed=23, lid_turn=-4.0)
+    build_crates(sc, M)
     build_sacks(sc, M)
     build_wheel(sc, M)
     build_drainpipe(sc, M)
