@@ -265,7 +265,7 @@ public sealed unsafe class Renderer : IDisposable
         _api.CreateSampler(_context.Device, &shadowSamplerInfo, null, out _shadowSampler).Check();
 
         _frameSetLayout = CreateFrameSetLayout();
-        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 13, ShaderStageFlags.FragmentBit);
+        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 14, ShaderStageFlags.FragmentBit);
         _threeTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 3, ShaderStageFlags.FragmentBit);
         _twoTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 2, ShaderStageFlags.FragmentBit);
         _oneTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit);
@@ -274,7 +274,7 @@ public sealed unsafe class Renderer : IDisposable
         {
             new(DescriptorType.UniformBuffer, FramesInFlight),
             new(DescriptorType.StorageBuffer, 5 * FramesInFlight),
-            new(DescriptorType.CombinedImageSampler, 29 + 2 * FramesInFlight),
+            new(DescriptorType.CombinedImageSampler, 30 + 2 * FramesInFlight),
         };
         var poolInfo = new DescriptorPoolCreateInfo
         {
@@ -795,7 +795,11 @@ public sealed unsafe class Renderer : IDisposable
         hash.Add(view.ShowEnvironment);
         hash.Add(view.Shadows.Radius);
         hash.Add(view.Shadows.Center);
-        hash.Add(_off & RenderEffects.SunShadows);
+        hash.Add(view.Shadows.Cascades);
+        hash.Add(view.Shadows.LightAngle);
+
+        // Plain materials change what colour the bounced light picks up.
+        hash.Add(_off & (RenderEffects.SunShadows | RenderEffects.Materials));
         hash.Add(view.LightProbes);
         return hash.ToHashCode();
     }
@@ -2220,6 +2224,7 @@ public sealed unsafe class Renderer : IDisposable
             new(_environment.Sampler, _probes.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_linearSampler, _lightProbes.IrradianceView, ImageLayout.General),
             new(_linearSampler, _lightProbes.DepthView, ImageLayout.General),
+            new(_environment.Sampler, _environment.Sky, ImageLayout.ShaderReadOnlyOptimal),
         ]);
 
         // Glass and particles read depth while it's also attached for glass to test against.

@@ -244,8 +244,10 @@ the sky as before. Reflections don't change; probes give only the soft, diffuse 
 The probes are drawn by the renderer itself, from each probe's position, with the sun and the
 sky but without point and spot lights. That happens over the first frames after the box is set,
 64 probes a frame, and then once more, now lit by the first round, so light bounces twice. A
-change to the sun's direction or colour, the sky, the box or the sun's shadow starts it again;
-the old probes stay in use until the new ones are ready. Moving or adding objects doesn't, so
+change to the sun's direction or colour, the sky, the sun's shadow settings or the
+`Materials` switch starts it again, drawing over the old probes in place, so for a few frames
+old and new probes mix and the new ones have only one bounce. A change to the box throws the
+old probes away, and the sky lights the scene until the first round is done. Moving or adding objects doesn't, so
 probes suit what stands still. Each frame that draws probes takes longer, so a sun that moves
 every frame keeps them drawing; set it once and leave it, or turn `Graphics.LightProbes` off.
 

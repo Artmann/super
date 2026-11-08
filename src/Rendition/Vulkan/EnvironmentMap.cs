@@ -7,12 +7,14 @@ namespace Rendition.Vulkan;
 
 /// <summary>
 /// Cube maps of the surrounding studio. Reflections holds one mip per roughness step,
-/// and Irradiance holds the soft light that reaches a matte surface.
+/// Irradiance holds the soft light that reaches a matte surface, and Sky is the sharp
+/// studio without its panels, the same light the irradiance is made from.
 /// </summary>
 internal sealed unsafe class EnvironmentMap : IDisposable
 {
     private const uint ReflectionSize = 512;
     private const uint IrradianceSize = 32;
+    private const uint SkySize = 64;
     private const int MaxPanels = 8;
 
     /// <summary>One roughness step per mip. REFLECTION_LODS in Shaders/lighting.frag must be one less.</summary>
@@ -55,6 +57,7 @@ internal sealed unsafe class EnvironmentMap : IDisposable
     {
         public int Irradiance;
         public float Roughness;
+        public int Sky;
     }
 
     /// <summary>A cube image, a view for sampling it and one writable view per mip.</summary>
@@ -69,16 +72,23 @@ internal sealed unsafe class EnvironmentMap : IDisposable
     private readonly VulkanContext _context;
     private readonly Cube _reflections;
     private readonly Cube _irradiance;
+    private readonly Cube _sky;
     private readonly GpuBuffer _uniforms;
     private readonly DescriptorSetLayout _setLayout;
     private readonly DescriptorPool _pool;
-    private readonly DescriptorSet[] _sets = new DescriptorSet[ReflectionMips + 1];
+    private readonly DescriptorSet[] _sets = new DescriptorSet[ReflectionMips + 2];
     private readonly PipelineLayout _pipelineLayout;
     private readonly Pipeline _pipeline;
 
     public readonly Sampler Sampler;
     public ImageView Reflections => _reflections.Sampled;
     public ImageView Irradiance => _irradiance.Sampled;
+
+    /// <summary>
+    /// What the light probes see past the scene. Direct lights already give the panels'
+    /// diffuse light, so a probe that saw them would count it twice. Keep a sun disc out too.
+    /// </summary>
+    public ImageView Sky => _sky.Sampled;
 
     public EnvironmentMap(VulkanContext context)
     {
@@ -87,6 +97,7 @@ internal sealed unsafe class EnvironmentMap : IDisposable
 
         _reflections = CreateCube(ReflectionSize, ReflectionMips);
         _irradiance = CreateCube(IrradianceSize, 1);
+        _sky = CreateCube(SkySize, 1);
         _uniforms = GpuBuffer.CreateHostVisible(context, (ulong)sizeof(GpuEnvironment), BufferUsageFlags.UniformBufferBit);
 
         var samplerInfo = new SamplerCreateInfo
@@ -132,7 +143,7 @@ internal sealed unsafe class EnvironmentMap : IDisposable
 
         for (int i = 0; i < _sets.Length; i++)
         {
-            _sets[i] = CreateBakeSet(i < ReflectionMips ? _reflections.Mips[i] : _irradiance.Mips[0]);
+            _sets[i] = CreateBakeSet(i < ReflectionMips ? _reflections.Mips[i] : i == ReflectionMips ? _irradiance.Mips[0] : _sky.Mips[0]);
         }
 
         var pushRange = new PushConstantRange(ShaderStageFlags.ComputeBit, 0, (uint)sizeof(BakeConstants));
@@ -161,6 +172,7 @@ internal sealed unsafe class EnvironmentMap : IDisposable
         }
 
         BakeLevel(_irradiance.Image, 0, _sets[ReflectionMips], IrradianceSize, new BakeConstants { Irradiance = 1 });
+        BakeLevel(_sky.Image, 0, _sets[ReflectionMips + 1], SkySize, new BakeConstants { Sky = 1 });
     }
 
     public void Dispose()
@@ -172,6 +184,7 @@ internal sealed unsafe class EnvironmentMap : IDisposable
         api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);
         api.DestroySampler(_context.Device, Sampler, null);
         _uniforms.Dispose();
+        DestroyCube(_sky);
         DestroyCube(_irradiance);
         DestroyCube(_reflections);
     }

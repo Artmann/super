@@ -28,6 +28,7 @@ layout(rgba16f, set = 0, binding = 1) uniform writeonly image2DArray target;
 layout(push_constant) uniform Bake {
     int irradiance; // 1: blur over the whole hemisphere, for diffuse light
     float roughness;
+    int sky;        // 1: leave the panels out, as the irradiance does, for light probes
 } bake;
 
 const float PI = 3.14159265359;
@@ -39,7 +40,7 @@ vec3 studio(vec3 direction) {
         : mix(environment.horizon.rgb, environment.floorColor.rgb, sqrt(-direction.y));
 
     // Direct lights already provide the panels' diffuse light. Only reflections show them.
-    int panelCount = bake.irradiance == 1 ? 0 : environment.panelCount;
+    int panelCount = bake.irradiance == 1 || bake.sky == 1 ? 0 : environment.panelCount;
     for (int i = 0; i < panelCount; i++) {
         float facing = dot(direction, environment.panels[i].direction.xyz);
         if (facing <= 0.0) {

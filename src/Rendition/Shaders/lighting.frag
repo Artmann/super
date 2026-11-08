@@ -22,6 +22,8 @@ layout(set = 1, binding = 7) uniform sampler2D emissiveClearcoatTexture;
 layout(set = 1, binding = 8) uniform sampler2D ambientOcclusionTexture;
 layout(set = 1, binding = 9) uniform sampler2D historyTexture;
 layout(set = 1, binding = 10) uniform samplerCubeArray probeTexture;
+// The studio without its panels, as the irradiance sees it. Light probe captures use it.
+layout(set = 1, binding = 13) uniform samplerCube skyTexture;
 
 layout(std430, set = 2, binding = 1) readonly buffer Materials {
     Material materials[];
@@ -436,7 +438,7 @@ void main() {
         if (capturing) {
             vec4 ahead = frame.inverseViewProjection * vec4(inUv * 2.0 - 1.0, 1.0, 1.0);
             vec3 direction = normalize(ahead.xyz / ahead.w - frame.cameraPosition.xyz);
-            outColor = vec4(textureLod(reflectionTexture, direction, 0.0).rgb * frame.backgroundRadiance.a, NOTHING_DRAWN_DISTANCE);
+            outColor = vec4(textureLod(skyTexture, direction, 0.0).rgb * frame.backgroundRadiance.a, NOTHING_DRAWN_DISTANCE);
             return;
         }
 

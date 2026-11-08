@@ -917,7 +917,9 @@ loaded from a photo, so a game can describe its own space and the softboxes can
 line up with the lights. Baking waits for the GPU, so it belongs in loading.
 
 Panels appear only in reflections. The direct lights already provide their diffuse
-light, and baking it too would count that light twice and overexpose the scene.
+light, and baking it too would count that light twice and overexpose the scene. A third,
+small cube, `Sky`, holds the sharp studio without panels for light probe captures, for the
+same reason.
 
 `FrameView.ShowEnvironment` draws the reflection cube, times `EnvironmentIntensity`,
 as the background instead of the flat `BackgroundRadiance`, and the distance fade then
@@ -963,7 +965,10 @@ reflection probes use, through the normal scene passes. The frame's `probeCaptur
 changes what `lighting.frag` writes: diffuse light only, with no reflections, coat or point
 and spot lights, and the distance to the surface in alpha. The G-buffer is drawn with every
 material two-sided, and a back face writes -1 into the normal target's occlusion channel, so
-lighting writes a negative distance for it. Screen-space occlusion, reflections, subsurface
+lighting writes a negative distance for it. Where nothing was drawn the capture reads
+`EnvironmentMap.Sky`, a 64² cube baked with the same content as the irradiance cube: no
+panels, since the direct lights already give their diffuse light, and no sun disc for the
+same reason. Reading the reflection cube would count that light twice. Screen-space occlusion, reflections, subsurface
 blur and the transparent pass are skipped, as the faces are too small for them and blending
 would spoil the alpha. `probe_fold.comp` then reduces each face 2×2 into shared memory and
 writes both tiles in one dispatch: irradiance is the cosine-weighted mean of the radiance
@@ -997,8 +1002,11 @@ probe is used once round 1 has finished. Capture cascades are centred on the sha
 rather than fitted to a view, so the sun's maps are drawn for the first face of a batch and
 kept for the rest. `Renderer.LightingHash` hashes the suns' directions and colours, the
 environment (a version bumped by `SetEnvironment`), its intensity, the background, the
-shadow settings and the volume; when it changes the schedule restarts at round 1 but keeps
-using the old probes, and when the box changes it throws them away. Geometry isn't in the
+shadow settings (radius, centre, cascades, light angle), the sun-shadow and plain-materials
+switches and the volume. When it changes, the schedule restarts at round 1 over the old
+probes in place, without a second atlas: probes not yet redone stay old, and those redone
+have one bounce until round 2, so for a few frames old and new mix. When the box changes
+the old probes are thrown away and the sky is used until round 1 is done. Geometry isn't in the
 hash. Without `shaderStorageImageExtendedFormats`, needed to write RG16F from compute, the
 volume is off.
 
