@@ -10,6 +10,7 @@ layout(location = 2) in vec4 inTangent;
 layout(location = 3) in vec2 inUv;
 layout(location = 4) in uvec4 inJoints;
 layout(location = 5) in vec4 inWeights;
+layout(location = 6) in vec2 inUv2; // For baked masks; see applyLayers in surface.glsl.
 
 // Must match DrawConstants in Passes/SceneDraws.cs.
 layout(push_constant) uniform Draw {
@@ -27,6 +28,7 @@ layout(location = 0) out vec3 outNormal;
 layout(location = 1) out vec4 outTangent;
 layout(location = 2) out vec2 outUv;
 layout(location = 3) out vec3 outPosition;
+layout(location = 4) out vec2 outUv2;
 
 void main() {
     mat4 skinned = skinMatrix(draw.firstBone, inJoints, inWeights);
@@ -39,6 +41,7 @@ void main() {
     outNormal = cofactor * inNormal * sign(dot(model[0], cofactor[0]));
     outTangent = vec4(model * inTangent.xyz, inTangent.w);
     outUv = inUv;
+    outUv2 = inUv2;
     vec3 posed = (skinned * vec4(inPosition, 1.0)).xyz;
     vec3 swum = swim(posed, draw.swimAmplitude, draw.swimBodyLength, draw.swimPhase);
     vec4 position = placed * vec4(swum, 1.0);

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -39,10 +40,10 @@ public sealed class ModelCooker : ICooker
     // meshes follow their container node. 7: textures are objects of their own that models point to by hash.
     // 8: material graphs. 9: graph materials have no height or detail textures unless their rule names them, and an
     // ior of 1. 10: Kaiser mips, roughness widened by the normal map, graph heights as parallax, detail graphs, and
-    // block-compressed textures. 11: material shaders, and a graph's opacity in the colour's alpha under a cutoff. The
-    // graphs' own version is folded in, so a change to Super.Materials cooks every model again, since one may use a
-    // graph.
-    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 11);
+    // block-compressed textures. 11: material shaders, and a graph's opacity in the colour's alpha under a cutoff.
+    // 12: vertices keep a second UV set, and materials bake masks for wear and dirt. The graphs' own version is folded
+    // in, so a change to Super.Materials cooks every model again, since one may use a graph.
+    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 12);
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -180,6 +181,9 @@ public sealed class ModelCooker : ICooker
         // Each mesh's material and the run of vertices it added.
         var meshVertices = new List<(int Material, int First, int Count)>();
 
+        // Materials with a mesh that has no second UV set, which their masks would need.
+        var withoutUv2 = new HashSet<int>();
+
         Skeleton? skeleton = null;
         var clips = new List<AnimationClip>();
         Vertex[] vertexArray;
@@ -288,6 +292,12 @@ public sealed class ModelCooker : ICooker
                 bool mirrored = world.GetDeterminant() < 0f;
                 uint baseVertex = (uint)vertices.Count;
                 float graphWidth = graphWidths[(int)mesh->MMaterialIndex];
+                var uvs2 = mesh->MTextureCoords[1];
+                if (uvs2 == null)
+                {
+                    withoutUv2.Add((int)mesh->MMaterialIndex);
+                }
+
                 for (uint v = 0; v < mesh->MNumVertices; v++)
                 {
                     var normal = mesh->MNormals != null ? mesh->MNormals[v] : Vector3.UnitY;
@@ -309,7 +319,10 @@ public sealed class ModelCooker : ICooker
                         Vector3.Transform(mesh->MVertices[v], world),
                         Vector3.TransformNormal(normal, normals),
                         new Vector4(direction, mirrored ? -tangent.W : tangent.W),
-                        new Vector2(uv.X, uv.Y)));
+                        new Vector2(uv.X, uv.Y))
+                    {
+                        Uv2 = uvs2 != null ? new Vector2(uvs2[v].X, uvs2[v].Y) : Vector2.Zero,
+                    });
                 }
 
                 rig?.Skin(mesh, (int)m, CollectionsMarshal.AsSpan(vertices).Slice((int)baseVertex, (int)mesh->MNumVertices));
@@ -398,6 +411,12 @@ public sealed class ModelCooker : ICooker
             }
         }
 
+        var masks = BakeMasks(settings, output, prefix, vertexArray, indices, parts, materialNames, withoutUv2, textures);
+        if (masks is null)
+        {
+            return null;
+        }
+
         var model = new ModelData
         {
             Vertices = vertexArray,
@@ -406,6 +425,7 @@ public sealed class ModelCooker : ICooker
             MeshNames = meshNames.ToArray(),
             Materials = materials.ToArray(),
             MaterialShaders = shaders.Any(shader => shader is not null) ? shaders.ToArray() : [],
+            MaterialMasks = masks.Any(mask => mask is not null) ? masks : [],
             Textures = textures.ToArray(),
             Skeleton = skeleton,
             Clips = clips.ToArray(),
@@ -433,7 +453,7 @@ public sealed class ModelCooker : ICooker
         {
             using (input.Time("compress textures"))
             {
-                TextureCompression.Compress(model.Textures, model.Materials);
+                TextureCompression.Compress(model.Textures, model.Materials, masks.OfType<ModelMaterialMasks>().Select(mask => mask.Texture));
             }
         }
 
@@ -442,6 +462,122 @@ public sealed class ModelCooker : ICooker
             // Textures go out as objects of their own, so models that share an image share one copy of it.
             return model.ToBytes(texture => ModelTextures.Share(texture, output));
         }
+    }
+
+    // Checks each used material's wear and dirt, and bakes the masks of those whose rule asks for them, laid out by the
+    // second UV set. The rest of the model shades them, so a barrel's foot is dark where it meets the deck. Null when
+    // something was wrong, which was reported.
+    private static ModelMaterialMasks?[]? BakeMasks(
+        ImportSettings settings, CookOutput output, string prefix, Vertex[] vertices, List<uint> indices, List<ModelPart> parts,
+        List<string> materialNames, HashSet<int> withoutUv2, ModelTextures textures)
+    {
+        var masks = new ModelMaterialMasks?[materialNames.Count];
+        bool failed = false;
+        Vector3[]? positions = null;
+        Vector2[]? uvs = null;
+        foreach (int material in parts.Select(part => part.Material).Distinct().Order())
+        {
+            string name = materialNames[material];
+            if (RuleFor(settings, name) is not { } rule)
+            {
+                continue;
+            }
+
+            void Error(string message)
+            {
+                output.Error($"{prefix}material {name}: {message}");
+                failed = true;
+            }
+
+            if (!rule.BakeMasks)
+            {
+                if (rule.Wear is not null || rule.Dirt is not null)
+                {
+                    Error("wear and dirt need bakeMasks, since they're laid by the masks it bakes.");
+                }
+
+                continue;
+            }
+
+            if (rule.Wear is null && rule.Dirt is null)
+            {
+                Error("bakeMasks bakes masks for wear and dirt, but the rule has neither.");
+                continue;
+            }
+
+            if (Layer(rule.Wear, "wear", Error) is not { } wear || Layer(rule.Dirt, "dirt", Error) is not { } dirt)
+            {
+                continue;
+            }
+
+            if (withoutUv2.Contains(material))
+            {
+                Error("bakeMasks needs a second UV set (TEXCOORD_1) for its masks, and a mesh of this material has none. "
+                    + "Give its meshes one whose islands don't overlap.");
+                continue;
+            }
+
+            positions ??= vertices.Select(vertex => vertex.Position).ToArray();
+            uvs ??= vertices.Select(vertex => vertex.Uv2).ToArray();
+            var mesh = new MeshData(positions, uvs, IndicesOf(parts.Where(part => part.Material == material), indices));
+            if (MaskBaker.Problem(mesh, MaskBaker.DefaultSize) is { } problem)
+            {
+                Error(problem + ".");
+                continue;
+            }
+
+            var rest = new MeshData(positions, uvs, IndicesOf(parts.Where(part => part.Material != material), indices));
+            var image = MaskBaker.Bake(mesh, MaskBaker.DefaultSize, rest);
+            int texture = textures.AddPixels($"{name}#mask", image.Size, image.Size, TextureKind.Linear, image.Rgba);
+            masks[material] = new ModelMaterialMasks(texture, image.Height, wear, dirt);
+        }
+
+        return failed ? null : masks;
+    }
+
+    private static int[] IndicesOf(IEnumerable<ModelPart> parts, List<uint> indices) =>
+        parts.SelectMany(part => Enumerable.Range((int)part.FirstIndex, (int)part.IndexCount).Select(i => (int)indices[i])).ToArray();
+
+    // A rule's wear or dirt as the renderer takes it: none is an amount of 0, and no roughness keeps the surface's.
+    // Null when it's wrong, which was reported.
+    private static MaterialLayer? Layer(LayerRule? rule, string name, Action<string> error)
+    {
+        if (rule is null)
+        {
+            return new MaterialLayer(Vector3.Zero, -1f, 0f);
+        }
+
+        string Number(float value) => value.ToString(CultureInfo.InvariantCulture);
+        if (rule.Color is not { Length: 3 } color)
+        {
+            error($"{name} color needs three numbers, red, green and blue.");
+            return null;
+        }
+
+        foreach (float c in color)
+        {
+            if (c < 0f || c > 1f)
+            {
+                error($"{name} color is a colour as a picker shows it, each number from 0 to 1, not {Number(c)}.");
+                return null;
+            }
+        }
+
+        if (rule.Amount < 0f || rule.Amount > 1f)
+        {
+            error($"{name} amount must be from 0 to 1, not {Number(rule.Amount)}.");
+            return null;
+        }
+
+        if (rule.Roughness is { } roughness && (roughness < 0f || roughness > 1f))
+        {
+            error($"{name} roughness must be from 0 to 1, not {Number(roughness)}.");
+            return null;
+        }
+
+        // The rule's colour is sRGB, as a colour picker shows it; the shader mixes in linear.
+        static float Linear(float c) => c <= 0.04045f ? c / 12.92f : MathF.Pow((c + 0.055f) / 1.055f, 2.4f);
+        return new MaterialLayer(new Vector3(Linear(color[0]), Linear(color[1]), Linear(color[2])), rule.Roughness ?? -1f, rule.Amount);
     }
 
     private static string? SubsurfaceProblem(in ModelMaterial material) =>

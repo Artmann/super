@@ -21,6 +21,12 @@ public struct Vertex(Vector3 position, Vector3 normal, Vector4 tangent, Vector2 
     /// <summary>How much each joint moves this vertex, as four bytes from 0 to 255 that add up to 255. Zero when there is no skin.</summary>
     public uint Weights;
 
+    /// <summary>
+    /// A second set of UVs, in which no two triangles share texels, for textures baked from the mesh's own shape such
+    /// as <see cref="Material.MaskTexture"/>. Zero when the mesh has none.
+    /// </summary>
+    public Vector2 Uv2;
+
     /// <summary>The joints this vertex follows, most important first, and how much it follows each.</summary>
     public void SetSkin(ReadOnlySpan<(int Joint, float Weight)> influences)
     {
@@ -173,6 +179,23 @@ public struct Material
     /// clearcoat or foliage, which use the same G-buffer channel.
     /// </summary>
     public Subsurface Subsurface;
+
+    /// <summary>
+    /// Masks baked from the mesh's shape, read through its second UV set, <see cref="Vertex.Uv2"/>: red is curvature,
+    /// with 0.5 flat and above it convex, green how much of the sky the surface sees, blue height above the mesh's
+    /// base as a fraction of <see cref="MaskHeight"/>, and alpha which texels a triangle covers. <see cref="Wear"/>
+    /// and <see cref="Dirt"/> are laid by them. Without one, neither shows.
+    /// </summary>
+    public TextureHandle? MaskTexture;
+
+    /// <summary>The height in metres that the mask's blue channel spans, from 0 to 1.</summary>
+    public float MaskHeight;
+
+    /// <summary>Worn edges: where the mask says the surface is convex, the colour and roughness turn to these.</summary>
+    public MaterialLayer Wear;
+
+    /// <summary>Dirt: in hollows the sky can't reach, and low down near the base, the colour and roughness turn to these.</summary>
+    public MaterialLayer Dirt;
 
     /// <summary>Replaces the standard surface shader. Transparent materials can't use one yet.</summary>
     public SurfaceShaderHandle? Shader;
@@ -1058,6 +1081,15 @@ public sealed class RendererOptions
     /// <summary>How large the scene starts out drawn against the window, from 0.5 to 2. See <see cref="Renderer.RenderScale"/>.</summary>
     public float RenderScale { get; init; } = 1f;
 }
+
+/// <summary>
+/// A layer laid over a material where its mask says, such as wear on its edges or dirt in its hollows. See
+/// <see cref="Material.Wear"/>.
+/// </summary>
+/// <param name="Color">The layer's colour, linear.</param>
+/// <param name="Roughness">The layer's roughness, from 0 to 1, or below 0 to keep the surface's own.</param>
+/// <param name="Amount">How strongly it shows, from 0, which turns it off, to 1.</param>
+public readonly record struct MaterialLayer(Vector3 Color, float Roughness, float Amount);
 
 /// <summary>
 /// How light spreads under a surface. The lighting pass blurs the diffuse light of these

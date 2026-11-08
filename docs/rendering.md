@@ -828,6 +828,48 @@ several materials or parts use runs once per model cook at each size. The graph 
 source of its own too, so it also cooks to its own textures. If only models use it, turn
 that off with a `"cook": false` rule in `cook.json`, as you would for a model's textures.
 
+### Wear and dirt
+
+A rule with `"bakeMasks": true` has the cook bake masks from the material's own meshes, and
+its `wear` and `dirt` are laid over the surface by them. Wear pales and polishes the convex
+edges, where hands and knocks rub a barrel's staves. Dirt darkens the hollows the sky can't
+reach and the lowest 0.3 m of the material, where mud splashes, but not over wear:
+
+```json
+{
+  "match": "graph_wood",
+  "graph": "../materials/wood.material.cs",
+  "bakeMasks": true,
+  "wear": { "color": [0.8, 0.75, 0.7], "roughness": 0.4, "amount": 0.6 },
+  "dirt": { "color": [0.2, 0.17, 0.14], "roughness": 0.95, "amount": 0.7 }
+}
+```
+
+Each layer's `color` is red, green and blue from 0 to 1 as a colour picker shows it (sRGB),
+and `amount`, from 0 to 1, is how far it covers where its mask is full. `roughness` is the layer's own, from 0 to 1. Leave it out and the surface keeps
+its roughness under the layer. A rule may give only one of the two. It works with or without
+a graph, so a downloaded model's textures can wear too.
+
+The masks are baked into the mesh's second UV set, `TEXCOORD_1`, whose islands must not
+overlap, since every texel stands for one place on the mesh. The first set stays free to
+tile, as a graph's metric UVs do. In Blender, add a second UV map, unwrap it with Smart UV
+Project and keep the first map active for rendering; the glTF exporter writes both. Every
+mesh using the material needs it, and the cook stops otherwise:
+
+```text
+material graph_wood: bakeMasks needs a second UV set (TEXCOORD_1) for its masks, and a mesh of this material has none. Give its meshes one whose islands don't overlap.
+material graph_wood: triangles 812 and 9301 of its second UV set overlap at texel (402, 77). Two places on the mesh can't share a texel of its masks, so give the masks a UV set whose islands don't overlap.
+material graph_wood: wear and dirt need bakeMasks, since they're laid by the masks it bakes.
+material graph_wood: dirt amount must be from 0 to 1, not 1.5.
+```
+
+The masks are 1024 pixels across for each material, whatever its size, so a material that
+spreads over many meshes gets fewer pixels for each. The Courtyard's stone, on the sill, the
+plinth and all the loose stones, is the coarsest. Every mesh of the material is baked
+together, and the rest of the model shades it, so the deck darkens where the crates stand
+on it. A mesh without a second UV set gets zeros there, which is harmless for materials
+without masks. See [Mask bakes](design.md#mask-bakes) for how they're made.
+
 ### A surface shader on a model
 
 A rule's `shader` gives the materials it matches a [surface shader](#surface-shaders), named

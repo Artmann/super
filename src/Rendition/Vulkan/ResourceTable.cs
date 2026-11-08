@@ -54,6 +54,19 @@ internal sealed unsafe class ResourceTable : IDisposable
 
         /// <summary>How far red, green and blue spread under the surface, in metres, and the widest of them in w.</summary>
         public Vector4 Subsurface;
+
+        public uint MaskTexture;
+
+        /// <summary>The metres the mask's blue channel spans.</summary>
+        public float MaskHeight;
+
+        /// <summary>Below 0 keeps the surface's own roughness under the layer.</summary>
+        public float WearRoughness;
+        public float DirtRoughness;
+
+        /// <summary>The layer's colour in xyz and its amount in w. An amount of 0, as with no mask texture, skips it.</summary>
+        public Vector4 Wear;
+        public Vector4 Dirt;
     }
 
     private readonly VulkanContext _context;
@@ -81,12 +94,12 @@ internal sealed unsafe class ResourceTable : IDisposable
 
     /// <summary>
     /// Texture slots a material can name: base colour, normal, surface, emissive, height,
-    /// detail colour and detail normal, then the four shader textures.
+    /// detail colour, detail normal and mask, then the four shader textures.
     /// </summary>
     public const int TexturesPerMaterial = OwnTextures + ShaderTextures.Length;
 
     /// <summary>How many of a material's texture slots come before its shader textures.</summary>
-    private const int OwnTextures = 7;
+    private const int OwnTextures = 8;
 
     public readonly DescriptorSetLayout Layout;
     public readonly DescriptorSet Set;
@@ -412,6 +425,10 @@ internal sealed unsafe class ResourceTable : IDisposable
         return new Vector4(spread, MathF.Max(spread.X, MathF.Max(spread.Y, spread.Z)));
     }
 
+    // Without a mask there's nothing to lay the layer by, so it's off.
+    private static Vector4 Layer(in MaterialLayer layer, bool masked) =>
+        new(layer.Color, masked ? Math.Clamp(layer.Amount, 0f, 1f) : 0f);
+
     private void WriteMaterial(int index, in Material material)
     {
         ref var gpu = ref ((GpuMaterial*)_materials.Mapped)[index];
@@ -439,6 +456,12 @@ internal sealed unsafe class ResourceTable : IDisposable
             Ior = MathF.Max(material.Ior, 1f),
             Transmission = material.Subsurface.IsOn ? Math.Clamp(material.Subsurface.Transmission, 0f, 1f) : 0f,
             Subsurface = Spread(material.Subsurface),
+            MaskTexture = (uint)(material.MaskTexture ?? _white).Index,
+            MaskHeight = MathF.Max(material.MaskHeight, 0f),
+            WearRoughness = material.Wear.Roughness,
+            DirtRoughness = material.Dirt.Roughness,
+            Wear = Layer(material.Wear, material.MaskTexture is not null),
+            Dirt = Layer(material.Dirt, material.MaskTexture is not null),
         };
         for (int i = 0; i < ShaderTextures.Length; i++)
         {
@@ -459,6 +482,7 @@ internal sealed unsafe class ResourceTable : IDisposable
         owned[4] = material.HeightTexture?.Index ?? -1;
         owned[5] = material.DetailColorTexture?.Index ?? -1;
         owned[6] = material.DetailNormalTexture?.Index ?? -1;
+        owned[7] = material.MaskTexture?.Index ?? -1;
         for (int i = 0; i < ShaderTextures.Length; i++)
         {
             owned[OwnTextures + i] = material.ShaderTextures[i]?.Index ?? -1;

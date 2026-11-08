@@ -9,6 +9,7 @@ layout(location = 0) in vec3 inNormal;
 layout(location = 1) in vec4 inTangent;
 layout(location = 2) in vec2 inUv;
 layout(location = 3) in vec3 inPosition;
+layout(location = 4) in vec2 inUv2;
 
 layout(location = 0) out vec4 outBaseColorMetallic;
 layout(location = 1) out vec4 outNormalRoughnessAo;
@@ -70,6 +71,38 @@ float worldVariation(vec3 position) {
     float broad = worldNoise(position * 0.35);
     float smaller = worldNoise(position * 1.3 + 17.0);
     return smoothstep(0.15, 0.85, broad * 0.65 + smaller * 0.35);
+}
+
+// Wear starts where the mask's curvature passes the first of these and is whole at the second.
+// 0.5 is flat, so a little rounding stays clean.
+const float WEAR_FROM = 0.55;
+const float WEAR_FULL = 0.8;
+
+// Dirt gathers below this height above the mesh's base, in metres, more the lower it is.
+const float DIRT_HEIGHT = 0.3;
+
+// Lays the material's wear and dirt over a colour and roughness, by the masks baked from its
+// mesh and read through the second uv. Wear goes on convex edges, and dirt in hollows the sky
+// can't reach and low down near the base, but not over wear, which rubs it off.
+void applyLayers(Material material, inout vec3 color, inout float roughness) {
+    if (material.wear.a <= 0.0 && material.dirt.a <= 0.0) {
+        return;
+    }
+
+    vec4 mask = texture(textures[material.maskTexture], inUv2, frame.mipBias);
+    float wear = smoothstep(WEAR_FROM, WEAR_FULL, mask.r) * material.wear.a;
+    float height = mask.b * material.maskHeight;
+    float dirt = clamp(max(1.0 - mask.g, 1.0 - height / DIRT_HEIGHT), 0.0, 1.0) * material.dirt.a * (1.0 - wear);
+
+    color = mix(color, material.wear.rgb, wear);
+    if (material.wearRoughness >= 0.0) {
+        roughness = mix(roughness, material.wearRoughness, wear);
+    }
+
+    color = mix(color, material.dirt.rgb, dirt);
+    if (material.dirtRoughness >= 0.0) {
+        roughness = mix(roughness, material.dirtRoughness, dirt);
+    }
 }
 
 // The surface's frame in world space: tangent, bitangent and normal. Back faces flip the
@@ -212,6 +245,8 @@ Surface materialSurface(vec2 uv) {
         baseColor.rgb *= mix(WORLD_VARIATION_DARK, WORLD_VARIATION_LIGHT, variation);
         roughness = clamp(roughness * mix(1.08, 0.94, variation), 0.0, 1.0);
     }
+
+    applyLayers(material, baseColor.rgb, roughness);
 
     Surface surface;
     surface.baseColor = baseColor.rgb;

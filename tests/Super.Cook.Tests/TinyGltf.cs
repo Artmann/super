@@ -11,10 +11,13 @@ internal static class TinyGltf
     /// each node can be told apart by its size. With <paramref name="bufferFile"/>, the triangles
     /// go in that file beside it instead of inside it. With <paramref name="uvs"/>, six numbers
     /// (u, v for each corner, in the file's own top-left convention), every triangle gets those UVs.
+    /// With <paramref name="uvs2"/>, six more, every triangle gets them as its second UV set, TEXCOORD_1,
+    /// and when <paramref name="uvs"/> is null they're its first set too, since files always have a first.
     /// </summary>
-    public static void Write(string folder, string name, string materialName, string[] nodeNames, string? bufferFile = null, float[]? uvs = null)
+    public static void Write(string folder, string name, string materialName, string[] nodeNames, string? bufferFile = null, float[]? uvs = null, float[]? uvs2 = null)
     {
-        byte[] buffer = Buffer(nodeNames.Length, uvs);
+        uvs ??= uvs2;
+        byte[] buffer = Buffer(nodeNames.Length, uvs, uvs2);
         string uri = bufferFile ?? "data:application/octet-stream;base64," + Convert.ToBase64String(buffer);
         if (bufferFile is not null)
         {
@@ -34,6 +37,11 @@ internal static class TinyGltf
             if (uvs is not null)
             {
                 attributes["TEXCOORD_0"] = nodeNames.Length;
+            }
+
+            if (uvs2 is not null)
+            {
+                attributes["TEXCOORD_1"] = nodeNames.Length + 1;
             }
 
             nodes.Add(new JsonObject { ["name"] = nodeNames[i], ["mesh"] = i });
@@ -72,6 +80,19 @@ internal static class TinyGltf
             });
         }
 
+        // The second set after the first.
+        if (uvs2 is not null)
+        {
+            views.Add(new JsonObject { ["buffer"] = 0, ["byteOffset"] = nodeNames.Length * 36 + 24, ["byteLength"] = 24 });
+            accessors.Add(new JsonObject
+            {
+                ["bufferView"] = nodeNames.Length + 1,
+                ["componentType"] = 5126,
+                ["count"] = 3,
+                ["type"] = "VEC2",
+            });
+        }
+
         var gltf = new JsonObject
         {
             ["asset"] = new JsonObject { ["version"] = "2.0" },
@@ -87,7 +108,7 @@ internal static class TinyGltf
         File.WriteAllText(Path.Combine(folder, name), gltf.ToJsonString());
     }
 
-    private static byte[] Buffer(int triangles, float[]? uvs)
+    private static byte[] Buffer(int triangles, float[]? uvs, float[]? uvs2)
     {
         var floats = new List<float>();
         for (int i = 0; i < triangles; i++)
@@ -97,14 +118,19 @@ internal static class TinyGltf
             floats.AddRange([x, 0f, 0f, x + size, 0f, 0f, x, size, 0f]);
         }
 
-        if (uvs is not null)
+        foreach (float[]? set in new[] { uvs, uvs2 })
         {
-            if (uvs.Length != 6)
+            if (set is null)
+            {
+                continue;
+            }
+
+            if (set.Length != 6)
             {
                 throw new ArgumentException("A triangle has three corners, so it takes six UV numbers.", nameof(uvs));
             }
 
-            floats.AddRange(uvs);
+            floats.AddRange(set);
         }
 
         var bytes = new byte[floats.Count * 4];

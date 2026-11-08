@@ -63,7 +63,9 @@ Super is early. These are the known gaps, so you can plan around them.
   Courtyard is now a scene modelled in Blender that wears the graphs. Next: a rising-water
   puddle surface shader, hot reload of a saved graph in the running game, `repeat` in model
   sidecars, mesh bakes with a `Triplanar` node, and curvature and
-  occlusion bakes as graph inputs. Graphs run only at cook time, and there is no node editor
+  occlusion bakes as graph inputs. Curvature, occlusion and height are baked already, as
+  [masks for wear and dirt](rendering.md#wear-and-dirt) in a second UV set, but a graph
+  can't read them. Graphs run only at cook time, and there is no node editor
   and no way to share helpers between graph files.
 - A model sidecar can name a [surface shader](rendering.md#a-surface-shader-on-a-model)
   with its parameters and textures. The cook only checks that each shader texture's source

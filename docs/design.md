@@ -572,7 +572,7 @@ into the frame's draw list, checking that the mask's part count matches the load
 masked draw still skins the whole skeleton once. The profiler keys copies by model and mask,
 so `ShownTriangles` counts only what each mask shows.
 
-The `.rmodel` format is version 10 and the model cook version 11, with the material graphs'
+The `.rmodel` format is version 11 and the model cook version 12, with the material graphs'
 version folded in. Their history is in the comments on `ModelData.Version` and
 `ModelCooker.Version`, and an old file fails with "Cook it again" when it is read.
 
@@ -1409,6 +1409,50 @@ one. Its normal map goes in as the detail normal, and its colour as a grey detai
 each pixel's linear brightness divided by the image's average and scaled to 128, which the
 shader reads as 1. `DetailScale` defaults to the main graph's `Width` over the detail's.
 
+## Mask bakes
+
+`MaskBaker` in `Super.Cook.Models` bakes a material's wear and dirt masks while its model
+cooks. The cooker gathers every triangle of the material, across all its meshes, into one
+`MeshData`, laid out by the second UV set (`Vertex.Uv2`, from `TEXCOORD_1`), and bakes it into
+one 1024-pixel RGBA texture, compressed as BC7. The first UV set can't hold masks, because
+graph materials tile it in metres and many places share a texel.
+
+Before baking, `MaskBaker.Problem` rasterizes the UV set and stops the cook at the first
+texel two triangles cover, or a UV outside 0 to 1. The check counts only texels well inside
+a triangle, so neighbours that share an edge don't count as overlapping. The bake then
+rasterizes again, and for each covered texel works out the point on the mesh and its face
+normal, and traces rays against a `Bvh`, a median-split bounding volume hierarchy over the
+triangles:
+
+- Red is curvature. 16 rays run along the surface in every direction, once from 1 mm below
+  it and once from 1 mm above. A ray from below that leaves through another face has found
+  a convex edge, and one from above that meets another face a concave corner. Each hit
+  counts more the closer it is, out to 1.5 cm, and the more the face turns, fully at 45
+  degrees. The texel is 0.5 plus half of the strongest convex hit
+  less the strongest concave one. This tells a stave's edge from its flat face whatever
+  the mesh's normals are, where comparing vertex normals would miss a flat-shaded or split
+  edge, or see every vertex of a smooth one alike.
+- Green is the share of the sky the point sees: 64 cosine-weighted Hammersley rays, turned
+  by a hash of the texel so neighbours don't band, out to 0.5 m against the material's
+  meshes and the rest of the model.
+- Blue is the height above the material's lowest point over its full height, which the
+  model keeps as `MaskHeight`, so the shader can work in metres.
+- Alpha is 255 on covered texels. Four rings around each island take the average of their
+  covered neighbours, with alpha 0, so bilinear filtering and mips at an island's edge
+  don't pull in the background.
+
+Each texel is independent, so rows run in parallel.
+
+`applyLayers()` in `surface.glsl` runs inside `materialSurface()` after world variation.
+Wear is `smoothstep(0.55, 0.8, red)` times its amount, and dirt is the larger of the
+occlusion, `1 - green`, and the nearness to the base, `1 - height / 0.3 m`, times its amount
+and `1 - wear`. Each mixes in its colour, which the cook turned from the rule's sRGB to
+linear, and its roughness unless that is negative. A material without masks has amounts
+of 0 and returns before reading the texture. The masks are in the model's `.rmodel` as `MaterialMasks`, and in `GpuMaterial` as `MaskTexture`,
+`MaskHeight`, `WearRoughness`, `DirtRoughness`, `Wear` and `Dirt`, each layer a `vec4` of
+colour and amount. `Vertex` grew from 56 to 64 bytes for `Uv2`, which `gbuffer.vert` passes
+on at location 4.
+
 ## Texture mips, roughness and compression
 
 `TextureData.FromRgba` builds a texture's mips one level from the next with a separable
@@ -1464,8 +1508,8 @@ mapping (`blendNormals`), which keeps the detail following the larger bumps inst
 averaging them flat. Unset detail textures are a mid grey built-in texture (`_grey` in
 `ResourceTable`) and the flat normal, and a `DetailScale` of 0 on the GPU skips the reads.
 
-Each material owns seven texture slots now: colour, normal, surface, emissive, height,
-detail colour and detail normal, then the shader textures. `GpuMaterial` grew to 256
+Each material owns eight texture slots now: colour, normal, surface, emissive, height,
+detail colour, detail normal and the [wear and dirt masks](#mask-bakes), then the shader textures. `GpuMaterial` grew to 320
 bytes; `GpuMaterialTests` checks the offsets against the std430 layout of `Material`
 in `material.glsl`, so the two can't drift. The `.rmodel` format and the model cook version
 are the ones in the asset pipeline section above, so existing models cook again.

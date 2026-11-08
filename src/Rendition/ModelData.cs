@@ -45,6 +45,15 @@ public struct ModelMaterial
 /// <param name="Textures">The cooked names of the textures it reads with <c>shaderTexture(i, uv)</c>. At most <see cref="ShaderTextures.Length"/>.</param>
 public sealed record ModelMaterialShader(string Name, Vector4[] Parameters, string[] Textures);
 
+/// <summary>
+/// Masks the cooker baked from a material's mesh, and the wear and dirt laid by them. See <see cref="Material.MaskTexture"/>.
+/// </summary>
+/// <param name="Texture">The mask texture's index in <see cref="ModelData.Textures"/>.</param>
+/// <param name="Height">The metres its blue channel spans.</param>
+/// <param name="Wear">Worn edges, laid where the mask is convex.</param>
+/// <param name="Dirt">Dirt, laid in hollows and near the base.</param>
+public sealed record ModelMaterialMasks(int Texture, float Height, MaterialLayer Wear, MaterialLayer Dirt);
+
 /// <summary>One run of triangles sharing a material.</summary>
 public struct ModelPart
 {
@@ -59,8 +68,8 @@ public sealed class ModelData
     private const uint Magic = 0x4C444D52; // "RMDL"
     // 4: materials gained Subsurface. 5: height and detail textures. 6: materials gained Ior. 7: part names sit at the front.
     // 8: a texture is either inside the file or named by the hash of an object of its own. 9: textures say their format.
-    // 10: material shaders.
-    private const int Version = 10;
+    // 10: material shaders. 11: vertices gained Uv2, and materials masks.
+    private const int Version = 11;
 
     private const byte TextureInside = 0;
     private const byte TextureByHash = 1;
@@ -94,6 +103,17 @@ public sealed class ModelData
     /// <summary>The surface shader material <paramref name="material"/> is drawn with, or null for the standard one.</summary>
     public ModelMaterialShader? ShaderOf(int material) =>
         material < MaterialShaders.Length ? MaterialShaders[material] : null;
+
+    /// <summary>
+    /// For each material, its baked masks with the wear and dirt laid by them, or null for none. In the same order as
+    /// <see cref="Materials"/>. Empty when no material has them; otherwise it must be as long as
+    /// <see cref="Materials"/>. Read it with <see cref="MaskOf"/>.
+    /// </summary>
+    public ModelMaterialMasks?[] MaterialMasks { get; init; } = [];
+
+    /// <summary>Material <paramref name="material"/>'s baked masks, or null when it has none.</summary>
+    public ModelMaterialMasks? MaskOf(int material) =>
+        material < MaterialMasks.Length ? MaterialMasks[material] : null;
 
     /// <summary>
     /// Says why a material's cutoff can't work, or returns null when it can or there is
@@ -167,6 +187,12 @@ public sealed class ModelData
                 $"The model has {Materials.Length} materials and {MaterialShaders.Length} material shaders. Give one to each material, or none.");
         }
 
+        if (MaterialMasks.Length != 0 && MaterialMasks.Length != Materials.Length)
+        {
+            throw new InvalidOperationException(
+                $"The model has {Materials.Length} materials and {MaterialMasks.Length} material masks. Give one to each material, or none.");
+        }
+
         var stream = new MemoryStream();
         using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
         {
@@ -233,6 +259,18 @@ public sealed class ModelData
             }
         }
 
+        writer.Write(MaterialMasks.Length);
+        foreach (var masks in MaterialMasks)
+        {
+            writer.Write(masks is not null);
+            if (masks is not null)
+            {
+                writer.Write(masks.Texture);
+                writer.Write(masks.Height);
+                WriteArray(writer, new[] { masks.Wear, masks.Dirt });
+            }
+        }
+
         writer.Write(Textures.Length);
         foreach (var texture in Textures)
         {
@@ -281,6 +319,18 @@ public sealed class ModelData
             }
         }
 
+        var masks = new ModelMaterialMasks?[reader.ReadInt32()];
+        for (int i = 0; i < masks.Length; i++)
+        {
+            if (reader.ReadBoolean())
+            {
+                int maskTexture = reader.ReadInt32();
+                float height = reader.ReadSingle();
+                var layers = ReadArray<MaterialLayer>(reader);
+                masks[i] = new ModelMaterialMasks(maskTexture, height, layers[0], layers[1]);
+            }
+        }
+
         var textures = new TextureData[reader.ReadInt32()];
         for (int i = 0; i < textures.Length; i++)
         {
@@ -308,6 +358,7 @@ public sealed class ModelData
             Parts = parts,
             Materials = materials,
             MaterialShaders = shaders,
+            MaterialMasks = masks,
             Textures = textures,
             Skeleton = skeleton,
             Clips = clips,

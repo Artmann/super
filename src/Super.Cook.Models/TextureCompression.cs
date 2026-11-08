@@ -17,10 +17,16 @@ internal static class TextureCompression
     /// <summary>
     /// Replaces each of <paramref name="textures"/> with its compressed form, judging its use
     /// from the materials that point to it. A texture no material points to stays as it is.
+    /// <paramref name="masks"/> are the materials' baked masks, which keep all four channels.
     /// </summary>
-    public static void Compress(TextureData[] textures, IReadOnlyList<ModelMaterial> materials)
+    public static void Compress(TextureData[] textures, IReadOnlyList<ModelMaterial> materials, IEnumerable<int>? masks = null)
     {
         var formats = new TextureFormat?[textures.Length];
+        foreach (int mask in masks ?? [])
+        {
+            Use(formats, mask, TextureFormat.Bc7);
+        }
+
         foreach (var material in materials)
         {
             Use(formats, material.NormalTexture, TextureFormat.Bc5);

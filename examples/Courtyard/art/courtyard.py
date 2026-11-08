@@ -2305,7 +2305,52 @@ def build():
     build_fallen_leaves(sc, M)
     build_grass(sc, M)
     build_tree(sc, M)
+    mask_uvs(sc, ["cy_graph_wood", "cy_graph_hoop", "cy_graph_stone", "cy_crate_wood"])
     return sc
+
+
+def mask_uvs(sc, materials):
+    """Gives every mesh using one of materials a second UV set named "mask", which the cooker
+    bakes wear and dirt masks into. The first set stays in metres and keeps the textures. For
+    each material its faces, across all the meshes, are unwrapped together by Smart UV
+    Project, so no two of them share a texel of its mask."""
+    window = bpy.context.window
+    previous = window.scene
+    window.scene = sc
+    try:
+        for name in materials:
+            obs = [o for o in sc.objects if o.type == "MESH" and any(m and m.name == name for m in o.data.materials)]
+            for o in sc.objects:
+                o.select_set(False)
+            for o in obs:
+                me = o.data
+                if "mask" not in me.uv_layers:
+                    me.uv_layers.new(name="mask")
+                me.uv_layers.active = me.uv_layers["mask"]
+                slots = {i for i, m in enumerate(me.materials) if m and m.name == name}
+                chosen = [p for p in me.polygons if p.material_index in slots]
+                verts = {i for p in chosen for i in p.vertices}
+                keys = {k for p in chosen for k in p.edge_keys}
+                for v in me.vertices:
+                    v.select = v.index in verts
+                for e in me.edges:
+                    e.select = e.key in keys
+                for p in me.polygons:
+                    p.select = p.material_index in slots
+                o.select_set(True)
+            bpy.context.view_layer.objects.active = obs[0]
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.mesh.select_mode(type="FACE")
+            bpy.ops.uv.smart_project(angle_limit=math.radians(66), island_margin=0.002)
+            bpy.ops.object.mode_set(mode="OBJECT")
+        # The metric set is the one the textures and the export's TEXCOORD_0 use.
+        for o in sc.objects:
+            if o.type == "MESH" and o.data.uv_layers:
+                o.data.uv_layers.active_index = 0
+                o.data.uv_layers[0].active_render = True
+            o.select_set(False)
+    finally:
+        window.scene = previous
 
 
 def export(sc):

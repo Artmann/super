@@ -307,6 +307,15 @@ A model sidecar's material rule can name a surface shader with `shader`, its par
 and loading it loads the shader and the textures too, so a missing one is reported when the
 model loads. See [A surface shader on a model](rendering.md#a-surface-shader-on-a-model).
 
+### Wear and dirt on models
+
+A model sidecar's material rule with `"bakeMasks": true` bakes curvature, occlusion and
+height masks from the material's meshes into a texture cooked inside the model, and its
+`wear` and `dirt` layers, each an sRGB `color`, an optional `roughness` and an `amount`
+from 0 to 1, are laid on by them. The masks go in the mesh's second UV set, so
+every mesh of the material needs one whose islands don't overlap. See
+[Wear and dirt](rendering.md#wear-and-dirt).
+
 ### Mesh names
 
 A rigged model keeps the name of each of its meshes: the name of the node that holds the

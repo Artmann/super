@@ -217,6 +217,38 @@ public sealed class MaterialRule
     /// folder: up to 4. Each is cooked as a texture of its own, and found by its name when the model loads.
     /// </summary>
     public string[]? ShaderTextures { get; set; }
+
+    /// <summary>
+    /// Bakes masks from the material's mesh while it cooks: how curved it is, how much of the sky it sees and how high
+    /// above its base it is, which <see cref="Wear"/> and <see cref="Dirt"/> are laid by. They're read through the
+    /// mesh's second UV set, TEXCOORD_1, where no two triangles may share texels, so the cook fails without one.
+    /// </summary>
+    public bool BakeMasks { get; set; }
+
+    /// <summary>Worn edges: the colour and roughness convex edges turn to. Needs <see cref="BakeMasks"/>.</summary>
+    public LayerRule? Wear { get; set; }
+
+    /// <summary>
+    /// Dirt: the colour and roughness hollows the sky can't reach, and the surface below 0.3 m above its base, turn
+    /// to. Not over worn edges. Needs <see cref="BakeMasks"/>.
+    /// </summary>
+    public LayerRule? Dirt { get; set; }
+}
+
+/// <summary>A layer laid over a material by its baked masks, such as <see cref="MaterialRule.Wear"/>.</summary>
+public sealed class LayerRule
+{
+    /// <summary>
+    /// The layer's colour as three sRGB numbers from 0 to 1, as a colour picker shows it, which replace the surface's
+    /// colour where it shows.
+    /// </summary>
+    public float[]? Color { get; set; }
+
+    /// <summary>The layer's roughness, from 0 to 1. Without one it keeps the surface's own.</summary>
+    public float? Roughness { get; set; }
+
+    /// <summary>How strongly the layer shows where its mask is whole, from 0 to 1.</summary>
+    public float Amount { get; set; }
 }
 
 /// <summary>How light spreads under a material's surface. See Rendition.Subsurface.</summary>

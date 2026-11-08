@@ -1115,6 +1115,14 @@ public sealed unsafe class Renderer : IDisposable
                 Ior = source.Ior,
                 Subsurface = source.Subsurface,
             };
+            if (model.MaskOf(i) is { } masks)
+            {
+                material.MaskTexture = textures[masks.Texture];
+                material.MaskHeight = masks.Height;
+                material.Wear = masks.Wear;
+                material.Dirt = masks.Dirt;
+            }
+
             materials[i] = CreateMaterial(finish is null ? material : finish(i, material));
         }
 
