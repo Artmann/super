@@ -180,8 +180,9 @@ public sealed class MaterialRule
     /// <summary>
     /// Cuts out pixels whose opacity is below this. Opacity comes from the colour
     /// texture's alpha and the surface texture's alpha. Without a value, a glTF file's
-    /// own MASK cutoff is used. The import fails if the cutoff would cut nothing, or
-    /// everything.
+    /// own MASK cutoff is used. With a <see cref="Graph"/>, the graph's <c>Opacity</c> is
+    /// written into the colour texture's alpha, and the surface texture's alpha is left
+    /// whole. The import fails if the cutoff would cut nothing, or everything.
     /// </summary>
     public float? AlphaCutoff { get; set; }
 
@@ -198,6 +199,24 @@ public sealed class MaterialRule
 
     /// <summary>For transparent glass: 1 is straight through, as a window, and about 1.5 bends the view like a bottle or a marble.</summary>
     public float Ior { get; set; } = 1f;
+
+    /// <summary>
+    /// A surface shader to draw the material with instead of the standard one, by its file name without the extension,
+    /// such as <c>puddles</c> for the game's <c>Shaders/puddles.frag</c>. Transparent materials can't use one yet.
+    /// </summary>
+    public string? Shader { get; set; }
+
+    /// <summary>
+    /// Numbers the <see cref="Shader"/> reads as <c>shaderParameters[i]</c>: up to 8 of up to 4 numbers each. Missing
+    /// numbers are 0.
+    /// </summary>
+    public float[][]? ShaderParameters { get; set; }
+
+    /// <summary>
+    /// Textures the <see cref="Shader"/> reads with <c>shaderTexture(i, uv)</c>, by their paths from the model's
+    /// folder: up to 4. Each is cooked as a texture of its own, and found by its name when the model loads.
+    /// </summary>
+    public string[]? ShaderTextures { get; set; }
 }
 
 /// <summary>How light spreads under a material's surface. See Rendition.Subsurface.</summary>

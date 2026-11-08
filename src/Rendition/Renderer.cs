@@ -1076,8 +1076,13 @@ public sealed unsafe class Renderer : IDisposable
         }
     }
 
-    /// <summary>Uploads a cooked model and returns one draw per part.</summary>
-    public DrawItem[] CreateModel(ModelData model)
+    /// <summary>
+    /// Uploads a cooked model and returns one draw per part. <paramref name="finish"/>, given each
+    /// material's index and what the model holds, can change it before it's made, such as to give it
+    /// the surface shader <see cref="ModelData.ShaderOf"/> names. <see cref="DestroyModel"/> frees
+    /// every texture a material names, its shader textures too, so give each model textures of its own.
+    /// </summary>
+    public DrawItem[] CreateModel(ModelData model, Func<int, Material, Material>? finish = null)
     {
         var textures = new TextureHandle[model.Textures.Length];
         for (int i = 0; i < textures.Length; i++)
@@ -1089,7 +1094,7 @@ public sealed unsafe class Renderer : IDisposable
         for (int i = 0; i < materials.Length; i++)
         {
             ref readonly var source = ref model.Materials[i];
-            materials[i] = CreateMaterial(new Material
+            var material = new Material
             {
                 BaseColor = source.BaseColor,
                 Metallic = source.Metallic,
@@ -1109,7 +1114,8 @@ public sealed unsafe class Renderer : IDisposable
                 Flags = source.Flags,
                 Ior = source.Ior,
                 Subsurface = source.Subsurface,
-            });
+            };
+            materials[i] = CreateMaterial(finish is null ? material : finish(i, material));
         }
 
         // A posed skeleton can reach well outside the rest pose, so a skinned part's

@@ -572,9 +572,18 @@ into the frame's draw list, checking that the mask's part count matches the load
 masked draw still skins the whole skeleton once. The profiler keys copies by model and mask,
 so `ShownTriangles` counts only what each mask shows.
 
-The `.rmodel` format is version 9 and the model cook version 10, with the material graphs'
+The `.rmodel` format is version 10 and the model cook version 11, with the material graphs'
 version folded in. Their history is in the comments on `ModelData.Version` and
 `ModelCooker.Version`, and an old file fails with "Cook it again" when it is read.
+
+A material rule's `shader`, `shaderParameters` and `shaderTextures` are written after the
+materials as `ModelData.MaterialShaders`, empty or one entry (or none) per material, by name: the
+shader's file name, its parameters as `Vector4`s padded with zeros, and the source names of its
+textures. Rendition can't resolve names, so `SceneRenderer.PrepareModel` reads the shaders and
+cooked textures on the loading thread, and `UploadModel` makes them and hands them to
+`Renderer.CreateModel` through its `finish` callback, which can change each material before it is
+made. The shaders are kept for the renderer's life, one per name. The textures are made for each
+model, since `DestroyModel` frees every texture its materials name.
 
 **The build.** `Super.targets` gives a game a `ProjectReference` to `Super.Cook.Tool` that
 only builds it: `ReferenceOutputAssembly="false"` and `Private="false"` keep the tool's

@@ -100,6 +100,17 @@ public sealed class CookInput
         return candidates[0];
     }
 
+    /// <summary>
+    /// The name in the root of a file by its path from the source's folder, such as <c>textures/ripples.png</c> for
+    /// <c>../textures/ripples.png</c> beside <c>models/a.glb</c>, or null when the root has no such file. It isn't read
+    /// or tracked, so for a file that's cooked as an asset of its own and only named by this one.
+    /// </summary>
+    public string? NameOf(string relative)
+    {
+        string? name = ResolveName(_file.Name, relative);
+        return name is not null && Names().Contains(name) ? name : null;
+    }
+
     /// <summary>Records a file the cooker opened some other way, so a change to it counts as a change to this source.</summary>
     public void Track(string relative)
     {

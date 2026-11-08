@@ -39,9 +39,10 @@ public sealed class ModelCooker : ICooker
     // meshes follow their container node. 7: textures are objects of their own that models point to by hash.
     // 8: material graphs. 9: graph materials have no height or detail textures unless their rule names them, and an
     // ior of 1. 10: Kaiser mips, roughness widened by the normal map, graph heights as parallax, detail graphs, and
-    // block-compressed textures. The graphs' own version is folded in, so a change to Super.Materials cooks every
-    // model again, since one may use a graph.
-    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 10);
+    // block-compressed textures. 11: material shaders, and a graph's opacity in the colour's alpha under a cutoff. The
+    // graphs' own version is folded in, so a change to Super.Materials cooks every model again, since one may use a
+    // graph.
+    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 11);
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -171,6 +172,7 @@ public sealed class ModelCooker : ICooker
         var meshNames = new List<string>();
         var materials = new List<ModelMaterial>();
         var materialNames = new List<string>();
+        var shaders = new List<ModelMaterialShader?>();
 
         // The width in metres of each material's graph, or 0 for a material without one.
         var graphWidths = new List<float>();
@@ -268,6 +270,7 @@ public sealed class ModelCooker : ICooker
                 materials.Add(material);
                 materialNames.Add(materialName);
                 graphWidths.Add(graphWidth);
+                shaders.Add(RuleFor(settings, materialName) is { } rule ? ImportShader(rule, materialName, input, output, prefix) : null);
             }
 
             foreach (var (m, world, node) in Placements(scene, rig is null && settings.KeepMeshes))
@@ -402,6 +405,7 @@ public sealed class ModelCooker : ICooker
             Parts = parts.ToArray(),
             MeshNames = meshNames.ToArray(),
             Materials = materials.ToArray(),
+            MaterialShaders = shaders.Any(shader => shader is not null) ? shaders.ToArray() : [],
             Textures = textures.ToArray(),
             Skeleton = skeleton,
             Clips = clips.ToArray(),
@@ -716,6 +720,95 @@ public sealed class ModelCooker : ICooker
         }
     }
 
+    /// <summary>A graph's colour with its opacity, from the surface's alpha, as alpha, and its surface with an alpha of 1.</summary>
+    private static (byte[] Color, byte[] Surface) OpacityInColor(MaterialPixels pixels)
+    {
+        byte[] color = (byte[])pixels.Color.Clone();
+        byte[] surface = (byte[])pixels.Surface.Clone();
+        for (int alpha = 3; alpha < color.Length; alpha += 4)
+        {
+            color[alpha] = surface[alpha];
+            surface[alpha] = 255;
+        }
+
+        return (color, surface);
+    }
+
+    /// <returns>
+    /// The surface shader a rule names, with its textures as their names in the cooked content, or null when it names
+    /// none or something about it is wrong, which was reported.
+    /// </returns>
+    private static ModelMaterialShader? ImportShader(MaterialRule rule, string materialName, CookInput input, CookOutput output, string prefix)
+    {
+        void Error(string message) => output.Error($"{prefix}material {materialName}: {message}");
+
+        float[][] parameters = rule.ShaderParameters ?? [];
+        string[] paths = rule.ShaderTextures ?? [];
+        if (rule.Shader is not { } name)
+        {
+            if (rule.ShaderParameters is not null || rule.ShaderTextures is not null)
+            {
+                Error("shaderParameters and shaderTextures are read by a shader, so they need one.");
+            }
+
+            return null;
+        }
+
+        bool wrong = false;
+        if (rule.Transparent)
+        {
+            Error("transparent materials can't use a surface shader yet.");
+            wrong = true;
+        }
+
+        if (parameters.Length > ShaderParameters.Length)
+        {
+            Error($"shaderParameters has {parameters.Length} entries, but a surface shader takes at most {ShaderParameters.Length}.");
+            wrong = true;
+        }
+
+        var vectors = new Vector4[Math.Min(parameters.Length, ShaderParameters.Length)];
+        for (int i = 0; i < vectors.Length; i++)
+        {
+            float[] numbers = parameters[i] ?? [];
+            if (numbers.Length > 4)
+            {
+                Error($"shaderParameters[{i}] has {numbers.Length} numbers, but a parameter holds at most 4.");
+                wrong = true;
+                continue;
+            }
+
+            float At(int component) => component < numbers.Length ? numbers[component] : 0f;
+            vectors[i] = new Vector4(At(0), At(1), At(2), At(3));
+        }
+
+        if (paths.Length > ShaderTextures.Length)
+        {
+            Error($"shaderTextures has {paths.Length} entries, but a surface shader takes at most {ShaderTextures.Length}.");
+            wrong = true;
+        }
+
+        var names = new string[Math.Min(paths.Length, ShaderTextures.Length)];
+        for (int i = 0; i < names.Length; i++)
+        {
+            if (paths[i] is { } path && input.NameOf(path) is { } found)
+            {
+                names[i] = found;
+            }
+            else
+            {
+                Error($"shaderTextures[{i}] {paths[i]} isn't in the source root.");
+                wrong = true;
+            }
+        }
+
+        return wrong ? null : new ModelMaterialShader(name, vectors, names);
+    }
+
+    /// <summary>The first rule whose <c>match</c> is in the material's name, or null when there is none.</summary>
+    private static MaterialRule? RuleFor(ImportSettings settings, string materialName) =>
+        settings.Materials.FirstOrDefault(rule => materialName.Contains(rule.Match, StringComparison.OrdinalIgnoreCase));
+
     /// <returns>The graph's run, or null when the rule has no graph or it failed, which was reported.</returns>
     private static GraphRun? RunGraph(MaterialRule rule, string materialName, MaterialContext context)
     {
@@ -763,9 +856,7 @@ public sealed class ModelCooker : ICooker
         float[]? fileRoughness = isGltf ? GetFloats(assimp, source, "$mat.roughnessFactor", 1) : null;
         float? fileCutoff = isGltf ? GetGltfCutoff(assimp, source) : null;
 
-        // Use a local copy, since lambdas can't capture an out parameter.
-        string matchName = materialName;
-        var rule = settings.Materials.FirstOrDefault(r => matchName.Contains(r.Match, StringComparison.OrdinalIgnoreCase));
+        var rule = RuleFor(settings, materialName);
 
         // A texture the rule names must be there; one only the model file links to may not be.
         string? named = rule is null ? null : materialName;
@@ -787,6 +878,21 @@ public sealed class ModelCooker : ICooker
             // The graph's textures hold the colour, metalness and roughness, which these values multiply, so they're 1
             // unless the rule says otherwise. The model file's own values were for its own textures.
             int size = graph.Size;
+
+            // A cutoff reads the graph's opacity from the colour's alpha, so it's moved there from the surface's, which is
+            // left whole so the opacity isn't counted twice.
+            int colorTexture, surfaceTexture;
+            if (rule.AlphaCutoff is not null)
+            {
+                var (color, surface) = OpacityInColor(graph.Pixels);
+                colorTexture = textures.AddPixels(graph.Key + "#color-opacity", size, size, TextureKind.Color, color);
+                surfaceTexture = textures.AddPixels(graph.Key + "#surface-opaque", size, size, TextureKind.Linear, surface);
+            }
+            else
+            {
+                colorTexture = textures.AddPixels(graph.Key + "#color", size, size, TextureKind.Color, graph.Pixels.Color);
+                surfaceTexture = textures.AddPixels(graph.Key + "#surface", size, size, TextureKind.Linear, graph.Pixels.Surface);
+            }
 
             // The graph's own height map sinks its grooves in with parallax, unless the rule gives a height map.
             float heightDepth = rule.HeightDepth ?? (rule.Height is null ? graph.HeightDepth : 0f);
@@ -814,11 +920,11 @@ public sealed class ModelCooker : ICooker
                 Metallic = rule.Metallic ?? 1f,
                 Roughness = rule.Roughness ?? 1f,
                 AlphaCutoff = rule.AlphaCutoff ?? 0f,
-                BaseColorTexture = textures.AddPixels(graph.Key + "#color", size, size, TextureKind.Color, graph.Pixels.Color),
+                BaseColorTexture = colorTexture,
                 NormalTexture = rule.NoNormalMap
                     ? -1
                     : textures.AddPixels(graph.Key + "#normal", size, size, TextureKind.Linear, graph.Pixels.Normal, isNormalMap: true),
-                SurfaceTexture = textures.AddPixels(graph.Key + "#surface", size, size, TextureKind.Linear, graph.Pixels.Surface),
+                SurfaceTexture = surfaceTexture,
                 Emissive = emissive,
                 EmissiveTexture = textures.Add(rule.Emissive, TextureKind.Color, namedBy: named),
                 Clearcoat = rule.Clearcoat,

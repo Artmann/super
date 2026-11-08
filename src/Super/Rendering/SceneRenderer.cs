@@ -56,6 +56,9 @@ internal sealed class SceneRenderer : IDisposable
     private DecalDraw[] _decals = new DecalDraw[16];
     private int _decalCount;
 
+    /// <summary>Surface shaders named by cooked models, made once for each name and kept for the renderer's life.</summary>
+    private readonly Dictionary<string, SurfaceShaderHandle> _modelShaders = [];
+
     public SceneRenderer(RendererOptions options)
     {
         _renderer = new Renderer(options);
@@ -301,6 +304,81 @@ internal sealed class SceneRenderer : IDisposable
         });
     }
 
+    /// <summary>
+    /// Reads a cooked model and, when its materials name surface shaders, those shaders and the
+    /// cooked textures they read, by name. Runs on the background thread.
+    /// </summary>
+    internal static object PrepareModel(string name, IContentFiles files)
+    {
+        var model = LoadModel(name, files);
+        var shaders = model.MaterialShaders.OfType<ModelMaterialShader>().ToArray();
+        if (shaders.Length == 0)
+        {
+            return model;
+        }
+
+        var spirv = new Dictionary<string, byte[]>();
+        var textures = new Dictionary<string, TextureData>();
+        foreach (var shader in shaders)
+        {
+            if (!spirv.ContainsKey(shader.Name))
+            {
+                spirv[shader.Name] = LoadShader(shader.Name);
+            }
+
+            foreach (string texture in shader.Textures)
+            {
+                if (!textures.ContainsKey(texture))
+                {
+                    ContentNames.Require(files, texture, ContentKind.Texture);
+                    textures[texture] = LoadTexture(new TextureItem(texture, null, files, TextureKind.Color, false));
+                }
+            }
+        }
+
+        return new PreparedModel(model, spirv, textures);
+    }
+
+    /// <summary>
+    /// Uploads a model whose materials use surface shaders. A shader is made once for each name and
+    /// kept for the renderer's life, as shaders named through <see cref="Content.Shader"/> are. The
+    /// textures are the model's own, since destroying a model frees every texture its materials name.
+    /// </summary>
+    private LoadedModel UploadModel(PreparedModel prepared)
+    {
+        foreach (var (name, spirv) in prepared.Shaders)
+        {
+            if (!_modelShaders.ContainsKey(name))
+            {
+                _modelShaders[name] = _renderer.CreateSurfaceShader(spirv);
+            }
+        }
+
+        var textures = prepared.Textures.ToDictionary(pair => pair.Key, pair => _renderer.CreateTexture(pair.Value));
+        var model = prepared.Model;
+        var parts = _renderer.CreateModel(model, (index, material) =>
+        {
+            if (model.ShaderOf(index) is not { } shader)
+            {
+                return material;
+            }
+
+            material.Shader = _modelShaders[shader.Name];
+            for (int i = 0; i < shader.Parameters.Length; i++)
+            {
+                material.ShaderParameters[i] = shader.Parameters[i];
+            }
+
+            for (int i = 0; i < shader.Textures.Length; i++)
+            {
+                material.ShaderTextures[i] = textures[shader.Textures[i]];
+            }
+
+            return material;
+        });
+        return new LoadedModel(parts, null, null, model.Skeleton?.Count ?? 0);
+    }
+
     private static byte[] LoadShader(string name)
     {
         // Shaders.targets keeps the source extension, so Shaders/terrain.frag becomes shaders/terrain.frag.spv.
@@ -380,7 +458,7 @@ internal sealed class SceneRenderer : IDisposable
     /// <summary>The part of loading that needs no GPU, so it runs on a background thread.</summary>
     private object PrepareItem(object item) => item switch
     {
-        string name => LoadModel(name, _files!),
+        string name => PrepareModel(name, _files!),
         ShaderItem shader => LoadShader(shader.Name),
         TextureItem texture => LoadTexture(texture),
         TextureArrayItem array => Array.ConvertAll(array.Layers, LoadTexture),
@@ -395,6 +473,7 @@ internal sealed class SceneRenderer : IDisposable
     private Loaded Upload(object prepared, Content content) => prepared switch
     {
         ModelData model => new LoadedModel(_renderer.CreateModel(model), null, null, model.Skeleton?.Count ?? 0),
+        PreparedModel model => UploadModel(model),
         byte[] spirv => new LoadedShader(_renderer.CreateSurfaceShader(spirv)),
         TextureData texture => new LoadedTexture(_renderer.CreateTexture(texture)),
         TextureData[] layers => new LoadedTextureArray(_renderer.CreateTextureArray(layers)),
@@ -786,6 +865,9 @@ internal sealed class SceneRenderer : IDisposable
     }
 
     private sealed record PreparedMesh(GeneratedMesh Mesh, TextureData? OwnedTexture);
+
+    /// <summary>A model whose materials name surface shaders, with the shaders and textures they read.</summary>
+    internal sealed record PreparedModel(ModelData Model, Dictionary<string, byte[]> Shaders, Dictionary<string, TextureData> Textures);
 
     private abstract record Loaded;
 

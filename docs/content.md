@@ -300,6 +300,13 @@ gives a `Surface` with the graph's textures and its width in metres as `TileWidt
 stops with a `ContentException` for a name that has no `#material` part. See
 [materials.md](materials.md).
 
+### Shaders on models
+
+A model sidecar's material rule can name a surface shader with `shader`, its parameters with
+`shaderParameters` and up to 4 cooked textures with `shaderTextures`. The model keeps the names,
+and loading it loads the shader and the textures too, so a missing one is reported when the
+model loads. See [A surface shader on a model](rendering.md#a-surface-shader-on-a-model).
+
 ### Mesh names
 
 A rigged model keeps the name of each of its meshes: the name of the node that holds the

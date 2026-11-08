@@ -608,7 +608,7 @@ applies to every material whose name contains `match`:
 alpha times the surface texture's alpha, so leaves with alpha in their colour texture
 need nothing else, and a glTF file's own `MASK` cutoff is read without a rule. The
 import fails if the cutoff would cut out nothing, or everything, instead of quietly
-giving you solid cards.
+giving you solid cards. With a `graph`, the graph's `Opacity` is what gets cut.
 
 `foliage` is for a tree's leaves. It points their normals out of the crown so it's lit
 as one rounded shape instead of speckled cards, lets sunlight through the back of the
@@ -719,7 +719,8 @@ Other options are the `baseColor`, `normal`, `surface` and `emissive` textures,
 `color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `heightDepth`,
 `detailScale`, `detailMask`, `twoSided`, `transparent`, `opacity`, `ior`, `noNormalMap`,
 `worldVariation`, `dithered` and `rotateY`, and `graph`, `graphSize`, `detailGraph` and
-`detailGraphSize`, below; see `src/Super.Cook.Models/ImportSettings.cs`.
+`detailGraphSize`, and `shader`, `shaderParameters` and `shaderTextures`, below; see
+`src/Super.Cook.Models/ImportSettings.cs`.
 
 `worldVariation` darkens and lightens the colour in broad patches a few metres across, laid by
 where the surface is in the world rather than by its UVs, with a little more roughness in the
@@ -766,7 +767,9 @@ multiply the textures. Set `color`, `metallic` or `roughness` in the rule to tin
 them. The model file's own colour and factors are ignored, since they were meant for its
 own textures. Since the graph makes the textures, a rule that also sets `baseColor`,
 `normal`, `surface` or `alpha` stops the cook. `emissive`, `noNormalMap`, `alphaCutoff` and
-the other switches work as usual. A graph's `Opacity` goes into the surface texture's alpha,
+the other switches work as usual. A graph's `Opacity` goes into the surface texture's alpha.
+With `alphaCutoff` it goes into the colour texture's alpha instead, and the surface alpha is
+left whole, so a graph can cut out leaves, lace or a torn edge. Otherwise it stays in the surface alpha,
 so for glass whose grime clouds it, add `"transparent": true` and the graph's opacity
 scales the tint, as the Courtyard's window does. With `"dithered": true` the opacity fades the
 material out instead. A stain such as the Courtyard's `grime.material.cs` looks better as a
@@ -824,6 +827,45 @@ Editing the graph, its variant or an image it reads cooks the model again. A gra
 several materials or parts use runs once per model cook at each size. The graph is a
 source of its own too, so it also cooks to its own textures. If only models use it, turn
 that off with a `"cook": false` rule in `cook.json`, as you would for a model's textures.
+
+### A surface shader on a model
+
+A rule's `shader` gives the materials it matches a [surface shader](#surface-shaders), named
+by its file name as with `content.Shader`. `shaderParameters` are its parameters, up to 8 of
+up to 4 numbers each, with missing numbers read as 0. `shaderTextures` are up to 4 cooked
+textures for its texture slots, by their path from the model's folder:
+
+```json
+// models/courtyard.glb.cook.json
+{
+  "materials": [
+    {
+      "match": "graph_flagstones",
+      "graph": "../materials/flagstones.material.cs",
+      "shader": "puddles",
+      "shaderParameters": [[0.6], [0.2, 0.3, 0.35, 1]],
+      "shaderTextures": ["../textures/ripples.png"]
+    }
+  ]
+}
+```
+
+The cook writes the names and numbers into the model. When the model loads, the shader is
+read from the game's `shaders` folder and the textures from the cooked content, and the
+model's material gets them as if a `Surface` had named them. A texture a rule names must be
+cooked, so a `"cook": false` rule over it makes the model fail to load with the usual
+missing-content message. The cook stops when a rule asks for too much, names a texture that
+isn't there, or gives parameters or textures without a shader. A transparent material can't
+use a surface shader yet, the same as with a `Surface`:
+
+```text
+material bark: shaderParameters has 9 entries, but a surface shader takes at most 8.
+material bark: shaderParameters[2] has 5 numbers, but a parameter holds at most 4.
+material bark: shaderTextures has 5 entries, but a surface shader takes at most 4.
+material bark: shaderTextures[0] ../textures/missing.png isn't in the source root.
+material bark: shaderParameters and shaderTextures are read by a shader, so they need one.
+material bark: transparent materials can't use a surface shader yet.
+```
 
 A rigged model keeps its skeleton, bone weights and clips, and `animations` adds clips
 from other files of the same rig, such as Mixamo's:

@@ -189,7 +189,8 @@ and divided by the graph's `Width`, so unwrap it at real-world scale. A `detailG
 second, small graph over the first as fine grain, as the Courtyard's `grit.material.cs` does
 over its bricks and stone. A graph that is only ever a detail graph still needs a varied
 `Roughness`, since it is also cooked on its own and the [checks](#checks) look at it. The graph's errors
-stop the model's cook, and editing the graph cooks the model again. See [A material graph
+stop the model's cook, and editing the graph cooks the model again. With the rule's `alphaCutoff`, the
+graph's `Opacity` cuts the material out, so a graph can make leaves or a torn edge. See [A material graph
 on a model](rendering.md#a-material-graph-on-a-model) for the details.
 
 ## The material
@@ -204,7 +205,7 @@ on a model](rendering.md#a-material-graph-on-a-model) for the details.
 | `Color` | 0.5 grey | The base colour |
 | `Roughness` | 0.6 | |
 | `Metallic` | 0 | |
-| `Opacity` | 1 | |
+| `Opacity` | 1 | How see-through it is. On a model it scales the tint of a transparent material, or with `alphaCutoff` cuts out pixels below the cutoff |
 | `Normal` | none | Laid over the normal the height makes |
 | `Occlusion` | 0.5 | How much of the occlusion the height makes is multiplied into the colour, 0 to 1 |
 
