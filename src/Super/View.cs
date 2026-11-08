@@ -91,6 +91,7 @@ public sealed class View
     internal float ShadowRadius { get; private set; }
     internal int ShadowCascades { get; private set; }
     internal float SunSize { get; private set; }
+    internal OcclusionSettings Occlusion { get; private set; } = new();
     internal UiTree? Ui { get; set; }
 
     /// <summary>How the screen moves between pictures this frame. Set by <see cref="Transitions"/>.</summary>
@@ -478,6 +479,27 @@ public sealed class View
         SunSize = sunSize;
     }
 
+    /// <summary>
+    /// Sets how nearby surfaces darken the soft light from the sky in corners, creases and under
+    /// things. <paramref name="radius"/> is how far, in metres, a point looks for surfaces that hide
+    /// the sky from it; <paramref name="strength"/>, from 0 to 1, is how dark they make it. The
+    /// defaults suit rooms and streets seen from head height.
+    /// </summary>
+    public void AmbientOcclusion(float radius = OcclusionSettings.DefaultRadius, float strength = OcclusionSettings.DefaultStrength)
+    {
+        if (!(radius > 0f))
+        {
+            throw new ArgumentOutOfRangeException(nameof(radius), radius, "The ambient occlusion radius must be more than zero.");
+        }
+
+        if (!(strength is >= 0f and <= 1f))
+        {
+            throw new ArgumentOutOfRangeException(nameof(strength), strength, "The ambient occlusion strength must be from 0 to 1.");
+        }
+
+        Occlusion = new OcclusionSettings(radius, strength);
+    }
+
     /// <summary>How wide the sun looks, in radians, unless <see cref="Shadows"/> says otherwise.</summary>
     public const float DefaultSunSize = 0.12f;
 
@@ -587,6 +609,7 @@ public sealed class View
         ShadowRadius = 8f;
         ShadowCascades = 1;
         SunSize = DefaultSunSize;
+        Occlusion = new OcclusionSettings();
 
         // The hold stays, since changing it is what tells the renderer to keep a picture.
         Transition = new ScreenTransition { Hold = Transition.Hold };

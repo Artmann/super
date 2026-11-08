@@ -11,7 +11,7 @@ What it does for every game, with no setup:
 - Soft, contact-hardening shadows, in up to four cascades
 - A generated environment that gives surfaces reflections and soft fill light
 - Screen-space reflections and box-corrected reflection probes
-- Temporal anti-aliasing, ambient occlusion (with light bounced back from the surface's colour) and bloom
+- Temporal anti-aliasing, [ambient occlusion](#ambient-occlusion) (with light bounced back from the surface's colour) and bloom
 - [Glass](#glass) that bends and frosts what's behind it, car paint clearcoat and surfaces that glow
 - [Height maps](#height-and-detail-maps) that sink mortar and grooves into a flat surface, and detail maps for fine grain
 - Skin, wax and jade that [let light spread under the surface](#skin-and-wax)
@@ -42,7 +42,7 @@ next frame follows, so it can back an options menu.
 | `MaxFramesPerSecond` | The most frames drawn a second. 0, the default, is no limit. It saves power, and with vsync off it holds a steady rate |
 | `SunShadows` | Nothing is drawn into the sun's shadow maps, often the biggest saving. Ambient occlusion still darkens nooks |
 | `LightShadows` | Point and spot lights shine through walls |
-| `AmbientOcclusion` | Corners and creases are as bright as open ground |
+| `AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. `view.AmbientOcclusion` only changes [how far and how dark](#ambient-occlusion) |
 | `Reflections` | Shiny surfaces and water reflect only the sky and reflection probes, not what's on screen |
 | `AntiAliasing` | Edges show their pixels, and moving things stay sharp |
 | `Bloom` | No glow round bright things. `PostSettings.Bloom` only changes how much there is |
@@ -173,6 +173,24 @@ blurs with distance from what casts it. The default of 0.12 is a soft, hazy sun 
 shadows gentle. The real sun is about 0.01, and something near that lets a canopy several
 metres up throw crisp dappled light, where the default blurs it into one soft patch.
 0 gives hard edges everywhere.
+
+## Ambient occlusion
+
+```csharp
+view.AmbientOcclusion(radius: 1.2f, strength: 0.7f);
+```
+
+Corners, creases and the ground under things get less of the soft light from the sky,
+because the surfaces around them hide part of it. `radius` is how far, in metres, a point
+looks for those surfaces, and must be above 0. `strength`, from 0 to 1, is how dark they
+make it: 0 turns the darkening off and 1 is all of it. The defaults, a radius of 0.6 and a
+strength of 0.9, suit rooms and streets seen from head height. A wider radius darkens
+whole alcoves and the space under a cart, at the cost of losing fine creases.
+
+A point in a corner also sees the sky only through the opening, so the soft light it gets
+comes from that way rather than straight off the surface. Reflections of the sky fade in
+the same corners, most on rough surfaces, so a gap behind a barrel doesn't shine.
+It only knows what the camera sees, plus what stands over a point in the sun's shadow map.
 
 ## The look of the picture
 

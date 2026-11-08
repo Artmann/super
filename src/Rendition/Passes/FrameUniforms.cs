@@ -115,6 +115,9 @@ internal struct FrameUniforms
     /// <summary>x, y: the size of the render targets in pixels.</summary>
     public Vector4 Screen;
 
+    /// <summary>x: how far ambient occlusion looks, in metres; y: its strength, 0 to 1.</summary>
+    public Vector4 Occlusion;
+
     public int LightCount;
     public float Time;
     public int FrameNumber;

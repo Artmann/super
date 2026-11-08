@@ -705,7 +705,7 @@ ShadowPass    scene geometry   -> depth from the key light (2048 x 2048, up to 4
               scene geometry   -> point and spot light shadows, tiles of one 4096 x 4096 atlas
 cluster.comp  compute          -> the point and spot lights reaching each of 16 x 9 x 24 clusters
 GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, depth
-AoPass        fullscreen       -> ambient occlusion from depth and normals
+AoPass        fullscreen       -> GTAO from depth and normals: bent normal (view space, octahedral) and visibility, RGBA8
 AoBlurPass    fullscreen       -> the same with the grain averaged away
 LightingPass  fullscreen       -> HDR colour (Cook-Torrance GGX PBR, traced reflections, probes), subsurface diffuse apart
 SssBlurPass   fullscreen x 2   -> subsurface diffuse spread across, then down and added to HDR colour
@@ -1153,8 +1153,26 @@ are the ones in the asset pipeline section above, so existing models cook again.
 
 ## Post-processing
 
-Ambient occlusion darkens creases and contact areas by checking how much of the
-nearby screen rises above each point. It reduces environment light, plus the
+Ambient occlusion is ground-truth ambient occlusion (GTAO, Jimenez et al., "Practical
+Real-Time Strategies for Accurate Indirect Occlusion", 2016). Each pixel cuts the
+hemisphere above it into two slices, turned by interleaved gradient noise that changes
+every frame so anti-aliasing averages the grain. Along each slice it walks 8 steps each
+way across the depth buffer, within `view.AmbientOcclusion`'s radius, to find the highest
+horizon on either side; surfaces fade out of the search over the last 40% of the
+radius. The visible arc between the horizons is integrated against the cosine of the
+projected normal, which gives the share of the soft light that reaches the point. The same
+arcs give the bent normal, the average direction the point still sees the sky in. The
+pass writes both to an RGBA8 target: the bent normal in view space, octahedral, in x and
+y, and the visibility in z. `ao_blur.frag` averages all four channels without crossing
+depth edges, and `strength` mixes the visibility towards 1.
+
+Lighting reads the environment's irradiance along the bent normal, mixed towards the
+surface's own normal as far as the point is visible, so open surfaces keep their normal
+map detail, which the blurred bent normal has lost. Environment, probe and the
+untraced share of reflections are multiplied by Lagarde's specular occlusion,
+`saturate(pow(NoV + ao, exp2(-16 * roughness - 1)) - 1 + ao)`, which dims the reflection
+most on rough surfaces and at grazing angles. A traced reflection already
+sees what's in the way and isn't occluded again. Visibility also stands in for the
 direct lights that have no shadow map of their own. It only knows what the camera
 sees, so it can't tell that a car's underside hangs over the floor. To cover that, the
 same pass searches a wide area of the shadow map for anything above an upward-facing
@@ -1313,8 +1331,8 @@ Anything larger than a block gets its own allocation.
   face's edge can't see past it. The tiles are widened by three texels to hide it.
 - The environment is treated as infinitely far away, and ambient occlusion is all
   that blocks it.
-- The ambient occlusion radius and strength are constants in their shaders. A game
-  will want to set them per scene.
+- Ambient occlusion has one radius for the whole frame, so a radius that suits a room
+  is too small for the space under a far-off bridge.
 - Temporal anti-aliasing follows the camera only, with no motion per object, so moving
   objects rely on the colour clamp and can show rough edges. Skinned models, now
   supported, will need motion vectors from the G-buffer pass too.

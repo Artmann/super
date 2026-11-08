@@ -11,7 +11,7 @@ internal sealed class GBuffer : IDisposable
     public const Format EmissiveFormat = Format.R16G16B16A16Sfloat;
     public const Format DepthFormat = Format.D32Sfloat;
     public const Format HdrFormat = Format.R16G16B16A16Sfloat;
-    public const Format AoFormat = Format.R8Unorm;
+    public const Format AoFormat = Format.R8G8B8A8Unorm;
     public const Format LdrFormat = Format.R8G8B8A8Srgb;
 
     /// <summary>Mip levels of <see cref="SceneColor"/>, each half the last, for frosted glass to blur by.</summary>

@@ -62,6 +62,14 @@ vec3 multiBounceOcclusion(float visibility, vec3 albedo) {
     return max(vec3(visibility), ((visibility * a + b) * visibility + c) * visibility);
 }
 
+// How much of the environment's reflection gets out of a crease. A reflection leaves in a
+// narrow cone, which a mirror-like surface can aim through the opening, while a rough one
+// spreads into the walls; at grazing angles it skims along them. Lagarde and de
+// Rousiers, "Moving Frostbite to Physically Based Rendering" (2014).
+float specularOcclusion(float nDotV, float ao, float roughness) {
+    return clamp(pow(nDotV + ao, exp2(-16.0 * roughness - 1.0)) - 1.0 + ao, 0.0, 1.0);
+}
+
 // What a surface is made of and how it's seen, for lighting it one light at a time.
 struct Surface {
     vec3 n;
@@ -368,8 +376,20 @@ void main() {
     vec3 n = octahedralDecode(normalRoughnessAo.xy);
     float roughness = clamp(normalRoughnessAo.z, 0.045, 1.0);
     // Left out, the occlusion pass never ran, so its target holds nothing to read.
-    float screenAo = isOff(OFF_AMBIENT_OCCLUSION) ? 1.0 : texture(ambientOcclusionTexture, inUv).r;
+    // Its xy hold the bent normal, in view space; z how much of the sky the point sees.
+    bool occlusionOff = isOff(OFF_AMBIENT_OCCLUSION);
+    vec4 screenOcclusion = occlusionOff ? vec4(0.5, 0.5, 1.0, 1.0) : texture(ambientOcclusionTexture, inUv);
+    float screenAo = screenOcclusion.z;
     float ao = normalRoughnessAo.w * screenAo;
+
+    // A point in a crease sees the sky through the opening, so its soft light comes from
+    // along the bent normal. The bent normal is blurred, so the more open the point, the more
+    // its own normal and the detail in it take over.
+    vec3 bentNormal = n;
+    if (!occlusionOff) {
+        vec3 bent = transpose(mat3(frame.view)) * octahedralDecode(screenOcclusion.xy * 2.0 - 1.0);
+        bentNormal = normalize(mix(n, bent, 1.0 - screenAo) + n * 1e-3);
+    }
     // Alpha holds the clearcoat, for foliage how much light shines through as a negative
     // number, or for a subsurface material its index plus SUBSURFACE_MARK.
     // writeSurface() in surface.glsl packs it.
@@ -415,18 +435,23 @@ void main() {
         traced.a *= traceStrength;
     }
 
+    // Probes and the environment can't see what hides them in a crease, so their
+    // reflection is occluded. A traced reflection found what's in the way itself.
+    reflectedLight *= specularOcclusion(nDotV, ao, roughness);
     reflectedLight = mix(reflectedLight, traced.rgb, traced.a);
     vec3 environmentSpecular = reflectedLight * (f0 * brdf.x + brdf.y);
-    vec3 environmentDiffuse = texture(irradianceTexture, n).rgb * baseColor * (1.0 - metallic);
+    vec3 environmentDiffuse = texture(irradianceTexture, bentNormal).rgb * baseColor * (1.0 - metallic);
+    environmentDiffuse *= multiBounceOcclusion(ao, baseColor);
     if (translucency > 0.0) {
-        environmentDiffuse += texture(irradianceTexture, -n).rgb * baseColor * (1.0 - metallic) * translucency * transmissionTint;
+        environmentDiffuse += texture(irradianceTexture, -n).rgb * baseColor * (1.0 - metallic) * translucency * transmissionTint
+            * multiBounceOcclusion(ao, baseColor);
     }
 
     // Subsurface materials keep their diffuse light apart, for the blur to spread.
-    vec3 occlusion = frame.backgroundRadiance.a * multiBounceOcclusion(ao, baseColor);
+    float environmentIntensity = frame.backgroundRadiance.a;
     vec3 scattered = vec3(0.0);
     if (subsurface) {
-        scattered = environmentDiffuse * occlusion;
+        scattered = environmentDiffuse * environmentIntensity;
         environmentDiffuse = vec3(0.0);
     }
 
@@ -436,11 +461,12 @@ void main() {
     vec3 coatFresnel = fresnelSchlick(nDotV, CLEARCOAT_F0) * clearcoat;
     if (clearcoat > 0.0) {
         vec3 coatReflection = sampleReflection(position, reflect(-v, n), CLEARCOAT_ROUGHNESS * REFLECTION_LODS);
+        coatReflection *= specularOcclusion(nDotV, ao, CLEARCOAT_ROUGHNESS);
         coatReflection = mix(coatReflection, traced.rgb, traced.a);
         environmentLight = environmentLight * (1.0 - coatFresnel) + coatReflection * coatFresnel;
     }
 
-    vec3 color = environmentLight * occlusion + emissiveClearcoat.rgb;
+    vec3 color = environmentLight * environmentIntensity + emissiveClearcoat.rgb;
 
     // Subsurface materials keep the diffuse light of every light apart, for the blur.
     Surface surface = Surface(n, v, nDotV, alpha, f0, baseColor, metallic, clearcoat, translucency, transmissionTint);

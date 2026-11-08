@@ -3,6 +3,7 @@
 #extension GL_EXT_nonuniform_qualifier : require
 #include "common.glsl"
 #include "material.glsl"
+#include "sampling.glsl"
 
 layout(location = 0) in vec3 inNormal;
 layout(location = 1) in vec4 inTangent;
@@ -21,16 +22,6 @@ struct Surface {
     vec3 emissive;
     float clearcoat;
 };
-
-// Maps a unit vector onto the [-1, 1] square so a normal fits in two channels.
-vec2 octahedralEncode(vec3 n) {
-    n /= abs(n.x) + abs(n.y) + abs(n.z);
-    if (n.z < 0.0) {
-        vec2 signs = vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
-        n.xy = (1.0 - abs(n.yx)) * signs;
-    }
-    return n.xy;
-}
 
 // How much sunlight shines through foliage from behind, 0 to 1.
 const float FOLIAGE_TRANSLUCENCY = 0.6;

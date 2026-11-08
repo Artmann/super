@@ -515,9 +515,28 @@ public struct ShadowSettings
     public float LightAngle;
 }
 
+/// <summary>
+/// How nearby surfaces hide the soft light from the sky. <see cref="Radius"/> is how far, in
+/// metres, a point looks for them; <see cref="Strength"/>, from 0 to 1, is how dark they make it.
+/// </summary>
+public readonly record struct OcclusionSettings(float Radius = OcclusionSettings.DefaultRadius, float Strength = OcclusionSettings.DefaultStrength)
+{
+    public const float DefaultRadius = 0.6f;
+    public const float DefaultStrength = 0.9f;
+
+    /// <summary>The defaults, which suit rooms and streets seen from head height.</summary>
+    public OcclusionSettings() : this(DefaultRadius, DefaultStrength)
+    {
+    }
+}
+
 /// <summary>Everything the renderer needs to know about one frame except the draws.</summary>
 public ref struct FrameView
 {
+    public FrameView()
+    {
+    }
+
     public int Width;
     public int Height;
     public Matrix4x4 View;
@@ -540,6 +559,9 @@ public ref struct FrameView
     public ReadOnlySpan<Matrix4x4> Bones;
 
     public ShadowSettings Shadows;
+
+    /// <summary>How nearby surfaces darken the soft light. See docs/rendering.md.</summary>
+    public OcclusionSettings Occlusion = new();
 
     /// <summary>Scales the light and reflections from the environment.</summary>
     public float EnvironmentIntensity;

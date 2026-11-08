@@ -563,6 +563,7 @@ internal sealed class SceneRenderer : IDisposable
                 Cascades = view.ShadowCascades,
                 LightAngle = view.SunSize,
             },
+            Occlusion = view.Occlusion,
             EnvironmentIntensity = sky is null ? 0.8f : sky.Value.Brightness > 0f ? sky.Value.Brightness : 1f,
             BackgroundRadiance = new Vector3(0.15f, 0.16f, 0.18f),
             ShowEnvironment = sky is not null,
