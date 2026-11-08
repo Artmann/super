@@ -41,9 +41,10 @@ public sealed class ModelCooker : ICooker
     // 8: material graphs. 9: graph materials have no height or detail textures unless their rule names them, and an
     // ior of 1. 10: Kaiser mips, roughness widened by the normal map, graph heights as parallax, detail graphs, and
     // block-compressed textures. 11: material shaders, and a graph's opacity in the colour's alpha under a cutoff.
-    // 12: vertices keep a second UV set, and materials bake masks for wear and dirt. The graphs' own version is folded
-    // in, so a change to Super.Materials cooks every model again, since one may use a graph.
-    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 12);
+    // 12: vertices keep a second UV set, and materials bake masks for wear and dirt. 13: masks measure height per mesh,
+    // carry the wear breakup in alpha and read as clean off their islands. The graphs' own version is folded in, so a
+    // change to Super.Materials cooks every model again, since one may use a graph.
+    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 13);
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -505,6 +506,12 @@ public sealed class ModelCooker : ICooker
                 continue;
             }
 
+            if (rule.Transparent)
+            {
+                output.Warning($"{prefix}material {name}: transparent materials don't show wear and dirt, so bakeMasks is ignored.");
+                continue;
+            }
+
             if (Layer(rule.Wear, "wear", Error) is not { } wear || Layer(rule.Dirt, "dirt", Error) is not { } dirt)
             {
                 continue;
@@ -519,7 +526,11 @@ public sealed class ModelCooker : ICooker
 
             positions ??= vertices.Select(vertex => vertex.Position).ToArray();
             uvs ??= vertices.Select(vertex => vertex.Uv2).ToArray();
-            var mesh = new MeshData(positions, uvs, IndicesOf(parts.Where(part => part.Material == material), indices));
+            // Each part is one of the model's meshes, and height is measured from each one's own foot.
+            var own = parts.Where(part => part.Material == material).ToList();
+            var mesh = new MeshData(
+                positions, uvs, IndicesOf(own, indices),
+                own.SelectMany((part, i) => Enumerable.Repeat(i, (int)part.IndexCount / 3)).ToArray());
             if (MaskBaker.Problem(mesh, MaskBaker.DefaultSize) is { } problem)
             {
                 Error(problem + ".");
@@ -529,7 +540,7 @@ public sealed class ModelCooker : ICooker
             var rest = new MeshData(positions, uvs, IndicesOf(parts.Where(part => part.Material != material), indices));
             var image = MaskBaker.Bake(mesh, MaskBaker.DefaultSize, rest);
             int texture = textures.AddPixels($"{name}#mask", image.Size, image.Size, TextureKind.Linear, image.Rgba);
-            masks[material] = new ModelMaterialMasks(texture, image.Height, wear, dirt);
+            masks[material] = new ModelMaterialMasks(texture, wear, dirt);
         }
 
         return failed ? null : masks;

@@ -1003,9 +1003,10 @@ public sealed unsafe class Renderer : IDisposable
         hash.Add(view.Shadows.Cascades);
         hash.Add(view.Shadows.LightAngle);
 
-        // Plain materials change what colour the bounced light picks up, and multiscatter how
+        // Plain materials and wear and dirt change what colour the bounced light picks up, and multiscatter how
         // brightly rough metals shine in what a probe photographs.
-        hash.Add(view.Off & (RenderEffects.SunShadows | RenderEffects.Materials | RenderEffects.MultiscatterSpecular));
+        hash.Add(view.Off & (RenderEffects.SunShadows | RenderEffects.Materials | RenderEffects.MultiscatterSpecular
+            | RenderEffects.WearAndDirt));
         hash.Add(view.LightProbes);
         return hash.ToHashCode();
     }
@@ -1118,7 +1119,6 @@ public sealed unsafe class Renderer : IDisposable
             if (model.MaskOf(i) is { } masks)
             {
                 material.MaskTexture = textures[masks.Texture];
-                material.MaskHeight = masks.Height;
                 material.Wear = masks.Wear;
                 material.Dirt = masks.Dirt;
             }

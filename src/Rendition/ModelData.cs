@@ -49,10 +49,9 @@ public sealed record ModelMaterialShader(string Name, Vector4[] Parameters, stri
 /// Masks the cooker baked from a material's mesh, and the wear and dirt laid by them. See <see cref="Material.MaskTexture"/>.
 /// </summary>
 /// <param name="Texture">The mask texture's index in <see cref="ModelData.Textures"/>.</param>
-/// <param name="Height">The metres its blue channel spans.</param>
 /// <param name="Wear">Worn edges, laid where the mask is convex.</param>
-/// <param name="Dirt">Dirt, laid in hollows and near the base.</param>
-public sealed record ModelMaterialMasks(int Texture, float Height, MaterialLayer Wear, MaterialLayer Dirt);
+/// <param name="Dirt">Dirt, laid in hollows and near each mesh's foot.</param>
+public sealed record ModelMaterialMasks(int Texture, MaterialLayer Wear, MaterialLayer Dirt);
 
 /// <summary>One run of triangles sharing a material.</summary>
 public struct ModelPart
@@ -68,8 +67,8 @@ public sealed class ModelData
     private const uint Magic = 0x4C444D52; // "RMDL"
     // 4: materials gained Subsurface. 5: height and detail textures. 6: materials gained Ior. 7: part names sit at the front.
     // 8: a texture is either inside the file or named by the hash of an object of its own. 9: textures say their format.
-    // 10: material shaders. 11: vertices gained Uv2, and materials masks.
-    private const int Version = 11;
+    // 10: material shaders. 11: vertices gained Uv2, and materials masks. 12: masks lost their height.
+    private const int Version = 12;
 
     private const byte TextureInside = 0;
     private const byte TextureByHash = 1;
@@ -266,7 +265,6 @@ public sealed class ModelData
             if (masks is not null)
             {
                 writer.Write(masks.Texture);
-                writer.Write(masks.Height);
                 WriteArray(writer, new[] { masks.Wear, masks.Dirt });
             }
         }
@@ -325,9 +323,8 @@ public sealed class ModelData
             if (reader.ReadBoolean())
             {
                 int maskTexture = reader.ReadInt32();
-                float height = reader.ReadSingle();
                 var layers = ReadArray<MaterialLayer>(reader);
-                masks[i] = new ModelMaterialMasks(maskTexture, height, layers[0], layers[1]);
+                masks[i] = new ModelMaterialMasks(maskTexture, layers[0], layers[1]);
             }
         }
 

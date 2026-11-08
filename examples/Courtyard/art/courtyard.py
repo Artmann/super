@@ -2320,6 +2320,8 @@ def mask_uvs(sc, materials):
     try:
         for name in materials:
             obs = [o for o in sc.objects if o.type == "MESH" and any(m and m.name == name for m in o.data.materials)]
+            if not obs:
+                raise ValueError(f"mask_uvs: no mesh in scene {sc.name} uses material {name}, so it has nothing to unwrap.")
             for o in sc.objects:
                 o.select_set(False)
             for o in obs:
@@ -2341,7 +2343,7 @@ def mask_uvs(sc, materials):
             bpy.context.view_layer.objects.active = obs[0]
             bpy.ops.object.mode_set(mode="EDIT")
             bpy.ops.mesh.select_mode(type="FACE")
-            bpy.ops.uv.smart_project(angle_limit=math.radians(66), island_margin=0.002)
+            bpy.ops.uv.smart_project(angle_limit=math.radians(66), island_margin=0.004)
             bpy.ops.object.mode_set(mode="OBJECT")
         # The metric set is the one the textures and the export's TEXCOORD_0 use.
         for o in sc.objects:

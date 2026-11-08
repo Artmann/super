@@ -74,32 +74,37 @@ float worldVariation(vec3 position) {
 }
 
 // Wear starts where the mask's curvature passes the first of these and is whole at the second.
-// 0.5 is flat, so a little rounding stays clean.
+// 0.5 is flat, so a little rounding stays clean. With the baker's 25 mm reach, an edge wears
+// fully for about a centimetre and fades out by about two.
 const float WEAR_FROM = 0.55;
 const float WEAR_FULL = 0.8;
 
-// Dirt gathers below this height above the mesh's base, in metres, more the lower it is.
-const float DIRT_HEIGHT = 0.3;
+// Dirt starts where the sky the mask saw drops below 1 minus the first of these and is whole
+// below 1 minus the second, so a face beside a wall stays clean and only true hollows darken.
+const float DIRT_FROM = 0.25;
+const float DIRT_FULL = 0.75;
 
 // Lays the material's wear and dirt over a colour and roughness, by the masks baked from its
-// mesh and read through the second uv. Wear goes on convex edges, and dirt in hollows the sky
-// can't reach and low down near the base, but not over wear, which rubs it off.
+// mesh and read through the second uv. Wear goes on convex edges, where the mask's breakup
+// lets it, and dirt in hollows the sky can't reach and low down near the mesh's foot, but not
+// over wear, which rubs it off. Each tints rather than paints: the colour is multiplied by
+// twice the layer's, so the grain underneath still shows. Graphics.WearAndDirt turns it off.
 void applyLayers(Material material, inout vec3 color, inout float roughness) {
-    if (material.wear.a <= 0.0 && material.dirt.a <= 0.0) {
+    if (isOff(OFF_WEAR_AND_DIRT) || (material.wear.a <= 0.0 && material.dirt.a <= 0.0)) {
         return;
     }
 
     vec4 mask = texture(textures[material.maskTexture], inUv2, frame.mipBias);
-    float wear = smoothstep(WEAR_FROM, WEAR_FULL, mask.r) * material.wear.a;
-    float height = mask.b * material.maskHeight;
-    float dirt = clamp(max(1.0 - mask.g, 1.0 - height / DIRT_HEIGHT), 0.0, 1.0) * material.dirt.a * (1.0 - wear);
+    float wear = smoothstep(WEAR_FROM, WEAR_FULL, mask.r) * mask.a * material.wear.a;
+    float hollow = smoothstep(DIRT_FROM, DIRT_FULL, 1.0 - mask.g);
+    float dirt = max(hollow, clamp(1.0 - mask.b, 0.0, 1.0)) * material.dirt.a * (1.0 - wear);
 
-    color = mix(color, material.wear.rgb, wear);
+    color = mix(color, clamp(color * material.wear.rgb * 2.0, 0.0, 1.0), wear);
     if (material.wearRoughness >= 0.0) {
         roughness = mix(roughness, material.wearRoughness, wear);
     }
 
-    color = mix(color, material.dirt.rgb, dirt);
+    color = mix(color, clamp(color * material.dirt.rgb * 2.0, 0.0, 1.0), dirt);
     if (material.dirtRoughness >= 0.0) {
         roughness = mix(roughness, material.dirtRoughness, dirt);
     }

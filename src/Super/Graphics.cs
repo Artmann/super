@@ -141,6 +141,13 @@ public sealed class Graphics
     public bool Materials { get; set; } = true;
 
     /// <summary>
+    /// Worn edges and dirt that models' materials lay by masks the cooker baked from their shape: paler,
+    /// rubbed edges, and darker hollows and feet. Off, those surfaces show only their own colour and shine,
+    /// and their masks aren't read.
+    /// </summary>
+    public bool WearAndDirt { get; set; } = true;
+
+    /// <summary>
     /// Every effect off and vsync off: the fastest the engine draws, and a start for a game that
     /// must run on modest hardware. Turn back on only what it needs.
     /// </summary>
@@ -156,6 +163,7 @@ public sealed class Graphics
         Reflections = false,
         AntiAliasing = false,
         Bloom = false,
+        WearAndDirt = false,
         Fog = false,
         AutoExposure = false,
         DepthOfField = false,
@@ -179,5 +187,6 @@ public sealed class Graphics
         | (DepthOfField ? 0 : RenderEffects.DepthOfField)
         | (Decals ? 0 : RenderEffects.Decals)
         | (VolumetricFog ? 0 : RenderEffects.VolumetricFog)
-        | (Materials ? 0 : RenderEffects.Materials);
+        | (Materials ? 0 : RenderEffects.Materials)
+        | (WearAndDirt ? 0 : RenderEffects.WearAndDirt);
 }

@@ -57,8 +57,8 @@ internal sealed unsafe class ResourceTable : IDisposable
 
         public uint MaskTexture;
 
-        /// <summary>The metres the mask's blue channel spans.</summary>
-        public float MaskHeight;
+        /// <summary>Unused, so wear lands on a 16-byte boundary.</summary>
+        public float MaskPadding;
 
         /// <summary>Below 0 keeps the surface's own roughness under the layer.</summary>
         public float WearRoughness;
@@ -71,6 +71,9 @@ internal sealed unsafe class ResourceTable : IDisposable
 
     private readonly VulkanContext _context;
     private readonly Sampler _sampler;
+
+    // For masks, which are atlases of islands: at the texture's edge an island must not pick up the far side.
+    private readonly Sampler _edgeSampler;
     private readonly DescriptorPool _pool;
     private readonly GpuBuffer _materials;
     private readonly MaterialFlags[] _materialFlags = new MaterialFlags[MaxMaterials];
@@ -124,6 +127,10 @@ internal sealed unsafe class ResourceTable : IDisposable
             MaxLod = Vk.LodClampNone,
         };
         api.CreateSampler(context.Device, &samplerInfo, null, out _sampler).Check();
+        samplerInfo.AddressModeU = SamplerAddressMode.ClampToEdge;
+        samplerInfo.AddressModeV = SamplerAddressMode.ClampToEdge;
+        samplerInfo.AddressModeW = SamplerAddressMode.ClampToEdge;
+        api.CreateSampler(context.Device, &samplerInfo, null, out _edgeSampler).Check();
 
         var bindings = stackalloc DescriptorSetLayoutBinding[]
         {
@@ -351,9 +358,9 @@ internal sealed unsafe class ResourceTable : IDisposable
         _freeTextureArrays.Push(slot);
     }
 
-    private void WriteTextureDescriptor(uint binding, int slot, GpuTexture texture)
+    private void WriteTextureDescriptor(uint binding, int slot, GpuTexture texture, bool clampEdges = false)
     {
-        var imageInfo = new DescriptorImageInfo(_sampler, texture.View, ImageLayout.ShaderReadOnlyOptimal);
+        var imageInfo = new DescriptorImageInfo(clampEdges ? _edgeSampler : _sampler, texture.View, ImageLayout.ShaderReadOnlyOptimal);
         var write = new WriteDescriptorSet
         {
             SType = StructureType.WriteDescriptorSet,
@@ -457,7 +464,6 @@ internal sealed unsafe class ResourceTable : IDisposable
             Transmission = material.Subsurface.IsOn ? Math.Clamp(material.Subsurface.Transmission, 0f, 1f) : 0f,
             Subsurface = Spread(material.Subsurface),
             MaskTexture = (uint)(material.MaskTexture ?? _white).Index,
-            MaskHeight = MathF.Max(material.MaskHeight, 0f),
             WearRoughness = material.Wear.Roughness,
             DirtRoughness = material.Dirt.Roughness,
             Wear = Layer(material.Wear, material.MaskTexture is not null),
@@ -487,6 +493,12 @@ internal sealed unsafe class ResourceTable : IDisposable
         {
             owned[OwnTextures + i] = material.ShaderTextures[i]?.Index ?? -1;
         }
+
+        // A mask is an atlas, so its edges clamp. The built-in textures are shared, so they keep repeating.
+        if (material.MaskTexture is { } mask && !IsBuiltIn(mask) && IsLive(mask))
+        {
+            WriteTextureDescriptor(0, mask.Index, _textures[mask.Index]!, clampEdges: true);
+        }
     }
 
     public void Dispose()
@@ -505,6 +517,7 @@ internal sealed unsafe class ResourceTable : IDisposable
         _context.Api.DestroyDescriptorPool(_context.Device, _pool, null);
         _context.Api.DestroyDescriptorSetLayout(_context.Device, Layout, null);
         _context.Api.DestroySampler(_context.Device, _sampler, null);
+        _context.Api.DestroySampler(_context.Device, _edgeSampler, null);
     }
 
     private static TextureData SolidTexture(byte r, byte g, byte b) => new()

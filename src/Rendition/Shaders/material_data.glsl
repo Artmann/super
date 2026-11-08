@@ -25,8 +25,8 @@ struct Material {
     float detailScale; // 0 for no detail textures.
     float ior; // 1 or more; 1 bends nothing.
     vec4 subsurface; // How far red, green and blue spread under the surface in metres; w is the widest, 0 for none.
-    uint maskTexture; // Read by the second uv: curvature, sky seen, height above the base, coverage.
-    float maskHeight; // The metres the mask's blue spans.
+    uint maskTexture; // Read by the second uv: curvature, sky seen, height above the foot, wear breakup.
+    float maskPadding; // Unused, so wear lands on a 16-byte boundary.
     float wearRoughness; // Below 0 keeps the surface's roughness.
     float dirtRoughness;
     vec4 wear; // rgb is the colour, a the amount: 0 for none.

@@ -4,6 +4,8 @@ using Super.Cook.Models;
 
 namespace Courtyard.Tests;
 
+// Cooks every Courtyard model, graphs and mask bakes included, which takes minutes.
+[Trait("Speed", "Slow")]
 public sealed class LineupTests
 {
     /// <summary>The example's content folder, found from this file so the test reads the real graphs.</summary>

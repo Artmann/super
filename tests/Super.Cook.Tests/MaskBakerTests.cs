@@ -78,18 +78,70 @@ public sealed class MaskBakerTests : IDisposable
             // Flat in the middle of each face.
             Assert.InRange(Pixel(image, face, Island / 2, Island / 2).X, 0.47f, 0.53f);
 
-            // The edge's wear is a narrow band: 30.5 pixels in is 25 mm from the edge, and flat already.
+            // The edge's wear is a band about two centimetres wide: 30.5 pixels in is 25.4 mm from the edge, and flat
+            // already.
             Assert.InRange(Pixel(image, face, 30, Island / 2).X, 0.47f, 0.53f);
 
-            // Two and a half pixels in from each of the island's four edges is about 2 mm from the cube's edge.
-            Assert.True(Pixel(image, face, 2, Island / 2).X > 0.8f, $"face {face}, left edge");
-            Assert.True(Pixel(image, face, Island - 3, Island / 2).X > 0.8f, $"face {face}, right edge");
-            Assert.True(Pixel(image, face, Island / 2, 2).X > 0.8f, $"face {face}, bottom edge");
-            Assert.True(Pixel(image, face, Island / 2, Island - 3).X > 0.8f, $"face {face}, top edge");
+            // 12.5 pixels in is 10.4 mm from the edge, which is 0.5 + 0.5 * (1 - 10.4 / 25) = 0.79. The nearest of the
+            // sixteen rays may run up to 11.25 degrees off square, which reads the edge up to 2% further away.
+            Assert.InRange(Pixel(image, face, 12, Island / 2).X, 0.77f, 0.80f);
 
-            // Every pixel of the island is covered.
-            Assert.Equal(1f, Pixel(image, face, Island / 2, Island / 2).W);
+            // Two and a half pixels in from each of the island's four edges is about 2 mm from the cube's edge.
+            Assert.True(Pixel(image, face, 2, Island / 2).X > 0.9f, $"face {face}, left edge");
+            Assert.True(Pixel(image, face, Island - 3, Island / 2).X > 0.9f, $"face {face}, right edge");
+            Assert.True(Pixel(image, face, Island / 2, 2).X > 0.9f, $"face {face}, bottom edge");
+            Assert.True(Pixel(image, face, Island / 2, Island - 3).X > 0.9f, $"face {face}, top edge");
         }
+    }
+
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(15f)]
+    public void A_square_split_into_two_triangles_is_flat_along_its_diagonal_even_folded_a_little(float fold)
+    {
+        // A 20 cm square lying flat, split along the diagonal from (0, 0) to (1, 1). The corner at (1, 0), 0.141 m from
+        // the diagonal, is bent down by the fold, as the triangles of a rough stone face are. One island covers it.
+        float drop = 0.2f * MathF.Tan(fold * MathF.PI / 180f) / MathF.Sqrt(2f);
+        var mesh = new MeshData(
+            [new(0f, 0f, 0f), new(0.2f, -drop, 0f), new(0.2f, 0f, -0.2f), new(0f, 0f, -0.2f)],
+            [new(0.1f, 0.1f), new(0.3f, 0.1f), new(0.3f, 0.3f), new(0.1f, 0.3f)],
+            [0, 1, 2, 0, 2, 3]);
+
+        var image = MaskBaker.Bake(mesh, Size);
+
+        // Along the diagonal, away from the square's own edges.
+        for (int step = 60; step <= 140; step += 20)
+        {
+            int i = ((102 + step) * Size + 102 + step) * 4;
+            Assert.InRange(image.Rgba[i] / 255f, 0.47f, 0.53f);
+        }
+    }
+
+    [Fact]
+    public void Worn_edges_come_and_go_along_a_long_edge_but_change_slowly()
+    {
+        // The breakup along the top of a 1 m bar, a millimetre at a time: a patch every BreakupSize or so, so some of
+        // the edge wears fully and some not at all, and going from one to the other takes at least a centimetre.
+        var values = Enumerable.Range(0, 1001).Select(i => MaskBaker.Breakup(new Vector3(i * 0.001f, 0.1f, 0f))).ToList();
+
+        Assert.True(values.Min() < 0.1f, $"least {values.Min()}");
+        Assert.True(values.Max() > 0.9f, $"most {values.Max()}");
+        for (int i = 1; i < values.Count; i++)
+        {
+            Assert.True(MathF.Abs(values[i] - values[i - 1]) < 0.1f, $"{values[i - 1]} to {values[i]} at {i} mm");
+        }
+    }
+
+    [Fact]
+    public void The_breakup_is_baked_into_alpha_by_position()
+    {
+        var mesh = Cube(size: 0.25f);
+        var image = MaskBaker.Bake(mesh, Size);
+
+        // The middle of the top face is at (0, 0.25, 0).
+        float expected = MaskBaker.Breakup(new Vector3(0f, 0.25f, 0f));
+        float baked = Pixel(image, Face(Vector3.UnitY), Island / 2, Island / 2).W;
+        Assert.InRange(baked, expected - 0.01f, expected + 0.01f);
     }
 
     [Fact]
@@ -118,30 +170,65 @@ public sealed class MaskBakerTests : IDisposable
     }
 
     [Fact]
-    public void Height_above_base_is_zero_at_the_bottom_and_one_at_the_top()
+    public void Height_is_zero_at_the_foot_and_one_from_thirty_centimetres_up()
     {
-        // Raised 2 m, so the height is measured from the cube's own base, not from y = 0.
+        // A 1 m cube raised 2 m, so the height is measured from the cube's own foot, not from y = 0.
         var image = MaskBaker.Bake(Cube(new Vector3(0f, 2f, 0f)), Size);
 
-        Assert.Equal(1f, image.Height, 1e-4f);
         Assert.InRange(Pixel(image, Face(-Vector3.UnitY), Island / 2, Island / 2).Z, 0f, 0.01f);
         Assert.InRange(Pixel(image, Face(Vector3.UnitY), Island / 2, Island / 2).Z, 0.99f, 1f);
-        // Halfway up a side, half the height: v runs up the side's island with y.
-        Assert.InRange(Pixel(image, Face(Vector3.UnitX), Island / 2, Island / 2).Z, 0.48f, 0.52f);
+        // v runs up a side's island with y: 45.5 pixels of 300 up a 1 m side is 0.1517 m, and 0.1517 / 0.3 = 0.506.
+        Assert.InRange(Pixel(image, Face(Vector3.UnitX), Island / 2, 45).Z, 0.49f, 0.52f);
+        // 0.6 m up is past 0.3 m, so it's as clean as the top.
+        Assert.InRange(Pixel(image, Face(Vector3.UnitX), Island / 2, 180).Z, 0.99f, 1f);
     }
 
     [Fact]
-    public void Pixels_no_triangle_covers_have_no_coverage_and_the_island_bleeds_into_them()
+    public void A_mesh_shorter_than_thirty_centimetres_spans_its_own_height()
+    {
+        // A 10 cm cube raised 2 m: halfway up its side, at 0.05 m of 0.1 m, is 0.5, where over 0.3 m it would be 0.17.
+        var image = MaskBaker.Bake(Cube(new Vector3(0f, 2f, 0f), size: 0.1f), Size);
+
+        Assert.InRange(Pixel(image, Face(-Vector3.UnitY), Island / 2, Island / 2).Z, 0f, 0.01f);
+        Assert.InRange(Pixel(image, Face(Vector3.UnitX), Island / 2, Island / 2).Z, 0.49f, 0.52f);
+        Assert.InRange(Pixel(image, Face(Vector3.UnitY), Island / 2, Island / 2).Z, 0.99f, 1f);
+    }
+
+    [Fact]
+    public void Each_mesh_measures_height_from_its_own_foot()
+    {
+        // A 1 m cube on the ground is mesh 0, and a 20 cm upright square from y = 5 to 5.2 is mesh 1, with an island
+        // of its own 300 pixels square at (10, 700). Over the two together its middle would read 1.
+        var cube = Cube();
+        var square = new[] { new Vector3(3f, 5f, 0f), new Vector3(3.2f, 5f, 0f), new Vector3(3.2f, 5.2f, 0f), new Vector3(3f, 5.2f, 0f) };
+        var squareUvs = new[] { new Vector2(10, 700), new Vector2(310, 700), new Vector2(310, 1000), new Vector2(10, 1000) }
+            .Select(uv => uv / Size);
+        int first = cube.Positions.Length;
+        var mesh = new MeshData(
+            [.. cube.Positions, .. square],
+            [.. cube.Uvs, .. squareUvs],
+            [.. cube.Indices, first, first + 1, first + 2, first, first + 2, first + 3],
+            [.. Enumerable.Repeat(0, cube.Indices.Length / 3), 1, 1]);
+
+        var image = MaskBaker.Bake(mesh, Size);
+
+        int middle = ((700 + 150) * Size + 10 + 150) * 4;
+        Assert.InRange(image.Rgba[middle + 2] / 255f, 0.49f, 0.52f);
+        // The cube keeps its own: 0.1517 m up its side.
+        Assert.InRange(Pixel(image, Face(Vector3.UnitX), Island / 2, 45).Z, 0.49f, 0.52f);
+    }
+
+    [Fact]
+    public void Pixels_no_triangle_covers_read_as_clean_and_the_island_bleeds_into_them()
     {
         var image = MaskBaker.Bake(Cube(), Size);
 
-        // The image's corner is far from any island.
-        Assert.Equal(0, image.Rgba[3]);
-        // Two pixels outside the top face's left edge takes the island's colour, for filtering, but stays uncovered.
-        // The top is the cube's highest point, so its blue is 1, where an uncovered texel's is 0.
+        // The image's corner is far from any island, and reads as flat, open and high, which neither wears nor dirties.
+        Assert.Equal((128, 255, 255), (image.Rgba[0], image.Rgba[1], image.Rgba[2]));
+        // Two pixels outside the top face's left edge takes the island's colour, for filtering: the edge's curvature,
+        // where the background is flat.
         var bled = Pixel(image, Face(Vector3.UnitY), -2, Island / 2);
-        Assert.Equal(0f, bled.W);
-        Assert.True(bled.Z > 0.9f, $"blue {bled.Z}");
+        Assert.True(bled.X > 0.8f, $"red {bled.X}");
         Assert.True(bled.Y > 0.5f, $"green {bled.Y}");
     }
 
@@ -248,8 +335,6 @@ public sealed class MaskBakerTests : IDisposable
         Assert.NotNull(mask);
         Assert.Equal(MaskBaker.DefaultSize, model.Textures[mask.Texture].Width);
         Assert.Equal(TextureKind.Linear, model.Textures[mask.Texture].Kind);
-        // The triangle is 1 m tall.
-        Assert.Equal(1f, mask.Height, 1e-4f);
         // The colours are sRGB and come out linear: 0.5 is (0.555 / 1.055) ^ 2.4 = 0.21404, and below 0.04045 the
         // curve is a straight line, so 0.0404 is 0.0404 / 12.92 = 0.003127.
         Assert.True(Vector3.Distance(new Vector3(1f, 0.21404f, 0f), mask.Wear.Color) < 1e-4f, $"wear {mask.Wear.Color}");
@@ -301,6 +386,23 @@ public sealed class MaskBakerTests : IDisposable
 
         Assert.Contains("material bark", error);
         Assert.Contains("needs a second UV set", error);
+    }
+
+    [Fact]
+    public void BakeMasks_on_a_transparent_material_warns_and_bakes_nothing()
+    {
+        string src = Folder("""
+            { "match": "bark", "transparent": true, "bakeMasks": true, "dirt": { "color": [0, 0, 0], "amount": 0.5 } }
+            """, uvs2: [0.1f, 0.1f, 0.9f, 0.1f, 0.1f, 0.9f]);
+
+        var (result, store) = Cook(src);
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var warning = Assert.Single(result.Problems);
+        Assert.False(warning.IsError);
+        Assert.Contains("material bark: transparent materials don't show wear and dirt, so bakeMasks is ignored.", warning.Message);
+        var model = ModelData.Read(new MemoryStream(store.Get(store.Manifest.Assets["models/a.gltf"].Hash)), "models/a.gltf");
+        Assert.Null(model.MaskOf(Assert.Single(model.Parts).Material));
     }
 
     [Fact]

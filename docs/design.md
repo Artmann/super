@@ -572,7 +572,7 @@ into the frame's draw list, checking that the mask's part count matches the load
 masked draw still skins the whole skeleton once. The profiler keys copies by model and mask,
 so `ShownTriangles` counts only what each mask shows.
 
-The `.rmodel` format is version 11 and the model cook version 12, with the material graphs'
+The `.rmodel` format is version 12 and the model cook version 13, with the material graphs'
 version folded in. Their history is in the comments on `ModelData.Version` and
 `ModelCooker.Version`, and an old file fails with "Cook it again" when it is read.
 
@@ -938,6 +938,11 @@ still discards before it gets there. `transparent.frag` keeps the surface's alph
 plain colour and roughness, and samples the scene straight behind with no refraction or frost.
 Ghosts are left as they are, since they're already a flat colour.
 
+`RenderEffects.WearAndDirt` skips no pass either. `applyLayers()` returns before reading the
+mask texture, so the surface keeps its own colour and roughness. It is bit 10, after
+`LightProbes` and `MultiscatterSpecular`. It changes the colours a probe photographs, so it
+is in `LightingHash`, and flipping it captures the probes again.
+
 The frame limit lives in Super's window loop, not the renderer (`FrameLimiter`). Each frame
 gets a slot one period after the last, so a long frame is made up by a shorter wait. A frame
 more than a period past its slot starts the count again instead of rushing to catch up. It
@@ -1083,7 +1088,7 @@ pass binds the probe cube array at set 2, binding 4. Glass sees no screen-space 
 settings and the `AmbientOcclusion` switch, and with whether the light probes are in use and
 have finished both rounds, so a probe captured while they fill in is redone once they settle;
 a probe can be captured two or three times at the start. `LightingHash` also takes the
-`SunShadows`, `Materials` and `MultiscatterSpecular` switches, since each changes what a
+`SunShadows`, `Materials`, `MultiscatterSpecular` and `WearAndDirt` switches, since each changes what a
 probe photographs. Point and spot lights and the
 `ContactShadows` and `LightShadows` switches aren't in it, since captures draw neither
 local lights nor contact shadows. Super places probes with `view.ReflectionProbe`:
@@ -1155,8 +1160,8 @@ probe is used once round 1 has finished. Capture cascades are centred on the vol
 (`CaptureShadows`) rather than fitted to a view, so the sun's maps are drawn for the first
 face of a batch and kept for the rest. `Renderer.LightingHash` hashes the suns' directions and
 colours, the environment (a version bumped by `SetEnvironment`), its intensity, the
-background, whether the sun's shadow is on and its cascades and light angle, the sun-shadow
-and plain-materials switches and the volume. The view's shadow centre and radius follow the
+background, whether the sun's shadow is on and its cascades and light angle, the sun-shadow,
+plain-materials, multiscatter and wear-and-dirt switches and the volume. The view's shadow centre and radius follow the
 camera, so they are left out, and moving the camera doesn't restart the probes. When it changes, the schedule restarts at round 1 over the old
 probes in place, without a second atlas: probes not yet redone stay old, and those redone
 have one bounce until round 2, so for a few frames old and new mix. When the box changes
@@ -1427,30 +1432,47 @@ triangles:
 - Red is curvature. 16 rays run along the surface in every direction, once from 1 mm below
   it and once from 1 mm above. A ray from below that leaves through another face has found
   a convex edge, and one from above that meets another face a concave corner. Each hit
-  counts more the closer it is, out to 1.5 cm, and the more the face turns, fully at 45
-  degrees. The texel is 0.5 plus half of the strongest convex hit
+  counts more the closer it is, out to 2.5 cm, so a worn band is about 1 to 2 cm wide once
+  the shader's threshold cuts its tail. How much the face turns counts from 20 degrees,
+  fully at 45, so the shallow folds between a rough face's triangles, or a flat quad's
+  diagonal, don't read as edges. The texel is 0.5 plus half of the strongest convex hit
   less the strongest concave one. This tells a stave's edge from its flat face whatever
   the mesh's normals are, where comparing vertex normals would miss a flat-shaded or split
   edge, or see every vertex of a smooth one alike.
 - Green is the share of the sky the point sees: 64 cosine-weighted Hammersley rays, turned
   by a hash of the texel so neighbours don't band, out to 0.5 m against the material's
-  meshes and the rest of the model.
-- Blue is the height above the material's lowest point over its full height, which the
-  model keeps as `MaskHeight`, so the shader can work in metres.
-- Alpha is 255 on covered texels. Four rings around each island take the average of their
-  covered neighbours, with alpha 0, so bilinear filtering and mips at an island's edge
-  don't pull in the background.
+  meshes and the rest of the model. Only triangles of the rest whose bounds come within
+  0.5 m of the material's bounds go into its `Bvh`, so a small material in a big model
+  doesn't trace against all of it.
+- Blue is the height above the lowest point of the texel's own mesh (the cooker's part,
+  one node and material), over 0.3 m or the mesh's own height if that is less, up to 1. So
+  each crate, stone and the barrel get dirt at their own foot, whatever stands lower in the
+  same material, and a 10 cm stone darkens towards its base rather than all over.
+- Alpha is the wear breakup: two octaves of value noise over the position, in cells of
+  8 cm, pushed apart by a smoothstep from 0.35 to 0.65, so an edge is rubbed in patches
+  and its two faces agree. It's baked rather than worked out in the shader, which has no
+  object-space position.
 
-Each texel is independent, so rows run in parallel.
+Texels no triangle covers read as flat, open, high and fully broken up, (128, 255, 255, 255),
+which is clean. Eight rings around each island take the average of their covered neighbours,
+so bilinear filtering and the first mips at an island's edge read the island. The texture
+is sampled with a clamp-to-edge sampler (`_edgeSampler` in `ResourceTable`), so an island
+at the border never filters in the opposite side. Each texel is independent, so rows run
+in parallel.
 
-`applyLayers()` in `surface.glsl` runs inside `materialSurface()` after world variation.
-Wear is `smoothstep(0.55, 0.8, red)` times its amount, and dirt is the larger of the
-occlusion, `1 - green`, and the nearness to the base, `1 - height / 0.3 m`, times its amount
-and `1 - wear`. Each mixes in its colour, which the cook turned from the rule's sRGB to
-linear, and its roughness unless that is negative. A material without masks has amounts
-of 0 and returns before reading the texture. The masks are in the model's `.rmodel` as `MaterialMasks`, and in `GpuMaterial` as `MaskTexture`,
-`MaskHeight`, `WearRoughness`, `DirtRoughness`, `Wear` and `Dirt`, each layer a `vec4` of
-colour and amount. `Vertex` grew from 56 to 64 bytes for `Uv2`, which `gbuffer.vert` passes
+`applyLayers()` in `surface.glsl` runs inside `materialSurface()` after world variation, and
+returns at once when `RenderEffects.WearAndDirt` is off. Wear is
+`smoothstep(0.55, 0.8, red)` times alpha and its amount, and dirt is the larger of the
+hollowness, `smoothstep(0.25, 0.75, 1 - green)`, and the nearness to the foot, `1 - blue`,
+times its amount and `1 - wear`. The hollowness threshold keeps a face that only stands
+beside a wall, such as the barrel's back, from greying all over. Each tints rather than covers: the colour mixes towards
+`clamp(colour * layer * 2, 0, 1)`, with the layer colour turned from the rule's sRGB to
+linear by the cook, so the grain under it stays, and its roughness mixes in unless that is
+negative. A material without masks has amounts of 0 and returns before reading the
+texture. The cook ignores `bakeMasks` on a transparent material, with a warning, since the
+transparent pass doesn't apply the layers. The masks are in the model's `.rmodel` as
+`MaterialMasks`, and in `GpuMaterial` as `MaskTexture`, `WearRoughness`, `DirtRoughness`,
+`Wear` and `Dirt`, each layer a `vec4` of colour and amount. `Vertex` grew from 56 to 64 bytes for `Uv2`, which `gbuffer.vert` passes
 on at location 4.
 
 ## Texture mips, roughness and compression

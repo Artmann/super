@@ -122,6 +122,8 @@ public class ReflectionProbeTests
         noMultiscatter.Off = RenderEffects.MultiscatterSpecular;
         var clearSky = view;
         clearSky.Sky = new AnalyticSky { Turbidity = 2.5f };
+        var noWear = view;
+        noWear.Off = RenderEffects.WearAndDirt;
 
         Assert.NotEqual(before, Renderer.ReflectionLightingHash(brighter, 1));
         Assert.NotEqual(before, Renderer.ReflectionLightingHash(dimSky, 1));
@@ -130,6 +132,7 @@ public class ReflectionProbeTests
         Assert.NotEqual(before, Renderer.ReflectionLightingHash(noMultiscatter, 1));
         Assert.NotEqual(before, Renderer.ReflectionLightingHash(clearSky, 1));
         Assert.NotEqual(Renderer.LightingHash(view, 1), Renderer.LightingHash(clearSky, 1));
+        Assert.NotEqual(before, Renderer.ReflectionLightingHash(noWear, 1));
         Assert.Equal(before, Renderer.ReflectionLightingHash(noContact, 1));
     }
 

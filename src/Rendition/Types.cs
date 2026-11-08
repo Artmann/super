@@ -183,18 +183,22 @@ public struct Material
     /// <summary>
     /// Masks baked from the mesh's shape, read through its second UV set, <see cref="Vertex.Uv2"/>: red is curvature,
     /// with 0.5 flat and above it convex, green how much of the sky the surface sees, blue height above the mesh's
-    /// base as a fraction of <see cref="MaskHeight"/>, and alpha which texels a triangle covers. <see cref="Wear"/>
-    /// and <see cref="Dirt"/> are laid by them. Without one, neither shows.
+    /// foot, 0 there and 1 at 30 cm or the mesh's top, and alpha how much an edge there wears, a slow noise so wear
+    /// comes and goes. <see cref="Wear"/> and <see cref="Dirt"/> are laid by them. Without one, neither shows. The
+    /// mask's edges clamp rather than wrap, since it's an atlas of islands.
     /// </summary>
     public TextureHandle? MaskTexture;
 
-    /// <summary>The height in metres that the mask's blue channel spans, from 0 to 1.</summary>
-    public float MaskHeight;
-
-    /// <summary>Worn edges: where the mask says the surface is convex, the colour and roughness turn to these.</summary>
+    /// <summary>
+    /// Worn edges: where the mask says the surface is convex, the colour is multiplied by twice the layer's colour,
+    /// so 0.5 leaves it as it is and the grain shows through, and the roughness turns to the layer's.
+    /// </summary>
     public MaterialLayer Wear;
 
-    /// <summary>Dirt: in hollows the sky can't reach, and low down near the base, the colour and roughness turn to these.</summary>
+    /// <summary>
+    /// Dirt: in hollows the sky can't reach, and low down near the mesh's foot, the colour is multiplied by twice the
+    /// layer's colour and the roughness turns to the layer's.
+    /// </summary>
     public MaterialLayer Dirt;
 
     /// <summary>Replaces the standard surface shader. Transparent materials can't use one yet.</summary>
@@ -872,6 +876,12 @@ public enum RenderEffects
     /// </summary>
     MultiscatterSpecular = 1 << 9,
 
+    /// <summary>
+    /// Worn edges and dirt laid by materials' baked masks (<see cref="Material.Wear"/> and <see cref="Material.Dirt"/>).
+    /// Without them those surfaces show only their own colour and roughness, and their masks aren't read.
+    /// </summary>
+    WearAndDirt = 1 << 10,
+
     /// <summary>The height fog from <see cref="FrameView.Fog"/>. Without it the air is clear, whatever its density.</summary>
     Fog = 1 << 11,
 
@@ -898,7 +908,7 @@ public enum RenderEffects
     VolumetricFog = 1 << 15,
 
     All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
-        | MultiscatterSpecular | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog,
+        | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog,
 }
 
 /// <summary>

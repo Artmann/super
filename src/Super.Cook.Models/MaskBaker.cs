@@ -5,19 +5,20 @@ namespace Super.Cook.Models;
 
 /// <summary>
 /// A mesh as the mask baker reads it: corners in metres, the UV set the masks are laid out by, and three indices
-/// per triangle. Triangles are wound counter-clockwise seen from outside.
+/// per triangle. Triangles are wound counter-clockwise seen from outside. <paramref name="Parts"/> says which of the
+/// model's meshes each triangle belongs to, since height is measured from each mesh's own foot; null is one mesh.
 /// </summary>
-public sealed record MeshData(Vector3[] Positions, Vector2[] Uvs, int[] Indices);
+public sealed record MeshData(Vector3[] Positions, Vector2[] Uvs, int[] Indices, int[]? Parts = null);
 
 /// <summary>
 /// A baked mask: <see cref="Size"/> pixels square, RGBA8 row by row, row 0 at v = 0. See <see cref="MaskBaker.Bake"/>.
 /// </summary>
-/// <param name="Height">The metres from the mesh's base to its top, which blue spans.</param>
-public sealed record MaskImage(byte[] Rgba, int Size, float Height);
+public sealed record MaskImage(byte[] Rgba, int Size);
 
 /// <summary>
 /// Bakes masks from a mesh's shape into its UVs, for wear and dirt to be laid by: curvature in red, how much of the
-/// sky each point sees in green, height above the mesh's base in blue, and which texels a triangle covers in alpha.
+/// sky each point sees in green, height above the mesh's foot in blue, and in alpha a slow noise that lets worn
+/// edges come and go.
 /// </summary>
 public static class MaskBaker
 {
@@ -25,7 +26,16 @@ public static class MaskBaker
     public const int DefaultSize = 1024;
 
     /// <summary>How far from a point an edge or a corner still counts toward its curvature, in metres.</summary>
-    public const float CurvatureRadius = 0.015f;
+    public const float CurvatureRadius = 0.025f;
+
+    /// <summary>
+    /// How high above a mesh's lowest point dirt reaches, in metres: blue is 0 at the foot and 1 this high up, or
+    /// at the top of a mesh less tall than this.
+    /// </summary>
+    public const float DirtHeight = 0.3f;
+
+    /// <summary>The size of the patches the wear breakup comes and goes in, in metres.</summary>
+    public const float BreakupSize = 0.08f;
 
     /// <summary>How far a ray from the surface looks for something that blocks the sky, in metres.</summary>
     public const float OcclusionDistance = 0.5f;
@@ -37,7 +47,7 @@ public static class MaskBaker
     private const int CurvatureRays = 16;
 
     /// <summary>How many pixels each island bleeds out past its edge, so filtering doesn't pull in the empty background.</summary>
-    private const int Dilation = 4;
+    private const int Dilation = 8;
 
     // How far off the surface rays start, so they don't hit the triangle they start on.
     private const float Lift = 0.001f;
@@ -46,9 +56,11 @@ public static class MaskBaker
     // surface meets them. Kept well under the thickness of a thin board.
     private const float Offset = 0.001f;
 
-    // A surface that turns by this much or more counts as a whole edge. Less counts for less, so the shallow creases
-    // of a curved mesh made of flat facets don't wear.
+    // A surface that turns by 45 degrees or more counts as a whole edge, and one that turns by 20 or less as none, so
+    // the folds between the triangles of a rough stone face or the facets of a barrel don't wear. Between, it counts
+    // for a share.
     private static readonly float WholeEdge = 1f - MathF.Cos(MathF.PI / 4f);
+    private static readonly float NoEdge = 1f - MathF.Cos(20f * MathF.PI / 180f);
 
     /// <summary>
     /// Says why the mesh's UVs can't hold masks, or returns null when they can: a UV outside 0 to 1, or two triangles
@@ -87,25 +99,35 @@ public static class MaskBaker
     /// Bakes <paramref name="mesh"/>'s masks at <paramref name="size"/> pixels square. Red is curvature: 0.5 is flat,
     /// 1 a convex edge within a few millimetres and 0 a concave corner. Green is the share of the sky a point sees past
     /// the mesh and <paramref name="occluders"/>, such as the rest of the model, within
-    /// <see cref="OcclusionDistance"/>. Blue is the height above the mesh's lowest point as a fraction of its own
-    /// height, <see cref="MaskImage.Height"/>. Alpha is 255 where a triangle covers the texel; the texels around each
-    /// island take its edge's values, with alpha 0. Check <see cref="Problem"/> first.
+    /// <see cref="OcclusionDistance"/>; only occluders that come that close to the mesh are looked at. Blue is the
+    /// height above the lowest point of the point's own mesh (see <see cref="MeshData.Parts"/>), over
+    /// <see cref="DirtHeight"/> or the mesh's own height if it's less, up to 1; a mesh with no height at all is 1.
+    /// Alpha is the breakup, a noise from 0 to 1 in patches about <see cref="BreakupSize"/> across, laid by position,
+    /// so the two faces at an edge agree. The texels around each island take its edge's values, and the rest read as
+    /// flat, open, high and fully worn, which is clean. Check <see cref="Problem"/> first.
     /// </summary>
     public static MaskImage Bake(MeshData mesh, int size, MeshData? occluders = null)
     {
         var own = new Bvh(mesh.Positions, mesh.Indices);
-        var all = occluders is null ? null : Merge(mesh, occluders);
-        var everything = all is null ? own : new Bvh(all.Positions, all.Indices);
+        var near = occluders is null ? null : Near(occluders, Bounds(mesh), OcclusionDistance);
+        var everything = near is null || near.Indices.Length == 0 ? own : Merged(mesh, near);
 
-        float bottom = float.MaxValue;
-        float top = float.MinValue;
-        foreach (int index in mesh.Indices)
+        // Each mesh's foot and how much of its height blue spans.
+        int triangleCount = mesh.Indices.Length / 3;
+        var bottoms = new Dictionary<int, float>();
+        var tops = new Dictionary<int, float>();
+        for (int triangle = 0; triangle < triangleCount; triangle++)
         {
-            bottom = MathF.Min(bottom, mesh.Positions[index].Y);
-            top = MathF.Max(top, mesh.Positions[index].Y);
+            int part = mesh.Parts?[triangle] ?? 0;
+            for (int corner = 0; corner < 3; corner++)
+            {
+                float y = mesh.Positions[mesh.Indices[triangle * 3 + corner]].Y;
+                bottoms[part] = bottoms.TryGetValue(part, out float bottom) ? MathF.Min(bottom, y) : y;
+                tops[part] = tops.TryGetValue(part, out float top) ? MathF.Max(top, y) : y;
+            }
         }
 
-        float height = top > bottom ? top - bottom : 0f;
+        var spans = bottoms.ToDictionary(entry => entry.Key, entry => MathF.Min(DirtHeight, tops[entry.Key] - entry.Value));
 
         // Which triangle covers each texel, and where on it.
         var triangles = new int[size * size];
@@ -123,11 +145,15 @@ public static class MaskBaker
         var rgba = new byte[size * size * 4];
         for (int i = 0; i < size * size; i++)
         {
-            // The background reads as flat, open and low, so it changes nothing where filtering reaches it.
+            // The background reads as flat, open and high, which is clean, so where a lower mip or the filter
+            // reaches it, it adds neither wear nor dirt.
             rgba[i * 4] = 128;
             rgba[i * 4 + 1] = 255;
+            rgba[i * 4 + 2] = 255;
+            rgba[i * 4 + 3] = 255;
         }
 
+        var covered = new bool[size * size];
         var occlusion = Hammersley(OcclusionRays);
         Parallel.For(0, size, y =>
         {
@@ -157,17 +183,87 @@ public static class MaskBaker
 
                 float curvature = Curvature(own, point, normal, tangent, bitangent, turn);
                 float sky = Sky(everything, point, normal, tangent, bitangent, turn, occlusion);
-                float above = height > 0f ? (point.Y - bottom) / height : 0f;
+                int part = mesh.Parts?[triangle] ?? 0;
+                float span = spans[part];
+                float above = span > 0f ? (point.Y - bottoms[part]) / span : 1f;
 
                 rgba[texel * 4] = ToByte(curvature);
                 rgba[texel * 4 + 1] = ToByte(sky);
                 rgba[texel * 4 + 2] = ToByte(above);
-                rgba[texel * 4 + 3] = 255;
+                rgba[texel * 4 + 3] = ToByte(Breakup(point));
+                covered[texel] = true;
             }
         });
 
-        Dilate(rgba, size);
-        return new MaskImage(rgba, size, height);
+        Dilate(rgba, covered, size);
+        return new MaskImage(rgba, size);
+    }
+
+    /// <summary>
+    /// How much an edge at <paramref name="point"/> wears, from 0 to 1, as baked into alpha: two octaves of value noise
+    /// over the position, pushed apart so most of an edge is clearly worn or clearly not, with soft ends between.
+    /// </summary>
+    public static float Breakup(Vector3 point)
+    {
+        var p = point / BreakupSize;
+        float noise = (ValueNoise(p) * 2f + ValueNoise(p * 2.03f + new Vector3(17.1f, 5.3f, 9.7f))) / 3f;
+        float t = Math.Clamp((noise - 0.35f) / 0.3f, 0f, 1f);
+        return t * t * (3f - 2f * t);
+    }
+
+    // Smooth noise from 0 to 1 with a random value at each whole-numbered point, blended between them.
+    private static float ValueNoise(Vector3 p)
+    {
+        var cell = new Vector3(MathF.Floor(p.X), MathF.Floor(p.Y), MathF.Floor(p.Z));
+        var f = p - cell;
+        f = f * f * (new Vector3(3f) - 2f * f);
+        int x = (int)cell.X;
+        int y = (int)cell.Y;
+        int z = (int)cell.Z;
+        float Corner(int dx, int dy, int dz) => Hash(unchecked((x + dx) * 73856093 ^ (y + dy) * 19349663 ^ (z + dz) * 83492791));
+        float Lerp(float a, float b, float t) => a + (b - a) * t;
+        float x00 = Lerp(Corner(0, 0, 0), Corner(1, 0, 0), f.X);
+        float x10 = Lerp(Corner(0, 1, 0), Corner(1, 1, 0), f.X);
+        float x01 = Lerp(Corner(0, 0, 1), Corner(1, 0, 1), f.X);
+        float x11 = Lerp(Corner(0, 1, 1), Corner(1, 1, 1), f.X);
+        return Lerp(Lerp(x00, x10, f.Y), Lerp(x01, x11, f.Y), f.Z);
+    }
+
+    private static (Vector3 Min, Vector3 Max) Bounds(MeshData mesh)
+    {
+        var min = new Vector3(float.MaxValue);
+        var max = new Vector3(float.MinValue);
+        foreach (int index in mesh.Indices)
+        {
+            min = Vector3.Min(min, mesh.Positions[index]);
+            max = Vector3.Max(max, mesh.Positions[index]);
+        }
+
+        return (min, max);
+    }
+
+    // The occluders' triangles whose bounds come within reach of the box: nothing further can stop a ray.
+    private static MeshData Near(MeshData occluders, (Vector3 Min, Vector3 Max) box, float reach)
+    {
+        var min = box.Min - new Vector3(reach);
+        var max = box.Max + new Vector3(reach);
+        var kept = new List<int>();
+        for (int triangle = 0; triangle * 3 + 2 < occluders.Indices.Length; triangle++)
+        {
+            var a = occluders.Positions[occluders.Indices[triangle * 3]];
+            var b = occluders.Positions[occluders.Indices[triangle * 3 + 1]];
+            var c = occluders.Positions[occluders.Indices[triangle * 3 + 2]];
+            var low = Vector3.Min(a, Vector3.Min(b, c));
+            var high = Vector3.Max(a, Vector3.Max(b, c));
+            if (low.X <= max.X && high.X >= min.X && low.Y <= max.Y && high.Y >= min.Y && low.Z <= max.Z && high.Z >= min.Z)
+            {
+                kept.Add(occluders.Indices[triangle * 3]);
+                kept.Add(occluders.Indices[triangle * 3 + 1]);
+                kept.Add(occluders.Indices[triangle * 3 + 2]);
+            }
+        }
+
+        return occluders with { Indices = kept.ToArray(), Parts = null };
     }
 
     // 0.5 plus half of how close the nearest convex edge is, less how close the nearest concave corner is. Rays run
@@ -188,7 +284,7 @@ public static class MaskBaker
         return 0.5f + 0.5f * Math.Clamp(convex - concave, -1f, 1f);
     }
 
-    // 1 for a whole edge right beside the point, falling to 0 at the curvature radius or for a surface that hardly turns.
+    // 1 for a whole edge right beside the point, falling to 0 at the curvature radius or for a fold of 20 degrees or less.
     private static float Closeness(Bvh bvh, Vector3 origin, Vector3 direction, Vector3 normal)
     {
         if (!bvh.Closest(origin, direction, CurvatureRadius, out float distance, out var hitNormal))
@@ -196,7 +292,8 @@ public static class MaskBaker
             return 0f;
         }
 
-        float edge = Math.Clamp((1f - MathF.Abs(Vector3.Dot(hitNormal, normal))) / WholeEdge, 0f, 1f);
+        float turn = 1f - MathF.Abs(Vector3.Dot(hitNormal, normal));
+        float edge = Math.Clamp((turn - NoEdge) / (WholeEdge - NoEdge), 0f, 1f);
         return edge * (1f - distance / CurvatureRadius);
     }
 
@@ -259,14 +356,9 @@ public static class MaskBaker
     private static float Edge(Vector2 a, Vector2 b, Vector2 p) => (b.X - a.X) * (p.Y - a.Y) - (b.Y - a.Y) * (p.X - a.X);
 
     // Each empty texel beside a filled one takes their average, a ring at a time.
-    private static void Dilate(byte[] rgba, int size)
+    private static void Dilate(byte[] rgba, bool[] covered, int size)
     {
-        var filled = new bool[size * size];
-        for (int i = 0; i < filled.Length; i++)
-        {
-            filled[i] = rgba[i * 4 + 3] != 0;
-        }
-
+        var filled = (bool[])covered.Clone();
         for (int ring = 0; ring < Dilation; ring++)
         {
             var next = (bool[])filled.Clone();
@@ -280,7 +372,7 @@ public static class MaskBaker
                     }
 
                     int count = 0;
-                    var sum = Vector3.Zero;
+                    var sum = Vector4.Zero;
                     for (int dy = -1; dy <= 1; dy++)
                     {
                         for (int dx = -1; dx <= 1; dx++)
@@ -293,7 +385,7 @@ public static class MaskBaker
                             }
 
                             int n = (ny * size + nx) * 4;
-                            sum += new Vector3(rgba[n], rgba[n + 1], rgba[n + 2]);
+                            sum += new Vector4(rgba[n], rgba[n + 1], rgba[n + 2], rgba[n + 3]);
                             count++;
                         }
                     }
@@ -305,6 +397,7 @@ public static class MaskBaker
                         rgba[i] = (byte)MathF.Round(average.X);
                         rgba[i + 1] = (byte)MathF.Round(average.Y);
                         rgba[i + 2] = (byte)MathF.Round(average.Z);
+                        rgba[i + 3] = (byte)MathF.Round(average.W);
                         next[y * size + x] = true;
                     }
                 }
@@ -314,11 +407,16 @@ public static class MaskBaker
         }
     }
 
-    private static MeshData Merge(MeshData mesh, MeshData other)
+    private static Bvh Merged(MeshData mesh, MeshData other)
     {
+        if (ReferenceEquals(mesh.Positions, other.Positions))
+        {
+            return new Bvh(mesh.Positions, mesh.Indices.Concat(other.Indices).ToArray());
+        }
+
         var positions = mesh.Positions.Concat(other.Positions).ToArray();
         var indices = mesh.Indices.Concat(other.Indices.Select(i => i + mesh.Positions.Length)).ToArray();
-        return new MeshData(positions, [], indices);
+        return new Bvh(positions, indices);
     }
 
     // Two directions along the surface, at right angles to the normal and each other.

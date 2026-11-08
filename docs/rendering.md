@@ -58,6 +58,7 @@ next frame follows, so it can back an options menu.
 | `DepthOfField` | Everything is sharp, even in views that open the lens with `PostSettings.Aperture`. It saves three passes, two of them at half size. See [focus](#focus) |
 | `Decals` | No [decals](views.md#decals): surfaces show as they are, without the grime and stains `view.Decal` lays on them. It saves a copy of the normal target and a pass over the decals' pixels |
 | `Materials` | Every surface is the same light grey, matte clay, shaped only by its mesh, so you can judge the lighting and the models without textures in the way. Glows still glow, cut-outs still cut and glass stays see-through. `--no-materials` turns it off too |
+| `WearAndDirt` | Models' materials show only their own colour and shine, without the pale worn edges and dark hollows their [baked masks](#wear-and-dirt) lay on, and the masks aren't read |
 
 `Graphics.Fastest()` leaves `RenderScale` at 1 too, since a smaller picture is a change the
 player can see, not only a saving. A game for slow GPUs on big screens sets it to 0.75 or 0.5
@@ -831,30 +832,41 @@ that off with a `"cook": false` rule in `cook.json`, as you would for a model's 
 ### Wear and dirt
 
 A rule with `"bakeMasks": true` has the cook bake masks from the material's own meshes, and
-its `wear` and `dirt` are laid over the surface by them. Wear pales and polishes the convex
-edges, where hands and knocks rub a barrel's staves. Dirt darkens the hollows the sky can't
-reach and the lowest 0.3 m of the material, where mud splashes, but not over wear:
+its `wear` and `dirt` are laid over the surface by them. Wear pales and polishes a band about
+two centimetres wide along the convex edges, where hands and knocks rub a barrel's staves,
+in patches, so some of an edge is rubbed and some not. Dirt darkens the hollows the sky
+can't reach and the foot of each mesh, its lowest 0.3 m or, on a mesh shorter than that,
+its lower part, where mud splashes, but not over wear:
 
 ```json
 {
   "match": "graph_wood",
   "graph": "../materials/wood.material.cs",
   "bakeMasks": true,
-  "wear": { "color": [0.8, 0.75, 0.7], "roughness": 0.4, "amount": 0.6 },
-  "dirt": { "color": [0.2, 0.17, 0.14], "roughness": 0.95, "amount": 0.7 }
+  "wear": { "color": [0.86, 0.85, 0.82], "roughness": 0.45, "amount": 0.6 },
+  "dirt": { "color": [0.6, 0.55, 0.5], "roughness": 0.95, "amount": 0.65 }
 }
 ```
 
-Each layer's `color` is red, green and blue from 0 to 1 as a colour picker shows it (sRGB),
-and `amount`, from 0 to 1, is how far it covers where its mask is full. `roughness` is the layer's own, from 0 to 1. Leave it out and the surface keeps
-its roughness under the layer. A rule may give only one of the two. It works with or without
-a graph, so a downloaded model's textures can wear too.
+A layer tints the surface rather than covering it, so the grain and the stone's pattern show
+through. Each layer's `color` is red, green and blue from 0 to 1 as a colour picker shows it
+(sRGB), and the surface's own colour is multiplied by twice its linear value: 0.735 leaves
+the colour as it is, more pales it and less darkens it. This differs from the rule's own
+`color`, which is a plain linear multiplier on the graph or texture, so 0.5 there halves it.
+`amount`, from 0 to 1, is how far the layer goes where its mask is full. `roughness` is the
+layer's own, from 0 to 1. Leave it out and the surface keeps its roughness under the layer.
+A rule may give only one of the two. It works with or without a graph, so a downloaded
+model's textures can wear too. A transparent material doesn't show wear and dirt, so the
+cook warns and ignores `bakeMasks` on one. [`Graphics.WearAndDirt`](#graphics-settings)
+turns them off everywhere.
 
 The masks are baked into the mesh's second UV set, `TEXCOORD_1`, whose islands must not
 overlap, since every texel stands for one place on the mesh. The first set stays free to
 tile, as a graph's metric UVs do. In Blender, add a second UV map, unwrap it with Smart UV
-Project and keep the first map active for rendering; the glTF exporter writes both. Every
-mesh using the material needs it, and the cook stops otherwise:
+Project and keep the first map active for rendering; the glTF exporter writes both. Give it
+an island margin of 0.004 or more, about 4 pixels of the mask, so the smaller mips of
+neighbouring islands don't blur into each other. Every mesh using the material needs it, and
+the cook stops otherwise:
 
 ```text
 material graph_wood: bakeMasks needs a second UV set (TEXCOORD_1) for its masks, and a mesh of this material has none. Give its meshes one whose islands don't overlap.
@@ -866,9 +878,10 @@ material graph_wood: dirt amount must be from 0 to 1, not 1.5.
 The masks are 1024 pixels across for each material, whatever its size, so a material that
 spreads over many meshes gets fewer pixels for each. The Courtyard's stone, on the sill, the
 plinth and all the loose stones, is the coarsest. Every mesh of the material is baked
-together, and the rest of the model shades it, so the deck darkens where the crates stand
-on it. A mesh without a second UV set gets zeros there, which is harmless for materials
-without masks. See [Mask bakes](design.md#mask-bakes) for how they're made.
+together, and the rest of the model within half a metre shades it, so the deck darkens where
+the crates stand on it. Off its islands the mask reads as clean, so a mip that reaches past
+an island's edge adds neither wear nor dirt. A mesh without a second UV set gets zeros there,
+which is harmless for materials without masks. See [Mask bakes](design.md#mask-bakes) for how they're made.
 
 ### A surface shader on a model
 

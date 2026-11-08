@@ -166,6 +166,7 @@ public class GraphicsTests
     [InlineData(nameof(Graphics.ContactShadows), RenderEffects.ContactShadows)]
     [InlineData(nameof(Graphics.LightProbes), RenderEffects.LightProbes)]
     [InlineData(nameof(Graphics.MultiscatterSpecular), RenderEffects.MultiscatterSpecular)]
+    [InlineData(nameof(Graphics.WearAndDirt), RenderEffects.WearAndDirt)]
     [InlineData(nameof(Graphics.Fog), RenderEffects.Fog)]
     [InlineData(nameof(Graphics.AutoExposure), RenderEffects.AutoExposure)]
     [InlineData(nameof(Graphics.DepthOfField), RenderEffects.DepthOfField)]
@@ -187,8 +188,8 @@ public class GraphicsTests
         Assert.Equal(
             RenderEffects.SunShadows | RenderEffects.LightShadows | RenderEffects.AmbientOcclusion
             | RenderEffects.Reflections | RenderEffects.AntiAliasing | RenderEffects.Bloom | RenderEffects.ContactShadows
-            | RenderEffects.LightProbes | RenderEffects.MultiscatterSpecular | RenderEffects.Fog | RenderEffects.AutoExposure
-            | RenderEffects.DepthOfField | RenderEffects.Decals | RenderEffects.VolumetricFog,
+            | RenderEffects.LightProbes | RenderEffects.MultiscatterSpecular | RenderEffects.WearAndDirt | RenderEffects.Fog
+            | RenderEffects.AutoExposure | RenderEffects.DepthOfField | RenderEffects.Decals | RenderEffects.VolumetricFog,
             graphics.Off);
         Assert.True(graphics.Materials);
         Assert.False(graphics.Vsync);
