@@ -21,6 +21,9 @@ namespace Super.Cook.Models;
 /// </summary>
 public sealed class ModelCooker : ICooker
 {
+    // How many times detail textures repeat for each repeat of the others, unless a rule or a detail graph says.
+    private const float DefaultDetailScale = 8f;
+
     private static readonly JsonSerializerOptions SettingsOptions = new()
     {
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
@@ -35,9 +38,10 @@ public sealed class ModelCooker : ICooker
     // 5: materials gained Ior. 6: parts keep the name of their mesh's node, keepMeshes and keepOrigin, and unskinned
     // meshes follow their container node. 7: textures are objects of their own that models point to by hash.
     // 8: material graphs. 9: graph materials have no height or detail textures unless their rule names them, and an
-    // ior of 1. The graphs' own version is folded in, so a change to Super.Materials cooks every model again, since one
-    // may use a graph.
-    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 9);
+    // ior of 1. 10: Kaiser mips, roughness widened by the normal map, graph heights as parallax, detail graphs, and
+    // block-compressed textures. The graphs' own version is folded in, so a change to Super.Materials cooks every
+    // model again, since one may use a graph.
+    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 10);
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -259,7 +263,9 @@ public sealed class ModelCooker : ICooker
             for (uint i = 0; i < scene->MNumMaterials; i++)
             {
                 var context = new MaterialContext(settings, textures, graphs, output, prefix, isGltf);
-                materials.Add(ImportMaterial(assimp, scene->MMaterials[i], context, out string materialName, out float graphWidth));
+                var material = ImportMaterial(assimp, scene->MMaterials[i], context, out string materialName, out float graphWidth);
+                textures.WidenRoughness(material.SurfaceTexture, material.NormalTexture);
+                materials.Add(material);
                 materialNames.Add(materialName);
                 graphWidths.Add(graphWidth);
             }
@@ -416,6 +422,15 @@ public sealed class ModelCooker : ICooker
         if (problems.Count > 0)
         {
             return null;
+        }
+
+        // Last, since the checks above read the textures' pixels.
+        if (settings.CompressTextures)
+        {
+            using (input.Time("compress textures"))
+            {
+                TextureCompression.Compress(model.Textures, model.Materials);
+            }
         }
 
         using (input.Time("write model"))
@@ -599,7 +614,7 @@ public sealed class ModelCooker : ICooker
         ImportSettings Settings, ModelTextures Textures, GraphRuns Graphs, CookOutput Output, string Prefix, bool IsGltf);
 
     /// <summary>One graph's images, packed into the pixels of its textures.</summary>
-    private sealed record GraphRun(string Key, int Size, float Width, MaterialPixels Pixels);
+    private sealed record GraphRun(string Key, int Size, float Width, float HeightDepth, MaterialPixels Pixels);
 
     /// <summary>The graphs a model's materials name, each run once per (path, size) however many materials or parts use it.</summary>
     private sealed class GraphRuns(CookInput input)
@@ -625,11 +640,79 @@ public sealed class ModelCooker : ICooker
                     warning($"{path}: {part} has pixels that aren't numbers. They were written as 0.");
                 }
 
-                run = new GraphRun(key, images.Size, images.Width, pixels);
+                run = new GraphRun(key, images.Size, images.Width, images.HeightDepth, pixels);
             }
 
             _runs[key] = run;
             return run;
+        }
+    }
+
+    /// <returns>The detail graph's run, or null when the rule has none or it failed, which was reported.</returns>
+    private static GraphRun? RunDetailGraph(MaterialRule rule, string materialName, MaterialContext context)
+    {
+        if (rule.DetailGraph is not { } path)
+        {
+            return null;
+        }
+
+        void Error(string message) => context.Output.Error($"{context.Prefix}material {materialName}: {message}");
+
+        if (rule.Graph is null)
+        {
+            Error("detailGraph tiles at a size the main graph's width sets, so it needs a graph.");
+            return null;
+        }
+
+        if (rule.DetailColor is not null || rule.DetailNormal is not null)
+        {
+            Error("detailGraph makes the detail textures, so it can't be used with detailColor or detailNormal.");
+            return null;
+        }
+
+        int size = rule.DetailGraphSize ?? MaterialGraphs.DefaultSize;
+        if (MaterialGraphs.SizeProblem("detailGraphSize", size) is { } problem)
+        {
+            Error(problem);
+            return null;
+        }
+
+        return context.Graphs.Run(path, size, Error,
+            message => context.Output.Warning($"{context.Prefix}material {materialName}: {message}"));
+    }
+
+    /// <summary>
+    /// A detail graph's colour as a detail colour texture: grey, its brightness divided by the
+    /// average, so 128 is the average and the main graph's colour is kept on the whole.
+    /// </summary>
+    private static byte[] DetailColorPixels(byte[] color)
+    {
+        int count = color.Length / 4;
+        var brightness = new float[count];
+        double total = 0;
+        for (int i = 0; i < count; i++)
+        {
+            brightness[i] = 0.2126f * ToLinear(color[i * 4]) + 0.7152f * ToLinear(color[i * 4 + 1]) + 0.0722f * ToLinear(color[i * 4 + 2]);
+            total += brightness[i];
+        }
+
+        float average = (float)Math.Max(total / count, 1e-4);
+        var pixels = new byte[color.Length];
+        for (int i = 0; i < count; i++)
+        {
+            byte value = (byte)Math.Clamp((int)MathF.Round(brightness[i] / average * 128f), 0, 255);
+            pixels[i * 4] = value;
+            pixels[i * 4 + 1] = value;
+            pixels[i * 4 + 2] = value;
+            pixels[i * 4 + 3] = 255;
+        }
+
+        return pixels;
+
+        static float ToLinear(byte value)
+        {
+            float c = value / 255f;
+            return c <= 0.04045f ? c / 12.92f : MathF.Pow((c + 0.055f) / 1.055f, 2.4f);
         }
     }
 
@@ -690,7 +773,9 @@ public sealed class ModelCooker : ICooker
         var flags = (rule.TwoSided || rule.Foliage ? MaterialFlags.TwoSided : 0)
             | (rule.Transparent ? MaterialFlags.Transparent : 0)
             | (rule.Foliage ? MaterialFlags.Foliage : 0)
-            | (rule.DetailMask ? MaterialFlags.DetailMask : 0);
+            | (rule.DetailMask ? MaterialFlags.DetailMask : 0)
+            | (rule.WorldVariation ? MaterialFlags.WorldVariation : 0)
+            | (rule.Dithered ? MaterialFlags.Dithered : 0);
         var emissive = rule.EmissiveColor is { Length: 3 } e
             ? new Vector3(e[0], e[1], e[2])
             : rule.Emissive != null ? Vector3.One : Vector3.Zero;
@@ -702,6 +787,27 @@ public sealed class ModelCooker : ICooker
             // The graph's textures hold the colour, metalness and roughness, which these values multiply, so they're 1
             // unless the rule says otherwise. The model file's own values were for its own textures.
             int size = graph.Size;
+
+            // The graph's own height map sinks its grooves in with parallax, unless the rule gives a height map.
+            float heightDepth = rule.HeightDepth ?? (rule.Height is null ? graph.HeightDepth : 0f);
+            int heightTexture = rule.Height is not null
+                ? textures.Add(rule.Height, TextureKind.Linear, namedBy: named)
+                : heightDepth > 0f
+                    ? textures.AddPixels(graph.Key + "#height", size, size, TextureKind.Linear, graph.Pixels.Height)
+                    : -1;
+
+            // A detail graph tiles at its own width, which sets how many times it repeats across the main graph.
+            var detail = RunDetailGraph(rule, materialName, context);
+            int detailColor = detail is null
+                ? textures.Add(rule.DetailColor, TextureKind.Linear, namedBy: named)
+                : textures.AddPixels(detail.Key + "#detail", detail.Size, detail.Size, TextureKind.Linear,
+                    DetailColorPixels(detail.Pixels.Color));
+            int detailNormal = detail is null
+                ? textures.Add(rule.DetailNormal, TextureKind.Linear, isNormalMap: true, namedBy: named)
+                : textures.AddPixels(detail.Key + "#normal", detail.Size, detail.Size, TextureKind.Linear,
+                    detail.Pixels.Normal, isNormalMap: true);
+            float detailScale = rule.DetailScale ?? (detail is null ? DefaultDetailScale : graph.Width / detail.Width);
+
             return new ModelMaterial
             {
                 BaseColor = rule.Color is { Length: 3 } gc ? new Vector4(gc[0], gc[1], gc[2], rule.Opacity) : new Vector4(1f, 1f, 1f, rule.Opacity),
@@ -716,15 +822,21 @@ public sealed class ModelCooker : ICooker
                 Emissive = emissive,
                 EmissiveTexture = textures.Add(rule.Emissive, TextureKind.Color, namedBy: named),
                 Clearcoat = rule.Clearcoat,
-                HeightTexture = textures.Add(rule.Height, TextureKind.Linear, namedBy: named),
-                HeightDepth = rule.HeightDepth,
-                DetailColorTexture = textures.Add(rule.DetailColor, TextureKind.Linear, namedBy: named),
-                DetailNormalTexture = textures.Add(rule.DetailNormal, TextureKind.Linear, isNormalMap: true, namedBy: named),
-                DetailScale = rule.DetailScale,
+                HeightTexture = heightTexture,
+                HeightDepth = heightDepth,
+                DetailColorTexture = detailColor,
+                DetailNormalTexture = detailNormal,
+                DetailScale = detailScale,
                 Flags = flags,
                 Ior = rule.Ior,
                 Subsurface = Subsurface(rule),
             };
+        }
+
+        if (rule.Graph is null)
+        {
+            // Reports that a detail graph needs a main graph.
+            RunDetailGraph(rule, materialName, context);
         }
 
         return new ModelMaterial
@@ -746,10 +858,10 @@ public sealed class ModelCooker : ICooker
             EmissiveTexture = textures.Add(rule.Emissive, TextureKind.Color, namedBy: named),
             Clearcoat = rule.Clearcoat,
             HeightTexture = textures.Add(rule.Height, TextureKind.Linear, namedBy: named),
-            HeightDepth = rule.HeightDepth,
+            HeightDepth = rule.HeightDepth ?? 0f,
             DetailColorTexture = textures.Add(rule.DetailColor, TextureKind.Linear, namedBy: named),
             DetailNormalTexture = textures.Add(rule.DetailNormal, TextureKind.Linear, isNormalMap: true, namedBy: named),
-            DetailScale = rule.DetailScale,
+            DetailScale = rule.DetailScale ?? DefaultDetailScale,
             Flags = flags,
             Ior = rule.Ior,
             Subsurface = Subsurface(rule),

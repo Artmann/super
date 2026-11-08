@@ -304,7 +304,8 @@ internal sealed class SceneRenderer : IDisposable
             DetailColorTexture = Texture(surface.DetailColorTexture, content),
             DetailNormalTexture = Texture(surface.DetailNormalTexture, content),
             DetailScale = surface.DetailScale,
-            Flags = surface.DetailMask ? MaterialFlags.DetailMask : 0,
+            Flags = (surface.DetailMask ? MaterialFlags.DetailMask : 0) | (surface.WorldVariation ? MaterialFlags.WorldVariation : 0)
+                | (surface.Dithered ? MaterialFlags.Dithered : 0),
             Subsurface = surface.Subsurface,
             Shader = surface.Shader is { } shader ? Require<LoadedShader>(shader.Index, content).Handle : null,
         };

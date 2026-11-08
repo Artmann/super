@@ -195,6 +195,13 @@ Leaving a value at zero leaves that part unchanged. `Lift` adds colour to the da
 and fades out towards white, so shade takes a tint and white stays white. `Gain` makes
 each channel that much brighter, by its share, so it shows most in the highlights.
 
+`Sharpen` gives back the crispness anti-aliasing blends away, from 0 to 1. It sharpens fine,
+faint detail such as a texture's grain the most and edges that already stand out hardly at
+all, so they get no bright halos. While anti-aliasing is on, textures are also read a little
+sharper than their size on screen asks for. One frame alone would shimmer, but anti-aliasing
+blends the frames and they settle. Reflection probes are captured without it, since nothing
+blends their frames.
+
 ## The sky
 
 Without a sky the world sits in a plain grey studio. `view.Sky` gives it a gradient from
@@ -336,6 +343,14 @@ a few hundred alternative weapons, heads and shields spread around. Those would 
 and the character would end up shifted by an amount you can't predict. A rigged model's skeleton
 stays in the same place as its mesh. It's `false` by default.
 
+`compressTextures` block-compresses the model's textures, which is on by default. Normal maps
+become BC5, height maps BC4 and the rest BC7, so a texture takes a quarter of the memory or less.
+Compressing takes a while: BC7 takes about 8 seconds for a 2048-pixel texture, and the whole
+Courtyard model cooks in about 10 minutes. That is paid only when the model or a graph it uses
+changes, since the result is cached. Set it to `false` to keep every pixel
+exactly. The cook checks textures before it compresses them, so its warnings are the same
+either way.
+
 To use several pieces of one file, list them as `parts`. Each part is cooked as its own
 model, named `file#part`, and takes every setting written beside `parts` unless it sets
 that one itself. A file with parts cooks only its parts:
@@ -393,8 +408,22 @@ as the shared `assets` folder does for Poly Haven's `textures` folders:
 
 Other options are the `baseColor`, `normal`, `surface` and `emissive` textures,
 `color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `heightDepth`,
-`detailScale`, `detailMask`, `twoSided`, `transparent`, `opacity`, `ior`, `noNormalMap` and
-`rotateY`, and `graph` and `graphSize`, below; see `src/Super.Cook.Models/ImportSettings.cs`.
+`detailScale`, `detailMask`, `twoSided`, `transparent`, `opacity`, `ior`, `noNormalMap`,
+`worldVariation`, `dithered` and `rotateY`, and `graph`, `graphSize`, `detailGraph` and
+`detailGraphSize`, below; see `src/Super.Cook.Models/ImportSettings.cs`.
+
+`worldVariation` darkens and lightens the colour in broad patches a few metres across, laid by
+where the surface is in the world rather than by its UVs, with a little more roughness in the
+dark patches. A texture repeated across a big wall or floor then doesn't show its repeats. It's
+on the Courtyard's bricks, stone, flagstones and mud.
+
+`dithered` fades a material out softly by its opacity instead of cutting it at `alphaCutoff`.
+Each frame a share of its pixels as large as its opacity is drawn, a different share each
+time, and anti-aliasing blends them into a smooth fade. It's for decals laid a millimetre or
+two in front of another surface, such as the damp along the foot of the Courtyard's wall and
+the streaks under its sill and anchor plates. Its shadow fades the same way. With
+`AntiAliasing` off the pattern shows as grain. Like any opaque surface, a decal replaces the
+normal of what's behind it, so give it its own bumps or keep it flat.
 
 ### A material graph on a model
 
@@ -428,7 +457,40 @@ own textures. Since the graph makes the textures, a rule that also sets `baseCol
 `normal`, `surface` or `alpha` stops the cook. `emissive`, `noNormalMap`, `alphaCutoff` and
 the other switches work as usual. A graph's `Opacity` goes into the surface texture's alpha,
 so for glass whose grime clouds it, add `"transparent": true` and the graph's opacity
-scales the tint, as the Courtyard's window does.
+scales the tint, as the Courtyard's window does. With `"dithered": true` the opacity fades the
+material out instead, for a stain like the Courtyard's `grime.material.cs`.
+
+A graph that sets a `Height` also gives the material a height map, so its grooves sink in
+with [parallax](#height-and-detail-maps) up close. The depth is the graph's `Depth`. A rule's
+`heightDepth` sets another, and `"heightDepth": 0` turns the parallax off. A rule's own
+`height` texture wins over the graph's.
+
+A rule's `detailGraph` names a second, small graph to lay over the first as its detail
+textures, for grain that still holds up when the camera is a step away and the main graph's
+pixels run out. Its normal map becomes the detail normal. Its colour becomes the detail
+colour, divided by its average brightness so it brightens and darkens without changing the
+main graph's colour on the whole. It tiles at its own `Width`, so a 0.25 m grit graph over
+a 2 m brick graph repeats 8 times across each repeat of the bricks; a rule's `detailScale`
+sets another. It runs at `detailGraphSize`, 1024 by default:
+
+```json
+{
+  "match": "graph_bricks",
+  "graph": "../materials/bricks.material.cs",
+  "detailGraph": "../materials/grit.material.cs",
+  "worldVariation": true
+}
+```
+
+A detail graph needs a main graph, and it makes the detail textures, so a rule can't also
+give `detailColor` or `detailNormal`:
+
+```text
+material bark: detailGraph tiles at a size the main graph's width sets, so it needs a graph.
+material bark: detailGraph makes the detail textures, so it can't be used with detailColor or detailNormal.
+```
+
+![The Courtyard's wall before and after taller bricks, parallax, grit detail, world variation and sharper texture reads](media/courtyard-textures.webp)
 
 A graph material reads its UVs in metres. The cook divides the UVs of every mesh that uses
 it by the graph's `Width`, so a 2 m brick graph repeats once every 2 units of UV. In
@@ -688,6 +750,9 @@ ModelRef wall = content.Mesh(Shapes.Box(new Vector3(16f, 3f, 0.4f), new Surface
 A cooked model takes the same textures and values in its sidecar, as `height`,
 `heightDepth`, `detailColor`, `detailNormal`, `detailScale` and `detailMask` on a material
 rule. These textures are cooked as linear data, and `detailNormal` as a normal map.
+`detailScale` is 8 unless given, or, with a [`detailGraph`](#a-material-graph-on-a-model),
+the main graph's width over the detail graph's. A graph material gets its height map from
+its graph.
 
 The depth shows up close: it fades out between 15 and 25 metres from the camera, where
 the normal map alone looks the same and costs less. Keep `HeightDepth` to a few

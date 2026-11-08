@@ -126,7 +126,12 @@ internal struct FrameUniforms
 
     /// <summary>The <see cref="RenderEffects"/> left out of this frame, which the shaders skip.</summary>
     public int Off;
-    private int _pad0;
+
+    /// <summary>
+    /// Added to the mip level every material texture is read at. Below 0 while anti-aliasing
+    /// shifts the view, since the frames it blends together fill in the finer level.
+    /// </summary>
+    public float MipBias;
     private int _pad1;
     private int _pad2;
     public GpuLightArray Lights;

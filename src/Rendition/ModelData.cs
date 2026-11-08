@@ -49,8 +49,8 @@ public sealed class ModelData
 {
     private const uint Magic = 0x4C444D52; // "RMDL"
     // 4: materials gained Subsurface. 5: height and detail textures. 6: materials gained Ior. 7: part names sit at the front.
-    // 8: a texture is either inside the file or named by the hash of an object of its own.
-    private const int Version = 8;
+    // 8: a texture is either inside the file or named by the hash of an object of its own. 9: textures say their format.
+    private const int Version = 9;
 
     private const byte TextureInside = 0;
     private const byte TextureByHash = 1;

@@ -14,4 +14,11 @@ public sealed record MaterialImages(
     float[] Roughness,
     float[] Metallic,
     float[] Opacity,
-    float[] Height);
+    float[] Height)
+{
+    /// <summary>
+    /// How many metres a height of 1 stands above a height of 0: the material's <see cref="Material.Depth"/>,
+    /// or 0 when it sets no <see cref="Material.Height"/>, so there's nothing to sink into the surface.
+    /// </summary>
+    public float HeightDepth { get; init; }
+}

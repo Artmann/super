@@ -52,6 +52,35 @@ const float PARALLAX_FLATTEST = 0.1;
 // The value a detail colour texture has where it changes nothing.
 const float DETAIL_NEUTRAL = 128.0 / 255.0;
 
+// What a material with world variation is multiplied by in its darkest and lightest
+// patches. The darker end is a little warmer, as grime is.
+const vec3 WORLD_VARIATION_DARK = vec3(0.8, 0.77, 0.74);
+const vec3 WORLD_VARIATION_LIGHT = vec3(1.1, 1.1, 1.1);
+
+// Smooth noise from 0 to 1 over world space, one bump about every unit.
+float worldNoise(vec3 p) {
+    vec3 cell = floor(p);
+    vec3 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float corners[8];
+    for (int i = 0; i < 8; i++) {
+        vec3 corner = cell + vec3(i & 1, (i >> 1) & 1, (i >> 2) & 1);
+        corners[i] = fract(sin(dot(corner, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+    }
+
+    float x0 = mix(mix(corners[0], corners[1], f.x), mix(corners[2], corners[3], f.x), f.y);
+    float x1 = mix(mix(corners[4], corners[5], f.x), mix(corners[6], corners[7], f.x), f.y);
+    return mix(x0, x1, f.z);
+}
+
+// Broad patches of a few metres with smaller ones over them, laid by where the surface is in
+// the world rather than by its uv, so they never repeat with the texture.
+float worldVariation(vec3 position) {
+    float broad = worldNoise(position * 0.35);
+    float smaller = worldNoise(position * 1.3 + 17.0);
+    return smoothstep(0.15, 0.85, broad * 0.65 + smaller * 0.35);
+}
+
 // The surface's frame in world space: tangent, bitangent and normal. Back faces flip the
 // normal, except foliage, which keeps the normal its mesh gives, out of the whole crown.
 mat3 surfaceFrame() {
@@ -126,6 +155,13 @@ vec2 materialUv() {
     return parallaxUvIn(material.heightTexture, inUv, material.heightDepth, surfaceFrame(), dFdx(inUv), dFdy(inUv));
 }
 
+// A tangent-space normal from a normal map's red and green. The third axis is worked out
+// from them rather than read, since compressed normal maps keep only those two.
+vec3 normalFrom(vec4 texel) {
+    vec2 xy = texel.xy * 2.0 - 1.0;
+    return vec3(xy, sqrt(max(1.0 - dot(xy, xy), 0.0)));
+}
+
 // Lays a detail normal over a base one, both in tangent space, so the detail follows the
 // base's slopes. This is reoriented normal mapping.
 vec3 blendNormals(vec3 base, vec3 detail) {
@@ -139,8 +175,12 @@ vec3 blendNormals(vec3 base, vec3 detail) {
 // shifted from it, such as parallaxUv's.
 Surface materialSurface(vec2 uv) {
     Material material = materials[draw.material];
-    vec2 uvX = dFdx(inUv);
-    vec2 uvY = dFdy(inUv);
+
+    // A sharper mip while anti-aliasing shifts the view (frame.mipBias): one frame alone
+    // would shimmer, but the frames it blends together settle.
+    float sharper = exp2(frame.mipBias);
+    vec2 uvX = dFdx(inUv) * sharper;
+    vec2 uvY = dFdy(inUv) * sharper;
 
     // Opacity can come from either texture. Asset packs and glTF keep it in the colour
     // texture, and both read white where a material has no texture.
@@ -150,7 +190,17 @@ Surface materialSurface(vec2 uv) {
         discard;
     }
 
-    vec3 mapped = normalize(textureGrad(textures[material.normalTexture], uv, uvX, uvY).xyz * 2.0 - 1.0);
+    // A dithered material keeps a share of its pixels as large as its opacity, a different
+    // share each frame, and anti-aliasing blends them with what's behind into a soft fade.
+    if ((material.flags & MATERIAL_DITHERED) != 0u) {
+        vec2 pixel = gl_FragCoord.xy + 5.588238 * float(frame.frameNumber % 64);
+        float threshold = fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
+        if (baseColor.a * mask.a <= threshold) {
+            discard;
+        }
+    }
+
+    vec3 mapped = normalize(normalFrom(textureGrad(textures[material.normalTexture], uv, uvX, uvY)));
     if (material.detailScale > 0.0) {
         float strength = (material.flags & MATERIAL_DETAIL_MASK) != 0u ? mask.b : 1.0;
         vec2 detailUv = uv * material.detailScale;
@@ -158,17 +208,24 @@ Surface materialSurface(vec2 uv) {
         vec2 detailY = uvY * material.detailScale;
         vec3 grain = textureGrad(textures[material.detailColorTexture], detailUv, detailX, detailY).rgb / DETAIL_NEUTRAL;
         baseColor.rgb *= mix(vec3(1.0), grain, strength);
-        vec3 detail = textureGrad(textures[material.detailNormalTexture], detailUv, detailX, detailY).xyz * 2.0 - 1.0;
+        vec3 detail = normalFrom(textureGrad(textures[material.detailNormalTexture], detailUv, detailX, detailY));
         mapped = blendNormals(mapped, normalize(mix(vec3(0.0, 0.0, 1.0), detail, strength)));
     }
 
     // Moves the normal map out of the surface's own tangent space into world space.
     mat3 basis = surfaceFrame();
 
+    float roughness = material.roughness * mask.g;
+    if ((material.flags & MATERIAL_WORLD_VARIATION) != 0u) {
+        float variation = worldVariation(inPosition);
+        baseColor.rgb *= mix(WORLD_VARIATION_DARK, WORLD_VARIATION_LIGHT, variation);
+        roughness = clamp(roughness * mix(1.08, 0.94, variation), 0.0, 1.0);
+    }
+
     Surface surface;
     surface.baseColor = baseColor.rgb;
     surface.metallic = material.metallic * mask.r;
-    surface.roughness = material.roughness * mask.g;
+    surface.roughness = roughness;
     surface.normal = normalize(basis * mapped);
     surface.emissive = textureGrad(textures[material.emissiveTexture], uv, uvX, uvY).rgb * material.emissive.rgb;
     surface.clearcoat = material.clearcoat;
@@ -184,13 +241,13 @@ Surface materialSurface() {
 
 // The material's shader texture in the given slot, 0 to 3. Unset slots read white.
 vec4 shaderTexture(int slot, vec2 uv) {
-    return texture(textures[materials[draw.material].shaderTextures[slot]], uv);
+    return texture(textures[materials[draw.material].shaderTextures[slot]], uv, frame.mipBias);
 }
 
 // One layer of the material's shader texture array in the given slot, 0 to 3. Layers
 // blend when the layer number is fractional. Unset slots read white.
 vec4 shaderLayer(int slot, vec2 uv, float layer) {
-    return texture(textureArrays[materials[draw.material].shaderArrays[slot]], vec3(uv, layer));
+    return texture(textureArrays[materials[draw.material].shaderArrays[slot]], vec3(uv, layer), frame.mipBias);
 }
 
 // Applies the draw's tint, so every surface shader gets it. Foliage has no clearcoat, so

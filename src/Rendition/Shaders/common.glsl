@@ -43,7 +43,7 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     int shadowCascades;      // How many of shadowMatrices are in use.
     int localLightCount;     // Point and spot lights in light_data.glsl's lights.
     int off;                 // The RenderEffects left out of this frame: see the OFF_ bits below.
-    int pad0;
+    float mipBias;           // Added to the mip level of material textures: below 0 while anti-aliasing shifts the view.
     int pad1;
     int pad2;
     Light lights[8];

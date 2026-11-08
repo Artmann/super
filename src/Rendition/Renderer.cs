@@ -17,6 +17,11 @@ public sealed unsafe class Renderer : IDisposable
     private const int FramesInFlight = 2;
     private const int JitterSteps = 16;
 
+    // How much sharper a mip level material textures are read at while anti-aliasing shifts the
+    // view. Each frame alone would shimmer, but the frames blended together settle, and the
+    // picture keeps detail the blend would otherwise soften.
+    private const float TemporalMipBias = -0.75f;
+
     /// <summary>The most skin matrices one frame can hold across every skinned draw.</summary>
     public const int MaxBones = 16384;
 
@@ -519,7 +524,7 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     public TextureHandle CreateTexture(TextureData data)
     {
-        var texture = new GpuTexture(_context, data.Width, data.Height, data.Kind, (uint)data.Mips.Length, 1);
+        var texture = new GpuTexture(_context, data.Width, data.Height, data.Kind, (uint)data.Mips.Length, 1, format: data.Format);
         _uploads.Add(texture.CreateStaging([data]), texture);
         return _resources.AddTexture(texture);
     }
@@ -527,7 +532,7 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>
     /// Stacks same-sized images into one texture that shaders read by layer, uploaded the
     /// same way as <see cref="CreateTexture"/>. Every layer must have the first layer's
-    /// size, kind and mip count.
+    /// size, kind, format and mip count.
     /// </summary>
     public TextureArrayHandle CreateTextureArray(ReadOnlySpan<TextureData> layers)
     {
@@ -540,17 +545,17 @@ public sealed unsafe class Renderer : IDisposable
         for (int i = 1; i < layers.Length; i++)
         {
             var layer = layers[i];
-            if (layer.Width != first.Width || layer.Height != first.Height || layer.Kind != first.Kind
+            if (layer.Width != first.Width || layer.Height != first.Height || layer.Kind != first.Kind || layer.Format != first.Format
                 || layer.Mips.Length != first.Mips.Length)
             {
                 throw new ArgumentException(
-                    $"Layer {i} is {layer.Width}x{layer.Height} {layer.Kind} with {layer.Mips.Length} mips, " +
-                    $"but layer 0 is {first.Width}x{first.Height} {first.Kind} with {first.Mips.Length} mips.",
+                    $"Layer {i} is {layer.Width}x{layer.Height} {layer.Kind} {layer.Format} with {layer.Mips.Length} mips, " +
+                    $"but layer 0 is {first.Width}x{first.Height} {first.Kind} {first.Format} with {first.Mips.Length} mips.",
                     nameof(layers));
             }
         }
 
-        var texture = new GpuTexture(_context, first.Width, first.Height, first.Kind, (uint)first.Mips.Length, (uint)layers.Length, true);
+        var texture = new GpuTexture(_context, first.Width, first.Height, first.Kind, (uint)first.Mips.Length, (uint)layers.Length, true, first.Format);
         _uploads.Add(texture.CreateStaging(layers), texture);
         return _resources.AddTextureArray(texture);
     }
@@ -1655,6 +1660,7 @@ public sealed unsafe class Renderer : IDisposable
         // With no sun shadow there are no maps to look up, so nothing walks the cascades.
         uniforms->ShadowCascades = castsShadow ? _shadowCascades : 0;
         uniforms->Off = (int)_off;
+        uniforms->MipBias = !capturingProbe && !_off.HasFlag(RenderEffects.AntiAliasing) ? TemporalMipBias : 0f;
         _sunShadowsDrawn = castsShadow;
         WriteLocalLights(frame, uniforms, view, capturingProbe);
         return castsShadow;

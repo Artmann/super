@@ -28,11 +28,14 @@ void main() {
         discard;
     }
 
+    ivec2 texel = ivec2(gl_FragCoord.xy) & 3;
+    float threshold = (DITHER[texel.y * 4 + texel.x] + 0.5) / 16.0;
     if ((material.flags & MATERIAL_TRANSPARENT) != 0u) {
-        ivec2 texel = ivec2(gl_FragCoord.xy) & 3;
-        float threshold = (DITHER[texel.y * 4 + texel.x] + 0.5) / 16.0;
         if (threshold < (1.0 - opacity) * GLASS_LIGHT) {
             discard;
         }
+    } else if ((material.flags & MATERIAL_DITHERED) != 0u && opacity <= threshold) {
+        // A dithered material shades as much as it shows.
+        discard;
     }
 }

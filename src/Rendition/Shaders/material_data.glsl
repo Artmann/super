@@ -30,6 +30,8 @@ struct Material {
 const uint MATERIAL_TRANSPARENT = 2u;
 const uint MATERIAL_FOLIAGE = 4u;
 const uint MATERIAL_DETAIL_MASK = 8u;
+const uint MATERIAL_WORLD_VARIATION = 16u;
+const uint MATERIAL_DITHERED = 32u;
 
 // A G-buffer emissive alpha at or above this marks a subsurface pixel, holding the
 // material's index plus this. Clearcoat stays within 0 to 1 and foliage is negative.

@@ -183,8 +183,12 @@ graph or a variant, from the model's folder:
 ```
 
 The graph runs while the model cooks, at the rule's `graphSize` (1024 by default), and its
-colour, normal and surface textures go into the model. The model's UVs are read in metres
-and divided by the graph's `Width`, so unwrap it at real-world scale. The graph's errors
+colour, normal and surface textures go into the model, with its height as a parallax height
+map `Depth` deep when it sets a `Height`. The model's UVs are read in metres
+and divided by the graph's `Width`, so unwrap it at real-world scale. A `detailGraph` lays a
+second, small graph over the first as fine grain, as the Courtyard's `grit.material.cs` does
+over its bricks and stone. A graph that is only ever a detail graph still needs a varied
+`Roughness`, since it is also cooked on its own and the [checks](#checks) look at it. The graph's errors
 stop the model's cook, and editing the graph cooks the model again. See [A material graph
 on a model](rendering.md#a-material-graph-on-a-model) for the details.
 

@@ -62,11 +62,11 @@ vec2 refractedUv(vec2 here, vec3 v, vec3 n, float ior) {
 // premultiplied by alpha and blends over what's there.
 void main() {
     Material material = materials[draw.material];
-    vec4 baseColor = texture(textures[material.baseColorTexture], inUv) * material.baseColor * vec4(draw.tint.rgb, 1.0);
+    vec4 baseColor = texture(textures[material.baseColorTexture], inUv, frame.mipBias) * material.baseColor * vec4(draw.tint.rgb, 1.0);
     // Opacity can come from either texture, as in surface.glsl and shadow.frag: a material
     // graph keeps it in the surface texture's alpha.
-    baseColor.a *= texture(textures[material.surfaceTexture], inUv).a;
-    vec3 emissive = texture(textures[material.emissiveTexture], inUv).rgb * material.emissive.rgb;
+    baseColor.a *= texture(textures[material.surfaceTexture], inUv, frame.mipBias).a;
+    vec3 emissive = texture(textures[material.emissiveTexture], inUv, frame.mipBias).rgb * material.emissive.rgb;
     float roughnessOfSurface = material.roughness;
 
     // A see-through ghost is one matte colour that glows a little, like solid ghosts in

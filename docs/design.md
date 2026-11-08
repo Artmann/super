@@ -572,7 +572,7 @@ into the frame's draw list, checking that the mask's part count matches the load
 masked draw still skins the whole skeleton once. The profiler keys copies by model and mask,
 so `ShownTriangles` counts only what each mask shows.
 
-The `.rmodel` format is version 8 and the model cook version 9, with the material graphs'
+The `.rmodel` format is version 9 and the model cook version 10, with the material graphs'
 version folded in. Their history is in the comments on `ModelData.Version` and
 `ModelCooker.Version`, and an old file fails with "Cook it again" when it is read.
 
@@ -1084,6 +1084,61 @@ pixel or two and the normal map carries it, and the steps would cost a full-scre
 of texture reads for nothing. A material without a height map gets white and a depth of
 0, and returns at once.
 
+A graph material's height map is its graph's own `Height`, `Depth` deep, so its mortar
+and grooves sink in without a rule naming a texture. A detail graph is run like the main
+one. Its normal map goes in as the detail normal, and its colour as a grey detail colour,
+each pixel's linear brightness divided by the image's average and scaled to 128, which the
+shader reads as 1. `DetailScale` defaults to the main graph's `Width` over the detail's.
+
+## Texture mips, roughness and compression
+
+`TextureData.FromRgba` builds a texture's mips one level from the next with a separable
+Kaiser-windowed sinc (radius 2 pixels of the smaller level, alpha 4), not a 2x2 box. A
+box softens a little more at every level, so a distant wall blurs sooner than it needs to.
+The filter wraps at the edges, as tiling textures do, filters colour in linear light, and
+clamps the slight overshoot its negative lobes give at sharp steps. Normal maps are
+renormalised after each level.
+
+The model cooker then widens each surface texture's roughness by its normal map
+(`TextureData.WidenRoughness`, after Toksvig 2004 and the vMF form of Han et al. 2007).
+Each level's normals are the plain average of the full-size normals they cover, left
+unnormalised, and the shorter that average, the more the bumps under the pixel disagree.
+The length gives a von Mises-Fisher sharpness `κ = (3r - r³) / (1 - r²)`, whose slope
+variance `2/κ` adds to the GGX alpha squared. A distant wall keeps the broad highlight
+its bumps gave it up close, instead of turning smooth and shiny as the normals average
+flat. Level 0 is left as it is, and a surface texture used with two normal maps is
+widened by the first.
+
+Last of all, after the checks that read pixels, `TextureCompression` block-compresses
+every texture a material points to with BCnEncoder.NET: normal maps as BC5, height maps
+as BC4, and colour, surface, glow and detail colour as BC7. `TextureData.Format` carries
+the format through `ModelData` (version 9) and the shared `RTEX` objects (version 2) to
+`GpuTexture`, which picks the Vulkan format (sRGB for BC7 colour) and sizes each level by
+4x4 blocks. Compressing is memoised on the
+shared `TextureData` it starts from, so an atlas a kit shares is compressed once per process
+and its compressed copy is written and hashed once. BC5 keeps only red and green,
+so shaders rebuild the normal's z from them (`normalFrom` in `surface.glsl`) for every
+normal map, compressed or not.
+
+While TAA is on, `FrameUniforms.mipBias` is -0.75 and every material read is biased by
+it: `textureGrad` derivatives are scaled by `exp2(mipBias)` in `surface.glsl`, and plain
+`texture` reads in surface shaders and glass take it as the bias argument. Each frame
+alone would shimmer at that level, but TAA's jittered blend settles it. Probe captures
+and frames with anti-aliasing off use 0. The finish pass's sharpening is
+contrast-adaptive (after AMD's CAS): each neighbour's negative weight is the post
+`Sharpen` times 0.2 times `sqrt(min(low, 1 - high) / high)` per channel, where `low` and
+`high` are the darkest and brightest of the cross, then the result is normalised and
+clamped to that range. Faint detail is sharpened most, and strong edges hardly at all.
+
+`MaterialFlags.WorldVariation` multiplies the colour by a blend from `(0.8, 0.77, 0.74)`
+to `1.1`, and the roughness by 1.08 down to 0.94, by two octaves of value noise over
+`inPosition` (about 3 m and 0.8 m), so the variation never repeats with the UVs.
+`MaterialFlags.Dithered` discards G-buffer pixels whose opacity is at or below a per-pixel
+interleaved gradient noise threshold that moves each frame, and `shadow.frag` does the
+same against its 4x4 ordered pattern, so TAA and the shadow filter average both into a soft fade. A dithered decal
+writes its own normal and roughness where it draws, so the surface behind loses its bumps
+there.
+
 The detail colour divides by 128/255, so mid grey is neutral and the detail can lighten as
 well as darken. The detail normal is laid over the surface's normal with reoriented normal
 mapping (`blendNormals`), which keeps the detail following the larger bumps instead of
@@ -1204,8 +1259,8 @@ Anything larger than a block gets its own allocation.
 
 ## Known simplifications to revisit
 
-- Textures are uncompressed RGBA8 with mips. Block compression (BC7) would use
-  far less GPU memory.
+- Only cooked models' textures are block-compressed. Textures loaded on their own, graph
+  textures cooked by themselves and generated shapes' textures stay RGBA8.
 - The table holds at most 1024 textures, 1024 materials and 256 texture arrays.
 - Glass is sorted by the middle of each draw, not per triangle, so two panes that cross
   or a pane inside a bigger one can blend in the wrong order. There's no way to set a

@@ -61,6 +61,18 @@ public sealed record Surface
     /// <summary>Lets the surface texture's blue channel say where the detail shows, from none at black to full at white.</summary>
     public bool DetailMask { get; init; }
 
+    /// <summary>
+    /// Darkens and lightens the colour in broad patches laid by where the surface is in the world, so a texture that
+    /// repeats across a big wall or floor doesn't show it.
+    /// </summary>
+    public bool WorldVariation { get; init; }
+
+    /// <summary>
+    /// Opacity fades the surface out softly instead of cutting it, through a pattern of pixels that anti-aliasing
+    /// blends. For decals such as stains and grime laid just in front of another surface.
+    /// </summary>
+    public bool Dithered { get; init; }
+
     /// <summary>Light that spreads under the surface, for skin, wax and marble. Off by default.</summary>
     public Subsurface Subsurface { get; init; }
 

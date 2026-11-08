@@ -56,6 +56,7 @@ public static class GraphRunner
 
         Node[] roots;
         float width;
+        float heightDepth;
 
         using (GraphContext.Use(graph.Seed, images))
         {
@@ -68,6 +69,7 @@ public static class GraphRunner
             Arguments.Between(material.Occlusion, 0f, 1f, nameof(Material.Occlusion));
 
             width = material.Width;
+            heightDepth = material.Height is null ? 0f : material.Depth;
 
             var height = material.Height ?? Gray.Of(0.5f);
             var normal = height.HeightToNormal(material.Width, material.Depth);
@@ -93,7 +95,7 @@ public static class GraphRunner
 
         var parts = Execute(roots, size, maxThreads ?? -1);
 
-        return new MaterialImages(size, width, parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]);
+        return new MaterialImages(size, width, parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]) { HeightDepth = heightDepth };
     }
 
     /// <summary>

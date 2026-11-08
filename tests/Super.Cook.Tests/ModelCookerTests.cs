@@ -284,9 +284,9 @@ public sealed class ModelCookerTests : IDisposable
         File.WriteAllText(Path.Combine(src, "cook.json"),
             "{ \"rules\": [ { \"match\": \"**/*.png\", \"cook\": false } ] }");
         File.WriteAllText(Path.Combine(src, "a.gltf.cook.json"),
-            "{ \"materials\": [ { \"match\": \"wall\", \"baseColor\": \"shared.png\" } ] }");
+            "{ \"compressTextures\": false, \"materials\": [ { \"match\": \"wall\", \"baseColor\": \"shared.png\" } ] }");
         File.WriteAllText(Path.Combine(src, "b.gltf.cook.json"),
-            "{ \"materials\": [ { \"match\": \"wall\", \"height\": \"shared.png\" } ] }");
+            "{ \"compressTextures\": false, \"materials\": [ { \"match\": \"wall\", \"height\": \"shared.png\" } ] }");
 
         var (result, store) = Cook(new FolderRoot(src));
 
@@ -314,7 +314,7 @@ public sealed class ModelCookerTests : IDisposable
         foreach (string model in new[] { "a.gltf", "b.gltf" })
         {
             File.WriteAllText(Path.Combine(src, model + ".cook.json"),
-                "{ \"materials\": [ { \"match\": \"wall\", \"baseColor\": \"shared.png\" } ] }");
+                "{ \"compressTextures\": false, \"materials\": [ { \"match\": \"wall\", \"baseColor\": \"shared.png\" } ] }");
         }
 
         var (result, store) = Cook(new FolderRoot(src));
@@ -339,7 +339,7 @@ public sealed class ModelCookerTests : IDisposable
         File.WriteAllText(Path.Combine(src, "cook.json"),
             "{ \"rules\": [ { \"match\": \"**/*.png\", \"cook\": false } ] }");
         File.WriteAllText(Path.Combine(src, "a.gltf.cook.json"),
-            "{ \"materials\": [ { \"match\": \"wall\", \"baseColor\": \"shared.png\" } ] }");
+            "{ \"compressTextures\": false, \"materials\": [ { \"match\": \"wall\", \"baseColor\": \"shared.png\" } ] }");
         var (result, store) = Cook(new FolderRoot(src));
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
 
@@ -500,8 +500,8 @@ public sealed class ModelCookerTests : IDisposable
         """;
 
     // The model in models/, the graphs in materials/, as a game lays them out. The graphs aren't cooked by themselves,
-    // so only the model's cook runs them.
-    private string GraphFolder(string rule, string graph = FlatGraph, float[]? uvs = null)
+    // so only the model's cook runs them. Textures stay uncompressed unless asked, so tests can read their pixels.
+    private string GraphFolder(string rule, string graph = FlatGraph, float[]? uvs = null, bool compress = false)
     {
         string src = Temp();
         Directory.CreateDirectory(Path.Combine(src, "models"));
@@ -509,7 +509,7 @@ public sealed class ModelCookerTests : IDisposable
         File.WriteAllText(Path.Combine(src, "cook.json"), "{ \"rules\": [ { \"match\": \"**/*.material.*\", \"cook\": false } ] }");
         File.WriteAllText(Path.Combine(src, "materials", "flat.material.cs"), graph);
         TinyGltf.Write(Path.Combine(src, "models"), "a.gltf", "bark", ["a"], uvs: uvs);
-        File.WriteAllText(Path.Combine(src, "models", "a.gltf.cook.json"), $"{{ \"materials\": [ {rule} ] }}");
+        File.WriteAllText(Path.Combine(src, "models", "a.gltf.cook.json"), $"{{ \"compressTextures\": {(compress ? "true" : "false")}, \"materials\": [ {rule} ] }}");
         return src;
     }
 
@@ -539,7 +539,8 @@ public sealed class ModelCookerTests : IDisposable
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
         var model = Model(store, "models/a.gltf");
         var material = model.Materials[Assert.Single(model.Parts).Material];
-        Assert.Equal(3, model.Textures.Length);
+        // Colour, normal, surface and the height for parallax.
+        Assert.Equal(4, model.Textures.Length);
         AllPixelsAre([51, 102, 153, 255], model.Textures[material.BaseColorTexture]);
         AllPixelsAre([128, 128, 255, 255], model.Textures[material.NormalTexture]);
         AllPixelsAre([255, 102, 0, 204], model.Textures[material.SurfaceTexture]);
@@ -549,6 +550,105 @@ public sealed class ModelCookerTests : IDisposable
         // White and 1, since they multiply the textures.
         Assert.Equal(Vector4.One, material.BaseColor);
         Assert.Equal((1f, 1f), (material.Metallic, material.Roughness));
+    }
+
+    [Fact]
+    public void A_graphs_height_becomes_a_parallax_height_map_as_deep_as_the_graph()
+    {
+        string src = GraphFolder("""{ "match": "bark", "graph": "../materials/flat.material.cs", "graphSize": 16 }""",
+            FlatGraph.Replace("Width = 2f,", "Width = 2f, Depth = 0.05f,"));
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var model = Model(store, "models/a.gltf");
+        var material = model.Materials[Assert.Single(model.Parts).Material];
+        Assert.Equal(0.05f, material.HeightDepth);
+        // The flat graph's height is 0.2 everywhere.
+        AllPixelsAre([51, 51, 51, 255], model.Textures[material.HeightTexture]);
+    }
+
+    [Fact]
+    public void A_height_depth_of_0_turns_a_graphs_parallax_off()
+    {
+        string src = GraphFolder("""{ "match": "bark", "graph": "../materials/flat.material.cs", "graphSize": 16, "heightDepth": 0 }""");
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var model = Model(store, "models/a.gltf");
+        var material = model.Materials[Assert.Single(model.Parts).Material];
+        Assert.Equal((-1, 0f), (material.HeightTexture, material.HeightDepth));
+    }
+
+    [Fact]
+    public void A_detail_graph_gives_the_detail_textures_tiled_by_the_two_graphs_widths()
+    {
+        string src = GraphFolder("""
+            { "match": "bark", "graph": "../materials/flat.material.cs", "graphSize": 16,
+              "detailGraph": "../materials/grain.material.cs", "detailGraphSize": 16 }
+            """);
+        File.WriteAllText(Path.Combine(src, "materials", "grain.material.cs"),
+            FlatGraph.Replace("class Flat", "class Grain").Replace("Width = 2f,", "Width = 0.5f,"));
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var model = Model(store, "models/a.gltf");
+        var material = model.Materials[Assert.Single(model.Parts).Material];
+        // 2 m over 0.5 m.
+        Assert.Equal(4f, material.DetailScale);
+        // One flat colour is its own average brightness, which is mid grey.
+        AllPixelsAre([128, 128, 128, 255], model.Textures[material.DetailColorTexture]);
+        AllPixelsAre([128, 128, 255, 255], model.Textures[material.DetailNormalTexture]);
+    }
+
+    [Fact]
+    public void A_detail_graph_needs_a_main_graph()
+    {
+        string src = GraphFolder("""{ "match": "bark", "detailGraph": "../materials/flat.material.cs" }""");
+
+        var (result, _) = Cook(new FolderRoot(src));
+
+        Assert.Equal("material bark: detailGraph tiles at a size the main graph's width sets, so it needs a graph.",
+            ErrorOf(result));
+    }
+
+    [Fact]
+    public void World_variation_and_dithering_reach_the_materials_flags()
+    {
+        string src = GraphFolder("""
+            { "match": "bark", "graph": "../materials/flat.material.cs", "graphSize": 16, "worldVariation": true, "dithered": true }
+            """);
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var model = Model(store, "models/a.gltf");
+        var flags = model.Materials[Assert.Single(model.Parts).Material].Flags;
+        Assert.Equal(MaterialFlags.WorldVariation | MaterialFlags.Dithered, flags & (MaterialFlags.WorldVariation | MaterialFlags.Dithered));
+    }
+
+    [Fact]
+    public void Textures_are_block_compressed_by_what_the_material_uses_them_for()
+    {
+        string src = GraphFolder("""{ "match": "bark", "graph": "../materials/flat.material.cs", "graphSize": 16 }""", compress: true);
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var model = Model(store, "models/a.gltf");
+        var material = model.Materials[Assert.Single(model.Parts).Material];
+        Assert.Equal(TextureFormat.Bc7, model.Textures[material.BaseColorTexture].Format);
+        Assert.Equal(TextureFormat.Bc7, model.Textures[material.SurfaceTexture].Format);
+        Assert.Equal(TextureFormat.Bc5, model.Textures[material.NormalTexture].Format);
+        Assert.Equal(TextureFormat.Bc4, model.Textures[material.HeightTexture].Format);
+        foreach (var texture in model.Textures)
+        {
+            // 16, 8 and 4 pixels across are whole blocks; 2 and 1 still take a block each.
+            int[] sizes = [16, 8, 4, 2, 1];
+            Assert.Equal(sizes.Select(s => TextureData.LevelSize(texture.Format, s, s)), texture.Mips.Select(m => m.Length));
+        }
     }
 
     [Fact]
@@ -569,7 +669,7 @@ public sealed class ModelCookerTests : IDisposable
     }
 
     [Fact]
-    public void A_graph_material_has_no_height_or_detail_textures_and_glass_bends_nothing_unless_its_rule_says()
+    public void A_graph_material_has_no_detail_textures_and_glass_bends_nothing_unless_its_rule_says()
     {
         string src = GraphFolder("""{ "match": "bark", "graph": "../materials/flat.material.cs", "graphSize": 16, "transparent": true }""");
 
@@ -577,8 +677,8 @@ public sealed class ModelCookerTests : IDisposable
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
         var material = Model(store, "models/a.gltf").Materials[0];
-        // 0 would be the graph's own colour texture, laid over the surface again as height and detail.
-        Assert.Equal((-1, -1, -1), (material.HeightTexture, material.DetailColorTexture, material.DetailNormalTexture));
+        // 0 would be the graph's own colour texture, laid over the surface again as detail.
+        Assert.Equal((-1, -1), (material.DetailColorTexture, material.DetailNormalTexture));
         // 0 would bend the scene behind glass the wrong way.
         Assert.Equal(1f, material.Ior);
     }

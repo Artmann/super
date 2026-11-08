@@ -42,6 +42,12 @@ public class ImportSettings
     /// </summary>
     public bool KeepOrigin { get; set; }
 
+    /// <summary>
+    /// Block-compresses the model's textures, to a quarter of the memory or less: normal maps as BC5, height maps as
+    /// BC4 and the rest as BC7. On by default. Turn it off to keep every pixel exactly, at four times the size.
+    /// </summary>
+    public bool CompressTextures { get; set; } = true;
+
     public List<MaterialRule> Materials { get; set; } = [];
 
     /// <summary>
@@ -111,8 +117,11 @@ public sealed class MaterialRule
     /// <summary>A height map in red, white at the top. Needs <see cref="HeightDepth"/>.</summary>
     public string? Height { get; set; }
 
-    /// <summary>How far below the top black in the height map lies, in metres.</summary>
-    public float HeightDepth { get; set; }
+    /// <summary>
+    /// How far below the top black in the height map lies, in metres. With a <see cref="Graph"/> that makes a height,
+    /// the height map is the graph's and this is its <c>Depth</c> unless given here; 0 turns its parallax off.
+    /// </summary>
+    public float? HeightDepth { get; set; }
 
     /// <summary>Fine grain over the colour, where mid grey changes nothing. Tiled <see cref="DetailScale"/> times as often.</summary>
     public string? DetailColor { get; set; }
@@ -120,11 +129,38 @@ public sealed class MaterialRule
     /// <summary>A second normal map, tiled <see cref="DetailScale"/> times as often and blended over the first.</summary>
     public string? DetailNormal { get; set; }
 
-    /// <summary>How many times the detail textures repeat for each repeat of the others.</summary>
-    public float DetailScale { get; set; } = 8f;
+    /// <summary>
+    /// How many times the detail textures repeat for each repeat of the others. With a
+    /// <see cref="DetailGraph"/> it follows from the two graphs' widths unless given here.
+    /// </summary>
+    public float? DetailScale { get; set; }
+
+    /// <summary>
+    /// A small material graph laid over a <see cref="Graph"/> as its detail: fine grain that holds up close, where the
+    /// main graph's pixels run out. Its normal map becomes the detail normal, and its colour, divided by its average
+    /// brightness, the detail colour, so it brightens and darkens without changing the main graph's colour. It tiles
+    /// at its own <c>Width</c>. Can't be used with <see cref="DetailColor"/> or <see cref="DetailNormal"/>.
+    /// </summary>
+    public string? DetailGraph { get; set; }
+
+    /// <summary>The size the detail graph runs at, in pixels across: a power of two from 16 to 4096. The default is 1024.</summary>
+    public int? DetailGraphSize { get; set; }
 
     /// <summary>The surface texture's blue channel says where the detail textures show.</summary>
     public bool DetailMask { get; set; }
+
+    /// <summary>
+    /// Darkens and lightens the colour in broad patches laid by where the surface is in the world, not by its UVs, so a
+    /// texture that repeats across a big wall or floor doesn't show it.
+    /// </summary>
+    public bool WorldVariation { get; set; }
+
+    /// <summary>
+    /// Opacity fades the surface out softly instead of cutting it, through a pattern of pixels that anti-aliasing
+    /// blends. For decals such as stains and grime laid just in front of another surface. Opacity comes from the colour
+    /// and surface textures' alpha, as for <see cref="AlphaCutoff"/>, or from a graph's <c>Opacity</c>.
+    /// </summary>
+    public bool Dithered { get; set; }
 
     /// <summary>Light that spreads under the surface, for skin, wax and marble. Off by default.</summary>
     public SubsurfaceRule? Subsurface { get; set; }

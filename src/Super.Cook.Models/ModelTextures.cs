@@ -15,6 +15,7 @@ internal sealed class ModelTextures(CookInput input, CookOutput output, string p
     private readonly List<TextureData> _textures = [];
     private readonly Dictionary<string, int> _indices = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, byte[]> _embedded = [];
+    private readonly HashSet<int> _widened = [];
 
     public int Count => _textures.Count;
 
@@ -174,6 +175,22 @@ internal sealed class ModelTextures(CookInput input, CookOutput output, string p
         {
             return TextureData.FromPixels(image.Width, image.Height, kind, image.Data, isNormalMap);
         }
+    }
+
+    /// <summary>
+    /// Makes the surface texture's smaller levels rougher where the normal map's bumps are too
+    /// small to see at that level, so the material doesn't turn shiny in the distance. See
+    /// <see cref="TextureData.WidenRoughness"/>. Each surface texture is widened once, by the
+    /// first normal map it's used with.
+    /// </summary>
+    public void WidenRoughness(int surface, int normal)
+    {
+        if (surface < 0 || normal < 0 || !_widened.Add(surface))
+        {
+            return;
+        }
+
+        _textures[surface] = TextureData.WidenRoughness(_textures[surface], _textures[normal]);
     }
 
     private byte[]? Read(string fileName)

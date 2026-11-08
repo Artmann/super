@@ -95,6 +95,19 @@ public enum MaterialFlags
     /// none at black to full at white. Without it they show everywhere.
     /// </summary>
     DetailMask = 8,
+
+    /// <summary>
+    /// Darkens and lightens the colour in broad patches laid by where the surface is in the world, not by its uv,
+    /// with a little roughness to match, so a texture that repeats across a big wall or floor doesn't show it.
+    /// </summary>
+    WorldVariation = 16,
+
+    /// <summary>
+    /// Opacity fades the surface out softly instead of cutting it: a share of its pixels as large as the opacity
+    /// is drawn, a different share each frame, and anti-aliasing blends them with what's behind. For decals such as
+    /// stains and grime laid just in front of another surface. Without anti-aliasing the pattern shows as grain.
+    /// </summary>
+    Dithered = 32,
 }
 
 /// <summary>

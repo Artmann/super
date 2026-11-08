@@ -268,6 +268,7 @@ internal sealed unsafe class VulkanContext : IDisposable
             SamplerAnisotropy = true,
             ImageCubeArray = true,
             ShaderSampledImageArrayDynamicIndexing = true,
+            TextureCompressionBC = true,
         };
         var features12 = new PhysicalDeviceVulkan12Features
         {

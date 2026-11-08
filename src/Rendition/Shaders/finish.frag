@@ -19,15 +19,26 @@ layout(location = 0) out vec4 outColor;
 
 const float DITHER_STRENGTH = 1.0 / 255.0;
 
+// The weight each neighbour is taken away with at Sharpen 1, where the contrast is lowest.
+// A fifth is as far as it goes before flat areas start to look crunchy.
+const float SHARPEN_MOST = 0.2;
+
 const int STYLE_FADE = 1;
 const int STYLE_DISSOLVE = 2;
 const int STYLE_WIPE = 3;
 const int STYLE_IRIS = 4;
 
-// Restores crispness lost to anti-aliasing. Staying within the neighbours' range avoids
-// bright halos along edges.
+// Restores crispness lost to anti-aliasing, with contrast-adaptive sharpening: fine, faint
+// detail such as the grain of a texture is sharpened the most, and edges that already
+// stand out hardly at all, so they get no bright halos. Staying within the neighbours'
+// range keeps it from ringing.
 vec3 sharpened(sampler2D image, vec2 uv, vec2 texel) {
     vec3 center = texture(image, uv).rgb;
+    float strength = frame.finish.x;
+    if (strength <= 0.0) {
+        return center;
+    }
+
     vec3 north = texture(image, uv + vec2(0.0, -texel.y)).rgb;
     vec3 south = texture(image, uv + vec2(0.0, texel.y)).rgb;
     vec3 east = texture(image, uv + vec2(texel.x, 0.0)).rgb;
@@ -35,7 +46,13 @@ vec3 sharpened(sampler2D image, vec2 uv, vec2 texel) {
 
     vec3 low = min(center, min(min(north, south), min(east, west)));
     vec3 high = max(center, max(max(north, south), max(east, west)));
-    return clamp(center + (center - (north + south + east + west) * 0.25) * frame.finish.x, low, high);
+
+    // How much room there is before the darkest neighbour reaches black or the brightest
+    // reaches white, compared with the brightest: small where the contrast is already high.
+    vec3 room = sqrt(clamp(min(low, 1.0 - high) / max(high, vec3(1e-5)), 0.0, 1.0));
+    vec3 weight = -room * strength * SHARPEN_MOST;
+    vec3 result = (center + (north + south + east + west) * weight) / (1.0 + 4.0 * weight);
+    return clamp(result, low, high);
 }
 
 // How much of the new frame shows here, from 0 to 1. `along` runs from 0 where the edge
