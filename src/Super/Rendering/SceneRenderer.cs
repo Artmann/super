@@ -306,9 +306,10 @@ internal sealed class SceneRenderer : IDisposable
 
     /// <summary>
     /// Reads a cooked model and, when its materials name surface shaders, those shaders and the
-    /// cooked textures they read, by name. Runs on the background thread.
+    /// cooked textures they read, by name. Runs on the background thread. <paramref name="readShader"/>
+    /// reads a shader's SPIR-V by name, from the <c>shaders</c> folder beside the program unless a test gives another.
     /// </summary>
-    internal static object PrepareModel(string name, IContentFiles files)
+    internal static object PrepareModel(string name, IContentFiles files, Func<string, byte[]>? readShader = null)
     {
         var model = LoadModel(name, files);
         var shaders = model.MaterialShaders.OfType<ModelMaterialShader>().ToArray();
@@ -323,7 +324,7 @@ internal sealed class SceneRenderer : IDisposable
         {
             if (!spirv.ContainsKey(shader.Name))
             {
-                spirv[shader.Name] = LoadShader(shader.Name);
+                spirv[shader.Name] = (readShader ?? LoadShader)(shader.Name);
             }
 
             foreach (string texture in shader.Textures)

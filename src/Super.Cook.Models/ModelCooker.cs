@@ -755,6 +755,13 @@ public sealed class ModelCooker : ICooker
         }
 
         bool wrong = false;
+        // The game reads shaders/<name>.frag.spv, so a name must stay inside that folder.
+        if (name.Length == 0 || name.Contains('/') || name.Contains('\\') || name.Contains(".."))
+        {
+            Error($"shader \"{name}\" must be the file name of a shader in the shaders folder, such as \"puddles\", with no /, \\ or \"..\".");
+            wrong = true;
+        }
+
         if (rule.Transparent)
         {
             Error("transparent materials can't use a surface shader yet.");

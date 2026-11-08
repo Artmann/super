@@ -855,10 +855,12 @@ read from the game's `shaders` folder and the textures from the cooked content, 
 model's material gets them as if a `Surface` had named them. A texture a rule names must be
 cooked, so a `"cook": false` rule over it makes the model fail to load with the usual
 missing-content message. The cook stops when a rule asks for too much, names a texture that
-isn't there, or gives parameters or textures without a shader. A transparent material can't
-use a surface shader yet, the same as with a `Surface`:
+isn't there, gives parameters or textures without a shader, or names a shader by a path
+rather than a file name. A transparent material can't use a surface shader yet, the same as
+with a `Surface`:
 
 ```text
+material bark: shader "water/puddles" must be the file name of a shader in the shaders folder, such as "puddles", with no /, \ or "..".
 material bark: shaderParameters has 9 entries, but a surface shader takes at most 8.
 material bark: shaderParameters[2] has 5 numbers, but a parameter holds at most 4.
 material bark: shaderTextures has 5 entries, but a surface shader takes at most 4.

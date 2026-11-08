@@ -102,13 +102,31 @@ public sealed class ModelShaderRuleTests : IDisposable
     }
 
     [Fact]
-    public void A_ninth_parameter_component_is_refused()
+    public void A_fifth_parameter_component_is_refused()
     {
         string src = Folder("""{ "match": "bark", "shader": "puddles", "shaderParameters": [[1, 2, 3, 4, 5]] }""");
 
         var (result, _) = Cook(src);
 
         Assert.Equal("material bark: shaderParameters[0] has 5 numbers, but a parameter holds at most 4.", ErrorOf(result));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("../puddles")]
+    [InlineData("water/puddles")]
+    [InlineData("water\\puddles")]
+    [InlineData("..")]
+    public void A_shader_name_that_isnt_a_plain_file_name_is_refused(string name)
+    {
+        string json = name.Replace("\\", "\\\\");
+        string src = Folder($$"""{ "match": "bark", "shader": "{{json}}" }""");
+
+        var (result, _) = Cook(src);
+
+        Assert.Equal(
+            $"material bark: shader \"{name}\" must be the file name of a shader in the shaders folder, such as \"puddles\", with no /, \\ or \"..\".",
+            ErrorOf(result));
     }
 
     [Fact]

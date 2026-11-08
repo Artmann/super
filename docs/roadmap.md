@@ -65,6 +65,11 @@ Super is early. These are the known gaps, so you can plan around them.
   sidecars, mesh bakes with a `Triplanar` node, and curvature and
   occlusion bakes as graph inputs. Graphs run only at cook time, and there is no node editor
   and no way to share helpers between graph files.
+- A model sidecar can name a [surface shader](rendering.md#a-surface-shader-on-a-model)
+  with its parameters and textures. The cook only checks that each shader texture's source
+  is there, so a texture under a `"cook": false` rule, or a file that doesn't cook to a
+  texture, fails when the model loads, and deleting the texture doesn't cook the model again.
+  A shader named both by a model rule and by `content.Shader` is made into two pipelines.
 - **Mods.** A mod should be a folder of JSON that adds or replaces entries by id. Several
   content roots can be cooked together, but a name that two of them make is a cook error,
   so a mod can't replace anything yet.
