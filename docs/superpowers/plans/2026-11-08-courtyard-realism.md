@@ -25,9 +25,15 @@ graphs, Blender 4 Python for the model, xunit, ffmpeg for the media.
 - Work on `feat/material-graphs` (worktree `rendition-materials`), one commit per task,
   conventional commits, no Co-Authored-By lines and no Claude author.
 - Braces on every `if` and `while`. `TreatWarningsAsErrors` is on.
-- Every new setting defaults to what the renderer does today, so the other examples
-  don't change until they opt in. Check with `--screenshot` of `examples/Crypt` before and
-  after a renderer task and eyeball them for drift.
+- Every new effect gets an on/off switch, and the default is the setting that looks
+  best. Screen-space effects that need no scene data (GTAO, contact shadows,
+  multiscatter GGX, AgX) are on by default; effects that need a scene value (a probe
+  volume, fog density, a focus distance, a puddle level, wind) are on as soon as the
+  scene gives that value. Each gets a `Graphics` bool switch the way `Graphics.Bloom`
+  and `Graphics.AmbientOcclusion` work today: `ContactShadows`, `LightProbes`, `Fog`,
+  `DepthOfField`, `Decals`, `Puddles`, `Wind`, all default `true`, documented in the
+  Graphics table of `docs/rendering.md`. Check with `--screenshot` of `examples/Crypt`
+  before and after a renderer task and confirm the change is the intended one, not drift.
 - Docs change in the same commit as the code: user-facing options in `docs/rendering.md`
   (and `docs/content.md` for sidecar rules, `docs/materials.md` for graph behaviour),
   internals in `docs/design.md`, gaps in `docs/roadmap.md`. Before committing, grep
@@ -110,7 +116,7 @@ public void Refuses_a_radius_that_is_not_above_zero_or_a_strength_outside_0_to_1
 - Docs: `docs/rendering.md` Shadows section and Graphics table; `docs/design.md` shadows
 
 **Interfaces:**
-- Produces: `ShadowSettings.ContactLength` (metres, 0 = off, default 0.25); `Graphics.ShadowResolution` (`int`, 1024, 2048 or 4096, default 2048); `View.Shadows(float radius, int cascades = 1, float sunSize = DefaultSunSize, float contact = 0.25f)`.
+- Produces: `ShadowSettings.ContactLength` (metres, 0 = off, default 0.25); `Graphics.ContactShadows` (bool, default true; false sends 0 to the renderer); `Graphics.ShadowResolution` (`int`, 1024, 2048 or 4096, default 2048); `View.Shadows(float radius, int cascades = 1, float sunSize = DefaultSunSize, float contact = 0.25f)`.
 
 - [ ] **Step 1: Tests:** `Contact_length_reaches_the_frame` (view.Shadows(7f, 3, contact: 0.4f) → `view.ShadowSettings.ContactLength == 0.4f`); `A_contact_length_below_zero_is_refused` with message containing "contact"; `Shadow_resolution_must_be_1024_2048_or_4096` (`Graphics { ShadowResolution = 3000 }` throws on validation, message names the three sizes); `Changing_shadow_resolution_while_running_is_applied_next_frame` through the same path `GraphicsTests` uses for `Vsync`.
 - [ ] **Step 2: Run, expect failures**
@@ -128,7 +134,7 @@ public void Refuses_a_radius_that_is_not_above_zero_or_a_strength_outside_0_to_1
 - Docs: `docs/rendering.md` new "Bounced light" section; `docs/design.md` "Light probes" with the capture schedule and why depth is stored; `docs/roadmap.md` (remove "probes give no diffuse light")
 
 **Interfaces:**
-- Produces: `public readonly record struct ProbeVolumeSettings(Vector3 Min, Vector3 Max, float Spacing)`; `ProbeGrid.Counts(in ProbeVolumeSettings) → (int x, int y, int z)` (ceil of extent / spacing + 1, each ≥ 2); `ProbeGrid.Position(settings, index) → Vector3`; `ProbeGrid.MaxProbes = 4096`; `ProbeGrid.Weight(Vector3 point, Vector3 normal, Vector3 probe, float meanDepth, float meanSquares, float distance) → float` (trilinear × backface × Chebyshev, the same maths as the shader so the test pins it); `View.LightProbes(min, max, spacing)` validating `spacing > 0`, `Max > Min` per axis, count ≤ 4096, messages naming the offending axis or the limit.
+- Produces: `public readonly record struct ProbeVolumeSettings(Vector3 Min, Vector3 Max, float Spacing)`; `ProbeGrid.Counts(in ProbeVolumeSettings) → (int x, int y, int z)` (ceil of extent / spacing + 1, each ≥ 2); `ProbeGrid.Position(settings, index) → Vector3`; `ProbeGrid.MaxProbes = 4096`; `ProbeGrid.Weight(Vector3 point, Vector3 normal, Vector3 probe, float meanDepth, float meanSquares, float distance) → float` (trilinear × backface × Chebyshev, the same maths as the shader so the test pins it); `View.LightProbes(min, max, spacing)` validating `spacing > 0`, `Max > Min` per axis, count ≤ 4096, messages naming the offending axis or the limit; `Graphics.LightProbes` (bool, default true; false skips the capture and the lookup, the sky irradiance is used).
 - Tile sizes: irradiance 8×8 + border, depth 16×16 + border, RGBA16F and RG16F atlases.
 - Capture: 32² faces, up to 64 probes a frame, two rounds; a probe whose faces are more than half back-faces is marked invalid (weight 0). No point or spot lights in captures (as reflection probes).
 - Invalidation: hash of sun direction and colour, sky settings, environment intensity, and the volume. Changing any recaptures from round one.
@@ -195,7 +201,7 @@ public void Refuses_a_radius_that_is_not_above_zero_or_a_strength_outside_0_to_1
 - Docs: `docs/rendering.md` ("Fog" after "Haze"), `docs/design.md`
 
 **Interfaces:**
-- Produces: `public readonly record struct FogSettings(float Density = 0f, float Height = 0f, float Falloff = 0.1f, float SunScatter = 0.5f)`; `SkySettings.Fog`; fog colour is the sky in the view direction (the cube), brightened by `SunScatter × pow(max(dot(view, sun), 0), 8)` times the sun colour.
+- Produces: `public readonly record struct FogSettings(float Density = 0f, float Height = 0f, float Falloff = 0.1f, float SunScatter = 0.5f)`; `SkySettings.Fog`; `Graphics.Fog` (bool, default true; false sends density 0); fog colour is the sky in the view direction (the cube), brightened by `SunScatter × pow(max(dot(view, sun), 0), 8)` times the sun colour.
 
 - [ ] **Step 1: Tests:** `No_density_means_full_transmittance`; `Level_fog_follows_beer_lambert` (density 0.1 over 10 m at the fog height → `exp(-1)`); `Fog_thins_with_height` (a ray 20 m up transmits more than one at the height, same length); `Negative_density_or_falloff_is_refused`.
 - [ ] **Step 2: Run, expect failures**
@@ -228,7 +234,7 @@ public void Refuses_a_radius_that_is_not_above_zero_or_a_strength_outside_0_to_1
 - Docs: `docs/rendering.md` Finish table
 
 **Interfaces:**
-- Produces: `enum Tonemapper { Aces, Agx }`, `PostSettings.Tonemapper` default `Aces`; `Temperature` and `Tint` in −1..1, 0 neutral, mapped to 4000–12000 K and ±20 Duv; values outside throw naming the field.
+- Produces: `enum Tonemapper { Aces, Agx }`, `PostSettings.Tonemapper` default `Agx` (the better-looking default; examples that want the old look set `Aces`); `Temperature` and `Tint` in −1..1, 0 neutral, mapped to 4000–12000 K and ±20 Duv; values outside throw naming the field.
 
 - [ ] **Step 1: Tests:** `Neutral_white_balance_is_identity`; `A_warm_temperature_raises_red_over_blue_for_white` (apply to (1,1,1): x > z); `Tint_towards_magenta_lowers_green`; `Temperature_outside_minus_one_to_one_is_refused`.
 - [ ] **Step 2: Run, expect failures**
@@ -296,7 +302,7 @@ public void Refuses_a_radius_that_is_not_above_zero_or_a_strength_outside_0_to_1
 - Docs: `docs/views.md` "Decals"; `docs/rendering.md` (replace the dithered-quad advice with decals, keep `dithered` documented); `docs/design.md` "Decals" (pass order, why the normal is copied)
 
 **Interfaces:**
-- Produces: `public readonly record struct DecalBlend(float Color = 1f, float Normal = 1f, float Roughness = 1f, float AngleFade = 0.5f)`; `View.Decal(...)`; `DecalBatch.MaxDecals = 256`; projection down the box's local −Y, UV from local XZ over −0.5..0.5; pixels without depth are discarded; surfaces whose normal is more than `acos(AngleFade)` from the box's up fade to nothing; weights are the material alpha × blend weights.
+- Produces: `public readonly record struct DecalBlend(float Color = 1f, float Normal = 1f, float Roughness = 1f, float AngleFade = 0.5f)`; `View.Decal(...)`; `Graphics.Decals` (bool, default true; false skips the pass); `DecalBatch.MaxDecals = 256`; projection down the box's local −Y, UV from local XZ over −0.5..0.5; pixels without depth are discarded; surfaces whose normal is more than `acos(AngleFade)` from the box's up fade to nothing; weights are the material alpha × blend weights.
 
 - [ ] **Step 1: Tests:** `A_257th_decal_is_refused` (message contains "256"); `Blend_weights_outside_0_to_1_are_refused` naming the field; `A_decal_matrix_that_is_not_invertible_is_refused`; `Decals_pack_the_inverse_box_and_the_weights` (`DecalBatch.Pack` of a translated box → inverse has the negated translation; weights copied).
 - [ ] **Step 2: Run, expect failures**
@@ -313,7 +319,7 @@ public void Refuses_a_radius_that_is_not_above_zero_or_a_strength_outside_0_to_1
 - Docs: `docs/rendering.md` new "Puddles" section; `docs/content.md` rule; `docs/design.md`; `docs/roadmap.md` (remove the puddle shader gap)
 
 **Interfaces:**
-- Produces: `View.Puddles(level, band)`; rule `"puddles": true`; `Surface.Puddles`; surface height for the test is `worldPos.y + (height − 1) × heightDepth` so a groove sits below its face (Review Focus 4). Water: normal = up blended with two scrolling procedural ripple normals (`frame.time`, 0.4 and 0.9 Hz, 3 mm amplitude), roughness 0.03, metallic 0, colour = `surfaceColor × mix(1, vec3(0.35, 0.3, 0.25), saturate(depth / 0.05))`. Damp: colour squared and roughness × 0.5 at the waterline, linear to dry over `band`.
+- Produces: `View.Puddles(level, band)`; rule `"puddles": true`; `Surface.Puddles`; `Graphics.Puddles` (bool, default true; false leaves every surface dry); surface height for the test is `worldPos.y + (height − 1) × heightDepth` so a groove sits below its face (Review Focus 4). Water: normal = up blended with two scrolling procedural ripple normals (`frame.time`, 0.4 and 0.9 Hz, 3 mm amplitude), roughness 0.03, metallic 0, colour = `surfaceColor × mix(1, vec3(0.35, 0.3, 0.25), saturate(depth / 0.05))`. Damp: colour squared and roughness × 0.5 at the waterline, linear to dry over `band`.
 
 - [ ] **Step 1: Tests:** `Below_the_level_is_water` (height −0.02, level 0 → water 1, damp 1); `Half_a_band_up_is_half_damp`; `Above_the_band_is_dry`; `A_groove_in_a_high_wall_never_floods` (worldY 2, height 0, depth 0.03, level 0 → water 0, damp 0; the helper that computes surface height is the thing under test); `A_negative_band_is_refused`.
 - [ ] **Step 2: Run, expect failures**
@@ -330,7 +336,7 @@ public void Refuses_a_radius_that_is_not_above_zero_or_a_strength_outside_0_to_1
 - Docs: `docs/rendering.md` Foliage paragraph and a "Wind" paragraph; `docs/content.md`; `docs/design.md`
 
 **Interfaces:**
-- Produces: `"foliage": { "translucency": 0.8 }`; `"wind": true`; `View.Wind(...)`; sway = `direction × strength × h² × (0.6 + 0.4 × gust(worldXZ, time))` where `h` is height above the draw's base in metres clamped to 1 and `gust` is value noise scrolling along the direction at 1.5 m/s, plus a 0.02 m flutter at 4 Hz on `h`. Shadows sway the same.
+- Produces: `"foliage": { "translucency": 0.8 }`; `"wind": true`; `View.Wind(...)`; `Graphics.Wind` (bool, default true; false sends strength 0); sway = `direction × strength × h² × (0.6 + 0.4 × gust(worldXZ, time))` where `h` is height above the draw's base in metres clamped to 1 and `gust` is value noise scrolling along the direction at 1.5 m/s, plus a 0.02 m flutter at 4 Hz on `h`. Shadows sway the same.
 
 - [ ] **Step 1: Tests:** `No_strength_is_no_sway`; `Sway_grows_with_the_square_of_height` (h 1 ≈ 4 × h 0.5 at the same gust); `Sway_never_moves_the_base` (h 0 → zero); `The_same_time_and_place_sway_the_same` (determinism); `Translucency_outside_0_to_1_is_refused` in the cook with a message naming the material.
 - [ ] **Step 2: Run, expect failures**
