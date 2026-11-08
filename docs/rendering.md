@@ -191,7 +191,9 @@ and people; a longer one reaches under bigger things and costs no more. 0 turns 
 `Graphics.ContactShadows` does. They're drawn only inside the first cascade's radius, fading
 out over its last tenth, since further away a centimetre is less than a pixel. They can only
 see what's on screen, so something just out of frame or hidden behind another object casts
-none.
+none. Something more than 15 cm in front of a surface never counts, so a near object puts no
+dark outline on the wall behind it. Materials marked `foliage` get none, because the camera
+only sees the front leaf.
 
 ## Ambient occlusion
 

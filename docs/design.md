@@ -825,9 +825,14 @@ For the sun with the shadow, the lighting pass walks 12 steps along the light ov
 `ShadowSettings.ContactLength` metres (`FrameUniforms.ShadowFade.w`), from a random offset
 per pixel and frame that anti-aliasing averages. Each step is projected with the camera's
 matrix and `depthGap` compares its linear depth with the depth buffer's. A step more than
-0.02 m behind what the camera sees there is blocked, unless it's more than twice the ray's
-length behind: that is a nearer object passing in front, not something touching, and
-counting it would draw a dark halo round everything in front of a wall. A hit in the last
+0.02 m behind what the camera sees there is blocked, unless it's more than 0.15 m behind
+(`CONTACT_DEPTH_LIMIT`). Contact shadows are only for the last centimetres, where the map is
+too coarse. A surface further in front is a nearer object passing in front, not something
+touching, and the maps' PCSS already shadows it. Counting it would draw a dark halo round
+everything in front of a wall, and would let each leaf of a plant shadow the ones behind it
+on screen. A fixed limit, rather than one that grows with the length, keeps both away
+however long the ray is. Foliage (a negative shared G-buffer channel) gets no contact
+shadows at all, because the depth buffer holds only its front leaf. A hit in the last
 quarter of the ray fades, and the whole effect fades over the outer tenth of the first
 cascade's map (the length of the point's x and y in its matrix) and stops past it. The
 result multiplies the PCSS visibility. The length is 0, so the walk is skipped, when
@@ -1345,8 +1350,9 @@ Anything larger than a block gets its own allocation.
 - Cascades split three times wider each, with no setting to blend between linear and
   logarithmic spacing.
 - Contact shadows only see the screen: a blocker out of frame or behind another object
-  casts none, and a ray passing behind something thicker than twice its length counts it as
-  in front. Only the sun with the shadow has them, not point or spot lights.
+  casts none, and a ray passing behind something thicker than 0.15 m counts it as in front.
+  Thin cut-out leaves that aren't marked as foliage can still shadow each other on screen.
+  Only the sun with the shadow has them, not point or spot lights.
 - Only one sun casts shadows, so the others shine through objects, held back only
   by ambient occlusion. Point and spot lights without shadows are the same.
 - Point and spot lights are left out of reflection probe captures, and glass and

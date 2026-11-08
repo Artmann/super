@@ -39,6 +39,9 @@ const int SHADOW_SAMPLES = 24;
 // when the ray passes more than this many metres behind it.
 const int CONTACT_STEPS = 12;
 const float CONTACT_THICKNESS = 0.02;
+// A surface more than this far in front of the ray is a nearer object passing in front, not
+// something touching, and the shadow maps already cover it.
+const float CONTACT_DEPTH_LIMIT = 0.15;
 
 // The clear lacquer over car paint is very smooth and reflects like glass.
 const float CLEARCOAT_ROUGHNESS = 0.06;
@@ -328,7 +331,7 @@ float contactShadow(vec3 position, vec3 n, vec3 l) {
             break;
         }
 
-        if (gap > CONTACT_THICKNESS && gap < 2.0 * reach) {
+        if (gap > CONTACT_THICKNESS && gap < CONTACT_DEPTH_LIMIT) {
             float blocked = 1.0 - smoothstep(0.75, 1.0, travelled / reach);
             return 1.0 - blocked * strength;
         }
@@ -447,6 +450,9 @@ void main() {
     int materialIndex = subsurface ? int(emissiveClearcoat.a - SUBSURFACE_MARK + 0.5) : 0;
     float clearcoat = subsurface ? 0.0 : max(emissiveClearcoat.a, 0.0);
     float translucency = max(-emissiveClearcoat.a, 0.0);
+    // Foliage is marked by a negative channel. Its cut-out leaves are too thin for the depth
+    // buffer, which holds only the front leaf, so it gets no contact shadows.
+    bool foliage = emissiveClearcoat.a < 0.0;
 
     // Light through a thin part of a subsurface material comes out in the colours that
     // travel furthest, which for skin is red.
@@ -532,7 +538,7 @@ void main() {
         // side it arrives on.
         vec3 lightSide = dot(n, l) >= 0.0 ? n : -n;
         float visibility = frame.lights[i].direction.w > 0.5
-            ? shadowVisibility(position, lightSide, l) * contactShadow(position, lightSide, l)
+            ? shadowVisibility(position, lightSide, l) * (foliage ? 1.0 : contactShadow(position, lightSide, l))
             : screenAo;
         vec3 reaching = sunlightReaching(position, l, i) * visibility;
         if (subsurface) {
