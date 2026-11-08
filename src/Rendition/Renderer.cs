@@ -94,6 +94,7 @@ public sealed unsafe class Renderer : IDisposable
     // maps from the first face of a batch still hold, since every probe uses the same ones.
     private readonly ProbeVolume _lightProbes;
     private GBuffer? _lightProbeTargets;
+    private GBuffer? _reflectionProbeTargets;
     private bool _capturingLightProbes;
     private bool _lightProbesInUse;
     private bool _keepShadowMaps;
@@ -609,7 +610,8 @@ public sealed unsafe class Renderer : IDisposable
     /// leave that object out while <paramref name="shadowCasters"/> keeps it, which still
     /// puts its shadow in the picture. The view supplies the lights and shadow settings.
     /// This takes a moment and waits for the GPU, so call it while loading, or when
-    /// <see cref="CaptureLighting"/> changes. At most <see cref="MaxReflectionProbes"/> fit.
+    /// <see cref="ReflectionLightingHash(in FrameView)"/> changes. The sun's shadows are framed on
+    /// the probe's box, whatever the view's shadow centre. At most <see cref="MaxReflectionProbes"/> fit.
     /// </summary>
     public ReflectionProbeHandle CaptureReflectionProbe(
         in ReflectionProbe probe,
@@ -653,15 +655,40 @@ public sealed unsafe class Renderer : IDisposable
     public void ClearReflectionProbes() => _probes.Clear();
 
     /// <summary>
-    /// A number that changes whenever something that lights a reflection probe's picture changes:
-    /// the suns, the sky, the shadows, the light probes and which effects are off. Capture the
-    /// probes again when it does. Moving things doesn't change it.
+    /// A number that changes whenever something that lights a reflection probe's picture changes,
+    /// so capture the probes again when it does. It covers the suns, the sky and background, the sun
+    /// shadow's softness and cascades, the ambient occlusion settings, the light probes and whether
+    /// they have settled, and the switches for sun shadows, materials and ambient occlusion. Moving
+    /// things or the camera doesn't change it. Point and spot lights aren't in it, because captures
+    /// leave them out, and nor are the contact shadow and light shadow switches, which only touch
+    /// what captures leave out.
     /// </summary>
-    public int CaptureLighting(in FrameView view)
+    public int ReflectionLightingHash(in FrameView view)
     {
         // Light probes fill in over a few frames, and probes captured before then look wrong.
         bool lightProbesSettled = _lightProbesInUse && _lightProbes.Schedule.Round > 2;
-        return HashCode.Combine(LightingHash(view), _lightProbesInUse, lightProbesSettled);
+        return HashCode.Combine(ReflectionLightingHash(view, _environmentVersion), _lightProbesInUse, lightProbesSettled);
+    }
+
+    /// <summary>The part of <see cref="ReflectionLightingHash(in FrameView)"/> that the view alone decides.</summary>
+    internal static int ReflectionLightingHash(in FrameView view, int environmentVersion) =>
+        HashCode.Combine(LightingHash(view, environmentVersion), view.Occlusion, view.Off & RenderEffects.AmbientOcclusion);
+
+    /// <summary>
+    /// The shadow settings a capture uses: the view's, with the sharpest map round the box being
+    /// captured rather than round the camera, so moving the camera doesn't change the picture.
+    /// Shadows that are off stay off.
+    /// </summary>
+    internal static ShadowSettings CaptureShadows(in ShadowSettings shadows, Vector3 boxMin, Vector3 boxMax)
+    {
+        var framed = shadows;
+        if (shadows.Radius > 0f)
+        {
+            framed.Center = (boxMin + boxMax) * 0.5f;
+            framed.Radius = MathF.Max(Vector3.Distance(boxMin, boxMax) * 0.5f, 0.01f);
+        }
+
+        return framed;
     }
 
     private void CaptureProbeFaces(in ReflectionProbe probe, in FrameView view, ReadOnlySpan<DrawItem> visible, ReadOnlySpan<DrawItem> shadowCasters)
@@ -669,21 +696,34 @@ public sealed unsafe class Renderer : IDisposable
         _api.DeviceWaitIdle(_context.Device).Check();
         _uploads.Flush();
 
+        // The passes are bound to the screen's targets, so small ones stand in for a while. Rebinding
+        // them forgets the held transition picture, so that is put back after, as light probes do.
+        var screenTargets = _gBuffer;
+        bool heldReady = _heldReady;
+        bool ldrReady = _ldrReady;
+        bool historyReady = _historyReady;
+        var screenOff = _off;
+        _reflectionProbeTargets ??= new GBuffer(_context, new Extent2D(ReflectionProbes.FaceSize, ReflectionProbes.FaceSize));
+        _gBuffer = _reflectionProbeTargets;
+        WriteTargetDescriptors();
+
         // The picture follows the view's switches, which Render hasn't applied yet this frame.
         _off = view.Off & RenderEffects.All;
-
-        // The passes are bound to the current targets, so small ones stand in for a while.
-        var screenTargets = _gBuffer;
-        _gBuffer = new GBuffer(_context, new Extent2D(ReflectionProbes.FaceSize, ReflectionProbes.FaceSize));
-        WriteTargetDescriptors();
-        _historyReady = false;
-
-        CaptureFaces(view, probe.Position, visible, shadowCasters, _probes.Capture);
-
-        _gBuffer.Dispose();
-        _gBuffer = screenTargets;
-        WriteTargetDescriptors();
-        _historyReady = false;
+        try
+        {
+            var faceView = view;
+            faceView.Shadows = CaptureShadows(view.Shadows, probe.BoxMin, probe.BoxMax);
+            CaptureFaces(faceView, probe.Position, visible, shadowCasters, _probes.Capture);
+        }
+        finally
+        {
+            _off = screenOff;
+            _gBuffer = screenTargets;
+            WriteTargetDescriptors();
+            _heldReady = heldReady;
+            _ldrReady = ldrReady;
+            _historyReady = historyReady;
+        }
     }
 
     /// <summary>
@@ -763,7 +803,7 @@ public sealed unsafe class Renderer : IDisposable
             _api.QueueSubmit2(_context.Queue, 1, &submit, fence).Check();
             _api.WaitForFences(_context.Device, 1, &fence, true, ulong.MaxValue).Check();
 
-            // Light probes all use maps round the shadow settings' centre, whatever their position,
+            // Light probes all use maps round their volume's centre, whatever their position,
             // so the rest of the batch keeps the first face's.
             if (_capturingLightProbes && castsShadow)
             {
@@ -786,7 +826,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         var schedule = _lightProbes.Schedule;
-        schedule.Update(settings, LightingHash(view));
+        schedule.Update(settings, LightingHash(view, _environmentVersion));
         var (first, count) = schedule.Batch(ProbeVolume.ProbesPerFrame);
         if (count > 0)
         {
@@ -805,10 +845,12 @@ public sealed unsafe class Renderer : IDisposable
             // A probe keeps diffuse light only, and its faces are too small for screen-space occlusion.
             _off |= RenderEffects.AmbientOcclusion | RenderEffects.Reflections;
             _capturingLightProbes = true;
+            var volumeView = view;
+            volumeView.Shadows = CaptureShadows(view.Shadows, settings.Min, settings.Max);
             for (int i = 0; i < count; i++)
             {
                 int probe = first + i;
-                CaptureFaces(view, ProbeGrid.Position(settings, probe), draws, draws, _lightProbes.Capture, probe, settings.Spacing);
+                CaptureFaces(volumeView, ProbeGrid.Position(settings, probe), draws, draws, _lightProbes.Capture, probe, settings.Spacing);
             }
 
             _capturingLightProbes = false;
@@ -826,10 +868,12 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>
     /// Sums up everything that lights the light probes: the suns' directions and colours, the
-    /// environment and its intensity, the background, and the sun's shadow. When it changes, the
-    /// probes are captured again. The scene's geometry isn't in it, so moving things doesn't.
+    /// environment and its intensity, the background, and whether the sun casts a shadow and how
+    /// soft it is. When it changes, the probes are captured again. The scene's geometry isn't in it,
+    /// so moving things doesn't change it, and nor does the camera: captures frame the sun's shadow
+    /// on their own box (<see cref="CaptureShadows"/>), so the view's shadow centre and radius are left out.
     /// </summary>
-    internal int LightingHash(in FrameView view)
+    internal static int LightingHash(in FrameView view, int environmentVersion)
     {
         var hash = new HashCode();
         int count = Math.Min(view.Lights.Length, FrameUniforms.MaxLights);
@@ -842,12 +886,11 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         hash.Add(count);
-        hash.Add(_environmentVersion);
+        hash.Add(environmentVersion);
         hash.Add(view.EnvironmentIntensity);
         hash.Add(view.BackgroundRadiance);
         hash.Add(view.ShowEnvironment);
-        hash.Add(view.Shadows.Radius);
-        hash.Add(view.Shadows.Center);
+        hash.Add(view.Shadows.Radius > 0f);
         hash.Add(view.Shadows.Cascades);
         hash.Add(view.Shadows.LightAngle);
 
@@ -1347,6 +1390,7 @@ public sealed unsafe class Renderer : IDisposable
         _probes.Dispose();
         _lightProbes.Dispose();
         _lightProbeTargets?.Dispose();
+        _reflectionProbeTargets?.Dispose();
         _environment.Dispose();
         _resources.Dispose();
 

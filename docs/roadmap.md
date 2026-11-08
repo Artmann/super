@@ -24,6 +24,9 @@ Super is early. These are the known gaps, so you can plan around them.
 - **Some camera moves.** A camera can't roll, and asymmetric views are a shift, so head
   tracking and tiled displays can't be done yet. Underwater views are wrong under an
   orthographic camera.
+- **Local lights in reflections.** [Reflection probes](rendering.md#reflections) are
+  photographed by the sun and sky alone, so a lantern or a lit window doesn't show in a
+  reflection, and turning one on doesn't photograph the probe again.
 - **Large numbers of objects.** Rendition's efficiency with many thousands of objects
   still has to be measured and improved.
 - **Render scale.** [Graphics settings](rendering.md#graphics-settings) turn effects off,

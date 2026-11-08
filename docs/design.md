@@ -955,15 +955,27 @@ pass binds the probe cube array at set 2, binding 4. Glass sees no screen-space 
 
 `RecaptureReflectionProbe` draws a probe again into its own slot, and
 `ClearReflectionProbes` forgets them all, since a slot in the middle can't be dropped.
-`Renderer.CaptureLighting` combines `LightingHash` (see below) with whether the light probes
-are in use and have finished both rounds, so a probe captured while they fill in is redone
-once they settle. Super places probes with `view.ReflectionProbe`: `SceneRenderer`, before
-each frame's `Render`, asks `ReflectionProbeSchedule` whether each key's request or the
-lighting hash differs from its last capture, captures new keys into the next slot and
-recaptures changed ones in place. A key missing from a frame clears every probe, and the
-rest are captured again. With the `Reflections` switch off Super wants no probes, so it
-clears them and glass falls back to the studio cube. Captures set the renderer's switches
-from the view first, since `Render` hasn't applied this frame's yet.
+`Renderer.ReflectionLightingHash` combines `LightingHash` (see below) with the occlusion
+settings and the `AmbientOcclusion` switch, and with whether the light probes are in use and
+have finished both rounds, so a probe captured while they fill in is redone once they settle;
+a probe can be captured two or three times at the start. Point and spot lights and the
+`ContactShadows` and `LightShadows` switches aren't in it, since captures draw neither
+local lights nor contact shadows. Super places probes with `view.ReflectionProbe`:
+`SceneRenderer`, before each frame's `Render`, asks `ReflectionProbeSchedule.ShouldCapture`
+whether each key's request or the lighting hash differs from its last capture, captures new
+keys into the next slot and recaptures changed ones in place, and only then tells the schedule
+with `Captured`, so a capture that throws leaves the two in step. A key missing from a frame
+clears every probe, and the rest are captured again. With the `Reflections` switch off Super
+wants no probes, so it clears them and glass falls back to the studio cube.
+
+A capture frames the sun's shadow maps on what it captures, not on the camera:
+`Renderer.CaptureShadows` centres them on the probe's box with half its diagonal as the
+radius (light probes use the volume's box). That is why the view's shadow centre and radius
+are out of the hashes, and moving the camera captures nothing. Captures draw into a small
+G-buffer kept for reflection probes (`_reflectionProbeTargets`, like `_lightProbeTargets`),
+set the renderer's switches from the view first, since `Render` hasn't applied this frame's
+yet, and put back the switches and the held-transition, LDR and history flags after, because
+rebinding the targets clears them and a transition's held outgoing shot would be lost.
 
 ## Light probes
 
@@ -1013,12 +1025,13 @@ the environment intensity, or the probe value as captured.
 frame, each face submitted and waited on, so capture frames hitch. Round 1 lights the probes
 by the sun and sky alone, with the sky cut off inside the box where no probe can answer
 yet; round 2 captures them again reading round 1's probes, which adds a second bounce. A
-probe is used once round 1 has finished. Capture cascades are centred on the shadow settings
-rather than fitted to a view, so the sun's maps are drawn for the first face of a batch and
-kept for the rest. `Renderer.LightingHash` hashes the suns' directions and colours, the
-environment (a version bumped by `SetEnvironment`), its intensity, the background, the
-shadow settings (radius, centre, cascades, light angle), the sun-shadow and plain-materials
-switches and the volume. When it changes, the schedule restarts at round 1 over the old
+probe is used once round 1 has finished. Capture cascades are centred on the volume's box
+(`CaptureShadows`) rather than fitted to a view, so the sun's maps are drawn for the first
+face of a batch and kept for the rest. `Renderer.LightingHash` hashes the suns' directions and
+colours, the environment (a version bumped by `SetEnvironment`), its intensity, the
+background, whether the sun's shadow is on and its cascades and light angle, the sun-shadow
+and plain-materials switches and the volume. The view's shadow centre and radius follow the
+camera, so they are left out, and moving the camera doesn't restart the probes. When it changes, the schedule restarts at round 1 over the old
 probes in place, without a second atlas: probes not yet redone stay old, and those redone
 have one bounce until round 2, so for a few frames old and new mix. When the box changes
 the old probes are thrown away and the sky is used until round 1 is done. Geometry isn't in the
@@ -1450,7 +1463,8 @@ Anything larger than a block gets its own allocation.
 - Screen-space reflections only know what is on screen, and read last frame's image.
   Glass reflects probes and the studio, not traced rays.
 - Reflection probes are captured again only when they move or the lighting changes, not when
-  things move, and a scene gets at most four. Removing one recaptures the rest.
+  things or the camera move, and a scene gets at most four. Removing one recaptures the rest.
+  They don't see point and spot lights.
 - Light probes are captured again only when the lighting or the box changes, not when
   things move, and a sun that moves every frame keeps them capturing. Each capture frame
   waits for the GPU face by face, so it hitches.

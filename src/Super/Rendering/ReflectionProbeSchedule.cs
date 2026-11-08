@@ -12,24 +12,30 @@ internal sealed class ReflectionProbeSchedule
 
     /// <summary>
     /// Whether <paramref name="request"/> must be photographed now, lit as <paramref name="hash"/>
-    /// says. Answering yes counts it as captured, so the caller must then capture it.
+    /// says: it never was, or it or the lighting changed since. Asking changes nothing; call
+    /// <see cref="Captured"/> once the renderer has taken the picture.
     /// </summary>
     public bool ShouldCapture(in ReflectionProbeRequest request, int hash)
+    {
+        int slot = SlotOf(request.Key);
+        return slot < 0 || _captured[slot] != (request, hash);
+    }
+
+    /// <summary>
+    /// Records that <paramref name="request"/> was photographed lit as <paramref name="hash"/>. A new
+    /// key takes the next slot, which is where the renderer put it.
+    /// </summary>
+    public void Captured(in ReflectionProbeRequest request, int hash)
     {
         int slot = SlotOf(request.Key);
         if (slot < 0)
         {
             _captured.Add((request, hash));
-            return true;
         }
-
-        if (_captured[slot] == (request, hash))
+        else
         {
-            return false;
+            _captured[slot] = (request, hash);
         }
-
-        _captured[slot] = (request, hash);
-        return true;
     }
 
     /// <summary>The renderer's slot for a key's probe, or -1 when it has none.</summary>

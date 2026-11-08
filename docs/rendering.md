@@ -244,8 +244,8 @@ the sky as before. Reflections don't change; probes give only the soft, diffuse 
 The probes are drawn by the renderer itself, from each probe's position, with the sun and the
 sky but without point and spot lights. That happens over the first frames after the box is set,
 64 probes a frame, and then once more, now lit by the first round, so light bounces twice. A
-change to the sun's direction or colour, the sky, the sun's shadow settings or the
-`Materials` switch starts it again, drawing over the old probes in place, so for a few frames
+change to the sun's direction or colour, the sky, the sun's shadow softness or cascades or the
+`Materials` switch starts it again (the camera doesn't: the sun's shadow is framed on the box), drawing over the old probes in place, so for a few frames
 old and new probes mix and the new ones have only one bounce. A change to the box throws the
 old probes away, and the sky lights the scene until the first round is done. Moving or adding objects doesn't, so
 probes suit what stands still. Each frame that draws probes takes longer, so a sun that moves
@@ -268,11 +268,14 @@ probe fades out over `blend` metres, 0.5 by default, into the sky or the next pr
 
 The key names the probe across frames, so place it every frame like a light. It is
 photographed the first frame it's placed and again only when it moves, its box changes or the
-lighting does: the sun, the sky, the shadow settings, the `Materials` switch or the [light
-probes](#bounced-light) filling in. Moving or adding objects doesn't, so probes suit what
-stands still. Each photograph waits for the GPU and takes a moment, so a sun that moves
-every frame keeps them drawing. A probe left out of a frame is dropped, and the rest are
-photographed again.
+lighting does: the sun's direction or colour, the sky, the shadow softness or cascades, the
+ambient occlusion settings, the `SunShadows`, `Materials` or `AmbientOcclusion` switches. Moving
+the camera doesn't, because the photograph frames the sun's shadow on the probe's own box, and
+nor does moving or adding objects, so probes suit what stands still. While the [light
+probes](#bounced-light) fill in at the start, a probe can be photographed two or three times.
+Each photograph waits for the GPU and takes a moment, so a sun that moves every frame keeps
+them drawing. Point and spot lights aren't in the photograph, so a lantern's glow doesn't show in
+a reflection. A probe left out of a frame is dropped, and the rest are photographed again.
 
 At most 4 probes fit in a frame, and a fifth throws. The position must be inside the box,
 `boxMax` above `boxMin` on every axis, `blend` 0 or more, and each key used once a frame.

@@ -136,7 +136,7 @@ internal sealed class SceneRenderer : IDisposable
 
     /// <summary>
     /// Photographs each of the view's reflection probes the first frame it's placed, and again when
-    /// it moves or the lighting changes. A probe that's gone takes the others with it, and they're
+    /// it moves or the lighting changes. Moving the camera isn't a lighting change. A probe that's gone takes the others with it, and they're
     /// photographed again in their new slots.
     /// </summary>
     private void CaptureReflectionProbes(View view, in FrameView frame, ReadOnlySpan<DrawItem> draws)
@@ -152,7 +152,7 @@ internal sealed class SceneRenderer : IDisposable
             return;
         }
 
-        int lighting = _renderer.CaptureLighting(frame);
+        int lighting = _renderer.ReflectionLightingHash(frame);
         foreach (var request in wanted)
         {
             if (!_reflectionProbes.ShouldCapture(request, lighting))
@@ -169,15 +169,18 @@ internal sealed class SceneRenderer : IDisposable
             };
 
             // The probe stands in the open, so it sees every draw, and every draw casts its shadow.
-            var handle = new ReflectionProbeHandle(_reflectionProbes.SlotOf(request.Key));
-            if (handle.Index < _renderer.ReflectionProbeCount)
+            // The schedule hears of the capture only once it worked, so a throw leaves the two in step.
+            int slot = _reflectionProbes.SlotOf(request.Key);
+            if (slot >= 0)
             {
-                _renderer.RecaptureReflectionProbe(handle, probe, frame, draws, draws);
+                _renderer.RecaptureReflectionProbe(new ReflectionProbeHandle(slot), probe, frame, draws, draws);
             }
             else
             {
                 _renderer.CaptureReflectionProbe(probe, frame, draws, draws);
             }
+
+            _reflectionProbes.Captured(request, lighting);
         }
     }
 
