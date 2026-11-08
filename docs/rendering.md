@@ -7,7 +7,8 @@ Super hands that to Rendition each frame.
 What it does for every game, with no setup:
 
 - Cook-Torrance GGX shading with up to eight directional lights, and up to 1,024 point
-  and spot lights with soft shadows
+  and spot lights with soft shadows. Rough surfaces keep the light that bounces between
+  their tiny facets, so worn iron and brushed steel stay as bright as real metal does
 - Soft, contact-hardening shadows, in up to four cascades, with screen-space contact shadows where things meet the ground
 - A generated environment that gives surfaces reflections and soft fill light
 - [Bounced light](#bounced-light) from a volume of light probes, which doesn't leak through walls
@@ -46,6 +47,7 @@ next frame follows, so it can back an options menu.
 | `ContactShadows` | No thin dark line where things meet the ground in sunlight, only what the shadow maps show. `view.Shadows`' `contact` only changes [how far they look](#shadows) |
 | `LightShadows` | Point and spot lights shine through walls |
 | `AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. `view.AmbientOcclusion` only changes [how far and how dark](#ambient-occlusion) |
+| `MultiscatterSpecular` | Rough surfaces lose the light that bounces between their tiny facets, so rough metals such as worn iron come out darker than they should, by up to half at full roughness. It costs almost nothing, so leave it on unless you're comparing |
 | `LightProbes` | No [bounced light](#bounced-light): shade takes its soft light from the sky alone, as if no `view.LightProbes` were set, and no probes are captured |
 | `Reflections` | Shiny surfaces, water and glass reflect only the sky: not what's on screen, and no [reflection probes](#reflections) are photographed |
 | `AntiAliasing` | Edges show their pixels, and moving things stay sharp |

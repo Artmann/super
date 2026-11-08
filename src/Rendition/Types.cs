@@ -675,7 +675,15 @@ public enum RenderEffects
     /// </summary>
     LightProbes = 1 << 8,
 
-    All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes,
+    /// <summary>
+    /// The light that bounces between a rough surface's microfacets before it leaves, given back to its
+    /// shine. Without it rough metals come out darker than they should.
+    /// It costs a few instructions a pixel.
+    /// </summary>
+    MultiscatterSpecular = 1 << 9,
+
+    All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
+        | MultiscatterSpecular,
 }
 
 /// <summary>

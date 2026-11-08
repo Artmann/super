@@ -118,11 +118,14 @@ public class ReflectionProbeTests
         noOcclusion.Off = RenderEffects.AmbientOcclusion;
         var noContact = view;
         noContact.Off = RenderEffects.ContactShadows | RenderEffects.LightShadows;
+        var noMultiscatter = view;
+        noMultiscatter.Off = RenderEffects.MultiscatterSpecular;
 
         Assert.NotEqual(before, Renderer.ReflectionLightingHash(brighter, 1));
         Assert.NotEqual(before, Renderer.ReflectionLightingHash(dimSky, 1));
         Assert.NotEqual(before, Renderer.ReflectionLightingHash(view, 2));
         Assert.NotEqual(before, Renderer.ReflectionLightingHash(noOcclusion, 1));
+        Assert.NotEqual(before, Renderer.ReflectionLightingHash(noMultiscatter, 1));
         Assert.Equal(before, Renderer.ReflectionLightingHash(noContact, 1));
     }
 

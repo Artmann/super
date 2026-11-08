@@ -58,6 +58,7 @@ const int OFF_AMBIENT_OCCLUSION = 1 << 2;
 const int OFF_REFLECTIONS = 1 << 3;
 const int OFF_BLOOM = 1 << 5;
 const int OFF_MATERIALS = 1 << 6;
+const int OFF_MULTISCATTER_SPECULAR = 1 << 9;
 
 // What every surface is made of when materials are off: light grey, matte clay.
 const vec3 PLAIN_COLOR = vec3(0.5);

@@ -27,3 +27,15 @@ vec2 environmentBrdf(float roughness, float nDotV) {
     float a = min(r.x * r.x, exp(-9.28 * nDotV * log(2.0))) * r.x + r.y;
     return vec2(-1.04, 1.04) * a + r.zw;
 }
+
+// What to multiply specular by to give back the light a single bounce off the microfacets
+// loses. GGX counts only light that leaves after one bounce, so rough surfaces, whose facets
+// shadow each other most, come out too dark, and rough metals most, since they reflect
+// nearly all of what bounces again. Ess, the share a white surface reflects in one bounce,
+// is the scale plus the bias of environmentBrdf. Fdez-Aguera, "A Multiple-Scattering
+// Microfacet Model for Real-Time Image-Based Lighting" (2019).
+vec3 multiscatterCompensation(vec3 f0, float nDotV, float roughness) {
+    vec2 brdf = environmentBrdf(roughness, nDotV);
+    float ess = max(brdf.x + brdf.y, 1e-3);
+    return 1.0 + f0 * (1.0 - ess) / ess;
+}

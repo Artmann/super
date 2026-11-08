@@ -96,9 +96,10 @@ void main() {
     vec3 f0 = vec3(0.04);
 
     vec2 brdf = environmentBrdf(roughness, nDotV);
+    vec3 multiscatter = isOff(OFF_MULTISCATTER_SPECULAR) ? vec3(1.0) : multiscatterCompensation(f0, nDotV, roughness);
     // Glass reflects the yard or room round it where a reflection probe sees it, as lit surfaces do.
     vec3 reflectedLight = probeReflection(probeTexture, reflectionTexture, inPosition, reflect(-v, n), roughness * REFLECTION_LODS);
-    vec3 specular = reflectedLight * (f0 * brdf.x + brdf.y) * frame.backgroundRadiance.a;
+    vec3 specular = reflectedLight * (f0 * brdf.x + brdf.y) * frame.backgroundRadiance.a * multiscatter;
     vec3 diffuse = texture(irradianceTexture, n).rgb * frame.backgroundRadiance.a;
 
     for (int i = 0; i < frame.lightCount; i++) {
@@ -111,7 +112,7 @@ void main() {
         vec3 h = normalize(v + l);
         vec3 f = fresnelSchlick(max(dot(v, h), 0.0), f0);
         float highlight = distributionGgx(max(dot(n, h), 0.0), alpha) * visibilitySmithGgx(nDotV, nDotL, alpha);
-        specular += highlight * f * frame.lights[i].radiance.rgb * nDotL;
+        specular += highlight * f * multiscatter * frame.lights[i].radiance.rgb * nDotL;
         diffuse += frame.lights[i].radiance.rgb * nDotL / PI;
     }
 
@@ -131,7 +132,7 @@ void main() {
         vec3 h = normalize(v + l);
         vec3 f = fresnelSchlick(max(dot(v, h), 0.0), f0);
         float highlight = distributionGgx(max(dot(n, h), 0.0), alpha) * visibilitySmithGgx(nDotV, nDotL, alpha);
-        specular += highlight * f * radiance * nDotL;
+        specular += highlight * f * multiscatter * radiance * nDotL;
         diffuse += radiance * nDotL / PI;
     }
 

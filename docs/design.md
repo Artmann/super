@@ -907,6 +907,24 @@ more than a period past its slot starts the count again instead of rushing to ca
 sleeps in 1 ms steps, with the Windows timer set to 1 ms while a limit is on, and spins the
 last 2 ms.
 
+## The BRDF
+
+`brdf.glsl` holds the surface response that `lighting.frag` and `transparent.frag` share:
+GGX distribution, height-correlated Smith visibility and Schlick Fresnel for each light, and
+for the environment a Lazarov and Karis curve fit (`environmentBrdf`) that splits what
+reaches the eye into a scale and a bias on f0, so no lookup texture is needed. GGX counts
+only light that leaves the surface after one bounce, so rough surfaces come out too dark.
+`multiscatterCompensation` gives that back after Fdez-Agüera (2019): the share a white
+surface reflects in one bounce is Ess = scale + bias, and specular is multiplied by
+1 + f0 · (1 − Ess) / Ess. It depends on f0, so rough metals gain the most (up to about twice
+at full roughness) and dielectrics a few percent. In this curve fit the scale plus the bias
+comes to 1 − 0.55 · roughness whatever the angle, so the compensation doesn't change with the
+view; a lookup texture of the true Ess would add that, and lift grazing angles a little more.
+Both passes apply it to every light and to the environment reflection. The clearcoat layer
+isn't compensated, since at its fixed 0.06 roughness Ess is close to 1.
+`RenderEffects.MultiscatterSpecular` (bit 9, `OFF_MULTISCATTER_SPECULAR`) turns it off, from
+Super's `Graphics.MultiscatterSpecular`.
+
 ## Environment lighting
 
 `Renderer.SetEnvironment` describes the surroundings as colour bands plus up to
@@ -958,7 +976,9 @@ pass binds the probe cube array at set 2, binding 4. Glass sees no screen-space 
 `Renderer.ReflectionLightingHash` combines `LightingHash` (see below) with the occlusion
 settings and the `AmbientOcclusion` switch, and with whether the light probes are in use and
 have finished both rounds, so a probe captured while they fill in is redone once they settle;
-a probe can be captured two or three times at the start. Point and spot lights and the
+a probe can be captured two or three times at the start. `LightingHash` also takes the
+`SunShadows`, `Materials` and `MultiscatterSpecular` switches, since each changes what a
+probe photographs. Point and spot lights and the
 `ContactShadows` and `LightShadows` switches aren't in it, since captures draw neither
 local lights nor contact shadows. Super places probes with `view.ReflectionProbe`:
 `SceneRenderer`, before each frame's `Render`, asks `ReflectionProbeSchedule.ShouldCapture`

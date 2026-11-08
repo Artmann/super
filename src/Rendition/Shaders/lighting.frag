@@ -116,6 +116,7 @@ struct Surface {
     float nDotV;
     float alpha;
     vec3 f0;
+    vec3 multiscatter; // What specular is multiplied by for the light that bounces between facets.
     vec3 baseColor;
     float metallic;
     float clearcoat;
@@ -141,7 +142,7 @@ bool shade(Surface s, vec3 l, out vec3 diffuseLit, out vec3 specularLit) {
 
     vec3 h = normalize(s.v + l);
     vec3 f = fresnelSchlick(max(dot(s.v, h), 0.0), s.f0);
-    vec3 specular = distributionGgx(max(dot(s.n, h), 0.0), s.alpha) * visibilitySmithGgx(s.nDotV, nDotL, s.alpha) * f;
+    vec3 specular = distributionGgx(max(dot(s.n, h), 0.0), s.alpha) * visibilitySmithGgx(s.nDotV, nDotL, s.alpha) * f * s.multiscatter;
     vec3 diffuse = (1.0 - f) * (1.0 - s.metallic) * s.baseColor / PI;
 
     diffuseLit = diffuse * nDotL;
@@ -496,6 +497,7 @@ void main() {
     vec3 f0 = mix(vec3(0.04), baseColor, metallic);
 
     vec2 brdf = environmentBrdf(roughness, nDotV);
+    vec3 multiscatter = isOff(OFF_MULTISCATTER_SPECULAR) ? vec3(1.0) : multiscatterCompensation(f0, nDotV, roughness);
     // A light probe keeps diffuse light only. A reflection of the sky would also shine on
     // walls the sky can't reach, which is the leak the probes are there to stop.
     vec3 reflectedLight = capturing ? vec3(0.0) : sampleReflection(position, reflect(-v, n), roughness * REFLECTION_LODS);
@@ -519,7 +521,7 @@ void main() {
     // reflection is occluded. A traced reflection found what's in the way itself.
     reflectedLight *= specularOcclusion(nDotV, ao, roughness);
     reflectedLight = mix(reflectedLight, traced.rgb, traced.a);
-    vec3 environmentSpecular = reflectedLight * (f0 * brdf.x + brdf.y);
+    vec3 environmentSpecular = reflectedLight * (f0 * brdf.x + brdf.y) * multiscatter;
     // Soft light already carries the environment's intensity; the reflections don't yet.
     vec3 diffuseColor = baseColor * (1.0 - metallic) * multiBounceOcclusion(ao, baseColor);
     vec3 environmentDiffuse = softLight(position, bentNormal, v) * diffuseColor;
@@ -550,7 +552,7 @@ void main() {
     vec3 color = environmentLight * environmentIntensity + environmentDiffuse + emissiveClearcoat.rgb;
 
     // Subsurface materials keep the diffuse light of every light apart, for the blur.
-    Surface surface = Surface(n, v, nDotV, alpha, f0, baseColor, metallic, clearcoat, translucency, transmissionTint);
+    Surface surface = Surface(n, v, nDotV, alpha, f0, multiscatter, baseColor, metallic, clearcoat, translucency, transmissionTint);
     for (int i = 0; i < frame.lightCount; i++) {
         vec3 l = frame.lights[i].direction.xyz;
         vec3 diffuseLit;

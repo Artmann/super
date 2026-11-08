@@ -67,6 +67,13 @@ public sealed class Graphics
     /// <summary>Darkening in corners, creases and under things. Off, they're as bright as open ground.</summary>
     public bool AmbientOcclusion { get; set; } = true;
 
+    /// <summary>
+    /// Rough surfaces keeping the light that bounces between their tiny facets before it leaves. Off,
+    /// rough metals such as worn iron and brushed steel come out darker than they should. It costs
+    /// almost nothing.
+    /// </summary>
+    public bool MultiscatterSpecular { get; set; } = true;
+
     /// <summary>Shiny surfaces and water mirroring what's on screen, and reflection probes. Off, they and glass reflect only the sky.</summary>
     public bool Reflections { get; set; } = true;
 
@@ -96,6 +103,7 @@ public sealed class Graphics
         LightProbes = false,
         LightShadows = false,
         AmbientOcclusion = false,
+        MultiscatterSpecular = false,
         Reflections = false,
         AntiAliasing = false,
         Bloom = false,
@@ -108,6 +116,7 @@ public sealed class Graphics
         | (LightProbes ? 0 : RenderEffects.LightProbes)
         | (LightShadows ? 0 : RenderEffects.LightShadows)
         | (AmbientOcclusion ? 0 : RenderEffects.AmbientOcclusion)
+        | (MultiscatterSpecular ? 0 : RenderEffects.MultiscatterSpecular)
         | (Reflections ? 0 : RenderEffects.Reflections)
         | (AntiAliasing ? 0 : RenderEffects.AntiAliasing)
         | (Bloom ? 0 : RenderEffects.Bloom)

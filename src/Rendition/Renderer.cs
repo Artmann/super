@@ -894,8 +894,9 @@ public sealed unsafe class Renderer : IDisposable
         hash.Add(view.Shadows.Cascades);
         hash.Add(view.Shadows.LightAngle);
 
-        // Plain materials change what colour the bounced light picks up.
-        hash.Add(view.Off & (RenderEffects.SunShadows | RenderEffects.Materials));
+        // Plain materials change what colour the bounced light picks up, and multiscatter how
+        // brightly rough metals shine in what a probe photographs.
+        hash.Add(view.Off & (RenderEffects.SunShadows | RenderEffects.Materials | RenderEffects.MultiscatterSpecular));
         hash.Add(view.LightProbes);
         return hash.ToHashCode();
     }
