@@ -57,14 +57,17 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         // Mid-afternoon. The sun is high on the left and a little in front of the wall, still
         // low enough to rake across the bricks and throw shadows to the right.
         view.Sun(direction: new Vector3(-0.75f, 0.5f, 0.42f), color: new Vector3(7.2f, 6.7f, 5.8f));
-        // A clear blue sky, paler at the horizon, so the shade is cooler than the sunlight. It is
-        // dim next to the sun, so the shade is a clear step darker than the light.
+        // A clear day's sky, worked out from the sun: brighter towards it, deeper blue overhead
+        // and paler at the horizon, so the shade is cooler than the sunlight. It is dim next to
+        // the sun, so the shade is a clear step darker than the light. Zenith and Horizon are
+        // what it falls back to with Turbidity at 0.
         view.Sky(new SkySettings
         {
             Zenith = new Vector3(0.2f, 0.38f, 0.8f),
             Horizon = new Vector3(0.75f, 0.8f, 0.85f),
             Ground = new Vector3(0.2f, 0.17f, 0.14f),
             Brightness = 0.75f,
+            Turbidity = 2.5f,
         });
         // A sun close to its real size, so the tree out of frame to the left, 10 m up-sun of
         // the wall, dapples it with crisp leafy shade rather than one soft patch.

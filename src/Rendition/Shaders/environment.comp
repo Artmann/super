@@ -1,8 +1,11 @@
 #version 460
+#extension GL_GOOGLE_include_directive : require
+#include "sky.glsl"
 
 // Bakes one level of the studio environment. Every texel integrates the studio's
 // light as a surface of a given roughness would see it, so the lighting pass only
 // has to look up a blurred reflection instead of tracing many rays per pixel.
+// With a turbidity set, a clear sky takes the place of the ceiling and horizon.
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -18,6 +21,8 @@ layout(std140, set = 0, binding = 0) uniform Environment {
     vec4 ceiling;
     vec4 horizon;
     vec4 floorColor;
+    vec4 skySun;  // xyz: towards the sun; w: turbidity, 0 for the bands
+    vec4 sunDisc; // rgb: how bright the sun's disc is; a: the cosine of its angular radius
     int panelCount;
     Panel panels[8];
 } environment;
@@ -34,10 +39,36 @@ layout(push_constant) uniform Bake {
 const float PI = 3.14159265359;
 const uint SAMPLES = 1024;
 
+// Set once in main, so each of a texel's samples doesn't work it out again.
+SkyState clearSky;
+
+// A clear sky above the horizon and the floor below it, fading from the sky's own horizon.
+vec3 skyAndFloor(vec3 direction) {
+    if (direction.y >= 0.0) {
+        vec3 color = skyRadiance(clearSky, direction);
+
+        // The direct light already gives surfaces the sun, so only the sharp reflection shows its disc.
+        if (bake.irradiance == 0 && bake.sky == 0 && bake.roughness == 0.0) {
+            color += sunDiscRadiance(direction, normalize(environment.skySun.xyz), environment.sunDisc);
+        }
+
+        return color;
+    }
+
+    vec2 across = direction.xz;
+    vec3 level = dot(across, across) > 1e-8 ? normalize(vec3(across.x, 0.0, across.y)) : vec3(1.0, 0.0, 0.0);
+    return mix(skyRadiance(clearSky, level), environment.floorColor.rgb, sqrt(-direction.y));
+}
+
 vec3 studio(vec3 direction) {
-    vec3 color = direction.y >= 0.0
-        ? mix(environment.horizon.rgb, environment.ceiling.rgb, sqrt(direction.y))
-        : mix(environment.horizon.rgb, environment.floorColor.rgb, sqrt(-direction.y));
+    vec3 color;
+    if (environment.skySun.w > 0.0) {
+        color = skyAndFloor(direction);
+    } else {
+        color = direction.y >= 0.0
+            ? mix(environment.horizon.rgb, environment.ceiling.rgb, sqrt(direction.y))
+            : mix(environment.horizon.rgb, environment.floorColor.rgb, sqrt(-direction.y));
+    }
 
     // Direct lights already provide the panels' diffuse light. Only reflections show them.
     int panelCount = bake.irradiance == 1 || bake.sky == 1 ? 0 : environment.panelCount;
@@ -85,6 +116,10 @@ void main() {
 
     vec2 uv = (vec2(texel.xy) + 0.5) / vec2(size.xy) * 2.0 - 1.0;
     vec3 n = normalize(cubeDirection(uint(texel.z), uv));
+
+    if (environment.skySun.w > 0.0) {
+        clearSky = skyState(environment.skySun.xyz, environment.skySun.w);
+    }
 
     if (bake.irradiance == 0 && bake.roughness == 0.0) {
         imageStore(target, texel, vec4(studio(n), 1.0));

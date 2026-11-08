@@ -50,8 +50,9 @@ It's a clear afternoon. The sun is high on the left, still low enough to rake ac
 bricks and the plinth, and the tree's canopy breaks it into dappled light across the wall
 and the window. The sun is set close to its real size with `view.Shadows(7f, 3, sunSize: 0.02f)`,
 so the leaves' shade stays crisp though they are 10 m from the wall. See
-[Shadows](../../docs/rendering.md#shadows). The sky is blue overhead and pale at the
-horizon, so the shade is cooler than the sunlight. The sun is strong against the sky, so
+[Shadows](../../docs/rendering.md#shadows). The sky is a clear one worked out from the sun
+with `Turbidity = 2.5f`: blue overhead, paler at the horizon and bright round the sun's
+disc, so the shade is cooler than the sunlight. See [The sky](../../docs/rendering.md#the-sky). The sun is strong against the sky, so
 the shade is a clear step darker than the light, as on a real clear day, and the finish
 raises the exposure to keep the sunlit wall bright. The lantern is a point light at its
 bulb, left on but dim in daylight, that warms the wall just round it. It casts no shadows, since the bulb and

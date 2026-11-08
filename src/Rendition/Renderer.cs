@@ -102,6 +102,10 @@ public sealed unsafe class Renderer : IDisposable
     // Goes up with every SetEnvironment, so the light probes see the sky has changed.
     private int _environmentVersion;
 
+    // The clear sky and sun the environment was last baked with. The lighting hashes cover what
+    // decides it through the view, so baking it again leaves the version alone.
+    private SkySun _bakedSky;
+
     private readonly DescriptorPool _descriptorPool;
     private readonly DescriptorSetLayout _frameSetLayout;
     private readonly DescriptorSetLayout _lightingSetLayout;
@@ -546,8 +550,25 @@ public sealed unsafe class Renderer : IDisposable
     public void SetEnvironment(in EnvironmentDescription environment)
     {
         _api.DeviceWaitIdle(_context.Device).Check();
-        _environment.Bake(environment);
+        _environment.Bake(environment, _bakedSky);
         _environmentVersion++;
+    }
+
+    /// <summary>
+    /// Bakes the environment again with the view's clear sky when it or its sun has changed. A
+    /// gradient sky gives the same empty <see cref="SkySun"/> whatever the sun does, so that never bakes.
+    /// </summary>
+    private void BakeSky(in FrameView view)
+    {
+        var sky = SkyModel.Sun(view);
+        if (sky == _bakedSky)
+        {
+            return;
+        }
+
+        _api.DeviceWaitIdle(_context.Device).Check();
+        _environment.Rebake(sky);
+        _bakedSky = sky;
     }
 
     /// <summary>
@@ -695,6 +716,7 @@ public sealed unsafe class Renderer : IDisposable
     {
         _api.DeviceWaitIdle(_context.Device).Check();
         _uploads.Flush();
+        BakeSky(view);
 
         // The passes are bound to the screen's targets, so small ones stand in for a while. Rebinding
         // them forgets the held transition picture, so that is put back after, as light probes do.
@@ -868,8 +890,8 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>
     /// Sums up everything that lights the light probes: the suns' directions and colours, the
-    /// environment and its intensity, the background, and whether the sun casts a shadow and how
-    /// soft it is. When it changes, the probes are captured again. The scene's geometry isn't in it,
+    /// environment and its intensity, the clear sky's turbidity, the background, and whether the sun
+    /// casts a shadow and how soft it is. When it changes, the probes are captured again. The scene's geometry isn't in it,
     /// so moving things doesn't change it, and nor does the camera: captures frame the sun's shadow
     /// on their own box (<see cref="CaptureShadows"/>), so the view's shadow centre and radius are left out.
     /// </summary>
@@ -888,6 +910,7 @@ public sealed unsafe class Renderer : IDisposable
         hash.Add(count);
         hash.Add(environmentVersion);
         hash.Add(view.EnvironmentIntensity);
+        hash.Add(view.Sky.Turbidity);
         hash.Add(view.BackgroundRadiance);
         hash.Add(view.ShowEnvironment);
         hash.Add(view.Shadows.Radius > 0f);
@@ -1092,6 +1115,7 @@ public sealed unsafe class Renderer : IDisposable
             ]);
         }
 
+        BakeSky(view);
         CaptureLightProbes(view, draws);
 
         ref Frame frame = ref _frames[_frameIndex];
@@ -1891,6 +1915,12 @@ public sealed unsafe class Renderer : IDisposable
 
         uniforms->CameraPosition = new Vector4(view.CameraPosition, 1f);
         uniforms->BackgroundRadiance = new Vector4(view.BackgroundRadiance, view.EnvironmentIntensity);
+
+        // Probes leave the sun's disc out: their rough levels would scatter it into specks, and
+        // the sun's own light already gives surfaces its highlight.
+        var sky = SkyModel.Sun(view);
+        uniforms->SkySun = new Vector4(sky.Direction, sky.Turbidity);
+        uniforms->SunDisc = new Vector4(capturingProbe ? Vector3.Zero : sky.DiscRadiance, sky.DiscCosine);
 
         // Moving points two texels of the first cascade off their surface stops them
         // shadowing themselves. The lighting pass works this out per cascade itself.

@@ -952,6 +952,38 @@ Super keeps one set of bands, from water first, then the sky, then the plain stu
 bakes them again only when they change, so a steady sky costs nothing per frame but a
 sky animated every frame would rebake every frame.
 
+### The clear sky
+
+`FrameView.Sky.Turbidity` above zero swaps the bands above the horizon for the Preetham,
+Shirley and Smits (1999) clear sky, in `Shaders/sky.glsl`. Its zenith luminance and
+chromaticity and the Perez distribution give luminance Y and chromaticity x and y in each
+direction, which turn into linear sRGB through XYZ. The paper's luminance is in kcd/m²;
+`SKY_UNITS_PER_KILOCANDELA` (0.08) puts it in the renderer's units, where a sun of about 8
+is the real 100 klux, so a turbidity of 2.5 with the sun 30° up gives about 0.35 straight
+up, close to the gradient skies the examples used. `Passes/SkyModel.cs` holds the same
+formulas in C#, so tests can check them against hand-worked values, and picks the sun:
+the shadow-casting light, else the first. Below the horizon the bake fades from the sky
+at the horizon into the floor band, so `Ground` still shows there.
+
+The disc is `LightAngle` across, which is a diameter, and as bright as the light's
+radiance spread over its solid angle, 4π sin²(r/2) for radius r, held at
+`SkyModel.MaxDiscRadiance` (30000) because the render targets are half floats and bloom
+adds to it. It has a short smoothstep edge so it doesn't alias. The bake adds it only to
+mip 0 of the reflection cube. The rough mips, the irradiance cube and `EnvironmentMap.Sky`
+keep the circumsolar glow but not the disc, because the direct light already gives its
+highlight and its diffuse light; a disc there would count it twice and turn into specks in
+the prefiltered mips. Reflection probe captures leave it out for the same reason, through
+a zero `sunDisc` in the frame uniforms. The background draws the sky analytically, disc
+included, rather than from the cube, so it stays sharp at any resolution; below the
+horizon and in the haze fade it still reads the cube.
+
+The frame uniforms carry `skySun` (towards the sun, and the turbidity) and `sunDisc`
+(its radiance, and the cosine of its radius). The renderer compares `SkyModel.Sun` with
+what it last baked each frame and, on a change, waits for the GPU and runs
+`EnvironmentMap.Rebake` with the same bands, so moving the sun under a clear sky rebakes
+every frame. That doesn't bump the environment version: the lighting hashes that decide
+when probes recapture already cover the turbidity, the lights and `LightAngle`.
+
 ## Reflections
 
 A reflection comes from the most accurate source that can answer. First, a ray walks

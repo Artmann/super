@@ -125,6 +125,12 @@ internal struct FrameUniforms
     /// <summary>xyz: how many probes run along each axis; w: 1 when surfaces take their soft light from the probes.</summary>
     public Vector4 LightProbeCounts;
 
+    /// <summary>xyz: towards the clear sky's sun; w: its turbidity, 0 for the environment's bands.</summary>
+    public Vector4 SkySun;
+
+    /// <summary>rgb: how bright the sun's disc is, 0 for none; a: the cosine of its angular radius.</summary>
+    public Vector4 SunDisc;
+
     public int LightCount;
     public float Time;
     public int FrameNumber;

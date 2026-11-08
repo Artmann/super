@@ -451,6 +451,16 @@ public sealed class View
                 $"The haze must start at zero or further and end no nearer than it starts, but it runs from {settings.HazeStart} to {settings.HazeEnd} metres.");
         }
 
+        float turbidity = settings.Turbidity;
+        if (!(turbidity == 0f || turbidity is >= Super.SkySettings.MinTurbidity and <= Super.SkySettings.MaxTurbidity))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(settings),
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"The sky's turbidity must be 0 for the gradient sky, or from {Super.SkySettings.MinTurbidity} to {Super.SkySettings.MaxTurbidity} for a clear one, but it is {turbidity}."));
+        }
+
         SkySettings = settings;
     }
 

@@ -9,6 +9,7 @@
 #include "material_data.glsl"
 #include "light_data.glsl"
 #include "local_shadows.glsl"
+#include "sky.glsl"
 
 layout(location = 0) in vec2 inUv;
 
@@ -428,7 +429,18 @@ void main() {
         if (frame.showEnvironment == 1) {
             vec4 ahead = frame.inverseViewProjection * vec4(inUv * 2.0 - 1.0, 1.0, 1.0);
             vec3 direction = normalize(ahead.xyz / ahead.w - frame.cameraPosition.xyz);
-            outColor = vec4(textureLod(reflectionTexture, direction, 0.0).rgb * frame.backgroundRadiance.a, 1.0);
+
+            // A clear sky is worked out for each pixel, so the sun's disc is as sharp as the
+            // screen. Below the horizon the baked floor is the same either way.
+            vec3 background;
+            if (frame.skySun.w > 0.0 && direction.y >= 0.0) {
+                background = preethamRadiance(direction, frame.skySun.xyz, frame.skySun.w)
+                    + sunDiscRadiance(direction, frame.skySun.xyz, frame.sunDisc);
+            } else {
+                background = textureLod(reflectionTexture, direction, 0.0).rgb;
+            }
+
+            outColor = vec4(background * frame.backgroundRadiance.a, 1.0);
             return;
         }
 

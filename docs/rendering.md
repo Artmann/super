@@ -341,9 +341,42 @@ Haze from the focus leaves the middle clear and fades the edges of the view. `Ha
 sets what things fade into; zero fades them into the sky behind them, which for a camera
 looking down is the dark ground below the horizon.
 
+![The Courtyard sky as a gradient, then as a clear sky, then the clear sky round the sun's disc](media/clear-sky.webp)
+
+`Turbidity` swaps the gradient for a clear sky worked out from the sun, after Preetham,
+Shirley and Smits (1999). It is brighter and whiter towards the sun, a deeper blue
+straight up and away from it, and paler at the horizon, and the sun itself shows as a
+disc:
+
+```csharp
+view.Sun(direction: new Vector3(-0.75f, 0.5f, 0.42f), color: new Vector3(7.2f, 6.7f, 5.8f));
+view.Sky(new SkySettings
+{
+    Ground = new Vector3(0.2f, 0.17f, 0.14f),
+    Brightness = 0.75f,
+    Turbidity = 2.5f,   // 1.7 is a very clear day, 10 a hazy one
+});
+```
+
+Turbidity is how hazy the air is, from 1.7 to 10; 2 to 3 is a clear day. Zero, the
+default, keeps the gradient, and is the way to turn the clear sky off: there is no
+switch for it in `Graphics`. Any other value throws. The sky follows the sun that casts
+the shadows, or the first sun when none does. Its disc is as wide as `sunSize` in
+`view.Shadows` and as bright as the sun's colour spread over it, so a smaller sun is a
+brighter disc, held under what the screen can store. `Zenith` and `Horizon` are not used;
+`Ground` still colours what is below the horizon, and `Brightness` still scales the
+whole sky, disc included. A sun below the horizon is treated as on it, so this is a
+daytime sky.
+
+The disc shows in the background and in sharp reflections from the sky, but not in the
+soft light, in rough reflections or in what [probes](#bounced-light) capture: the sun's
+own light already gives those their highlight and their warmth. Moving the sun or
+changing the turbidity rebuilds the sky's lighting, the same as changing its colours.
+
 Changing the colours rebuilds the sky's lighting, which takes a moment, so keep them
 steady rather than animating them every frame. [Water](#water), when set, takes over the
-sky. The [Archer example](../examples/Archer) uses a golden-hour sky.
+sky. The [Archer example](../examples/Archer) uses a golden-hour sky, and the
+[Courtyard example](../examples/Courtyard) a clear one.
 
 ## Water
 

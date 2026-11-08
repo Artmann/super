@@ -356,6 +356,19 @@ public ref struct EnvironmentDescription
 }
 
 /// <summary>
+/// A real clear sky, worked out from the sun (Preetham, Shirley and Smits 1999), in place of the
+/// environment's ceiling and horizon. Its sun is the light that casts the shadows, or else the
+/// first, and it shows that light as a disc <see cref="ShadowSettings.LightAngle"/> across. The
+/// environment's floor still shows below the horizon. Changing it, or that sun, while it is on
+/// bakes the environment again, which waits for the GPU. See "Sky" in docs/rendering.md.
+/// </summary>
+public struct AnalyticSky
+{
+    /// <summary>How hazy the air is, from 1.7 (very clear) to 10 (milky). 0 keeps the environment's bands.</summary>
+    public float Turbidity;
+}
+
+/// <summary>
 /// A spot where the real scene is photographed in all directions, so nearby surfaces
 /// reflect it. The box is the room around it: reflections land on its walls and floor
 /// instead of infinitely far away, which keeps them lined up with the scene.
@@ -584,6 +597,9 @@ public ref struct FrameView
 
     /// <summary>Scales the light and reflections from the environment.</summary>
     public float EnvironmentIntensity;
+
+    /// <summary>A real clear sky in place of the environment's bands, or, with turbidity 0, the bands.</summary>
+    public AnalyticSky Sky;
 
     /// <summary>Shown where nothing was drawn, unless <see cref="ShowEnvironment"/> is set.</summary>
     public Vector3 BackgroundRadiance;

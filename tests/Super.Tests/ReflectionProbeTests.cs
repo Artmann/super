@@ -120,12 +120,16 @@ public class ReflectionProbeTests
         noContact.Off = RenderEffects.ContactShadows | RenderEffects.LightShadows;
         var noMultiscatter = view;
         noMultiscatter.Off = RenderEffects.MultiscatterSpecular;
+        var clearSky = view;
+        clearSky.Sky = new AnalyticSky { Turbidity = 2.5f };
 
         Assert.NotEqual(before, Renderer.ReflectionLightingHash(brighter, 1));
         Assert.NotEqual(before, Renderer.ReflectionLightingHash(dimSky, 1));
         Assert.NotEqual(before, Renderer.ReflectionLightingHash(view, 2));
         Assert.NotEqual(before, Renderer.ReflectionLightingHash(noOcclusion, 1));
         Assert.NotEqual(before, Renderer.ReflectionLightingHash(noMultiscatter, 1));
+        Assert.NotEqual(before, Renderer.ReflectionLightingHash(clearSky, 1));
+        Assert.NotEqual(Renderer.LightingHash(view, 1), Renderer.LightingHash(clearSky, 1));
         Assert.Equal(before, Renderer.ReflectionLightingHash(noContact, 1));
     }
 

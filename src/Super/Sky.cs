@@ -39,4 +39,19 @@ public struct SkySettings
 
     /// <summary>What things fade into. Zero fades them into the sky behind them.</summary>
     public Vector3 HazeColor;
+
+    /// <summary>
+    /// How hazy the air is, which turns on a real clear sky worked out from the sun: from 1.7, a
+    /// crisp mountain sky, through 2 to 3 for a clear day, to 10, a milky summer haze. It
+    /// brightens towards the sun, deepens overhead, and shows the sun's disc, as wide as
+    /// <c>View.Shadows</c>' sunSize. Zenith and Horizon are then not used; Ground still colours
+    /// what's below the horizon. Zero, the default, keeps the gradient.
+    /// </summary>
+    public float Turbidity;
+
+    /// <summary>The clearest and the haziest a clear sky can be.</summary>
+    public const float MinTurbidity = 1.7f;
+
+    /// <inheritdoc cref="MinTurbidity"/>
+    public const float MaxTurbidity = 10f;
 }

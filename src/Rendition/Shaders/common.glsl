@@ -37,6 +37,8 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 occlusion;          // x: how far ambient occlusion looks, in metres; y: its strength, 0 to 1
     vec4 lightProbeMin;      // xyz: the first light probe; w: the probes' spacing in metres
     vec4 lightProbeCounts;   // xyz: probes along each axis; w: 1 when the soft light comes from them
+    vec4 skySun;             // xyz: towards the clear sky's sun; w: its turbidity, 0 for the environment's bands
+    vec4 sunDisc;            // rgb: how bright the sun's disc is, 0 for none; a: the cosine of its angular radius
     int lightCount;
     float time;              // Seconds, as set by the game.
     int frameNumber;

@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Rendition.Passes;
 using Silk.NET.Vulkan;
 
 namespace Rendition.Vulkan;
@@ -8,7 +9,8 @@ namespace Rendition.Vulkan;
 /// <summary>
 /// Cube maps of the surrounding studio. Reflections holds one mip per roughness step,
 /// Irradiance holds the soft light that reaches a matte surface, and Sky is the sharp
-/// studio without its panels, the same light the irradiance is made from.
+/// studio without its panels, or the clear sky without its sun disc, the same light the
+/// irradiance is made from.
 /// </summary>
 internal sealed unsafe class EnvironmentMap : IDisposable
 {
@@ -44,6 +46,13 @@ internal sealed unsafe class EnvironmentMap : IDisposable
         public Vector4 Ceiling;
         public Vector4 Horizon;
         public Vector4 Floor;
+
+        /// <summary>xyz: towards the clear sky's sun; w: its turbidity, 0 for the bands.</summary>
+        public Vector4 SkySun;
+
+        /// <summary>rgb: how bright the sun's disc is; a: the cosine of its angular radius.</summary>
+        public Vector4 SunDisc;
+
         public int PanelCount;
         private readonly int _padding0;
         private readonly int _padding1;
@@ -86,7 +95,7 @@ internal sealed unsafe class EnvironmentMap : IDisposable
 
     /// <summary>
     /// What the light probes see past the scene. Direct lights already give the panels'
-    /// diffuse light, so a probe that saw them would count it twice. Keep a sun disc out too.
+    /// diffuse light, so a probe that saw them would count it twice. The sun's disc stays out for the same reason.
     /// </summary>
     public ImageView Sky => _sky.Sampled;
 
@@ -160,10 +169,27 @@ internal sealed unsafe class EnvironmentMap : IDisposable
         _pipeline = PipelineFactory.CreateCompute(context, "environment.comp", _pipelineLayout);
     }
 
-    /// <summary>Renders the studio into the cube maps. Each level runs separately to keep GPU work short.</summary>
-    public void Bake(in EnvironmentDescription description)
+    /// <summary>
+    /// Renders the studio, or a clear sky over its floor, into the cube maps. Each level runs
+    /// separately to keep GPU work short.
+    /// </summary>
+    public void Bake(in EnvironmentDescription description, in SkySun sky)
     {
         WriteUniforms(description);
+        Rebake(sky);
+    }
+
+    /// <summary>
+    /// Renders the cube maps again from the last <see cref="Bake"/>'s bands and panels with another
+    /// clear sky. Only the reflections' sharpest level shows the sun's disc: the direct light
+    /// already gives a surface the sun's diffuse light and its highlight, so the soft light and the
+    /// rougher levels would count it twice. Their sky still brightens round the sun.
+    /// </summary>
+    public void Rebake(in SkySun sky)
+    {
+        var uniforms = (GpuEnvironment*)_uniforms.Mapped;
+        uniforms->SkySun = new Vector4(sky.Direction, sky.Turbidity);
+        uniforms->SunDisc = new Vector4(sky.DiscRadiance, sky.DiscCosine);
 
         for (int mip = 0; mip < ReflectionMips; mip++)
         {

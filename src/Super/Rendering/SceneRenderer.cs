@@ -63,10 +63,13 @@ internal sealed class SceneRenderer : IDisposable
     /// <summary>The grey room a world without a sky sits in.</summary>
     private static readonly Bands Studio = new(new Vector3(0.45f, 0.5f, 0.6f), new Vector3(0.5f, 0.5f, 0.52f), new Vector3(0.25f, 0.24f, 0.23f));
 
-    private readonly record struct Bands(Vector3 Ceiling, Vector3 Horizon, Vector3 Floor);
+    internal readonly record struct Bands(Vector3 Ceiling, Vector3 Horizon, Vector3 Floor);
 
-    // Water wins over the sky, which wins over the studio.
-    private static Bands Surroundings(View view)
+    /// <summary>
+    /// The bands baked into the environment. Water wins over the sky, which wins over the studio.
+    /// A clear sky keeps its three colours here, and the renderer uses only the ground below its horizon.
+    /// </summary>
+    internal static Bands SurroundingColors(View view)
     {
         var water = view.WaterSettings;
         if (water.Absorption != Vector3.Zero)
@@ -81,6 +84,12 @@ internal sealed class SceneRenderer : IDisposable
 
         return Studio;
     }
+
+    /// <summary>The view's clear sky, or none under water, which takes over the sky.</summary>
+    internal static AnalyticSky FrameSky(View view) =>
+        view.WaterSettings.Absorption == Vector3.Zero && view.SkySettings is { } sky
+            ? new AnalyticSky { Turbidity = sky.Turbidity }
+            : default;
 
     public int ValidationErrors => _renderer.ValidationErrors;
 
@@ -296,7 +305,7 @@ internal sealed class SceneRenderer : IDisposable
 
         // Surfaces pick up the color of the water or sky around them. Baking is slow, so
         // it only happens when the colors change.
-        var bands = Surroundings(view);
+        var bands = SurroundingColors(view);
         if (bands != _bakedBands)
         {
             _renderer.SetEnvironment(new EnvironmentDescription
@@ -640,6 +649,7 @@ internal sealed class SceneRenderer : IDisposable
             Occlusion = view.Occlusion,
             LightProbes = view.LightProbeVolume,
             EnvironmentIntensity = sky is null ? 0.8f : sky.Value.Brightness > 0f ? sky.Value.Brightness : 1f,
+            Sky = FrameSky(view),
             BackgroundRadiance = new Vector3(0.15f, 0.16f, 0.18f),
             ShowEnvironment = sky is not null,
             BackgroundFadeStart = sky?.HazeStart ?? 0f,
