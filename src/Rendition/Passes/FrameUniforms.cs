@@ -119,6 +119,12 @@ internal struct FrameUniforms
     /// <summary>x: how far ambient occlusion looks, in metres; y: its strength, 0 to 1.</summary>
     public Vector4 Occlusion;
 
+    /// <summary>xyz: the first light probe's position; w: the probes' spacing in metres.</summary>
+    public Vector4 LightProbeMin;
+
+    /// <summary>xyz: how many probes run along each axis; w: 1 when surfaces take their soft light from the probes.</summary>
+    public Vector4 LightProbeCounts;
+
     public int LightCount;
     public float Time;
     public int FrameNumber;
@@ -136,8 +142,13 @@ internal struct FrameUniforms
     /// shifts the view, since the frames it blends together fill in the finer level.
     /// </summary>
     public float MipBias;
-    private int _pad1;
-    private int _pad2;
+
+    /// <summary>
+    /// 1 while a light probe's faces are drawn: the lighting then writes each pixel's distance
+    /// from the probe into alpha, negative for the back of a surface, for probe_fold.comp.
+    /// </summary>
+    public int ProbeCapture;
+    private int _pad;
     public GpuLightArray Lights;
     public GpuReflectionProbeArray Probes;
 }

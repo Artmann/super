@@ -60,7 +60,8 @@ internal sealed unsafe class GBufferPass : IDisposable
         DescriptorSet frameSet,
         ReadOnlySpan<DrawItem> draws,
         List<Mesh?> meshes,
-        InstanceBuffer instances)
+        InstanceBuffer instances,
+        bool allTwoSided = false)
     {
         var api = _context.Api;
 
@@ -93,7 +94,8 @@ internal sealed unsafe class GBufferPass : IDisposable
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set };
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
 
-        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, instances, ScenePass.Opaque);
+        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, instances, ScenePass.Opaque,
+            allTwoSided: allTwoSided);
 
         api.CmdEndRendering(cmd);
     }

@@ -93,6 +93,7 @@ public sealed class View
     internal float SunSize { get; private set; }
     internal float ShadowContact { get; private set; } = ShadowSettings.DefaultContactLength;
     internal OcclusionSettings Occlusion { get; private set; } = new();
+    internal ProbeVolumeSettings? LightProbeVolume { get; private set; }
     internal UiTree? Ui { get; set; }
 
     /// <summary>How the screen moves between pictures this frame. Set by <see cref="Transitions"/>.</summary>
@@ -511,6 +512,44 @@ public sealed class View
         Occlusion = new OcclusionSettings(radius, strength);
     }
 
+    /// <summary>
+    /// Fills the box from <paramref name="min"/> to <paramref name="max"/> with light probes
+    /// <paramref name="spacing"/> metres apart, which give the surfaces inside the light bounced
+    /// off the walls, floor and everything else around them, in place of the sky's. A probe
+    /// keeps track of how far it sees in each direction, so light doesn't leak through walls. The
+    /// probes are drawn again over the next frames whenever the sun, the sky or the box changes.
+    /// At most <see cref="ProbeGrid.MaxProbes"/> fit. See docs/rendering.md.
+    /// </summary>
+    public void LightProbes(Vector3 min, Vector3 max, float spacing)
+    {
+        if (!(float.IsFinite(spacing) && spacing > 0f))
+        {
+            throw new ArgumentOutOfRangeException(nameof(spacing), spacing, "The light probes' spacing must be more than 0 metres.");
+        }
+
+        for (int axis = 0; axis < 3; axis++)
+        {
+            if (!(float.IsFinite(min[axis]) && float.IsFinite(max[axis]) && max[axis] > min[axis]))
+            {
+                string name = axis == 0 ? "x" : axis == 1 ? "y" : "z";
+                throw new ArgumentException(
+                    $"The light probes' box must reach further along {name} than it starts, but it runs from {min[axis].ToString(CultureInfo.InvariantCulture)} to {max[axis].ToString(CultureInfo.InvariantCulture)}.",
+                    nameof(max));
+            }
+        }
+
+        var settings = new ProbeVolumeSettings(min, max, spacing);
+        long total = ProbeGrid.Total(settings);
+        if (total > ProbeGrid.MaxProbes)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(spacing), spacing,
+                $"The box holds {total.ToString(CultureInfo.InvariantCulture)} light probes at this spacing, but at most {ProbeGrid.MaxProbes.ToString(CultureInfo.InvariantCulture)} fit. Space them further apart or make the box smaller.");
+        }
+
+        LightProbeVolume = settings;
+    }
+
     /// <summary>How wide the sun looks, in radians, unless <see cref="Shadows"/> says otherwise.</summary>
     public const float DefaultSunSize = 0.12f;
 
@@ -622,6 +661,7 @@ public sealed class View
         SunSize = DefaultSunSize;
         ShadowContact = ShadowSettings.DefaultContactLength;
         Occlusion = new OcclusionSettings();
+        LightProbeVolume = null;
 
         // The hold stays, since changing it is what tells the renderer to keep a picture.
         Transition = new ScreenTransition { Hold = Transition.Hold };

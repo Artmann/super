@@ -55,6 +55,12 @@ public sealed class Graphics
     /// </summary>
     public bool ContactShadows { get; set; } = true;
 
+    /// <summary>
+    /// The light bounced off walls and floors by <see cref="View.LightProbes"/>. Off, nothing is drawn
+    /// into the probes and every surface takes its soft light from the sky, as with no probes at all.
+    /// </summary>
+    public bool LightProbes { get; set; } = true;
+
     /// <summary>Point and spot light shadows. Off, those lights are blocked only by nearby surfaces, as the sun is without its shadows.</summary>
     public bool LightShadows { get; set; } = true;
 
@@ -87,6 +93,7 @@ public sealed class Graphics
         Vsync = false,
         SunShadows = false,
         ContactShadows = false,
+        LightProbes = false,
         LightShadows = false,
         AmbientOcclusion = false,
         Reflections = false,
@@ -98,6 +105,7 @@ public sealed class Graphics
     internal RenderEffects Off =>
         (SunShadows ? 0 : RenderEffects.SunShadows)
         | (ContactShadows ? 0 : RenderEffects.ContactShadows)
+        | (LightProbes ? 0 : RenderEffects.LightProbes)
         | (LightShadows ? 0 : RenderEffects.LightShadows)
         | (AmbientOcclusion ? 0 : RenderEffects.AmbientOcclusion)
         | (Reflections ? 0 : RenderEffects.Reflections)

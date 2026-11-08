@@ -273,6 +273,11 @@ unsafe
             BackgroundFadeEnd = 26f,
             Post = new PostSettings { Contrast = 0.08f, Saturation = 0.1f, Vignette = 0.3f, Sharpen = 0.4f, Grain = 0.006f },
             Overlay = overlay,
+            // Light probes round the cube, some of them inside it. Those see only the backs of
+            // its faces and must be left out, or they'd pour darkness onto the cube's sides.
+            LightProbes = modelPath is null
+                ? new ProbeVolumeSettings(new Vector3(-1.25f), new Vector3(1.25f), 0.25f)
+                : null,
         };
 
         // The car sees the floor and the shadow it casts there. It leaves itself out of

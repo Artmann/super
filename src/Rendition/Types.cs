@@ -576,6 +576,12 @@ public ref struct FrameView
     /// <summary>How nearby surfaces darken the soft light. See docs/rendering.md.</summary>
     public OcclusionSettings Occlusion = new();
 
+    /// <summary>
+    /// A box of light probes that gives the surfaces inside it bounced light in place of the sky's,
+    /// or none. At most <see cref="ProbeGrid.MaxProbes"/>. See docs/rendering.md.
+    /// </summary>
+    public ProbeVolumeSettings? LightProbes;
+
     /// <summary>Scales the light and reflections from the environment.</summary>
     public float EnvironmentIntensity;
 
@@ -663,7 +669,13 @@ public enum RenderEffects
     /// </summary>
     ContactShadows = 1 << 7,
 
-    All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows,
+    /// <summary>
+    /// The light bounced off walls and floors, from <see cref="FrameView.LightProbes"/>. Without it
+    /// nothing is drawn into the probes and every surface takes its soft light from the sky.
+    /// </summary>
+    LightProbes = 1 << 8,
+
+    All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes,
 }
 
 /// <summary>

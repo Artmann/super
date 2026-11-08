@@ -35,6 +35,8 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 clusters;           // x, y: nearest and furthest depth a local light reaches; z: 1 for even slices
     vec4 screen;             // xy: the render targets' size in pixels
     vec4 occlusion;          // x: how far ambient occlusion looks, in metres; y: its strength, 0 to 1
+    vec4 lightProbeMin;      // xyz: the first light probe; w: the probes' spacing in metres
+    vec4 lightProbeCounts;   // xyz: probes along each axis; w: 1 when the soft light comes from them
     int lightCount;
     float time;              // Seconds, as set by the game.
     int frameNumber;
@@ -45,8 +47,8 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     int localLightCount;     // Point and spot lights in light_data.glsl's lights.
     int off;                 // The RenderEffects left out of this frame: see the OFF_ bits below.
     float mipBias;           // Added to the mip level of material textures: below 0 while anti-aliasing shifts the view.
-    int pad1;
-    int pad2;
+    int probeCapture;        // 1 while drawing a light probe's faces: alpha holds the distance, negative behind a surface.
+    int pad;
     Light lights[8];
     ReflectionProbe probes[4];
 } frame;

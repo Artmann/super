@@ -1,4 +1,6 @@
 #version 460
+#extension GL_GOOGLE_include_directive : require
+#include "sampling.glsl"
 
 layout(location = 0) in vec2 inUv;
 
@@ -10,21 +12,30 @@ layout(location = 0) out vec4 outOcclusion;
 const int RADIUS = 3;
 
 // Averages away the grain of the visibility and the bent normal together, but not across
-// the edges of objects. Bent normals face the camera, where their octahedral form is
-// smooth, so averaging it gives a fair average direction.
+// the edges of objects. The octahedral form folds over where a direction turns away from
+// the camera, so averaging it there gives a direction none of the taps had. Each tap's
+// bent normal is decoded and the directions summed instead, which averages fairly anywhere.
 void main() {
     vec2 texel = 1.0 / vec2(textureSize(occlusionTexture, 0));
     float center = texture(depthTexture, inUv).r;
-    vec4 sum = vec4(0.0);
+    vec3 direction = vec3(0.0);
+    vec2 rest = vec2(0.0);
     float weights = 0.0;
     for (int y = -RADIUS; y <= RADIUS; y++) {
         for (int x = -RADIUS; x <= RADIUS; x++) {
             vec2 uv = inUv + vec2(x, y) * texel;
             float difference = abs(texture(depthTexture, uv).r / max(center, 1e-6) - 1.0);
             float weight = exp(-difference * 20.0);
-            sum += texture(occlusionTexture, uv) * weight;
+            vec4 tap = texture(occlusionTexture, uv);
+            direction += octahedralDecode(tap.xy * 2.0 - 1.0) * weight;
+            rest += tap.zw * weight;
             weights += weight;
         }
     }
-    outOcclusion = sum / weights;
+
+    // The centre tap always counts fully, so the sum is never zero unless the taps cancel.
+    vec3 bent = dot(direction, direction) > 1e-12
+        ? normalize(direction)
+        : octahedralDecode(texture(occlusionTexture, inUv).xy * 2.0 - 1.0);
+    outOcclusion = vec4(octahedralEncode(bent) * 0.5 + 0.5, rest / weights);
 }

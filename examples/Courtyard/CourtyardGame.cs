@@ -68,6 +68,8 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         // A sun close to its real size, so the tree out of frame to the left, 10 m up-sun of
         // the wall, dapples it with crisp leafy shade rather than one soft patch.
         view.Shadows(7f, 3, sunSize: 0.02f);
+        // Light probes over the yard, a metre apart, so the sunlit brick warms the shade round it.
+        view.LightProbes(new(-2f, -0.5f, -9f), new(9f, 5f, 6f), 1f);
 
         // The lantern is on, shining every way through its glass. In daylight it only warms
         // the wall just round it. It casts no shadows: the light sits inside the bulb and the lantern round it, and

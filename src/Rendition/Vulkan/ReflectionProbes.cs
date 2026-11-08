@@ -28,9 +28,7 @@ internal sealed unsafe class ReflectionProbes : IDisposable
     private readonly Image _image;
     private readonly GpuAllocation _memory;
     private readonly ImageView[] _levels = new ImageView[FrameUniforms.MaxProbes * Mips];
-    private readonly Image _source;
-    private readonly GpuAllocation _sourceMemory;
-    private readonly ImageView _sourceView;
+    private readonly CaptureCube _source;
     private readonly DescriptorSetLayout _setLayout;
     private readonly DescriptorPool _pool;
     private readonly DescriptorSet _set;
@@ -49,7 +47,7 @@ internal sealed unsafe class ReflectionProbes : IDisposable
 
         uint layers = FrameUniforms.MaxProbes * 6;
         (_image, _memory) = CreateCubes(Mips, layers, ImageUsageFlags.StorageBit | ImageUsageFlags.SampledBit);
-        (_source, _sourceMemory) = CreateCubes(1, 6, ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit);
+        _source = new CaptureCube(context, FaceSize);
 
         var viewInfo = new ImageViewCreateInfo
         {
@@ -70,11 +68,6 @@ internal sealed unsafe class ReflectionProbes : IDisposable
                 api.CreateImageView(context.Device, &viewInfo, null, out _levels[probe * Mips + mip]).Check();
             }
         }
-
-        viewInfo.Image = _source;
-        viewInfo.ViewType = ImageViewType.TypeCube;
-        viewInfo.SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, 6);
-        api.CreateImageView(context.Device, &viewInfo, null, out _sourceView).Check();
 
         var bindings = stackalloc DescriptorSetLayoutBinding[]
         {
@@ -143,34 +136,8 @@ internal sealed unsafe class ReflectionProbes : IDisposable
         }
     }
 
-    /// <summary>Copies one finished face out of the image the scene was drawn to.</summary>
-    public void RecordFace(CommandBuffer cmd, Image rendered, int face)
-    {
-        var api = _context.Api;
-        api.Transition(cmd, rendered, ImageAspectFlags.ColorBit,
-            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferSrcOptimal,
-            PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit,
-            PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit);
-        api.Transition(cmd, _source, ImageAspectFlags.ColorBit,
-            ImageLayout.Undefined, ImageLayout.TransferDstOptimal,
-            PipelineStageFlags2.None, AccessFlags2.None,
-            PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit,
-            baseLayer: (uint)face);
-
-        var region = new ImageCopy
-        {
-            SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
-            DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, (uint)face, 1),
-            Extent = new Extent3D(FaceSize, FaceSize, 1),
-        };
-        api.CmdCopyImage(cmd, rendered, ImageLayout.TransferSrcOptimal, _source, ImageLayout.TransferDstOptimal, 1, &region);
-
-        api.Transition(cmd, _source, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
-            PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit,
-            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit,
-            baseLayer: (uint)face);
-    }
+    /// <summary>The cube the renderer copies each finished face into.</summary>
+    public CaptureCube Capture => _source;
 
     /// <summary>Blurs the six captured faces into a new probe.</summary>
     public ReflectionProbeHandle Add(in ReflectionProbe probe)
@@ -209,18 +176,16 @@ internal sealed unsafe class ReflectionProbes : IDisposable
         }
 
         api.DestroyImageView(_context.Device, View, null);
-        api.DestroyImageView(_context.Device, _sourceView, null);
         api.DestroyImage(_context.Device, _image, null);
-        api.DestroyImage(_context.Device, _source, null);
         _context.Memory.Free(_memory);
-        _context.Memory.Free(_sourceMemory);
+        _source.Dispose();
     }
 
     private void FilterLevel(int probe, int mip)
     {
         var api = _context.Api;
 
-        var sourceInfo = new DescriptorImageInfo(_sampler, _sourceView, ImageLayout.ShaderReadOnlyOptimal);
+        var sourceInfo = new DescriptorImageInfo(_sampler, _source.CubeView, ImageLayout.ShaderReadOnlyOptimal);
         var targetInfo = new DescriptorImageInfo(default, _levels[probe * Mips + mip], ImageLayout.General);
         var writes = stackalloc WriteDescriptorSet[]
         {
@@ -302,5 +267,104 @@ internal sealed unsafe class ReflectionProbes : IDisposable
         var memory = _context.Memory.AllocateImage(requirements, MemoryPropertyFlags.DeviceLocalBit);
         api.BindImageMemory(_context.Device, image, memory.Memory, memory.Offset).Check();
         return (image, memory);
+    }
+}
+
+/// <summary>
+/// The six faces of one capture, copied out of the image the scene was drawn to. Reflection
+/// probes blur it into their mips; the light probe volume folds it into its atlases.
+/// </summary>
+internal sealed unsafe class CaptureCube : IDisposable
+{
+    private readonly VulkanContext _context;
+    private readonly GpuAllocation _memory;
+
+    public readonly uint FaceSize;
+    public readonly Image Image;
+
+    /// <summary>The faces as a cube, for filtered lookups by direction.</summary>
+    public readonly ImageView CubeView;
+
+    /// <summary>The faces as six layers, for reading single texels.</summary>
+    public readonly ImageView ArrayView;
+
+    public CaptureCube(VulkanContext context, uint faceSize)
+    {
+        _context = context;
+        FaceSize = faceSize;
+        var api = context.Api;
+
+        var imageInfo = new ImageCreateInfo
+        {
+            SType = StructureType.ImageCreateInfo,
+            Flags = ImageCreateFlags.CreateCubeCompatibleBit,
+            ImageType = ImageType.Type2D,
+            Format = GBuffer.HdrFormat,
+            Extent = new Extent3D(faceSize, faceSize, 1),
+            MipLevels = 1,
+            ArrayLayers = 6,
+            Samples = SampleCountFlags.Count1Bit,
+            Tiling = ImageTiling.Optimal,
+            Usage = ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit,
+            SharingMode = SharingMode.Exclusive,
+            InitialLayout = ImageLayout.Undefined,
+        };
+        api.CreateImage(context.Device, &imageInfo, null, out Image).Check();
+        api.GetImageMemoryRequirements(context.Device, Image, out var requirements);
+        _memory = context.Memory.AllocateImage(requirements, MemoryPropertyFlags.DeviceLocalBit);
+        api.BindImageMemory(context.Device, Image, _memory.Memory, _memory.Offset).Check();
+
+        var viewInfo = new ImageViewCreateInfo
+        {
+            SType = StructureType.ImageViewCreateInfo,
+            Image = Image,
+            ViewType = ImageViewType.TypeCube,
+            Format = GBuffer.HdrFormat,
+            SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, 6),
+        };
+        api.CreateImageView(context.Device, &viewInfo, null, out CubeView).Check();
+        viewInfo.ViewType = ImageViewType.Type2DArray;
+        api.CreateImageView(context.Device, &viewInfo, null, out ArrayView).Check();
+    }
+
+    /// <summary>
+    /// Copies one finished face out of <paramref name="rendered"/>, which must be <see cref="FaceSize"/>
+    /// across and ready to sample. It's left ready to copy from, and the face ready for compute to read.
+    /// </summary>
+    public void RecordFace(CommandBuffer cmd, Image rendered, int face)
+    {
+        var api = _context.Api;
+        api.Transition(cmd, rendered, ImageAspectFlags.ColorBit,
+            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferSrcOptimal,
+            PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit,
+            PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit);
+        api.Transition(cmd, Image, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.TransferDstOptimal,
+            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit,
+            PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit,
+            baseLayer: (uint)face);
+
+        var region = new ImageCopy
+        {
+            SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
+            DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, (uint)face, 1),
+            Extent = new Extent3D(FaceSize, FaceSize, 1),
+        };
+        api.CmdCopyImage(cmd, rendered, ImageLayout.TransferSrcOptimal, Image, ImageLayout.TransferDstOptimal, 1, &region);
+
+        api.Transition(cmd, Image, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
+            PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit,
+            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit,
+            baseLayer: (uint)face);
+    }
+
+    public void Dispose()
+    {
+        var api = _context.Api;
+        api.DestroyImageView(_context.Device, ArrayView, null);
+        api.DestroyImageView(_context.Device, CubeView, null);
+        api.DestroyImage(_context.Device, Image, null);
+        _context.Memory.Free(_memory);
     }
 }

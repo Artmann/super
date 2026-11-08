@@ -10,6 +10,7 @@ What it does for every game, with no setup:
   and spot lights with soft shadows
 - Soft, contact-hardening shadows, in up to four cascades, with screen-space contact shadows where things meet the ground
 - A generated environment that gives surfaces reflections and soft fill light
+- [Bounced light](#bounced-light) from a volume of light probes, which doesn't leak through walls
 - Screen-space reflections and box-corrected reflection probes
 - Temporal anti-aliasing, [ambient occlusion](#ambient-occlusion) (with light bounced back from the surface's colour) and bloom
 - [Glass](#glass) that bends and frosts what's behind it, car paint clearcoat and surfaces that glow
@@ -45,6 +46,7 @@ next frame follows, so it can back an options menu.
 | `ContactShadows` | No thin dark line where things meet the ground in sunlight, only what the shadow maps show. `view.Shadows`' `contact` only changes [how far they look](#shadows) |
 | `LightShadows` | Point and spot lights shine through walls |
 | `AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. `view.AmbientOcclusion` only changes [how far and how dark](#ambient-occlusion) |
+| `LightProbes` | No [bounced light](#bounced-light): shade takes its soft light from the sky alone, as if no `view.LightProbes` were set, and no probes are captured |
 | `Reflections` | Shiny surfaces and water reflect only the sky and reflection probes, not what's on screen |
 | `AntiAliasing` | Edges show their pixels, and moving things stay sharp |
 | `Bloom` | No glow round bright things. `PostSettings.Bloom` only changes how much there is |
@@ -212,6 +214,40 @@ A point in a corner also sees the sky only through the opening, so the soft ligh
 comes from that way rather than straight off the surface. Reflections of the sky fade in
 the same corners, most on rough surfaces, so a gap behind a barrel doesn't shine.
 It only knows what the camera sees, plus what stands over a point in the sun's shadow map.
+
+## Bounced light
+
+```csharp
+view.LightProbes(min: new(-2f, -0.5f, -9f), max: new(9f, 5f, 6f), spacing: 1f);
+```
+
+Sunlight that lands on a brick wall doesn't stop there: some of it bounces off and lights
+the ground and everything near it, tinted the colour of the brick. Without bounced light, shade
+gets its soft light from the sky alone, so a yard in shadow looks blue and flat. A light probe
+volume fills a box with a grid of probes, `spacing` metres apart, that each record the light
+reaching them from every direction. Surfaces inside the box take their soft light from the
+probes round them instead of from the sky, so the shade under a sunlit wall takes on its
+warmth, and the inside of a closed room stays dark however bright the sky is.
+
+Give the box a little room around what it lights, and keep the spacing near the size of the
+smallest space that should be lit differently: 1 metre suits a yard or a room, 0.5 a corridor.
+The box may hold at most 4,096 probes, so 1 metre spacing covers about 15 by 15 by 15 metres;
+a bigger box throws when it is set. `spacing` must be more than zero, and `max` above `min` on
+every axis.
+
+Each probe also notes how far away the surfaces it sees are, so a point behind a wall from a
+probe gets nothing from it, and light doesn't leak into a room from the probes outside. A
+probe that ends up inside a wall or under the ground sees mostly the backs of surfaces, and
+is left out. Outside the box, or where no probe can see a point, the soft light comes from
+the sky as before. Reflections don't change; probes give only the soft, diffuse light.
+
+The probes are drawn by the renderer itself, from each probe's position, with the sun and the
+sky but without point and spot lights. That happens over the first frames after the box is set,
+64 probes a frame, and then once more, now lit by the first round, so light bounces twice. A
+change to the sun's direction or colour, the sky, the box or the sun's shadow starts it again;
+the old probes stay in use until the new ones are ready. Moving or adding objects doesn't, so
+probes suit what stands still. Each frame that draws probes takes longer, so a sun that moves
+every frame keeps them drawing; set it once and leave it, or turn `Graphics.LightProbes` off.
 
 ## The look of the picture
 

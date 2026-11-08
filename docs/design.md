@@ -948,6 +948,60 @@ they really land instead of sliding as the camera moves. Up to four probes blend
 their box edges. The sample leaves the car out of its probe, because the probe sits
 inside the car, and captures only the floor and the shadow on it.
 
+## Light probes
+
+A light probe volume gives bounced diffuse light, in the way of DDGI (Majercik et al.,
+2019) but captured by rasterising rather than tracing. `FrameView.LightProbes` sets a box
+and a spacing; `ProbeGrid` lays the probes out, x fastest, and `ProbeVolume` owns two
+atlases of octahedral tiles, 64 tiles across. The irradiance atlas (RGBA16F) has an 8×8 tile
+per probe and the depth atlas (RG16F) a 16×16 one, each with a one-texel border copied from
+across the octahedral map's edges, so bilinear filtering wraps round. Both stay in the
+`General` layout, written by compute and read by the lighting pass, and start black.
+
+A capture draws the probe's six faces at 32² into the same small cube `CaptureCube` that
+reflection probes use, through the normal scene passes. The frame's `probeCapture` flag
+changes what `lighting.frag` writes: diffuse light only, with no reflections, coat or point
+and spot lights, and the distance to the surface in alpha. The G-buffer is drawn with every
+material two-sided, and a back face writes -1 into the normal target's occlusion channel, so
+lighting writes a negative distance for it. Screen-space occlusion, reflections, subsurface
+blur and the transparent pass are skipped, as the faces are too small for them and blending
+would spoil the alpha. `probe_fold.comp` then reduces each face 2×2 into shared memory and
+writes both tiles in one dispatch: irradiance is the cosine-weighted mean of the radiance
+over the hemisphere, the same E/π as the environment's irradiance cube, and depth is the
+mean and the mean square of the distance around each direction, gathered with a cos⁵⁰ lobe
+so a wall's edge stays sharp. Distances are clamped to twice the spacing.
+
+Depth is stored because irradiance alone leaks. A probe on the far side of a wall sees
+bright sky, and blending it in would light the room. Each of the eight probes round a point
+is weighted by trilinear distance, by a wrapped cosine that favours probes in front of the
+surface, and by Chebyshev's inequality on the depth moments: if the point is further from
+the probe than the mean distance it saw that way, the probe probably can't see it, and its
+weight falls as the variance allows (cubed, to cut it harder). The point is first moved
+0.2 spacings off the surface, three-quarters along the normal and a quarter towards the
+viewer, so a probe's view of the surface itself doesn't shadow it. `ProbeGrid.Weight` does
+the same sums in C# for the tests. A probe that saw more than half back faces sits inside
+something; the fold writes -1 into its depth tile's first border texel and the lookup
+skips it. When the total weight is under 0.001 the lookup gives up and lighting uses the
+sky, which also covers points outside the box.
+
+The lookup uses the bent normal from ambient occlusion, and replaces only the sky's
+diffuse light; specular still comes from screen-space reflections, reflection probes and
+the sky. Soft light is now worked out in absolute units in `softLight()`: the sky cube times
+the environment intensity, or the probe value as captured.
+
+`ProbeSchedule` runs the captures in `Renderer.Render`, before the frame: up to 64 probes a
+frame, each face submitted and waited on, so capture frames hitch. Round 1 lights the probes
+by the sun and sky alone, with the sky cut off inside the box where no probe can answer
+yet; round 2 captures them again reading round 1's probes, which adds a second bounce. A
+probe is used once round 1 has finished. Capture cascades are centred on the shadow settings
+rather than fitted to a view, so the sun's maps are drawn for the first face of a batch and
+kept for the rest. `Renderer.LightingHash` hashes the suns' directions and colours, the
+environment (a version bumped by `SetEnvironment`), its intensity, the background, the
+shadow settings and the volume; when it changes the schedule restarts at round 1 but keeps
+using the old probes, and when the box changes it throws them away. Geometry isn't in the
+hash. Without `shaderStorageImageExtendedFormats`, needed to write RG16F from compute, the
+volume is off.
+
 ## Paint and glass
 
 Clearcoat adds a second, very smooth reflection on top of the surface, like the
@@ -1190,8 +1244,10 @@ radius. The visible arc between the horizons is integrated against the cosine of
 projected normal, which gives the share of the soft light that reaches the point. The same
 arcs give the bent normal, the average direction the point still sees the sky in. The
 pass writes both to an RGBA8 target: the bent normal in view space, octahedral, in x and
-y, and the visibility in z. `ao_blur.frag` averages all four channels without crossing
-depth edges, and `strength` mixes the visibility towards 1.
+y, and the visibility in z. `ao_blur.frag` averages them without crossing depth edges.
+It decodes each tap's bent normal and sums the directions, since averaging the octahedral
+form itself gives a wrong direction where it folds, and averages the visibility as it is.
+`strength` mixes the visibility towards 1.
 
 Lighting reads the environment's irradiance along the bent normal, mixed towards the
 surface's own normal as far as the point is visible, so open surfaces keep their normal
@@ -1369,8 +1425,10 @@ Anything larger than a block gets its own allocation.
   supported, will need motion vectors from the G-buffer pass too.
 - Screen-space reflections only know what is on screen, and read last frame's image.
   Glass still reflects the studio, not probes or traced rays.
-- Probes are captured once and don't update. They affect reflections only, not
-  soft diffuse light, and a scene gets at most four.
+- Reflection probes are captured once and don't update, and a scene gets at most four.
+- Light probes are captured again only when the lighting or the box changes, not when
+  things move, and a sun that moves every frame keeps them capturing. Each capture frame
+  waits for the GPU face by face, so it hitches.
 - Custom shaders replace only the G-buffer fragment shader. Shadows still use the
   material's standard cut-out, so a shader that discards extra pixels leaves the full
   shadow. Glass can't use one, and vertices can't be moved by one yet.

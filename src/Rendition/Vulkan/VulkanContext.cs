@@ -29,6 +29,9 @@ internal sealed unsafe class VulkanContext : IDisposable
 
     public int ValidationErrors => _validationErrors;
 
+    /// <summary>Whether compute shaders can write two-channel images such as rg16f, which the light probes' depth atlas prefers.</summary>
+    public bool StorageImageExtendedFormats { get; private set; }
+
     /// <summary>Owns every byte of device memory. Set once the device exists.</summary>
     public readonly GpuMemory Memory;
 
@@ -263,12 +266,15 @@ internal sealed unsafe class VulkanContext : IDisposable
             QueueCount = 1,
             PQueuePriorities = &priority,
         };
+        Api.GetPhysicalDeviceFeatures(PhysicalDevice, out var supported);
+        StorageImageExtendedFormats = supported.ShaderStorageImageExtendedFormats;
         var features = new PhysicalDeviceFeatures
         {
             SamplerAnisotropy = true,
             ImageCubeArray = true,
             ShaderSampledImageArrayDynamicIndexing = true,
             TextureCompressionBC = true,
+            ShaderStorageImageExtendedFormats = StorageImageExtendedFormats,
         };
         var features12 = new PhysicalDeviceVulkan12Features
         {
