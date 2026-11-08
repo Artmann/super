@@ -154,6 +154,21 @@ public class SkyModelTests
         Assert.Equal(MathF.Cos(0.01f), sun.DiscCosine, 1e-6f);
     }
 
+    [Theory]
+    [InlineData(0.5f, 1.7f)]
+    [InlineData(1.2f, 1.7f)]
+    [InlineData(4f, 4f)]
+    [InlineData(25f, 10f)]
+    [InlineData(float.PositiveInfinity, 10f)]
+    public void Rendition_draws_a_turbidity_out_of_range_at_the_nearest_end(float turbidity, float drawn)
+    {
+        var lights = new[] { new DirectionalLight { Direction = Vector3.UnitY, Radiance = new Vector3(8f), CastsShadow = true } };
+        var view = new FrameView { Lights = lights, Sky = new AnalyticSky { Turbidity = turbidity } };
+
+        Assert.Equal(drawn, SkyModel.Sun(view).Turbidity);
+        Assert.Equal(drawn, SkyModel.Sun(view with { Lights = default }).Turbidity);
+    }
+
     [Fact]
     public void A_sun_too_small_for_half_floats_is_held_at_their_limit_and_a_gradient_sky_has_no_sun()
     {

@@ -975,7 +975,11 @@ highlight and its diffuse light; a disc there would count it twice and turn into
 the prefiltered mips. Reflection probe captures leave it out for the same reason, through
 a zero `sunDisc` in the frame uniforms. The background draws the sky analytically, disc
 included, rather than from the cube, so it stays sharp at any resolution; below the
-horizon and in the haze fade it still reads the cube.
+horizon it reads the cube. What hazy surfaces and particles fade into, `skyBehind()`, is the
+analytic sky without the disc above the horizon, since mip 0's disc would show through a
+distant hill as a hot spot for bloom to spread. `SkyModel.Sun` holds a turbidity above zero
+to 1.7 to 10, as below about 1.2 the luminance's B turns positive and its exponential
+overflows at the horizon, and a sun straight below the horizon takes a level direction.
 
 The frame uniforms carry `skySun` (towards the sun, and the turbidity) and `sunDisc`
 (its radiance, and the cosine of its radius). The renderer compares `SkyModel.Sun` with
@@ -1500,6 +1504,9 @@ Anything larger than a block gets its own allocation.
   Only the sun with the shadow has them, not point or spot lights.
 - Only one sun casts shadows, so the others shine through objects, held back only
   by ambient occlusion. Point and spot lights without shadows are the same.
+- The clear sky's sun disc takes `LightAngle` as its diameter, but the soft shadows use it as
+  the filter's radius (`penumbra = d * lightAngle`), so their penumbrae are twice as wide as
+  that disc would cast.
 - Point and spot lights are left out of reflection probe captures, and glass and
   particles get no shadows from them. A light's cluster list holds 256, so a spot
   reached by more drops the rest.

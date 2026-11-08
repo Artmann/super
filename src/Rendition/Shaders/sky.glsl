@@ -27,8 +27,10 @@ SkyState skyState(vec3 sunDirection, float turbidity) {
     s.d = vec3(0.1206 * t - 2.5771, -0.0641 * t - 0.8989, -0.0441 * t - 1.6537);
     s.e = vec3(-0.0670 * t + 0.3703, -0.0033 * t + 0.0452, -0.0109 * t + 0.0529);
 
-    // The model holds only while the sun is up.
-    s.sun = normalize(vec3(sunDirection.x, max(sunDirection.y, 0.0), sunDirection.z));
+    // The model holds only while the sun is up. A sun straight below has no way across to
+    // hold to, so it takes one.
+    vec3 held = vec3(sunDirection.x, max(sunDirection.y, 0.0), sunDirection.z);
+    s.sun = dot(held, held) > 1e-8 ? normalize(held) : vec3(1.0, 0.0, 0.0);
     float thetaS = acos(clamp(s.sun.y, 0.0, 1.0));
 
     float chi = (4.0 / 9.0 - t / 120.0) * (3.14159265359 - 2.0 * thetaS);
@@ -62,6 +64,17 @@ vec3 skyRadiance(SkyState s, vec3 direction) {
 
 vec3 preethamRadiance(vec3 direction, vec3 sunDirection, float turbidity) {
     return skyRadiance(skyState(sunDirection, turbidity), direction);
+}
+
+// What a hazy surface or puff melts into: the environment's sharpest level, but above the
+// horizon of a clear sky the sky itself, as the sun's disc there would show through as a hot
+// spot. skySun is the frame's: xyz towards the sun, w the turbidity, 0 for the bands.
+vec3 skyBehind(samplerCube cube, vec3 direction, vec4 skySun) {
+    if (skySun.w > 0.0 && direction.y >= 0.0) {
+        return preethamRadiance(direction, skySun.xyz, skySun.w);
+    }
+
+    return textureLod(cube, direction, 0.0).rgb;
 }
 
 // The sun's disc, with an edge a little soft so it doesn't shimmer. disc.rgb is its brightness,

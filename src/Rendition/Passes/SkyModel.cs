@@ -21,6 +21,15 @@ internal static class SkyModel
     /// </summary>
     public const float MaxDiscRadiance = 30000f;
 
+    /// <summary>
+    /// The clearest air the model is drawn with. Below about 1.2 the luminance's B turns positive,
+    /// and its exponential overflows at the horizon.
+    /// </summary>
+    public const float MinTurbidity = 1.7f;
+
+    /// <summary>The haziest air the model is drawn with, the end of the paper's range.</summary>
+    public const float MaxTurbidity = 10f;
+
     /// <summary>The Perez distribution's five coefficients for luminance and the two chromaticities.</summary>
     public static (Vector3 A, Vector3 B, Vector3 C, Vector3 D, Vector3 E) Perez(float turbidity)
     {
@@ -58,6 +67,7 @@ internal static class SkyModel
     /// The view's clear sky and its sun: the light that casts the shadows, or else the first. The
     /// disc's radius is half of <see cref="ShadowSettings.LightAngle"/>, which is how wide the sun
     /// looks. A gradient sky gives all zeros, so moving the sun under one changes nothing here.
+    /// A turbidity above zero is held from <see cref="MinTurbidity"/> to <see cref="MaxTurbidity"/>.
     /// </summary>
     public static SkySun Sun(in FrameView view)
     {
@@ -66,9 +76,10 @@ internal static class SkyModel
             return default;
         }
 
+        float turbidity = Math.Clamp(view.Sky.Turbidity, MinTurbidity, MaxTurbidity);
         if (view.Lights.IsEmpty)
         {
-            return new SkySun(view.Sky.Turbidity, Vector3.UnitY, Vector3.Zero, 1f);
+            return new SkySun(turbidity, Vector3.UnitY, Vector3.Zero, 1f);
         }
 
         int index = 0;
@@ -89,6 +100,6 @@ internal static class SkyModel
         var radiance = solidAngle > 0f
             ? Vector3.Min(light.Radiance / solidAngle, new Vector3(MaxDiscRadiance))
             : Vector3.Zero;
-        return new SkySun(view.Sky.Turbidity, Vector3.Normalize(light.Direction), radiance, MathF.Cos(radius));
+        return new SkySun(turbidity, Vector3.Normalize(light.Direction), radiance, MathF.Cos(radius));
     }
 }

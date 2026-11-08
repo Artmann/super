@@ -641,7 +641,7 @@ void main() {
         if (frame.hazeColor.a > 0.5) {
             behind = frame.hazeColor.rgb;
         } else if (frame.showEnvironment == 1) {
-            behind = textureLod(reflectionTexture, normalize(away), 0.0).rgb * frame.backgroundRadiance.a;
+            behind = skyBehind(reflectionTexture, normalize(away), frame.skySun) * frame.backgroundRadiance.a;
         }
 
         float fade = smoothstep(fadeStart, fadeEnd, hazeDistance(position));

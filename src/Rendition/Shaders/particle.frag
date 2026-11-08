@@ -5,6 +5,7 @@
 #include "sampling.glsl"
 #include "water.glsl"
 #include "light_data.glsl"
+#include "sky.glsl"
 
 layout(location = 0) in vec2 inCorner;
 layout(location = 1) in vec2 inScreenCorner;
@@ -119,7 +120,7 @@ void main() {
             if (frame.hazeColor.a > 0.5) {
                 beyond = frame.hazeColor.rgb;
             } else if (frame.showEnvironment == 1) {
-                beyond = textureLod(reflectionTexture, normalize(away), 0.0).rgb * frame.backgroundRadiance.a;
+                beyond = skyBehind(reflectionTexture, normalize(away), frame.skySun) * frame.backgroundRadiance.a;
             }
 
             color = mix(color, beyond, smoothstep(fadeStart, fadeEnd, hazeDistance(inPosition)));

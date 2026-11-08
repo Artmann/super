@@ -364,7 +364,11 @@ public ref struct EnvironmentDescription
 /// </summary>
 public struct AnalyticSky
 {
-    /// <summary>How hazy the air is, from 1.7 (very clear) to 10 (milky). 0 keeps the environment's bands.</summary>
+    /// <summary>
+    /// How hazy the air is, from 1.7 (very clear) to 10 (milky). 0 keeps the environment's bands. Rendition
+    /// doesn't refuse other values, but draws anything above 0 held to 1.7 to 10: below about 1.2 the
+    /// model breaks down at the horizon. Super's SkySettings refuses them.
+    /// </summary>
     public float Turbidity;
 }
 
