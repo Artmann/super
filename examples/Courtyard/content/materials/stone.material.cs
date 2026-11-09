@@ -1,6 +1,6 @@
 using Super.Materials;
 
-/// <summary>Weathered grey-brown stone with pits, hairline cracks, flecks of grit, spots of lichen and patches of moss, for the stones of the walls, the plinth, the sill and the flagstones.</summary>
+/// <summary>Weathered grey-brown stone with pits, hairline cracks, flecks of grit, spots of lichen and patches of moss, for the plinth and the sill. Its spalls have a bevel highlight on their rims and its high spots are rubbed lighter.</summary>
 public sealed class Stone : MaterialGraph
 {
     public override Material Build()
@@ -41,6 +41,13 @@ public sealed class Stone : MaterialGraph
             .Multiply(flecks)
             .Multiply(cracks.Remap(1f, 0.55f))
             .Multiply(spalls.Remap(1f, 1.12f));
+        // The arrises the texture has, the sharp rims round the spalls, catch the light: a 1 cm bevel highlight on the
+        // intact side of each rim. (The blocks' own arrises are geometry, and the sidecar's baked wear lightens them.)
+        // The peaks of the height are rubbed 5% lighter.
+        var arris = spalls.EdgeDetect(0.01f).Multiply(spalls.Levels(0.45f, 0.55f).Invert());
+        stone = stone
+            .Multiply(arris.Remap(1f, 1.1f))
+            .Multiply(height.Levels(0.65f, 0.9f).Remap(1f, 1.05f));
         var lichenColor = Noise.Perlin(scale: 60, octaves: 2).GradientMap(Ramp.Of("#a3a28e", "#b9b49a"));
         var mossColor = Noise.Perlin(scale: 40, octaves: 3).GradientMap(Ramp.Of("#3d4a22", "#556429"));
         var color = stone.Blend(lichenColor, mask: lichen.Multiply(0.85f)).Blend(mossColor, mask: moss);

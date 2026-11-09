@@ -12,7 +12,7 @@
     { "match": "graph_drystone_damp", "graph": "../materials/drystone.material.cs", "graphSize": 2048, "color": [0.72, 0.73, 0.7], "detailGraph": "../materials/grit.material.cs", "worldVariation": true },
     { "match": "graph_drystone_core", "graph": "../materials/drystone.material.cs", "graphSize": 2048, "color": [0.55, 0.54, 0.52], "detailGraph": "../materials/grit.material.cs", "worldVariation": true },
     { "match": "graph_stone", "graph": "../materials/stone.material.cs", "graphSize": 2048, "detailGraph": "../materials/grit.material.cs", "worldVariation": true, "bakeMasks": true, "wear": { "color": [0.86, 0.85, 0.82], "roughness": 0.45, "amount": 0.6 }, "dirt": { "color": [0.6, 0.55, 0.5], "roughness": 0.95, "amount": 0.65 } },
-    { "match": "graph_flagstone", "graph": "../materials/stone.material.cs", "graphSize": 2048, "color": [0.92, 0.9, 0.86], "detailGraph": "../materials/grit.material.cs", "worldVariation": true },
+    { "match": "graph_flagstone", "graph": "../materials/flagstones.material.cs", "graphSize": 4096, "detailGraph": "../materials/grit.material.cs", "worldVariation": true },
     { "match": "graph_dirt", "graph": "../materials/mud.material.cs", "graphSize": 2048, "worldVariation": true },
     { "match": "graph_wood", "graph": "../materials/wood.material.cs", "graphSize": 2048, "bakeMasks": true, "wear": { "color": [0.86, 0.85, 0.82], "roughness": 0.45, "amount": 0.6 }, "dirt": { "color": [0.6, 0.55, 0.5], "roughness": 0.95, "amount": 0.65 } },
     { "match": "graph_sack", "graph": "../materials/burlap.material.cs", "graphSize": 2048 },

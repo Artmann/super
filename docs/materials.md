@@ -187,7 +187,16 @@ colour, normal and surface textures go into the model, with its height as a para
 map `Depth` deep when it sets a `Height`. The model's UVs are read in metres
 and divided by the graph's `Width`, so unwrap it at real-world scale. A `detailGraph` lays a
 second, small graph over the first as fine grain, as the Courtyard's `grit.material.cs` does
-over its bricks and stone. A graph that is only ever a detail graph still needs a varied
+over its bricks and stone.
+
+A graph with its own joints, such as a grid of stones, won't line up with stones that are
+modelled one by one. Map each modelled stone onto one cell of the graph instead, its outline
+on the cell's edge and its middle on the cell's middle, and the texture's chamfered edge,
+crown and cracks follow the real stone. The Courtyard's path does this: `art/courtyard.py`
+deals each slab one cell of the 8 by 8 grid in `flagstones.material.cs`, with a random turn
+and no cell used twice within 1.6 m.
+
+A graph that is only ever a detail graph still needs a varied
 `Roughness`, since it is also cooked on its own and the [checks](#checks) look at it. The graph's errors
 stop the model's cook, and editing the graph cooks the model again. With the rule's `alphaCutoff`, the
 graph's `Opacity` cuts the material out, so a graph can make leaves or a torn edge. See [A material graph

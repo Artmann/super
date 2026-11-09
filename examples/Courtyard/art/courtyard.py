@@ -1378,11 +1378,12 @@ def ground_broad(x, y):
     return 0.03 * noise.fractal(Vector((x * 0.6, y * 0.6, 0.0)), 0.7, 2.0, 4)
 
 
-def slab(bm, poly, centre, step, mat):
+def slab(bm, poly, centre, step, mat, stone):
     """A flagstone: sheer sides from below the mud, a narrow arris that is broken away in
     places, and a flat top that leans a little one way. The top has its own vertices, so its
     smooth shading stops at the arris and the edge reads as a crisp line. It is bedded just
-    proud of the mud under it, whichever way it leans, then raised or lowered by step."""
+    proud of the mud under it, whichever way it leans, then raised or lowered by step.
+    It wears stone, (row, column, turn), of the flagstones graph (see flag_uv)."""
     seed = Vector((rng.uniform(-50, 50), rng.uniform(-50, 50), 0))
     # Most stones lie almost level. A few have rocked, and stand a little proud on one side.
     rocked = rng.random() < 0.1
@@ -1469,7 +1470,71 @@ def slab(bm, poly, centre, step, mat):
         f.normal_update()
         if f.normal.dot(f.calc_center_median() - Vector((cx, cy, f.calc_center_median().z))) < 0:
             f.normal_flip()
-    box_uv(bm, faces, (rng.uniform(0, 2), rng.uniform(0, 2), 0))
+    # The offsets are still drawn, though flag_uv replaces the box mapping, so the generator
+    # stays in step and everything after the path comes out as it did.
+    rng.uniform(0, 2)
+    rng.uniform(0, 2)
+    flag_uv(bm, (cx, cy), lip, rings, middle, arris, shoulder, bottom, stone)
+
+
+# The grid of content/materials/flagstones.material.cs: its Width, its Stones across and its
+# Gap, a fraction of a stone. They must match the graph.
+FLAG_WIDTH = 5.2
+FLAG_STONES = 8
+FLAG_GAP = 0.06
+# Its own generator, so picking stones doesn't change anything else the script makes.
+flag_rng = random.Random(18)
+
+
+def flag_uv(bm, centre, lip, rings, middle, arris, shoulder, bottom, stone):
+    """Maps a slab onto one stone of the flagstones graph: its top's outline onto the edge of
+    the stone's square, its middle onto the square's middle and every ring between in
+    proportion, so the graph's chamfer, chips and moss follow the real edge and its crown
+    sits on the middle. The arris and sides run out into the graph's joint, where the dirt
+    is. The square is turned by an angle of the slab's own, so the cracks run every way."""
+    uv = uv_layer(bm)
+    row, column, turn = stone
+    size = FLAG_WIDTH / FLAG_STONES
+    half = size * (0.5 - FLAG_GAP / 2)
+    joint = size * FLAG_GAP / 2
+    mx, my = (column + 0.5) * size, (row + 0.5) * size
+    cx, cy = centre
+    at = {middle: (mx, my)}
+    for k, (x, y, _) in enumerate(lip):
+        angle = math.atan2(y - cy, x - cx) + turn
+        dx, dy = math.cos(angle), math.sin(angle)
+        # How far the square's edge is from its middle in this direction.
+        edge = half / max(abs(dx), abs(dy))
+        for ring, shrink in zip(rings, (1.0, 0.75, 0.48, 0.22)):
+            at[ring[k]] = (mx + dx * edge * shrink, my + dy * edge * shrink)
+        at[arris[k]] = (mx + dx * edge, my + dy * edge)
+        at[shoulder[k]] = (mx + dx * (edge + joint * 0.6), my + dy * (edge + joint * 0.6))
+        at[bottom[k]] = (mx + dx * (edge + joint), my + dy * (edge + joint))
+    for v, (u, w) in at.items():
+        for loop in v.link_loops:
+            loop[uv].uv = (u, w)
+
+
+def flag_stone_picker():
+    """Returns pick(x, y): which stone of the graph the slab centred there wears, and how far
+    it is turned. The stones are dealt from a shuffled deck of all 64, dealt again when it
+    runs out, so each is used about as often as the others and the sandstone stays the one
+    in eight the graph makes it. A slab never wears the same stone as a slab within 1.6 m."""
+    placed = []
+    deck = []
+
+    def pick(x, y):
+        taken = {stone for px, py, stone in placed if math.hypot(px - x, py - y) < 1.6}
+        if not any(card not in taken for card in deck):
+            fresh = [(r, c) for r in range(FLAG_STONES) for c in range(FLAG_STONES)]
+            flag_rng.shuffle(fresh)
+            deck.extend(fresh)
+        choice = next(card for card in deck if card not in taken)
+        deck.remove(choice)
+        placed.append((x, y, choice))
+        return choice[0], choice[1], flag_rng.uniform(0, 2 * math.pi)
+
+    return pick
 
 
 def build_flagstones(sc, M):
@@ -1497,6 +1562,7 @@ def build_flagstones(sc, M):
                 ghosts.append((x, y))
                 weights[(x, y)] = weight
     everything = points + ghosts
+    pick = flag_stone_picker()
     for p in points:
         near = [q for q in everything if q is not p and abs(q[0] - p[0]) < 1.4 and abs(q[1] - p[1]) < 1.4]
         cell = voronoi_cell(p, near, rng.uniform(0.62, 0.7), rng.uniform(0.008, 0.016), weights)
@@ -1506,7 +1572,7 @@ def build_flagstones(sc, M):
         cy = sum(c[1] for c in cell) / len(cell)
         # The tops sit just above the mud packed in the joints, a few a hair higher than their
         # neighbours, so the light catches a step here and there.
-        slab(bm, cell, (cx, cy), rng.choice((0.0, 0.0, 0.0, 0.003, 0.006)), 0)
+        slab(bm, cell, (cx, cy), rng.choice((0.0, 0.0, 0.0, 0.003, 0.006)), 0, pick(cx, cy))
         JOINTS.extend(cell)
     emit(sc, "flagstones", bm, [M["flagstone"]])
 
