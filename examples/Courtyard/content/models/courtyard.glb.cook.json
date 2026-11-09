@@ -2,7 +2,7 @@
   "keepOrigin": true,
   "keepMeshes": true,
   "materials": [
-    { "match": "graph_bricks", "graph": "../materials/bricks.material.cs", "graphSize": 2048, "detailGraph": "../materials/grit.material.cs", "worldVariation": true },
+    { "match": "graph_bricks", "graph": "../materials/bricks.material.cs", "graphSize": 4096, "detailGraph": "../materials/grit.material.cs", "worldVariation": true },
     { "match": "cy_arch_brick_a", "graph": "../materials/brick-face.material.cs", "graphSize": 2048 },
     { "match": "cy_arch_brick_b", "graph": "../materials/brick-face.material.cs", "graphSize": 2048, "color": [1.08, 1.04, 1.0] },
     { "match": "cy_arch_brick_c", "graph": "../materials/brick-face.material.cs", "graphSize": 2048, "color": [0.86, 0.82, 0.82] },
