@@ -15,7 +15,7 @@ public sealed class CookInput
 
     private readonly SourceFile _file;
     private readonly List<string> _inputs = [];
-    private HashSet<string>? _names;
+    private IReadOnlySet<string>? _names;
 
     internal CookInput(SourceFile file, byte[] bytes, JsonObject settings, string target)
     {
@@ -39,6 +39,15 @@ public sealed class CookInput
 
     /// <summary>Every file the cooker read through <see cref="Read"/>, <see cref="Find"/> or <see cref="Track"/>, relative to the source's folder.</summary>
     public IReadOnlyList<string> Inputs => _inputs;
+
+    /// <summary>Where this source's cook spent its time, phase by phase.</summary>
+    internal PhaseClock Clock { get; } = new();
+
+    /// <summary>
+    /// Times a phase of the cook until the result is disposed, as in <c>using (input.Time("decode")) { ... }</c>.
+    /// Time in a phase of the same name adds up. It shows in <c>super-cook --timings</c> and <c>--verbose</c>.
+    /// </summary>
+    public PhaseClock.Measure Time(string phase) => Clock.Start(phase);
 
     /// <summary>Reads the settings as <typeparamref name="T"/>. A setting that <typeparamref name="T"/> doesn't have is an error.</summary>
     public T SettingsAs<T>() where T : new()
@@ -101,10 +110,12 @@ public sealed class CookInput
         }
     }
 
-    /// <summary>The root's files, listed once per source the first time a cooker asks.</summary>
-    private HashSet<string> Names()
+    /// <summary>The root's files. The pipeline lists each root once per cook; another root is listed once per source the first time a cooker asks.</summary>
+    private IReadOnlySet<string> Names()
     {
-        return _names ??= new HashSet<string>(_file.Root.Files(), StringComparer.Ordinal);
+        return _names ??= _file.Root is ListedRoot listed
+            ? listed.Names
+            : new HashSet<string>(_file.Root.Files(), StringComparer.Ordinal);
     }
 
     private string Folder()

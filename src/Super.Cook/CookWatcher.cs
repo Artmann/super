@@ -112,7 +112,10 @@ public sealed class CookWatcher : IDisposable
                 }
 
                 int errors = result.Problems.Count(problem => problem.IsError);
-                _log.WriteLine(errors == 0 ? "Cooked." : $"Not cooked: {errors} errors.");
+                string took = CookReport.Seconds(result.Report.Elapsed);
+                _log.WriteLine(errors == 0
+                    ? $"Cooked. {result.Cooked} cooked, {result.FromCache} from cache, in {took}."
+                    : $"Not cooked: {errors} errors. Took {took}.");
             }
             catch (Exception exception) when (CookPipeline.InUse(exception))
             {

@@ -157,6 +157,9 @@ dotnet run --project tools/Super.Cook.Tool -- --content examples/Crafting/conten
 | `--no-cache` | Cooks everything again and keeps nothing. Can't be used with `--cache` |
 | `--dev-file path` | Also writes `content.dev.json` there, naming the roots, the tool and the target, for a game run from source |
 | `--watch` | After the first cook, cooks again whenever a source changes, until stdin closes |
+| `--workers n` | How many sources to cook at once. The default is one per processor, at most 8 |
+| `--timings` | Prints where the time went. See below |
+| `--verbose` | Prints a line for each source too, with its phases and why it wasn't taken from the cache |
 
 Each problem prints as one line that MSBuild and editors link to the file, with the line
 when there is one:
@@ -165,7 +168,7 @@ when there is one:
 C:\game\content\items\axe.json(3): error SUPER001: 'o' is an invalid start of a property name.
 ```
 
-The last line counts what happened, such as `Cooked 2, from cache 56, 0 errors.` The exit
+The last line counts what happened and how long it took, such as `Cooked 2, from cache 56, 0 errors, in 0.4 s.` The exit
 code is 0 when it cooked and 1 on any error. A failed cook leaves the content folder as
 it was, so the last good content stays. A mistake in the options prints what's wrong and
 how to use it.
@@ -178,11 +181,47 @@ the folder in the `SUPER_CACHE` environment variable when that is set, so a buil
 can keep it somewhere of its own. `--cache` picks a folder for one run. Deleting the cache
 is always safe: the next cook makes it again.
 
+### Where the time goes
+
+Sources cook on several workers at once, one per processor up to 8, and `--workers` changes
+that. The output is the same whatever the number: problems print in the order of the sources,
+and the manifest is byte for byte the same.
+
+`--timings` prints a summary before the last line. It lists the time of each step of the
+cook, the time each phase took added up over every source (decoding images, building mips,
+the Assimp import, writing the store and so on), the slowest sources with the size of what
+they made, and how many sources weren't taken from the cache, grouped by why:
+
+```
+Cook took 3.104 s with 8 workers.
+  list sources                     0.004 s
+  read settings                    0.021 s
+  cook                             3.010 s
+  save cache index                 0.012 s
+  write manifest                   0.057 s
+Time in each phase, added up over every source (more than the wall clock when cooking in parallel):
+  write store                      9.870 s
+  model cooker, untimed            2.112 s
+  ...
+Slowest 15 cooked:
+    1.204 s    42.7 MB  models/remains/skeleton/skull.glb
+  ...
+Why sources weren't taken from the cache:
+    233  no record
+      4  input changed
+```
+
+"No record" means the source is new, or its bytes, settings or cooker version changed.
+"Input changed" means a file it reads besides itself, such as a texture, changed.
+`--verbose` adds one line for each source, with its phases and the reason in full. A cook a
+build or a game starts has no options of yours, so `SUPER_COOK_TIMINGS=1` and
+`SUPER_COOK_VERBOSE=1` in the environment turn the same output on there.
+
 ### Watch mode
 
 `--watch` cooks once, then watches every root and its folders. When the files have been
 quiet for a tenth of a second it cooks again, printing problems the same way, then
-`Cooked.` or `Not cooked: 1 errors.` A failed cook keeps the old manifest. On Windows, a
+`Cooked. 2 cooked, 56 from cache, in 0.412 s.` or `Not cooked: 1 errors. Took 0.003 s.` A failed cook keeps the old manifest. On Windows, a
 file another program has open, such as an editor in the middle of saving or the game
 reading `content.manifest` just as the new one is written, is tried again after the same wait. Any other failure prints `Not cooked:` and why, and waits for the next
 change. It stops when stdin closes, so the game that started it ends it, or when it's killed.

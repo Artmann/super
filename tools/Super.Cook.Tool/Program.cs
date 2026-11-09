@@ -13,8 +13,23 @@ public static class Program
     private const string Usage = """
         Usage:
           super-cook --content <dir> [--content <dir> ...] --out <dir> [--target desktop] [--cache <dir> | --no-cache] [--dev-file <path>] [--watch]
+                     [--workers <n>] [--timings] [--verbose]
           super-cook file --content <dir> [--content <dir> ...] <name> <output path>
+
+        --timings prints where the time went: each step, each phase of the cookers, the slowest sources
+        and why sources weren't taken from the cache. --verbose adds one line per source.
+        SUPER_COOK_TIMINGS=1 or SUPER_COOK_VERBOSE=1 do the same, for a cook started by a build or a game.
         """;
+
+    /// <summary>What to print besides the problems and the totals.</summary>
+    private sealed record Reporting(bool Timings, bool Verbose)
+    {
+        public static Reporting FromEnvironment(bool timings, bool verbose) => new(
+            timings || verbose || IsSet("SUPER_COOK_TIMINGS") || IsSet("SUPER_COOK_VERBOSE"),
+            verbose || IsSet("SUPER_COOK_VERBOSE"));
+
+        private static bool IsSet(string name) => Environment.GetEnvironmentVariable(name) is { Length: > 0 } value && value != "0";
+    }
 
     /// <summary>How long the roots must be quiet before watch mode cooks. Editors save in several steps.</summary>
     private static readonly TimeSpan Quiet = TimeSpan.FromMilliseconds(100);
@@ -43,12 +58,29 @@ public static class Program
         bool noCache = false;
         string? devFile = null;
         bool watch = false;
+        int workers = 0;
+        bool timings = false;
+        bool verbose = false;
         for (int i = 0; i < args.Length; i++)
         {
             switch (args[i])
             {
                 case "--content":
                     contents.Add(Value(args, ref i));
+                    break;
+                case "--workers":
+                    string count = Value(args, ref i);
+                    if (!int.TryParse(count, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out workers) || workers < 1)
+                    {
+                        throw new UsageException($"--workers needs a whole number above 0, not {count}.");
+                    }
+
+                    break;
+                case "--timings":
+                    timings = true;
+                    break;
+                case "--verbose":
+                    verbose = true;
                     break;
                 case "--out":
                     output = Value(args, ref i);
@@ -84,9 +116,10 @@ public static class Program
         }
 
         var roots = Roots(contents);
-        var pipeline = new CookPipeline(ModelCookers.All, new CookOptions(target, noCache ? null : cache ?? CookOptions.DefaultCacheFolder));
+        var reporting = Reporting.FromEnvironment(timings, verbose);
+        var pipeline = new CookPipeline(ModelCookers.All, new CookOptions(target, noCache ? null : cache ?? CookOptions.DefaultCacheFolder, workers));
         var store = new FolderStore(output);
-        bool succeeded = CookAndReport(pipeline, roots, store);
+        bool succeeded = CookAndReport(pipeline, roots, store, reporting);
 
         if (devFile is not null)
         {
@@ -139,7 +172,7 @@ public static class Program
         string output = positional[1];
         var store = new MemoryStore();
         var pipeline = new CookPipeline(ModelCookers.All, new CookOptions(CacheFolder: CookOptions.DefaultCacheFolder));
-        if (!CookAndReport(pipeline, Roots(contents), store))
+        if (!CookAndReport(pipeline, Roots(contents), store, Reporting.FromEnvironment(false, false)))
         {
             return 1;
         }
@@ -167,7 +200,7 @@ public static class Program
     }
 
     /// <summary>Cooks once and prints every problem, then the totals. Returns whether it succeeded.</summary>
-    private static bool CookAndReport(CookPipeline pipeline, IReadOnlyList<FolderRoot> roots, ICookedStore store)
+    private static bool CookAndReport(CookPipeline pipeline, IReadOnlyList<FolderRoot> roots, ICookedStore store, Reporting reporting)
     {
         CookResult result;
         try
@@ -187,8 +220,26 @@ public static class Program
             Console.WriteLine(problem.ToString());
         }
 
+        if (reporting.Verbose)
+        {
+            Console.WriteLine("Each source:");
+            foreach (string line in result.Report.Details())
+            {
+                Console.WriteLine(line);
+            }
+        }
+
+        if (reporting.Timings)
+        {
+            foreach (string line in result.Report.Summary())
+            {
+                Console.WriteLine(line);
+            }
+        }
+
         int errors = result.Problems.Count(problem => problem.IsError);
-        Console.WriteLine($"Cooked {result.Cooked}, from cache {result.FromCache}, {errors} errors.");
+        Console.WriteLine(FormattableString.Invariant(
+            $"Cooked {result.Cooked}, from cache {result.FromCache}, {errors} errors, in {result.Report.Elapsed.TotalSeconds:0.0} s."));
         return result.Succeeded;
     }
 
