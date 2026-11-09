@@ -3,7 +3,7 @@ using System.Numerics;
 using Super.Materials;
 
 /// <summary>
-/// Old boards, six to the metre across and a metre long, each its own tone from grey-silver to warm brown. Rings and grain
+/// Old boards, six to the metre across and a metre long, each its own tone from grey to warm brown. Rings and grain
 /// run along them and bend round the knots, short checks open along the grain, the weather silvers them in patches and
 /// their ends are darker.
 /// </summary>
@@ -20,14 +20,17 @@ public sealed class Wood : MaterialGraph
     /// <summary>How many knots the six boards share, 3 to the metre of board.</summary>
     public const int KnotCount = 18;
 
-    /// <summary>The six tones a board can take, from weathered grey-silver to warm brown.</summary>
+    /// <summary>
+    /// The six tones a board can take, from weathered grey to warm brown. They differ in warmth but not in lightness, all
+    /// within 4% of 0.129 linear luminance, so no board reads as a pale or dark stripe beside its neighbours.
+    /// </summary>
     public static IReadOnlyList<string> Tones { get; } =
     [
-        "#8c8678", // grey-silver
-        "#8b7f6c",
-        "#8a7660",
-        "#8a6c50",
-        "#8a6342",
+        "#6a665e", // grey
+        "#716255",
+        "#785f4c",
+        "#7e5d44",
+        "#845b3b",
         "#8a5a34", // warm brown
     ];
 
@@ -112,10 +115,10 @@ public sealed class Wood : MaterialGraph
             .Transform(tile: 12)
             .Warp(Noise.Directional(scale: 6, angle: 0f, stretch: 6f, octaves: 2, seed: 2), amount: 0.006f)
             .DirectionalWarp(ids.RandomGray(seed: 3), amount: 0.4f, angle: 90f)
-            .Warp(knotBump, amount: 0.0004f)
+            .Warp(knotBump, amount: 0.0015f)
             .Curve((0f, 0f), (0.7f, 0.15f), (0.9f, 1f), (1f, 0.6f));
         var grain = Noise.Directional(scale: 96, angle: 0f, stretch: 16f, octaves: 4, seed: 4)
-            .Warp(knotBump, amount: 0.0004f);
+            .Warp(knotBump, amount: 0.0015f);
 
         // Checks: short splits along the grain, a few millimetres wide and a few centimetres long, from the peaks of a
         // fine, long noise, in patches that grow with the weather.

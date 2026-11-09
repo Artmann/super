@@ -67,6 +67,11 @@ Super is early. These are the known gaps, so you can plan around them.
   [masks for wear and dirt](rendering.md#wear-and-dirt) in a second UV set, but a graph
   can't read them. Graphs run only at cook time, and there is no node editor
   and no way to share helpers between graph files.
+- The Courtyard's Blender export isn't repeatable. Running `art/courtyard.py` twice gives a
+  `courtyard.glb` whose dry-stone wall differs in about a hundred of its 300,000 triangles,
+  and whose pebbles, plinth, splash stone and some mask UVs come out in another order, so a
+  re-export shows them as changed when nothing about them did. Smart UV Project and loops
+  over Python sets are the suspects.
 - A model sidecar can name a [surface shader](rendering.md#a-surface-shader-on-a-model)
   with its parameters and textures. The cook only checks that each shader texture's source
   is there, so a texture under a `"cook": false` rule, or a file that doesn't cook to a

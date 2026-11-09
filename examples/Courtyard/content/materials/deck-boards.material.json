@@ -1,1 +1,1 @@
-{ "graph": "wood.material.cs", "weathering": 0.8 }
+{ "graph": "wood.material.cs", "weathering": 0.55, "tone": -0.1 }

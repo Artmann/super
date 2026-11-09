@@ -1,1 +1,1 @@
-{ "graph": "wood.material.cs", "weathering": 0.6, "rustAt": "0.66 0.975" }
+{ "graph": "wood.material.cs", "weathering": 0.35, "tone": 0.35, "rustAt": "0.66 0.975" }

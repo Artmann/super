@@ -51,7 +51,7 @@ public sealed class WoodTests
 
     private static float Warmth(float[] color, int board)
     {
-        // Red over blue: the grey-silver tone is about 0.08, the warm brown about 0.34.
+        // Red over blue: the grey tone is about 0.05, the warm brown about 0.34.
         return (float)OnBoard(board).Average(i => color[i * 3] - color[i * 3 + 2]);
     }
 
@@ -64,7 +64,7 @@ public sealed class WoodTests
         Assert.True(warmths[0] < 0.12f, $"The greyest board's red is {warmths[0]:0.000} over its blue.");
         Assert.True(warmths[^1] > 0.25f, $"The warmest board's red is {warmths[^1]:0.000} over its blue.");
 
-        // Six stops evenly from 0.08 to 0.34 are 0.05 apart. No two boards share a tone.
+        // Six stops evenly from 0.05 to 0.34 are 0.06 apart. No two boards share a tone.
         for (var k = 1; k < warmths.Count; k++)
         {
             Assert.True(warmths[k] - warmths[k - 1] > 0.025f, $"Two boards are only {warmths[k] - warmths[k - 1]:0.000} apart: {string.Join(", ", warmths.Select(w => w.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)))}.");
@@ -82,9 +82,67 @@ public sealed class WoodTests
             var next = (board + 1) % Wood.Boards;
             var step = MathF.Abs(Warmth(color, board) - Warmth(color, next));
 
-            // Two stops apart is about 0.1.
+            // Two stops apart is about 0.11.
             Assert.True(step > 0.08f, $"Boards {board} and {next} differ by only {step:0.000} red over blue.");
         }
+    }
+
+    /// <summary>The linear luminance of an sRGB colour written <c>#rrggbb</c>.</summary>
+    private static float Luminance(string hex)
+    {
+        static float Linear(string pair)
+        {
+            var c = Convert.ToInt32(pair, 16) / 255f;
+
+            return c <= 0.04045f ? c / 12.92f : MathF.Pow((c + 0.055f) / 1.055f, 2.4f);
+        }
+
+        return 0.2126f * Linear(hex[1..3]) + 0.7152f * Linear(hex[3..5]) + 0.0722f * Linear(hex[5..7]);
+    }
+
+    [Fact]
+    public void The_six_tones_are_equally_light_so_no_board_stands_out_in_stripes()
+    {
+        // Worked by hand: #8a5a34 is 138, 90 and 52, which are 0.2542, 0.1022 and 0.0343 linear, so
+        // 0.2126 * 0.2542 + 0.7152 * 0.1022 + 0.0722 * 0.0343 = 0.1296.
+        Assert.Equal(0.1296f, Luminance("#8a5a34"), 0.0005f);
+
+        var lights = Wood.Tones.Select(Luminance).ToList();
+        var mean = lights.Average();
+
+        foreach (var (hex, light) in Wood.Tones.Zip(lights))
+        {
+            Assert.True(MathF.Abs(light / mean - 1f) < 0.15f, $"{hex} is {light:0.000} light, {light / mean:P0} of the tones' mean {mean:0.000}.");
+        }
+    }
+
+    [Fact]
+    public void At_the_decks_weathering_neighbouring_boards_still_differ_in_warmth()
+    {
+        var deck = DeckVariant();
+        var color = GraphRunner.Run(deck, Size).Color;
+
+        for (var board = 0; board < Wood.Boards; board++)
+        {
+            var next = (board + 1) % Wood.Boards;
+            var step = MathF.Abs(Warmth(color, board) - Warmth(color, next));
+
+            Assert.True(step > 0.04f, $"At weathering {deck.Weathering} and tone {deck.Tone}, boards {board} and {next} differ by only {step:0.000} red over blue.");
+        }
+    }
+
+    /// <summary>The wood as <c>deck-boards.material.json</c> sets it, read from the example's own file.</summary>
+    private static Wood DeckVariant([System.Runtime.CompilerServices.CallerFilePath] string here = "")
+    {
+        var path = Path.Combine(Path.GetDirectoryName(here)!, "..", "..", "examples", "Courtyard", "content", "materials", "deck-boards.material.json");
+        using var json = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+        var root = json.RootElement;
+
+        return new Wood
+        {
+            Weathering = root.TryGetProperty("weathering", out var weathering) ? weathering.GetSingle() : new Wood().Weathering,
+            Tone = root.TryGetProperty("tone", out var tone) ? tone.GetSingle() : 0f,
+        };
     }
 
     [Fact]

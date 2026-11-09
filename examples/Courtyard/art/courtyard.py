@@ -1620,14 +1620,18 @@ def plank_uv(bm, faces, axis, index, along_offset, span=None):
     """Wood UVs: u along the board's length in metres, v placed so the board takes one of the
     graph's six planks, so its own grain and not a seam runs down it.
 
-    With span, the board's two ends (lo, hi along axis) are fitted to the ends of whole graph
-    boards, stretched a little so they land there, and its sawn end faces show end grain."""
+    With span, the board's two ends (lo, hi along axis) are fitted to the two ends of one graph
+    board, stretched a little so they land there, so a board has end grain at its sawn ends and
+    nowhere else; keep such a board to about a metre. Its width is fitted across the graph
+    board too, so it shows one tone and no joint."""
     uv = uv_layer(bm)
     axis_vector = Vector((1, 0, 0) if axis == "x" else (0, 1, 0) if axis == "y" else (0, 0, 1))
     if span is not None:
         lo, hi = span
-        boards = max(1, round(hi - lo))
         start = board_start(index)
+        verts = [v.co for f in faces for v in f.verts]
+        low = [min(co[k] for co in verts) for k in range(3)]
+        high = [max(co[k] for co in verts) for k in range(3)]
     for f in faces:
         if span is not None:
             f.normal_update()
@@ -1639,13 +1643,17 @@ def plank_uv(bm, faces, axis, index, along_offset, span=None):
             if span is None:
                 u = c + along_offset
             elif end:
-                u = start + (END_GRAIN if n.dot(axis_vector) < 0 else boards - END_GRAIN)
+                u = start + (END_GRAIN if n.dot(axis_vector) < 0 else 1 - END_GRAIN)
             else:
-                u = start + (c - lo) * boards / (hi - lo)
+                u = start + (c - lo) / (hi - lo)
             # Across the board: whichever of the other two axes the face spans most.
-            others = [c for c, a in ((co.x, "x"), (co.y, "y"), (co.z, "z")) if a != axis]
-            across = others[0] if abs(n.dot(Vector((1, 0, 0) if axis != "x" else (0, 1, 0)))) < 0.5 else others[1]
-            loop[uv].uv = (u, (index % 6) / 6.0 + 0.012 + (across * 0.9) % (1 / 6.0 - 0.024))
+            others = [k for k, a in enumerate("xyz") if a != axis]
+            k = others[0] if abs(n.dot(Vector((1, 0, 0) if axis != "x" else (0, 1, 0)))) < 0.5 else others[1]
+            band = (index % 6) / 6.0 + 0.012
+            if span is None:
+                loop[uv].uv = (u, band + (co[k] * 0.9) % (1 / 6.0 - 0.024))
+            else:
+                loop[uv].uv = (u, band + (co[k] - low[k]) / (high[k] - low[k]) * (1 / 6.0 - 0.024))
 
 
 DECK = (6.0, 9.6, 0.3, WALL_Y - 0.4)  # x0, x1, y0, y1
@@ -1671,24 +1679,49 @@ def build_deck(sc, M):
         else:
             spans = ((start, end),)
         for a, b in spans:
-            faces = box(bm, (a, y, DECK_TOP - 0.035 + lift), (b, y + board, DECK_TOP + lift), 0, bevel=0.007)
             # The draw stays, so everything made after the deck comes out as it did; the board's
             # ends now fix where the graph's boards lie along it.
             rng.uniform(0, 3)
-            plank_uv(bm, faces, "x", i, 0.0, span=(a, b))
-            i += 1
-            # Two nails into each bearer the board crosses.
-            for bearer in BEARERS:
-                xc = bearer + 0.05
-                if a + 0.05 < xc < b - 0.05:
-                    for across in (0.25, 0.75):
-                        nail_head(bm, xc, y + board * across, DECK_TOP + lift)
+            # A board takes one graph board, which is a metre long, so a long run is laid as
+            # shorter boards butted end to end, each with its own tone and end grain.
+            for a, b in deck_pieces(a, b):
+                faces = box(bm, (a, y, DECK_TOP - 0.035 + lift), (b, y + board, DECK_TOP + lift), 0, bevel=0.007)
+                plank_uv(bm, faces, "x", i, 0.0, span=(a, b))
+                i += 1
+                # Two nails into each bearer the board crosses.
+                for bearer in BEARERS:
+                    xc = bearer + 0.05
+                    if a + 0.05 < xc < b - 0.05:
+                        for across in (0.25, 0.75):
+                            nail_head(bm, xc, y + board * across, DECK_TOP + lift)
         y += board + gap
     # Bearers under the boards, mostly below the mud.
     for x in BEARERS:
         faces = box(bm, (x, y0 - 0.02, -0.08), (x + 0.1, y1, DECK_TOP - 0.035), 0)
         plank_uv(bm, faces, "y", 3, 0.0)
     emit(sc, "deck", bm, [M["deck"], M["hoop"]])
+
+
+# The longest board the deck is laid in, in metres: about one graph board, so the wood is
+# stretched a little at most.
+DECK_PIECE = 1.2
+
+deck_rng = random.Random(21)
+
+
+def deck_pieces(a, b):
+    """Cuts a run of deck from a to b along x into boards of 0.75 to 1.2 m, with 8 mm joints,
+    staggered by their own random numbers. No board is shorter than 0.4 m: a run that would
+    leave one is cut in half instead."""
+    pieces = []
+    while b - a > DECK_PIECE:
+        step = deck_rng.uniform(0.75, DECK_PIECE)
+        if b - (a + step) < 0.4:
+            step = (b - a) / 2
+        pieces.append((a, a + step - 0.004))
+        a += step + 0.004
+    pieces.append((a, b))
+    return pieces
 
 
 # Where the deck's three bearers start along x; each is 10 cm wide.
@@ -1726,9 +1759,8 @@ def board(bm, length, width, thick, origin, ax, ay, az, index, bevel=None):
     faces = box(bm, (0, 0, 0), (length, width, thick), 0, bevel=bevel if bevel is not None else min(0.006, thick * 0.3))
     uv = uv_layer(bm)
     # The draw stays so the crates' numbers don't move; the board's ends are fitted to the ends
-    # of whole graph boards instead, a little stretched, so its sawn ends show end grain.
+    # of one graph board instead, stretched to fit, so its sawn ends show end grain.
     crate_rng.uniform(0, 3)
-    boards = max(1, round(length))
     start = board_start(index)
     band = (index % 6) / 6.0 + 0.012
     for f in faces:
@@ -1736,9 +1768,9 @@ def board(bm, length, width, thick, origin, ax, ay, az, index, bevel=None):
         n = f.normal
         for loop in f.loops:
             x, y, z = loop.vert.co
-            u = start + x * boards / length
+            u = start + x / length
             if abs(n.x) > 0.7:
-                loop[uv].uv = (start + (END_GRAIN if n.x < 0 else boards - END_GRAIN), band + z * 0.9)
+                loop[uv].uv = (start + (END_GRAIN if n.x < 0 else 1 - END_GRAIN), band + z * 0.9)
             elif abs(n.y) > 0.7:
                 loop[uv].uv = (u, band + z * 0.9)
             else:
