@@ -102,18 +102,17 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         // Someone is home: a warm light in the room, seen through the old glass.
         view.PointLight(RoomKey, RoomLamp, color: new Vector3(2.2f, 1.2f, 0.45f), range: 6f, radius: 0.25f);
 
-        // The camera meters the courtyard and sets the brightness itself, then adds about a third of a
-        // stop so the shade stays open and the sunlit wall bright. AgX, the default curve, keeps the
-        // sunlit bricks apart where ACES ran them into one orange, but reads softer, so contrast and
-        // saturation are up to match. A warm white balance for the afternoon, a cool lift in the
-        // shade, and a little bloom round the lamp.
+        // The camera meters the courtyard and sets the brightness itself, then adds about a stop:
+        // AgX's Punchy look, the default, deepens the mid-tones, and the sunlit wall should read
+        // bright. A touch more contrast and saturation for an afternoon sun, a warm white balance,
+        // a cool lift in the shade, and a little bloom round the lamp.
         view.Finish(new PostSettings
         {
             AutoExposure = true,
-            Exposure = 0.3f,
+            Exposure = 1.05f,
             Temperature = 0.08f,
-            Contrast = 0.3f,
-            Saturation = 0.2f,
+            Contrast = 0.25f,
+            Saturation = 0.15f,
             Vignette = 0.35f,
             Sharpen = 0.2f,
             Bloom = 0.06f,

@@ -16,16 +16,25 @@ internal static class PostGrade
     // How far Tint 1 moves the white off the line of black-body colours, in the CIE 1960 uv plane.
     private const double MaxDuv = 0.02;
 
-    /// <summary>
-    /// The lift, with the bloom's strength in w, and the gain as a multiplier for each channel, with
-    /// 1 in w when the picture uses the ACES curve rather than AgX.
-    /// </summary>
+    /// <summary>The lift, with the bloom's strength in w, and the gain as a multiplier for each channel.</summary>
     public static (Vector4 Lift, Vector4 Gain) Tint(in PostSettings post)
     {
         float bloom = Math.Clamp(DefaultBloom + post.Bloom, 0f, 1f);
         var gain = Vector3.Max(Vector3.One + post.Gain, Vector3.Zero);
+        return (new Vector4(post.Lift, bloom), new Vector4(gain, 0f));
+    }
+
+    /// <summary>
+    /// Which curve the tone-mapping pass uses, as <c>frame.curve</c>: x is 1 for ACES and 0 for AgX;
+    /// y and z are the AgX look's power and saturation, applied to the curve's display values.
+    /// Blender's Punchy look is a power of 1.35 and a saturation of 1.4; the base look is 1 and 1.
+    /// </summary>
+    public static Vector4 Curve(in PostSettings post)
+    {
         float aces = post.Tonemapper == Tonemapper.Aces ? 1f : 0f;
-        return (new Vector4(post.Lift, bloom), new Vector4(gain, aces));
+        return post.AgxLook == AgxLook.Base
+            ? new Vector4(aces, 1f, 1f, 0f)
+            : new Vector4(aces, 1.35f, 1.4f, 0f);
     }
 
     /// <summary>

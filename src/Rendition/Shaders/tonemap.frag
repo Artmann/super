@@ -60,10 +60,14 @@ vec3 agxContrast(vec3 x) {
     return 15.5 * x4 * x2 - 40.14 * x4 * x + 31.96 * x4 - 6.868 * x2 * x + 0.4298 * x2 + 0.1191 * x - 0.00232;
 }
 
-vec3 agx(vec3 color) {
+// look.x is a power and look.y a saturation, worked on the curve's display values the way
+// Blender's looks are: Punchy is 1.35 and 1.4, the base look 1 and 1.
+vec3 agx(vec3 color, vec2 look) {
     vec3 x = AGX_INSET * color;
     x = clamp(log2(max(x, vec3(1e-10))), AGX_MIN_EV, AGX_MAX_EV);
-    x = agxContrast((x - AGX_MIN_EV) / (AGX_MAX_EV - AGX_MIN_EV));
+    x = max(agxContrast((x - AGX_MIN_EV) / (AGX_MAX_EV - AGX_MIN_EV)), vec3(0.0));
+    float luma = dot(x, vec3(0.2126, 0.7152, 0.0722));
+    x = luma + look.y * (pow(x, vec3(look.x)) - luma);
     // The curve gives display values for a 2.2 gamma screen; the target wants them linear.
     x = pow(clamp(AGX_OUTSET * x, 0.0, 1.0), vec3(2.2));
     return x;
@@ -92,8 +96,8 @@ void main() {
 
     // Gain scales every channel, so it shows most in the highlights. Lift adds colour that
     // fades out towards white, so the shade takes a tint while white stays white.
-    // gain.a picks the curve: 1 for ACES, 0 for AgX. It is the same for every pixel.
-    color = (frame.gain.a > 0.5 ? acesFilmic(color) : agx(color)) * frame.gain.rgb;
+    // curve.x picks the curve: 1 for ACES, 0 for AgX. It is the same for every pixel.
+    color = (frame.curve.x > 0.5 ? acesFilmic(color) : agx(color, frame.curve.yz)) * frame.gain.rgb;
     color = clamp(color + frame.lift.rgb * (1.0 - color), 0.0, 1.0);
 
     // The target is an sRGB format, so the hardware applies gamma on write.

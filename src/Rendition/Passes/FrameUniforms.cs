@@ -137,6 +137,9 @@ internal struct FrameUniforms
     /// <summary>The white balance on linear colour, which the tone-mapping pass applies before its curve. See <see cref="PostGrade.WhiteBalance"/>.</summary>
     public Matrix4x4 WhiteBalance;
 
+    /// <summary>x: 1 for the ACES curve, 0 for AgX; y, z: the AgX look's power and saturation. See <see cref="PostGrade.Curve"/>.</summary>
+    public Vector4 Curve;
+
     public int LightCount;
     public float Time;
     public int FrameNumber;

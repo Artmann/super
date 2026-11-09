@@ -310,6 +310,7 @@ each channel that much brighter, by its share, so it shows most in the highlight
 | Setting | What it does |
 | --- | --- |
 | `Tonemapper` | The curve that fits the scene's light into what a screen shows. `Tonemapper.Agx`, the default, or `Tonemapper.Aces` for the older, punchier look. See [tone mapping](#tone-mapping) |
+| `AgxLook` | The look on top of AgX. `AgxLook.Punchy`, the default, deepens the mid-tones and strengthens colour; `AgxLook.Base` is the plain, softer curve. ACES ignores it |
 | `Temperature` | White balance, from -1 to 1. Above 0 warms the picture, as if the camera were balanced for light bluer than daylight: 1 balances for 12000 K. Below 0 cools it, down to 4000 K at -1. 0.1 is a gentle afternoon warmth |
 | `Tint` | White balance the other way, from -1 to 1. Above 0 pulls the picture towards magenta, below 0 towards green |
 
@@ -325,17 +326,23 @@ The scene's light runs far brighter than a screen can show, so a curve squeezes 
 AgX, the default, is the curve Blender 4 uses. It moves bright, strongly coloured light
 gradually towards white, so a sunlit brick wall keeps the difference between its bricks.
 ACES, the older look, is punchier in the mid-tones but takes saturated highlights to one
-flat colour. AgX also reads a little softer, so a scene moving over from ACES may want a
-touch more `Contrast` and `Saturation`: the Courtyard uses 0.3 and 0.2. Middle grey comes
-out at about the same brightness with either, so exposure needs no change.
+flat colour.
+
+On its own AgX reads soft and pale, so it comes with Blender's Punchy look by default,
+which deepens the mid-tones and strengthens colour. Punchy also puts middle grey about
+0.8 of a stop darker on screen than ACES or the plain curve, so a scene moving over from
+ACES wants more `Exposure`: the Courtyard uses 1.05 with auto exposure, with `Contrast`
+0.25 and `Saturation` 0.15. `AgxLook.Base` is the plain curve, which keeps middle grey where
+ACES puts it and leaves the most room in the highlights.
 
 ```csharp
 view.Finish(new PostSettings { Tonemapper = Tonemapper.Aces });   // the older look
+view.Finish(new PostSettings { AgxLook = AgxLook.Base });         // AgX without the Punchy look
 ```
 
-Both curves cost about the same, so `Graphics.Fastest()` leaves the choice alone.
+Both curves and both looks cost about the same, so `Graphics.Fastest()` leaves the choice alone.
 
-![The Courtyard's sunlit wall with the same settings through ACES on the left, where the bricks go one saturated orange, and AgX on the right, where they keep their differences in tone](media/agx.webp)
+![The Courtyard's sunlit wall at about the same brightness through ACES on the left, which runs the sunlit bricks hotter and more orange, and AgX with the Punchy look on the right, which keeps them a deeper red](media/agx.webp)
 
 `Sharpen` gives back the crispness anti-aliasing blends away, from 0 to 1. It sharpens fine,
 faint detail such as a texture's grain the most and edges that already stand out hardly at

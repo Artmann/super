@@ -1402,14 +1402,19 @@ to how a lens scatters light, and nothing pops as a surface crosses a threshold.
 `PostSettings.Bloom` adds to the share, which starts at 5%.
 
 Tonemapping uses AgX by default and Stephen Hill's fit of the ACES film transform when
-`PostSettings.Tonemapper` asks for `Aces`. `PostGrade.Tint` puts 1 in `frame.gain.w` for
-ACES, and the shader picks the curve with a branch that is the same for every pixel, so
-there is no second pipeline and no `RenderEffects` bit. AgX is Benjamin Wrensch's minimal
-form of Blender 4's default look: an inset matrix pulls each colour a little towards
-white, log2 encodes it between 2^-12.47 and 2^4.03 (about 10 stops below middle grey and 6.5 above), a
-sixth-order polynomial fits the contrast curve, and the outset matrix and a 2.2 power turn
-the result back into linear colour for the sRGB target. Middle grey 0.18 comes out at
-about 0.21 with both curves, so swapping curves needs no exposure change. The ACES fit works
+`PostSettings.Tonemapper` asks for `Aces`. `PostGrade.Curve` fills `frame.curve` (after
+`whiteBalance`): x is 1 for ACES, and y and z are the AgX look's power and saturation. The
+shader picks the curve with a branch that is the same for every pixel, so there is no
+second pipeline and no `RenderEffects` bit. AgX is Benjamin Wrensch's minimal form of
+Blender 4's: an inset matrix pulls each colour a little towards white, log2 encodes it
+between 2^-12.47 and 2^4.03 (about 10 stops below middle grey and 6.5 above), and a
+sixth-order polynomial fits the contrast curve. The look then works on those display
+values: luma is taken first, each channel is raised to the power, and the result is pushed
+away from that luma by the saturation. `AgxLook.Punchy`, the default, is Wrensch's 1.35 and
+1.4; `AgxLook.Base` is 1 and 1, which leaves the curve alone. Last, the outset matrix and a
+2.2 power turn the result back into linear colour for the sRGB target. Middle grey 0.18
+comes out at about 0.21 through ACES and the base look, so swapping those needs no exposure
+change; Punchy's power takes it to about 0.12, near 0.8 of a stop darker. The ACES fit works
 in ACES's own colour space, so very bright colours fade towards white instead of shifting
 hue, and `ACES_EXPOSURE` in `tonemap.frag` keeps the scene as bright as the lighting was
 balanced for.
@@ -1422,6 +1427,7 @@ positive towards green. The matrix adapts that white to the 6500 K one by Bradfo
 scaling, wrapped in the Rec.709 to XYZ matrices, so it acts on linear Rec.709. A camera
 balanced for bluer light than the scene's turns the picture warmer, so positive
 `Temperature` warms and positive `Tint` pulls towards magenta. 0 and 0 give the identity.
+Neutral is the 6500 K black body, which sits a little off D65, so it is not the sRGB white.
 It is applied after exposure and before contrast, saturation and the curve. `View.Finish`
 refuses values outside -1 to 1; `WhiteBalance` itself clamps them and counts NaN as 0, so
 Rendition used alone never uploads a broken matrix. Probe captures never reach the tonemap,

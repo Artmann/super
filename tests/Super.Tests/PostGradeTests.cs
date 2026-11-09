@@ -96,28 +96,51 @@ public class PostGradeTests
         Assert.Equal(radii + 144, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.SunDisc)));
         Assert.Equal(radii + 160, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Fog)));
         Assert.Equal(radii + 176, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.WhiteBalance)));
-        Assert.Equal(radii + 240, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.LightCount)));
-        Assert.Equal(radii + 240 + 28, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.LocalLightCount)));
-        Assert.Equal(radii + 240 + 32, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Off)));
-        Assert.Equal(radii + 240 + 40, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.ProbeCapture)));
-        Assert.Equal(radii + 240 + 48, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Lights)));
+        Assert.Equal(radii + 240, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Curve)));
+        Assert.Equal(radii + 256, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.LightCount)));
+        Assert.Equal(radii + 256 + 28, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.LocalLightCount)));
+        Assert.Equal(radii + 256 + 32, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Off)));
+        Assert.Equal(radii + 256 + 40, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.ProbeCapture)));
+        Assert.Equal(radii + 256 + 48, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Lights)));
     }
 
     [Fact]
-    public void Post_settings_left_alone_use_agx()
+    public void Post_settings_left_alone_use_agx_with_the_punchy_look()
     {
-        var (_, gain) = PostGrade.Tint(default);
+        var curve = PostGrade.Curve(default);
 
-        Assert.Equal(Tonemapper.Agx, default(PostSettings).Tonemapper);
-        Assert.Equal(0f, gain.W);
+        Assert.Equal(new Vector4(0f, 1.35f, 1.4f, 0f), curve);
+    }
+
+    [Fact]
+    public void The_base_agx_look_leaves_the_curve_alone()
+    {
+        var curve = PostGrade.Curve(new PostSettings { AgxLook = AgxLook.Base });
+
+        Assert.Equal(new Vector4(0f, 1f, 1f, 0f), curve);
     }
 
     [Fact]
     public void Asking_for_aces_tells_the_shader_to_use_its_curve()
     {
-        var (_, gain) = PostGrade.Tint(new PostSettings { Tonemapper = Tonemapper.Aces });
+        var curve = PostGrade.Curve(new PostSettings { Tonemapper = Tonemapper.Aces });
 
-        Assert.Equal(1f, gain.W);
+        Assert.Equal(1f, curve.X);
+    }
+
+    [Fact]
+    public void The_bluest_temperature_turns_a_12000_kelvin_white_into_the_6500_kelvin_one()
+    {
+        // Worked by hand from the CIE table of black-body colours: 12000 K is at xy (0.2719, 0.2777)
+        // and 6500 K at (0.3135, 0.3237). Each at Y = 1, through the Rec.709 matrix from XYZ.
+        var bluish = new Vector3(0.8271f, 0.9944f, 1.5652f);
+        var neutral = new Vector3(1.0425f, 0.9839f, 1.0348f);
+
+        var balanced = Vector3.Transform(bluish, PostGrade.WhiteBalance(1f, 0f));
+
+        Assert.Equal(neutral.X, balanced.X, 0.01f);
+        Assert.Equal(neutral.Y, balanced.Y, 0.01f);
+        Assert.Equal(neutral.Z, balanced.Z, 0.01f);
     }
 
     [Fact]

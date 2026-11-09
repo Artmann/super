@@ -452,6 +452,12 @@ public struct PostSettings
     public Tonemapper Tonemapper;
 
     /// <summary>
+    /// The look on top of AgX. <see cref="AgxLook.Punchy"/>, the default, deepens the mid-tones and
+    /// strengthens colour; <see cref="AgxLook.Base"/> is the plain curve. It has no effect under ACES.
+    /// </summary>
+    public AgxLook AgxLook;
+
+    /// <summary>
     /// White balance from -1 to 1, with 0 unchanged. Above 0 warms the picture, as if the camera were
     /// balanced for light bluer than daylight (1 is 12000 K); below 0 cools it (-1 is 4000 K).
     /// 0.1 is a gentle afternoon warmth.
@@ -476,6 +482,16 @@ public enum Tonemapper
 
     /// <summary>A fit of the ACES film curve: punchier mid-tones, but saturated highlights go flat.</summary>
     Aces,
+}
+
+/// <summary>A look on top of the <see cref="Tonemapper.Agx"/> curve, as Blender offers. ACES ignores it.</summary>
+public enum AgxLook
+{
+    /// <summary>Blender's Punchy look: deeper mid-tones and richer colour, so a sunlit scene doesn't read pale.</summary>
+    Punchy,
+
+    /// <summary>The plain AgX curve: softer and paler, with the most room in the highlights.</summary>
+    Base,
 }
 
 /// <summary>How a <see cref="ScreenTransition"/> brings in the new picture.</summary>
