@@ -6,9 +6,10 @@
       <Import Project="path\to\Super.targets" />
       <ItemGroup>
         <SuperContent Include="content" />
-        <SuperContent Include="..\..\art\content" />
+        <SuperContent Include="..\..\art\content" Only="props/**;textures/**" />
       </ItemGroup>
 
+    Only cooks just the files of that folder its globs match, for a folder several games share.
     With no SuperContent items, the "content" folder beside the project is the root, when there is one.
     The cooked content goes to $(OutDir)content, and content.dev.json beside it tells a game run from
     source where its sources are. Cook errors are build errors, with file and line.
@@ -58,6 +59,8 @@
       <!-- A trailing slash, as in Include="content\", would escape the closing quote on the Windows command line. -->
       <_SuperRoot>
         <Folder>$([System.String]::Copy('%(FullPath)').TrimEnd('\').TrimEnd('/'))</Folder>
+        <!-- Only="props/**;textures/**" becomes one option for each glob. -->
+        <OnlyOptions Condition="'%(_SuperRoot.Only)' != ''">--only &quot;$([System.String]::Copy('%(_SuperRoot.Only)').Replace(';', '&quot; --only &quot;'))&quot;</OnlyOptions>
       </_SuperRoot>
     </ItemGroup>
 
@@ -68,7 +71,7 @@
 
     <!-- Each cook error is a line MSBuild turns into a build error with file and line, so the exit code only matters when there were none. -->
     <Exec Condition="'@(_SuperRoot)' != ''" IgnoreExitCode="true" ConsoleToMSBuild="true" StandardErrorImportance="high"
-          Command="dotnet &quot;$(_SuperCookTool)&quot; @(_SuperRoot->'--content &quot;%(Folder)&quot;', ' ') --out &quot;$(OutDir)content&quot; --target $(SuperTarget) --dev-file &quot;$(OutDir)content.dev.json&quot;">
+          Command="dotnet &quot;$(_SuperCookTool)&quot; @(_SuperRoot->'--content &quot;%(Folder)&quot; %(OnlyOptions)', ' ') --out &quot;$(OutDir)content&quot; --target $(SuperTarget) --dev-file &quot;$(OutDir)content.dev.json&quot;">
       <Output TaskParameter="ExitCode" PropertyName="_SuperCookExit" />
       <Output TaskParameter="ConsoleOutput" PropertyName="_SuperCookOutput" />
     </Exec>

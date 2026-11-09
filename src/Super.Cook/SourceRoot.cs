@@ -16,14 +16,23 @@ public interface ISourceRoot
 
     /// <summary>The path on disk, or null when the file isn't on disk.</summary>
     string? FullPath(string relative);
+
+    /// <summary>
+    /// Globs that pick which of the root's files are cooked, such as <c>props/**</c>. Empty cooks them all. The rest stay
+    /// readable, so a model still finds the textures beside it.
+    /// </summary>
+    IReadOnlyList<string> Only => [];
 }
 
 /// <summary>A folder on disk.</summary>
-public sealed class FolderRoot(string folder) : ISourceRoot
+/// <param name="only">See <see cref="ISourceRoot.Only"/>.</param>
+public sealed class FolderRoot(string folder, IReadOnlyList<string>? only = null) : ISourceRoot
 {
     private readonly string _folder = Path.GetFullPath(folder);
 
     public string Label => _folder;
+
+    public IReadOnlyList<string> Only { get; } = only ?? [];
 
     public IEnumerable<string> Files()
     {
@@ -72,6 +81,8 @@ public sealed class MemoryRoot : ISourceRoot
 
     public string Label => "memory";
 
+    public IReadOnlyList<string> Only { get; init; } = [];
+
     public string this[string name]
     {
         set => _files[name] = Encoding.UTF8.GetBytes(value);
@@ -118,6 +129,8 @@ internal sealed class ListedRoot(ISourceRoot inner) : ISourceRoot
 
     public string Label => inner.Label;
 
+    public IReadOnlyList<string> Only => inner.Only;
+
     /// <summary>The listing as a set, made once and shared by every source of the cook.</summary>
     public IReadOnlySet<string> Names
     {
@@ -147,7 +160,10 @@ public sealed record SourceFile(ISourceRoot Root, string Name)
 
 public static class Sources
 {
-    /// <summary>Lists every asset across the roots, sorted by name. Settings files, buffers and notes are left out.</summary>
+    /// <summary>
+    /// Lists every asset across the roots, sorted by name. Settings files, buffers and notes are left out, and so is
+    /// anything a root's <see cref="ISourceRoot.Only"/> doesn't match.
+    /// </summary>
     public static (IReadOnlyList<SourceFile> Files, IReadOnlyList<CookProblem> Problems) Gather(IReadOnlyList<ISourceRoot> roots)
     {
         var problems = new List<CookProblem>();
@@ -156,6 +172,7 @@ public static class Sources
         {
             var names = root.Files().ToList();
             var all = new HashSet<string>(names, StringComparer.Ordinal);
+            var unmatched = new HashSet<string>(root.Only, StringComparer.Ordinal);
             foreach (string name in names)
             {
                 if (IsSidecar(name))
@@ -171,7 +188,7 @@ public static class Sources
                     continue;
                 }
 
-                if (!IsAsset(name))
+                if (!IsAsset(name) || !Picked(root.Only, name, unmatched))
                 {
                     continue;
                 }
@@ -184,6 +201,12 @@ public static class Sources
                 }
 
                 byName[name] = new SourceFile(root, name);
+            }
+
+            // A pattern that picks nothing is most likely a typo, and the asset it meant is missing at run time.
+            foreach (string pattern in root.Only.Where(unmatched.Contains))
+            {
+                problems.Add(new CookProblem(root.Label, null, $"Only \"{pattern}\" matches no source in this root.", false));
             }
         }
 
@@ -199,6 +222,27 @@ public static class Sources
     internal static bool IsSidecar(string name)
     {
         return name.EndsWith(".cook.json", StringComparison.Ordinal) && name != ".cook.json" && !name.EndsWith("/.cook.json", StringComparison.Ordinal);
+    }
+
+    /// <summary>Whether the root's Only picks the name, crossing off each pattern that matched.</summary>
+    private static bool Picked(IReadOnlyList<string> only, string name, HashSet<string> unmatched)
+    {
+        if (only.Count == 0)
+        {
+            return true;
+        }
+
+        bool picked = false;
+        foreach (string pattern in only)
+        {
+            if (Glob.Matches(pattern, name))
+            {
+                unmatched.Remove(pattern);
+                picked = true;
+            }
+        }
+
+        return picked;
     }
 
     private static bool IsAsset(string name)

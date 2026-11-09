@@ -386,7 +386,9 @@ Deleting it is always safe. A cooker reads the files beside its source only thro
 `CookInput.Read` and `Find`, which check names against the root's listing ordinally, so a
 name that differs only in case fails with a message naming the file that is there, even
 though Windows would open it. The pipeline wraps each root in a `ListedRoot`, which lists it
-once per cook, and every source shares that listing. The models cooker is `Super.Cook.Models`, a separate project, so
+once per cook, and every source shares that listing. A root's `Only` globs pick which of its
+files `Sources.Gather` turns into sources, but the listing stays whole, so a cooker still
+reads a file `Only` leaves out. The models cooker is `Super.Cook.Models`, a separate project, so
 `Super.Cook` carries no Assimp.
 
 **The manifest** lists every name with its kind, hash and size, and the shared objects that
@@ -416,8 +418,17 @@ workers at once. `StoreWriter` holds a lock per hash, so two workers never write
 object at once, and an object already in the store isn't made twice. `CookCache` guards its
 hash memo with a lock and writes each object under a lock of its own.
 
+**Hard links.** A fresh cook saves to the cache before it writes the store, so
+`StoreWriter.Put` can ask `ICookedStore.TryLink` to link the store's file to the cache's copy
+(`CookCache.SavedObject`). A cache hit links too, after checking the cached object's hash.
+`FolderStore.TryLink` makes the link at a temp name beside the object and moves it into place,
+like any write. `HardLink` calls `CreateHardLinkW` on Windows and `link` elsewhere; when it
+fails, such as across volumes, the bytes are written as before. Linking is safe because
+neither side ever changes an object in place: the cache and the store both write a temp file
+and move it over the name, which leaves the other link holding the old bytes.
+
 Each source reports where its time went in a `CookedFile`: the pipeline's own phases (hash
-source, restore from cache, read source, hash output, write store, write cache) and the
+source, restore from cache, read source, hash output, write cache, write store) and the
 cooker's, which it times with `CookInput.Time`. Time the cooker spent outside its own phases
 shows as `<id> cooker, untimed`. `CookCache.TryRestore` says why it missed, and
 `CookReport` adds it all up for `--timings`.
@@ -501,8 +512,8 @@ to every build of a game with content. A game published with a runtime gets
 engine's code just in time as it starts.
 
 **`content.dev.json`** is written beside the cooked folder by the build, and
-only for a game run from source. It names the content roots, the `super-cook` tool and the
-target. `Content.GoLive` reads it through `CookedFolder.Dev`; a published game has none and
+only for a game run from source. It names the content roots, each root's `Only` globs, the
+`super-cook` tool and the target, and `CookProcess` passes the globs on as `--only`. `Content.GoLive` reads it through `CookedFolder.Dev`; a published game has none and
 never watches anything. When the game's content goes live (`Content.GoLive`):
 
 1. It writes the JSON schemas into the first content root.

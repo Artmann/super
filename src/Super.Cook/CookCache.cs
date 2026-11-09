@@ -130,11 +130,12 @@ internal sealed class CookCache(string folder)
             foreach (string hash in outputs.Select(output => output.Hash).Concat(objects.Select(shared => shared.Hash)))
             {
                 // The object is checked against its name before it reaches the store, so a damaged cache can't ship.
+                // Once checked, the store links to the cache's copy when it can, so the bytes aren't kept twice.
                 bool restored = store.PutOnce(hash, () =>
                 {
                     byte[] bytes = File.ReadAllBytes(ObjectFile(hash));
                     return Convert.ToHexStringLower(SHA256.HashData(bytes)) == hash ? bytes : null;
-                });
+                }, ObjectFile(hash));
                 if (!restored)
                 {
                     miss = $"cached object damaged: {hash}";
@@ -203,6 +204,13 @@ internal sealed class CookCache(string folder)
         {
             // The cache is an optimisation. A cook that couldn't be remembered is still a cook.
         }
+    }
+
+    /// <summary>The cache's file for an object, or null when the cache doesn't keep it, such as when saving it failed.</summary>
+    public string? SavedObject(string hash)
+    {
+        string objectFile = ObjectFile(hash);
+        return File.Exists(objectFile) ? objectFile : null;
     }
 
     /// <summary>Keeps an object unless the cache has it already, as it often does for a texture models share.</summary>

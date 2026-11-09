@@ -296,12 +296,22 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
             }
         }
 
+        // The cache first, so the store can link to the cache's copy rather than keep the bytes a second time.
+        if (key is not null && cookInput is not null)
+        {
+            using (clock.Start("write cache"))
+            {
+                cache!.Save(key, file, cookInput.Inputs, output.Assets, hashes, output.Objects,
+                    output.Problems.Select(problem => (problem.Message, problem.Line)).ToList());
+            }
+        }
+
         using (clock.Start("write store"))
         {
             for (int i = 0; i < output.Assets.Count; i++)
             {
                 var (part, kind, bytes) = output.Assets[i];
-                writer.Put(hashes[i], bytes);
+                writer.Put(hashes[i], bytes, cache?.SavedObject(hashes[i]));
                 done.Assets.Add((part, new ManifestEntry(kind, hashes[i], bytes.LongLength)));
                 outputBytes += bytes.LongLength;
             }
@@ -309,18 +319,9 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
             // Shared objects, such as textures, are already hashed, and most are in the store from another source.
             foreach (var (hash, bytes) in output.Objects)
             {
-                writer.Put(hash, bytes);
+                writer.Put(hash, bytes, cache?.SavedObject(hash));
                 done.Objects.Add(hash);
                 outputBytes += bytes.LongLength;
-            }
-        }
-
-        if (key is not null && cookInput is not null)
-        {
-            using (clock.Start("write cache"))
-            {
-                cache!.Save(key, file, cookInput.Inputs, output.Assets, hashes, output.Objects,
-                    output.Problems.Select(problem => (problem.Message, problem.Line)).ToList());
             }
         }
 
@@ -375,11 +376,15 @@ internal sealed class StoreWriter(ICookedStore store)
     private readonly ConcurrentDictionary<string, object> _gates = new(StringComparer.Ordinal);
 
     /// <summary>Puts the object in the store unless it's already there.</summary>
-    public void Put(string hash, byte[] bytes) => PutOnce(hash, () => bytes);
+    /// <param name="linkFrom">A file that already holds the bytes, such as the cache's copy, for the store to link to.</param>
+    public void Put(string hash, byte[] bytes, string? linkFrom = null) => PutOnce(hash, () => bytes, linkFrom);
 
-    /// <summary>Puts the object in the store unless it's already there, making its bytes only when it isn't.</summary>
+    /// <summary>
+    /// Puts the object in the store unless it's already there, making its bytes only when it isn't. The store links to
+    /// <paramref name="linkFrom"/> when it can, and is given the bytes when it can't.
+    /// </summary>
     /// <returns>False when <paramref name="bytes"/> gave null, so nothing was put.</returns>
-    public bool PutOnce(string hash, Func<byte[]?> bytes)
+    public bool PutOnce(string hash, Func<byte[]?> bytes, string? linkFrom = null)
     {
         lock (_gates.GetOrAdd(hash, _ => new object()))
         {
@@ -394,7 +399,11 @@ internal sealed class StoreWriter(ICookedStore store)
                 return false;
             }
 
-            store.Put(hash, made);
+            if (linkFrom is null || !store.TryLink(hash, linkFrom))
+            {
+                store.Put(hash, made);
+            }
+
             return true;
         }
     }

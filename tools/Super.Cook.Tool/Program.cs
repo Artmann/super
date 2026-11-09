@@ -12,10 +12,12 @@ public static class Program
 {
     private const string Usage = """
         Usage:
-          super-cook --content <dir> [--content <dir> ...] --out <dir> [--target desktop] [--cache <dir> | --no-cache] [--dev-file <path>] [--watch]
+          super-cook --content <dir> [--only <glob> ...] [--content <dir> ...] --out <dir> [--target desktop] [--cache <dir> | --no-cache] [--dev-file <path>] [--watch]
                      [--workers <n>] [--timings] [--verbose]
           super-cook file --content <dir> [--content <dir> ...] <name> <output path>
 
+        --only cooks just the files of the --content before it that match the glob, such as props/**. Give it
+        several times for several globs. The other files stay readable, so a model still finds its textures.
         --timings prints where the time went: each step, each phase of the cookers, the slowest sources
         and why sources weren't taken from the cache. --verbose adds one line per source.
         SUPER_COOK_TIMINGS=1 or SUPER_COOK_VERBOSE=1 do the same, for a cook started by a build or a game.
@@ -51,7 +53,7 @@ public static class Program
 
     private static int CookAll(string[] args)
     {
-        var contents = new List<string>();
+        var contents = new List<(string Folder, List<string> Only)>();
         string? output = null;
         string target = "desktop";
         string? cache = null;
@@ -66,7 +68,22 @@ public static class Program
             switch (args[i])
             {
                 case "--content":
-                    contents.Add(Value(args, ref i));
+                    contents.Add((Value(args, ref i), []));
+                    break;
+                case "--only":
+                    // Trimmed, so Only="props/** ; textures/**" in a project works.
+                    string pattern = Value(args, ref i).Trim();
+                    if (contents.Count == 0)
+                    {
+                        throw new UsageException($"--only {pattern} needs a --content before it: it picks files from the folder just before it.");
+                    }
+
+                    // An empty one comes from a trailing semicolon, as in Only="props/**;".
+                    if (pattern.Length > 0)
+                    {
+                        contents[^1].Only.Add(pattern);
+                    }
+
                     break;
                 case "--workers":
                     string count = Value(args, ref i);
@@ -123,7 +140,8 @@ public static class Program
 
         if (devFile is not null)
         {
-            new DevSettings([.. roots.Select(root => root.Label)], typeof(Program).Assembly.Location, target).Write(devFile);
+            var only = roots.Where(root => root.Only.Count > 0).ToDictionary(root => root.Label, root => root.Only.ToArray());
+            new DevSettings([.. roots.Select(root => root.Label)], typeof(Program).Assembly.Location, target, only.Count > 0 ? only : null).Write(devFile);
         }
 
         if (!watch)
@@ -145,13 +163,13 @@ public static class Program
     /// <summary>Cooks the roots and writes the bytes of one asset or part to a file.</summary>
     private static int CookOne(string[] args)
     {
-        var contents = new List<string>();
+        var contents = new List<(string Folder, List<string> Only)>();
         var positional = new List<string>();
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i] == "--content")
             {
-                contents.Add(Value(args, ref i));
+                contents.Add((Value(args, ref i), []));
             }
             else if (args[i].StartsWith("--", StringComparison.Ordinal))
             {
@@ -244,22 +262,22 @@ public static class Program
         return result.Succeeded;
     }
 
-    private static List<FolderRoot> Roots(List<string> contents)
+    private static List<FolderRoot> Roots(List<(string Folder, List<string> Only)> contents)
     {
         if (contents.Count == 0)
         {
             throw new UsageException("--content is needed at least once.");
         }
 
-        foreach (string content in contents)
+        foreach (var (folder, _) in contents)
         {
-            if (!Directory.Exists(content))
+            if (!Directory.Exists(folder))
             {
-                throw new UsageException($"The content folder {Path.GetFullPath(content)} doesn't exist.");
+                throw new UsageException($"The content folder {Path.GetFullPath(folder)} doesn't exist.");
             }
         }
 
-        return [.. contents.Select(content => new FolderRoot(content))];
+        return [.. contents.Select(content => new FolderRoot(content.Folder, content.Only))];
     }
 
     private static string Value(string[] args, ref int i)

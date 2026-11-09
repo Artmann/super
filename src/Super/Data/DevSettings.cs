@@ -9,7 +9,8 @@ namespace Super;
 /// <param name="Roots">The full path of every content root.</param>
 /// <param name="Tool">The full path of <c>super-cook.dll</c>, run with <c>dotnet</c>.</param>
 /// <param name="Target">The platform the content was cooked for, such as <c>desktop</c>.</param>
-public sealed record DevSettings(string[] Roots, string Tool, string Target)
+/// <param name="Only">The globs that pick what's cooked from a root, by its full path. A root that isn't here is cooked whole.</param>
+public sealed record DevSettings(string[] Roots, string Tool, string Target, Dictionary<string, string[]>? Only = null)
 {
     public const string FileName = "content.dev.json";
 

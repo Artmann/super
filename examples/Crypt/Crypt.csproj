@@ -12,7 +12,8 @@
   <Import Project="..\..\src\Super.Build\Super.targets" />
   <ItemGroup>
     <SuperContent Include="content" />
-    <SuperContent Include="..\..\assets" />
+    <!-- The shared folder holds every example's models; this one only uses a few. -->
+    <SuperContent Include="..\..\assets" Only="props/Lantern_01/**;props/brass_candleholders/**;props/gothic_statue/**;props/treasure_chest/**;props/wine_barrel_01/**" />
   </ItemGroup>
 
 </Project>
