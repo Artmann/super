@@ -412,7 +412,12 @@ public sealed class ModelCooker : ICooker
             }
         }
 
-        var masks = BakeMasks(settings, output, prefix, vertexArray, indices, parts, materialNames, withoutUv2, textures);
+        ModelMaterialMasks?[]? masks;
+        using (input.Time("bake masks"))
+        {
+            masks = BakeMasks(settings, output, prefix, vertexArray, indices, parts, materialNames, withoutUv2, textures);
+        }
+
         if (masks is null)
         {
             return null;
@@ -783,9 +788,19 @@ public sealed class ModelCooker : ICooker
             }
 
             GraphRun? run = null;
-            if (MaterialGraphs.Run(input, path, size, error) is { } images)
+            Super.Materials.MaterialImages? images;
+            MaterialPixels? pixels = null;
+            using (input.Time("run graphs"))
             {
-                var pixels = MaterialPixels.Pack(images);
+                images = MaterialGraphs.Run(input, path, size, error);
+                if (images is not null)
+                {
+                    pixels = MaterialPixels.Pack(images);
+                }
+            }
+
+            if (images is not null && pixels is not null)
+            {
                 foreach (string part in pixels.NotNumbers)
                 {
                     warning($"{path}: {part} has pixels that aren't numbers. They were written as 0.");
