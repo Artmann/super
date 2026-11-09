@@ -343,7 +343,7 @@ allocates nothing.
 ### How they look
 
 Particles are lit by the sun, the sky and point and spot lights, shaded by the sun's
-shadows, fade into haze and melt softly into the ground and anything they touch. A
+shadows, sit in the fog, fade into haze and melt softly into the ground and anything they touch. A
 glowing particle gives off its own light on top, but doesn't light what's round it: put
 a `view.PointLight` at a fire for that. They cast no shadow, and underwater
 they fade with distance but miss the shafts of light. They're sorted with

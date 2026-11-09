@@ -73,6 +73,7 @@ public class GraphicsTests
     [InlineData(nameof(Graphics.ContactShadows), RenderEffects.ContactShadows)]
     [InlineData(nameof(Graphics.LightProbes), RenderEffects.LightProbes)]
     [InlineData(nameof(Graphics.MultiscatterSpecular), RenderEffects.MultiscatterSpecular)]
+    [InlineData(nameof(Graphics.Fog), RenderEffects.Fog)]
     public void Each_switch_turned_off_leaves_out_only_its_own_effect(string setting, RenderEffects effect)
     {
         var graphics = new Graphics();
@@ -89,7 +90,7 @@ public class GraphicsTests
         Assert.Equal(
             RenderEffects.SunShadows | RenderEffects.LightShadows | RenderEffects.AmbientOcclusion
             | RenderEffects.Reflections | RenderEffects.AntiAliasing | RenderEffects.Bloom | RenderEffects.ContactShadows
-            | RenderEffects.LightProbes | RenderEffects.MultiscatterSpecular,
+            | RenderEffects.LightProbes | RenderEffects.MultiscatterSpecular | RenderEffects.Fog,
             graphics.Off);
         Assert.True(graphics.Materials);
         Assert.False(graphics.Vsync);

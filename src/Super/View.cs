@@ -434,7 +434,7 @@ public sealed class View
 
     /// <summary>
     /// Sets the sky: a gradient from the ground up through the horizon to straight up, and
-    /// haze that fades distant things into it. Without one the world sits in a plain grey
+    /// haze and fog that set distant things back in it. Without one the world sits in a plain grey
     /// studio. Water, when set, takes over the sky.
     /// </summary>
     public void Sky(in SkySettings settings)
@@ -461,7 +461,31 @@ public sealed class View
                     $"The sky's turbidity must be 0 for the gradient sky, or from {Super.SkySettings.MinTurbidity} to {Super.SkySettings.MaxTurbidity} for a clear one, but it is {turbidity}."));
         }
 
+        RefuseBadFog(settings.Fog, nameof(settings));
         SkySettings = settings;
+    }
+
+    private static void RefuseBadFog(in FogSettings fog, string paramName)
+    {
+        RefuseBelowZero(fog.Density, "density", "per metre");
+        RefuseBelowZero(fog.Falloff, "falloff", "per metre, and 0 is fog of one density at every height");
+        RefuseBelowZero(fog.SunScatter, "sun scatter", "and 0 gives no glow towards the sun");
+        if (!float.IsFinite(fog.Height))
+        {
+            throw new ArgumentOutOfRangeException(
+                paramName,
+                string.Create(CultureInfo.InvariantCulture, $"The fog's height must be a number of metres, but it is {fog.Height}."));
+        }
+
+        void RefuseBelowZero(float value, string name, string unit)
+        {
+            if (!(float.IsFinite(value) && value >= 0f))
+            {
+                throw new ArgumentOutOfRangeException(
+                    paramName,
+                    string.Create(CultureInfo.InvariantCulture, $"The fog's {name} must be 0 or more, {unit}, but it is {value}."));
+            }
+        }
     }
 
     /// <summary>Puts the whole view underwater.</summary>

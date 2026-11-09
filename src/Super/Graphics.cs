@@ -84,6 +84,12 @@ public sealed class Graphics
     public bool Bloom { get; set; } = true;
 
     /// <summary>
+    /// The height fog from <see cref="SkySettings.Fog"/>, which sets far things back in the air. Off, the air is
+    /// clear whatever the fog's density. Haze is not fog and stays.
+    /// </summary>
+    public bool Fog { get; set; } = true;
+
+    /// <summary>
     /// Every surface's own colour, textures, normal maps and shine. Off, everything is the same light grey,
     /// matte clay, shaped only by its mesh, so the lighting and the models can be judged without the
     /// textures in the way. Glows still glow, cut-outs still cut and glass stays see-through. It's
@@ -107,6 +113,7 @@ public sealed class Graphics
         Reflections = false,
         AntiAliasing = false,
         Bloom = false,
+        Fog = false,
     };
 
     /// <summary>The effects the renderer leaves out.</summary>
@@ -120,5 +127,6 @@ public sealed class Graphics
         | (Reflections ? 0 : RenderEffects.Reflections)
         | (AntiAliasing ? 0 : RenderEffects.AntiAliasing)
         | (Bloom ? 0 : RenderEffects.Bloom)
+        | (Fog ? 0 : RenderEffects.Fog)
         | (Materials ? 0 : RenderEffects.Materials);
 }

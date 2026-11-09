@@ -52,6 +52,7 @@ next frame follows, so it can back an options menu.
 | `Reflections` | Shiny surfaces, water and glass reflect only the sky: not what's on screen, and no [reflection probes](#reflections) are photographed |
 | `AntiAliasing` | Edges show their pixels, and moving things stay sharp |
 | `Bloom` | No glow round bright things. `PostSettings.Bloom` only changes how much there is |
+| `Fog` | Clear air, whatever `SkySettings.Fog` asks for. [Haze](#the-sky) stays, since it isn't fog. `SkySettings.Fog` only changes [how thick it is](#fog) |
 | `Materials` | Every surface is the same light grey, matte clay, shaped only by its mesh, so you can judge the lighting and the models without textures in the way. Glows still glow, cut-outs still cut and glass stays see-through. `--no-materials` turns it off too |
 
 `Materials` is for looking, not for speed, so `Graphics.Fastest()` leaves it on. A key that
@@ -377,6 +378,41 @@ Changing the colours rebuilds the sky's lighting, which takes a moment, so keep 
 steady rather than animating them every frame. [Water](#water), when set, takes over the
 sky. The [Archer example](../examples/Archer) uses a golden-hour sky, and the
 [Courtyard example](../examples/Courtyard) a clear one.
+
+### Fog
+
+Fog is air you can see: it thickens towards the ground, so the far side of a yard sits
+back in it while the near ground stays crisp. Set it on the sky:
+
+```csharp
+view.Sky(new SkySettings
+{
+    Turbidity = 2.5f,
+    Fog = new FogSettings(Density: 0.004f, Height: 0f, Falloff: 0.15f, SunScatter: 0.6f),
+});
+```
+
+![The Courtyard with Graphics.Fog off, and with fog of density 0.004 and falloff 0.15](media/fog.webp)
+
+`Density` is how much light the air takes per metre at `Height`, so 0.004 hides about 4%
+of what is 10 m away and a third of what is 100 m away. Above `Height` the fog thins by e
+every 1 / `Falloff` metres, 6.7 m at 0.15, and below it thickens the same way, so a
+valley fills and a tower's top stands clearer than its foot. A `Falloff` of 0 is fog of
+one density at every height. The default, a density of 0, is clear air.
+
+Fog takes its colour from the sky behind what it hides, without the sun's disc. Looking
+down, it takes the sky's colour at the horizon that way, since fog is lit by the sky all
+round it, not by the ground. Looking towards a sun it glows, by `SunScatter` times the
+sun's colour, in a lobe that narrows to nothing a right angle away; 0 gives no glow.
+Lit surfaces, glass and particles all sit in the same fog. The sky itself is drawn
+clear, as is everything under [water](#water).
+
+Haze and fog work side by side. Haze fades things into the sky between two distances,
+which hides the edge of a world; fog is worked out along each line of sight and gives
+depth inside it. A negative density, falloff or sun scatter throws, as does a height that
+isn't a number. Fog is drawn for the camera only: [light probes](#bounced-light) and
+[reflection probes](#reflections) capture clear air, so changing the fog captures nothing
+again and costs nothing but its pixels. `Graphics.Fog` turns it off.
 
 ## Water
 

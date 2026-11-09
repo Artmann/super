@@ -131,6 +131,9 @@ internal struct FrameUniforms
     /// <summary>rgb: how bright the sun's disc is, 0 for none; a: the cosine of its angular radius.</summary>
     public Vector4 SunDisc;
 
+    /// <summary>x: the fog's density at its height, 0 for none; y: that height; z: its falloff per metre; w: how much it glows towards the suns.</summary>
+    public Vector4 Fog;
+
     public int LightCount;
     public float Time;
     public int FrameNumber;

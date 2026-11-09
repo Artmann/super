@@ -6,6 +6,7 @@
 #include "water.glsl"
 #include "light_data.glsl"
 #include "sky.glsl"
+#include "fog.glsl"
 
 layout(location = 0) in vec2 inCorner;
 layout(location = 1) in vec2 inScreenCorner;
@@ -112,7 +113,12 @@ void main() {
         vec3 kept = waterAbsorbed(length(away));
         color = color * kept + waterColor(normalize(away)) * (1.0 - kept);
     } else {
-        // The same haze as surfaces, so distant dust melts into the sky.
+        // The same fog and haze as surfaces, so distant dust melts into the air and the sky.
+        float fogKept = fogTransmittance(inPosition);
+        if (fogKept < 1.0) {
+            color = color * fogKept + fogLight(inPosition, fogKept, reflectionTexture);
+        }
+
         float fadeStart = frame.parameters.x;
         float fadeEnd = frame.parameters.y;
         if (fadeEnd > fadeStart) {

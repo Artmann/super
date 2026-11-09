@@ -589,6 +589,9 @@ internal sealed class SceneRenderer : IDisposable
     /// <summary>Where the haze is measured from: the camera's focus when the sky asks for it, else the camera.</summary>
     internal static Vector3? HazeOrigin(SkySettings? sky, Camera shot) => sky is { HazeFromFocus: true } ? shot.Target : null;
 
+    /// <summary>The fog the sky asks for, or clear air without a sky.</summary>
+    internal static FogSettings FrameFog(SkySettings? sky) => sky?.Fog ?? default;
+
     /// <summary>Which sun casts the shadows: the one marked to, or else the first.</summary>
     internal static int ShadowSun(ReadOnlySpan<SunLight> suns)
     {
@@ -656,6 +659,7 @@ internal sealed class SceneRenderer : IDisposable
             BackgroundFadeEnd = sky?.HazeEnd ?? 0f,
             BackgroundFadeOrigin = HazeOrigin(sky, shot),
             BackgroundFadeColor = sky?.HazeColor ?? Vector3.Zero,
+            Fog = FrameFog(sky),
             Post = view.Post,
             Water = view.WaterSettings,
             Overlay = view.Ui is { } ui ? ui.Quads : [],

@@ -88,6 +88,17 @@ The `plain` script presses M for a screenshot:
 dotnet run -c Release --project examples/Courtyard -- --script plain --screenshot shots/courtyard-plain.png --validate --seed 1 --ticks 60 --size 1600x900
 ```
 
+Press F to turn the fog off and on. The sky sets a light fog,
+`Fog = new FogSettings(Density: 0.004f, Height: 0f, Falloff: 0.15f, SunScatter: 0.6f)`, thickest
+on the ground, so the far wall and the window sit a touch back in the air behind the near
+flagstones. See [Fog](../../docs/rendering.md#fog). It flips
+[`Graphics.Fog`](../../docs/rendering.md#graphics-settings), and the `clear` script presses F
+for a screenshot in clear air:
+
+```
+dotnet run -c Release --project examples/Courtyard -- --script clear --screenshot shots/courtyard-clear.png --validate --seed 1 --ticks 60 --size 1600x900
+```
+
 ## The lineup
 
 `--lineup` shows the graphs one by one instead: a row for each, with a sphere, a cube and
@@ -105,7 +116,7 @@ dotnet run -c Release --project examples/Courtyard -- --lineup
 
 | File | What's in it |
 | --- | --- |
-| `CourtyardGame.cs` | The courtyard model, the camera, the sun and its shadows, the sky, the lantern and the room's light, and the finish |
+| `CourtyardGame.cs` | The courtyard model, the camera, the sun and its shadows, the sky and its fog, the lantern and the room's light, and the finish |
 | `LineupGame.cs` | The lineup |
 | `art/courtyard.py` | The Blender script that builds and exports the courtyard |
 | `art/assets/` | The lantern, crate and wheel from Sketchfab, with their textures, that the script imports |

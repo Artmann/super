@@ -560,6 +560,24 @@ public readonly record struct OcclusionSettings(float Radius = OcclusionSettings
     }
 }
 
+/// <summary>
+/// Air that thickens towards the ground and dims and tints what's far away. <see cref="Density"/>
+/// is how much light it takes per metre at <see cref="Height"/>, 0 for none; above that height
+/// it thins by e every 1 / <see cref="Falloff"/> metres, and below it thickens the same way, so
+/// 0 falloff is fog of one density everywhere. It takes the colour of the sky behind, and glows
+/// towards the sun by <see cref="SunScatter"/>.
+/// </summary>
+public readonly record struct FogSettings(float Density = 0f, float Height = 0f, float Falloff = FogSettings.DefaultFalloff, float SunScatter = FogSettings.DefaultSunScatter)
+{
+    public const float DefaultFalloff = 0.1f;
+    public const float DefaultSunScatter = 0.5f;
+
+    /// <summary>No fog yet, with a falloff and sun scatter that suit a day outdoors once given a density.</summary>
+    public FogSettings() : this(0f, 0f, DefaultFalloff, DefaultSunScatter)
+    {
+    }
+}
+
 /// <summary>Everything the renderer needs to know about one frame except the draws.</summary>
 public ref struct FrameView
 {
@@ -628,6 +646,12 @@ public ref struct FrameView
 
     /// <summary>What distant surfaces fade into. Zero fades them into the background behind them.</summary>
     public Vector3 BackgroundFadeColor;
+
+    /// <summary>
+    /// Height fog between the camera and what it sees, lit by the sky and the suns. It's
+    /// drawn for the view only: light and reflection probes capture clear air. See docs/rendering.md.
+    /// </summary>
+    public FogSettings Fog;
 
     public PostSettings Post;
 
@@ -702,14 +726,17 @@ public enum RenderEffects
     /// </summary>
     MultiscatterSpecular = 1 << 9,
 
+    /// <summary>The height fog from <see cref="FrameView.Fog"/>. Without it the air is clear, whatever its density.</summary>
+    Fog = 1 << 11,
+
     All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
-        | MultiscatterSpecular,
+        | MultiscatterSpecular | Fog,
 }
 
 /// <summary>
 /// A soft, see-through puff that always faces the camera, such as one wisp of dust or
 /// smoke. It's lit by the sun, the sky and point and spot lights, falls into the sun's
-/// shadow, fades into haze, and melts into whatever it touches instead of showing a hard
+/// shadow, sits in the fog, fades into haze, and melts into whatever it touches instead of showing a hard
 /// edge where it meets the ground. A glowing one, such as a lick of flame, adds its own light.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]

@@ -6,6 +6,8 @@
 #include "material.glsl"
 #include "light_data.glsl"
 #include "reflection_probes.glsl"
+#include "sky.glsl"
+#include "fog.glsl"
 
 layout(location = 0) in vec3 inNormal;
 layout(location = 2) in vec2 inUv;
@@ -140,6 +142,14 @@ void main() {
     float reflectance = dot(fresnelSchlick(nDotV, f0), vec3(1.0 / 3.0));
     float coverage = opacity + (1.0 - opacity) * reflectance;
     vec3 own = baseColor.rgb * diffuse * opacity + specular + emissive;
+
+    // The fog in front dims the glass's own light and adds its own over the part the glass
+    // covers. What shows through already has the fog all the way to it.
+    float fogKept = fogTransmittance(inPosition);
+    if (fogKept < 1.0) {
+        own = own * fogKept + fogLight(inPosition, fogKept, reflectionTexture) * coverage;
+    }
+
     if (draw.tint.w < 0.5) {
         outColor = vec4(own, coverage);
         return;

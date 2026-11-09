@@ -988,6 +988,28 @@ what it last baked each frame and, on a change, waits for the GPU and runs
 every frame. That doesn't bump the environment version: the lighting hashes that decide
 when probes recapture already cover the turbidity, the lights and `LightAngle`.
 
+### Height fog
+
+`fog.glsl` holds the fog that `lighting.frag`, `transparent.frag` and `particle.frag`
+apply after lighting, before the haze. The density is `d·exp(-k(y - h))`, so along a ray
+from the camera at height y₀ climbing Δy over length L the optical depth has a closed form,
+`d·exp(-k(y₀ - h))·L·(1 - exp(-kΔy))/(kΔy)`, taken as `d·exp(-k(y₀ - h))·L` when kΔy is under
+1e-4. `Passes/Fog.cs` holds the same sum in C# (`Fog.Transmittance`) for the tests. A
+surface keeps its light times the transmittance T and gains the fog's colour times 1 - T.
+The light held apart for the subsurface blur is dimmed by T too. Glass adds the fog's
+colour times its coverage, since what shows through it was already fogged when the opaque
+scene was lit; particles add it before their premultiply. The fog's colour is
+`skyBehind()` in the view direction lifted to the horizon, so no disc and no ground, plus
+`SunScatter` times each sun's radiance times `pow(max(dot(view, sun), 0), 8)`. The sky
+background itself gets none.
+
+The frame uniforms carry `fog` (density, height, falloff, sun scatter). `Fog.Pack` zeroes
+it with `RenderEffects.Fog` off, under water and while a probe is captured, and a density of 0 makes
+every shader skip the fog. Light probes and reflection probes therefore capture clear air:
+fog belongs to the view that looks through it, not to the light in the scene. That is why
+the fog is in neither `LightingHash` nor `ReflectionLightingHash`, and changing it
+recaptures nothing.
+
 ## Reflections
 
 A reflection comes from the most accurate source that can answer. First, a ray walks
@@ -1178,7 +1200,7 @@ pseudo-sphere normal, bent toward the camera, with the sky's irradiance and wrap
 sunlight, so a puff is brighter on its sunny side but never dark like a solid ball.
 Point and spot lights from the pixel's cluster are wrapped the same way, with no
 shadows. A glowing puff adds its colour times its glow, which can go past 1 for bloom.
-Haze and the underwater fade are the same as for surfaces. Colour is premultiplied.
+Fog, haze and the underwater fade are the same as for surfaces. Colour is premultiplied.
 
 On the Super side, a `ParticleEmitter` is an immutable list of nodes, built like a
 Unity or Unreal particle graph but always a chain, never a graph with branches. The

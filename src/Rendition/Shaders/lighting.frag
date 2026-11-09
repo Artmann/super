@@ -10,6 +10,7 @@
 #include "light_data.glsl"
 #include "local_shadows.glsl"
 #include "sky.glsl"
+#include "fog.glsl"
 
 layout(location = 0) in vec2 inUv;
 
@@ -629,6 +630,14 @@ void main() {
     if (isUnderwater()) {
         outColor = vec4(throughWater(color + scattered, position), 1.0);
         return;
+    }
+
+    // The fog between the surface and the camera dims it and adds its own light. The light kept
+    // apart for the subsurface blur is dimmed alike, and the fog's light goes with the rest.
+    float fogKept = fogTransmittance(position);
+    if (fogKept < 1.0) {
+        color = color * fogKept + fogLight(position, fogKept, reflectionTexture);
+        scattered *= fogKept;
     }
 
     // Distant surfaces melt into the background, which hides the horizon of a studio floor.

@@ -1892,6 +1892,7 @@ public sealed unsafe class Renderer : IDisposable
         (uniforms->Lift, uniforms->Gain) = PostGrade.Tint(view.Post);
         (uniforms->HazeOrigin, uniforms->HazeColor) = Haze.Pack(view.CameraPosition, view.BackgroundFadeOrigin, view.BackgroundFadeColor);
         uniforms->Occlusion = Occlusion.Pack(view.Occlusion);
+        uniforms->Fog = Fog.Pack(view.Fog, _off, capturingProbe, underwater: view.Water.Absorption != Vector3.Zero);
         uniforms->ProbeCount = 0;
         if (!capturingProbe)
         {
