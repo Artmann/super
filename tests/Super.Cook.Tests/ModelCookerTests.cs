@@ -879,7 +879,7 @@ public sealed class ModelCookerTests : IDisposable
     }
 
     [Fact]
-    public void Model_cookers_are_the_built_in_ones_and_the_model_cooker()
+    public void Model_cookers_are_the_built_in_ones_and_the_material_and_model_cookers()
     {
         Assert.Equal(
             BuiltInCookers.All.Select(c => c.Id).Append("material").Append("model").Order(StringComparer.Ordinal),
