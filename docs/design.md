@@ -1073,17 +1073,24 @@ Near the camera the height fog is worked out in a froxel grid instead of in clos
 (after render scale, rounded up) and 64 slices. Slice boundary i lies at view depth
 `n·(f/n)^(i/64)`, where f is `VolumetricDistance` and n, where the exponential split
 starts, is the smaller of 1 m and f/2. Cell 0 runs from the camera to boundary 1 and every
-other cell from its boundary to the next, so the slices are thin near the eye and deep far
-off. The frame uniforms carry `volumetric` (reach, n, anisotropy, and 1 when last frame's
+other cell from its boundary to the next. So the first cell is one deep block, 0 to about
+1.06 m at the default reach of 48, and past it the slices are thin and grow with distance:
+about 6 cm just past 1 m and about 2.8 m at 48 m. Fog within a metre of the eye is too thin
+to show any detail, and the first cell's light is faded in linearly from the camera (see
+`fogInFront()` below), so it is one cell rather than several. The frame uniforms carry `volumetric` (reach, n, anisotropy, and 1 when last frame's
 volume can be used), right after `curve`. `VolumetricFog.Pack` zeroes it, which makes every
 shader take the plain path untouched, with `RenderEffects.Fog` or `RenderEffects.VolumetricFog`
 off, a density or distance of 0, under water and while a probe is captured.
 
 Three rgba16f 3D images, about 35 MB at 1600×900, stay in the general layout for good. They
-are made the first time a frame draws the fog, at the scene's size, and remade with it;
-until then binding 8 of the frame set holds a 1×1×1 texel of (0, 0, 0, 1), which lets
-everything through. Two passes run after the shadow maps and the cluster lists, before
+are made the first time a frame draws the fog, at the scene's size, and remade with it.
+Turning `RenderEffects.Fog` or `RenderEffects.VolumetricFog` off frees them after a device
+wait, and turning it on again makes them anew with no history. Without them binding 8 of
+the frame set holds a 1×1×1 texel of (0, 0, 0, 1), which lets everything through. Two passes run after the shadow maps and the cluster lists, before
 the lighting pass, and the shadow maps' barriers list the compute stage among their readers.
+`GpuTimer` reports the two together as "Volumetric fog", and the light lists before them as
+"Light clusters". At 1600×900 they take about 0.16 ms in the Courtyard and 0.3 ms in the
+Crypt, whose many lights make the inject pass work harder.
 
 `volumetric_inject.comp` writes one of two injected volumes and samples the other as
 history. For each cell it finds the view ray through the cell's centre from

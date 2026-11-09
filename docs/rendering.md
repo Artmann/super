@@ -54,7 +54,7 @@ next frame follows, so it can back an options menu.
 | `AntiAliasing` | Edges show their pixels, and moving things stay sharp |
 | `Bloom` | No glow round bright things. `PostSettings.Bloom` only changes how much there is |
 | `Fog` | Clear air, whatever `SkySettings.Fog` asks for. [Haze](#the-sky) stays, since it isn't fog. `SkySettings.Fog` only changes [how thick it is](#fog) |
-| `VolumetricFog` | The fog is the plain height fog all the way, exactly as if `FogSettings.VolumetricDistance` were 0: no shafts of sunlight and no halos round lamps. It saves two compute passes over a small grid and about 35 MB of memory at 1600 by 900. See [volumetric fog](#volumetric-fog) |
+| `VolumetricFog` | The fog is the plain height fog all the way, exactly as if `FogSettings.VolumetricDistance` were 0: no shafts of sunlight and no halos round lamps. It saves two compute passes over a small grid and about 35 MB of memory at 1600 by 900, which is freed when it is switched off and made again, without its history, when it is switched back on. See [volumetric fog](#volumetric-fog) |
 | `AutoExposure` | Views that ask for [auto exposure](#auto-exposure) keep the fixed `PostSettings.Exposure` instead, as if they hadn't asked. It saves a compute pass over the frame |
 | `DepthOfField` | Everything is sharp, even in views that open the lens with `PostSettings.Aperture`. It saves three passes, two of them at half size. See [focus](#focus) |
 | `Decals` | No [decals](views.md#decals): surfaces show as they are, without the grime and stains `view.Decal` lays on them. It saves a copy of the normal target and a pass over the decals' pixels |
@@ -564,13 +564,14 @@ Fog = new FogSettings(Density: 0.004f, Height: 0f, Falloff: 0.15f, SunScatter: 0
 },
 ```
 
-![Plain fog on the left, volumetric on the right: above, the Courtyard's tree against the sun, with the fog raised to 0.02; below, the Crypt's torches in a fog of 0.03 added for the picture](media/volumetric-fog.webp)
+![Plain fog on the left, volumetric on the right: above, the Courtyard's tree against the sun, with the fog raised to 0.02; below, the Crypt's torches in its own faint fog of 0.008](media/volumetric-fog.webp)
 
 Above, looking past the Courtyard's tree towards the sun: the plain fog washes the
 leaves with the sun's glow, while the volumetric fog leaves them dark and lets the light
-through between them in shafts. Below, a fog added to the Crypt for the picture: the
-torches and the lantern over the altar glow in the air, where the plain fog only
-darkens.
+through between them in shafts. Below, the Crypt's faint, dusty air, with a density of
+0.008: the torches glow in the air round them, where the plain fog only darkens. The
+torches pass `volumetric: 2f`, so their halos read without thicker air hazing the far
+end of the room.
 
 `VolumetricDistance` is how far from the camera, in metres, the fog is worked out this
 way, 48 by default. Past it the plain fog carries on, seen through the volumetric part,
@@ -588,7 +589,7 @@ stronger. A negative strength throws. A light's halo is cut by its own shadow wh
 casts one, so a lantern's beam shows as a cone.
 
 The fog near the camera is kept in a grid of cells, one for every 8 by 8 pixels of the
-scene and 64 deep, thin near the camera and deeper further out. Each frame lights
+scene and 64 deep: one cell for the first metre, then thin cells that get deeper further out. Each frame lights
 every cell at a different point of its depth and keeps 90% of what the cell held last
 frame, so a light that moves or switches on takes a few frames to settle in the fog.
 Screenshots and recordings that fix the frame come out the same every time. The grid

@@ -205,6 +205,9 @@ public sealed class CryptGame(Content content) : IGame
             Horizon = new Vector3(0.02f, 0.02f, 0.03f),
             Ground = new Vector3(0.01f, 0.01f, 0.01f),
             Brightness = 0.05f,
+            // A faint, dusty air, just enough for the torches and the lantern to glow in it. Any
+            // thicker and the far end of the room goes hazy. There is no sun to scatter.
+            Fog = new FogSettings(Density: 0.008f, Height: 0f, Falloff: 0.15f, SunScatter: 0f),
         });
         view.Finish(new PostSettings
         {
@@ -279,8 +282,9 @@ public sealed class CryptGame(Content content) : IGame
                 var fire = bracket + Vector3.Transform(new Vector3(0f, 0.34f, 0f), lean);
                 float flicker = 1f + (0.1f * MathF.Sin(_seconds * 11f + i * 2f)) + (0.07f * MathF.Sin(_seconds * 23f + i));
                 // The flame is a hand from the stone, so a radius a little bigger than the fire keeps
-                // the pillar from blowing out white beside it.
-                view.PointLight(TorchKey + i, fire + new Vector3(0f, 0.12f, 0f), new Vector3(3.4f, 1.5f, 0.45f) * flicker, range: 9f, radius: 0.5f);
+                // the pillar from blowing out white beside it. Its halo is doubled, so it reads in
+                // the faint air without thickening the air for everything else.
+                view.PointLight(TorchKey + i, fire + new Vector3(0f, 0.12f, 0f), new Vector3(3.4f, 1.5f, 0.45f) * flicker, range: 9f, radius: 0.5f, volumetric: 2f);
                 DrawFire(view, FlameKey + (i * 1000), Torch, fire);
                 i++;
             }

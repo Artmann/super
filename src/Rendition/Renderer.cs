@@ -1216,6 +1216,15 @@ public sealed unsafe class Renderer : IDisposable
             _volumetricFog.SetSize((int)_gBuffer.Extent.Width, (int)_gBuffer.Extent.Height);
             WriteTargetDescriptors();
         }
+        else if (_volumetricFog.HasTargets && (_off & (RenderEffects.Fog | RenderEffects.VolumetricFog)) != 0)
+        {
+            // Switched off, the volumes are freed, and made again with no history if it's switched back on.
+            // Frames in flight still read them. Flipping the switch is rare.
+            _api.DeviceWaitIdle(_context.Device).Check();
+            _volumetricFog.Release();
+            WriteTargetDescriptors();
+        }
+
         _depthOfField = DepthOfFieldConstants.For(view.Post, _off, (int)_gBuffer.Extent.Width);
         bool antiAliased = !_off.HasFlag(RenderEffects.AntiAliasing);
         if (antiAliased != _readsAntiAliased)
@@ -1874,11 +1883,15 @@ public sealed unsafe class Renderer : IDisposable
             RecordClusters(cmd, frameSet);
         }
 
+        _gpuTimer.Mark(cmd);
+
         // The fog's air needs the shadow maps and the light lists, and the lighting pass needs the fog.
         if (_volumetricDrawn)
         {
             _volumetricFog.Record(cmd, frameSet);
         }
+
+        _gpuTimer.Mark(cmd);
 
         _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
             ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, SampledStage, SampledAccess, ColorStage, ColorWrite);

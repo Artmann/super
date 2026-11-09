@@ -9,8 +9,8 @@ namespace Rendition.Vulkan;
 /// volumetric_integrate.comp sums each column into <see cref="Result"/>, which the lighting,
 /// glass and particle passes look up. All three volumes stay in the general layout. They are
 /// made the first time a frame draws the fog, at the scene's size, so a game without it spends
-/// no memory on them. Until then <see cref="Result"/> is a single texel that lets everything
-/// through. See "Volumetric fog" in docs/design.md.
+/// no memory on them, and freed by <see cref="Release"/> when the fog is switched off. Without
+/// them <see cref="Result"/> is a single texel that lets everything through. See "Volumetric fog" in docs/design.md.
 /// </summary>
 internal sealed unsafe class VolumetricFogVolume : IDisposable
 {
@@ -168,6 +168,17 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
 
     /// <summary>A frame that doesn't draw the fog leaves nothing for the next to reproject.</summary>
     public void Skip() => HistoryReady = false;
+
+    /// <summary>
+    /// Frees the volumes, so <see cref="Result"/> is the stand-in texel again until
+    /// <see cref="SetSize"/> makes them anew, with no history. Only while no frame in flight uses
+    /// them, and the frame sets must be pointed at <see cref="Result"/> again.
+    /// </summary>
+    public void Release()
+    {
+        DestroyTargets();
+        HistoryReady = false;
+    }
 
     /// <summary>
     /// Lights the cells and sums the columns. Must come after the sun's shadow maps, the light
