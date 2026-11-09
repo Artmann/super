@@ -54,10 +54,21 @@ internal static class TextureCompression
     /// </summary>
     private static readonly ConditionalWeakTable<TextureData, ConcurrentDictionary<TextureFormat, Lazy<TextureData>>> Compressed = new();
 
-    private static TextureData Shared(TextureData texture, TextureFormat format) =>
-        Compressed.GetValue(texture, _ => new ConcurrentDictionary<TextureFormat, Lazy<TextureData>>())
-            .GetOrAdd(format, _ => new Lazy<TextureData>(() => Compress(texture, format)))
-            .Value;
+    private static TextureData Shared(TextureData texture, TextureFormat format)
+    {
+        var forms = Compressed.GetValue(texture, _ => new ConcurrentDictionary<TextureFormat, Lazy<TextureData>>());
+        var form = forms.GetOrAdd(format, _ => new Lazy<TextureData>(() => Compress(texture, format)));
+        try
+        {
+            return form.Value;
+        }
+        catch
+        {
+            // A Lazy keeps its exception, so a failure stays out of the memo and the next cook tries again.
+            forms.TryRemove(new KeyValuePair<TextureFormat, Lazy<TextureData>>(format, form));
+            throw;
+        }
+    }
 
     /// <summary>Compresses every level of an RGBA8 texture into <paramref name="format"/>.</summary>
     public static TextureData Compress(TextureData texture, TextureFormat format)

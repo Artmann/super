@@ -451,7 +451,10 @@ has no name, so the manifest lists it in `objects`, after `assets`, and `FolderS
 keeps and prunes it like an asset's object. `ContentManifest.AllObjects` is both. A cache
 record lists its objects too, and a hit restores and checks them with its outputs; a record
 whose object is gone from the cache is a miss. Each texture is written and hashed once per
-process, through a `ConditionalWeakTable` on the shared `TextureData`.
+process, through a `ConditionalWeakTable` on the shared `TextureData`. That works only for
+the decoded image every model of the cook shares. A texture a model makes for itself,
+such as a widened surface texture, a graph's textures or baked masks, is a new object each
+time, so it's written and hashed again, though equal bytes still make one stored object.
 
 `SceneRenderer.LoadModel` reads a texture through `IContentFiles.OpenObject(hash)`.
 `CookedFolder` opens only a hash the manifest lists, so a damaged model can't name a file
@@ -1562,11 +1565,16 @@ widened by the first.
 Last of all, after the checks that read pixels, `TextureCompression` block-compresses
 every texture a material points to with BCnEncoder.NET: normal maps as BC5, height maps
 as BC4, and colour, surface, glow and detail colour as BC7. `TextureData.Format` carries
-the format through `ModelData` (version 9) and the shared `RTEX` objects (version 2) to
-`GpuTexture`, which picks the Vulkan format (sRGB for BC7 colour) and sizes each level by
-4x4 blocks. Compressing is memoised on the
-shared `TextureData` it starts from, so an atlas a kit shares is compressed once per process
-and its compressed copy is written and hashed once. BC5 keeps only red and green,
+the format through `ModelData` (which gained it in version 9) and the shared `RTEX` objects
+(version 2) to `GpuTexture`, which picks the Vulkan format (sRGB for BC7 colour) and sizes
+each level by 4x4 blocks.
+
+Compressing is memoised on the shared `TextureData` it starts from, so an atlas a kit shares
+is compressed once per process and its compressed copy is written and hashed once. A failed
+compression isn't kept, so a watch cook tries it again. The memo goes by object, so it
+misses textures each model makes for itself: a surface texture `WidenRoughness` widened,
+graph textures and baked masks. Those are compressed once per model. Copies that come out
+the same are still stored once, since objects go by the hash of their bytes. BC5 keeps only red and green,
 so shaders rebuild the normal's z from them (`normalFrom` in `surface.glsl`) for every
 normal map, compressed or not.
 

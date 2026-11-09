@@ -331,6 +331,34 @@ public sealed class ModelCookerTests : IDisposable
     }
 
     [Fact]
+    public void Two_models_using_one_image_with_compression_on_share_one_BC7_texture_object()
+    {
+        // Compression is on by default, so this is the sharing most games get.
+        string src = Temp();
+        TinyGltf.Write(src, "a.gltf", "wall", ["a"]);
+        TinyGltf.Write(src, "b.gltf", "wall", ["b"]);
+        File.WriteAllBytes(Path.Combine(src, "shared.png"), Png([200, 255, 0, 255, 100, 255, 0, 128]));
+        File.WriteAllText(Path.Combine(src, "cook.json"),
+            "{ \"rules\": [ { \"match\": \"**/*.png\", \"cook\": false } ] }");
+        foreach (string model in new[] { "a.gltf", "b.gltf" })
+        {
+            File.WriteAllText(Path.Combine(src, model + ".cook.json"),
+                "{ \"materials\": [ { \"match\": \"wall\", \"baseColor\": \"shared.png\" } ] }");
+        }
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        string hash = Assert.Single(store.Manifest.Objects);
+        var texture = TextureData.Read(new MemoryStream(store.Get(hash)), hash);
+        Assert.Equal(TextureFormat.Bc7, texture.Format);
+        // A 2 by 1 level still takes one 4 by 4 block, which BC7 keeps in 16 bytes.
+        Assert.Equal(16, texture.Mips[0].Length);
+        Assert.All(new[] { "a.gltf", "b.gltf" }, model =>
+            Assert.Contains(hash, System.Text.Encoding.UTF8.GetString(store.Get(store.Manifest.Assets[model].Hash))));
+    }
+
+    [Fact]
     public void StandAlone_puts_the_shared_textures_back_inside_the_model()
     {
         string src = Temp();
