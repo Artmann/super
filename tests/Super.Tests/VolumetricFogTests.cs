@@ -196,11 +196,10 @@ public class VolumetricFogTests
         // On, the volume reaches 48 m, starts its slices at 1 m and scatters forwards.
         Assert.Equal(new Vector4(48f, 1f, 0.6f, 0f), VolumetricFog.Pack(fog, RenderEffects.None, false, false));
 
-        // Off, it reaches nowhere, and the analytic fog is packed exactly as before.
+        // Off, it reaches nowhere, which every shader takes as the analytic fog, and the analytic
+        // fog still gets its own settings.
         Assert.Equal(Vector4.Zero, VolumetricFog.Pack(fog, RenderEffects.VolumetricFog, false, false));
-        Assert.Equal(
-            Fog.Pack(fog, RenderEffects.None, false, false),
-            Fog.Pack(fog, RenderEffects.VolumetricFog, false, false));
+        Assert.Equal(new Vector4(0.004f, 1.5f, 0.15f, 0.6f), Fog.Pack(fog, RenderEffects.VolumetricFog, false, false));
     }
 
     [Theory]
