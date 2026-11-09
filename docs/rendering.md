@@ -44,6 +44,7 @@ next frame follows, so it can back an options menu.
 | `MaxFramesPerSecond` | The most frames drawn a second. 0, the default, is no limit. It saves power, and with vsync off it holds a steady rate |
 | `SunShadows` | Nothing is drawn into the sun's shadow maps, often the biggest saving. Ambient occlusion still darkens nooks |
 | `ShadowResolution` | How many texels across each of the sun's shadow maps is: 1024, 2048 (the default) or 4096. Each step up sharpens shadow edges for four times the memory. A change rebuilds the maps before the next frame, which waits for the GPU once |
+| `RenderScale` | How large the scene is drawn against the window, from 0.5 to 2 each way. 1, the default, draws it at the window's size with nothing resized. At 2 the scene has four times the pixels and is shrunk to fit, which smooths grass blades, railings and other thin things, for about four times the lighting and effects work. At 0.5 it has a quarter of the pixels and is stretched, which is much faster and softer. The interface, screenshots and recordings stay at the window's size. Anything else is refused. `--render-scale` sets it too. A change rebuilds the scene's targets before the next frame, which waits for the GPU once and restarts anti-aliasing |
 | `ContactShadows` | No thin dark line where things meet the ground in sunlight, only what the shadow maps show. `view.Shadows`' `contact` only changes [how far they look](#shadows) |
 | `LightShadows` | Point and spot lights shine through walls |
 | `AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. `view.AmbientOcclusion` only changes [how far and how dark](#ambient-occlusion) |
@@ -55,6 +56,10 @@ next frame follows, so it can back an options menu.
 | `Fog` | Clear air, whatever `SkySettings.Fog` asks for. [Haze](#the-sky) stays, since it isn't fog. `SkySettings.Fog` only changes [how thick it is](#fog) |
 | `AutoExposure` | Views that ask for [auto exposure](#auto-exposure) keep the fixed `PostSettings.Exposure` instead, as if they hadn't asked. It saves a compute pass over the frame |
 | `Materials` | Every surface is the same light grey, matte clay, shaped only by its mesh, so you can judge the lighting and the models without textures in the way. Glows still glow, cut-outs still cut and glass stays see-through. `--no-materials` turns it off too |
+
+`Graphics.Fastest()` leaves `RenderScale` at 1 too, since a smaller picture is a change the
+player can see, not only a saving. A game for slow GPUs on big screens sets it to 0.75 or 0.5
+itself, or offers it in an options menu.
 
 `Materials` is for looking, not for speed, so `Graphics.Fastest()` leaves it on. A key that
 flips it while the game runs makes a handy lighting check:

@@ -953,6 +953,9 @@ public sealed class RendererOptions
 
     /// <summary>How many texels across each of the sun's cascade maps starts: 1024, 2048 or 4096. See <see cref="Renderer.ShadowResolution"/>.</summary>
     public int ShadowResolution { get; init; } = 2048;
+
+    /// <summary>How large the scene starts out drawn against the window, from 0.5 to 2. See <see cref="Renderer.RenderScale"/>.</summary>
+    public float RenderScale { get; init; } = 1f;
 }
 
 /// <summary>

@@ -1,6 +1,7 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
 #include "common.glsl"
+#include "sampling.glsl"
 
 layout(location = 0) in vec2 inUv;
 
@@ -27,28 +28,7 @@ vec3 unsqueeze(vec3 color) {
 
 // Catmull-Rom lookup. Plain blending would soften the picture a little every frame.
 vec3 sampleHistory(vec2 uv) {
-    vec2 size = vec2(textureSize(historyTexture, 0));
-    vec2 position = uv * size - 0.5;
-    vec2 base = floor(position);
-    vec2 f = position - base;
-
-    vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
-    vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
-    vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
-    vec2 w3 = f * f * (-0.5 + 0.5 * f);
-    vec2 w12 = w1 + w2;
-
-    vec2 uv0 = (base - 0.5) / size;
-    vec2 uv3 = (base + 2.5) / size;
-    vec2 uv12 = (base + 0.5 + w2 / w12) / size;
-
-    vec3 color = texture(historyTexture, vec2(uv12.x, uv0.y)).rgb * w12.x * w0.y
-        + texture(historyTexture, vec2(uv0.x, uv12.y)).rgb * w0.x * w12.y
-        + texture(historyTexture, uv12).rgb * w12.x * w12.y
-        + texture(historyTexture, vec2(uv3.x, uv12.y)).rgb * w3.x * w12.y
-        + texture(historyTexture, vec2(uv12.x, uv3.y)).rgb * w12.x * w3.y;
-    float total = w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y;
-    return max(color / total, vec3(0.0));
+    return catmullRom(historyTexture, uv);
 }
 
 // Temporal anti-aliasing: the camera shifts by less than a pixel each frame, so blending

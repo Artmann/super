@@ -37,9 +37,6 @@ Super is early. These are the known gaps, so you can plan around them.
   but none of the others, such as Golden. There is no output for HDR screens.
 - **Large numbers of objects.** Rendition's efficiency with many thousands of objects
   still has to be measured and improved.
-- **Render scale.** [Graphics settings](rendering.md#graphics-settings) turn effects off,
-  but the picture is always drawn at the window's full size. Drawing it smaller and
-  scaling it up, for slow GPUs on big screens, isn't there yet.
 - **More from physics.** [`Super.Physics`](physics.md) has bodies that fall and collide,
   characters, trigger areas, rays, shape casts and overlap tests, on Jolt. There are no
   mesh or height-field colliders, joints, ragdolls, vehicles or contact events between

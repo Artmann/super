@@ -12,7 +12,7 @@ layout(set = 1, binding = 1) uniform sampler2D heldTexture;
 layout(push_constant) uniform Transition {
     vec4 colorAmount; // rgb: the fade's colour; a: how far along.
     vec4 shape;       // xy: which way a wipe travels; zw: where an iris opens from.
-    vec4 style;       // x: none, fade, dissolve, wipe or iris; y: the edge's softness.
+    vec4 style;       // x: none, fade, dissolve, wipe or iris; y: the edge's softness; z: 1 when the scene isn't the window's size.
 } transition;
 
 layout(location = 0) out vec4 outColor;
@@ -32,8 +32,11 @@ const int STYLE_IRIS = 4;
 // detail such as the grain of a texture is sharpened the most, and edges that already
 // stand out hardly at all, so they get no bright halos. Staying within the neighbours'
 // range keeps it from ringing.
+// A scene drawn at another size than the window's is resized here with a Catmull-Rom lookup,
+// which keeps it sharper than blending the nearest four pixels, and the neighbours are then
+// the scene's pixels round it.
 vec3 sharpened(sampler2D image, vec2 uv, vec2 texel) {
-    vec3 center = texture(image, uv).rgb;
+    vec3 center = transition.style.z > 0.5 ? catmullRom(image, uv) : texture(image, uv).rgb;
     float strength = frame.finish.x;
     if (strength <= 0.0) {
         return center;
@@ -97,6 +100,7 @@ void main() {
     if (kind == STYLE_FADE) {
         color = mix(color, transition.colorAmount.rgb, transition.colorAmount.a);
     } else if (kind >= STYLE_DISSOLVE) {
+        // The scene keeps the window's shape whatever its size, so either measures the same.
         vec2 aspect = vec2(size.x / size.y, 1.0);
         color = mix(sharpened(heldTexture, inUv, texel), color, shown(aspect));
     }

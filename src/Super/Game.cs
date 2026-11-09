@@ -56,6 +56,11 @@ public static class Game
             options.Graphics.Materials = false;
         }
 
+        if (arguments.RenderScale is { } renderScale)
+        {
+            options.Graphics.RenderScale = renderScale;
+        }
+
         using var host = new GameHost<TGame>(seed, options.TicksPerSecond, services, userDataFolder, audioSeed, options.Graphics)
         {
             KeepsRunningAfterErrors = keepRunning,
@@ -67,7 +72,7 @@ public static class Game
         bool validate = hidden && arguments.ProfilePath is null;
         using var window = new GameWindow(
             options.Title, arguments.Width ?? options.Width, arguments.Height ?? options.Height, hidden, validate, !host.Graphics.Vsync,
-            host.Graphics.ShadowResolution, options.Maximized, options.Borderless);
+            host.Graphics.ShadowResolution, host.Graphics.RenderScale, options.Maximized, options.Borderless);
 
         if (arguments.ProfilePath is { } report)
         {

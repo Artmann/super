@@ -21,7 +21,8 @@ internal sealed record GameArguments(
     string? ScriptName = null,
     string? UserDataFolder = null,
     float? UiScale = null,
-    bool NoMaterials = false)
+    bool NoMaterials = false,
+    float? RenderScale = null)
 {
     public const int DefaultFramesPerSecond = 60;
 
@@ -44,6 +45,7 @@ internal sealed record GameArguments(
         string? scriptName = null;
         string? userDataFolder = null;
         float? uiScale = null;
+        float? renderScale = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -84,6 +86,9 @@ internal sealed record GameArguments(
                     break;
                 case "--ui-scale":
                     uiScale = PositiveScale(args, ++i);
+                    break;
+                case "--render-scale":
+                    renderScale = SceneScale(args, ++i);
                     break;
                 case "--no-vsync":
                     noVsync = true;
@@ -146,7 +151,8 @@ internal sealed record GameArguments(
         }
 
         return new GameArguments(
-            seed, ticks, screenshotPath, recordPath, seconds, framesPerSecond, width, height, profilePath, frames ?? DefaultProfileFrames, noVsync, scriptName, userDataFolder, uiScale, noMaterials);
+            seed, ticks, screenshotPath, recordPath, seconds, framesPerSecond, width, height, profilePath, frames ?? DefaultProfileFrames, noVsync, scriptName, userDataFolder, uiScale, noMaterials,
+            renderScale);
     }
 
     private static float PositiveScale(ReadOnlySpan<string> args, int index)
@@ -155,6 +161,15 @@ internal sealed record GameArguments(
         return float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float scale) && scale > 0f && float.IsFinite(scale)
             ? scale
             : throw new ArgumentException($"--ui-scale needs a number above zero, such as 2 or 1.5, not '{text}'.");
+    }
+
+    private static float SceneScale(ReadOnlySpan<string> args, int index)
+    {
+        string text = Value(args, index, "--render-scale");
+        return float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float scale)
+            && scale is >= Rendition.Renderer.MinRenderScale and <= Rendition.Renderer.MaxRenderScale
+                ? scale
+                : throw new ArgumentException($"--render-scale needs a number from 0.5 to 2, such as 1.5, not '{text}'.");
     }
 
     private static double PositiveSeconds(ReadOnlySpan<string> args, int index)

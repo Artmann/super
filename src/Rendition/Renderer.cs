@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
@@ -58,6 +59,8 @@ public sealed unsafe class Renderer : IDisposable
     private bool _vsyncChanged;
     // The cascade map size asked for, which the next frame rebuilds the maps at if it differs.
     private int _shadowResolution;
+    // The scene's size against the window's, which the next frame rebuilds the targets at if it differs.
+    private float _renderScale = 1f;
     private readonly Vk _api;
     private readonly Frame[] _frames = new Frame[FramesInFlight];
     // How far a simpler model may stray. Shadows are soft, so they can afford more.
@@ -206,6 +209,47 @@ public sealed unsafe class Renderer : IDisposable
         set => _shadowResolution = ShadowPass.CheckResolution(value);
     }
 
+    /// <summary>The smallest <see cref="RenderScale"/>: a quarter of the window's pixels.</summary>
+    public const float MinRenderScale = 0.5f;
+
+    /// <summary>The largest <see cref="RenderScale"/>: four times the window's pixels.</summary>
+    public const float MaxRenderScale = 2f;
+
+    /// <summary>
+    /// How large the scene is drawn against the window, from 0.5 to 2 each way. Above 1 the scene is
+    /// drawn larger and shrunk to fit, which smooths edges and fine detail. Below 1 it's drawn smaller
+    /// and stretched, which is faster and softer. 1 draws at the window's size, with nothing resampled.
+    /// The overlay is always drawn at the window's size. A change rebuilds the targets before the next frame.
+    /// </summary>
+    public float RenderScale
+    {
+        get => _renderScale;
+        set => _renderScale = CheckRenderScale(value);
+    }
+
+    /// <summary>Returns <paramref name="value"/> if it's a <see cref="RenderScale"/> from 0.5 to 2, and throws if not.</summary>
+    public static float CheckRenderScale(float value) => value is >= MinRenderScale and <= MaxRenderScale
+        ? value
+        : throw new ArgumentOutOfRangeException(nameof(value), string.Create(
+            CultureInfo.InvariantCulture, $"RenderScale must be from {MinRenderScale} to {MaxRenderScale}, not {value}."));
+
+    /// <summary>
+    /// How many pixels across and down the scene is drawn for a window this size at this
+    /// <see cref="RenderScale"/>. At 1 it's the window's size. Otherwise each side is rounded to
+    /// the nearest even number, so at 0.5 each scene pixel covers exactly two by two window pixels.
+    /// </summary>
+    public static (int Width, int Height) SceneSize(int width, int height, float scale)
+    {
+        if (scale == 1f)
+        {
+            return (width, height);
+        }
+
+        return (Even(width * (double)scale), Even(height * (double)scale));
+
+        static int Even(double size) => Math.Max((int)Math.Round(size / 2d) * 2, 2);
+    }
+
     /// <summary>Times the render passes. Off by default, because reading the times costs a little.</summary>
     public bool MeasureGpu { get; set; }
 
@@ -244,7 +288,8 @@ public sealed unsafe class Renderer : IDisposable
 
         _disableVsync = options.DisableVsync;
         _swapchain = new Swapchain(_context, (uint)options.Width, (uint)options.Height, _disableVsync);
-        _gBuffer = new GBuffer(_context, _swapchain.Extent);
+        _renderScale = CheckRenderScale(options.RenderScale);
+        _gBuffer = new GBuffer(_context, SceneExtent(_swapchain.Extent));
 
         var samplerInfo = new SamplerCreateInfo
         {
@@ -1096,6 +1141,13 @@ public sealed unsafe class Renderer : IDisposable
         {
             Resize((uint)view.Width, (uint)view.Height);
         }
+        else if (SceneExtent(_swapchain.Extent) is var scene
+            && (scene.Width != _gBuffer.Extent.Width || scene.Height != _gBuffer.Extent.Height))
+        {
+            // Frames in flight still read the targets being replaced. Changing the scale is rare.
+            _api.DeviceWaitIdle(_context.Device).Check();
+            RebuildTargets();
+        }
 
         if (_shadowResolution != _shadowPass.Resolution)
         {
@@ -1162,8 +1214,10 @@ public sealed unsafe class Renderer : IDisposable
         // A shift of less than a pixel, different every frame, lets anti-aliasing gather
         // detail from between the pixels.
         // Without anti-aliasing to gather it, the shift would only make the picture shake.
+        // The pixels are the scene's, which the render scale may make smaller or larger than the window's.
         var viewProjection = view.View * view.Projection;
-        var shift = antiAliased ? Jitter[_frameNumber % JitterSteps] * 2f / new Vector2(view.Width, view.Height) : Vector2.Zero;
+        var scenePixels = new Vector2(_gBuffer.Extent.Width, _gBuffer.Extent.Height);
+        var shift = antiAliased ? Jitter[_frameNumber % JitterSteps] * 2f / scenePixels : Vector2.Zero;
         var previous = _historyReady ? _previousViewProjection : viewProjection;
         if (_casterBounds.Length < draws.Length)
         {
@@ -1274,7 +1328,7 @@ public sealed unsafe class Renderer : IDisposable
             }
         }
 
-        var (pixelsAtOneUnit, pixelsPerUnit) = Projection.PixelScale(view.Projection, view.Height);
+        var (pixelsAtOneUnit, pixelsPerUnit) = Projection.PixelScale(view.Projection, (int)_gBuffer.Extent.Height);
         var camera = new DetailView(viewProjection, view.CameraPosition, pixelsAtOneUnit, pixelsPerUnit, CameraDetailError);
         int cameraCount = DrawSelection.Select(camera, draws, _details, _cameraDraws);
 
@@ -1529,23 +1583,26 @@ public sealed unsafe class Renderer : IDisposable
         _api.Transition(cmd, swapchainImage, ImageAspectFlags.ColorBit,
             ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, ColorStage, AccessFlags2.None, ColorStage, ColorWrite);
 
+        // From here on the picture is the window's size, which the scene may not be.
+        var window = _swapchain.Extent;
         ReadOnlySpan<DescriptorSet> finishSets = [frameSet, _finishSet];
         var transition = _transition;
-        _finishPass.Record(cmd, _swapchain.Views[imageIndex], extent, finishSets,
+        transition.Style.Z = extent.Width != window.Width || extent.Height != window.Height ? 1f : 0f;
+        _finishPass.Record(cmd, _swapchain.Views[imageIndex], window, finishSets,
             new ReadOnlySpan<byte>(&transition, (int)TransitionConstants.Size));
         _ldrReady = true;
         _gpuTimer.Mark(cmd);
 
         if (overlayQuads > 0)
         {
-            _overlayPass.Record(cmd, _swapchain.Views[imageIndex], extent, _overlaySet, _frameIndex, overlayQuads);
+            _overlayPass.Record(cmd, _swapchain.Views[imageIndex], window, _overlaySet, _frameIndex, overlayQuads);
         }
 
         _gpuTimer.Mark(cmd);
 
         if (_capture is not null)
         {
-            RecordCapture(cmd, swapchainImage, extent, _capture);
+            RecordCapture(cmd, swapchainImage, window, _capture);
             return;
         }
 
@@ -2019,7 +2076,7 @@ public sealed unsafe class Renderer : IDisposable
             view.LocalLights,
             view.View,
             view.Projection,
-            view.Height,
+            (int)_gBuffer.Extent.Height,
             new Span<GpuLocalLight>(frame.Lights.Mapped, LocalLight.MaxPerFrame),
             new Span<GpuShadowTile>(frame.ShadowTiles.Mapped, LocalLights.MaxTiles),
             shadows: !_off.HasFlag(RenderEffects.LightShadows));
@@ -2027,7 +2084,7 @@ public sealed unsafe class Renderer : IDisposable
         _clustersNeeded = _localLights.LightCount > 0;
         uniforms->LocalLightCount = _localLights.LightCount;
         uniforms->Clusters = new Vector4(_localLights.NearDepth, _localLights.FarDepth, _localLights.Parallel ? 1f : 0f, 0f);
-        uniforms->Screen = new Vector4(view.Width, view.Height, 1f / view.Width, 1f / view.Height);
+        uniforms->Screen = new Vector4(_gBuffer.Extent.Width, _gBuffer.Extent.Height, 1f / _gBuffer.Extent.Width, 1f / _gBuffer.Extent.Height);
     }
 
     /// <summary>
@@ -2090,10 +2147,34 @@ public sealed unsafe class Renderer : IDisposable
         _swapchain.Dispose();
         _swapchain = new Swapchain(_context, width, height, _disableVsync);
         _vsyncChanged = false;
-        _gBuffer = new GBuffer(_context, _swapchain.Extent);
+        CreateTargets();
+    }
+
+    /// <summary>Replaces the scene's targets with ones at the render scale, keeping the window's swapchain.</summary>
+    private void RebuildTargets()
+    {
+        _gBuffer.Dispose();
+        CreateTargets();
+    }
+
+    /// <summary>
+    /// Makes the scene's targets at the window's size times the render scale, with everything that
+    /// follows their size: bloom's chain, the exposure meter's dispatch and the anti-aliasing history,
+    /// which starts again.
+    /// </summary>
+    private void CreateTargets()
+    {
+        _gBuffer = new GBuffer(_context, SceneExtent(_swapchain.Extent));
         _bloomPass.Resize(DisplaySource, _gBuffer.Extent);
         WriteTargetDescriptors();
         _historyReady = false;
+    }
+
+    /// <summary>The scene's size for a window this size, at the render scale.</summary>
+    private Extent2D SceneExtent(Extent2D window)
+    {
+        var (width, height) = SceneSize((int)window.Width, (int)window.Height, _renderScale);
+        return new Extent2D((uint)width, (uint)height);
     }
 
     /// <summary>Halton points spread the shifts evenly over a pixel, in fractions of a pixel.</summary>

@@ -144,6 +144,50 @@ public class GameArgumentsTests
     }
 
     [Fact]
+    public void Render_scale_is_parsed_from_the_command_line()
+    {
+        var original = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("sv-SE");
+        try
+        {
+            Assert.Equal(1.5f, GameArguments.Parse(["--render-scale", "1.5", "--screenshot", "a.png"]).RenderScale);
+            Assert.Equal(0.5f, GameArguments.Parse(["--render-scale", "0.5"]).RenderScale);
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = original;
+        }
+    }
+
+    [Fact]
+    public void No_render_scale_leaves_it_to_the_game()
+    {
+        Assert.Null(GameArguments.Parse([]).RenderScale);
+    }
+
+    [Theory]
+    [InlineData("0.4")]
+    [InlineData("3")]
+    [InlineData("1,5")]
+    [InlineData("big")]
+    [InlineData("NaN")]
+    [InlineData("Infinity")]
+    public void A_render_scale_must_be_from_half_to_two(string scale)
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--render-scale", scale]));
+
+        Assert.Equal($"--render-scale needs a number from 0.5 to 2, such as 1.5, not '{scale}'.", error.Message);
+    }
+
+    [Fact]
+    public void A_render_scale_needs_a_value()
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--render-scale"]));
+
+        Assert.Equal("--render-scale needs a value.", error.Message);
+    }
+
+    [Fact]
     public void No_interface_scale_leaves_it_to_the_game()
     {
         Assert.Null(GameArguments.Parse([]).UiScale);

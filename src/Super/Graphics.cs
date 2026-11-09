@@ -50,6 +50,20 @@ public sealed class Graphics
     } = 2048;
 
     /// <summary>
+    /// How large the scene is drawn against the window, from 0.5 to 2 each way; 1 draws it at the window's
+    /// size. At 2 it's drawn with four times the pixels and shrunk to fit, which smooths thin things such as
+    /// grass and railings, at about four times the cost of lighting and effects. At 0.5 it's drawn with a
+    /// quarter of the pixels and stretched, which is much faster and softer. The interface and screenshots
+    /// stay at the window's size. <c>--render-scale</c> sets it from the command line. A change while the
+    /// game runs rebuilds the scene's targets before the next frame.
+    /// </summary>
+    public float RenderScale
+    {
+        get;
+        set => field = Renderer.CheckRenderScale(value);
+    } = 1f;
+
+    /// <summary>
     /// The sun's contact shadows: the thin dark line where things meet the ground, found on screen, which
     /// the shadow maps are too coarse to draw. Off, only the maps shade there. See <see cref="View.Shadows"/>.
     /// </summary>

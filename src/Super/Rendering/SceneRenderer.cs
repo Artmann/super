@@ -112,6 +112,13 @@ internal sealed class SceneRenderer : IDisposable
         set => _renderer.ShadowResolution = value;
     }
 
+    /// <summary>How large the scene is drawn against the window. A change rebuilds the targets before the next frame.</summary>
+    public float RenderScale
+    {
+        get => _renderer.RenderScale;
+        set => _renderer.RenderScale = value;
+    }
+
     /// <summary>The effects left out of every frame from now on.</summary>
     public RenderEffects Off { get; set; }
 

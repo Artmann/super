@@ -26,6 +26,88 @@ public class GraphicsTests
         Assert.True(graphics.Vsync);
         Assert.Equal(0, graphics.MaxFramesPerSecond);
         Assert.Equal(2048, graphics.ShadowResolution);
+        Assert.Equal(1f, graphics.RenderScale);
+    }
+
+    [Theory]
+    [InlineData(1600, 900, 1.5f, 2400, 1350)]
+    [InlineData(1600, 900, 0.5f, 800, 450)]
+    [InlineData(1600, 900, 2f, 3200, 1800)]
+    // 1601 * 0.5 = 800.5 and 901 * 0.5 = 450.5 land on the even 800 and 450.
+    [InlineData(1601, 901, 0.5f, 800, 450)]
+    // 1601 * 1.5 = 2401.5 and 901 * 1.5 = 1351.5 land on the even 2402 and 1352.
+    [InlineData(1601, 901, 1.5f, 2402, 1352)]
+    // 1601 * 0.75 = 1200.75, nearest whole 1201 but nearest even 1200; 901 * 0.75 = 675.75 lands on 676.
+    [InlineData(1601, 901, 0.75f, 1200, 676)]
+    // 1333 * 1.25 = 1666.25, nearest whole 1666 and even too; 749 * 1.25 = 936.25 lands on 936.
+    [InlineData(1333, 749, 1.25f, 1666, 936)]
+    // 1000 * 1.1 = 1100.0000238 as a float, and 523 * 1.1 = 575.3, nearest whole 575 but nearest even 576.
+    [InlineData(1000, 523, 1.1f, 1100, 576)]
+    public void Scene_size_rounds_to_even(int width, int height, float scale, int sceneWidth, int sceneHeight)
+    {
+        Assert.Equal((sceneWidth, sceneHeight), Renderer.SceneSize(width, height, scale));
+    }
+
+    [Fact]
+    public void At_render_scale_one_the_scene_is_the_window_size_even_when_odd()
+    {
+        Assert.Equal((1601, 901), Renderer.SceneSize(1601, 901, 1f));
+    }
+
+    [Fact]
+    public void A_tiny_window_at_half_scale_still_has_a_scene_to_draw()
+    {
+        Assert.Equal((2, 2), Renderer.SceneSize(1, 1, 0.5f));
+    }
+
+    [Theory]
+    [InlineData(0.49f, "0.49")]
+    [InlineData(2.5f, "2.5")]
+    [InlineData(0f, "0")]
+    [InlineData(-1f, "-1")]
+    [InlineData(float.NaN, "NaN")]
+    [InlineData(float.PositiveInfinity, "Infinity")]
+    public void Render_scale_outside_half_to_two_is_refused(float scale, string shown)
+    {
+        var original = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("sv-SE");
+        try
+        {
+            var graphics = new Graphics();
+
+            var error = Assert.Throws<ArgumentOutOfRangeException>(() => graphics.RenderScale = scale);
+
+            Assert.Equal($"RenderScale must be from 0.5 to 2, not {shown}. (Parameter 'value')", error.Message);
+            Assert.Equal(1f, graphics.RenderScale);
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = original;
+        }
+    }
+
+    [Theory]
+    [InlineData(0.5f)]
+    [InlineData(2f)]
+    [InlineData(1.5f)]
+    public void Render_scale_takes_any_value_from_half_to_two(float scale)
+    {
+        var graphics = new Graphics { RenderScale = scale };
+
+        Assert.Equal(scale, graphics.RenderScale);
+    }
+
+    [Fact]
+    public void A_changed_render_scale_rebuilds_the_targets_next_frame()
+    {
+        var given = new Graphics();
+        using var host = new GameHost<Settings>(1, 30, null, graphics: given);
+
+        host.Game.Graphics.RenderScale = 1.5f;
+
+        // What the window hands the renderer before the next frame, which draws the scene this size.
+        float scale = GameWindow.RendererSettings(host.Graphics, hidden: false).RenderScale;
+        Assert.Equal((2400, 1350), Renderer.SceneSize(1600, 900, scale));
     }
 
     [Theory]
@@ -95,6 +177,9 @@ public class GraphicsTests
             graphics.Off);
         Assert.True(graphics.Materials);
         Assert.False(graphics.Vsync);
+
+        // Dropping the resolution would be a change the game can see, so it stays the game's choice.
+        Assert.Equal(1f, graphics.RenderScale);
     }
 
     [Fact]

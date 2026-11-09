@@ -718,6 +718,28 @@ TonemapPass   fullscreen       -> display colour (white balance, colour grade, A
 FinishPass    fullscreen       -> swapchain, with sharpening, a transition, vignette, grain and dither
 ```
 
+Everything before `FinishPass` draws at the scene size, and the finish pass, the overlay and
+the capture draw at the window size. `Renderer.SceneSize` gives the scene size from the
+window and `RenderScale` (0.5 to 2). At 1 it is the window size exactly, odd sizes included,
+so a scale of 1 draws the same pixels as before render scale existed. At any other scale
+both sides are rounded to the nearest even number, at least 2, so half a scene pixel never
+lands on a window pixel's edge. The G-buffer and the images inside it (HDR, AO, TAA
+history), bloom's chain, the exposure histogram, the light clusters' tiles (`frame.screen`),
+the TAA jitter and the pixel size that picks a mesh's LOD all follow the G-buffer's extent,
+so they follow the scene size with no code of their own. When the scale changes, the next
+frame waits for the device to go idle once and rebuilds the targets (`RebuildTargets`), the
+same way a window resize does, and history starts again. Probes have their own small
+G-buffers, and `RenderScale` isn't part of `FrameView`, so it never changes the lighting
+hash or photographs a probe again.
+
+When the scene and window sizes differ, the renderer sets `TransitionConstants.Style.z` to
+1, and `finish.frag` reads its centre sample with a Catmull-Rom filter (`catmullRom` in
+`sampling.glsl`, five bilinear taps, the same function TAA uses for history) instead of one
+bilinear tap. That keeps edges sharp when the scene is stretched up from 0.5, and averages
+four by four scene pixels into each window pixel when it is shrunk from 2. A wider filter
+would average more of the 2x scene, but four by four was enough to smooth the edges.
+`--screenshot` copies the swapchain, so it is always the window size.
+
 G-buffer layout:
 
 | Target | Format | Contents |

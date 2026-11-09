@@ -44,7 +44,7 @@ internal sealed unsafe class GameWindow : IDisposable
 
     public GameWindow(
         string title, int windowWidth, int windowHeight, bool hidden, bool validate, bool disableVsync, int shadowResolution,
-        bool maximized = false, bool borderless = false)
+        float renderScale = 1f, bool maximized = false, bool borderless = false)
     {
         _hidden = hidden;
         _glfw = Glfw.GetApi();
@@ -93,6 +93,7 @@ internal sealed unsafe class GameWindow : IDisposable
             EnableValidation = validate,
             DisableVsync = disableVsync && !hidden,
             ShadowResolution = shadowResolution,
+            RenderScale = renderScale,
         });
     }
 
@@ -367,15 +368,16 @@ internal sealed unsafe class GameWindow : IDisposable
     /// <summary>Hands the game's graphics settings, as they are now, to the renderer for the next frame.</summary>
     private void ApplyGraphics(Graphics graphics)
     {
-        (_scene.Off, _scene.Vsync, _scene.ShadowResolution) = RendererSettings(graphics, _hidden);
+        (_scene.Off, _scene.Vsync, _scene.ShadowResolution, _scene.RenderScale) = RendererSettings(graphics, _hidden);
     }
 
     /// <summary>
     /// What the renderer is told from the game's graphics settings: the effects left out, whether to wait
-    /// for the display, which a hidden window always does, and the sun's shadow map size.
+    /// for the display, which a hidden window always does, the sun's shadow map size and the render scale.
     /// </summary>
-    internal static (RenderEffects Off, bool Vsync, int ShadowResolution) RendererSettings(Graphics graphics, bool hidden) =>
-        (graphics.Off, hidden || graphics.Vsync, graphics.ShadowResolution);
+    internal static (RenderEffects Off, bool Vsync, int ShadowResolution, float RenderScale) RendererSettings(
+        Graphics graphics, bool hidden) =>
+        (graphics.Off, hidden || graphics.Vsync, graphics.ShadowResolution, graphics.RenderScale);
 
     /// <summary>Feeds the window's events into the game's input. Only the interactive loop does this.</summary>
     private void ListenForInput(Input input)
