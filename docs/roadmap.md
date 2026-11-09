@@ -27,6 +27,11 @@ Super is early. These are the known gaps, so you can plan around them.
 - **Local lights in reflections.** [Reflection probes](rendering.md#reflections) are
   photographed by the sun and sky alone, so a lantern or a lit window doesn't show in a
   reflection, and turning one on doesn't photograph the probe again.
+- [Auto exposure](rendering.md#auto-exposure) meters the whole frame, the sky included,
+  with every pixel counted the same, so there is no centre weighting yet. It has no lower
+  or upper limit on where it settles, so a scene meant to be dark is pushed up to middle
+  grey, and it brightens and darkens at the same speed, where an eye opens up more slowly
+  than it closes down.
 - **Large numbers of objects.** Rendition's efficiency with many thousands of objects
   still has to be measured and improved.
 - **Render scale.** [Graphics settings](rendering.md#graphics-settings) turn effects off,

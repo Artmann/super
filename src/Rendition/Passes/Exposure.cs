@@ -108,8 +108,14 @@ internal static class Exposure
         return current + Math.Clamp(target - current, -step, step);
     }
 
-    /// <summary>The adaptation speed for a <see cref="PostSettings.AdaptationSpeed"/>, where 0 means the default.</summary>
-    public static float Speed(float requested) => requested == 0f ? DefaultSpeed : requested;
+    /// <summary>
+    /// The adaptation speed for a <see cref="PostSettings.AdaptationSpeed"/>: 0 means the default, and so
+    /// does anything that isn't a finite speed above 0. Super's View refuses those, but Rendition can be
+    /// used alone, and a negative speed would reach exposure_adapt.comp as a negative step, which flips
+    /// its clamp and throws the exposure the wrong way. What comes out is always one <see cref="Adapt"/> takes.
+    /// </summary>
+    public static float Speed(float requested) =>
+        float.IsFinite(requested) && requested > 0f ? requested : DefaultSpeed;
 
     /// <summary>
     /// The switches the shaders see: <paramref name="off"/>, plus <see cref="RenderEffects.AutoExposure"/>

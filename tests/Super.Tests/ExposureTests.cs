@@ -147,6 +147,24 @@ public class ExposureTests
     }
 
     [Theory]
+    [InlineData(-1f)]
+    [InlineData(float.NaN)]
+    [InlineData(float.NegativeInfinity)]
+    [InlineData(float.PositiveInfinity)]
+    public void A_speed_that_no_view_would_accept_adapts_at_two_stops_a_second_instead(float requested)
+    {
+        // Rendition used without Super's View has nothing refusing these. Each frame's step must stay
+        // a finite number of stops 0 or more: half a second at 2 stops a second is 1.
+        var clock = new ExposureClock();
+        clock.Next(metered: true, time: 1f, speed: Exposure.Speed(requested));
+
+        var step = clock.Next(metered: true, time: 1.5f, speed: Exposure.Speed(requested));
+
+        Assert.Equal(1f, step!.Value.MaxStep, Tolerance);
+        Assert.Equal(1f, Exposure.Adapt(0f, 3f, Exposure.Speed(requested), 0.5f), Tolerance);
+    }
+
+    [Theory]
     [InlineData(true, false, true)]
     [InlineData(true, true, false)]
     [InlineData(false, false, false)]

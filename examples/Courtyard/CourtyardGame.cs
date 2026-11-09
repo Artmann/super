@@ -102,13 +102,13 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         // Someone is home: a warm light in the room, seen through the old glass.
         view.PointLight(RoomKey, RoomLamp, color: new Vector3(2.2f, 1.2f, 0.45f), range: 6f, radius: 0.25f);
 
-        // The camera meters the courtyard and sets the brightness itself, then takes a third of a stop
-        // off so the sunlit wall doesn't wash out. A cool lift in the shade, a touch of warmth in the
-        // light, and a little bloom round the lamp.
+        // The camera meters the courtyard and sets the brightness itself, then adds about a third of a
+        // stop so the shade stays open and the sunlit wall bright. A cool lift in the shade, a touch of
+        // warmth in the light, and a little bloom round the lamp.
         view.Finish(new PostSettings
         {
             AutoExposure = true,
-            Exposure = -0.3f,
+            Exposure = 0.3f,
             Contrast = 0.1f,
             Saturation = 0.05f,
             Vignette = 0.35f,

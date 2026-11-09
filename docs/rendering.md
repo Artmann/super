@@ -336,14 +336,14 @@ When the scene gets brighter or darker the exposure follows at `AdaptationSpeed`
 the way eyes adjust walking out of a cellar. The first frame starts at the metered brightness,
 not from black, and so does the first after `AutoExposure` or [`Graphics.AutoExposure`](#graphics-settings)
 is turned back on, or after time goes backwards, as when the game restarts. A speed must be above 0, or 0 for the
-default. The meter sees from about 1/256 to 65000 times a white of 1. Anything darker or
+default. A view refuses anything else; Rendition used on its own takes the default instead. The meter sees from about 1/256 to 65000 times a white of 1. Anything darker or
 brighter counts as the darkest or brightest it sees.
 
 Screenshots and recordings step time a tick at a fixed rate, so the same `--seed` and `--ticks`
 give the same exposure and the same picture every run. Reflection and light probes don't
 use it: they hold light, and exposure is applied after lighting.
 
-![The Courtyard with a fixed exposure of +0.35 on the left, and with auto exposure and -0.3 of compensation on the right, about two thirds of a stop darker, with the sunlit wall holding its colour and the shade deeper](media/auto-exposure.webp)
+![The Courtyard with a fixed exposure of +0.35 on the left, and with auto exposure and +0.3 of compensation on the right, which meters it to nearly the same brightness, with the shade open and the sunlit wall bright](media/auto-exposure.webp)
 
 ## The sky
 

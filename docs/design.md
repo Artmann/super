@@ -1423,7 +1423,10 @@ from the same buffer as a third descriptor set (`ExposureMeter.Set`) and multipl
 take counts towards the tonemap's in `GpuTimer`.
 
 The CPU only keeps time (`ExposureClock`). The step is `AdaptationSpeed` times the change in
-`FrameView.Time` since the last metered frame. The first metered frame snaps to the target,
+`FrameView.Time` since the last metered frame. `Exposure.Speed` turns a speed of 0, and any
+speed that isn't finite and above 0, into the default of 2, because a negative step would
+flip the shader's clamp. `View.Finish` refuses those instead, so only Rendition used alone
+relies on the fallback. The first metered frame snaps to the target,
 as does the first after metering was off and the first after time went backwards, such as
 a restart. Super's screenshots and recordings step `Time` by a fixed tick and settle at a
 fixed moment, where the step is 0, so the same seed and ticks give the same bytes. The
