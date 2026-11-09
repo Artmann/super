@@ -86,6 +86,30 @@ public sealed class FlagstoneTests
     }
 
     [Fact]
+    public void The_flagstones_are_darker_along_their_cracks()
+    {
+        // At 1024 a crack is about a pixel and a half wide, enough to look at in the full material.
+        const int size = 1024;
+        var cracks = GraphRunner.Run(new CrackMap(), size).Height;
+        var color = GraphRunner.Run(new Flagstones(), size).Color;
+
+        float Light(int i) => 0.2126f * color[i * 3] + 0.7152f * color[i * 3 + 1] + 0.0722f * color[i * 3 + 2];
+
+        var inside = AllStones().SelectMany(s => InsideOf(s.Row, s.Column, 2 * Margin, size)).ToList();
+        var onCrack = inside.Where(i => cracks[i] > 0.5f).ToList();
+        var offCrack = inside.Where(i => cracks[i] < 0.01f).ToList();
+
+        Assert.NotEmpty(onCrack);
+        Assert.NotEmpty(offCrack);
+
+        var on = onCrack.Average(Light);
+        var off = offCrack.Average(Light);
+
+        // The cracks darken the stone to about half; the mottle and flecks alone change it far less.
+        Assert.True(on < 0.8f * off, $"Along the cracks the stone is {on:0.000}, elsewhere {off:0.000}.");
+    }
+
+    [Fact]
     public void One_stone_in_eight_is_the_warm_sandstone()
     {
         var color = Cooked.Value.Color;

@@ -23,7 +23,7 @@ public sealed class Flagstones : MaterialGraph
     /// The tones a stone can be: five greys a small step apart, two of them a touch warm and one a touch cool, and a
     /// warm sandstone. Each stone is one of them exactly.
     /// </summary>
-    public static readonly string[] Tones =
+    public static IReadOnlyList<string> Tones { get; } =
     [
         "#77736b", // mid grey
         "#7d7970", // a step lighter
@@ -97,7 +97,7 @@ public sealed class Flagstones : MaterialGraph
         {
             var (row, column) = StoneAt(p.Uv);
 
-            return table[row, column] / (float)(Tones.Length - 1);
+            return table[row, column] / (float)(Tones.Count - 1);
         });
     }
 
@@ -171,6 +171,10 @@ public sealed class Flagstones : MaterialGraph
 
     public override Material Build()
     {
+        // The cracks are made first. A node's noise is seeded by the order it is made in, so made first they come out
+        // the same here as in a graph that makes nothing else, which is how FlagstoneTests looks at them.
+        var crackLines = Cracks();
+
         // 8 stones of 65 cm across the 5.2 m, each 1 inside its square and 0 in the joints round it.
         var stones = Tiles.Grid(columns: Stones, rows: Stones, gap: Gap, bevel: 0f);
         var ids = stones.FloodFill(threshold: 0.5f);
@@ -199,7 +203,7 @@ public sealed class Flagstones : MaterialGraph
         var chipCover = Noise.Perlin(scale: 28, octaves: 3, seed: 9).HistogramScan(0.35f, contrast: 0.9f);
         faces = faces.Blend(nicked, mask: edgeBand).Blend(bitten, mask: edgeBand.Multiply(chipCover));
 
-        var cracks = Cracks().Multiply(stones);
+        var cracks = crackLines.Multiply(stones);
         var stoneHeight = faces.Subtract(cracks.Multiply(0.2f));
 
         // Dirt and fine gravel fill the joints and the deepest chips: blurred noise for the dirt, with small round
@@ -222,7 +226,7 @@ public sealed class Flagstones : MaterialGraph
         // its cracks and its chamfer, where dirt works in.
         var flecks = Noise.White(seed: 15).Blur(0.00025f).Levels(0.25f, 0.75f).Remap(0.9f, 1.08f);
         var stoneColor = ToneImage()
-            .GradientMap(Ramp.Of(Tones.Select((hex, i) => (i / (float)(Tones.Length - 1), hex)).ToArray()))
+            .GradientMap(Ramp.Of(Tones.Select((hex, i) => (i / (float)(Tones.Count - 1), hex)).ToArray()))
             .Multiply(ids.RandomGray(seed: 16).Remap(0.96f, 1.04f))
             .Multiply(Noise.Perlin(scale: 14, octaves: 4, seed: 17).Remap(0.9f, 1.06f))
             .Multiply(Noise.Perlin(scale: 70, octaves: 3, seed: 18).Remap(0.93f, 1.04f))

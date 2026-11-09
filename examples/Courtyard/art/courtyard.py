@@ -1470,11 +1470,12 @@ def slab(bm, poly, centre, step, mat, stone):
         f.normal_update()
         if f.normal.dot(f.calc_center_median() - Vector((cx, cy, f.calc_center_median().z))) < 0:
             f.normal_flip()
-    # The offsets are still drawn, though flag_uv replaces the box mapping, so the generator
-    # stays in step and everything after the path comes out as it did.
-    rng.uniform(0, 2)
-    rng.uniform(0, 2)
-    flag_uv(bm, (cx, cy), lip, rings, middle, arris, shoulder, bottom, stone)
+    # The sides are box mapped at real scale, so a 10 cm side shows 10 cm of stone, not the
+    # graph's joint squeezed onto it. Lifted half a stone, so they sit in the middle of a row
+    # of the graph's stones, clear of the joints between rows.
+    o1, o2 = rng.uniform(0, 2), rng.uniform(0, 2)
+    box_uv(bm, hard, (o1, o2, (stone[0] + 0.5) * FLAG_WIDTH / FLAG_STONES))
+    flag_uv(bm, (cx, cy), lip, rings, middle, stone)
 
 
 # The grid of content/materials/flagstones.material.cs: its Width, its Stones across and its
@@ -1486,17 +1487,16 @@ FLAG_GAP = 0.06
 flag_rng = random.Random(18)
 
 
-def flag_uv(bm, centre, lip, rings, middle, arris, shoulder, bottom, stone):
-    """Maps a slab onto one stone of the flagstones graph: its top's outline onto the edge of
+def flag_uv(bm, centre, lip, rings, middle, stone):
+    """Maps a slab's top onto one stone of the flagstones graph: its outline onto the edge of
     the stone's square, its middle onto the square's middle and every ring between in
     proportion, so the graph's chamfer, chips and moss follow the real edge and its crown
-    sits on the middle. The arris and sides run out into the graph's joint, where the dirt
-    is. The square is turned by an angle of the slab's own, so the cracks run every way."""
+    sits on the middle. The square is turned by an angle of the slab's own, so the cracks
+    run every way. The sides are box mapped in slab()."""
     uv = uv_layer(bm)
     row, column, turn = stone
     size = FLAG_WIDTH / FLAG_STONES
     half = size * (0.5 - FLAG_GAP / 2)
-    joint = size * FLAG_GAP / 2
     mx, my = (column + 0.5) * size, (row + 0.5) * size
     cx, cy = centre
     at = {middle: (mx, my)}
@@ -1507,9 +1507,6 @@ def flag_uv(bm, centre, lip, rings, middle, arris, shoulder, bottom, stone):
         edge = half / max(abs(dx), abs(dy))
         for ring, shrink in zip(rings, (1.0, 0.75, 0.48, 0.22)):
             at[ring[k]] = (mx + dx * edge * shrink, my + dy * edge * shrink)
-        at[arris[k]] = (mx + dx * edge, my + dy * edge)
-        at[shoulder[k]] = (mx + dx * (edge + joint * 0.6), my + dy * (edge + joint * 0.6))
-        at[bottom[k]] = (mx + dx * (edge + joint), my + dy * (edge + joint))
     for v, (u, w) in at.items():
         for loop in v.link_loops:
             loop[uv].uv = (u, w)
