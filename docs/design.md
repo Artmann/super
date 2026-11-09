@@ -385,8 +385,8 @@ restores it into the store when the key matches, checking the objects' hashes fi
 Deleting it is always safe. A cooker reads the files beside its source only through
 `CookInput.Read` and `Find`, which check names against the root's listing ordinally, so a
 name that differs only in case fails with a message naming the file that is there, even
-though Windows would open it. The listing is taken once per source, the first time a cooker
-asks. The models cooker is `Super.Cook.Models`, a separate project, so
+though Windows would open it. The pipeline wraps each root in a `ListedRoot`, which lists it
+once per cook, and every source shares that listing. The models cooker is `Super.Cook.Models`, a separate project, so
 `Super.Cook` carries no Assimp.
 
 **The manifest** lists every name with its kind, hash and size. `CookPipeline` writes
@@ -402,6 +402,31 @@ ordinally on every OS. A name two sources make is an error that names both, whic
 several content roots can't yet override each other. Settings come from `cook.json` rules,
 deeper folders winning, then `<source>.cook.json`, which wins over all of them. A sidecar
 with no source is a warning, not an error, so a clone without its licensed models still builds.
+
+**Cooking in parallel.** `CookPipeline.Cook` lists the sources and reads their settings on
+one thread, then cooks the sources with `Parallel.For` on `CookOptions.WorkerCount` workers,
+one per processor up to 8. A model can hold hundreds of megabytes of decoded textures, so
+more workers than that cost memory without gaining much. Each worker fills its own slot of
+an array, and the merge that follows walks the slots in source order. That's why problems,
+duplicate-name errors and the manifest come out the same with any number of workers. The
+first exception out of the loop is rethrown as itself, not as an `AggregateException`, so
+`CookPipeline.InUse` still recognises a locked file. An `ICookedStore` is called from several
+workers at once. `StoreWriter` holds a lock per hash, so two workers never write the same
+object at once, and an object already in the store isn't made twice. `CookCache` guards its
+hash memo with a lock and writes each object under a lock of its own.
+
+Each source reports where its time went in a `CookedFile`: the pipeline's own phases (hash
+source, restore from cache, read source, hash output, write store, write cache) and the
+cooker's, which it times with `CookInput.Time`. Time the cooker spent outside its own phases
+shows as `<id> cooker, untimed`. `CookCache.TryRestore` says why it missed, and
+`CookReport` adds it all up for `--timings`.
+
+The models cooker shares decoded textures between the models of a cook, and the cooks after
+it in the same process. They're keyed by the SHA-256 of the image bytes (and of the alpha
+image), the texture kind, and whether it's a normal map or a glTF surface map, so a hit is
+always the same pixels. The memo is cleared when it passes 1 GiB. `TextureData` turns bytes
+into floats through two 256-entry tables made with the same arithmetic as before, so mips
+come out bit for bit the same.
 
 **Models.** `Super.Cook.Models` reads FBX, glTF and OBJ with Assimp at cook time and writes
 `.rmodel` data (`ModelData` in Rendition). An alpha cutoff

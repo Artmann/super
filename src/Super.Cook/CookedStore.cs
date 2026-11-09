@@ -1,6 +1,12 @@
+using System.Collections.Concurrent;
+
 namespace Super.Cook;
 
-/// <summary>Where cooked objects and the manifest are kept.</summary>
+/// <summary>
+/// Where cooked objects and the manifest are kept. The pipeline cooks in parallel, so <see cref="Has"/>, <see cref="Put"/>
+/// and <see cref="Get"/> are called from several threads at once, though never for the same hash at the same time.
+/// <see cref="Commit"/> is called alone.
+/// </summary>
 public interface ICookedStore
 {
     bool Has(string hash);
@@ -156,7 +162,7 @@ public sealed class FileInUseException : IOException
 /// <summary>A store that lives in memory, for tests and tools that don't want files.</summary>
 public sealed class MemoryStore : ICookedStore
 {
-    private readonly Dictionary<string, byte[]> _objects = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, byte[]> _objects = new(StringComparer.Ordinal);
 
     /// <summary>The last committed manifest, or <see cref="ContentManifest.Empty"/> before the first commit.</summary>
     public ContentManifest Manifest { get; private set; } = ContentManifest.Empty;
@@ -182,7 +188,7 @@ public sealed class MemoryStore : ICookedStore
         var keep = manifest.Assets.Values.Select(entry => entry.Hash).ToHashSet(StringComparer.Ordinal);
         foreach (string hash in _objects.Keys.Where(hash => !keep.Contains(hash)).ToList())
         {
-            _objects.Remove(hash);
+            _objects.TryRemove(hash, out _);
         }
     }
 }

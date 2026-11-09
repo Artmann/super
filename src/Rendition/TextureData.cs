@@ -90,13 +90,27 @@ public sealed class TextureData
         return result;
     }
 
-    // Colour has to be averaged in linear light, or mips come out too dark.
+    // Colour has to be averaged in linear light, or mips come out too dark. A channel is a byte, so both
+    // conversions are tables worked out once, with the same arithmetic as before, so mips come out the same.
     private static Vector4 Decode(byte[] data, int offset, TextureKind kind)
     {
-        var value = new Vector4(data[offset], data[offset + 1], data[offset + 2], data[offset + 3]) / 255f;
-        return kind == TextureKind.Color
-            ? new Vector4(ToLinear(value.X), ToLinear(value.Y), ToLinear(value.Z), value.W)
-            : value;
+        float[] colour = kind == TextureKind.Color ? LinearOfByte : UnitOfByte;
+        return new Vector4(colour[data[offset]], colour[data[offset + 1]], colour[data[offset + 2]], UnitOfByte[data[offset + 3]]);
+    }
+
+    private static readonly float[] UnitOfByte = Table(b => b / 255f);
+
+    private static readonly float[] LinearOfByte = Table(b => ToLinear(b / 255f));
+
+    private static float[] Table(Func<float, float> of)
+    {
+        var table = new float[256];
+        for (int b = 0; b < 256; b++)
+        {
+            table[b] = of(b);
+        }
+
+        return table;
     }
 
     private static void Encode(byte[] data, int offset, Vector4 value, TextureKind kind)

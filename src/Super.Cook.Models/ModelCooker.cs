@@ -174,7 +174,12 @@ public sealed class ModelCooker : ICooker
             | PostProcessSteps.CalculateTangentSpace
             | PostProcessSteps.FlipUVs;
 
-        var scene = Import(assimp, modelPath, steps);
+        Scene* scene;
+        using (input.Time("assimp import"))
+        {
+            scene = Import(assimp, modelPath, steps);
+        }
+
         try
         {
             if (scene == null || scene->MRootNode == null)
@@ -207,7 +212,11 @@ public sealed class ModelCooker : ICooker
                 if (!settings.KeepMeshes)
                 {
                     // On failure Assimp has already freed the scene.
-                    scene = assimp.ApplyPostProcessing(scene, (uint)PostProcessSteps.PreTransformVertices);
+                    using (input.Time("assimp flatten"))
+                    {
+                        scene = assimp.ApplyPostProcessing(scene, (uint)PostProcessSteps.PreTransformVertices);
+                    }
+
                     if (scene == null)
                     {
                         output.Error($"{prefix}Could not flatten {input.Name}: {assimp.GetErrorStringS()}");
@@ -385,7 +394,15 @@ public sealed class ModelCooker : ICooker
             output.Error($"{prefix}material {materialName}: {problem}");
         }
 
-        return problems.Count > 0 ? null : model.ToBytes();
+        if (problems.Count > 0)
+        {
+            return null;
+        }
+
+        using (input.Time("write model"))
+        {
+            return model.ToBytes();
+        }
     }
 
     private static string? SubsurfaceProblem(in ModelMaterial material) =>

@@ -42,12 +42,15 @@ public sealed class ModelCookerTests : IDisposable
         return model.Vertices.Max(v => v.Position.X) - model.Vertices.Min(v => v.Position.X);
     }
 
-    private static byte[] Png()
+    private static byte[] Png() => Png([255, 0, 0, 255, 0, 0, 255, 128]);
+
+    /// <summary>A 2x1 PNG of these RGBA bytes.</summary>
+    private static byte[] Png(byte[] pixels)
     {
         string path = Path.Combine(Path.GetTempPath(), "super-cook-" + Guid.NewGuid().ToString("N") + ".png");
         try
         {
-            PngFile.Write(path, [255, 0, 0, 255, 0, 0, 255, 128], 2, 1);
+            PngFile.Write(path, pixels, 2, 1);
             return File.ReadAllBytes(path);
         }
         finally
@@ -262,6 +265,35 @@ public sealed class ModelCookerTests : IDisposable
         Assert.Equal(6f, material.DetailScale);
         Assert.Equal(MaterialFlags.DetailMask, material.Flags);
         Assert.All(model.Textures, texture => Assert.Equal(TextureKind.Linear, texture.Kind));
+    }
+
+    [Fact]
+    public void One_image_used_as_colour_by_one_model_and_as_height_by_another_cooks_both_ways()
+    {
+        // Models cooked together share decoded images, so this checks the sharing keeps the two apart.
+        string src = Temp();
+        TinyGltf.Write(src, "a.gltf", "wall", ["a"]);
+        TinyGltf.Write(src, "b.gltf", "wall", ["b"]);
+        File.WriteAllBytes(Path.Combine(src, "shared.png"), Png([200, 255, 0, 255, 100, 255, 0, 128]));
+        File.WriteAllText(Path.Combine(src, "cook.json"),
+            "{ \"rules\": [ { \"match\": \"**/*.png\", \"cook\": false } ] }");
+        File.WriteAllText(Path.Combine(src, "a.gltf.cook.json"),
+            "{ \"materials\": [ { \"match\": \"wall\", \"baseColor\": \"shared.png\" } ] }");
+        File.WriteAllText(Path.Combine(src, "b.gltf.cook.json"),
+            "{ \"materials\": [ { \"match\": \"wall\", \"height\": \"shared.png\" } ] }");
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var colour = Assert.Single(Model(store, "a.gltf").Textures);
+        var height = Assert.Single(Model(store, "b.gltf").Textures);
+
+        // Red is 200 beside 100. Colour averages in linear light: 0.5776 and 0.1274 average to 0.3525,
+        // which is 160 in sRGB. Height averages the bytes: 150. Green and blue are 255 and 0 on both
+        // sides, which every average keeps. Alpha averages the bytes either way: 191.5 rounds to 192.
+        Assert.Equal((TextureKind.Color, TextureKind.Linear), (colour.Kind, height.Kind));
+        Assert.Equal(new byte[] { 160, 255, 0, 192 }, colour.Mips[1]);
+        Assert.Equal(new byte[] { 150, 255, 0, 192 }, height.Mips[1]);
     }
 
     [Fact]

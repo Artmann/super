@@ -1,11 +1,23 @@
+using System.Runtime.ExceptionServices;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Security.Cryptography;
+using System.Text.Json.Nodes;
 
 namespace Super.Cook;
 
 /// <param name="Target">The platform the content is cooked for.</param>
 /// <param name="CacheFolder">Where cooked results are kept between runs. Null means no cache.</param>
-public sealed record CookOptions(string Target = "desktop", string? CacheFolder = null)
+/// <param name="Workers">How many sources cook at once. Zero means one per processor, up to <see cref="MaxDefaultWorkers"/>.</param>
+public sealed record CookOptions(string Target = "desktop", string? CacheFolder = null, int Workers = 0)
 {
+    /// <summary>
+    /// The most sources cooked at once when <see cref="Workers"/> isn't set. Each one holds its decoded
+    /// textures, which can be hundreds of megabytes for a big model, so more workers than this cost
+    /// memory without saving much time.
+    /// </summary>
+    public const int MaxDefaultWorkers = 8;
+
     /// <summary>The folder in <c>SUPER_CACHE</c>, or <c>~/.super/cache</c> when that isn't set.</summary>
     public static string DefaultCacheFolder
     {
@@ -17,46 +29,61 @@ public sealed record CookOptions(string Target = "desktop", string? CacheFolder 
                 : set;
         }
     }
+
+    internal int WorkerCount => Workers > 0 ? Workers : Math.Clamp(Environment.ProcessorCount, 1, MaxDefaultWorkers);
 }
 
 public sealed record CookResult(IReadOnlyList<CookProblem> Problems, int Cooked, int FromCache)
 {
     public bool Succeeded => !Problems.Any(p => p.IsError);
+
+    /// <summary>Where the time went.</summary>
+    public CookReport Report { get; init; } = CookReport.Empty;
 }
 
-/// <summary>Cooks every source in some roots into a store. The store only gets a new manifest when nothing went wrong.</summary>
+/// <summary>
+/// Cooks every source in some roots into a store. The store only gets a new manifest when nothing went wrong.
+/// Sources cook in parallel, so a cooker's <see cref="ICooker.Cook"/> may run for several sources at once.
+/// Problems and names come out in source order whatever order the cooks finish in.
+/// </summary>
 public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions options)
 {
+    /// <summary>A source to cook, with everything worked out before the cooking starts.</summary>
+    private sealed record Job(SourceFile File, ICooker Cooker, JsonObject Settings);
+
+    /// <summary>What cooking one source gave: its problems and its assets, already in the store.</summary>
+    private sealed class Done
+    {
+        public List<CookProblem> Problems { get; } = [];
+
+        public List<(string? Part, ManifestEntry Entry)> Assets { get; } = [];
+
+        public CookedFile? Report { get; set; }
+    }
+
     /// <exception cref="IOException">A source is open in another program, or the store couldn't be written. Nothing was committed, so trying again is safe.</exception>
     public CookResult Cook(IReadOnlyList<ISourceRoot> roots, ICookedStore store)
     {
-        var settings = new CookSettings(roots, cookers.Select(cooker => cooker.Id).ToHashSet(StringComparer.Ordinal));
-        var (files, gatherProblems) = Sources.Gather(roots);
+        long started = Stopwatch.GetTimestamp();
+        var steps = new List<(string, TimeSpan)>();
+        long step = started;
+        void EndStep(string name)
+        {
+            long now = Stopwatch.GetTimestamp();
+            steps.Add((name, Stopwatch.GetElapsedTime(step, now)));
+            step = now;
+        }
+
+        // Each root is listed once for the whole cook.
+        IReadOnlyList<ISourceRoot> listed = [.. roots.Select(root => root as ListedRoot ?? new ListedRoot(root))];
+        EndStep("list sources");
+
+        var settings = new CookSettings(listed, cookers.Select(cooker => cooker.Id).ToHashSet(StringComparer.Ordinal));
+        var (files, gatherProblems) = Sources.Gather(listed);
         var problems = new List<CookProblem>(settings.Problems);
         problems.AddRange(gatherProblems);
 
-        var assets = new Dictionary<string, ManifestEntry>(StringComparer.Ordinal);
-
-        // The source each name came from, so a name made twice can name both.
-        var madeBy = new Dictionary<string, SourceFile>(StringComparer.Ordinal);
-        void AddAsset(SourceFile file, string? part, ManifestEntry entry)
-        {
-            string name = part is null ? file.Name : $"{file.Name}#{part}";
-            if (madeBy.TryGetValue(name, out var first))
-            {
-                problems.Add(new CookProblem(file.Describe(), null, first == file
-                    ? $"{file.Name} makes {name} twice."
-                    : $"{name} is made by both {first.Describe()} and {file.Describe()}. A name must come from one place.", true));
-                return;
-            }
-
-            madeBy[name] = file;
-            assets[name] = entry;
-        }
-
-        var cache = options.CacheFolder is { } cacheFolder ? new CookCache(cacheFolder) : null;
-        int cooked = 0;
-        int fromCache = 0;
+        var jobs = new List<Job>();
         foreach (var file in files)
         {
             var cooker = FindCooker(file.Name);
@@ -73,81 +100,213 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
             }
 
             var (cook, values) = settings.For(file, cooker.Id);
-            if (!cook)
+            if (cook)
             {
-                continue;
+                jobs.Add(new Job(file, cooker, values));
             }
-
-            string? key = null;
-            if (cache is not null && cache.SourceHash(file) is { } sourceHash)
-            {
-                key = CookCache.Key(cooker.Id, cooker.Version, options.Target, values, sourceHash);
-                if (cache.TryRestore(key, file, store) is { } hit)
-                {
-                    foreach (var (message, line) in hit.Warnings)
-                    {
-                        problems.Add(new CookProblem(file.Describe(), line, message, false));
-                    }
-
-                    foreach (var restored in hit.Outputs)
-                    {
-                        AddAsset(file, restored.Part, new ManifestEntry(restored.Kind, restored.Hash, restored.Size));
-                    }
-
-                    fromCache++;
-                    continue;
-                }
-            }
-
-            var output = new CookOutput();
-            CookInput? cookInput = null;
-            try
-            {
-                cookInput = new CookInput(file, file.Root.Read(file.Name), values, options.Target);
-                cooker.Cook(cookInput, output);
-            }
-            catch (Exception exception) when (exception is not OutOfMemoryException && !InUse(exception))
-            {
-                output.Error(exception.Message);
-            }
-
-            foreach (var (message, line, isError) in output.Problems)
-            {
-                problems.Add(new CookProblem(file.Describe(), line, message, isError));
-            }
-
-            if (output.Problems.Any(problem => problem.IsError))
-            {
-                continue;
-            }
-
-            foreach (var (part, kind, bytes) in output.Assets)
-            {
-                string hash = Convert.ToHexStringLower(SHA256.HashData(bytes));
-                if (!store.Has(hash))
-                {
-                    store.Put(hash, bytes);
-                }
-
-                AddAsset(file, part, new ManifestEntry(kind, hash, bytes.LongLength));
-            }
-
-            if (key is not null && cookInput is not null)
-            {
-                cache!.Save(key, file, cookInput.Inputs, output.Assets,
-                    output.Problems.Select(problem => (problem.Message, problem.Line)).ToList());
-            }
-
-            cooked++;
         }
 
+        EndStep("read settings");
+
+        var cache = options.CacheFolder is { } cacheFolder ? new CookCache(cacheFolder) : null;
+        var writer = new StoreWriter(store);
+        var done = new Done[jobs.Count];
+        int workers = Math.Max(1, Math.Min(options.WorkerCount, jobs.Count));
+        try
+        {
+            Parallel.For(0, jobs.Count, new ParallelOptions { MaxDegreeOfParallelism = workers },
+                i => done[i] = CookOne(jobs[i], cache, writer));
+        }
+        catch (AggregateException aggregate) when (aggregate.InnerExceptions.Count > 0)
+        {
+            // Callers tell a locked file from other failures by the exception itself, as when cooking one at a time.
+            ExceptionDispatchInfo.Capture(aggregate.InnerExceptions[0]).Throw();
+            throw;
+        }
+        EndStep("cook");
+
         cache?.Flush();
+        EndStep("save cache index");
+
+        var assets = new Dictionary<string, ManifestEntry>(StringComparer.Ordinal);
+
+        // The source each name came from, so a name made twice can name both.
+        var madeBy = new Dictionary<string, SourceFile>(StringComparer.Ordinal);
+        int cooked = 0;
+        int fromCache = 0;
+        for (int i = 0; i < jobs.Count; i++)
+        {
+            var file = jobs[i].File;
+            problems.AddRange(done[i].Problems);
+            foreach (var (part, entry) in done[i].Assets)
+            {
+                string name = part is null ? file.Name : $"{file.Name}#{part}";
+                if (madeBy.TryGetValue(name, out var first))
+                {
+                    problems.Add(new CookProblem(file.Describe(), null, first == file
+                        ? $"{file.Name} makes {name} twice."
+                        : $"{name} is made by both {first.Describe()} and {file.Describe()}. A name must come from one place.", true));
+                    continue;
+                }
+
+                madeBy[name] = file;
+                assets[name] = entry;
+            }
+
+            switch (done[i].Report!.Outcome)
+            {
+                case CookOutcome.Cooked:
+                    cooked++;
+                    break;
+                case CookOutcome.FromCache:
+                    fromCache++;
+                    break;
+            }
+        }
+
         if (!problems.Any(problem => problem.IsError))
         {
             store.Commit(new ContentManifest(options.Target, assets));
         }
 
-        return new CookResult(problems, cooked, fromCache);
+        EndStep("write manifest");
+
+        var report = new CookReport(Stopwatch.GetElapsedTime(started), steps, [.. done.Select(d => d.Report!)], workers, false);
+        return new CookResult(problems, cooked, fromCache) { Report = report };
+    }
+
+    /// <summary>Takes one source from the cache, or cooks it and puts it in the cache. Runs on a worker thread.</summary>
+    private Done CookOne(Job job, CookCache? cache, StoreWriter writer)
+    {
+        var (file, cooker, values) = job;
+        var done = new Done();
+        long started = Stopwatch.GetTimestamp();
+        var clock = new PhaseClock();
+
+        string? key = null;
+        string? miss = null;
+        if (cache is not null)
+        {
+            string? sourceHash;
+            using (clock.Start("hash source"))
+            {
+                sourceHash = cache.SourceHash(file);
+            }
+
+            if (sourceHash is null)
+            {
+                miss = "source couldn't be hashed";
+            }
+            else
+            {
+                key = CookCache.Key(cooker.Id, cooker.Version, options.Target, values, sourceHash);
+                CacheHit? hit;
+                using (clock.Start("restore from cache"))
+                {
+                    hit = cache.TryRestore(key, file, writer, out miss);
+                }
+
+                if (hit is not null)
+                {
+                    foreach (var (message, line) in hit.Warnings)
+                    {
+                        done.Problems.Add(new CookProblem(file.Describe(), line, message, false));
+                    }
+
+                    long size = 0;
+                    foreach (var restored in hit.Outputs)
+                    {
+                        done.Assets.Add((restored.Part, new ManifestEntry(restored.Kind, restored.Hash, restored.Size)));
+                        size += restored.Size;
+                    }
+
+                    done.Report = new CookedFile(file.Name, cooker.Id, CookOutcome.FromCache, Stopwatch.GetElapsedTime(started), clock.Phases, null, size);
+                    return done;
+                }
+            }
+        }
+
+        var output = new CookOutput();
+        CookInput? cookInput = null;
+        try
+        {
+            byte[] bytes;
+            using (clock.Start("read source"))
+            {
+                bytes = file.Root.Read(file.Name);
+            }
+
+            cookInput = new CookInput(file, bytes, values, options.Target);
+            long cooking = Stopwatch.GetTimestamp();
+            try
+            {
+                cooker.Cook(cookInput, output);
+            }
+            finally
+            {
+                // The cooker's own phases, then whatever it didn't time.
+                var inside = TimeSpan.Zero;
+                foreach (var (phase, elapsed) in cookInput.Clock.Phases)
+                {
+                    clock.Add(phase, elapsed);
+                    inside += elapsed;
+                }
+
+                var rest = Stopwatch.GetElapsedTime(cooking) - inside;
+                if (rest > TimeSpan.Zero)
+                {
+                    clock.Add(cookInput.Clock.Phases.Count == 0 ? $"{cooker.Id} cooker" : $"{cooker.Id} cooker, untimed", rest);
+                }
+            }
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException && !InUse(exception))
+        {
+            output.Error(exception.Message);
+        }
+
+        foreach (var (message, line, isError) in output.Problems)
+        {
+            done.Problems.Add(new CookProblem(file.Describe(), line, message, isError));
+        }
+
+        if (output.Problems.Any(problem => problem.IsError))
+        {
+            done.Report = new CookedFile(file.Name, cooker.Id, CookOutcome.Failed, Stopwatch.GetElapsedTime(started), clock.Phases, miss, 0);
+            return done;
+        }
+
+        var hashes = new string[output.Assets.Count];
+        long outputBytes = 0;
+        using (clock.Start("hash output"))
+        {
+            for (int i = 0; i < output.Assets.Count; i++)
+            {
+                hashes[i] = Convert.ToHexStringLower(SHA256.HashData(output.Assets[i].Bytes));
+            }
+        }
+
+        using (clock.Start("write store"))
+        {
+            for (int i = 0; i < output.Assets.Count; i++)
+            {
+                var (part, kind, bytes) = output.Assets[i];
+                writer.Put(hashes[i], bytes);
+                done.Assets.Add((part, new ManifestEntry(kind, hashes[i], bytes.LongLength)));
+                outputBytes += bytes.LongLength;
+            }
+        }
+
+        if (key is not null && cookInput is not null)
+        {
+            using (clock.Start("write cache"))
+            {
+                cache!.Save(key, file, cookInput.Inputs, output.Assets, hashes,
+                    output.Problems.Select(problem => (problem.Message, problem.Line)).ToList());
+            }
+        }
+
+        done.Report = new CookedFile(file.Name, cooker.Id, CookOutcome.Cooked, Stopwatch.GetElapsedTime(started), clock.Phases, miss, outputBytes);
+        return done;
     }
 
     /// <summary>
@@ -184,5 +343,40 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
         }
 
         return best;
+    }
+}
+
+/// <summary>
+/// Lets several workers put objects into one store. Each object is written once, however many sources make it,
+/// and two workers never touch the same object at the same time. Different objects are written at once, which
+/// <see cref="ICookedStore"/> allows.
+/// </summary>
+internal sealed class StoreWriter(ICookedStore store)
+{
+    private readonly ConcurrentDictionary<string, object> _gates = new(StringComparer.Ordinal);
+
+    /// <summary>Puts the object in the store unless it's already there.</summary>
+    public void Put(string hash, byte[] bytes) => PutOnce(hash, () => bytes);
+
+    /// <summary>Puts the object in the store unless it's already there, making its bytes only when it isn't.</summary>
+    /// <returns>False when <paramref name="bytes"/> gave null, so nothing was put.</returns>
+    public bool PutOnce(string hash, Func<byte[]?> bytes)
+    {
+        lock (_gates.GetOrAdd(hash, _ => new object()))
+        {
+            if (store.Has(hash))
+            {
+                return true;
+            }
+
+            byte[]? made = bytes();
+            if (made is null)
+            {
+                return false;
+            }
+
+            store.Put(hash, made);
+            return true;
+        }
     }
 }

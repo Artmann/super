@@ -107,6 +107,34 @@ public sealed class MemoryRoot : ISourceRoot
     }
 }
 
+/// <summary>
+/// A root listed once, for one cook. Listing a big folder takes time, and the settings, the gathering and every cooker that
+/// looks for a file beside its source would otherwise each list it again. Changes during the cook are seen by the next one.
+/// </summary>
+internal sealed class ListedRoot(ISourceRoot inner) : ISourceRoot
+{
+    private readonly List<string> _files = inner.Files().ToList();
+    private HashSet<string>? _names;
+
+    public string Label => inner.Label;
+
+    /// <summary>The listing as a set, made once and shared by every source of the cook.</summary>
+    public IReadOnlySet<string> Names
+    {
+        get
+        {
+            // Two threads may both make it. Either set is right, so it doesn't matter which one stays.
+            return _names ??= new HashSet<string>(_files, StringComparer.Ordinal);
+        }
+    }
+
+    public IEnumerable<string> Files() => _files;
+
+    public byte[] Read(string relative) => inner.Read(relative);
+
+    public string? FullPath(string relative) => inner.FullPath(relative);
+}
+
 /// <summary>One source: the root it came from and its name.</summary>
 public sealed record SourceFile(ISourceRoot Root, string Name)
 {

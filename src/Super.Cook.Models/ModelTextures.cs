@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Security.Cryptography;
 using Rendition;
 using StbImageSharp;
 
@@ -59,28 +61,83 @@ internal sealed class ModelTextures(CookInput input, CookOutput output, string p
             return -1;
         }
 
-        var image = ImageResult.FromMemory(encoded, ColorComponents.RedGreenBlueAlpha);
-        if (isGltfSurface)
-        {
-            ConvertGltfSurface(image.Data);
-        }
-
+        byte[]? alphaEncoded = null;
         if (alphaFile is not null)
         {
-            byte[]? alphaEncoded = Read(alphaFile);
+            alphaEncoded = Read(alphaFile);
             if (alphaEncoded is null)
             {
                 output.Error($"{prefix}The alpha texture {alphaFile} isn't next to the model.");
                 return -1;
             }
-
-            var alpha = ImageResult.FromMemory(alphaEncoded, ColorComponents.RedGreenBlueAlpha);
-            TakeAlpha(image, alpha);
         }
 
-        _textures.Add(TextureData.FromPixels(image.Width, image.Height, kind, image.Data, isNormalMap));
+        // Models in a kit share their images, so each image is decoded and filtered once per cook, not once per model.
+        string shared = string.Join('|', Convert.ToHexString(SHA256.HashData(encoded)),
+            alphaEncoded is null ? "" : Convert.ToHexString(SHA256.HashData(alphaEncoded)), kind, isNormalMap, isGltfSurface);
+        bool made = false;
+        var texture = Shared.GetOrAdd(shared, _ => new Lazy<TextureData>(() =>
+        {
+            made = true;
+            return Make(encoded, alphaEncoded, kind, isNormalMap, isGltfSurface);
+        })).Value;
+        if (made)
+        {
+            Remember(texture);
+        }
+
+        _textures.Add(texture);
         _indices[key] = _textures.Count - 1;
         return _textures.Count - 1;
+    }
+
+    /// <summary>
+    /// Decoded and filtered images, by the hash of their bytes and how they're cooked, shared by every model of a cook
+    /// and the cooks after it in the same process. Cooking is a pure function of the bytes, so a hit is always right.
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, Lazy<TextureData>> Shared = new(StringComparer.Ordinal);
+
+    private static long _sharedBytes;
+
+    /// <summary>The most decoded pixels kept for sharing. Past this everything is dropped and sharing starts again.</summary>
+    private const long MaxSharedBytes = 1L << 30;
+
+    private static void Remember(TextureData texture)
+    {
+        long bytes = texture.Mips.Sum(mip => (long)mip.Length);
+        if (Interlocked.Add(ref _sharedBytes, bytes) > MaxSharedBytes)
+        {
+            Shared.Clear();
+            Interlocked.Exchange(ref _sharedBytes, 0);
+        }
+    }
+
+    private TextureData Make(byte[] encoded, byte[]? alphaEncoded, TextureKind kind, bool isNormalMap, bool isGltfSurface)
+    {
+        ImageResult image;
+        using (input.Time("decode images"))
+        {
+            image = ImageResult.FromMemory(encoded, ColorComponents.RedGreenBlueAlpha);
+        }
+
+        if (isGltfSurface)
+        {
+            ConvertGltfSurface(image.Data);
+        }
+
+        if (alphaEncoded is not null)
+        {
+            using (input.Time("decode images"))
+            {
+                var alpha = ImageResult.FromMemory(alphaEncoded, ColorComponents.RedGreenBlueAlpha);
+                TakeAlpha(image, alpha);
+            }
+        }
+
+        using (input.Time("build mips"))
+        {
+            return TextureData.FromPixels(image.Width, image.Height, kind, image.Data, isNormalMap);
+        }
     }
 
     private byte[]? Read(string fileName)

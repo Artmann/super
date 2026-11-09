@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -25,6 +26,9 @@ internal sealed class CookCache(string folder)
     private const string Unresolvable = "unresolvable";
 
     private readonly string _folder = Path.GetFullPath(folder);
+    // Workers cook in parallel, so the hash index and object writes are guarded.
+    private readonly object _hashesLock = new();
+    private readonly ConcurrentDictionary<string, object> _objectGates = new(StringComparer.Ordinal);
     private Dictionary<string, string>? _hashes;
     private bool _hashesChanged;
 
@@ -43,13 +47,21 @@ internal sealed class CookCache(string folder)
     }
 
     /// <summary>Looks for a valid record. Anything wrong with the record or its objects is a miss.</summary>
-    public CacheHit? TryRestore(string key, SourceFile file, ICookedStore store)
+    /// <param name="miss">Why there was no hit, such as a changed input, for <c>super-cook --verbose</c>. Null on a hit.</param>
+    public CacheHit? TryRestore(string key, SourceFile file, StoreWriter store, out string? miss)
     {
+        string recordFile = RecordFile(key);
         try
         {
-            var record = JsonNode.Parse(File.ReadAllBytes(RecordFile(key))) as JsonObject;
-            if (record is null)
+            if (!File.Exists(recordFile))
             {
+                miss = "no record: new source, or its bytes, settings or cooker version changed";
+                return null;
+            }
+
+            if (JsonNode.Parse(File.ReadAllBytes(recordFile)) is not JsonObject record)
+            {
+                miss = "record damaged";
                 return null;
             }
 
@@ -60,6 +72,7 @@ internal sealed class CookCache(string folder)
                 string? actual = resolved is null ? Unresolvable : HashFile(file.Root, resolved);
                 if (actual is null || actual != item["hash"]!.GetValue<string>())
                 {
+                    miss = $"input changed: {name}";
                     return null;
                 }
             }
@@ -69,8 +82,15 @@ internal sealed class CookCache(string folder)
             {
                 string hash = item!["hash"]!.GetValue<string>();
                 var info = new FileInfo(ObjectFile(hash));
-                if (!info.Exists || !Enum.TryParse(item["kind"]!.GetValue<string>(), out ContentKind kind) || !Enum.IsDefined(kind))
+                if (!info.Exists)
                 {
+                    miss = $"cached object gone: {hash}";
+                    return null;
+                }
+
+                if (!Enum.TryParse(item["kind"]!.GetValue<string>(), out ContentKind kind) || !Enum.IsDefined(kind))
+                {
+                    miss = "record damaged";
                     return null;
                 }
 
@@ -85,31 +105,34 @@ internal sealed class CookCache(string folder)
 
             foreach (var output in outputs)
             {
-                if (store.Has(output.Hash))
+                // The object is checked against its name before it reaches the store, so a damaged cache can't ship.
+                bool restored = store.PutOnce(output.Hash, () =>
                 {
-                    continue;
-                }
-
-                byte[] bytes = File.ReadAllBytes(ObjectFile(output.Hash));
-                if (Convert.ToHexStringLower(SHA256.HashData(bytes)) != output.Hash)
+                    byte[] bytes = File.ReadAllBytes(ObjectFile(output.Hash));
+                    return Convert.ToHexStringLower(SHA256.HashData(bytes)) == output.Hash ? bytes : null;
+                });
+                if (!restored)
                 {
+                    miss = $"cached object damaged: {output.Hash}";
                     return null;
                 }
-
-                store.Put(output.Hash, bytes);
             }
 
+            miss = null;
             return new CacheHit(outputs, warnings);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
+            miss = $"record unreadable: {exception.Message}";
             return null;
         }
     }
 
     /// <summary>Keeps a cook's result. Failing to write the cache is never a failure of the build.</summary>
+    /// <param name="hashes">The hash of each asset's bytes, in the same order.</param>
     public void Save(string key, SourceFile file, IReadOnlyList<string> inputs,
-        IReadOnlyList<(string? Part, ContentKind Kind, byte[] Bytes)> assets, IReadOnlyList<(string Message, int? Line)> warnings)
+        IReadOnlyList<(string? Part, ContentKind Kind, byte[] Bytes)> assets, IReadOnlyList<string> hashes,
+        IReadOnlyList<(string Message, int? Line)> warnings)
     {
         try
         {
@@ -127,13 +150,17 @@ internal sealed class CookCache(string folder)
             }
 
             var outputNodes = new JsonArray();
-            foreach (var (part, kind, bytes) in assets)
+            for (int i = 0; i < assets.Count; i++)
             {
-                string hash = Convert.ToHexStringLower(SHA256.HashData(bytes));
+                var (part, kind, bytes) = assets[i];
+                string hash = hashes[i];
                 string objectFile = ObjectFile(hash);
-                if (!File.Exists(objectFile))
+                lock (_objectGates.GetOrAdd(hash, _ => new object()))
                 {
-                    WriteAtomically(objectFile, bytes);
+                    if (!File.Exists(objectFile))
+                    {
+                        WriteAtomically(objectFile, bytes);
+                    }
                 }
 
                 outputNodes.Add(new JsonObject { ["part"] = part, ["kind"] = kind.ToString(), ["hash"] = hash });
@@ -197,15 +224,22 @@ internal sealed class CookCache(string folder)
             }
 
             string key = $"{info.FullName}|{info.Length}|{info.LastWriteTimeUtc.Ticks}";
-            var hashes = Hashes();
-            if (hashes.TryGetValue(key, out string? known))
+            lock (_hashesLock)
             {
-                return known;
+                if (Hashes().TryGetValue(key, out string? known))
+                {
+                    return known;
+                }
             }
 
+            // Hashed outside the lock, so workers hash their files at the same time.
             string hash = Convert.ToHexStringLower(SHA256.HashData(root.Read(name)));
-            hashes[key] = hash;
-            _hashesChanged = true;
+            lock (_hashesLock)
+            {
+                Hashes()[key] = hash;
+                _hashesChanged = true;
+            }
+
             return hash;
         }
         catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
