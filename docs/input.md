@@ -97,7 +97,7 @@ class Console(Input input)
 | `Typed` | Text the player entered this tick |
 | `GamepadConnected` | Whether there's a gamepad |
 | `DeadZone` | The stick dead zone, 0.2 by default |
-| `CaptureMouse` | Set to true to hide the cursor and lock it to the window, as a first-person camera needs |
+| `CaptureMouse` | Set to true to hide the cursor and lock it to the window, as a first-person camera needs. While it is on, `MouseDelta` comes from the mouse itself, without the system's pointer acceleration, where the system allows it |
 | `HideCursor` | Set to true to hide the system cursor over the window but leave it free, when the game draws its own pointer in the interface |
 
 ## When input is read

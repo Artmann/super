@@ -482,6 +482,14 @@ internal sealed unsafe class GameWindow : IDisposable
 
         _cursorMode = mode;
         _glfw.SetInputMode(_window, CursorStateAttribute.Cursor, mode);
+
+        // A captured mouse is for looking around, so read the mouse itself rather than the
+        // pointer: the pointer has the system's acceleration on it, which makes turning
+        // depend on how fast the mouse moved as well as how far.
+        if (_glfw.RawMouseMotionSupported())
+        {
+            _glfw.SetInputMode(_window, CursorStateAttribute.RawMouseMotion, mode == CursorModeValue.CursorDisabled);
+        }
     }
 
     private ulong CreateSurface(nint instance)
