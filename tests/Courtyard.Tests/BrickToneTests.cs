@@ -113,6 +113,54 @@ public sealed class BrickToneTests
     }
 
     [Fact]
+    public void The_dark_plum_and_the_pale_buff_are_rare_accents()
+    {
+        var tones = GraphRunner.Run(new ToneMap(), Size).Height;
+        var plums = 0;
+        var buffs = 0;
+
+        for (var row = 0; row < Bricks.Rows; row++)
+        {
+            for (var column = 0; column < Bricks.Columns; column++)
+            {
+                var tone = ToneAt(tones, CentreOf(row, column));
+
+                if (tone == 0)
+                {
+                    plums++;
+                }
+
+                if (tone == Bricks.Tones.Length - 1)
+                {
+                    buffs++;
+                }
+            }
+        }
+
+        // Both show up, but neither on more than one brick in sixteen, 6 of the 96.
+        Assert.InRange(plums, 1, 6);
+        Assert.InRange(buffs, 1, 6);
+    }
+
+    /// <summary>Only the efflorescence patches, before they are cut down to rims along the joints of soft bricks.</summary>
+    private sealed class PatchMap : MaterialGraph
+    {
+        public override Material Build()
+        {
+            return new Material { Height = Bricks.EfflorescencePatches() };
+        }
+    }
+
+    [Fact]
+    public void The_salt_patches_cover_about_a_fifth_of_the_wall()
+    {
+        var patches = GraphRunner.Run(new PatchMap(), Size).Height;
+        var covered = patches.Count(value => value > 0.5f) / (float)patches.Length;
+
+        Assert.True(covered is >= 0.18f and <= 0.26f, $"The salt patches cover {covered:P1} of the wall.");
+    }
+
+    [Fact]
     public void The_cooked_colour_follows_the_tones_from_plum_to_buff()
     {
         var tones = GraphRunner.Run(new ToneMap(), Size).Height;

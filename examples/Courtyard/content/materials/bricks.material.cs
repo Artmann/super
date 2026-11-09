@@ -15,25 +15,27 @@ public sealed class Bricks : MaterialGraph
 
     /// <summary>
     /// The eight tones a brick can be, from an overfired plum through the reds and orange-browns to an underfired
-    /// buff, about a fifth less saturated than the old palette. Each brick is one of them exactly.
+    /// buff, greyer than the old palette, with the pale ones kept dark enough to stay brick in sunlight. Their
+    /// lightness rises steadily, the buff about twice the red. Each brick is one of them exactly.
     /// </summary>
     public static readonly string[] Tones =
     [
-        "#4a2a26", // dark plum clinker
+        "#52302a", // dark plum clinker
         "#6a3429", // plum-red
-        "#8a3f32", // red
-        "#934c37", // red going orange
+        "#84463a", // red
+        "#8c5040", // red going orange
         "#9c5a3c", // orange-brown
-        "#a8784a", // ochre
-        "#b08960", // ochre-buff
-        "#b89a72", // pale buff
+        "#96683f", // ochre
+        "#92704f", // ochre-buff
+        "#94765a", // pale buff
     ];
 
     /// <summary>The two middle reds, tones 2 and 3, which a third of the bricks are.</summary>
     public static readonly int[] MiddleReds = [2, 3];
 
-    // How many of the 96 bricks take each tone: 32 of the two middle reds, fewer of the extremes.
-    private static readonly int[] ToneCounts = [9, 11, 16, 16, 12, 12, 11, 9];
+    // How many of the 96 bricks take each tone: a bell round the reds, 32 of the two middle reds, and the plum
+    // and the buff rare accents.
+    private static readonly int[] ToneCounts = [5, 14, 16, 16, 20, 13, 8, 4];
 
     /// <summary>The column of the brick at <paramref name="u"/> in course <paramref name="row"/>, as Tiles.Bricks lays it.</summary>
     private static int ColumnAt(int row, float u)
@@ -163,6 +165,12 @@ public sealed class Bricks : MaterialGraph
         });
     }
 
+    /// <summary>Where the wall has bloomed with salts: white over about a fifth of it, in broad soft-edged patches.</summary>
+    public static Gray EfflorescencePatches()
+    {
+        return Noise.Perlin(scale: 3, octaves: 4, seed: 11).HistogramScan(0.38f, contrast: 0.85f);
+    }
+
     public override Material Build()
     {
         // 8 bricks of 43.75 cm across the 3.5 m, 12 courses of about 29 cm: big old bricks,
@@ -177,8 +185,8 @@ public sealed class Bricks : MaterialGraph
         var tilt = across.Add(down).Multiply(0.15f);
 
         // Bricks from one kiln still differ: some came out with a hard, smooth skin and others soft and pitted.
-        // 1 is the hardest. The dark, overfired bricks lean hard and the pale, underfired ones soft.
-        var hardness = ids.RandomGray(seed: 5).Multiply(0.6f).Add(tone.Invert().Multiply(0.4f));
+        // 1 is the hardest. The dark, overfired bricks lean a little hard and the pale, underfired ones soft.
+        var hardness = ids.RandomGray(seed: 5).Multiply(0.8f).Add(tone.Invert().Multiply(0.2f));
         var wear = hardness.Invert();
 
         // The faces undulate gently, more on the soft bricks, rather than every face being
@@ -201,7 +209,7 @@ public sealed class Bricks : MaterialGraph
         // in seven, a patch from cells, it has weathered back to leave a deep recess.
         var mortarNoise = Noise.Perlin(scale: 12, octaves: 4);
         var recessed = Noise.Cells(scale: 10, output: CellOutput.Id).HistogramScan(0.15f, contrast: 0.98f);
-        var mortarFill = mortarNoise.Remap(0.7f, 1.3f).Multiply(0.25f).Multiply(recessed.Invert());
+        var mortarFill = mortarNoise.Remap(0.7f, 1.3f).Multiply(0.15f).Multiply(recessed.Invert());
         var height = faces.Max(mortarFill).Add(undulation.Multiply(bricks));
 
         // Small pores and fine grit in the brick faces and the mortar, so they hold detail close
@@ -227,20 +235,21 @@ public sealed class Bricks : MaterialGraph
             .Multiply(pores.Invert().Multiply(pitting).Multiply(0.28f).Invert())
             .Multiply(spalls.Remap(1f, 1.18f));
 
-        // Efflorescence: salts drawn out by damp dry to a white veil, in broad patches, only on the soft bricks.
-        var soft = hardness.Levels(0.39f, 0.41f).Invert().Multiply(bricks.Levels(0.2f, 0.5f));
-        // The broad patches cover most of a soft brick, so a finer Perlin tears them, or the brick just turns pink.
-        var bloom = Noise.Perlin(scale: 4, octaves: 3).HistogramScan(0.78f, contrast: 0.5f)
-            .Multiply(Noise.Perlin(scale: 30, octaves: 4).Levels(0.3f, 0.75f))
-            .Multiply(soft);
-        brickColor = brickColor.Blend(Rgb.Of("#d8d4cc"), mask: bloom, opacity: 0.35f);
-
         // Old lime mortar, grey and dirty rather than clean, its own Perlin lightening and darkening it by ±30%.
         var mortarColor = Rgb.Of("#857e71")
             .Multiply(mortarNoise.Remap(0.7f, 1.3f))
             .Multiply(grit.Remap(0.86f, 1.08f))
             .Multiply(pores.Remap(0.8f, 1f));
         var color = brickColor.Blend(mortarColor, mask: mortarMask);
+
+        // Efflorescence: damp carries salts out through the joints, where they dry to a white rim that bleeds about
+        // 4 cm into the soft bricks and over the mortar between them, in patches over about a fifth of the wall.
+        // Hard bricks keep it out. A fine grain of crystals breaks its edge.
+        var soft = hardness.Levels(0.39f, 0.41f).Invert();
+        var bleed = mortarMask.Distance(0.012f);
+        var crystals = Noise.Perlin(scale: 60, octaves: 3).Levels(0.35f, 0.65f).Remap(0.5f, 1f);
+        var bloom = EfflorescencePatches().Multiply(bleed).Multiply(soft).Multiply(crystals);
+        color = color.Blend(Rgb.Of("#d8d4cc"), mask: bloom, opacity: 0.5f);
 
         // Soot: smoke and dirty rain have darkened a band under the string course, 4 courses up the tile
         // (two thirds of the way down the image), by up to 25%, fading downwards and torn into streaks.
