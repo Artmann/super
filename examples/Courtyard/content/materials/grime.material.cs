@@ -17,8 +17,9 @@ public sealed class Grime : MaterialGraph
 
     public override Material Build()
     {
-        // 0 at the solid edge, rising down the image to 1.2 at the far edge, so the grime has gone by about four fifths.
-        var away = Pixel.Gray(p => p.Uv.Y * 1.2f);
+        // 0 at the solid edge, rising down the image. A streak reaches 1.2 at the far edge, so it has gone by about four
+        // fifths. Damp climbs further before it dries out, reaching 0.85, so its ragged top runs close to the far edge.
+        var away = Pixel.Gray(p => p.Uv.Y * (Streak ? 1.2f : 0.85f));
 
         // Water runs down a wall in streaks, so the fade is torn into vertical runs of different lengths.
         var streaks = Noise.Directional(scale: 24, angle: 90f, stretch: 10f, octaves: 3, seed: Seed).Remap(-0.3f, 0.3f);

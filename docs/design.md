@@ -1222,7 +1222,10 @@ A decal is a box. `View.Decal` takes its matrix, a `Surface` made of textures an
 `DecalBlend`, and refuses a box that can't be inverted, a weight outside 0 to 1, a surface
 shader and a 257th decal before anything is drawn. `SceneRenderer` turns each surface into
 a material of its own once (colour, normal and surface textures, no flags) and hands the
-renderer `FrameView.Decals`. `DecalBatch.Pack` checks them again and packs each one into a
+renderer `FrameView.Decals`. It keeps those materials, with the frame each was last used,
+until content unloads; past `MaxDecalMaterials` (512, twice what a frame can use) it lets go
+of every one the current frame didn't use, so a new `Surface` value each frame can't fill the
+material slots. `Renderer.DestroyMaterial` holds the slot until the frames in flight finish. `DecalBatch.Pack` checks them again and packs each one into a
 160-byte `GpuDecal`: the box, its inverse, the four weights and the material index.
 `DecalPass` keeps those in a host-visible vertex buffer for each frame in flight, read as
 per-instance attributes, so the frame set is unchanged, and draws all of them in one
@@ -1237,7 +1240,9 @@ inside it. Nothing in front of a decal needs testing: it lands on whatever the d
 buffer holds, which is the nearest surface.
 `decal.frag` reads the depth, rebuilds the world position from `inverseViewProjection`,
 takes it into the box with the inverse, and discards it outside the box or at the far
-plane. The UV is the box's local x and -z mapped from -0.5..0.5 to 0..1. Its derivatives
+plane. A pixel at the far plane has no finite position, so it is moved just outside the
+box first, before its neighbours' derivatives can pick up an infinity from it. The UV is
+the box's local x and -z mapped from -0.5..0.5 to 0..1. Its derivatives
 are taken before any discard and clamped to four times what a flat surface at that depth
 would give, so the mip doesn't jump to the smallest at a depth edge, and they're scaled by
 the frame's mip bias, so render scale and TAA sharpen decals as they do the rest.
@@ -1248,13 +1253,17 @@ box that pokes through a corner doesn't end in a hard line. Its strength is the 
 opacity (base colour alpha times the surface texture's alpha) times that fade. Base colour
 is alpha-blended, by that strength times `Color`, into RT0, with metallic left alone.
 
-RT1 is written whole, without blending, because a normal can't be blended as a colour:
+RT1 is written whole, without blending, while RT0 blends, which needs the device feature
+`independentBlend`. `VulkanContext.RequireFeatures` checks it before the device is made
+and names it when it's missing. A normal can't be blended as a colour:
 the decal's normal map is laid over the normal underneath with reoriented normal mapping
 (RNM), so the brick's bumps show through the damp. The pass must read the normal it
 writes, and a colour attachment can't be sampled while it's drawn to, so `RecordDecals`
 copies RT1 into `GBuffer.NormalCopy` with `vkCmdCopyImage` first and the shader reads the
-copy. The RNM runs in the box's frame: x across the box, y out of the surface, z along
-it. The result is mixed in by strength times `Normal`, roughness by strength times
+copy. The RNM runs in the box's frame, set up the way a mesh's is: the
+tangent is the box's +X, the way u rises, the bitangent its +Z, the way v falls, and the
+normal its +Y. The bitangent comes from the box's own Z rather than a cross product, so a
+mirrored box still reads its normal map the right way up. The result is mixed in by strength times `Normal`, roughness by strength times
 `Roughness`, and RT1's w is copied through. The copy and the transitions round it are
 skipped when a frame has no decals. Depth goes to shader-read for the pass, which the AO
 pass then reads as it was going to anyway.
@@ -1279,8 +1288,8 @@ What it doesn't do yet:
 - The angle fade uses the bumpy G-buffer normal, so a strongly bumped surface fades in
   specks near the limit.
 - `NormalCopy` costs a full scene-size RGBA16F image, kept even in frames with no decals.
-- The pass has no GPU timer mark of its own, so its time counts toward ambient occlusion
-  in the profiler.
+- The pass has no GPU timer mark of its own: it is recorded before the G-buffer's mark, so
+  its time counts toward the G-buffer in the profiler.
 
 ## Particles
 

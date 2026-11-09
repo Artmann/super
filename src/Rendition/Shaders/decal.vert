@@ -13,6 +13,7 @@ layout(location = 4) flat out vec4 outWeights;
 layout(location = 5) flat out vec3 outAcross; // The box's X in the world: the material's width.
 layout(location = 6) flat out vec3 outUp;     // The box's Y in the world, which the decal projects down.
 layout(location = 7) flat out uint outMaterial;
+layout(location = 8) flat out vec3 outAlong;  // The box's Z in the world: the way the material's v falls.
 
 // The cube's 36 corners, two triangles a face, wound anticlockwise seen from outside.
 // Each number's bits are its x, y and z, from 0 to 1.
@@ -40,4 +41,5 @@ void main() {
     outAcross = inBox[0].xyz;
     outUp = inBox[1].xyz;
     outMaterial = inMaterial;
+    outAlong = inBox[2].xyz;
 }

@@ -169,4 +169,21 @@ public class DecalTests
         Assert.StartsWith("NormalTexture names 40, but nothing was named with that index.", error.Message);
         Assert.Empty(view.DrawnDecals.ToArray());
     }
+
+    [Fact]
+    public void A_GPU_that_cannot_blend_its_targets_independently_is_refused_by_name()
+    {
+        var error = Assert.Throws<InvalidOperationException>(
+            () => Rendition.Vulkan.VulkanContext.RequireFeatures(new Silk.NET.Vulkan.PhysicalDeviceFeatures { IndependentBlend = false }));
+
+        Assert.Equal(
+            "This GPU can't blend its render targets in different ways at once (Vulkan's independentBlend), which decals need.",
+            error.Message);
+    }
+
+    [Fact]
+    public void A_GPU_that_blends_its_targets_independently_is_accepted()
+    {
+        Rendition.Vulkan.VulkanContext.RequireFeatures(new Silk.NET.Vulkan.PhysicalDeviceFeatures { IndependentBlend = true });
+    }
 }

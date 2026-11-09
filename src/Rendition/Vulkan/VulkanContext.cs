@@ -256,6 +256,19 @@ internal sealed unsafe class VulkanContext : IDisposable
         return null;
     }
 
+    /// <summary>
+    /// Throws when the GPU lacks a device feature the renderer can't draw without, naming it, rather than
+    /// letting device creation fail with a bare error code.
+    /// </summary>
+    internal static void RequireFeatures(in PhysicalDeviceFeatures supported)
+    {
+        if (!supported.IndependentBlend)
+        {
+            throw new InvalidOperationException(
+                "This GPU can't blend its render targets in different ways at once (Vulkan's independentBlend), which decals need.");
+        }
+    }
+
     private Device CreateDevice()
     {
         float priority = 1f;
@@ -267,6 +280,7 @@ internal sealed unsafe class VulkanContext : IDisposable
             PQueuePriorities = &priority,
         };
         Api.GetPhysicalDeviceFeatures(PhysicalDevice, out var supported);
+        RequireFeatures(supported);
         StorageImageExtendedFormats = supported.ShaderStorageImageExtendedFormats;
         var features = new PhysicalDeviceFeatures
         {

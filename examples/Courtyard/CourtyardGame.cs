@@ -62,7 +62,9 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         string[] kept = content.MeshNames(_courtyard).Where(name => name != "cy_stains").ToArray();
         _withoutStains = content.Meshes(_courtyard, kept);
 
-        var damp = content.Surface("materials/grime.material.cs");
+        // The damp is darkened past the grime's own colour so it reads from across the yard: wet brick goes
+        // a good deal darker than dry. The model's hidden quads use the same graph, so it isn't changed there.
+        var damp = content.Surface("materials/grime.material.cs") with { Color = new Vector3(0.5f) };
         var drip = content.Surface("materials/grime-streak.material.json");
         var rust = content.Surface("materials/rust-streak.material.json");
 

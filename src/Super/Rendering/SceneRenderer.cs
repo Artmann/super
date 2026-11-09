@@ -38,8 +38,21 @@ internal sealed class SceneRenderer : IDisposable
     private IContentFiles? _files;
     private readonly ReflectionProbeSchedule _reflectionProbes = new();
 
-    /// <summary>A material for each surface decals have used, made the first time and kept until content unloads.</summary>
-    private readonly Dictionary<Surface, MaterialHandle> _decalMaterials = [];
+    /// <summary>
+    /// A material for each surface decals have used, made the first time, with the frame it was last used in.
+    /// Kept until content unloads, or until there are more than <see cref="MaxDecalMaterials"/>.
+    /// </summary>
+    private readonly Dictionary<Surface, (MaterialHandle Handle, long Frame)> _decalMaterials = [];
+
+    /// <summary>
+    /// How many decal materials are kept. Past this, the ones this frame didn't use are let go, so a game that
+    /// makes a new <see cref="Surface"/> value every frame doesn't fill the material slots. Twice what one
+    /// frame can use, so the materials of a steady scene are never made again.
+    /// </summary>
+    internal const int MaxDecalMaterials = 2 * Rendition.Passes.DecalBatch.MaxDecals;
+
+    private long _decalFrame;
+    private readonly List<Surface> _unusedDecalSurfaces = [];
     private DecalDraw[] _decals = new DecalDraw[16];
     private int _decalCount;
 
@@ -313,7 +326,7 @@ internal sealed class SceneRenderer : IDisposable
         {
             foreach (var material in _decalMaterials.Values)
             {
-                _renderer.DestroyMaterial(material);
+                _renderer.DestroyMaterial(material.Handle);
             }
 
             _decalMaterials.Clear();
@@ -445,9 +458,39 @@ internal sealed class SceneRenderer : IDisposable
             _decals = new DecalDraw[Math.Max(placed.Length, _decals.Length * 2)];
         }
 
+        _decalFrame++;
         foreach (ref readonly var decal in placed)
         {
             _decals[_decalCount++] = new DecalDraw(decal.Box, DecalMaterial(decal.Material, content), decal.Blend);
+        }
+
+        ForgetUnusedDecalMaterials();
+    }
+
+    /// <summary>
+    /// Past <see cref="MaxDecalMaterials"/>, lets go of every decal material this frame didn't use. The renderer
+    /// destroys them once the frames still in flight are done with them.
+    /// </summary>
+    private void ForgetUnusedDecalMaterials()
+    {
+        if (_decalMaterials.Count <= MaxDecalMaterials)
+        {
+            return;
+        }
+
+        _unusedDecalSurfaces.Clear();
+        foreach (var (surface, material) in _decalMaterials)
+        {
+            if (material.Frame != _decalFrame)
+            {
+                _unusedDecalSurfaces.Add(surface);
+            }
+        }
+
+        foreach (var surface in _unusedDecalSurfaces)
+        {
+            _renderer.DestroyMaterial(_decalMaterials[surface].Handle);
+            _decalMaterials.Remove(surface);
         }
     }
 
@@ -457,19 +500,21 @@ internal sealed class SceneRenderer : IDisposable
     /// </summary>
     private MaterialHandle DecalMaterial(Surface surface, Content content)
     {
-        if (!_decalMaterials.TryGetValue(surface, out var handle))
+        if (_decalMaterials.TryGetValue(surface, out var known))
         {
-            var material = MaterialOf(surface) with
-            {
-                BaseColorTexture = Texture(surface.ColorTexture, content),
-                NormalTexture = Texture(surface.NormalTexture, content),
-                SurfaceTexture = Texture(surface.SurfaceTexture, content),
-                Flags = MaterialFlags.None,
-            };
-            handle = _renderer.CreateMaterial(material);
-            _decalMaterials.Add(surface, handle);
+            _decalMaterials[surface] = (known.Handle, _decalFrame);
+            return known.Handle;
         }
 
+        var material = MaterialOf(surface) with
+        {
+            BaseColorTexture = Texture(surface.ColorTexture, content),
+            NormalTexture = Texture(surface.NormalTexture, content),
+            SurfaceTexture = Texture(surface.SurfaceTexture, content),
+            Flags = MaterialFlags.None,
+        };
+        var handle = _renderer.CreateMaterial(material);
+        _decalMaterials.Add(surface, (handle, _decalFrame));
         return handle;
     }
 

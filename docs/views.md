@@ -359,8 +359,10 @@ A decal lays a material onto whatever is already drawn inside a box: damp rising
 wall, a puddle stain on a floor, rust run down from a bolt. The box's matrix places, turns
 and sizes it, and the material is projected along the box's own −Y, so its +Y should look
 out of the surface. The material's U runs along the box's X and its V runs against its Z,
-each across the whole box, from −0.5 to 0.5 in the box's own units. A material graph is
-the usual material, loaded on its own with `content.Surface`:
+each across the whole box, from −0.5 to 0.5 in the box's own units. Its normal map reads
+as it does on a mesh, with green pointing the way V falls, towards the box's +Z, and a
+mirrored box reads it the same way. A material graph is the usual material, loaded on its
+own with `content.Surface`:
 
 ```csharp
 Surface damp = content.Surface("materials/grime.material.cs");
@@ -398,6 +400,11 @@ fifth of the box's depth at either end.
 view.Decal(SootKey, box, soot, new DecalBlend { Roughness = 0f });
 ```
 
+A surface's `Color` tints the decal's colour, so `damp with { Color = new Vector3(0.6f) }`
+lays the same stain darker. Each different surface gets a material of its own the first
+time a decal uses it. Make them once in `Load` rather than a new one each frame: past 512,
+the ones the frame didn't use are let go and made again when next used.
+
 A view refuses, with a message naming what's wrong:
 
 - more than 256 decals in a frame;
@@ -413,7 +420,7 @@ A view refuses, with a message naming what's wrong:
 `Graphics.Fastest()` does too. The Courtyard lays its damp, the dirty water under its sill
 and the rust under its anchor plates as decals. D turns them off and on there.
 
-![The foot of the Courtyard's brick wall under the window, before and after. On the left the damp is a dithered quad behind the brick faces and shows only faintly in the mortar. On the right it is a decal that darkens the bricks and the mortar above the plinth and fades upward in streaks, while the bricks' edges still show through](media/decals.webp)
+![The foot of the Courtyard's brick wall under the window, before and after. On the left the damp is a dithered quad on the wall and shows only faintly. On the right it is a decal that darkens the bricks and the mortar above the plinth and fades upward in streaks, while the bricks' edges still show through](media/decals.webp)
 
 Decals have some limits:
 

@@ -18,6 +18,7 @@ layout(location = 4) flat in vec4 inWeights; // Colour, normal and roughness wei
 layout(location = 5) flat in vec3 inAcross;
 layout(location = 6) flat in vec3 inUp;
 layout(location = 7) flat in uint inMaterial;
+layout(location = 8) flat in vec3 inAlong;
 
 layout(location = 0) out vec4 outBaseColor;          // Blended by alpha; metallic is left alone.
 layout(location = 1) out vec4 outNormalRoughnessAo;  // Written whole, mixed here with what was there.
@@ -56,6 +57,13 @@ void main() {
     float depth = texelFetch(depthTexture, pixel, 0).r;
     vec3 local = boxPosition(gl_FragCoord.xy, depth, size);
 
+    // The far plane is infinitely far off, so a sky pixel has no position. It is put just outside
+    // the box instead, so it can't feed infinities into its neighbours' derivatives below.
+    bool sky = depth <= 0.0 || any(isnan(local)) || any(isinf(local));
+    if (sky) {
+        local = vec3(0.0, 0.0, 0.75);
+    }
+
     // The material's width runs along the box's X and its height up the box's -Z, the way a
     // mesh's v runs against its bitangent. Derivatives are taken before any pixel leaves.
     vec2 uv = vec2(local.x + 0.5, 0.5 - local.z);
@@ -63,8 +71,8 @@ void main() {
     vec2 uvY = dFdy(uv);
 
     // The same step across a surface facing the camera at this depth, which bounds the slope.
-    vec3 flatX = boxPosition(gl_FragCoord.xy + vec2(1.0, 0.0), depth, size) - local;
-    vec3 flatY = boxPosition(gl_FragCoord.xy + vec2(0.0, 1.0), depth, size) - local;
+    vec3 flatX = sky ? vec3(0.0) : boxPosition(gl_FragCoord.xy + vec2(1.0, 0.0), depth, size) - local;
+    vec3 flatY = sky ? vec3(0.0) : boxPosition(gl_FragCoord.xy + vec2(0.0, 1.0), depth, size) - local;
     float limit = MAX_SLOPE * max(length(flatX.xz), length(flatY.xz));
     uvX *= min(1.0, limit / max(length(uvX), 1e-8));
     uvY *= min(1.0, limit / max(length(uvY), 1e-8));
@@ -74,7 +82,7 @@ void main() {
 
     // Nothing was drawn at the far plane, so a box reaching into the sky has nothing to lie on there.
     // With materials off every surface is plain clay, decals included.
-    if (depth <= 0.0 || any(greaterThan(abs(local), vec3(0.5))) || isOff(OFF_MATERIALS)) {
+    if (sky || any(greaterThan(abs(local), vec3(0.5))) || isOff(OFF_MATERIALS)) {
         discard;
     }
 
@@ -100,9 +108,12 @@ void main() {
     }
 
     // The box's own frame, with its up as the third axis, is the tangent space both normals share:
-    // the surface's normal as drawn and the decal's normal map, laid over it.
+    // the surface's normal as drawn and the decal's normal map, laid over it. As on a mesh, the
+    // tangent runs the way u rises and the bitangent the way v falls, which is the box's +Z. It is
+    // taken from the box rather than crossed from the other two, so a mirrored box keeps it.
     vec3 across = normalize(inAcross - up * dot(up, inAcross));
-    vec3 along = cross(up, across);
+    vec3 along = inAlong - up * dot(up, inAlong);
+    along = normalize(along - across * dot(across, along));
     vec3 base = vec3(dot(normal, across), dot(normal, along), facing);
     vec3 mapped = normalize(normalFrom(textureGrad(textures[material.normalTexture], uv, uvX, uvY)));
     vec3 blended = blendNormals(base, mapped);

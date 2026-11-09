@@ -1397,10 +1397,6 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>
-    /// Sorts this frame's particles into their buffer and keeps the camera's axes, which
-    /// turn each one to face the screen. The view matrix holds them in its columns.
-    /// </summary>
-    /// <summary>
     /// Checks and packs the view's decals, or none when they're switched off. Throws for a decal
     /// that can't be drawn: too many, a box that can't be inverted, a weight outside 0 to 1 or a material that doesn't exist.
     /// </summary>
@@ -1419,6 +1415,10 @@ public sealed unsafe class Renderer : IDisposable
         _decalPass.Prepare(decals);
     }
 
+    /// <summary>
+    /// Sorts this frame's particles into their buffer and keeps the camera's axes, which
+    /// turn each one to face the screen. The view matrix holds them in its columns.
+    /// </summary>
     private void UploadParticles(in FrameView view)
     {
         ref readonly var m = ref view.View;
