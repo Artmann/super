@@ -34,7 +34,12 @@ public sealed class ModelCookerTests : IDisposable
     {
         var entry = store.Manifest.Assets[name];
         Assert.Equal(ContentKind.Model, entry.Kind);
-        return ModelData.Read(new MemoryStream(store.Get(entry.Hash)), name);
+        return ModelData.Read(new MemoryStream(store.Get(entry.Hash)), name, hash =>
+        {
+            // Every texture a model points to must be listed, or committing a folder would prune it.
+            Assert.Contains(hash, store.Manifest.Objects);
+            return TextureData.Read(new MemoryStream(store.Get(hash)), hash);
+        });
     }
 
     private static float Width(ModelData model)
@@ -294,6 +299,54 @@ public sealed class ModelCookerTests : IDisposable
         Assert.Equal((TextureKind.Color, TextureKind.Linear), (colour.Kind, height.Kind));
         Assert.Equal(new byte[] { 160, 255, 0, 192 }, colour.Mips[1]);
         Assert.Equal(new byte[] { 150, 255, 0, 192 }, height.Mips[1]);
+    }
+
+    [Fact]
+    public void Two_models_using_one_image_the_same_way_share_one_texture_object()
+    {
+        string src = Temp();
+        TinyGltf.Write(src, "a.gltf", "wall", ["a"]);
+        TinyGltf.Write(src, "b.gltf", "wall", ["b"]);
+        File.WriteAllBytes(Path.Combine(src, "shared.png"), Png([200, 255, 0, 255, 100, 255, 0, 128]));
+        File.WriteAllText(Path.Combine(src, "cook.json"),
+            "{ \"rules\": [ { \"match\": \"**/*.png\", \"cook\": false } ] }");
+        foreach (string model in new[] { "a.gltf", "b.gltf" })
+        {
+            File.WriteAllText(Path.Combine(src, model + ".cook.json"),
+                "{ \"materials\": [ { \"match\": \"wall\", \"baseColor\": \"shared.png\" } ] }");
+        }
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        string hash = Assert.Single(store.Manifest.Objects);
+        var texture = TextureData.Read(new MemoryStream(store.Get(hash)), hash);
+        Assert.Equal(new byte[] { 200, 255, 0, 255, 100, 255, 0, 128 }, texture.Mips[0]);
+
+        // Both models name the one object rather than holding a copy.
+        Assert.All(new[] { "a.gltf", "b.gltf" }, model =>
+            Assert.Contains(hash, System.Text.Encoding.UTF8.GetString(store.Get(store.Manifest.Assets[model].Hash))));
+        Assert.Equal(texture.Mips[0], Assert.Single(Model(store, "b.gltf").Textures).Mips[0]);
+    }
+
+    [Fact]
+    public void StandAlone_puts_the_shared_textures_back_inside_the_model()
+    {
+        string src = Temp();
+        TinyGltf.Write(src, "a.gltf", "wall", ["a"]);
+        File.WriteAllBytes(Path.Combine(src, "shared.png"), Png([200, 255, 0, 255, 100, 255, 0, 128]));
+        File.WriteAllText(Path.Combine(src, "cook.json"),
+            "{ \"rules\": [ { \"match\": \"**/*.png\", \"cook\": false } ] }");
+        File.WriteAllText(Path.Combine(src, "a.gltf.cook.json"),
+            "{ \"materials\": [ { \"match\": \"wall\", \"baseColor\": \"shared.png\" } ] }");
+        var (result, store) = Cook(new FolderRoot(src));
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+
+        byte[] alone = ModelCookers.StandAlone(store, store.Manifest.Assets["a.gltf"].Hash, "a.gltf");
+
+        // No resolver is given, so this fails unless every texture is inside.
+        var model = ModelData.Read(new MemoryStream(alone), "a.rmodel");
+        Assert.Equal(new byte[] { 200, 255, 0, 255, 100, 255, 0, 128 }, Assert.Single(model.Textures).Mips[0]);
     }
 
     [Fact]

@@ -233,8 +233,9 @@ dotnet run --project tools/Super.Cook.Tool -- file --content assets fox/fox.glb 
 ```
 
 `super-cook file --content dir name output` cooks the roots in memory and writes the bytes
-of one asset, or one part named `file#part`, to the output file. `--content` can be given
-more than once. It fails when nothing cooked has that name, and lists the parts when the
+of one asset, or one part named `file#part`, to the output file. A model is written with
+its textures inside, so the file stands alone; in a content folder, models point to
+textures they share instead. `--content` can be given more than once. It fails when nothing cooked has that name, and lists the parts when the
 name was cooked in parts.
 
 ### In the build

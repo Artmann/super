@@ -58,6 +58,9 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
 
         public List<(string? Part, ManifestEntry Entry)> Assets { get; } = [];
 
+        /// <summary>The hashes of the objects its assets point to, already in the store.</summary>
+        public List<string> Objects { get; } = [];
+
         public CookedFile? Report { get; set; }
     }
 
@@ -129,6 +132,7 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
         EndStep("save cache index");
 
         var assets = new Dictionary<string, ManifestEntry>(StringComparer.Ordinal);
+        var objects = new HashSet<string>(StringComparer.Ordinal);
 
         // The source each name came from, so a name made twice can name both.
         var madeBy = new Dictionary<string, SourceFile>(StringComparer.Ordinal);
@@ -138,6 +142,7 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
         {
             var file = jobs[i].File;
             problems.AddRange(done[i].Problems);
+            objects.UnionWith(done[i].Objects);
             foreach (var (part, entry) in done[i].Assets)
             {
                 string name = part is null ? file.Name : $"{file.Name}#{part}";
@@ -166,7 +171,7 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
 
         if (!problems.Any(problem => problem.IsError))
         {
-            store.Commit(new ContentManifest(options.Target, assets));
+            store.Commit(new ContentManifest(options.Target, assets, objects));
         }
 
         EndStep("write manifest");
@@ -218,6 +223,12 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
                     {
                         done.Assets.Add((restored.Part, new ManifestEntry(restored.Kind, restored.Hash, restored.Size)));
                         size += restored.Size;
+                    }
+
+                    foreach (var (hash, objectSize) in hit.Objects)
+                    {
+                        done.Objects.Add(hash);
+                        size += objectSize;
                     }
 
                     done.Report = new CookedFile(file.Name, cooker.Id, CookOutcome.FromCache, Stopwatch.GetElapsedTime(started), clock.Phases, null, size);
@@ -294,13 +305,21 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
                 done.Assets.Add((part, new ManifestEntry(kind, hashes[i], bytes.LongLength)));
                 outputBytes += bytes.LongLength;
             }
+
+            // Shared objects, such as textures, are already hashed, and most are in the store from another source.
+            foreach (var (hash, bytes) in output.Objects)
+            {
+                writer.Put(hash, bytes);
+                done.Objects.Add(hash);
+                outputBytes += bytes.LongLength;
+            }
         }
 
         if (key is not null && cookInput is not null)
         {
             using (clock.Start("write cache"))
             {
-                cache!.Save(key, file, cookInput.Inputs, output.Assets, hashes,
+                cache!.Save(key, file, cookInput.Inputs, output.Assets, hashes, output.Objects,
                     output.Problems.Select(problem => (problem.Message, problem.Line)).ToList());
             }
         }

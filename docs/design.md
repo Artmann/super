@@ -389,10 +389,11 @@ though Windows would open it. The pipeline wraps each root in a `ListedRoot`, wh
 once per cook, and every source shares that listing. The models cooker is `Super.Cook.Models`, a separate project, so
 `Super.Cook` carries no Assimp.
 
-**The manifest** lists every name with its kind, hash and size. `CookPipeline` writes
+**The manifest** lists every name with its kind, hash and size, and the shared objects that
+have no name (see textures below). `CookPipeline` writes
 objects to an `ICookedStore` as it goes, and replaces the manifest only when nothing
 went wrong, so a failed cook leaves the last good content. After writing the manifest,
-`FolderStore.Commit` deletes the objects named by neither the new manifest nor the one it
+`FolderStore.Commit` deletes the objects kept by neither the new manifest nor the one it
 replaced: a running game may have read the old manifest and still be loading from it, so an
 object outlives its last name by one commit. An object that can't be deleted yet, because
 something has it open, is left for the next commit. A name is the path from its root
@@ -427,6 +428,24 @@ image), the texture kind, and whether it's a normal map or a glTF surface map, s
 always the same pixels. The memo is cleared when it passes 1 GiB. `TextureData` turns bytes
 into floats through two 256-entry tables made with the same arithmetic as before, so mips
 come out bit for bit the same.
+
+Models don't hold their textures. The models cooker writes each texture as an object of its
+own (`TextureData.ToBytes`, an `RTEX` file) through `CookOutput.AddObject`, and the model
+names it by the SHA-256 of those bytes. Objects with equal bytes are one file, so the thirty
+pieces of a kit that share one atlas store it once instead of thirty times. A shared object
+has no name, so the manifest lists it in `objects`, after `assets`, and `FolderStore.Commit`
+keeps and prunes it like an asset's object. `ContentManifest.AllObjects` is both. A cache
+record lists its objects too, and a hit restores and checks them with its outputs; a record
+whose object is gone from the cache is a miss. Each texture is written and hashed once per
+process, through a `ConditionalWeakTable` on the shared `TextureData`.
+
+`SceneRenderer.LoadModel` reads a texture through `IContentFiles.OpenObject(hash)`.
+`CookedFolder` opens only a hash the manifest lists, so a damaged model can't name a file
+outside the folder. The GPU still gets a copy of a shared texture per model, since
+`Renderer` frees textures with their model; sharing them there needs reference counts.
+`super-cook file` writes a model with its textures inside (`ModelCookers.StandAlone`), since a
+file on its own has no store to find them in, and `ModelData.Read` without a texture
+resolver refuses a model that names them by hash.
 
 **Models.** `Super.Cook.Models` reads FBX, glTF and OBJ with Assimp at cook time and writes
 `.rmodel` data (`ModelData` in Rendition). An alpha cutoff
@@ -465,7 +484,7 @@ into the frame's draw list, checking that the mask's part count matches the load
 masked draw still skins the whole skeleton once. The profiler keys copies by model and mask,
 so `ShownTriangles` counts only what each mask shows.
 
-The `.rmodel` format is version 7 and the model cook version 6. Their history is in the
+The `.rmodel` format is version 8 and the model cook version 7. Their history is in the
 comments on `ModelData.Version` and `ModelCooker.Version`, and an old file fails with
 "Cook it again" when it is read.
 

@@ -48,7 +48,12 @@ public struct ModelPart
 public sealed class ModelData
 {
     private const uint Magic = 0x4C444D52; // "RMDL"
-    private const int Version = 7; // 4: materials gained Subsurface. 5: height and detail textures. 6: materials gained Ior. 7: part names sit at the front.
+    // 4: materials gained Subsurface. 5: height and detail textures. 6: materials gained Ior. 7: part names sit at the front.
+    // 8: a texture is either inside the file or named by the hash of an object of its own.
+    private const int Version = 8;
+
+    private const byte TextureInside = 0;
+    private const byte TextureByHash = 1;
 
     public required Vertex[] Vertices { get; init; }
     public required uint[] Indices { get; init; }
@@ -110,8 +115,15 @@ public sealed class ModelData
         File.WriteAllBytes(path, ToBytes());
     }
 
-    /// <summary>The bytes of a <c>.rmodel</c> file, as <see cref="Write"/> stores them.</summary>
-    public byte[] ToBytes()
+    /// <summary>The bytes of a <c>.rmodel</c> file, as <see cref="Write"/> stores them, with every texture inside.</summary>
+    public byte[] ToBytes() => ToBytes(null);
+
+    /// <summary>
+    /// The bytes of a <c>.rmodel</c> file whose textures are kept elsewhere. <paramref name="share"/> stores a
+    /// texture and returns the name it's kept under, which <see cref="Read(Stream, string, Func{string, TextureData}?)"/>
+    /// hands back to find it. Models that use the same texture then share one copy.
+    /// </summary>
+    public byte[] ToBytes(Func<TextureData, string>? share)
     {
         foreach (var clip in Clips)
         {
@@ -131,13 +143,13 @@ public sealed class ModelData
         var stream = new MemoryStream();
         using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
         {
-            WriteTo(writer);
+            WriteTo(writer, share);
         }
 
         return stream.ToArray();
     }
 
-    private void WriteTo(BinaryWriter writer)
+    private void WriteTo(BinaryWriter writer, Func<TextureData, string>? share)
     {
         writer.Write(Magic);
         writer.Write(Version);
@@ -181,13 +193,15 @@ public sealed class ModelData
         writer.Write(Textures.Length);
         foreach (var texture in Textures)
         {
-            writer.Write(texture.Width);
-            writer.Write(texture.Height);
-            writer.Write((int)texture.Kind);
-            writer.Write(texture.Mips.Length);
-            foreach (byte[] mip in texture.Mips)
+            if (share is null)
             {
-                WriteArray(writer, mip);
+                writer.Write(TextureInside);
+                texture.WriteBody(writer);
+            }
+            else
+            {
+                writer.Write(TextureByHash);
+                writer.Write(share(texture));
             }
         }
     }
@@ -199,7 +213,11 @@ public sealed class ModelData
     }
 
     /// <summary>Reads a model from <paramref name="stream"/>, which is left open. <paramref name="name"/> is only for messages.</summary>
-    public static ModelData Read(Stream stream, string name)
+    /// <param name="texture">
+    /// Finds a texture the model keeps elsewhere, by the name <see cref="ToBytes(Func{TextureData, string}?)"/> gave it.
+    /// Null when the model must have every texture inside.
+    /// </param>
+    public static ModelData Read(Stream stream, string name, Func<string, TextureData>? texture = null)
     {
         using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
         ReadHeader(reader, name);
@@ -212,16 +230,21 @@ public sealed class ModelData
         var textures = new TextureData[reader.ReadInt32()];
         for (int i = 0; i < textures.Length; i++)
         {
-            int width = reader.ReadInt32();
-            int height = reader.ReadInt32();
-            var kind = (TextureKind)reader.ReadInt32();
-            var mips = new byte[reader.ReadInt32()][];
-            for (int mip = 0; mip < mips.Length; mip++)
+            byte form = reader.ReadByte();
+            if (form == TextureInside)
             {
-                mips[mip] = ReadArray<byte>(reader);
+                textures[i] = TextureData.ReadBody(reader);
             }
-
-            textures[i] = new TextureData { Width = width, Height = height, Kind = kind, Mips = mips };
+            else if (form == TextureByHash)
+            {
+                string reference = reader.ReadString();
+                textures[i] = texture?.Invoke(reference) ?? throw new InvalidDataException(
+                    $"{name} keeps its textures in the cooked content beside it, so read it through Content, or cook it with super-cook file.");
+            }
+            else
+            {
+                throw new InvalidDataException($"{name} is damaged: texture {i} has the unknown form {form}. Cook it again.");
+            }
         }
 
         return new ModelData

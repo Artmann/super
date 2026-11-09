@@ -195,7 +195,8 @@ public static class Program
             Directory.CreateDirectory(folder);
         }
 
-        File.WriteAllBytes(output, store.Get(entry.Hash));
+        // A model alone in a file has nowhere to find shared textures, so they go inside it.
+        File.WriteAllBytes(output, entry.Kind == ContentKind.Model ? ModelCookers.StandAlone(store, entry.Hash, name) : store.Get(entry.Hash));
         return 0;
     }
 

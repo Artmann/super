@@ -43,7 +43,8 @@ public sealed class FolderStore(string folder) : ICookedStore
     }
 
     /// <summary>
-    /// Writes the manifest, then removes the objects named by neither it nor the manifest it replaced.
+    /// Writes the manifest, then removes the objects kept by neither it nor the manifest it replaced, whether
+    /// an asset names them or they're in <see cref="ContentManifest.Objects"/>.
     /// A running game may have read the old manifest and still be loading from it, so an object leaves
     /// one commit after its last name does. An object that can't be deleted now is left for the next commit.
     /// </summary>
@@ -59,8 +60,8 @@ public sealed class FolderStore(string folder) : ICookedStore
             return;
         }
 
-        var keep = manifest.Assets.Values.Concat(previous.Assets.Values)
-            .Select(entry => ObjectFile(entry.Hash))
+        var keep = manifest.AllObjects.Concat(previous.AllObjects)
+            .Select(ObjectFile)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (string file in Directory.EnumerateFiles(objects, "*", SearchOption.AllDirectories).ToList())
         {
@@ -185,7 +186,7 @@ public sealed class MemoryStore : ICookedStore
     public void Commit(ContentManifest manifest)
     {
         Manifest = manifest;
-        var keep = manifest.Assets.Values.Select(entry => entry.Hash).ToHashSet(StringComparer.Ordinal);
+        var keep = manifest.AllObjects.ToHashSet(StringComparer.Ordinal);
         foreach (string hash in _objects.Keys.Where(hash => !keep.Contains(hash)).ToList())
         {
             _objects.TryRemove(hash, out _);

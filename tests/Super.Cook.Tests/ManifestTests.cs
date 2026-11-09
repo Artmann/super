@@ -71,6 +71,69 @@ public sealed class ManifestTests
     }
 
     [Fact]
+    public void Shared_objects_round_trip_sorted_after_the_assets()
+    {
+        var manifest = new ContentManifest("desktop", new Dictionary<string, ManifestEntry>
+        {
+            ["a.json"] = new(ContentKind.Data, HashA, 1),
+        }, [HashB, HashA]);
+
+        byte[] bytes = manifest.Serialize();
+        var parsed = ContentManifest.Parse(bytes, "content.manifest");
+
+        Assert.Equal([HashA, HashB], parsed.Objects);
+        string text = Encoding.UTF8.GetString(bytes);
+        int assets = text.IndexOf("\"assets\"", StringComparison.Ordinal);
+        int objects = text.IndexOf("\"objects\"", StringComparison.Ordinal);
+        Assert.True(assets >= 0 && objects >= 0);
+        Assert.True(assets < objects);
+        Assert.Equal([HashA, HashA, HashB], parsed.AllObjects.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void Manifest_without_shared_objects_writes_no_objects_list()
+    {
+        var manifest = new ContentManifest("desktop", new Dictionary<string, ManifestEntry>
+        {
+            ["a.json"] = new(ContentKind.Data, HashA, 1),
+        });
+
+        Assert.DoesNotContain("objects", Encoding.UTF8.GetString(manifest.Serialize()));
+        Assert.Empty(ContentManifest.Parse(manifest.Serialize(), "content.manifest").Objects);
+    }
+
+    [Fact]
+    public void Objects_that_are_not_a_list_name_the_file_and_the_fix()
+    {
+        string json = $$"""{ "version": 1, "target": "desktop", "assets": {}, "objects": "{{HashA}}" }""";
+
+        var exception = Assert.Throws<ContentException>(() => ContentManifest.Parse(Encoding.UTF8.GetBytes(json), "game/content.manifest"));
+
+        Assert.Equal("game/content.manifest: \"objects\" must be a list of hashes.", Assert.Single(exception.Problems));
+    }
+
+    [Fact]
+    public void Object_that_is_not_a_hash_is_refused_so_it_cannot_name_a_path()
+    {
+        string json = """{ "version": 1, "target": "desktop", "assets": {}, "objects": ["../../secret"] }""";
+
+        var exception = Assert.Throws<ContentException>(() => ContentManifest.Parse(Encoding.UTF8.GetBytes(json), "content.manifest"));
+
+        Assert.Equal("content.manifest: \"objects\" must hold only hashes, and \"../../secret\" isn't one.", Assert.Single(exception.Problems));
+    }
+
+    [Theory]
+    [InlineData("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", true)]
+    [InlineData("0123456789ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef", false)]
+    [InlineData("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde", false)]
+    [InlineData("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdeg", false)]
+    [InlineData("", false)]
+    public void IsHash_takes_only_64_lowercase_hex_digits(string text, bool expected)
+    {
+        Assert.Equal(expected, ContentManifest.IsHash(text));
+    }
+
+    [Fact]
     public void ObjectPath_is_under_the_first_two_hash_characters()
     {
         Assert.Equal("objects/ab/abcdef", ContentManifest.ObjectPath("abcdef"));

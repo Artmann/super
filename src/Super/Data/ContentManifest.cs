@@ -24,15 +24,28 @@ public sealed class ContentManifest
 
     public static ContentManifest Empty { get; } = new("", new Dictionary<string, ManifestEntry>());
 
-    public ContentManifest(string target, IReadOnlyDictionary<string, ManifestEntry> assets)
+    public ContentManifest(string target, IReadOnlyDictionary<string, ManifestEntry> assets, IEnumerable<string>? objects = null)
     {
         Target = target;
         Assets = new Dictionary<string, ManifestEntry>(assets, StringComparer.Ordinal);
+        Objects = new SortedSet<string>(objects ?? [], StringComparer.Ordinal);
     }
 
     public string Target { get; }
 
     public IReadOnlyDictionary<string, ManifestEntry> Assets { get; }
+
+    /// <summary>
+    /// Objects that have no name of their own but that assets point to by hash, such as the textures
+    /// models share. Listed so they're kept with the assets, in ordinal order.
+    /// </summary>
+    public IReadOnlySet<string> Objects { get; }
+
+    /// <summary>Every object the manifest keeps: the assets' and <see cref="Objects"/>.</summary>
+    public IEnumerable<string> AllObjects => Assets.Values.Select(entry => entry.Hash).Concat(Objects);
+
+    /// <summary>Whether text is a hash as the manifest writes them: 64 lowercase hex digits. Anything else can't name an object file.</summary>
+    public static bool IsHash(string text) => text.Length == 64 && text.All(c => char.IsAsciiDigit(c) || c is >= 'a' and <= 'f');
 
     /// <summary>Where an object lives under the content folder.</summary>
     public static string ObjectPath(string hash)
@@ -88,7 +101,26 @@ public sealed class ContentManifest
                 entries[asset.Name] = new ManifestEntry(parsed, hash.GetString()!, bytes);
             }
 
-            return new ContentManifest(target.GetString()!, entries);
+            var objects = new List<string>();
+            if (root.TryGetProperty("objects", out var listed))
+            {
+                if (listed.ValueKind != JsonValueKind.Array)
+                {
+                    throw Fail(where, "\"objects\" must be a list of hashes.");
+                }
+
+                foreach (var item in listed.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.String || !IsHash(item.GetString()!))
+                    {
+                        throw Fail(where, $"\"objects\" must hold only hashes, and {item.GetRawText()} isn't one.");
+                    }
+
+                    objects.Add(item.GetString()!);
+                }
+            }
+
+            return new ContentManifest(target.GetString()!, entries, objects);
         }
         catch (JsonException exception)
         {
@@ -116,6 +148,19 @@ public sealed class ContentManifest
             }
 
             writer.WriteEndObject();
+
+            // Left out when empty, so content without shared objects writes what it always did.
+            if (Objects.Count > 0)
+            {
+                writer.WriteStartArray("objects");
+                foreach (string hash in Objects)
+                {
+                    writer.WriteStringValue(hash);
+                }
+
+                writer.WriteEndArray();
+            }
+
             writer.WriteEndObject();
         }
 

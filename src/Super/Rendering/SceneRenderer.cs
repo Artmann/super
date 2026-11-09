@@ -192,7 +192,11 @@ internal sealed class SceneRenderer : IDisposable
     internal static ModelData LoadModel(string name, IContentFiles files)
     {
         using var stream = files.Open(name);
-        return ModelData.Read(stream, name);
+        return ModelData.Read(stream, name, hash =>
+        {
+            using var texture = files.OpenObject(hash);
+            return TextureData.Read(texture, $"{name}: texture {hash}");
+        });
     }
 
     private static byte[] LoadShader(string name)

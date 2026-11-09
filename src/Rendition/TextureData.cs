@@ -10,6 +10,64 @@ public sealed class TextureData
     public required TextureKind Kind { get; init; }
     public required byte[][] Mips { get; init; }
 
+    private const uint Magic = 0x58455452; // "RTEX"
+    private const int Version = 1;
+
+    /// <summary>The bytes of the texture and its mips, as <see cref="Read"/> reads them.</summary>
+    public byte[] ToBytes()
+    {
+        var stream = new MemoryStream(Mips.Sum(mip => mip.Length) + 64);
+        using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true))
+        {
+            writer.Write(Magic);
+            writer.Write(Version);
+            WriteBody(writer);
+        }
+
+        return stream.ToArray();
+    }
+
+    /// <summary>Reads a texture written by <see cref="ToBytes"/>. <paramref name="name"/> is only for messages.</summary>
+    public static TextureData Read(Stream stream, string name)
+    {
+        using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: true);
+        if (reader.ReadUInt32() != Magic || reader.ReadInt32() != Version)
+        {
+            throw new InvalidDataException($"{name} is not a current texture file. Cook it again.");
+        }
+
+        return ReadBody(reader);
+    }
+
+    /// <summary>Writes the size, kind and mips, without a header, for a texture inside another file.</summary>
+    internal void WriteBody(BinaryWriter writer)
+    {
+        writer.Write(Width);
+        writer.Write(Height);
+        writer.Write((int)Kind);
+        writer.Write(Mips.Length);
+        foreach (byte[] mip in Mips)
+        {
+            writer.Write(mip.Length);
+            writer.Write(mip);
+        }
+    }
+
+    internal static TextureData ReadBody(BinaryReader reader)
+    {
+        int width = reader.ReadInt32();
+        int height = reader.ReadInt32();
+        var kind = (TextureKind)reader.ReadInt32();
+        var mips = new byte[reader.ReadInt32()][];
+        for (int i = 0; i < mips.Length; i++)
+        {
+            mips[i] = new byte[reader.ReadInt32()];
+            reader.BaseStream.ReadExactly(mips[i]);
+        }
+
+        return new TextureData { Width = width, Height = height, Kind = kind, Mips = mips };
+    }
+
     /// <summary>The lowest and highest alpha of the full-size image, from 0 to 1.</summary>
     public (float Lowest, float Highest) AlphaRange()
     {
