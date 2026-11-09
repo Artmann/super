@@ -1702,21 +1702,22 @@ def build_deck(sc, M):
     emit(sc, "deck", bm, [M["deck"], M["hoop"]])
 
 
-# The longest board the deck is laid in, in metres: about one graph board, so the wood is
-# stretched a little at most.
-DECK_PIECE = 1.2
+# The shortest and longest boards the deck is laid in, in metres. Each takes one graph board,
+# which is a metre long, so its grain is stretched or squeezed by at most half.
+DECK_SHORTEST = 0.75
+DECK_LONGEST = 1.5
 
 deck_rng = random.Random(21)
 
 
 def deck_pieces(a, b):
-    """Cuts a run of deck from a to b along x into boards of 0.75 to 1.2 m, with 8 mm joints,
-    staggered by their own random numbers. No board is shorter than 0.4 m: a run that would
-    leave one is cut in half instead."""
+    """Cuts a run of deck from a to b along x into boards of 0.75 to 1.5 m, with 8 mm joints,
+    staggered by their own random numbers. A cut that would leave a tail shorter than 0.75 m
+    halves what is left instead."""
     pieces = []
-    while b - a > DECK_PIECE:
-        step = deck_rng.uniform(0.75, DECK_PIECE)
-        if b - (a + step) < 0.4:
+    while b - a > DECK_LONGEST:
+        step = deck_rng.uniform(DECK_SHORTEST, 1.2)
+        if b - (a + step) < DECK_SHORTEST:
             step = (b - a) / 2
         pieces.append((a, a + step - 0.004))
         a += step + 0.004
