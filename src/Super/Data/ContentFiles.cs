@@ -26,6 +26,13 @@ public interface IContentFiles
     /// </summary>
     Stream Open(string name) => new MemoryStream(Read(name), writable: false);
 
+    /// <summary>
+    /// An object that has no name, only its hash, such as a texture models share. The caller disposes it.
+    /// </summary>
+    /// <exception cref="FileNotFoundException">The content doesn't keep an object with that hash.</exception>
+    Stream OpenObject(string hash) =>
+        throw new NotSupportedException($"{GetType().Name} can't open objects by hash, so it can't read models that share their textures.");
+
     /// <summary>The parts cooked from one source, such as <c>tall</c> and <c>young</c> for <c>firs.glb</c>, in ordinal order.</summary>
     IReadOnlyList<string> Parts(string name) => [];
 
@@ -88,8 +95,23 @@ public sealed class CookedFolder : IContentFiles
     /// </summary>
     public Stream Open(string name)
     {
-        return new FileStream(ObjectFile(name), FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, bufferSize: 1 << 16);
+        return OpenFile(ObjectFile(name));
     }
+
+    /// <summary>Opens a listed object the way <see cref="Open"/> opens an asset.</summary>
+    public Stream OpenObject(string hash)
+    {
+        // Only a listed hash is opened, so a damaged model can't reach a file outside the folder.
+        if (!ContentManifest.IsHash(hash) || !_manifest.Objects.Contains(hash))
+        {
+            throw new FileNotFoundException($"The cooked content keeps no object {hash}. Cook it again.", hash);
+        }
+
+        return OpenFile(Path.Combine(_folder, ContentManifest.ObjectPath(hash)));
+    }
+
+    private static FileStream OpenFile(string path) =>
+        new(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, bufferSize: 1 << 16);
 
     public void Refresh()
     {

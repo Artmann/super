@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using Rendition;
 using StbImageSharp;
@@ -98,6 +99,23 @@ internal sealed class ModelTextures(CookInput input, CookOutput output, string p
     private static readonly ConcurrentDictionary<string, Lazy<TextureData>> Shared = new(StringComparer.Ordinal);
 
     private static long _sharedBytes;
+
+    /// <summary>Each shared texture's cooked bytes and their hash, made once however many models point to it.</summary>
+    private static readonly ConditionalWeakTable<TextureData, Lazy<(string Hash, byte[] Bytes)>> Written = new();
+
+    /// <summary>
+    /// Adds a texture to the output as an object of its own and returns its hash, for the model to point to.
+    /// A texture several models share is written and hashed once.
+    /// </summary>
+    public static string Share(TextureData texture, CookOutput output)
+    {
+        var (hash, bytes) = Written.GetValue(texture, key => new Lazy<(string, byte[])>(() =>
+        {
+            byte[] written = key.ToBytes();
+            return (Convert.ToHexStringLower(SHA256.HashData(written)), written);
+        })).Value;
+        return output.AddObject(bytes, hash);
+    }
 
     /// <summary>The most decoded pixels kept for sharing. Past this everything is dropped and sharing starts again.</summary>
     private const long MaxSharedBytes = 1L << 30;

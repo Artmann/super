@@ -30,7 +30,7 @@ public sealed class ModelCooker : ICooker
 
     public string Id => "model";
 
-    public int Version => 6; // 2: "has no UVs" warns only when the material uses a texture. 3: subsurface. 4: height and detail textures. 5: materials gained Ior. 6: parts keep the name of their mesh's node, keepMeshes and keepOrigin, and unskinned meshes follow their container node.
+    public int Version => 7; // 2: "has no UVs" warns only when the material uses a texture. 3: subsurface. 4: height and detail textures. 5: materials gained Ior. 6: parts keep the name of their mesh's node, keepMeshes and keepOrigin, and unskinned meshes follow their container node. 7: textures are objects of their own that models point to by hash.
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -401,7 +401,8 @@ public sealed class ModelCooker : ICooker
 
         using (input.Time("write model"))
         {
-            return model.ToBytes();
+            // Textures go out as objects of their own, so models that share an image share one copy of it.
+            return model.ToBytes(texture => ModelTextures.Share(texture, output));
         }
     }
 
@@ -674,4 +675,19 @@ public sealed class ModelCooker : ICooker
 public static class ModelCookers
 {
     public static IReadOnlyList<ICooker> All { get; } = [.. BuiltInCookers.All, new ModelCooker()];
+
+    /// <summary>
+    /// A cooked model with every texture inside it, so it can be read on its own, away from the store its
+    /// shared textures are in. <paramref name="name"/> is only for messages.
+    /// </summary>
+    public static byte[] StandAlone(ICookedStore store, string hash, string name)
+    {
+        using var stream = new MemoryStream(store.Get(hash), writable: false);
+        var model = ModelData.Read(stream, name, texture =>
+        {
+            using var bytes = new MemoryStream(store.Get(texture), writable: false);
+            return TextureData.Read(bytes, $"{name}: texture {texture}");
+        });
+        return model.ToBytes();
+    }
 }

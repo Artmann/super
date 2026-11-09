@@ -101,6 +101,20 @@ public sealed class MemoryContent : IContentFiles
         }
     }
 
+    public Stream OpenObject(string hash)
+    {
+        lock (_gate)
+        {
+            var cooked = Cooked();
+            if (!cooked.Manifest.Objects.Contains(hash))
+            {
+                throw new FileNotFoundException($"The cooked content keeps no object {hash}. Cook it again.", hash);
+            }
+
+            return new MemoryStream(cooked.Get(hash), writable: false);
+        }
+    }
+
     private ManifestEntry? Find(string name)
     {
         if (_models.TryGetValue(name, out var model))

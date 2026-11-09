@@ -10,7 +10,11 @@ namespace Super.Cook;
 internal sealed record CachedOutput(string? Part, ContentKind Kind, string Hash, long Size);
 
 /// <summary>What a cache hit gives back: the outputs, now in the store, and the warnings the cook made.</summary>
-internal sealed record CacheHit(IReadOnlyList<CachedOutput> Outputs, IReadOnlyList<(string Message, int? Line)> Warnings);
+/// <param name="Objects">The shared objects the outputs point to, with their sizes, also in the store now.</param>
+internal sealed record CacheHit(
+    IReadOnlyList<CachedOutput> Outputs,
+    IReadOnlyList<(string Hash, long Size)> Objects,
+    IReadOnlyList<(string Message, int? Line)> Warnings);
 
 /// <summary>
 /// Remembers cooked results between runs. A record is keyed by the cooker, its version, the target, the settings and the
@@ -97,29 +101,49 @@ internal sealed class CookCache(string folder)
                 outputs.Add(new CachedOutput(item["part"]?.GetValue<string>(), kind, hash, info.Length));
             }
 
+            var objects = new List<(string Hash, long Size)>();
+            foreach (var item in record["objects"]?.AsArray() ?? [])
+            {
+                string hash = item!.GetValue<string>();
+                if (!ContentManifest.IsHash(hash))
+                {
+                    miss = "record damaged";
+                    return null;
+                }
+
+                var info = new FileInfo(ObjectFile(hash));
+                if (!info.Exists)
+                {
+                    miss = $"cached object gone: {hash}";
+                    return null;
+                }
+
+                objects.Add((hash, info.Length));
+            }
+
             var warnings = new List<(string, int?)>();
             foreach (var item in record["warnings"]!.AsArray())
             {
                 warnings.Add((item!["message"]!.GetValue<string>(), item["line"]?.GetValue<int>()));
             }
 
-            foreach (var output in outputs)
+            foreach (string hash in outputs.Select(output => output.Hash).Concat(objects.Select(shared => shared.Hash)))
             {
                 // The object is checked against its name before it reaches the store, so a damaged cache can't ship.
-                bool restored = store.PutOnce(output.Hash, () =>
+                bool restored = store.PutOnce(hash, () =>
                 {
-                    byte[] bytes = File.ReadAllBytes(ObjectFile(output.Hash));
-                    return Convert.ToHexStringLower(SHA256.HashData(bytes)) == output.Hash ? bytes : null;
+                    byte[] bytes = File.ReadAllBytes(ObjectFile(hash));
+                    return Convert.ToHexStringLower(SHA256.HashData(bytes)) == hash ? bytes : null;
                 });
                 if (!restored)
                 {
-                    miss = $"cached object damaged: {output.Hash}";
+                    miss = $"cached object damaged: {hash}";
                     return null;
                 }
             }
 
             miss = null;
-            return new CacheHit(outputs, warnings);
+            return new CacheHit(outputs, objects, warnings);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
@@ -130,8 +154,10 @@ internal sealed class CookCache(string folder)
 
     /// <summary>Keeps a cook's result. Failing to write the cache is never a failure of the build.</summary>
     /// <param name="hashes">The hash of each asset's bytes, in the same order.</param>
+    /// <param name="objects">The shared objects the assets point to.</param>
     public void Save(string key, SourceFile file, IReadOnlyList<string> inputs,
         IReadOnlyList<(string? Part, ContentKind Kind, byte[] Bytes)> assets, IReadOnlyList<string> hashes,
+        IReadOnlyList<(string Hash, byte[] Bytes)> objects,
         IReadOnlyList<(string Message, int? Line)> warnings)
     {
         try
@@ -153,17 +179,15 @@ internal sealed class CookCache(string folder)
             for (int i = 0; i < assets.Count; i++)
             {
                 var (part, kind, bytes) = assets[i];
-                string hash = hashes[i];
-                string objectFile = ObjectFile(hash);
-                lock (_objectGates.GetOrAdd(hash, _ => new object()))
-                {
-                    if (!File.Exists(objectFile))
-                    {
-                        WriteAtomically(objectFile, bytes);
-                    }
-                }
+                SaveObject(hashes[i], bytes);
+                outputNodes.Add(new JsonObject { ["part"] = part, ["kind"] = kind.ToString(), ["hash"] = hashes[i] });
+            }
 
-                outputNodes.Add(new JsonObject { ["part"] = part, ["kind"] = kind.ToString(), ["hash"] = hash });
+            var objectNodes = new JsonArray();
+            foreach (var (hash, bytes) in objects)
+            {
+                SaveObject(hash, bytes);
+                objectNodes.Add(hash);
             }
 
             var warningNodes = new JsonArray();
@@ -172,12 +196,25 @@ internal sealed class CookCache(string folder)
                 warningNodes.Add(new JsonObject { ["message"] = message, ["line"] = line });
             }
 
-            var record = new JsonObject { ["inputs"] = inputNodes, ["outputs"] = outputNodes, ["warnings"] = warningNodes };
+            var record = new JsonObject { ["inputs"] = inputNodes, ["outputs"] = outputNodes, ["objects"] = objectNodes, ["warnings"] = warningNodes };
             WriteAtomically(RecordFile(key), Encoding.UTF8.GetBytes(record.ToJsonString()));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             // The cache is an optimisation. A cook that couldn't be remembered is still a cook.
+        }
+    }
+
+    /// <summary>Keeps an object unless the cache has it already, as it often does for a texture models share.</summary>
+    private void SaveObject(string hash, byte[] bytes)
+    {
+        string objectFile = ObjectFile(hash);
+        lock (_objectGates.GetOrAdd(hash, _ => new object()))
+        {
+            if (!File.Exists(objectFile))
+            {
+                WriteAtomically(objectFile, bytes);
+            }
         }
     }
 

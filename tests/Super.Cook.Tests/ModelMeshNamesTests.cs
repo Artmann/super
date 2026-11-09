@@ -35,7 +35,7 @@ public sealed class ModelMeshNamesTests : IDisposable
     private static ModelData Model(MemoryStore store, string name)
     {
         var entry = store.Manifest.Assets[name];
-        return ModelData.Read(new MemoryStream(store.Get(entry.Hash)), name);
+        return ModelData.Read(new MemoryStream(ModelCookers.StandAlone(store, entry.Hash, name)), name);
     }
 
     [Fact]
