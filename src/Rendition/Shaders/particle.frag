@@ -114,9 +114,9 @@ void main() {
         color = color * kept + waterColor(normalize(away)) * (1.0 - kept);
     } else {
         // The same fog and haze as surfaces, so distant dust melts into the air and the sky.
-        float fogKept = fogTransmittance(inPosition);
-        if (fogKept < 1.0) {
-            color = color * fogKept + fogLight(inPosition, fogKept, reflectionTexture);
+        vec4 fog = fogInFront(inPosition, reflectionTexture);
+        if (fog.a < 1.0) {
+            color = color * fog.a + fog.rgb;
         }
 
         float fadeStart = frame.parameters.x;

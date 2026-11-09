@@ -46,7 +46,10 @@ public struct SkySettings
     /// colour of the sky behind them, and glowing towards the sun. Unlike haze it is measured
     /// along each line of sight and thins with height, so a tower's top is clearer than its foot.
     /// The default, no density, is clear air. <c>new FogSettings(0.004f, 0f, 0.15f, 0.6f)</c>
-    /// is a light summer morning over a yard.
+    /// is a light summer morning over a yard. Near the camera, up to its
+    /// <see cref="FogSettings.VolumetricDistance"/>, the fog is lit by what really reaches it:
+    /// the sun falls through it in shafts beside the shadows, and point and spot lights glow
+    /// in it with halos. <see cref="Graphics.VolumetricFog"/> turns that off.
     /// </summary>
     public FogSettings Fog;
 

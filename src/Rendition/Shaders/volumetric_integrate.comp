@@ -1,0 +1,39 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#define VOLUMETRIC_WRITER
+#include "common.glsl"
+#include "volumetric.glsl"
+
+// Sums each column of the volumetric fog front to back, so a surface at any depth finds the
+// fog's light in front of it, and the share of its own light that gets through, in one
+// lookup. A cell that hides a share of what's behind it shows that share of its own light,
+// as the plain fog does. Must match VolumetricFog.Integrate in Passes/VolumetricFog.cs.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 1, binding = 3, rgba16f) uniform readonly image3D injected;
+layout(set = 1, binding = 4, rgba16f) uniform writeonly image3D integrated;
+
+void main() {
+    ivec3 size = imageSize(integrated);
+    ivec2 column = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(column, size.xy))) {
+        return;
+    }
+
+    vec3 origin;
+    vec3 along;
+    volumetricRay((vec2(column) + 0.5) / vec2(size.xy), origin, along);
+    float metresPerDepth = length(along);
+
+    vec3 light = vec3(0.0);
+    float kept = 1.0;
+    for (int slice = 0; slice < size.z; slice++) {
+        vec4 cell = imageLoad(injected, ivec3(column, slice));
+        float metres = (volumetricCellStart(slice + 1) - volumetricCellStart(slice)) * metresPerDepth;
+        float through = exp(-cell.a * metres);
+        light += kept * (1.0 - through) * cell.rgb;
+        kept *= through;
+        imageStore(integrated, ivec3(column, slice), vec4(light, kept));
+    }
+}

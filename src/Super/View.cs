@@ -170,13 +170,20 @@ public sealed class View
     /// <see cref="LocalLight.MaxPerFrame"/>, and lights with shadows share an atlas, so the
     /// biggest on screen get the sharpest ones. The radius is how big the glowing part is:
     /// raise it for a light right beside a wall, such as a torch in a bracket, so the wall
-    /// isn't blown out. It also softens the shadows. See "Point and spot lights" in
-    /// docs/views.md.
+    /// isn't blown out. It also softens the shadows. The volumetric strength is how brightly
+    /// it lights the volumetric fog around it, as a halo: 1 is true to the fog, 0 leaves it
+    /// out. See "Point and spot lights" in docs/views.md.
     /// </summary>
     public void PointLight(
-        int key, Vector3 position, Vector3 color, float range, bool shadows = true, float radius = LocalLight.DefaultRadius)
+        int key,
+        Vector3 position,
+        Vector3 color,
+        float range,
+        bool shadows = true,
+        float radius = LocalLight.DefaultRadius,
+        float volumetric = 1f)
     {
-        CheckLight(position, color, range, radius);
+        CheckLight(position, color, range, radius, volumetric);
         _lights.Add(new LocalLight
         {
             Key = key,
@@ -185,6 +192,7 @@ public sealed class View
             Range = range,
             Radius = radius,
             CastsShadow = shadows,
+            Volumetric = volumetric,
         });
     }
 
@@ -203,9 +211,10 @@ public sealed class View
         float innerAngle,
         float outerAngle,
         bool shadows = true,
-        float radius = LocalLight.DefaultRadius)
+        float radius = LocalLight.DefaultRadius,
+        float volumetric = 1f)
     {
-        CheckLight(position, color, range, radius);
+        CheckLight(position, color, range, radius, volumetric);
         if (!(direction.LengthSquared() > 1e-12f) || !float.IsFinite(direction.LengthSquared()))
         {
             throw new ArgumentException($"A spot light needs a direction to shine in, not {direction}.", nameof(direction));
@@ -234,10 +243,11 @@ public sealed class View
             InnerAngle = innerAngle,
             OuterAngle = outerAngle,
             CastsShadow = shadows,
+            Volumetric = volumetric,
         });
     }
 
-    private void CheckLight(Vector3 position, Vector3 color, float range, float radius)
+    private void CheckLight(Vector3 position, Vector3 color, float range, float radius, float volumetric)
     {
         if (_lights.Count >= LocalLight.MaxPerFrame)
         {
@@ -259,6 +269,12 @@ public sealed class View
         if (!float.IsFinite(position.X + position.Y + position.Z))
         {
             throw new ArgumentException($"A light can't be at {position}.", nameof(position));
+        }
+
+        if (!(volumetric >= 0f) || !float.IsFinite(volumetric))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(volumetric), volumetric, "A light's volumetric strength must be 0 or more, and 0 leaves it out of the fog.");
         }
 
         if (!(color.X >= 0f && color.Y >= 0f && color.Z >= 0f) || !float.IsFinite(color.X + color.Y + color.Z))
@@ -485,6 +501,17 @@ public sealed class View
                 paramName,
                 string.Create(CultureInfo.InvariantCulture, $"The fog's height must be a number of metres, but it is {fog.Height}."));
         }
+
+        if (!(MathF.Abs(fog.Anisotropy) <= FogSettings.MaxAnisotropy))
+        {
+            throw new ArgumentOutOfRangeException(
+                paramName,
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"The fog's anisotropy must be from -0.9 to 0.9, where 0 scatters light evenly and more scatters it onwards, but it is {fog.Anisotropy}."));
+        }
+
+        RefuseBelowZero(fog.VolumetricDistance, "volumetric distance", "in metres, and 0 is the plain fog only");
 
         void RefuseBelowZero(float value, string name, string unit)
         {

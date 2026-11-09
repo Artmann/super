@@ -441,11 +441,11 @@ void main() {
                 background = textureLod(reflectionTexture, direction, 0.0).rgb;
             }
 
-            outColor = vec4(background * frame.backgroundRadiance.a, 1.0);
+            outColor = vec4(fogOverSky(background * frame.backgroundRadiance.a, inUv), 1.0);
             return;
         }
 
-        outColor = vec4(frame.backgroundRadiance.rgb, 1.0);
+        outColor = vec4(fogOverSky(frame.backgroundRadiance.rgb, inUv), 1.0);
         return;
     }
 
@@ -634,10 +634,10 @@ void main() {
 
     // The fog between the surface and the camera dims it and adds its own light. The light kept
     // apart for the subsurface blur is dimmed alike, and the fog's light goes with the rest.
-    float fogKept = fogTransmittance(position);
-    if (fogKept < 1.0) {
-        color = color * fogKept + fogLight(position, fogKept, reflectionTexture);
-        scattered *= fogKept;
+    vec4 fog = fogInFront(position, reflectionTexture);
+    if (fog.a < 1.0) {
+        color = color * fog.a + fog.rgb;
+        scattered *= fog.a;
     }
 
     // Distant surfaces melt into the background, which hides the horizon of a studio floor.

@@ -330,6 +330,16 @@ public struct LocalLight
     /// <summary>Whether things block it. Shadows are drawn into a shared atlas; see docs/rendering.md.</summary>
     public bool CastsShadow;
 
+    /// <summary>
+    /// How strongly it lights the volumetric fog, giving it a halo: 1 is as much as the air
+    /// really scatters, 0 leaves it out of the fog, and more makes the halo stronger.
+    /// </summary>
+    public float Volumetric = 1f;
+
+    public LocalLight()
+    {
+    }
+
     /// <summary>Whether it's a spot rather than a point light.</summary>
     public readonly bool IsSpot => OuterAngle > 0f;
 }
@@ -663,6 +673,26 @@ public readonly record struct FogSettings(float Density = 0f, float Height = 0f,
     public FogSettings() : this(0f, 0f, DefaultFalloff, DefaultSunScatter)
     {
     }
+
+    public const float DefaultAnisotropy = 0.6f;
+    public const float DefaultVolumetricDistance = 48f;
+
+    /// <summary>The most <see cref="Anisotropy"/> can be either way.</summary>
+    public const float MaxAnisotropy = 0.9f;
+
+    /// <summary>
+    /// Which way the fog scatters light, from -0.9 to 0.9: 0 sends it every way alike, more
+    /// sends it onwards, so the air glows most looking towards a light, as real haze does,
+    /// and less sends it back. Only the volumetric fog uses it.
+    /// </summary>
+    public float Anisotropy { get; init; } = DefaultAnisotropy;
+
+    /// <summary>
+    /// How far from the camera, in metres, the fog is worked out in a volume that the sun's
+    /// shadows and the point and spot lights light up, giving shafts of light and halos.
+    /// Past it the plain fog carries on. 0 is the plain fog only.
+    /// </summary>
+    public float VolumetricDistance { get; init; } = DefaultVolumetricDistance;
 }
 
 /// <summary>Everything the renderer needs to know about one frame except the draws.</summary>
@@ -837,8 +867,15 @@ public enum RenderEffects
     /// <summary>The frame's <see cref="FrameView.Decals"/>. Without them stains and grime aren't drawn.</summary>
     Decals = 1 << 14,
 
+    /// <summary>
+    /// Working out the fog near the camera in a volume lit by the sun's shadows and the point and
+    /// spot lights, up to <see cref="FogSettings.VolumetricDistance"/>. Without it the fog is the
+    /// plain height fog everywhere, with no shafts of light or halos.
+    /// </summary>
+    VolumetricFog = 1 << 15,
+
     All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
-        | MultiscatterSpecular | Fog | AutoExposure | DepthOfField | Decals,
+        | MultiscatterSpecular | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog,
 }
 
 /// <summary>

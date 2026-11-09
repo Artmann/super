@@ -125,6 +125,14 @@ public sealed class Graphics
     public bool Decals { get; set; } = true;
 
     /// <summary>
+    /// Working out the fog near the camera in a volume that the sun's shadows and the point and spot lights
+    /// light up, so sunlight falls through it in shafts and lamps glow with halos. Off, the fog is the plain
+    /// height fog everywhere, exactly as without it. It costs two compute passes over a small grid, so
+    /// <see cref="Fastest"/> turns it off.
+    /// </summary>
+    public bool VolumetricFog { get; set; } = true;
+
+    /// <summary>
     /// Every surface's own colour, textures, normal maps and shine. Off, everything is the same light grey,
     /// matte clay, shaped only by its mesh, so the lighting and the models can be judged without the
     /// textures in the way. Glows still glow, cut-outs still cut and glass stays see-through. It's
@@ -152,6 +160,7 @@ public sealed class Graphics
         AutoExposure = false,
         DepthOfField = false,
         Decals = false,
+        VolumetricFog = false,
     };
 
     /// <summary>The effects the renderer leaves out.</summary>
@@ -169,5 +178,6 @@ public sealed class Graphics
         | (AutoExposure ? 0 : RenderEffects.AutoExposure)
         | (DepthOfField ? 0 : RenderEffects.DepthOfField)
         | (Decals ? 0 : RenderEffects.Decals)
+        | (VolumetricFog ? 0 : RenderEffects.VolumetricFog)
         | (Materials ? 0 : RenderEffects.Materials);
 }

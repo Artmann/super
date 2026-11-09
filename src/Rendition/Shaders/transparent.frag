@@ -145,9 +145,9 @@ void main() {
 
     // The fog in front dims the glass's own light and adds its own over the part the glass
     // covers. What shows through already has the fog all the way to it.
-    float fogKept = fogTransmittance(inPosition);
-    if (fogKept < 1.0) {
-        own = own * fogKept + fogLight(inPosition, fogKept, reflectionTexture) * coverage;
+    vec4 fog = fogInFront(inPosition, reflectionTexture);
+    if (fog.a < 1.0) {
+        own = own * fog.a + fog.rgb * coverage;
     }
 
     if (draw.tint.w < 0.5) {

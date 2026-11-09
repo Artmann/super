@@ -42,6 +42,7 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 fog;                // x: density at the fog's height, 0 for none; y: that height; z: falloff per metre; w: sun scatter
     mat4 whiteBalance;       // Linear colour to white-balanced colour, used as mat3 by the tone mapping.
     vec4 curve;              // x: 1 for ACES, 0 for AgX; y, z: the AgX look's power and saturation
+    vec4 volumetric;         // x: how far the volumetric fog reaches, 0 for none; y: where its first slice ends; z: anisotropy; w: 1 when last frame's volume can be used
     int lightCount;
     float time;              // Seconds, as set by the game.
     int frameNumber;
@@ -66,6 +67,7 @@ const int OFF_MATERIALS = 1 << 6;
 const int OFF_MULTISCATTER_SPECULAR = 1 << 9;
 const int OFF_AUTO_EXPOSURE = 1 << 12;
 const int OFF_DEPTH_OF_FIELD = 1 << 13;
+const int OFF_VOLUMETRIC_FOG = 1 << 15;
 
 // What every surface is made of when materials are off: light grey, matte clay.
 const vec3 PLAIN_COLOR = vec3(0.5);

@@ -140,6 +140,12 @@ internal struct FrameUniforms
     /// <summary>x: 1 for the ACES curve, 0 for AgX; y, z: the AgX look's power and saturation. See <see cref="PostGrade.Curve"/>.</summary>
     public Vector4 Curve;
 
+    /// <summary>
+    /// x: how far the volumetric fog reaches, 0 for none; y: where its first slice ends; z: its anisotropy;
+    /// w: 1 when last frame's volume can be used. See <see cref="VolumetricFog.Pack"/>.
+    /// </summary>
+    public Vector4 Volumetric;
+
     public int LightCount;
     public float Time;
     public int FrameNumber;
@@ -181,7 +187,7 @@ internal struct GpuLocalLight
     /// <summary>xyz: which way a spot shines; w: the cosine of its outer angle, or -2 for a point light.</summary>
     public Vector4 DirectionCone;
 
-    /// <summary>x: one over the cosines between the inner and outer angles, for the spot's fade; y: its radius.</summary>
+    /// <summary>x: one over the cosines between the inner and outer angles, for the spot's fade; y: its radius; z: how strongly it lights the volumetric fog.</summary>
     public Vector4 Fade;
 }
 

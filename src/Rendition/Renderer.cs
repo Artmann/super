@@ -30,6 +30,9 @@ public sealed unsafe class Renderer : IDisposable
     public const int MaxReflectionProbes = FrameUniforms.MaxProbes;
 
     private const PipelineStageFlags2 SampledStage = PipelineStageFlags2.FragmentShaderBit;
+
+    // The shadow maps are read by the lighting pass and by the volumetric fog's compute pass.
+    private const PipelineStageFlags2 ShadowReadStages = SampledStage | PipelineStageFlags2.ComputeShaderBit;
     private const AccessFlags2 SampledAccess = AccessFlags2.ShaderSampledReadBit;
     private const PipelineStageFlags2 ColorStage = PipelineStageFlags2.ColorAttachmentOutputBit;
     private const AccessFlags2 ColorWrite = AccessFlags2.ColorAttachmentWriteBit;
@@ -98,6 +101,7 @@ public sealed unsafe class Renderer : IDisposable
     // whether its faces are being drawn now, whether surfaces read it, and whether the sun's
     // maps from the first face of a batch still hold, since every probe uses the same ones.
     private readonly ProbeVolume _lightProbes;
+    private readonly VolumetricFogVolume _volumetricFog;
     private GBuffer? _lightProbeTargets;
     private GBuffer? _reflectionProbeTargets;
     private bool _capturingLightProbes;
@@ -173,6 +177,9 @@ public sealed unsafe class Renderer : IDisposable
 
     // Whether a sun casts its shadow this frame, so its maps are drawn.
     private bool _sunShadowsDrawn;
+
+    // Whether the frame being recorded draws the volumetric fog.
+    private bool _volumetricDrawn;
 
     // Moving between pictures: what the frame asks for, which hold the held picture
     // belongs to, and whether the held picture and the last finished frame exist yet.
@@ -349,7 +356,7 @@ public sealed unsafe class Renderer : IDisposable
         {
             new(DescriptorType.UniformBuffer, FramesInFlight),
             new(DescriptorType.StorageBuffer, 5 * FramesInFlight),
-            new(DescriptorType.CombinedImageSampler, 30 + 2 * FramesInFlight),
+            new(DescriptorType.CombinedImageSampler, 30 + 3 * FramesInFlight),
         };
         var poolInfo = new DescriptorPoolCreateInfo
         {
@@ -392,6 +399,7 @@ public sealed unsafe class Renderer : IDisposable
         });
         _probes = new ReflectionProbes(_context, _environment.Sampler);
         _lightProbes = new ProbeVolume(_context, _sampler);
+        _volumetricFog = new VolumetricFogVolume(_context, _frameSetLayout, _linearSampler);
 
         _aoSet = AllocateSet(_threeTextureSetLayout);
         _aoBlurSet = AllocateSet(_twoTextureSetLayout);
@@ -1187,6 +1195,13 @@ public sealed unsafe class Renderer : IDisposable
 
         // Metering is left out of the shaders unless the view asked for it, so the fixed exposure stays as it was.
         _off = Exposure.ShaderOff(view.Post, view.Off & RenderEffects.All);
+        if (!_volumetricFog.HasTargets && VolumetricFog.Pack(view.Fog, _off, false, view.Water.Absorption != Vector3.Zero).X > 0f)
+        {
+            // The fog's volumes are made the first time it's drawn. Frames in flight bind the stand-in.
+            _api.DeviceWaitIdle(_context.Device).Check();
+            _volumetricFog.SetSize((int)_gBuffer.Extent.Width, (int)_gBuffer.Extent.Height);
+            WriteTargetDescriptors();
+        }
         _depthOfField = DepthOfFieldConstants.For(view.Post, _off, (int)_gBuffer.Extent.Width);
         bool antiAliased = !_off.HasFlag(RenderEffects.AntiAliasing);
         if (antiAliased != _readsAntiAliased)
@@ -1536,6 +1551,7 @@ public sealed unsafe class Renderer : IDisposable
         _api.DestroyPipelineLayout(_context.Device, _clusterLayout, null);
         _probes.Dispose();
         _lightProbes.Dispose();
+        _volumetricFog.Dispose();
         _lightProbeTargets?.Dispose();
         _reflectionProbeTargets?.Dispose();
         _environment.Dispose();
@@ -1801,7 +1817,7 @@ public sealed unsafe class Renderer : IDisposable
         if (_sunShadowsDrawn && !_keepShadowMaps)
         {
             _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
-                ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, SampledStage, SampledAccess, DepthStages,
+                ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, ShadowReadStages, SampledAccess, DepthStages,
                 DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit, layerCount: ShadowPass.MaxCascades);
             for (int cascade = 0; cascade < _shadowCascades; cascade++)
             {
@@ -1810,13 +1826,13 @@ public sealed unsafe class Renderer : IDisposable
             }
 
             _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
-                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess,
+                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, ShadowReadStages, SampledAccess,
                 layerCount: ShadowPass.MaxCascades);
         }
         else if (!_sunShadowsDrawn)
         {
             _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess,
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, ShadowReadStages, SampledAccess, ShadowReadStages, SampledAccess,
                 layerCount: ShadowPass.MaxCascades);
         }
 
@@ -1825,16 +1841,16 @@ public sealed unsafe class Renderer : IDisposable
         if (_tileCount > 0)
         {
             _api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
-                ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, SampledStage, SampledAccess, DepthStages,
+                ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, ShadowReadStages, SampledAccess, DepthStages,
                 DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
             _shadowPass.RecordTiles(cmd, frameSet, _localLights.Tiles, _tileDraws, _tileRanges.AsSpan(0, _tileCount), _meshes, instances);
             _api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
-                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess);
+                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, ShadowReadStages, SampledAccess);
         }
         else
         {
             _api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, ShadowReadStages, SampledAccess, ShadowReadStages, SampledAccess);
         }
 
         _gpuTimer.Mark(cmd);
@@ -1842,6 +1858,12 @@ public sealed unsafe class Renderer : IDisposable
         if (_clustersNeeded)
         {
             RecordClusters(cmd, frameSet);
+        }
+
+        // The fog's air needs the shadow maps and the light lists, and the lighting pass needs the fog.
+        if (_volumetricDrawn)
+        {
+            _volumetricFog.Record(cmd, frameSet);
         }
 
         _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
@@ -2002,7 +2024,7 @@ public sealed unsafe class Renderer : IDisposable
             SType = StructureType.MemoryBarrier2,
             SrcStageMask = PipelineStageFlags2.ComputeShaderBit,
             SrcAccessMask = AccessFlags2.ShaderStorageWriteBit,
-            DstStageMask = PipelineStageFlags2.FragmentShaderBit,
+            DstStageMask = PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit,
             DstAccessMask = AccessFlags2.ShaderStorageReadBit,
         };
         var dependency = new DependencyInfo
@@ -2082,6 +2104,21 @@ public sealed unsafe class Renderer : IDisposable
         (uniforms->HazeOrigin, uniforms->HazeColor) = Haze.Pack(view.CameraPosition, view.BackgroundFadeOrigin, view.BackgroundFadeColor);
         uniforms->Occlusion = Occlusion.Pack(view.Occlusion);
         uniforms->Fog = Fog.Pack(view.Fog, _off, capturingProbe, underwater: view.Water.Absorption != Vector3.Zero);
+        var volumetric = VolumetricFog.Pack(view.Fog, _off, capturingProbe, underwater: view.Water.Absorption != Vector3.Zero);
+        if (!_volumetricFog.HasTargets)
+        {
+            volumetric = Vector4.Zero;
+        }
+
+        volumetric.W = historyValid && _volumetricFog.HistoryReady ? 1f : 0f;
+        uniforms->Volumetric = volumetric;
+        _volumetricDrawn = volumetric.X > 0f;
+        if (!capturingProbe && !_volumetricDrawn)
+        {
+            // A frame without the fog leaves nothing for the next to carry on from.
+            _volumetricFog.Skip();
+        }
+
         uniforms->ProbeCount = 0;
         if (!capturingProbe)
         {
@@ -2280,6 +2317,11 @@ public sealed unsafe class Renderer : IDisposable
         _gBuffer = new GBuffer(_context, SceneExtent(_swapchain.Extent));
         _bloomPass.Resize(DisplaySource, _gBuffer.Extent);
         _depthOfFieldPass.SetTargets(DisplaySource, _gBuffer.Depth.View, _gBuffer.Extent);
+        if (_volumetricFog.HasTargets)
+        {
+            _volumetricFog.SetSize((int)_gBuffer.Extent.Width, (int)_gBuffer.Extent.Height);
+        }
+
         WriteTargetDescriptors();
         _historyReady = false;
     }
@@ -2447,6 +2489,22 @@ public sealed unsafe class Renderer : IDisposable
         _api.UpdateDescriptorSets(_context.Device, 2, writes, 0, null);
     }
 
+    /// <summary>The volumetric fog's summed volume, or the texel that stands in until it's made.</summary>
+    private void WriteVolumetricDescriptor(in Frame frame)
+    {
+        var info = new DescriptorImageInfo(_linearSampler, _volumetricFog.Result, ImageLayout.General);
+        var write = new WriteDescriptorSet
+        {
+            SType = StructureType.WriteDescriptorSet,
+            DstSet = frame.Set,
+            DstBinding = 8,
+            DescriptorCount = 1,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            PImageInfo = &info,
+        };
+        _api.UpdateDescriptorSets(_context.Device, 1, &write, 0, null);
+    }
+
     private void WriteInstanceDescriptor(in Frame frame)
     {
         var info = new DescriptorBufferInfo(frame.Instances.Handle, 0, frame.Instances.Size);
@@ -2481,7 +2539,8 @@ public sealed unsafe class Renderer : IDisposable
     /// model matrix at binding 2, as Shaders/common.glsl, skinning.glsl and instances.glsl
     /// read them. Bindings 3 to 5 hold the point and spot lights, their shadow tiles and
     /// the cluster lists, and 6 and 7 the shadow atlas, as Shaders/light_data.glsl and
-    /// local_shadows.glsl read them.
+    /// local_shadows.glsl read them, and 8 the volumetric fog's summed volume, as
+    /// volumetric.glsl reads it.
     /// </summary>
     private DescriptorSetLayout CreateFrameSetLayout()
     {
@@ -2494,13 +2553,14 @@ public sealed unsafe class Renderer : IDisposable
             new(3, DescriptorType.StorageBuffer, 1, everyStage),
             new(4, DescriptorType.StorageBuffer, 1, everyStage),
             new(5, DescriptorType.StorageBuffer, 1, everyStage),
-            new(6, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
+            new(6, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit | ShaderStageFlags.ComputeBit),
             new(7, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
+            new(8, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
         };
         var info = new DescriptorSetLayoutCreateInfo
         {
             SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 8,
+            BindingCount = 9,
             PBindings = bindings,
         };
         _api.CreateDescriptorSetLayout(_context.Device, &info, null, out var layout).Check();
@@ -2609,6 +2669,14 @@ public sealed unsafe class Renderer : IDisposable
             new(_linearSampler, _gBuffer.Ldr.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_linearSampler, _gBuffer.Held.View, ImageLayout.ShaderReadOnlyOptimal),
         ]);
+
+        _volumetricFog.SetSources(
+            new(_shadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_environment.Sampler, _environment.Reflections, ImageLayout.ShaderReadOnlyOptimal));
+        foreach (ref var frame in _frames.AsSpan())
+        {
+            WriteVolumetricDescriptor(frame);
+        }
 
         // New targets start empty, so neither a held picture nor a last frame survives them.
         _heldReady = false;
