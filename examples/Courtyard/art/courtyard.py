@@ -113,6 +113,10 @@ def make_materials():
         "dry_core": material("graph_drystone_core", (0.24, 0.23, 0.22)),
         "dirt": material("graph_dirt", (0.25, 0.17, 0.11)),
         "wood": material("graph_wood", (0.5, 0.34, 0.2)),
+        # The same wood graph as variants: the barrel's staves a little weathered with rust
+        # bleeding down from their hoops, and the deck's boards silvered by the weather.
+        "staves": material("graph_staves", (0.5, 0.34, 0.2)),
+        "deck": material("graph_deck", (0.52, 0.47, 0.4)),
         "mortar": material("mortar", (0.32, 0.3, 0.27), roughness=0.95),
         "arch1": material("arch_brick_a", (0.42, 0.13, 0.07), roughness=0.85),
         "arch2": material("arch_brick_b", (0.5, 0.17, 0.09), roughness=0.85),
@@ -1600,15 +1604,44 @@ def build_pebbles(sc, M):
     emit(sc, "pebbles", bm, [M["stone"]])
 
 
-def plank_uv(bm, faces, axis, index, along_offset):
+def board_start(index):
+    """Where along the wood graph's image the board in band index starts. The cooker flips v,
+    so band index is the image's row 5 - index % 6, and each row starts half a board on from
+    the one above it."""
+    return 0.5 * ((5 - index % 6) % 2)
+
+
+# How far into a board's end grain its sawn end face is put, as a fraction of a board: past the
+# joint's groove and into the dark end.
+END_GRAIN = 0.01
+
+
+def plank_uv(bm, faces, axis, index, along_offset, span=None):
     """Wood UVs: u along the board's length in metres, v placed so the board takes one of the
-    graph's six planks, so its own grain and not a seam runs down it."""
+    graph's six planks, so its own grain and not a seam runs down it.
+
+    With span, the board's two ends (lo, hi along axis) are fitted to the ends of whole graph
+    boards, stretched a little so they land there, and its sawn end faces show end grain."""
     uv = uv_layer(bm)
+    axis_vector = Vector((1, 0, 0) if axis == "x" else (0, 1, 0) if axis == "y" else (0, 0, 1))
+    if span is not None:
+        lo, hi = span
+        boards = max(1, round(hi - lo))
+        start = board_start(index)
     for f in faces:
+        if span is not None:
+            f.normal_update()
         n = f.normal
+        end = span is not None and abs(n.dot(axis_vector)) > 0.7
         for loop in f.loops:
             co = loop.vert.co
-            u = (co.x if axis == "x" else co.y if axis == "y" else co.z) + along_offset
+            c = co.x if axis == "x" else co.y if axis == "y" else co.z
+            if span is None:
+                u = c + along_offset
+            elif end:
+                u = start + (END_GRAIN if n.dot(axis_vector) < 0 else boards - END_GRAIN)
+            else:
+                u = start + (c - lo) * boards / (hi - lo)
             # Across the board: whichever of the other two axes the face spans most.
             others = [c for c, a in ((co.x, "x"), (co.y, "y"), (co.z, "z")) if a != axis]
             across = others[0] if abs(n.dot(Vector((1, 0, 0) if axis != "x" else (0, 1, 0)))) < 0.5 else others[1]
@@ -1639,14 +1672,48 @@ def build_deck(sc, M):
             spans = ((start, end),)
         for a, b in spans:
             faces = box(bm, (a, y, DECK_TOP - 0.035 + lift), (b, y + board, DECK_TOP + lift), 0, bevel=0.007)
-            plank_uv(bm, faces, "x", i, rng.uniform(0, 3))
+            # The draw stays, so everything made after the deck comes out as it did; the board's
+            # ends now fix where the graph's boards lie along it.
+            rng.uniform(0, 3)
+            plank_uv(bm, faces, "x", i, 0.0, span=(a, b))
             i += 1
+            # Two nails into each bearer the board crosses.
+            for bearer in BEARERS:
+                xc = bearer + 0.05
+                if a + 0.05 < xc < b - 0.05:
+                    for across in (0.25, 0.75):
+                        nail_head(bm, xc, y + board * across, DECK_TOP + lift)
         y += board + gap
     # Bearers under the boards, mostly below the mud.
-    for x in (x0 + 0.15, (x0 + x1) / 2, x1 - 0.25):
+    for x in BEARERS:
         faces = box(bm, (x, y0 - 0.02, -0.08), (x + 0.1, y1, DECK_TOP - 0.035), 0)
         plank_uv(bm, faces, "y", 3, 0.0)
-    emit(sc, "deck", bm, [M["wood"]])
+    emit(sc, "deck", bm, [M["deck"], M["hoop"]])
+
+
+# Where the deck's three bearers start along x; each is 10 cm wide.
+BEARERS = (DECK[0] + 0.15, (DECK[0] + DECK[1]) / 2, DECK[1] - 0.25)
+
+nail_rng = random.Random(20)
+
+
+def nail_head(bm, x, y, top):
+    """A hand-made nail's head, a slightly domed iron disc about 12 mm across, driven not quite
+    flush, in the hoop iron's material (slot 1). Its own random numbers, so adding nails moves
+    nothing else in the scene."""
+    x += nail_rng.uniform(-0.012, 0.012)
+    y += nail_rng.uniform(-0.01, 0.01)
+    sink = nail_rng.uniform(-0.0006, 0.0004)
+    r = nail_rng.uniform(0.0055, 0.0068)
+    profile = [(r, -0.0015), (r, 0.0006), (r * 0.65, 0.0014)]
+    faces = lathe(bm, profile, 8, (x, y, top + sink), 1, close_top=True)
+    # Each head takes its own patch of the iron, so they don't all rust alike.
+    du, dv = nail_rng.uniform(0, 0.5), nail_rng.uniform(0, 0.5)
+    uv = uv_layer(bm)
+    for f in faces:
+        f.smooth = False
+        for loop in f.loops:
+            loop[uv].uv = (loop[uv].uv[0] + du, loop[uv].uv[1] + dv)
 
 
 crate_rng = random.Random(11)
@@ -1658,19 +1725,25 @@ def board(bm, length, width, thick, origin, ax, ay, az, index, bevel=None):
     six planks, so each board has its own grain and no seam."""
     faces = box(bm, (0, 0, 0), (length, width, thick), 0, bevel=bevel if bevel is not None else min(0.006, thick * 0.3))
     uv = uv_layer(bm)
-    along = crate_rng.uniform(0, 3)
+    # The draw stays so the crates' numbers don't move; the board's ends are fitted to the ends
+    # of whole graph boards instead, a little stretched, so its sawn ends show end grain.
+    crate_rng.uniform(0, 3)
+    boards = max(1, round(length))
+    start = board_start(index)
     band = (index % 6) / 6.0 + 0.012
     for f in faces:
         f.normal_update()
         n = f.normal
         for loop in f.loops:
             x, y, z = loop.vert.co
+            u = start + x * boards / length
             if abs(n.x) > 0.7:
-                loop[uv].uv = (y + along, band + z * 0.9)
+                loop[uv].uv = (start + (END_GRAIN if n.x < 0 else boards - END_GRAIN), band + z * 0.9)
             elif abs(n.y) > 0.7:
-                loop[uv].uv = (x + along, band + z * 0.9)
+                loop[uv].uv = (u, band + z * 0.9)
             else:
-                loop[uv].uv = (x + along, band + y * 0.9)
+                # Across its whole width inside one graph board, so it shows one tone and no joint.
+                loop[uv].uv = (u, band + y / width * (1 / 6.0 - 0.024))
     verts = {v for f in faces for v in f.verts}
     for v in verts:
         x, y, z = v.co
@@ -1872,6 +1945,12 @@ def build_sacks(sc, M):
     emit(sc, "sacks", bm, [M["sack"], M["twine"]])
 
 
+# Where the staves' graph boards start, up from the barrel's foot, and how tall one is: from the
+# middle of the second hoop to the middle of the top one, for the barrel's height of 1.6 m.
+STAVE_FROM = 1.6 * 0.27
+STAVE_SPAN = 1.6 * (0.94 - 0.27)
+
+
 def build_barrel(sc, M):
     bm = bmesh.new()
     cx, cy = 0.2, WALL_Y - 0.75
@@ -1910,17 +1989,31 @@ def build_barrel(sc, M):
             faces.append(bm.faces.new((outer[-1][c], outer[-1][c + 1], inner[-1][c + 1], inner[-1][c])))
         bmesh.ops.recalc_face_normals(bm, faces=faces)
         uv = uv_layer(bm)
+        start = board_start(s)
         for f in faces:
             f.material_index = 0
             f.smooth = True
+            f.normal_update()
+            top = f.normal.z > 0.7
             for loop in f.loops:
                 co = loop.vert.co
                 a = math.atan2(co.y - cy, co.x - cx)
-                # Each stave wears one of the wood graph's six planks, stretched across its width.
+                # Each stave wears one of the wood graph's six planks, stretched across its width,
+                # the second six mirrored so no two staves match.
                 across = min(1.0, ((a - a0) % (2 * math.pi)) / (a1 - a0))
-                loop[uv].uv = (co.z + s * 0.37, (s % 6) / 6.0 + 0.012 + across * (1 / 6.0 - 0.024))
+                if s >= 6:
+                    across = 1.0 - across
+                v = (s % 6) / 6.0 + 0.012 + across * (1 / 6.0 - 0.024)
+                if top:
+                    # The sawn top of the stave is end grain.
+                    loop[uv].uv = (start + 1.0 - END_GRAIN, v)
+                else:
+                    # One graph board runs from the second hoop to the top one, so its joints lie
+                    # under those hoops and its rust bands (see barrel-staves.material.json) just
+                    # under the first and third.
+                    loop[uv].uv = (start + (co.z - z0 - STAVE_FROM) / STAVE_SPAN, v)
     # The head, set well down inside the top so the staves' ends stand round it as a rim.
-    head = lathe(bm, [(0.0, height - 0.07), (r_end - 0.025, height - 0.07)], 32, (cx, cy, z0), 0)
+    head = lathe(bm, [(0.0, height - 0.07), (r_end - 0.025, height - 0.07)], 32, (cx, cy, z0), 2)
     for f in head:
         plank_uv(bm, [f], "x", 2, 0.0)
     # The hoops: broad bands of dark iron flaking with rust, standing well out from the staves,
@@ -1932,7 +2025,7 @@ def build_barrel(sc, M):
         hoop = lathe(bm, band, 48, (cx, cy, z0), 1)
         for f in hoop:
             f.smooth = True
-    emit(sc, "barrel", bm, [M["wood"], M["hoop"]])
+    emit(sc, "barrel", bm, [M["staves"], M["hoop"], M["wood"]])
 
 
 # ---------------------------------------------------------------------------------------
@@ -2368,7 +2461,7 @@ def build():
     build_fallen_leaves(sc, M)
     build_grass(sc, M)
     build_tree(sc, M)
-    mask_uvs(sc, ["cy_graph_wood", "cy_graph_hoop", "cy_graph_stone", "cy_crate_wood"])
+    mask_uvs(sc, ["cy_graph_wood", "cy_graph_staves", "cy_graph_deck", "cy_graph_hoop", "cy_graph_stone", "cy_crate_wood"])
     return sc
 
 
