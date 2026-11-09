@@ -54,6 +54,7 @@ next frame follows, so it can back an options menu.
 | `AntiAliasing` | Edges show their pixels, and moving things stay sharp |
 | `Bloom` | No glow round bright things. `PostSettings.Bloom` only changes how much there is |
 | `Fog` | Clear air, whatever `SkySettings.Fog` asks for. [Haze](#the-sky) stays, since it isn't fog. `SkySettings.Fog` only changes [how thick it is](#fog) |
+| `VolumetricFog` | The fog is the plain height fog all the way, exactly as if `FogSettings.VolumetricDistance` were 0: no shafts of sunlight and no halos round lamps. It saves two compute passes over a small grid and about 35 MB of memory at 1600 by 900. See [volumetric fog](#volumetric-fog) |
 | `AutoExposure` | Views that ask for [auto exposure](#auto-exposure) keep the fixed `PostSettings.Exposure` instead, as if they hadn't asked. It saves a compute pass over the frame |
 | `DepthOfField` | Everything is sharp, even in views that open the lens with `PostSettings.Aperture`. It saves three passes, two of them at half size. See [focus](#focus) |
 | `Decals` | No [decals](views.md#decals): surfaces show as they are, without the grime and stains `view.Decal` lays on them. It saves a copy of the normal target and a pass over the decals' pixels |
@@ -156,7 +157,9 @@ and more than that are dropped there. The `Crypt` example has four torches, five
 candelabras, a lantern, a beam from a grate and 126 candles, about 150 lights.
 
 Point and spot lights light models, glass and [particles](views.md#particles). Glass and
-particles get no shadows from them. They aren't seen in reflection probes.
+particles get no shadows from them. They aren't seen in reflection probes. In
+[fog](#fog) they glow with a halo; `volumetric:` sets how strongly, and 0 leaves a light
+out of the fog (see [volumetric fog](#volumetric-fog)).
 
 ## Shadows
 
@@ -536,7 +539,8 @@ down, it takes the sky's colour at the horizon that way, since fog is lit by the
 round it, not by the ground. Looking towards a sun it glows, by `SunScatter` times the
 sun's colour, in a lobe that narrows to nothing a right angle away; 0 gives no glow.
 Lit surfaces, glass and particles all sit in the same fog. The sky itself is drawn
-clear, as is everything under [water](#water).
+clear, apart from the light of the [volumetric fog](#volumetric-fog) in front of it, as is
+everything under [water](#water).
 
 Haze and fog work side by side. Haze fades things into the sky between two distances,
 which hides the edge of a world; fog is worked out along each line of sight and gives
@@ -544,6 +548,53 @@ depth inside it. A negative density, falloff or sun scatter throws, as does a he
 isn't a number. Fog is drawn for the camera only: [light probes](#bounced-light) and
 [reflection probes](#reflections) capture clear air, so changing the fog captures nothing
 again and costs nothing but its pixels. `Graphics.Fog` turns it off.
+
+#### Volumetric fog
+
+Near the camera the fog is lit by the light that really reaches it. Sunlight falls
+through it in shafts beside the shadows of walls and leaves, and point and spot lights
+glow in it with soft halos. It is on by default and needs nothing but a fog with some
+density; two more settings tune it:
+
+```csharp
+Fog = new FogSettings(Density: 0.004f, Height: 0f, Falloff: 0.15f, SunScatter: 0.6f)
+{
+    VolumetricDistance = 48f,
+    Anisotropy = 0.6f,
+},
+```
+
+![Plain fog on the left, volumetric on the right: above, the Courtyard's tree against the sun, with the fog raised to 0.02; below, the Crypt's torches in a fog of 0.03 added for the picture](media/volumetric-fog.webp)
+
+Above, looking past the Courtyard's tree towards the sun: the plain fog washes the
+leaves with the sun's glow, while the volumetric fog leaves them dark and lets the light
+through between them in shafts. Below, a fog added to the Crypt for the picture: the
+torches and the lantern over the altar glow in the air, where the plain fog only
+darkens.
+
+`VolumetricDistance` is how far from the camera, in metres, the fog is worked out this
+way, 48 by default. Past it the plain fog carries on, seen through the volumetric part,
+so the far distance looks as it did. 0 is the plain fog only, and a negative or endless
+distance throws. `Anisotropy` is which way the air scatters light, from -0.9 to 0.9, 0.6
+by default: 0 sends it every way alike, more sends it onwards, so the air glows most
+looking towards a light, as real haze does, and less sends it back. Anything outside
+that range throws. In the volumetric part the anisotropy shapes the sun's glow, and
+`SunScatter` only shapes it past `VolumetricDistance`.
+
+Each light lights the fog at full strength unless asked otherwise.
+`view.PointLight` and `view.SpotLight` take a `volumetric:` strength: 1 is as much as the
+air really scatters, 0 leaves the light out of the fog, and more makes its halo
+stronger. A negative strength throws. A light's halo is cut by its own shadow where it
+casts one, so a lantern's beam shows as a cone.
+
+The fog near the camera is kept in a grid of cells, one for every 8 by 8 pixels of the
+scene and 64 deep, thin near the camera and deeper further out. Each frame lights
+every cell at a different point of its depth and keeps 90% of what the cell held last
+frame, so a light that moves or switches on takes a few frames to settle in the fog.
+Screenshots and recordings that fix the frame come out the same every time. The grid
+follows [`RenderScale`](#graphics-settings), not the window. Like the plain fog, it is
+drawn for the camera only and is left out under water. `Graphics.VolumetricFog` turns it
+off, which gives the plain fog exactly, and `Graphics.Fastest()` turns it off.
 
 ## Water
 

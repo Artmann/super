@@ -102,6 +102,18 @@ for a screenshot in clear air:
 dotnet run -c Release --project examples/Courtyard -- --script clear --screenshot shots/courtyard-clear.png --validate --seed 1 --ticks 60 --size 1600x900
 ```
 
+Press V to turn the [volumetric fog](../../docs/rendering.md#volumetric-fog) off and on. On,
+the default, the fog near the camera is lit through the sun's shadows. The courtyard's
+fog is light, so from the usual camera the difference is slight: the air in the sun is a
+touch milkier than in the shade. The lantern is too faint against the daylight to show a
+halo. Off, it is the plain height fog.
+It flips [`Graphics.VolumetricFog`](../../docs/rendering.md#graphics-settings), and the
+`plain-fog` script presses V for a screenshot with the plain fog:
+
+```
+dotnet run -c Release --project examples/Courtyard -- --script plain-fog --screenshot shots/courtyard-plain-fog.png --validate --seed 1 --ticks 60 --size 1600x900
+```
+
 Press E to turn auto exposure off and on. Off, the finish's `Exposure = 0.3f` is a fixed
 exposure instead of compensation on what the camera metered. It flips
 [`Graphics.AutoExposure`](../../docs/rendering.md#graphics-settings), and the `fixed` script

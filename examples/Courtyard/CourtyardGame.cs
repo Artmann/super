@@ -8,7 +8,7 @@ namespace Courtyard;
 /// A sunlit courtyard modelled in Blender (art/courtyard.py): a brick wall with an arched
 /// window, a dry-stone wall, a flagstone path through trodden mud and a puddle. Its bricks, stone,
 /// mud, wood, rust and window glass are the material graphs, put on the model by its cook sidecar.
-/// M turns the materials off and on, to judge the lighting and the shapes on their own, F the fog and D the grime decals.
+/// M turns the materials off and on, to judge the lighting and the shapes on their own, F the fog, V the volumetric fog and D the grime decals.
 /// </summary>
 public sealed class CourtyardGame(Content content, Input input, Graphics graphics) : IGame
 {
@@ -51,6 +51,8 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         ["fixed"] = new InputScript().Press(Key.E).Wait(1),
         // The courtyard without its grime decals.
         ["clean"] = new InputScript().Press(Key.D).Wait(1),
+        // The courtyard with the plain height fog, to compare with the volumetric fog.
+        ["plain-fog"] = new InputScript().Press(Key.V).Wait(1),
     };
 
     public void Load()
@@ -128,7 +130,6 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
 
     public void Update(GameTime time)
     {
-        graphics.VolumetricFog = false; // TEMP-T26
         if (input.Pressed(Key.M))
         {
             graphics.Materials = !graphics.Materials;
@@ -160,7 +161,7 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         // Standing back at eye height, off to the right and turned left towards the window, as
         // in the reference photo: the low wall, which runs out square from the building, closes
         // the left of the frame, the path runs in to the puddle and the deck fills the right.
-        view.Camera(position: new Vector3(1.0f, 0.9f, 2.0f), lookAt: new Vector3(-2.75f, 2.4f, 4.1f), fieldOfView: 1.2f);
+        view.Camera(position: new Vector3(5.41f, 1.56f, 4.49f), lookAt: new Vector3(1.01f, 1.36f, -7.11f), fieldOfView: 0.85f);
 
         // Mid-afternoon. The sun is high on the left and a little in front of the wall, still
         // low enough to rake across the bricks and throw shadows to the right.
@@ -178,7 +179,7 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
             Turbidity = 2.5f,
             // A light morning fog, thickest on the ground, so the far wall sits a touch back in
             // the air behind the near flagstones. It glows where it looks towards the sun.
-            Fog = new FogSettings(Density: 0.02f, Height: 0f, Falloff: 0.15f, SunScatter: 0.6f),
+            Fog = new FogSettings(Density: 0.004f, Height: 0f, Falloff: 0.15f, SunScatter: 0.6f),
         });
         // A sun close to its real size, so the tree out of frame to the left, 10 m up-sun of
         // the wall, dapples it with crisp leafy shade rather than one soft patch.

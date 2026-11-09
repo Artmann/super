@@ -1060,8 +1060,66 @@ recaptures nothing.
 Two limits follow from where the fog is drawn. Screen-space reflections read the previous
 finished frame, which is already fogged, so a reflected surface gets its fog once on the way
 to the mirror and again from the mirror to the camera: a little too much fog in reflections.
-And since the sky background gets no fog, the sun's glow shows on geometry seen against the
+And since the sky background gets no plain fog, the sun's glow shows on geometry seen against the
 sun but not on the open sky beside it, so a silhouette can sit brighter than the sky around it.
+With the volumetric fog on, the sky does get the volume's light, so this only shows past
+`VolumetricDistance`.
+
+### Volumetric fog
+
+Near the camera the height fog is worked out in a froxel grid instead of in closed form.
+`Passes/VolumetricFog.cs` holds the grid's shape and sums in C# for the tests, and
+`Vulkan/VolumetricFogVolume.cs` the GPU side. The grid has one cell per 8×8 scene pixels
+(after render scale, rounded up) and 64 slices. Slice boundary i lies at view depth
+`n·(f/n)^(i/64)`, where f is `VolumetricDistance` and n, where the exponential split
+starts, is the smaller of 1 m and f/2. Cell 0 runs from the camera to boundary 1 and every
+other cell from its boundary to the next, so the slices are thin near the eye and deep far
+off. The frame uniforms carry `volumetric` (reach, n, anisotropy, and 1 when last frame's
+volume can be used), right after `curve`. `VolumetricFog.Pack` zeroes it, which makes every
+shader take the plain path untouched, with `RenderEffects.Fog` or `RenderEffects.VolumetricFog`
+off, a density or distance of 0, under water and while a probe is captured.
+
+Three rgba16f 3D images, about 35 MB at 1600×900, stay in the general layout for good. They
+are made the first time a frame draws the fog, at the scene's size, and remade with it;
+until then binding 8 of the frame set holds a 1×1×1 texel of (0, 0, 0, 1), which lets
+everything through. Two passes run after the shadow maps and the cluster lists, before
+the lighting pass, and the shadow maps' barriers list the compute stage among their readers.
+
+`volumetric_inject.comp` writes one of two injected volumes and samples the other as
+history. For each cell it finds the view ray through the cell's centre from
+`inverseViewProjection` (two points unprojected, so a parallel view works too) and picks
+a depth inside the cell from a 3-bit reversed counter of `frameNumber`, the base-2 van der
+Corput sequence of 8, so a fixed frame number gives the same points. It stores the
+density `fogDensity()` in alpha and, in rgb, the light scattered towards the camera:
+the sky light `fogSkyLight()` (the plain fog's colour without its sun glow), plus each sun's
+radiance times one tap of its shadow cascade times the Henyey-Greenstein phase of the angle
+between the view ray and the sun, plus each point and spot light from the cell's cluster
+times `localLightReaching()`, one tap of its shadow tile (`localShadowInAir`), its
+`Volumetric` strength (`fade.z` in `light_data.glsl`) and the phase. The sun's shadow in air
+fades out with distance as the surfaces' does. Then the cell's world point is projected
+with `previousViewProjection`; if it lands on screen and inside last frame's slices, the
+history at that spot is blended in at 90%. Off screen, outside the slices, or on the
+first frame after the fog was skipped, the new value stands alone.
+
+`volumetric_integrate.comp` walks each column front to back. A cell's length in metres
+is its depth span times the length of the ray's per-unit-depth step, its transmittance
+`exp(-σ·L)`, and it adds `kept·(1 - T)·rgb`, the plain fog's rule of colour times what is
+hidden. Texel i of the result holds the light in front of, and the transmittance to, the
+far side of cell i. `VolumetricFog.Integrate` is the same sum.
+
+`fog.glsl`'s `fogInFront()` replaces the old transmittance and fog light in
+`lighting.frag`, `transparent.frag` and `particle.frag`. With no volume it is the plain fog
+exactly. Inside the reach it reads the integrated volume trilinearly at the surface's
+screen position and depth; in the first cell it fades linearly from nothing at the camera.
+Past the reach it adds the plain fog from the volume's far edge to the surface,
+`inside.rgb + inside.a·plain`, with transmittance `inside.a·T`. `fogOverSky()` does the
+same for the sky background at the reach, so shafts show against the sky.
+
+The grid is coarse, so the limits are those of froxel fog. Light bleeds a cell, 8 pixels,
+across silhouettes, and a thin shaft narrower than a cell blurs into its neighbours. The
+history makes a moving light or a fast camera smear for a few frames. Inside the volume
+the sun's glow comes from the phase function, not `SunScatter`, so its shape changes at the
+reach unless the two roughly agree.
 
 ## Reflections
 

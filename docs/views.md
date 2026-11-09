@@ -55,8 +55,8 @@ component on its entity instead. See [Audio](audio.md).
 | `view.Camera(position, lookAt, fieldOfView)` | A fixed camera. See [Cameras](cameras.md) for the rest |
 | `view.Camera(camera)` | A `Camera` value the game keeps |
 | `view.Sun(direction, color, shadows)` | A directional light. `color` is linear and can go past 1. The first sun casts shadows unless `shadows: true` picks another |
-| `view.PointLight(key, position, color, range, shadows, radius)` | A light shining every way, like a candle or a torch. See [Point and spot lights](rendering.md#point-and-spot-lights) |
-| `view.SpotLight(key, position, direction, color, range, innerAngle, outerAngle, shadows, radius)` | A light shining in a cone, like a lantern's beam |
+| `view.PointLight(key, position, color, range, shadows, radius, volumetric)` | A light shining every way, like a candle or a torch. See [Point and spot lights](rendering.md#point-and-spot-lights) |
+| `view.SpotLight(key, position, direction, color, range, innerAngle, outerAngle, shadows, radius, volumetric)` | A light shining in a cone, like a lantern's beam |
 | `view.Model(key, model, transform, color)` | A model. `color`, if given, tints it and keeps its textures. `ModelRef.Cube`, `Sphere`, `Capsule`, `Cylinder`, `Cone`, `Plane`, `Quad` and `Torus` are [built in](rendering.md#built-in-shapes) |
 | `view.Model(key, model, transform, meshes)` | Only the meshes a `MeshMask` shows, such as a body without its helmet. See [Showing some meshes](#showing-some-meshes) |
 | `view.Decal(key, box, material, blend)` | Grime, damp or a stain projected onto whatever is inside a box. Up to 256 a frame. See [Decals](#decals) |
