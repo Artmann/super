@@ -8,7 +8,7 @@ namespace Courtyard;
 /// A sunlit courtyard modelled in Blender (art/courtyard.py): a brick wall with an arched
 /// window, a dry-stone wall, a flagstone path through trodden mud and a puddle. Its bricks, stone,
 /// mud, wood, rust and window glass are the material graphs, put on the model by its cook sidecar.
-/// M turns the materials off and on, to judge the lighting and the shapes on their own, and F the fog.
+/// M turns the materials off and on, to judge the lighting and the shapes on their own, F the fog and D the grime decals.
 /// </summary>
 public sealed class CourtyardGame(Content content, Input input, Graphics graphics) : IGame
 {
@@ -26,7 +26,20 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
     // left, so its walls fall off from warm to dark.
     private static readonly Vector3 RoomLamp = new(1.6f, 3.9f, -7.4f);
 
+    // From art/courtyard.py: the wall's face, its pier and the window sill, in Blender's metres.
+    private const float WallY = 4.0f;
+    private const float WallX0 = -2.8f;
+    private const float WallX1 = 11.0f;
+    private const float PierX0 = 6.3f;
+    private const float PierX1 = 7.0f;
+    private const float PierDepth = 0.14f;
+    private const float SillZ = 1.15f;
+    private const float WindowX = 2.4f;
+    private const float WindowWidth = 2.0f;
+
     private ModelRef _courtyard;
+    private MeshMask? _withoutStains;
+    private readonly List<(Matrix4x4 Box, Surface Surface)> _stains = [];
 
     public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
     {
@@ -36,11 +49,79 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         ["clear"] = new InputScript().Press(Key.F).Wait(1),
         // The courtyard at a fixed exposure, to compare with what the camera meters.
         ["fixed"] = new InputScript().Press(Key.E).Wait(1),
+        // The courtyard without its grime decals.
+        ["clean"] = new InputScript().Press(Key.D).Wait(1),
     };
 
     public void Load()
     {
         _courtyard = content.Model("models/courtyard.glb");
+
+        // The model still holds the flat stain quads art/courtyard.py lays in front of the wall
+        // (build_stains). The same grime is projected onto the wall as decals instead, so leave them out.
+        string[] kept = content.MeshNames(_courtyard).Where(name => name != "cy_stains").ToArray();
+        _withoutStains = content.Meshes(_courtyard, kept);
+
+        var damp = content.Surface("materials/grime.material.cs");
+        var drip = content.Surface("materials/grime-streak.material.json");
+        var rust = content.Surface("materials/rust-streak.material.json");
+
+        // Rising damp along the foot of the wall, solid just under the top of the plinth and faded
+        // out below the sill. The grime repeats every metre along the wall, so the band is laid as
+        // boxes about a metre wide. The pier stands out of the wall and gets its own.
+        float bottom = 0.42f;
+        float top = SillZ - 0.05f;
+        Band(damp, WallX0, PierX0, bottom, top, 0f);
+        Band(damp, PierX1, WallX1, bottom, top, 0f);
+        Band(damp, PierX0, PierX1, bottom, top - 0.1f, PierDepth);
+
+        // Dirty water run off the sill, a little wider than the window. A streak fades out at both its
+        // sides as well, across the width of its box.
+        float half = WindowWidth / 2f + 0.12f;
+        _stains.Add((StainBox(WindowX - half, WindowX + half, SillZ - 0.2f, SillZ - 0.95f, 0f, 0.12f), drip));
+
+        // Rust washed down from each anchor plate, in a shallow box, so it stains the brick round
+        // the plate and only the plate's rim.
+        foreach (float x in new[] { -1.2f, 10.1f })
+        {
+            _stains.Add((StainBox(x - 0.16f, x + 0.16f, 5.38f, 4.3f, 0f, 0.05f), rust));
+        }
+    }
+
+    // A band of grime from x0 to x1 that is solid at zSolid and has faded by zFaded, on the wall
+    // or on a face standing `outOfWall` in front of it, in boxes about a metre wide.
+    private void Band(Surface surface, float x0, float x1, float zSolid, float zFaded, float outOfWall)
+    {
+        int count = Math.Max(1, (int)MathF.Round(x1 - x0));
+        float width = (x1 - x0) / count;
+        for (int i = 0; i < count; i++)
+        {
+            float left = x0 + i * width;
+            _stains.Add((StainBox(left, left + width, zSolid, zFaded, outOfWall, 0.12f), surface));
+        }
+    }
+
+    // A decal box on the wall, from Blender's x and z, projecting into the wall. Its depth runs
+    // `depth` either side of a point 2 cm out, where the faces of the bricks are. The grime is
+    // solid at the image's V of 0 and fades towards 1, and the box's local +Z is where V is 0,
+    // so +Z points to zSolid.
+    private static Matrix4x4 StainBox(float x0, float x1, float zSolid, float zFaded, float outOfWall, float depth)
+    {
+        float width = x1 - x0;
+        float height = MathF.Abs(zFaded - zSolid);
+        // Blender's (x, y, z) is (x, z, -y) here, so the wall faces +z and its face is at -WallY.
+        var centre = new Vector3((x0 + x1) / 2f, (zSolid + zFaded) / 2f, -WallY + outOfWall + 0.02f);
+        // The box's +Y looks out of the wall. Its +Z points to the solid edge, and its +X is turned
+        // with it so the box isn't mirrored.
+        bool fadesUp = zFaded > zSolid;
+        var across = fadesUp ? new Vector3(width, 0f, 0f) : new Vector3(-width, 0f, 0f);
+        var solid = fadesUp ? new Vector3(0f, -height, 0f) : new Vector3(0f, height, 0f);
+        var outward = new Vector3(0f, 0f, 2f * depth);
+        return new Matrix4x4(
+            across.X, across.Y, across.Z, 0f,
+            outward.X, outward.Y, outward.Z, 0f,
+            solid.X, solid.Y, solid.Z, 0f,
+            centre.X, centre.Y, centre.Z, 1f);
     }
 
     public void Update(GameTime time)
@@ -58,6 +139,11 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         if (input.Pressed(Key.E))
         {
             graphics.AutoExposure = !graphics.AutoExposure;
+        }
+
+        if (input.Pressed(Key.D))
+        {
+            graphics.Decals = !graphics.Decals;
         }
     }
 
@@ -123,6 +209,13 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
             Lift = new Vector3(0f, 0.005f, 0.015f),
             Gain = new Vector3(0.01f, 0.005f, -0.005f),
         });
-        view.Model(0, _courtyard, Matrix4x4.Identity);
+        view.Model(0, _courtyard, Matrix4x4.Identity, _withoutStains!);
+
+        // The damp, the drip off the sill and the rust, laid onto the wall in the order the old
+        // quads were stacked, so the drip lies over the damp.
+        for (int i = 0; i < _stains.Count; i++)
+        {
+            view.Decal(i, _stains[i].Box, _stains[i].Surface);
+        }
     }
 }

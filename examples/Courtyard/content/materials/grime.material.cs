@@ -1,14 +1,14 @@
 using Super.Materials;
 
 /// <summary>
-/// A stain for laying over a wall as a dithered decal: dark, damp-looking grime that is solid along one edge and fades out
-/// in uneven streaks. The meshes it's used on run their V from 0 at the solid edge to 1 m, where it has faded out.
+/// A stain for projecting onto a wall as a decal: dark, damp-looking grime that is solid along the top edge of the image
+/// (V 0) and fades out in uneven streaks towards the bottom. It spans the decal's box once, so it doesn't tile in V.
 /// </summary>
 public sealed class Grime : MaterialGraph
 {
     /// <summary>
-    /// Fades out at the sides too, for a streak that runs down from something: the mesh runs its U from 0 to 2 across
-    /// the streak, however wide it is. Without this the grime runs on sideways, for a band along a wall.
+    /// Fades out at the sides too, for a streak that runs down from something: the decal's box spans the image once across
+    /// the streak, however wide it is. Without this the grime runs on sideways and tiles, for a band of boxes along a wall.
     /// </summary>
     public bool Streak { get; init; }
 
@@ -17,8 +17,8 @@ public sealed class Grime : MaterialGraph
 
     public override Material Build()
     {
-        // 0 at the solid edge, rising to 1 a metre away; the graph is 2 m wide, so that's half the image.
-        var away = Gradient.Linear(90f).Multiply(1.4f);
+        // 0 at the solid edge, rising down the image to 1.2 at the far edge, so the grime has gone by about four fifths.
+        var away = Pixel.Gray(p => p.Uv.Y * 1.2f);
 
         // Water runs down a wall in streaks, so the fade is torn into vertical runs of different lengths.
         var streaks = Noise.Directional(scale: 24, angle: 90f, stretch: 10f, octaves: 3, seed: Seed).Remap(-0.3f, 0.3f);

@@ -402,7 +402,16 @@ public sealed class Content
     /// </summary>
     public ModelRef Mesh(GeneratedMesh mesh)
     {
-        var surface = mesh.Surface;
+        RequireSurface(mesh.Surface);
+        return Add(mesh);
+    }
+
+    /// <summary>
+    /// Throws unless everything the surface names was named here first and its arrays fit, as
+    /// for a generated mesh or a decal.
+    /// </summary>
+    internal void RequireSurface(Surface surface)
+    {
         RequireTexture(surface.ColorTexture, nameof(surface.ColorTexture));
         RequireTexture(surface.NormalTexture, nameof(surface.NormalTexture));
         RequireTexture(surface.SurfaceTexture, nameof(surface.SurfaceTexture));
@@ -426,8 +435,6 @@ public sealed class Content
         {
             Require<TextureArrayItem>(surface.ShaderArrays[i].Index, $"{nameof(surface.ShaderArrays)}[{i}]", "texture array");
         }
-
-        return Add(mesh);
     }
 
     /// <summary>

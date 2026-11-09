@@ -29,8 +29,10 @@ cooked into textures when the game builds.
 
 Up close the wall shows its age. Damp rises above the plinth and fades out in streaks,
 dirty water has run down from the sill, and rust has washed down from the anchor plates.
-They are decals a millimetre or two in front of the bricks, faded softly with
-[`dithered`](../../docs/rendering.md#a-material-graph-on-a-model). The mortar sinks in with
+They are [decals](../../docs/views.md#decals) the game projects onto the wall, so the
+grime darkens the bricks and the mortar and makes them rougher, and each brick's edges
+still show through the wet. D turns them off and on. The model still holds the old stain
+quads from the Blender script, but the game leaves them out. The mortar sinks in with
 parallax, a grit graph laid over the bricks and stones keeps them grainy a step away, and
 broad patches of light and dark laid by world position hide where the textures repeat.
 

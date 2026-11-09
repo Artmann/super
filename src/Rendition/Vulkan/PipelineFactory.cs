@@ -28,6 +28,12 @@ internal ref struct PipelineDescription
     /// culls, for camera-facing squares that read depth themselves.
     /// </summary>
     public bool IgnoreDepth;
+
+    /// <summary>One blend state per colour target, in place of the ones <see cref="Transparent"/> picks.</summary>
+    public ReadOnlySpan<PipelineColorBlendAttachmentState> Blends;
+
+    /// <summary>Which faces to leave out, in place of the usual choice.</summary>
+    public CullModeFlags? CullMode;
 }
 
 internal static unsafe class PipelineFactory
@@ -81,7 +87,8 @@ internal static unsafe class PipelineFactory
         {
             SType = StructureType.PipelineRasterizationStateCreateInfo,
             PolygonMode = PolygonMode.Fill,
-            CullMode = hasDepth && !description.TwoSided ? CullModeFlags.BackBit : CullModeFlags.None,
+            CullMode = description.CullMode
+                ?? (hasDepth && !description.TwoSided ? CullModeFlags.BackBit : CullModeFlags.None),
             FrontFace = FrontFace.CounterClockwise,
             LineWidth = 1f,
         };
@@ -102,6 +109,12 @@ internal static unsafe class PipelineFactory
         var blendAttachments = stackalloc PipelineColorBlendAttachmentState[colorCount];
         for (int i = 0; i < colorCount; i++)
         {
+            if (!description.Blends.IsEmpty)
+            {
+                blendAttachments[i] = description.Blends[i];
+                continue;
+            }
+
             blendAttachments[i] = new PipelineColorBlendAttachmentState
             {
                 BlendEnable = description.Transparent,

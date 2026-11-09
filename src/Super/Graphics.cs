@@ -118,6 +118,13 @@ public sealed class Graphics
     public bool DepthOfField { get; set; } = true;
 
     /// <summary>
+    /// The stains, grime and damp laid onto surfaces with <see cref="View.Decal"/>. Off, they aren't drawn and the
+    /// surfaces show as they are. It costs a copy of the normal target and a pass over the boxes' pixels, so
+    /// <see cref="Fastest"/> turns it off.
+    /// </summary>
+    public bool Decals { get; set; } = true;
+
+    /// <summary>
     /// Every surface's own colour, textures, normal maps and shine. Off, everything is the same light grey,
     /// matte clay, shaped only by its mesh, so the lighting and the models can be judged without the
     /// textures in the way. Glows still glow, cut-outs still cut and glass stays see-through. It's
@@ -144,6 +151,7 @@ public sealed class Graphics
         Fog = false,
         AutoExposure = false,
         DepthOfField = false,
+        Decals = false,
     };
 
     /// <summary>The effects the renderer leaves out.</summary>
@@ -160,5 +168,6 @@ public sealed class Graphics
         | (Fog ? 0 : RenderEffects.Fog)
         | (AutoExposure ? 0 : RenderEffects.AutoExposure)
         | (DepthOfField ? 0 : RenderEffects.DepthOfField)
+        | (Decals ? 0 : RenderEffects.Decals)
         | (Materials ? 0 : RenderEffects.Materials);
 }

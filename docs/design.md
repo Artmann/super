@@ -705,6 +705,7 @@ ShadowPass    scene geometry   -> depth from the key light (1024, 2048 or 4096 s
               scene geometry   -> point and spot light shadows, tiles of one 4096 x 4096 atlas
 cluster.comp  compute          -> the point and spot lights reaching each of 16 x 9 x 24 clusters
 GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, depth
+DecalPass     decal boxes      -> colour, normal and roughness laid over the G-buffer, reading a copy of its normals
 AoPass        fullscreen       -> GTAO from depth and normals: bent normal (view space, octahedral) and visibility, RGBA8
 AoBlurPass    fullscreen       -> the same with the grain averaged away
 LightingPass  fullscreen       -> HDR colour (Cook-Torrance GGX PBR, traced reflections, probes), subsurface diffuse apart
@@ -1215,6 +1216,72 @@ three standard deviations of the widest colour, at most 96 pixels, and shift a l
 every frame so anti-aliasing turns the gaps between them into smooth grain. When no
 material has subsurface both blur passes are skipped.
 
+## Decals
+
+A decal is a box. `View.Decal` takes its matrix, a `Surface` made of textures and a
+`DecalBlend`, and refuses a box that can't be inverted, a weight outside 0 to 1, a surface
+shader and a 257th decal before anything is drawn. `SceneRenderer` turns each surface into
+a material of its own once (colour, normal and surface textures, no flags) and hands the
+renderer `FrameView.Decals`. `DecalBatch.Pack` checks them again and packs each one into a
+160-byte `GpuDecal`: the box, its inverse, the four weights and the material index.
+`DecalPass` keeps those in a host-visible vertex buffer for each frame in flight, read as
+per-instance attributes, so the frame set is unchanged, and draws all of them in one
+`vkCmdDraw` of 36 vertices per instance. `decal.vert` builds the cube from
+`gl_VertexIndex` and swaps two corners of every triangle when the box is mirrored, so its
+winding stays the same.
+
+`DecalPass` runs right after `GBufferPass`, before ambient occlusion, so AO, lighting,
+reflections and everything after see the decals as part of the surfaces. Its pipeline culls
+front faces and has no depth attachment, so a box draws its back faces even with the camera
+inside it. Nothing in front of a decal needs testing: it lands on whatever the depth
+buffer holds, which is the nearest surface.
+`decal.frag` reads the depth, rebuilds the world position from `inverseViewProjection`,
+takes it into the box with the inverse, and discards it outside the box or at the far
+plane. The UV is the box's local x and -z mapped from -0.5..0.5 to 0..1. Its derivatives
+are taken before any discard and clamped to four times what a flat surface at that depth
+would give, so the mip doesn't jump to the smallest at a depth edge, and they're scaled by
+the frame's mip bias, so render scale and TAA sharpen decals as they do the rest.
+
+A decal fades where the surface under it turns away from the box's +Y, with a smoothstep
+from `AngleFade` up to halfway to 1, and over the last fifth of its depth either way, so a
+box that pokes through a corner doesn't end in a hard line. Its strength is the material's
+opacity (base colour alpha times the surface texture's alpha) times that fade. Base colour
+is alpha-blended, by that strength times `Color`, into RT0, with metallic left alone.
+
+RT1 is written whole, without blending, because a normal can't be blended as a colour:
+the decal's normal map is laid over the normal underneath with reoriented normal mapping
+(RNM), so the brick's bumps show through the damp. The pass must read the normal it
+writes, and a colour attachment can't be sampled while it's drawn to, so `RecordDecals`
+copies RT1 into `GBuffer.NormalCopy` with `vkCmdCopyImage` first and the shader reads the
+copy. The RNM runs in the box's frame: x across the box, y out of the surface, z along
+it. The result is mixed in by strength times `Normal`, roughness by strength times
+`Roughness`, and RT1's w is copied through. The copy and the transitions round it are
+skipped when a frame has no decals. Depth goes to shader-read for the pass, which the AO
+pass then reads as it was going to anyway.
+
+`RenderEffects.Decals` (bit 14) works on the CPU and has no shader flag: `SceneRenderer`
+hands over no decals and the renderer packs none, so the copy and the pass are both
+skipped. With `RenderEffects.Materials` off, `decal.frag` discards every pixel, so the
+plain clay stays plain.
+
+Reflection and light probe captures draw decals too: `CaptureFaces` uploads them after its
+idle wait, and `RecordScene` runs the pass for every face. They are left out of the
+lighting hash, so moving or adding one never photographs a probe again. A probe photographed
+before a decal appeared shows the wall without it until something else changes the hash.
+
+What it doesn't do yet:
+
+- Decals that overlap don't stack their normals and roughness: each reads the same copy
+  of the G-buffer's normals, so the later one replaces the earlier one's where both draw.
+  Their colours do stack.
+- Metallic and emissive aren't blended. A decal can't make a surface metal or make it glow.
+- Detail textures, height maps and world variation on the decal's surface are ignored.
+- The angle fade uses the bumpy G-buffer normal, so a strongly bumped surface fades in
+  specks near the limit.
+- `NormalCopy` costs a full scene-size RGBA16F image, kept even in frames with no decals.
+- The pass has no GPU timer mark of its own, so its time counts toward ambient occlusion
+  in the profiler.
+
 ## Particles
 
 A particle is a plain 44-byte struct: middle, width, linear colour and opacity, a turn,
@@ -1369,9 +1436,9 @@ to `1.1`, and the roughness by 1.08 down to 0.94, by two octaves of value noise 
 `inPosition` (about 3 m and 0.8 m), so the variation never repeats with the UVs.
 `MaterialFlags.Dithered` discards G-buffer pixels whose opacity is at or below a per-pixel
 interleaved gradient noise threshold that moves each frame, and `shadow.frag` does the
-same against its 4x4 ordered pattern, so TAA and the shadow filter average both into a soft fade. A dithered decal
-writes its own normal and roughness where it draws, so the surface behind loses its bumps
-there.
+same against its 4x4 ordered pattern, so TAA and the shadow filter average both into a soft fade. A dithered
+surface writes its own normal and roughness where it draws, so the surface behind loses its
+bumps there. A projected [decal](#decals) blends into what's under it instead.
 
 The detail colour divides by 128/255, so mid grey is neutral and the detail can lighten as
 well as darken. The detail normal is laid over the surface's normal with reoriented normal

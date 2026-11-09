@@ -56,6 +56,7 @@ next frame follows, so it can back an options menu.
 | `Fog` | Clear air, whatever `SkySettings.Fog` asks for. [Haze](#the-sky) stays, since it isn't fog. `SkySettings.Fog` only changes [how thick it is](#fog) |
 | `AutoExposure` | Views that ask for [auto exposure](#auto-exposure) keep the fixed `PostSettings.Exposure` instead, as if they hadn't asked. It saves a compute pass over the frame |
 | `DepthOfField` | Everything is sharp, even in views that open the lens with `PostSettings.Aperture`. It saves three passes, two of them at half size. See [focus](#focus) |
+| `Decals` | No [decals](views.md#decals): surfaces show as they are, without the grime and stains `view.Decal` lays on them. It saves a copy of the normal target and a pass over the decals' pixels |
 | `Materials` | Every surface is the same light grey, matte clay, shaped only by its mesh, so you can judge the lighting and the models without textures in the way. Glows still glow, cut-outs still cut and glass stays see-through. `--no-materials` turns it off too |
 
 `Graphics.Fastest()` leaves `RenderScale` at 1 too, since a smaller picture is a change the
@@ -727,11 +728,13 @@ on the Courtyard's bricks, stone, flagstones and mud.
 
 `dithered` fades a material out softly by its opacity instead of cutting it at `alphaCutoff`.
 Each frame a share of its pixels as large as its opacity is drawn, a different share each
-time, and anti-aliasing blends them into a smooth fade. It's for decals laid a millimetre or
-two in front of another surface, such as the damp along the foot of the Courtyard's wall and
-the streaks under its sill and anchor plates. Its shadow fades the same way. With
-`AntiAliasing` off the pattern shows as grain. Like any opaque surface, a decal replaces the
-normal of what's behind it, so give it its own bumps or keep it flat.
+time, and anti-aliasing blends them into a smooth fade. Its shadow fades the same way. With
+`AntiAliasing` off the pattern shows as grain. Like any opaque surface, a dithered one
+replaces the normal and roughness of what's behind it. For grime, damp or a stain on a
+wall, use a [decal](views.md#decals) instead of a dithered quad in front of it: a decal
+blends its colour and roughness into the wall and lays its bumps over the wall's own, so
+the bricks still show through, and it never floats off the surface or flickers against it.
+Keep `dithered` for things that should fade as a whole, such as a leaf or a cobweb.
 
 ### A material graph on a model
 
@@ -766,7 +769,9 @@ own textures. Since the graph makes the textures, a rule that also sets `baseCol
 the other switches work as usual. A graph's `Opacity` goes into the surface texture's alpha,
 so for glass whose grime clouds it, add `"transparent": true` and the graph's opacity
 scales the tint, as the Courtyard's window does. With `"dithered": true` the opacity fades the
-material out instead, for a stain like the Courtyard's `grime.material.cs`.
+material out instead. A stain such as the Courtyard's `grime.material.cs` looks better as a
+[decal](views.md#decals): `content.Surface` loads the graph on its own, and its opacity
+fades the decal.
 
 A graph that sets a `Height` also gives the material a height map, so its grooves sink in
 with [parallax](#height-and-detail-maps) up close. The depth is the graph's `Depth`. A rule's

@@ -753,6 +753,12 @@ public ref struct FrameView
     /// </summary>
     public ReadOnlySpan<Particle> Particles;
 
+    /// <summary>
+    /// Materials laid onto what lies inside a box, after the opaque surfaces are drawn and before they're lit.
+    /// At most <see cref="Passes.DecalBatch.MaxDecals"/>; more throws. Drawn in order, so a later one covers an earlier one.
+    /// </summary>
+    public ReadOnlySpan<DecalDraw> Decals;
+
     /// <summary>A fade, dissolve or wipe between two pictures, or none.</summary>
     public ScreenTransition Transition;
 
@@ -828,9 +834,41 @@ public enum RenderEffects
     /// </summary>
     DepthOfField = 1 << 13,
 
+    /// <summary>The frame's <see cref="FrameView.Decals"/>. Without them stains and grime aren't drawn.</summary>
+    Decals = 1 << 14,
+
     All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
-        | MultiscatterSpecular | Fog | AutoExposure | DepthOfField,
+        | MultiscatterSpecular | Fog | AutoExposure | DepthOfField | Decals,
 }
+
+/// <summary>
+/// How much of a decal's material reaches the surface under it, each from 0 to 1, along with
+/// how far round a corner it reaches. Each weight is multiplied by the material's opacity.
+/// </summary>
+/// <param name="Color">How much of the decal's colour covers the surface's.</param>
+/// <param name="Normal">How much of the decal's normal map is laid over the surface's bumps.</param>
+/// <param name="Roughness">How much of the decal's roughness replaces the surface's, as a damp patch shines.</param>
+/// <param name="AngleFade">
+/// The cosine of the angle from the box's up at which a surface stops taking the decal. The decal fades out
+/// as a surface turns towards it, so 0.5 reaches surfaces up to 60 degrees away, and 0 reaches round to 90.
+/// </param>
+public readonly record struct DecalBlend(float Color = 1f, float Normal = 1f, float Roughness = 1f, float AngleFade = 0.5f)
+{
+    /// <summary>The whole material, fading out on surfaces more than 60 degrees from the box's up.</summary>
+    public DecalBlend() : this(1f, 1f, 1f, 0.5f)
+    {
+    }
+}
+
+/// <summary>
+/// A material laid onto whatever lies inside a box, such as a damp patch on a wall or rust under a
+/// bracket. It projects down the box's own −Y: the box's X and Z span the material's width and height, and
+/// its Y how deep it reaches. See docs/views.md.
+/// </summary>
+/// <param name="Box">Takes the cube from −0.5 to 0.5 on each axis to where the decal is in the world.</param>
+/// <param name="Material">What is laid on. Its colour, surface and normal textures are used.</param>
+/// <param name="Blend">How much of each part of the material reaches the surface.</param>
+public readonly record struct DecalDraw(Matrix4x4 Box, MaterialHandle Material, DecalBlend Blend);
 
 /// <summary>
 /// A soft, see-through puff that always faces the camera, such as one wisp of dust or

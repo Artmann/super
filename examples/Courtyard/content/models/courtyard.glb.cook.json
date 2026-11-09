@@ -1,5 +1,6 @@
 {
   "keepOrigin": true,
+  "keepMeshes": true,
   "materials": [
     { "match": "graph_bricks", "graph": "../materials/bricks.material.cs", "graphSize": 2048, "detailGraph": "../materials/grit.material.cs", "worldVariation": true },
     { "match": "cy_arch_brick_a", "graph": "../materials/brick-face.material.cs", "graphSize": 2048 },

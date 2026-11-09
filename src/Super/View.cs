@@ -37,6 +37,9 @@ public readonly record struct SunLight(Vector3 Direction, Vector3 Color, bool Ca
 /// </summary>
 public readonly record struct ReflectionProbeRequest(int Key, Vector3 Position, Vector3 Min, Vector3 Max, float Blend);
 
+/// <summary>A decal placed with <see cref="View.Decal"/>: the box it fills, what it lays on and how much of each part.</summary>
+public readonly record struct DecalRequest(int Key, Matrix4x4 Box, Surface Material, DecalBlend Blend);
+
 /// <summary>
 /// Names a model. <see cref="Content"/> hands these out, and there are built-in shapes one
 /// unit wide, centred on zero. Build other sizes with <see cref="Shapes"/>.
@@ -82,6 +85,8 @@ public sealed class View
     private readonly List<Particle> _particles = [];
     private readonly List<LocalLight> _lights = [];
     private readonly List<ReflectionProbeRequest> _reflectionProbes = [];
+    private readonly List<DecalRequest> _decals = [];
+    private readonly HashSet<int> _decalKeys = [];
     private readonly ViewMemory _memory = new();
     private long _frame;
     private long _tick;
@@ -121,6 +126,9 @@ public sealed class View
 
     /// <summary>The reflection probes placed so far this frame, in the order they were placed.</summary>
     public ReadOnlySpan<ReflectionProbeRequest> ReflectionProbes => CollectionsMarshal.AsSpan(_reflectionProbes);
+
+    /// <summary>The decals placed so far this frame, in the order they are drawn.</summary>
+    public ReadOnlySpan<DecalRequest> DrawnDecals => CollectionsMarshal.AsSpan(_decals);
 
     /// <summary>How far the display is between the last tick and the next, from 0 to 1.</summary>
     public float Blend { get; private set; }
@@ -676,6 +684,44 @@ public sealed class View
         _reflectionProbes.Add(new ReflectionProbeRequest(key, position, boxMin, boxMax, blend));
     }
 
+    /// <summary>
+    /// Lays a material onto whatever lies inside a box, such as a damp patch on a wall, rust under a bracket or
+    /// a puddle's dark ring, without a mesh of its own. The box is the cube from −0.5 to 0.5 moved by
+    /// <paramref name="box"/>: the material spans its X and Z, and it projects down the box's −Y onto every
+    /// surface it reaches, so the bumps under it still show. Point the box's Y out of the wall or up from the floor.
+    /// The material's colour, surface and normal textures are used, and their opacity says where it shows.
+    /// <paramref name="blend"/> says how much of each reaches the surface, the whole material when left out.
+    /// Decals are drawn in order. The key names the decal, and each one can be placed once a frame.
+    /// At most <see cref="DecalBatch.MaxDecals"/> fit. See docs/views.md.
+    /// </summary>
+    public void Decal(int key, Matrix4x4 box, Surface material, DecalBlend? blend = default)
+    {
+        ArgumentNullException.ThrowIfNull(material);
+        if (_decals.Count == DecalBatch.MaxDecals)
+        {
+            throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
+                $"At most {DecalBatch.MaxDecals} decals fit in a frame."));
+        }
+
+        if (_decalKeys.Contains(key))
+        {
+            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture,
+                $"Decal {key} was already placed this frame. Give each decal its own key."), nameof(key));
+        }
+
+        var weights = blend ?? new DecalBlend();
+        DecalBatch.Check(box, weights);
+        if (material.Shader is not null)
+        {
+            throw new ArgumentException(
+                "A decal can't use a surface shader. Give it a surface made of textures, such as a material graph's.", nameof(material));
+        }
+
+        Content?.RequireSurface(material);
+        _decalKeys.Add(key);
+        _decals.Add(new DecalRequest(key, box, material, weights));
+    }
+
     private static string Format(Vector3 value) => value.ToString(null, CultureInfo.InvariantCulture);
 
     /// <summary>How wide the sun looks, in radians, unless <see cref="Shadows"/> says otherwise.</summary>
@@ -791,6 +837,8 @@ public sealed class View
         Occlusion = new OcclusionSettings();
         LightProbeVolume = null;
         _reflectionProbes.Clear();
+        _decals.Clear();
+        _decalKeys.Clear();
 
         // The hold stays, since changing it is what tells the renderer to keep a picture.
         Transition = new ScreenTransition { Hold = Transition.Hold };

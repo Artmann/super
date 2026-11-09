@@ -169,6 +169,7 @@ public class GraphicsTests
     [InlineData(nameof(Graphics.Fog), RenderEffects.Fog)]
     [InlineData(nameof(Graphics.AutoExposure), RenderEffects.AutoExposure)]
     [InlineData(nameof(Graphics.DepthOfField), RenderEffects.DepthOfField)]
+    [InlineData(nameof(Graphics.Decals), RenderEffects.Decals)]
     public void Each_switch_turned_off_leaves_out_only_its_own_effect(string setting, RenderEffects effect)
     {
         var graphics = new Graphics();
@@ -186,7 +187,7 @@ public class GraphicsTests
             RenderEffects.SunShadows | RenderEffects.LightShadows | RenderEffects.AmbientOcclusion
             | RenderEffects.Reflections | RenderEffects.AntiAliasing | RenderEffects.Bloom | RenderEffects.ContactShadows
             | RenderEffects.LightProbes | RenderEffects.MultiscatterSpecular | RenderEffects.Fog | RenderEffects.AutoExposure
-            | RenderEffects.DepthOfField,
+            | RenderEffects.DepthOfField | RenderEffects.Decals,
             graphics.Off);
         Assert.True(graphics.Materials);
         Assert.False(graphics.Vsync);

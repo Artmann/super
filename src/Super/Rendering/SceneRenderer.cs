@@ -38,6 +38,11 @@ internal sealed class SceneRenderer : IDisposable
     private IContentFiles? _files;
     private readonly ReflectionProbeSchedule _reflectionProbes = new();
 
+    /// <summary>A material for each surface decals have used, made the first time and kept until content unloads.</summary>
+    private readonly Dictionary<Surface, MaterialHandle> _decalMaterials = [];
+    private DecalDraw[] _decals = new DecalDraw[16];
+    private int _decalCount;
+
     public SceneRenderer(RendererOptions options)
     {
         _renderer = new Renderer(options);
@@ -132,6 +137,7 @@ internal sealed class SceneRenderer : IDisposable
     {
         Prepare(content, view);
         int count = PrepareDraws(view, content);
+        PrepareDecals(view, content);
         var frame = CreateFrame(view, width, height, time);
         CaptureReflectionProbes(view, frame, _draws.AsSpan(0, count));
         _renderer.Render(frame, _draws.AsSpan(0, count));
@@ -141,6 +147,7 @@ internal sealed class SceneRenderer : IDisposable
     {
         Prepare(content, view);
         int count = PrepareDraws(view, content);
+        PrepareDecals(view, content);
         var frame = CreateFrame(view, width, height, time);
         CaptureReflectionProbes(view, frame, _draws.AsSpan(0, count));
         return _renderer.Capture(frame, _draws.AsSpan(0, count), out capturedWidth, out capturedHeight);
@@ -300,6 +307,18 @@ internal sealed class SceneRenderer : IDisposable
         // Set before anything new starts preparing, since models are read through it on background threads.
         _files = content.Files;
         _items.Update(content);
+
+        // Decal materials point at the textures being freed, so they go too, and are made again when next used.
+        if (content.PendingUnloads.Length > 0)
+        {
+            foreach (var material in _decalMaterials.Values)
+            {
+                _renderer.DestroyMaterial(material);
+            }
+
+            _decalMaterials.Clear();
+        }
+
         foreach (int index in content.PendingUnloads)
         {
             if (_items.Take(index, Unloaded.Instance, content) is { } loaded)
@@ -409,6 +428,49 @@ internal sealed class SceneRenderer : IDisposable
         var handle = _renderer.CreateMaterial(material);
         var part = _renderer.CreateDrawItem(mesh.Vertices, mesh.Indices, handle, mesh.Simplify);
         return new LoadedModel([part], handle, ownedTexture);
+    }
+
+    /// <summary>The view's decals, each with its surface's material, or none while decals are off.</summary>
+    private void PrepareDecals(View view, Content content)
+    {
+        _decalCount = 0;
+        if (Off.HasFlag(RenderEffects.Decals))
+        {
+            return;
+        }
+
+        var placed = view.DrawnDecals;
+        if (_decals.Length < placed.Length)
+        {
+            _decals = new DecalDraw[Math.Max(placed.Length, _decals.Length * 2)];
+        }
+
+        foreach (ref readonly var decal in placed)
+        {
+            _decals[_decalCount++] = new DecalDraw(decal.Box, DecalMaterial(decal.Material, content), decal.Blend);
+        }
+    }
+
+    /// <summary>
+    /// The material a decal lays on: the surface's colour, roughness and opacity, and its colour, normal and
+    /// surface textures. A surface used before gets the material made then.
+    /// </summary>
+    private MaterialHandle DecalMaterial(Surface surface, Content content)
+    {
+        if (!_decalMaterials.TryGetValue(surface, out var handle))
+        {
+            var material = MaterialOf(surface) with
+            {
+                BaseColorTexture = Texture(surface.ColorTexture, content),
+                NormalTexture = Texture(surface.NormalTexture, content),
+                SurfaceTexture = Texture(surface.SurfaceTexture, content),
+                Flags = MaterialFlags.None,
+            };
+            handle = _renderer.CreateMaterial(material);
+            _decalMaterials.Add(surface, handle);
+        }
+
+        return handle;
     }
 
     /// <summary>A surface's own values as a material, before its textures and shader are found. Below full opacity it's glass.</summary>
@@ -671,6 +733,7 @@ internal sealed class SceneRenderer : IDisposable
             Water = view.WaterSettings,
             Overlay = view.Ui is { } ui ? ui.Quads : [],
             Particles = view.DrawnParticles,
+            Decals = _decals.AsSpan(0, _decalCount),
             Transition = view.Transition,
             Off = Off,
             LocalLights = view.DrawnLights,

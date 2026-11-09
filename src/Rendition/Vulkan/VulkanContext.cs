@@ -272,6 +272,8 @@ internal sealed unsafe class VulkanContext : IDisposable
         {
             SamplerAnisotropy = true,
             ImageCubeArray = true,
+            // The decal pass blends its colour target and writes its normal target whole.
+            IndependentBlend = true,
             ShaderSampledImageArrayDynamicIndexing = true,
             TextureCompressionBC = true,
             ShaderStorageImageExtendedFormats = StorageImageExtendedFormats,

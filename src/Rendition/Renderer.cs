@@ -139,6 +139,7 @@ public sealed unsafe class Renderer : IDisposable
     private readonly FullscreenPass _scatterDownPass;
     private readonly TransparentPass _transparentPass;
     private readonly ParticlePass _particlePass;
+    private readonly DecalPass _decalPass;
     private ParticlePass.CameraConstants _particleCamera;
     private TransparentView _transparentView;
     private int _particleCount;
@@ -403,6 +404,7 @@ public sealed unsafe class Renderer : IDisposable
         _overlaySet = AllocateSet(_oneTextureSetLayout);
         _bloomPass = new BloomPass(_context, _linearSampler, _gBuffer.Resolved.View, _gBuffer.Extent);
         _particlePass = new ParticlePass(_context, _frameSetLayout, FramesInFlight);
+        _decalPass = new DecalPass(_context, _frameSetLayout, _resources, FramesInFlight);
         _transparentPass = new TransparentPass(_context, _frameSetLayout, _resources, _environment, _probes);
         _exposureMeter = new ExposureMeter(_context, _sampler);
         _depthOfFieldPass = new DepthOfFieldPass(_context, _sampler, _linearSampler, _frameSetLayout);
@@ -854,6 +856,12 @@ public sealed unsafe class Renderer : IDisposable
         faceView.BackgroundFadeStart = 0f;
         faceView.BackgroundFadeEnd = 0f;
 
+        // Probes see the decals too, so a stain's damp shine shows in a reflection. The GPU is idle, so
+        // this frame's buffer is free. Decals don't count towards a probe's lighting hash, so they never
+        // cause a capture of their own.
+        PrepareDecals(view);
+        _decalPass.Upload(_frameIndex);
+
         for (int face = 0; face < faces.Length; face++)
         {
             faceView.View = Matrix4x4.CreateLookAt(position, position + faces[face].Forward, faces[face].Up);
@@ -1196,6 +1204,8 @@ public sealed unsafe class Renderer : IDisposable
             _depthOfFieldPass.SetSource(DisplaySource, _gBuffer.Depth.View);
         }
 
+        // Checked before anything is recorded, so a decal that can't be drawn throws with the frame untouched.
+        PrepareDecals(view);
         BakeSky(view);
         CaptureLightProbes(view, draws);
 
@@ -1269,6 +1279,10 @@ public sealed unsafe class Renderer : IDisposable
         _uploads.Record(cmd, _destroyed[_frameIndex].Others);
         int overlayQuads = _overlayAtlas is null ? 0 : _overlayPass.Upload(_frameIndex, view.Overlay);
         UploadParticles(view);
+
+        // Light probe captures may have packed this frame's decals over again, but they are the same ones.
+        PrepareDecals(view);
+        _decalPass.Upload(_frameIndex);
         if (timed)
         {
             _gpuTimer.Begin(cmd, _frameIndex);
@@ -1386,6 +1400,25 @@ public sealed unsafe class Renderer : IDisposable
     /// Sorts this frame's particles into their buffer and keeps the camera's axes, which
     /// turn each one to face the screen. The view matrix holds them in its columns.
     /// </summary>
+    /// <summary>
+    /// Checks and packs the view's decals, or none when they're switched off. Throws for a decal
+    /// that can't be drawn: too many, a box that can't be inverted, a weight outside 0 to 1 or a material that doesn't exist.
+    /// </summary>
+    private void PrepareDecals(in FrameView view)
+    {
+        ReadOnlySpan<DecalDraw> decals = _off.HasFlag(RenderEffects.Decals) ? [] : view.Decals;
+        for (int i = 0; i < decals.Length; i++)
+        {
+            if (!_resources.IsLive(decals[i].Material))
+            {
+                throw new ArgumentException(
+                    string.Create(CultureInfo.InvariantCulture, $"Decal {i}'s material does not exist."), nameof(view));
+            }
+        }
+
+        _decalPass.Prepare(decals);
+    }
+
     private void UploadParticles(in FrameView view)
     {
         ref readonly var m = ref view.View;
@@ -1491,6 +1524,7 @@ public sealed unsafe class Renderer : IDisposable
         _taaPass.Dispose();
         _transparentPass.Dispose();
         _particlePass.Dispose();
+        _decalPass.Dispose();
         _lightingPass.Dispose();
         _scatterAcrossPass.Dispose();
         _scatterDownPass.Dispose();
@@ -1822,6 +1856,7 @@ public sealed unsafe class Renderer : IDisposable
 
         // A light probe must see the backs of surfaces to know it is inside a wall.
         _gBufferPass.Record(cmd, targets, frameSet, draws, _meshes, instances, allTwoSided: _capturingLightProbes);
+        bool decalsDrawn = RecordDecals(cmd, targets, frameSet);
 
         _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
             ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, ColorStage, ColorWrite, SampledStage, SampledAccess);
@@ -1829,8 +1864,12 @@ public sealed unsafe class Renderer : IDisposable
             ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, ColorStage, ColorWrite, SampledStage, SampledAccess);
         _api.Transition(cmd, targets.Emissive.Image, ImageAspectFlags.ColorBit,
             ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, ColorStage, ColorWrite, SampledStage, SampledAccess);
-        _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
-            ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess);
+        if (!decalsDrawn)
+        {
+            _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
+                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess);
+        }
+
         _gpuTimer.Mark(cmd);
 
         // Left out, the lighting pass reads no occlusion, but it still binds the target.
@@ -1904,6 +1943,47 @@ public sealed unsafe class Renderer : IDisposable
 
         _api.EndColorTarget(cmd, targets.Hdr.Image);
         _gpuTimer.Mark(cmd);
+    }
+
+    /// <summary>
+    /// Lays the prepared decals onto the G-buffer just drawn, and returns whether there were any.
+    /// They read the normal target while writing it, so it is copied first and they read the copy.
+    /// Depth is left ready to sample, the base colour and normal targets ready to draw into.
+    /// </summary>
+    private bool RecordDecals(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet)
+    {
+        if (_decalPass.Count == 0)
+        {
+            return false;
+        }
+
+        const PipelineStageFlags2 copy = PipelineStageFlags2.CopyBit;
+        _api.Transition(cmd, targets.Normal.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferSrcOptimal, ColorStage, ColorWrite, copy, AccessFlags2.TransferReadBit);
+        _api.Transition(cmd, targets.NormalCopy.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.TransferDstOptimal, SampledStage, SampledAccess, copy, AccessFlags2.TransferWriteBit);
+        var region = new ImageCopy
+        {
+            SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
+            DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
+            Extent = new Extent3D(targets.Extent.Width, targets.Extent.Height, 1),
+        };
+        _api.CmdCopyImage(cmd, targets.Normal.Image, ImageLayout.TransferSrcOptimal,
+            targets.NormalCopy.Image, ImageLayout.TransferDstOptimal, 1, &region);
+        _api.Transition(cmd, targets.NormalCopy.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal, copy, AccessFlags2.TransferWriteBit, SampledStage, SampledAccess);
+        _api.Transition(cmd, targets.Normal.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferSrcOptimal, ImageLayout.ColorAttachmentOptimal, copy, AccessFlags2.TransferReadBit, ColorStage, ColorWrite);
+
+        // The colour blends over what the opaque pass wrote.
+        _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
+            ColorWrite | AccessFlags2.ColorAttachmentReadBit);
+        _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
+            ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess);
+
+        _decalPass.Record(cmd, targets, frameSet, _frameIndex);
+        return true;
     }
 
     /// <summary>
@@ -2463,6 +2543,7 @@ public sealed unsafe class Renderer : IDisposable
     {
         var depth = new DescriptorImageInfo(_sampler, _gBuffer.Depth.View, ImageLayout.ShaderReadOnlyOptimal);
         var normal = new DescriptorImageInfo(_sampler, _gBuffer.Normal.View, ImageLayout.ShaderReadOnlyOptimal);
+        _decalPass.WriteTargets(depth, new DescriptorImageInfo(_sampler, _gBuffer.NormalCopy.View, ImageLayout.ShaderReadOnlyOptimal));
 
         var shadowDepth = new DescriptorImageInfo(_sampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal);
 

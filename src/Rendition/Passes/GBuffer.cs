@@ -20,6 +20,9 @@ internal sealed class GBuffer : IDisposable
     public readonly Extent2D Extent;
     public readonly RenderTarget BaseColor;
     public readonly RenderTarget Normal;
+    /// <summary>Normal as the opaque surfaces left it, for decals to read while they write Normal.</summary>
+    public readonly RenderTarget NormalCopy;
+
     public readonly RenderTarget Emissive;
     public readonly RenderTarget Depth;
     public readonly RenderTarget Hdr;
@@ -48,7 +51,8 @@ internal sealed class GBuffer : IDisposable
     {
         Extent = extent;
         BaseColor = new RenderTarget(context, BaseColorFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
-        Normal = new RenderTarget(context, NormalFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
+        Normal = new RenderTarget(context, NormalFormat, extent, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
+        NormalCopy = new RenderTarget(context, NormalFormat, extent, ImageUsageFlags.TransferDstBit, ImageAspectFlags.ColorBit);
         Emissive = new RenderTarget(context, EmissiveFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         Depth = new RenderTarget(context, DepthFormat, extent, ImageUsageFlags.DepthStencilAttachmentBit, ImageAspectFlags.DepthBit);
         Hdr = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
@@ -73,6 +77,7 @@ internal sealed class GBuffer : IDisposable
     {
         BaseColor.Dispose();
         Normal.Dispose();
+        NormalCopy.Dispose();
         Emissive.Dispose();
         Depth.Dispose();
         Hdr.Dispose();
