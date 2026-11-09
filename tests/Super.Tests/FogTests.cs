@@ -49,6 +49,27 @@ public class FogTests
     }
 
     [Fact]
+    public void A_camera_high_above_the_fog_looking_straight_down_into_it_sees_through_its_whole_depth()
+    {
+        // From 120 m down to the fog's height with falloff 1: the integral of 0.1 e^-y from 0 to 120
+        // is 0.1 (1 - e^-120), which is 0.1 to well within a float.
+        float kept = Fog.Transmittance(0.1f, 0f, 1f, new Vector3(0f, 120f, 0f), Vector3.Zero);
+
+        Assert.True(float.IsFinite(kept));
+        Assert.Equal(0.904837f, kept, Tolerance);
+    }
+
+    [Fact]
+    public void Far_below_the_fog_height_the_air_hides_everything_instead_of_breaking()
+    {
+        // 95 to 100 m under the fog's height with falloff 1 the density is 0.1 e^95 and more, far
+        // past what a float holds, so nothing gets through.
+        float kept = Fog.Transmittance(0.1f, 0f, 1f, new Vector3(0f, -100f, 0f), new Vector3(0f, -95f, 0f));
+
+        Assert.Equal(0f, kept);
+    }
+
+    [Fact]
     public void The_fog_height_is_where_the_density_is_as_given()
     {
         // The same level ray as the Beer-Lambert one, with the fog and the ray both 5 m up.

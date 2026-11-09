@@ -12,9 +12,12 @@ float fogTransmittance(vec3 position) {
 
     vec3 from = frame.cameraPosition.xyz;
     float falloff = frame.fog.z;
-    float climb = falloff * (position.y - from.y);
-    float along = abs(climb) > 1e-4 ? (1.0 - exp(-climb)) / climb : 1.0;
-    float depth = density * exp(-falloff * (from.y - frame.fog.y)) * length(position - from) * along;
+    // Taken from the ray's lower end, so a camera far above or below the fog's height never
+    // meets inf - inf or 0 * inf.
+    float low = min(from.y, position.y);
+    float rise = falloff * abs(position.y - from.y);
+    float along = rise > 1e-4 ? (1.0 - exp(-rise)) / rise : 1.0;
+    float depth = density * exp(-falloff * (low - frame.fog.y)) * length(position - from) * along;
     return exp(-depth);
 }
 

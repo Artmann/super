@@ -8,7 +8,10 @@ namespace Rendition.Passes;
 /// </summary>
 internal static class Fog
 {
-    /// <summary>Below this, a ray is level enough to take as level, which is off by under 0.005 per cent.</summary>
+    /// <summary>
+    /// Below this rise, a ray is taken as level, which is off by under 0.005 per cent. Just above it,
+    /// rounding in 1 - e^-rise in floats is off by up to about 0.06 per cent.
+    /// </summary>
     private const float LevelRay = 1e-4f;
 
     /// <summary>x: density at the fog's height; y: that height; z: falloff per metre; w: sun scatter.</summary>
@@ -37,9 +40,13 @@ internal static class Fog
         }
 
         float length = Vector3.Distance(from, to);
-        float climb = falloff * (to.Y - from.Y);
-        float along = MathF.Abs(climb) > LevelRay ? (1f - MathF.Exp(-climb)) / climb : 1f;
-        float depth = density * MathF.Exp(-falloff * (from.Y - height)) * length * along;
+        // The integral is the difference of the density at the two ends over the climb. Taken from
+        // the lower end, the density there times a share in (0, 1] that falls with the rise, nothing
+        // overflows to inf - inf or 0 * inf however far above or below the fog's height the ray is.
+        float low = MathF.Min(from.Y, to.Y);
+        float rise = falloff * MathF.Abs(to.Y - from.Y);
+        float along = rise > LevelRay ? (1f - MathF.Exp(-rise)) / rise : 1f;
+        float depth = density * MathF.Exp(-falloff * (low - height)) * length * along;
         return MathF.Exp(-depth);
     }
 }

@@ -992,9 +992,14 @@ when probes recapture already cover the turbidity, the lights and `LightAngle`.
 
 `fog.glsl` holds the fog that `lighting.frag`, `transparent.frag` and `particle.frag`
 apply after lighting, before the haze. The density is `d·exp(-k(y - h))`, so along a ray
-from the camera at height y₀ climbing Δy over length L the optical depth has a closed form,
-`d·exp(-k(y₀ - h))·L·(1 - exp(-kΔy))/(kΔy)`, taken as `d·exp(-k(y₀ - h))·L` when kΔy is under
-1e-4. `Passes/Fog.cs` holds the same sum in C# (`Fog.Transmittance`) for the tests. A
+between heights y₀ and y₁ over length L the optical depth has a closed form,
+`d·L·(exp(-k(y₀ - h)) - exp(-k(y₁ - h)))/(k(y₁ - y₀))`. The code takes it from the lower end
+y_low, as `d·exp(-k(y_low - h))·L·(1 - exp(-x))/x` with x = k|y₁ - y₀|, because the plain
+difference breaks in floats: high above the fog the near term rounds to 0 and the far one
+over the climb to infinity, and far below it both overflow, giving NaN either way. Here the
+share `(1 - exp(-x))/x` stays in (0, 1], so the depth is at worst 0 or infinite. A ray
+with x under 1e-4 is taken as level, `d·exp(-k(y_low - h))·L`, which is off by under 0.005%;
+just above that, float rounding in `1 - exp(-x)` is off by up to about 0.06%. `Passes/Fog.cs` holds the same sum in C# (`Fog.Transmittance`) for the tests. A
 surface keeps its light times the transmittance T and gains the fog's colour times 1 - T.
 The light held apart for the subsurface blur is dimmed by T too. Glass adds the fog's
 colour times its coverage, since what shows through it was already fogged when the opaque
@@ -1009,6 +1014,12 @@ every shader skip the fog. Light probes and reflection probes therefore capture 
 fog belongs to the view that looks through it, not to the light in the scene. That is why
 the fog is in neither `LightingHash` nor `ReflectionLightingHash`, and changing it
 recaptures nothing.
+
+Two limits follow from where the fog is drawn. Screen-space reflections read the previous
+finished frame, which is already fogged, so a reflected surface gets its fog once on the way
+to the mirror and again from the mirror to the camera: a little too much fog in reflections.
+And since the sky background gets no fog, the sun's glow shows on geometry seen against the
+sun but not on the open sky beside it, so a silhouette can sit brighter than the sky around it.
 
 ## Reflections
 
