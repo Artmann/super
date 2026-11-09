@@ -134,6 +134,9 @@ internal struct FrameUniforms
     /// <summary>x: the fog's density at its height, 0 for none; y: that height; z: its falloff per metre; w: how much it glows towards the suns.</summary>
     public Vector4 Fog;
 
+    /// <summary>The white balance on linear colour, which the tone-mapping pass applies before its curve. See <see cref="PostGrade.WhiteBalance"/>.</summary>
+    public Matrix4x4 WhiteBalance;
+
     public int LightCount;
     public float Time;
     public int FrameNumber;

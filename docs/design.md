@@ -714,7 +714,7 @@ TransparentPass  glass and particles -> blended over HDR colour together, back t
 TaaPass       fullscreen       -> this frame blended with history, then copied to history
 BloomPass     fullscreen x 9   -> glow, by shrinking and regrowing the image
 exposure_*.comp compute x 2     -> with auto exposure, a histogram of the lit frame, then the adapted exposure in a buffer
-TonemapPass   fullscreen       -> display colour (ACES filmic, colour grade)
+TonemapPass   fullscreen       -> display colour (white balance, colour grade, AgX or ACES)
 FinishPass    fullscreen       -> swapchain, with sharpening, a transition, vignette, grain and dither
 ```
 
@@ -1401,10 +1401,31 @@ light, so only really bright things show a visible glow. That's physically close
 to how a lens scatters light, and nothing pops as a surface crosses a threshold.
 `PostSettings.Bloom` adds to the share, which starts at 5%.
 
-Tonemapping uses Stephen Hill's fit of the ACES film transform rather than the
-simpler Narkowicz curve. It works in ACES's own colour space, so very bright colours
-fade towards white instead of shifting hue. `ACES_EXPOSURE` in `tonemap.frag` keeps
-the scene as bright as the lighting was balanced for.
+Tonemapping uses AgX by default and Stephen Hill's fit of the ACES film transform when
+`PostSettings.Tonemapper` asks for `Aces`. `PostGrade.Tint` puts 1 in `frame.gain.w` for
+ACES, and the shader picks the curve with a branch that is the same for every pixel, so
+there is no second pipeline and no `RenderEffects` bit. AgX is Benjamin Wrensch's minimal
+form of Blender 4's default look: an inset matrix pulls each colour a little towards
+white, log2 encodes it between 2^-12.47 and 2^4.03 (about 10 stops below middle grey and 6.5 above), a
+sixth-order polynomial fits the contrast curve, and the outset matrix and a 2.2 power turn
+the result back into linear colour for the sRGB target. Middle grey 0.18 comes out at
+about 0.21 with both curves, so swapping curves needs no exposure change. The ACES fit works
+in ACES's own colour space, so very bright colours fade towards white instead of shifting
+hue, and `ACES_EXPOSURE` in `tonemap.frag` keeps the scene as bright as the lighting was
+balanced for.
+
+White balance is a 3x3 matrix in `frame.whiteBalance` (a mat4, after `fog`), built on the
+CPU each frame by `PostGrade.WhiteBalance`. `Temperature` picks a black-body white from
+4000 K at -1 through 6500 K at 0 to 12000 K at 1, evenly in mireds, from Krystek's fit of
+the Planckian locus in CIE 1960 uv. `Tint` moves it up to 0.02 off the locus, square to it,
+positive towards green. The matrix adapts that white to the 6500 K one by Bradford cone
+scaling, wrapped in the Rec.709 to XYZ matrices, so it acts on linear Rec.709. A camera
+balanced for bluer light than the scene's turns the picture warmer, so positive
+`Temperature` warms and positive `Tint` pulls towards magenta. 0 and 0 give the identity.
+It is applied after exposure and before contrast, saturation and the curve. `View.Finish`
+refuses values outside -1 to 1; `WhiteBalance` itself clamps them and counts NaN as 0, so
+Rendition used alone never uploads a broken matrix. Probe captures never reach the tonemap,
+so neither setting is in the lighting hashes.
 
 Auto exposure meters the frame on the GPU and never reads it back. Before the tonemap,
 `exposure_histogram.comp` reads the image the tonemap and bloom read (resolved, or HDR
@@ -1444,8 +1465,8 @@ and history is pulled back into the range of nearby colours so old images don't 
 behind. It runs before bloom and tonemapping, on HDR colour. It replaced FXAA, which
 couldn't remove shimmer.
 
-`FrameView.Post` holds the look of the image: bloom, exposure, contrast and saturation,
-then lift and gain after ACES, in the tonemap pass, then sharpening, vignette and film grain in the finish pass. Grain and
+`FrameView.Post` holds the look of the image: bloom, exposure, white balance, contrast and saturation,
+then lift and gain after the curve, in the tonemap pass, then sharpening, vignette and film grain in the finish pass. Grain and
 dither also hide the steps an 8-bit screen would show in slow gradients.
 
 Transitions happen in the finish pass too, so they work on the display picture and not

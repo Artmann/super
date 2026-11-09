@@ -1907,6 +1907,7 @@ public sealed unsafe class Renderer : IDisposable
             MathF.Pow(2f, view.Post.Exposure), 1f + view.Post.Contrast, 1f + view.Post.Saturation, view.Post.Vignette);
         uniforms->Finish = new Vector4(view.Post.Sharpen, view.Post.Grain, shift.X, shift.Y);
         (uniforms->Lift, uniforms->Gain) = PostGrade.Tint(view.Post);
+        uniforms->WhiteBalance = PostGrade.WhiteBalance(view.Post.Temperature, view.Post.Tint);
         (uniforms->HazeOrigin, uniforms->HazeColor) = Haze.Pack(view.CameraPosition, view.BackgroundFadeOrigin, view.BackgroundFadeColor);
         uniforms->Occlusion = Occlusion.Pack(view.Occlusion);
         uniforms->Fog = Fog.Pack(view.Fog, _off, capturingProbe, underwater: view.Water.Absorption != Vector3.Zero);

@@ -40,6 +40,7 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 skySun;             // xyz: towards the clear sky's sun; w: its turbidity, 0 for the environment's bands
     vec4 sunDisc;            // rgb: how bright the sun's disc is, 0 for none; a: the cosine of its angular radius
     vec4 fog;                // x: density at the fog's height, 0 for none; y: that height; z: falloff per metre; w: sun scatter
+    mat4 whiteBalance;       // Linear colour to white-balanced colour, used as mat3 by the tone mapping.
     int lightCount;
     float time;              // Seconds, as set by the game.
     int frameNumber;

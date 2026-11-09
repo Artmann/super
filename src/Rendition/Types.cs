@@ -443,6 +443,39 @@ public struct PostSettings
     /// 0.05 is five per cent brighter; (0.05, 0.02, -0.04) warms the highlights to cream.
     /// </summary>
     public Vector3 Gain;
+
+    /// <summary>
+    /// The curve that fits the scene's light into what a screen can show. <see cref="Tonemapper.Agx"/>,
+    /// the default, keeps bright colours from going flat; <see cref="Tonemapper.Aces"/> is the older,
+    /// punchier film look.
+    /// </summary>
+    public Tonemapper Tonemapper;
+
+    /// <summary>
+    /// White balance from -1 to 1, with 0 unchanged. Above 0 warms the picture, as if the camera were
+    /// balanced for light bluer than daylight (1 is 12000 K); below 0 cools it (-1 is 4000 K).
+    /// 0.1 is a gentle afternoon warmth.
+    /// </summary>
+    public float Temperature;
+
+    /// <summary>
+    /// White balance across the other way, from -1 to 1, with 0 unchanged. Above 0 pulls the picture
+    /// towards magenta and below 0 towards green, to take out a cast that <see cref="Temperature"/> can't.
+    /// </summary>
+    public float Tint;
+}
+
+/// <summary>The curve that turns the scene's light into the colours a screen can show.</summary>
+public enum Tonemapper
+{
+    /// <summary>
+    /// AgX, as Blender 4 uses by default: bright, strongly coloured light fades towards white
+    /// gradually, so a sunlit brick wall keeps its detail instead of going one flat orange.
+    /// </summary>
+    Agx,
+
+    /// <summary>A fit of the ACES film curve: punchier mid-tones, but saturated highlights go flat.</summary>
+    Aces,
 }
 
 /// <summary>How a <see cref="ScreenTransition"/> brings in the new picture.</summary>

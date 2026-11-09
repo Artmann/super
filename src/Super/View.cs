@@ -504,7 +504,19 @@ public sealed class View
                     $"The adaptation speed must be above 0 stops a second, or 0 for the default of 2, but it is {speed}."));
         }
 
+        RefuseOutsideOne(settings.Temperature, "temperature");
+        RefuseOutsideOne(settings.Tint, "tint");
         Post = settings;
+
+        static void RefuseOutsideOne(float value, string name)
+        {
+            if (!(value is >= -1f and <= 1f))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(settings),
+                    string.Create(CultureInfo.InvariantCulture, $"The white balance {name} must be from -1 to 1, with 0 for no change, but it is {value}."));
+            }
+        }
     }
 
     /// <summary>

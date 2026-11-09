@@ -32,6 +32,9 @@ Super is early. These are the known gaps, so you can plan around them.
   or upper limit on where it settles, so a scene meant to be dark is pushed up to middle
   grey, and it brightens and darkens at the same speed, where an eye opens up more slowly
   than it closes down.
+- [AgX](rendering.md#tone-mapping) is a close polynomial fit of Blender 4's default look
+  in Rec.709, not its exact curve, and it has none of Blender's other looks, such as
+  Punchy or Golden. There is no output for HDR screens.
 - **Large numbers of objects.** Rendition's efficiency with many thousands of objects
   still has to be measured and improved.
 - **Render scale.** [Graphics settings](rendering.md#graphics-settings) turn effects off,

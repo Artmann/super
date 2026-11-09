@@ -37,6 +37,38 @@ vec3 acesFilmic(vec3 color) {
     return clamp(ACES_OUTPUT * x, 0.0, 1.0);
 }
 
+// AgX, as Blender 4 uses with its default look, in Benjamin Wrensch's minimal form. The inset
+// matrix pulls every colour a little towards white before the curve, so a bright, strongly
+// coloured light fades towards white instead of clipping to one flat hue. Written column by column.
+const mat3 AGX_INSET = mat3(
+    0.842479062253094, 0.0423282422610123, 0.0423756549057051,
+    0.0784335999999992, 0.878468636469772, 0.0784336,
+    0.0792237451477643, 0.0791661274605434, 0.879142973793104);
+const mat3 AGX_OUTSET = mat3(
+    1.19687900512017, -0.0528968517574562, -0.0529716355144438,
+    -0.0980208811401368, 1.15190312990417, -0.0980434501171241,
+    -0.0990297440797205, -0.0989611768448433, 1.15107367264116);
+
+// The log2 range the curve spans: about 10 stops below middle grey and 6.5 above.
+const float AGX_MIN_EV = -12.47393;
+const float AGX_MAX_EV = 4.026069;
+
+// A polynomial fit of AgX's default contrast curve, over log-encoded 0 to 1.
+vec3 agxContrast(vec3 x) {
+    vec3 x2 = x * x;
+    vec3 x4 = x2 * x2;
+    return 15.5 * x4 * x2 - 40.14 * x4 * x + 31.96 * x4 - 6.868 * x2 * x + 0.4298 * x2 + 0.1191 * x - 0.00232;
+}
+
+vec3 agx(vec3 color) {
+    vec3 x = AGX_INSET * color;
+    x = clamp(log2(max(x, vec3(1e-10))), AGX_MIN_EV, AGX_MAX_EV);
+    x = agxContrast((x - AGX_MIN_EV) / (AGX_MAX_EV - AGX_MIN_EV));
+    // The curve gives display values for a 2.2 gamma screen; the target wants them linear.
+    x = pow(clamp(AGX_OUTSET * x, 0.0, 1.0), vec3(2.2));
+    return x;
+}
+
 void main() {
     // Every pixel gives a little light to its surroundings, so bright things glow by
     // themselves and no brightness threshold is needed.
@@ -53,13 +85,15 @@ void main() {
         exposureScale *= MIDDLE_GREY * exp2(-exposure.adaptedEv);
     }
 
-    color = max(color * exposureScale, vec3(0.0));
+    // White balance comes first, on the light itself, as a camera's would.
+    color = max(mat3(frame.whiteBalance) * (color * exposureScale), vec3(0.0));
     color = pow(color / MIDDLE_GREY + 1e-5, vec3(frame.grade.y)) * MIDDLE_GREY;
     color = max(mix(vec3(dot(color, vec3(0.2126, 0.7152, 0.0722))), color, frame.grade.z), vec3(0.0));
 
     // Gain scales every channel, so it shows most in the highlights. Lift adds colour that
     // fades out towards white, so the shade takes a tint while white stays white.
-    color = acesFilmic(color) * frame.gain.rgb;
+    // gain.a picks the curve: 1 for ACES, 0 for AgX. It is the same for every pixel.
+    color = (frame.gain.a > 0.5 ? acesFilmic(color) : agx(color)) * frame.gain.rgb;
     color = clamp(color + frame.lift.rgb * (1.0 - color), 0.0, 1.0);
 
     // The target is an sRGB format, so the hardware applies gamma on write.
