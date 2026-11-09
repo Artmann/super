@@ -319,7 +319,10 @@ def box(bm, lo, hi, mat, bevel=0.0):
     if bevel > 0.0:
         edges = list({e for f in faces for e in f.edges})
         made = bmesh.ops.bevel(bm, geom=edges, offset=bevel, segments=1, affect="EDGES", profile=0.5)
-        faces = [f for f in set(faces) | set(made["faces"]) if f.is_valid]
+        # The bevel rebuilds the box's six faces as new ones and leaves the old ones invalid, and
+        # made["faces"] holds only the bevel's own strips and corners, so the six are found again
+        # through the corners' vertices. Without them, the box's sides keep no material or UVs.
+        faces = list(dict.fromkeys(f for strip in made["faces"] for v in strip.verts for f in v.link_faces))
     for f in faces:
         f.material_index = mat
     return faces
@@ -1615,6 +1618,12 @@ def board_start(index):
 # joint's groove and into the dark end.
 END_GRAIN = 0.01
 
+# How far in from a graph board's long edge a board fitted with a span starts, as a fraction of
+# the image: past the graph's groove and its rounded edge (0.0158), onto the flat. The model's
+# own bevel makes the edge, so the graph's rounding would put a second, sunlit edge beside it,
+# which read as a bright line down each deck board.
+FLAT_EDGE = 0.02
+
 
 def plank_uv(bm, faces, axis, index, along_offset, span=None):
     """Wood UVs: u along the board's length in metres, v placed so the board takes one of the
@@ -1653,7 +1662,8 @@ def plank_uv(bm, faces, axis, index, along_offset, span=None):
             if span is None:
                 loop[uv].uv = (u, band + (co[k] * 0.9) % (1 / 6.0 - 0.024))
             else:
-                loop[uv].uv = (u, band + (co[k] - low[k]) / (high[k] - low[k]) * (1 / 6.0 - 0.024))
+                flat = (index % 6) / 6.0 + FLAT_EDGE
+                loop[uv].uv = (u, flat + (co[k] - low[k]) / (high[k] - low[k]) * (1 / 6.0 - 2 * FLAT_EDGE))
 
 
 DECK = (6.0, 9.6, 0.3, WALL_Y - 0.4)  # x0, x1, y0, y1
