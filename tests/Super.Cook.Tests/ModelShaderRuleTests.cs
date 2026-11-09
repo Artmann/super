@@ -37,10 +37,10 @@ public sealed class ModelShaderRuleTests : IDisposable
         return src;
     }
 
-    private static (CookResult Result, MemoryStore Store) Cook(string src)
+    private static (CookResult Result, MemoryStore Store) Cook(string src, IReadOnlyList<string>? only = null)
     {
         var store = new MemoryStore();
-        var result = new CookPipeline(ModelCookers.All, new CookOptions()).Cook([new FolderRoot(src)], store);
+        var result = new CookPipeline(ModelCookers.All, new CookOptions()).Cook([new FolderRoot(src, only)], store);
         return (result, store);
     }
 
@@ -151,6 +151,33 @@ public sealed class ModelShaderRuleTests : IDisposable
         var (result, _) = Cook(src);
 
         Assert.Equal("material bark: shaderTextures[0] ../textures/nope.png isn't in the source root.", ErrorOf(result));
+    }
+
+    [Fact]
+    public void A_shader_texture_that_only_leaves_out_is_refused_and_named()
+    {
+        // The game loads a shader texture by name, so a cook that picks the model but not the texture would fail at load.
+        string src = Folder("""{ "match": "bark", "shader": "puddles", "shaderTextures": ["../textures/ripples.png"] }""");
+
+        var (result, store) = Cook(src, ["models/**"]);
+
+        Assert.Equal(
+            "material bark: shaderTextures[0] textures/ripples.png isn't cooked, because the source root's Only leaves it out. "
+            + "Pick it in Only too, such as \"textures/ripples.png\".",
+            ErrorOf(result));
+        Assert.False(store.Manifest.Assets.ContainsKey("textures/ripples.png"));
+    }
+
+    [Fact]
+    public void A_shader_texture_that_only_picks_is_cooked_and_named()
+    {
+        string src = Folder("""{ "match": "bark", "shader": "puddles", "shaderTextures": ["../textures/ripples.png"] }""");
+
+        var (result, store) = Cook(src, ["models/**", "textures/ripples.png"]);
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.True(store.Manifest.Assets.ContainsKey("textures/ripples.png"));
+        Assert.Equal(["textures/ripples.png"], Model(store).ShaderOf(Assert.Single(Model(store).Parts).Material)!.Textures);
     }
 
     [Fact]

@@ -961,8 +961,10 @@ The cook writes the names and numbers into the model. When the model loads, the 
 read from the game's `shaders` folder and the textures from the cooked content, and the
 model's material gets them as if a `Surface` had named them. A texture a rule names must be
 cooked, so a `"cook": false` rule over it makes the model fail to load with the usual
-missing-content message. The cook stops when a rule asks for too much, names a texture that
-isn't there, gives parameters or textures without a shader, or names a shader by a path
+missing-content message. When a game cooks part of a root with `Only`, its globs must pick
+each texture a rule names as well as the model. The cook stops when a rule asks for too
+much, names a texture that isn't there or that `Only` leaves out, gives parameters or
+textures without a shader, or names a shader by a path
 rather than a file name. A transparent material can't use a surface shader yet, the same as
 with a `Surface`:
 
@@ -972,6 +974,7 @@ material bark: shaderParameters has 9 entries, but a surface shader takes at mos
 material bark: shaderParameters[2] has 5 numbers, but a parameter holds at most 4.
 material bark: shaderTextures has 5 entries, but a surface shader takes at most 4.
 material bark: shaderTextures[0] ../textures/missing.png isn't in the source root.
+material bark: shaderTextures[0] textures/ripples.png isn't cooked, because the source root's Only leaves it out. Pick it in Only too, such as "textures/ripples.png".
 material bark: shaderParameters and shaderTextures are read by a shader, so they need one.
 material bark: transparent materials can't use a surface shader yet.
 ```

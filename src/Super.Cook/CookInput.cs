@@ -111,6 +111,13 @@ public sealed class CookInput
         return name is not null && Names().Contains(name) ? name : null;
     }
 
+    /// <summary>
+    /// Whether the root's Only picks <paramref name="name"/>, a name in the root such as <see cref="NameOf"/> gives, so it's
+    /// cooked as an asset of its own. Without an Only every file is. A file Only leaves out can still be read, but the game
+    /// can't load it by name.
+    /// </summary>
+    public bool IsPicked(string name) => Sources.Picks(_file.Root, name);
+
     /// <summary>Records a file the cooker opened some other way, so a change to it counts as a change to this source.</summary>
     public void Track(string relative)
     {

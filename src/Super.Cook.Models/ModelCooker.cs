@@ -947,7 +947,16 @@ public sealed class ModelCooker : ICooker
         {
             if (paths[i] is { } path && input.NameOf(path) is { } found)
             {
-                names[i] = found;
+                // The game loads the texture by its name, so it must be cooked too, which Only can leave out.
+                if (input.IsPicked(found))
+                {
+                    names[i] = found;
+                }
+                else
+                {
+                    Error($"shaderTextures[{i}] {found} isn't cooked, because the source root's Only leaves it out. Pick it in Only too, such as \"{found}\".");
+                    wrong = true;
+                }
             }
             else
             {

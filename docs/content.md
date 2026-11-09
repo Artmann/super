@@ -221,7 +221,8 @@ it uses. `Only` on a `SuperContent` item takes globs split by semicolons:
 ```
 
 A model still reads the textures beside it when they're left out, but naming a file `Only`
-left out fails like any name that wasn't cooked. See
+left out fails like any name that wasn't cooked. A texture a model's `shaderTextures` names
+is loaded by name, so the cook stops unless `Only` picks it too. See
 [cooking part of a root](command-line.md#cooking-part-of-a-root).
 
 Every file is an asset, chosen by its extension:
