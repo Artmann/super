@@ -330,7 +330,7 @@ public sealed class MaskBakerTests : IDisposable
         var (result, store) = Cook(src);
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
-        var model = ModelData.Read(new MemoryStream(store.Get(store.Manifest.Assets["models/a.gltf"].Hash)), "models/a.gltf");
+        var model = ModelData.Read(new MemoryStream(ModelCookers.StandAlone(store, store.Manifest.Assets["models/a.gltf"].Hash, "models/a.gltf")), "models/a.gltf");
         var mask = model.MaskOf(Assert.Single(model.Parts).Material);
         Assert.NotNull(mask);
         Assert.Equal(MaskBaker.DefaultSize, model.Textures[mask.Texture].Width);
@@ -360,7 +360,7 @@ public sealed class MaskBakerTests : IDisposable
         var (result, store) = Cook(src);
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
-        var model = ModelData.Read(new MemoryStream(store.Get(store.Manifest.Assets["models/a.gltf"].Hash)), "models/a.gltf");
+        var model = ModelData.Read(new MemoryStream(ModelCookers.StandAlone(store, store.Manifest.Assets["models/a.gltf"].Hash, "models/a.gltf")), "models/a.gltf");
         Assert.All(model.Vertices, v => Assert.Equal(Vector2.Zero, v.Uv2));
         Assert.Null(model.MaskOf(0));
     }
@@ -401,7 +401,7 @@ public sealed class MaskBakerTests : IDisposable
         var warning = Assert.Single(result.Problems);
         Assert.False(warning.IsError);
         Assert.Contains("material bark: transparent materials don't show wear and dirt, so bakeMasks is ignored.", warning.Message);
-        var model = ModelData.Read(new MemoryStream(store.Get(store.Manifest.Assets["models/a.gltf"].Hash)), "models/a.gltf");
+        var model = ModelData.Read(new MemoryStream(ModelCookers.StandAlone(store, store.Manifest.Assets["models/a.gltf"].Hash, "models/a.gltf")), "models/a.gltf");
         Assert.Null(model.MaskOf(Assert.Single(model.Parts).Material));
     }
 

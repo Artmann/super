@@ -47,7 +47,7 @@ public sealed class ModelShaderRuleTests : IDisposable
     private static ModelData Model(MemoryStore store)
     {
         var entry = store.Manifest.Assets["models/a.gltf"];
-        return ModelData.Read(new MemoryStream(store.Get(entry.Hash)), "models/a.gltf");
+        return ModelData.Read(new MemoryStream(ModelCookers.StandAlone(store, entry.Hash, "models/a.gltf")), "models/a.gltf");
     }
 
     private static string ErrorOf(CookResult result)
