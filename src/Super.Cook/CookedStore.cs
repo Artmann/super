@@ -16,6 +16,12 @@ public interface ICookedStore
     byte[] Get(string hash);
 
     /// <summary>
+    /// Puts the object by pointing at <paramref name="file"/>, which already holds its bytes, instead of writing them again.
+    /// False when the store can't, and then the caller uses <see cref="Put"/>.
+    /// </summary>
+    bool TryLink(string hash, string file) => false;
+
+    /// <summary>
     /// Writes the manifest last, then removes objects that are no longer needed. <see cref="FolderStore"/>
     /// keeps the objects the replaced manifest named for one more commit, for a game still loading from it.
     /// </summary>
@@ -40,6 +46,25 @@ public sealed class FolderStore(string folder) : ICookedStore
     public byte[] Get(string hash)
     {
         return File.ReadAllBytes(ObjectFile(hash));
+    }
+
+    /// <summary>
+    /// Makes the object a hard link to <paramref name="file"/>, such as the cache's copy, so the bytes are on disk once
+    /// however many content folders hold them. Objects are never changed in place, only replaced, so the two names
+    /// can't drift apart. It can't link across volumes, and says no.
+    /// </summary>
+    public bool TryLink(string hash, string file)
+    {
+        string path = ObjectFile(hash);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        string temp = TempBeside(path);
+        if (!HardLink.TryCreate(file, temp))
+        {
+            return false;
+        }
+
+        MoveIntoPlace(temp, path);
+        return true;
     }
 
     /// <summary>
@@ -123,8 +148,16 @@ public sealed class FolderStore(string folder) : ICookedStore
     private static void WriteAtomically(string path, byte[] bytes)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        string temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        string temp = TempBeside(path);
         File.WriteAllBytes(temp, bytes);
+        MoveIntoPlace(temp, path);
+    }
+
+    private static string TempBeside(string path) => path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+
+    /// <exception cref="FileInUseException">Another program has the file at <paramref name="path"/> open.</exception>
+    private static void MoveIntoPlace(string temp, string path)
+    {
         try
         {
             File.Move(temp, path, overwrite: true);

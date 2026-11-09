@@ -210,7 +210,19 @@ it points at. A texture several models use is kept once, however many models poi
 [`super-cook`](command-line.md#cooking-content) for running the cooker by hand, adding
 more content roots, and the build targets. Cooked results are cached in `~/.super/cache`,
 or in the folder named by the `SUPER_CACHE` environment variable, so a rebuild only cooks
-what changed; deleting that folder is always safe.
+what changed; deleting that folder is always safe. The cooked objects are hard links to the
+cache's copies when they can be, so they don't take the space twice.
+
+A content root shared by several games can be cooked in part, so each game only gets what
+it uses. `Only` on a `SuperContent` item takes globs split by semicolons:
+
+```xml
+<SuperContent Include="..\..\assets" Only="fox/**;props/rock_*/**" />
+```
+
+A model still reads the textures beside it when they're left out, but naming a file `Only`
+left out fails like any name that wasn't cooked. See
+[cooking part of a root](command-line.md#cooking-part-of-a-root).
 
 Every file is an asset, chosen by its extension:
 
@@ -233,6 +245,8 @@ something that wasn't cooked stops at once, when it's named:
 ```
 models/Fox.glb isn't in the cooked content. Check the name, including its case and extension.
 ```
+
+If the name is right, check that the project's `Only` globs pick it.
 
 Naming the wrong kind, such as a sound as a model, says what the name holds:
 

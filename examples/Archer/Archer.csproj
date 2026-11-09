@@ -14,7 +14,8 @@
   <Import Project="..\..\src\Super.Build\Super.targets" />
   <ItemGroup>
     <SuperContent Include="content" />
-    <SuperContent Include="..\..\assets" />
+    <!-- The shared folder holds every example's models; this one uses the archer, her props and the forest plants. -->
+    <SuperContent Include="..\..\assets" Only="archer/**;archer-props/**;props/dandelion_01/**;props/dead_tree_trunk/**;props/dry_branches_medium_01/**;props/fern_02/**;props/grass_medium_01/**;props/nettle_plant/**;props/periwinkle_plant/**;props/rock_moss_set_01/**;props/shrub_02/**;props/tree_stump_01/**;props/tree_stump_02/**" />
   </ItemGroup>
 
 </Project>

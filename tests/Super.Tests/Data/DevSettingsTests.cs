@@ -37,6 +37,23 @@ public sealed class DevSettingsTests : IDisposable
     }
 
     [Fact]
+    public void Only_is_written_by_root_and_reads_back()
+    {
+        string path = Path.Combine(_folder, DevSettings.FileName);
+        var only = new Dictionary<string, string[]> { [@"C:\art\content"] = ["props/**", "fox/**"] };
+        new DevSettings([@"C:\game\content", @"C:\art\content"], @"C:\tools\super-cook.dll", "desktop", only).Write(path);
+
+        using (var json = JsonDocument.Parse(File.ReadAllBytes(path)))
+        {
+            var globs = json.RootElement.GetProperty("only").GetProperty(@"C:\art\content");
+            Assert.Equal(["props/**", "fox/**"], globs.EnumerateArray().Select(e => e.GetString()!).ToArray());
+        }
+
+        var read = DevSettings.Read(path)!;
+        Assert.Equal(["props/**", "fox/**"], read.Only![@"C:\art\content"]);
+    }
+
+    [Fact]
     public void Read_returns_null_when_there_is_no_file()
     {
         Assert.Null(DevSettings.Read(Path.Combine(_folder, DevSettings.FileName)));

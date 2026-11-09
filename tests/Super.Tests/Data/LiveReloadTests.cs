@@ -416,6 +416,20 @@ public class LiveReloadTests
     }
 
     [Fact]
+    public void The_cook_passes_each_roots_globs_right_after_that_root()
+    {
+        var only = new Dictionary<string, string[]> { ["/art/content"] = ["props/**", "fox/**"] };
+        var dev = new DevSettings(["/game/content", "/art/content"], "/tools/super-cook.dll", "desktop", only);
+
+        var arguments = CookProcess.Arguments(dev, "/game/bin/content");
+
+        Assert.Equal(
+            ["/tools/super-cook.dll", "--watch", "--content", "/game/content", "--content", "/art/content", "--only", "props/**", "--only", "fox/**",
+                "--out", "/game/bin/content", "--target", "desktop"],
+            arguments);
+    }
+
+    [Fact]
     public void A_burst_of_manifest_writes_asks_once_after_the_folder_goes_quiet()
     {
         var clock = new FakeClock();

@@ -151,11 +151,12 @@ dotnet run --project tools/Super.Cook.Tool -- --content examples/Crafting/conten
 | Option | What it does |
 | --- | --- |
 | `--content dir` | A content root. Give it once for each root. At least one is needed |
+| `--only glob` | Cooks only the files of the root before it that match, such as `props/**`. Give it once for each glob. See below |
 | `--out dir` | Where the cooked content goes. Needed |
 | `--target name` | The platform to cook for, `desktop` by default |
 | `--cache dir` | Keeps cooked results in this folder between runs. See below |
 | `--no-cache` | Cooks everything again and keeps nothing. Can't be used with `--cache` |
-| `--dev-file path` | Also writes `content.dev.json` there, naming the roots, the tool and the target, for a game run from source |
+| `--dev-file path` | Also writes `content.dev.json` there, naming the roots, their `--only` globs, the tool and the target, for a game run from source |
 | `--watch` | After the first cook, cooks again whenever a source changes, until stdin closes |
 | `--workers n` | How many sources to cook at once. The default is one per processor, at most 8 |
 | `--timings` | Prints where the time went. See below |
@@ -180,6 +181,25 @@ file that hasn't changed is kept and used again. The cache is in `~/.super/cache
 the folder in the `SUPER_CACHE` environment variable when that is set, so a build server
 can keep it somewhere of its own. `--cache` picks a folder for one run. Deleting the cache
 is always safe: the next cook makes it again.
+
+The content folder's objects are hard links to the cache's copies when the two are on the
+same drive, so a cooked texture takes its space once, not once per game. When a link can't
+be made, such as across drives, the object is copied instead. Objects are never changed in
+place, only replaced, so a linked file can't change under the other name.
+
+### Cooking part of a root
+
+A shared asset folder can hold far more than one game uses. `--only` after a `--content`
+picks which of that root's files are cooked:
+
+```
+super-cook --content assets --only "fox/**" --only "props/rock_*/**" --out out/content
+```
+
+The globs match names from the root, the same way `cook.json` rules do. Files left out are
+still there for the cooker, so a model still finds the textures beside it, but nothing
+names them in the game. A glob that matches nothing is a warning, since it's most likely a
+typo. Each root has its own globs; a root with none is cooked whole.
 
 ### Where the time goes
 
@@ -248,8 +268,13 @@ A game imports `src/Super.Build/Super.targets` and `dotnet build` cooks its cont
   <!-- Optional. With none, the "content" folder beside the project is used when it exists. -->
   <SuperContent Include="content" />
   <SuperContent Include="..\..\assets\content" />
+  <!-- Only cooks part of a root: globs split by semicolons. -->
+  <SuperContent Include="..\..\assets" Only="props/**;textures/**" />
 </ItemGroup>
 ```
+
+`Only` turns into `--only` options for that root, and `content.dev.json` keeps them, so the
+cook a game starts while it runs from source picks the same files.
 
 After the build, the cooked content is in `bin/<config>/content` and `content.dev.json`
 is beside it. Cook errors are build errors with file and line. `SuperTarget` picks the

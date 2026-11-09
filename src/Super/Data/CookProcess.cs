@@ -52,6 +52,11 @@ internal sealed class CookProcess : ICookProcess
         {
             arguments.Add("--content");
             arguments.Add(root);
+            foreach (string pattern in dev.Only?.GetValueOrDefault(root) ?? [])
+            {
+                arguments.Add("--only");
+                arguments.Add(pattern);
+            }
         }
 
         arguments.AddRange(["--out", outFolder, "--target", dev.Target]);

@@ -15,7 +15,8 @@
   <!-- The fish and corals come from the shared assets folder. -->
   <Import Project="..\..\src\Super.Build\Super.targets" />
   <ItemGroup>
-    <SuperContent Include="..\..\assets" />
+    <!-- The shared folder holds every example's models; this one only uses the reef's. -->
+    <SuperContent Include="..\..\assets" Only="reef/**" />
   </ItemGroup>
 
 </Project>
