@@ -13,7 +13,7 @@ Super is early. These are the known gaps, so you can plan around them.
   they cast no shadow. Nodes must work from the age alone, so particles can't bounce off the
   ground or react to what they hit.
 - **Film effects.** [Cutscenes](cutscenes.md) have [transitions](transitions.md) between
-  shots, but there's no depth of field or motion blur yet, and no transitions that move
+  shots and [depth of field](rendering.md#focus), but there's no motion blur yet, and no transitions that move
   both pictures, such as a push or a slide.
 - **More from audio.** [Audio](audio.md) plays stereo sound with no echo or reverb, walls
   that muffle sound, Doppler or surround. There is no ducking (music dipping under

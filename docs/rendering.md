@@ -55,6 +55,7 @@ next frame follows, so it can back an options menu.
 | `Bloom` | No glow round bright things. `PostSettings.Bloom` only changes how much there is |
 | `Fog` | Clear air, whatever `SkySettings.Fog` asks for. [Haze](#the-sky) stays, since it isn't fog. `SkySettings.Fog` only changes [how thick it is](#fog) |
 | `AutoExposure` | Views that ask for [auto exposure](#auto-exposure) keep the fixed `PostSettings.Exposure` instead, as if they hadn't asked. It saves a compute pass over the frame |
+| `DepthOfField` | Everything is sharp, even in views that open the lens with `PostSettings.Aperture`. It saves three passes, two of them at half size. See [focus](#focus) |
 | `Materials` | Every surface is the same light grey, matte clay, shaped only by its mesh, so you can judge the lighting and the models without textures in the way. Glows still glow, cut-outs still cut and glass stays see-through. `--no-materials` turns it off too |
 
 `Graphics.Fastest()` leaves `RenderScale` at 1 too, since a smaller picture is a change the
@@ -318,6 +319,9 @@ each channel that much brighter, by its share, so it shows most in the highlight
 | `AgxLook` | The look on top of AgX. `AgxLook.Punchy`, the default, deepens the mid-tones and strengthens colour; `AgxLook.Base` is the plain, softer curve. ACES ignores it |
 | `Temperature` | White balance, from -1 to 1. Above 0 warms the picture, as if the camera were balanced for light bluer than daylight: 1 balances for 12000 K. Below 0 cools it, down to 4000 K at -1. 0.1 is a gentle afternoon warmth |
 | `Tint` | White balance the other way, from -1 to 1. Above 0 pulls the picture towards magenta, below 0 towards green |
+| `FocusDistance` | Where the lens is focused, in metres from the camera. See [focus](#focus) |
+| `Aperture` | The lens's f-number, such as 2.8 or 8. Smaller opens the lens wider and blurs more. 0, the default, is no depth of field |
+| `FocalLength` | The lens's focal length in millimetres, for the blur only. 0, the default, means 35. It doesn't change the field of view, which the camera sets |
 
 A view refuses a `Temperature` or `Tint` outside -1 to 1, or one that isn't a number.
 Rendition used on its own holds them at the nearest end instead, and counts a value that
@@ -386,6 +390,49 @@ give the same exposure and the same picture every run. Reflection and light prob
 use it: they hold light, and exposure is applied after lighting.
 
 ![The Courtyard with a fixed exposure of +0.35 on the left, and with auto exposure and +0.3 of compensation on the right, which meters it to nearly the same brightness, with the shade open and the sunlit wall bright](media/auto-exposure.webp)
+
+### Focus
+
+```csharp
+view.Finish(new PostSettings
+{
+    FocusDistance = 11f,   // metres to what should be sharp
+    Aperture = 8f,         // the f-number; 0, the default, keeps everything sharp
+    FocalLength = 35f,     // millimetres; 0 means 35
+});
+```
+
+With an aperture set, the picture blurs nearer and further than the focus distance, as a
+camera lens does. The blur is worked out from a thin lens on a 36 mm full-frame sensor: a
+point d metres away spreads into a circle (f / N) * |d - S1| / d * f / (S1 - f) across,
+where f is the focal length, N the aperture and S1 the focus distance. A smaller f-number, a
+longer lens or a nearer focus blurs more. A 50 mm lens at f/2.8 focused at 10 m spreads a
+point at 5 m, or at the horizon, over 0.09 mm, about 4 pixels of a 1600 pixel picture.
+The blur is measured in the scene's own pixels, so it looks the same at any
+[render scale](#graphics-settings). No circle grows past 16 pixels across.
+
+`FocalLength` only sizes the blur. The field of view still comes from the camera, so set
+them to match if it matters. The sensor is 36 mm across the picture's width, so in a 16:9
+picture 35 mm sees about 0.56 radians top to bottom, the camera's `fieldOfView`, and 50 mm
+about 0.40.
+
+Small apertures blur gently. The Courtyard is focused on its window at f/8, so the window and
+the wall stay sharp, and the flagstones and grass at the camera's feet soften a little, by
+about a pixel. A portrait look wants f/1.4 to f/2.8 and a longer lens; cutscenes can change
+the focus each shot to pull attention.
+
+What's out of focus behind blurs only with other things behind, so a sharp thing never
+smears into the background. A blurred thing in front spreads over what's behind it, past its
+own edge, as a branch close to the lens veils the scene. The blur is gathered at half size
+and drawn back at full size, so edges in focus stay crisp.
+
+A view refuses a negative or broken `FocusDistance`, `Aperture` or `FocalLength`, and a focus
+distance no further than the focal length while the aperture is open. Rendition used on its
+own draws no depth of field for those instead. [`Graphics.DepthOfField`](#graphics-settings)
+turns it off for every view, and `Graphics.Fastest()` turns it off. Probes never see it, so
+changing the focus never captures them again.
+
+![The Courtyard's near flagstones, mud and grass without depth of field on the left, and focused on the window 11 m away at f/8 on the right, where the nearest ground is a little softer. The grass sways between the two shots](media/depth-of-field.webp)
 
 ## The sky
 

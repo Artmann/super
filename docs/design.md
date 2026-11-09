@@ -712,6 +712,7 @@ SssBlurPass   fullscreen x 2   -> subsurface diffuse spread across, then down an
 TransparentPass  glass and particles -> blended over HDR colour together, back to front;
                                   glass forward shaded, seeing a mipped copy of HDR
 TaaPass       fullscreen       -> this frame blended with history, then copied to history
+DepthOfFieldPass fullscreen x 3 -> with an open aperture, circles and near and far layers at half size, blended over the frame
 BloomPass     fullscreen x 9   -> glow, by shrinking and regrowing the image
 exposure_*.comp compute x 2     -> with auto exposure, a histogram of the lit frame, then the adapted exposure in a buffer
 TonemapPass   fullscreen       -> display colour (white balance, colour grade, AgX or ACES)
@@ -1495,6 +1496,28 @@ reflections. Colours are blended in a squeezed range so bright pixels don't domi
 and history is pulled back into the range of nearby colours so old images don't trail
 behind. It runs before bloom and tonemapping, on HDR colour. It replaced FXAA, which
 couldn't remove shimmer.
+
+Depth of field (`Passes/DepthOfFieldPass.cs`) runs after anti-aliasing and before bloom, on
+the image bloom and the tonemap read: resolved, or HDR without anti-aliasing. It comes after
+the copy to history, so TAA and screen-space reflections keep a sharp history, and it blends
+in place over that image, so bloom, the exposure meter and the tonemap need no new inputs.
+The CPU works out one number per frame with `ThinLens`: the circle of confusion of a point
+at the horizon, (f/N) * f / (S1 - f) on a 36 mm sensor, in pixels of the scene's width
+(`DepthOfFieldConstants.For`), so render scale changes it with no code of its own. The
+shaders scale it by |d - S1| / d for each pixel's view distance d, signed so near is
+negative, and clamp it at 16 pixels. `dof_coc.frag` halves the frame, keeping the circle of
+the nearest of each four pixels so a blurred thing in front keeps its edge. `dof_blur.frag`
+gathers two layers from a 48-tap golden-angle disc, both premultiplied: the far layer over
+this pixel's own circle, from taps whose circles reach it, so sharp things in front never
+smear into the background; and the near layer, whose taps spread their colour over their
+own circle's area, so it covers past its edges and its alpha says how much. `dof_combine.frag`
+blends them back at full size: the far layer by the pixel's own full-size circle, so edges
+stay crisp, and the near layer from the strongest of five taps 2 pixels apart. Circles under
+a quarter of a pixel blend nothing. The pass runs only when `PostSettings.Aperture` is above
+0, the lens is valid and `RenderEffects.DepthOfField` isn't in `Off`; a lens `View.Finish`
+would refuse simply gives no blur in Rendition alone. Probe captures only record the scene,
+never this pass, and `PostSettings` isn't in the lighting hashes, so focusing never captures
+a probe again. `GpuTimer` reports it as "Depth of field".
 
 `FrameView.Post` holds the look of the image: bloom, exposure, white balance, contrast and saturation,
 then lift and gain after the curve, in the tonemap pass, then sharpening, vignette and film grain in the finish pass. Grain and

@@ -469,6 +469,26 @@ public struct PostSettings
     /// towards magenta and below 0 towards green, to take out a cast that <see cref="Temperature"/> can't.
     /// </summary>
     public float Tint;
+
+    /// <summary>
+    /// Where the camera is focused, in metres in front of it, for depth of field. Only things at this
+    /// distance are sharp once <see cref="Aperture"/> opens the lens. It must be further than
+    /// <see cref="FocalLength"/>. See docs/rendering.md.
+    /// </summary>
+    public float FocusDistance;
+
+    /// <summary>
+    /// How wide the lens is open, as an f-number: 2.8 blurs strongly, 8 gently, 16 hardly at all.
+    /// 0, the default, is no depth of field: everything is sharp, as through a pinhole.
+    /// </summary>
+    public float Aperture;
+
+    /// <summary>
+    /// The lens's focal length in millimetres for depth of field, on a 36 mm wide sensor. Longer lenses
+    /// blur more at the same f-number. 0 means the default of 35. It changes only the blur, not the
+    /// field of view, which the camera sets.
+    /// </summary>
+    public float FocalLength;
 }
 
 /// <summary>The curve that turns the scene's light into the colours a screen can show.</summary>
@@ -802,8 +822,14 @@ public enum RenderEffects
     /// </summary>
     AutoExposure = 1 << 12,
 
+    /// <summary>
+    /// Blurring what's nearer or further than <see cref="PostSettings.FocusDistance"/>, as a camera lens
+    /// does once <see cref="PostSettings.Aperture"/> opens it. Without it everything is sharp.
+    /// </summary>
+    DepthOfField = 1 << 13,
+
     All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
-        | MultiscatterSpecular | Fog | AutoExposure,
+        | MultiscatterSpecular | Fog | AutoExposure | DepthOfField,
 }
 
 /// <summary>

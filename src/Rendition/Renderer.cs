@@ -143,6 +143,8 @@ public sealed unsafe class Renderer : IDisposable
     private TransparentView _transparentView;
     private int _particleCount;
     private readonly FullscreenPass _taaPass;
+    private readonly DepthOfFieldPass _depthOfFieldPass;
+    private DepthOfFieldConstants? _depthOfField;
     private readonly BloomPass _bloomPass;
     private readonly FullscreenPass _tonemapPass;
     private readonly ExposureMeter _exposureMeter;
@@ -403,6 +405,8 @@ public sealed unsafe class Renderer : IDisposable
         _particlePass = new ParticlePass(_context, _frameSetLayout, FramesInFlight);
         _transparentPass = new TransparentPass(_context, _frameSetLayout, _resources, _environment, _probes);
         _exposureMeter = new ExposureMeter(_context, _sampler);
+        _depthOfFieldPass = new DepthOfFieldPass(_context, _sampler, _linearSampler, _frameSetLayout);
+        _depthOfFieldPass.SetTargets(DisplaySource, _gBuffer.Depth.View, _gBuffer.Extent);
         WriteTargetDescriptors();
 
         _gBufferPass = new GBufferPass(_context, _frameSetLayout, _resources);
@@ -1175,6 +1179,7 @@ public sealed unsafe class Renderer : IDisposable
 
         // Metering is left out of the shaders unless the view asked for it, so the fixed exposure stays as it was.
         _off = Exposure.ShaderOff(view.Post, view.Off & RenderEffects.All);
+        _depthOfField = DepthOfFieldConstants.For(view.Post, _off, (int)_gBuffer.Extent.Width);
         bool antiAliased = !_off.HasFlag(RenderEffects.AntiAliasing);
         if (antiAliased != _readsAntiAliased)
         {
@@ -1188,6 +1193,7 @@ public sealed unsafe class Renderer : IDisposable
                 new(_linearSampler, _bloomPass.Result, ImageLayout.ShaderReadOnlyOptimal),
             ]);
             _exposureMeter.SetSource(DisplaySource, _gBuffer.Extent);
+            _depthOfFieldPass.SetSource(DisplaySource, _gBuffer.Depth.View);
         }
 
         BakeSky(view);
@@ -1480,6 +1486,7 @@ public sealed unsafe class Renderer : IDisposable
         _finishPass.Dispose();
         _tonemapPass.Dispose();
         _exposureMeter.Dispose();
+        _depthOfFieldPass.Dispose();
         _bloomPass.Dispose();
         _taaPass.Dispose();
         _transparentPass.Dispose();
@@ -1569,6 +1576,16 @@ public sealed unsafe class Renderer : IDisposable
         else
         {
             _historyReady = false;
+        }
+
+        _gpuTimer.Mark(cmd);
+
+        // After the history is kept, so anti-aliasing and reflections next frame see the scene sharp. Bloom
+        // and the meter read the blurred picture. Probe captures never come here, so they stay sharp.
+        if (_depthOfField is { } lens)
+        {
+            var source = _readsAntiAliased ? targets.Resolved : targets.Hdr;
+            _depthOfFieldPass.Record(cmd, frameSet, source.Image, source.View, extent, lens);
         }
 
         _gpuTimer.Mark(cmd);
@@ -2182,6 +2199,7 @@ public sealed unsafe class Renderer : IDisposable
     {
         _gBuffer = new GBuffer(_context, SceneExtent(_swapchain.Extent));
         _bloomPass.Resize(DisplaySource, _gBuffer.Extent);
+        _depthOfFieldPass.SetTargets(DisplaySource, _gBuffer.Depth.View, _gBuffer.Extent);
         WriteTargetDescriptors();
         _historyReady = false;
     }

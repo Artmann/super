@@ -105,9 +105,13 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         // The camera meters the courtyard and sets the brightness itself, then adds about a stop:
         // AgX's Punchy look, the default, deepens the mid-tones, and the sunlit wall should read
         // bright. A touch more contrast and saturation for an afternoon sun, a warm white balance,
-        // a cool lift in the shade, and a little bloom round the lamp.
+        // a cool lift in the shade, and a little bloom round the lamp. The lens is focused on the
+        // window, 11 m off, and stopped down to f/8, so the flagstones at our feet soften a little
+        // and the window and the wall stay crisp.
         view.Finish(new PostSettings
         {
+            FocusDistance = 11f,
+            Aperture = 8f,
             AutoExposure = true,
             Exposure = 1.05f,
             Temperature = 0.08f,

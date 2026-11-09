@@ -111,6 +111,13 @@ public sealed class Graphics
     public bool AutoExposure { get; set; } = true;
 
     /// <summary>
+    /// Blurring what's nearer or further than <see cref="PostSettings.FocusDistance"/>, as a camera lens does,
+    /// for views whose <see cref="PostSettings.Aperture"/> opens the lens. Off, everything is sharp, as for a
+    /// view that never asked. It costs a few passes at half size, so <see cref="Fastest"/> turns it off.
+    /// </summary>
+    public bool DepthOfField { get; set; } = true;
+
+    /// <summary>
     /// Every surface's own colour, textures, normal maps and shine. Off, everything is the same light grey,
     /// matte clay, shaped only by its mesh, so the lighting and the models can be judged without the
     /// textures in the way. Glows still glow, cut-outs still cut and glass stays see-through. It's
@@ -136,6 +143,7 @@ public sealed class Graphics
         Bloom = false,
         Fog = false,
         AutoExposure = false,
+        DepthOfField = false,
     };
 
     /// <summary>The effects the renderer leaves out.</summary>
@@ -151,5 +159,6 @@ public sealed class Graphics
         | (Bloom ? 0 : RenderEffects.Bloom)
         | (Fog ? 0 : RenderEffects.Fog)
         | (AutoExposure ? 0 : RenderEffects.AutoExposure)
+        | (DepthOfField ? 0 : RenderEffects.DepthOfField)
         | (Materials ? 0 : RenderEffects.Materials);
 }

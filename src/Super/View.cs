@@ -3,6 +3,7 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Rendition;
+using Rendition.Passes;
 using Super.Ui;
 
 namespace Super;
@@ -506,6 +507,8 @@ public sealed class View
 
         RefuseOutsideOne(settings.Temperature, "temperature");
         RefuseOutsideOne(settings.Tint, "tint");
+        ThinLens.Check(
+            settings.FocusDistance, settings.Aperture, ThinLens.FocalLength(settings.FocalLength), nameof(settings));
         Post = settings;
 
         static void RefuseOutsideOne(float value, string name)
