@@ -43,11 +43,7 @@ internal struct DepthOfFieldConstants
         }
 
         float focalLength = ThinLens.FocalLength(post.FocalLength);
-        try
-        {
-            ThinLens.Check(post.FocusDistance, post.Aperture, focalLength, nameof(post));
-        }
-        catch (ArgumentOutOfRangeException)
+        if (!ThinLens.IsValid(post.FocusDistance, post.Aperture, focalLength))
         {
             return null;
         }
@@ -81,10 +77,14 @@ internal sealed unsafe class DepthOfFieldPass : IDisposable
     private readonly FullscreenPass _cocPass;
     private readonly FullscreenPass _blurPass;
     private readonly FullscreenPass _combinePass;
-    private RenderTarget _coc = null!;
-    private RenderTarget _near = null!;
-    private RenderTarget _far = null!;
+    // The half-size layers, made the first time a frame draws depth of field, so a game that never
+    // opens a lens never spends the memory on them. Null until then, and again after a resize.
+    private RenderTarget? _coc;
+    private RenderTarget? _near;
+    private RenderTarget? _far;
     private Extent2D _half;
+    private ImageView _source;
+    private ImageView _depth;
 
     public DepthOfFieldPass(VulkanContext context, Sampler pointSampler, Sampler linearSampler, DescriptorSetLayout frameSetLayout)
     {
@@ -129,41 +129,53 @@ internal sealed unsafe class DepthOfFieldPass : IDisposable
     }
 
     /// <summary>
-    /// Makes the half-size layers for scene targets <paramref name="extent"/> in size, and points the
+    /// Sizes the half-size layers for scene targets <paramref name="extent"/> in size, and points the
     /// passes at <paramref name="source"/>, the picture blurred, and <paramref name="depth"/>, which glass
-    /// leaves read-only.
+    /// leaves read-only. The layers are made by the first <see cref="Record"/> after, so frames still in
+    /// flight must have finished.
     /// </summary>
     public void SetTargets(ImageView source, ImageView depth, Extent2D extent)
     {
         DestroyTargets();
         _half = new Extent2D(Math.Max((extent.Width + 1) / 2, 1), Math.Max((extent.Height + 1) / 2, 1));
-        _coc = CreateTarget();
-        _near = CreateTarget();
-        _far = CreateTarget();
-        SetSource(source, depth);
+        _source = source;
+        _depth = depth;
     }
+
+    /// <summary>Whether the half-size layers exist yet: only once a frame has drawn depth of field.</summary>
+    public bool HasTargets => _coc is not null;
 
     /// <summary>Reads a different picture from the next frame on. Frames still in flight must have finished.</summary>
     public void SetSource(ImageView source, ImageView depth)
     {
-        var depthInfo = new DescriptorImageInfo(_pointSampler, depth, ImageLayout.DepthReadOnlyOptimal);
+        _source = source;
+        _depth = depth;
+        if (HasTargets)
+        {
+            WriteSets();
+        }
+    }
+
+    private void WriteSets()
+    {
+        var depthInfo = new DescriptorImageInfo(_pointSampler, _depth, ImageLayout.DepthReadOnlyOptimal);
         Write(_cocSet,
         [
-            new(_linearSampler, source, ImageLayout.ShaderReadOnlyOptimal),
+            new(_linearSampler, _source, ImageLayout.ShaderReadOnlyOptimal),
             depthInfo,
-            new(_linearSampler, source, ImageLayout.ShaderReadOnlyOptimal),
+            new(_linearSampler, _source, ImageLayout.ShaderReadOnlyOptimal),
         ]);
         Write(_blurSet,
         [
-            new(_pointSampler, _coc.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_pointSampler, _coc!.View, ImageLayout.ShaderReadOnlyOptimal),
             depthInfo,
-            new(_linearSampler, _coc.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_linearSampler, _coc!.View, ImageLayout.ShaderReadOnlyOptimal),
         ]);
         Write(_combineSet,
         [
-            new(_linearSampler, _near.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_linearSampler, _near!.View, ImageLayout.ShaderReadOnlyOptimal),
             depthInfo,
-            new(_linearSampler, _far.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_linearSampler, _far!.View, ImageLayout.ShaderReadOnlyOptimal),
         ]);
     }
 
@@ -173,6 +185,16 @@ internal sealed unsafe class DepthOfFieldPass : IDisposable
     /// </summary>
     public void Record(CommandBuffer cmd, DescriptorSet frameSet, Image target, ImageView targetView, Extent2D extent, in DepthOfFieldConstants constants)
     {
+        if (_coc is null || _near is null || _far is null)
+        {
+            // The first frame to draw depth of field since start or a resize. Nothing has used the
+            // sets yet, so they can be written while recording.
+            _coc = CreateTarget();
+            _near = CreateTarget();
+            _far = CreateTarget();
+            WriteSets();
+        }
+
         var api = _context.Api;
         var lens = constants;
         var bytes = new ReadOnlySpan<byte>(&lens, (int)DepthOfFieldConstants.Size);
@@ -231,6 +253,9 @@ internal sealed unsafe class DepthOfFieldPass : IDisposable
         _coc?.Dispose();
         _near?.Dispose();
         _far?.Dispose();
+        _coc = null;
+        _near = null;
+        _far = null;
     }
 
     private void Write(DescriptorSet set, ReadOnlySpan<DescriptorImageInfo> images)

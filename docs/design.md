@@ -1505,7 +1505,7 @@ The CPU works out one number per frame with `ThinLens`: the circle of confusion 
 at the horizon, (f/N) * f / (S1 - f) on a 36 mm sensor, in pixels of the scene's width
 (`DepthOfFieldConstants.For`), so render scale changes it with no code of its own. The
 shaders scale it by |d - S1| / d for each pixel's view distance d, signed so near is
-negative, and clamp it at 16 pixels. `dof_coc.frag` halves the frame, keeping the circle of
+negative, and clamp it at 16 pixels in radius (32 across). `dof_coc.frag` halves the frame, keeping the circle of
 the nearest of each four pixels so a blurred thing in front keeps its edge. `dof_blur.frag`
 gathers two layers from a 48-tap golden-angle disc, both premultiplied: the far layer over
 this pixel's own circle, from taps whose circles reach it, so sharp things in front never
@@ -1517,7 +1517,11 @@ a quarter of a pixel blend nothing. The pass runs only when `PostSettings.Apertu
 0, the lens is valid and `RenderEffects.DepthOfField` isn't in `Off`; a lens `View.Finish`
 would refuse simply gives no blur in Rendition alone. Probe captures only record the scene,
 never this pass, and `PostSettings` isn't in the lighting hashes, so focusing never captures
-a probe again. `GpuTimer` reports it as "Depth of field".
+a probe again. `GpuTimer` reports it as "Depth of field". Its three half-size RGBA16F layers
+take 6 bytes per scene pixel, about 12 MB at 1920 x 1080, so they are made the first time a
+frame draws depth of field, not at start. A resize or render scale change frees them, and the
+next frame that draws it makes them again at the new size. `ThinLens.IsValid` answers what
+`Check` would, without throwing, so the frame asks it every time.
 
 `FrameView.Post` holds the look of the image: bloom, exposure, white balance, contrast and saturation,
 then lift and gain after the curve, in the tonemap pass, then sharpening, vignette and film grain in the finish pass. Grain and

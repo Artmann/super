@@ -56,6 +56,11 @@ public static class ThinLens
     /// </summary>
     public static void Check(float focusDistance, float aperture, float focalLengthMm, string paramName)
     {
+        if (IsValid(focusDistance, aperture, focalLengthMm))
+        {
+            return;
+        }
+
         if (!(float.IsFinite(focusDistance) && focusDistance >= 0f))
         {
             throw new ArgumentOutOfRangeException(
@@ -86,6 +91,16 @@ public static class ThinLens
                     $"The focus distance must be further than the focal length of {focalLengthMm} mm, but it is {focusDistance} m."));
         }
     }
+
+    /// <summary>
+    /// Whether <see cref="Check"/> would accept these lens settings, without throwing, so a frame can
+    /// ask every time at no cost.
+    /// </summary>
+    public static bool IsValid(float focusDistance, float aperture, float focalLengthMm) =>
+        float.IsFinite(focusDistance) && focusDistance >= 0f
+        && float.IsFinite(aperture) && aperture >= 0f
+        && float.IsFinite(focalLengthMm) && focalLengthMm > 0f
+        && !(aperture > 0f && focusDistance <= focalLengthMm / 1000f);
 
     /// <summary>The focal length in millimetres for a <see cref="PostSettings.FocalLength"/>, where 0 means the default.</summary>
     public static float FocalLength(float requested) => requested == 0f ? DefaultFocalLengthMm : requested;

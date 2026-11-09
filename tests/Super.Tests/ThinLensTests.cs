@@ -164,13 +164,40 @@ public class ThinLensTests
     }
 
     [Fact]
-    public void A_view_takes_no_focus_distance_while_the_aperture_is_shut()
+    public void A_view_accepts_a_focus_distance_of_zero_while_the_aperture_is_shut()
     {
         var view = new View();
 
-        view.Finish(new PostSettings());
+        var error = Record.Exception(() => view.Finish(new PostSettings { FocusDistance = 0f, Aperture = 0f }));
 
-        Assert.Equal(0f, view.Post.Aperture);
+        Assert.Null(error);
+        Assert.Equal(0f, view.Post.FocusDistance);
+    }
+
+    [Theory]
+    [InlineData(11f, 8f, 35f, true)]
+    [InlineData(0f, 0f, 35f, true)]
+    [InlineData(0.035f, 2.8f, 35f, false)]
+    [InlineData(0.036f, 2.8f, 35f, true)]
+    [InlineData(-1f, 0f, 35f, false)]
+    [InlineData(float.NaN, 2.8f, 35f, false)]
+    [InlineData(10f, -2.8f, 35f, false)]
+    [InlineData(10f, float.PositiveInfinity, 35f, false)]
+    [InlineData(10f, 2.8f, 0f, false)]
+    [InlineData(10f, 2.8f, float.NaN, false)]
+    public void IsValid_says_whether_Check_would_throw(float focusDistance, float aperture, float focalLengthMm, bool valid)
+    {
+        var error = Record.Exception(() => ThinLens.Check(focusDistance, aperture, focalLengthMm, "lens"));
+
+        Assert.Equal(valid, ThinLens.IsValid(focusDistance, aperture, focalLengthMm));
+        if (valid)
+        {
+            Assert.Null(error);
+        }
+        else
+        {
+            Assert.IsType<ArgumentOutOfRangeException>(error);
+        }
     }
 
     [Fact]

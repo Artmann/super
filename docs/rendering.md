@@ -409,7 +409,7 @@ where f is the focal length, N the aperture and S1 the focus distance. A smaller
 longer lens or a nearer focus blurs more. A 50 mm lens at f/2.8 focused at 10 m spreads a
 point at 5 m, or at the horizon, over 0.09 mm, about 4 pixels of a 1600 pixel picture.
 The blur is measured in the scene's own pixels, so it looks the same at any
-[render scale](#graphics-settings). No circle grows past 16 pixels across.
+[render scale](#graphics-settings). No circle grows past 16 pixels in radius (32 across).
 
 `FocalLength` only sizes the blur. The field of view still comes from the camera, so set
 them to match if it matters. The sensor is 36 mm across the picture's width, so in a 16:9
@@ -426,13 +426,21 @@ smears into the background. A blurred thing in front spreads over what's behind 
 own edge, as a branch close to the lens veils the scene. The blur is gathered at half size
 and drawn back at full size, so edges in focus stay crisp.
 
+The blur goes by the depth of solid surfaces, so glass and particles take the blur of what's
+behind them: a window pane is as sharp or as soft as the room through it, and smoke in front
+of a blurred wall blurs with the wall. Where a sharp edge in front sits on a blurred
+background, the background can pick up a pixel-wide fringe of the edge's colour, since each
+half-size pixel mixes the four pixels under it.
+
 A view refuses a negative or broken `FocusDistance`, `Aperture` or `FocalLength`, and a focus
 distance no further than the focal length while the aperture is open. Rendition used on its
 own draws no depth of field for those instead. [`Graphics.DepthOfField`](#graphics-settings)
 turns it off for every view, and `Graphics.Fastest()` turns it off. Probes never see it, so
 changing the focus never captures them again.
 
-![The Courtyard's near flagstones, mud and grass without depth of field on the left, and focused on the window 11 m away at f/8 on the right, where the nearest ground is a little softer. The grass sways between the two shots](media/depth-of-field.webp)
+![The Courtyard's window, barrel, puddle and near grass with everything sharp on the left, and through an 85 mm lens at f/2.8 focused on the window 11 m away on the right, where the window and the wall stay sharp and the grass and mud in front blur strongly](media/depth-of-field.webp)
+
+The picture above uses a stronger lens than the Courtyard's own f/8 and 35 mm, so the blur shows.
 
 ## The sky
 
