@@ -311,7 +311,8 @@ model loads. See [A surface shader on a model](rendering.md#a-surface-shader-on-
 ### Wear and dirt on models
 
 A model sidecar's material rule with `"bakeMasks": true` bakes curvature, occlusion and
-height masks from the material's meshes into a texture cooked inside the model, and its
+height masks from the material's meshes into a texture the model points to, stored like
+its other textures as a shared object, and its
 `wear` and `dirt` layers, each an sRGB `color`, an optional `roughness` and an `amount`
 from 0 to 1, are laid on by them. The masks go in the mesh's second UV set, so
 every mesh of the material needs one whose islands don't overlap. See
