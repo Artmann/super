@@ -31,7 +31,7 @@ graphs, Blender 4 Python for the model, xunit, ffmpeg for the media.
   volume, fog density, a focus distance, a puddle level, wind) are on as soon as the
   scene gives that value. Each gets a `Graphics` bool switch the way `Graphics.Bloom`
   and `Graphics.AmbientOcclusion` work today: `ContactShadows`, `LightProbes`, `Fog`,
-  `DepthOfField`, `Decals`, `Puddles`, `Wind`, all default `true`, documented in the
+  `DepthOfField`, `Decals`, `Puddles`, `Wind`, `VolumetricFog`, all default `true` (plus `Graphics.Upscaler`, Task 28), documented in the
   Graphics table of `docs/rendering.md`. Check with `--screenshot` of `examples/Crypt`
   before and after a renderer task and confirm the change is the intended one, not drift.
 - Docs change in the same commit as the code: user-facing options in `docs/rendering.md`
@@ -443,7 +443,8 @@ Every graph task: edit the `.material.cs`, run `dotnet run -c Release --project 
 - [ ] `view.LightProbes(new(-2f, -0.5f, -9f), new(9f, 5f, 6f), 1f)`; `view.ReflectionProbe(3, new(3.5f, 1.5f, -1.5f), new(-3f, -1f, -10f), new(10f, 6f, 7f))`.
 - [ ] `view.AmbientOcclusion(0.8f, 1f)`; `view.Shadows(7f, 3, sunSize: 0.02f, contact: 0.3f)`; `graphics.ShadowResolution = 4096` behind `--size` wider than 1920 only, else 2048.
 - [ ] `view.Puddles(-0.045f, 0.1f)`; `view.Wind(new(0.6f, 0f, -0.3f), 0.35f)`.
-- [ ] Finish: `AutoExposure true, Exposure -0.3, Tonemapper Agx, Temperature 0.08, Tint 0, Contrast 0.05, Saturation 0, Vignette 0.3, Sharpen 0.15, Bloom 0.05, FocusDistance 11, Aperture 8, FocalLength 35`; lift and gain cleared.
+- [ ] Finish: start from what Tasks 8 and 9 tuned (`AutoExposure true, Exposure 1.05, Tonemapper Agx, AgxLook Punchy, Contrast 0.25, Saturation 0.15`), add `Temperature 0.08, Tint 0, Vignette 0.3, Sharpen 0.15, Bloom 0.05, FocusDistance 11, Aperture 8, FocalLength 35`; lift and gain cleared. Retune Exposure so the frame meters near luma 108, not by the old ACES numbers.
+- [ ] Volumetric fog (Task 26): pick the density and `VolumetricDistance` so the far wall sits in the air and shafts show only where the sun grazes past the wall; `Upscaler` as Task 28 decided.
 - [ ] Lamp and room lights: lamp `color` halved now that exposure adapts; room light unchanged.
 - [ ] Screenshot `shots/t24-final.png` and `--render-scale 2` `shots/t24-final-ss.png`; `--script plain` for the clay check; `--record shots/t24.mp4 --seconds 6` for the ripples and wind. Validation count must stay 0.
 - [ ] Commit `feat: the Courtyard is lit by a clear sky, bounced light and an adapting camera`.
@@ -454,9 +455,73 @@ Every graph task: edit the `.material.cs`, run `dotnet run -c Release --project 
 
 - [ ] Make each image with ffmpeg `hstack` and `drawtext` from `shots/plan-base.png` and `shots/t24-final.png`, `-c:v libwebp`, about 1200 px wide; look at every image and confirm the labels are true.
 - [ ] README: rewrite the lighting paragraph, add the decal list, the puddle rule, the baked masks and the new graphs to the files table.
-- [ ] `rendering.md` intro bullets: bounced light from probes, contact shadows, GTAO, a clear-sky model, height fog, auto exposure, AgX, depth of field, decals, puddles, wind, wear and dirt masks, render scale.
-- [ ] Roadmap: remove what shipped, add "probes are static and recapture only on a change", "no parallax self-shadow", "no motion vectors".
+- [ ] `rendering.md` intro bullets: bounced light from probes, contact shadows, GTAO, a clear-sky model, height fog, volumetric fog, auto exposure, AgX, depth of field, decals, puddles, wind, wear and dirt masks, render scale, motion vectors, FSR.
+- [ ] Retake `docs/media/material-lineup.webp` once, now that the graphs are final (moved here from Task 18).
+- [ ] Roadmap: remove what shipped, add "probes are static and recapture only on a change", "no parallax self-shadow", "bounced light doesn't follow moving lights or objects (next step: probes that update at runtime, DDGI; a surface cache like Lumen later)", "no DLSS".
 - [ ] Commit `docs: the Courtyard before and after, and what the renderer learned`.
+
+## Phase 6: Light in the air, and upscaling
+
+Added on 2026-11-09 after comparing the renderer with what Unity is shipping. These run
+before Task 24, so the final light pass tunes them: Task 26 after Task 10, Task 27 after
+Task 15 (wind moves vertices) and Task 28 after Task 27. Bits: `VolumetricFog` takes the
+next free `RenderEffects` bit (13 unless another task took it first).
+
+### Task 26: Volumetric fog
+
+**Files:**
+- Create: `src/Rendition/Passes/VolumetricFog.cs` (pure: `GridSize(int sceneWidth, int sceneHeight) → (int x, int y, int z)` at one cell per 8×8 scene pixels and 64 slices; `SliceDepth(int slice, int slices, float near, float far) → float` and `SliceOf(float depth, …) → float`, an exponential split; `Phase(float cosTheta, float anisotropy) → float` Henyey-Greenstein; `Integrate(…)`, the CPU mirror of the front-to-back sum), `src/Rendition/Shaders/volumetric_inject.comp`, `volumetric_integrate.comp`, `volumetric.glsl` (lookup), `src/Rendition/Vulkan/VolumetricFogVolume.cs` (two 3D targets, last frame's for history)
+- Modify: `src/Rendition/Shaders/fog.glsl` (inside `VolumetricDistance` the volume replaces the analytic fog; past it the analytic fog continues from the volume's transmittance), `lighting.frag`, `transparent.frag`, `particle.frag`, `src/Rendition/Renderer.cs` (record after the shadow pass, before lighting), `src/Rendition/Types.cs` (`FogSettings.Anisotropy`, `VolumetricDistance`; `RenderEffects.VolumetricFog`), `src/Super/Graphics.cs`, `src/Super/Sky.cs`
+- Test: `tests/Super.Tests/VolumetricFogTests.cs`, `GraphicsTests.cs`
+- Docs: `docs/rendering.md` ("Fog" gains a volumetric paragraph and the Graphics row), `docs/design.md`
+
+**Interfaces:**
+- Consumes: `FogSettings` and `Fog.Transmittance` (Task 7); sun cascades; light list and spot shadow maps; `frame.previousViewProjection`.
+- Produces: `FogSettings.Anisotropy` (−0.9..0.9, default 0.6, forward scattering), `FogSettings.VolumetricDistance` (metres, default 48, 0 = analytic only); `Graphics.VolumetricFog` (bool, default true; off falls back to Task 7's analytic fog exactly); lights add to the volume by default, with `Light.Volumetric` strength (0..∞, default 1).
+- Inject per cell: density from the height fog, light = sun × sun shadow × phase + sky ambient + each point and spot light × its shadow where it has one × phase. Cell depth is jittered by a fixed 8-step sequence from the frame index and blended 90% with the reprojected history; a cell whose history falls off screen takes the new value. Fixed frame index → identical shots.
+
+- [ ] **Step 1: Tests:** `Slices_cover_near_to_far_and_invert` (`SliceOf(SliceDepth(i))` = i for all i; slice 0 at near, slice n at far); `Isotropic_phase_is_one_over_four_pi`; `Phase_integrates_to_one_over_the_sphere` (numeric sum, g 0.6 and −0.6, within 1%); `Forward_scattering_is_brighter_towards_the_light` (g 0.6: θ 0 > θ 90°); `A_uniform_unlit_medium_matches_beer_lambert` (`Integrate` of density 0.1 over 10 m → transmittance exp(−1)); `Grid_follows_the_scene_size_not_the_window` (1600×900 → 200×113×64; at render scale 2 → 400×225×64); `Anisotropy_outside_range_is_refused` (message names the field, checked under sv-SE); `Volumetric_fog_off_is_the_analytic_fog` (switch maps to the bit; `Fastest()` turns it off).
+- [ ] **Step 2: Run, expect failures**
+- [ ] **Step 3: Implement**
+- [ ] **Step 4: Tests pass. Courtyard with `VolumetricDistance = 48, Anisotropy = 0.6` and density raised for the shot only to 0.02: `shots/t26-volumetric.png`; aim a camera for the shot only towards the sun past the wall and ivy, `shots/t26-shafts.png`; the shafts must follow the shadow edges and the wall lamp must have a soft halo. Put the density back. Crypt before and after: the torches gain halos, nothing else moves. Two runs byte-identical (`cmp`). Validation count 0. Add `docs/media/volumetric-fog.webp`, before and after with labels.**
+- [ ] **Step 5: Commit** `feat: volumetric fog with sun shafts and lamp halos`
+
+### Task 27: Motion vectors
+
+**Files:**
+- Create: `src/Rendition/Passes/Motion.cs` (pure: `Pack(Vector2 ndcNow, Vector2 ndcBefore) → Vector2` and the decode the shader uses)
+- Modify: `gbuffer.vert`/`gbuffer.frag` (an RG16F motion target: each vertex placed twice, with this frame's and last frame's model matrix, bones and `windSway` time), `src/Rendition/Vulkan` G-buffer targets, `instances.glsl` (last frame's model matrix per instance), skinning (last frame's palette), `taa.frag` (reads the motion target; camera-only reprojection stays as the fallback where it's cleared), `common.glsl` (`previousTime`), `src/Rendition/Renderer.cs` (keeps last frame's matrices per entity key)
+- Test: `tests/Super.Tests/MotionTests.cs`
+- Docs: `docs/design.md`; `docs/roadmap.md` (remove "no motion vectors")
+
+**Interfaces:**
+- Consumes: Task 15's `Wind.Sway(… time)`; the skinned palette from animation.
+- Produces: a motion target in scene pixels, the input Task 28's upscaler needs; no new switch (TAA's `Graphics.AntiAliasing` covers it). A draw that appears this frame has no history and writes camera-only motion.
+
+- [ ] **Step 1: Tests:** `A_still_object_under_a_still_camera_has_no_motion`; `Moving_right_one_pixel_is_one_pixel` (hand-worked at 1600×900); `A_new_draw_falls_back_to_camera_motion`; `Swaying_grass_has_motion_where_the_base_has_none` (via `Wind.Sway` at two times).
+- [ ] **Step 2: Run, expect failures**
+- [ ] **Step 3: Implement**
+- [ ] **Step 4: Tests pass. `--record shots/t27-motion.mp4 --seconds 4` of the Courtyard with wind: the grass and ivy must not smear or ghost under TAA as they did; compare a frame crop with Task 15's recording. Crypt pixel-identical (nothing moves there). Validation count 0.**
+- [ ] **Step 5: Commit** `feat: motion vectors for moving, skinned and swaying draws`
+
+### Task 28: FSR upscaling
+
+**Files:**
+- Create: `src/Rendition/Vulkan/Fsr.cs` (P/Invoke into AMD FidelityFX SDK's Vulkan `ffx` API: create the context at the scene and window sizes, dispatch with colour, depth, motion, exposure, jitter and reset, destroy on resize), `src/Rendition/Passes/Upscale.cs` (pure: `JitterPhaseCount(float scale) → int`, `Jitter(int frame, int phases) → Vector2`, the Halton sequence the SDK expects, and `Choose(Upscaler wanted, bool libraryLoaded) → Upscaler`), `third_party/fidelityfx/` (the MIT licence and the prebuilt Windows DLL, copied to the output)
+- Modify: `src/Rendition/Renderer.cs` (with FSR, its dispatch replaces TAA and the finish resample), `src/Rendition/Types.cs` (`enum Upscaler { Taa, Fsr }`, `RenderOptions.Upscaler`), `src/Super/Graphics.cs` (`Upscaler`), `src/Super/GameArguments.cs` (`--upscaler fsr|taa`), `docs/command-line.md`
+- Test: `tests/Super.Tests/UpscaleTests.cs`, `GraphicsTests.cs`, `GameArgumentsTests.cs`
+- Docs: `docs/rendering.md` (an "Upscaling" section beside render scale; Graphics row), `docs/design.md`, `docs/roadmap.md` (DLSS listed as not supported)
+
+**Interfaces:**
+- Consumes: `Graphics.RenderScale` and `Renderer.SceneSize` (Task 10), the motion target (Task 27), the adapted exposure buffer (Task 8).
+- Produces: `Graphics.Upscaler` (`Taa` or `Fsr`). Where the DLL doesn't load (Linux, missing file) `Choose` falls back to `Taa` and logs once. With FSR, render scales below 1 are where it pays: `RenderScale 0.67` is FSR's quality mode.
+- Default: decided by the Step 4 crops. If FSR at scale 1 is visibly cleaner than TAA on the grass, ivy and window bars, the default is `Fsr`; otherwise `Taa`. The report shows both crops either way.
+
+- [ ] **Step 1: Tests:** `Jitter_phase_count_follows_the_scale` (hand-worked from AMD's rule, 8 × (1/scale)²: scale 1 → 8, 0.5 → 32); `Jitter_is_halton_two_three` (first three hand-worked values); `A_missing_library_falls_back_to_taa`; `Upscaler_is_parsed_from_the_command_line`; `Fastest_uses_taa`.
+- [ ] **Step 2: Run, expect failures**
+- [ ] **Step 3: Implement**
+- [ ] **Step 4: Tests pass. Courtyard shots at `--upscaler taa` and `--upscaler fsr` at scale 1, and `--upscaler fsr --render-scale 0.67`: `shots/t28-taa.png`, `t28-fsr.png`, `t28-fsr-067.png`; crop the grass and window bars side by side with labels; measure each with `--profile shots/t28-X.txt` and compare the GPU frame times. Two runs byte-identical. Validation count 0. Add `docs/media/fsr.webp`.**
+- [ ] **Step 5: Commit** `feat: FSR upscaling, which renders smaller and rebuilds the full picture`
 
 ## Self-review notes
 
