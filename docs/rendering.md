@@ -53,6 +53,7 @@ next frame follows, so it can back an options menu.
 | `AntiAliasing` | Edges show their pixels, and moving things stay sharp |
 | `Bloom` | No glow round bright things. `PostSettings.Bloom` only changes how much there is |
 | `Fog` | Clear air, whatever `SkySettings.Fog` asks for. [Haze](#the-sky) stays, since it isn't fog. `SkySettings.Fog` only changes [how thick it is](#fog) |
+| `AutoExposure` | Views that ask for [auto exposure](#auto-exposure) keep the fixed `PostSettings.Exposure` instead, as if they hadn't asked. It saves a compute pass over the frame |
 | `Materials` | Every surface is the same light grey, matte clay, shaped only by its mesh, so you can judge the lighting and the models without textures in the way. Glows still glow, cut-outs still cut and glass stays see-through. `--no-materials` turns it off too |
 
 `Materials` is for looking, not for speed, so `Graphics.Fastest()` leaves it on. A key that
@@ -312,6 +313,37 @@ all, so they get no bright halos. While anti-aliasing is on, textures are also r
 sharper than their size on screen asks for. One frame alone would shimmer, but anti-aliasing
 blends the frames and they settle. Reflection probes are captured without it, since nothing
 blends their frames.
+
+### Auto exposure
+
+```csharp
+view.Finish(new PostSettings
+{
+    AutoExposure = true,
+    Exposure = -0.3f,        // now compensation: a third of a stop darker than metered
+    AdaptationSpeed = 2f,    // stops a second; 0 means the default of 2
+});
+```
+
+With `AutoExposure` on, the camera meters the picture and sets the brightness itself, so a
+scene lit much brighter or dimmer comes out about the same. It sorts the lit picture's pixels
+by brightness, before bloom, leaves out the darkest 40 per cent and the brightest 5 per
+cent, and puts the average of the rest at middle grey. Deep shade and the sun's disc so don't
+pull the picture one way or the other. `Exposure` then shifts that, in stops, for a
+brighter or darker picture than the meter picks.
+
+When the scene gets brighter or darker the exposure follows at `AdaptationSpeed` stops a second,
+the way eyes adjust walking out of a cellar. The first frame starts at the metered brightness,
+not from black, and so does the first after `AutoExposure` or [`Graphics.AutoExposure`](#graphics-settings)
+is turned back on, or after time goes backwards, as when the game restarts. A speed must be above 0, or 0 for the
+default. The meter sees from about 1/256 to 65000 times a white of 1. Anything darker or
+brighter counts as the darkest or brightest it sees.
+
+Screenshots and recordings step time a tick at a fixed rate, so the same `--seed` and `--ticks`
+give the same exposure and the same picture every run. Reflection and light probes don't
+use it: they hold light, and exposure is applied after lighting.
+
+![The Courtyard with a fixed exposure of +0.35 on the left, and with auto exposure and -0.3 of compensation on the right, about two thirds of a stop darker, with the sunlit wall holding its colour and the shade deeper](media/auto-exposure.webp)
 
 ## The sky
 

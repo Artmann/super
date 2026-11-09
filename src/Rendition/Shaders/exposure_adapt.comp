@@ -1,0 +1,62 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "exposure.glsl"
+
+// Reads the histogram, empties it for the next frame and moves the exposure towards the mean
+// brightness of the 40th to 95th percentile, by at most the step it is given. The sums are the
+// same as Exposure.Target and Exposure.Adapt.
+
+layout(local_size_x = EXPOSURE_BINS) in;
+
+// Must match AdaptConstants in Vulkan/ExposureMeter.cs.
+layout(push_constant) uniform Adapt {
+    float maxStep; // The most it may move this frame, in stops: speed times the time since the last.
+    int snap;      // 1 to jump straight to the target, on the first metered frame.
+} adapt;
+
+shared float counts[EXPOSURE_BINS];
+
+void main() {
+    uint bin = gl_LocalInvocationIndex;
+    counts[bin] = float(exposure.bins[bin]);
+    exposure.bins[bin] = 0u;
+
+    barrier();
+
+    if (bin != 0u) {
+        return;
+    }
+
+    float total = 0.0;
+    for (int i = 0; i < EXPOSURE_BINS; i++) {
+        total += counts[i];
+    }
+
+    float low = total * EXPOSURE_LOW_CUT;
+    float high = total * EXPOSURE_HIGH_CUT;
+    float width = (EXPOSURE_MAX_EV - EXPOSURE_MIN_EV) / float(EXPOSURE_BINS);
+    float below = 0.0;
+    float weight = 0.0;
+    float sum = 0.0;
+    for (int i = 0; i < EXPOSURE_BINS; i++) {
+        float start = below;
+        float end = below + counts[i];
+        below = end;
+        float kept = max(0.0, min(end, high) - max(start, low));
+        weight += kept;
+        sum += kept * (EXPOSURE_MIN_EV + (float(i) + 0.5) * width);
+    }
+
+    // An empty frame has nothing to meter, so the exposure holds still.
+    if (!(weight > 0.0)) {
+        return;
+    }
+
+    float target = sum / weight;
+    float current = exposure.adaptedEv;
+    if (adapt.snap != 0 || isnan(current) || isinf(current)) {
+        exposure.adaptedEv = target;
+    } else {
+        exposure.adaptedEv = current + clamp(target - current, -adapt.maxStep, adapt.maxStep);
+    }
+}

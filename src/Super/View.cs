@@ -492,7 +492,20 @@ public sealed class View
     public void Water(in UnderwaterSettings settings) => WaterSettings = settings;
 
     /// <summary>Sets the look of the finished picture.</summary>
-    public void Finish(in PostSettings settings) => Post = settings;
+    public void Finish(in PostSettings settings)
+    {
+        float speed = settings.AdaptationSpeed;
+        if (!(float.IsFinite(speed) && speed >= 0f))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(settings),
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"The adaptation speed must be above 0 stops a second, or 0 for the default of 2, but it is {speed}."));
+        }
+
+        Post = settings;
+    }
 
     /// <summary>
     /// Sets how far around the camera's target the sharpest shadows reach, in metres,

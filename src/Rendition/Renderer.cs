@@ -140,6 +140,9 @@ public sealed unsafe class Renderer : IDisposable
     private readonly FullscreenPass _taaPass;
     private readonly BloomPass _bloomPass;
     private readonly FullscreenPass _tonemapPass;
+    private readonly ExposureMeter _exposureMeter;
+    private readonly ExposureClock _exposureClock = new();
+    private ExposureStep? _exposureStep;
     private readonly FullscreenPass _finishPass;
     private readonly OverlayPass _overlayPass;
     private readonly DescriptorSet _overlaySet;
@@ -338,6 +341,7 @@ public sealed unsafe class Renderer : IDisposable
         _bloomPass = new BloomPass(_context, _linearSampler, _gBuffer.Resolved.View, _gBuffer.Extent);
         _particlePass = new ParticlePass(_context, _frameSetLayout, FramesInFlight);
         _transparentPass = new TransparentPass(_context, _frameSetLayout, _resources, _environment, _probes);
+        _exposureMeter = new ExposureMeter(_context, _sampler);
         WriteTargetDescriptors();
 
         _gBufferPass = new GBufferPass(_context, _frameSetLayout, _resources);
@@ -350,7 +354,8 @@ public sealed unsafe class Renderer : IDisposable
         _scatterDownPass = new FullscreenPass(_context, "sss_blur.frag", [GBuffer.HdrFormat],
             [_frameSetLayout, _twoTextureSetLayout, _resources.Layout], BlurConstants.Size, blend: true);
         _taaPass = new FullscreenPass(_context, "taa.frag", GBuffer.HdrFormat, [_frameSetLayout, _threeTextureSetLayout]);
-        _tonemapPass = new FullscreenPass(_context, "tonemap.frag", GBuffer.LdrFormat, [_frameSetLayout, _twoTextureSetLayout]);
+        _tonemapPass = new FullscreenPass(_context, "tonemap.frag", GBuffer.LdrFormat,
+            [_frameSetLayout, _twoTextureSetLayout, _exposureMeter.SetLayout]);
         _finishPass = new FullscreenPass(_context, "finish.frag", _swapchain.Format, [_frameSetLayout, _twoTextureSetLayout], TransitionConstants.Size);
         _overlayPass = new OverlayPass(_context, _swapchain.Format, _oneTextureSetLayout, _resources, FramesInFlight);
         _gpuTimer = new GpuTimer(_context, FramesInFlight);
@@ -1100,7 +1105,8 @@ public sealed unsafe class Renderer : IDisposable
             WriteTargetDescriptors();
         }
 
-        _off = view.Off & RenderEffects.All;
+        // Metering is left out of the shaders unless the view asked for it, so the fixed exposure stays as it was.
+        _off = Exposure.ShaderOff(view.Post, view.Off & RenderEffects.All);
         bool antiAliased = !_off.HasFlag(RenderEffects.AntiAliasing);
         if (antiAliased != _readsAntiAliased)
         {
@@ -1113,6 +1119,7 @@ public sealed unsafe class Renderer : IDisposable
                 new(_sampler, DisplaySource, ImageLayout.ShaderReadOnlyOptimal),
                 new(_linearSampler, _bloomPass.Result, ImageLayout.ShaderReadOnlyOptimal),
             ]);
+            _exposureMeter.SetSource(DisplaySource, _gBuffer.Extent);
         }
 
         BakeSky(view);
@@ -1191,6 +1198,9 @@ public sealed unsafe class Renderer : IDisposable
             _gpuTimer.Begin(cmd, _frameIndex);
         }
 
+        // Worked out here, just before the frame is recorded, so a frame that is never drawn doesn't move the clock.
+        _exposureStep = _exposureClock.Next(
+            !_off.HasFlag(RenderEffects.AutoExposure), view.Time, Exposure.Speed(view.Post.AdaptationSpeed));
         RecordFrame(cmd, frame.Set, imageIndex, _cameraDraws.AsSpan(0, cameraCount), overlayQuads);
         _gpuTimer.End();
         _api.EndCommandBuffer(cmd).Check();
@@ -1399,6 +1409,7 @@ public sealed unsafe class Renderer : IDisposable
         _overlayAtlas?.Dispose();
         _finishPass.Dispose();
         _tonemapPass.Dispose();
+        _exposureMeter.Dispose();
         _bloomPass.Dispose();
         _taaPass.Dispose();
         _transparentPass.Dispose();
@@ -1503,7 +1514,13 @@ public sealed unsafe class Renderer : IDisposable
 
         _gpuTimer.Mark(cmd);
 
-        ReadOnlySpan<DescriptorSet> tonemapSets = [frameSet, _tonemapSet];
+        // Metered from the lit frame before bloom. Its time counts towards the tonemap's.
+        if (_exposureStep is { } exposureStep)
+        {
+            _exposureMeter.Record(cmd, exposureStep);
+        }
+
+        ReadOnlySpan<DescriptorSet> tonemapSets = [frameSet, _tonemapSet, _exposureMeter.Set];
         _api.BeginColorTarget(cmd, targets.Ldr.Image);
         _tonemapPass.Record(cmd, targets.Ldr.View, extent, tonemapSets);
         _api.EndColorTarget(cmd, targets.Ldr.Image);
@@ -2388,6 +2405,7 @@ public sealed unsafe class Renderer : IDisposable
             new(_sampler, DisplaySource, ImageLayout.ShaderReadOnlyOptimal),
             new(_linearSampler, _bloomPass.Result, ImageLayout.ShaderReadOnlyOptimal),
         ]);
+        _exposureMeter.SetSource(DisplaySource, _gBuffer.Extent);
         WriteImages(_finishSet,
         [
             new(_linearSampler, _gBuffer.Ldr.View, ImageLayout.ShaderReadOnlyOptimal),

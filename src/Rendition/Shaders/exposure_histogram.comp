@@ -1,0 +1,47 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "exposure.glsl"
+
+// Counts the lit frame's pixels by brightness, before bloom, into the bins of exposure.glsl.
+// Each group counts into shared memory first, so the buffer sees one add per bin per group.
+// Every pixel lands in a bin, however bright or broken, so a sun disc of 30000 can't spill out.
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(set = 0, binding = 1) uniform sampler2D hdrTexture;
+
+shared uint groupBins[EXPOSURE_BINS];
+
+// The same sums as Exposure.Bin.
+uint binOf(vec3 rgb) {
+    float luminance = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+    if (!(luminance > 0.0)) {
+        return 0u;
+    }
+
+    float position = (log2(luminance) - EXPOSURE_MIN_EV) * (float(EXPOSURE_BINS) / (EXPOSURE_MAX_EV - EXPOSURE_MIN_EV));
+    return uint(clamp(position, 0.0, float(EXPOSURE_BINS - 1)));
+}
+
+void main() {
+    if (gl_LocalInvocationIndex < EXPOSURE_BINS) {
+        groupBins[gl_LocalInvocationIndex] = 0u;
+    }
+
+    barrier();
+
+    ivec2 size = textureSize(hdrTexture, 0);
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (pixel.x < size.x && pixel.y < size.y) {
+        atomicAdd(groupBins[binOf(texelFetch(hdrTexture, pixel, 0).rgb)], 1u);
+    }
+
+    barrier();
+
+    if (gl_LocalInvocationIndex < EXPOSURE_BINS) {
+        uint count = groupBins[gl_LocalInvocationIndex];
+        if (count > 0u) {
+            atomicAdd(exposure.bins[gl_LocalInvocationIndex], count);
+        }
+    }
+}

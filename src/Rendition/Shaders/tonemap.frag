@@ -1,6 +1,9 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
 #include "common.glsl"
+#define EXPOSURE_SET 2
+#define EXPOSURE_ACCESS readonly
+#include "exposure.glsl"
 
 layout(location = 0) in vec2 inUv;
 
@@ -43,7 +46,14 @@ void main() {
         color = mix(color, texture(bloomTexture, inUv).rgb, frame.lift.a);
     }
 
-    color = max(color * frame.grade.x, vec3(0.0));
+    // Auto exposure puts the metered brightness at middle grey, and grade.x becomes compensation
+    // on top. Left out, the fixed exposure is all there is, exactly as before.
+    float exposureScale = frame.grade.x;
+    if (!isOff(OFF_AUTO_EXPOSURE)) {
+        exposureScale *= MIDDLE_GREY * exp2(-exposure.adaptedEv);
+    }
+
+    color = max(color * exposureScale, vec3(0.0));
     color = pow(color / MIDDLE_GREY + 1e-5, vec3(frame.grade.y)) * MIDDLE_GREY;
     color = max(mix(vec3(dot(color, vec3(0.2126, 0.7152, 0.0722))), color, frame.grade.z), vec3(0.0));
 

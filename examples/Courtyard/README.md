@@ -53,8 +53,9 @@ so the leaves' shade stays crisp though they are 10 m from the wall. See
 [Shadows](../../docs/rendering.md#shadows). The sky is a clear one worked out from the sun
 with `Turbidity = 2.5f`: blue overhead, paler at the horizon and bright round the sun's
 disc, so the shade is cooler than the sunlight. See [The sky](../../docs/rendering.md#the-sky). The sun is strong against the sky, so
-the shade is a clear step darker than the light, as on a real clear day, and the finish
-raises the exposure to keep the sunlit wall bright. The lantern is a point light at its
+the shade is a clear step darker than the light, as on a real clear day. The camera meters
+the courtyard with auto exposure and the finish takes a third of a stop off what it picks, so the
+sunlit wall keeps its colour. See [Auto exposure](../../docs/rendering.md#auto-exposure). The lantern is a point light at its
 bulb, left on but dim in daylight, that warms the wall just round it. It casts no shadows, since the bulb and
 the lantern round it would hide it. A point light at the back of the room makes the old
 glass glow, as if someone is home. A light finish adds contrast, a cool lift in the shade,
@@ -97,6 +98,15 @@ for a screenshot in clear air:
 
 ```
 dotnet run -c Release --project examples/Courtyard -- --script clear --screenshot shots/courtyard-clear.png --validate --seed 1 --ticks 60 --size 1600x900
+```
+
+Press E to turn auto exposure off and on. Off, the finish's `Exposure = -0.3f` is a fixed
+exposure instead of compensation on what the camera metered. It flips
+[`Graphics.AutoExposure`](../../docs/rendering.md#graphics-settings), and the `fixed` script
+presses E for a screenshot at the fixed exposure:
+
+```
+dotnet run -c Release --project examples/Courtyard -- --script fixed --screenshot shots/courtyard-fixed.png --validate --seed 1 --ticks 60 --size 1600x900
 ```
 
 ## The lineup

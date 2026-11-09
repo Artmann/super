@@ -390,8 +390,26 @@ public struct ReflectionProbe
 /// <summary>The look of the finished picture. Leaving a value at zero leaves that part unchanged.</summary>
 public struct PostSettings
 {
-    /// <summary>Brightness in photographic stops: +1 is twice as bright.</summary>
+    /// <summary>
+    /// Brightness in photographic stops: +1 is twice as bright. With <see cref="AutoExposure"/> on it is
+    /// added to what the camera metered, so -0.3 keeps the picture a third of a stop darker than metered.
+    /// </summary>
     public float Exposure;
+
+    /// <summary>
+    /// Sets the brightness from what the camera sees, the way an eye or a camera does: it meters the lit
+    /// frame each frame, before the glow, and eases towards the brightness that puts it at middle grey.
+    /// The darkest 40 per cent and the brightest 5 per cent of the pixels are left out of the metering, so
+    /// the sun's disc and sparkle on water don't darken the picture. Off, <see cref="Exposure"/> alone
+    /// sets the brightness. See docs/rendering.md.
+    /// </summary>
+    public bool AutoExposure;
+
+    /// <summary>
+    /// How fast <see cref="AutoExposure"/> follows a change, in stops a second, which must be above 0. 0
+    /// means the default of 2, so stepping from a sunny yard into a room four stops darker settles in about two seconds.
+    /// </summary>
+    public float AdaptationSpeed;
 
     /// <summary>Added contrast. 0.1 is a gentle boost; negative values flatten the picture.</summary>
     public float Contrast;
@@ -729,8 +747,14 @@ public enum RenderEffects
     /// <summary>The height fog from <see cref="FrameView.Fog"/>. Without it the air is clear, whatever its density.</summary>
     Fog = 1 << 11,
 
+    /// <summary>
+    /// Metering the frame for <see cref="PostSettings.AutoExposure"/>. Without it the fixed
+    /// <see cref="PostSettings.Exposure"/> sets the brightness, whatever the frame asks for.
+    /// </summary>
+    AutoExposure = 1 << 12,
+
     All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
-        | MultiscatterSpecular | Fog,
+        | MultiscatterSpecular | Fog | AutoExposure,
 }
 
 /// <summary>

@@ -90,6 +90,13 @@ public sealed class Graphics
     public bool Fog { get; set; } = true;
 
     /// <summary>
+    /// Metering the picture for <see cref="PostSettings.AutoExposure"/>, so the brightness follows what the
+    /// camera sees, as an eye does. Off, the fixed <see cref="PostSettings.Exposure"/> sets it, as for a view
+    /// that never asked. It costs a pass over the frame, so <see cref="Fastest"/> turns it off.
+    /// </summary>
+    public bool AutoExposure { get; set; } = true;
+
+    /// <summary>
     /// Every surface's own colour, textures, normal maps and shine. Off, everything is the same light grey,
     /// matte clay, shaped only by its mesh, so the lighting and the models can be judged without the
     /// textures in the way. Glows still glow, cut-outs still cut and glass stays see-through. It's
@@ -114,6 +121,7 @@ public sealed class Graphics
         AntiAliasing = false,
         Bloom = false,
         Fog = false,
+        AutoExposure = false,
     };
 
     /// <summary>The effects the renderer leaves out.</summary>
@@ -128,5 +136,6 @@ public sealed class Graphics
         | (AntiAliasing ? 0 : RenderEffects.AntiAliasing)
         | (Bloom ? 0 : RenderEffects.Bloom)
         | (Fog ? 0 : RenderEffects.Fog)
+        | (AutoExposure ? 0 : RenderEffects.AutoExposure)
         | (Materials ? 0 : RenderEffects.Materials);
 }

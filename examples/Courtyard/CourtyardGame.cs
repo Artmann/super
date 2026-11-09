@@ -34,6 +34,8 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         ["plain"] = new InputScript().Press(Key.M).Wait(1),
         // The courtyard in clear air, to compare with the fog.
         ["clear"] = new InputScript().Press(Key.F).Wait(1),
+        // The courtyard at a fixed exposure, to compare with what the camera meters.
+        ["fixed"] = new InputScript().Press(Key.E).Wait(1),
     };
 
     public void Load()
@@ -51,6 +53,11 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         if (input.Pressed(Key.F))
         {
             graphics.Fog = !graphics.Fog;
+        }
+
+        if (input.Pressed(Key.E))
+        {
+            graphics.AutoExposure = !graphics.AutoExposure;
         }
     }
 
@@ -95,11 +102,13 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         // Someone is home: a warm light in the room, seen through the old glass.
         view.PointLight(RoomKey, RoomLamp, color: new Vector3(2.2f, 1.2f, 0.45f), range: 6f, radius: 0.25f);
 
-        // About a third of a stop brighter to keep the sunlit wall bright against the darker shade, a
-        // cool lift in the shade, a touch of warmth in the light, and a little bloom round the lamp.
+        // The camera meters the courtyard and sets the brightness itself, then takes a third of a stop
+        // off so the sunlit wall doesn't wash out. A cool lift in the shade, a touch of warmth in the
+        // light, and a little bloom round the lamp.
         view.Finish(new PostSettings
         {
-            Exposure = 0.35f,
+            AutoExposure = true,
+            Exposure = -0.3f,
             Contrast = 0.1f,
             Saturation = 0.05f,
             Vignette = 0.35f,

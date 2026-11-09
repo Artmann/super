@@ -713,6 +713,7 @@ TransparentPass  glass and particles -> blended over HDR colour together, back t
                                   glass forward shaded, seeing a mipped copy of HDR
 TaaPass       fullscreen       -> this frame blended with history, then copied to history
 BloomPass     fullscreen x 9   -> glow, by shrinking and regrowing the image
+exposure_*.comp compute x 2     -> with auto exposure, a histogram of the lit frame, then the adapted exposure in a buffer
 TonemapPass   fullscreen       -> display colour (ACES filmic, colour grade)
 FinishPass    fullscreen       -> swapchain, with sharpening, a transition, vignette, grain and dither
 ```
@@ -1404,6 +1405,33 @@ Tonemapping uses Stephen Hill's fit of the ACES film transform rather than the
 simpler Narkowicz curve. It works in ACES's own colour space, so very bright colours
 fade towards white instead of shifting hue. `ACES_EXPOSURE` in `tonemap.frag` keeps
 the scene as bright as the lighting was balanced for.
+
+Auto exposure meters the frame on the GPU and never reads it back. Before the tonemap,
+`exposure_histogram.comp` reads the image the tonemap and bloom read (resolved, or HDR
+without anti-aliasing), so it sees the lit frame before bloom. It puts each pixel's
+luminance into one of 64 bins spanning -8 to +16 EV. Each 16 x 16 group counts into shared
+memory first, then adds its bins to a storage buffer. Black, negative and NaN pixels go to
+the first bin and anything past the top, such as a sun disc of 30000, to the last, so
+nothing overflows or falls outside. `exposure_adapt.comp` then runs as one group of 64.
+It reads and empties the bins, takes the mean bin centre of the 40th to 95th percentile,
+and moves the stored EV towards it by at most a step it is pushed. The tonemap reads the EV
+from the same buffer as a third descriptor set (`ExposureMeter.Set`) and multiplies by
+`0.18 * 2^-EV`, which puts the metered brightness at middle grey, on top of
+`PostSettings.Exposure`, which then works as compensation. The buffer is
+`uint bins[64]; float adaptedEv; float pad` (`exposure.glsl`) and is zeroed once at start.
+`Passes/Exposure.cs` does the same sums on the CPU for the tests. The time the two passes
+take counts towards the tonemap's in `GpuTimer`.
+
+The CPU only keeps time (`ExposureClock`). The step is `AdaptationSpeed` times the change in
+`FrameView.Time` since the last metered frame. The first metered frame snaps to the target,
+as does the first after metering was off and the first after time went backwards, such as
+a restart. Super's screenshots and recordings step `Time` by a fixed tick and settle at a
+fixed moment, where the step is 0, so the same seed and ticks give the same bytes. The
+interactive loop uses real time, so it adapts at the same speed whatever the frame rate.
+Metering runs only when `PostSettings.AutoExposure` asks and `RenderEffects.AutoExposure`
+isn't in `Off`. Otherwise `Renderer.Render` adds the bit to the shaders' `frame.off`, the
+passes aren't recorded and the tonemap multiplies by the fixed exposure alone, exactly as
+before. Probe captures never reach the tonemap, so exposure isn't in the lighting hashes.
 
 Anti-aliasing is temporal. The camera shifts by less than a pixel each frame, and each
 pixel blends with where that surface was last frame, so many samples build up per
