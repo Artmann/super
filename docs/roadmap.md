@@ -35,6 +35,10 @@ Super is early. These are the known gaps, so you can plan around them.
 - [AgX](rendering.md#tone-mapping) is a close polynomial fit of Blender 4's default look
   in Rec.709, not its exact curve. Of Blender's looks it has Punchy and the base curve,
   but none of the others, such as Golden. There is no output for HDR screens.
+- [Render scale](rendering.md#graphics-settings) changes how wide glow and subsurface
+  scattering look. Bloom shrinks the picture a fixed number of times, and subsurface light
+  spreads a set number of scene pixels, so at 2 the glow and the soft light under skin are
+  narrower than at 1, and at 0.5 wider.
 - **Large numbers of objects.** Rendition's efficiency with many thousands of objects
   still has to be measured and improved.
 - **More from physics.** [`Super.Physics`](physics.md) has bodies that fall and collide,

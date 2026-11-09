@@ -61,6 +61,17 @@ public class GraphicsTests
     }
 
     [Theory]
+    [InlineData(7680, 4320, 8192, 8192, 4608)]
+    [InlineData(3000, 1000, 4000, 4000, 1332)]
+    [InlineData(1000, 3000, 4000, 1332, 4000)]
+    [InlineData(2048, 1000, 4096, 4096, 2000)]
+    public void A_scene_larger_than_the_device_allows_shrinks_to_fit_keeping_its_shape(
+        int width, int height, int maxSize, int sceneWidth, int sceneHeight)
+    {
+        Assert.Equal((sceneWidth, sceneHeight), Renderer.SceneSize(width, height, 2f, maxSize));
+    }
+
+    [Theory]
     [InlineData(0.49f, "0.49")]
     [InlineData(2.5f, "2.5")]
     [InlineData(0f, "0")]
@@ -98,7 +109,7 @@ public class GraphicsTests
     }
 
     [Fact]
-    public void A_changed_render_scale_rebuilds_the_targets_next_frame()
+    public void A_changed_render_scale_reaches_the_renderer_next_frame()
     {
         var given = new Graphics();
         using var host = new GameHost<Settings>(1, 30, null, graphics: given);

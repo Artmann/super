@@ -735,10 +735,13 @@ hash or photographs a probe again.
 When the scene and window sizes differ, the renderer sets `TransitionConstants.Style.z` to
 1, and `finish.frag` reads its centre sample with a Catmull-Rom filter (`catmullRom` in
 `sampling.glsl`, five bilinear taps, the same function TAA uses for history) instead of one
-bilinear tap. That keeps edges sharp when the scene is stretched up from 0.5, and averages
-four by four scene pixels into each window pixel when it is shrunk from 2. A wider filter
-would average more of the 2x scene, but four by four was enough to smooth the edges.
-`--screenshot` copies the swapchain, so it is always the window size.
+bilinear tap. That keeps edges sharp when the scene is stretched up from 0.5. When it is
+shrunk from 2, each window pixel's centre falls between four scene pixels, and the filter
+comes out close to an average of those two by two, a little sharpened by its negative lobes.
+A wider filter would average more of the 2x scene, but two by two was enough to smooth the
+edges. If a scene side would be longer than the device's `maxImageDimension2D`, `SceneSize`
+shrinks both sides by the same factor so the longest side fits, rounded down to even
+numbers. `--screenshot` copies the swapchain, so it is always the window size.
 
 G-buffer layout:
 

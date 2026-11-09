@@ -61,6 +61,8 @@ public sealed unsafe class Renderer : IDisposable
     private int _shadowResolution;
     // The scene's size against the window's, which the next frame rebuilds the targets at if it differs.
     private float _renderScale = 1f;
+    // The largest image side the device can make, which the scene is shrunk to fit.
+    private readonly int _maxImageSize;
     private readonly Vk _api;
     private readonly Frame[] _frames = new Frame[FramesInFlight];
     // How far a simpler model may stray. Shadows are soft, so they can afford more.
@@ -237,17 +239,29 @@ public sealed unsafe class Renderer : IDisposable
     /// How many pixels across and down the scene is drawn for a window this size at this
     /// <see cref="RenderScale"/>. At 1 it's the window's size. Otherwise each side is rounded to
     /// the nearest even number, so at 0.5 each scene pixel covers exactly two by two window pixels.
+    /// A side longer than <paramref name="maxSize"/>, the largest image the device can make, shrinks
+    /// the whole scene to fit, keeping its shape.
     /// </summary>
-    public static (int Width, int Height) SceneSize(int width, int height, float scale)
+    public static (int Width, int Height) SceneSize(int width, int height, float scale, int maxSize = int.MaxValue)
     {
-        if (scale == 1f)
+        if (scale != 1f)
+        {
+            width = Even(width * (double)scale);
+            height = Even(height * (double)scale);
+        }
+
+        int longest = Math.Max(width, height);
+        if (longest <= maxSize)
         {
             return (width, height);
         }
 
-        return (Even(width * (double)scale), Even(height * (double)scale));
+        // Whole numbers, so the longest side lands on the limit exactly.
+        return (EvenBelow((long)width * maxSize / longest), EvenBelow((long)height * maxSize / longest));
 
         static int Even(double size) => Math.Max((int)Math.Round(size / 2d) * 2, 2);
+
+        static int EvenBelow(long size) => (int)Math.Max(size / 2 * 2, 2);
     }
 
     /// <summary>Times the render passes. Off by default, because reading the times costs a little.</summary>
@@ -289,6 +303,8 @@ public sealed unsafe class Renderer : IDisposable
         _disableVsync = options.DisableVsync;
         _swapchain = new Swapchain(_context, (uint)options.Width, (uint)options.Height, _disableVsync);
         _renderScale = CheckRenderScale(options.RenderScale);
+        _api.GetPhysicalDeviceProperties(_context.PhysicalDevice, out var deviceProperties);
+        _maxImageSize = (int)Math.Min(deviceProperties.Limits.MaxImageDimension2D, int.MaxValue);
         _gBuffer = new GBuffer(_context, SceneExtent(_swapchain.Extent));
 
         var samplerInfo = new SamplerCreateInfo
@@ -2173,7 +2189,7 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>The scene's size for a window this size, at the render scale.</summary>
     private Extent2D SceneExtent(Extent2D window)
     {
-        var (width, height) = SceneSize((int)window.Width, (int)window.Height, _renderScale);
+        var (width, height) = SceneSize((int)window.Width, (int)window.Height, _renderScale, _maxImageSize);
         return new Extent2D((uint)width, (uint)height);
     }
 
