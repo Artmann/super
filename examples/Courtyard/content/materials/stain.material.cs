@@ -17,7 +17,7 @@ public sealed class StainPatch : MaterialGraph
 
     public override Material Build()
     {
-        return Kind switch
+        var stain = Kind switch
         {
             "ring" => Ring(),
             "moss" => Moss(),
@@ -25,6 +25,22 @@ public sealed class StainPatch : MaterialGraph
             "boot" => Boot(),
             _ => throw new ArgumentException($"StainPatch's Kind is \"{Kind}\", but it must be ring, moss, water or boot."),
         };
+
+        // Moss reaches the edges at the middle of each side, and a torn or blurred rim can leave a faint trace there
+        // in the others, which the decal's box would cut off in a straight line. So every kind is faded out over the
+        // band from 15 % of the image in to 5 %, and is nothing at all outside that.
+        return stain with { Opacity = stain.Opacity!.Multiply(Border()) };
+    }
+
+    // 1 from 15 % of the image in from every edge, easing to 0 at 5 % and 0 beyond.
+    private static Gray Border()
+    {
+        return Pixel.Gray(p =>
+        {
+            float border = MathF.Min(MathF.Min(p.Uv.X, 1f - p.Uv.X), MathF.Min(p.Uv.Y, 1f - p.Uv.Y));
+            float t = Math.Clamp((border - 0.05f) / 0.1f, 0f, 1f);
+            return t * t * (3f - 2f * t);
+        });
     }
 
     // How far a point is from the middle of the image, 0 there and 1 at the middle of each edge, round or square.
