@@ -44,6 +44,7 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 curve;              // x: 1 for ACES, 0 for AgX; y, z: the AgX look's power and saturation
     vec4 volumetric;         // x: how far the volumetric fog reaches, 0 for none; y: where its first slice ends; z: anisotropy; w: 1 when last frame's volume can be used
     vec4 puddles;            // x: puddleLevel, the water's height in metres; y: puddleBand, the damp band above it; z: 1 when there is water
+    vec4 wind;               // xyz: the way the wind blows times its strength, all zero in a calm; w: its gustiness. See wind.glsl.
     int lightCount;
     float time;              // Seconds, as set by the game.
     int frameNumber;
@@ -71,6 +72,7 @@ const int OFF_AUTO_EXPOSURE = 1 << 12;
 const int OFF_DEPTH_OF_FIELD = 1 << 13;
 const int OFF_VOLUMETRIC_FOG = 1 << 15;
 const int OFF_PUDDLES = 1 << 16;
+const int OFF_WIND = 1 << 17;
 
 // The normal target's alpha holds the side a surface faces, 1 or -1. Puddle water writes
 // WATER_SIDE instead, so the lighting knows to shade it at the water's surface, not on the

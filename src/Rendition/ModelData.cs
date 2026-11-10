@@ -34,6 +34,12 @@ public struct ModelMaterial
     public MaterialFlags Flags;
     public float Ior;
     public Subsurface Subsurface;
+
+    /// <summary>For foliage, how much sunlight shines through from behind, 0 to 1. See <see cref="Material.Translucency"/>.</summary>
+    public float Translucency;
+
+    /// <summary>How far it sways in the wind, as a share of the view's strength; 0 keeps it still. See <see cref="Material.Wind"/>.</summary>
+    public float Wind;
 }
 
 /// <summary>
@@ -68,7 +74,8 @@ public sealed class ModelData
     // 4: materials gained Subsurface. 5: height and detail textures. 6: materials gained Ior. 7: part names sit at the front.
     // 8: a texture is either inside the file or named by the hash of an object of its own. 9: textures say their format.
     // 10: material shaders. 11: vertices gained Uv2, and materials masks. 12: masks lost their height.
-    private const int Version = 12;
+    // 13: materials gained Translucency and Wind.
+    private const int Version = 13;
 
     private const byte TextureInside = 0;
     private const byte TextureByHash = 1;

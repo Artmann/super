@@ -3,6 +3,7 @@
 #include "common.glsl"
 #include "skinning.glsl"
 #include "instances.glsl"
+#include "wind.glsl"
 #include "light_data.glsl"
 
 layout(location = 0) in vec3 inPosition;
@@ -20,6 +21,8 @@ layout(push_constant) uniform Draw {
     float swimPhase;
     int cascade; // a sun's cascade, or from 4 on a tile of the local lights' atlas
     int firstBone;
+    float windBase; // the lowest height of the draw's part, in its own space; see wind.glsl
+    float windSway; // the material's share of the wind's lean, 0 to stand still
 } draw;
 
 layout(location = 0) out vec2 outUv;
@@ -29,5 +32,7 @@ void main() {
     vec3 posed = (skinMatrix(draw.firstBone, inJoints, inWeights) * vec4(inPosition, 1.0)).xyz;
     vec3 swum = swim(posed, draw.swimAmplitude, draw.swimBodyLength, draw.swimPhase);
     mat4 light = draw.cascade < 4 ? frame.shadowMatrices[draw.cascade] : shadowTiles[draw.cascade - 4].matrix;
-    gl_Position = light * instanceModel() * vec4(swum, 1.0);
+    mat4 placed = instanceModel();
+    vec3 world = windSwayPlaced((placed * vec4(swum, 1.0)).xyz, placed, posed, draw.windBase, draw.windSway);
+    gl_Position = light * vec4(world, 1.0);
 }

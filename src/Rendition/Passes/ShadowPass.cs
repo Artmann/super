@@ -267,7 +267,7 @@ internal sealed unsafe class ShadowPass : IDisposable
     public static float DepthScale(float radius, float reach) => 2f * radius / (MathF.Max(reach, radius) + radius);
 
     /// <summary>Draws one cascade into its layer of the map.</summary>
-    public void Record(CommandBuffer cmd, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, List<Mesh?> meshes, InstanceBuffer instances, int cascade)
+    public void Record(CommandBuffer cmd, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, List<Mesh?> meshes, List<PartDetail> details, InstanceBuffer instances, int cascade)
     {
         var api = _context.Api;
         var depthAttachment = new RenderingAttachmentInfo
@@ -292,7 +292,7 @@ internal sealed unsafe class ShadowPass : IDisposable
 
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set };
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
-        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, instances, ScenePass.Shadow, solid: _solid, cascade: cascade);
+        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, details, instances, ScenePass.Shadow, solid: _solid, cascade: cascade);
 
         api.CmdEndRendering(cmd);
     }
@@ -308,6 +308,7 @@ internal sealed unsafe class ShadowPass : IDisposable
         ReadOnlySpan<DrawItem> draws,
         ReadOnlySpan<(int First, int Count)> ranges,
         List<Mesh?> meshes,
+        List<PartDetail> details,
         InstanceBuffer instances)
     {
         var api = _context.Api;
@@ -340,7 +341,7 @@ internal sealed unsafe class ShadowPass : IDisposable
             api.CmdSetViewport(cmd, 0, 1, &viewport);
             api.CmdSetScissor(cmd, 0, 1, &scissor);
             var (first, count) = ranges[tile];
-            SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws.Slice(first, count), meshes, instances,
+            SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws.Slice(first, count), meshes, details, instances,
                 ScenePass.Shadow, solid: _solid, cascade: MaxCascades + tile);
         }
 

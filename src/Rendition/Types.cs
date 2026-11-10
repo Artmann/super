@@ -219,6 +219,34 @@ public struct Material
 
     /// <summary>Texture arrays for a surface shader, read with shaderLayer(i, uv, layer). Unset ones read white.</summary>
     public ShaderArrays ShaderArrays;
+
+    /// <summary>
+    /// For <see cref="MaterialFlags.Foliage"/>, how much sunlight shines through from behind, from 0 for none to 1 for
+    /// all of it. Leaves are about <see cref="DefaultTranslucency"/>, thin blades more. Other materials ignore it.
+    /// </summary>
+    public float Translucency;
+
+    /// <summary>How much sunlight foliage lets through when nothing says: about what a leaf does.</summary>
+    public const float DefaultTranslucency = 0.6f;
+
+    /// <summary>
+    /// How far the surface sways in the frame's <see cref="FrameView.Wind"/>, as a share of its strength: 1 is grass,
+    /// less is stiffer, and 0, the default, keeps it still. Vertices sway more the higher they are above the lowest
+    /// point of their part, so its foot stays put. Shadows sway with it.
+    /// </summary>
+    public float Wind;
+
+    /// <summary>Says why a foliage translucency can't be used, or returns null when it can.</summary>
+    public static string? TranslucencyProblem(float translucency) =>
+        translucency is >= 0f and <= 1f
+            ? null
+            : $"foliage translucency {translucency.ToString(System.Globalization.CultureInfo.InvariantCulture)} must be from 0 to 1.";
+
+    /// <summary>Says why a wind sway can't be used, or returns null when it can.</summary>
+    public static string? WindProblem(float wind) =>
+        float.IsFinite(wind) && wind >= 0f
+            ? null
+            : $"wind sway {wind.ToString(System.Globalization.CultureInfo.InvariantCulture)} must be 0 or more.";
 }
 
 /// <summary>Eight vectors a surface shader can read as shaderParameters[0] to [7].</summary>
@@ -624,6 +652,17 @@ public readonly record struct PuddleSettings(float Level, float Band = PuddleSet
     public const float DefaultBand = 0.08f;
 }
 
+/// <summary>
+/// Wind that sways materials with <see cref="Material.Wind"/>. <see cref="Direction"/> is the way it blows, flattened
+/// onto the ground; <see cref="Strength"/> is how far, in metres, it leans the tip of grass 1 m tall at a gust's peak;
+/// <see cref="Gustiness"/> runs from 0 for a steady wind to 1 for one that drops to a fifth of that between gusts.
+/// </summary>
+public readonly record struct WindSettings(Vector3 Direction, float Strength, float Gustiness = WindSettings.DefaultGustiness)
+{
+    /// <summary>How gusty the wind is when not said: between gusts it leans things 60 % as far as at their peak.</summary>
+    public const float DefaultGustiness = 0.5f;
+}
+
 /// <summary>Puts the camera underwater. Leaving Absorption at zero means there's no water.</summary>
 public struct UnderwaterSettings
 {
@@ -825,6 +864,11 @@ public ref struct FrameView
     /// </summary>
     public PuddleSettings? Puddles;
 
+    /// <summary>
+    /// The wind that sways materials with <see cref="Material.Wind"/>, and their shadows. Null keeps everything still.
+    /// </summary>
+    public WindSettings? Wind;
+
     /// <summary>Flat rectangles drawn last, over everything, in order. Needs <see cref="Renderer.SetOverlayAtlas"/>.</summary>
     public ReadOnlySpan<OverlayQuad> Overlay;
 
@@ -937,8 +981,14 @@ public enum RenderEffects
     /// </summary>
     Puddles = 1 << 16,
 
+    /// <summary>
+    /// Materials with <see cref="Material.Wind"/> sway in <see cref="FrameView.Wind"/>, and their shadows with them.
+    /// Without it everything stands still.
+    /// </summary>
+    Wind = 1 << 17,
+
     All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
-        | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles,
+        | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind,
 }
 
 /// <summary>

@@ -68,13 +68,15 @@ public class GpuMaterialTests
     [Fact]
     public void Draw_constants_match_the_draw_block_in_material_glsl()
     {
-        // vec4 tint, vec4 ghost, int material, three swim floats, int cascade, int firstBone. Each
-        // copy's matrix is in the instance buffer, not here.
+        // vec4 tint, vec4 ghost, int material, three swim floats, int cascade, int firstBone, then the
+        // wind's base and sway. Each copy's matrix is in the instance buffer, not here.
         Assert.Equal(0, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.Tint)));
         Assert.Equal(16, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.Ghost)));
         Assert.Equal(32, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.Material)));
         Assert.Equal(48, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.Cascade)));
         Assert.Equal(52, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.FirstBone)));
-        Assert.Equal(56, Unsafe.SizeOf<SceneDraws.DrawConstants>());
+        Assert.Equal(56, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.WindBase)));
+        Assert.Equal(60, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.WindSway)));
+        Assert.Equal(64, Unsafe.SizeOf<SceneDraws.DrawConstants>());
     }
 }

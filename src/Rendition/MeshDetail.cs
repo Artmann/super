@@ -5,8 +5,11 @@ namespace Rendition;
 /// <summary>A simpler version of a part, and how far its surface may stray, in the model's units.</summary>
 internal readonly record struct DetailLevel(uint FirstIndex, uint IndexCount, float Error);
 
-/// <summary>The sphere around a part, in the model's units, and its simpler versions, finest first.</summary>
-internal readonly record struct PartDetail(Vector3 Center, float Radius, DetailLevel[] Levels);
+/// <summary>
+/// The sphere around a part, in the model's units, and its simpler versions, finest first. <see cref="MinY"/> is
+/// its lowest height, where the wind sways nothing.
+/// </summary>
+internal readonly record struct PartDetail(Vector3 Center, float Radius, DetailLevel[] Levels, float MinY = 0f);
 
 /// <summary>
 /// Makes simpler versions of a mesh that use the same vertices, so each is only another
@@ -42,14 +45,14 @@ internal static class MeshDetail
             previous = simpler.Length;
         }
 
-        return new PartDetail(center, radius, levels.ToArray());
+        return new PartDetail(center, radius, levels.ToArray(), min.Y);
     }
 
     /// <summary>The part as it is, with nothing simpler to fall back to.</summary>
     public static PartDetail Full(ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> part)
     {
-        var (_, _, center, radius) = Bounds(vertices, part);
-        return new PartDetail(center, radius, []);
+        var (min, _, center, radius) = Bounds(vertices, part);
+        return new PartDetail(center, radius, [], min.Y);
     }
 
     private static (Vector3 Min, Vector3 Max, Vector3 Center, float Radius) Bounds(

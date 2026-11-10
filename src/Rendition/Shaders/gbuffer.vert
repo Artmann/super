@@ -3,6 +3,7 @@
 #include "common.glsl"
 #include "skinning.glsl"
 #include "instances.glsl"
+#include "wind.glsl"
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;
@@ -22,6 +23,8 @@ layout(push_constant) uniform Draw {
     float swimPhase;
     int cascade;
     int firstBone;
+    float windBase; // the lowest height of the draw's part, in its own space; see wind.glsl
+    float windSway; // the material's share of the wind's lean, 0 to stand still
 } draw;
 
 layout(location = 0) out vec3 outNormal;
@@ -44,7 +47,7 @@ void main() {
     outUv2 = inUv2;
     vec3 posed = (skinned * vec4(inPosition, 1.0)).xyz;
     vec3 swum = swim(posed, draw.swimAmplitude, draw.swimBodyLength, draw.swimPhase);
-    vec4 position = placed * vec4(swum, 1.0);
+    vec4 position = vec4(windSwayPlaced((placed * vec4(swum, 1.0)).xyz, placed, posed, draw.windBase, draw.windSway), 1.0);
     outPosition = position.xyz;
     gl_Position = frame.viewProjection * position;
 }

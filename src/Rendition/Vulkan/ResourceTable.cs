@@ -79,6 +79,7 @@ internal sealed unsafe class ResourceTable : IDisposable
     private readonly MaterialFlags[] _materialFlags = new MaterialFlags[MaxMaterials];
     private readonly int[] _materialShaders = new int[MaxMaterials];
     private readonly bool[] _materialCutouts = new bool[MaxMaterials];
+    private readonly float[] _materialWind = new float[MaxMaterials];
     private readonly bool[] _materialSubsurface = new bool[MaxMaterials];
     private readonly int[] _materialTextures = new int[MaxMaterials * TexturesPerMaterial];
     private readonly List<GpuTexture?> _textures = [];
@@ -209,6 +210,9 @@ internal sealed unsafe class ResourceTable : IDisposable
 
     /// <summary>Whether the material's texture cuts holes in it.</summary>
     public bool HasCutouts(MaterialHandle material) => _materialCutouts[material.Index];
+
+    /// <summary>How far the material sways in the wind, as a share of its strength: 0 for not at all.</summary>
+    public float GetWind(MaterialHandle material) => _materialWind[material.Index];
 
     /// <summary>True when a live material scatters light under its surface, so the frame needs the subsurface blur.</summary>
     public bool AnySubsurface
@@ -461,7 +465,9 @@ internal sealed unsafe class ResourceTable : IDisposable
                 ? 0f
                 : material.DetailScale > 0f ? material.DetailScale : 1f,
             Ior = MathF.Max(material.Ior, 1f),
-            Transmission = material.Subsurface.IsOn ? Math.Clamp(material.Subsurface.Transmission, 0f, 1f) : 0f,
+            Transmission = material.Subsurface.IsOn ? Math.Clamp(material.Subsurface.Transmission, 0f, 1f)
+                : (material.Flags & MaterialFlags.Foliage) != 0 ? Math.Clamp(material.Translucency, 0f, 1f)
+                : 0f,
             Subsurface = Spread(material.Subsurface),
             MaskTexture = (uint)(material.MaskTexture ?? _white).Index,
             WearRoughness = material.Wear.Roughness,
@@ -478,6 +484,7 @@ internal sealed unsafe class ResourceTable : IDisposable
         _materialFlags[index] = material.Flags;
         _materialShaders[index] = material.Shader?.Index ?? 0;
         _materialCutouts[index] = material.AlphaCutoff > 0f;
+        _materialWind[index] = float.IsFinite(material.Wind) ? MathF.Max(material.Wind, 0f) : 0f;
         _materialSubsurface[index] = material.Subsurface.IsOn;
 
         var owned = _materialTextures.AsSpan(index * TexturesPerMaterial, TexturesPerMaterial);

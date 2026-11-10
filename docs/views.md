@@ -67,6 +67,7 @@ component on its entity instead. See [Audio](audio.md).
 | `view.ReflectionProbe(key, position, boxMin, boxMax, blend)` | A photograph of the scene from one spot, which shiny surfaces and glass in its box reflect. Up to 4 a frame. See [Rendering](rendering.md#reflections) |
 | `view.Water(settings)` | Puts the camera underwater. See [Rendering](rendering.md#water) |
 | `view.Puddles(level, band)` | Lets water stand below `level` on materials that ask for puddles, damp for `band` metres above. See [Rendering](rendering.md#puddles) |
+| `view.Wind(direction, strength, gustiness)` | A breeze that sways grass and leaves on materials that ask for wind, leaning grass 1 m tall `strength` metres downwind, with gusts from 0 for steady to 1. See [Rendering](rendering.md#wind) |
 | `view.Finish(settings)` | Exposure, contrast, vignette and other [post-processing](rendering.md#the-look-of-the-picture) |
 | `view.Models(world)` | Every entity with a model, from [`Super.Ecs`](ecs.md#drawing-entities) |
 

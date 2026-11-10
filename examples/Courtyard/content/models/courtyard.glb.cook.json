@@ -24,11 +24,11 @@
     { "match": "graph_drip", "graph": "../materials/grime-streak.material.json", "graphSize": 1024, "dithered": true },
     { "match": "graph_rust", "graph": "../materials/rust-streak.material.json", "graphSize": 1024, "dithered": true },
     { "match": "cy_wheel_wood", "color": [1.0, 0.86, 0.7], "puddles": true },
-    { "match": "cy_ivy", "twoSided": true },
+    { "match": "cy_ivy", "twoSided": true, "wind": { "sway": 0.08 } },
     { "match": "cy_dead_leaf", "twoSided": true },
     { "match": "graph_whitewash", "graph": "../materials/whitewash.material.cs", "graphSize": 2048, "twoSided": true },
-    { "match": "cy_grass", "twoSided": true },
-    { "match": "cy_tree_leaf", "twoSided": true },
+    { "match": "cy_grass", "twoSided": true, "wind": true },
+    { "match": "cy_tree_leaf", "twoSided": true, "wind": { "sway": 0.4 } },
     { "match": "cy_bulb", "emissiveColor": [8.0, 5.6, 3.0] },
     { "match": "graph_glass", "graph": "../materials/glass.material.cs", "graphSize": 2048, "transparent": true }
   ]

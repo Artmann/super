@@ -194,6 +194,10 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         // darkens for the last 3.5 cm down to it, so the yard round the hollow stays dry.
         view.Puddles(-0.045f, band: 0.035f);
 
+        // A fresh breeze across the yard sways the grass, and a little of it reaches the ivy and the tree's crown,
+        // whose materials sway less in the cook sidecar.
+        view.Wind(new Vector3(0.6f, 0f, -0.3f), 0.35f);
+
         // The lantern is on, shining every way through its glass. In daylight it only warms
         // the wall just round it. It casts no shadows: the light sits inside the bulb and the lantern round it, and
         // they would hide it.

@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace Super.Cook.Models;
 
 /// <summary>
@@ -197,9 +200,19 @@ public sealed class MaterialRule
     /// <summary>
     /// For a tree's leaves. Points the normals out of the crown so it's lit as one shape,
     /// lets sunlight through from behind, and draws both sides. Every material this rule
-    /// matches counts as one crown, so keep the trunk in a material of its own.
+    /// matches counts as one crown, so keep the trunk in a material of its own. Written
+    /// <c>true</c>, or <c>{ "translucency": 0.8 }</c> to say how much light shines through.
     /// </summary>
-    public bool Foliage { get; set; }
+    [JsonConverter(typeof(TrueOrObjectConverter<FoliageRule>))]
+    public FoliageRule? Foliage { get; set; }
+
+    /// <summary>
+    /// Sways the material's vertices in the wind the game sets with <c>View.Wind</c>, more the higher they are above
+    /// the lowest point of their part, in the G-buffer and the shadows alike. Written <c>true</c>, or
+    /// <c>{ "sway": 0.1 }</c> for something stiffer than grass, such as ivy pinned to a wall.
+    /// </summary>
+    [JsonConverter(typeof(TrueOrObjectConverter<WindRule>))]
+    public WindRule? Wind { get; set; }
 
     public bool Transparent { get; set; }
 
@@ -255,6 +268,45 @@ public sealed class LayerRule
 
     /// <summary>How strongly the layer shows where its mask is whole, from 0 to 1.</summary>
     public float Amount { get; set; }
+}
+
+/// <summary>A material that is leaves: see <see cref="MaterialRule.Foliage"/>.</summary>
+public sealed class FoliageRule
+{
+    /// <summary>What <c>"foliage": true</c> lets through.</summary>
+    public const float DefaultTranslucency = Rendition.Material.DefaultTranslucency;
+
+    /// <summary>How much sunlight shines through from behind, from 0 for none to 1 for all of it.</summary>
+    public float Translucency { get; set; } = DefaultTranslucency;
+}
+
+/// <summary>How a material moves in the wind: see <see cref="MaterialRule.Wind"/>.</summary>
+public sealed class WindRule
+{
+    /// <summary>
+    /// How far it leans and swings, as a share of the view's wind strength: 1, the default, is grass, and less is
+    /// stiffer, down to 0 for still. The small, quick flutter of its leaves is the same at any share above 0.
+    /// </summary>
+    public float Sway { get; set; } = 1f;
+}
+
+/// <summary>
+/// Reads a rule written either as <c>true</c>, which is the rule with its defaults, <c>false</c>, which is none, or as an
+/// object of the rule's own settings.
+/// </summary>
+internal sealed class TrueOrObjectConverter<T> : JsonConverter<T> where T : class, new()
+{
+    public override T? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        reader.TokenType switch
+        {
+            JsonTokenType.True => new T(),
+            JsonTokenType.False or JsonTokenType.Null => null,
+            JsonTokenType.StartObject => JsonSerializer.Deserialize<T>(ref reader, options),
+            _ => throw new JsonException($"must be true, false or an object, not {reader.TokenType}."),
+        };
+
+    public override void Write(Utf8JsonWriter writer, T value, JsonSerializerOptions options) =>
+        JsonSerializer.Serialize(writer, value, options);
 }
 
 /// <summary>How light spreads under a material's surface. See Rendition.Subsurface.</summary>

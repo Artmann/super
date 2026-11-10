@@ -52,6 +52,12 @@ internal static unsafe class SceneDraws
 
         /// <summary>Where this draw's skin matrices start in the frame's bone buffer, or -1 for no skin.</summary>
         public int FirstBone;
+
+        /// <summary>The lowest height of the draw's part, in its own space, where the wind sways nothing. See wind.glsl.</summary>
+        public float WindBase;
+
+        /// <summary>The material's <see cref="Rendition.Material.Wind"/>, or 0 where nothing sways.</summary>
+        public float WindSway;
     }
 
     public static PushConstantRange PushRange => new(PushStages, 0, (uint)sizeof(DrawConstants));
@@ -171,8 +177,11 @@ internal static unsafe class SceneDraws
         }
     }
 
-    /// <summary>The push constants that draw one item, or every copy in its batch.</summary>
-    public static DrawConstants Constants(in DrawItem draw, int cascade) => new()
+    /// <summary>
+    /// The push constants that draw one item, or every copy in its batch. <paramref name="windSway"/> is the
+    /// material's share of the wind, and <paramref name="windBase"/> the lowest height of the draw's part.
+    /// </summary>
+    public static DrawConstants Constants(in DrawItem draw, int cascade, float windSway = 0f, float windBase = 0f) => new()
     {
         Tint = new Vector4(draw.Tint ?? Vector3.One, 1f),
         Ghost = draw.Ghost is { } ghost ? new Vector4(ghost.Color, ghost.Opacity) : Vector4.Zero,
@@ -180,7 +189,20 @@ internal static unsafe class SceneDraws
         Swim = draw.Swim,
         Cascade = cascade,
         FirstBone = draw.Bones.Count > 0 ? draw.Bones.First : -1,
+        WindBase = windSway > 0f ? windBase : 0f,
+        WindSway = windSway,
     };
+
+    /// <summary>
+    /// The push constants for a draw, with the wind its material and part give it: its part's lowest height comes
+    /// from <paramref name="details"/>.
+    /// </summary>
+    public static DrawConstants Constants(in DrawItem draw, int cascade, ResourceTable resources, List<PartDetail> details)
+    {
+        float sway = resources.GetWind(draw.Material);
+        float windBase = sway > 0f && draw.Detail.Index > 0 && draw.Detail.Index < details.Count ? details[draw.Detail.Index].MinY : 0f;
+        return Constants(draw, cascade, sway, windBase);
+    }
 
     /// <summary>
     /// Draws the items that belong in <paramref name="pass"/>, with copies that look the
@@ -188,7 +210,8 @@ internal static unsafe class SceneDraws
     /// brings copies together. A pass with one entry in <paramref name="pipelines"/> draws
     /// everything with it. Otherwise each material picks its surface shader. Materials
     /// without cut-out holes, and that aren't glass, use <paramref name="solid"/> when it's
-    /// given. Each copy's matrix goes into <paramref name="instances"/>.
+    /// given. Each copy's matrix goes into <paramref name="instances"/>. Materials that sway in the wind
+    /// sway from the lowest point of their part, which <paramref name="details"/> holds.
     /// </summary>
     public static void Record(
         Vk api,
@@ -198,6 +221,7 @@ internal static unsafe class SceneDraws
         ResourceTable resources,
         ReadOnlySpan<DrawItem> draws,
         List<Mesh?> meshes,
+        List<PartDetail> details,
         InstanceBuffer instances,
         ScenePass pass,
         PipelineVariants? solid = null,
@@ -221,7 +245,7 @@ internal static unsafe class SceneDraws
         var bound = new Bound { AllTwoSided = allTwoSided };
         foreach (var batch in batches)
         {
-            var constants = Constants(draws[order[batch.First]], cascade);
+            var constants = Constants(draws[order[batch.First]], cascade, resources, details);
             Draw(api, cmd, layout, pipelines, resources, draws, order.Slice(batch.First, batch.Count), meshes, instances, constants, solid, ref bound);
         }
 

@@ -205,6 +205,108 @@ public sealed class ModelCookerTests : IDisposable
         Assert.Same(ContentManifest.Empty, store.Manifest);
     }
 
+    [Theory]
+    [InlineData("true", 0.6f)]
+    [InlineData("{ \"translucency\": 0.85 }", 0.85f)]
+    [InlineData("{ \"translucency\": 0 }", 0f)]
+    public void A_foliage_rule_marks_the_material_as_leaves_with_its_translucency(string rule, float translucency)
+    {
+        string src = Temp();
+        TinyGltf.Write(src, "a.gltf", "leaf", ["a"]);
+        File.WriteAllText(Path.Combine(src, "a.gltf.cook.json"),
+            "{ \"materials\": [ { \"match\": \"leaf\", \"foliage\": " + rule + " } ] }");
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var material = Model(store, "a.gltf").Materials[0];
+        Assert.Equal(MaterialFlags.Foliage, material.Flags & MaterialFlags.Foliage);
+        Assert.Equal(translucency, material.Translucency);
+    }
+
+    [Theory]
+    [InlineData("false")]
+    [InlineData("null")]
+    public void Foliage_false_leaves_the_material_solid(string rule)
+    {
+        string src = Temp();
+        TinyGltf.Write(src, "a.gltf", "leaf", ["a"]);
+        File.WriteAllText(Path.Combine(src, "a.gltf.cook.json"),
+            "{ \"materials\": [ { \"match\": \"leaf\", \"foliage\": " + rule + " } ] }");
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var material = Model(store, "a.gltf").Materials[0];
+        Assert.Equal(MaterialFlags.None, material.Flags & MaterialFlags.Foliage);
+        Assert.Equal(0f, material.Translucency);
+    }
+
+    [Theory]
+    [InlineData("1.2")]
+    [InlineData("-0.1")]
+    public void Translucency_outside_0_to_1_is_refused(string translucency)
+    {
+        string src = Temp();
+        TinyGltf.Write(src, "a.gltf", "leaf", ["a"]);
+        File.WriteAllText(Path.Combine(src, "a.gltf.cook.json"),
+            "{ \"materials\": [ { \"match\": \"leaf\", \"foliage\": { \"translucency\": " + translucency + " } } ] }");
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal($"material leaf: foliage translucency {translucency} must be from 0 to 1.",
+            Assert.Single(result.Problems, p => p.IsError).Message);
+        Assert.Same(ContentManifest.Empty, store.Manifest);
+    }
+
+    [Theory]
+    [InlineData(", \"wind\": true", 1f)]
+    [InlineData(", \"wind\": { \"sway\": 0.08 }", 0.08f)]
+    [InlineData(", \"wind\": false", 0f)]
+    [InlineData("", 0f)]
+    public void A_wind_rule_sets_how_far_the_material_sways(string rule, float sway)
+    {
+        string src = Temp();
+        TinyGltf.Write(src, "a.gltf", "grass", ["a"]);
+        File.WriteAllText(Path.Combine(src, "a.gltf.cook.json"),
+            "{ \"materials\": [ { \"match\": \"grass\"" + rule + " } ] }");
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Equal(sway, Model(store, "a.gltf").Materials[0].Wind);
+    }
+
+    [Fact]
+    public void A_negative_wind_sway_is_refused()
+    {
+        string src = Temp();
+        TinyGltf.Write(src, "a.gltf", "grass", ["a"]);
+        File.WriteAllText(Path.Combine(src, "a.gltf.cook.json"),
+            "{ \"materials\": [ { \"match\": \"grass\", \"wind\": { \"sway\": -0.5 } } ] }");
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("material grass: wind sway -0.5 must be 0 or more.", Assert.Single(result.Problems, p => p.IsError).Message);
+        Assert.Same(ContentManifest.Empty, store.Manifest);
+    }
+
+    [Fact]
+    public void A_foliage_rule_that_is_a_number_is_refused_with_what_it_must_be()
+    {
+        string src = Temp();
+        TinyGltf.Write(src, "a.gltf", "leaf", ["a"]);
+        File.WriteAllText(Path.Combine(src, "a.gltf.cook.json"),
+            "{ \"materials\": [ { \"match\": \"leaf\", \"foliage\": 0.6 } ] }");
+
+        var (result, _) = Cook(new FolderRoot(src));
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("must be true, false or an object, not Number.", Assert.Single(result.Problems, p => p.IsError).Message);
+    }
+
     [Fact]
     public void Missing_texture_named_in_settings_is_an_error_naming_it()
     {

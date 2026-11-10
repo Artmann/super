@@ -79,6 +79,23 @@ public sealed record Surface
     /// </summary>
     public bool Puddles { get; init; }
 
+    /// <summary>
+    /// The surface is leaves or blades: sunlight shines through it from behind, as much as <see cref="Translucency"/>
+    /// says, both sides are lit as the front, and it gets no contact shadows, which thin cut-out leaves would only
+    /// spoil.
+    /// </summary>
+    public bool Foliage { get; init; }
+
+    /// <summary>For <see cref="Foliage"/>, how much sunlight shines through from behind, from 0 to 1.</summary>
+    public float Translucency { get; init; } = Rendition.Material.DefaultTranslucency;
+
+    /// <summary>
+    /// How far the surface sways in the wind set with <see cref="View.Wind"/>, as a share of it: 1 for grass, less for
+    /// stiffer things such as ivy or a tree's crown, and 0, the default, to stand still. Each part sways more the higher
+    /// it is above its lowest point, up to 1 m, so it stays rooted. Its shadow sways with it.
+    /// </summary>
+    public float Wind { get; init; }
+
     /// <summary>Light that spreads under the surface, for skin, wax and marble. Off by default.</summary>
     public Subsurface Subsurface { get; init; }
 

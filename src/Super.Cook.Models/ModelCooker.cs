@@ -42,9 +42,10 @@ public sealed class ModelCooker : ICooker
     // ior of 1. 10: Kaiser mips, roughness widened by the normal map, graph heights as parallax, detail graphs, and
     // block-compressed textures. 11: material shaders, and a graph's opacity in the colour's alpha under a cutoff.
     // 12: vertices keep a second UV set, and materials bake masks for wear and dirt. 13: masks measure height per mesh,
-    // carry the wear breakup in alpha and read as clean off their islands. The graphs' own version is folded in, so a
-    // change to Super.Materials cooks every model again, since one may use a graph.
-    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 13);
+    // carry the wear breakup in alpha and read as clean off their islands. 14: foliage sets its translucency, and
+    // materials may sway in the wind. The graphs' own version is folded in, so a change to Super.Materials cooks every
+    // model again, since one may use a graph.
+    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 14);
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -441,7 +442,7 @@ public sealed class ModelCooker : ICooker
         // subsurface it can't store, so both stop the cook. Materials no part uses are
         // never drawn, so they can't be wrong.
         var problems = parts.Select(part => part.Material).Distinct().Order()
-            .Select(i => (Name: materialNames[i], Problem: model.CutoutProblem(i) ?? SubsurfaceProblem(model.Materials[i])))
+            .Select(i => (Name: materialNames[i], Problem: model.CutoutProblem(i) ?? SubsurfaceProblem(model.Materials[i]) ?? FoliageProblem(model.Materials[i])))
             .Where(entry => entry.Problem is not null)
             .ToList();
         foreach (var (materialName, problem) in problems)
@@ -598,6 +599,10 @@ public sealed class ModelCooker : ICooker
 
     private static string? SubsurfaceProblem(in ModelMaterial material) =>
         material.Subsurface.Problem(material.Clearcoat, material.Flags);
+
+    private static string? FoliageProblem(in ModelMaterial material) =>
+        ((material.Flags & MaterialFlags.Foliage) != 0 ? Rendition.Material.TranslucencyProblem(material.Translucency) : null)
+        ?? Rendition.Material.WindProblem(material.Wind);
 
     // Every mesh of one foliage material counts as one crown.
     private static void PointOutOfCrown(Vertex[] vertices, IEnumerable<(int Material, int First, int Count)> meshes)
@@ -1039,9 +1044,12 @@ public sealed class ModelCooker : ICooker
         // A texture the rule names must be there; one only the model file links to may not be.
         string? named = rule is null ? null : materialName;
         rule ??= new MaterialRule();
-        var flags = (rule.TwoSided || rule.Foliage ? MaterialFlags.TwoSided : 0)
+        bool foliage = rule.Foliage is not null;
+        float translucency = rule.Foliage?.Translucency ?? 0f;
+        float wind = rule.Wind?.Sway ?? 0f;
+        var flags = (rule.TwoSided || foliage ? MaterialFlags.TwoSided : 0)
             | (rule.Transparent ? MaterialFlags.Transparent : 0)
-            | (rule.Foliage ? MaterialFlags.Foliage : 0)
+            | (foliage ? MaterialFlags.Foliage : 0)
             | (rule.DetailMask ? MaterialFlags.DetailMask : 0)
             | (rule.WorldVariation ? MaterialFlags.WorldVariation : 0)
             | (rule.Dithered ? MaterialFlags.Dithered : 0)
@@ -1115,6 +1123,8 @@ public sealed class ModelCooker : ICooker
                 Flags = flags,
                 Ior = rule.Ior,
                 Subsurface = Subsurface(rule),
+                Translucency = translucency,
+                Wind = wind,
             };
         }
 
@@ -1150,6 +1160,8 @@ public sealed class ModelCooker : ICooker
             Flags = flags,
             Ior = rule.Ior,
             Subsurface = Subsurface(rule),
+            Translucency = translucency,
+            Wind = wind,
         };
     }
 

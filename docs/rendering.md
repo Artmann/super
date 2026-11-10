@@ -59,6 +59,7 @@ next frame follows, so it can back an options menu.
 | `DepthOfField` | Everything is sharp, even in views that open the lens with `PostSettings.Aperture`. It saves three passes, two of them at half size. See [focus](#focus) |
 | `Decals` | No [decals](views.md#decals): surfaces show as they are, without the grime and stains `view.Decal` lays on them. It saves a copy of the normal target and a pass over the decals' pixels |
 | `Puddles` | Every surface is dry, whatever level `view.Puddles` sets: no water and no damp band. It saves a few noise lookups on each wet pixel. See [puddles](#puddles) |
+| `Wind` | Grass, leaves and anything else flagged for the [wind](#wind) stand still, whatever `view.Wind` sets, and so do their shadows |
 | `Materials` | Every surface is the same light grey, matte clay, shaped only by its mesh, so you can judge the lighting and the models without textures in the way. Glows still glow, cut-outs still cut, glass stays see-through and puddles still wet the clay. `--no-materials` turns it off too |
 | `WearAndDirt` | Models' materials show only their own colour and shine, without the pale worn edges and dark hollows their [baked masks](#wear-and-dirt) lay on, and the masks aren't read |
 
@@ -664,6 +665,40 @@ it off, and `Graphics.Fastest()` turns it off. The Courtyard uses it for its pud
 mud, the flagstones, the plank, the deck, the barrel's hoops and the wheel, with water 4.5 cm
 below the yard and a band of 3.5 cm.
 
+## Wind
+
+`view.Wind` sets a breeze that bends grass and leaves. It takes the way the wind blows, how
+strong it is and, optionally, how gusty, from 0 for steady to 1 for gusty, 0.5 unless given:
+
+```csharp
+view.Wind(new Vector3(0.6f, 0f, -0.3f), 0.35f);         // a fresh breeze, gusty by half
+view.Wind(Vector3.UnitX, 0.1f, gustiness: 0f);         // a light, steady air from the west
+```
+
+The strength is how far, in metres, it leans the tip of a blade of grass 1 m tall. Only the
+way along the ground counts, so a wind's direction needs some x or z, and a strength of 0 is
+a calm with no direction needed. Each frame starts calm, like the other view settings.
+
+![The Courtyard's grass in a calm, standing straight, and in a breeze of 0.35 on the same tick, leaning to the right](media/wind-before-after.webp)
+
+Only materials that ask for it move: a model sidecar's rule with `"wind": true`, or a
+`Surface` with `Wind = 1`. A rule can give a share of the lean instead, as
+`"wind": { "sway": 0.08 }`, for something stiffer than grass, such as ivy on a wall or a
+tree's crown, which would otherwise lean as far as a blade of grass of its height. A vertex
+moves downwind by the strength times its share times the square of its height above the
+lowest point of its part of the model, so the foot stays put and the tip bends most. The
+height counts up to 1 m, so a tall plant leans no further than a blade 1 m tall. Gusts swing
+the lean: noise 3 m across drifts downwind at 1.5 m/s, and at the default gustiness a lull
+leans the grass 60% as far as a gust. On top, leaves flutter 2 cm either way at their tips,
+four times a second, out of step from one place to the next. The flutter is the same at any
+share of the lean, and comes in fully from a strength of 0.25.
+
+The sway happens as the mesh is drawn, so its shadows sway with it, and a part that sways
+must be a separate part in the model, standing on its own foot: the lowest point of the whole
+part is what stays still. [`Graphics.Wind`](#graphics-settings) turns it off, and
+`Graphics.Fastest()` turns it off. The Courtyard blows a breeze of 0.35 across its grass, with
+a share of 0.08 for the ivy and 0.4 for the tree's crown.
+
 ## Models
 
 Models are cooked from FBX, glTF or OBJ into Rendition's `.rmodel` format by the model
@@ -711,7 +746,11 @@ giving you solid cards. With a `graph`, the graph's `Opacity` is what gets cut.
 `foliage` is for a tree's leaves. It points their normals out of the crown so it's lit
 as one rounded shape instead of speckled cards, lets sunlight through the back of the
 leaves, and draws both sides. Every material the rule matches counts as one crown, so
-give the trunk its own material.
+give the trunk its own material. How much sunlight comes through is the leaves' own: 0.6
+with `"foliage": true`, or set as `"foliage": { "translucency": 0.85 }` for thin, bright
+leaves, down to 0 for leaves no light gets through. Anything outside 0 to 1 stops the cook.
+A `Surface` sets the same with `Foliage = true` and `Translucency`. To make the leaves move,
+add a [`wind`](#wind) rule.
 
 Textures are looked for beside the source file, then in any folder under it, as
 Poly Haven's downloads keep them in `textures`. Some plants ship their leaf cut-outs
@@ -816,7 +855,7 @@ as the shared `assets` folder does for Poly Haven's `textures` folders:
 Other options are the `baseColor`, `normal`, `surface` and `emissive` textures,
 `color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `heightDepth`,
 `detailScale`, `detailMask`, `twoSided`, `transparent`, `opacity`, `ior`, `noNormalMap`,
-`worldVariation`, `dithered`, `puddles` and `rotateY`, and `graph`, `graphSize`, `detailGraph` and
+`worldVariation`, `dithered`, `puddles`, `wind` and `rotateY`, and `graph`, `graphSize`, `detailGraph` and
 `detailGraphSize`, and `shader`, `shaderParameters` and `shaderTextures`, below; see
 `src/Super.Cook.Models/ImportSettings.cs`.
 
@@ -837,6 +876,10 @@ Keep `dithered` for things that should fade as a whole, such as a leaf or a cobw
 
 `puddles` lets water stand on the material wherever it lies below the level the game sets
 with `view.Puddles`, and makes it damp for a band above. See [Puddles](#puddles).
+
+`wind` sways the material in the breeze the game sets with `view.Wind`: `true` for grass, or
+`{ "sway": 0.08 }` for a share of the lean, for something stiffer. A share below 0 stops the
+cook. See [Wind](#wind).
 
 ### A material graph on a model
 

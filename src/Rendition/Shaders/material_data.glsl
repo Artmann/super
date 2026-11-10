@@ -17,7 +17,7 @@ struct Material {
     uint shaderTextures[4];
     uint shaderArrays[4];
     uint flags; // MaterialFlags in Types.cs.
-    float transmission; // How much light from behind shines through, for subsurface materials.
+    float transmission; // How much light from behind shines through, for subsurface materials and foliage.
     uint heightTexture;
     float heightDepth; // Metres, 0 for no parallax.
     uint detailColorTexture;

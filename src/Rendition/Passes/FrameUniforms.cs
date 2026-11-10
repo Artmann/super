@@ -149,6 +149,9 @@ internal struct FrameUniforms
     /// <summary>x: the water's level; y: the damp band above it; z: 1 when there is water. See <see cref="Passes.Puddles.Pack(float, float)"/>.</summary>
     public Vector4 Puddles;
 
+    /// <summary>xyz: the way the wind blows times its strength, zero in a calm; w: its gustiness. See <see cref="Passes.Wind.Pack(WindSettings?, RenderEffects)"/>.</summary>
+    public Vector4 Wind;
+
     public int LightCount;
     public float Time;
     public int FrameNumber;

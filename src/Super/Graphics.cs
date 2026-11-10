@@ -155,6 +155,13 @@ public sealed class Graphics
     public bool Puddles { get; set; } = true;
 
     /// <summary>
+    /// Grass, leaves and anything else whose material sways in the wind set with <see cref="View.Wind"/>, along with
+    /// their shadows. Off, everything stands still. It costs a little on each swaying vertex, in the picture and in
+    /// every shadow map, so <see cref="Fastest"/> turns it off.
+    /// </summary>
+    public bool Wind { get; set; } = true;
+
+    /// <summary>
     /// Every effect off and vsync off: the fastest the engine draws, and a start for a game that
     /// must run on modest hardware. Turn back on only what it needs.
     /// </summary>
@@ -177,6 +184,7 @@ public sealed class Graphics
         Decals = false,
         VolumetricFog = false,
         Puddles = false,
+        Wind = false,
     };
 
     /// <summary>The effects the renderer leaves out.</summary>
@@ -196,6 +204,7 @@ public sealed class Graphics
         | (Decals ? 0 : RenderEffects.Decals)
         | (VolumetricFog ? 0 : RenderEffects.VolumetricFog)
         | (Puddles ? 0 : RenderEffects.Puddles)
+        | (Wind ? 0 : RenderEffects.Wind)
         | (Materials ? 0 : RenderEffects.Materials)
         | (WearAndDirt ? 0 : RenderEffects.WearAndDirt);
 }

@@ -46,6 +46,22 @@ public sealed class MeshDetailTests
     private static DetailView View(float maxError = 1f) => new(Camera, new Vector3(0f, 0f, 10f), 500f, 0f, maxError);
 
     [Fact]
+    public void A_part_knows_its_lowest_height_for_the_wind()
+    {
+        // The grid runs from 0 to 1 up y; lifted 2.5 and with only its upper half as the part, its foot is at 3.
+        var (vertices, indices) = Grid(4);
+        for (int i = 0; i < vertices.Length; i++)
+        {
+            vertices[i].Position += new Vector3(0f, 2.5f, 0f);
+        }
+
+        uint[] upperHalf = indices[(indices.Length / 2)..];
+
+        Assert.Equal(3f, MeshDetail.Build(vertices, upperHalf, []).MinY, 1e-5f);
+        Assert.Equal(3f, MeshDetail.Full(vertices, upperHalf).MinY, 1e-5f);
+    }
+
+    [Fact]
     public void Simplifying_uses_fewer_triangles_of_the_same_vertices()
     {
         var (vertices, indices) = Grid(32);

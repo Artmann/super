@@ -100,6 +100,7 @@ public sealed class View
     internal ReadOnlySpan<SunLight> Suns => CollectionsMarshal.AsSpan(_suns);
     internal UnderwaterSettings WaterSettings { get; private set; }
     internal PuddleSettings? PuddleSettings { get; private set; }
+    internal WindSettings? WindSettings { get; private set; }
     internal SkySettings? SkySettings { get; private set; }
     internal PostSettings Post { get; private set; }
     internal float ShadowRadius { get; private set; }
@@ -551,6 +552,41 @@ public sealed class View
         PuddleSettings = new PuddleSettings(level, band);
     }
 
+    /// <summary>
+    /// Lets the wind blow along the ground towards <paramref name="direction"/>, swaying every surface whose material
+    /// asks for it, and its shadow with it. <paramref name="strength"/> is how far, in metres, it leans the tip of grass
+    /// 1 m tall at a gust's peak: 0.1 is a breeze, 0.35 a fresh wind and 1 a gale. Gusts roll across the ground
+    /// downwind; <paramref name="gustiness"/> runs from 0 for a steady wind to 1 for one that drops to a fifth of its
+    /// strength between them. <see cref="Graphics.Wind"/> turns it off. See docs/rendering.md.
+    /// </summary>
+    public void Wind(Vector3 direction, float strength, float gustiness = Rendition.WindSettings.DefaultGustiness)
+    {
+        if (!(float.IsFinite(direction.X) && float.IsFinite(direction.Y) && float.IsFinite(direction.Z)))
+        {
+            throw new ArgumentOutOfRangeException(nameof(direction), direction, "The wind's direction must be finite.");
+        }
+
+        if (!(float.IsFinite(strength) && strength >= 0f))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(strength), strength, "The wind's strength must be 0 or more metres, and 0 is a calm.");
+        }
+
+        if (strength > 0f && direction.X * direction.X + direction.Z * direction.Z < 1e-12f)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(direction), direction, "The wind must blow along the ground, so its direction needs some x or z.");
+        }
+
+        if (!(gustiness is >= 0f and <= 1f))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(gustiness), gustiness, "The wind's gustiness must be from 0 for steady to 1 for gusty.");
+        }
+
+        WindSettings = new WindSettings(direction, strength, gustiness);
+    }
+
     /// <summary>Sets the look of the finished picture.</summary>
     public void Finish(in PostSettings settings)
     {
@@ -880,6 +916,7 @@ public sealed class View
         _lights.Clear();
         WaterSettings = default;
         PuddleSettings = null;
+        WindSettings = null;
         SkySettings = null;
         Post = new PostSettings { Vignette = 0.3f, Sharpen = 0.4f };
         ShadowRadius = 8f;

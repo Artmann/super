@@ -24,8 +24,9 @@ struct Surface {
     float clearcoat;
 };
 
-// How much sunlight shines through foliage from behind, 0 to 1.
-const float FOLIAGE_TRANSLUCENCY = 0.6;
+// Foliage writes its translucency, the material's transmission, as a negative number, and at least
+// this much, so foliage that lets no light through is still marked as foliage.
+const float FOLIAGE_MARK = 1.0 / 1024.0;
 
 // Parallax fades out between these distances from the camera, in metres, and is off past
 // the far one. Grooves a few centimetres deep are too small to see that far away.
@@ -366,6 +367,11 @@ vec4 shaderLayer(int slot, vec2 uv, float layer) {
     return texture(textureArrays[materials[draw.material].shaderArrays[slot]], vec3(uv, layer), frame.mipBias);
 }
 
+// What foliage writes in the clearcoat channel: its translucency as a negative number.
+float foliageChannel(Material material) {
+    return -max(material.transmission, FOLIAGE_MARK);
+}
+
 // Applies the draw's tint, so every surface shader gets it. Foliage has no clearcoat, so
 // its translucency travels in the same channel as a negative number, and a subsurface
 // material puts its index there, plus SUBSURFACE_MARK, so the lighting and blur find it.
@@ -405,11 +411,11 @@ void writeSurface(Surface surface) {
 
         outBaseColorMetallic = vec4(plain.baseColor, plain.metallic);
         outNormalRoughnessAo = vec4(octahedralEncode(plain.normal), plain.roughness, waterSide(side));
-        outEmissiveClearcoat = vec4(surface.emissive, foliage ? -FOLIAGE_TRANSLUCENCY : 0.0);
+        outEmissiveClearcoat = vec4(surface.emissive, foliage ? foliageChannel(material) : 0.0);
         return;
     }
 
-    float channel = foliage ? -FOLIAGE_TRANSLUCENCY : surface.clearcoat;
+    float channel = foliage ? foliageChannel(material) : surface.clearcoat;
     if (material.subsurface.w > 0.0) {
         channel = SUBSURFACE_MARK + float(draw.material);
     }

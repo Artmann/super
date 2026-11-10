@@ -499,7 +499,10 @@ internal sealed class SceneRenderer : IDisposable
             DetailNormalTexture = Texture(surface.DetailNormalTexture, content),
             DetailScale = surface.DetailScale,
             Flags = (surface.DetailMask ? MaterialFlags.DetailMask : 0) | (surface.WorldVariation ? MaterialFlags.WorldVariation : 0)
-                | (surface.Dithered ? MaterialFlags.Dithered : 0) | (surface.Puddles ? MaterialFlags.Puddles : 0),
+                | (surface.Dithered ? MaterialFlags.Dithered : 0) | (surface.Puddles ? MaterialFlags.Puddles : 0)
+                | (surface.Foliage ? MaterialFlags.Foliage : 0),
+            Translucency = surface.Translucency,
+            Wind = surface.Wind,
             Subsurface = surface.Subsurface,
             Shader = surface.Shader is { } shader ? Require<LoadedShader>(shader.Index, content).Handle : null,
         };
@@ -857,6 +860,7 @@ internal sealed class SceneRenderer : IDisposable
             Post = view.Post,
             Water = view.WaterSettings,
             Puddles = view.PuddleSettings,
+            Wind = view.WindSettings,
             Overlay = view.Ui is { } ui ? ui.Quads : [],
             Particles = view.DrawnParticles,
             Decals = _decals.AsSpan(0, _decalCount),

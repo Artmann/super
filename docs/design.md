@@ -790,7 +790,12 @@ it works without a surface texture. The model cooker fails when a cutoff can't c
 pixel has alpha below it, or none has alpha above it. A `foliage` rule is for a tree's
 leaves. It points the normals out of the crown, so the crown is lit as one shape and
 not as a pile of separate cards, draws both sides, and keeps back faces from flipping
-their normal. The lighting pass then lets sunlight through the leaves from behind.
+their normal. The lighting pass then lets sunlight through the leaves from behind, by the
+material's own translucency. That rides in `GpuMaterial.Transmission`, which subsurface
+uses for its own and foliage can share since the two exclude each other, and `writeSurface`
+writes it negated into the clearcoat channel (`foliageChannel`, never above `-1/1024` so 0
+still reads as foliage). The lighting pass reads the size of a negative channel back as the
+translucency.
 
 Copies are drawn instanced. `SceneDraws.Batch` sorts a pass's opaque and shadow draws
 by mesh, part, material, tint, ghost and swim, and each run of draws that match is one
@@ -1624,6 +1629,27 @@ lights, the trace, the probe's parallax and fog then all work from the water's s
 `RenderEffects.Materials` off, `writeSurface` runs `applyPuddles` on the plain clay with no
 height map, so the clay still gets wet.
 
+Wind moves vertices, so it lives in `wind.glsl`, which `gbuffer.vert` and `shadow.vert` both
+include: the shadows sway with the mesh because the same sum runs in both. The frame block's
+`wind` holds the way the wind blows, flattened onto the ground and scaled by its strength, in
+xyz, and the gustiness in w; `Passes/Wind.cs` packs it, and sends all zero with no wind, a
+calm or `RenderEffects.Wind` (bit 17) off, and the shader also checks `OFF_WIND`. A draw's push
+constants carry the material's sway share (`DrawConstants.WindSway`, at 60) and its part's
+lowest point in model space (`WindBase`, at 56, from `PartDetail.MinY`, which `MeshDetail` keeps
+from the part's bounds), so `DrawConstants` is 64 bytes. A share of 0, which every material has
+unless it asks, skips the sum. `windSwayPlaced` puts the vertex's x and z with the base's y
+through the copy's model matrix to find the foot in the world, so a copy that is moved, turned
+or scaled sways from its own foot, and the height above it, clamped to 1 m, is `h`. The lean is
+`downwind * strength * share * h² * gust`, with `gust = 1 - 0.8g + 0.8g * noise`, where the noise
+is the same value noise as above but hashed with a PCG step so the C# and GLSL agree bit for
+bit, over 3 m cells of x and z that scroll downwind at 1.5 m/s. The flutter, `0.02 * h *
+min(strength / 0.25, 1) * sin(2π * 4 * time + dot(p, (3.1, 2.3, 2.7)))`, runs along the
+diagonal between downwind and up, so a leaf bobs as well as sways, and doesn't scale with the
+share. The sway is worked out from the world position before it moves, so it doesn't feed back
+into itself, and the normal isn't bent: at these leans the lighting can't tell. `Wind.cs` does
+the same sums for `WindTests`, which also reads `wind.glsl` to check its constants and lines
+match.
+
 The detail colour divides by 128/255, so mid grey is neutral and the detail can lighten as
 well as darken. The detail normal is laid over the surface's normal with reoriented normal
 mapping (`blendNormals`), which keeps the detail following the larger bumps instead of
@@ -1878,8 +1904,14 @@ Anything larger than a block gets its own allocation.
   holding the metalness. A glTF model that wants a detail mask needs a surface texture
   made for it.
 - The distance where height maps fade out, 15 to 25 metres, is fixed in `surface.glsl`.
-- Foliage translucency is a constant in `surface.glsl`, and foliage, clearcoat and
-  subsurface exclude one another, since they share a G-buffer channel.
+- Foliage, clearcoat and subsurface exclude one another, since they share a G-buffer
+  channel, and a foliage translucency of 0 is written as 1/1024 so the pixel still reads as
+  foliage.
+- Wind bends a part from its lowest point, so a plant has to be its own part in the model,
+  standing on its own foot. Ivy or a crown that is one part with its wall or trunk bends from
+  the lowest point of the whole part, so it gets a small share instead. Normals don't bend
+  with the sway, and anti-aliasing reprojects by depth alone, as for anything that moves, so
+  it can smear a fast flutter a little.
 - Subsurface blurs the lit diffuse light, colour included, so a skin texture softens a
   little along with the light. Transmission uses the shadow map like foliage does, not
   the real thickness, and under water the light isn't spread.

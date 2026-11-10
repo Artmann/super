@@ -1050,6 +1050,16 @@ public sealed unsafe class Renderer : IDisposable
             throw new ArgumentException($"The material's {problem}", nameof(material));
         }
 
+        if ((material.Flags & MaterialFlags.Foliage) != 0 && Material.TranslucencyProblem(material.Translucency) is { } translucency)
+        {
+            throw new ArgumentException($"The material's {translucency}", nameof(material));
+        }
+
+        if (Material.WindProblem(material.Wind) is { } wind)
+        {
+            throw new ArgumentException($"The material's {wind}", nameof(material));
+        }
+
         if (material.Shader is { } shader)
         {
             if (shader.Index <= 0 || shader.Index >= _gBufferPass.ShaderCount)
@@ -1115,6 +1125,8 @@ public sealed unsafe class Renderer : IDisposable
                 Flags = source.Flags,
                 Ior = source.Ior,
                 Subsurface = source.Subsurface,
+                Translucency = source.Translucency,
+                Wind = source.Wind,
             };
             if (model.MaskOf(i) is { } masks)
             {
@@ -1845,7 +1857,7 @@ public sealed unsafe class Renderer : IDisposable
             for (int cascade = 0; cascade < _shadowCascades; cascade++)
             {
                 var casters = shadowsSelected ? _shadowDraws[cascade].AsSpan(0, _shadowCounts[cascade]) : shadowCasters;
-                _shadowPass.Record(cmd, frameSet, casters, _meshes, instances, cascade);
+                _shadowPass.Record(cmd, frameSet, casters, _meshes, _details, instances, cascade);
             }
 
             _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
@@ -1866,7 +1878,7 @@ public sealed unsafe class Renderer : IDisposable
             _api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
                 ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, ShadowReadStages, SampledAccess, DepthStages,
                 DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
-            _shadowPass.RecordTiles(cmd, frameSet, _localLights.Tiles, _tileDraws, _tileRanges.AsSpan(0, _tileCount), _meshes, instances);
+            _shadowPass.RecordTiles(cmd, frameSet, _localLights.Tiles, _tileDraws, _tileRanges.AsSpan(0, _tileCount), _meshes, _details, instances);
             _api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
                 ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, ShadowReadStages, SampledAccess);
         }
@@ -1904,7 +1916,7 @@ public sealed unsafe class Renderer : IDisposable
             DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
 
         // A light probe must see the backs of surfaces to know it is inside a wall.
-        _gBufferPass.Record(cmd, targets, frameSet, draws, _meshes, instances, allTwoSided: _capturingLightProbes);
+        _gBufferPass.Record(cmd, targets, frameSet, draws, _meshes, _details, instances, allTwoSided: _capturingLightProbes);
         bool decalsDrawn = RecordDecals(cmd, targets, frameSet);
 
         _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
@@ -2140,6 +2152,7 @@ public sealed unsafe class Renderer : IDisposable
         volumetric.W = historyValid && _volumetricFog.HistoryReady ? 1f : 0f;
         uniforms->Volumetric = volumetric;
         uniforms->Puddles = Puddles.Pack(view.Puddles, _off);
+        uniforms->Wind = Wind.Pack(view.Wind, _off);
         _volumetricDrawn = volumetric.X > 0f;
         if (!capturingProbe && !_volumetricDrawn)
         {
