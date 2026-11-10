@@ -33,9 +33,10 @@ public sealed class TextureCompressionTests
     {
         // In watch mode the process lives on, so a failure must not stay in the memo.
         var texture = Texture(level0: new byte[3]);
-        // Three bytes can't hold a 4 by 4 level, so the encoder reads past their end.
+        // Three bytes can't hold a 4 by 4 level, so the encoder refuses them.
         var failure = Assert.Throws<AggregateException>(() => TextureCompression.Compress([texture], [], masks: [0]));
-        Assert.IsType<IndexOutOfRangeException>(Assert.Single(failure.InnerExceptions));
+        var refused = Assert.IsType<ArgumentException>(Assert.Single(failure.InnerExceptions));
+        Assert.StartsWith("A 4x4 RGBA8 image is 64 bytes, not 3.", refused.Message);
 
         texture.Mips[0] = Texture().Mips[0];
         TextureData[] textures = [texture];

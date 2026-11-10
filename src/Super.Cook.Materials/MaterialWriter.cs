@@ -94,3 +94,9 @@ public sealed record MaterialPixels(byte[] Color, byte[] Normal, byte[] Surface,
         }
     }
 }
+
+/// <summary>A graph's images packed into RGBA8 pixels, as <see cref="MaterialGraphs.RunPacked"/> gives them.</summary>
+/// <param name="Size">The pixels across, and down.</param>
+/// <param name="Width">How many metres the images span, as <see cref="Super.Materials.MaterialImages.Width"/>.</param>
+/// <param name="HeightDepth">How many metres a height of 1 stands above 0, as <see cref="Super.Materials.MaterialImages.HeightDepth"/>.</param>
+public sealed record PackedImages(int Size, float Width, float HeightDepth, MaterialPixels Pixels);

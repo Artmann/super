@@ -17,13 +17,30 @@ public sealed class CookInput
     private readonly List<string> _inputs = [];
     private IReadOnlySet<string>? _names;
 
-    internal CookInput(SourceFile file, byte[] bytes, JsonObject settings, string target)
+    private readonly StepCache? _steps;
+
+    internal CookInput(SourceFile file, byte[] bytes, JsonObject settings, string target, StepCache? steps = null)
     {
         _file = file;
         Bytes = bytes;
         Settings = settings;
         Target = target;
+        _steps = steps;
     }
+
+    /// <summary>
+    /// What an earlier cook kept for <paramref name="key"/> of a slow step with <see cref="Keep"/>, or null when
+    /// there's nothing, the cook has no cache, or the entry was damaged. The key must name everything the step's result
+    /// depends on, its code's version included, so a change to any of them misses. Safe to call from several threads.
+    /// </summary>
+    /// <param name="step">The step's name, in letters, digits and dashes, such as <c>graph-run</c>.</param>
+    public byte[]? Recall(string step, string key) => _steps?.Find(step, key);
+
+    /// <summary>Keeps a slow step's result for <see cref="Recall"/> in later cooks. Does nothing when the cook has no cache.</summary>
+    public void Keep(string step, string key, byte[] bytes) => _steps?.Keep(step, key, bytes);
+
+    /// <summary>Whether <see cref="Recall"/> and <see cref="Keep"/> have a cache behind them.</summary>
+    public bool HasStepCache => _steps is not null;
 
     /// <summary>The source's name, such as <c>items/axe.json</c>.</summary>
     public string Name => _file.Name;

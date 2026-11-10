@@ -106,7 +106,11 @@ internal sealed class ModelTextures(CookInput input, CookOutput output, string p
             return existing;
         }
 
-        _textures.Add(TextureData.FromPixels(width, height, kind, rgba, isNormalMap));
+        using (input.Time("build mips"))
+        {
+            _textures.Add(TextureData.FromPixels(width, height, kind, rgba, isNormalMap));
+        }
+
         _indices[key] = _textures.Count - 1;
         return _textures.Count - 1;
     }

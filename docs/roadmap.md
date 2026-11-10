@@ -73,6 +73,12 @@ Super is early. These are the known gaps, so you can plan around them.
   and whose pebbles, plinth, splash stone and some mask UVs come out in another order, so a
   re-export shows them as changed when nothing about them did. Smart UV Project and loops
   over Python sets are the suspects.
+- The cook's [step cache](command-line.md#the-cache) has gaps. Nothing prunes its `steps`
+  folder, so it only grows until you delete the cache. Mip levels aren't kept, so a model
+  that cooks again builds every texture's mips again, about 10 s for the Courtyard. A
+  stand-alone `.material.cs` doesn't use it either: only graphs that a model's sidecar names
+  are kept. And the cook's own BC7 encoder has no mode 4 yet, so a baked mask's alpha channel
+  is up to 3.5 dB PSNR worse than BCnEncoder.Net gave it.
 - A model sidecar can name a [surface shader](rendering.md#a-surface-shader-on-a-model)
   with its parameters and textures. The cook only checks that each shader texture's source
   is there, so a texture under a `"cook": false` rule, or a file that doesn't cook to a

@@ -436,6 +436,30 @@ cooker's, which it times with `CookInput.Time`. Time the cooker spent outside it
 shows as `<id> cooker, untimed`. `CookCache.TryRestore` says why it missed, and
 `CookReport` adds it all up for `--timings`.
 
+**The step cache.** A record is all or nothing per source, and one model can run a dozen
+graphs, bake masks and compress fifty textures. So inside a cook a cooker can keep a slow
+step's result with `CookInput.Keep(step, key, bytes)` and look it up with `Recall`. `StepCache`
+stores each at `steps/<step>/<hh>/<sha256 of key>` in the cook cache, with the SHA-256 of the
+bytes after them, so a damaged or cut-short entry is a miss. It writes a temp file and moves
+it into place, like the rest of the cache, so workers and builds can share it; a failed write
+is ignored. Without a cache folder, as with `--no-cache`, both do nothing. The key must name
+everything the result depends on, its code's version included. Three steps use it:
+
+- `MaterialGraphs.RunPacked` keys a graph run by `MaterialGraphs.Version`, the size, the graph's
+  name from the root, and the SHA-256 of the graph or variant and of the graph a variant points
+  to. Images aren't in the key, since which ones a graph reads is only known by running it:
+  `CookImages` records each image's path and hash, the entry lists them, and a hit reads each
+  image again through `CookInput.Read`, which also tracks it for the record, and misses if a
+  hash differs. That's sound because the graph compiler lets a graph read nothing else. The
+  entry holds the packed RGBA8 pixels, the height as one channel.
+- The model cooker keys a mask bake by the SHA-256 of the model's positions and second UVs and
+  of the material's triangles, which part each is in, and the other triangles it traces against, with the
+  `Super.Cook.Models` build and the mask size.
+- `TextureCompression` keys a compressed texture by the SHA-256 of every level's pixels, the
+  size, the format and the encoder's version: the `Super.Cook.Models` build, `Bc7Encoder.Version`,
+  BCnEncoder.Net's version and the quality. Lookups and compressions run in parallel over the
+  model's textures.
+
 The models cooker shares decoded textures between the models of a cook, and the cooks after
 it in the same process. They're keyed by the SHA-256 of the image bytes (and of the alpha
 image), the texture kind, and whether it's a normal map or a glTF surface map, so a hit is
@@ -1568,11 +1592,27 @@ flat. Level 0 is left as it is, and a surface texture used with two normal maps 
 widened by the first.
 
 Last of all, after the checks that read pixels, `TextureCompression` block-compresses
-every texture a material points to with BCnEncoder.NET: normal maps as BC5, height maps
-as BC4, and colour, surface, glow and detail colour as BC7. `TextureData.Format` carries
+every texture a material points to: normal maps as BC5, height maps as BC4, and colour,
+surface, glow, detail colour and baked masks as BC7. `TextureData.Format` carries
 the format through `ModelData` (which gained it in version 9) and the shared `RTEX` objects
 (version 2) to `GpuTexture`, which picks the Vulkan format (sRGB for BC7 colour) and sizes
 each level by 4x4 blocks.
+
+BC4 and BC5 go through BCnEncoder.NET at its `Fast` quality, which measured within 0.05 dB of
+`Balanced` on the Courtyard's normal and height maps. BC7 goes through the cook's own
+`Bc7Encoder`, since BCnEncoder.NET's BC7 searches every mode and ran at under half a million
+pixels a second, about 90% of a cold Courtyard cook. `Bc7Encoder` tries each 4x4 block in mode 6,
+one RGBA line with 16 steps: the endpoints start at the ends of the block's principal axis
+(power iteration on the covariance), each endpoint's shared low bit is picked from the four
+pairs, and two rounds of least squares refit the endpoints to the indices chosen. A block
+whose alpha isn't all 255 is also tried in mode 5, with each of its four rotations, which
+puts one channel on a line of its own, since a mask's four channels vary apart. The one
+with less squared error is written. A fully opaque block keeps alpha 255 exactly. It
+runs block rows in parallel and is deterministic. On the Courtyard it is about 1 dB below
+BCnEncoder.NET's `Balanced` for colour and surface textures (51.2 against 52.2 dB on the
+bricks), and up to 1.5 dB below on masks' colour and 3.5 dB on their alpha, at a hundred or
+more times the speed.
+`Bc7Encoder.Version` goes up whenever its output changes, which misses the step cache.
 
 Compressing is memoised on the shared `TextureData` it starts from, so an atlas a kit shares
 is compressed once per process and its compressed copy is written and hashed once. A failed

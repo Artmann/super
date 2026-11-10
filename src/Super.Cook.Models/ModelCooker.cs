@@ -43,9 +43,9 @@ public sealed class ModelCooker : ICooker
     // block-compressed textures. 11: material shaders, and a graph's opacity in the colour's alpha under a cutoff.
     // 12: vertices keep a second UV set, and materials bake masks for wear and dirt. 13: masks measure height per mesh,
     // carry the wear breakup in alpha and read as clean off their islands. 14: foliage sets its translucency, and
-    // materials may sway in the wind. The graphs' own version is folded in, so a change to Super.Materials cooks every
-    // model again, since one may use a graph.
-    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 14);
+    // materials may sway in the wind. 15: BC7 from the cook's own encoder, and BC4 and BC5 at BCnEncoder's Fast. The
+    // graphs' own version is folded in, so a change to Super.Materials cooks every model again, since one may use a graph.
+    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 15);
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -413,11 +413,8 @@ public sealed class ModelCooker : ICooker
             }
         }
 
-        ModelMaterialMasks?[]? masks;
-        using (input.Time("bake masks"))
-        {
-            masks = BakeMasks(settings, output, prefix, vertexArray, indices, parts, materialNames, withoutUv2, textures);
-        }
+        // It times its own phases: taking masks from the step cache, baking the rest, and keeping them.
+        var masks = BakeMasks(input, settings, output, prefix, vertexArray, indices, parts, materialNames, withoutUv2, textures);
 
         if (masks is null)
         {
@@ -458,10 +455,8 @@ public sealed class ModelCooker : ICooker
         // Last, since the checks above read the textures' pixels.
         if (settings.CompressTextures)
         {
-            using (input.Time("compress textures"))
-            {
-                TextureCompression.Compress(model.Textures, model.Materials, masks.OfType<ModelMaterialMasks>().Select(mask => mask.Texture));
-            }
+            // It times its own phases: taking textures from the step cache, compressing the rest, and keeping them.
+            TextureCompression.Compress(model.Textures, model.Materials, masks.OfType<ModelMaterialMasks>().Select(mask => mask.Texture), input);
         }
 
         using (input.Time("write model"))
@@ -475,13 +470,14 @@ public sealed class ModelCooker : ICooker
     // second UV set. The rest of the model shades them, so a barrel's foot is dark where it meets the deck. Null when
     // something was wrong, which was reported.
     private static ModelMaterialMasks?[]? BakeMasks(
-        ImportSettings settings, CookOutput output, string prefix, Vertex[] vertices, List<uint> indices, List<ModelPart> parts,
+        CookInput input, ImportSettings settings, CookOutput output, string prefix, Vertex[] vertices, List<uint> indices, List<ModelPart> parts,
         List<string> materialNames, HashSet<int> withoutUv2, ModelTextures textures)
     {
         var masks = new ModelMaterialMasks?[materialNames.Count];
         bool failed = false;
         Vector3[]? positions = null;
         Vector2[]? uvs = null;
+        string? shape = null;
         foreach (int material in parts.Select(part => part.Material).Distinct().Order())
         {
             string name = materialNames[material];
@@ -544,12 +540,76 @@ public sealed class ModelCooker : ICooker
             }
 
             var rest = new MeshData(positions, uvs, IndicesOf(parts.Where(part => part.Material != material), indices));
-            var image = MaskBaker.Bake(mesh, MaskBaker.DefaultSize, rest);
-            int texture = textures.AddPixels($"{name}#mask", image.Size, image.Size, TextureKind.Linear, image.Rgba);
+            byte[]? rgba = null;
+            string? key = null;
+            if (input.HasStepCache)
+            {
+                using (input.Time("recall masks"))
+                {
+                    shape ??= MaskShape(positions, uvs);
+                    key = MaskKey(shape, mesh, rest);
+                    if (input.Recall(MaskStep, key) is { Length: MaskBaker.DefaultSize * MaskBaker.DefaultSize * 4 } kept)
+                    {
+                        rgba = kept;
+                    }
+                }
+            }
+
+            if (rgba is null)
+            {
+                using (input.Time("bake masks"))
+                {
+                    rgba = MaskBaker.Bake(mesh, MaskBaker.DefaultSize, rest).Rgba;
+                }
+
+                if (key is not null)
+                {
+                    using (input.Time("keep masks"))
+                    {
+                        input.Keep(MaskStep, key, rgba);
+                    }
+                }
+            }
+
+            int texture = textures.AddPixels($"{name}#mask", MaskBaker.DefaultSize, MaskBaker.DefaultSize, TextureKind.Linear, rgba);
             masks[material] = new ModelMaterialMasks(texture, wear, dirt);
         }
 
         return failed ? null : masks;
+    }
+
+    private const string MaskStep = "mask";
+
+    /// <summary>
+    /// Names the code that bakes masks, for the step cache's keys: this library's build, which holds
+    /// <see cref="MaskBaker"/>, and the size it bakes at.
+    /// </summary>
+    private static readonly string MaskVersion = string.Join(',',
+        typeof(MaskBaker).Assembly.ManifestModule.ModuleVersionId.ToString("N"),
+        MaskBaker.DefaultSize.ToString(CultureInfo.InvariantCulture));
+
+    /// <summary>The hash of the corners and second UVs every material's mask is baked from.</summary>
+    private static string MaskShape(Vector3[] positions, Vector2[] uvs)
+    {
+        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        hash.AppendData(BitConverter.GetBytes(positions.Length));
+        hash.AppendData(MemoryMarshal.AsBytes(positions.AsSpan()));
+        hash.AppendData(BitConverter.GetBytes(uvs.Length));
+        hash.AppendData(MemoryMarshal.AsBytes(uvs.AsSpan()));
+        return Convert.ToHexString(hash.GetHashAndReset());
+    }
+
+    /// <summary>The step cache's key for one material's masks: everything <see cref="MaskBaker.Bake"/> reads.</summary>
+    private static string MaskKey(string shape, MeshData mesh, MeshData rest)
+    {
+        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        foreach (int[]? list in new[] { mesh.Indices, mesh.Parts, rest.Indices, rest.Parts })
+        {
+            hash.AppendData(BitConverter.GetBytes(list?.Length ?? -1));
+            hash.AppendData(MemoryMarshal.AsBytes((list ?? []).AsSpan()));
+        }
+
+        return string.Join('|', MaskVersion, shape, Convert.ToHexString(hash.GetHashAndReset()));
     }
 
     private static int[] IndicesOf(IEnumerable<ModelPart> parts, List<uint> indices) =>
@@ -793,25 +853,14 @@ public sealed class ModelCooker : ICooker
             }
 
             GraphRun? run = null;
-            Super.Materials.MaterialImages? images;
-            MaterialPixels? pixels = null;
-            using (input.Time("run graphs"))
+            if (MaterialGraphs.RunPacked(input, path, size, error) is { } packed)
             {
-                images = MaterialGraphs.Run(input, path, size, error);
-                if (images is not null)
-                {
-                    pixels = MaterialPixels.Pack(images);
-                }
-            }
-
-            if (images is not null && pixels is not null)
-            {
-                foreach (string part in pixels.NotNumbers)
+                foreach (string part in packed.Pixels.NotNumbers)
                 {
                     warning($"{path}: {part} has pixels that aren't numbers. They were written as 0.");
                 }
 
-                run = new GraphRun(key, images.Size, images.Width, images.HeightDepth, pixels);
+                run = new GraphRun(key, packed.Size, packed.Width, packed.HeightDepth, packed.Pixels);
             }
 
             _runs[key] = run;

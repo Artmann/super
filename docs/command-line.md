@@ -185,6 +185,21 @@ the folder in the `SUPER_CACHE` environment variable when that is set, so a buil
 can keep it somewhere of its own. `--cache` picks a folder for one run. Deleting the cache
 is always safe: the next cook makes it again.
 
+A source that does cook again keeps its slow steps' results in the cache's `steps` folder too,
+each under the hash of everything that step reads. A model whose one material graph changed
+runs only that graph again: the other graphs' images, its baked masks and every texture whose
+pixels didn't change come from there, so editing one graph of the Courtyard recooks in well
+under a minute rather than many. Each kind of step has its own key:
+
+| Step | Kept by |
+|---|---|
+| `graph-run` | The graph's code, a variant's values, the size, the cook's version, and the hash of every image the graph read |
+| `mask` | The model's positions and second UVs, the material's triangles and which part each is in, the other triangles the bake traces against, the mask size and the mask baker's build |
+| `compressed-texture` | The hash of the pixels of every mip level, the size and format, and the encoder's version |
+
+A damaged entry is a miss, never a wrong result. `--timings` shows the time spent looking
+up and keeping each, as the `recall` and `keep` phases below.
+
 The content folder's objects are hard links to the cache's copies when the two are on the
 same drive, so a cooked texture takes its space once, not once per game. When a link can't
 be made, such as across drives, the object is copied instead. Objects are never changed in
@@ -233,6 +248,11 @@ Why sources weren't taken from the cache:
     233  no record
       4  input changed
 ```
+
+A model's phases include `run graphs`, `bake masks`, `build mips` and `compress textures`, the
+slow steps of a model with material graphs, each with a `recall` phase before it and a `keep`
+phase after it for the step cache. On the Courtyard most of a cold cook is `run graphs`
+and `bake masks`.
 
 "No record" means the source is new, or its bytes, settings or cooker version changed.
 "Input changed" means a file it reads besides itself, such as a texture, changed.

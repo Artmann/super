@@ -796,9 +796,10 @@ stays in the same place as its mesh. It's `false` by default.
 
 `compressTextures` block-compresses the model's textures, which is on by default. Normal maps
 become BC5, height maps BC4 and the rest BC7, so a texture takes a quarter of the memory or less.
-Compressing takes a while: BC7 takes about 8 seconds for a 2048-pixel texture, and the whole
-Courtyard model cooks in about 10 minutes. That is paid only when the model or a graph it uses
-changes, since the result is cached. Set it to `false` to keep every pixel
+Compressing is quick: BC7 takes about a tenth of a second for a 2048-pixel texture, and the
+whole Courtyard cooks from nothing in about 2 minutes, most of it running material graphs.
+Each compressed texture is kept in the cook cache by its pixels, so editing one graph
+compresses only the textures that graph changed. Set it to `false` to keep every pixel
 exactly. The cook checks textures before it compresses them, so its warnings are the same
 either way.
 
