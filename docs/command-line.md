@@ -286,6 +286,11 @@ leaves `content.dev.json` out, so a shipped game never thinks it's running from 
 
 The build restores and builds `super-cook` itself, for the machine doing the build, so a
 fresh clone needs nothing first and `dotnet publish -r linux-x64` still cooks on Windows.
+The tool always builds in Release, whatever the game's configuration, since running material
+graphs and baking masks take about twice as long in Debug. That holds in a solution build too,
+such as `dotnet build Super.slnx -c Debug`: the game still runs the Release tool, built with
+Release cook libraries. A solution that lists `super-cook` also builds it in its own
+configuration, beside the Release one, which the game doesn't use.
 Every game in one build shares the one tool build. None of the tool's files end up beside
 the game.
 

@@ -31,7 +31,7 @@
       Properties set on the game's own build, such as by dotnet publish -r win-x64, that would otherwise
       reach the tool. The tool always builds the same way, for the machine doing the build.
     -->
-    <_SuperCookRemovedProperties>TargetFramework;TargetFrameworks;RuntimeIdentifier;RuntimeIdentifiers;SelfContained;_CommandLineDefinedRuntimeIdentifier;_CommandLineDefinedSelfContained;_IsPublishing;PublishDir;PublishProfile;PublishSingleFile;PublishTrimmed;PublishReadyToRun;PublishAot;OutDir;OutputPath;BaseOutputPath;IntermediateOutputPath;BaseIntermediateOutputPath;NoBuild;PlatformTarget</_SuperCookRemovedProperties>
+    <_SuperCookRemovedProperties>CurrentSolutionConfigurationContents;BuildingSolutionFile;TargetFramework;TargetFrameworks;RuntimeIdentifier;RuntimeIdentifiers;SelfContained;_CommandLineDefinedRuntimeIdentifier;_CommandLineDefinedSelfContained;_IsPublishing;PublishDir;PublishProfile;PublishSingleFile;PublishTrimmed;PublishReadyToRun;PublishAot;OutDir;OutputPath;BaseOutputPath;IntermediateOutputPath;BaseIntermediateOutputPath;NoBuild;PlatformTarget</_SuperCookRemovedProperties>
   </PropertyGroup>
 
   <!--
@@ -40,7 +40,8 @@
     assembly out, Private its files, and PrivateAssets keeps it from a project that references the game,
     such as its tests. OutputItemType hands its path to SuperCook. Every game asks for the same project
     with the same properties, so in a build of many games MSBuild builds the tool once and the others wait
-    rather than race.
+    rather than race. The tool always builds in Release, whatever the game's configuration: running material
+    graphs and baking masks takes about half as long as in Debug.
   -->
   <ItemGroup>
     <ProjectReference Include="$(SuperCookProject)"
@@ -48,8 +49,28 @@
                       Private="false"
                       PrivateAssets="all"
                       OutputItemType="_SuperCookTool"
+                      SetConfiguration="Configuration=Release"
                       GlobalPropertiesToRemove="$(_SuperCookRemovedProperties)" />
   </ItemGroup>
+
+  <!--
+    In a solution build, AssignProjectConfiguration replaces SetConfiguration with the solution's own
+    mapping, which would build the tool in Debug. This puts Release back. Removing
+    CurrentSolutionConfigurationContents above keeps the tool's own references out of the solution's
+    mapping too, so the cook libraries build in Release with it.
+  -->
+  <Target Name="_SuperCookToolInRelease" AfterTargets="AssignProjectConfiguration">
+    <ItemGroup>
+      <ProjectReferenceWithConfiguration Condition="'%(ProjectReferenceWithConfiguration.OutputItemType)' == '_SuperCookTool'">
+        <SetConfiguration>Configuration=Release</SetConfiguration>
+        <Configuration>Release</Configuration>
+      </ProjectReferenceWithConfiguration>
+      <_ProjectReferenceWithConfiguration Condition="'%(_ProjectReferenceWithConfiguration.OutputItemType)' == '_SuperCookTool'">
+        <SetConfiguration>Configuration=Release</SetConfiguration>
+        <Configuration>Release</Configuration>
+      </_ProjectReferenceWithConfiguration>
+    </ItemGroup>
+  </Target>
 
   <!--
     Material graphs (*.material.cs) are C# files in the game's folder, so the game's own build compiles them
