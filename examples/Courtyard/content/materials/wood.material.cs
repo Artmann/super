@@ -43,8 +43,21 @@ public sealed class Wood : MaterialGraph
     /// </summary>
     public float Weathering { get; init; } = 0.5f;
 
-    /// <summary>Moves every board's tone towards the warm end (up to 1) or the grey end (down to -1). 0 keeps the six apart.</summary>
+    /// <summary>
+    /// Moves every board's tone that share of the way to the warm end (up to 1) or the grey end (down to -1). 0 keeps
+    /// the six apart, and 1 makes every board the warm brown. The six tones are equally light, but the grey reads paler
+    /// in a picture than the warm brown, so a set of boards that must not show a pale one, such as a barrel's staves,
+    /// wants most of the way to warm.
+    /// </summary>
     public float Tone { get; init; }
+
+    /// <summary>Where on the ramp of <see cref="Tones"/>, from 0 (grey) to 1 (warm), the board in row <paramref name="board"/> lies at <paramref name="shift"/>, as <see cref="Tone"/>.</summary>
+    public static float ToneAt(int board, float shift)
+    {
+        var own = ToneOf(board) / (float)(Tones.Count - 1);
+
+        return shift >= 0f ? own + (1f - own) * shift : own * (1f + shift);
+    }
 
     /// <summary>
     /// Where iron bands cross the boards, as fractions of the way along each board from its start, separated by spaces,
@@ -138,7 +151,7 @@ public sealed class Wood : MaterialGraph
             return 1f - Math.Clamp((fromEnd - 0.006f) / 0.03f, 0f, 1f);
         });
 
-        var tone = Pixel.Gray(p => Math.Clamp(ToneOf(BoardAt(p.Uv.Y)) / (float)(Tones.Count - 1) + 0.5f * Tone, 0f, 1f));
+        var tone = Pixel.Gray(p => ToneAt(BoardAt(p.Uv.Y), Tone));
         var figure = rings.Multiply(0.6f).Add(grain.Multiply(0.4f));
         var color = tone
             .GradientMap(Ramp.Of(Tones.Select((hex, i) => (i / (float)(Tones.Count - 1), hex)).ToArray()))

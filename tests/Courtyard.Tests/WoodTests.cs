@@ -131,6 +131,32 @@ public sealed class WoodTests
         }
     }
 
+    [Fact]
+    public void At_full_tone_every_board_is_the_warm_brown()
+    {
+        var warm = GraphRunner.Run(new Wood { Weathering = 0f, Tone = 1f }, Size).Color;
+        var warmest = Enumerable.Range(0, Wood.Boards).Max(board => Warmth(Fresh.Value.Color, board));
+
+        for (var board = 0; board < Wood.Boards; board++)
+        {
+            // Each board keeps its own rings, knots and slight lift or shade, so allow about a tenth either way. Half
+            // way to warm, the greyest board would be near 0.19.
+            var warmth = Warmth(warm, board);
+            Assert.True(MathF.Abs(warmth / warmest - 1f) < 0.12f, $"At tone 1, board {board} is {warmth:0.000} red over blue, not the warm brown's {warmest:0.000}.");
+        }
+    }
+
+    [Fact]
+    public void Tone_moves_a_board_that_share_of_the_way_to_either_end()
+    {
+        // Board 2 is dealt the grey, the first of the six tones, at 0 on the ramp, and board 0 the third, at 0.4.
+        Assert.Equal(0f, Wood.ToneAt(2, 0f), 0.0001f);
+        Assert.Equal(0.6f, Wood.ToneAt(2, 0.6f), 0.0001f);
+        Assert.Equal(0.7f, Wood.ToneAt(0, 0.5f), 0.0001f);
+        Assert.Equal(0.2f, Wood.ToneAt(0, -0.5f), 0.0001f);
+        Assert.Equal(0f, Wood.ToneAt(0, -1f), 0.0001f);
+    }
+
     /// <summary>The wood as <c>deck-boards.material.json</c> sets it, read from the example's own file.</summary>
     private static Wood DeckVariant([System.Runtime.CompilerServices.CallerFilePath] string here = "")
     {

@@ -95,6 +95,9 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
 
     public void Update(GameTime time)
     {
+        // Sharper sun shadows for a picture wider than full HD, where the 2048 maps' texels would show.
+        graphics.ShadowResolution = input.ScreenSize.X > 1920f ? 4096 : 2048;
+
         if (input.Pressed(Key.M))
         {
             graphics.Materials = !graphics.Materials;
@@ -127,36 +130,40 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         // in the reference photo: the low wall, which runs out square from the building, closes
         // the left of the frame, the path runs in to the puddle and the deck fills the right.
         view.Camera(position: new Vector3(5.41f, 1.56f, 4.49f), lookAt: new Vector3(1.01f, 1.36f, -7.11f), fieldOfView: 0.85f);
-
         // Mid-afternoon. The sun is high on the left and a little in front of the wall, still
         // low enough to rake across the bricks and throw shadows to the right.
         view.Sun(direction: new Vector3(-0.75f, 0.5f, 0.42f), color: new Vector3(7.2f, 6.7f, 5.8f));
         // A clear day's sky, worked out from the sun: brighter towards it, deeper blue overhead
-        // and paler at the horizon, so the shade is cooler than the sunlight. It is dim next to
-        // the sun, so the shade is a clear step darker than the light. Zenith and Horizon are
-        // what it falls back to with Turbidity at 0.
+        // and paler at the horizon, so the shade is cooler than the sunlight. It is at its full
+        // brightness, so the shade is lit by the whole open sky and stays readable, though still
+        // a clear step darker than the sun. Zenith and Horizon are what it falls back to with
+        // Turbidity at 0.
         view.Sky(new SkySettings
         {
             Zenith = new Vector3(0.2f, 0.38f, 0.8f),
             Horizon = new Vector3(0.75f, 0.8f, 0.85f),
             Ground = new Vector3(0.2f, 0.17f, 0.14f),
-            Brightness = 0.75f,
+            Brightness = 1f,
             Turbidity = 2.5f,
-            // A light morning fog, thickest on the ground, so the far wall sits a touch back in
-            // the air behind the near flagstones. It glows where it looks towards the sun.
-            Fog = new FogSettings(Density: 0.004f, Height: 0f, Falloff: 0.15f, SunScatter: 0.6f),
+            // A light fog, thickest on the ground, so the far wall sits a touch back in the air
+            // behind the near flagstones. It glows where it looks towards the sun.
+            Fog = new FogSettings(Density: 0.004f, Height: -0.1f, Falloff: 0.15f, SunScatter: 0.6f),
         });
         // A sun close to its real size, so the tree out of frame to the left, 10 m up-sun of
-        // the wall, dapples it with crisp leafy shade rather than one soft patch.
-        view.Shadows(7f, 3, sunSize: 0.02f);
+        // the wall, dapples it with crisp leafy shade rather than one soft patch. Contact
+        // shadows seat the stones, the barrel and the sacks on the ground.
+        view.Shadows(7f, 3, sunSize: 0.02f, contact: 0.3f);
+        // Ambient occlusion over 0.8 m, so the corners and the foot of each wall darken where
+        // little of the sky reaches.
+        view.AmbientOcclusion(0.8f, 1f);
         // Light probes over the yard, a metre apart, so the sunlit brick warms the shade round it.
         view.LightProbes(new(-2f, -0.5f, -9f), new(9f, 5f, 6f), 1f);
         // A reflection probe at head height in the middle of the yard, so the window and the
         // puddle mirror the wall, the deck and the house rather than only the sky.
         view.ReflectionProbe(YardProbeKey, position: new(3.5f, 1.6f, -1.5f), boxMin: new(-3f, -1f, -10f), boxMax: new(10f, 6f, 7f));
-        // Water stands 4.5 cm below the yard's zero, where the script's puddle bottoms out, so
-        // the hollow in the mud fills, the deepest boot prints hold a little, and the mud
-        // darkens for the last 3.5 cm down to it, so the yard round the hollow stays dry.
+        // Water stands 4.5 cm below the yard's zero, in the hollow the script dug in the mud, so
+        // the hollow fills, the deepest boot prints hold a little, and the mud darkens for the
+        // last 3.5 cm down to it. A wider band would darken the flagstones round the puddle too.
         view.Puddles(-0.045f, band: 0.035f);
 
         // A fresh breeze across the yard sways the grass, and a little of it reaches the ivy and the tree's crown,
@@ -166,30 +173,29 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         // The lantern is on, shining every way through its glass. In daylight it only warms
         // the wall just round it. It casts no shadows: the light sits inside the bulb and the lantern round it, and
         // they would hide it.
-        view.PointLight(LampKey, LampBulb, color: new Vector3(1.6f, 1.08f, 0.54f), range: 4f, radius: 0.15f, shadows: false);
+        view.PointLight(LampKey, LampBulb, color: new Vector3(0.8f, 0.54f, 0.27f), range: 4f, radius: 0.15f, shadows: false);
         // Someone is home: a warm light in the room, seen through the old glass.
         view.PointLight(RoomKey, RoomLamp, color: new Vector3(2.2f, 1.2f, 0.45f), range: 6f, radius: 0.25f);
 
-        // The camera meters the courtyard and sets the brightness itself, then adds about a stop:
-        // AgX's Punchy look, the default, deepens the mid-tones, and the sunlit wall should read
-        // bright. A touch more contrast and saturation for an afternoon sun, a warm white balance,
-        // a cool lift in the shade, and a little bloom round the lamp. The lens is focused on the
-        // window, 11 m off, and stopped down to f/8, so the flagstones at our feet soften a little
-        // and the window and the wall stay crisp.
+        // The camera meters the courtyard and sets the brightness itself, then adds a little
+        // over a stop: AgX's Punchy look, the default, deepens the mid-tones, and the sunlit wall
+        // should read bright. A touch more contrast and saturation for an afternoon sun, a warm
+        // white balance, a light vignette and a little bloom round the lamp. The lens is a 35 mm,
+        // focused on the window, 11 m off, and stopped down to f/8, so the flagstones at our feet
+        // soften a little and the window and the wall stay crisp.
         view.Finish(new PostSettings
         {
             FocusDistance = 11f,
             Aperture = 8f,
             AutoExposure = true,
-            Exposure = 1.05f,
+            Exposure = 1.15f,
             Temperature = 0.08f,
             Contrast = 0.25f,
             Saturation = 0.15f,
-            Vignette = 0.35f,
-            Sharpen = 0.2f,
-            Bloom = 0.06f,
-            Lift = new Vector3(0f, 0.005f, 0.015f),
-            Gain = new Vector3(0.01f, 0.005f, -0.005f),
+            Vignette = 0.3f,
+            Sharpen = 0.15f,
+            Bloom = 0.05f,
+            FocalLength = 35f,
         });
         view.Model(0, _courtyard, Matrix4x4.Identity);
 

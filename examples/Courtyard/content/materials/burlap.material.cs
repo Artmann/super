@@ -93,10 +93,10 @@ public sealed class Burlap : MaterialGraph
         // Pale straw-brown jute, each thread a slightly different shade, darker in the gaps.
         var shade = warpSlub.Add(weftSlub).Multiply(0.5f);
         var sacking = shade
-            .GradientMap(Ramp.Of("#7d6240", "#937650", "#a2855c"))
+            .GradientMap(Ramp.Of("#6b5338", "#7c6344", "#89704e"))
             .Multiply(weave.Levels(0f, 0.6f).Remap(0.35f, 1f));
         var patchCloth = shade
-            .GradientMap(Ramp.Of("#6f6049", "#7f6d52", "#8c7a5c"))
+            .GradientMap(Ramp.Of("#5f5240", "#6d5d47", "#786851"))
             .Multiply(patchWeave.Levels(0f, 0.6f).Remap(0.45f, 1f))
             .Blend(Rgb.Of("#c4b089"), mask: stitches);
         var color = sacking
@@ -116,10 +116,10 @@ public sealed class Burlap : MaterialGraph
         var flour = flourPatch
             .Multiply(height.Levels(0.15f, 0.6f))
             .Multiply(Noise.White(seed: 33).Blur(0.0008f).Levels(0.3f, 0.7f).Remap(0.6f, 1f));
-        color = color.Blend(Rgb.Of("#ddd5c2"), mask: flour, opacity: 0.9f);
+        color = color.Blend(Rgb.Of("#c9c0ad"), mask: flour, opacity: 0.6f);
 
         // The loose threads are paler than the cloth, being clean on the side that was inside the weave.
-        color = color.Blend(Noise.White(seed: 34).Blur(0.001f).GradientMap(Ramp.Of("#9c8159", "#b39668")), mask: loose.Levels(0f, 0.3f));
+        color = color.Blend(Noise.White(seed: 34).Blur(0.001f).GradientMap(Ramp.Of("#86704f", "#9a815c")), mask: loose.Levels(0f, 0.3f));
 
         // Grubby in broad patches where it has been handled, and grimy from the bottom up, where it stood on the yard
         // and the damp wicked up into it in uneven tongues. The ramp runs down the image, 1 at the foot of a sack.

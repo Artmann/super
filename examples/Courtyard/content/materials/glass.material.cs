@@ -3,7 +3,7 @@ using Super.Materials;
 
 /// <summary>
 /// Old window glass: faintly green and rippled, each pane its own sheet, with dust packed into the corners of the
-/// panes and along their foot, rain streaks and specks, and one pane cracked across.
+/// panes and along their foot, faint rain streaks towards the foot and specks, and one pane cracked across.
 /// </summary>
 public sealed class Glass : MaterialGraph
 {
@@ -40,13 +40,16 @@ public sealed class Glass : MaterialGraph
         var packed = corners.Add(ragged).Levels(0.74f, 0.96f)
             .Max(up.Invert().Add(ragged).Levels(0.9f, 0.99f).Multiply(0.35f));
 
-        // Grime over the rest: broad dusty patches, rain that ran down and dried, and specks of dirt.
+        // Grime over the rest: broad dusty patches, rain that ran down and dried, and specks of dirt. The rain left
+        // only faint runs, and they gather towards each pane's foot, where the drops slowed and dried; the top half
+        // of a pane has almost none.
         var dust = Noise.Perlin(scale: 11, octaves: 5, seed: 5).Levels(0.55f, 0.85f);
         var streaks = Noise.Directional(scale: 89, angle: 90f, stretch: 8f, octaves: 3, seed: 6)
             .Levels(0.55f, 0.8f)
-            .Multiply(Noise.Perlin(scale: 15, octaves: 2, seed: 7).Levels(0.4f, 0.7f));
+            .Multiply(Noise.Perlin(scale: 15, octaves: 2, seed: 7).Levels(0.4f, 0.7f))
+            .Multiply(up.Invert().Levels(0.45f, 0.95f));
         var specks = Noise.White(seed: 8).Blur(0.0005f).Levels(0.7f, 0.74f);
-        var grime = dust.Multiply(0.45f).Max(streaks.Multiply(0.5f)).Max(specks).Max(packed);
+        var grime = dust.Multiply(0.45f).Max(streaks.Multiply(0.2f)).Max(specks).Max(packed);
 
         // One pane has cracked from its lower left to the top, with a short branch, drawn as a hairline and grown a
         // little with Distance for the stressed glass round it. One side of the crack has sagged a fraction, so it
