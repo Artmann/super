@@ -141,6 +141,27 @@ bumps in the normal maps catch the light.
 dotnet run -c Release --project examples/Courtyard -- --lineup
 ```
 
+## The leaves
+
+`--leaves` shows the graphs that are cut out by their opacity, on the cards the courtyard
+will wear them on. Along the back wall each hangs whole and flat: the two ivy leaves, the
+meadow, broad and dry grasses, and the three dead leaves. In front, ivy climbs the wall,
+a tuft of each grass stands on the ground, dead leaves lie in front of them and a cobweb
+fills the corner of a frame, all cooked with the courtyard sidecar's own rules for them,
+in a light breeze. The cards are `content/models/cards.glb`, written by `art/cards.py`.
+
+![The leaves: ivy on the wall at the left, tufts of meadow, broad and dry grass, dead oak leaves on the ground and a cobweb in the corner of a frame, with each graph flat along the back wall](../../docs/media/courtyard-leaves.webp)
+
+```
+dotnet run -c Release --project examples/Courtyard -- --leaves
+dotnet run -c Release --project examples/Courtyard -- --leaves --screenshot shots/leaves.png --validate --seed 1 --ticks 60 --size 1600x900
+```
+
+The courtyard's model doesn't use these graphs yet: its ivy, grass and dead leaves are
+still plain `cy_ivy`, `cy_grass` and `cy_dead_leaf` quads. The sidecar's `graph_ivy_*`,
+`graph_blade_*`, `graph_cobweb` and `graph_deadleaf_*` rules are waiting for cards with
+those names.
+
 ## Files
 
 | File | What's in it |
@@ -149,9 +170,12 @@ dotnet run -c Release --project examples/Courtyard -- --lineup
 | `WallStains.cs` | Where the grime decals lie on the wall: the damp along its foot, the dirty water under the sill and the rust under the anchor plates |
 | `GravelSpills.cs` | Where the gravel decals lie: spills along both edges of both arms of the path and round the barrel's foot, kept off the middle of the path, the puddle and the wall |
 | `LineupGame.cs` | The lineup |
+| `LeavesGame.cs` | The leaves |
+| `art/cards.py` | Writes `content/models/cards.glb`, the leaves' cards, in plain Python with no Blender: each graph whole on the wall, ivy leaves 6 to 12 cm, grass tufts of one-column blade cards, dead leaves on the ground and a triangular cobweb card. Its UVs are in metres like the courtyard's |
+| `content/models/cards.glb.cook.json` | The cards' rules: the courtyard's own rules for its `graph_*` names, and `swatch_*` rules that show each graph whole, cut out but not lit as foliage |
 | `art/courtyard.py` | The Blender script that builds and exports the courtyard. It lays each board, stave and plank on one of the wood graph's boards, its width across the graph board and its two sawn ends on the graph board's two ends of end grain, so end grain shows only where a board really ends. The deck is laid in boards of 0.75 to 1.5 m, one graph board each, butted end to end in staggered joints, and no board at a run's end is shorter than 0.75 m. A deck board's width takes only the flat of its graph board, so the graph's rounded edge doesn't add a bright second edge beside the board's own bevel. Two iron nail heads are driven into each bearer a deck board crosses |
 | `art/assets/` | The lantern, crate and wheel from Sketchfab, with their textures, that the script imports |
-| `content/models/courtyard.glb.cook.json` | Which graph each of the model's materials wears, each cooked at `graphSize` 2048 so they hold up close (4096 for the bricks and the flagstones, which cover the most of the screen), the wood's two variants for the barrel's staves and the deck, with a wear tint on their edges that is only a little paler than the wood on the staves, and a little darker and dull on the deck, so worn edges don't read as bright lines, a warmer tint for the wheel's weathered wood, five tints of the dry-stone graph for the wall's stones, plus the bulb, the leaves, grass and whitewash that are seen from both sides, the grit detail graph and `worldVariation` on the bricks, stone, dry stone and flagstones, `worldVariation` on the mud, `puddles` on the mud, the flagstones, the plank, the deck, the hoops and the wheel, the three dithered stains, `wind` on the grass, with a share of 0.08 for the ivy and 0.4 for the tree's leaves so they sway less, and `keepOrigin` |
+| `content/models/courtyard.glb.cook.json` | Which graph each of the model's materials wears, each cooked at `graphSize` 2048 so they hold up close (4096 for the bricks and the flagstones, which cover the most of the screen), the wood's two variants for the barrel's staves and the deck, with a wear tint on their edges that is only a little paler than the wood on the staves, and a little darker and dull on the deck, so worn edges don't read as bright lines, a warmer tint for the wheel's weathered wood, five tints of the dry-stone graph for the wall's stones, plus the bulb, the leaves, grass and whitewash that are seen from both sides, the grit detail graph and `worldVariation` on the bricks, stone, dry stone and flagstones, `worldVariation` on the mud, `puddles` on the mud, the flagstones, the plank, the deck, the hoops and the wheel, the three dithered stains, `wind` on the grass, with a share of 0.08 for the ivy and 0.4 for the tree's leaves so they sway less, rules for the leaf, blade, cobweb and dead-leaf cards that cut them out at `alphaCutoff` 0.5 and draw both sides, with `foliage` translucency 0.7 for the ivy and 0.85 for the grass blades, wind like the plain ivy and grass and a share of 0.02 for the cobweb, and three tints of dead leaf, and `keepOrigin` |
 | `content/materials/whitewash.material.cs` | Old limewash, 1 m wide, for the flakes on the wall. Off-white Perlin patches with grime streaks from `Noise.Directional` running down, heavier in some places than others |
 | `content/materials/glass.material.cs` | Old window glass, 1 m wide and transparent. Clean glass is a faint green tint with ripples from `Noise.Directional` that bend the reflection. Dust from Perlin, rain streaks running down and specks from blurred white noise raise its opacity and roughness |
 | `content/materials/bricks.material.cs` | Big old bricks 43.75 cm long and about 29 cm high in grey lime mortar, 3.5 m wide, cooked at `graphSize` 4096. Each brick is found with `FloodFill` and takes one of eight tones from dark plum through the reds and orange-browns to ochre and pale buff, most of them reds and orange-browns, a third the two middle reds, and the plum and buff rare accents. Their lightness rises steadily, the buff about twice the red. The tones are dealt once from a fixed shuffle so that no brick matches any brick it touches, and `BrickToneTests` checks it. Each brick also gets its own tilt and hardness: hard bricks are smooth with a slight sheen, soft ones undulate, are pitted with pores from small cells and are dull. Over about a fifth of the wall, in patches from low Perlin through `HistogramScan`, salts have dried to a white rim along the joints, bleeding about 4 cm into the soft bricks and over the mortar, from `Distance` on the mortar and broken up by a fine Perlin grain. Soot from a `Gradient.Linear` darkens a band under the string course, broken into streaks by `Noise.Directional`. `SlopeBlur` with cells chips the edges, and a second, coarser pass bites bigger chips out of one brick in five. Perlin through a narrow `Levels` spalls flakes off a few faces. The mortar is grey and dirty, filled to an uneven level and lightened and darkened by its own Perlin, and weathered back to a deep recess in patches from cells. Its height map gives the mortar parallax depth |
@@ -171,6 +195,13 @@ dotnet run -c Release --project examples/Courtyard -- --lineup
 | `content/materials/burlap.material.cs` | Coarse jute sacking, 0.5 m wide, for the sacks. A plain weave of 96 round threads each way, each one thicker and thinner along its length from stretched `Noise.Directional`, with dark gaps between them, loose fibres, creases from warped cell edges and grubby Perlin patches |
 | `content/materials/hoop-iron.material.cs` | Old forged iron, 0.5 m wide, for the barrel's hoops and the deck's nail heads. Mostly dark rust from Perlin through `HistogramScan`, crusted with scale from cells, with bare iron, metalness 1, only in small worn patches. Fresher orange-brown rust runs down it in streaks from `Noise.Directional`. Rust is 0.9 rough and bare iron 0.35, and the sidecar's wear pales the hoops' rubbed edges and polishes them to the bare iron's 0.35, though it leaves their metalness as the graph has it. `HoopIronTests` checks the roughness and that the streaks run down |
 | `content/materials/rusty-metal.material.cs` | Steel plate, 1 m wide, shown in the lineup. Perlin patches through `HistogramScan` are rust, rough with metalness 0, and the rest is brushed steel with metalness 1 |
+| `content/materials/ivy-leaf.material.cs` | An ivy leaf, 0.2 m wide, on its stalk, cut out by its opacity. Five lobes, a long one at the top, two at the sides and two small ones low down, each a tapering field joined to a round palm with a smooth union, and a notch where the stalk joins. Five main veins and side veins that wander with `Noise.Directional` ridge the height. Dark `#2f4a1e` at the base to `#6f9a3a` at the tips, a tenth of it yellowed on a Perlin mask, paler veins and margin, and roughness 0.45 with a smoother 0.3 sheen band across it |
+| `content/materials/ivy-leaf-large.material.json` | The ivy leaf at seed 1, for the larger leaves: each seed turns and stretches the lobes a little |
+| `content/materials/grass-blade.material.cs` | Grass blades, 0.3 m wide: a row of blades side by side, one to a column, each standing on the image's foot. A card wears one column. Each blade is a strip that tapers to a point in the opacity, folded along a rib that shows in the normal, green at its foot drying to straw towards its tip, with fine veins and a few rust spots. `Species` picks meadow, 24 long narrow blades; broad, 12 short wide lush ones; or dry, 16 straw stalks that end in a seed head of spikelets with awns |
+| `content/materials/grass-blade-broad.material.json`, `grass-blade-dry.material.json` | The broad and dry species |
+| `content/materials/cobweb.material.cs` | An old cobweb, 0.5 m wide, for a triangular card whose right angle is the image's top-left corner: anchor threads along the two sides, a frame thread across, 18 spokes holding a spiral torn away in patches, loose threads and dust. The threads are 1 to 2 mm thick so they hold up a few metres away, and everything else is cut out |
+| `content/materials/dead-leaf.material.cs` | A fallen oak leaf, 0.15 m wide, on its stalk: rounded lobes down both sides, a midrib with a vein out to each lobe, a crumbled margin and a few holes, dry tan with brown blotches and a paler margin, its edges curled up in the height |
+| `content/materials/dead-leaf-dark.material.json`, `dead-leaf-red.material.json` | The dead leaf at seeds 1 and 2, which the sidecar tints darker and redder |
 
 The graphs and the model pass the cook's checks with no warnings: the colours stay
 between sRGB 30 and 240, metalness is 0 or 1, and roughness varies. `tests/Courtyard.Tests`

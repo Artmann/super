@@ -199,7 +199,8 @@ and no cell used twice within 1.6 m.
 A graph that is only ever a detail graph still needs a varied
 `Roughness`, since it is also cooked on its own and the [checks](#checks) look at it. The graph's errors
 stop the model's cook, and editing the graph cooks the model again. With the rule's `alphaCutoff`, the
-graph's `Opacity` cuts the material out, so a graph can make leaves or a torn edge. See [A material graph
+graph's `Opacity` cuts the material out, so a graph can make leaves or a torn edge. The Courtyard's
+ivy, grass blade, cobweb and dead leaf graphs are cut out this way; `--leaves` shows them on their cards. See [A material graph
 on a model](rendering.md#a-material-graph-on-a-model) for the details.
 
 ## The material
