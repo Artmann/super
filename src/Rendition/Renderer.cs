@@ -1424,11 +1424,13 @@ public sealed unsafe class Renderer : IDisposable
             Semaphore = frame.ImageAvailable,
             StageMask = PipelineStageFlags2.ColorAttachmentOutputBit,
         };
+        // Presenting waits for every command, so it comes after the last change of the image's layout
+        // too, which the frame's colour output alone doesn't cover, and after the copy of a capture.
         var signalInfo = new SemaphoreSubmitInfo
         {
             SType = StructureType.SemaphoreSubmitInfo,
             Semaphore = renderFinished,
-            StageMask = PipelineStageFlags2.ColorAttachmentOutputBit,
+            StageMask = PipelineStageFlags2.AllCommandsBit,
         };
         var commandInfo = new CommandBufferSubmitInfo
         {
@@ -2124,8 +2126,11 @@ public sealed unsafe class Renderer : IDisposable
             targets.NormalCopy.Image, ImageLayout.TransferDstOptimal, 1, &region);
         _api.Transition(cmd, targets.NormalCopy.Image, ImageAspectFlags.ColorBit,
             ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal, copy, AccessFlags2.TransferWriteBit, SampledStage, SampledAccess);
+        // The decals load the normals and blend over them, so the change of layout must land before
+        // that read as well as before their writes.
         _api.Transition(cmd, targets.Normal.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.TransferSrcOptimal, ImageLayout.ColorAttachmentOptimal, copy, AccessFlags2.TransferReadBit, ColorStage, ColorWrite);
+            ImageLayout.TransferSrcOptimal, ImageLayout.ColorAttachmentOptimal, copy, AccessFlags2.TransferReadBit, ColorStage,
+            ColorWrite | AccessFlags2.ColorAttachmentReadBit);
 
         // The colour blends over what the opaque pass wrote.
         _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,

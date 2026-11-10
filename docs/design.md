@@ -2075,6 +2075,12 @@ ffmpeg process, and the game steps a fixed `1 / fps` per frame while recording, 
 the output doesn't depend on how fast the machine is. Waiting on the GPU for each
 frame is slow, but it's only paid while capturing.
 
+`--validate` doesn't check synchronization, which is slow. To check it too, set
+`VK_LAYER_ENABLES=VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT` for the run. A
+Courtyard screenshot reports no hazards. The last two it found were the decals loading the
+normals before their change of layout had landed, and presenting before the swapchain image's
+change to the present layout, since the frame signalled it was done after colour output only.
+
 ## Resource lifetime
 
 Meshes and textures are made during play, so neither creating nor destroying one
