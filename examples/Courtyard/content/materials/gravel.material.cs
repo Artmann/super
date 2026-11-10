@@ -2,8 +2,9 @@ using Super.Materials;
 
 /// <summary>
 /// Fine gravel kicked off a path, half a metre across, for laying as a decal along the path's edges and round the
-/// barrel. 400 stones 2 to 8 mm across, in three greys, lie on a bed of coarse grit about 3 mm a grain, in a long spill
-/// that is thickest towards V 0, the side the gravel came from. The grit thins out in drifts a whole grain at a time and
+/// barrel. 400 stones 2 to 8 mm across, in three greys, lie on a bed of coarse grit about 3 mm a grain, in a long spill.
+/// It lies thick from about V 0.11 to 0.75, with a sharp edge towards V 0, the side the gravel came from, and thins out
+/// over the next tenth of the image towards V 1. The grit thins out in drifts a whole grain at a time and
 /// the stones a whole stone at a time, so the last of the spill is a scatter of single grains and stones and nothing
 /// shows of the square it is drawn in.
 /// </summary>
@@ -24,7 +25,8 @@ public sealed class Gravel : MaterialGraph
             return inside <= 0f ? 0f : inside * (1.15f - 0.5f * p.Uv.Y);
         });
         // Bending it throws a few wisps of its rim far out, so it is faded to nothing over the last eighth of the image
-        // on every side.
+        // on every side. The oval reaches into that fade towards V 0 but not towards V 1, which gives the spill its
+        // sharp edge on the side the gravel came from.
         var inside = Pixel.Gray(p =>
         {
             var border = MathF.Min(MathF.Min(p.Uv.X, 1f - p.Uv.X), MathF.Min(p.Uv.Y, 1f - p.Uv.Y));

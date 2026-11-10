@@ -5,7 +5,7 @@ namespace Courtyard;
 /// <summary>
 /// Where the Courtyard lays its gravel decals: spills of gravel kicked off the flagstones into the mud, along both
 /// edges of both arms of the path and round the foot of the barrel. Each box is a <c>gravel.material.cs</c> decal
-/// lying on the ground, its +Z towards the side the gravel came from, where the spill is thickest.
+/// lying on the ground, its +Z towards the side the gravel came from, where the spill has its sharp, thick edge.
 /// </summary>
 public static class GravelSpills
 {
@@ -43,24 +43,57 @@ public static class GravelSpills
     // behind it, so it isn't laid.
     private const float NearestY = -5.5f;
 
-    // A spill is thickest from 0.05 to 0.44 of its length out from its middle towards its +Z end. A path spill's middle
-    // is moved this much of its length out from the paving's edge, so the thick part straddles the edge and lies
-    // mostly on the mud.
+    // A spill lies thick from its sharp edge, 0.39 of its length out from its middle towards its +Z end (the image's
+    // V of 0.11), back to 0.25 of its length the other way (V 0.75), and thins out beyond that. A path spill's middle
+    // is moved this much of its length out from the paving's edge, so its sharp edge lies just on the paving and the
+    // rest of it out on the mud.
     private const float ThickOffset = 0.3f;
 
-    /// <summary>The boxes of every spill, placed at random from <paramref name="seed"/>.</summary>
+    /// <summary>
+    /// The boxes of every spill, placed at random from <paramref name="seed"/>. Each side of each arm and the ring round
+    /// the barrel draw from their own random numbers, so changing how one of them is laid doesn't move the others.
+    /// </summary>
     public static List<Matrix4x4> Boxes(int seed)
     {
         var boxes = new List<Matrix4x4>();
-        var random = new Random(seed);
-        foreach (var arm in PathArms)
+        for (int part = 0; part < Parts; part++)
         {
-            Along(boxes, arm, 1f, random);
-            Along(boxes, arm, -1f, random);
+            boxes.AddRange(Spills(seed, part));
         }
 
-        RoundBarrel(boxes, random);
         return boxes;
+    }
+
+    /// <summary>How many parts the spills are laid in: both sides of each arm of the path, then the ring round the barrel.</summary>
+    public static int Parts => PathArms.Length * 2 + 1;
+
+    /// <summary>
+    /// The boxes of one part of the spills: for arm <c>a</c>, part <c>2a</c> is its left side and <c>2a + 1</c> its
+    /// right, and the last part is the ring round the barrel.
+    /// </summary>
+    public static List<Matrix4x4> Spills(int seed, int part)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(part);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(part, Parts);
+        var boxes = new List<Matrix4x4>();
+        var random = Stream(seed, part);
+        if (part < PathArms.Length * 2)
+        {
+            Along(boxes, PathArms[part / 2], part % 2 == 0 ? 1f : -1f, random);
+        }
+        else
+        {
+            RoundBarrel(boxes, random);
+        }
+
+        return boxes;
+    }
+
+    // The random numbers for one side of an arm, or the ring, from the game's seed and which one it is. The same seed
+    // and stream always give the same numbers, run to run.
+    private static Random Stream(int seed, int which)
+    {
+        return new Random(unchecked(seed * 7919 + which * 104729));
     }
 
     /// <summary>
@@ -143,8 +176,8 @@ public static class GravelSpills
             Vector2 outward = new(MathF.Cos(angle), MathF.Sin(angle));
             float width = Spread(random, 0.5f, 0.7f);
             float deep = width * 0.8f;
-            // The thick part runs from 0.05 to 0.44 of the length from the middle towards the barrel, so a middle 0.42
-            // of a length out from the foot puts it from against the staves out onto the mud.
+            // The sharp edge of the thick part is 0.39 of the length from the middle towards the barrel, so a middle
+            // 0.42 of a length out from the foot puts that edge against the staves and the rest out on the mud.
             Vector2 at = BarrelCentre + outward * (BarrelFoot + 0.42f * deep + Spread(random, 0f, 0.06f));
             if (OpenMud(at))
             {
@@ -154,8 +187,8 @@ public static class GravelSpills
     }
 
     // A decal box lying on the ground at Blender's (x, y), `width` across and `length` along `toward`, projecting down
-    // onto everything within 20 cm of the yard's zero. The gravel is thickest at the image's V of 0, which lies at the
-    // box's +Z, so +Z points along `toward`.
+    // onto everything within 20 cm of the yard's zero. The spill's sharp, thick edge is towards the image's V of 0,
+    // which lies at the box's +Z, so +Z points along `toward`.
     private static Matrix4x4 GroundBox(Vector2 at, Vector2 toward, float width, float length)
     {
         // Blender's (x, y, z) is (x, z, -y) here.
