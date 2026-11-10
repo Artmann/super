@@ -6,7 +6,8 @@ using Super.Materials;
 /// Two anchor threads run along the corner's sides, about 7 mm in, and a frame thread runs across from one to the
 /// other. Inside the frame an orb web of 18 spokes holds a spiral that is broken in many places, and a tangle of loose
 /// threads crosses it, with dust caught where they gather. The threads are about a millimetre thick, much thicker than
-/// a spider's, so they still show a few metres away. Everything but the threads has an opacity of 0, so a rule's
+/// a spider's, but that is still under a pixel once the web is more than a metre or two away, so the web only reads
+/// up close. Everything but the threads has an opacity of 0, so a rule's
 /// <c>alphaCutoff</c> cuts it out.
 /// </summary>
 public sealed class Cobweb : MaterialGraph

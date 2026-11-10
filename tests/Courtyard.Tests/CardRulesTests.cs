@@ -26,11 +26,24 @@ public sealed class CardRulesTests
         }
     }
 
-    [Fact]
-    public void No_card_rule_matches_another_cards_material()
+    [Theory]
+    [InlineData("courtyard.glb.cook.json")]
+    [InlineData("cards.glb.cook.json")]
+    public void The_cobweb_does_not_sway(string sidecar)
     {
-        // A rule applies to every material whose name contains its match, and the first one wins, so a match that
-        // is part of another's name would take that material too.
+        // A web is strung between a pier and a pipe, or across a window's corner, so swaying would swing its threads
+        // through the things it hangs from.
+        var json = JsonNode.Parse(File.ReadAllText(Path.Combine(Models(), sidecar)))!;
+        var cobweb = json["materials"]!.AsArray().Single(rule => (string)rule!["match"]! == "graph_cobweb")!;
+
+        Assert.Null(cobweb["wind"]);
+    }
+
+    [Fact]
+    public void No_rules_match_is_part_of_a_card_rules_match()
+    {
+        // A rule applies to every material whose name contains its match, and the first one wins. A card's material
+        // is named by its rule's match, so another match that is part of it would take that card's material too.
         var matches = Rules("cards.glb.cook.json").Keys.Concat(Rules("courtyard.glb.cook.json").Keys).Distinct().ToList();
         foreach (string card in Rules("cards.glb.cook.json").Keys)
         {
