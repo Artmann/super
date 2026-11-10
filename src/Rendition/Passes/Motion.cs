@@ -116,7 +116,8 @@ internal struct PreviousInstance
 /// Remembers where each keyed draw stood, so the next frame can say where it was. A key is the game's name for one
 /// thing it draws, such as an entity: <see cref="DrawItem.Key"/>. Every part of one model draw shares a key and a
 /// placing. Two draws with one key placed differently in a frame can't be told apart, so neither gets a last frame;
-/// nor does a draw without a key, or one that wasn't drawn last frame, or any draw when there's no last picture.
+/// nor does a draw without a key, or one that wasn't drawn last frame, or a key that drew another model last frame,
+/// or any draw when there's no last picture.
 /// </summary>
 internal sealed class MotionHistory
 {
@@ -131,6 +132,9 @@ internal sealed class MotionHistory
 
     private struct Placing
     {
+        // The mesh of the key's first draw, which is the model it draws: a model's parts share one mesh. A key that
+        // draws another model this frame gets no last frame, since the old one's placing says nothing about the new.
+        public MeshHandle Mesh;
         public Matrix4x4 Transform;
         public SwimMotion Swim;
         public BoneRange Bones;
@@ -168,7 +172,7 @@ internal sealed class MotionHistory
                 continue;
             }
 
-            _now[key] = new Placing { Transform = draw.Transform, Swim = draw.Swim, Bones = draw.Bones };
+            _now[key] = new Placing { Mesh = draw.Mesh, Transform = draw.Transform, Swim = draw.Swim, Bones = draw.Bones };
         }
 
         if (_nowBones.Length < bones.Length)
@@ -197,6 +201,7 @@ internal sealed class MotionHistory
         if (!_ready || draw.Key is not { } key
             || !_last.TryGetValue(key, out var last) || last.Shared
             || !_now.TryGetValue(key, out var now) || now.Shared
+            || last.Mesh != now.Mesh
             || last.Bones.Count != draw.Bones.Count)
         {
             return PreviousInstance.None(draw);

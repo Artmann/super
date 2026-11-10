@@ -812,9 +812,11 @@ to add it, since the target only holds what the draws wrote.
 
 Last frame's placing comes from `MotionHistory`, keyed by `DrawItem.Key`, the game's name
 for one thing it draws (Super passes the entity). Each frame it remembers each key's
-matrix, swim and bone range, and gives a draw its last placing only when the key was drawn
+mesh, matrix, swim and bone range, and gives a draw its last placing only when the key was drawn
 last frame, every draw with that key this frame and last stands in one place (the parts of
-one model do), and its bone count hasn't changed. Anything else, a draw with no key, one new
+one model do), the key's first draw has the same mesh as last frame (a model's parts share
+one mesh, so a key reused for another model doesn't borrow the old one's placing), and its
+bone count hasn't changed. Anything else, a draw with no key, one new
 this frame, the first frame, the frame after a resize or render scale change, or after
 anti-aliasing comes back on, has no history and moves with the camera alone, as before
 motion vectors existed. Last frame's placing goes in a buffer beside the instance matrices,

@@ -183,6 +183,39 @@ public class MotionTests
     }
 
     [Fact]
+    public void A_key_that_draws_another_model_has_no_history()
+    {
+        // The key was a barrel last frame and is a crate now, as when a game reuses an entity. The barrel's placing
+        // says nothing about where the crate was, so the crate moves with the camera alone.
+        var history = new MotionHistory();
+        var barrel = new DrawItem { Key = 3, Mesh = new MeshHandle(1), Transform = Matrix4x4.CreateTranslation(-1f, 0f, 0f) };
+        var crate = new DrawItem { Key = 3, Mesh = new MeshHandle(2), Transform = Matrix4x4.CreateTranslation(1f, 0f, 0f) };
+        history.Begin([barrel], [], historyReady: true, []);
+        history.Begin([crate], [], historyReady: true, []);
+
+        var previous = history.Previous(crate);
+
+        Assert.Equal(0, previous.HasHistory);
+        Assert.Equal(crate.Transform, previous.Model);
+    }
+
+    [Fact]
+    public void A_key_that_draws_the_same_model_somewhere_else_keeps_its_history()
+    {
+        // The other side of the test above: the same mesh, moved, still has a last frame.
+        var history = new MotionHistory();
+        var before = new DrawItem { Key = 3, Mesh = new MeshHandle(1), Transform = Matrix4x4.CreateTranslation(-1f, 0f, 0f) };
+        var now = before with { Transform = Matrix4x4.CreateTranslation(1f, 0f, 0f) };
+        history.Begin([before], [], historyReady: true, []);
+        history.Begin([now], [], historyReady: true, []);
+
+        var previous = history.Previous(now);
+
+        Assert.Equal(1, previous.HasHistory);
+        Assert.Equal(before.Transform, previous.Model);
+    }
+
+    [Fact]
     public void A_draw_without_a_key_has_no_history()
     {
         var history = new MotionHistory();

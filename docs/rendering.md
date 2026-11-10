@@ -764,8 +764,8 @@ lantern, a running character or a blade of grass keeps its edge instead of leavi
 trail. There's nothing to turn on, and no setting.
 
 Super finds where a model stood last frame by its [key](views.md#keys). A model drawn for
-the first time, or whose key is shared by models in different places, moves with the camera
-alone, which softens it a little while it moves. Still scenes look exactly as they did
+the first time, one whose key drew another model last frame, or one whose key is shared by
+models in different places, moves with the camera alone, which softens it a little while it moves. Still scenes look exactly as they did
 before. Glass and particles don't record their motion.
 
 ![Courtyard grass swaying in a breeze, the same frame of a recording drawn without motion vectors and with them; without, the blades trail a faint copy of where they were](media/motion-vectors-grass.webp)
