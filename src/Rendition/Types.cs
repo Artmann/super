@@ -114,6 +114,13 @@ public enum MaterialFlags
     /// stains and grime laid just in front of another surface. Without anti-aliasing the pattern shows as grain.
     /// </summary>
     Dithered = 32,
+
+    /// <summary>
+    /// Where the surface lies below the frame's <see cref="FrameView.Puddles"/> level it is water: a rippled mirror
+    /// over a colour that darkens with depth. Just above, it is damp: darker and smoother, fading to dry over the
+    /// band. Its height map counts, so the hollows flood before the tops. Without a level it does nothing.
+    /// </summary>
+    Puddles = 64,
 }
 
 /// <summary>
@@ -606,6 +613,17 @@ public struct ScreenTransition
     public int Hold;
 }
 
+/// <summary>
+/// Standing water on surfaces whose material has <see cref="MaterialFlags.Puddles"/>. <see cref="Level"/> is the
+/// height of the water in metres; whatever lies below it is under water. <see cref="Band"/> is how far above the
+/// water, in metres, the surface is damp, darkest at the waterline and dry at the band's top.
+/// </summary>
+public readonly record struct PuddleSettings(float Level, float Band = PuddleSettings.DefaultBand)
+{
+    /// <summary>The damp band's height when none is given, in metres.</summary>
+    public const float DefaultBand = 0.08f;
+}
+
 /// <summary>Puts the camera underwater. Leaving Absorption at zero means there's no water.</summary>
 public struct UnderwaterSettings
 {
@@ -801,6 +819,12 @@ public ref struct FrameView
 
     public UnderwaterSettings Water;
 
+    /// <summary>
+    /// The height water stands at on surfaces whose material has <see cref="MaterialFlags.Puddles"/>, and the damp
+    /// band above it. Null leaves every surface dry.
+    /// </summary>
+    public PuddleSettings? Puddles;
+
     /// <summary>Flat rectangles drawn last, over everything, in order. Needs <see cref="Renderer.SetOverlayAtlas"/>.</summary>
     public ReadOnlySpan<OverlayQuad> Overlay;
 
@@ -907,8 +931,14 @@ public enum RenderEffects
     /// </summary>
     VolumetricFog = 1 << 15,
 
+    /// <summary>
+    /// Water and a damp band on surfaces whose material has <see cref="MaterialFlags.Puddles"/>, below and just
+    /// above <see cref="FrameView.Puddles"/>. Without it every surface is dry.
+    /// </summary>
+    Puddles = 1 << 16,
+
     All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
-        | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog,
+        | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles,
 }
 
 /// <summary>

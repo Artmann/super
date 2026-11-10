@@ -146,6 +146,9 @@ internal struct FrameUniforms
     /// </summary>
     public Vector4 Volumetric;
 
+    /// <summary>x: the water's level; y: the damp band above it; z: 1 when there is water. See <see cref="Passes.Puddles.Pack(float, float)"/>.</summary>
+    public Vector4 Puddles;
+
     public int LightCount;
     public float Time;
     public int FrameNumber;

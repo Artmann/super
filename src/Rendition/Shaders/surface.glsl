@@ -110,6 +110,68 @@ void applyLayers(Material material, inout vec3 color, inout float roughness) {
     }
 }
 
+// How far below the level, in metres, a surface goes from dry of water to all water, so the
+// shore is soft. Must match Puddles.Shore in Passes/Puddles.cs.
+const float PUDDLE_SHORE = 0.003;
+
+// Standing water: a near mirror, tinted towards brown-black as it deepens to PUDDLE_DEEP metres.
+const float PUDDLE_ROUGHNESS = 0.03;
+const float PUDDLE_DEEP = 0.05;
+const vec3 PUDDLE_DEEP_TINT = vec3(0.35, 0.3, 0.25);
+
+// The ripples: two layers of drifting, changing waves, each RIPPLE_AMPLITUDE metres high. The
+// first is broad and slow, the second fine and quicker. Each moves one wavelength a cycle.
+const float RIPPLE_AMPLITUDE = 0.0004;
+const float RIPPLE_SLOW_HZ = 0.4;
+const float RIPPLE_SLOW_WAVELENGTH = 0.3;
+const float RIPPLE_QUICK_HZ = 0.9;
+const float RIPPLE_QUICK_WAVELENGTH = 0.11;
+
+// The slope, along x and z, of one layer of ripples at a point on the water.
+vec2 rippleSlope(vec2 position, float wavelength, float hz, vec2 drift) {
+    float cycles = frame.time * hz;
+    vec3 at = vec3(position / wavelength + drift * cycles, cycles);
+    const float delta = 0.05;
+    float here = worldNoise(at);
+    float alongX = worldNoise(at + vec3(delta, 0.0, 0.0));
+    float alongZ = worldNoise(at + vec3(0.0, delta, 0.0));
+    // The noise runs 0 to 1, so the wave is twice the amplitude from trough to crest.
+    return vec2(alongX - here, alongZ - here) / delta * (2.0 * RIPPLE_AMPLITUDE / wavelength);
+}
+
+// Lays the frame's puddles over a surface whose material has MATERIAL_PUDDLES. The surface's height
+// at this pixel is its world height less how far its height map sinks it, so the bottom of a groove
+// sits below its face. Below frame.puddles.x it is water: rippled, smooth, not metal and darker the
+// deeper it gets. For frame.puddles.y metres above, it is damp: at the waterline its colour is squared
+// and its roughness halved, fading in a straight line to dry. Passes/Puddles.cs does the same sums.
+void applyPuddles(inout Surface surface, vec3 worldPos, float height, float heightDepth) {
+    float surfaceHeight = worldPos.y + (height - 1.0) * heightDepth;
+    float level = frame.puddles.x;
+    float band = frame.puddles.y;
+    float below = level - surfaceHeight;
+    float water = clamp(below / PUDDLE_SHORE, 0.0, 1.0);
+    float damp = band > 0.0 ? clamp(1.0 + below / band, 0.0, 1.0) : (below > 0.0 ? 1.0 : 0.0);
+    if (damp <= 0.0) {
+        return;
+    }
+
+    surface.baseColor = mix(surface.baseColor, surface.baseColor * surface.baseColor, damp);
+    surface.roughness = mix(surface.roughness, surface.roughness * 0.5, damp);
+    if (water <= 0.0) {
+        return;
+    }
+
+    vec2 slope = rippleSlope(worldPos.xz, RIPPLE_SLOW_WAVELENGTH, RIPPLE_SLOW_HZ, vec2(0.8, 0.6))
+        + rippleSlope(worldPos.xz + 31.0, RIPPLE_QUICK_WAVELENGTH, RIPPLE_QUICK_HZ, vec2(-0.5, 0.87));
+    vec3 rippled = normalize(vec3(-slope.x, 1.0, -slope.y));
+    vec3 tint = mix(vec3(1.0), PUDDLE_DEEP_TINT, clamp(below / PUDDLE_DEEP, 0.0, 1.0));
+
+    surface.baseColor = mix(surface.baseColor, surface.baseColor * tint, water);
+    surface.roughness = mix(surface.roughness, PUDDLE_ROUGHNESS, water);
+    surface.metallic = mix(surface.metallic, 0.0, water);
+    surface.normal = normalize(mix(surface.normal, rippled, water));
+}
+
 // The surface's frame in world space: tangent, bitangent and normal. Back faces flip the
 // normal, except foliage, which keeps the normal its mesh gives, out of the whole crown.
 mat3 surfaceFrame() {
@@ -260,6 +322,13 @@ Surface materialSurface(vec2 uv) {
     surface.normal = normalize(basis * mapped);
     surface.emissive = textureGrad(textures[material.emissiveTexture], uv, uvX, uvY).rgb * material.emissive.rgb;
     surface.clearcoat = material.clearcoat;
+
+    // Without a level set, or with Graphics.Puddles off, frame.puddles.z is 0 and nothing is wet.
+    if ((material.flags & MATERIAL_PUDDLES) != 0u && frame.puddles.z > 0.5 && !isOff(OFF_PUDDLES)) {
+        float height = material.heightDepth > 0.0 ? textureGrad(textures[material.heightTexture], uv, uvX, uvY).r : 1.0;
+        applyPuddles(surface, inPosition, height, material.heightDepth);
+    }
+
     return surface;
 }
 

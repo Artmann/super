@@ -172,6 +172,7 @@ public class GraphicsTests
     [InlineData(nameof(Graphics.DepthOfField), RenderEffects.DepthOfField)]
     [InlineData(nameof(Graphics.Decals), RenderEffects.Decals)]
     [InlineData(nameof(Graphics.VolumetricFog), RenderEffects.VolumetricFog)]
+    [InlineData(nameof(Graphics.Puddles), RenderEffects.Puddles)]
     public void Each_switch_turned_off_leaves_out_only_its_own_effect(string setting, RenderEffects effect)
     {
         var graphics = new Graphics();
@@ -189,7 +190,8 @@ public class GraphicsTests
             RenderEffects.SunShadows | RenderEffects.LightShadows | RenderEffects.AmbientOcclusion
             | RenderEffects.Reflections | RenderEffects.AntiAliasing | RenderEffects.Bloom | RenderEffects.ContactShadows
             | RenderEffects.LightProbes | RenderEffects.MultiscatterSpecular | RenderEffects.WearAndDirt | RenderEffects.Fog
-            | RenderEffects.AutoExposure | RenderEffects.DepthOfField | RenderEffects.Decals | RenderEffects.VolumetricFog,
+            | RenderEffects.AutoExposure | RenderEffects.DepthOfField | RenderEffects.Decals | RenderEffects.VolumetricFog
+            | RenderEffects.Puddles,
             graphics.Off);
         Assert.True(graphics.Materials);
         Assert.False(graphics.Vsync);

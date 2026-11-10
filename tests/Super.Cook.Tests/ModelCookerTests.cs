@@ -658,6 +658,23 @@ public sealed class ModelCookerTests : IDisposable
     }
 
     [Fact]
+    public void A_puddles_rule_reaches_the_materials_flags_and_without_it_the_flag_is_clear()
+    {
+        string wet = GraphFolder("""{ "match": "bark", "graph": "../materials/flat.material.cs", "graphSize": 16, "puddles": true }""");
+        string dry = GraphFolder("""{ "match": "bark", "graph": "../materials/flat.material.cs", "graphSize": 16 }""");
+
+        var (wetResult, wetStore) = Cook(new FolderRoot(wet));
+        var (dryResult, dryStore) = Cook(new FolderRoot(dry));
+
+        Assert.True(wetResult.Succeeded, string.Join("; ", wetResult.Problems));
+        Assert.True(dryResult.Succeeded, string.Join("; ", dryResult.Problems));
+        var wetModel = Model(wetStore, "models/a.gltf");
+        var dryModel = Model(dryStore, "models/a.gltf");
+        Assert.Equal(MaterialFlags.Puddles, wetModel.Materials[Assert.Single(wetModel.Parts).Material].Flags & MaterialFlags.Puddles);
+        Assert.Equal(MaterialFlags.None, dryModel.Materials[Assert.Single(dryModel.Parts).Material].Flags & MaterialFlags.Puddles);
+    }
+
+    [Fact]
     public void Textures_are_block_compressed_by_what_the_material_uses_them_for()
     {
         string src = GraphFolder("""{ "match": "bark", "graph": "../materials/flat.material.cs", "graphSize": 16 }""", compress: true);

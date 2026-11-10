@@ -58,6 +58,7 @@ next frame follows, so it can back an options menu.
 | `AutoExposure` | Views that ask for [auto exposure](#auto-exposure) keep the fixed `PostSettings.Exposure` instead, as if they hadn't asked. It saves a compute pass over the frame |
 | `DepthOfField` | Everything is sharp, even in views that open the lens with `PostSettings.Aperture`. It saves three passes, two of them at half size. See [focus](#focus) |
 | `Decals` | No [decals](views.md#decals): surfaces show as they are, without the grime and stains `view.Decal` lays on them. It saves a copy of the normal target and a pass over the decals' pixels |
+| `Puddles` | Every surface is dry, whatever level `view.Puddles` sets: no water and no damp band. It saves a few noise lookups on each wet pixel. See [puddles](#puddles) |
 | `Materials` | Every surface is the same light grey, matte clay, shaped only by its mesh, so you can judge the lighting and the models without textures in the way. Glows still glow, cut-outs still cut and glass stays see-through. `--no-materials` turns it off too |
 | `WearAndDirt` | Models' materials show only their own colour and shine, without the pale worn edges and dark hollows their [baked masks](#wear-and-dirt) lay on, and the masks aren't read |
 
@@ -619,6 +620,36 @@ view.Water(new UnderwaterSettings
 Leaving `Absorption` at zero means there's no water. The [Reef example](../examples/Reef)
 uses this.
 
+## Puddles
+
+`view.Puddles` lets water stand in the low places of the ground, with no mesh for the water.
+It takes the water's height in metres and, optionally, how far above it the ground is damp,
+8 cm unless given:
+
+```csharp
+view.Puddles(-0.045f);          // water at 4.5 cm below 0, damp for 8 cm above it
+view.Puddles(0.2f, band: 0.03f); // higher water and a narrower damp band
+```
+
+Only materials that ask for it get wet: a model sidecar's rule with `"puddles": true`, or a
+`Surface` with `Puddles = true`. Each pixel's height is where it is in the world, less how
+deep its height map sinks it (the material's `heightDepth` times how far below white the
+height is), so the mortar between flagstones and the hollows in mud fill before the tops.
+A pixel below the level is water. It mirrors the sky and what's on screen with roughness
+0.03 and no metalness, its normal points straight up but for two layers of ripples 0.4 mm
+high that drift and change, at 0.4 and 0.9 cycles a second, and its colour is the ground's,
+darkened towards brown-black as the water deepens to 5 cm. Above the level, the surface is
+damp: at the waterline its colour is squared, which darkens it the way water darkens soil,
+and its roughness halved, fading in a straight line to dry at the band's top. A band of 0
+leaves only the water.
+
+Since the water is drawn on the ground, it reflects from the ground's own height, which is
+right where the water is shallow and a little off where it is deep. Anything in the puddle
+with the rule, such as a plank or a wheel's rim, is wet and mirror-smooth below the level
+too. Without a level, the rule does nothing. [`Graphics.Puddles`](#graphics-settings) turns
+it off, and `Graphics.Fastest()` turns it off. The Courtyard uses it for its puddle, on the
+mud, the flagstones, the plank, the deck, the barrel's hoops and the wheel.
+
 ## Models
 
 Models are cooked from FBX, glTF or OBJ into Rendition's `.rmodel` format by the model
@@ -771,7 +802,7 @@ as the shared `assets` folder does for Poly Haven's `textures` folders:
 Other options are the `baseColor`, `normal`, `surface` and `emissive` textures,
 `color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `heightDepth`,
 `detailScale`, `detailMask`, `twoSided`, `transparent`, `opacity`, `ior`, `noNormalMap`,
-`worldVariation`, `dithered` and `rotateY`, and `graph`, `graphSize`, `detailGraph` and
+`worldVariation`, `dithered`, `puddles` and `rotateY`, and `graph`, `graphSize`, `detailGraph` and
 `detailGraphSize`, and `shader`, `shaderParameters` and `shaderTextures`, below; see
 `src/Super.Cook.Models/ImportSettings.cs`.
 
@@ -789,6 +820,9 @@ wall, use a [decal](views.md#decals) instead of a dithered quad in front of it: 
 blends its colour and roughness into the wall and lays its bumps over the wall's own, so
 the bricks still show through, and it never floats off the surface or flickers against it.
 Keep `dithered` for things that should fade as a whole, such as a leaf or a cobweb.
+
+`puddles` lets water stand on the material wherever it lies below the level the game sets
+with `view.Puddles`, and makes it damp for a band above. See [Puddles](#puddles).
 
 ### A material graph on a model
 

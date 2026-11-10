@@ -60,8 +60,9 @@ Super is early. These are the known gaps, so you can plan around them.
   [Cooking](content.md#cooking) and [Change it while the game runs](content.md#change-it-while-the-game-runs).
 - Step 1 of [material graphs](materials.md) is done: graphs cook into textures, with the
   Courtyard lineup of six starter graphs. `graph` in model sidecars is done too, and the
-  Courtyard is now a scene modelled in Blender that wears the graphs. Next: a rising-water
-  puddle surface shader, hot reload of a saved graph in the running game, `repeat` in model
+  Courtyard is now a scene modelled in Blender that wears the graphs, and its puddle is
+  [standing water](rendering.md#puddles) at a level the game sets. Next: hot reload of a
+  saved graph in the running game, `repeat` in model
   sidecars, mesh bakes with a `Triplanar` node, and curvature and
   occlusion bakes as graph inputs. Curvature, occlusion and height are baked already, as
   [masks for wear and dirt](rendering.md#wear-and-dirt) in a second UV set, but a graph

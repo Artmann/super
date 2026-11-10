@@ -73,6 +73,12 @@ public sealed record Surface
     /// </summary>
     public bool Dithered { get; init; }
 
+    /// <summary>
+    /// Water stands on the surface where it lies below the level set with <see cref="View.Puddles"/>, and it is damp
+    /// for a band above. Its height map counts, so hollows fill first. Without a level it stays dry.
+    /// </summary>
+    public bool Puddles { get; init; }
+
     /// <summary>Light that spreads under the surface, for skin, wax and marble. Off by default.</summary>
     public Subsurface Subsurface { get; init; }
 

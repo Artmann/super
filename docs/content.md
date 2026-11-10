@@ -318,6 +318,13 @@ from 0 to 1, are laid on by them. The masks go in the mesh's second UV set, so
 every mesh of the material needs one whose islands don't overlap. See
 [Wear and dirt](rendering.md#wear-and-dirt).
 
+### Puddles on models
+
+A model sidecar's material rule with `"puddles": true` lets water stand on the material
+below the level the game sets with `view.Puddles`, and makes it damp for a band above.
+It changes only a flag on the cooked material, so the textures are the same. See
+[Puddles](rendering.md#puddles).
+
 ### Mesh names
 
 A rigged model keeps the name of each of its meshes: the name of the node that holds the

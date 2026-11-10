@@ -99,6 +99,7 @@ public sealed class View
 
     internal ReadOnlySpan<SunLight> Suns => CollectionsMarshal.AsSpan(_suns);
     internal UnderwaterSettings WaterSettings { get; private set; }
+    internal PuddleSettings? PuddleSettings { get; private set; }
     internal SkySettings? SkySettings { get; private set; }
     internal PostSettings Post { get; private set; }
     internal float ShadowRadius { get; private set; }
@@ -527,6 +528,29 @@ public sealed class View
     /// <summary>Puts the whole view underwater.</summary>
     public void Water(in UnderwaterSettings settings) => WaterSettings = settings;
 
+    /// <summary>
+    /// Lets water stand at <paramref name="level"/>, a height in metres, on every surface whose material asks for
+    /// puddles. Whatever lies below it, counting the material's height map so hollows fill first, turns into a rippled
+    /// mirror that darkens as it deepens, and for <paramref name="band"/> metres above it the surface is damp: darker
+    /// and smoother at the waterline, dry at the band's top. <see cref="Graphics.Puddles"/> turns it off. See
+    /// docs/rendering.md.
+    /// </summary>
+    public void Puddles(float level, float band = Rendition.PuddleSettings.DefaultBand)
+    {
+        if (!float.IsFinite(level))
+        {
+            throw new ArgumentOutOfRangeException(nameof(level), level, "The water level must be a height in metres.");
+        }
+
+        if (!(float.IsFinite(band) && band >= 0f))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(band), band, "The damp band above the water must be 0 or more metres, and 0 leaves no damp band.");
+        }
+
+        PuddleSettings = new PuddleSettings(level, band);
+    }
+
     /// <summary>Sets the look of the finished picture.</summary>
     public void Finish(in PostSettings settings)
     {
@@ -855,6 +879,7 @@ public sealed class View
         _particles.Clear();
         _lights.Clear();
         WaterSettings = default;
+        PuddleSettings = null;
         SkySettings = null;
         Post = new PostSettings { Vignette = 0.3f, Sharpen = 0.4f };
         ShadowRadius = 8f;

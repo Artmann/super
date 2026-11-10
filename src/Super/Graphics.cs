@@ -148,6 +148,13 @@ public sealed class Graphics
     public bool WearAndDirt { get; set; } = true;
 
     /// <summary>
+    /// Water and a damp band on surfaces whose material asks for puddles, below and just above the level set with
+    /// <see cref="View.Puddles"/>. Off, every surface is dry. It costs a few noise lookups on each wet pixel, so
+    /// <see cref="Fastest"/> turns it off.
+    /// </summary>
+    public bool Puddles { get; set; } = true;
+
+    /// <summary>
     /// Every effect off and vsync off: the fastest the engine draws, and a start for a game that
     /// must run on modest hardware. Turn back on only what it needs.
     /// </summary>
@@ -169,6 +176,7 @@ public sealed class Graphics
         DepthOfField = false,
         Decals = false,
         VolumetricFog = false,
+        Puddles = false,
     };
 
     /// <summary>The effects the renderer leaves out.</summary>
@@ -187,6 +195,7 @@ public sealed class Graphics
         | (DepthOfField ? 0 : RenderEffects.DepthOfField)
         | (Decals ? 0 : RenderEffects.Decals)
         | (VolumetricFog ? 0 : RenderEffects.VolumetricFog)
+        | (Puddles ? 0 : RenderEffects.Puddles)
         | (Materials ? 0 : RenderEffects.Materials)
         | (WearAndDirt ? 0 : RenderEffects.WearAndDirt);
 }

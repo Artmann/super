@@ -1597,6 +1597,22 @@ same against its 4x4 ordered pattern, so TAA and the shadow filter average both 
 surface writes its own normal and roughness where it draws, so the surface behind loses its
 bumps there. A projected [decal](#decals) blends into what's under it instead.
 
+`MaterialFlags.Puddles` runs `applyPuddles` at the end of `materialSurface(uv)`, so custom
+surface shaders that start from it get wet too. It does nothing unless `frame.puddles.z` is 1,
+which the renderer writes only when the view set a level and `RenderEffects.Puddles` is on;
+the shader also checks `OFF_PUDDLES`. The surface height is `inPosition.y + (height - 1) *
+heightDepth`, with the height map read at the parallax-shifted uv (white when the material has
+no `heightDepth`). With `below = level - surfaceHeight`, water is `saturate(below / 0.003)`, so
+the shore is 3 mm soft, and damp is `saturate(1 + below / band)`. Damp mixes the colour towards
+its square and the roughness towards half; water then mixes in roughness 0.03, metalness 0, the
+colour times `mix(1, (0.35, 0.3, 0.25), saturate(below / 0.05))` and a rippled up normal. The
+ripples are two layers of the same value noise `worldVariation` uses, over x, z and time, 0.3 m
+across at 0.4 Hz and 0.11 m at 0.9 Hz, each drifting a wavelength a cycle, whose slopes come
+from forward differences and are scaled to a 0.4 mm wave. `Passes/Puddles.cs` does the height and
+wetness sums for the tests. The G-buffer gets the wet surface, so screen-space reflections, the
+reflection probes and the sky give the water its mirror with no extra pass. The water is drawn at
+the ground's height rather than the water plane's, so deep water reflects from slightly too low.
+
 The detail colour divides by 128/255, so mid grey is neutral and the detail can lighten as
 well as darken. The detail normal is laid over the surface's normal with reoriented normal
 mapping (`blendNormals`), which keeps the detail following the larger bumps instead of

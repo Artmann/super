@@ -162,6 +162,12 @@ public sealed class MaterialRule
     /// </summary>
     public bool Dithered { get; set; }
 
+    /// <summary>
+    /// Water stands on the surface where it lies below the level the game sets with <c>View.Puddles</c>, and it is damp
+    /// for a band above. Its height map counts, so hollows fill first. Without a level it stays dry.
+    /// </summary>
+    public bool Puddles { get; set; }
+
     /// <summary>Light that spreads under the surface, for skin, wax and marble. Off by default.</summary>
     public SubsurfaceRule? Subsurface { get; set; }
 

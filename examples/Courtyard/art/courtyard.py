@@ -130,7 +130,6 @@ def make_materials():
         "bark": material("bark", (0.16, 0.13, 0.1), roughness=0.9),
         "tree_leaf": material("tree_leaf", (0.11, 0.19, 0.05), roughness=0.7),
         "bulb": material("bulb", (1.0, 0.85, 0.6), emission=(1.0, 0.75, 0.45), strength=12.0),
-        "water": material("water", (0.03, 0.025, 0.02), roughness=0.02),
         "ivy": material("ivy", (0.12, 0.2, 0.06), roughness=0.7),
         "vine": material("vine", (0.12, 0.09, 0.06), roughness=0.9),
         "plaster": material("graph_whitewash", (0.72, 0.7, 0.66), roughness=0.95),
@@ -1226,35 +1225,6 @@ def build_ground(sc, M):
         for loop in f.loops:
             loop[uv].uv = (loop.vert.co.x, loop.vert.co.y)
     emit(sc, "ground", bm, [M["dirt"]])
-
-    # The water: one flat sheet at the puddle's level; the mud around it hides its edge.
-    bm = bmesh.new()
-    cx, cy, rx, ry = PUDDLE
-    ring = [bm.verts.new((cx + rx * 1.4 * math.cos(a), cy + ry * 1.5 * math.sin(a), -0.045))
-            for a in (2 * math.pi * k / 48 for k in range(48))]
-    bm.faces.new(ring)
-    # Water standing in the deepest boot prints by the puddle: a small sheet in each, a
-    # centimetre above the bottom of the print, whose sides hide its edge.
-    for px, py, heading, _ in FOOTPRINTS:
-        if smoothstep(2.4, 1.2, puddle_shape(px, py)) < 0.5 or puddle_depth(px, py) > 0.05:
-            continue
-        if path_distance(px, py) < PATH_HALF_WIDTH + 0.2:
-            continue
-        c, s = math.cos(heading), math.sin(heading)
-        for u0, ru, rv in ((0.04, 0.07, 0.038), (-0.095, 0.032, 0.03)):
-            mx, my = px + u0 * c, py + u0 * s
-            z = ground_height(mx, my) + 0.01
-            pts = []
-            for k in range(12):
-                a = 2 * math.pi * k / 12
-                u, v = ru * math.cos(a), rv * math.sin(a)
-                pts.append(bm.verts.new((mx + u * c - v * s, my + u * s + v * c, z)))
-            bm.faces.new(pts)
-    for f in bm.faces:
-        f.normal_update()
-        if f.normal.z < 0:
-            f.normal_flip()
-    emit(sc, "puddle", bm, [M["water"]])
 
 
 def build_clutter(sc, M):

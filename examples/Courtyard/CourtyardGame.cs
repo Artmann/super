@@ -189,6 +189,10 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         // A reflection probe at head height in the middle of the yard, so the window and the
         // puddle mirror the wall, the deck and the house rather than only the sky.
         view.ReflectionProbe(YardProbeKey, position: new(3.5f, 1.6f, -1.5f), boxMin: new(-3f, -1f, -10f), boxMax: new(10f, 6f, 7f));
+        // Water stands 4.5 cm below the yard's zero, where the script's puddle bottoms out, so
+        // the hollow in the mud fills, the deepest boot prints hold a little, and the mud
+        // darkens for the last 3.5 cm down to it, so the yard round the hollow stays dry.
+        view.Puddles(-0.045f, band: 0.035f);
 
         // The lantern is on, shining every way through its glass. In daylight it only warms
         // the wall just round it. It casts no shadows: the light sits inside the bulb and the lantern round it, and

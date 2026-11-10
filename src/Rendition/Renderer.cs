@@ -2139,6 +2139,7 @@ public sealed unsafe class Renderer : IDisposable
 
         volumetric.W = historyValid && _volumetricFog.HistoryReady ? 1f : 0f;
         uniforms->Volumetric = volumetric;
+        uniforms->Puddles = Puddles.Pack(view.Puddles, _off);
         _volumetricDrawn = volumetric.X > 0f;
         if (!capturingProbe && !_volumetricDrawn)
         {
