@@ -333,6 +333,14 @@ public struct DrawItem
     /// <see cref="Skeleton.SkinMatrices"/>. Leave it empty for a draw with no skin.
     /// </summary>
     public BoneRange Bones;
+
+    /// <summary>
+    /// The game's name for the thing this draws, such as an entity, the same from frame to frame, so the renderer
+    /// knows where it stood last frame and can tell how it moved. Every part of one thing shares its key. Null, or a
+    /// key two differently placed draws share, moves it with the camera alone, which smears a moving thing a little
+    /// under anti-aliasing. See "Motion vectors" in docs/rendering.md.
+    /// </summary>
+    public int? Key;
 }
 
 /// <summary>A run of a frame's bone matrices. A count of zero means no skinning.</summary>

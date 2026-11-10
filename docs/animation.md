@@ -297,5 +297,3 @@ a tint, or to draw a different model with the same rig.
   [Drawing with views](views.md#planned). A sword that is a mesh in the character's own
   file already follows its hand, and a [mesh mask](views.md#showing-some-meshes) picks
   which of several to show.
-- Skinned models don't give temporal anti-aliasing motion vectors yet, so fast limbs can
-  show slight smearing.

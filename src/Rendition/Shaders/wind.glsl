@@ -31,8 +31,9 @@ float windGust(vec2 at) {
 }
 
 // How far a vertex standing at rest at world position p, heightAboveBase metres above its part's lowest
-// point, moves in the frame's wind, for a material whose share of the lean is sway.
-vec3 windSway(vec3 p, float heightAboveBase, float sway) {
+// point, moves in the frame's wind at time, in seconds, for a material whose share of the lean is sway.
+// The G-buffer pass also asks at last frame's time, to know where the vertex was for motion vectors.
+vec3 windSwayAt(vec3 p, float heightAboveBase, float sway, float time) {
     float strength = length(frame.wind.xyz);
     if (strength <= 0.0 || heightAboveBase <= 0.0) {
         return vec3(0.0);
@@ -40,22 +41,32 @@ vec3 windSway(vec3 p, float heightAboveBase, float sway) {
 
     vec3 downwind = frame.wind.xyz / strength;
     float h = min(heightAboveBase, WIND_FULL_HEIGHT);
-    vec2 at = p.xz / WIND_GUST_SIZE - downwind.xz * (WIND_GUST_SPEED / WIND_GUST_SIZE * frame.time);
+    vec2 at = p.xz / WIND_GUST_SIZE - downwind.xz * (WIND_GUST_SPEED / WIND_GUST_SIZE * time);
     float swing = 0.8 * frame.wind.w;
     float gust = 1.0 - swing + swing * windGust(at);
     float lean = strength * sway * h * h * gust;
     float flutter = WIND_FLUTTER * h * min(strength / WIND_FLUTTER_STRENGTH, 1.0)
-        * sin(WIND_TAU * WIND_FLUTTER_HZ * frame.time + dot(p, vec3(3.1, 2.3, 2.7)));
+        * sin(WIND_TAU * WIND_FLUTTER_HZ * time + dot(p, vec3(3.1, 2.3, 2.7)));
     return downwind * lean + normalize(downwind + vec3(0.0, 1.0, 0.0)) * flutter;
 }
 
-// Sways a placed vertex. windBase is the lowest height of the draw's part in its own space, so the
+// The sway at this frame's time.
+vec3 windSway(vec3 p, float heightAboveBase, float sway) {
+    return windSwayAt(p, heightAboveBase, sway, frame.time);
+}
+
+// Sways a placed vertex at time. windBase is the lowest height of the draw's part in its own space, so the
 // part's foot, placed in the world, is where h is 0.
-vec3 windSwayPlaced(vec3 world, mat4 placed, vec3 posed, float windBase, float sway) {
+vec3 windSwayPlacedAt(vec3 world, mat4 placed, vec3 posed, float windBase, float sway, float time) {
     if (sway <= 0.0 || (frame.off & OFF_WIND) != 0) {
         return world;
     }
 
     float base = (placed * vec4(posed.x, windBase, posed.z, 1.0)).y;
-    return world + windSway(world, world.y - base, sway);
+    return world + windSwayAt(world, world.y - base, sway, time);
+}
+
+// Sways a placed vertex at this frame's time.
+vec3 windSwayPlaced(vec3 world, mat4 placed, vec3 posed, float windBase, float sway) {
+    return windSwayPlacedAt(world, placed, posed, windBase, sway, frame.time);
 }

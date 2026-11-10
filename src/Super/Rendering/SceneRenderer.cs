@@ -687,6 +687,7 @@ internal sealed class SceneRenderer : IDisposable
                 item.Tint = draw.Color ?? (draw.Model.IsBuiltIn ? CubeColor : null);
                 item.Bones = bones;
                 item.Ghost = draw.Ghost;
+                item.Key = draw.Key;
             }
         }
 

@@ -256,14 +256,14 @@ public class WindTests
     [InlineData("float windHash(", "word = (word >> 22u) ^ word;")]
     [InlineData("float windHash(", "return float(word) / 4294967295.0;")]
     [InlineData("float windGust(", "f = f * f * (3.0 - 2.0 * f);")]
-    [InlineData("vec3 windSway(", "float h = min(heightAboveBase, WIND_FULL_HEIGHT);")]
-    [InlineData("vec3 windSway(", "vec2 at = p.xz / WIND_GUST_SIZE - downwind.xz * (WIND_GUST_SPEED / WIND_GUST_SIZE * frame.time);")]
-    [InlineData("vec3 windSway(", "float swing = 0.8 * frame.wind.w;")]
-    [InlineData("vec3 windSway(", "float gust = 1.0 - swing + swing * windGust(at);")]
-    [InlineData("vec3 windSway(", "float lean = strength * sway * h * h * gust;")]
-    [InlineData("vec3 windSway(", "float flutter = WIND_FLUTTER * h * min(strength / WIND_FLUTTER_STRENGTH, 1.0)")]
-    [InlineData("vec3 windSway(", "* sin(WIND_TAU * WIND_FLUTTER_HZ * frame.time + dot(p, vec3(3.1, 2.3, 2.7)));")]
-    [InlineData("vec3 windSway(", "return downwind * lean + normalize(downwind + vec3(0.0, 1.0, 0.0)) * flutter;")]
+    [InlineData("vec3 windSwayAt(", "float h = min(heightAboveBase, WIND_FULL_HEIGHT);")]
+    [InlineData("vec3 windSwayAt(", "vec2 at = p.xz / WIND_GUST_SIZE - downwind.xz * (WIND_GUST_SPEED / WIND_GUST_SIZE * time);")]
+    [InlineData("vec3 windSwayAt(", "float swing = 0.8 * frame.wind.w;")]
+    [InlineData("vec3 windSwayAt(", "float gust = 1.0 - swing + swing * windGust(at);")]
+    [InlineData("vec3 windSwayAt(", "float lean = strength * sway * h * h * gust;")]
+    [InlineData("vec3 windSwayAt(", "float flutter = WIND_FLUTTER * h * min(strength / WIND_FLUTTER_STRENGTH, 1.0)")]
+    [InlineData("vec3 windSwayAt(", "* sin(WIND_TAU * WIND_FLUTTER_HZ * time + dot(p, vec3(3.1, 2.3, 2.7)));")]
+    [InlineData("vec3 windSwayAt(", "return downwind * lean + normalize(downwind + vec3(0.0, 1.0, 0.0)) * flutter;")]
     public void The_shader_works_out_the_sway_as_Wind_does(string function, string line)
     {
         Assert.Contains(line, ShaderFunction(WindShader(), function));
@@ -292,18 +292,30 @@ public class WindTests
     }
 
     [Fact]
+    public void The_sway_now_is_at_this_frames_time_and_the_motion_vectors_sway_at_last_frames()
+    {
+        string shader = WindShader();
+        string vertex = File.ReadAllText(Path.Combine(ShaderFolder(), "gbuffer.vert"));
+
+        Assert.Contains("return windSwayAt(p, heightAboveBase, sway, frame.time);", ShaderFunction(shader, "vec3 windSway("));
+        Assert.Contains("return windSwayPlacedAt(world, placed, posed, windBase, sway, frame.time);",
+            ShaderFunction(shader, "vec3 windSwayPlaced("));
+        Assert.Matches(@"windSwayPlacedAt\([^;]*draw\.windBase, draw\.windSway, frame\.previousTime\)", vertex);
+    }
+
+    [Fact]
     public void Placed_sway_measures_height_from_the_foot_put_through_the_copys_matrix()
     {
-        string placed = ShaderFunction(WindShader(), "vec3 windSwayPlaced(");
+        string placed = ShaderFunction(WindShader(), "vec3 windSwayPlacedAt(");
 
         Assert.Contains("float base = (placed * vec4(posed.x, windBase, posed.z, 1.0)).y;", placed);
-        Assert.Contains("return world + windSway(world, world.y - base, sway);", placed);
+        Assert.Contains("return world + windSwayAt(world, world.y - base, sway, time);", placed);
     }
 
     [Fact]
     public void Placed_sway_leaves_the_vertex_where_it_is_for_a_still_material_or_with_the_switch_off()
     {
-        string placed = ShaderFunction(WindShader(), "vec3 windSwayPlaced(");
+        string placed = ShaderFunction(WindShader(), "vec3 windSwayPlacedAt(");
 
         Assert.Matches(@"if \(sway <= 0\.0 \|\| \(frame\.off & OFF_WIND\) != 0\) \{\s*return world;\s*\}", placed);
     }

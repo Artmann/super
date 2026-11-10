@@ -74,8 +74,8 @@ floating point results can differ between CPU types. Cooked material graphs are 
 their sine, cosine, power, exponent, log and atan2 come from `DMath`, so a graph cooks to the
 same bytes on any machine.
 
-Rendition needs work to support this: keys passed through to per-object motion
-vectors, and a check of how it copes with many thousands of draws. Skeletal animation
+Keys are passed through to per-object motion vectors (`DrawItem.Key`; see "Motion vectors"
+below). Rendition still needs a check of how it copes with many thousands of draws. Skeletal animation
 is in: the model cooker keeps skeletons and clips, and the vertex shader skins. Particles
 are in too: a `ParticleEffect` of chained emitters turns a key and an age into particles with no state
 from frame to frame; see [Particles](#particles).
@@ -732,7 +732,7 @@ rendering. Game-facing features belong in Super, which has the audio (see
 | Math | System.Numerics | SIMD-accelerated value types |
 | Model import | Cooked by `Super.Cook.Models` through the asset pipeline, using Assimp, writing our own `.rmodel` | The game loads a fast flat file and never ships an FBX or glTF parser; see [Asset pipeline](#asset-pipeline) |
 | Textures and materials | One global descriptor set indexed by material | Adding materials adds no binding work per draw |
-| Skinning | Four joints and weights per vertex, packed as bytes. Each frame's bone matrices go in one storage buffer (set 0, binding 1, up to `Renderer.MaxBones` = 16,384), and a draw's push constants hold its first bone, or -1 when it has none | Unskinned models use the same shaders and vertex format, and many characters cost one upload |
+| Skinning | Four joints and weights per vertex, packed as bytes. Each frame's bone matrices go in one storage buffer (set 0, binding 1, up to `Renderer.MaxBones` = 16,384, with room for as many again after them for last frame's, which motion vectors use), and a draw's push constants hold its first bone, or -1 when it has none | Unskinned models use the same shaders and vertex format, and many characters cost one upload |
 
 ## Frame structure
 
@@ -740,7 +740,7 @@ rendering. Game-facing features belong in Super, which has the audio (see
 ShadowPass    scene geometry   -> depth from the key light (1024, 2048 or 4096 square, up to 4 cascades)
               scene geometry   -> point and spot light shadows, tiles of one 4096 x 4096 atlas
 cluster.comp  compute          -> the point and spot lights reaching each of 16 x 9 x 24 clusters
-GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, depth
+GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, motion, depth
 DecalPass     decal boxes      -> colour, normal and roughness laid over the G-buffer, reading a copy of its normals
 AoPass        fullscreen       -> GTAO from depth and normals: bent normal (view space, octahedral) and visibility, RGBA8
 AoBlurPass    fullscreen       -> the same with the grain averaged away
@@ -788,7 +788,38 @@ G-buffer layout:
 | 0 | `R8G8B8A8_SRGB` | base colour, metallic |
 | 1 | `R16G16B16A16_SFLOAT` | octahedral normal (xy), roughness, AO |
 | 2 | `R16G16B16A16_SFLOAT` | emissive colour, clearcoat (or minus the translucency, for foliage, or 2 plus the material index, for subsurface) |
+| 3 | `R16G16_SFLOAT` | motion since last frame, in scene pixels; see "Motion vectors" |
 | depth | `D32_SFLOAT` | reversed-Z, position is reconstructed from it |
+
+### Motion vectors
+
+The G-buffer pass writes how far each pixel's surface moved on screen since last frame
+(`GBuffer.Motion`, `Passes/Motion.cs`). The vertex shader places each vertex twice: this
+frame, as it always has, and last frame, with last frame's model matrix, skin palette, swim
+and wind time, seen by last frame's camera (`frame.previousViewProjection`). Both ends leave
+out the anti-aliasing shift, so a still surface under a still camera writes exactly 0.
+
+The encoding is two 16-bit floats in scene pixels, pointing from where the surface is now
+back to where it was, with x to the right and y down the picture, as texture coordinates
+run. Last frame's point is at `uv + motion / sceneSize`, so something moving right one
+pixel a frame writes (-1, 0). Sky, where no draw writes, is cleared to (0, 0) and has a
+depth of 0, so a reader works out the camera's motion there itself. A vertex that was
+behind last frame's camera writes -60,000 (`MOTION_OFF_PICTURE` in `surface.glsl`), which
+reads as off the picture. An upscaler such as FSR that wants camera motion in the sky has
+to add it, since the target only holds what the draws wrote.
+
+Last frame's placing comes from `MotionHistory`, keyed by `DrawItem.Key`, the game's name
+for one thing it draws (Super passes the entity). Each frame it remembers each key's
+matrix, swim and bone range, and gives a draw its last placing only when the key was drawn
+last frame, every draw with that key this frame and last stands in one place (the parts of
+one model do), and its bone count hasn't changed. Anything else, a draw with no key, one new
+this frame, the first frame, the frame after a resize or render scale change, or after
+anti-aliasing comes back on, has no history and moves with the camera alone, as before
+motion vectors existed. Last frame's placing goes in a buffer beside the instance matrices,
+set 0 binding 9, 96 bytes a copy (`PreviousInstance`), and last frame's skin matrices are
+copied into the bone buffer right after this frame's, so the buffer holds twice
+`Renderer.MaxBones`. Probe captures use no history. Glass and particles write no
+motion.
 
 Games talk to the renderer with plain structs: `Renderer.Render(in FrameView,
 ReadOnlySpan<DrawItem>)`. Meshes, textures and materials are created up front and
@@ -1679,7 +1710,9 @@ lowest point in model space (`WindBase`, at 56, from `PartDetail.MinY`, which `M
 from the part's bounds), so `DrawConstants` is 64 bytes. A share of 0, which every material has
 unless it asks, skips the sum. `windSwayPlaced` puts the vertex's x and z with the base's y
 through the copy's model matrix to find the foot in the world, so a copy that is moved, turned about the vertical
-or scaled sways from its own foot, and the height above it, clamped to 1 m, is `h`. The lean is
+or scaled sways from its own foot, and the height above it, clamped to 1 m, is `h`. It takes
+this frame's time; `windSwayPlacedAt` takes any time, and `gbuffer.vert` asks it at
+`frame.previousTime` too, for where the vertex was last frame. The lean is
 `downwind * strength * share * h² * gust`, with `gust = 1 - 0.8g + 0.8g * noise`, where the noise
 is the same value noise as above but hashed with a PCG step so the C# and GLSL agree bit for
 bit, over 3 m cells of x and z that scroll downwind at 1.5 m/s. The flutter, `0.02 * h *
@@ -1821,6 +1854,14 @@ and history is pulled back into the range of nearby colours so old images don't 
 behind. It runs before bloom and tonemapping, on HDR colour. It replaced FXAA, which
 couldn't remove shimmer.
 
+History is found from depth and the camera, as before, unless the motion vector disagrees.
+`taa.frag` takes the nearest depth of the 3x3 around the pixel, works out the camera's
+motion at that texel, and compares it with the motion target there. When they differ by
+more than 0.01 px plus 1/512 of the camera's motion (the target's 16-bit precision), the
+surface moved on its own, and history is read where its motion vector points. Otherwise
+the camera path runs exactly as it did, so still scenes look the same as before motion
+vectors existed.
+
 Depth of field (`Passes/DepthOfFieldPass.cs`) runs after anti-aliasing and before bloom, on
 the image bloom and the tonemap read: resolved, or HDR without anti-aliasing. It comes after
 the copy to history, so TAA and screen-space reflections keep a sharp history, and it blends
@@ -1957,8 +1998,8 @@ Anything larger than a block gets its own allocation.
 - Wind bends a part from its lowest point, so a plant has to be its own part in the model,
   standing on its own foot. Ivy or a crown that is one part with its wall or trunk bends from
   the lowest point of the whole part, so it gets a small share instead. Normals don't bend
-  with the sway, and anti-aliasing reprojects by depth alone, as for anything that moves, so
-  it can smear a fast flutter a little.
+  with the sway. Motion vectors follow the sway, but normals and lighting don't, so a fast
+  flutter can still soften a little.
 - Wind measures height up the world's y from a foot found through the copy's matrix, so a
   copy that is tipped over, rather than only turned about the vertical, sways from the wrong
   height: its foot is no longer below it.
@@ -1992,9 +2033,11 @@ Anything larger than a block gets its own allocation.
   that blocks it.
 - Ambient occlusion has one radius for the whole frame, so a radius that suits a room
   is too small for the space under a far-off bridge.
-- Temporal anti-aliasing follows the camera only, with no motion per object, so moving
-  objects rely on the colour clamp and can show rough edges. Skinned models, now
-  supported, will need motion vectors from the G-buffer pass too.
+- Motion vectors need a `DrawItem.Key`. A draw without one, or two draws that share a key
+  but stand in different places, move with the camera alone and rely on the colour clamp.
+  The motion target stores what draws wrote, so the sky holds 0, not the camera's motion.
+  Custom shaders that move vertices, if they come, would need to move them for last frame
+  too.
 - Screen-space reflections only know what is on screen, and read last frame's image.
   Glass reflects probes and the studio, not traced rays.
 - Reflection probes are captured again only when they move or the lighting changes, not when

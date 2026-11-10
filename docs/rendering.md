@@ -13,7 +13,7 @@ What it does for every game, with no setup:
 - A generated environment that gives surfaces reflections and soft fill light
 - [Bounced light](#bounced-light) from a volume of light probes, which doesn't leak through walls
 - Screen-space reflections and box-corrected [reflection probes](#reflections), which glass reflects too
-- Temporal anti-aliasing, [ambient occlusion](#ambient-occlusion) (with light bounced back from the surface's colour) and bloom
+- Temporal anti-aliasing that follows moving, animated and swaying things with [motion vectors](#motion-vectors), [ambient occlusion](#ambient-occlusion) (with light bounced back from the surface's colour) and bloom
 - [Glass](#glass) that bends and frosts what's behind it, car paint clearcoat and surfaces that glow
 - [Height maps](#height-and-detail-maps) that sink mortar and grooves into a flat surface, and detail maps for fine grain
 - Skin, wax and jade that [let light spread under the surface](#skin-and-wax)
@@ -702,6 +702,25 @@ edge of the screen or of a shadow doesn't pop in or out as it leans.
 [`Graphics.Wind`](#graphics-settings) turns it off, and
 `Graphics.Fastest()` turns it off. The Courtyard blows a breeze of 0.35 across its grass, with
 a share of 0.08 for the ivy and 0.4 for the tree's crown.
+
+## Motion vectors
+
+Anti-aliasing blends each pixel with where its surface was last frame. Every model draw
+also records how far it moved on screen since then: its own movement, its animation, the
+swim of a fish and the sway of grass in the wind, as well as the camera's. So a swinging
+lantern, a running character or a blade of grass keeps its edge instead of leaving a faint
+trail. There's nothing to turn on, and no setting.
+
+Super finds where a model stood last frame by its [key](views.md#keys). A model drawn for
+the first time, or whose key is shared by models in different places, moves with the camera
+alone, which softens it a little while it moves. Still scenes look exactly as they did
+before. Glass and particles don't record their motion.
+
+![Courtyard grass swaying in a breeze, the same frame of a recording drawn without motion vectors and with them; without, the blades trail a faint copy of where they were](media/motion-vectors-grass.webp)
+
+Using Rendition alone, set `DrawItem.Key` to a number that names the thing drawn, the same
+every frame, on every part of it. The motion is kept in the G-buffer, in scene pixels, for
+anything that reads it later; [design.md](design.md#motion-vectors) has the encoding.
 
 ## Models
 

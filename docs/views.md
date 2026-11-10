@@ -106,10 +106,13 @@ A key names something across frames, like a `key` in React. Super uses it for vi
 memory, and particles use it as their seed. A test can find a model draw by its key in
 `run.Drawn`. Use a stable ID from your game, and the same one every frame.
 
-The renderer doesn't read model keys, so two models that share a key draw fine. Keys
-don't need to be unique across a game, and there's no limit on how many you use. A
-grid of tiles can pass the tile's index, and a building and its ghost can both pass the
-building's ID.
+Two models that share a key draw fine. Keys don't need to be unique across a game, and
+there's no limit on how many you use. A grid of tiles can pass the tile's index, and a
+building and its ghost can both pass the building's ID. The renderer uses a model's key
+to find where it stood last frame, for [motion vectors](rendering.md#motion-vectors), so
+a model that moves keeps a sharp edge if its key is its own. Models that share a key and
+stand in different places look as they would without motion vectors: a little softer
+while they move.
 
 View memory also belongs to the line of code asking, like the order of hooks in React.
 So a lid and a latch on one box can both use the box's ID, and a box and a tree with the

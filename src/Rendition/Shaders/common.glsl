@@ -56,7 +56,7 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     int off;                 // The RenderEffects left out of this frame: see the OFF_ bits below.
     float mipBias;           // Added to the mip level of material textures: below 0 while anti-aliasing shifts the view.
     int probeCapture;        // 1 while drawing a light probe's faces: alpha holds the distance, negative behind a surface.
-    int pad;
+    float previousTime;      // Last frame's time, for motion vectors; the same as time when there's no last frame.
     Light lights[8];
     ReflectionProbe probes[4];
 } frame;

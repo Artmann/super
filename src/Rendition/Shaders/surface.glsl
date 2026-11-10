@@ -10,10 +10,16 @@ layout(location = 1) in vec4 inTangent;
 layout(location = 2) in vec2 inUv;
 layout(location = 3) in vec3 inPosition;
 layout(location = 4) in vec2 inUv2;
+layout(location = 5) in vec3 inClipNow;    // clip x, y and w, without the anti-aliasing shift; see gbuffer.vert
+layout(location = 6) in vec3 inClipBefore; // the same, last frame
 
 layout(location = 0) out vec4 outBaseColorMetallic;
 layout(location = 1) out vec4 outNormalRoughnessAo;
 layout(location = 2) out vec4 outEmissiveClearcoat;
+layout(location = 3) out vec2 outMotion;   // see Passes/Motion.cs
+
+// The motion of a point that was behind last frame's camera: far off any picture, near the most a 16-bit float holds.
+const float MOTION_OFF_PICTURE = -60000.0;
 
 struct Surface {
     vec3 baseColor;
@@ -379,7 +385,12 @@ float foliageChannel(Material material) {
 // whatever the material.
 // The normal's alpha is -1 on the back of a one-sided surface. Only a light probe's capture
 // draws those, to learn which of its probes sit inside a wall; the lighting reads its size.
+// Every surface also writes its motion: in scene pixels, from where it is now back to where it was, as Motion.Pack does.
 void writeSurface(Surface surface) {
+    // Behind last frame's camera there's nowhere to point, so it points far off the picture, which has no history.
+    outMotion = inClipBefore.z > 0.0
+        ? (inClipBefore.xy / inClipBefore.z - inClipNow.xy / inClipNow.z) * 0.5 * frame.screen.xy
+        : vec2(MOTION_OFF_PICTURE);
     Material material = materials[draw.material];
     bool back = !gl_FrontFacing && (material.flags & (MATERIAL_TWO_SIDED | MATERIAL_FOLIAGE)) == 0u;
     float side = back ? -1.0 : 1.0;

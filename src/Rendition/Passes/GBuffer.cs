@@ -13,6 +13,7 @@ internal sealed class GBuffer : IDisposable
     public const Format HdrFormat = Format.R16G16B16A16Sfloat;
     public const Format AoFormat = Format.R8G8B8A8Unorm;
     public const Format LdrFormat = Format.R8G8B8A8Srgb;
+    public const Format MotionFormat = Format.R16G16Sfloat;
 
     /// <summary>Mip levels of <see cref="SceneColor"/>, each half the last, for frosted glass to blur by.</summary>
     public const uint SceneColorMips = 7;
@@ -24,6 +25,13 @@ internal sealed class GBuffer : IDisposable
     public readonly RenderTarget NormalCopy;
 
     public readonly RenderTarget Emissive;
+
+    /// <summary>
+    /// How far each pixel's surface moved on screen since last frame, in pixels, from now back to then. Cleared to
+    /// zero where nothing was drawn. See <see cref="Motion"/>.
+    /// </summary>
+    public readonly RenderTarget Motion;
+
     public readonly RenderTarget Depth;
     public readonly RenderTarget Hdr;
 
@@ -54,6 +62,7 @@ internal sealed class GBuffer : IDisposable
         Normal = new RenderTarget(context, NormalFormat, extent, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
         NormalCopy = new RenderTarget(context, NormalFormat, extent, ImageUsageFlags.TransferDstBit, ImageAspectFlags.ColorBit);
         Emissive = new RenderTarget(context, EmissiveFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
+        Motion = new RenderTarget(context, MotionFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         Depth = new RenderTarget(context, DepthFormat, extent, ImageUsageFlags.DepthStencilAttachmentBit, ImageAspectFlags.DepthBit);
         Hdr = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
         Resolved = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
@@ -79,6 +88,7 @@ internal sealed class GBuffer : IDisposable
         Normal.Dispose();
         NormalCopy.Dispose();
         Emissive.Dispose();
+        Motion.Dispose();
         Depth.Dispose();
         Hdr.Dispose();
         Resolved.Dispose();

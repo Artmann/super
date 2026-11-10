@@ -175,7 +175,12 @@ internal struct FrameUniforms
     /// from the probe into alpha, negative for the back of a surface, for probe_fold.comp.
     /// </summary>
     public int ProbeCapture;
-    private int _pad;
+
+    /// <summary>
+    /// Last frame's <see cref="Time"/>, which the G-buffer pass sways last frame's grass at for motion vectors. The same
+    /// as Time when there's no last frame.
+    /// </summary>
+    public float PreviousTime;
     public GpuLightArray Lights;
     public GpuReflectionProbeArray Probes;
 }

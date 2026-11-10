@@ -43,7 +43,7 @@ internal sealed unsafe class GBufferPass : IDisposable
             FragmentShader = "gbuffer.frag",
             FragmentCode = code,
             Layout = _layout,
-            ColorFormats = [GBuffer.BaseColorFormat, GBuffer.NormalFormat, GBuffer.EmissiveFormat],
+            ColorFormats = [GBuffer.BaseColorFormat, GBuffer.NormalFormat, GBuffer.EmissiveFormat, GBuffer.MotionFormat],
             DepthFormat = GBuffer.DepthFormat,
             VertexBindings = SceneDraws.VertexBindings,
             VertexAttributes = SceneDraws.VertexAttributes,
@@ -66,10 +66,11 @@ internal sealed unsafe class GBufferPass : IDisposable
     {
         var api = _context.Api;
 
-        var colorAttachments = stackalloc RenderingAttachmentInfo[3];
+        var colorAttachments = stackalloc RenderingAttachmentInfo[4];
         colorAttachments[0] = ColorAttachment(targets.BaseColor.View);
         colorAttachments[1] = ColorAttachment(targets.Normal.View);
         colorAttachments[2] = ColorAttachment(targets.Emissive.View);
+        colorAttachments[3] = ColorAttachment(targets.Motion.View); // Cleared to no motion, which the sky keeps.
         var depthAttachment = new RenderingAttachmentInfo
         {
             SType = StructureType.RenderingAttachmentInfo,
@@ -84,7 +85,7 @@ internal sealed unsafe class GBufferPass : IDisposable
             SType = StructureType.RenderingInfo,
             RenderArea = new Rect2D(default, targets.Extent),
             LayerCount = 1,
-            ColorAttachmentCount = 3,
+            ColorAttachmentCount = 4,
             PColorAttachments = colorAttachments,
             PDepthAttachment = &depthAttachment,
         };

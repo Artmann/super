@@ -306,7 +306,7 @@ internal static unsafe class SceneDraws
         int firstInstance = instances.Count;
         foreach (int index in copies)
         {
-            instances.Add(draws[index].Transform);
+            instances.Add(draws[index]);
         }
 
         api.CmdPushConstants(cmd, layout, PushStages, 0, (uint)sizeof(DrawConstants), &constants);
