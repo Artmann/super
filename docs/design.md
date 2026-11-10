@@ -1983,9 +1983,12 @@ already in scene pixels from now back to then, which is what FSR reads, so the m
 scale is (1, 1). `fsr_exposure.frag` writes the tonemap's exposure into a 1 x 1 R32F image.
 The meter runs after FSR, so this is last frame's adapted exposure, which moves too slowly
 for the difference to show. FSR is told the picture is HDR and the depth reversed and
-infinite. With that, its "near" is the plane at depth 0, so `CameraNear` is the largest
-float and `CameraFar` is the camera's near plane, which `CameraNear` reads from the
-projection's M43. An orthographic view has no near plane or field of view, so it gets
+infinite. Its depth maths takes the smaller and the larger of `CameraNear` and `CameraFar`
+and picks the transform from those flags, so their order doesn't change the picture, and
+only the smaller, the camera's near plane, is used. `CameraNear` is the largest float and
+`CameraFar` the camera's near plane only because FSR's debug checker, with inverted,
+infinite depth, warns unless `CameraNear` is the largest float and no smaller than
+`CameraFar`. The near plane comes from the projection's M43. An orthographic view has no near plane or field of view, so it gets
 stand-ins of 0.1 and 60 degrees.
 
 The HDR image is copied to the reflection history every FSR frame, since FSR keeps its own
@@ -2000,10 +2003,21 @@ checking, so the device turns on `VK_KHR_get_memory_requirements2` where it exis
 it, making the context crashes.
 
 AMD's prebuilt shaders declare FSR's luma history storage image as Rgba8, though FSR makes
-that image RGBA16F. The validation layer reports it on every FSR dispatch. It is inside the
-library and touches nothing of ours, so `VulkanContext.IsFsrLumaHistoryFormat` matches that
-one message, by the variable and both formats, and notes it once instead of counting it.
-Any other message still counts.
+that image RGBA16F. The validation layer reports it on every FSR dispatch, and it is a real
+bug in AMD's shader, not a harmless message: Vulkan says a storage image's declared format
+must match the view's, and when it doesn't, what the shader reads and writes there is
+undefined. The luma history is FSR's own record of how bright each pixel was over the last
+frames, which it uses to tell a steady thin detail from flicker, so on a driver that takes
+the declared format at its word, FSR could mis-judge those pixels and shimmer or smear
+them. `VulkanContext.IsFsrLumaHistoryFormat` matches that one message, by the variable and
+both formats, and prints a note once instead of counting it, so any other message, from FSR
+or anything else, still counts and a screenshot run can still demand 0 messages.
+
+We accept it because it is inside `amd_fidelityfx_vk.dll`, in an image FSR makes and only
+FSR touches, so nothing we do can fix it short of rebuilding AMD's shaders ourselves; the
+pictures we've checked show nothing wrong; and TAA, the default, never runs it. If FSR
+shimmers or smears on some GPU and TAA doesn't, this is the first thing to suspect, and a
+newer FidelityFX release that fixes the declaration should replace the DLL and the matcher.
 
 DLSS is not supported: it runs only on NVIDIA's RTX cards and would need NVIDIA's own
 library beside AMD's, while FSR runs on every GPU.

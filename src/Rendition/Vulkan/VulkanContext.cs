@@ -409,7 +409,9 @@ internal sealed unsafe class VulkanContext : IDisposable
     /// <summary>
     /// The one message the prebuilt FidelityFX 1.1.4 shaders raise on every FSR frame: their storage image for
     /// luma history says Rgba8, but the SDK creates that image, which nothing of ours touches, as RGBA16F.
-    /// Matched on the variable and both formats, so any other format message still counts.
+    /// That is a real bug in AMD's shader, undefined behaviour inside FSR, which we can't fix without rebuilding
+    /// it; see "Upscaling" in docs/design.md for why we accept it. Matched on the variable and both formats, so any
+    /// other format message still counts.
     /// </summary>
     internal static bool IsFsrLumaHistoryFormat(string message) =>
         message.Contains("variable \"rw_luma_history\"", StringComparison.Ordinal)

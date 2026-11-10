@@ -118,8 +118,10 @@ internal sealed unsafe class Fsr : IDisposable
             FrameTimeDelta = inputs.FrameMilliseconds,
             PreExposure = 1f,
             Reset = inputs.Reset ? (byte)1 : (byte)0,
-            // With inverted, infinite depth FSR wants the far plane in CameraNear, as the largest float, and the
-            // camera's near plane in CameraFar: the names follow depth 0 and depth 1, not the camera.
+            // FSR's depth maths takes the smaller and the larger of these two and picks its transform from the
+            // inverted and infinite flags, so their order doesn't change the picture: only the smaller one, the
+            // camera's near plane, is used. The far plane goes in CameraNear because FSR's debug checker, with
+            // inverted, infinite depth, warns unless CameraNear is the largest float and no smaller than CameraFar.
             CameraNear = float.MaxValue,
             CameraFar = inputs.CameraNear,
             CameraFovAngleVertical = inputs.VerticalFov,
