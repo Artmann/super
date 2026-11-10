@@ -117,6 +117,74 @@ public sealed class AlphaCoverageTests : IDisposable
         Assert.Equal(filtered.Mips[0], colour.Mips[0]);
     }
 
+    // The share of a level's pixels where the colour's alpha times the surface's reaches the cutoff, as the shader reads them.
+    private static double ProductCoverage(TextureData colour, TextureData surface, int level, float cutoff)
+    {
+        byte[] a = colour.Mips[level];
+        byte[] b = surface.Mips[level];
+        Assert.Equal(a.Length, b.Length);
+        int passing = 0;
+        for (int i = 3; i < a.Length; i += 4)
+        {
+            if (a[i] / 255f * (b[i] / 255f) >= cutoff)
+            {
+                passing++;
+            }
+        }
+
+        return (double)passing / (a.Length / 4);
+    }
+
+    [Fact]
+    public void A_colour_and_surface_that_both_carry_alpha_keep_the_coverage_of_their_product()
+    {
+        string src = Folder("");
+        // A surface whose alpha is 160 everywhere: alone it passes a cutoff of a half, but over the threads' filtered
+        // alpha it takes the product under it unless the colour is scaled for the product.
+        var surface = new byte[Size * Size * 4];
+        for (int i = 0; i < surface.Length; i += 4)
+        {
+            surface[i] = 0;
+            surface[i + 1] = 150;
+            surface[i + 2] = 0;
+            surface[i + 3] = 160;
+        }
+
+        PngFile.Write(Path.Combine(src, "surface.png"), surface, Size, Size);
+        Rule(src, ", \"surface\": \"surface.png\", \"alphaCutoff\": 0.5");
+
+        var store = Cook(src);
+        var model = ModelData.Read(new MemoryStream(store.Get(store.Manifest.Assets["a.gltf"].Hash)), "a.gltf",
+            hash => TextureData.Read(new MemoryStream(store.Get(hash)), hash));
+        var material = model.Materials[Assert.Single(model.Parts).Material];
+        var colour = model.Textures[material.BaseColorTexture];
+        var cookedSurface = model.Textures[material.SurfaceTexture];
+
+        // On the threads the product is 160 / 255, so 240 of 1024 pixels pass at the top. On the 8x8 level the shares a
+        // scale can give are 0, 16, 48 and 64 in 64, as in the test above, and 16 is the nearest to 15. Keeping each
+        // texture's own coverage would leave the threads' alpha just over a half there, under the cutoff once times
+        // 160 / 255, and none would pass.
+        Assert.Equal(240.0 / 1024, ProductCoverage(colour, cookedSurface, 0, 0.5f));
+        Assert.Equal(16.0 / 64, ProductCoverage(colour, cookedSurface, 2, 0.5f));
+
+        // Over a surface this even, the product passes where the colour's alpha alone reaches 0.5 * 255 / 160, so every
+        // level keeps the share that the colour alone would keep at that cutoff.
+        float alone = 0.5f * 255f / 160f;
+        var expected = TextureData.KeepAlphaCoverage(TextureData.FromPixels(Size, Size, TextureKind.Color, Threads()), alone);
+        Assert.Equal(expected.Mips.Length, colour.Mips.Length);
+        for (int level = 1; level < expected.Mips.Length; level++)
+        {
+            Assert.Equal(TextureData.AlphaCoverage(expected, level, alone), ProductCoverage(colour, cookedSurface, level, 0.5f));
+        }
+
+        // The surface is left as the filter made it, and only the colour is scaled.
+        var filteredSurface = TextureData.FromPixels(Size, Size, TextureKind.Linear, surface);
+        for (int level = 0; level < filteredSurface.Mips.Length; level++)
+        {
+            Assert.Equal(filteredSurface.Mips[level], cookedSurface.Mips[level]);
+        }
+    }
+
     [Fact]
     public void Changing_the_cutoff_compresses_the_colour_texture_again()
     {

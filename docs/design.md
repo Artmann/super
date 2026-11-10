@@ -1640,6 +1640,20 @@ texture key, so one image cut at two cutoffs is two textures. The compressed-tex
 step's key hashes every level's pixels, so a new cutoff misses it, and the model cooker's
 version went to 16 so every model with a cutoff cooks again.
 
+When the colour texture and the rule's surface texture both have alpha under 1 somewhere,
+the shader cuts by their product, and each keeping its own coverage doesn't keep the
+product's: over a surface alpha of 0.63 a thread the colour kept at just over a half falls
+under a cutoff of a half. `ModelTextures.CutoutPartner` sees that both carry partial alpha,
+and then only the colour is scaled, by the overload of `KeepAlphaCoverage` that takes a
+partner, while the surface keeps the filter's mips. Its search is the same, but it counts
+pixels whose product passes. For each partner byte p the least colour byte that passes is
+`ceil(cutoff * 255 * 255 / p)`, and a 256 by 257 table of running counts, by colour byte
+and by that threshold, answers how many pass at a scale with one look per colour byte. The
+partner is read at the level that covers the same part of the surface, at the nearest
+pixel, so the two may be different sizes. When either texture is opaque the product is the
+other's alpha, and each keeping its own is exact, so that path is unchanged. The surface's
+file hash is part of the colour's memo and texture keys, and the cooker's version went to 17.
+
 ![The cobweb in --leaves from about 6 m: left, filtered mips leave one dot of the web and thin the dry grass; right, mips that keep their coverage keep the threads and the grass](media/alpha-coverage-mips.webp)
 
 The model cooker then widens each surface texture's roughness by its normal map

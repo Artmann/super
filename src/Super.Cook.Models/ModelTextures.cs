@@ -29,7 +29,9 @@ internal sealed class ModelTextures(CookInput input, CookOutput output, string p
     /// file links to that isn't there is a warning. One named in the settings
     /// (<paramref name="namedBy"/> is the material) is an error, since it's a mistake in them.
     /// With an <paramref name="alphaCutoff"/> above 0, the smaller levels keep the share of
-    /// pixels whose alpha passes it, as <see cref="TextureData.KeepAlphaCoverage"/> does.
+    /// pixels whose alpha passes it, as <see cref="TextureData.KeepAlphaCoverage(TextureData, float)"/> does. With a
+    /// <paramref name="partner"/> too, they keep the share whose alpha times the partner's passes, as
+    /// <see cref="CutoutPartner"/> explains.
     /// </summary>
     public int Add(
         string? fileName,
@@ -38,14 +40,15 @@ internal sealed class ModelTextures(CookInput input, CookOutput output, string p
         bool isGltfSurface = false,
         string? alphaFile = null,
         string? namedBy = null,
-        float alphaCutoff = 0f)
+        float alphaCutoff = 0f,
+        CoveragePartner? partner = null)
     {
         if (fileName is null)
         {
             return -1;
         }
 
-        string key = $"{fileName}|{kind}|{isGltfSurface}|{alphaFile}|{CutoffKey(alphaCutoff)}";
+        string key = $"{fileName}|{kind}|{isGltfSurface}|{alphaFile}|{CutoffKey(alphaCutoff)}|{partner?.Key}";
         if (_indices.TryGetValue(key, out int existing))
         {
             return existing;
@@ -77,24 +80,75 @@ internal sealed class ModelTextures(CookInput input, CookOutput output, string p
             }
         }
 
-        // Models in a kit share their images, so each image is decoded and filtered once per cook, not once per model.
+        _textures.Add(MakeShared(encoded, alphaEncoded, kind, isNormalMap, isGltfSurface, alphaCutoff, partner));
+        _indices[key] = _textures.Count - 1;
+        return _textures.Count - 1;
+    }
+
+    /// <summary>
+    /// What a cut-out material's colour texture keeps its coverage against when its surface texture carries opacity
+    /// too, or null when it needn't. The shader cuts where the colour's alpha times the surface's falls below the
+    /// cutoff, and keeping each one's coverage on its own doesn't keep the product's. So when both have partial alpha
+    /// the colour is scaled against the surface, and the surface is cooked whole, without a cutoff. When either is
+    /// opaque, the product is the other one's alpha, and each keeping its own coverage is exact. The files are read
+    /// and filtered as <see cref="Add"/> would, and shared with it, but nothing is added.
+    /// </summary>
+    public CoveragePartner? CutoutPartner(string? colorFile, string? alphaFile, string? surfaceFile)
+    {
+        if (colorFile is null || surfaceFile is null)
+        {
+            return null;
+        }
+
+        byte[]? color = Read(colorFile);
+        byte[]? alpha = alphaFile is null ? null : Read(alphaFile);
+        byte[]? surface = Read(surfaceFile);
+        if (color is null || surface is null || (alphaFile is not null && alpha is null))
+        {
+            // Add reports what's missing.
+            return null;
+        }
+
+        var surfaceTexture = MakeShared(surface, null, TextureKind.Linear, false, false, 0f, null);
+        if (surfaceTexture.AlphaRange().Lowest >= 1f)
+        {
+            return null;
+        }
+
+        var colorTexture = MakeShared(color, alpha, TextureKind.Color, false, false, 0f, null);
+        if (colorTexture.AlphaRange().Lowest >= 1f)
+        {
+            return null;
+        }
+
+        return new CoveragePartner(Convert.ToHexString(SHA256.HashData(surface)), surfaceTexture);
+    }
+
+    // Models in a kit share their images, so each image is decoded and filtered once per cook, not once per model.
+    private TextureData MakeShared(
+        byte[] encoded,
+        byte[]? alphaEncoded,
+        TextureKind kind,
+        bool isNormalMap,
+        bool isGltfSurface,
+        float alphaCutoff,
+        CoveragePartner? partner)
+    {
         string shared = string.Join('|', Convert.ToHexString(SHA256.HashData(encoded)),
             alphaEncoded is null ? "" : Convert.ToHexString(SHA256.HashData(alphaEncoded)), kind, isNormalMap, isGltfSurface,
-            CutoffKey(alphaCutoff));
+            CutoffKey(alphaCutoff), partner?.Key);
         bool made = false;
         var texture = Shared.GetOrAdd(shared, _ => new Lazy<TextureData>(() =>
         {
             made = true;
-            return KeepCoverage(Make(encoded, alphaEncoded, kind, isNormalMap, isGltfSurface), alphaCutoff);
+            return KeepCoverage(Make(encoded, alphaEncoded, kind, isNormalMap, isGltfSurface), alphaCutoff, partner);
         })).Value;
         if (made)
         {
             Remember(texture);
         }
 
-        _textures.Add(texture);
-        _indices[key] = _textures.Count - 1;
-        return _textures.Count - 1;
+        return texture;
     }
 
     /// <summary>
@@ -117,13 +171,13 @@ internal sealed class ModelTextures(CookInput input, CookOutput output, string p
             texture = TextureData.FromPixels(width, height, kind, rgba, isNormalMap);
         }
 
-        _textures.Add(KeepCoverage(texture, alphaCutoff));
+        _textures.Add(KeepCoverage(texture, alphaCutoff, partner: null));
         _indices[key] = _textures.Count - 1;
         return _textures.Count - 1;
     }
 
     // A texture without a cutoff keeps the mips the filter made, byte for byte.
-    private TextureData KeepCoverage(TextureData texture, float alphaCutoff)
+    private TextureData KeepCoverage(TextureData texture, float alphaCutoff, CoveragePartner? partner)
     {
         if (alphaCutoff <= 0f)
         {
@@ -132,7 +186,9 @@ internal sealed class ModelTextures(CookInput input, CookOutput output, string p
 
         using (input.Time("keep alpha coverage"))
         {
-            return TextureData.KeepAlphaCoverage(texture, alphaCutoff);
+            return partner is null
+                ? TextureData.KeepAlphaCoverage(texture, alphaCutoff)
+                : TextureData.KeepAlphaCoverage(texture, alphaCutoff, partner.Texture);
         }
     }
 
@@ -274,3 +330,6 @@ internal sealed class ModelTextures(CookInput input, CookOutput output, string p
         }
     }
 }
+
+/// <summary>A surface texture a colour texture keeps its cut-out coverage against, and the hash of its file's bytes.</summary>
+internal sealed record CoveragePartner(string Key, TextureData Texture);

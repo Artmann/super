@@ -821,9 +821,10 @@ giving you solid cards. With a `graph`, the graph's `Opacity` is what gets cut.
 A cut-out keeps its shape in the distance. Plain mips average a thin opaque thread with the
 clear pixels round it, so its alpha falls under the cutoff a few levels down and it
 vanishes. The cook instead scales each smaller level's alpha so as large a share of its
-pixels passes the cutoff as on the full-size texture. This is only done for materials with
-a cutoff: blended, dithered and opaque textures keep their mips as before. Changing the
-cutoff cooks the textures again.
+pixels passes the cutoff as on the full-size texture. When the colour and surface textures
+both carry opacity, it's the share where their product passes that is kept, by scaling the
+colour's alpha alone. This is only done for materials with a cutoff: blended, dithered and
+opaque textures keep their mips as before. Changing the cutoff cooks the textures again.
 
 ![The cobweb in --leaves from about 6 m: left, plain mips leave one dot of the web and thin the dry grass; right, mips that keep their coverage keep the threads and the grass](media/alpha-coverage-mips.webp)
 

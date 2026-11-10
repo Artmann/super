@@ -46,7 +46,7 @@ public sealed class ModelCooker : ICooker
     // materials may sway in the wind. 15: BC7 from the cook's own encoder, and BC4 and BC5 at BCnEncoder's Fast. 16: a
     // cut-out's textures keep their alpha coverage at every mip level. The graphs' own version is folded in, so a change
     // to Super.Materials cooks every model again, since one may use a graph.
-    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 16);
+    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 17);
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -1190,6 +1190,11 @@ public sealed class ModelCooker : ICooker
             : fileColor is { } f ? new Vector4(f[0], f[1], f[2], f[3]) : new Vector4(1f, 1f, 1f, rule.Opacity);
         float alphaCutoff = rule.AlphaCutoff ?? fileCutoff ?? 0f;
         float textureCutoff = TextureCutoff(alphaCutoff, baseColor.W);
+        // When the colour and the surface both carry opacity, the shader cuts by their product, so the colour keeps
+        // the product's coverage and the surface is left whole.
+        var partner = rule.Surface is not null && textureCutoff > 0f
+            ? textures.CutoutPartner(rule.BaseColor ?? linkedColor, rule.Alpha, rule.Surface)
+            : null;
         return new ModelMaterial
         {
             BaseColor = baseColor,
@@ -1197,12 +1202,12 @@ public sealed class ModelCooker : ICooker
             Roughness = rule.Roughness ?? fileRoughness?[0] ?? 0.6f,
             AlphaCutoff = alphaCutoff,
             BaseColorTexture = textures.Add(rule.BaseColor ?? linkedColor, TextureKind.Color, alphaFile: rule.Alpha,
-                namedBy: rule.BaseColor is null ? null : named, alphaCutoff: textureCutoff),
+                namedBy: rule.BaseColor is null ? null : named, alphaCutoff: textureCutoff, partner: partner),
             NormalTexture = textures.Add(rule.NoNormalMap ? null : rule.Normal ?? linkedNormal, TextureKind.Linear, isNormalMap: true,
                 namedBy: rule.Normal is null ? null : named),
             // A glTF surface map's alpha is always whole, so only a surface texture the rule names can carry opacity.
             SurfaceTexture = rule.Surface is not null
-                ? textures.Add(rule.Surface, TextureKind.Linear, namedBy: named, alphaCutoff: textureCutoff)
+                ? textures.Add(rule.Surface, TextureKind.Linear, namedBy: named, alphaCutoff: partner is null ? textureCutoff : 0f)
                 : textures.Add(linkedSurface, TextureKind.Linear, isGltfSurface: true),
             Emissive = emissive,
             EmissiveTexture = textures.Add(rule.Emissive, TextureKind.Color, namedBy: named),
