@@ -14,6 +14,11 @@ where to save it.
 - [NVorbis](https://github.com/NVorbis/NVorbis) reads `.ogg` files, and
   [NLayer](https://github.com/naudio/NLayer) reads `.mp3` files. Both are under the MIT
   license.
+- [AMD FidelityFX SDK](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK) 1.1.4
+  gives Rendition its FSR 3.1 [upscaling](docs/rendering.md#upscaling). Its prebuilt
+  `amd_fidelityfx_vk.dll` from the SDK's release is kept in `third_party/fidelityfx` and
+  copied next to every game. It is Copyright 2024 Advanced Micro Devices, Inc. and licensed
+  under the MIT license, in [third_party/fidelityfx/LICENSE.txt](third_party/fidelityfx/LICENSE.txt).
 
 ## Fonts
 

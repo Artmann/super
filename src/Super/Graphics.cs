@@ -64,6 +64,16 @@ public sealed class Graphics
     } = 1f;
 
     /// <summary>
+    /// What smooths the scene's edges when <see cref="AntiAliasing"/> is on. <see cref="Upscaler.Taa"/> blends
+    /// each frame with the last. <see cref="Upscaler.Fsr"/> hands the frame to AMD FSR, which rebuilds it at the
+    /// window's size from the scene and its own history, so a <see cref="RenderScale"/> below 1 comes back
+    /// sharper than a stretch. FSR needs amd_fidelityfx_vk.dll next to the game and is used only at a render
+    /// scale of 1 or less; otherwise TAA is used. <c>--upscaler</c> sets it from the command line, and
+    /// <see cref="Fastest"/> uses TAA.
+    /// </summary>
+    public Upscaler Upscaler { get; set; } = Upscaler.Taa;
+
+    /// <summary>
     /// The sun's contact shadows: the thin dark line where things meet the ground, found on screen, which
     /// the shadow maps are too coarse to draw. Off, only the maps shade there. See <see cref="View.Shadows"/>.
     /// </summary>
@@ -168,6 +178,7 @@ public sealed class Graphics
     public static Graphics Fastest() => new()
     {
         Vsync = false,
+        Upscaler = Upscaler.Taa,
         SunShadows = false,
         ContactShadows = false,
         LightProbes = false,

@@ -140,6 +140,13 @@ internal sealed class SceneRenderer : IDisposable
         set => _renderer.RenderScale = value;
     }
 
+    /// <summary>What anti-aliases the scene, and upscales it with FSR. A change rebuilds the targets before the next frame.</summary>
+    public Upscaler Upscaler
+    {
+        get => _renderer.Upscaler;
+        set => _renderer.Upscaler = value;
+    }
+
     /// <summary>The effects left out of every frame from now on.</summary>
     public RenderEffects Off { get; set; }
 

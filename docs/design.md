@@ -749,6 +749,8 @@ SssBlurPass   fullscreen x 2   -> subsurface diffuse spread across, then down an
 TransparentPass  glass and particles -> blended over HDR colour together, back to front;
                                   glass forward shaded, seeing a mipped copy of HDR
 TaaPass       fullscreen       -> this frame blended with history, then copied to history
+  or FsrPass  fullscreen x 2, FSR -> with Upscaler.Fsr, motion and exposure for FSR, then FSR's own
+                                  compute passes rebuild the frame at the window's size; see "Upscaling"
 DepthOfFieldPass fullscreen x 3 -> with an open aperture, circles and near and far layers at half size, blended over the frame
 BloomPass     fullscreen x 9   -> glow, by shrinking and regrowing the image
 exposure_*.comp compute x 2     -> with auto exposure, a histogram of the lit frame, then the adapted exposure in a buffer
@@ -1682,7 +1684,9 @@ normal map, compressed or not.
 While TAA is on, `FrameUniforms.mipBias` is -0.75 and every material read is biased by
 it: `textureGrad` derivatives are scaled by `exp2(mipBias)` in `surface.glsl`, and plain
 `texture` reads in surface shaders and glass take it as the bias argument. Each frame
-alone would shimmer at that level, but TAA's jittered blend settles it. Probe captures
+alone would shimmer at that level, but TAA's jittered blend settles it. While FSR draws the
+picture it is FSR's own rule instead, log2(scene width / window width) - 1: -1 at a render
+scale of 1 and about -1.58 at 0.67. Probe captures
 and frames with anti-aliasing off use 0. The finish pass's sharpening is
 contrast-adaptive (after AMD's CAS): each neighbour's negative weight is the post
 `Sharpen` times 0.2 times `sqrt(min(low, 1 - high) / high)` per channel, where `low` and
@@ -1933,6 +1937,67 @@ which still holds the last frame, into `Held` before drawing the new one. `Held`
 to black when there is no last frame yet, such as on the first frame or after a resize.
 A blend never reaches the renderer: Super moves the camera between the last camera shown
 and the one `Draw` sets.
+
+## Upscaling
+
+`Upscaler.Fsr` hands anti-aliasing to AMD FSR 3.1 (`Passes/FsrPass.cs`, `Vulkan/Fsr.cs`).
+FSR comes as AMD's prebuilt FidelityFX SDK 1.1.4 library, `amd_fidelityfx_vk.dll`, kept in
+`third_party/fidelityfx` with its licence and copied next to every game. `Fsr` reaches it
+through P/Invoke on the four calls of the FidelityFX API (`ffxCreateContext`,
+`ffxDestroyContext`, `ffxDispatch`, `ffxQuery`), with its chained descriptor structs
+written out by hand. The library is looked for once; when it can't be loaded,
+`Upscale.Choose` falls back to TAA and says so once on the error stream, and when the
+context can't be made, `CreateTargets` does the same. The library reports the provider it
+picked, FSR 3.1.4 here, and `Renderer.UpscalerVersion` returns it.
+
+FSR draws only while anti-aliasing is on and the render scale is 1 or less. It then owns
+both TAA's job and the finish pass's stretch: the G-buffer, HDR and depth stay at the scene
+size, and `GBuffer.Display`, the window's size, sizes `Resolved`, the LDR target and
+`Held`, so depth of field, bloom, the exposure meter, the tonemap and the finish pass all
+run at the window's size and the finish pass reads one window pixel per pixel. `Resolved`
+is always made with storage use, since FSR writes it from compute. Starting or stopping
+FSR, a resize or a render scale change rebuilds the targets, which makes a new FSR context
+for the new sizes, and the first frame after has `Reset` set, as does any frame after the
+history was lost.
+
+Each frame the camera is shifted by `Upscale.Jitter`, the Halton (2, 3) point FSR's own
+query would give, in scene pixels with y down, from a cycle of ceil(8 / scale²) frames
+(`Upscale.JitterPhaseCount`): 8 at a render scale of 1 and 18 at 0.67. TAA keeps its 16.
+FSR gets the same shift, with the same sign: a shift of +x moves the picture right and +y
+moves it down, as FSR's samples do. Flipping the sign blurs the picture, and the edge
+count of a Courtyard shot at 0.67 drops by a fifth.
+
+Two fragment passes get FSR's inputs ready. `fsr_motion.frag` copies the motion target and
+fills in the sky, which no draw writes, with the camera's own motion, worked out as
+`taa.frag` does, since FSR would smear a turning sky it was told stood still. The motion is
+already in scene pixels from now back to then, which is what FSR reads, so the motion
+scale is (1, 1). `fsr_exposure.frag` writes the tonemap's exposure into a 1 x 1 R32F image.
+The meter runs after FSR, so this is last frame's adapted exposure, which moves too slowly
+for the difference to show. FSR is told the picture is HDR and the depth reversed and
+infinite. With that, its "near" is the plane at depth 0, so `CameraNear` is the largest
+float and `CameraFar` is the camera's near plane, which `CameraNear` reads from the
+projection's M43. An orthographic view has no near plane or field of view, so it gets
+stand-ins of 0.1 and 60 degrees.
+
+The HDR image is copied to the reflection history every FSR frame, since FSR keeps its own
+history at the window's size and screen-space reflections read the lit scene.
+
+FSR's Vulkan backend chooses its shaders from what the GPU supports, not from what the
+device turned on, so `CreateDevice` turns on, where the GPU has them, 16-bit floats and
+ints in shaders and storage, non-uniform indexing of storage buffers, and subgroup size
+control with full subgroups. FSR's backend also looks up `vkGetBufferMemoryRequirements2KHR`
+by its KHR name whenever the GPU offers dedicated allocations, and calls it without
+checking, so the device turns on `VK_KHR_get_memory_requirements2` where it exists; without
+it, making the context crashes.
+
+AMD's prebuilt shaders declare FSR's luma history storage image as Rgba8, though FSR makes
+that image RGBA16F. The validation layer reports it on every FSR dispatch. It is inside the
+library and touches nothing of ours, so `VulkanContext.IsFsrLumaHistoryFormat` matches that
+one message, by the variable and both formats, and notes it once instead of counting it.
+Any other message still counts.
+
+DLSS is not supported: it runs only on NVIDIA's RTX cards and would need NVIDIA's own
+library beside AMD's, while FSR runs on every GPU.
 
 ## Verification without a window
 

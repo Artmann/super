@@ -23,6 +23,7 @@ dotnet run -c Release --project MyColony -- --script tooltip --ticks 40 --screen
 | `--frames N` | How many frames `--profile` measures, 60 by default |
 | `--script name` | Plays one of the game's [input scripts](#scripted-input) |
 | `--render-scale N` | Draws the scene this many times the window's size each way, from 0.5 to 2, such as `2` for smoother edges or `0.5` for speed. The picture saved is still `--size`. Same as [`Graphics.RenderScale`](rendering.md#graphics-settings); the game's own setting by default, which is 1 |
+| `--upscaler taa\|fsr` | Picks what smooths edges and, below a render scale of 1, rebuilds the picture at the window's size: the engine's TAA or AMD FSR. Same as [`Graphics.Upscaler`](rendering.md#upscaling); the game's own setting by default, which is TAA. Anything else is refused |
 | `--no-vsync` | Plays in the window without waiting for the display |
 | `--no-materials` | Draws every surface as plain grey clay, to judge the lighting. Works in the window and with `--screenshot`, `--record` and `--profile`. Same as [`Graphics.Materials`](rendering.md#graphics-settings) set to false |
 | `--user-data folder` | Keeps [user data](user-data.md) in this folder. Without it, the window uses the player's folder and runs without a window use a throwaway one |

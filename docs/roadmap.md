@@ -39,6 +39,9 @@ Super is early. These are the known gaps, so you can plan around them.
   scattering look. Bloom shrinks the picture a fixed number of times, and subsurface light
   spreads a set number of scene pixels, so at 2 the glow and the soft light under skin are
   narrower than at 1, and at 0.5 wider.
+- [Upscaling](rendering.md#upscaling) is AMD FSR 3.1 or the engine's TAA. NVIDIA's DLSS
+  and Intel's XeSS are not supported, and FSR isn't used above a render scale of 1 or for
+  frame generation. It needs `amd_fidelityfx_vk.dll`, so it is Windows only, like the rest.
 - **Large numbers of objects.** Rendition's efficiency with many thousands of objects
   still has to be measured and improved.
 - **More from physics.** [`Super.Physics`](physics.md) has bodies that fall and collide,

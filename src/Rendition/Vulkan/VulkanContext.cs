@@ -26,8 +26,12 @@ internal sealed unsafe class VulkanContext : IDisposable
     private readonly DebugUtilsMessengerCallbackFunctionEXT? _callback;
     private readonly CommandPool _uploadPool;
     private int _validationErrors;
+    private int _fsrLumaHistoryNoted;
 
     public int ValidationErrors => _validationErrors;
+
+    /// <summary>Whether the validation layer is on, so libraries such as FSR can check their own work too.</summary>
+    public bool Validating => _debugUtils is not null;
 
     /// <summary>Whether compute shaders can write two-channel images such as rg16f, which the light probes' depth atlas prefers.</summary>
     public bool StorageImageExtendedFormats { get; private set; }
@@ -282,6 +286,16 @@ internal sealed unsafe class VulkanContext : IDisposable
         Api.GetPhysicalDeviceFeatures(PhysicalDevice, out var supported);
         RequireFeatures(supported);
         StorageImageExtendedFormats = supported.ShaderStorageImageExtendedFormats;
+
+        // FSR picks its shaders by what the GPU supports, not by what the device turned on: 16-bit maths where
+        // the GPU has it, and a fixed subgroup size where it can choose one. So those are turned on wherever
+        // they're supported, or FSR's pipelines would use features the device doesn't have.
+        var supported13 = new PhysicalDeviceVulkan13Features { SType = StructureType.PhysicalDeviceVulkan13Features };
+        var supported12 = new PhysicalDeviceVulkan12Features { SType = StructureType.PhysicalDeviceVulkan12Features, PNext = &supported13 };
+        var supported11 = new PhysicalDeviceVulkan11Features { SType = StructureType.PhysicalDeviceVulkan11Features, PNext = &supported12 };
+        var supportedAll = new PhysicalDeviceFeatures2 { SType = StructureType.PhysicalDeviceFeatures2, PNext = &supported11 };
+        Api.GetPhysicalDeviceFeatures2(PhysicalDevice, &supportedAll);
+
         var features = new PhysicalDeviceFeatures
         {
             SamplerAnisotropy = true,
@@ -291,14 +305,24 @@ internal sealed unsafe class VulkanContext : IDisposable
             ShaderSampledImageArrayDynamicIndexing = true,
             TextureCompressionBC = true,
             ShaderStorageImageExtendedFormats = StorageImageExtendedFormats,
+            ShaderInt16 = supported.ShaderInt16,
+        };
+        var features11 = new PhysicalDeviceVulkan11Features
+        {
+            SType = StructureType.PhysicalDeviceVulkan11Features,
+            StorageBuffer16BitAccess = supported11.StorageBuffer16BitAccess,
+            UniformAndStorageBuffer16BitAccess = supported11.UniformAndStorageBuffer16BitAccess,
         };
         var features12 = new PhysicalDeviceVulkan12Features
         {
             SType = StructureType.PhysicalDeviceVulkan12Features,
+            PNext = &features11,
             RuntimeDescriptorArray = true,
             DescriptorBindingPartiallyBound = true,
             ShaderSampledImageArrayNonUniformIndexing = true,
             DescriptorBindingUpdateUnusedWhilePending = true,
+            ShaderFloat16 = supported12.ShaderFloat16,
+            ShaderStorageBufferArrayNonUniformIndexing = supported12.ShaderStorageBufferArrayNonUniformIndexing,
         };
         var features13 = new PhysicalDeviceVulkan13Features
         {
@@ -307,8 +331,18 @@ internal sealed unsafe class VulkanContext : IDisposable
             DynamicRendering = true,
             Synchronization2 = true,
             ShaderDemoteToHelperInvocation = true,
+            SubgroupSizeControl = supported13.SubgroupSizeControl,
+            ComputeFullSubgroups = supported13.ComputeFullSubgroups,
         };
-        nint extensionNames = SilkMarshal.StringArrayToPtr([KhrSwapchain.ExtensionName]);
+        // FSR looks up vkGetBufferMemoryRequirements2KHR by its extension name, which the driver only hands out
+        // when the extension is on, even though Vulkan 1.1 has the function under its core name.
+        var extensions = new List<string> { KhrSwapchain.ExtensionName };
+        if (HasDeviceExtension(MemoryRequirements2Extension))
+        {
+            extensions.Add(MemoryRequirements2Extension);
+        }
+
+        nint extensionNames = SilkMarshal.StringArrayToPtr(extensions);
         var createInfo = new DeviceCreateInfo
         {
             SType = StructureType.DeviceCreateInfo,
@@ -316,7 +350,7 @@ internal sealed unsafe class VulkanContext : IDisposable
             PEnabledFeatures = &features,
             QueueCreateInfoCount = 1,
             PQueueCreateInfos = &queueInfo,
-            EnabledExtensionCount = 1,
+            EnabledExtensionCount = (uint)extensions.Count,
             PpEnabledExtensionNames = (byte**)extensionNames,
         };
 
@@ -325,14 +359,60 @@ internal sealed unsafe class VulkanContext : IDisposable
         return device;
     }
 
+    private const string MemoryRequirements2Extension = "VK_KHR_get_memory_requirements2";
+
+    private bool HasDeviceExtension(string name)
+    {
+        uint count = 0;
+        Api.EnumerateDeviceExtensionProperties(PhysicalDevice, (byte*)null, &count, null).Check();
+        var properties = new ExtensionProperties[count];
+        fixed (ExtensionProperties* first = properties)
+        {
+            Api.EnumerateDeviceExtensionProperties(PhysicalDevice, (byte*)null, &count, first).Check();
+        }
+
+        foreach (var property in properties)
+        {
+            if (SilkMarshal.PtrToString((nint)property.ExtensionName) == name)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private uint OnDebugMessage(
         DebugUtilsMessageSeverityFlagsEXT severity,
         DebugUtilsMessageTypeFlagsEXT type,
         DebugUtilsMessengerCallbackDataEXT* data,
         void* userData)
     {
+        string message = Marshal.PtrToStringUTF8((nint)data->PMessage) ?? "";
+        if (IsFsrLumaHistoryFormat(message))
+        {
+            if (Interlocked.Exchange(ref _fsrLumaHistoryNoted, 1) == 0)
+            {
+                Console.Error.WriteLine(
+                    "[vulkan] note: FSR's own shader declares its luma history Rgba8 while FSR makes that image RGBA16F. "
+                    + "It's inside amd_fidelityfx_vk.dll, so it isn't counted.");
+            }
+
+            return Vk.False;
+        }
+
         Interlocked.Increment(ref _validationErrors);
-        Console.Error.WriteLine($"[vulkan] {severity}: {Marshal.PtrToStringUTF8((nint)data->PMessage)}");
+        Console.Error.WriteLine($"[vulkan] {severity}: {message}");
         return Vk.False;
     }
+
+    /// <summary>
+    /// The one message the prebuilt FidelityFX 1.1.4 shaders raise on every FSR frame: their storage image for
+    /// luma history says Rgba8, but the SDK creates that image, which nothing of ours touches, as RGBA16F.
+    /// Matched on the variable and both formats, so any other format message still counts.
+    /// </summary>
+    internal static bool IsFsrLumaHistoryFormat(string message) =>
+        message.Contains("variable \"rw_luma_history\"", StringComparison.Ordinal)
+        && message.Contains("Format operand Rgba8", StringComparison.Ordinal)
+        && message.Contains("VK_FORMAT_R16G16B16A16_SFLOAT", StringComparison.Ordinal);
 }

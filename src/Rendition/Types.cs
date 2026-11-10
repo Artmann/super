@@ -600,6 +600,26 @@ public enum AgxLook
     Base,
 }
 
+/// <summary>
+/// What smooths the scene's edges over several frames and, below a <see cref="Renderer.RenderScale"/> of 1, rebuilds
+/// it at the window's size. See <see cref="Renderer.Upscaler"/>.
+/// </summary>
+public enum Upscaler
+{
+    /// <summary>
+    /// The engine's own temporal anti-aliasing, at the scene's size, then stretched to the window with a sharp
+    /// resample. Cheap, and it needs nothing outside the engine.
+    /// </summary>
+    Taa,
+
+    /// <summary>
+    /// AMD FidelityFX Super Resolution 3.1, which blends the frames at the window's size and keeps thin detail such
+    /// as grass and railings steadier. It needs its library next to the game, and falls back to <see cref="Taa"/>
+    /// without it or above a render scale of 1.
+    /// </summary>
+    Fsr,
+}
+
 /// <summary>How a <see cref="ScreenTransition"/> brings in the new picture.</summary>
 public enum TransitionStyle
 {
@@ -1184,6 +1204,9 @@ public sealed class RendererOptions
 
     /// <summary>How large the scene starts out drawn against the window, from 0.5 to 2. See <see cref="Renderer.RenderScale"/>.</summary>
     public float RenderScale { get; init; } = 1f;
+
+    /// <summary>What anti-aliases the scene and, below a render scale of 1, upscales it. See <see cref="Renderer.Upscaler"/>.</summary>
+    public Upscaler Upscaler { get; init; } = Upscaler.Taa;
 }
 
 /// <summary>

@@ -1,3 +1,5 @@
+using Rendition;
+
 namespace Super.Tests;
 
 public class GameArgumentsTests
@@ -177,6 +179,33 @@ public class GameArgumentsTests
         var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--render-scale", scale]));
 
         Assert.Equal($"--render-scale needs a number from 0.5 to 2, such as 1.5, not '{scale}'.", error.Message);
+    }
+
+    [Fact]
+    public void Upscaler_is_parsed_from_the_command_line()
+    {
+        Assert.Equal(Upscaler.Fsr, GameArguments.Parse(["--upscaler", "fsr", "--screenshot", "a.png"]).Upscaler);
+        Assert.Equal(Upscaler.Taa, GameArguments.Parse(["--upscaler", "taa"]).Upscaler);
+        Assert.Null(GameArguments.Parse([]).Upscaler);
+    }
+
+    [Theory]
+    [InlineData("dlss")]
+    [InlineData("FSR")]
+    [InlineData("")]
+    public void An_upscaler_must_be_taa_or_fsr(string name)
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--upscaler", name]));
+
+        Assert.Equal($"--upscaler needs taa or fsr, not '{name}'.", error.Message);
+    }
+
+    [Fact]
+    public void An_upscaler_needs_a_value()
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--upscaler"]));
+
+        Assert.Equal("--upscaler needs a value.", error.Message);
     }
 
     [Fact]

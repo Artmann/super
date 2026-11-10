@@ -45,6 +45,7 @@ next frame follows, so it can back an options menu.
 | `SunShadows` | Nothing is drawn into the sun's shadow maps, often the biggest saving. Ambient occlusion still darkens nooks |
 | `ShadowResolution` | How many texels across each of the sun's shadow maps is: 1024, 2048 (the default) or 4096. Each step up sharpens shadow edges for four times the memory. A change rebuilds the maps before the next frame, which waits for the GPU once |
 | `RenderScale` | How large the scene is drawn against the window, from 0.5 to 2 each way. 1, the default, draws it at the window's size with nothing resized. At 2 the scene has four times the pixels and is shrunk to fit, which smooths grass blades, railings and other thin things, for about four times the lighting and effects work. At 0.5 it has a quarter of the pixels and is stretched, which is much faster and softer. Below 1, meshes also switch to their simpler versions sooner, since they cover fewer scene pixels. A scene larger than the GPU can draw is shrunk to fit, keeping its shape. The interface, screenshots and recordings stay at the window's size. Anything else is refused. `--render-scale` sets it too. A change rebuilds the scene's targets before the next frame, which waits for the GPU once and restarts anti-aliasing |
+| `Upscaler` | What smooths edges when `AntiAliasing` is on: `Upscaler.Taa`, the default, or `Upscaler.Fsr`, which hands the frame to AMD FSR to rebuild at the window's size. See [upscaling](#upscaling). `--upscaler fsr` sets it too, and `Graphics.Fastest()` uses TAA |
 | `ContactShadows` | No thin dark line where things meet the ground in sunlight, only what the shadow maps show. `view.Shadows`' `contact` only changes [how far they look](#shadows) |
 | `LightShadows` | Point and spot lights shine through walls |
 | `AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. `view.AmbientOcclusion` only changes [how far and how dark](#ambient-occlusion) |
@@ -66,6 +67,34 @@ next frame follows, so it can back an options menu.
 `Graphics.Fastest()` leaves `RenderScale` at 1 too, since a smaller picture is a change the
 player can see, not only a saving. A game for slow GPUs on big screens sets it to 0.75 or 0.5
 itself, or offers it in an options menu.
+
+### Upscaling
+
+A render scale below 1 stretches the scene to the window, which softens it. With
+`Upscaler.Fsr`, AMD FSR 3.1 rebuilds the full picture instead: it gathers detail from the
+last frames as well as this one, so a scene drawn at 0.67 of the window's size comes back
+close to one drawn at full size. It takes the place of TAA, so it also smooths edges at a
+render scale of 1.
+
+```csharp
+Graphics = new Graphics { Upscaler = Upscaler.Fsr, RenderScale = 0.67f },
+```
+
+`--upscaler fsr` or `--upscaler taa` picks it from the command line. FSR is used only while
+`AntiAliasing` is on and the render scale is 1 or less; above 1 the scene is already larger
+than the window, so TAA and the plain shrink do the job. It needs `amd_fidelityfx_vk.dll`
+next to the game, which the build copies there. Without it the renderer says so once and
+uses TAA. A change while the game runs rebuilds the scene's targets before the next frame,
+which waits for the GPU once and starts FSR's history again.
+
+In the Courtyard at 1600 by 900 on an RTX 4060 Ti, FSR costs about 1.5 ms a frame at a render
+scale of 1, against 0.2 ms for TAA, and about 0.6 ms at 0.67, where the whole frame drops from
+about 13 ms to 7. At a scale of 1, FSR keeps grass blades and ivy a little sharper than TAA,
+and window bars look the same, so TAA stays the default. Below 1, FSR is the better choice.
+
+![Grass and a window in the Courtyard with TAA, FSR at render scale 1 and FSR at 0.67](media/fsr.webp)
+
+Only FSR is supported. NVIDIA's DLSS is not, see the [roadmap](roadmap.md).
 
 `Materials` is for looking, not for speed, so `Graphics.Fastest()` leaves it on. A key that
 flips it while the game runs makes a handy lighting check:

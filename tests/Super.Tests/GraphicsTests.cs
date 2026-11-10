@@ -202,6 +202,25 @@ public class GraphicsTests
     }
 
     [Fact]
+    public void Fastest_uses_taa()
+    {
+        Assert.Equal(Upscaler.Taa, Graphics.Fastest().Upscaler);
+    }
+
+    [Fact]
+    public void A_changed_upscaler_reaches_the_renderer_next_frame()
+    {
+        var given = new Graphics { Upscaler = Upscaler.Taa };
+        using var host = new GameHost<Settings>(1, 30, null, graphics: given);
+
+        host.Game.Graphics.Upscaler = Upscaler.Fsr;
+        Assert.Equal(Upscaler.Fsr, GameWindow.RendererSettings(host.Graphics, hidden: false).Upscaler);
+
+        host.Game.Graphics.Upscaler = Upscaler.Taa;
+        Assert.Equal(Upscaler.Taa, GameWindow.RendererSettings(host.Graphics, hidden: false).Upscaler);
+    }
+
+    [Fact]
     public void Materials_can_be_turned_off_and_back_on_while_the_game_runs()
     {
         var given = new Graphics();

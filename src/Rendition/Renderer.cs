@@ -40,8 +40,6 @@ public sealed unsafe class Renderer : IDisposable
         PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit;
     private const AccessFlags2 DepthWrite = AccessFlags2.DepthStencilAttachmentWriteBit;
 
-    private static readonly Vector2[] Jitter = CreateJitter();
-
     private struct Frame
     {
         public CommandPool CommandPool;
@@ -182,6 +180,14 @@ public sealed unsafe class Renderer : IDisposable
     private WindReach _windReach;
     private bool _readsAntiAliased = true;
 
+    // The upscaler asked for, the one it comes to once FSR's library is looked for, and whether FSR draws the
+    // picture now: only with anti-aliasing on and the scene no larger than the window.
+    private Upscaler _upscaler;
+    private Upscaler _upscalerUsed;
+    private bool _upscaling;
+    private readonly FsrPass _fsrPass;
+    private FsrFrame _fsrFrame;
+
     // Whether a sun casts its shadow this frame, so its maps are drawn.
     private bool _sunShadowsDrawn;
 
@@ -245,6 +251,28 @@ public sealed unsafe class Renderer : IDisposable
         get => _renderScale;
         set => _renderScale = CheckRenderScale(value);
     }
+
+    /// <summary>
+    /// What anti-aliases the scene: the engine's own TAA, or AMD's FSR 3.1, which also rebuilds a scene drawn
+    /// below a <see cref="RenderScale"/> of 1 at the window's size instead of stretching it. FSR needs its library,
+    /// amd_fidelityfx_vk.dll, next to the game; without it, or above a render scale of 1, TAA is used, and a missing
+    /// library is said once on the error stream. A change takes effect on the next frame and starts the history again.
+    /// </summary>
+    public Upscaler Upscaler
+    {
+        get => _upscaler;
+        set
+        {
+            if (value != _upscaler)
+            {
+                _upscaler = value;
+                _upscalerUsed = Upscale.Choose(value, value == Upscaler.Fsr && Fsr.IsAvailable, Console.Error);
+            }
+        }
+    }
+
+    /// <summary>The FSR version in use, such as "FSR 3.1.4", or null while FSR isn't drawing the picture.</summary>
+    public string? UpscalerVersion => _upscaling ? _fsrPass.Version : null;
 
     /// <summary>Returns <paramref name="value"/> if it's a <see cref="RenderScale"/> from 0.5 to 2, and throws if not.</summary>
     public static float CheckRenderScale(float value) => value is >= MinRenderScale and <= MaxRenderScale
@@ -320,6 +348,10 @@ public sealed unsafe class Renderer : IDisposable
         _disableVsync = options.DisableVsync;
         _swapchain = new Swapchain(_context, (uint)options.Width, (uint)options.Height, _disableVsync);
         _renderScale = CheckRenderScale(options.RenderScale);
+        // The targets start at the scene's size; the first frame makes FSR's, when it's used, as it learns
+        // whether anti-aliasing is on.
+        _upscaler = options.Upscaler;
+        _upscalerUsed = Upscale.Choose(_upscaler, _upscaler == Upscaler.Fsr && Fsr.IsAvailable, Console.Error);
         _api.GetPhysicalDeviceProperties(_context.PhysicalDevice, out var deviceProperties);
         _maxImageSize = (int)Math.Min(deviceProperties.Limits.MaxImageDimension2D, int.MaxValue);
         _gBuffer = new GBuffer(_context, SceneExtent(_swapchain.Extent));
@@ -418,11 +450,12 @@ public sealed unsafe class Renderer : IDisposable
         _tonemapSet = AllocateSet(_twoTextureSetLayout);
         _finishSet = AllocateSet(_twoTextureSetLayout);
         _overlaySet = AllocateSet(_oneTextureSetLayout);
-        _bloomPass = new BloomPass(_context, _linearSampler, _gBuffer.Resolved.View, _gBuffer.Extent);
+        _bloomPass = new BloomPass(_context, _linearSampler, _gBuffer.Resolved.View, _gBuffer.Display);
         _particlePass = new ParticlePass(_context, _frameSetLayout, FramesInFlight);
         _decalPass = new DecalPass(_context, _frameSetLayout, _resources, FramesInFlight);
         _transparentPass = new TransparentPass(_context, _frameSetLayout, _resources, _environment, _probes);
         _exposureMeter = new ExposureMeter(_context, _sampler);
+        _fsrPass = new FsrPass(_context, _sampler, _frameSetLayout, _exposureMeter.SetLayout);
         _depthOfFieldPass = new DepthOfFieldPass(_context, _sampler, _linearSampler, _frameSetLayout);
         _depthOfFieldPass.SetTargets(DisplaySource, _gBuffer.Depth.View, _gBuffer.Extent);
         WriteTargetDescriptors();
@@ -1217,14 +1250,18 @@ public sealed unsafe class Renderer : IDisposable
             return; // Minimized: there is nothing to present to.
         }
 
+        // FSR draws the picture at the window's size, so starting or stopping it changes the targets.
+        bool upscaling = _upscalerUsed == Upscaler.Fsr && _renderScale <= 1f && !view.Off.HasFlag(RenderEffects.AntiAliasing);
+        bool upscalingChanged = upscaling != _upscaling;
+        _upscaling = upscaling;
         if (_vsyncChanged || (uint)view.Width != _swapchain.Extent.Width || (uint)view.Height != _swapchain.Extent.Height)
         {
             Resize((uint)view.Width, (uint)view.Height);
         }
-        else if (SceneExtent(_swapchain.Extent) is var scene
-            && (scene.Width != _gBuffer.Extent.Width || scene.Height != _gBuffer.Extent.Height))
+        else if (upscalingChanged || (SceneExtent(_swapchain.Extent) is var scene
+            && (scene.Width != _gBuffer.Extent.Width || scene.Height != _gBuffer.Extent.Height)))
         {
-            // Frames in flight still read the targets being replaced. Changing the scale is rare.
+            // Frames in flight still read the targets being replaced. Changing the scale or upscaler is rare.
             _api.DeviceWaitIdle(_context.Device).Check();
             RebuildTargets();
         }
@@ -1269,7 +1306,7 @@ public sealed unsafe class Renderer : IDisposable
                 new(_sampler, DisplaySource, ImageLayout.ShaderReadOnlyOptimal),
                 new(_linearSampler, _bloomPass.Result, ImageLayout.ShaderReadOnlyOptimal),
             ]);
-            _exposureMeter.SetSource(DisplaySource, _gBuffer.Extent);
+            _exposureMeter.SetSource(DisplaySource, _gBuffer.Display);
             _depthOfFieldPass.SetSource(DisplaySource, _gBuffer.Depth.View);
         }
 
@@ -1317,9 +1354,22 @@ public sealed unsafe class Renderer : IDisposable
         // Without anti-aliasing to gather it, the shift would only make the picture shake.
         // The pixels are the scene's, which the render scale may make smaller or larger than the window's.
         var viewProjection = view.View * view.Projection;
+        // FSR takes as many shifts as it needs to land on every window pixel, more the smaller the scene.
         var scenePixels = new Vector2(_gBuffer.Extent.Width, _gBuffer.Extent.Height);
-        var shift = antiAliased ? Jitter[_frameNumber % JitterSteps] * 2f / scenePixels : Vector2.Zero;
+        int jitterPhases = _upscaling ? Upscale.JitterPhaseCount((float)_gBuffer.Extent.Width / _gBuffer.Display.Width) : JitterSteps;
+        var jitter = Upscale.Jitter(_frameNumber, jitterPhases);
+        var shift = antiAliased ? jitter * 2f / scenePixels : Vector2.Zero;
         var previous = _historyReady ? _previousViewProjection : viewProjection;
+        if (_upscaling)
+        {
+            float milliseconds = (view.Time - _previousTime) * 1000f;
+            _fsrFrame = new FsrFrame(
+                jitter,
+                _historyReady && milliseconds > 0f ? milliseconds : 1000f / 60f,
+                Reset: !_historyReady,
+                CameraNear(view.Projection),
+                VerticalFov(view.Projection));
+        }
         if (_casterBounds.Length < draws.Length)
         {
             _casterBounds = new Vector4[draws.Length * 2];
@@ -1590,6 +1640,7 @@ public sealed unsafe class Renderer : IDisposable
         _overlayAtlas?.Dispose();
         _finishPass.Dispose();
         _tonemapPass.Dispose();
+        _fsrPass.Dispose();
         _exposureMeter.Dispose();
         _depthOfFieldPass.Dispose();
         _bloomPass.Dispose();
@@ -1656,7 +1707,8 @@ public sealed unsafe class Renderer : IDisposable
         int overlayQuads)
     {
         var targets = _gBuffer;
-        var extent = targets.Extent;
+        // The picture's size from anti-aliasing on: the scene's, or the window's once FSR has rebuilt it.
+        var extent = targets.Display;
         var swapchainImage = _swapchain.Images[imageIndex];
 
         // Ldr still holds the last frame, so it's kept before this frame draws over it.
@@ -1670,11 +1722,18 @@ public sealed unsafe class Renderer : IDisposable
 
         // Anti-aliasing blends in the last frame, and reflections read it, so it's kept for
         // the next while either wants it. Without anti-aliasing the lit image is the frame.
-        if (_readsAntiAliased)
+        // FSR keeps its own history, at the window's size, so reflections get the lit image. It's kept every frame,
+        // so the last frame's camera and motion stay known to FSR whether reflections are on or not.
+        if (_upscaling)
+        {
+            RecordHistoryCopy(cmd, targets.Hdr.Image, drawnJustNow: false);
+            _fsrPass.Record(cmd, frameSet, _exposureMeter.Set, targets.Hdr.Image, targets.Depth.Image, targets.Resolved.Image, _fsrFrame);
+        }
+        else if (_readsAntiAliased)
         {
             ReadOnlySpan<DescriptorSet> taaSets = [frameSet, _taaSet];
             _api.BeginColorTarget(cmd, targets.Resolved.Image);
-            _taaPass.Record(cmd, targets.Resolved.View, extent, taaSets);
+            _taaPass.Record(cmd, targets.Resolved.View, targets.Extent, taaSets);
             RecordHistoryCopy(cmd, targets.Resolved.Image, drawnJustNow: true);
         }
         else if (!_off.HasFlag(RenderEffects.Reflections))
@@ -1773,7 +1832,7 @@ public sealed unsafe class Renderer : IDisposable
             {
                 SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
                 DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
-                Extent = new Extent3D(targets.Extent.Width, targets.Extent.Height, 1),
+                Extent = new Extent3D(targets.Display.Width, targets.Display.Height, 1),
             };
             _api.CmdCopyImage(cmd, targets.Ldr.Image, ImageLayout.TransferSrcOptimal,
                 targets.Held.Image, ImageLayout.TransferDstOptimal, 1, &region);
@@ -2269,7 +2328,9 @@ public sealed unsafe class Renderer : IDisposable
         // With no sun shadow there are no maps to look up, so nothing walks the cascades.
         uniforms->ShadowCascades = castsShadow ? _shadowCascades : 0;
         uniforms->Off = (int)_off;
-        uniforms->MipBias = !capturingProbe && !_off.HasFlag(RenderEffects.AntiAliasing) ? TemporalMipBias : 0f;
+        uniforms->MipBias = capturingProbe || _off.HasFlag(RenderEffects.AntiAliasing) ? 0f
+            : _upscaling ? FsrMipBias(_gBuffer.Extent.Width, _gBuffer.Display.Width)
+            : TemporalMipBias;
         _sunShadowsDrawn = castsShadow;
         WriteLocalLights(frame, uniforms, view, capturingProbe);
         return castsShadow;
@@ -2388,8 +2449,30 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     private void CreateTargets()
     {
-        _gBuffer = new GBuffer(_context, SceneExtent(_swapchain.Extent));
-        _bloomPass.Resize(DisplaySource, _gBuffer.Extent);
+        var scene = SceneExtent(_swapchain.Extent);
+        _gBuffer = new GBuffer(_context, scene, _upscaling ? _swapchain.Extent : scene);
+        if (_upscaling)
+        {
+            try
+            {
+                _fsrPass.SetTargets(scene, _swapchain.Extent, _gBuffer.Depth.View, _gBuffer.Motion.View);
+            }
+            catch (InvalidOperationException e)
+            {
+                // TAA draws instead, at the scene's size, until the upscaler is asked for again.
+                Console.Error.WriteLine($"{e.Message} Anti-aliasing uses TAA instead.");
+                _upscalerUsed = Upscaler.Taa;
+                _upscaling = false;
+                _gBuffer.Dispose();
+                _gBuffer = new GBuffer(_context, scene);
+            }
+        }
+        else
+        {
+            _fsrPass.Release();
+        }
+
+        _bloomPass.Resize(DisplaySource, _gBuffer.Display);
         _depthOfFieldPass.SetTargets(DisplaySource, _gBuffer.Depth.View, _gBuffer.Extent);
         if (_volumetricFog.HasTargets)
         {
@@ -2407,30 +2490,23 @@ public sealed unsafe class Renderer : IDisposable
         return new Extent2D((uint)width, (uint)height);
     }
 
-    /// <summary>Halton points spread the shifts evenly over a pixel, in fractions of a pixel.</summary>
-    private static Vector2[] CreateJitter()
-    {
-        static float Halton(int index, int radix)
-        {
-            float result = 0f;
-            float fraction = 1f;
-            for (; index > 0; index /= radix)
-            {
-                fraction /= radix;
-                result += fraction * (index % radix);
-            }
+    /// <summary>
+    /// The mip bias FSR asks for: textures read as sharp as the window's pixels would read them, and one level sharper
+    /// still, since FSR gathers the detail over its frames. -1 at a render scale of 1, -2 at 0.5.
+    /// </summary>
+    private static float FsrMipBias(uint sceneWidth, uint displayWidth) =>
+        MathF.Log2((float)sceneWidth / displayWidth) - 1f;
 
-            return result;
-        }
+    /// <summary>
+    /// The near plane's distance, for FSR. A reversed-Z perspective keeps it in M43; an orthographic view has no eye,
+    /// so it gets a small stand-in.
+    /// </summary>
+    private static float CameraNear(in Matrix4x4 projection) =>
+        projection.M34 != 0f && projection.M43 > 0f ? projection.M43 : 0.1f;
 
-        var shifts = new Vector2[JitterSteps];
-        for (int i = 0; i < JitterSteps; i++)
-        {
-            shifts[i] = new Vector2(Halton(i + 1, 2) - 0.5f, Halton(i + 1, 3) - 0.5f);
-        }
-
-        return shifts;
-    }
+    /// <summary>The view's height as an angle, in radians, for FSR: from M22, which is -1 / tan(fov / 2).</summary>
+    private static float VerticalFov(in Matrix4x4 projection) =>
+        projection.M34 != 0f && projection.M22 != 0f ? 2f * MathF.Atan(1f / MathF.Abs(projection.M22)) : MathF.PI / 3f;
 
     private Frame CreateFrame()
     {
@@ -2738,7 +2814,7 @@ public sealed unsafe class Renderer : IDisposable
             new(_sampler, DisplaySource, ImageLayout.ShaderReadOnlyOptimal),
             new(_linearSampler, _bloomPass.Result, ImageLayout.ShaderReadOnlyOptimal),
         ]);
-        _exposureMeter.SetSource(DisplaySource, _gBuffer.Extent);
+        _exposureMeter.SetSource(DisplaySource, _gBuffer.Display);
         WriteImages(_finishSet,
         [
             new(_linearSampler, _gBuffer.Ldr.View, ImageLayout.ShaderReadOnlyOptimal),

@@ -18,7 +18,15 @@ internal sealed class GBuffer : IDisposable
     /// <summary>Mip levels of <see cref="SceneColor"/>, each half the last, for frosted glass to blur by.</summary>
     public const uint SceneColorMips = 7;
 
+    /// <summary>The scene's size: every target but <see cref="Resolved"/>, <see cref="Ldr"/> and <see cref="Held"/>.</summary>
     public readonly Extent2D Extent;
+
+    /// <summary>
+    /// The size of the picture after anti-aliasing: <see cref="Resolved"/>, <see cref="Ldr"/> and
+    /// <see cref="Held"/>. The scene's own size, unless FSR upscales it to the window's.
+    /// </summary>
+    public readonly Extent2D Display;
+
     public readonly RenderTarget BaseColor;
     public readonly RenderTarget Normal;
     /// <summary>Normal as the opaque surfaces left it, for decals to read while they write Normal.</summary>
@@ -35,7 +43,7 @@ internal sealed class GBuffer : IDisposable
     public readonly RenderTarget Depth;
     public readonly RenderTarget Hdr;
 
-    /// <summary>The lit image with anti-aliasing applied.</summary>
+    /// <summary>The lit image with anti-aliasing applied, at <see cref="Display"/>. TAA draws it and FSR writes it from compute.</summary>
     public readonly RenderTarget Resolved;
 
     /// <summary>Last frame's Resolved, for anti-aliasing and reflections.</summary>
@@ -55,9 +63,10 @@ internal sealed class GBuffer : IDisposable
     /// <summary>A copy of Hdr behind the glass, with blurrier mips, for glass to see through and bend.</summary>
     public readonly RenderTarget SceneColor;
 
-    public GBuffer(VulkanContext context, Extent2D extent)
+    public GBuffer(VulkanContext context, Extent2D extent, Extent2D? display = null)
     {
         Extent = extent;
+        Display = display ?? extent;
         BaseColor = new RenderTarget(context, BaseColorFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         Normal = new RenderTarget(context, NormalFormat, extent, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
         NormalCopy = new RenderTarget(context, NormalFormat, extent, ImageUsageFlags.TransferDstBit, ImageAspectFlags.ColorBit);
@@ -65,14 +74,16 @@ internal sealed class GBuffer : IDisposable
         Motion = new RenderTarget(context, MotionFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         Depth = new RenderTarget(context, DepthFormat, extent, ImageUsageFlags.DepthStencilAttachmentBit, ImageAspectFlags.DepthBit);
         Hdr = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
-        Resolved = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
+        Resolved = new RenderTarget(
+            context, HdrFormat, Display, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.StorageBit,
+            ImageAspectFlags.ColorBit);
         History = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.TransferDstBit, ImageAspectFlags.ColorBit);
         Scatter = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         ScatterBlurred = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         Ao = new RenderTarget(context, AoFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         AoBlurred = new RenderTarget(context, AoFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
-        Ldr = new RenderTarget(context, LdrFormat, extent, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
-        Held = new RenderTarget(context, LdrFormat, extent, ImageUsageFlags.TransferDstBit, ImageAspectFlags.ColorBit);
+        Ldr = new RenderTarget(context, LdrFormat, Display, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
+        Held = new RenderTarget(context, LdrFormat, Display, ImageUsageFlags.TransferDstBit, ImageAspectFlags.ColorBit);
         SceneColor = new RenderTarget(
             context, HdrFormat, extent, ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit, ImageAspectFlags.ColorBit,
             mips: MipsFor(extent));
