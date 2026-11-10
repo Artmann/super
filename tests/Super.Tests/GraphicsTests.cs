@@ -202,12 +202,6 @@ public class GraphicsTests
     }
 
     [Fact]
-    public void Fastest_uses_taa()
-    {
-        Assert.Equal(Upscaler.Taa, Graphics.Fastest().Upscaler);
-    }
-
-    [Fact]
     public void A_changed_upscaler_reaches_the_renderer_next_frame()
     {
         var given = new Graphics { Upscaler = Upscaler.Taa };

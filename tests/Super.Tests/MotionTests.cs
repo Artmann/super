@@ -225,4 +225,39 @@ public class MotionTests
 
         Assert.Equal(0, history.Previous(draw).HasHistory);
     }
+
+    // A point behind last frame's camera gets a made-up motion, written by two shaders: the scene's
+    // surfaces and the sky's FSR motion. If they drifted apart, or past what the 16-bit motion target
+    // holds (65504), one of them would land back on the picture and borrow history it doesn't have.
+    [Fact]
+    public void Both_shaders_send_a_point_behind_last_frames_camera_off_the_widest_picture()
+    {
+        float surface = ShaderConstant("surface.glsl", "MOTION_OFF_PICTURE");
+        float sky = ShaderConstant("fsr_motion.frag", "OFF_PICTURE");
+
+        Assert.Equal(surface, sky);
+        Assert.True(Math.Abs(surface) <= 65504f, $"{surface} doesn't fit in a 16-bit float.");
+
+        // From the far corner of a 16384-pixel picture, the history is still off its other edge.
+        var widest = new Vector2(16384f, 16384f);
+        var historyUv = Motion.HistoryUv(Vector2.One, new Vector2(surface), widest);
+        Assert.True(historyUv.X < 0f && historyUv.Y < 0f, $"History at {historyUv} is on the picture.");
+    }
+
+    private static float ShaderConstant(string name, string constant)
+    {
+        for (var folder = new DirectoryInfo(AppContext.BaseDirectory); folder is not null; folder = folder.Parent)
+        {
+            string path = Path.Combine(folder.FullName, "src", "Rendition", "Shaders", name);
+            if (File.Exists(path))
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(
+                    File.ReadAllText(path), $@"const float {constant} = ([0-9.eE+-]+);");
+                Assert.True(match.Success, $"{name} has no const float {constant}.");
+                return float.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
+
+        throw new FileNotFoundException($"src/Rendition/Shaders/{name} isn't in any folder above the tests.");
+    }
 }

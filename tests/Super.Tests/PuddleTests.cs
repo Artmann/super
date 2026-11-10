@@ -49,9 +49,13 @@ public class PuddleTests
     [InlineData("baseColor *= 1.0 - fresnelSchlick(nDotV, f0);")]
     public void The_lighting_shows_the_waters_body_only_where_it_doesnt_reflect(string line)
     {
+        // The water block is the first one after f0 is declared, found without the lines checked,
+        // so each line can be missing on its own.
         string lighting = Shader("lighting.frag");
-        int water = lighting.IndexOf("if (water) {\n        f0 = vec3(WATER_F0);", StringComparison.Ordinal);
-        Assert.True(water >= 0, "lighting.frag sets no f0 for water.");
+        int f0 = lighting.IndexOf("vec3 f0 = ", StringComparison.Ordinal);
+        Assert.True(f0 >= 0, "lighting.frag declares no f0.");
+        int water = lighting.IndexOf("if (water) {", f0, StringComparison.Ordinal);
+        Assert.True(water >= 0, "lighting.frag has no water block after f0.");
         int end = lighting.IndexOf('}', water);
 
         Assert.Contains(line, lighting[water..end]);
