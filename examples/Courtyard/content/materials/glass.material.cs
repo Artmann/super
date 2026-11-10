@@ -9,20 +9,21 @@ public sealed class Glass : MaterialGraph
 {
     // The window's panes are 0.617 m wide and 0.461 m high between the middles of the glazing bars. Six by eight
     // panes 3.7 m across come within 2 mm a pane of that, so the graph is that wide and its grid lines up with the
-    // bars of the whole window without repeating. The model's UVs are in metres from the origin, so the grid is moved
-    // to put a line on the frame's inner edge, 1.475 m across and 1.245 m up.
+    // bars of the whole window without repeating. The model's glass has its UVs in metres from the frame's inner
+    // bottom-left corner, so the grid's corner, at the image's, lies there. The image's rows run down the window, so
+    // the bottom row of panes is the image's last row of tiles and the window's three columns are its first three.
     private const int Columns = 6;
     private const int Rows = 8;
-    private static readonly Vector2 GridOffset = new(0.065315f, 0.038514f);
 
-    // The cracked pane, the right-hand one in the third row down, as the corners of its box in the image.
-    private static readonly Vector2 CrackedMin = new(0.7320f, 0.2885f);
-    private static readonly Vector2 CrackedMax = new(0.8986f, 0.4135f);
+    // The cracked pane, the right-hand one in the third row down, which is the third column and the third row up of
+    // tiles, as the corners of its box in the image.
+    private static readonly Vector2 CrackedMin = new(2f / Columns, 1f - 3f / Rows);
+    private static readonly Vector2 CrackedMax = new(3f / Columns, 1f - 2f / Rows);
 
     public override Material Build()
     {
         // The panes, each found as an island, with a 0 to 1 ramp across and up each one.
-        var panes = Tiles.Grid(Columns, Rows, gap: 0.03f, bevel: 0f).Transform(offset: GridOffset).FloodFill(threshold: 0.5f);
+        var panes = Tiles.Grid(Columns, Rows, gap: 0.03f, bevel: 0f).FloodFill(threshold: 0.5f);
         var across = panes.ToGradient(0f);
         var up = panes.ToGradient(90f);
 

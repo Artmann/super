@@ -822,7 +822,9 @@ def build_window(sc, M, x0, x1):
     face.normal_update()
     if face.normal.y > 0:
         face.normal_flip()
-    box_uv(bm, [face])
+    # Its UVs start from the frame's inner bottom-left corner, so the glass graph's grid of
+    # panes, which starts at the image's corner, starts there too and its lines fall on the bars.
+    box_uv(bm, [face], (-left, 0.0, -bottom))
     emit(sc, "glass", bm, [M["glass"]])
     bm = bmesh.new()
     box(bm, (x0 - 0.3, y + 0.05, 0.4), (x1 + 0.3, y + 3.5, SPRING_Z + 1.2), 0)
@@ -2360,6 +2362,62 @@ def dead_leaf(bm, centre, length, angle, mat, floor):
     f.material_index = mat
 
 
+# The ground under the things that stand on it, where nothing small may lie or it would show
+# through them: (x, y), the half sizes along and across, and the turn in degrees. The half
+# sizes reach a few centimetres past each foot, so a leaf's edge stays clear of it too.
+KEEP_OUT = [
+    # The barrel's foot (build_barrel), 0.46 m round; a square that holds that circle would
+    # keep too much out, so it is a circle, marked by a half size of 0 across.
+    ((0.2, WALL_Y - 0.75), (0.52, 0.0), 0.0),
+    # The crates (build_crates), 0.95 and 0.58 m square.
+    ((7.0, WALL_Y - 1.2), (0.52, 0.52), -6.0),
+    ((7.6, 1.2), (0.33, 0.33), 22.0),
+    # The sacks (build_sacks): the two standing, then the one lying down, as circles.
+    ((6.3, 2.95), (0.33, 0.0), 0.0),
+    ((6.34, 2.42), (0.3, 0.0), 0.0),
+    ((6.75, 1.85), (0.36, 0.0), 0.0),
+    # Where the wheel's rim meets the ground (build_wheel): it leans back at 30 degrees, so
+    # only a short stretch either side of its foot is low enough to cut through a leaf.
+    ((5.55, WALL_Y - 0.76), (0.3, 0.1), 8.0),
+]
+
+
+def kept_out(x, y):
+    """Whether (x, y) is under something in KEEP_OUT."""
+    return clear_of_things(x, y) != (x, y)
+
+
+def clear_of_things(x, y):
+    """(x, y), or if it is under something in KEEP_OUT, the nearest point just outside it. It
+    moves a point rather than drawing a new one, so the random numbers drawn after it are the
+    same either way."""
+    for _ in range(4):
+        moved = False
+        for (cx, cy), (along, across), degrees in KEEP_OUT:
+            dx, dy = x - cx, y - cy
+            if across == 0.0:
+                d = math.hypot(dx, dy)
+                if d < along:
+                    if d < 1e-6:
+                        dx, dy, d = 1.0, 0.0, 1.0
+                    x, y = cx + dx / d * along, cy + dy / d * along
+                    moved = True
+                continue
+            c, s = math.cos(math.radians(degrees)), math.sin(math.radians(degrees))
+            u, v = dx * c + dy * s, -dx * s + dy * c
+            if abs(u) < along and abs(v) < across:
+                # Out through the nearest side.
+                if along - abs(u) < across - abs(v):
+                    u = math.copysign(along, u)
+                else:
+                    v = math.copysign(across, v)
+                x, y = cx + u * c - v * s, cy + u * s + v * c
+                moved = True
+        if not moved:
+            break
+    return x, y
+
+
 def build_fallen_leaves(sc, M):
     """Brown and orange leaves, blown into the corners: along the foot of the wall, by the deck
     and among the flagstones, and only a few out in the open mud."""
@@ -2375,6 +2433,8 @@ def build_fallen_leaves(sc, M):
             x, y = rng.uniform(-3, 11), rng.uniform(-6, WALL_Y - 0.3)
         if puddle_depth(x, y) > 0.2:
             continue
+        # Blown up against the barrel, the crates, the sacks and the wheel, not under them.
+        x, y = clear_of_things(x, y)
         on_path = path_distance(x, y) < PATH_HALF_WIDTH - 0.05
         on_deck = DECK[0] < x < DECK[1] and DECK[2] < y < DECK[3]
         if on_deck:
@@ -2619,6 +2679,7 @@ def build_debris(sc, M):
             x, y = leaf_rng.uniform(-1.0, 7.5), leaf_rng.uniform(-3.5, WALL_Y - 0.4)
         if puddle_shape(x, y) < 1.2:
             continue
+        x, y = clear_of_things(x, y)
         size = leaf_rng.uniform(0.08, 0.13) / 0.85
         yaw = leaf_rng.uniform(0, 2 * math.pi)
         lift = leaf_rng.uniform(0.0, 0.25)
@@ -2645,6 +2706,8 @@ def build_debris(sc, M):
             if k:
                 heading += leaf_rng.uniform(-0.35, 0.35)
                 x, y = x + math.cos(heading) * length / 3, y + math.sin(heading) * length / 3
+            # A twig that runs into the barrel or the wheel bends round its foot.
+            x, y = clear_of_things(x, y)
             pts.append((x, y, resting(x, y) + r * 0.8))
         tube(twigs, pts, r, 0, segments=5)
         # A side shoot off one in two.
@@ -2652,6 +2715,7 @@ def build_debris(sc, M):
             a = Vector(pts[1])
             d = heading + leaf_rng.choice((-1, 1)) * leaf_rng.uniform(0.5, 0.9)
             b = a + Vector((math.cos(d), math.sin(d), 0.0)) * length * 0.3
+            b.x, b.y = clear_of_things(b.x, b.y)
             b.z = resting(b.x, b.y) + r * 0.6
             tube(twigs, [tuple(a), tuple(b)], r * 0.6, 0, segments=4)
     box_uv(twigs, twigs.faces[:])
@@ -2665,7 +2729,8 @@ def build_debris(sc, M):
             x, y = leaf_rng.uniform(1.0, 5.8), WALL_Y - leaf_rng.uniform(0.45, 0.9)
         else:
             x, y = leaf_rng.uniform(-1.2, 6.0), leaf_rng.uniform(-3.5, 1.0)
-        if puddle_shape(x, y) < 1.3 or path_distance(x, y) < PATH_HALF_WIDTH + 0.08 or footprint_depth(x, y) > 0.05:
+        if puddle_shape(x, y) < 1.3 or path_distance(x, y) < PATH_HALF_WIDTH + 0.08 or footprint_depth(x, y) > 0.05 \
+                or kept_out(x, y):
             continue
         half = (leaf_rng.uniform(0.04, 0.1), 0.05, 0.033)
         sink = half[2] * leaf_rng.uniform(0.7, 1.2)
@@ -2724,8 +2789,10 @@ def build_cobwebs(sc, M):
     z = SPRING_Z - bar / 2
     web(bm, (x0 + fw, y, z), (1, 0, 0), (0, 0, -1), 0.3)
     web(bm, (x1 - fw, y, z), (-1, 0, 0), (0, 0, -1), 0.26)
-    # Behind the pipe, from the pier's side, under the ears that hold the lowest collar.
-    web(bm, (PIER_X1, WALL_Y - 0.035, 1.5 - 0.037), (1, 0, 0), (0, 0, -1), 0.24)
+    # Behind the pipe, from the pier's side, just under the lowest collar. The collar reaches
+    # 5 cm down from its middle at 1.5 m and stands out past the web's plane, so the web's top
+    # is 5.2 cm down, clear of it.
+    web(bm, (PIER_X1, WALL_Y - 0.035, 1.5 - 0.052), (1, 0, 0), (0, 0, -1), 0.24)
     emit(sc, "cobwebs", bm, [M["cobweb"]])
 
 
