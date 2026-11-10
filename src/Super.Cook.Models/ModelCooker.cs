@@ -408,7 +408,7 @@ public sealed class ModelCooker : ICooker
 
         for (int i = 0; i < materials.Count; i++)
         {
-            if ((materials[i].Flags & MaterialFlags.Foliage) != 0)
+            if ((materials[i].Flags & MaterialFlags.Foliage) != 0 && RuleFor(settings, materialNames[i])?.Foliage?.Crown != false)
             {
                 PointOutOfCrown(vertexArray, meshVertices.Where(mesh => mesh.Material == i));
             }

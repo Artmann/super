@@ -810,6 +810,11 @@ leaves, and draws both sides. Every material the rule matches counts as one crow
 give the trunk its own material. How much sunlight comes through is the leaves' own: 0.6
 with `"foliage": true`, or set as `"foliage": { "translucency": 0.85 }` for thin, bright
 leaves, down to 0 for leaves no light gets through. Anything outside 0 to 1 stops the cook.
+Leaves that aren't one rounded shape, such as ivy on a wall or grass across a yard, take
+`"foliage": { "crown": false }`. That keeps the normals the model gives, so bend them out of
+the surface the leaves grow on in your modelling tool. As one crown, ivy whose rule also
+covers ivy spilling into the yard would have its wall leaves facing into the wall, and
+lit dark.
 A `Surface` sets the same with `Foliage = true` and `Translucency`, and a Rendition `Material`
 with `MaterialFlags.Foliage` and `Translucency`; both start at 0.6. To make the leaves move,
 add a [`wind`](#wind) rule.

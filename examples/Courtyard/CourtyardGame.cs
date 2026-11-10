@@ -9,7 +9,8 @@ namespace Courtyard;
 /// window, a dry-stone wall, a flagstone path through trodden mud and a puddle. Its bricks, stone,
 /// mud, wood, rust and window glass are the material graphs, put on the model by its cook sidecar.
 /// M turns the materials off and on, to judge the lighting and the shapes on their own, F the fog, V the volumetric fog and D the
-/// decals: the grime on the wall and the gravel spilled off the path.
+/// decals: the grime on the wall, the gravel spilled off the path and the dirt, rust, moss, wet ground and boot prints
+/// listed in content/decals/courtyard.json.
 /// </summary>
 public sealed class CourtyardGame(Content content, Input input, Graphics graphics) : IGame
 {
@@ -34,9 +35,15 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
     /// <summary>The seed the gravel spills are placed from.</summary>
     public const int GravelSeed = 19;
 
+    /// <summary>The folder of hand-placed decal lists, and the Courtyard's own list in it.</summary>
+    public const string DecalFolder = "decals";
+
+    /// <summary>The Courtyard's list in <see cref="DecalFolder"/>, content/decals/courtyard.json.</summary>
+    public const string DecalListId = "courtyard";
+
     private ModelRef _courtyard;
-    private MeshMask? _withoutStains;
     private readonly List<(Matrix4x4 Box, Surface Surface)> _stains = [];
+    private readonly List<(Matrix4x4 Box, Surface Surface, DecalBlend Blend)> _placed = [];
     private List<Matrix4x4> _gravelBoxes = [];
     private Surface? _gravel;
 
@@ -48,7 +55,7 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         ["clear"] = new InputScript().Press(Key.F).Wait(1),
         // The courtyard at a fixed exposure, to compare with what the camera meters.
         ["fixed"] = new InputScript().Press(Key.E).Wait(1),
-        // The courtyard without its decals: the grime on the wall and the gravel off the path.
+        // The courtyard without its decals: the grime on the wall, the gravel off the path and the hand-placed list.
         ["clean"] = new InputScript().Press(Key.D).Wait(1),
         // The courtyard with the plain height fog, to compare with the volumetric fog.
         ["plain-fog"] = new InputScript().Press(Key.V).Wait(1),
@@ -58,13 +65,8 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
     {
         _courtyard = content.Model("models/courtyard.glb");
 
-        // The model still holds the flat stain quads art/courtyard.py lays in front of the wall
-        // (build_stains). The same grime is projected onto the wall as decals instead, so leave them out.
-        string[] kept = content.MeshNames(_courtyard).Where(name => name != "cy_stains").ToArray();
-        _withoutStains = content.Meshes(_courtyard, kept);
-
         // The damp is darkened past the grime's own colour so it reads from across the yard: wet brick goes
-        // a good deal darker than dry. The model's hidden quads use the same graph, so it isn't changed there.
+        // a good deal darker than dry.
         var damp = content.Surface("materials/grime.material.cs") with { Color = new Vector3(0.5f) };
         var drip = content.Surface("materials/grime-streak.material.json");
         var rust = content.Surface("materials/rust-streak.material.json");
@@ -77,6 +79,13 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
                 _ => rust,
             };
             _stains.Add((box, surface));
+        }
+
+        // The hand-placed decals: dirt round everything that stands on the ground, rust, moss, wet ground and boot
+        // prints. Each names its material, and a list that names one that wasn't cooked stops here.
+        foreach (var decal in content.LoadAll<DecalList>(DecalFolder)[DecalListId].Decals)
+        {
+            _placed.Add((decal.Box(), content.Surface(decal.Material), decal.Blend));
         }
 
         // Gravel kicked off the flagstones into the mud, along both edges of the path and round the barrel.
@@ -182,19 +191,26 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
             Lift = new Vector3(0f, 0.005f, 0.015f),
             Gain = new Vector3(0.01f, 0.005f, -0.005f),
         });
-        view.Model(0, _courtyard, Matrix4x4.Identity, _withoutStains!);
+        view.Model(0, _courtyard, Matrix4x4.Identity);
 
-        // The damp, the drip off the sill and the rust, laid onto the wall in the order the old
-        // quads were stacked, so the drip lies over the damp.
+        // The damp, the drip off the sill and the rust, laid onto the wall so the drip lies over the damp.
         for (int i = 0; i < _stains.Count; i++)
         {
             view.Decal(i, _stains[i].Box, _stains[i].Surface);
         }
 
-        // The gravel off the path, keyed after the stains.
+        // The hand-placed decals, keyed after the stains and drawn before the gravel, so the gravel round the barrel
+        // lies over the dirt there.
+        for (int i = 0; i < _placed.Count; i++)
+        {
+            view.Decal(_stains.Count + i, _placed[i].Box, _placed[i].Surface, _placed[i].Blend);
+        }
+
+        // The gravel off the path, keyed after both.
+        int first = _stains.Count + _placed.Count;
         for (int i = 0; i < _gravelBoxes.Count; i++)
         {
-            view.Decal(_stains.Count + i, _gravelBoxes[i], _gravel!, GravelBlend);
+            view.Decal(first + i, _gravelBoxes[i], _gravel!, GravelBlend);
         }
     }
 }

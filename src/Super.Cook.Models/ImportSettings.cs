@@ -280,6 +280,13 @@ public sealed class FoliageRule
 
     /// <summary>How much sunlight shines through from behind, from 0 for none to 1 for all of it.</summary>
     public float Translucency { get; set; } = DefaultTranslucency;
+
+    /// <summary>
+    /// Whether every mesh of the material is one crown, whose normals are pointed out of it: true, the default, for a
+    /// tree. False keeps the normals the model gives, for leaves that aren't one rounded shape, such as ivy on a wall
+    /// or grass across a yard, whose modelling tool bends them out of the surface they grow on.
+    /// </summary>
+    public bool Crown { get; set; } = true;
 }
 
 /// <summary>How a material moves in the wind: see <see cref="MaterialRule.Wind"/>.</summary>

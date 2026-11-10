@@ -63,9 +63,9 @@ public sealed class IvyLeaf : MaterialGraph
             .Multiply(Noise.Perlin(scale: 32, octaves: 3, seed: 6).Remap(0.92f, 1.06f))
             .Blend(Rgb.Of("#5c6b2c"), mask: stalk.Multiply(leaf.Invert()));
 
-        // Waxy: 0.45 over the leaf and 0.3 in a band down the middle of each lobe, where the cuticle catches the light,
-        // a little rougher on the veins.
-        var roughness = band.Remap(0.45f, 0.3f)
+        // Waxy: 0.55 over the leaf and 0.42 in a band down the middle of each lobe, where the cuticle catches the light,
+        // a little rougher on the veins. Glossier, a leaf seen edge on mirrors the sky and turns white.
+        var roughness = band.Remap(0.55f, 0.42f)
             .Add(allVeins.Multiply(0.08f))
             .Add(Noise.Perlin(scale: 24, octaves: 2, seed: 7).Remap(-0.03f, 0.03f));
 

@@ -27,12 +27,14 @@ public sealed class GrassBlade : MaterialGraph
     /// <summary>The species' look, or an error that lists the species there are.</summary>
     public static Look Of(string species) => species switch
     {
-        // Long narrow blades, about 5 mm wide and 25 cm long, green with straw tips.
+        // Long narrow blades, about 5 mm wide and 25 cm long, a slightly yellow olive meadow green, darker at the
+        // foot, with dry straw tips. The leaves let the sun through, which deepens their green again, so it is a
+        // muted one.
         "meadow" => new Look(24, 0.3f, 0.78f, 0.97f, 0.3f, 0f,
-            Ramp.Of((0f, "#5b6e34"), (0.12f, "#46682a"), (0.55f, "#5d8a33"), (0.82f, "#8a9a48"), (1f, "#b8a76c"))),
-        // Short wide blades, about 1.5 cm wide and 18 cm long, a deeper lush green that only browns at the very tip.
+            Ramp.Of((0f, "#2f4020"), (0.12f, "#374c22"), (0.55f, "#5a6632"), (0.82f, "#7c7f46"), (1f, "#a8996a"))),
+        // Short wide blades, about 1.5 cm wide and 18 cm long, a deeper lusher green that only browns at the very tip.
         "broad" => new Look(12, 0.33f, 0.5f, 0.7f, 0.3f, 0f,
-            Ramp.Of((0f, "#4d6630"), (0.1f, "#365a22"), (0.6f, "#4a7a2c"), (0.9f, "#6b8a3a"), (1f, "#998f5a"))),
+            Ramp.Of((0f, "#2c3a1d"), (0.1f, "#304622"), (0.6f, "#435c2c"), (0.9f, "#5f6e3c"), (1f, "#8a8259"))),
         // Dry stalks, about 2 mm thick, straw all over, the top quarter a seed head about a centimetre wide.
         "dry" => new Look(16, 0.07f, 0.85f, 0.97f, 0.05f, 0.25f,
             Ramp.Of((0f, "#7d7c4a"), (0.3f, "#a29561"), (0.75f, "#c0ad7a"), (1f, "#b39c68"))),
@@ -52,6 +54,8 @@ public sealed class GrassBlade : MaterialGraph
         // 0 at a blade's foot and 1 at its tip, and its own random value, each per column.
         var along = Pixel.Gray(p => Along(p.Uv, look, seed));
         var tone = Pixel.Gray(p => Unit(seed, Column(p.Uv, look) * 16 + 5));
+        // Another per blade, for its hue: some blades warmer and yellower, some cooler and bluer.
+        var warmth = Pixel.Gray(p => Unit(seed, Column(p.Uv, look) * 16 + 6));
         var rib = Pixel.Gray(p => Rib(p.Uv, look, seed));
         var head = Pixel.Gray(p => look.Head > 0f && Along(p.Uv, look, seed) > 1f - look.Head ? 1f : 0f);
 
@@ -64,12 +68,14 @@ public sealed class GrassBlade : MaterialGraph
             .Add(veins.Multiply(0.08f))
             .Multiply(opacity);
 
-        // Green at the foot drying to straw towards the tip, each blade a little lighter or darker and a little more
-        // or less dry, the rib paler, and here and there a rust-brown spot.
+        // Green at the foot drying to straw towards the tip, each blade a little lighter or darker, a little more or
+        // less dry and a little yellower or bluer, the rib paler, and here and there a rust-brown spot.
         var dryness = along.Add(tone.Remap(-0.12f, 0.12f));
         var spots = Noise.Cells(scale: 90, seed: 3).Levels(0f, 0.12f).Invert()
             .Multiply(Noise.Perlin(scale: 6, octaves: 2, seed: 4).Levels(0.62f, 0.72f));
         var color = dryness.GradientMap(look.Colors)
+            .Blend(Rgb.Of("#6c6a34"), mask: warmth.Levels(0.55f, 1f), opacity: 0.3f)
+            .Blend(Rgb.Of("#394d33"), mask: warmth.Invert().Levels(0.55f, 1f), opacity: 0.3f)
             .Multiply(tone.Remap(0.86f, 1.1f))
             .Blend(dryness.GradientMap(look.Colors).Multiply(Gray.Of(1.25f)), mask: rib, opacity: 0.45f)
             .Blend(Rgb.Of("#7a5a32"), mask: spots, opacity: 0.6f)

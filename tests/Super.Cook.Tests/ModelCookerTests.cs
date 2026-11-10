@@ -225,6 +225,27 @@ public sealed class ModelCookerTests : IDisposable
     }
 
     [Theory]
+    // The two triangles lie flat in z = 0, so their own normals point along z. As one crown, flat in z, each normal
+    // points out of the crown's middle across the plane instead, with nothing along z.
+    [InlineData("{ \"translucency\": 0.7 }", 0f)]
+    [InlineData("{ \"translucency\": 0.7, \"crown\": true }", 0f)]
+    [InlineData("{ \"translucency\": 0.7, \"crown\": false }", 1f)]
+    public void Foliage_points_its_normals_out_of_the_crown_unless_crown_is_false(string rule, float alongZ)
+    {
+        string src = Temp();
+        TinyGltf.Write(src, "a.gltf", "leaf", ["a", "b"]);
+        File.WriteAllText(Path.Combine(src, "a.gltf.cook.json"),
+            "{ \"materials\": [ { \"match\": \"leaf\", \"foliage\": " + rule + " } ] }");
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var model = Model(store, "a.gltf");
+        Assert.Equal(MaterialFlags.Foliage, model.Materials[0].Flags & MaterialFlags.Foliage);
+        Assert.All(model.Vertices, vertex => Assert.Equal(alongZ, MathF.Abs(vertex.Normal.Z), 3));
+    }
+
+    [Theory]
     [InlineData("false")]
     [InlineData("null")]
     public void Foliage_false_leaves_the_material_solid(string rule)

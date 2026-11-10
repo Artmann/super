@@ -846,7 +846,8 @@ surface texture's alpha. Asset packs and glTF keep leaf alpha in the colour text
 it works without a surface texture. The model cooker fails when a cutoff can't cut: no
 pixel has alpha below it, or none has alpha above it. A `foliage` rule is for a tree's
 leaves. It points the normals out of the crown, so the crown is lit as one shape and
-not as a pile of separate cards, draws both sides, and keeps back faces from flipping
+not as a pile of separate cards (unless the rule says `"crown": false`, which keeps the
+model's normals, for ivy and grass whose leaves aren't one shape), draws both sides, and keeps back faces from flipping
 their normal. The lighting pass then lets sunlight through the leaves from behind, by the
 material's own translucency. That rides in `GpuMaterial.Transmission` (`ResourceTable.Transmission` picks it), which subsurface
 uses for its own and foliage can share since the two exclude each other, and `writeSurface`

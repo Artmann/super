@@ -130,18 +130,24 @@ def make_materials():
         "bark": material("bark", (0.16, 0.13, 0.1), roughness=0.9),
         "tree_leaf": material("tree_leaf", (0.11, 0.19, 0.05), roughness=0.7),
         "bulb": material("bulb", (1.0, 0.85, 0.6), emission=(1.0, 0.75, 0.45), strength=12.0),
-        "ivy": material("ivy", (0.12, 0.2, 0.06), roughness=0.7),
         "vine": material("vine", (0.12, 0.09, 0.06), roughness=0.9),
         "plaster": material("graph_whitewash", (0.72, 0.7, 0.66), roughness=0.95),
         "dead_leaf": material("dead_leaf", (0.42, 0.24, 0.1), roughness=0.8),
         "dead_leaf_orange": material("dead_leaf_orange", (0.7, 0.36, 0.08), roughness=0.75),
-        "grass": material("grass", (0.2, 0.3, 0.08), roughness=0.7),
-        "grass_dry": material("grass_dry", (0.42, 0.4, 0.18), roughness=0.8),
         "sack": material("graph_sack", (0.5, 0.4, 0.27), roughness=0.95),
         "twine": material("twine", (0.18, 0.14, 0.09), roughness=0.9),
-        "damp": material("graph_damp", (0.2, 0.18, 0.15), roughness=0.7),
-        "drip": material("graph_drip", (0.2, 0.18, 0.15), roughness=0.7),
-        "rust": material("graph_rust", (0.35, 0.18, 0.08), roughness=0.8),
+        # Cards: flat quads that wear a leaf, blade or web graph, cut out by its opacity.
+        "ivy_small": material("graph_ivy_small", (0.2, 0.32, 0.12)),
+        "ivy_large": material("graph_ivy_large", (0.2, 0.32, 0.12)),
+        "ivy_dead": material("graph_ivy_dead", (0.36, 0.26, 0.1)),
+        "meadow": material("graph_blade_meadow", (0.25, 0.38, 0.14)),
+        "broad": material("graph_blade_broad", (0.2, 0.34, 0.12)),
+        "dry": material("graph_blade_dry", (0.55, 0.5, 0.3)),
+        "cobweb": material("graph_cobweb", (0.8, 0.8, 0.8)),
+        "leaf_tan": material("graph_deadleaf_tan", (0.55, 0.36, 0.16)),
+        "leaf_dark": material("graph_deadleaf_dark", (0.36, 0.22, 0.1)),
+        "leaf_red": material("graph_deadleaf_red", (0.55, 0.22, 0.1)),
+        "wet_stone": material("graph_pebble_wet", (0.45, 0.43, 0.38)),
     }
 
 
@@ -236,14 +242,30 @@ def remove_mesh(o):
         bpy.data.meshes.remove(me)
 
 
-def emit(sc, name, bm, mats, smooth=False):
+def emit(sc, name, bm, mats, smooth=False, bend=None, share=2.0):
+    """bend gives leaf cards the normals of the surface they grow on, as foliage cards are lit:
+    one normal for every face, or a list with one per face in the order they were made. Each
+    card's normal leans share times as far towards it as its own, turned to the same side,
+    so the leaves are lit like the wall or ground under them, with a little of their own turn."""
     me = bpy.data.meshes.new("cy_" + name)
-    if smooth:
+    if smooth or bend is not None:
         for f in bm.faces:
             f.smooth = True
     bm.normal_update()
     bm.to_mesh(me)
     bm.free()
+    if bend is not None:
+        surfaces = bend if isinstance(bend, list) else [bend] * len(me.polygons)
+        assert len(surfaces) == len(me.polygons), f"{name}: {len(surfaces)} bends for {len(me.polygons)} faces"
+        normals = [None] * len(me.loops)
+        for poly, surface in zip(me.polygons, surfaces):
+            own = Vector(poly.normal)
+            if own.dot(surface) < 0:
+                own = -own
+            bent = (surface.normalized() * share + own).normalized()
+            for loop in poly.loop_indices:
+                normals[loop] = bent
+        me.normals_split_custom_set(normals)
     for m in mats:
         me.materials.append(m)
     ob = bpy.data.objects.new("cy_" + name, me)
@@ -748,43 +770,6 @@ def build_pier(sc, M):
     box(bm, (PIER_X0, WALL_Y - PIER_DEPTH, 0.0), (PIER_X1, WALL_Y + 0.02, WALL_TOP + 0.08), 0)
     box_uv(bm, bm.faces[:], (0.19, 0.0, 0.0))
     emit(sc, "pier", bm, [M["bricks"]])
-
-
-def stain(bm, x0, x1, z_solid, z_faded, y, mat, streak=False):
-    """A flat quad just in front of the wall at y, for a dithered grime graph. Its V runs from
-    0 at z_solid, where the stain is solid, to 1 at z_faded, where it has faded out. A streak's
-    U runs from 0 to 2 across it, so the graph fades it at both sides; a band's U is in metres."""
-    corners = [Vector((x0, y, z_solid)), Vector((x1, y, z_solid)), Vector((x1, y, z_faded)), Vector((x0, y, z_faded))]
-    if z_faded < z_solid:
-        # Keep the face looking out of the wall, towards -y.
-        corners = [corners[1], corners[0], corners[3], corners[2]]
-    face = bm.faces.new([bm.verts.new(c) for c in corners])
-    face.material_index = mat
-    uv = uv_layer(bm)
-    for loop in face.loops:
-        co = loop.vert.co
-        u = 2 * (co.x - x0) / (x1 - x0) if streak else co.x
-        loop[uv].uv = (u, (co.z - z_solid) / (z_faded - z_solid))
-
-
-def build_stains(sc, M):
-    """Grime laid over the brickwork as dithered decals: rising damp along the foot of the
-    wall above the plinth, dirty water run off the sill, and rust washed down from the two
-    anchor plates. Each sits a millimetre or two in front of the wall."""
-    bm = bmesh.new()
-    # The damp stops below the sill, so it doesn't cross the window opening.
-    # It starts solid just under the top of the plinth, so the wet edge shows above it.
-    bottom, top = 0.42, SILL_Z - 0.05
-    stain(bm, WALL_X0, PIER_X0, bottom, top, WALL_Y - 0.0015, 0)
-    stain(bm, PIER_X1, WALL_X1, bottom, top, WALL_Y - 0.0015, 0)
-    stain(bm, PIER_X0, PIER_X1, bottom, top - 0.1, WALL_Y - PIER_DEPTH - 0.0015, 0)
-    # Off the sill, a little wider than the window, in front of the damp.
-    half = WIN_W / 2 + 0.12
-    stain(bm, WIN_X - half, WIN_X + half, SILL_Z - 0.2, SILL_Z - 0.95, WALL_Y - 0.003, 1, streak=True)
-    # Under each anchor plate, from behind its disc.
-    for ax in (-1.2, 10.1):
-        stain(bm, ax - 0.16, ax + 0.16, 5.38, 4.3, WALL_Y - 0.002, 2, streak=True)
-    emit(sc, "stains", bm, [M["damp"], M["drip"], M["rust"]])
 
 
 def build_window(sc, M, x0, x1):
@@ -1678,6 +1663,11 @@ def build_deck(sc, M):
                     if a + 0.05 < xc < b - 0.05:
                         for across in (0.25, 0.75):
                             nail_head(bm, xc, y + board * across, DECK_TOP + lift)
+                # And two small ones near each end, where the board was fixed down before it was laid.
+                for xe in (a + 0.03, b - 0.03):
+                    for across in (0.3, 0.7):
+                        stud(bm, (xe + end_nail_rng.uniform(-0.006, 0.006), y + board * across + end_nail_rng.uniform(-0.008, 0.008),
+                                  DECK_TOP + lift), (0, 0, 1), 0.003, 0.001, 1, end_nail_rng)
         y += board + gap
     # Bearers under the boards, mostly below the mud.
     for x in BEARERS:
@@ -1713,6 +1703,8 @@ def deck_pieces(a, b):
 BEARERS = (DECK[0] + 0.15, (DECK[0] + DECK[1]) / 2, DECK[1] - 0.25)
 
 nail_rng = random.Random(20)
+# The small nails at the boards' and the crates' ends, from their own numbers too.
+end_nail_rng = random.Random(46)
 
 
 def nail_head(bm, x, y, top):
@@ -1782,10 +1774,48 @@ def build_crates(sc, M):
     wood = textured("crate_wood", "wooden-crate", "DefaultMaterial_Base_color.png", "DefaultMaterial_Roughness.png",
                     "DefaultMaterial_Metallic.png", "DefaultMaterial_Normal_OpenGL.png")
     # The file's crate is 2.3 m across. The big one comes out 0.97 m across and 0.78 m tall.
+    nails = bmesh.new()
     for ob, name, x, y, degrees, size in ((big, "crate", 7.0, WALL_Y - 1.2, -6.0, 0.42),
                                           (small, "small_crate", 7.6, 1.2, 22.0, 0.26)):
         place = Matrix.Translation((x, y, DECK_TOP)) @ Matrix.Rotation(math.radians(degrees), 4, "Z") @ Matrix.Scale(size, 4)
         adopt(ob, name, [wood], place @ base)
+        crate_nails(nails, ob, place, (lo, hi))
+    emit(sc, "crate_nails", nails, [M["hoop"]])
+
+
+def crate_nails(bm, ob, matrix, file_bounds):
+    """Two nails at each end of the crate's top and bottom frame boards, on all four sides, where
+    the boards meet the corner posts. They are found by casting rays in at the crate from outside,
+    in the file's units with the crate stood on its middle (matrix takes those to the world, where
+    adopt has already put the mesh), and each stands on the face it hits, square to it."""
+    from mathutils.bvhtree import BVHTree
+    me = ob.data
+    tree = BVHTree.FromPolygons([v.co.copy() for v in me.vertices], [tuple(p.vertices) for p in me.polygons])
+    lo, hi = file_bounds
+    # The file's crate is centred on its middle once base has moved it; its frame boards run round
+    # the foot from 0 to 0.28 of its 1.85 height and round the top from 1.57 up.
+    half = (hi.x - lo.x) / 2
+    height = hi.z - lo.z
+    inverse = matrix.inverted()
+    for side in range(4):
+        a = side * math.pi / 2
+        outward = Vector((math.cos(a), math.sin(a), 0.0))
+        along = Vector((-math.sin(a), math.cos(a), 0.0))
+        for end in (-1, 1):
+            for z in (0.08, 0.2, 1.65, 1.77):
+                local = outward * (half + 0.5) + along * end * (half - 0.17) + Vector((0, 0, z / 1.85 * height))
+                origin = matrix @ local
+                direction = (matrix.to_3x3() @ -outward).normalized()
+                hit, normal, _, distance = tree.ray_cast(origin, direction, 2.0)
+                if hit is None:
+                    continue
+                # Only on the crate's outside: a ray that slips through a gap finds the far side's inside.
+                depth = (inverse @ hit - local).length - 0.5
+                if depth > 0.12:
+                    continue
+                if normal.dot(direction) > 0:
+                    normal = -normal
+                stud(bm, hit, normal, 0.003, 0.001, 0, end_nail_rng)
 
 
 def build_drainpipe(sc, M):
@@ -2053,6 +2083,12 @@ def build_barrel(sc, M):
 def build_ivy(sc, M):
     leaves = bmesh.new()
     vines = bmesh.new()
+    # The surface each leaf grows on, one per card, for its bent normal.
+    surfaces = []
+
+    def leaf(foot, normal, reference, roll=(180.0, 25.0)):
+        ivy_leaf(leaves, foot, normal, reference, roll)
+        surfaces.append(normal.normalized())
 
     def window_blocks(x, z):
         return WIN_X - WIN_W / 2 - 0.25 < x < WIN_X + WIN_W / 2 + 0.25 and SILL_Z - 0.3 < z < SPRING_Z + ARCH_RISE + 0.45
@@ -2079,16 +2115,24 @@ def build_ivy(sc, M):
         if len(pts) > 2:
             tube(vines, pts, (0.016, 0.01, 0.007)[depth], 0, segments=6)
         for k, (px, py, pz) in enumerate(pts):
-            # Big leaves along the stem, in strands with brick showing between them.
-            count = 2 if depth == 0 else 1
-            if k % 2 and depth > 0:
-                continue
-            for _ in range(count):
-                size = rng.uniform(0.08, 0.15)
-                angle = rng.uniform(0, 2 * math.pi)
-                reach = rng.uniform(0.03, 0.12)
-                leaf(leaves, (px + math.cos(angle) * reach, py - rng.uniform(0.02, 0.1), pz + math.sin(angle) * reach),
-                     size, rng.uniform(0, 2 * math.pi))
+            # The old star leaves' draws stay, so everything made after the ivy comes out as it did:
+            # their size, where round the stem, how far out, how far off the wall, their turn and
+            # their tilt. The cards draw from their own numbers.
+            if not (k % 2 and depth > 0):
+                for _ in range(2 if depth == 0 else 1):
+                    for _ in range(6):
+                        rng.random()
+            # Leaves along the stem, overlapping into a mat that hides it: thick and wide low on the
+            # stem, where it is old, and thinning out towards its growing tip, where the stem shows.
+            # Their normals are bent out of the wall (see emit), so a mat this thick still reads green.
+            along = k / max(len(pts) - 1, 1)
+            full = (17.0, 11.0, 6.0)[depth]
+            reach = (0.29, 0.2, 0.12)[depth] * (1.0 - 0.45 * along)
+            for _ in range(int(full * (1.0 - 0.6 * along) + ivy_rng.random())):
+                a = ivy_rng.uniform(0, 2 * math.pi)
+                r = reach * math.sqrt(ivy_rng.uniform(0.02, 1.0))
+                leaf(Vector((px + math.cos(a) * r, wall_y - 0.02 - ivy_rng.uniform(0.0, 0.035),
+                             pz + math.sin(a) * r)), Vector((0, -1, 0)), Vector((0, 0, 1)))
 
     # The old plant: thick stems rooted in the ground between the barrel and the window, climbing
     # to the top of the wall and branching as they go.
@@ -2111,47 +2155,91 @@ def build_ivy(sc, M):
         if rng.random() < 0.55:
             z = top + rng.uniform(-0.03, 0.12)
             x = DRY_X - rng.uniform(0.0, DRY_THICKNESS)
-            leaf(leaves, (x, y, z), rng.uniform(0.08, 0.14), rng.uniform(0, 2 * math.pi), flat=True)
+            # The old leaf's size, turn, tilt and ten corner heights.
+            for _ in range(13):
+                rng.random()
+            # Lying on the stones, the tip any way round.
+            leaf(Vector((x, y, top + 0.02 + max(0.0, z - top) * 0.3)), Vector((0, 0, 1)), Vector((1, 0, 0)),
+                     roll=(0.0, 180.0))
         else:
             # Hanging down the face, further where it's thickest.
             reach = 0.6 * ((y - (WALL_Y - 4.5)) / 4.4)
             z = top - rng.uniform(0.0, reach)
-            leaf_x(leaves, (DRY_X + rng.uniform(0.02, 0.08), y, z), rng.uniform(0.08, 0.14), rng.uniform(0, 2 * math.pi))
+            x = DRY_X + rng.uniform(0.02, 0.08)
+            # The old leaf's size, turn and tilt.
+            for _ in range(3):
+                rng.random()
+            leaf(Vector((x, y, z)), Vector((1, 0, 0)), Vector((0, 0, 1)))
+    # More of the same from the cards' own numbers, so it is a mat rather than scattered leaves:
+    # draped over the top's courtyard edge, facing up and out, and hanging down the face.
+    for _ in range(700):
+        y = ivy_rng.uniform(WALL_Y - 4.5, WALL_Y - 0.1)
+        thick = (y - (WALL_Y - 4.5)) / 4.4
+        if ivy_rng.random() > thick ** 0.7:
+            continue
+        roll = ivy_rng.random()
+        if roll < 0.3:
+            x = DRY_X - ivy_rng.uniform(0.0, DRY_THICKNESS * 0.6)
+            leaf(Vector((x, y, top + 0.02)), Vector((0, 0, 1)), Vector((1, 0, 0)), roll=(0.0, 180.0))
+        elif roll < 0.55:
+            # Over the edge, the leaves facing half up and half out into the yard.
+            leaf(Vector((DRY_X + 0.03, y, top - ivy_rng.uniform(0.0, 0.06))), Vector((0.7, 0, 0.7)),
+                     Vector((0, 0, 1)))
+        else:
+            z = top - ivy_rng.uniform(0.0, 0.7 * thick) ** 1.3
+            leaf(Vector((DRY_X + ivy_rng.uniform(0.02, 0.07), y, z)), Vector((1, 0, 0)), Vector((0, 0, 1)))
 
     emit(sc, "ivy_vines", vines, [M["vine"]], smooth=True)
-    emit(sc, "ivy_leaves", leaves, [M["ivy"]])
+    emit(sc, "ivy_leaves", leaves, [M["ivy_small"], M["ivy_large"], M["ivy_dead"]], bend=surfaces)
 
 
-def leaf(bm, centre, size, angle, flat=False, facing_x=False):
-    """A five-lobed ivy leaf. On the wall it faces out, -Y or with facing_x +X, and tips
-    forward at the bottom; flat, it lies on top of something."""
-    pts = []
-    lobes = 5
-    for k in range(lobes * 2):
-        a = angle + math.pi * k / lobes
-        r = size * (1.0 if k % 2 == 0 else 0.5) * (1.15 if k == 0 else 1.0)
-        pts.append((math.cos(a) * r, math.sin(a) * r))
-    tilt = rng.uniform(0.4, 1.1)
-    centre_v = bm.verts.new(centre)
-    ring = []
-    for a, b in pts:
-        if flat:
-            ring.append(bm.verts.new((centre[0] + a, centre[1] + b, centre[2] + rng.uniform(-0.01, 0.01))))
-        else:
-            # The leaf's lower half leans out from the wall, so it catches the light.
-            out = (size - b) * tilt * 0.45
-            if facing_x:
-                ring.append(bm.verts.new((centre[0] + out, centre[1] + a, centre[2] + b)))
-            else:
-                ring.append(bm.verts.new((centre[0] + a, centre[1] - out, centre[2] + b)))
-    for k in range(len(ring)):
-        f = bm.faces.new((centre_v, ring[(k + 1) % len(ring)], ring[k]))
-        f.material_index = 0
+# The leaf, blade, web and dead leaf graphs' widths in metres, as their Build() sets them, and how
+# many blades stand across each grass species' image (GrassBlade.Of). art/cards.py uses the same.
+IVY = 0.2
+BLADE = 0.3
+COBWEB = 0.5
+DEAD_LEAF = 0.15
+COLUMNS = {"meadow": 24, "broad": 12, "dry": 16}
+
+# The ivy cards' own random numbers, so their sizes and turns move nothing else in the scene.
+ivy_rng = random.Random(41)
 
 
-def leaf_x(bm, centre, size, angle):
-    """An ivy leaf on a wall that faces +X, such as the low wall's courtyard side."""
-    leaf(bm, centre, size, angle, facing_x=True)
+def card(bm, foot, right, up, width, height, mat, graph, u0=0.0, u1=None):
+    """A flat card standing on the middle of its foot, width along right and height along up,
+    wearing a card graph whose image is graph metres across: its foot on the image's foot and its
+    top on the image's top, and across from u0 to u1 (the whole image unless given). It faces
+    right x up. The glTF export flips v, so the foot's v of 0 becomes 1, as art/cards.py writes."""
+    u1 = graph if u1 is None else u1
+    foot, right, up = Vector(foot), Vector(right).normalized(), Vector(up).normalized()
+    half = right * (width / 2)
+    corners = [foot - half, foot + half, foot + half + up * height, foot - half + up * height]
+    face = bm.faces.new([bm.verts.new(tuple(c)) for c in corners])
+    face.material_index = mat
+    uv = uv_layer(bm)
+    for loop, t in zip(face.loops, ((u0, 0.0), (u1, 0.0), (u1, graph), (u0, graph))):
+        loop[uv].uv = t
+    return face
+
+
+def ivy_leaf(bm, foot, normal, reference, roll=(180.0, 25.0)):
+    """One ivy leaf card on its stalk at foot, on a surface facing normal: 6 to 12 cm, in two
+    sizes, its tip turned roll[0] degrees from reference about the normal, give or take roll[1],
+    and tilted 10 to 40 degrees off the surface. 8 in 100 are dead and brown. On a wall the
+    reference is up, so the tip hangs down and out, as a climbing ivy's leaves do."""
+    large = ivy_rng.random() < 0.5
+    size = ivy_rng.uniform(0.09, 0.12) if large else ivy_rng.uniform(0.06, 0.085)
+    turn = math.radians(roll[0] + ivy_rng.uniform(-roll[1], roll[1]))
+    lean = math.radians(ivy_rng.uniform(10, 40))
+    n = normal.normalized()
+    up0 = (reference - n * reference.dot(n)).normalized()
+    side0 = up0.cross(n)
+    tip = up0 * math.cos(turn) - side0 * math.sin(turn)
+    right = side0 * math.cos(turn) + up0 * math.sin(turn)
+    up = tip * math.cos(lean) + n * math.sin(lean)
+    mat = 2 if ivy_rng.random() < 0.08 else 1 if large else 0
+    # The leaf fills about three quarters of its image, stalk to tip, so the card is a third bigger.
+    card(bm, foot, right, up, size / 0.75, size / 0.75, mat, IVY)
 
 
 def build_plaster(sc, M):
@@ -2305,35 +2393,44 @@ def build_fallen_leaves(sc, M):
     emit(sc, "fallen_leaves", bm, [M["dead_leaf"], M["dead_leaf_orange"]])
 
 
-def blade(bm, root, height, lean, angle, width, mat):
-    """One grass blade: a narrow strip that tapers to a point and arches over."""
-    c, s = math.cos(angle), math.sin(angle)
-    side = Vector((-s, c, 0.0)) * width
-    pts = []
-    segments = 4
-    for k in range(segments + 1):
-        t = k / segments
-        out = lean * t * t
-        p = Vector(root) + Vector((c * out, s * out, height * t * (1 - 0.25 * t * lean / max(height, 0.01))))
-        pts.append(p)
-    left = [bm.verts.new(p - side * (1 - k / segments)) for k, p in enumerate(pts[:-1])]
-    right = [bm.verts.new(p + side * (1 - k / segments)) for k, p in enumerate(pts[:-1])]
-    tip = bm.verts.new(pts[-1])
-    for k in range(segments - 1):
-        f = bm.faces.new((left[k], right[k], right[k + 1], left[k + 1]))
-        f.material_index = mat
-    f = bm.faces.new((left[-1], right[-1], tip))
-    f.material_index = mat
+# Each grass species' card material slot in the grass mesh, and how wide its cards are, in metres.
+# A card is one column of the species' image, so the blade in it is a little over half its width,
+# or about a seventh for the dry stalks.
+GRASS_SLOTS = {"meadow": 0, "broad": 1, "dry": 2}
+GRASS_WIDTHS = {"meadow": (0.012, 0.02), "broad": (0.025, 0.04), "dry": (0.015, 0.025)}
 
 
-def tuft(bm, x, y, z, size):
-    """A clump of blades from one spot, splaying out, a few of them dry."""
-    for _ in range(int(24 + 36 * size)):
-        a = rng.uniform(0, 2 * math.pi)
-        r = rng.uniform(0, 0.07 * size)
-        height = rng.uniform(0.16, 0.42) * size
-        blade(bm, (x + math.cos(a) * r, y + math.sin(a) * r, z - 0.01), height, rng.uniform(0.03, 0.16) * size,
-              a + rng.uniform(-0.4, 0.4), rng.uniform(0.006, 0.01), 1 if rng.random() < 0.25 else 0)
+def tuft(bm, x, y, z, height, species, count=None):
+    """A tuft of blade cards from one spot, each one blade of the species' image, turned round
+    the tuft by the golden angle and leaning out 4 to 22 degrees. height is the tallest blade.
+    One card in ten is a dry stalk with a seed head standing a little above the rest; a dry tuft
+    is a mix of dry stalks and meadow blades, as grass going over is."""
+    count = count or int(10 + 55 * height)
+    turn0 = rng.uniform(0, 2 * math.pi)
+    # Broad grass sprawls from a wider foot and flops further over than the upright meadow grass.
+    spread, leans = (0.06, (8, 40)) if species == "broad" else (0.035, (4, 26))
+    for i in range(count):
+        kind = species
+        if species == "dry":
+            kind = "dry" if rng.random() < 0.6 else "meadow"
+        elif rng.random() < 0.1:
+            kind = "dry"
+        elif species == "broad" and rng.random() < 0.3:
+            # Meadow blades come up through the broad grass, so a tuft isn't all one green.
+            kind = "meadow"
+        columns = COLUMNS[kind]
+        column = BLADE / columns
+        c = rng.randrange(columns)
+        width = rng.uniform(*GRASS_WIDTHS[kind])
+        # The blade fills about nine tenths of its column's height. A seed head stands up out of the tuft.
+        tall = height * (rng.uniform(0.9, 1.15) if kind == "dry" and species != "dry" else rng.uniform(0.5, 1.0))
+        turn = turn0 + i * 2.39996 + rng.uniform(-0.3, 0.3)
+        lean = math.radians(rng.uniform(*leans))
+        out = Vector((math.cos(turn), math.sin(turn), 0.0))
+        right = Vector((-math.sin(turn), math.cos(turn), 0.0))
+        up = out * math.sin(lean) + Vector((0, 0, math.cos(lean)))
+        foot = Vector((x, y, z - 0.01)) + out * rng.uniform(0, spread)
+        card(bm, foot, right, up, width, tall / 0.9, GRASS_SLOTS[kind], BLADE, c * column, (c + 1) * column)
 
 
 def growth(x, y):
@@ -2341,42 +2438,55 @@ def growth(x, y):
     return smoothstep(-0.15, 0.35, noise.noise(Vector((x * 0.9, y * 0.9, 11.0))))
 
 
-def clump(bm, x, y, size):
-    """A patch of grass: a big tuft or two with smaller ones and short blades round them."""
-    for k in range(rng.randint(2, 5)):
+def trodden(x, y):
+    """Whether (x, y) is on the walk the footprints show, where feet keep the mud bare."""
+    return any((x - px) ** 2 + (y - py) ** 2 < 0.35 ** 2 for px, py, _, _ in FOOTPRINTS)
+
+
+def clump(bm, x, y, size, species):
+    """A patch of grass: a big tuft or two with smaller ones round them, 0.1 to 0.5 m tall."""
+    tallest = {"meadow": (0.25, 0.5), "broad": (0.2, 0.38), "dry": (0.25, 0.5)}[species]
+    for k in range(rng.randint(3, 6)):
         a = rng.uniform(0, 2 * math.pi)
-        r = 0.0 if k == 0 else rng.uniform(0.06, 0.2) * size
+        r = 0.0 if k == 0 else rng.uniform(0.06, 0.3) * size
         px, py = x + math.cos(a) * r, y + math.sin(a) * r
         if puddle_depth(px, py) > 0.05 or rut_depth(px, py) > 0.1 or path_distance(px, py) < PATH_HALF_WIDTH - 0.15:
             continue
-        s = size * (1.0 if k == 0 else rng.uniform(0.35, 0.75))
-        tuft(bm, px, py, ground_height(px, py), s)
+        height = rng.uniform(*tallest) * min(1.0, size) * (1.0 if k == 0 else rng.uniform(0.4, 0.8))
+        tuft(bm, px, py, ground_height(px, py), max(0.1, height), species)
 
 
 def build_grass(sc, M):
-    """Grass where feet and wheels don't go: the foot of both walls, the edges of the flagstones
-    and the deck. It grows in patches, with bare mud between them, and in a few of the joints
-    between the flagstones where nobody steps."""
+    """Grass where feet and wheels don't go, as blade cards of three species: long meadow grass
+    at the foot of both walls and thick in the corners, short broad lush grass in a few dense
+    patches on the puddle's wet bank, and dry stalks going to seed at the deck's edge. The trodden
+    mud and the path stay bare, but for the joints between the flagstones where nobody steps and
+    now and then a small tuft at a flagstone's edge."""
     bm = bmesh.new()
     spots = []
     # Along the foot of the plinth and the low wall, thick where it has taken hold.
-    for _ in range(90):
-        x, y = rng.uniform(DRY_X + 0.2, WALL_X1 - 0.5), WALL_Y - rng.uniform(0.3, 0.5)
-        if rng.random() < growth(x, y):
+    for _ in range(170):
+        x, y = rng.uniform(DRY_X + 0.2, WALL_X1 - 0.5), WALL_Y - rng.uniform(0.3, 0.6)
+        if rng.random() < 0.15 + growth(x, y):
             spots.append((x, y, rng.uniform(0.8, 1.4)))
-    for _ in range(50):
+    for _ in range(80):
         x, y = DRY_X + rng.uniform(0.12, 0.35), rng.uniform(WALL_Y - DRY_LENGTH, WALL_Y - 0.3)
         if rng.random() < growth(x, y):
             spots.append((x, y, rng.uniform(0.9, 1.6)))
+    # Thick in the corners, where nobody walks: where the low wall meets the building, at the low
+    # wall's far end, and where the deck meets the building.
+    for cx, cy in ((DRY_X + 0.3, WALL_Y - 0.35), (DRY_X + 0.3, WALL_Y - DRY_LENGTH + 0.4), (DECK[1] + 0.3, WALL_Y - 0.35)):
+        for _ in range(rng.randint(3, 5)):
+            spots.append((cx + rng.uniform(-0.2, 0.25), cy + rng.uniform(-0.25, 0.2), rng.uniform(0.9, 1.4)))
     for x, y, size in spots:
-        clump(bm, x, y, size)
-    spots = []
+        clump(bm, x, y, size, "meadow")
     # In the joints between flagstones, away from the middle of the path where feet go.
     for x, y in rng.sample(JOINTS, min(len(JOINTS), 700)):
         if path_distance(x, y) > 0.55 and rng.random() < 0.12 * (0.3 + growth(x, y)):
-            tuft(bm, x, y, ground_height(x, y) + 0.01, rng.uniform(0.22, 0.4))
-    # Along the flagstones' edges.
-    for _ in range(80):
+            tuft(bm, x, y, ground_height(x, y) + 0.01, rng.uniform(0.1, 0.18), "meadow")
+    # Now and then a small tuft right at a flagstone's edge, where the mower of feet misses it.
+    # Further out is the trodden mud, which stays bare.
+    for _ in range(40):
         path = rng.choice(PATHS)
         t = rng.random()
         k = min(int(t * (len(path) - 1)), len(path) - 2)
@@ -2384,21 +2494,266 @@ def build_grass(sc, M):
         (ax, ay), (bx, by) = path[k], path[k + 1]
         dx, dy = bx - ax, by - ay
         length = math.hypot(dx, dy)
-        side = rng.choice((-1, 1)) * (PATH_HALF_WIDTH + rng.uniform(0.0, 0.25))
+        side = rng.choice((-1, 1)) * (PATH_HALF_WIDTH + rng.uniform(-0.05, 0.05))
         x, y = ax + dx * f - dy / length * side, ay + dy * f + dx / length * side
-        # Not out in the middle of the other arm.
-        if path_distance(x, y) > PATH_HALF_WIDTH - 0.1 and rng.random() < 0.15 + growth(x, y):
-            spots.append((x, y, rng.uniform(0.6, 1.2)))
-    # Round the deck.
+        # Not out in the middle of the other arm, nor where the footprints go.
+        if path_distance(x, y) > PATH_HALF_WIDTH - 0.1 and not trodden(x, y) and rng.random() < 0.05 + 0.2 * growth(x, y):
+            tuft(bm, x, y, ground_height(x, y), rng.uniform(0.1, 0.2), "meadow")
+    # Round the deck, dry: the boards keep the rain off its edge.
     for _ in range(20):
         if rng.random() < 0.5:
             x, y = DECK[0] - rng.uniform(0.05, 0.3), rng.uniform(DECK[2], DECK[3])
         else:
             x, y = rng.uniform(DECK[0], DECK[1]), DECK[2] - rng.uniform(0.05, 0.3)
-        spots.append((x, y, rng.uniform(0.7, 1.3)))
-    for x, y, size in spots:
-        clump(bm, x, y, size)
-    emit(sc, "grass", bm, [M["grass"], M["grass_dry"]])
+        clump(bm, x, y, rng.uniform(0.7, 1.3), "dry")
+    # On the puddle's bank, broad and lush, where the mud stays wet: just outside the water's
+    # edge, off the paving and away from the footprints.
+    # It grows in a few thick patches, each a dense clump of clumps where the noise says it took
+    # hold, not spread round the bank, and some of the patches are meadow grass gone lush.
+    def on_bank(x, y):
+        return 1.15 < puddle_shape(x, y) < 1.9 and path_distance(x, y) > PATH_HALF_WIDTH + 0.05 and not trodden(x, y)
+
+    patches = 0
+    for _ in range(300):
+        if patches >= 5:
+            break
+        a = rng.uniform(0, 2 * math.pi)
+        out = rng.uniform(1.1, 1.45)
+        x, y = PUDDLE[0] + math.cos(a) * PUDDLE[2] * out, PUDDLE[1] + math.sin(a) * PUDDLE[3] * out
+        if not on_bank(x, y) or rng.random() > 0.1 + growth(x * 1.7, y * 1.7):
+            continue
+        species = "broad" if rng.random() < 0.65 else "meadow"
+        for _ in range(rng.randint(6, 10)):
+            b = rng.uniform(0, 2 * math.pi)
+            r = 0.35 * math.sqrt(rng.random())
+            px, py = x + math.cos(b) * r, y + math.sin(b) * r
+            if on_bank(px, py):
+                clump(bm, px, py, rng.uniform(0.6, 1.1), species)
+        patches += 1
+    # Lit like the ground they grow from, with a little of each blade's own turn.
+    emit(sc, "grass", bm, [M["meadow"], M["broad"], M["dry"]], bend=Vector((0, 0, 1)), share=0.8)
+
+
+def build_weeds(sc, M):
+    """Weeds where the path meets something: a single blade or two, or a dandelion's rosette of
+    five broad leaves lying almost flat, in 20 of the flagstones' joints and along the foot of the
+    plinth. Their own random numbers, so they move nothing else."""
+    weed_rng = random.Random(42)
+    bm = bmesh.new()
+
+    def rosette(x, y, z):
+        turn0 = weed_rng.uniform(0, 2 * math.pi)
+        for k in range(5):
+            turn = turn0 + k * 2 * math.pi / 5 + weed_rng.uniform(-0.2, 0.2)
+            lean = math.radians(weed_rng.uniform(60, 75))
+            out = Vector((math.cos(turn), math.sin(turn), 0.0))
+            right = Vector((-math.sin(turn), math.cos(turn), 0.0))
+            up = out * math.sin(lean) + Vector((0, 0, math.cos(lean)))
+            c = weed_rng.randrange(COLUMNS["broad"])
+            column = BLADE / COLUMNS["broad"]
+            card(bm, Vector((x, y, z)), right, up, weed_rng.uniform(0.03, 0.04), weed_rng.uniform(0.1, 0.16), 1,
+                 BLADE, c * column, (c + 1) * column)
+
+    def blades(x, y, z):
+        for _ in range(weed_rng.randint(1, 3)):
+            turn = weed_rng.uniform(0, 2 * math.pi)
+            lean = math.radians(weed_rng.uniform(5, 30))
+            out = Vector((math.cos(turn), math.sin(turn), 0.0))
+            right = Vector((-math.sin(turn), math.cos(turn), 0.0))
+            up = out * math.sin(lean) + Vector((0, 0, math.cos(lean)))
+            c = weed_rng.randrange(COLUMNS["meadow"])
+            column = BLADE / COLUMNS["meadow"]
+            card(bm, Vector((x, y, z - 0.005)), right, up, weed_rng.uniform(0.012, 0.018), weed_rng.uniform(0.08, 0.2), 0,
+                 BLADE, c * column, (c + 1) * column)
+
+    # The joints on the paving, where nobody's boots wear them away.
+    joints = [(x, y) for x, y in JOINTS if 0.25 < path_distance(x, y) < PATH_HALF_WIDTH - 0.1 and puddle_shape(x, y) > 1.3]
+    for x, y in weed_rng.sample(joints, min(20, len(joints))):
+        z = ground_height(x, y) + 0.012
+        if weed_rng.random() < 0.4:
+            rosette(x, y, z)
+        else:
+            blades(x, y, z)
+    # Tight against the plinth's foot, left of the deck and clear of the barrel.
+    placed = 0
+    while placed < 9:
+        x, y = weed_rng.uniform(-1.3, 5.9), WALL_Y - 0.37 - weed_rng.uniform(0.0, 0.04)
+        if -0.5 < x < 0.9:
+            continue
+        placed += 1
+        z = ground_height(x, y)
+        if weed_rng.random() < 0.5:
+            rosette(x, y, z + 0.005)
+        else:
+            blades(x, y, z)
+    emit(sc, "weeds", bm, [M["meadow"], M["broad"]], bend=Vector((0, 0, 1)), share=0.8)
+
+
+def build_debris(sc, M):
+    """More of what blows and falls into a yard: 40 dead leaf cards in three tints, 12 twigs,
+    six more bits of broken brick, and pebbles half drowned at the puddle's edge. It all draws
+    from its own random numbers, and puts the scene's back as it found them, so nothing else
+    moves."""
+    saved = rng.getstate()
+    rng.seed(45)
+    leaf_rng = random.Random(43)
+
+    def resting(x, y):
+        """How high the floor is under (x, y): the deck's boards, a flagstone's top or the mud."""
+        if DECK[0] < x < DECK[1] and DECK[2] < y < DECK[3]:
+            return DECK_TOP
+        if path_distance(x, y) < PATH_HALF_WIDTH - 0.05:
+            return ground_height(x, y) + 0.014
+        return ground_height(x, y)
+
+    # Dead leaves lying flat, each on the highest point under it so it doesn't sink into a clod.
+    leaves = bmesh.new()
+    placed = 0
+    while placed < 40:
+        roll = leaf_rng.random()
+        if roll < 0.4:
+            x, y = leaf_rng.uniform(DRY_X + 0.2, 6.0), WALL_Y - leaf_rng.uniform(0.3, 1.2)
+        elif roll < 0.6:
+            x, y = DRY_X + leaf_rng.uniform(0.1, 0.6), leaf_rng.uniform(-3.0, WALL_Y - 0.3)
+        else:
+            x, y = leaf_rng.uniform(-1.0, 7.5), leaf_rng.uniform(-3.5, WALL_Y - 0.4)
+        if puddle_shape(x, y) < 1.2:
+            continue
+        size = leaf_rng.uniform(0.08, 0.13) / 0.85
+        yaw = leaf_rng.uniform(0, 2 * math.pi)
+        lift = leaf_rng.uniform(0.0, 0.25)
+        up = Vector((math.cos(yaw), math.sin(yaw), lift)).normalized()
+        right = Vector((math.sin(yaw), -math.cos(yaw), 0.0))
+        foot = Vector((x, y, 0.0)) - up * (size / 2)
+        corners = [foot + right * sx * size / 2 + up * sy * size for sx in (-1, 1) for sy in (0, 1)]
+        foot.z = max(resting(c.x, c.y) for c in corners) + 0.005
+        card(leaves, foot, right, up, size, size, leaf_rng.randrange(3), DEAD_LEAF)
+        placed += 1
+    emit(sc, "leaf_litter", leaves, [M["leaf_tan"], M["leaf_dark"], M["leaf_red"]])
+
+    # Twigs off the tree beyond the low wall: thin crooked sticks lying on the ground.
+    twigs = bmesh.new()
+    for _ in range(12):
+        x, y = leaf_rng.uniform(-1.3, 5.5), leaf_rng.uniform(-3.0, WALL_Y - 0.45)
+        if puddle_shape(x, y) < 1.2:
+            x, y = DRY_X + leaf_rng.uniform(0.2, 0.7), leaf_rng.uniform(-2.0, WALL_Y - 0.5)
+        r = leaf_rng.uniform(0.003, 0.006)
+        length = leaf_rng.uniform(0.15, 0.4)
+        heading = leaf_rng.uniform(0, 2 * math.pi)
+        pts = []
+        for k in range(4):
+            if k:
+                heading += leaf_rng.uniform(-0.35, 0.35)
+                x, y = x + math.cos(heading) * length / 3, y + math.sin(heading) * length / 3
+            pts.append((x, y, resting(x, y) + r * 0.8))
+        tube(twigs, pts, r, 0, segments=5)
+        # A side shoot off one in two.
+        if leaf_rng.random() < 0.5:
+            a = Vector(pts[1])
+            d = heading + leaf_rng.choice((-1, 1)) * leaf_rng.uniform(0.5, 0.9)
+            b = a + Vector((math.cos(d), math.sin(d), 0.0)) * length * 0.3
+            b.z = resting(b.x, b.y) + r * 0.6
+            tube(twigs, [tuple(a), tuple(b)], r * 0.6, 0, segments=4)
+    box_uv(twigs, twigs.faces[:])
+    emit(sc, "twigs", twigs, [M["bark"]], smooth=True)
+
+    # Broken brick off the walls, half sunk in the mud along the wall's foot and by the path.
+    bricks = bmesh.new()
+    placed = 0
+    while placed < 6:
+        if placed < 3:
+            x, y = leaf_rng.uniform(1.0, 5.8), WALL_Y - leaf_rng.uniform(0.45, 0.9)
+        else:
+            x, y = leaf_rng.uniform(-1.2, 6.0), leaf_rng.uniform(-3.5, 1.0)
+        if puddle_shape(x, y) < 1.3 or path_distance(x, y) < PATH_HALF_WIDTH + 0.08 or footprint_depth(x, y) > 0.05:
+            continue
+        half = (leaf_rng.uniform(0.04, 0.1), 0.05, 0.033)
+        sink = half[2] * leaf_rng.uniform(0.7, 1.2)
+        chips = [((leaf_rng.choice((-1, 1)), leaf_rng.choice((-1, 1)), 1), min(half) * leaf_rng.uniform(0.6, 1.2))]
+        block(bricks, (x, y, ground_height(x, y) + half[2] - sink), half, leaf_rng.randrange(2), bevel=0.008,
+              yaw=leaf_rng.uniform(0, math.pi), roll=(leaf_rng.uniform(-0.15, 0.15), leaf_rng.uniform(-0.15, 0.15)),
+              warp=0.006, rough=0.004, chips=chips, step=0.03)
+        placed += 1
+    split_sharp(bricks)
+    emit(sc, "brick_bits", bricks, [M["arch1"], M["arch2"]])
+
+    # Pebbles at the puddle's edge, their middles at the water, so they stand half out of it.
+    pebbles = bmesh.new()
+    placed = 0
+    for _ in range(400):
+        if placed >= 11:
+            break
+        a = leaf_rng.uniform(0, 2 * math.pi)
+        out = leaf_rng.uniform(0.8, 1.0)
+        x, y = PUDDLE[0] + math.cos(a) * PUDDLE[2] * out, PUDDLE[1] + math.sin(a) * PUDDLE[3] * out
+        s = leaf_rng.uniform(0.04, 0.08)
+        # Only where the bank has dropped just under the water, so each sits on the mud, its
+        # foot buried, and none floats over a deeper hollow.
+        ground = ground_height(x, y)
+        if not -0.045 - 0.2 * s < ground < -0.05:
+            continue
+        rock(pebbles, (x, y, -0.045 + s * 0.03), (s * leaf_rng.uniform(1.0, 1.5), s, s * 0.6), 0,
+             power=2.2, bumps=0.2, yaw=leaf_rng.uniform(0, math.pi), segments=(10, 7))
+        placed += 1
+    # Their own stone material, which the sidecar gives puddles, so what's under the water looks wet.
+    emit(sc, "wet_pebbles", pebbles, [M["wet_stone"]])
+    rng.setstate(saved)
+
+
+def web(bm, corner, along, down, size):
+    """A triangular cobweb card in a corner: its right angle at corner, one side running size
+    metres along the top of the corner and the other size metres down its side. The cobweb graph
+    puts its right angle at the image's top left, so the image spans the card whatever its size."""
+    corner, along, down = Vector(corner), Vector(along).normalized(), Vector(down).normalized()
+    verts = [bm.verts.new(tuple(corner + down * size)), bm.verts.new(tuple(corner + along * size)), bm.verts.new(tuple(corner))]
+    face = bm.faces.new(verts)
+    face.material_index = 0
+    uv = uv_layer(bm)
+    for loop, t in zip(face.loops, ((0.0, 0.0), (COBWEB, COBWEB), (0.0, COBWEB))):
+        loop[uv].uv = t
+
+
+def build_cobwebs(sc, M):
+    """Old webs: one in each upper corner of the window's square panes, just in front of the
+    glazing bars, and one strung from the pier's side to the drainpipe under its lowest collar."""
+    bm = bmesh.new()
+    x0, x1 = WIN_X - WIN_W / 2, WIN_X + WIN_W / 2
+    fw, bar, t = 0.075, 0.04, 0.07
+    # The bars' fronts, as build_window lays them, and a few millimetres in front.
+    y = WALL_Y + REVEAL - t * 0.8 - 0.004
+    z = SPRING_Z - bar / 2
+    web(bm, (x0 + fw, y, z), (1, 0, 0), (0, 0, -1), 0.3)
+    web(bm, (x1 - fw, y, z), (-1, 0, 0), (0, 0, -1), 0.26)
+    # Behind the pipe, from the pier's side, under the ears that hold the lowest collar.
+    web(bm, (PIER_X1, WALL_Y - 0.035, 1.5 - 0.037), (1, 0, 0), (0, 0, -1), 0.24)
+    emit(sc, "cobwebs", bm, [M["cobweb"]])
+
+
+def stud(bm, centre, normal, radius, proud, slot, nail_random):
+    """A small nail head: an eight-sided disc of radius, standing proud of the surface at centre
+    that faces normal, and sunk a millimetre into it. Each takes its own patch of its material."""
+    n = Vector(normal).normalized()
+    t = n.orthogonal().normalized()
+    b = n.cross(t)
+    centre = Vector(centre)
+    du, dv = nail_random.uniform(0, 0.5), nail_random.uniform(0, 0.5)
+    spin = nail_random.uniform(0, math.pi / 4)
+    rings = []
+    for height in (-0.001, proud):
+        rings.append([bm.verts.new(tuple(centre + n * height + (t * math.cos(a) + b * math.sin(a)) * radius))
+                      for a in (spin + 2 * math.pi * k / 8 for k in range(8))])
+    faces = [bm.faces.new(rings[1])]
+    for k in range(8):
+        k1 = (k + 1) % 8
+        faces.append(bm.faces.new((rings[0][k], rings[0][k1], rings[1][k1], rings[1][k])))
+    uv = uv_layer(bm)
+    for f in faces:
+        f.material_index = slot
+        f.smooth = False
+        for loop in f.loops:
+            rel = loop.vert.co - centre
+            loop[uv].uv = (rel.dot(t) + du, rel.dot(b) + dv)
+    bmesh.ops.recalc_face_normals(bm, faces=faces)
 
 
 # ---------------------------------------------------------------------------------------
@@ -2462,7 +2817,6 @@ def build():
     JOINTS.clear()
     build_wall(sc, M)
     build_plinth(sc, M)
-    build_stains(sc, M)
     build_lamp(sc, M)
     build_dry_wall(sc, M)
     build_ground(sc, M)
@@ -2479,6 +2833,9 @@ def build():
     build_plaster(sc, M)
     build_fallen_leaves(sc, M)
     build_grass(sc, M)
+    build_weeds(sc, M)
+    build_debris(sc, M)
+    build_cobwebs(sc, M)
     build_tree(sc, M)
     mask_uvs(sc, ["cy_graph_wood", "cy_graph_staves", "cy_graph_deck", "cy_graph_hoop", "cy_graph_stone", "cy_crate_wood"])
     return sc
@@ -2518,7 +2875,7 @@ def mask_uvs(sc, materials):
             bpy.context.view_layer.objects.active = obs[0]
             bpy.ops.object.mode_set(mode="EDIT")
             bpy.ops.mesh.select_mode(type="FACE")
-            bpy.ops.uv.smart_project(angle_limit=math.radians(66), island_margin=0.004)
+            bpy.ops.uv.smart_project(angle_limit=math.radians(66), island_margin=0.002)
             bpy.ops.object.mode_set(mode="OBJECT")
         # The metric set is the one the textures and the export's TEXCOORD_0 use.
         for o in sc.objects:

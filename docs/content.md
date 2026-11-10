@@ -328,7 +328,8 @@ It changes only a flag on the cooked material, so the textures are the same. See
 ### Foliage and wind on models
 
 A rule's `"foliage": true` marks a tree's leaves, which let 0.6 of the sunlight through from
-behind; `"foliage": { "translucency": 0.85 }` sets that share, from 0 to 1. A rule's
+behind; `"foliage": { "translucency": 0.85 }` sets that share, from 0 to 1, and
+`"crown": false` keeps the model's own normals instead of pointing them out of one crown. A rule's
 `"wind": true` sways the material in the breeze the game sets with `view.Wind`, and
 `"wind": { "sway": 0.08 }` gives it a share of the lean, 0 or more. Each is `true`, `false`
 or an object; a number or a value out of range stops the cook with the material's name, such
