@@ -94,6 +94,34 @@ public sealed class GrassBladeTests
     }
 
     [Fact]
+    public void Dry_seed_heads_stay_inside_their_columns()
+    {
+        var dry = Dry.Value;
+
+        // A card wears one column, 32 pixels here, so a head that reaches the column's edge is cut off square there.
+        // The heads are in the top third of the card; along the whole of it, the first and last pixel of every
+        // column are clear.
+        int columnWidth = Size / 16;
+        var cut = new List<string>();
+        for (int y = 0; y < Size / 3; y++)
+        {
+            for (int column = 0; column < 16; column++)
+            {
+                int left = column * columnWidth;
+                foreach (int x in new[] { left, left + columnWidth - 1 })
+                {
+                    if (dry.Opacity[y * Size + x] >= 0.01f)
+                    {
+                        cut.Add($"column {column} at ({x}, {y})");
+                    }
+                }
+            }
+        }
+
+        Assert.Empty(cut);
+    }
+
+    [Fact]
     public void Blades_are_green_at_the_foot_and_dry_towards_the_tip()
     {
         var meadow = Meadow.Value;

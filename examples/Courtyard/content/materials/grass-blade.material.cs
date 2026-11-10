@@ -22,7 +22,8 @@ public sealed class GrassBlade : MaterialGraph
     /// <param name="MaxLength">The longest.</param>
     /// <param name="Taper">The share of the blade's length over which it narrows to its point.</param>
     /// <param name="Head">The share of the stalk's length that is seed head, or 0 for a leaf blade.</param>
-    public sealed record Look(int Columns, float Width, float MinLength, float MaxLength, float Taper, float Head, Ramp Colors);
+    /// <param name="Lean">How far a tip may lean to either side, as a share of its column.</param>
+    public sealed record Look(int Columns, float Width, float MinLength, float MaxLength, float Taper, float Head, float Lean, Ramp Colors);
 
     /// <summary>The species' look, or an error that lists the species there are.</summary>
     public static Look Of(string species) => species switch
@@ -30,13 +31,15 @@ public sealed class GrassBlade : MaterialGraph
         // Long narrow blades, about 5 mm wide and 25 cm long, a slightly yellow olive meadow green, darker at the
         // foot, with dry straw tips. The leaves let the sun through, which deepens their green again, so it is a
         // muted one.
-        "meadow" => new Look(24, 0.3f, 0.78f, 0.97f, 0.3f, 0f,
+        "meadow" => new Look(24, 0.3f, 0.78f, 0.97f, 0.3f, 0f, 0.25f,
             Ramp.Of((0f, "#2f4020"), (0.12f, "#374c22"), (0.55f, "#5a6632"), (0.82f, "#7c7f46"), (1f, "#a8996a"))),
         // Short wide blades, about 1.5 cm wide and 18 cm long, a deeper lusher green that only browns at the very tip.
-        "broad" => new Look(12, 0.33f, 0.5f, 0.7f, 0.3f, 0f,
+        "broad" => new Look(12, 0.33f, 0.5f, 0.7f, 0.3f, 0f, 0.25f,
             Ramp.Of((0f, "#2c3a1d"), (0.1f, "#304622"), (0.6f, "#435c2c"), (0.9f, "#5f6e3c"), (1f, "#8a8259"))),
-        // Dry stalks, about 2 mm thick, straw all over, the top quarter a seed head about a centimetre wide.
-        "dry" => new Look(16, 0.07f, 0.85f, 0.97f, 0.05f, 0.25f,
+        // Dry stalks, about 2 mm thick, straw all over, the top quarter a seed head about a centimetre wide. The head
+        // fills most of its column, so the stalks stand nearly straight, or a head would lean out of its column and
+        // be cut off at the column's edge.
+        "dry" => new Look(16, 0.07f, 0.85f, 0.97f, 0.05f, 0.25f, 0.06f,
             Ramp.Of((0f, "#7d7c4a"), (0.3f, "#a29561"), (0.75f, "#c0ad7a"), (1f, "#b39c68"))),
         _ => throw new ArgumentException($"Species must be meadow, broad or dry, not {species}.", nameof(Species)),
     };
@@ -105,7 +108,7 @@ public sealed class GrassBlade : MaterialGraph
     // One blade's own shape, from its column: its length, how far its tip leans and how wide it is.
     private static (float Length, float Lean, float Width) Blade(int column, Look look, int seed) =>
         (look.MinLength + (look.MaxLength - look.MinLength) * Unit(seed, column * 16),
-         (Unit(seed, column * 16 + 1) - 0.5f) * 0.5f,
+         (Unit(seed, column * 16 + 1) * 2f - 1f) * look.Lean,
          look.Width * (0.85f + 0.15f * Unit(seed, column * 16 + 2)));
 
     private static float Along(Vector2 uv, Look look, int seed)
