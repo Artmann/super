@@ -36,24 +36,70 @@ public class PuddleTests
         Assert.Contains(line, applyPuddles);
     }
 
-    private static string SurfaceShader()
+    [Fact]
+    public void The_shaders_water_reflects_what_Puddles_says_straight_on()
+    {
+        Assert.Equal(Puddles.WaterF0, ShaderConstant(Shader("common.glsl"), "WATER_F0"), Tolerance);
+    }
+
+    // The lighting sets water's f0 and dims its colour by the share the reflection leaves, so its
+    // body shows only through the light the reflection doesn't take, as WaterBody works it out.
+    [Theory]
+    [InlineData("f0 = vec3(WATER_F0);")]
+    [InlineData("baseColor *= 1.0 - fresnelSchlick(nDotV, f0);")]
+    public void The_lighting_shows_the_waters_body_only_where_it_doesnt_reflect(string line)
+    {
+        string lighting = Shader("lighting.frag");
+        int water = lighting.IndexOf("if (water) {\n        f0 = vec3(WATER_F0);", StringComparison.Ordinal);
+        Assert.True(water >= 0, "lighting.frag sets no f0 for water.");
+        int end = lighting.IndexOf('}', water);
+
+        Assert.Contains(line, lighting[water..end]);
+    }
+
+    [Fact]
+    public void Water_seen_straight_down_reflects_two_percent()
+    {
+        Assert.Equal(0.02f, Puddles.WaterFresnel(1f), Tolerance);
+        Assert.Equal(0.98f, Puddles.WaterBody(1f), Tolerance);
+    }
+
+    // A standing eye sees a puddle a few metres off at about 75 degrees from straight down,
+    // where cos is 0.25: 0.02 + 0.98 * 0.75^5 = 0.02 + 0.98 * 0.2373046875 = 0.2525586.
+    [Fact]
+    public void Water_seen_from_a_standing_eye_reflects_a_quarter()
+    {
+        Assert.Equal(0.2525586f, Puddles.WaterFresnel(0.25f), Tolerance);
+        Assert.Equal(0.7474414f, Puddles.WaterBody(0.25f), Tolerance);
+    }
+
+    [Fact]
+    public void Water_seen_at_grazing_reflects_everything_and_shows_no_body()
+    {
+        Assert.Equal(1f, Puddles.WaterFresnel(0f), Tolerance);
+        Assert.Equal(0f, Puddles.WaterBody(0f), Tolerance);
+    }
+
+    private static string SurfaceShader() => Shader("surface.glsl");
+
+    private static string Shader(string name)
     {
         for (var folder = new DirectoryInfo(AppContext.BaseDirectory); folder is not null; folder = folder.Parent)
         {
-            string path = Path.Combine(folder.FullName, "src", "Rendition", "Shaders", "surface.glsl");
+            string path = Path.Combine(folder.FullName, "src", "Rendition", "Shaders", name);
             if (File.Exists(path))
             {
-                return File.ReadAllText(path);
+                return File.ReadAllText(path).Replace("\r\n", "\n");
             }
         }
 
-        throw new FileNotFoundException("src/Rendition/Shaders/surface.glsl isn't in any folder above the tests.");
+        throw new FileNotFoundException($"src/Rendition/Shaders/{name} isn't in any folder above the tests.");
     }
 
     private static float ShaderConstant(string shader, string name)
     {
         var match = System.Text.RegularExpressions.Regex.Match(shader, $@"const float {name} = ([0-9.eE+-]+);");
-        Assert.True(match.Success, $"surface.glsl has no const float {name}.");
+        Assert.True(match.Success, $"The shader has no const float {name}.");
         return float.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
     }
 

@@ -531,6 +531,13 @@ void main() {
     float nDotV = max(dot(n, v), 1e-4);
     float alpha = roughness * roughness;
     vec3 f0 = mix(vec3(0.04), baseColor, metallic);
+    // Puddle water reflects as water does, WATER_F0 straight on and nearly all at grazing, and
+    // what is in it, the silt and the ground under it, shows only by the light the surface lets
+    // back out: the share the reflection leaves. Puddles.WaterBody does the same sum.
+    if (water) {
+        f0 = vec3(WATER_F0);
+        baseColor *= 1.0 - fresnelSchlick(nDotV, f0);
+    }
 
     vec2 brdf = environmentBrdf(roughness, nDotV);
     vec3 multiscatter = isOff(OFF_MULTISCATTER_SPECULAR) ? vec3(1.0) : multiscatterCompensation(f0, nDotV, roughness);

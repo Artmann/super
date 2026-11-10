@@ -13,7 +13,7 @@ internal static class Puddles
     public const float Shore = 0.003f;
 
     /// <summary>How high, in metres, each of the water's two layers of ripples is, as surface.glsl's RIPPLE_AMPLITUDE.</summary>
-    public const float RippleAmplitude = 0.0004f;
+    public const float RippleAmplitude = 0.001f;
 
     /// <summary>
     /// The height in metres of the surface at this pixel: the face's own height <paramref name="worldY"/>, less
@@ -34,6 +34,22 @@ internal static class Puddles
         float damp = band > 0f ? Math.Clamp(1f + below / band, 0f, 1f) : below > 0f ? 1f : 0f;
         return (water, damp);
     }
+
+    /// <summary>How much light the water reflects straight on, as common.glsl's WATER_F0: 2%, for water's refractive index of 1.33.</summary>
+    public const float WaterF0 = 0.02f;
+
+    /// <summary>
+    /// How much light the water reflects when seen at <paramref name="nDotV"/>, the cosine of the angle between the
+    /// view and straight up: <see cref="WaterF0"/> looking straight down, rising to all of it at grazing (Schlick).
+    /// </summary>
+    public static float WaterFresnel(float nDotV) => WaterF0 + (1f - WaterF0) * MathF.Pow(1f - Math.Clamp(nDotV, 0f, 1f), 5f);
+
+    /// <summary>
+    /// The share of the light from inside the water, from the silt and the ground under it, that gets out to the
+    /// eye at <paramref name="nDotV"/>: what the reflection leaves, so at grazing the water is nearly all reflection.
+    /// The lighting multiplies the water's colour by it.
+    /// </summary>
+    public static float WaterBody(float nDotV) => 1f - WaterFresnel(nDotV);
 
     /// <summary>What the frame block gets: x the level, y the band, z 1 to say there is water.</summary>
     public static Vector4 Pack(float level, float band) => new(level, band, 1f, 0f);

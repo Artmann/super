@@ -79,6 +79,10 @@ const int OFF_WIND = 1 << 17;
 // ground under it, which is all the depth buffer holds.
 const float WATER_SIDE = 2.0;
 
+// How much light puddle water reflects straight on: 2%, for water's refractive index of 1.33.
+// Must match Puddles.WaterF0 in Passes/Puddles.cs.
+const float WATER_F0 = 0.02;
+
 // What every surface is made of when materials are off: light grey, matte clay.
 const vec3 PLAIN_COLOR = vec3(0.5);
 const float PLAIN_ROUGHNESS = 0.8;

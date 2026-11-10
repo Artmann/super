@@ -1711,13 +1711,19 @@ heightDepth`, with the height map read at the parallax-shifted uv (white when th
 no `heightDepth`). With `below = level - surfaceHeight`, water is `saturate(below / 0.003)`, so
 the shore is 3 mm soft, and damp is `saturate(1 + below / band)`. Damp mixes the colour towards
 its square and the roughness towards half; water then mixes in roughness 0.03, metalness 0, the
-colour towards the dry colour times the silt (0.7, 0.68, 0.65) by `saturate(below / 0.05)`, so deep
-water is turbid rather than black, and a rippled up normal. The
+colour towards a turbid near-black brown, `PUDDLE_TURBID` (0.01, 0.0085, 0.006), by `saturate(below / 0.04)`,
+so deep water hides the ground under it and what it reflects reads on a dark sheet, and a rippled up normal. The
 ripples are two layers of the same value noise `worldVariation` uses, over x, z and time, 0.3 m
 across at 0.4 Hz and 0.11 m at 0.9 Hz, each drifting a wavelength a cycle, whose slopes come
-from forward differences and are scaled to a 0.4 mm wave. `Passes/Puddles.cs` does the height and
-wetness sums for the tests, and `PuddleTests` reads `surface.glsl` to check the shader's
-constants and sums match it. The G-buffer gets the wet surface, so screen-space reflections, the
+from forward differences and are scaled to a 1 mm wave. In the lighting pass water's f0 is
+`WATER_F0` (0.02, in `common.glsl`) rather than the dielectric 0.04, and its colour is multiplied
+by `1 - fresnelSchlick(nDotV, f0)` before any light, so the body shows only through what the
+reflection leaves. The direct light's own `1 - F(v·h)` then stands for the light getting in.
+The reflection is only about a quarter of the light from a standing eye (nDotV near 0.25), so
+the body has to be this dark: at the old 0.045 the sunlit silt outshone the mirror several times over
+and the puddle read as a grey lid. `Passes/Puddles.cs` does the height and wetness sums and
+`WaterFresnel` and `WaterBody` for the tests, and `PuddleTests` reads `surface.glsl`,
+`common.glsl` and `lighting.frag` to check the shader's constants and sums match it. The G-buffer gets the wet surface, so screen-space reflections, the
 reflection probes and the sky give the water its mirror with no extra pass. The depth buffer
 holds the ground under the water, though, and a reflection traced from there runs straight into
 the sides of its own hollow and comes back as dark wet mud. So a pixel that is at least half

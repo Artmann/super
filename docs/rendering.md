@@ -519,7 +519,7 @@ view.Sun(direction: new Vector3(-0.75f, 0.5f, 0.42f), color: new Vector3(7.2f, 6
 view.Sky(new SkySettings
 {
     Ground = new Vector3(0.2f, 0.17f, 0.14f),
-    Brightness = 0.75f,
+    Brightness = 1f,
     Turbidity = 2.5f,   // 1.7 is a very clear day, 10 a hazy one
 });
 ```
@@ -668,10 +668,14 @@ Only materials that ask for it get wet: a model sidecar's rule with `"puddles": 
 deep its height map sinks it (the material's `heightDepth` times how far below white the
 height is), so the mortar between flagstones and the hollows in mud fill before the tops.
 A pixel below the level is water. It mirrors the sky and what's on screen with roughness
-0.03 and no metalness, its normal points straight up but for two layers of ripples 0.4 mm
-high that drift and change, at 0.4 and 0.9 cycles a second, and its colour is the ground's,
-turning to the colour of the silt it holds, the dry ground a little dimmed, as the water
-deepens to 5 cm, so it reads as muddy water and not a dark hole. Above the level, the surface is
+0.03 and no metalness, its normal points straight up but for two layers of ripples 1 mm
+high that drift and change, at 0.4 and 0.9 cycles a second, so the wind breaks the reflection
+up a little. It reflects as water does: 2% of the light looking straight down, about a quarter
+from a standing eye a few metres off, and nearly all of it at grazing. Its colour is the
+ground's, turning to the near-black brown of turbid water as the water deepens to 4 cm, and it
+shows only through the light the reflection leaves, so the ground under shallow water shows
+most near your feet, deep water hides it, and the sky and what stands round the puddle read in
+it as reflections on a dark sheet, not as wet mud. Above the level, the surface is
 damp: at the waterline its colour is squared, which darkens it the way water darkens soil,
 and its roughness halved, fading in a straight line to dry at the band's top. A band of 0
 leaves only the water.

@@ -121,15 +121,19 @@ void applyLayers(Material material, inout vec3 color, inout float roughness) {
 // shore is soft. Must match Puddles.Shore in Passes/Puddles.cs.
 const float PUDDLE_SHORE = 0.003;
 
-// Standing water: a near mirror. Shallow, it shows the wet ground under it. Deeper, it is the colour of
-// the silt it holds, which is the dry ground's a little dimmed, by PUDDLE_DEEP metres.
+// Standing water: a near mirror. Shallow, it shows the wet ground under it. Deeper, the silt it
+// holds hides the bottom, and by PUDDLE_DEEP metres it is the near-black brown of turbid water,
+// which takes in nearly all the light that gets into it. So the sky and what stands round it
+// read in it as a reflection on a dark sheet, as they do in a real puddle: the reflection is
+// only a fifth of the light at a standing eye's angle, and a paler body would wash it out. The
+// lighting lets the body show only through the share the reflection leaves (WATER_F0).
 const float PUDDLE_ROUGHNESS = 0.03;
-const float PUDDLE_DEEP = 0.05;
-const vec3 PUDDLE_SILT = vec3(0.7, 0.68, 0.65);
+const float PUDDLE_DEEP = 0.04;
+const vec3 PUDDLE_TURBID = vec3(0.01, 0.0085, 0.006);
 
 // The ripples: two layers of drifting, changing waves, each RIPPLE_AMPLITUDE metres high. The
 // first is broad and slow, the second fine and quicker. Each moves one wavelength a cycle.
-const float RIPPLE_AMPLITUDE = 0.0004;
+const float RIPPLE_AMPLITUDE = 0.001;
 const float RIPPLE_SLOW_HZ = 0.4;
 const float RIPPLE_SLOW_WAVELENGTH = 0.3;
 const float RIPPLE_QUICK_HZ = 0.9;
@@ -149,7 +153,7 @@ vec2 rippleSlope(vec2 position, float wavelength, float hz, vec2 drift) {
 
 // Lays the frame's puddles over a surface whose material has MATERIAL_PUDDLES. The surface's height
 // at this pixel is its world height less how far its height map sinks it, so the bottom of a groove
-// sits below its face. Below frame.puddles.x it is water: rippled, smooth, not metal and siltier the
+// sits below its face. Below frame.puddles.x it is water: rippled, smooth, not metal and darker with silt the
 // deeper it gets. For frame.puddles.y metres above, it is damp: at the waterline its colour is squared
 // and its roughness halved, fading in a straight line to dry. Passes/Puddles.cs does the same sums.
 // A pixel that is at least half water sets puddleWater, and writeSurface marks it as water.
@@ -166,7 +170,6 @@ void applyPuddles(inout Surface surface, vec3 worldPos, float height, float heig
         return;
     }
 
-    vec3 dry = surface.baseColor;
     surface.baseColor = mix(surface.baseColor, surface.baseColor * surface.baseColor, damp);
     surface.roughness = mix(surface.roughness, surface.roughness * 0.5, damp);
     if (water <= 0.0) {
@@ -176,7 +179,7 @@ void applyPuddles(inout Surface surface, vec3 worldPos, float height, float heig
     vec2 slope = rippleSlope(worldPos.xz, RIPPLE_SLOW_WAVELENGTH, RIPPLE_SLOW_HZ, vec2(0.8, 0.6))
         + rippleSlope(worldPos.xz + 31.0, RIPPLE_QUICK_WAVELENGTH, RIPPLE_QUICK_HZ, vec2(-0.5, 0.87));
     vec3 rippled = normalize(vec3(-slope.x, 1.0, -slope.y));
-    vec3 silty = mix(surface.baseColor, dry * PUDDLE_SILT, clamp(below / PUDDLE_DEEP, 0.0, 1.0));
+    vec3 silty = mix(surface.baseColor, PUDDLE_TURBID, clamp(below / PUDDLE_DEEP, 0.0, 1.0));
 
     surface.baseColor = mix(surface.baseColor, silty, water);
     surface.roughness = mix(surface.roughness, PUDDLE_ROUGHNESS, water);
