@@ -13,8 +13,11 @@ Graphs run when content is cooked, never while the game runs.
 Six starter graphs, from the [Courtyard](../examples/Courtyard) example's lineup
 (`--lineup`). Each is drawn on a sphere, a cube and a flat tile 1 m across, at the graph's
 own width, so a brick is the size of a brick. The example itself is a courtyard modelled
-in Blender, wearing these graphs and four more, stone, mud, window glass and sacking, through its model sidecar. The graphs are in `examples/Courtyard/content/materials` and make a good
-place to start a new one.
+in Blender, wearing the bricks, flagstones and wood and sixteen more graphs through its model
+sidecar and its decals: mud, stone, dry stone, rubbed brick, limewash, window glass, sacking and forged
+iron, the ivy leaves, grass blades, dead leaves and cobweb its cards are cut from, a fine
+grit laid over the stone, and the grime, gravel and stains its decals lay. The graphs are in
+`examples/Courtyard/content/materials` and make a good place to start a new one.
 
 ## Writing a graph
 

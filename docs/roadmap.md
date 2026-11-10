@@ -27,6 +27,16 @@ Super is early. These are the known gaps, so you can plan around them.
 - **Local lights in reflections.** [Reflection probes](rendering.md#reflections) are
   photographed by the sun and sky alone, so a lantern or a lit window doesn't show in a
   reflection, and turning one on doesn't photograph the probe again.
+- [Light probes](rendering.md#bounced-light) are static. They are drawn once when the box is
+  set and again only when the sun, the sky, the shadows or the box change, not when things
+  move, and each frame that draws them takes longer.
+- Bounced light doesn't follow moving lights or objects: a lamp carried through a room, a
+  door that opens or a cart that rolls into the sun changes nothing in the shade round it.
+  The next step is probes that update a few at a time while the game runs, as DDGI does,
+  and later a surface cache like Unreal's Lumen.
+- [Height maps](rendering.md#height-and-detail-maps) sink mortar and grooves with parallax,
+  but the grooves cast no shadow of their own, so a low sun across a brick wall doesn't
+  darken the side of each joint away from it.
 - [Auto exposure](rendering.md#auto-exposure) meters the whole frame, the sky included,
   with every pixel counted the same, so there is no centre weighting yet. It has no lower
   or upper limit on where it settles, so a scene meant to be dark is pushed up to middle
@@ -63,7 +73,8 @@ Super is early. These are the known gaps, so you can plan around them.
   [Cooking](content.md#cooking) and [Change it while the game runs](content.md#change-it-while-the-game-runs).
 - Step 1 of [material graphs](materials.md) is done: graphs cook into textures, with the
   Courtyard lineup of six starter graphs. `graph` in model sidecars is done too, and the
-  Courtyard is now a scene modelled in Blender that wears the graphs, and its puddle is
+  Courtyard is now a scene modelled in Blender that wears nineteen of the example's graphs,
+  with cards cut out by a graph's opacity, decals laid with graphs, and a puddle of
   [standing water](rendering.md#puddles) at a level the game sets. Next: hot reload of a
   saved graph in the running game, `repeat` in model
   sidecars, mesh bakes with a `Triplanar` node, and curvature and

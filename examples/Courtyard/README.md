@@ -46,6 +46,8 @@ that wasn't cooked stops the game as it loads. D turns them all off and on. The 
 parallax, a grit graph laid over the bricks and stones keeps them grainy a step away, and
 broad patches of light and dark laid by world position hide where the textures repeat.
 
+![The wall right of the window before and after: on the left bricks in a narrow range of reds and orange-browns; on the right bricks from dark plum through reds and orange-browns to ochre and pale buff](../../docs/media/courtyard-realism-wall.webp)
+
 The lantern, the crates and the wheel are models from Sketchfab, kept in `art/assets`. The
 script imports them, places them and puts them in the model with their own textures. They
 are used under [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/):
@@ -56,27 +58,46 @@ are used under [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/):
 - [Wooden_wheel](https://skfb.ly/6XMBR) by DOMNIN. Its metalness map is left out, since
   it made the grey, weathered wood shine like metal, and the sidecar warms the wood a little.
 
+![The wheel, the crates and the sacks before and after: on the left even brown deck boards and smooth mud with a few grass tufts; on the right deck boards each their own tone, silvered in patches, coarse mud and more grass round the wheel](../../docs/media/courtyard-realism-props.webp)
+
 ![The wall before and after: a green gooseneck lamp, a lathe-built wheel and a crate made from boards in code on the left, and the glass wall lantern, the wheel and the crate from Sketchfab on the right](../../docs/media/courtyard-models.webp)
 
-It's a clear afternoon. The sun is high on the left, still low enough to rake across the
-bricks and the plinth, and the tree's canopy breaks it into dappled light across the wall
-and the window. The sun is set close to its real size with `view.Shadows(7f, 3, sunSize: 0.02f)`,
-so the leaves' shade stays crisp though they are 10 m from the wall. See
-[Shadows](../../docs/rendering.md#shadows). The sky is a clear one worked out from the sun
-with `Turbidity = 2.5f`: blue overhead, paler at the horizon and bright round the sun's
-disc, so the shade is cooler than the sunlight. See [The sky](../../docs/rendering.md#the-sky). The sky is at its
-full `Brightness = 1f`, so the shade is lit by the whole open sky and the low wall's stones
-still read in it, while the sun keeps it a clear step darker than the light, as on a real clear
-day. The light probes carry light bounced off the sunlit brick and flagstones into the shade,
-ambient occlusion over 0.8 m darkens the corners and the foot of each wall, and contact shadows
-of 0.3 m seat the stones, the barrel and the sacks on the ground. The camera meters
-the courtyard with auto exposure and the finish adds 1.15 stops to what it picks, so
-the shade stays open and the sunlit wall reads bright through AgX's Punchy look. See [Auto exposure](../../docs/rendering.md#auto-exposure). The lantern is a point light at its
-bulb, left on but dim in daylight, that warms the wall just round it. It casts no shadows, since the bulb and
-the lantern round it would hide it. A point light at the back of the room makes the old
-glass glow, as if someone is home. A light finish adds contrast and saturation, a warm white
-balance, a little bloom round the lamp and a vignette. Above full HD the sun's shadow maps
-double to 4096, so their texels don't show in a large picture.
+It's a clear afternoon. The sun is high on the left and a little in front of the wall, still
+low enough to rake across the bricks and the plinth, and the tree's canopy breaks it into
+dappled light across the wall and the window. `view.Shadows(7f, 3, sunSize: 0.02f, contact: 0.3f)`
+sets the sun close to its real size, so the leaves' shade stays crisp though they are 10 m
+from the wall, and its contact shadows of 0.3 m seat the stones, the barrel and the sacks on
+the ground. Above full HD the sun's shadow maps double to 4096, so their texels don't show
+in a large picture. See [Shadows](../../docs/rendering.md#shadows). The sky is a clear one
+worked out from the sun with `Turbidity = 2.5f`: blue overhead, paler at the horizon and
+bright round the sun's disc, so the shade is cooler than the sunlight. It is at its full
+`Brightness = 1f`, so the shade is lit by the whole open sky and the low wall's stones still
+read in it, while the sun keeps it a clear step darker than the light, as on a real clear
+day. See [The sky](../../docs/rendering.md#the-sky).
+
+Light probes a metre apart fill the yard, so light bounced off the sunlit brick and
+flagstones warms the shade round it. See [Bounced light](../../docs/rendering.md#bounced-light).
+Ambient occlusion over 0.8 m at full strength darkens the corners and the foot of each wall.
+A reflection probe at head height in the middle of the yard lets the window and the puddle
+mirror the wall, the deck and the house rather than only the sky. Water stands 4.5 cm below
+the yard's zero with `view.Puddles(-0.045f, band: 0.035f)`, so the hollow dug in the mud
+fills, the deepest boot prints hold a little, and the mud darkens for the last 3.5 cm down to
+it. A wider band would darken the flagstones round the puddle too. See
+[Puddles](../../docs/rendering.md#puddles).
+
+![The puddle before and after: on the left a flat dark sheet in smooth red-brown mud; on the right dark silty water that mirrors the flagstones and the wall, in coarse churned mud with pebbles and broken brick](../../docs/media/courtyard-realism-puddle.webp)
+
+The lantern is a point light at its bulb, left on but dim in daylight, that warms the wall
+just round it. It casts no shadows, since the bulb and the lantern round it would hide it. A
+point light at the back of the room makes the old glass glow, as if someone is home.
+
+The camera meters the courtyard with auto exposure, and `Exposure = 1.15f` adds a little over
+a stop to what it picks, so the shade stays open and the sunlit wall reads bright through
+AgX's Punchy look, the default. See [Auto exposure](../../docs/rendering.md#auto-exposure).
+The rest of the finish is light: a touch more contrast and saturation, a warm white balance,
+a little sharpening, a little bloom round the lamp and a vignette. The lens is a 35 mm
+focused on the window, 11 m off, and stopped down to f/8, so the flagstones at your feet
+soften a little and the window and the wall stay crisp. See [Focus](../../docs/rendering.md#focus).
 
 ![The courtyard before and after: on the left the shade is nearly as bright as the sun, the lantern floods the wall and the bricks are all one orange-red; on the right the shade is a clear step darker, the lantern only warms the wall round it, and the bricks range from dark clinkers to pale ones in grey mortar](../../docs/media/courtyard-light.webp)
 
@@ -194,17 +215,21 @@ crates' frames and the deck boards' ends. The tree's leaves and the small curled
 under the walls are still plain `cy_tree_leaf` and `cy_dead_leaf` quads. The model's own
 stain quads are gone: `WallStains` lays the damp, the drip and the rust as decals.
 
+![The ivy, the dry-stone wall and the barrel before and after: on the left star-shaped ivy in a dark green sheet and bright grass tufts on dark ground; on the right ivy of leaf cards along its stems and spilling over the dry-stone wall, olive grass along the wall's foot and a warmer, sunlit barrel](../../docs/media/courtyard-realism-plants.webp)
+
 ![The courtyard before and after, from the default camera: on the left plain ivy quads in a bright green sheet and a few grass quads; on the right a mat of ivy leaf cards over its stems, olive grass in patches on the puddle's bank and at the deck's edge with the trodden mud bare, and dirt, moss and wet patches round the barrel, the wheel and the crates](../../docs/media/courtyard-cards.webp)
 
 ## Files
 
 | File | What's in it |
 | --- | --- |
-| `CourtyardGame.cs` | The courtyard model, the camera, the sun and its shadows, the sky and its fog, the lantern and the room's light, and the finish |
+| `Program.cs` | Starts the courtyard, or the lineup with `--lineup` and the leaves with `--leaves` |
+| `CourtyardGame.cs` | The courtyard model, the camera, the sun and its shadows, the sky and its fog, the light probes, the reflection probe, the puddle level, the wind, the lantern and the room's light, and the finish. It loads the hand-placed decal list, lays it with the wall's stains and the gravel, and turns the materials, fog, volumetric fog, auto exposure and decals off and on with M, F, V, E and D |
 | `WallStains.cs` | Where the grime decals lie on the wall: the damp along its foot, the dirty water under the sill and the rust under the anchor plates |
 | `GravelSpills.cs` | Where the gravel decals lie: spills along both edges of both arms of the path and round the barrel's foot, kept off the middle of the path, the puddle and the wall |
 | `DecalCatalog.cs` | `DecalList` and `PlacedDecal`, the shape of a hand-placed decal list, and how a decal's position, size, facing and turn make its box |
 | `content/decals/courtyard.json` | The hand-placed decals, each with a unique name and the cooked material it is laid with: the dirt round the things that stand on the ground, the rust on the barrel, moss, wet ground and the boot prints. `DecalCatalogTests` cooks it and checks that every material it names was cooked and that no two decals share a name |
+| `content/.schemas/decals.schema.json` | The JSON schema for decal lists, which Super writes when the game runs from source, so an editor can check a list as you type. See [Your editor can help](../../docs/content.md#your-editor-can-help) |
 | `content/materials/stain.material.cs` | Small stains for decals that fade out well inside the image, picked by `Kind`: a ring of dirt round something's foot, round or `Square`, a cushion of moss, a patch of wet ground and one muddy boot print with its tread |
 | `content/materials/stain-square.material.json`, `stain-moss.material.json`, `stain-water.material.json`, `stain-boot.material.json` | Variants of the stain: the square ring under the crates, the moss, the wet ground and the boot print |
 | `LineupGame.cs` | The lineup |
@@ -213,7 +238,8 @@ stain quads are gone: `WallStains` lays the damp, the drip and the rust as decal
 | `content/models/cards.glb.cook.json` | The cards' rules: the courtyard's own rules for its `graph_*` names, and `swatch_*` rules that show each graph whole, cut out but not lit as foliage |
 | `art/courtyard.py` | The Blender script that builds and exports the courtyard. It lays each board, stave and plank on one of the wood graph's boards, its width across the graph board and its two sawn ends on the graph board's two ends of end grain, so end grain shows only where a board really ends. The deck is laid in boards of 0.75 to 1.5 m, one graph board each, butted end to end in staggered joints, and no board at a run's end is shorter than 0.75 m. A deck board's width takes only the flat of its graph board, so the graph's rounded edge doesn't add a bright second edge beside the board's own bevel. Two iron nail heads are driven into each bearer a deck board crosses. It also lays the ivy's leaf cards, the grass's blade cards, the weeds, the cobwebs, the fallen leaves, twigs, brick bits and wet pebbles, and the 6 mm nails at the deck boards' ends and the crates' corners, which it finds by casting rays at the crates. The second UV set, `mask`, that the cook bakes wear and dirt into is unwrapped per material by Smart UV Project at 66° with a margin of 0.002 |
 | `art/assets/` | The lantern, crate and wheel from Sketchfab, with their textures, that the script imports |
-| `content/models/courtyard.glb.cook.json` | Which graph each of the model's materials wears, each cooked at `graphSize` 2048 so they hold up close (4096 for the bricks and the flagstones, which cover the most of the screen), the wood's two variants for the barrel's staves and the deck, with a wear tint on their edges that is only a little paler than the wood on the staves, and a little darker and dull on the deck, so worn edges don't read as bright lines, a warmer tint for the wheel's weathered wood, five tints of the dry-stone graph for the wall's stones, plus the bulb, the leaves, grass and whitewash that are seen from both sides, the grit detail graph and `worldVariation` on the bricks, stone, dry stone and flagstones, `worldVariation` on the mud, `puddles` on the mud, the flagstones, the plank, the deck, the hoops, the wheel and the stone graph's wet pebbles (`graph_pebble_wet`), `wind` on the grass, with a share of 0.08 for the ivy and 0.4 for the tree's leaves so they sway less, rules for the leaf, blade, cobweb and dead-leaf cards that cut them out at `alphaCutoff` 0.5 and draw both sides, with `foliage` translucency 0.7 for the ivy and 0.85 for the grass blades and `"crown": false` so the cards keep the bent normals the model gives them, wind like the plain ivy and grass and a share of 0.02 for the cobweb, and three tints of dead leaf, the ivy leaf tinted brown and less translucent for the dead ivy (`graph_ivy_dead`), and `keepOrigin` |
+| `content/models/courtyard.glb.cook.json` | Which graph each of the model's materials wears, each cooked at `graphSize` 2048 so they hold up close (4096 for the bricks and the flagstones, which cover the most of the screen), the wood's two variants for the barrel's staves and the deck, with a wear tint on their edges that is only a little paler than the wood on the staves, and a little darker and dull on the deck, so worn edges don't read as bright lines, a warmer tint for the wheel's weathered wood, five tints of the dry-stone graph for the wall's stones, plus the bulb, the leaves, grass and whitewash that are seen from both sides, the grit detail graph and `worldVariation` on the bricks, stone, dry stone and flagstones, `worldVariation` on the mud, `puddles` on the mud, the flagstones, the plank, the deck, the hoops, the wheel and the stone graph's wet pebbles (`graph_pebble_wet`), `wind` on the grass, with a share of 0.08 for the ivy and 0.4 for the tree's leaves so they sway less, rules for the leaf, blade, cobweb and dead-leaf cards that cut them out at `alphaCutoff` 0.5 and draw both sides, with `foliage` translucency 0.7 for the ivy and 0.85 for the grass blades and `"crown": false` so the cards keep the bent normals the model gives them, wind like the plain ivy and grass and a share of 0.02 for the cobweb, and three tints of dead leaf, the ivy leaf tinted brown and less translucent for the dead ivy (`graph_ivy_dead`), `bakeMasks` with a `wear` and a `dirt` tint on the stone, the wood, the staves, the deck, the hoops and the crates' wood, so their edges rub pale and their hollows darken, and `keepOrigin` |
+| `content/models/courtyard.glb`, `content/models/cards.glb` | The courtyard and the leaves' cards, as `art/courtyard.py` and `art/cards.py` write them |
 | `content/materials/whitewash.material.cs` | Old limewash, 1 m wide, for the flakes on the wall. Off-white Perlin patches with grime streaks from `Noise.Directional` running down, heavier in some places than others. About a fifth of it has flaked away, in Perlin patches through `HistogramScan` whose edges `SlopeBlur` with Perlin bites jagged, showing brick coloured as `brick-face.material.cs` colours it, with lime left in its pores. The brick lies 3 mm below the coat, whose edge lifts a little and is lined with dirt, and lime washed from the coat's lower edges runs a few centimetres down the brick in streaks |
 | `content/materials/glass.material.cs` | Old window glass, 3.7 m wide and transparent: a `Tiles.Grid` of 6 by 8 panes, each the size of a pane of the window, moved so its joints fall on the glazing bars. Clean glass is a faint green tint with ripples from `Noise.Directional` that bend the reflection, from one of two seeds per pane, picked by the pane's `FloodFill` island, so neighbours don't carry the same ripples on. Dust packs into each pane's corners, from an inverted `Gradient.Radial` laid over the pane by its island's own gradients, and along its foot. Dust from Perlin, faint rain streaks running down, mostly in the lower half of each pane, and specks from blurred white noise raise its opacity, from 0.05 to 0.8, and roughness. One pane is cracked: a jagged hairline with a branch, widened by `Distance`, pale where the broken edges catch the light, with the glass on one side tipped a fraction |
 | `content/materials/bricks.material.cs` | Big old bricks 43.75 cm long and about 29 cm high in grey lime mortar, 3.5 m wide, cooked at `graphSize` 4096. Each brick is found with `FloodFill` and takes one of eight tones from dark plum through the reds and orange-browns to ochre and pale buff, most of them reds and orange-browns, a third the two middle reds, and the plum and buff rare accents. Their lightness rises steadily, the buff about twice the red. The tones are dealt once from a fixed shuffle so that no brick matches any brick it touches, and `BrickToneTests` checks it. Each brick also gets its own tilt and hardness: hard bricks are smooth with a slight sheen, soft ones undulate, are pitted with pores from small cells and are dull. Over about a fifth of the wall, in patches from low Perlin through `HistogramScan`, salts have dried to a white rim along the joints, bleeding about 4 cm into the soft bricks and over the mortar, from `Distance` on the mortar and broken up by a fine Perlin grain. Soot from a `Gradient.Linear` darkens a band under the string course, broken into streaks by `Noise.Directional`. `SlopeBlur` with cells chips the edges, and a second, coarser pass bites bigger chips out of one brick in five. Perlin through a narrow `Levels` spalls flakes off a few faces. The mortar is grey and dirty, filled to an uneven level and lightened and darkened by its own Perlin, and weathered back to a deep recess in patches from cells. Its height map gives the mortar parallax depth |

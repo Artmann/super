@@ -9,17 +9,36 @@ What it does for every game, with no setup:
 - Cook-Torrance GGX shading with up to eight directional lights, and up to 1,024 point
   and spot lights with soft shadows. Rough surfaces keep the light that bounces between
   their tiny facets, so worn iron and brushed steel stay as bright as real metal does
-- Soft, contact-hardening shadows, in up to four cascades, with screen-space contact shadows where things meet the ground
+- Soft, contact-hardening shadows, in up to four cascades, with screen-space [contact shadows](#shadows) where things meet the ground
 - A generated environment that gives surfaces reflections and soft fill light
-- [Bounced light](#bounced-light) from a volume of light probes, which doesn't leak through walls
 - Screen-space reflections and box-corrected [reflection probes](#reflections), which glass reflects too
-- Temporal anti-aliasing that follows moving, animated and swaying things with [motion vectors](#motion-vectors), [ambient occlusion](#ambient-occlusion) (with light bounced back from the surface's colour) and bloom
+- Ground-truth [ambient occlusion](#ambient-occlusion) (GTAO), with a bent normal that turns the soft light towards the opening and specular occlusion that dims reflections in corners, and light bounced back from the surface's colour
+- Temporal anti-aliasing that follows moving, animated and swaying things with [motion vectors](#motion-vectors), and bloom
 - [Glass](#glass) that bends and frosts what's behind it, car paint clearcoat and surfaces that glow
 - [Height maps](#height-and-detail-maps) that sink mortar and grooves into a flat surface, and detail maps for fine grain
 - Skin, wax and jade that [let light spread under the surface](#skin-and-wax)
+- Cut-out leaves, grass and cobwebs that [keep their shape in the distance](#models), since the cook keeps their alpha coverage in every mip
 - Soft, lit [particles](views.md#particles) for dust and smoke
 - Culling and simpler versions of distant models, for the camera and for shadows
-- AgX or ACES filmic tonemapping, white balance, colour grading, sharpening, vignette, grain and dithering
+- [AgX](#tone-mapping) or ACES filmic tonemapping, white balance, colour grading, sharpening, vignette, grain and dithering
+
+And when a scene asks for it:
+
+- [Bounced light](#bounced-light) from a volume of light probes, which doesn't leak through walls
+- A [clear sky](#the-sky) worked out from the sun and the haze in the air, with the sun's disc in it
+- [Height fog](#fog) that glows towards the sun, and [volumetric fog](#volumetric-fog) near the camera, with shafts of sunlight and halos round lamps
+- [Auto exposure](#auto-exposure) that meters the frame and adapts like a camera
+- [Depth of field](#focus) from a lens with a focus distance, an aperture and a focal length
+- [Decals](views.md#decals) that lay grime, rust, moss and boot prints onto what is under them
+- [Puddles](#puddles) of standing water, with a damp band, wherever the ground lies below a level
+- [Wind](#wind) that sways grass, leaves and their shadows
+- [Wear and dirt](#wear-and-dirt) on edges and in hollows, from masks the cook bakes from the mesh
+- A [render scale](#graphics-settings) that draws the scene smaller or larger than the window, and [AMD FSR](#upscaling) to rebuild the full picture from a smaller one
+
+The [Courtyard example](../examples/Courtyard) uses most of them. Here it is before and
+after they and its materials were reworked, from the same camera and the same frame:
+
+![The Courtyard before and after: on the left orange-red bricks, a few bright green grass tufts, a dark flat puddle and smooth brown mud; on the right bricks from plum to pale buff, ivy of leaf cards, grey and sandstone flagstones, coarse mud with gravel, a puddle that mirrors the yard, weathered deck boards and a window that reflects the courtyard](media/courtyard-realism.webp)
 
 ## Graphics settings
 
@@ -661,7 +680,7 @@ view.Puddles(-0.045f);          // water at 4.5 cm below 0, damp for 8 cm above 
 view.Puddles(0.2f, band: 0.03f); // higher water and a narrower damp band
 ```
 
-![The Courtyard puddle before, a flat grey sheet, and after, muddy water at the level that mirrors the grass and stones](media/puddles-before-after.webp)
+![The Courtyard puddle before, a flat grey sheet, and after, dark silty water at the level that mirrors the flagstones, the grass and the wall behind it](media/puddles-before-after.webp)
 
 Only materials that ask for it get wet: a model sidecar's rule with `"puddles": true`, or a
 `Surface` with `Puddles = true`. Each pixel's height is where it is in the world, less how

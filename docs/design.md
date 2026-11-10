@@ -2142,7 +2142,26 @@ Anything larger than a block gets its own allocation.
   They don't see point and spot lights.
 - Light probes are captured again only when the lighting or the box changes, not when
   things move, and a sun that moves every frame keeps them capturing. Each capture frame
-  waits for the GPU face by face, so it hitches.
+  waits for the GPU face by face, so it hitches. They see the sun and the sky but not point
+  and spot lights, so bounced light follows neither a moving lamp nor a moving object.
+  Probes that update a few at a time while the game runs, as DDGI does, would be the next
+  step.
+- Volumetric fog is a froxel grid of one cell per 8×8 scene pixels, so light bleeds a
+  cell across silhouettes, a shaft narrower than a cell blurs, and its history smears a
+  moving light or a fast camera for a few frames. Past `VolumetricDistance` the fog is the
+  plain height fog again.
+- Decals that overlap don't stack their normals and roughness, only their colours, and a
+  decal can't make a surface metal or make it glow. See [Decals](#decals).
+- Puddles have one flat level per view. Water doesn't run, rise in one hollow and not
+  another, ripple under rain or bend what lies under it, and with materials off the clay
+  is wet at its mesh's height, since there is no height map to sink it.
+- Wear and dirt masks are baked once, when the model cooks, from its own meshes: a crate
+  moved against a wall in the game doesn't gather dirt where it now stands, and a graph
+  can't read the masks. They need a second UV set with no overlaps, and transparent
+  materials ignore them.
+- Keeping alpha coverage in the mips scales only alpha, so a far cut-out keeps its
+  outline but its colour is the plain filtered average, and it is done only for materials
+  with an `alphaCutoff`.
 - Custom shaders replace only the G-buffer fragment shader. Shadows still use the
   material's standard cut-out, so a shader that discards extra pixels leaves the full
   shadow. Glass can't use one, and vertices can't be moved by one yet.
