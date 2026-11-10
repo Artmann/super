@@ -695,7 +695,11 @@ share of the lean, and comes in fully from a strength of 0.25.
 
 The sway happens as the mesh is drawn, so its shadows sway with it, and a part that sways
 must be a separate part in the model, standing on its own foot: the lowest point of the whole
-part is what stays still. [`Graphics.Wind`](#graphics-settings) turns it off, and
+part is what stays still. A copy can be moved, scaled or turned about the vertical and still
+sway from its own foot, but one tipped over sways from the wrong height, because the height
+is measured straight up. Culling knows how far a swaying part can reach, so grass at the
+edge of the screen or of a shadow doesn't pop in or out as it leans.
+[`Graphics.Wind`](#graphics-settings) turns it off, and
 `Graphics.Fastest()` turns it off. The Courtyard blows a breeze of 0.35 across its grass, with
 a share of 0.08 for the ivy and 0.4 for the tree's crown.
 
@@ -749,7 +753,8 @@ leaves, and draws both sides. Every material the rule matches counts as one crow
 give the trunk its own material. How much sunlight comes through is the leaves' own: 0.6
 with `"foliage": true`, or set as `"foliage": { "translucency": 0.85 }` for thin, bright
 leaves, down to 0 for leaves no light gets through. Anything outside 0 to 1 stops the cook.
-A `Surface` sets the same with `Foliage = true` and `Translucency`. To make the leaves move,
+A `Surface` sets the same with `Foliage = true` and `Translucency`, and a Rendition `Material`
+with `MaterialFlags.Foliage` and `Translucency`; both start at 0.6. To make the leaves move,
 add a [`wind`](#wind) rule.
 
 Textures are looked for beside the source file, then in any folder under it, as

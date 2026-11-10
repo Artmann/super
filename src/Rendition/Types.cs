@@ -129,6 +129,11 @@ public enum MaterialFlags
 /// </summary>
 public struct Material
 {
+    /// <summary>A material with every field zero or unset, apart from <see cref="Translucency"/>.</summary>
+    public Material()
+    {
+    }
+
     public Vector4 BaseColor;
     public float Metallic;
     public float Roughness;
@@ -222,9 +227,10 @@ public struct Material
 
     /// <summary>
     /// For <see cref="MaterialFlags.Foliage"/>, how much sunlight shines through from behind, from 0 for none to 1 for
-    /// all of it. Leaves are about <see cref="DefaultTranslucency"/>, thin blades more. Other materials ignore it.
+    /// all of it. It starts at <see cref="DefaultTranslucency"/>, about what a leaf does; thin blades let through more.
+    /// Other materials ignore it. A <c>default</c> material, which skips the constructor, has 0.
     /// </summary>
-    public float Translucency;
+    public float Translucency = DefaultTranslucency;
 
     /// <summary>How much sunlight foliage lets through when nothing says: about what a leaf does.</summary>
     public const float DefaultTranslucency = 0.6f;

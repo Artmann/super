@@ -791,7 +791,7 @@ pixel has alpha below it, or none has alpha above it. A `foliage` rule is for a 
 leaves. It points the normals out of the crown, so the crown is lit as one shape and
 not as a pile of separate cards, draws both sides, and keeps back faces from flipping
 their normal. The lighting pass then lets sunlight through the leaves from behind, by the
-material's own translucency. That rides in `GpuMaterial.Transmission`, which subsurface
+material's own translucency. That rides in `GpuMaterial.Transmission` (`ResourceTable.Transmission` picks it), which subsurface
 uses for its own and foliage can share since the two exclude each other, and `writeSurface`
 writes it negated into the clearcoat channel (`foliageChannel`, never above `-1/1024` so 0
 still reads as foliage). The lighting pass reads the size of a negative channel back as the
@@ -1638,7 +1638,7 @@ constants carry the material's sway share (`DrawConstants.WindSway`, at 60) and 
 lowest point in model space (`WindBase`, at 56, from `PartDetail.MinY`, which `MeshDetail` keeps
 from the part's bounds), so `DrawConstants` is 64 bytes. A share of 0, which every material has
 unless it asks, skips the sum. `windSwayPlaced` puts the vertex's x and z with the base's y
-through the copy's model matrix to find the foot in the world, so a copy that is moved, turned
+through the copy's model matrix to find the foot in the world, so a copy that is moved, turned about the vertical
 or scaled sways from its own foot, and the height above it, clamped to 1 m, is `h`. The lean is
 `downwind * strength * share * h² * gust`, with `gust = 1 - 0.8g + 0.8g * noise`, where the noise
 is the same value noise as above but hashed with a PCG step so the C# and GLSL agree bit for
@@ -1649,6 +1649,13 @@ share. The sway is worked out from the world position before it moves, so it doe
 into itself, and the normal isn't bent: at these leans the lighting can't tell. `Wind.cs` does
 the same sums for `WindTests`, which also reads `wind.glsl` to check its constants and lines
 match.
+
+A vertex can move no further than `strength * share` at a gust's peak plus the 0.02 m of
+flutter, so culling grows a swaying draw's ball by that much, in world metres after its scale
+(`WindReach`, which the renderer makes each frame from `Wind.Strength`, 0 with the switch off,
+and `ResourceTable.SwayOf`). `DrawSelection.Select` adds it only to the test for being seen,
+not to the distance that picks a simpler version, and `DrawSelection.Bounds`, which the
+shadow casters' balls come from, and the glass bounds in `TransparentPass` add it too.
 
 The detail colour divides by 128/255, so mid grey is neutral and the detail can lighten as
 well as darken. The detail normal is laid over the surface's normal with reoriented normal
@@ -1912,6 +1919,9 @@ Anything larger than a block gets its own allocation.
   the lowest point of the whole part, so it gets a small share instead. Normals don't bend
   with the sway, and anti-aliasing reprojects by depth alone, as for anything that moves, so
   it can smear a fast flutter a little.
+- Wind measures height up the world's y from a foot found through the copy's matrix, so a
+  copy that is tipped over, rather than only turned about the vertical, sways from the wrong
+  height: its foot is no longer below it.
 - Subsurface blurs the lit diffuse light, colour included, so a skin texture softens a
   little along with the light. Transmission uses the shadow map like foliage does, not
   the real thickness, and under water the light isn't spread.

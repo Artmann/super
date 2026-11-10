@@ -291,7 +291,93 @@ public class WindTests
         Assert.Contains("windSwayPlaced((placed * vec4(swum, 1.0)).xyz, placed, posed, draw.windBase, draw.windSway)", shader);
     }
 
-    private static string WindShader() => File.ReadAllText(Path.Combine(ShaderFolder(), "wind.glsl"));
+    [Fact]
+    public void Placed_sway_measures_height_from_the_foot_put_through_the_copys_matrix()
+    {
+        string placed = ShaderFunction(WindShader(), "vec3 windSwayPlaced(");
+
+        Assert.Contains("float base = (placed * vec4(posed.x, windBase, posed.z, 1.0)).y;", placed);
+        Assert.Contains("return world + windSway(world, world.y - base, sway);", placed);
+    }
+
+    [Fact]
+    public void Placed_sway_leaves_the_vertex_where_it_is_for_a_still_material_or_with_the_switch_off()
+    {
+        string placed = ShaderFunction(WindShader(), "vec3 windSwayPlaced(");
+
+        Assert.Matches(@"if \(sway <= 0\.0 \|\| \(frame\.off & OFF_WIND\) != 0\) \{\s*return world;\s*\}", placed);
+    }
+
+    [Fact]
+    public void The_shaders_wind_switch_is_the_one_RenderEffects_uses()
+    {
+        string common = File.ReadAllText(Path.Combine(ShaderFolder(), "common.glsl"));
+
+        Assert.Contains("const int OFF_WIND = 1 << 17;", common);
+        Assert.Equal(1 << 17, (int)RenderEffects.Wind);
+    }
+
+    [Fact]
+    public void Strength_is_the_settings_strength_and_0_when_calm_off_or_straight_up()
+    {
+        var settings = new WindSettings(new Vector3(3f, 1f, 4f), 0.5f);
+
+        Assert.Equal(0.5f, Wind.Strength(settings, RenderEffects.None), 1e-6f);
+        Assert.Equal(0f, Wind.Strength(settings, RenderEffects.Wind));
+        Assert.Equal(0f, Wind.Strength(null, RenderEffects.None));
+        Assert.Equal(0f, Wind.Strength(new WindSettings(Vector3.UnitY, 0.5f), RenderEffects.None));
+    }
+
+    [Fact]
+    public void A_swaying_material_can_move_its_lean_plus_the_flutter()
+    {
+        // Strength 0.5 and a share of 0.4 lean a tip 0.2 at a gust's peak, and the flutter adds 0.02.
+        var wind = new WindReach(0.5f, material => material.Index == 1 ? 0.4f : 0f);
+
+        Assert.Equal(0.22f, wind.Pad(new MaterialHandle(1)), 1e-6f);
+        Assert.Equal(0f, wind.Pad(new MaterialHandle(2)));
+        Assert.Equal(0f, new WindReach(0f, _ => 1f).Pad(new MaterialHandle(1)));
+        Assert.Equal(0f, default(WindReach).Pad(new MaterialHandle(1)));
+    }
+
+    [Fact]
+    public void A_swaying_draw_gets_its_materials_share_and_its_parts_foot()
+    {
+        List<PartDetail> details = [default, new PartDetail(Vector3.Zero, 1f, [], MinY: 2.5f)];
+        Func<MaterialHandle, float> swayOf = material => material.Index == 1 ? 0.7f : 0f;
+        var swaying = new DrawItem { Material = new MaterialHandle(1), Detail = new DetailHandle(1) };
+
+        var constants = SceneDraws.Constants(swaying, 0, swayOf, details);
+
+        Assert.Equal(0.7f, constants.WindSway);
+        Assert.Equal(2.5f, constants.WindBase);
+    }
+
+    [Fact]
+    public void A_still_draw_gets_no_sway_and_no_foot()
+    {
+        List<PartDetail> details = [default, new PartDetail(Vector3.Zero, 1f, [], MinY: 2.5f)];
+        var still = new DrawItem { Material = new MaterialHandle(2), Detail = new DetailHandle(1) };
+
+        var constants = SceneDraws.Constants(still, 0, material => material.Index == 1 ? 0.7f : 0f, details);
+
+        Assert.Equal(0f, constants.WindSway);
+        Assert.Equal(0f, constants.WindBase);
+    }
+
+    [Fact]
+    public void A_swaying_draw_without_bounds_sways_from_height_0()
+    {
+        List<PartDetail> details = [new PartDetail(Vector3.Zero, 1f, [], MinY: 2.5f)];
+        var unbounded = new DrawItem { Material = new MaterialHandle(1) };
+
+        var constants = SceneDraws.Constants(unbounded, 0, _ => 0.7f, details);
+
+        Assert.Equal(0.7f, constants.WindSway);
+        Assert.Equal(0f, constants.WindBase);
+    }
+
+    private static string WindShader() =>File.ReadAllText(Path.Combine(ShaderFolder(), "wind.glsl"));
 
     private static string ShaderFolder()
     {

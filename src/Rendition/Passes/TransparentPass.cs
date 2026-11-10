@@ -161,9 +161,10 @@ internal sealed unsafe class TransparentPass : IDisposable
         ParticlePass particles,
         int frameIndex,
         int particleCount,
-        in ParticlePass.CameraConstants particleCamera)
+        in ParticlePass.CameraConstants particleCamera,
+        WindReach wind = default)
     {
-        int glassCount = CollectGlass(draws, details, view);
+        int glassCount = CollectGlass(draws, details, view, wind);
         var sorted = particles.Sorted[..particleCount];
         TransparentPlan.Build(_glass.AsSpan(0, glassCount), sorted, view.Eye, view.Forward, view.ViewProjection, _steps);
         if (_steps.Count == 0)
@@ -217,7 +218,7 @@ internal sealed unsafe class TransparentPass : IDisposable
                     }
 
                     int index = step.First;
-                    var constants = SceneDraws.Constants(draws[index], cascade: 0);
+                    var constants = SceneDraws.Constants(draws[index], cascade: 0, _resources.SwayOf, details);
                     constants.Tint.W = step.Refracts ? 1f : 0f;
                     SceneDraws.Draw(
                         api, cmd, _layout, _pipelines, _resources, draws, MemoryMarshal.CreateReadOnlySpan(ref index, 1),
@@ -237,7 +238,7 @@ internal sealed unsafe class TransparentPass : IDisposable
     }
 
     /// <summary>Finds the glass among the draws, with how far each is and where it lands on screen.</summary>
-    private int CollectGlass(ReadOnlySpan<DrawItem> draws, List<PartDetail> details, in TransparentView view)
+    private int CollectGlass(ReadOnlySpan<DrawItem> draws, List<PartDetail> details, in TransparentView view, WindReach wind)
     {
         int count = 0;
         for (int i = 0; i < draws.Length; i++)
@@ -253,7 +254,7 @@ internal sealed unsafe class TransparentPass : IDisposable
                 Array.Resize(ref _glass, count * 2);
             }
 
-            var (center, radius) = Bounds(draw, details);
+            var (center, radius) = Bounds(draw, details, wind);
             var reach = new Vector3(radius);
             var rect = ScreenRect.OfBox(center - reach, center + reach, view.ViewProjection);
             float depth = TransparentPlan.Depth(center, view.Eye, view.Forward);
@@ -265,9 +266,10 @@ internal sealed unsafe class TransparentPass : IDisposable
 
     /// <summary>
     /// The middle and radius of a draw in the world, from its part's bounds. A draw without
-    /// any is taken as its origin, and as covering the whole screen.
+    /// any is taken as its origin, and as covering the whole screen. A draw that sways in <paramref name="wind"/> grows
+    /// by as far as it can sway.
     /// </summary>
-    internal static (Vector3 Center, float Radius) Bounds(in DrawItem draw, List<PartDetail> details)
+    internal static (Vector3 Center, float Radius) Bounds(in DrawItem draw, List<PartDetail> details, WindReach wind = default)
     {
         ref readonly var transform = ref draw.Transform;
         if (draw.Detail.Index == 0)
@@ -281,7 +283,8 @@ internal sealed unsafe class TransparentPass : IDisposable
             MathF.Max(
                 new Vector3(transform.M21, transform.M22, transform.M23).LengthSquared(),
                 new Vector3(transform.M31, transform.M32, transform.M33).LengthSquared())));
-        return (Vector3.Transform(detail.Center, transform), (detail.Radius + MathF.Abs(draw.Swim.Amplitude)) * scale);
+        return (Vector3.Transform(detail.Center, transform),
+            (detail.Radius + MathF.Abs(draw.Swim.Amplitude)) * scale + wind.Pad(draw.Material));
     }
 
     private void Begin(CommandBuffer cmd, GBuffer targets)

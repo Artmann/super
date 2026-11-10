@@ -1,4 +1,5 @@
 using System.Numerics;
+using Rendition.Passes;
 
 namespace Rendition;
 
@@ -65,13 +66,42 @@ internal readonly struct DetailView
     private static Plane Normalized(Vector4 plane) => Plane.Normalize(new Plane(plane));
 }
 
+/// <summary>
+/// How far the frame's wind can move a draw's vertices, in world metres, so a draw's bounds can grow to hold its sway.
+/// <paramref name="strength"/> is the wind's, 0 in a calm or with the switch off, and <paramref name="swayOf"/> gives
+/// each material's share of the lean.
+/// </summary>
+internal readonly struct WindReach(float strength, Func<MaterialHandle, float>? swayOf)
+{
+    public float Strength { get; } = strength;
+
+    /// <summary>
+    /// The farthest a vertex of the material can move: the full lean of a vertex 1 m or more up, at a gust's peak,
+    /// plus the flutter. Nothing for a material that stands still.
+    /// </summary>
+    public float Pad(MaterialHandle material)
+    {
+        if (!(Strength > 0f) || swayOf is null)
+        {
+            return 0f;
+        }
+
+        float sway = swayOf(material);
+        return sway > 0f ? Strength * sway + Wind.Flutter : 0f;
+    }
+}
+
 /// <summary>Picks what a view needs from a list of draws, keeping their order.</summary>
 internal static class DrawSelection
 {
     private const float NearestDistance = 0.1f;
 
-    /// <summary>Writes the draws to keep into <paramref name="selected"/> and returns how many there are.</summary>
-    public static int Select(in DetailView view, ReadOnlySpan<DrawItem> draws, List<PartDetail> details, Span<DrawItem> selected)
+    /// <summary>
+    /// Writes the draws to keep into <paramref name="selected"/> and returns how many there are. A draw that sways in
+    /// <paramref name="wind"/> is kept while its sway could still bring it into view.
+    /// </summary>
+    public static int Select(
+        in DetailView view, ReadOnlySpan<DrawItem> draws, List<PartDetail> details, Span<DrawItem> selected, WindReach wind = default)
     {
         int count = 0;
         foreach (ref readonly var draw in draws)
@@ -85,7 +115,10 @@ internal static class DrawSelection
             var detail = details[draw.Detail.Index];
             float scale = Scale(draw.Transform);
             var (center, radius) = Bounds(draw, detail, scale);
-            if (!view.CanSee(center, radius))
+
+            // The sway is in world metres, so it's added after the scale. Only the test for being seen counts it, so
+            // the wind doesn't change which simpler version is picked.
+            if (!view.CanSee(center, radius + wind.Pad(draw.Material)))
             {
                 continue;
             }
@@ -111,9 +144,10 @@ internal static class DrawSelection
 
     /// <summary>
     /// Writes the world-space ball, x, y and z with the radius in w, round each draw that has
-    /// bounds into <paramref name="bounds"/>, and returns how many there are.
+    /// bounds into <paramref name="bounds"/>, and returns how many there are. A ball holds all the draw's sway in
+    /// <paramref name="wind"/>.
     /// </summary>
-    public static int Bounds(ReadOnlySpan<DrawItem> draws, List<PartDetail> details, Span<Vector4> bounds)
+    public static int Bounds(ReadOnlySpan<DrawItem> draws, List<PartDetail> details, Span<Vector4> bounds, WindReach wind = default)
     {
         int count = 0;
         foreach (ref readonly var draw in draws)
@@ -124,7 +158,7 @@ internal static class DrawSelection
             }
 
             var (center, radius) = Bounds(draw, details[draw.Detail.Index], Scale(draw.Transform));
-            bounds[count++] = new Vector4(center, radius);
+            bounds[count++] = new Vector4(center, radius + wind.Pad(draw.Material));
         }
 
         return count;

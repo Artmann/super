@@ -70,6 +70,91 @@ public class FoliageTests
         Assert.Contains("bool foliage = emissiveClearcoat.a < 0.0;", lighting);
     }
 
+    [Fact]
+    public void A_surface_is_not_foliage_lets_a_leafs_share_of_light_through_and_stands_still_unless_told()
+    {
+        var surface = new Surface();
+
+        Assert.False(surface.Foliage);
+        Assert.Equal(0.6f, surface.Translucency);
+        Assert.Equal(0f, surface.Wind);
+    }
+
+    [Fact]
+    public void A_new_material_lets_a_leafs_share_of_light_through()
+    {
+        Assert.Equal(0.6f, new Material().Translucency);
+        Assert.Equal(0.6f, new Material { Flags = MaterialFlags.Foliage }.Translucency);
+    }
+
+    [Fact]
+    public void Foliage_sends_its_translucency_to_the_shader_clamped_to_0_to_1()
+    {
+        Assert.Equal(0.35f, Rendition.Vulkan.ResourceTable.Transmission(new Material { Flags = MaterialFlags.Foliage, Translucency = 0.35f }));
+        Assert.Equal(1f, Rendition.Vulkan.ResourceTable.Transmission(new Material { Flags = MaterialFlags.Foliage, Translucency = 1.5f }));
+        Assert.Equal(0f, Rendition.Vulkan.ResourceTable.Transmission(new Material { Flags = MaterialFlags.Foliage, Translucency = -1f }));
+    }
+
+    [Fact]
+    public void A_scattering_surface_sends_its_own_transmission_and_a_plain_one_none()
+    {
+        var subsurface = new Subsurface { Radius = 0.01f, Transmission = 0.25f };
+
+        Assert.Equal(0.25f, Rendition.Vulkan.ResourceTable.Transmission(new Material { Subsurface = subsurface, Translucency = 0.9f }));
+        Assert.Equal(0f, Rendition.Vulkan.ResourceTable.Transmission(new Material { Translucency = 0.9f }));
+    }
+
+    [Theory]
+    [InlineData(0.7f, 0.7f)]
+    [InlineData(-1f, 0f)]
+    [InlineData(float.NaN, 0f)]
+    [InlineData(float.PositiveInfinity, 0f)]
+    public void A_materials_sway_is_its_wind_but_never_below_0_or_not_a_number(float wind, float sway)
+    {
+        Assert.Equal(sway, Rendition.Vulkan.ResourceTable.Sway(new Material { Wind = wind }));
+    }
+
+    [Fact]
+    public void A_cooked_models_foliage_translucency_and_wind_reach_its_material()
+    {
+        TextureHandle[] textures = [new(40), new(41)];
+        var source = new ModelMaterial
+        {
+            BaseColorTexture = 1,
+            NormalTexture = -1,
+            SurfaceTexture = -1,
+            EmissiveTexture = -1,
+            HeightTexture = -1,
+            DetailColorTexture = -1,
+            DetailNormalTexture = 0,
+            Flags = MaterialFlags.Foliage,
+            Translucency = 0.45f,
+            Wind = 0.8f,
+        };
+
+        var material = Renderer.MaterialOf(source, textures);
+
+        Assert.Equal(MaterialFlags.Foliage, material.Flags);
+        Assert.Equal(0.45f, material.Translucency);
+        Assert.Equal(0.8f, material.Wind);
+        Assert.Equal(new TextureHandle(41), material.BaseColorTexture);
+        Assert.Equal(new TextureHandle(40), material.DetailNormalTexture);
+        Assert.Null(material.NormalTexture);
+    }
+
+    [Fact]
+    public void A_surfaces_foliage_translucency_and_wind_reach_its_material()
+    {
+        var surface = new Surface { Foliage = true, Translucency = 0.3f, Wind = 0.5f, Puddles = true };
+
+        var material = SceneRenderer.MaterialOf(surface);
+
+        Assert.Equal(0.3f, material.Translucency);
+        Assert.Equal(0.5f, material.Wind);
+        Assert.Equal(MaterialFlags.Foliage | MaterialFlags.Puddles, SceneRenderer.FlagsOf(surface));
+        Assert.Equal(MaterialFlags.None, SceneRenderer.FlagsOf(new Surface()));
+    }
+
     private static string Shader(string name)
     {
         for (var folder = new DirectoryInfo(AppContext.BaseDirectory); folder is not null; folder = folder.Parent)

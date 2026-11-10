@@ -498,11 +498,7 @@ internal sealed class SceneRenderer : IDisposable
             DetailColorTexture = Texture(surface.DetailColorTexture, content),
             DetailNormalTexture = Texture(surface.DetailNormalTexture, content),
             DetailScale = surface.DetailScale,
-            Flags = (surface.DetailMask ? MaterialFlags.DetailMask : 0) | (surface.WorldVariation ? MaterialFlags.WorldVariation : 0)
-                | (surface.Dithered ? MaterialFlags.Dithered : 0) | (surface.Puddles ? MaterialFlags.Puddles : 0)
-                | (surface.Foliage ? MaterialFlags.Foliage : 0),
-            Translucency = surface.Translucency,
-            Wind = surface.Wind,
+            Flags = FlagsOf(surface),
             Subsurface = surface.Subsurface,
             Shader = surface.Shader is { } shader ? Require<LoadedShader>(shader.Index, content).Handle : null,
         };
@@ -609,7 +605,15 @@ internal sealed class SceneRenderer : IDisposable
         Metallic = surface.Metallic,
         Flags = surface.Opacity < 1f ? MaterialFlags.Transparent : MaterialFlags.None,
         Ior = surface.Ior,
+        Translucency = surface.Translucency,
+        Wind = surface.Wind,
     };
+
+    /// <summary>The switches a generated mesh's surface turns on in its material.</summary>
+    internal static MaterialFlags FlagsOf(Surface surface) =>
+        (surface.DetailMask ? MaterialFlags.DetailMask : 0) | (surface.WorldVariation ? MaterialFlags.WorldVariation : 0)
+        | (surface.Dithered ? MaterialFlags.Dithered : 0) | (surface.Puddles ? MaterialFlags.Puddles : 0)
+        | (surface.Foliage ? MaterialFlags.Foliage : 0);
 
     private TextureHandle? Texture(TextureRef? texture, Content content) =>
         texture is { } named ? Require<LoadedTexture>(named.Index, content).Handle : null;

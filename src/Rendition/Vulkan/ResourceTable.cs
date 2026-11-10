@@ -111,6 +111,7 @@ internal sealed unsafe class ResourceTable : IDisposable
     public ResourceTable(VulkanContext context)
     {
         _context = context;
+        SwayOf = GetWind;
         var api = context.Api;
 
         api.GetPhysicalDeviceProperties(context.PhysicalDevice, out var properties);
@@ -213,6 +214,9 @@ internal sealed unsafe class ResourceTable : IDisposable
 
     /// <summary>How far the material sways in the wind, as a share of its strength: 0 for not at all.</summary>
     public float GetWind(MaterialHandle material) => _materialWind[material.Index];
+
+    /// <summary><see cref="GetWind"/> as a lookup that passes and culling hold on to, made once.</summary>
+    public Func<MaterialHandle, float> SwayOf { get; }
 
     /// <summary>True when a live material scatters light under its surface, so the frame needs the subsurface blur.</summary>
     public bool AnySubsurface
@@ -436,6 +440,24 @@ internal sealed unsafe class ResourceTable : IDisposable
         return new Vector4(spread, MathF.Max(spread.X, MathF.Max(spread.Y, spread.Z)));
     }
 
+    /// <summary>
+    /// How much light passes through the material, which the shader reads from the transmission slot: a scattering
+    /// surface's own, foliage's translucency, or none.
+    /// </summary>
+    internal static float Transmission(in Material material)
+    {
+        if (material.Subsurface.IsOn)
+        {
+            return Math.Clamp(material.Subsurface.Transmission, 0f, 1f);
+        }
+
+        return (material.Flags & MaterialFlags.Foliage) != 0 ? Math.Clamp(material.Translucency, 0f, 1f) : 0f;
+    }
+
+    /// <summary>The material's share of the wind's lean, never below 0, and 0 for a value that isn't a number.</summary>
+    internal static float Sway(in Material material) =>
+        float.IsFinite(material.Wind) ? MathF.Max(material.Wind, 0f) : 0f;
+
     // Without a mask there's nothing to lay the layer by, so it's off.
     private static Vector4 Layer(in MaterialLayer layer, bool masked) =>
         new(layer.Color, masked ? Math.Clamp(layer.Amount, 0f, 1f) : 0f);
@@ -465,9 +487,7 @@ internal sealed unsafe class ResourceTable : IDisposable
                 ? 0f
                 : material.DetailScale > 0f ? material.DetailScale : 1f,
             Ior = MathF.Max(material.Ior, 1f),
-            Transmission = material.Subsurface.IsOn ? Math.Clamp(material.Subsurface.Transmission, 0f, 1f)
-                : (material.Flags & MaterialFlags.Foliage) != 0 ? Math.Clamp(material.Translucency, 0f, 1f)
-                : 0f,
+            Transmission = Transmission(material),
             Subsurface = Spread(material.Subsurface),
             MaskTexture = (uint)(material.MaskTexture ?? _white).Index,
             WearRoughness = material.Wear.Roughness,
@@ -484,7 +504,7 @@ internal sealed unsafe class ResourceTable : IDisposable
         _materialFlags[index] = material.Flags;
         _materialShaders[index] = material.Shader?.Index ?? 0;
         _materialCutouts[index] = material.AlphaCutoff > 0f;
-        _materialWind[index] = float.IsFinite(material.Wind) ? MathF.Max(material.Wind, 0f) : 0f;
+        _materialWind[index] = Sway(material);
         _materialSubsurface[index] = material.Subsurface.IsOn;
 
         var owned = _materialTextures.AsSpan(index * TexturesPerMaterial, TexturesPerMaterial);

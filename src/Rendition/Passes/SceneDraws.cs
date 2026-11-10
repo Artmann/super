@@ -195,11 +195,11 @@ internal static unsafe class SceneDraws
 
     /// <summary>
     /// The push constants for a draw, with the wind its material and part give it: its part's lowest height comes
-    /// from <paramref name="details"/>.
+    /// from <paramref name="details"/>, and its material's share of the wind from <paramref name="swayOf"/>.
     /// </summary>
-    public static DrawConstants Constants(in DrawItem draw, int cascade, ResourceTable resources, List<PartDetail> details)
+    public static DrawConstants Constants(in DrawItem draw, int cascade, Func<MaterialHandle, float> swayOf, List<PartDetail> details)
     {
-        float sway = resources.GetWind(draw.Material);
+        float sway = swayOf(draw.Material);
         float windBase = sway > 0f && draw.Detail.Index > 0 && draw.Detail.Index < details.Count ? details[draw.Detail.Index].MinY : 0f;
         return Constants(draw, cascade, sway, windBase);
     }
@@ -245,7 +245,7 @@ internal static unsafe class SceneDraws
         var bound = new Bound { AllTwoSided = allTwoSided };
         foreach (var batch in batches)
         {
-            var constants = Constants(draws[order[batch.First]], cascade, resources, details);
+            var constants = Constants(draws[order[batch.First]], cascade, resources.SwayOf, details);
             Draw(api, cmd, layout, pipelines, resources, draws, order.Slice(batch.First, batch.Count), meshes, instances, constants, solid, ref bound);
         }
 

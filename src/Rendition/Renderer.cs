@@ -173,6 +173,9 @@ public sealed unsafe class Renderer : IDisposable
     // The effects this frame leaves out, and whether tonemapping and bloom are bound to the
     // anti-aliased image or, with anti-aliasing left out, straight to the lit one.
     private RenderEffects _off;
+
+    // How far the frame's wind can move each material's vertices, which culling adds to the bounds.
+    private WindReach _windReach;
     private bool _readsAntiAliased = true;
 
     // Whether a sun casts its shadow this frame, so its maps are drawn.
@@ -1104,30 +1107,7 @@ public sealed unsafe class Renderer : IDisposable
         var materials = new MaterialHandle[model.Materials.Length];
         for (int i = 0; i < materials.Length; i++)
         {
-            ref readonly var source = ref model.Materials[i];
-            var material = new Material
-            {
-                BaseColor = source.BaseColor,
-                Metallic = source.Metallic,
-                Roughness = source.Roughness,
-                AlphaCutoff = source.AlphaCutoff,
-                BaseColorTexture = source.BaseColorTexture >= 0 ? textures[source.BaseColorTexture] : null,
-                NormalTexture = source.NormalTexture >= 0 ? textures[source.NormalTexture] : null,
-                SurfaceTexture = source.SurfaceTexture >= 0 ? textures[source.SurfaceTexture] : null,
-                Emissive = source.Emissive,
-                EmissiveTexture = source.EmissiveTexture >= 0 ? textures[source.EmissiveTexture] : null,
-                Clearcoat = source.Clearcoat,
-                HeightTexture = source.HeightTexture >= 0 ? textures[source.HeightTexture] : null,
-                HeightDepth = source.HeightDepth,
-                DetailColorTexture = source.DetailColorTexture >= 0 ? textures[source.DetailColorTexture] : null,
-                DetailNormalTexture = source.DetailNormalTexture >= 0 ? textures[source.DetailNormalTexture] : null,
-                DetailScale = source.DetailScale,
-                Flags = source.Flags,
-                Ior = source.Ior,
-                Subsurface = source.Subsurface,
-                Translucency = source.Translucency,
-                Wind = source.Wind,
-            };
+            var material = MaterialOf(model.Materials[i], textures);
             if (model.MaskOf(i) is { } masks)
             {
                 material.MaskTexture = textures[masks.Texture];
@@ -1142,6 +1122,39 @@ public sealed unsafe class Renderer : IDisposable
         // culling sphere is doubled rather than culled too early at the screen's edge.
         float radiusScale = model.Skeleton is null ? 1f : 2f;
         return CreateDetailedMesh(model.Vertices, model.Indices, model.Parts, materials, radiusScale: radiusScale);
+    }
+
+    /// <summary>
+    /// The material a cooked model's material makes, with its texture indices turned into <paramref name="textures"/>'
+    /// handles and -1 for none. The mask textures come separately, from <see cref="ModelData.MaskOf"/>.
+    /// </summary>
+    internal static Material MaterialOf(in ModelMaterial source, ReadOnlySpan<TextureHandle> textures)
+    {
+        static TextureHandle? Texture(int index, ReadOnlySpan<TextureHandle> textures) => index >= 0 ? textures[index] : null;
+
+        return new Material
+        {
+            BaseColor = source.BaseColor,
+            Metallic = source.Metallic,
+            Roughness = source.Roughness,
+            AlphaCutoff = source.AlphaCutoff,
+            BaseColorTexture = Texture(source.BaseColorTexture, textures),
+            NormalTexture = Texture(source.NormalTexture, textures),
+            SurfaceTexture = Texture(source.SurfaceTexture, textures),
+            Emissive = source.Emissive,
+            EmissiveTexture = Texture(source.EmissiveTexture, textures),
+            Clearcoat = source.Clearcoat,
+            HeightTexture = Texture(source.HeightTexture, textures),
+            HeightDepth = source.HeightDepth,
+            DetailColorTexture = Texture(source.DetailColorTexture, textures),
+            DetailNormalTexture = Texture(source.DetailNormalTexture, textures),
+            DetailScale = source.DetailScale,
+            Flags = source.Flags,
+            Ior = source.Ior,
+            Subsurface = source.Subsurface,
+            Translucency = source.Translucency,
+            Wind = source.Wind,
+        };
     }
 
     private DrawItem[] CreateDetailedMesh(
@@ -1221,6 +1234,7 @@ public sealed unsafe class Renderer : IDisposable
 
         // Metering is left out of the shaders unless the view asked for it, so the fixed exposure stays as it was.
         _off = Exposure.ShaderOff(view.Post, view.Off & RenderEffects.All);
+        _windReach = new WindReach(Wind.Strength(view.Wind, _off), _resources.SwayOf);
         if (!_volumetricFog.HasTargets && VolumetricFog.Pack(view.Fog, _off, false, view.Water.Absorption != Vector3.Zero).X > 0f)
         {
             // The fog's volumes are made the first time it's drawn. Frames in flight bind the stand-in.
@@ -1306,7 +1320,7 @@ public sealed unsafe class Renderer : IDisposable
             _casterBounds = new Vector4[draws.Length * 2];
         }
 
-        int casters = DrawSelection.Bounds(draws, _details, _casterBounds);
+        int casters = DrawSelection.Bounds(draws, _details, _casterBounds, _windReach);
         bool castsShadow = WriteUniforms(
             frame, view, previous, shift, _frameNumber, _historyReady, capturingProbe: false, _casterBounds.AsSpan(0, casters));
         WriteBones(frame, view.Bones);
@@ -1416,7 +1430,7 @@ public sealed unsafe class Renderer : IDisposable
 
         var (pixelsAtOneUnit, pixelsPerUnit) = Projection.PixelScale(view.Projection, (int)_gBuffer.Extent.Height);
         var camera = new DetailView(viewProjection, view.CameraPosition, pixelsAtOneUnit, pixelsPerUnit, CameraDetailError);
-        int cameraCount = DrawSelection.Select(camera, draws, _details, _cameraDraws);
+        int cameraCount = DrawSelection.Select(camera, draws, _details, _cameraDraws, _windReach);
 
         int shadowCount = 0;
         Array.Clear(_shadowCounts);
@@ -1427,7 +1441,7 @@ public sealed unsafe class Renderer : IDisposable
                 float texelsPerUnit = _shadowPass.Resolution / (2f * ShadowPass.CascadeRadius(view.Shadows, cascade));
                 var shadow = new DetailView(
                     _shadowMatrices[cascade], view.CameraPosition, 0f, texelsPerUnit, ShadowDetailError);
-                _shadowCounts[cascade] = DrawSelection.Select(shadow, draws, _details, _shadowDraws[cascade]);
+                _shadowCounts[cascade] = DrawSelection.Select(shadow, draws, _details, _shadowDraws[cascade], _windReach);
                 shadowCount += _shadowCounts[cascade];
             }
         }
@@ -1502,7 +1516,7 @@ public sealed unsafe class Renderer : IDisposable
 
             ref readonly var view = ref tiles[tile];
             var shadow = new DetailView(view.Matrix, view.Eye, view.PixelsAtOneUnit, 0f, ShadowDetailError, far: true);
-            int count = DrawSelection.Select(shadow, draws, _details, _tileDraws.AsSpan(total));
+            int count = DrawSelection.Select(shadow, draws, _details, _tileDraws.AsSpan(total), _windReach);
             _tileRanges[tile] = (total, count);
             total += count;
         }
@@ -1999,7 +2013,7 @@ public sealed unsafe class Renderer : IDisposable
                 ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal, SampledStage, SampledAccess, DepthStages | SampledStage,
                 AccessFlags2.DepthStencilAttachmentReadBit | SampledAccess);
             _transparentPass.Record(cmd, targets, frameSet, draws, _meshes, _details, instances, view,
-                _particlePass, _frameIndex, particleCount, _particleCamera);
+                _particlePass, _frameIndex, particleCount, _particleCamera, _windReach);
         }
 
         _api.EndColorTarget(cmd, targets.Hdr.Image);

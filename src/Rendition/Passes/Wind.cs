@@ -115,5 +115,12 @@ internal static class Wind
             ? Pack(wind.Direction, wind.Strength, wind.Gustiness)
             : Vector4.Zero;
 
+    /// <summary>How strong the frame's wind is, as the shaders get it: 0 with none set, the switch off, or a wind with no way along the ground.</summary>
+    public static float Strength(WindSettings? settings, RenderEffects off)
+    {
+        var packed = Pack(settings, off);
+        return new Vector3(packed.X, packed.Y, packed.Z).Length();
+    }
+
     private static float Lerp(float a, float b, float t) => a + (b - a) * t;
 }
