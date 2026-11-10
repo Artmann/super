@@ -9,8 +9,8 @@
     { "name": "open-sack-ring", "material": "materials/stain.material.cs", "position": [6.34, 0.085, -2.42], "size": [0.8, 0.8, 0.3] },
     { "name": "laid-sack-ring", "material": "materials/stain.material.cs", "position": [6.75, 0.085, -1.85], "size": [1.0, 0.75, 0.3], "turn": -115 },
 
-    { "name": "hoop-rust-left", "material": "materials/rust-streak.material.json", "position": [0.342, 1.28, -2.721], "size": [0.12, 0.36, 0.08], "facing": [0.259, 0, 0.966] },
-    { "name": "hoop-rust-right", "material": "materials/rust-streak.material.json", "position": [0.62, 1.28, -2.898], "size": [0.1, 0.3, 0.08], "facing": [0.766, 0, 0.643] },
+    { "name": "hoop-rust-left", "material": "materials/rust-streak.material.json", "position": [0.342, 1.28, -2.721], "size": [0.12, 0.36, 0.14], "facing": [0.259, 0, 0.966] },
+    { "name": "hoop-rust-right", "material": "materials/rust-streak.material.json", "position": [0.62, 1.28, -2.898], "size": [0.1, 0.3, 0.14], "facing": [0.766, 0, 0.643] },
 
     { "name": "plinth-moss-left", "material": "materials/stain-moss.material.json", "position": [-1.0, 0.16, -3.66], "size": [0.45, 0.28, 0.3], "facing": [0, 0, 1], "turn": 180 },
     { "name": "plinth-moss-middle", "material": "materials/stain-moss.material.json", "position": [1.7, 0.12, -3.66], "size": [0.35, 0.22, 0.3], "facing": [0, 0, 1], "turn": 180 },
