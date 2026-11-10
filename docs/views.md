@@ -420,7 +420,8 @@ A view refuses, with a message naming what's wrong:
 
 [`Graphics.Decals`](rendering.md#graphics-settings) turns them all off, and
 `Graphics.Fastest()` does too. The Courtyard lays its damp, the dirty water under its sill
-and the rust under its anchor plates as decals. D turns them off and on there.
+and the rust under its anchor plates as decals, and the gravel kicked off its path into the
+mud along both arms and round the barrel. D turns them off and on there.
 
 ![The foot of the Courtyard's brick wall under the window, before and after. On the left the damp is a dithered quad on the wall and shows only faintly. On the right it is a decal that darkens the bricks and the mortar above the plinth and fades upward in streaks, while the bricks' edges still show through](media/decals.webp)
 

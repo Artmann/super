@@ -8,7 +8,8 @@ namespace Courtyard;
 /// A sunlit courtyard modelled in Blender (art/courtyard.py): a brick wall with an arched
 /// window, a dry-stone wall, a flagstone path through trodden mud and a puddle. Its bricks, stone,
 /// mud, wood, rust and window glass are the material graphs, put on the model by its cook sidecar.
-/// M turns the materials off and on, to judge the lighting and the shapes on their own, F the fog, V the volumetric fog and D the grime decals.
+/// M turns the materials off and on, to judge the lighting and the shapes on their own, F the fog, V the volumetric fog and D the
+/// decals: the grime on the wall and the gravel spilled off the path.
 /// </summary>
 public sealed class CourtyardGame(Content content, Input input, Graphics graphics) : IGame
 {
@@ -26,20 +27,18 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
     // left, so its walls fall off from warm to dark.
     private static readonly Vector3 RoomLamp = new(1.6f, 3.9f, -7.4f);
 
-    // From art/courtyard.py: the wall's face, its pier and the window sill, in Blender's metres.
-    private const float WallY = 4.0f;
-    private const float WallX0 = -2.8f;
-    private const float WallX1 = 11.0f;
-    private const float PierX0 = 6.3f;
-    private const float PierX1 = 7.0f;
-    private const float PierDepth = 0.14f;
-    private const float SillZ = 1.15f;
-    private const float WindowX = 2.4f;
-    private const float WindowWidth = 2.0f;
+    // The gravel's colour a little under full, so the mud's own colour shows through between the grains of grit, and
+    // its stones' bumps whole.
+    private static readonly DecalBlend GravelBlend = new(Color: 0.9f, Normal: 1f);
+
+    /// <summary>The seed the gravel spills are placed from.</summary>
+    public const int GravelSeed = 19;
 
     private ModelRef _courtyard;
     private MeshMask? _withoutStains;
     private readonly List<(Matrix4x4 Box, Surface Surface)> _stains = [];
+    private List<Matrix4x4> _gravelBoxes = [];
+    private Surface? _gravel;
 
     public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
     {
@@ -49,7 +48,7 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         ["clear"] = new InputScript().Press(Key.F).Wait(1),
         // The courtyard at a fixed exposure, to compare with what the camera meters.
         ["fixed"] = new InputScript().Press(Key.E).Wait(1),
-        // The courtyard without its grime decals.
+        // The courtyard without its decals: the grime on the wall and the gravel off the path.
         ["clean"] = new InputScript().Press(Key.D).Wait(1),
         // The courtyard with the plain height fog, to compare with the volumetric fog.
         ["plain-fog"] = new InputScript().Press(Key.V).Wait(1),
@@ -69,63 +68,20 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         var damp = content.Surface("materials/grime.material.cs") with { Color = new Vector3(0.5f) };
         var drip = content.Surface("materials/grime-streak.material.json");
         var rust = content.Surface("materials/rust-streak.material.json");
-
-        // Rising damp along the foot of the wall, solid just under the top of the plinth and faded
-        // out below the sill. The grime repeats every metre along the wall, so the band is laid as
-        // boxes about a metre wide. The pier stands out of the wall and gets its own.
-        float bottom = 0.42f;
-        float top = SillZ - 0.05f;
-        Band(damp, WallX0, PierX0, bottom, top, 0f);
-        Band(damp, PierX1, WallX1, bottom, top, 0f);
-        Band(damp, PierX0, PierX1, bottom, top - 0.1f, PierDepth);
-
-        // Dirty water run off the sill, a little wider than the window. A streak fades out at both its
-        // sides as well, across the width of its box.
-        float half = WindowWidth / 2f + 0.12f;
-        _stains.Add((StainBox(WindowX - half, WindowX + half, SillZ - 0.2f, SillZ - 0.95f, 0f, 0.12f), drip));
-
-        // Rust washed down from each anchor plate, in a shallow box, so it stains the brick round
-        // the plate and only the plate's rim.
-        foreach (float x in new[] { -1.2f, 10.1f })
+        foreach (var (box, kind) in WallStains.Boxes())
         {
-            _stains.Add((StainBox(x - 0.16f, x + 0.16f, 5.38f, 4.3f, 0f, 0.05f), rust));
+            var surface = kind switch
+            {
+                Stain.Damp => damp,
+                Stain.Drip => drip,
+                _ => rust,
+            };
+            _stains.Add((box, surface));
         }
-    }
 
-    // A band of grime from x0 to x1 that is solid at zSolid and has faded by zFaded, on the wall
-    // or on a face standing `outOfWall` in front of it, in boxes about a metre wide.
-    private void Band(Surface surface, float x0, float x1, float zSolid, float zFaded, float outOfWall)
-    {
-        int count = Math.Max(1, (int)MathF.Round(x1 - x0));
-        float width = (x1 - x0) / count;
-        for (int i = 0; i < count; i++)
-        {
-            float left = x0 + i * width;
-            _stains.Add((StainBox(left, left + width, zSolid, zFaded, outOfWall, 0.12f), surface));
-        }
-    }
-
-    // A decal box on the wall, from Blender's x and z, projecting into the wall. Its depth runs
-    // `depth` either side of a point 2 cm out, where the faces of the bricks are. The grime is
-    // solid at the image's V of 0 and fades towards 1, and the box's local +Z is where V is 0,
-    // so +Z points to zSolid.
-    private static Matrix4x4 StainBox(float x0, float x1, float zSolid, float zFaded, float outOfWall, float depth)
-    {
-        float width = x1 - x0;
-        float height = MathF.Abs(zFaded - zSolid);
-        // Blender's (x, y, z) is (x, z, -y) here, so the wall faces +z and its face is at -WallY.
-        var centre = new Vector3((x0 + x1) / 2f, (zSolid + zFaded) / 2f, -WallY + outOfWall + 0.02f);
-        // The box's +Y looks out of the wall. Its +Z points to the solid edge, and its +X is turned
-        // with it so the box isn't mirrored.
-        bool fadesUp = zFaded > zSolid;
-        var across = fadesUp ? new Vector3(width, 0f, 0f) : new Vector3(-width, 0f, 0f);
-        var solid = fadesUp ? new Vector3(0f, -height, 0f) : new Vector3(0f, height, 0f);
-        var outward = new Vector3(0f, 0f, 2f * depth);
-        return new Matrix4x4(
-            across.X, across.Y, across.Z, 0f,
-            outward.X, outward.Y, outward.Z, 0f,
-            solid.X, solid.Y, solid.Z, 0f,
-            centre.X, centre.Y, centre.Z, 1f);
+        // Gravel kicked off the flagstones into the mud, along both edges of the path and round the barrel.
+        _gravel = content.Surface("materials/gravel.material.cs");
+        _gravelBoxes = GravelSpills.Boxes(GravelSeed);
     }
 
     public void Update(GameTime time)
@@ -233,6 +189,12 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         for (int i = 0; i < _stains.Count; i++)
         {
             view.Decal(i, _stains[i].Box, _stains[i].Surface);
+        }
+
+        // The gravel off the path, keyed after the stains.
+        for (int i = 0; i < _gravelBoxes.Count; i++)
+        {
+            view.Decal(_stains.Count + i, _gravelBoxes[i], _gravel!, GravelBlend);
         }
     }
 }
