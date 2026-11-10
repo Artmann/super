@@ -1605,13 +1605,24 @@ heightDepth`, with the height map read at the parallax-shifted uv (white when th
 no `heightDepth`). With `below = level - surfaceHeight`, water is `saturate(below / 0.003)`, so
 the shore is 3 mm soft, and damp is `saturate(1 + below / band)`. Damp mixes the colour towards
 its square and the roughness towards half; water then mixes in roughness 0.03, metalness 0, the
-colour times `mix(1, (0.35, 0.3, 0.25), saturate(below / 0.05))` and a rippled up normal. The
+colour towards the dry colour times the silt (0.7, 0.68, 0.65) by `saturate(below / 0.05)`, so deep
+water is turbid rather than black, and a rippled up normal. The
 ripples are two layers of the same value noise `worldVariation` uses, over x, z and time, 0.3 m
 across at 0.4 Hz and 0.11 m at 0.9 Hz, each drifting a wavelength a cycle, whose slopes come
 from forward differences and are scaled to a 0.4 mm wave. `Passes/Puddles.cs` does the height and
-wetness sums for the tests. The G-buffer gets the wet surface, so screen-space reflections, the
-reflection probes and the sky give the water its mirror with no extra pass. The water is drawn at
-the ground's height rather than the water plane's, so deep water reflects from slightly too low.
+wetness sums for the tests, and `PuddleTests` reads `surface.glsl` to check the shader's
+constants and sums match it. The G-buffer gets the wet surface, so screen-space reflections, the
+reflection probes and the sky give the water its mirror with no extra pass. The depth buffer
+holds the ground under the water, though, and a reflection traced from there runs straight into
+the sides of its own hollow and comes back as dark wet mud. So a pixel that is at least half
+water sets `puddleWater`, and `writeSurface` writes `WATER_SIDE` (2) in RT1's w, where 1 or -1
+says which side faces the camera. The lighting pass reads w above 1.5 as water: it moves the
+pixel's position up its view ray to the level (`onWaterSurface`, which unprojects a second,
+nearer point at the same uv so it works under any projection), and takes the screen-space
+occlusion and bent normal as open, since the occlusion pass also saw only the hollow. Shadows,
+lights, the trace, the probe's parallax and fog then all work from the water's surface. With
+`RenderEffects.Materials` off, `writeSurface` runs `applyPuddles` on the plain clay with no
+height map, so the clay still gets wet.
 
 The detail colour divides by 128/255, so mid grey is neutral and the detail can lighten as
 well as darken. The detail normal is laid over the surface's normal with reoriented normal

@@ -12,6 +12,61 @@ public class PuddleTests
 {
     private const float Tolerance = 1e-5f;
 
+    // The tests of Wetness and SurfaceHeight only hold for the game if surface.glsl does the
+    // same sums, and there is no GPU in the tests to run it on. So these read the shader's
+    // source and check its sums and constants are the ones Puddles.cs works with.
+    [Fact]
+    public void The_shaders_shore_and_ripples_are_the_ones_Puddles_uses()
+    {
+        string shader = SurfaceShader();
+
+        Assert.Equal(Puddles.Shore, ShaderConstant(shader, "PUDDLE_SHORE"), Tolerance);
+        Assert.Equal(Puddles.RippleAmplitude, ShaderConstant(shader, "RIPPLE_AMPLITUDE"), Tolerance);
+    }
+
+    [Theory]
+    [InlineData("float surfaceHeight = worldPos.y + (height - 1.0) * heightDepth;")]
+    [InlineData("float below = level - surfaceHeight;")]
+    [InlineData("float water = clamp(below / PUDDLE_SHORE, 0.0, 1.0);")]
+    [InlineData("float damp = band > 0.0 ? clamp(1.0 + below / band, 0.0, 1.0) : (below > 0.0 ? 1.0 : 0.0);")]
+    public void The_shader_works_out_the_wetness_as_Puddles_does(string line)
+    {
+        string applyPuddles = ShaderFunction(SurfaceShader(), "void applyPuddles(");
+
+        Assert.Contains(line, applyPuddles);
+    }
+
+    private static string SurfaceShader()
+    {
+        for (var folder = new DirectoryInfo(AppContext.BaseDirectory); folder is not null; folder = folder.Parent)
+        {
+            string path = Path.Combine(folder.FullName, "src", "Rendition", "Shaders", "surface.glsl");
+            if (File.Exists(path))
+            {
+                return File.ReadAllText(path);
+            }
+        }
+
+        throw new FileNotFoundException("src/Rendition/Shaders/surface.glsl isn't in any folder above the tests.");
+    }
+
+    private static float ShaderConstant(string shader, string name)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(shader, $@"const float {name} = ([0-9.eE+-]+);");
+        Assert.True(match.Success, $"surface.glsl has no const float {name}.");
+        return float.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    // The function's body, from its signature to the first closing brace at the start of a line.
+    private static string ShaderFunction(string shader, string signature)
+    {
+        int start = shader.IndexOf(signature, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"surface.glsl has no {signature}.");
+        int end = shader.IndexOf("\n}", start, StringComparison.Ordinal);
+        Assert.True(end > start, $"{signature} in surface.glsl never closes.");
+        return shader[start..end];
+    }
+
     [Fact]
     public void Below_the_level_is_water()
     {
@@ -65,7 +120,7 @@ public class PuddleTests
     [Theory]
     [InlineData(-0.01f)]
     [InlineData(float.NaN)]
-    public void A_negative_band_is_refused(float band)
+    public void A_negative_or_NaN_band_is_refused(float band)
     {
         var view = new View();
         view.Begin(0f);
@@ -76,13 +131,16 @@ public class PuddleTests
         Assert.Equal("band", error.ParamName);
     }
 
-    [Fact]
-    public void A_level_that_is_not_a_number_is_refused()
+    [Theory]
+    [InlineData(float.NaN)]
+    [InlineData(float.PositiveInfinity)]
+    [InlineData(float.NegativeInfinity)]
+    public void A_level_that_is_not_a_finite_number_is_refused(float level)
     {
         var view = new View();
         view.Begin(0f);
 
-        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Puddles(float.PositiveInfinity));
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => view.Puddles(level));
 
         Assert.StartsWith("The water level must be a height in metres.", error.Message);
         Assert.Equal("level", error.ParamName);

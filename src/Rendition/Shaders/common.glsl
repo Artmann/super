@@ -72,6 +72,11 @@ const int OFF_DEPTH_OF_FIELD = 1 << 13;
 const int OFF_VOLUMETRIC_FOG = 1 << 15;
 const int OFF_PUDDLES = 1 << 16;
 
+// The normal target's alpha holds the side a surface faces, 1 or -1. Puddle water writes
+// WATER_SIDE instead, so the lighting knows to shade it at the water's surface, not on the
+// ground under it, which is all the depth buffer holds.
+const float WATER_SIDE = 2.0;
+
 // What every surface is made of when materials are off: light grey, matte clay.
 const vec3 PLAIN_COLOR = vec3(0.5);
 const float PLAIN_ROUGHNESS = 0.8;

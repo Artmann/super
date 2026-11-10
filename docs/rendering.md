@@ -59,7 +59,7 @@ next frame follows, so it can back an options menu.
 | `DepthOfField` | Everything is sharp, even in views that open the lens with `PostSettings.Aperture`. It saves three passes, two of them at half size. See [focus](#focus) |
 | `Decals` | No [decals](views.md#decals): surfaces show as they are, without the grime and stains `view.Decal` lays on them. It saves a copy of the normal target and a pass over the decals' pixels |
 | `Puddles` | Every surface is dry, whatever level `view.Puddles` sets: no water and no damp band. It saves a few noise lookups on each wet pixel. See [puddles](#puddles) |
-| `Materials` | Every surface is the same light grey, matte clay, shaped only by its mesh, so you can judge the lighting and the models without textures in the way. Glows still glow, cut-outs still cut and glass stays see-through. `--no-materials` turns it off too |
+| `Materials` | Every surface is the same light grey, matte clay, shaped only by its mesh, so you can judge the lighting and the models without textures in the way. Glows still glow, cut-outs still cut, glass stays see-through and puddles still wet the clay. `--no-materials` turns it off too |
 | `WearAndDirt` | Models' materials show only their own colour and shine, without the pale worn edges and dark hollows their [baked masks](#wear-and-dirt) lay on, and the masks aren't read |
 
 `Graphics.Fastest()` leaves `RenderScale` at 1 too, since a smaller picture is a change the
@@ -631,6 +631,8 @@ view.Puddles(-0.045f);          // water at 4.5 cm below 0, damp for 8 cm above 
 view.Puddles(0.2f, band: 0.03f); // higher water and a narrower damp band
 ```
 
+![The Courtyard puddle before, a flat grey sheet, and after, muddy water at the level that mirrors the grass and stones](media/puddles-before-after.webp)
+
 Only materials that ask for it get wet: a model sidecar's rule with `"puddles": true`, or a
 `Surface` with `Puddles = true`. Each pixel's height is where it is in the world, less how
 deep its height map sinks it (the material's `heightDepth` times how far below white the
@@ -638,17 +640,29 @@ height is), so the mortar between flagstones and the hollows in mud fill before 
 A pixel below the level is water. It mirrors the sky and what's on screen with roughness
 0.03 and no metalness, its normal points straight up but for two layers of ripples 0.4 mm
 high that drift and change, at 0.4 and 0.9 cycles a second, and its colour is the ground's,
-darkened towards brown-black as the water deepens to 5 cm. Above the level, the surface is
+turning to the colour of the silt it holds, the dry ground a little dimmed, as the water
+deepens to 5 cm, so it reads as muddy water and not a dark hole. Above the level, the surface is
 damp: at the waterline its colour is squared, which darkens it the way water darkens soil,
 and its roughness halved, fading in a straight line to dry at the band's top. A band of 0
 leaves only the water.
 
-Since the water is drawn on the ground, it reflects from the ground's own height, which is
-right where the water is shallow and a little off where it is deep. Anything in the puddle
+The water is drawn on the ground, but it is lit as if at the level: its reflections start
+from the water's surface, so the sides of the hollow don't get in their way, and the sky
+reflects in it wherever nothing on screen stands in the way. Anything in the puddle
 with the rule, such as a plank or a wheel's rim, is wet and mirror-smooth below the level
-too. Without a level, the rule does nothing. [`Graphics.Puddles`](#graphics-settings) turns
+too. Puddles still apply with [`Graphics.Materials`](#graphics-settings) off: the plain clay
+gets wet at the height of its mesh, as there is no height map to sink it.
+
+The damp band is measured up from the water, so it is only a fringe where the ground rises
+well above the level. Where the ground sits only centimetres above the water, as round a
+shallow hollow, a band wider than that gap darkens all of it. Give a narrower band there, a
+little less than the ground's height above the water, so the ground round the puddle stays dry
+and only the slope down into it darkens.
+
+Without a level, the rule does nothing. [`Graphics.Puddles`](#graphics-settings) turns
 it off, and `Graphics.Fastest()` turns it off. The Courtyard uses it for its puddle, on the
-mud, the flagstones, the plank, the deck, the barrel's hoops and the wheel.
+mud, the flagstones, the plank, the deck, the barrel's hoops and the wheel, with water 4.5 cm
+below the yard and a band of 3.5 cm.
 
 ## Models
 

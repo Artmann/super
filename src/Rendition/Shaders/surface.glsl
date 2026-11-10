@@ -114,10 +114,11 @@ void applyLayers(Material material, inout vec3 color, inout float roughness) {
 // shore is soft. Must match Puddles.Shore in Passes/Puddles.cs.
 const float PUDDLE_SHORE = 0.003;
 
-// Standing water: a near mirror, tinted towards brown-black as it deepens to PUDDLE_DEEP metres.
+// Standing water: a near mirror. Shallow, it shows the wet ground under it. Deeper, it is the colour of
+// the silt it holds, which is the dry ground's a little dimmed, by PUDDLE_DEEP metres.
 const float PUDDLE_ROUGHNESS = 0.03;
 const float PUDDLE_DEEP = 0.05;
-const vec3 PUDDLE_DEEP_TINT = vec3(0.35, 0.3, 0.25);
+const vec3 PUDDLE_SILT = vec3(0.7, 0.68, 0.65);
 
 // The ripples: two layers of drifting, changing waves, each RIPPLE_AMPLITUDE metres high. The
 // first is broad and slow, the second fine and quicker. Each moves one wavelength a cycle.
@@ -141,9 +142,12 @@ vec2 rippleSlope(vec2 position, float wavelength, float hz, vec2 drift) {
 
 // Lays the frame's puddles over a surface whose material has MATERIAL_PUDDLES. The surface's height
 // at this pixel is its world height less how far its height map sinks it, so the bottom of a groove
-// sits below its face. Below frame.puddles.x it is water: rippled, smooth, not metal and darker the
+// sits below its face. Below frame.puddles.x it is water: rippled, smooth, not metal and siltier the
 // deeper it gets. For frame.puddles.y metres above, it is damp: at the waterline its colour is squared
 // and its roughness halved, fading in a straight line to dry. Passes/Puddles.cs does the same sums.
+// A pixel that is at least half water sets puddleWater, and writeSurface marks it as water.
+float puddleWater = 0.0;
+
 void applyPuddles(inout Surface surface, vec3 worldPos, float height, float heightDepth) {
     float surfaceHeight = worldPos.y + (height - 1.0) * heightDepth;
     float level = frame.puddles.x;
@@ -155,6 +159,7 @@ void applyPuddles(inout Surface surface, vec3 worldPos, float height, float heig
         return;
     }
 
+    vec3 dry = surface.baseColor;
     surface.baseColor = mix(surface.baseColor, surface.baseColor * surface.baseColor, damp);
     surface.roughness = mix(surface.roughness, surface.roughness * 0.5, damp);
     if (water <= 0.0) {
@@ -164,12 +169,23 @@ void applyPuddles(inout Surface surface, vec3 worldPos, float height, float heig
     vec2 slope = rippleSlope(worldPos.xz, RIPPLE_SLOW_WAVELENGTH, RIPPLE_SLOW_HZ, vec2(0.8, 0.6))
         + rippleSlope(worldPos.xz + 31.0, RIPPLE_QUICK_WAVELENGTH, RIPPLE_QUICK_HZ, vec2(-0.5, 0.87));
     vec3 rippled = normalize(vec3(-slope.x, 1.0, -slope.y));
-    vec3 tint = mix(vec3(1.0), PUDDLE_DEEP_TINT, clamp(below / PUDDLE_DEEP, 0.0, 1.0));
+    vec3 silty = mix(surface.baseColor, dry * PUDDLE_SILT, clamp(below / PUDDLE_DEEP, 0.0, 1.0));
 
-    surface.baseColor = mix(surface.baseColor, surface.baseColor * tint, water);
+    surface.baseColor = mix(surface.baseColor, silty, water);
     surface.roughness = mix(surface.roughness, PUDDLE_ROUGHNESS, water);
     surface.metallic = mix(surface.metallic, 0.0, water);
     surface.normal = normalize(mix(surface.normal, rippled, water));
+    puddleWater = water;
+}
+
+// The side to write in the normal target's alpha: WATER_SIDE for the front of puddle water.
+float waterSide(float side) {
+    return side > 0.0 && puddleWater >= 0.5 ? WATER_SIDE : side;
+}
+
+// Whether this pixel's material gets wet and the frame has puddles to wet it.
+bool puddlesHere() {
+    return (materials[draw.material].flags & MATERIAL_PUDDLES) != 0u && frame.puddles.z > 0.5 && !isOff(OFF_PUDDLES);
 }
 
 // The surface's frame in world space: tangent, bitangent and normal. Back faces flip the
@@ -324,7 +340,7 @@ Surface materialSurface(vec2 uv) {
     surface.clearcoat = material.clearcoat;
 
     // Without a level set, or with Graphics.Puddles off, frame.puddles.z is 0 and nothing is wet.
-    if ((material.flags & MATERIAL_PUDDLES) != 0u && frame.puddles.z > 0.5 && !isOff(OFF_PUDDLES)) {
+    if (puddlesHere()) {
         float height = material.heightDepth > 0.0 ? textureGrad(textures[material.heightTexture], uv, uvX, uvY).r : 1.0;
         applyPuddles(surface, inPosition, height, material.heightDepth);
     }
@@ -374,9 +390,21 @@ void writeSurface(Surface surface) {
 
     // With materials off, every surface is the same plain clay, shaped only by its mesh: no
     // colour, tint, normal map, shine, coat or subsurface. Cut-outs still cut and glows still glow.
+    // Puddles are the frame's weather, not the material's, so the clay still gets wet, at the
+    // height of its mesh, as there is no height map to sink it.
     if (isOff(OFF_MATERIALS)) {
-        outBaseColorMetallic = vec4(PLAIN_COLOR, 0.0);
-        outNormalRoughnessAo = vec4(octahedralEncode(surfaceFrame()[2]), PLAIN_ROUGHNESS, side);
+        Surface plain;
+        plain.baseColor = PLAIN_COLOR;
+        plain.metallic = 0.0;
+        plain.roughness = PLAIN_ROUGHNESS;
+        plain.normal = surfaceFrame()[2];
+        puddleWater = 0.0;
+        if (puddlesHere()) {
+            applyPuddles(plain, inPosition, 1.0, 0.0);
+        }
+
+        outBaseColorMetallic = vec4(plain.baseColor, plain.metallic);
+        outNormalRoughnessAo = vec4(octahedralEncode(plain.normal), plain.roughness, waterSide(side));
         outEmissiveClearcoat = vec4(surface.emissive, foliage ? -FOLIAGE_TRANSLUCENCY : 0.0);
         return;
     }
@@ -386,6 +414,6 @@ void writeSurface(Surface surface) {
         channel = SUBSURFACE_MARK + float(draw.material);
     }
     outBaseColorMetallic = vec4(surface.baseColor * draw.tint.rgb, surface.metallic);
-    outNormalRoughnessAo = vec4(octahedralEncode(surface.normal), surface.roughness, side);
+    outNormalRoughnessAo = vec4(octahedralEncode(surface.normal), surface.roughness, waterSide(side));
     outEmissiveClearcoat = vec4(surface.emissive, channel);
 }

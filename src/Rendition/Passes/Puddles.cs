@@ -12,6 +12,9 @@ internal static class Puddles
     /// <summary>How far below the level, in metres, a surface goes from dry of water to all water, so the shore is soft.</summary>
     public const float Shore = 0.003f;
 
+    /// <summary>How high, in metres, each of the water's two layers of ripples is, as surface.glsl's RIPPLE_AMPLITUDE.</summary>
+    public const float RippleAmplitude = 0.0004f;
+
     /// <summary>
     /// The height in metres of the surface at this pixel: the face's own height <paramref name="worldY"/>, less
     /// <paramref name="heightDepth"/> times how far below the top of the height map <paramref name="height"/> is,

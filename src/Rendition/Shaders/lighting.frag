@@ -403,6 +403,21 @@ vec4 traceReflection(vec3 position, vec3 n, vec3 direction, float noise) {
     return vec4(0.0);
 }
 
+// Where the camera's ray through this pixel crosses the puddles' water level. The depth
+// buffer holds the ground under the water, and a reflection traced from there would run
+// straight into the sides of its own hollow. Two points along the pixel's ray, at its depth
+// and nearer, give the ray under any projection.
+vec3 onWaterSurface(vec4 clip, vec3 ground) {
+    vec4 nearer = frame.inverseViewProjection * vec4(clip.xy, min(clip.z * 2.0 + 1e-4, 1.0), 1.0);
+    vec3 towardsCamera = nearer.xyz / nearer.w - ground;
+    float rise = frame.puddles.x - ground.y;
+    if (rise <= 0.0 || towardsCamera.y <= 1e-6) {
+        return ground;
+    }
+
+    return ground + towardsCamera * (rise / towardsCamera.y);
+}
+
 void main() {
     float depth = texture(depthTexture, inUv).r;
 
@@ -461,13 +476,18 @@ void main() {
     bool occlusionOff = isOff(OFF_AMBIENT_OCCLUSION);
     vec4 screenOcclusion = occlusionOff ? vec4(0.5, 0.5, 1.0, 1.0) : texture(ambientOcclusionTexture, inUv);
     float screenAo = screenOcclusion.z;
-    float ao = normalRoughnessAo.w * screenAo;
+    // Puddle water lies open under the sky. The occlusion pass only saw the hollow beneath it.
+    bool water = normalRoughnessAo.w > 0.5 * (1.0 + WATER_SIDE);
+    if (water) {
+        screenAo = 1.0;
+    }
+    float ao = min(normalRoughnessAo.w, 1.0) * screenAo;
 
     // A point in a crease sees the sky through the opening, so its soft light comes from
     // along the bent normal. The bent normal is blurred, so the more open the point, the more
     // its own normal and the detail in it take over.
     vec3 bentNormal = n;
-    if (!occlusionOff) {
+    if (!occlusionOff && !water) {
         vec3 bent = transpose(mat3(frame.view)) * octahedralDecode(screenOcclusion.xy * 2.0 - 1.0);
         bentNormal = normalize(mix(n, bent, 1.0 - screenAo) + n * 1e-3);
     }
@@ -495,6 +515,9 @@ void main() {
     vec4 clip = vec4(inUv * 2.0 - 1.0, depth, 1.0);
     vec4 world = frame.inverseViewProjection * clip;
     vec3 position = world.xyz / world.w;
+    if (water) {
+        position = onWaterSurface(clip, position);
+    }
 
     // Only light probe captures draw the backs of one-sided surfaces, which surface.glsl
     // marks with a negative occlusion. They give no light, and the negative distance tells
