@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
+using BCnEncoder.Decoder;
 using BCnEncoder.Encoder;
 using BCnEncoder.Shared;
 using Rendition;
@@ -61,6 +62,21 @@ internal static class TextureCompression
             Use(formats, material.DetailColorTexture, TextureFormat.Bc7);
         }
 
+        // The cutoff each cut-out texture's alpha is tested against, as the cooker kept its coverage for, so
+        // compression keeps it too. 0 for every other texture.
+        var cutoffs = new float[textures.Length];
+        foreach (var material in materials)
+        {
+            float cutoff = ModelCooker.TextureCutoff(material.AlphaCutoff, material.BaseColor.W);
+            foreach (int index in (int[])[material.BaseColorTexture, material.SurfaceTexture])
+            {
+                if (index >= 0 && index < textures.Length && cutoffs[index] == 0f)
+                {
+                    cutoffs[index] = cutoff;
+                }
+            }
+        }
+
         int[] wanted = [.. Enumerable.Range(0, textures.Length).Where(i => formats[i] is not null && textures[i].Format == TextureFormat.Rgba8)];
         var keys = new string?[textures.Length];
         if (input is { HasStepCache: true })
@@ -69,17 +85,17 @@ internal static class TextureCompression
             {
                 Parallel.ForEach(wanted, i =>
                 {
-                    var format = formats[i]!.Value;
-                    if (Known(textures[i], format) is { } known)
+                    var form = Form(formats[i]!.Value, cutoffs[i]);
+                    if (Known(textures[i], form) is { } known)
                     {
                         textures[i] = known;
                         return;
                     }
 
-                    keys[i] = Key(textures[i], format);
-                    if (input.Recall(Step, keys[i]!) is { } kept && Read(kept, textures[i], format) is { } compressed)
+                    keys[i] = Key(textures[i], form.Format, cutoff: form.Cutoff);
+                    if (input.Recall(Step, keys[i]!) is { } kept && Read(kept, textures[i], form.Format) is { } compressed)
                     {
-                        textures[i] = Remember(textures[i], format, compressed);
+                        textures[i] = Remember(textures[i], form, compressed);
                         keys[i] = null;
                     }
                 });
@@ -93,7 +109,7 @@ internal static class TextureCompression
             {
                 if (textures[i].Format == TextureFormat.Rgba8)
                 {
-                    textures[i] = Shared(textures[i], formats[i]!.Value);
+                    textures[i] = Shared(textures[i], Form(formats[i]!.Value, cutoffs[i]));
                     made.Add(i);
                 }
             });
@@ -113,41 +129,51 @@ internal static class TextureCompression
     /// every model of a kit the same decoded texture, so a shared atlas is compressed once, not once
     /// per model, and the compressed copy is the same object, so it's also written and hashed once.
     /// </summary>
-    private static readonly ConditionalWeakTable<TextureData, ConcurrentDictionary<TextureFormat, Lazy<TextureData>>> Compressed = new();
+    private static readonly ConditionalWeakTable<TextureData, ConcurrentDictionary<CompressedForm, Lazy<TextureData>>> Compressed = new();
 
-    private static TextureData Shared(TextureData texture, TextureFormat format)
+    /// <summary>How a texture is compressed: its format, and for a BC7 cut-out the cutoff whose coverage it keeps.</summary>
+    private readonly record struct CompressedForm(TextureFormat Format, float Cutoff);
+
+    // Only BC7 keeps all four channels, so only it keeps a cut-out's coverage.
+    private static CompressedForm Form(TextureFormat format, float cutoff) =>
+        new(format, format == TextureFormat.Bc7 ? cutoff : 0f);
+
+    private static TextureData Shared(TextureData texture, CompressedForm form)
     {
-        var forms = Compressed.GetValue(texture, _ => new ConcurrentDictionary<TextureFormat, Lazy<TextureData>>());
-        var form = forms.GetOrAdd(format, _ => new Lazy<TextureData>(() => Compress(texture, format)));
+        var forms = Compressed.GetValue(texture, _ => new ConcurrentDictionary<CompressedForm, Lazy<TextureData>>());
+        var made = forms.GetOrAdd(form, _ => new Lazy<TextureData>(() => Compress(texture, form.Format, form.Cutoff)));
         try
         {
-            return form.Value;
+            return made.Value;
         }
         catch
         {
             // A Lazy keeps its exception, so a failure stays out of the memo and the next cook tries again.
-            forms.TryRemove(new KeyValuePair<TextureFormat, Lazy<TextureData>>(format, form));
+            forms.TryRemove(new KeyValuePair<CompressedForm, Lazy<TextureData>>(form, made));
             throw;
         }
     }
 
     /// <summary>The compressed form this process already made of <paramref name="texture"/>, or null.</summary>
-    private static TextureData? Known(TextureData texture, TextureFormat format)
+    private static TextureData? Known(TextureData texture, CompressedForm form)
     {
-        return Compressed.TryGetValue(texture, out var forms) && forms.TryGetValue(format, out var form) && form.IsValueCreated
-            ? form.Value
+        return Compressed.TryGetValue(texture, out var forms) && forms.TryGetValue(form, out var made) && made.IsValueCreated
+            ? made.Value
             : null;
     }
 
     /// <summary>Puts a compressed form taken from the step cache in the memo, or gives the one another model put there first.</summary>
-    private static TextureData Remember(TextureData texture, TextureFormat format, TextureData compressed)
+    private static TextureData Remember(TextureData texture, CompressedForm form, TextureData compressed)
     {
-        var forms = Compressed.GetValue(texture, _ => new ConcurrentDictionary<TextureFormat, Lazy<TextureData>>());
-        return forms.GetOrAdd(format, _ => new Lazy<TextureData>(compressed)).Value;
+        var forms = Compressed.GetValue(texture, _ => new ConcurrentDictionary<CompressedForm, Lazy<TextureData>>());
+        return forms.GetOrAdd(form, _ => new Lazy<TextureData>(compressed)).Value;
     }
 
-    /// <summary>The step cache's key: the hash of every level's pixels, with the size, format and encoder's version, this build's unless <paramref name="encoderVersion"/> names another.</summary>
-    internal static string Key(TextureData texture, TextureFormat format, string? encoderVersion = null)
+    /// <summary>
+    /// The step cache's key: the hash of every level's pixels, with the size, format, the cutoff whose coverage a BC7
+    /// cut-out keeps, and the encoder's version, this build's unless <paramref name="encoderVersion"/> names another.
+    /// </summary>
+    internal static string Key(TextureData texture, TextureFormat format, string? encoderVersion = null, float cutoff = 0f)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         foreach (byte[] mip in texture.Mips)
@@ -162,7 +188,8 @@ internal static class TextureCompression
             texture.Width.ToString(CultureInfo.InvariantCulture),
             texture.Height.ToString(CultureInfo.InvariantCulture),
             texture.Mips.Length.ToString(CultureInfo.InvariantCulture),
-            Convert.ToHexString(hash.GetHashAndReset()));
+            Convert.ToHexString(hash.GetHashAndReset()))
+            + (cutoff > 0f ? "|cutoff " + cutoff.ToString("R", CultureInfo.InvariantCulture) : "");
     }
 
     private static byte[] Write(TextureData compressed)
@@ -223,8 +250,12 @@ internal static class TextureCompression
         }
     }
 
-    /// <summary>Compresses every level of an RGBA8 texture into <paramref name="format"/>.</summary>
-    public static TextureData Compress(TextureData texture, TextureFormat format)
+    /// <summary>
+    /// Compresses every level of an RGBA8 texture into <paramref name="format"/>. With a <paramref name="cutoff"/> above
+    /// 0, a BC7 texture's smaller levels keep the share of pixels whose alpha reaches it that they had before
+    /// compression, as <see cref="KeepCompressedCoverage"/> says.
+    /// </summary>
+    public static TextureData Compress(TextureData texture, TextureFormat format, float cutoff = 0f)
     {
         if (texture.Format != TextureFormat.Rgba8)
         {
@@ -236,7 +267,11 @@ internal static class TextureCompression
         {
             for (int level = 0; level < mips.Length; level++)
             {
-                mips[level] = Bc7Encoder.Encode(texture.Mips[level], Math.Max(texture.Width >> level, 1), Math.Max(texture.Height >> level, 1));
+                int width = Math.Max(texture.Width >> level, 1);
+                int height = Math.Max(texture.Height >> level, 1);
+                mips[level] = level > 0 && cutoff > 0f && cutoff <= 1f
+                    ? KeepCompressedCoverage(texture.Mips[level], width, height, cutoff)
+                    : Bc7Encoder.Encode(texture.Mips[level], width, height);
             }
 
             return new TextureData { Width = texture.Width, Height = texture.Height, Kind = texture.Kind, Format = format, Mips = mips };
@@ -259,6 +294,104 @@ internal static class TextureCompression
         }
 
         return new TextureData { Width = texture.Width, Height = texture.Height, Kind = texture.Kind, Format = format, Mips = mips };
+    }
+
+    /// <summary>How far <see cref="KeepCompressedCoverage"/> stretches a level's alpha from the cutoff, in the order it tries them.</summary>
+    private static readonly double[] CoverageStretches = [2.0, 4.0, 8.0, 16.0];
+
+    /// <summary>
+    /// How many pixels a compressed level's count of passing pixels may be off from the level's own: 1% of its pixels,
+    /// or one pixel on a level too small for that. BC7 rounds each block's alpha to its own few steps, so a count that
+    /// is exactly right is rarely reachable.
+    /// </summary>
+    internal static int CoverageTolerance(int pixels) => Math.Max(1, pixels / 100);
+
+    /// <summary>
+    /// Encodes one level of a cut-out texture as BC7 so that as many of its pixels pass <paramref name="cutoff"/> once
+    /// decoded as did before. The cooker kept each level's coverage as it scaled its alpha, but the filter leaves much
+    /// of a small level's alpha just either side of the cutoff, and BC7 moves alpha by a few steps, so a thin cut-out
+    /// such as leaves or a fence could lose most of its pixels at a distance. When the plain encoding's decoded count is
+    /// off by more than <see cref="CoverageTolerance"/>, the level's alpha is stretched away from the cutoff before it
+    /// is encoded again, ever further until the count is near enough. The stretch keeps the cutoff where it is, so it
+    /// keeps which pixels pass, and where the cut falls between two pixels as the sampler blends them; it only moves
+    /// each pixel's alpha further from the cutoff than BC7's error can carry it back. The encoding that comes nearest is
+    /// kept, and the plain one wins a tie.
+    /// </summary>
+    private static byte[] KeepCompressedCoverage(byte[] pixels, int width, int height, float cutoff)
+    {
+        int threshold = (int)MathF.Ceiling(cutoff * 255f - 1e-3f);
+        byte[] best = Bc7Encoder.Encode(pixels, width, height, threshold);
+        if (threshold <= 0)
+        {
+            // Every byte passes a cutoff this small, so compression can't change which do.
+            return best;
+        }
+
+        int target = Passing(pixels, threshold, 3, 4);
+        int tolerance = CoverageTolerance(width * height);
+        int bestError = Math.Abs(CompressedPassing(best, width, height, threshold) - target);
+        foreach (double stretch in CoverageStretches)
+        {
+            if (bestError <= tolerance)
+            {
+                break;
+            }
+
+            byte[] encoded = Bc7Encoder.Encode(StretchAlpha(pixels, cutoff * 255.0, threshold, stretch), width, height, threshold);
+            int error = Math.Abs(CompressedPassing(encoded, width, height, threshold) - target);
+            if (error < bestError)
+            {
+                best = encoded;
+                bestError = error;
+            }
+        }
+
+        return best;
+    }
+
+    // Moves every alpha byte stretch times further from the cutoff, in bytes, keeping each on its side of the threshold.
+    private static byte[] StretchAlpha(byte[] pixels, double cutoff, int threshold, double stretch)
+    {
+        var stretched = (byte[])pixels.Clone();
+        for (int i = 3; i < stretched.Length; i += 4)
+        {
+            int alpha = stretched[i];
+            int moved = (int)Math.Clamp(Math.Round(cutoff + (alpha - cutoff) * stretch), 0.0, 255.0);
+            stretched[i] = (byte)(alpha >= threshold ? Math.Max(moved, threshold) : Math.Min(moved, threshold - 1));
+        }
+
+        return stretched;
+    }
+
+    // How many of a BC7 level's pixels have alpha at least the threshold once decoded.
+    private static int CompressedPassing(byte[] blocks, int width, int height, int threshold)
+    {
+        var colors = new BcDecoder().DecodeRaw(blocks, width, height, CompressionFormat.Bc7);
+        int count = 0;
+        foreach (var color in colors)
+        {
+            if (color.a >= threshold)
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    // How many pixels have alpha at least the threshold, reading the byte at offset in every stride.
+    private static int Passing(byte[] pixels, int threshold, int offset, int stride)
+    {
+        int count = 0;
+        for (int i = offset; i < pixels.Length; i += stride)
+        {
+            if (pixels[i] >= threshold)
+            {
+                count++;
+            }
+        }
+
+        return count;
     }
 
     // A texture with more than one use gets the format that keeps everything, BC7, unless

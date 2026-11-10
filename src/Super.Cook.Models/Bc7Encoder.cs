@@ -25,8 +25,11 @@ internal static class Bc7Encoder
 
     private const int RefineSteps = 2;
 
-    /// <summary>Encodes an RGBA8 image, row 0 first, into BC7 blocks, left to right then top to bottom. Edges are padded by repeating the last pixel.</summary>
-    public static byte[] Encode(byte[] rgba, int width, int height)
+    /// <summary>
+    /// Encodes an RGBA8 image, row 0 first, into BC7 blocks, left to right then top to bottom. Edges are padded by
+    /// repeating the last pixel. An <paramref name="alphaThreshold"/> above 0 marks a cut-out, as <see cref="EncodeBlock"/> says.
+    /// </summary>
+    public static byte[] Encode(byte[] rgba, int width, int height, int alphaThreshold = 0)
     {
         if (rgba.Length != width * height * 4)
         {
@@ -42,7 +45,7 @@ internal static class Bc7Encoder
             for (int column = 0; column < across; column++)
             {
                 Load(rgba, width, height, column * 4, row * 4, block);
-                EncodeBlock(block, output.AsSpan((row * across + column) * 16, 16));
+                EncodeBlock(block, output.AsSpan((row * across + column) * 16, 16), alphaThreshold);
             }
         });
         return output;
@@ -65,8 +68,12 @@ internal static class Bc7Encoder
         }
     }
 
-    /// <summary>Encodes one block of 16 RGBA pixels, as ints from 0 to 255, into 16 bytes of mode 6 or 5.</summary>
-    internal static void EncodeBlock(ReadOnlySpan<int> pixels, Span<byte> destination)
+    /// <summary>
+    /// Encodes one block of 16 RGBA pixels, as ints from 0 to 255, into 16 bytes of mode 6 or 5. With an
+    /// <paramref name="alphaThreshold"/> above 0, the block is a cut-out's, and of the two modes the one that keeps more
+    /// pixels on their side of that alpha byte wins.
+    /// </summary>
+    internal static void EncodeBlock(ReadOnlySpan<int> pixels, Span<byte> destination, int alphaThreshold = 0)
     {
         bool opaque = true;
         for (int i = 3; i < 64; i += 4)
@@ -109,8 +116,21 @@ internal static class Bc7Encoder
         if (!opaque && best.Error > 0)
         {
             var separate = new SeparateFit { Error = long.MaxValue };
-            TrySeparate(pixels, ref separate);
-            if (separate.Error < best.Error)
+            TrySeparate(pixels, ref separate, alphaThreshold);
+            bool useSeparate = separate.Error < best.Error;
+            if (alphaThreshold > 0)
+            {
+                // A cut-out cares most which side of its cutoff each pixel lands on, so the mode that moves fewer across
+                // wins, and the error only breaks a tie.
+                int separateFlips = Flips(pixels, SeparateAlphas(separate), alphaThreshold);
+                int lineFlips = Flips(pixels, LineAlphas(best), alphaThreshold);
+                if (separateFlips != lineFlips)
+                {
+                    useSeparate = separateFlips < lineFlips;
+                }
+            }
+
+            if (useSeparate)
             {
                 WriteSeparate(ref separate, destination);
                 return;
@@ -118,6 +138,64 @@ internal static class Bc7Encoder
         }
 
         Write(ref best, destination);
+    }
+
+    // How many pixels' decoded alpha lands on the other side of the threshold from their own.
+    private static int Flips(ReadOnlySpan<int> pixels, ReadOnlySpan<int> decoded, int threshold)
+    {
+        int flips = 0;
+        for (int i = 0; i < 16; i++)
+        {
+            if (pixels[i * 4 + 3] >= threshold != decoded[i] >= threshold)
+            {
+                flips++;
+            }
+        }
+
+        return flips;
+    }
+
+    // Each pixel's alpha as a mode 6 block of the fit decodes.
+    private static int[] LineAlphas(Fit fit)
+    {
+        int a0 = fit.A0 * 2 + fit.P0;
+        int a1 = fit.A1 * 2 + fit.P1;
+        var alphas = new int[16];
+        for (int i = 0; i < 16; i++)
+        {
+            int w = Weights[(int)((fit.Indices >> (i * 4)) & 0xF)];
+            alphas[i] = ((64 - w) * a0 + w * a1 + 32) >> 6;
+        }
+
+        return alphas;
+    }
+
+    // Each pixel's alpha as a mode 5 block of the fit decodes: from the alpha line, or with a rotation from the colour
+    // channel it swapped alpha with.
+    private static int[] SeparateAlphas(SeparateFit fit)
+    {
+        int low = fit.A0;
+        int high = fit.A1;
+        uint indices = fit.AlphaIndices;
+        if (fit.Rotation > 0)
+        {
+            (low, high) = fit.Rotation switch
+            {
+                1 => (Expand7(fit.R0), Expand7(fit.R1)),
+                2 => (Expand7(fit.G0), Expand7(fit.G1)),
+                _ => (Expand7(fit.B0), Expand7(fit.B1)),
+            };
+            indices = fit.ColorIndices;
+        }
+
+        var alphas = new int[16];
+        for (int i = 0; i < 16; i++)
+        {
+            int w = Weights2[(int)((indices >> (i * 2)) & 3)];
+            alphas[i] = ((64 - w) * low + w * high + 32) >> 6;
+        }
+
+        return alphas;
     }
 
     /// <summary>A mode 5 encoding: one channel, swapped into alpha by the rotation, on a line of its own.</summary>
@@ -129,8 +207,9 @@ internal static class Bc7Encoder
         public uint ColorIndices, AlphaIndices; // 2 bits a pixel, pixel 0 lowest.
     }
 
-    private static void TrySeparate(ReadOnlySpan<int> pixels, ref SeparateFit best)
+    private static void TrySeparate(ReadOnlySpan<int> pixels, ref SeparateFit best, int alphaThreshold)
     {
+        int bestFlips = int.MaxValue;
         Span<int> rotated = stackalloc int[64];
         Span<float> start = stackalloc float[4];
         Span<float> end = stackalloc float[4];
@@ -222,18 +301,23 @@ internal static class Bc7Encoder
                 (a0, a1) = (low[0], high[0]);
             }
 
-            if (colorError + alphaError < best.Error)
+            var fit = new SeparateFit
             {
-                best = new SeparateFit
-                {
-                    Error = colorError + alphaError,
-                    Rotation = rotation,
-                    R0 = colorEnds[0], G0 = colorEnds[1], B0 = colorEnds[2],
-                    R1 = colorEnds[3], G1 = colorEnds[4], B1 = colorEnds[5],
-                    A0 = a0, A1 = a1,
-                    ColorIndices = colorIndices,
-                    AlphaIndices = alphaIndices,
-                };
+                Error = colorError + alphaError,
+                Rotation = rotation,
+                R0 = colorEnds[0], G0 = colorEnds[1], B0 = colorEnds[2],
+                R1 = colorEnds[3], G1 = colorEnds[4], B1 = colorEnds[5],
+                A0 = a0, A1 = a1,
+                ColorIndices = colorIndices,
+                AlphaIndices = alphaIndices,
+            };
+
+            // A cut-out's rotation is picked as its mode is: fewest pixels across the cutoff first, then error.
+            int flips = alphaThreshold > 0 ? Flips(pixels, SeparateAlphas(fit), alphaThreshold) : 0;
+            if (flips < bestFlips || (flips == bestFlips && fit.Error < best.Error))
+            {
+                best = fit;
+                bestFlips = flips;
             }
         }
     }

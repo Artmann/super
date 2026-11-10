@@ -46,7 +46,7 @@ public sealed class ModelCooker : ICooker
     // materials may sway in the wind. 15: BC7 from the cook's own encoder, and BC4 and BC5 at BCnEncoder's Fast. 16: a
     // cut-out's textures keep their alpha coverage at every mip level. The graphs' own version is folded in, so a change
     // to Super.Materials cooks every model again, since one may use a graph.
-    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 17);
+    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 18);
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -1230,7 +1230,7 @@ public sealed class ModelCooker : ICooker
     /// <paramref name="opacity"/>, so the texture's alpha must reach <paramref name="cutoff"/> over that. 0, for no
     /// cutoff or for one the texture can't reach, leaves the texture's mips as the filter made them.
     /// </summary>
-    private static float TextureCutoff(float cutoff, float opacity)
+    internal static float TextureCutoff(float cutoff, float opacity)
     {
         if (cutoff <= 0f || opacity <= 0f || cutoff > opacity)
         {

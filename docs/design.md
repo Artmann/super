@@ -1689,6 +1689,32 @@ bricks), and up to 1.5 dB below on masks' colour and 3.5 dB on their alpha, at a
 more times the speed.
 `Bc7Encoder.Version` goes up whenever its output changes, which misses the step cache.
 
+Compression would undo a cut-out's kept coverage. A few levels down, the filter leaves much
+of a thin cut-out's alpha just either side of the cutoff, and BC7 moves alpha by a few
+steps, so before this a strand pattern at a cutoff of 0.3
+went from 20% passing to none on its 8 by 8 level, and a grid lost a tenth of its pixels at
+64 by 64. So `TextureCompression` hands each cut-out texture its cutoff, the material's
+cutoff over `BaseColor.W` as above, and compresses every level but the full-size one
+through `KeepCompressedCoverage`. The encoder is told the alpha byte the cutoff falls on, and
+picks between mode 6 and mode 5, and among mode 5's rotations, by how many pixels' decoded
+alpha lands on the other side of it first and by squared error second, since mode 6 ties
+alpha to the colour's line and a colour gradient across a block drags it across the
+cutoff. The level is then decoded with BCnEncoder.NET's decoder and its passing pixels
+counted. When the count is more than 1% of the level's pixels from the uncompressed count,
+or more than one pixel on a level under 100 pixels, the alpha is stretched away from the
+cutoff, 2, 4, 8 and then 16 times its distance from it in bytes, encoded again, and the
+first stretch near enough is kept, else the nearest. The stretch is about the cutoff itself
+and keeps each byte on its side of the threshold, so which pixels pass is unchanged, and
+so is where the cut falls between two pixels as the sampler blends them, unless a byte
+hits 0 or 255. Only how far each byte sits from the cutoff grows, past what BC7's error
+can carry back. The full-size level is left as it was, and its drift measured under 0.5%.
+`TextureCompressionTests` checks the strand pattern at cutoffs of 0.3 and 0.5 from 128 by
+128 down to 4 by 4: each level's passing pixels stay within 1% of the uncompressed count,
+or 2 pixels on the small levels. The cutoff is part of the compressed-texture memo's key and
+the step cache's key, and the model cooker's version went to 18. A material whose colour
+and surface both carry alpha (above) has each texture checked at its own cutoff, not their
+product's, which no shipped material needs.
+
 Compressing is memoised on the shared `TextureData` it starts from, so an atlas a kit shares
 is compressed once per process and its compressed copy is written and hashed once. A failed
 compression isn't kept, so a watch cook tries it again. The memo goes by object, so it

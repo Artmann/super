@@ -418,4 +418,18 @@ public sealed class StepCacheTests : IDisposable
         Assert.NotEqual(key, TextureCompression.Key(texture, TextureFormat.Bc7, TextureCompression.EncoderVersionFor(Bc7Encoder.Version + 1, CompressionQuality.Fast)));
         Assert.NotEqual(key, TextureCompression.Key(texture, TextureFormat.Bc7, TextureCompression.EncoderVersionFor(Bc7Encoder.Version, CompressionQuality.Balanced)));
     }
+
+    [Fact]
+    public void A_cut_outs_key_is_named_by_its_cutoff()
+    {
+        // A cut-out is compressed to keep its coverage at its cutoff, so the same pixels at another cutoff, or with none,
+        // are compressed differently and must not share an entry.
+        var texture = Texture(1);
+        string plain = TextureCompression.Key(texture, TextureFormat.Bc7);
+        string half = TextureCompression.Key(texture, TextureFormat.Bc7, cutoff: 0.5f);
+
+        Assert.NotEqual(plain, half);
+        Assert.NotEqual(half, TextureCompression.Key(texture, TextureFormat.Bc7, cutoff: 0.25f));
+        Assert.Equal(half, TextureCompression.Key(texture, TextureFormat.Bc7, cutoff: 0.5f));
+    }
 }
