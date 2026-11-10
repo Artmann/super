@@ -624,6 +624,19 @@ to every build of a game with content. A game published with a runtime gets
 `PublishReadyToRun`, unless it sets it itself, so the shipped program doesn't compile the
 engine's code just in time as it starts.
 
+`Super.targets` also sets `TieredCompilation` to false unless the game sets it. With tiering,
+.NET first runs a method as ReadyToRun or quickly compiled code, and a background thread
+compiles it again at tier 1 once it has been called often enough. Tier 1 fuses multiplies
+and adds (FMA) in methods such as the `System.Numerics` matrix and vector sums, which the
+first version doesn't, so the low bits of a result depend on which version ran. Which one
+ran on a given frame depends on wall-clock time, and a value from an early frame lives on in
+light probes, history and exposure, so Courtyard screenshots with the same seed and ticks
+came out up to 6 different ways in 8 runs, a few hundred to a few thousand pixels off by 1
+or 2. With `DOTNET_TieredCompilation=0`, or with `DOTNET_EnableFMA=0` and tiering left on,
+8 of 8 matched. Turning effects off only hid it on some runs: the light probes and the sun
+and light shadows were enough to show it. Start-up and CPU time per frame didn't get worse
+on the Courtyard. Dynamic PGO (`TieredPGO`) needs tiering, so a game built this way doesn't get it.
+
 **`content.dev.json`** is written beside the cooked folder by the build, and
 only for a game run from source. It names the content roots, each root's `Only` globs, the
 `super-cook` tool and the target, and `CookProcess` passes the globs on as `--only`. `Content.GoLive` reads it through `CookedFolder.Dev`; a published game has none and

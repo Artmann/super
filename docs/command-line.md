@@ -36,7 +36,8 @@ stops the game with a message saying what's wrong, such as
 
 `--screenshot` renders the real picture of that exact moment through the real renderer,
 so it needs a GPU. Pictures come straight from the renderer, so other windows can't end up
-in them, and the same seed and ticks give the same picture.
+in them, and the same seed and ticks give the same picture, down to the byte, for a game
+built with [`Super.targets`](#in-the-build).
 
 When a [test invariant](testing.md#invariants) fails, its message gives the options that
 take you back to that tick.
@@ -321,6 +322,13 @@ the game.
 that was about 0.7 s instead of 0.87 s. A publish with no runtime is left as it is, since
 ReadyToRun needs one. To turn it off, set
 `<PublishReadyToRun>false</PublishReadyToRun>` in the game's project.
+
+`Super.targets` also turns off tiered compilation, so the game's code is compiled once, fully
+optimized, instead of quickly first and again once it runs often. The second compilation can
+round a sum differently, and when it happens depends on the clock, so with it on, the same
+`--seed` and `--ticks` gave a slightly different picture from run to run. On the Courtyard
+the game starts as fast without it, and a frame costs the CPU no more. To turn it back on, set
+`<TieredCompilation>true</TieredCompilation>` in the game's project.
 
 ## Planned
 

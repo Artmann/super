@@ -24,6 +24,16 @@
     <PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
 
+  <!--
+    A game's code is compiled once, fully optimized, rather than quickly first and again once it runs
+    often. The two compilations can round sums differently (the second fuses multiplies and adds), and when
+    a method is compiled again depends on the clock, so the same seed and ticks could give a slightly
+    different picture each run. Set TieredCompilation to true in the game's project to turn it back on.
+  -->
+  <PropertyGroup Condition="'$(TieredCompilation)' == ''">
+    <TieredCompilation>false</TieredCompilation>
+  </PropertyGroup>
+
   <PropertyGroup>
     <SuperTarget Condition="'$(SuperTarget)' == ''">desktop</SuperTarget>
     <SuperCookProject>$(MSBuildThisFileDirectory)..\..\tools\Super.Cook.Tool\Super.Cook.Tool.csproj</SuperCookProject>
