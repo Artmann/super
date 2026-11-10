@@ -384,14 +384,15 @@ def block_axis(h, bevel, step):
 
 
 def block(bm, center, half, mat, bevel=0.03, yaw=0.0, roll=(0.0, 0.0), warp=0.0, rough=0.006, bulge=0.0,
-          chips=(), step=0.05, taper=0.0, seed=None):
+          chips=(), step=0.05, taper=0.0, seed=None, uv_z=None):
     """A dressed stone: a box with flat faces and narrow, rounded arrises, so it reads as cut
     stone and not a pebble. warp moves its eight corners about, so it's never quite square;
     taper narrows the top; rough is a fine, pitted unevenness over every face; bulge swells
     the faces a little in the middle, as a pitch-faced stone's do. chips are (corner, size)
     pairs: corner is a sign triple such as (1, -1, 1), and that corner is knocked off with a
     rough, broken face. The block is built square about center, then rolled about X and Y and
-    turned by yaw about Z. Returns its vertices."""
+    turned by yaw about Z. Its UVs start at a random place, unless uv_z fixes where v starts, so a texture
+    can be laid from the block's foot. Returns its vertices."""
     hx, hy, hz = half
     xs, ys, zs = block_axis(hx, bevel, step), block_axis(hy, bevel, step), block_axis(hz, bevel, step)
     seed = seed or Vector((rng.uniform(-100, 100), rng.uniform(-100, 100), rng.uniform(-100, 100)))
@@ -486,7 +487,10 @@ def block(bm, center, half, mat, bevel=0.03, yaw=0.0, roll=(0.0, 0.0), warp=0.0,
         if f.is_valid:
             f.smooth = False
     bm.normal_update()
-    box_uv(bm, faces, (rng.uniform(0, 2), rng.uniform(0, 2), rng.uniform(0, 2)))
+    offset = (rng.uniform(0, 2), rng.uniform(0, 2), rng.uniform(0, 2))
+    if uv_z is not None:
+        offset = (offset[0], offset[1], uv_z)
+    box_uv(bm, faces, offset)
     return verts
 
 
@@ -1866,8 +1870,10 @@ def sack(bm, base, size, lean, yaw, tied=True):
     its verts."""
     w, d, h = 0.5 * size, 0.38 * size, (0.46 if tied else 0.5) * size
     before = set(bm.verts)
+    # v runs up the sides from 2 cm at the foot, so the burlap graph's grime, at the bottom of its image, is at the
+    # bottom of the sack.
     block(bm, (0.0, 0.0, h / 2), (w / 2, d / 2, h / 2), 0, bevel=0.09 * size, warp=0.015, rough=0.004,
-          bulge=0.035 * size, step=0.035)
+          bulge=0.035 * size, step=0.035, uv_z=0.02)
     body = [v for v in bm.verts if v not in before]
     seed = Vector((rng.uniform(-50, 50), rng.uniform(-50, 50), 0.0))
     folds = rng.randint(7, 10)
