@@ -80,6 +80,74 @@ public class TextureDataTests
         Assert.InRange(widened.Mips[1][1], 225, 229);
     }
 
+    // A 128x128 cut-out of white threads a pixel wide on clear: a wave across the middle and a ring, like a cobweb's.
+    private static byte[] Threads()
+    {
+        const int size = 128;
+        var rgba = new byte[size * size * 4];
+        void Opaque(int x, int y)
+        {
+            int i = (((y % size + size) % size) * size + (x % size + size) % size) * 4;
+            rgba[i] = rgba[i + 1] = rgba[i + 2] = rgba[i + 3] = 255;
+        }
+
+        for (int x = 0; x < size; x++)
+        {
+            Opaque(x, 64 + (int)MathF.Round(20f * MathF.Sin(x * MathF.Tau / size)));
+        }
+
+        for (int step = 0; step < 720; step++)
+        {
+            float angle = step * MathF.Tau / 720;
+            Opaque(40 + (int)MathF.Round(25f * MathF.Cos(angle)), 40 + (int)MathF.Round(25f * MathF.Sin(angle)));
+        }
+
+        return rgba;
+    }
+
+    [Fact]
+    public void Thin_threads_keep_their_share_of_pixels_past_the_cutoff_at_every_level()
+    {
+        var filtered = TextureData.FromPixels(128, 128, TextureKind.Color, Threads());
+
+        var kept = TextureData.KeepAlphaCoverage(filtered, 0.5f);
+
+        double top = TextureData.AlphaCoverage(filtered, 0, 0.5f);
+        Assert.InRange(top, 0.01, 0.03);
+        for (int level = 1; level < kept.Mips.Length; level++)
+        {
+            // A level's share moves in whole pixels, so it can be off by half of one, or 1% where pixels are many.
+            int pixels = Math.Max(128 >> level, 1) * Math.Max(128 >> level, 1);
+            double share = TextureData.AlphaCoverage(kept, level, 0.5f);
+            Assert.True(Math.Abs(share - top) <= Math.Max(0.01, 0.5 / pixels),
+                $"level {level} keeps {share:F4} of its pixels, against {top:F4} at the top");
+        }
+
+        // Filtering alone thins the threads away: by the 16x16 level fewer than half as many pixels pass.
+        Assert.True(TextureData.AlphaCoverage(filtered, 3, 0.5f) < top / 2, $"filtered kept {TextureData.AlphaCoverage(filtered, 3, 0.5f):F4}");
+    }
+
+    [Fact]
+    public void Keeping_coverage_changes_only_the_alpha_of_the_smaller_levels()
+    {
+        var filtered = TextureData.FromPixels(128, 128, TextureKind.Color, Threads());
+
+        var kept = TextureData.KeepAlphaCoverage(filtered, 0.5f);
+
+        Assert.Equal(filtered.Mips[0], kept.Mips[0]);
+        Assert.NotEqual(filtered.Mips[3], kept.Mips[3]);
+        for (int level = 1; level < kept.Mips.Length; level++)
+        {
+            for (int i = 0; i < kept.Mips[level].Length; i++)
+            {
+                if (i % 4 != 3)
+                {
+                    Assert.Equal(filtered.Mips[level][i], kept.Mips[level][i]);
+                }
+            }
+        }
+    }
+
     [Fact]
     public void A_compressed_texture_cant_be_read_for_alpha()
     {

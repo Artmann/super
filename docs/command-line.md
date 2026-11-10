@@ -195,7 +195,7 @@ under a minute rather than many. Each kind of step has its own key:
 |---|---|
 | `graph-run` | The graph's code, a variant's values, the size, the cook's version, and the hash of every image the graph read |
 | `mask` | The model's positions and second UVs, the material's triangles and which part each is in, the other triangles the bake traces against, the mask size and the mask baker's build |
-| `compressed-texture` | The hash of the pixels of every mip level, the size and format, and the encoder's version |
+| `compressed-texture` | The hash of the pixels of every mip level, the size and format, and the encoder's version. A cut-out's mips depend on its `alphaCutoff`, so changing the cutoff misses |
 
 A damaged entry is a miss, never a wrong result. `--timings` shows the time spent looking
 up and keeping each, as the `recall` and `keep` phases below.
@@ -252,7 +252,8 @@ Why sources weren't taken from the cache:
 A model's phases include `run graphs`, `bake masks`, `build mips` and `compress textures`, the
 slow steps of a model with material graphs, each with a `recall` phase before it and a `keep`
 phase after it for the step cache. On the Courtyard most of a cold cook is `run graphs`
-and `bake masks`.
+and `bake masks`. A model with an `alphaCutoff` also has `keep alpha coverage`, the time
+spent rescaling its cut-out textures' mips so they don't thin out in the distance.
 
 "No record" means the source is new, or its bytes, settings or cooker version changed.
 "Input changed" means a file it reads besides itself, such as a texture, changed.

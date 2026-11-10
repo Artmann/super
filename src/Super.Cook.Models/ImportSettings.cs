@@ -191,7 +191,9 @@ public sealed class MaterialRule
     /// texture's alpha and the surface texture's alpha. Without a value, a glTF file's
     /// own MASK cutoff is used. With a <see cref="Graph"/>, the graph's <c>Opacity</c> is
     /// written into the colour texture's alpha, and the surface texture's alpha is left
-    /// whole. The import fails if the cutoff would cut nothing, or everything.
+    /// whole. The import fails if the cutoff would cut nothing, or everything. The colour texture's mips, and those of a
+    /// <see cref="Surface"/> texture, keep as large a share of pixels past the cutoff as the full-size texture has, so
+    /// thin threads and tips don't thin away in the distance.
     /// </summary>
     public float? AlphaCutoff { get; set; }
 

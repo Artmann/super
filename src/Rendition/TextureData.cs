@@ -173,6 +173,131 @@ public sealed class TextureData
     }
 
     /// <summary>
+    /// A copy of a cut-out texture whose smaller levels keep the share of pixels that pass
+    /// <paramref name="cutoff"/>. Filtering averages a thin opaque thread with the clear pixels
+    /// beside it, so its alpha falls below the cutoff a few levels down and it vanishes in the
+    /// distance. Each level's alpha is scaled instead, by the factor that makes as large a share
+    /// of its pixels reach the cutoff as on the full-size level, found by binary search (after
+    /// Castaño's coverage-preserving mipmaps). Only alpha changes, and the full-size level is
+    /// left as it is. A level is scaled from the filtered level, never from the scaled one above,
+    /// so the error doesn't build up. Returns the texture as it is when the cutoff is outside
+    /// 0 to 1, when nothing or everything passes it, or when it isn't RGBA8.
+    /// </summary>
+    public static TextureData KeepAlphaCoverage(TextureData texture, float cutoff)
+    {
+        if (texture.Format != TextureFormat.Rgba8 || !(cutoff > 0f && cutoff <= 1f))
+        {
+            return texture;
+        }
+
+        // Alpha is a byte, so a pixel passes when its byte is at least this, as the shader's
+        // a >= cutoff reads it.
+        int threshold = (int)MathF.Ceiling(cutoff * 255f - 1e-3f);
+        long[] top = AlphaHistogram(texture.Mips[0]);
+        long topPixels = texture.Mips[0].Length / 4;
+        double target = (double)Passing(top, 1.0, threshold) / topPixels;
+        if (target <= 0.0 || target >= 1.0)
+        {
+            return texture;
+        }
+
+        var mips = new byte[texture.Mips.Length][];
+        mips[0] = texture.Mips[0];
+        for (int level = 1; level < mips.Length; level++)
+        {
+            byte[] pixels = texture.Mips[level];
+            long[] histogram = AlphaHistogram(pixels);
+            double scale = CoverageScale(histogram, pixels.Length / 4, target, threshold);
+            if (scale == 1.0)
+            {
+                mips[level] = pixels;
+                continue;
+            }
+
+            var scaled = (byte[])pixels.Clone();
+            for (int i = 3; i < scaled.Length; i += 4)
+            {
+                scaled[i] = ScaledAlpha(scaled[i], scale);
+            }
+
+            mips[level] = scaled;
+        }
+
+        return new TextureData { Width = texture.Width, Height = texture.Height, Kind = texture.Kind, Mips = mips };
+    }
+
+    /// <summary>The share of <paramref name="texture"/>'s pixels on <paramref name="level"/> whose alpha is at least <paramref name="cutoff"/>.</summary>
+    public static double AlphaCoverage(TextureData texture, int level, float cutoff)
+    {
+        if (texture.Format != TextureFormat.Rgba8)
+        {
+            throw new InvalidOperationException($"Can't read the alpha of a {texture.Format} texture, only of an RGBA8 one.");
+        }
+
+        int threshold = (int)MathF.Ceiling(cutoff * 255f - 1e-3f);
+        byte[] pixels = texture.Mips[level];
+        return (double)Passing(AlphaHistogram(pixels), 1.0, threshold) / (pixels.Length / 4);
+    }
+
+    // How many times to halve the range of scales. 32 halvings of 0 to 255 is far finer than a byte of alpha can tell.
+    private const int CoverageSearchSteps = 32;
+
+    // The scale whose share of passing pixels is nearest the target. Scaling up only ever lets
+    // more pixels pass, so the search halves the range each step. The two ends it closes in on
+    // are checked at the end, as the share moves in whole pixels. 1 wins a tie, so a level that
+    // already has the share is left as it is.
+    private static double CoverageScale(long[] histogram, long pixels, double target, int threshold)
+    {
+        double Error(double scale) => Math.Abs((double)Passing(histogram, scale, threshold) / pixels - target);
+
+        double low = 0.0;
+        double high = 255.0;
+        for (int step = 0; step < CoverageSearchSteps; step++)
+        {
+            double middle = (low + high) * 0.5;
+            if ((double)Passing(histogram, middle, threshold) / pixels < target)
+            {
+                low = middle;
+            }
+            else
+            {
+                high = middle;
+            }
+        }
+
+        double best = Error(low) < Error(high) ? low : high;
+        return Error(1.0) <= Error(best) ? 1.0 : best;
+    }
+
+    private static long[] AlphaHistogram(byte[] pixels)
+    {
+        var histogram = new long[256];
+        for (int i = 3; i < pixels.Length; i += 4)
+        {
+            histogram[pixels[i]]++;
+        }
+
+        return histogram;
+    }
+
+    // How many pixels pass once their alpha is scaled.
+    private static long Passing(long[] histogram, double scale, int threshold)
+    {
+        long count = 0;
+        for (int alpha = 0; alpha < 256; alpha++)
+        {
+            if (histogram[alpha] != 0 && ScaledAlpha((byte)alpha, scale) >= threshold)
+            {
+                count += histogram[alpha];
+            }
+        }
+
+        return count;
+    }
+
+    private static byte ScaledAlpha(byte alpha, double scale) => (byte)Math.Round(Math.Min(alpha * scale, 255.0));
+
+    /// <summary>
     /// A copy of a surface texture (roughness in green) whose smaller levels are rougher where
     /// the normal map's bumps get too small to see. Averaging bumpy normals leaves a flat one,
     /// which would turn a rough surface smooth and shiny in the distance. How much the normals

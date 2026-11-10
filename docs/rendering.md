@@ -766,6 +766,15 @@ need nothing else, and a glTF file's own `MASK` cutoff is read without a rule. T
 import fails if the cutoff would cut out nothing, or everything, instead of quietly
 giving you solid cards. With a `graph`, the graph's `Opacity` is what gets cut.
 
+A cut-out keeps its shape in the distance. Plain mips average a thin opaque thread with the
+clear pixels round it, so its alpha falls under the cutoff a few levels down and it
+vanishes. The cook instead scales each smaller level's alpha so as large a share of its
+pixels passes the cutoff as on the full-size texture. This is only done for materials with
+a cutoff: blended, dithered and opaque textures keep their mips as before. Changing the
+cutoff cooks the textures again.
+
+![The cobweb in --leaves from about 6 m: left, plain mips leave one dot of the web and thin the dry grass; right, mips that keep their coverage keep the threads and the grass](media/alpha-coverage-mips.webp)
+
 `foliage` is for a tree's leaves. It points their normals out of the crown so it's lit
 as one rounded shape instead of speckled cards, lets sunlight through the back of the
 leaves, and draws both sides. Every material the rule matches counts as one crown, so

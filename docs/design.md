@@ -462,8 +462,8 @@ everything the result depends on, its code's version included. Three steps use i
 
 The models cooker shares decoded textures between the models of a cook, and the cooks after
 it in the same process. They're keyed by the SHA-256 of the image bytes (and of the alpha
-image), the texture kind, and whether it's a normal map or a glTF surface map, so a hit is
-always the same pixels. The memo is cleared when it passes 1 GiB. `TextureData` turns bytes
+image), the texture kind, whether it's a normal map or a glTF surface map, and the alpha
+cutoff its mips keep coverage for, so a hit is always the same pixels. The memo is cleared when it passes 1 GiB. `TextureData` turns bytes
 into floats through two 256-entry tables made with the same arithmetic as before, so mips
 come out bit for bit the same.
 
@@ -1611,6 +1611,31 @@ box softens a little more at every level, so a distant wall blurs sooner than it
 The filter wraps at the edges, as tiling textures do, filters colour in linear light, and
 clamps the slight overshoot its negative lobes give at sharp steps. Normal maps are
 renormalised after each level.
+
+A cut-out's colour texture, and a surface texture its rule names, then keep their alpha
+coverage (`TextureData.KeepAlphaCoverage`, after Castaño's coverage-preserving mipmaps, as in
+The Witness). Filtering averages a thread a pixel wide with the clear pixels beside it, so a
+few levels down its alpha is under the cutoff and it vanishes: a cobweb breaks into dots a
+few metres away, and grass tips thin out. For each smaller level the cook scales alpha by
+the factor that makes the share of pixels at or above the cutoff nearest the full-size
+level's share. The share only grows with the factor, so a binary search over 0 to 255
+(32 halvings) finds it, and the two ends it closes on are compared at the end, since the
+share moves in whole pixels; 1 wins a tie. Counting goes through a 256-bin histogram of
+the level's alpha bytes, with the same rounding the scaled bytes get, so the search is
+cheap and the result deterministic. Each level is scaled from its filtered alpha, not from
+the scaled level above, so the error doesn't build up. Colour and level 0 are left alone.
+
+The cutoff a texture keeps is the material's cutoff over its colour's alpha
+(`BaseColor.W`), since the shader cuts by the product. Only materials with an
+`alphaCutoff`, from the rule or a glTF `MASK`, get it: blended, dithered and opaque
+textures keep the filter's mips byte for byte, and a texture with no pixel past the cutoff,
+or none below it, is left as it is. It's its own phase, `keep alpha coverage`, in
+`--timings`. The cutoff is part of the shared-texture memo's key and of each model's
+texture key, so one image cut at two cutoffs is two textures. The compressed-texture
+step's key hashes every level's pixels, so a new cutoff misses it, and the model cooker's
+version went to 16 so every model with a cutoff cooks again.
+
+![The cobweb in --leaves from about 6 m: left, filtered mips leave one dot of the web and thin the dry grass; right, mips that keep their coverage keep the threads and the grass](media/alpha-coverage-mips.webp)
 
 The model cooker then widens each surface texture's roughness by its normal map
 (`TextureData.WidenRoughness`, after Toksvig 2004 and the vMF form of Han et al. 2007).

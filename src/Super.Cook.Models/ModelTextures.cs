@@ -28,6 +28,8 @@ internal sealed class ModelTextures(CookInput input, CookOutput output, string p
     /// Returns the index of the cooked texture, or -1 if there is none. A texture the model
     /// file links to that isn't there is a warning. One named in the settings
     /// (<paramref name="namedBy"/> is the material) is an error, since it's a mistake in them.
+    /// With an <paramref name="alphaCutoff"/> above 0, the smaller levels keep the share of
+    /// pixels whose alpha passes it, as <see cref="TextureData.KeepAlphaCoverage"/> does.
     /// </summary>
     public int Add(
         string? fileName,
@@ -35,14 +37,15 @@ internal sealed class ModelTextures(CookInput input, CookOutput output, string p
         bool isNormalMap = false,
         bool isGltfSurface = false,
         string? alphaFile = null,
-        string? namedBy = null)
+        string? namedBy = null,
+        float alphaCutoff = 0f)
     {
         if (fileName is null)
         {
             return -1;
         }
 
-        string key = $"{fileName}|{kind}|{isGltfSurface}|{alphaFile}";
+        string key = $"{fileName}|{kind}|{isGltfSurface}|{alphaFile}|{CutoffKey(alphaCutoff)}";
         if (_indices.TryGetValue(key, out int existing))
         {
             return existing;
@@ -76,12 +79,13 @@ internal sealed class ModelTextures(CookInput input, CookOutput output, string p
 
         // Models in a kit share their images, so each image is decoded and filtered once per cook, not once per model.
         string shared = string.Join('|', Convert.ToHexString(SHA256.HashData(encoded)),
-            alphaEncoded is null ? "" : Convert.ToHexString(SHA256.HashData(alphaEncoded)), kind, isNormalMap, isGltfSurface);
+            alphaEncoded is null ? "" : Convert.ToHexString(SHA256.HashData(alphaEncoded)), kind, isNormalMap, isGltfSurface,
+            CutoffKey(alphaCutoff));
         bool made = false;
         var texture = Shared.GetOrAdd(shared, _ => new Lazy<TextureData>(() =>
         {
             made = true;
-            return Make(encoded, alphaEncoded, kind, isNormalMap, isGltfSurface);
+            return KeepCoverage(Make(encoded, alphaEncoded, kind, isNormalMap, isGltfSurface), alphaCutoff);
         })).Value;
         if (made)
         {
@@ -95,25 +99,45 @@ internal sealed class ModelTextures(CookInput input, CookOutput output, string p
 
     /// <summary>
     /// Adds a texture from its RGBA8 pixels, row by row, such as one a material graph made, and returns its index.
-    /// Pixels added again under the same <paramref name="key"/> give the first one's index.
+    /// Pixels added again under the same <paramref name="key"/> and <paramref name="alphaCutoff"/> give the first one's
+    /// index. The cutoff works as in <see cref="Add"/>.
     /// </summary>
-    public int AddPixels(string key, int width, int height, TextureKind kind, byte[] rgba, bool isNormalMap = false)
+    public int AddPixels(string key, int width, int height, TextureKind kind, byte[] rgba, bool isNormalMap = false, float alphaCutoff = 0f)
     {
         // A file's key always holds a '|', and this one starts with one, so the two never meet.
-        key = $"|pixels|{key}";
+        key = $"|pixels|{key}|{CutoffKey(alphaCutoff)}";
         if (_indices.TryGetValue(key, out int existing))
         {
             return existing;
         }
 
+        TextureData texture;
         using (input.Time("build mips"))
         {
-            _textures.Add(TextureData.FromPixels(width, height, kind, rgba, isNormalMap));
+            texture = TextureData.FromPixels(width, height, kind, rgba, isNormalMap);
         }
 
+        _textures.Add(KeepCoverage(texture, alphaCutoff));
         _indices[key] = _textures.Count - 1;
         return _textures.Count - 1;
     }
+
+    // A texture without a cutoff keeps the mips the filter made, byte for byte.
+    private TextureData KeepCoverage(TextureData texture, float alphaCutoff)
+    {
+        if (alphaCutoff <= 0f)
+        {
+            return texture;
+        }
+
+        using (input.Time("keep alpha coverage"))
+        {
+            return TextureData.KeepAlphaCoverage(texture, alphaCutoff);
+        }
+    }
+
+    private static string CutoffKey(float alphaCutoff) =>
+        alphaCutoff > 0f ? alphaCutoff.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : "";
 
     /// <summary>
     /// Decoded and filtered images, by the hash of their bytes and how they're cooked, shared by every model of a cook
