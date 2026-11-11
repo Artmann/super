@@ -149,9 +149,15 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
         var writer = new StoreWriter(store);
         var done = new Done[jobs.Count];
         int workers = Math.Max(1, Math.Min(options.WorkerCount, jobs.Count));
+
+        // The slowest start first, so the cook doesn't end with one big model cooking alone. Each worker takes the next
+        // source in this order when it's free; the results still go in source order below.
+        var durations = options.CacheFolder is { } durationFolder ? CookDurations.Load(durationFolder) : null;
+        int[] order = CookDurations.StartOrder([.. jobs.Select(job => (job.File, job.Cooker))], durations);
         try
         {
-            Parallel.For(0, jobs.Count, new ParallelOptions { MaxDegreeOfParallelism = workers },
+            Parallel.ForEach(Partitioner.Create(order,EnumerablePartitionerOptions.NoBuffering),
+                new ParallelOptions { MaxDegreeOfParallelism = workers },
                 i => done[i] = CookOne(jobs[i], cache, stepCache, writer));
         }
         catch (AggregateException aggregate) when (aggregate.InnerExceptions.Count > 0)
@@ -163,6 +169,7 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
         EndStep("cook");
 
         cache?.Flush();
+        durations?.Save(done.Select(d => d.Report!), [.. jobs.Select(job => job.File)]);
         EndStep("save cache index");
 
         CacheTrim? trim = null;

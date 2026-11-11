@@ -79,73 +79,107 @@ public static class MaterialGraphs
     /// read. A later cook with the same graph takes them from there after checking that each image is unchanged, so editing
     /// one of a model's graphs reruns only that graph. A graph can't read anything else, as the graph compiler checks.
     /// </summary>
+    /// <remarks>
+    /// A run is also shared in the process through <see cref="SharedGraphRuns"/>, under the same key, so another source
+    /// that runs the same graph at the same size, such as a second model or the graph's own material, takes it from
+    /// memory, and two that want it at once wait for one run.
+    /// </remarks>
     /// <returns>The packed images, or null after reporting why there are none to <paramref name="error"/>.</returns>
     public static PackedImages? RunPacked(CookInput input, string relativePath, int size, Action<string> error)
     {
         relativePath = relativePath.Replace('\\', '/');
         string folder = relativePath[..(relativePath.LastIndexOf('/') + 1)];
-        string? key = null;
-        if (input.HasStepCache)
+        string? key;
+        using (input.Time("recall graph runs"))
         {
-            using (input.Time("recall graph runs"))
+            key = RunKey(input, relativePath, size);
+            if (input.HasStepCache && key is not null && input.Recall(RunStep, key) is { } kept && ReadKept(input, folder, kept) is { } packed)
             {
-                key = RunKey(input, relativePath, size);
-                if (key is not null && input.Recall(RunStep, key) is { } kept && ReadKept(input, folder, kept) is { } packed)
+                return packed;
+            }
+        }
+
+        var run = SharedGraphRuns.GetOrMake(key, input, folder, () =>
+        {
+            var reads = new List<(string Path, byte[] Hash)>();
+            SharedGraphRuns.Run? made;
+            using (input.Time("run graphs"))
+            {
+                made = Run(input, relativePath, size, error, reads) is { } images ? Share(images, reads) : null;
+            }
+
+            // Kept by the source that ran it. The others share the run, and the cache it was kept in, with it.
+            if (made is not null && key is not null && input.HasStepCache)
+            {
+                using (input.Time("keep graph runs"))
                 {
-                    return packed;
+                    input.Keep(RunStep, key, WriteKept(made.Packed, reads));
                 }
             }
-        }
 
-        var reads = new List<(string Path, byte[] Hash)>();
-        PackedImages? run = null;
-        using (input.Time("run graphs"))
-        {
-            if (Run(input, relativePath, size, error, reads) is { } images)
-            {
-                run = new PackedImages(images.Size, images.Width, images.HeightDepth, MaterialPixels.Pack(images));
-            }
-        }
-
-        if (run is not null && key is not null)
-        {
-            using (input.Time("keep graph runs"))
-            {
-                input.Keep(RunStep, key, WriteKept(run, reads));
-            }
-        }
-
-        return run;
+            return made;
+        });
+        return run?.Packed;
     }
 
-    /// <summary>The step cache's key for a graph run: everything but the images the graph reads, or null when the graph can't be read, so the run reports why.</summary>
-    private static string? RunKey(CookInput input, string relativePath, int size)
+    /// <summary>
+    /// Runs the source itself, a graph or a variant, as <see cref="RunSource"/> does, or takes the run another source made of
+    /// the same file at the same size. An error in the source's own graph has its line.
+    /// </summary>
+    internal static SharedGraphRuns.Run? RunSourceShared(CookInput input, int size, CookOutput output)
     {
-        if (!relativePath.EndsWith(".material.cs", StringComparison.OrdinalIgnoreCase)
-            && !relativePath.EndsWith(".material.json", StringComparison.OrdinalIgnoreCase))
+        string? key = RunKey(input, null, size);
+        return SharedGraphRuns.GetOrMake(key, input, "", () =>
+        {
+            var reads = new List<(string Path, byte[] Hash)>();
+            using (input.Time("run graphs"))
+            {
+                return Run(input, null, input.Bytes, size, (message, line) => output.Error(message, line), reads) is { } images
+                    ? Share(images, reads)
+                    : null;
+            }
+        });
+    }
+
+    private static SharedGraphRuns.Run Share(MaterialImages images, List<(string Path, byte[] Hash)> reads)
+    {
+        var packed = new PackedImages(images.Size, images.Width, images.HeightDepth, MaterialPixels.Pack(images));
+        return new SharedGraphRuns.Run(packed, [.. reads], MaterialChecks.Measure(images));
+    }
+
+    /// <summary>
+    /// The key of a graph run: everything but the images the graph reads, or null when the graph can't be read, so the run
+    /// reports why. <paramref name="relativePath"/> is null for the source itself.
+    /// </summary>
+    private static string? RunKey(CookInput input, string? relativePath, int size)
+    {
+        string fileName = relativePath ?? input.Name;
+        if (!fileName.EndsWith(".material.cs", StringComparison.OrdinalIgnoreCase)
+            && !fileName.EndsWith(".material.json", StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
 
         try
         {
-            byte[] bytes = input.Read(relativePath);
+            byte[] bytes = relativePath is null ? input.Bytes : input.Read(relativePath);
             byte[] graph = bytes;
-            if (relativePath.EndsWith(".material.json", StringComparison.OrdinalIgnoreCase))
+            if (fileName.EndsWith(".material.json", StringComparison.OrdinalIgnoreCase))
             {
-                if (Variant.Read(relativePath, bytes, _ => { }) is not { } variant)
+                if (Variant.Read(fileName, bytes, _ => { }) is not { } variant)
                 {
                     return null;
                 }
 
-                graph = input.Read(relativePath[..(relativePath.LastIndexOf('/') + 1)] + variant.Graph);
+                string folder = relativePath is null ? "" : relativePath[..(relativePath.LastIndexOf('/') + 1)];
+                graph = input.Read(folder + variant.Graph);
             }
 
             return string.Join('|',
                 Version.ToString(CultureInfo.InvariantCulture),
                 KeptFormat.ToString(CultureInfo.InvariantCulture),
                 size.ToString(CultureInfo.InvariantCulture),
-                RootName(input.Name, relativePath),
+                relativePath is null ? input.Name : RootName(input.Name, relativePath),
                 Convert.ToHexString(SHA256.HashData(bytes)),
                 Convert.ToHexString(SHA256.HashData(graph)));
         }
@@ -387,6 +421,7 @@ public static class MaterialGraphs
                 return null;
             }
 
+            SharedGraphRuns.CountRun();
             return GraphRunner.Run(graph, size, new CookImages(input, folder, reads));
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)

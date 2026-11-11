@@ -9,8 +9,14 @@ internal static class MaterialWriter
 {
     public static void Write(MaterialImages images, string name, CookOutput output)
     {
+        Write(new PackedImages(images.Size, images.Width, images.HeightDepth, MaterialPixels.Pack(images)), name, output);
+    }
+
+    /// <summary>Writes images already packed, such as a graph run another source shared.</summary>
+    public static void Write(PackedImages images, string name, CookOutput output)
+    {
         int size = images.Size;
-        var pixels = MaterialPixels.Pack(images);
+        var pixels = images.Pixels;
         foreach (string part in pixels.NotNumbers)
         {
             output.Warning($"{name}: {part} has pixels that aren't numbers. They were written as 0.");

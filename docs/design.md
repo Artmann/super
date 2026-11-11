@@ -410,7 +410,7 @@ deeper folders winning, then `<source>.cook.json`, which wins over all of them. 
 with no source is a warning, not an error, so a clone without its licensed models still builds.
 
 **Cooking in parallel.** `CookPipeline.Cook` lists the sources and reads their settings on
-one thread, then cooks the sources with `Parallel.For` on `CookOptions.WorkerCount` workers,
+one thread, then cooks the sources with `Parallel.ForEach` on `CookOptions.WorkerCount` workers,
 one per processor up to 8. A model can hold hundreds of megabytes of decoded textures, so
 more workers than that cost memory without gaining much. Each worker fills its own slot of
 an array, and the merge that follows walks the slots in source order. That's why problems,
@@ -420,6 +420,27 @@ first exception out of the loop is rethrown as itself, not as an `AggregateExcep
 workers at once. `StoreWriter` holds a lock per hash, so two workers never write the same
 object at once, and an object already in the store isn't made twice. `CookCache` guards its
 hash memo with a lock and writes each object under a lock of its own.
+
+The workers take the sources in a start order rather than by name, so a big model doesn't start
+last and cook alone at the end while the other workers sit idle. After each cook
+`CookDurations` keeps how long every source it cooked took (not those from the cache) in
+`durations.json` in the cache folder, by the source's full path. It writes a temp file and
+moves it over the old one, so another cook never reads half a file, and a file that is missing
+or doesn't read only costs the order. The next cook starts the sources it has never timed
+first, by `ICooker.StartRank` (the models cooker's is 1, so models go before the rest) and
+then by file size, biggest first, and then the timed ones, slowest first. Ties keep source
+order. Without a cache folder there are no timings and only rank and size count. Past 20,000
+timed sources, those the last cook didn't time are dropped. The order changes only which
+source starts when: the results still merge in source order.
+
+Inside one model the slow steps also overlap. Before its materials are read, the models
+cooker runs every graph and detail graph they will ask for, three at a time
+(`GraphRuns.RunAhead`), and keeps each run's errors until the material that asks for it
+first, so problems come out in material order as before. The mask bakes then run four
+materials at a time and are added to the model in material order. Each graph run and each
+bake already spreads its pixels over every core, but has serial steps (compiling, packing,
+rasterizing, dilating) that left cores idle. The cost is memory: a cold cook of the whole
+Courtyard peaked at 10 to 17 GB, against about 9 GB with one at a time.
 
 **Hard links.** A fresh cook saves to the cache before it writes the store, so
 `StoreWriter.Put` can ask `ICookedStore.TryLink` to link the store's file to the cache's copy
@@ -457,7 +478,8 @@ everything the result depends on, its code's version included. Three steps use i
   22% of the raw 818 MB, written in about 160 ms and read in about 150 ms an entry. Plain
   Brotli or Deflate on the pixels gave 30% to 43%, and higher qualities gained a point or two
   for several times the time. A body that doesn't decompress to exactly the right length is
-  a miss.
+  a miss. The same key also shares runs inside the process, with or without a cache folder
+  (see below).
 - The model cooker keys a mask bake by the SHA-256 of the model's positions and second UVs and
   of the material's triangles, which part each is in, and the other triangles it traces against, with the
   `Super.Cook.Models` build and the mask size.
@@ -514,12 +536,27 @@ twice until the content folder drops its copy.
 `Flush` every key whose file is gone or has changed since (`CookCache.CurrentKeys`, one
 listing per folder), so it doesn't grow with every edit.
 
+Graph runs are shared between the sources of a cook, and the cooks after it in the same
+process, by `SharedGraphRuns`. A graph that a material cooks on its own and two models also
+run at the same size runs once: the Courtyard's graphs are run by its materials, by
+`courtyard.glb` and by `cards.glb`. The key is the step cache's key for the run, and the run
+keeps the path and SHA-256 of each image it read. The first source to ask runs the graph and
+the others wait for it. A source that gets a shared run reads each image through its own
+`CookInput.Read`, which tracks it for the record, and runs the graph itself if any hash
+differs. Only runs that worked are shared, so each source reports its own errors. The run
+holds the packed pixels and what `MaterialChecks.Measure` found in them, so the material
+cooker's warnings need no second look at the floats. Runs are kept up to 1 GiB, after which
+all are dropped, and a run of more than 128 MiB, such as one at 4096 pixels, isn't kept at
+all, though the sources already waiting for it still get it.
+
 The models cooker shares decoded textures between the models of a cook, and the cooks after
 it in the same process. They're keyed by the SHA-256 of the image bytes (and of the alpha
 image), the texture kind, whether it's a normal map or a glTF surface map, and the alpha
 cutoff its mips keep coverage for, so a hit is always the same pixels. The memo is cleared when it passes 1 GiB. `TextureData` turns bytes
 into floats through two 256-entry tables made with the same arithmetic as before, so mips
-come out bit for bit the same.
+come out bit for bit the same. Turning a level into floats and back, and renormalizing a
+normal map's level, run in pieces of 65,536 values on several threads. Each value is worked
+out on its own, so that changes no bit either.
 
 Models don't hold their textures. The models cooker writes each texture as an object of its
 own (`TextureData.ToBytes`, an `RTEX` file) through `CookOutput.AddObject`, and the model

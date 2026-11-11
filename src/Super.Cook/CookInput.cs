@@ -68,7 +68,16 @@ public sealed class CookInput
     public string Target { get; }
 
     /// <summary>Every file the cooker read through <see cref="Read"/>, <see cref="Find"/> or <see cref="Track"/>, relative to the source's folder.</summary>
-    public IReadOnlyList<string> Inputs => _inputs;
+    public IReadOnlyList<string> Inputs
+    {
+        get
+        {
+            lock (_inputs)
+            {
+                return [.. _inputs];
+            }
+        }
+    }
 
     /// <summary>Where this source's cook spent its time, phase by phase.</summary>
     internal PhaseClock Clock { get; } = new();
@@ -148,17 +157,26 @@ public sealed class CookInput
     /// </summary>
     public bool IsPicked(string name) => Sources.Picks(_file.Root, name);
 
-    /// <summary>Records a file the cooker opened some other way, so a change to it counts as a change to this source.</summary>
+    /// <summary>
+    /// Records a file the cooker opened some other way, so a change to it counts as a change to this source. Like
+    /// <see cref="Read"/>, <see cref="Find"/> and <see cref="Time"/>, it may be called from several threads at once.
+    /// </summary>
     public void Track(string relative)
     {
         string normal = Normalise(_file.Name, relative);
-        if (!_inputs.Contains(normal, StringComparer.Ordinal))
+        lock (_inputs)
         {
-            _inputs.Add(normal);
+            if (!_inputs.Contains(normal, StringComparer.Ordinal))
+            {
+                _inputs.Add(normal);
+            }
         }
     }
 
-    /// <summary>The root's files. The pipeline lists each root once per cook; another root is listed once per source the first time a cooker asks.</summary>
+    /// <summary>
+    /// The root's files. The pipeline lists each root once per cook; another root is listed once per source the first time a
+    /// cooker asks. Two threads may both list it, and either set is right.
+    /// </summary>
     private IReadOnlySet<string> Names()
     {
         return _names ??= _file.Root is ListedRoot listed

@@ -142,8 +142,10 @@ public sealed class StepCacheTests : IDisposable
         }
     }
 
+    // Forgets the graph runs shared in the process first, so a cook runs or recalls its own as a new process would.
     private static (CookResult Result, MemoryStore Store) Cook(string src, string cache)
     {
+        Super.Cook.Materials.SharedGraphRuns.Forget();
         var store = new MemoryStore();
         var result = new CookPipeline(ModelCookers.All, new CookOptions(CacheFolder: cache)).Cook([new FolderRoot(src)], store);
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));

@@ -18,14 +18,17 @@ internal static class MaterialChecks
 
     public static IEnumerable<string> Problems(MaterialImages images, string name)
     {
-        var problems = new List<string>();
-        CheckColor(images.Color, name, problems);
-        CheckMetallic(images.Metallic, name, problems);
-        CheckRoughness(images.Roughness, name, problems);
-        return problems;
+        return Measure(images).Problems(name);
     }
 
-    private static void CheckColor(float[] color, string name, List<string> problems)
+    /// <summary>What the checks found, without the material's name, so a graph run shared by several sources is measured once.</summary>
+    public static MaterialFindings Measure(MaterialImages images)
+    {
+        var (dark, bright) = MeasureColor(images.Color);
+        return new MaterialFindings(dark, bright, MostlyBetweenMetal(images.Metallic), RoughnessIsFlat(images.Roughness));
+    }
+
+    private static (string? Dark, string? Bright) MeasureColor(float[] color)
     {
         int counted = 0;
         int dark = 0;
@@ -53,18 +56,10 @@ internal static class MaterialChecks
         }
 
         // More than a tenth, worked out in whole numbers.
-        if (dark * 10L > counted)
-        {
-            problems.Add($"{name}: {Percent(dark, counted)} of the base colour is darker than sRGB {DarkestByte}. Nothing real is that dark. Charcoal is about 50.");
-        }
-
-        if (bright * 10L > counted)
-        {
-            problems.Add($"{name}: {Percent(bright, counted)} of the base colour is brighter than sRGB {BrightestByte}. Fresh snow is about 240.");
-        }
+        return (dark * 10L > counted ? Percent(dark, counted) : null, bright * 10L > counted ? Percent(bright, counted) : null);
     }
 
-    private static void CheckMetallic(float[] metallic, string name, List<string> problems)
+    private static bool MostlyBetweenMetal(float[] metallic)
     {
         int counted = 0;
         int between = 0;
@@ -83,13 +78,10 @@ internal static class MaterialChecks
             }
         }
 
-        if (between * 2L > counted)
-        {
-            problems.Add($"{name}: most of the metalness is between 0.1 and 0.9. Surfaces are metal or not, and in-between values look like plastic.");
-        }
+        return between * 2L > counted;
     }
 
-    private static void CheckRoughness(float[] roughness, string name, List<string> problems)
+    private static bool RoughnessIsFlat(float[] roughness)
     {
         int counted = 0;
         double sum = 0;
@@ -104,7 +96,7 @@ internal static class MaterialChecks
 
         if (counted == 0)
         {
-            return;
+            return false;
         }
 
         double mean = sum / counted;
@@ -119,10 +111,7 @@ internal static class MaterialChecks
         }
 
         // The population deviation: divided by the pixel count, not one less.
-        if (Math.Sqrt(squares / counted) < MinRoughnessSpread)
-        {
-            problems.Add($"{name}: the roughness hardly varies. Real surfaces have smudges and wear, so vary it by a few percent at least.");
-        }
+        return Math.Sqrt(squares / counted) < MinRoughnessSpread;
     }
 
     private static int ToByte(float value) => Math.Clamp((int)MathF.Round(value * 255f, MidpointRounding.AwayFromZero), 0, 255);
@@ -131,5 +120,36 @@ internal static class MaterialChecks
     {
         double percent = Math.Round(100.0 * count / total, MidpointRounding.AwayFromZero);
         return percent.ToString("0", CultureInfo.InvariantCulture) + "%";
+    }
+
+    /// <param name="Dark">How much of the colour is too dark, such as <c>12%</c>, or null when little enough is.</param>
+    /// <param name="Bright">How much of the colour is too bright, or null when little enough is.</param>
+    internal sealed record MaterialFindings(string? Dark, string? Bright, bool MetalBetween, bool FlatRoughness)
+    {
+        public IReadOnlyList<string> Problems(string name)
+        {
+            var problems = new List<string>();
+            if (Dark is not null)
+            {
+                problems.Add($"{name}: {Dark} of the base colour is darker than sRGB {DarkestByte}. Nothing real is that dark. Charcoal is about 50.");
+            }
+
+            if (Bright is not null)
+            {
+                problems.Add($"{name}: {Bright} of the base colour is brighter than sRGB {BrightestByte}. Fresh snow is about 240.");
+            }
+
+            if (MetalBetween)
+            {
+                problems.Add($"{name}: most of the metalness is between 0.1 and 0.9. Surfaces are metal or not, and in-between values look like plastic.");
+            }
+
+            if (FlatRoughness)
+            {
+                problems.Add($"{name}: the roughness hardly varies. Real surfaces have smudges and wear, so vary it by a few percent at least.");
+            }
+
+            return problems;
+        }
     }
 }

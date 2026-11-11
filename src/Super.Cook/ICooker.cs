@@ -12,5 +12,11 @@ public interface ICooker
     /// <summary>Lowercase, with the dot. The longest matching suffix wins.</summary>
     IReadOnlyList<string> Extensions { get; }
 
+    /// <summary>
+    /// How slow this cooker's sources usually are next to others', for a cook that hasn't timed them yet: those of a higher
+    /// rank start first, and the biggest first among the same rank. Once a cook has timed them, the slowest start first.
+    /// </summary>
+    int StartRank => 0;
+
     void Cook(CookInput input, CookOutput output);
 }

@@ -131,38 +131,51 @@ public sealed record CookReport(
     private static string Invariant(FormattableString text) => text.ToString(CultureInfo.InvariantCulture);
 }
 
-/// <summary>Adds up time per named phase. Safe to use from one thread at a time.</summary>
+/// <summary>
+/// Adds up time per named phase. Safe to use from several threads, as a cooker that runs steps at once does. Then a
+/// phase adds up the time of each step in it, so it can be more than the wall clock.
+/// </summary>
 public sealed class PhaseClock
 {
     private readonly List<(string Phase, TimeSpan Elapsed)> _phases = [];
+    private readonly Lock _lock = new();
 
     internal PhaseClock()
     {
     }
 
-    internal IReadOnlyList<(string Phase, TimeSpan Elapsed)> Phases => _phases;
+    internal IReadOnlyList<(string Phase, TimeSpan Elapsed)> Phases
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return [.. _phases];
+            }
+        }
+    }
 
     internal Measure Start(string phase) => new(this, phase, Stopwatch.GetTimestamp());
 
     internal void Add(string phase, TimeSpan elapsed)
     {
-        int index = _phases.FindIndex(existing => existing.Phase == phase);
-        if (index < 0)
+        lock (_lock)
         {
-            _phases.Add((phase, elapsed));
-        }
-        else
-        {
-            _phases[index] = (phase, _phases[index].Elapsed + elapsed);
+            int index = _phases.FindIndex(existing => existing.Phase == phase);
+            if (index < 0)
+            {
+                _phases.Add((phase, elapsed));
+            }
+            else
+            {
+                _phases[index] = (phase, _phases[index].Elapsed + elapsed);
+            }
         }
     }
 
     /// <summary>Stops the clock for its phase when disposed.</summary>
     public readonly struct Measure(PhaseClock clock, string phase, long started) : IDisposable
     {
-        public void Dispose()
-        {
-            clock?.Add(phase, Stopwatch.GetElapsedTime(started));
-        }
+        public void Dispose() => clock?.Add(phase, Stopwatch.GetElapsedTime(started));
     }
 }

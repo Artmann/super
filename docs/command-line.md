@@ -262,7 +262,10 @@ typo. Each root has its own globs; a root with none is cooked whole.
 
 Sources cook on several workers at once, one per processor up to 8, and `--workers` changes
 that. The output is the same whatever the number: problems print in the order of the sources,
-and the manifest is byte for byte the same.
+and the manifest is byte for byte the same. The slowest sources start first: the cache folder
+keeps how long each one took in `durations.json`, and sources it has no time for start first,
+models before the rest and then the biggest files. A graph that several sources run at the
+same size, such as a material's own graph that a model also uses, runs once per cook.
 
 `--timings` prints a summary before the last line. It lists the time of each step of the
 cook, the time each phase took added up over every source (decoding images, building mips,
@@ -293,7 +296,9 @@ Why sources weren't taken from the cache:
 A model's phases include `run graphs`, `bake masks`, `build mips` and `compress textures`, the
 slow steps of a model with material graphs, each with a `recall` phase before it and a `keep`
 phase after it for the step cache. On the Courtyard most of a cold cook is `run graphs`
-and `bake masks`. A model with an `alphaCutoff` also has `keep alpha coverage`, the time
+and `bake masks`. A model runs several graphs and bakes several materials' masks at once, so
+those phases can add up to more than the model's own time. `wait for shared graph runs` is
+time spent waiting for a graph run that another source of the cook is making at the same size. A model with an `alphaCutoff` also has `keep alpha coverage`, the time
 spent rescaling its cut-out textures' mips so they don't thin out in the distance.
 
 The line after the steps is the cache's size after trimming, and how many files the trim

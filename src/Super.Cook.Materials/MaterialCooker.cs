@@ -27,28 +27,20 @@ public sealed class MaterialCooker : ICooker
             return;
         }
 
-        MaterialImages? images;
-        using (input.Time("run graphs"))
-        {
-            images = MaterialGraphs.RunSource(input, settings.Size, output);
-        }
-
-        if (images is null)
+        // A model that runs this graph at the same size may have run it already, or be running it now.
+        if (MaterialGraphs.RunSourceShared(input, settings.Size, output) is not { } run)
         {
             return;
         }
 
         using (input.Time("write material"))
         {
-            MaterialWriter.Write(images, input.Name, output);
+            MaterialWriter.Write(run.Packed, input.Name, output);
         }
 
-        using (input.Time("check material"))
+        foreach (string check in run.Findings.Problems(input.Name))
         {
-            foreach (string check in MaterialChecks.Problems(images, input.Name))
-            {
-                output.Warning(check);
-            }
+            output.Warning(check);
         }
     }
 }
