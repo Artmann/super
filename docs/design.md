@@ -477,13 +477,28 @@ used files after each cook. A file's last-write time is its last use. Reading th
 time would be free but Windows and most Linux mounts don't keep it up to date, and a side
 index would need a lock between parallel cooks. `CacheUsage` notes every record, object and
 step entry the cook restored, read or wrote, and when it uses one whose last-write time is
-more than an hour older than the cook's start it sets it to the start. So a warm cook writes
-nothing, and the LRU order is good to an hour. After `Flush`, `CacheFolder.Trim` lists the
-folder once with `FileSystemEnumerable`, which gives sizes and times without opening a file,
-deletes temp files over an hour old, and then deletes the oldest files of `records`,
-`objects` and `steps` until the total fits, a record before the objects of the same age. It
-never deletes what this cook used, nor anything written after the cook started, which may
-be another cook's. If what the cook used is over the limit by itself, it keeps it and warns.
+more than an hour older than the cook's start it sets it to the start. So a warm cook within
+the hour of the last writes nothing, and the LRU order is good to an hour. After `Flush`,
+`CacheFolder.Trim` lists the folder once with `FileSystemEnumerable`, which gives sizes and
+times without opening a file, deletes temp files over an hour old, and then deletes the
+oldest files of `records`, `objects` and `steps` until the total fits, a record before the
+objects of the same age. It never deletes what this cook used, nor anything written after
+the cook started, which may be another cook's. If what the cook used is over the limit by
+itself, it keeps it and warns. `super-cook cache --trim` runs outside a cook, so it keeps
+every file written in the last two hours (`CacheFolder.RecentlyUsed`): a running cook that
+used a file without touching it saw it under an hour old at its start, so that's every file
+used in the last hour.
+
+Trimming and `CacheFolder.Clear` only delete and count names the cache writes: objects and
+step entries named by a 64-digit lowercase hash in a folder of its first two digits, records
+named `<hash>.json`, `hashes.json`, and the `.<32 digits>.tmp` files each is written
+through. Anything else is listed apart as "not the cache's" and left, and `Clear` then
+removes only the folders it left empty. That keeps `--cache` pointed at the wrong folder
+from deleting it, except a content folder, whose `objects` are named as the cache's are, so
+both refuse a folder holding a `content.manifest` with an `InvalidOperationException`; a cook
+turns it into a warning. The record and step caches write objects through one
+`CookCache.SaveObject`, under a fixed set of 64 locks picked by the object's path, so two
+workers never write one object at once.
 A warm cook restores whole records and never reads the step entries, so under a tight limit
 the step entries are the first of a game's files to go, and the next edit runs its steps
 from nothing.
@@ -492,6 +507,9 @@ cook's only added cost. Deleting a record
 leaves its objects and deleting an object leaves the records naming it: both are a miss on
 the next cook, never a wrong result, as is a file that vanishes while a cook reads it. An
 object hard-linked into a content folder only frees its space once the content drops it too.
+Evicting it leaves the content folder's copy, and a later cook that needs it writes a new
+cache copy, which is a new file rather than a link to the old one, so its bytes are on disk
+twice until the content folder drops its copy.
 `hashes.json`, the memo of file hashes keyed by path, size and last-write time, drops on
 `Flush` every key whose file is gone or has changed since (`CookCache.CurrentKeys`, one
 listing per folder), so it doesn't grow with every edit.

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.IO.Enumeration;
+using System.Text.RegularExpressions;
 
 namespace Super.Cook;
 
@@ -35,7 +36,7 @@ public sealed record CacheTrim(long Size, long Limit, int Deleted, long Freed, l
 /// The files of the cook cache that one cook used: records it restored or wrote, their objects, and step entries.
 /// Using a file sets its last-write time to now, so the cache's last-write times say when each file was last used and
 /// trimming deletes the least recently used first. A file used in the last <see cref="TouchAfter"/> isn't touched
-/// again, so a warm cook writes nothing. Safe to use from several workers.
+/// again, so a warm cook within the hour of the last writes nothing. Safe to use from several workers.
 /// </summary>
 internal sealed class CacheUsage
 {
@@ -87,17 +88,46 @@ public static class CacheFolder
     /// <summary>How old a temp file must be before trimming deletes it. Younger ones may be a write still going on.</summary>
     public static readonly TimeSpan StaleTemp = TimeSpan.FromHours(1);
 
+    /// <summary>
+    /// How old a file's last-write time may be and still have been used in the last <see cref="StaleTemp"/>: a use only
+    /// sets it when it's more than <see cref="CacheUsage.TouchAfter"/> old. <c>super-cook cache --trim</c> keeps files this
+    /// new, since a cook may be running and using them.
+    /// </summary>
+    public static readonly TimeSpan RecentlyUsed = CacheUsage.TouchAfter + StaleTemp;
+
+    /// <summary>What <see cref="Parts"/> calls files in the folder that the cache didn't write. They're never deleted.</summary>
+    public const string NotTheCaches = "not the cache's";
+
     internal static readonly StringComparer PathComparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
     /// <summary>The parts trimming may delete from. Anything else, such as <c>hashes.json</c>, is counted but kept.</summary>
     private static readonly string[] Evictable = ["records", "objects", "steps"];
 
+    /// <summary>
+    /// The names of the files a cook cache writes, from its folder with <c>/</c> between folders: objects and step entries
+    /// named by their hash in a folder named by its first two digits, records named by their key, the hash index, and the
+    /// temp files each of them is written through. Clearing and trimming delete nothing else, so pointing them at the
+    /// wrong folder can't delete its files.
+    /// </summary>
+    private static readonly Regex OursPattern = new(
+        "^(objects/(?<hh>[0-9a-f]{2})/\\k<hh>[0-9a-f]{62}"
+            + "|records/[0-9a-f]{64}\\.json"
+            + "|steps/[A-Za-z0-9-]+/(?<sh>[0-9a-f]{2})/\\k<sh>[0-9a-f]{62}"
+            + "|hashes\\.json|durations\\.json)"
+            + "(\\.[0-9a-f]{32}\\.tmp)?$",
+        RegexOptions.CultureInvariant);
+
     /// <summary>One file of the cache, as the listing found it.</summary>
-    internal readonly record struct Entry(string Path, string Part, long Size, DateTime LastWriteUtc, bool IsTemp);
+    /// <param name="Ours">Whether its name is one the cache writes. Other files are counted apart and never deleted.</param>
+    internal readonly record struct Entry(string Path, string Part, long Size, DateTime LastWriteUtc, bool IsTemp, bool Ours = true);
+
+    /// <summary>Whether <paramref name="relative"/>, a path from the cache's folder, names a file the cache writes.</summary>
+    internal static bool IsOurs(string relative) => OursPattern.IsMatch(relative.Replace('\\', '/'));
 
     /// <summary>
-    /// Every file in the cache, with its part: <c>objects</c>, <c>records</c>, <c>steps/&lt;step&gt;</c>, or <c>other</c>
-    /// for files at the top such as <c>hashes.json</c>. A cache that isn't there is empty.
+    /// Every file in the cache, with its part: <c>objects</c>, <c>records</c>, <c>steps/&lt;step&gt;</c>, <c>other</c> for
+    /// files at the top such as <c>hashes.json</c>, or <see cref="NotTheCaches"/> for a file whose name the cache doesn't
+    /// write. A cache that isn't there is empty.
     /// </summary>
     internal static List<Entry> List(string folder)
     {
@@ -112,8 +142,9 @@ public static class CacheFolder
         var listing = new FileSystemEnumerable<Entry>(folder, (ref FileSystemEntry entry) =>
         {
             string path = entry.ToFullPath();
-            return new Entry(path, PartOf(folder, path), entry.Length, entry.LastWriteTimeUtc.UtcDateTime,
-                entry.FileName.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase));
+            bool ours = IsOurs(Path.GetRelativePath(folder, path));
+            return new Entry(path, ours ? PartOf(folder, path) : NotTheCaches, entry.Length, entry.LastWriteTimeUtc.UtcDateTime,
+                entry.FileName.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase), ours);
         }, options)
         {
             ShouldIncludePredicate = (ref FileSystemEntry entry) => !entry.IsDirectory,
@@ -143,26 +174,35 @@ public static class CacheFolder
 
     /// <summary>
     /// Trims the cache in <paramref name="folder"/> to <paramref name="limit"/> bytes now, outside a cook, as
-    /// <c>super-cook cache --trim</c> does. Files written in the last <see cref="StaleTemp"/> are kept, since a cook may be
-    /// running and using them.
+    /// <c>super-cook cache --trim</c> does. Files whose last-write time is within <see cref="RecentlyUsed"/> are kept, which
+    /// covers every file used in the last <see cref="StaleTemp"/>, since a cook may be running and using them.
     /// </summary>
+    /// <exception cref="InvalidOperationException">The folder holds cooked content, not a cache.</exception>
     public static CacheTrim Trim(string folder, long limit)
     {
-        var now = DateTime.UtcNow;
-        return Trim(folder, limit, new CacheUsage(now - StaleTemp), now);
+        return TrimNow(folder, limit, DateTime.UtcNow);
+    }
+
+    /// <summary><see cref="Trim(string, long)"/> at <paramref name="now"/>, in UTC.</summary>
+    internal static CacheTrim TrimNow(string folder, long limit, DateTime now)
+    {
+        return Trim(folder, limit, new CacheUsage(now - RecentlyUsed), now);
     }
 
     /// <summary>
     /// Deletes the least recently used files of <c>records</c>, <c>objects</c> and <c>steps</c> until the cache is no bigger
     /// than <paramref name="limit"/>, and temp files older than <see cref="StaleTemp"/>. Never deletes what
-    /// <paramref name="usage"/> says this cook used, nor anything written since it started, which may be another cook's.
+    /// <paramref name="usage"/> says this cook used, nor anything written since it started, which may be another cook's,
+    /// nor a file whose name the cache doesn't write, which isn't counted in its size either.
     /// A file that vanishes first, or can't be deleted because it's open, is skipped. Deleting a record leaves its objects,
     /// and deleting an object leaves the records that name it: both are then a miss, never a wrong result.
     /// </summary>
     /// <param name="limit">The most bytes to keep, or 0 for no limit, which only clears stale temp files.</param>
     /// <param name="now">The time now, in UTC, which ages temp files.</param>
+    /// <exception cref="InvalidOperationException">The folder holds cooked content, not a cache.</exception>
     internal static CacheTrim Trim(string folder, long limit, CacheUsage usage, DateTime now)
     {
+        RefuseContent(folder);
         var entries = List(folder);
         DateTime started = usage.Started;
         long size = 0;
@@ -172,6 +212,11 @@ public static class CacheFolder
         var candidates = new List<Entry>();
         foreach (var entry in entries)
         {
+            if (!entry.Ours)
+            {
+                continue;
+            }
+
             if (entry.IsTemp && now - entry.LastWriteUtc > StaleTemp)
             {
                 if (TryDelete(entry.Path))
@@ -226,20 +271,20 @@ public static class CacheFolder
     }
 
     /// <summary>
-    /// Deletes every part of the cache that a cook makes: <c>records</c>, <c>objects</c>, <c>steps</c>, <c>hashes.json</c> and
-    /// temp files. Anything else in the folder is left, in case it was pointed at a folder that holds more. Files in use
-    /// are left too. Returns how many files and bytes it deleted.
+    /// Deletes every file the cache writes: objects, records, step entries, <c>hashes.json</c> and their temp files, then
+    /// the folders under <c>records</c>, <c>objects</c> and <c>steps</c> that are left empty. A file whose name the cache
+    /// doesn't write is left, and so is its folder, in case it was pointed at a folder that holds more. Files in use are
+    /// left too. Returns how many files and bytes it deleted.
     /// </summary>
+    /// <exception cref="InvalidOperationException">The folder holds cooked content, not a cache.</exception>
     public static (int Files, long Bytes) Clear(string folder)
     {
+        RefuseContent(folder);
         int files = 0;
         long bytes = 0;
         foreach (var entry in List(folder))
         {
-            bool ours = entry.Part == "other"
-                ? entry.IsTemp || Path.GetFileName(entry.Path) == "hashes.json"
-                : Array.IndexOf(Evictable, entry.Part.Split('/')[0]) >= 0;
-            if (ours && TryDelete(entry.Path))
+            if (entry.Ours && TryDelete(entry.Path))
             {
                 files++;
                 bytes += entry.Size;
@@ -249,17 +294,41 @@ public static class CacheFolder
         string full = Path.GetFullPath(folder);
         foreach (string part in Evictable)
         {
-            try
+            string top = Path.Combine(full, part);
+            if (!Directory.Exists(top))
             {
-                Directory.Delete(Path.Combine(full, part), recursive: true);
+                continue;
             }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+
+            // Deepest first, so a folder whose folders were all empty is empty by the time it's tried.
+            var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = 0 };
+            var folders = Directory.EnumerateDirectories(top, "*", options).OrderByDescending(path => path.Length).Append(top);
+            foreach (string empty in folders)
             {
-                // Not there, or something in it is still open.
+                try
+                {
+                    Directory.Delete(empty, recursive: false);
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    // Not empty, gone already, or open in another program.
+                }
             }
         }
 
         return (files, bytes);
+    }
+
+    /// <summary>Stops clearing or trimming a content folder, whose objects are named as the cache's are.</summary>
+    private static void RefuseContent(string folder)
+    {
+        string full = Path.GetFullPath(folder);
+        if (File.Exists(Path.Combine(full, ContentManifest.FileName)))
+        {
+            throw new InvalidOperationException(
+                $"{full} holds cooked content, with a {ContentManifest.FileName}, not a cook cache, so it isn't cleared or trimmed. "
+                + "Point --cache or SUPER_CACHE at the cache's own folder.");
+        }
     }
 
     /// <summary>Deletes a file. True when it's gone, including when another cook got there first.</summary>

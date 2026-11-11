@@ -90,7 +90,7 @@ internal sealed class StepCache(string folder, CacheUsage? usage = null)
     /// <summary>
     /// Keeps a step's result that is also an object of the cook, such as a compressed texture a model writes, without
     /// keeping its bytes twice: the object goes into the cook cache's <c>objects</c>, where the cook would put it anyway,
-    /// and the entry holds only its hash.
+    /// and the entry holds only its hash. The object is written under the same lock the cook cache writes it under.
     /// </summary>
     /// <param name="hash">The SHA-256 of <paramref name="bytes"/> in lowercase hex.</param>
     public void KeepObject(string step, string key, string hash, byte[] bytes)

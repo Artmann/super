@@ -175,10 +175,18 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
                 problems.Add(new CookProblem(cache.Folder, null, $"{limitError} Using the default, {CacheSize.Format(CacheSize.Default)}.", false));
             }
 
-            trim = cache.Trim(limit);
-            if (trim.Warning() is { } warning)
+            try
             {
-                problems.Add(new CookProblem(cache.Folder, null, warning, false));
+                trim = cache.Trim(limit);
+                if (trim.Warning() is { } warning)
+                {
+                    problems.Add(new CookProblem(cache.Folder, null, warning, false));
+                }
+            }
+            catch (InvalidOperationException exception)
+            {
+                // The cache was pointed at a content folder. The cook still worked; its files just aren't trimmed.
+                problems.Add(new CookProblem(cache.Folder, null, exception.Message, false));
             }
 
             EndStep("trim cache");

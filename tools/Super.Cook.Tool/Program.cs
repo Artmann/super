@@ -150,9 +150,10 @@ public static class Program
             throw new UsageException("--cache-limit and --no-cache can't be used together.");
         }
 
+        // Without --cache-limit the cook reads SUPER_CACHE_SIZE itself, only when it has a cache, and warns if it isn't a size.
         var options = new CookOptions(target, noCache ? null : cache ?? CookOptions.DefaultCacheFolder, workers)
         {
-            CacheLimit = cacheLimit ?? EnvironmentLimit(),
+            CacheLimit = cacheLimit,
         };
         var pipeline = new CookPipeline(ModelCookers.All, options);
         var store = new FolderStore(output);
@@ -209,7 +210,7 @@ public static class Program
         string name = positional[0];
         string output = positional[1];
         var store = new MemoryStore();
-        var pipeline = new CookPipeline(ModelCookers.All, new CookOptions(CacheFolder: CookOptions.DefaultCacheFolder) { CacheLimit = EnvironmentLimit() });
+        var pipeline = new CookPipeline(ModelCookers.All, new CookOptions(CacheFolder: CookOptions.DefaultCacheFolder));
         if (!CookAndReport(pipeline, Roots(contents), store, Reporting.FromEnvironment(false, false)))
         {
             return 1;
@@ -279,28 +280,46 @@ public static class Program
         folder = Path.GetFullPath(folder ?? CookOptions.DefaultCacheFolder);
         if (clear)
         {
-            var (files, bytes) = CacheFolder.Clear(folder);
-            Console.WriteLine($"Cleared {folder}: deleted {files} {(files == 1 ? "file" : "files")}, {CacheSize.Format(bytes)}.");
-            return 0;
+            try
+            {
+                var (files, bytes) = CacheFolder.Clear(folder);
+                Console.WriteLine($"Cleared {folder}: deleted {files} {(files == 1 ? "file" : "files")}, {CacheSize.Format(bytes)}.");
+                return 0;
+            }
+            catch (InvalidOperationException exception)
+            {
+                Console.Error.WriteLine(exception.Message);
+                return 1;
+            }
         }
 
         if (trim)
         {
-            var result = CacheFolder.Trim(folder, limit ?? EnvironmentLimit());
-            Console.WriteLine(result.Describe());
-            if (result.Limit > 0 && result.Size > result.Limit)
+            try
             {
-                Console.WriteLine("Files used in the last hour are kept, in case a cook is using them. --clear deletes everything.");
-            }
+                var result = CacheFolder.Trim(folder, limit ?? EnvironmentLimit());
+                Console.WriteLine(result.Describe());
+                if (result.Limit > 0 && result.Size > result.Limit)
+                {
+                    Console.WriteLine("Files from the last two hours are kept, which covers every file used in the last hour, in case a cook is using them. "
+                        + "--clear deletes all of the cache's files.");
+                }
 
-            return 0;
+                return 0;
+            }
+            catch (InvalidOperationException exception)
+            {
+                Console.Error.WriteLine(exception.Message);
+                return 1;
+            }
         }
 
         var parts = CacheFolder.Parts(folder);
-        long total = parts.Sum(part => part.Size);
+        var cacheParts = parts.Where(part => part.Part != CacheFolder.NotTheCaches).ToList();
+        long total = cacheParts.Sum(part => part.Size);
         long cacheLimit = EnvironmentLimit();
         Console.WriteLine(folder);
-        Console.WriteLine($"{CacheSize.Format(total)} in {parts.Sum(part => part.Files)} files, limit {(cacheLimit > 0 ? CacheSize.Format(cacheLimit) : "none")}.");
+        Console.WriteLine($"{CacheSize.Format(total)} in {cacheParts.Sum(part => part.Files)} files, limit {(cacheLimit > 0 ? CacheSize.Format(cacheLimit) : "none")}.");
         foreach (var (part, size, files) in parts)
         {
             Console.WriteLine(FormattableString.Invariant($"  {part,-28} {CacheSize.Format(size),9}  {files,6} {(files == 1 ? "file" : "files")}"));
@@ -315,11 +334,19 @@ public static class Program
         return CacheSize.TryParse(text, out long bytes, out string? error) ? bytes : throw new UsageException($"--cache-limit: {error}");
     }
 
-    /// <summary>The limit in <c>SUPER_CACHE_SIZE</c>, or the default. A value that isn't a size stops the tool before it starts.</summary>
+    /// <summary>
+    /// The limit in <c>SUPER_CACHE_SIZE</c>, or the default. A value that isn't a size warns and gives the default, as a
+    /// cook does.
+    /// </summary>
     private static long EnvironmentLimit()
     {
         long limit = CookOptions.DefaultCacheLimitOrError(out string? error);
-        return error is null ? limit : throw new UsageException(error);
+        if (error is not null)
+        {
+            Console.Error.WriteLine($"super-cook: warning SUPER001: {error} Using the default, {CacheSize.Format(CacheSize.Default)}.");
+        }
+
+        return limit;
     }
 
     /// <summary>Cooks once and prints every problem, then the totals. Returns whether it succeeded.</summary>

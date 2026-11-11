@@ -32,6 +32,8 @@ public sealed class CacheSizeTests
     [InlineData("1,5GB")]
     [InlineData("4 PB")]
     [InlineData("99999999999TB")]
+    [InlineData("9999999999999999999999TB")]
+    [InlineData("79228162514264337593543950335")]
     public void Refuses_what_isnt_a_size_and_says_how_to_write_one(string text)
     {
         var error = Assert.Throws<FormatException>(() => CacheSize.Parse(text));

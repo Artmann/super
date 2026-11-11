@@ -440,9 +440,14 @@ public sealed class StepCacheTests : IDisposable
         byte[] kept = File.ReadAllBytes(ObjectFile(cache, Named(entry)));
         Assert.Equal(first[0].ToBytes(), kept);
 
+        // Within the hour a hit leaves the entry as it is, while compressing again would write it again.
+        var halfAnHourAgo = DateTime.UtcNow.AddMinutes(-30);
+        File.SetLastWriteTimeUtc(entry, halfAnHourAgo);
+
         TextureData[] second = [Texture(1)];
         TextureCompression.Compress(second, [], masks: [0], input: Input(cache));
 
+        Assert.Equal(halfAnHourAgo, File.GetLastWriteTimeUtc(entry));
         Assert.Equal(first[0].Mips, second[0].Mips);
         Assert.Equal(TextureFormat.Bc7, second[0].Format);
         Assert.Equal(TextureKind.Color, second[0].Kind);
