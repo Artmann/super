@@ -676,7 +676,9 @@ add, never fused, so the bytes stay the same on any thread count.
 Graphs compile twice on purpose. The cook compiles each alone so its bytes are the whole
 input, and the game's build compiles them all together, via a `ProjectReference` to `Super.Materials` in
 `Super.targets`, only so the editor can complete and check them. That output is never used, and `Private="false"` keeps
-the library out of the game's folder. The cooker's `Version` is
+the library out of the game's folder. A test project (`IsTestProject`) copies it anyway: `MemoryContent` runs the
+material cooker in the test process, and `Private="false"` on the direct reference would also drop the copy that
+comes through `Super.Testing`. The cooker's `Version` is
 folded from the module version ids of `Super.Materials`, `Super.Random` and
 `Super.Cook.Materials`, so rebuilding any of them with a change cooks every graph again.
 The model cooker's list and `MemoryContent` both include it.
