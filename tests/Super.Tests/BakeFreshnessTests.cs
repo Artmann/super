@@ -277,6 +277,51 @@ public sealed class BakeFreshnessTests
         Assert.Equal(alone.Chunks[0].Draws, both.Chunks[1].Draws);
     }
 
+    // Detail 0 is a ball 1 m west of a model's origin and detail 1 one 4 m east of it, so a model with both parts has
+    // its union centred 1.5 m east of the origin, and the second part alone is 4 m east.
+    private static BakeSphere TwoParts(DetailHandle detail) =>
+        new(detail.Index == 0 ? new Vector3(-1f, 0f, 0f) : new Vector3(4f, 0f, 0f), 0.5f);
+
+    private static DrawItem Part(ulong instance, int part, Vector3 at) => new()
+    {
+        Transform = Matrix4x4.CreateTranslation(at),
+        BakeId = BakeIds.Of(instance << 16, part),
+        Detail = new DetailHandle(part),
+    };
+
+    [Fact]
+    public void Interleaved_parts_of_a_model_are_filed_together()
+    {
+        // The model stands with its origin at x = 20 in the room (box 18 to 22 in x). Its first part's ball is at 19,
+        // inside, and its second at 24, outside; the union is centred at 21.5, inside. Another model comes between.
+        var at = new Vector3(20f, 1f, 0f);
+        DrawItem[] interleaved = [Part(1, 0, at), Static(2, Nowhere), Part(1, 1, at)];
+        var store = new RecordingStore();
+
+        Resolve(null, [Room], [], [], interleaved, store, bounds: TwoParts);
+        var together = Resolve(null, [Room], [], [], [Part(1, 0, at), Part(1, 1, at)], NoBakes.Instance, bounds: TwoParts);
+        var firstAlone = Resolve(null, [Room], [], [], [Part(1, 0, at)], NoBakes.Instance, bounds: TwoParts);
+
+        var (_, roomInputs) = Assert.Single(store.Asked);
+        Assert.Equal(together.Chunks[0], roomInputs);
+        Assert.NotEqual(firstAlone.Chunks[0].Draws, roomInputs.Draws);
+    }
+
+    [Fact]
+    public void Draw_order_does_not_change_chunk_inputs()
+    {
+        var at = new Vector3(20f, 1f, 0f);
+        var other = new Vector3(19f, 1f, 1f);
+        DrawItem[] one = [Part(1, 0, at), Part(2, 0, other), Part(1, 1, at), Part(2, 1, other)];
+        DrawItem[] two = [Part(2, 0, other), Part(1, 0, at), Part(2, 1, other), Part(1, 1, at)];
+
+        var first = Resolve(Courtyard, [Room], [], [], one, NoBakes.Instance, bounds: TwoParts);
+        var second = Resolve(Courtyard, [Room], [], [], two, NoBakes.Instance, bounds: TwoParts);
+
+        Assert.Equal(first.Chunks[0], second.Chunks[0]);
+        Assert.Equal(first.Space, second.Space);
+    }
+
     [Fact]
     public void Chunk_light_hash_does_not_depend_on_where_the_chunk_stands()
     {
@@ -317,7 +362,7 @@ public sealed class BakeFreshnessTests
 
     private static BakeFrame Resolve(
         BakedSpace? space, BakedChunk[] chunks, DirectionalLight[] suns, LocalLight[] lights, DrawItem[] draws,
-        IBakeStore store, AnimatedLights? animated = null, float time = 0f)
+        IBakeStore store, AnimatedLights? animated = null, float time = 0f, Func<DetailHandle, BakeSphere>? bounds = null)
     {
         var frame = new FrameView
         {
@@ -328,7 +373,7 @@ public sealed class BakeFreshnessTests
             Time = time,
         };
         return BakeFreshness.Resolve(
-            frame, draws, HalfMetreBall, 42, new BakeSettings(quality: BakeQuality.Final),
+            frame, draws, bounds ?? HalfMetreBall, 42, new BakeSettings(quality: BakeQuality.Final),
             animated ?? new AnimatedLights(new StringWriter()), store);
     }
 

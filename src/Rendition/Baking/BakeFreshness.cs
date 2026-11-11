@@ -154,24 +154,48 @@ public static class BakeFreshness
 
         // A model's parts are filed together, under the area that owns the whole model, the same call Super made when
         // it gave their ids, so a model straddling two areas is never split between them.
+        // The parts need not come one after another: they are sorted by (instance, transform, draw order) first.
         int staticCount = 0;
-        var modelParts = new List<BakeSphere>();
-        for (int first = 0; first < draws.Length;)
+        for (int i = 0; i < draws.Length; i++)
         {
-            if (draws[first].BakeId == 0)
+            if (draws[i].BakeId != 0)
             {
-                first++;
-                continue;
+                staticCount++;
+            }
+        }
+
+        if (!chunks.IsEmpty && staticCount > 0)
+        {
+            var drawIndex = new int[staticCount];
+            var keys = new (ulong Instance, Matrix4x4 Transform)[staticCount];
+            var order = new int[staticCount];
+            for (int i = 0, n = 0; i < draws.Length; i++)
+            {
+                if (draws[i].BakeId != 0)
+                {
+                    drawIndex[n] = i;
+                    keys[n] = (BakeIds.Instance(draws[i].BakeId), draws[i].Transform);
+                    order[n] = n;
+                    n++;
+                }
             }
 
-            int end = ModelEnd(draws, first);
-            staticCount += end - first;
-            if (!chunks.IsEmpty)
+            Array.Sort(order, new ModelOrder(keys));
+
+            var modelParts = new List<BakeSphere>();
+            for (int first = 0; first < staticCount;)
             {
+                int end = first + 1;
+                while (end < staticCount && keys[order[end]] == keys[order[first]])
+                {
+                    end++;
+                }
+
                 modelParts.Clear();
                 for (int p = first; p < end; p++)
                 {
-                    modelParts.Add(BakeAreas.Transform(bounds(draws[p].Detail), draws[p].Transform));
+                    ref readonly var part = ref draws[drawIndex[order[p]]];
+                    modelParts.Add(BakeAreas.Transform(bounds(part.Detail), part.Transform));
                 }
 
                 int owner = BakeAreas.OwnerOfModel(CollectionsMarshal.AsSpan(modelParts), space, chunks);
@@ -180,12 +204,12 @@ public static class BakeFreshness
                     var ids = chunkIds[owner] ??= [];
                     for (int p = first; p < end; p++)
                     {
-                        ids.Add(draws[p].BakeId);
+                        ids.Add(draws[drawIndex[order[p]]].BakeId);
                     }
                 }
-            }
 
-            first = end;
+                first = end;
+            }
         }
 
         var chunkInputs = new BakeInputs[chunks.Length];
@@ -288,22 +312,40 @@ public static class BakeFreshness
     private static bool InBake(LightMode mode, LightKey key, AnimatedLights animated) =>
         mode != LightMode.Realtime && !animated.IsAnimated(key);
 
-    // The end of the model whose first part is draws[first]: SceneRenderer puts a model's shown parts one after
-    // another, every one with the model's instance (BakeIds.Instance) and transform. Two copies of a chunk can give a
-    // model the same instance, but they stand in different places, so the transform keeps them apart.
-    private static int ModelEnd(ReadOnlySpan<DrawItem> draws, int first)
+    // Orders static draws, by their position among the static draws, by (instance, the 16 transform elements, position).
+    // Every part of a model has the model's instance (BakeIds.Instance) and transform, so a model's parts end up in a
+    // run in draw order wherever other models' draws came between them. Two copies of a chunk can give a model the same
+    // instance, but they stand in different places, so the transform keeps them apart.
+    internal readonly struct ModelOrder((ulong Instance, Matrix4x4 Transform)[] keys) : IComparer<int>
     {
-        ulong instance = BakeIds.Instance(draws[first].BakeId);
-        int end = first + 1;
-        while (end < draws.Length
-            && draws[end].BakeId != 0
-            && BakeIds.Instance(draws[end].BakeId) == instance
-            && draws[end].Transform == draws[first].Transform)
+        public int Compare(int a, int b)
         {
-            end++;
-        }
+            var (instanceA, x) = keys[a];
+            var (instanceB, y) = keys[b];
+            int result = instanceA.CompareTo(instanceB);
+            if (result != 0)
+            {
+                return result;
+            }
 
-        return end;
+            result = x.M11.CompareTo(y.M11);
+            result = result != 0 ? result : x.M12.CompareTo(y.M12);
+            result = result != 0 ? result : x.M13.CompareTo(y.M13);
+            result = result != 0 ? result : x.M14.CompareTo(y.M14);
+            result = result != 0 ? result : x.M21.CompareTo(y.M21);
+            result = result != 0 ? result : x.M22.CompareTo(y.M22);
+            result = result != 0 ? result : x.M23.CompareTo(y.M23);
+            result = result != 0 ? result : x.M24.CompareTo(y.M24);
+            result = result != 0 ? result : x.M31.CompareTo(y.M31);
+            result = result != 0 ? result : x.M32.CompareTo(y.M32);
+            result = result != 0 ? result : x.M33.CompareTo(y.M33);
+            result = result != 0 ? result : x.M34.CompareTo(y.M34);
+            result = result != 0 ? result : x.M41.CompareTo(y.M41);
+            result = result != 0 ? result : x.M42.CompareTo(y.M42);
+            result = result != 0 ? result : x.M43.CompareTo(y.M43);
+            result = result != 0 ? result : x.M44.CompareTo(y.M44);
+            return result != 0 ? result : a.CompareTo(b);
+        }
     }
 
     private static BakeInputs SpaceInputs(
