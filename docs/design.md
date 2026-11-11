@@ -2468,7 +2468,7 @@ A bake stores light per static draw, so each one needs a name that is the same i
 on every machine, whatever order the draws come in. `DrawItem.BakeId` is that name. Zero means
 the draw isn't static, so every existing draw stays out of any bake. Only a `ModelDraw` with
 `Static` set, from `view.Model(..., isStatic: true)` or the `Static` component, gets one.
-Nothing reads the id yet except the check below.
+The check below and the [freshness check](#each-frames-bakes) read it.
 
 `StableHasher` (`src/Rendition/Baking/StableHasher.cs`) makes the hashes. It feeds
 little-endian bytes to XxHash64 with seed 0, from the `System.IO.Hashing` package. `HashCode`
@@ -2572,8 +2572,8 @@ A bake is kept with the hash of what it was made from, so a frame can tell wheth
 fits. `BakeInputHash` (`src/Rendition/Baking/BakeInputHash.cs`) makes a `BakeInputs`
 (`src/Rendition/Baking/BakeInputs.cs`) of four hashes, and `BakeInputs.Combined` hashes those
 four in order. `BakeInputs.Changes(before)` names the parts that differ, always in the order
-`draws`, `lights`, `environment`, `settings`, so a stale bake can say why. Nothing calls these
-from a frame yet.
+`draws`, `lights`, `environment`, `settings`, so a stale bake can say why. Each frame with a
+baked area calls these through `BakeFreshness.Resolve` (see [each frame's bakes](#each-frames-bakes)).
 
 `Draws` is the count of the area's static draws and then their `BakeId`s in ascending order.
 `Lights` is the count and the light hashes in ascending order, and for a space then 1 and the
@@ -2616,12 +2616,63 @@ whether it was logged) in a `Dictionary`, and drops any key not seen this frame.
 for the first time is not animated. A hash that differs from the last frame's marks the key
 animated and restarts its timer, and it clears when `time - changedAt >= SettleSeconds`. A key
 seen twice in one frame is pinned animated with its timer restarted. A clock that goes back
-clears everything, logged flags included. Nothing calls it from a frame yet.
+clears everything, logged flags included. The renderer keeps one, logging to `Console.Error`,
+and feeds it from `BakeFreshness.Resolve` on each frame that names a baked area.
 
 A steady frame allocates nothing: the dictionary and a scratch list for dropped keys are
 reused. It allocates only when a key first appears or a light is logged. The log needs a light's
 kind, which `LightKey` doesn't carry, so there is an `Update` overload taking a third tuple
 item, `Spot`, and the plain one calls every local light a point light.
+
+### Each frame's bakes
+
+`BakeFreshness.Resolve` (`src/Rendition/Baking/BakeFreshness.cs`) decides, once a frame, which
+bakes are fresh and which lights they take over. `Renderer.Render` calls it after the bake id
+and chunk checks and after `BakeSky`, since `EnvironmentHash` reads the sky and intensity
+`BakeSky` sets. `Capture` goes through `Render`, so it does the same. A frame that names no
+space and no chunks returns the shared `BakeFrame.None` at once, before hashing, asking the
+store or feeding the tracker, so a game without baked areas does no work and allocates
+nothing. The renderer then sets `LastBakeFrame` to null.
+
+Otherwise it runs in this order:
+
+1. Each Mixed or Baked light gets its world-space hash, `Light(light, Matrix4x4.Identity)` or
+   `Sun(sun)`, and all of them go to `AnimatedLights.Update` with the frame's time, before any
+   area is hashed. Realtime lights are skipped: they are never in a bake, so they are neither
+   tracked nor hashed.
+2. Each local light that is Mixed or Baked and not animated is given an owner with
+   `BakeAreas.OwnerOfLight`: the space, a chunk, or none. One owned by a chunk is hashed again
+   with the chunk's inverse transform, so every copy of the chunk gives the same hash. An
+   animated light is in no area's hash and stays live.
+3. Each static draw (nonzero `BakeId`) counts in the space, whatever owns it, since every
+   static draw blocks and bounces the space's light. When there are chunks, its bounds are
+   moved into the world with `BakeAreas.Transform` and `BakeAreas.OwnerOfDraw` picks its owner,
+   and only a chunk's own draws go in that chunk's hash. A draw the space owns is never in a
+   chunk's. One pass over the draws and one over the lights fill a list per chunk, so the work
+   is the number of draws, not draws times chunks.
+4. The space's suns are every sun in the bake. No sun gives a null sun hash, one gives its own
+   hash, and several give one hash of their count and their sorted hashes. Suns never belong to
+   a chunk.
+5. `IBakeStore.IsFresh(file, inputs)` is asked about each area, with `BakeFiles.Space(name)` or
+   `BakeFiles.Chunk(name, inputs.Combined)`. `Renderer.Bakes` is the store, `NoBakes.Instance`
+   by default, which answers false for everything. It is internal until bakes can be written.
+6. A light whose area is fresh keeps its mode in `BakeFrame.ModeOf`, and every other light
+   reads as Realtime. A fresh area's Baked lights are listed in `DroppedLocalLights` or
+   `DroppedSuns`, by their index in the frame's lists. A fresh chunk never frees the space's
+   lights, and the space's freshness never frees a chunk's.
+
+When something was dropped, `Render` draws a copy of the frame view whose `Lights` and
+`LocalLights` leave those lights out, by calling itself once more with a flag set so the second
+pass doesn't resolve again. `BakeFreshness.Without` copies the kept lights into an array the
+renderer keeps, grown only when a frame has more lights, and returns the frame's own span
+untouched when nothing is dropped. With no store yet, nothing is ever dropped, so frames look
+exactly as they did, to the byte (`NoBakeGpuTests`).
+
+`Resolve` allocates each frame it has areas: the `BakeFrame`, its arrays, lists and dictionary,
+and the chunk file names. That is small next to a frame, and only games with baked areas pay
+it. It also expects the chunks to have passed `BakeFiles.IsRigid`, which `Render` checks first.
+A dropped Baked sun also leaves the sky's sun, since `SkyModel.Sun` reads the view's lights; the
+sky will need its own path once bakes exist.
 
 ## Ray tracing
 

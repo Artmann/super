@@ -358,7 +358,7 @@ public struct DrawItem
     /// <summary>
     /// Marks this draw as static scenery that a bake may cover, with an id made by <see cref="BakeIds.Of"/> that stays the
     /// same from run to run. Zero, the default, means not static. A static draw can't have <see cref="Bones"/> or
-    /// <see cref="Swim"/>. Nothing reads it yet besides that check. See "Bake ids" in docs/design.md.
+    /// <see cref="Swim"/>. The renderer hashes it into each baked area's inputs. See "Bake ids" in docs/design.md.
     /// </summary>
     public ulong BakeId;
 }
@@ -368,7 +368,7 @@ public readonly record struct BoneRange(int First, int Count);
 
 /// <summary>
 /// How a light is used once a space has a bake. Mixed is the default, so a light that names no mode
-/// behaves as it always did. Nothing reads the mode yet.
+/// behaves as it always did. Until a bake is fresh, every light is drawn live whatever its mode.
 /// </summary>
 public enum LightMode
 {
@@ -926,13 +926,16 @@ public ref struct FrameView
     /// </summary>
     public ProbeVolumeSettings? LightProbes;
 
-    /// <summary>The one fixed place this frame whose lighting is baked, or none. Nothing reads it yet. See docs/rendering.md.</summary>
+    /// <summary>
+    /// The one fixed place this frame whose lighting is baked, or none. Each frame it is checked for a fresh bake; see
+    /// <see cref="Renderer.LastBakeFrame"/> and docs/rendering.md.
+    /// </summary>
     public BakedSpace? BakedSpace;
 
     /// <summary>
     /// The pieces of the world, each baked once in its own space, placed this frame. At most
     /// <see cref="BakeFiles.MaxChunks"/>, each moved only by rotation and translation; otherwise
-    /// <see cref="Renderer.Render"/> throws. Nothing else reads them yet. See docs/rendering.md.
+    /// <see cref="Renderer.Render"/> throws. Each is checked for a fresh bake every frame. See docs/rendering.md.
     /// </summary>
     public ReadOnlySpan<BakedChunk> BakedChunks;
 

@@ -250,7 +250,7 @@ be made again; a move under a tenth of a millimetre doesn't count. A static draw
 the chunk gives its draws the same ids wherever it stands.
 
 A static draw is held where it stands by its bake, so it can't swim or take a pose. Drawing
-one with a swim of any amplitude, or with a pose or an animator, throws `ArgumentException`
+one with a swim whose amplitude isn't zero, or with a pose or an animator, throws `ArgumentException`
 naming the model's key. A static model can have at most 4,095 parts; one with more throws
 when it is drawn, naming the model.
 

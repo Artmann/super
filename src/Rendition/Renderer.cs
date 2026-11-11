@@ -743,6 +743,48 @@ public sealed unsafe class Renderer : IDisposable
         .Add(_environmentIntensity)
         .Finish();
 
+    /// <summary>Where bakes are looked up. None yet, so every area is lit live; plan 5 adds a real store.</summary>
+    internal IBakeStore Bakes { get; set; } = NoBakes.Instance;
+
+    /// <summary>
+    /// What the last frame's baked areas came to, or null when it named no baked space or chunk. See "Baked lighting"
+    /// in docs/rendering.md.
+    /// </summary>
+    public BakeFrame? LastBakeFrame { get; private set; }
+
+    private readonly AnimatedLights _animatedLights = new(Console.Error);
+    private Func<DetailHandle, BakeSphere>? _boundsOf;
+    private DirectionalLight[] _bakeKeptSuns = [];
+    private LocalLight[] _bakeKeptLights = [];
+    private bool _drawingWithoutBakedLights;
+
+    /// <summary>
+    /// Works out the frame's baked areas, and is true when a fresh bake takes some lights over: then
+    /// <paramref name="lit"/> is the frame without them. A frame with no baked area is left alone, unhashed.
+    /// </summary>
+    private bool ResolveBakes(in FrameView view, ReadOnlySpan<DrawItem> draws, out FrameView lit)
+    {
+        lit = default;
+        if (view.BakedSpace is null && view.BakedChunks.IsEmpty)
+        {
+            LastBakeFrame = null;
+            return false;
+        }
+
+        var bakes = BakeFreshness.Resolve(view, draws, _boundsOf ??= BoundsOf, EnvironmentHash,
+            new BakeSettings(Quality: BakeQuality.Final), _animatedLights, Bakes);
+        LastBakeFrame = bakes;
+        if (bakes.DroppedSuns.Count == 0 && bakes.DroppedLocalLights.Count == 0)
+        {
+            return false;
+        }
+
+        lit = view;
+        lit.Lights = BakeFreshness.Without(view.Lights, bakes.DroppedSuns, ref _bakeKeptSuns);
+        lit.LocalLights = BakeFreshness.Without(view.LocalLights, bakes.DroppedLocalLights, ref _bakeKeptLights);
+        return true;
+    }
+
     private static ulong HashEnvironment(in EnvironmentDescription environment)
     {
         var hasher = new StableHasher().Add(environment.Ceiling).Add(environment.Horizon).Add(environment.Floor);
@@ -1444,6 +1486,22 @@ public sealed unsafe class Renderer : IDisposable
         BakeIds.CheckStaticDraws(draws);
         BakeFiles.CheckChunks(view.BakedChunks);
         BakeSky(view);
+        if (!_drawingWithoutBakedLights && ResolveBakes(view, draws, out var withoutBakedLights))
+        {
+            // A fresh bake has taken some lights over, so the frame is drawn without them.
+            _drawingWithoutBakedLights = true;
+            try
+            {
+                Render(withoutBakedLights, draws);
+            }
+            finally
+            {
+                _drawingWithoutBakedLights = false;
+            }
+
+            return;
+        }
+
         CaptureLightProbes(view, draws);
 
         ref Frame frame = ref _frames[_frameIndex];

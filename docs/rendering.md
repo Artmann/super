@@ -242,8 +242,9 @@ out of the fog (see [volumetric fog](#volumetric-fog)).
 Every sun, point light and spot light takes a `mode:` of `LightMode.Mixed`, `Realtime` or
 `Baked`. `Mixed` is the default and changes nothing about how a light looks. The mode only
 says how a bake will treat the light: `Realtime` is never part of a bake, `Baked` is only
-part of one, and `Mixed` is both. Nothing reads the mode yet, so every frame is lit the same
-whatever it is. A mode that isn't one of the three throws.
+part of one, and `Mixed` is both. Until a [bake](#baked-lighting) exists, every light is lit
+live whatever its mode, so every frame looks the same. A mode that isn't one of the three
+throws.
 
 ## Shadows
 
@@ -361,9 +362,8 @@ foreach (var house in village.Houses)
 }
 ```
 
-A frame can name the parts of the world whose lighting will be baked. Nothing bakes them yet
-and nothing reads a bake, so naming them changes nothing on screen; the calls only check what
-they're given, so a game can name its baked areas now.
+A frame can name the parts of the world whose lighting will be baked. Nothing bakes them yet,
+so naming them changes nothing on screen; a game can name its baked areas now.
 
 `BakedLighting` names a space: one fixed place, baked as it stands, sun included. Its box also
 holds baked probes `probeSpacing` metres apart, at most 4,096 of them, counted the same way as
@@ -386,6 +386,24 @@ must be more than zero. Everything else throws when it's named, with the value a
 For Rendition alone, `FrameView.BakedSpace` and `FrameView.BakedChunks` carry the same, and
 `Renderer.Render` throws for more than 256 chunks or a chunk transform that isn't only a turn
 and a move. `BakeFiles` has the limits, the file names and the checks.
+
+### Without a bake
+
+Every frame that names a space or a chunk, the renderer works out what each area's bake would
+be made from and asks whether a bake of exactly that exists. A light that a fresh bake holds is
+then left to the bake: a `Baked` light is no longer drawn live, and a `Mixed` one is. A light
+in no baked area, a `Realtime` light, and a light that is [moving](#moving-lights) are always
+drawn live.
+
+Nothing makes bakes yet, so no bake is ever fresh and every light is drawn live, whatever its
+mode. A frame that names baked areas looks exactly as it would without them, to the byte. A
+frame that names none does no bake work at all.
+
+From code, `Renderer.LastBakeFrame` shows what the last frame decided. It is null after a
+frame that named no baked area. Otherwise its `Space` and `Chunks` hold the inputs of each
+area, `SpaceFresh` and `ChunkFresh` say which bakes were found, `ModeOf(key)` gives the mode
+each light was drawn with (`Realtime` for every light drawn live), and `DroppedLocalLights`
+and `DroppedSuns` list the lights left to a bake, by their place in the frame's lists.
 
 ## Reflections
 
@@ -1696,8 +1714,10 @@ time, or back after a frame it was missing from, is a new light and not a moving
 Each light is logged once, the first time it moves, with a line such as "The point light 7 is
 moving, so it is kept out of the bake and lit live. It returns to the bake once it holds still
 for 1 second." Lights are told apart by their `Key`, so give each light its own: two lights
-that share a key look like one light that jumps every frame, so both are kept out and the log
-says which key they share. A sun is told apart by its place in the frame's list of suns. If
-the game clock goes back, as it does after a restart, every light is treated as new.
+that share a key look like one light that jumps every frame, so both are kept out. The log
+says which key they share, unless that key was already logged as moving. A sun is told apart
+by its place in the frame's list of suns. If the game clock goes back, as it does after a
+restart, every light is treated as new.
 
-Nothing reads this yet, so no frame is lit differently.
+Lights are only watched on frames that name a [baked area](#baked-lighting). A light that
+moves while no frame names one isn't seen to move.

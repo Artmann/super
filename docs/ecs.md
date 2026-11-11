@@ -114,8 +114,9 @@ world.Add(wall, new Model(content.Model("castle/wall.glb")));
 world.Add(wall, new Static());
 ```
 
-A static entity can't swim or take a pose, so one with `Swim` or `Animated` throws
-`ArgumentException` when it's drawn, naming the entity's ID as the model's key.
+A static entity can't swim or take a pose, so one with `Animated`, or with a `Swim` whose
+amplitude isn't zero, throws `ArgumentException` when it's drawn, naming the entity's ID as
+the model's key.
 
 ## Sounds from entities
 
