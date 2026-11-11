@@ -48,8 +48,39 @@ jobs:
       - name: Restore
         run: dotnet restore Super.slnx
 
+      # Cooking the Courtyard from scratch takes about 7 minutes. The cook cache is kept between runs, so
+      # a run only cooks what changed. Its entries are keyed by what each cook read and by the cook's own
+      # build, so an older cache is always safe to start from. The key changes when content or cook code
+      # changes, so a new cache is saved then. The month in the key starts it afresh once a month, so
+      # entries nothing uses any more don't pile up.
+      # The cook keeps what it made in SUPER_CACHE, on the same drive as the checkout so cooked content
+      # can be hard links to it. The build and the tests both read it.
+      - name: Cook cache key
+        id: cook-key
+        shell: pwsh
+        run: |
+          "SUPER_CACHE=$env:RUNNER_TEMP\super-cache" >> $env:GITHUB_ENV
+          "month=$(Get-Date -Format yyyy-MM)" >> $env:GITHUB_OUTPUT
+
+      - name: Restore cook cache
+        id: cook-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.SUPER_CACHE }}
+          key: super-cook-${{ runner.os }}-${{ steps.cook-key.outputs.month }}-${{ hashFiles('examples/*/content/**', 'assets/**', 'src/Super.Cook*/**', 'src/Super.Materials/**', 'src/Super.Random/**', 'tools/Super.Cook.Tool/**') }}
+          restore-keys: |
+            super-cook-${{ runner.os }}-${{ steps.cook-key.outputs.month }}-
+
       - name: Build
         run: dotnet build Super.slnx -c Release --no-restore
+
+      # Saved right after the build, so a failing test doesn't throw the cook away.
+      - name: Save cook cache
+        if: steps.cook-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.SUPER_CACHE }}
+          key: ${{ steps.cook-cache.outputs.cache-primary-key }}
 
       - name: Test
         run: dotnet test Super.slnx -c Release --no-build --logger trx --results-directory TestResults

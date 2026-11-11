@@ -96,7 +96,9 @@ public class MotionTests
         // A blade 1 m tall standing still under a still camera: its foot stays put while its tip moves as far as
         // Wind.Sway says it moved between the two frames' times.
         const float time = 4.2f;
-        const float previousTime = time - 1f / 20f; // a slow frame, so the tip moves most of a pixel
+        // A quarter of a second between the frames, as after a stall. The wind is slow, so over an ordinary frame the tip
+        // moves a tenth of a pixel or less, too little to tell from rounding.
+        const float previousTime = time - 1f / 4f;
         var history = new MotionHistory();
         var model = Matrix4x4.CreateTranslation(-1f, -2f, -5f);
         var blade = new DrawItem { Key = 11, Transform = model };
