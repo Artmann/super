@@ -2783,7 +2783,7 @@ A frame's baked areas are its `BakedSpace` and its `BakedChunks`. `BakeAreas`
 (`src/Rendition/Baking/BakeAreas.cs`) decides which one owns a static draw or a light, and
 returns `BakeAreas.Space` (-1), a chunk's index in the frame, or `BakeAreas.None` (-2). It is
 pure and allocates nothing, since it runs once per static draw and once per light each frame.
-A static model uses `OwnerOfModel`, and `BakeFreshness.Resolve` gives each Mixed or Baked
+A static model uses `OwnerOfModel`, and `BakeResolver` gives each Mixed or Baked
 light an owner with `OwnerOfLight`.
 
 `OwnerOfDraw` takes the draw's sphere in world space. The space owns the draw if the sphere
@@ -2797,7 +2797,7 @@ position, else the first chunk holding it. Box faces count as inside.
 `OwnerOfModel` takes every shown part's sphere in world space, in part order, and is
 `OwnerOfDraw` of their `Union`, so a whole model always goes to one area even when its parts
 straddle a chunk's edge. It is the one rule for a model's owner: Super gives the bake ids by it
-and `BakeFreshness.Resolve` files those ids by it, both from the same spheres in the same
+and `BakeResolver` files those ids by it, both from the same spheres in the same
 order, so they always agree.
 
 A chunk's box is in its own space, so the point is moved into chunk space first with
@@ -2871,7 +2871,7 @@ fits. `BakeInputHash` (`src/Rendition/Baking/BakeInputHash.cs`) makes a `BakeInp
 (`src/Rendition/Baking/BakeInputs.cs`) of four hashes, and `BakeInputs.Combined` hashes those
 four in order. `BakeInputs.Changes(before)` names the parts that differ, always in the order
 `draws`, `lights`, `environment`, `settings`, so a stale bake can say why. Each frame with a
-baked area calls these through `BakeFreshness.Resolve` (see [each frame's bakes](#each-frames-bakes)).
+baked area calls these through `BakeResolver` (see [each frame's bakes](#each-frames-bakes)).
 
 `Draws` is the count of the area's static draws and then their `BakeId`s in ascending order.
 For a space it then holds the count and, in ascending order, a `BakeInputHash.PlacedChunk`
@@ -2924,7 +2924,7 @@ for the first time is not animated. A hash that differs from the last frame's ma
 animated and restarts its timer, and it clears when `time - changedAt >= SettleSeconds`. A key
 seen twice in one frame is pinned animated with its timer restarted. A clock that goes back
 clears everything, logged flags included. The renderer keeps one, logging to `Console.Error`,
-and feeds it from `BakeFreshness.Resolve` on each frame that names a baked area.
+and feeds it from `BakeResolver` on each frame that names a baked area.
 
 A steady frame allocates nothing: the dictionary and a scratch list for dropped keys are
 reused. It allocates only when a key first appears or a light is logged. The log needs a light's
@@ -2933,7 +2933,7 @@ item, `Spot`, and the plain one calls every local light a point light.
 
 ### Each frame's bakes
 
-`BakeFreshness.Resolve` (`src/Rendition/Baking/BakeFreshness.cs`) decides, once a frame, which
+`BakeResolver.Resolve` (`src/Rendition/Baking/BakeResolver.cs`) decides, once a frame, which
 bakes are fresh and which lights they take over. `Renderer.Render` calls it after the bake id
 and chunk checks and after `BakeSky`, since `EnvironmentHash` reads the sky and intensity
 `BakeSky` sets. `Capture` goes through `Render`, so it does the same. A frame that names no
@@ -2953,9 +2953,9 @@ Otherwise it runs in this order:
    animated light is in no area's hash and stays live.
 3. Each static draw (nonzero `BakeId`) counts in the space, whatever owns it, since every
    static draw blocks and bounces the space's light. When there are chunks, the draws are
-   taken a model at a time: a run of neighbouring static draws with the same
-   `BakeIds.Instance` and the same transform, which is how `PrepareDraws` lays a model's parts
-   out. Each part's bounds are moved into the world with `BakeAreas.Transform` and
+   taken a model at a time: the static draws are sorted by (`BakeIds.Instance`, transform, draw
+   order), so a model's parts form a run even when other models' draws came between them.
+   Each part's bounds are moved into the world with `BakeAreas.Transform` and
    `BakeAreas.OwnerOfModel` picks the model's owner, exactly as `BakeIdentity.Assign` did, so
    every part's id goes to the area that gave it. The transform check keeps two copies of a
    chunk apart, since their draws share an instance hash. Only a chunk's own draws go in that
@@ -2981,9 +2981,18 @@ renderer keeps, grown only when a frame has more lights, and returns the frame's
 untouched when nothing is dropped. With no store yet, nothing is ever dropped, so frames look
 exactly as they did, to the byte (`NoBakeGpuTests`).
 
-`Resolve` allocates each frame it has areas: the `BakeFrame`, its arrays, lists and dictionary,
-and the chunk file names. That is small next to a frame, and only games with baked areas pay
-it. It also expects the chunks to have passed `BakeFiles.IsRigid`, which `Render` checks first.
+The work is done by a `BakeResolver` (`src/Rendition/Baking/BakeResolver.cs`), which the
+renderer keeps one of; `BakeFreshness.Resolve` makes a new one for a single call and is for
+tests and tools. The resolver keeps every array, list and dictionary it needs and only grows
+them, keeps the `BakeFrame` it fills, and caches each file name by (name, hash) so
+`BakeFiles.Chunk` and `BakeFiles.Space` run once for each distinct key (the cache is cleared
+if it passes 1024 names). The model sort uses one cached `Comparison<int>`: sorting with an
+`IComparer` makes a delegate on every call, and a struct comparer is boxed. So a steady frame
+allocates nothing, which `BakeResolverTests` checks with chunks, static draws and dropped
+lights. Because the frame is reused, **the `BakeFrame` a call returns is valid only until the
+next call** (`LastBakeFrame` included): keep what you need from it, not the frame. The only
+other garbage is from a store that allocates in `IsFresh`, which is the store's own. The
+resolver expects the chunks to have passed `BakeFiles.IsRigid`, which `Render` checks first.
 A dropped Baked sun also leaves the sky's sun, since `SkyModel.Sun` reads the view's lights; the
 sky will need its own path once bakes exist.
 

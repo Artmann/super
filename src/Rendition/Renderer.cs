@@ -1070,6 +1070,7 @@ public sealed unsafe class Renderer : IDisposable
     public BakeFrame? LastBakeFrame { get; private set; }
 
     private readonly AnimatedLights _animatedLights = new(Console.Error);
+    private readonly BakeResolver _bakeResolver = new(NoBakes.Instance);
     private Func<DetailHandle, BakeSphere>? _boundsOf;
     private DirectionalLight[] _bakeKeptSuns = [];
     private LocalLight[] _bakeKeptLights = [];
@@ -1088,8 +1089,9 @@ public sealed unsafe class Renderer : IDisposable
             return false;
         }
 
-        var bakes = BakeFreshness.Resolve(view, draws, _boundsOf ??= BoundsOf, EnvironmentHash,
-            default, _animatedLights, Bakes);
+        _bakeResolver.Store = Bakes;
+        var bakes = _bakeResolver.Resolve(view, draws, _boundsOf ??= BoundsOf, EnvironmentHash,
+            default, _animatedLights);
         LastBakeFrame = bakes;
         if (bakes.DroppedSuns.Count == 0 && bakes.DroppedLocalLights.Count == 0)
         {
