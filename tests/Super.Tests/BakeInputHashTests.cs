@@ -254,21 +254,27 @@ public class BakeInputHashTests
     }
 
     [Fact]
-    public void Settings_change_is_named_settings()
+    public void Texel_density_changes_the_input_hash()
     {
-        var before = BakeInputHash.Space(Draws, Lights, Crypt, 42, 5, new BakeSettings(TexelsPerMetre: 20));
-        var after = BakeInputHash.Space(Draws, Lights, Crypt, 42, 5, new BakeSettings(TexelsPerMetre: 40));
+        var before = BakeInputHash.Space(Draws, Lights, Crypt, 42, 5, new BakeSettings(20));
+        var after = BakeInputHash.Space(Draws, Lights, Crypt, 42, 5, new BakeSettings(40));
 
+        Assert.NotEqual(before.Settings, after.Settings);
         Assert.Equal(["settings"], after.Changes(before));
     }
 
     [Fact]
-    public void Quality_change_is_named_settings()
+    public void Quality_does_not_change_the_input_hash()
     {
-        var before = BakeInputHash.Chunk(Draws, Lights, House, new BakeSettings(Quality: BakeQuality.Final));
-        var after = BakeInputHash.Chunk(Draws, Lights, House, new BakeSettings(Quality: BakeQuality.Preview));
+        var final = new BakeSettings(20, BakeQuality.Final);
+        var preview = new BakeSettings(20, BakeQuality.Preview);
 
-        Assert.Equal(["settings"], after.Changes(before));
+        Assert.Equal(
+            BakeInputHash.Chunk(Draws, Lights, House, final),
+            BakeInputHash.Chunk(Draws, Lights, House, preview));
+        Assert.Equal(
+            BakeInputHash.Space(Draws, Lights, Crypt, 42, 5, final).Settings,
+            BakeInputHash.Space(Draws, Lights, Crypt, 42, 5, preview).Settings);
     }
 
     [Fact]
@@ -286,12 +292,12 @@ public class BakeInputHashTests
     {
         // Worked out once from the implementation and written in. It pins the order every field is fed in: draws
         // (count, then the sorted ids, then the count and sorted hashes of placed chunks, none here), lights (count, sorted light hashes, then 1 and the sun's hash or 0), the
-        // environment as given, and settings (0 for a space, texels per metre, quality, baker version, probe spacing,
+        // environment as given, and settings (0 for a space, texels per metre, baker version, probe spacing,
         // min, max), then Combined over the four in that order. Reordering any of them, or changing the baker
         // version, fails here; such a change makes every saved bake stale, so it must be on purpose.
         var inputs = BakeInputHash.Space(Draws, Lights, Crypt, 42, 5, new BakeSettings());
 
-        Assert.Equal(0x60B7_D31C_CBFD_CAA7ul, inputs.Combined);
+        Assert.Equal(0x5DB0_88DE_032B_1289ul, inputs.Combined);
     }
 
     private static ulong SwedishSensitiveHash()

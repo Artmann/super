@@ -2905,8 +2905,10 @@ kept as a hash when it's called, then the clear sky's turbidity as drawn (0 when
 `EnvironmentIntensity` of the last frame. It follows what they hold, not the version count the
 light probes use, so setting the same environment again gives the same hash.
 
-`Settings` is 0 for a space or 1 for a chunk, `TexelsPerMetre`, `Quality` and
-`BakeInputHash.BakerVersion`, then for a space its probe spacing, and the area's box. A bigger
+`Settings` is 0 for a space or 1 for a chunk, `TexelsPerMetre` and
+`BakeInputHash.BakerVersion`, then for a space its probe spacing, and the area's box. `Quality`
+is not hashed: it decides how long a bake runs, not what it shows, so a Preview bake counts
+as fresh (the file header records which quality made it). A bigger
 box means a different bake, so it counts as a setting. A chunk's box is in its own space and
 its name is in the bake's path, not its inputs, so neither where a chunk stands nor what it's
 called changes its hash. Raising `BakerVersion` makes every saved bake stale.

@@ -328,7 +328,7 @@ public sealed class BakeFreshnessTests
             Time = time,
         };
         return BakeFreshness.Resolve(
-            frame, draws, HalfMetreBall, 42, new BakeSettings(Quality: BakeQuality.Final),
+            frame, draws, HalfMetreBall, 42, new BakeSettings(quality: BakeQuality.Final),
             animated ?? new AnimatedLights(new StringWriter()), store);
     }
 

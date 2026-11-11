@@ -11,7 +11,7 @@ namespace Rendition;
 public static class BakeInputHash
 {
     /// <summary>Goes up when the baker changes what it makes, so every saved bake is stale.</summary>
-    public const int BakerVersion = 1;
+    public const int BakerVersion = 2;
 
     // Spans up to this many ids are sorted on the stack (2 KiB); longer ones in a pooled array.
     private const int StackLimit = 256;
@@ -153,7 +153,6 @@ public static class BakeInputHash
     {
         hasher.Add(kind);
         hasher.Add(settings.TexelsPerMetre);
-        hasher.Add((int)settings.Quality);
         hasher.Add(BakerVersion);
     }
 

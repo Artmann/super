@@ -462,6 +462,11 @@ then left to the bake: a `Baked` light is no longer drawn live, and a `Mixed` on
 in no baked area, a `Realtime` light, and a light that is [moving](#moving-lights) are always
 drawn live.
 
+A bake's texel density is `BakeSettings.TexelsPerMetre`: 20 by default (5 cm texels), from 1 to
+200, and a value outside that throws. Changing it makes a bake stale. The bake's quality
+(`Preview` or `Final`) does not: it only decides how long a bake takes, so a Preview bake is as
+fresh as a Final one.
+
 Nothing makes bakes yet, so no bake is ever fresh and every light is drawn live, whatever its
 mode. A frame that names baked areas looks exactly as it would without them, to the byte. A
 frame that names none does no bake work at all.

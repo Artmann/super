@@ -1089,7 +1089,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         var bakes = BakeFreshness.Resolve(view, draws, _boundsOf ??= BoundsOf, EnvironmentHash,
-            new BakeSettings(Quality: BakeQuality.Final), _animatedLights, Bakes);
+            default, _animatedLights, Bakes);
         LastBakeFrame = bakes;
         if (bakes.DroppedSuns.Count == 0 && bakes.DroppedLocalLights.Count == 0)
         {
