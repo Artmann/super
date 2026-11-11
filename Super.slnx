@@ -25,6 +25,7 @@
     <Project Path="examples/Archer/Archer.csproj" />
     <Project Path="examples/Forest/Forest.csproj" />
     <Project Path="examples/Fox/Fox.csproj" />
+    <Project Path="examples/Gallery/Gallery.csproj" />
     <Project Path="examples/Glass/Glass.csproj" />
     <Project Path="examples/Hamlet/Hamlet.csproj" />
     <Project Path="examples/Reef/Reef.csproj" />

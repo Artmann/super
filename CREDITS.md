@@ -88,6 +88,14 @@ The low-poly coral pack is not used, because its author and license are unknown.
   - the old_stone_wall texture by Charlotte Baglioni;
   - the large_sandstone_blocks texture by Rob Tuytel.
 
+## Gallery example
+
+- From [Poly Haven](https://polyhaven.com), under
+  [CC0](https://creativecommons.org/publicdomain/zero/1.0/), in
+  `examples/Gallery/content/models`:
+  - [marble_bust_01](https://polyhaven.com/a/marble_bust_01);
+  - [bronze_whale_statue](https://polyhaven.com/a/bronze_whale_statue).
+
 ## Forest example
 
 - The sounds and music in `examples/Forest/content` are from the

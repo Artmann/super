@@ -121,6 +121,7 @@ marked as planned. The examples are the best place to see it running:
 | [Transitions](examples/Transitions) | Fades, dissolves, wipes, irises and camera blends: a showreel cutscene, then each one on a key |
 | [Crypt](examples/Crypt) | A stone hall lit only by fire: torches casting shadows, brass candelabras, a lantern's beam and 126 candles, about 150 lights in all |
 | [Hamlet](examples/Hamlet) | A village on a hill made from the seed, through a two-minute day: the sun and sky move, and at dusk lamps and windows light up, about 200 lights; R for a new village |
+| [Gallery](examples/Gallery) | Plaster rooms along a sunlit colonnade: a bust between a red wall and a blue one, a bronze whale under a skylight, a lamp room and a candlelit chapel, all under today's real-time lights |
 | [Wax](examples/Wax) | Skin, candle wax and jade with subsurface scattering, each beside a plain twin under a hard light |
 | [Dust](examples/Dust) | Trees falling in a clearing, throwing up soft particle dust along where they land |
 | [Forest](examples/Forest) | Sound: a looping ambience and music, a hammering builder whose sound pans as the camera circles, and channel volumes |

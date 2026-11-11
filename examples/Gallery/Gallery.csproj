@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Super\Super.csproj" />
+  </ItemGroup>
+
+  <!-- The glow shader for the lamp room's floor panels and lamps. -->
+  <Import Project="..\..\src\Shaders.targets" />
+
+  <!-- The marble bust and the bronze whale. Everything else is built in code. -->
+  <Import Project="..\..\src\Super.Build\Super.targets" />
+  <ItemGroup>
+    <SuperContent Include="content" />
+  </ItemGroup>
+
+</Project>
