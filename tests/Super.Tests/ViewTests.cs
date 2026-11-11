@@ -1,4 +1,5 @@
 using System.Numerics;
+using Rendition;
 
 namespace Super.Tests;
 
@@ -16,6 +17,50 @@ public class ViewTests
 
         Assert.Equal(0, view.Drawn.Length);
         Assert.Equal(0, view.Suns.Length);
+    }
+
+    [Fact]
+    public void Lights_are_mixed_unless_told_otherwise()
+    {
+        var view = new View();
+        view.Begin(0f);
+
+        view.Sun(Vector3.UnitY, Vector3.One);
+        view.PointLight(1, Vector3.Zero, Vector3.One, 5f);
+        view.SpotLight(2, Vector3.Zero, -Vector3.UnitY, Vector3.One, 5f, 0.2f, 0.5f);
+
+        Assert.Equal(LightMode.Mixed, view.Suns[0].Mode);
+        Assert.Equal(LightMode.Mixed, view.DrawnLights[0].Mode);
+        Assert.Equal(LightMode.Mixed, view.DrawnLights[1].Mode);
+        Assert.Equal(LightMode.Mixed, default(LocalLight).Mode);
+    }
+
+    [Fact]
+    public void Light_keeps_the_mode_it_was_given()
+    {
+        var view = new View();
+        view.Begin(0f);
+
+        view.PointLight(1, Vector3.Zero, Vector3.One, 5f, mode: LightMode.Baked);
+        view.SpotLight(2, Vector3.Zero, -Vector3.UnitY, Vector3.One, 5f, 0.2f, 0.5f, mode: LightMode.Realtime);
+        view.Sun(Vector3.UnitY, Vector3.One, mode: LightMode.Realtime);
+
+        Assert.Equal(LightMode.Baked, view.DrawnLights[0].Mode);
+        Assert.Equal(LightMode.Realtime, view.DrawnLights[1].Mode);
+        Assert.Equal(LightMode.Realtime, view.Suns[0].Mode);
+    }
+
+    [Fact]
+    public void Undefined_light_mode_is_explained()
+    {
+        var view = new View();
+        view.Begin(0f);
+
+        var error = Assert.Throws<ArgumentOutOfRangeException>(
+            () => view.PointLight(1, Vector3.Zero, Vector3.One, 5f, mode: (LightMode)7));
+
+        Assert.Contains("mode", error.Message);
+        Assert.Contains("7", error.Message);
     }
 
     [Fact]

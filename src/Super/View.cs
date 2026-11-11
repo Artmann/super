@@ -29,7 +29,7 @@ public readonly record struct ModelDraw(
 /// A light as far away as the sun, shining the same way everywhere. One sun casts the
 /// shadows: the one marked with <see cref="CastsShadows"/>, or else the first.
 /// </summary>
-public readonly record struct SunLight(Vector3 Direction, Vector3 Color, bool CastsShadows = false);
+public readonly record struct SunLight(Vector3 Direction, Vector3 Color, bool CastsShadows = false, LightMode Mode = LightMode.Mixed);
 
 /// <summary>
 /// A reflection probe placed with <see cref="View.ReflectionProbe"/>: where it photographs the scene
@@ -145,10 +145,13 @@ public sealed class View
     /// <summary>
     /// Adds a sun. The direction points from the ground towards it, and needn't be one
     /// unit long. Colors above 1 are brighter. One sun casts the shadows: the one added
-    /// with <paramref name="shadows"/> set, or else the first. Marking two throws.
+    /// with <paramref name="shadows"/> set, or else the first. Marking two throws. The mode says how
+    /// a bake treats it; see "Light modes" in docs/rendering.md.
     /// </summary>
-    public void Sun(Vector3 direction, Vector3 color, bool shadows = false)
+    public void Sun(Vector3 direction, Vector3 color, bool shadows = false, LightMode mode = LightMode.Mixed)
     {
+        CheckMode(mode);
+
         if (shadows)
         {
             foreach (var sun in _suns)
@@ -161,7 +164,7 @@ public sealed class View
             }
         }
 
-        _suns.Add(new SunLight(Vector3.Normalize(direction), color, shadows));
+        _suns.Add(new SunLight(Vector3.Normalize(direction), color, shadows, mode));
     }
 
     /// <summary>
@@ -183,9 +186,10 @@ public sealed class View
         float range,
         bool shadows = true,
         float radius = LocalLight.DefaultRadius,
-        float volumetric = 1f)
+        float volumetric = 1f,
+        LightMode mode = LightMode.Mixed)
     {
-        CheckLight(position, color, range, radius, volumetric);
+        CheckLight(position, color, range, radius, volumetric, mode);
         _lights.Add(new LocalLight
         {
             Key = key,
@@ -195,6 +199,7 @@ public sealed class View
             Radius = radius,
             CastsShadow = shadows,
             Volumetric = volumetric,
+            Mode = mode,
         });
     }
 
@@ -214,9 +219,10 @@ public sealed class View
         float outerAngle,
         bool shadows = true,
         float radius = LocalLight.DefaultRadius,
-        float volumetric = 1f)
+        float volumetric = 1f,
+        LightMode mode = LightMode.Mixed)
     {
-        CheckLight(position, color, range, radius, volumetric);
+        CheckLight(position, color, range, radius, volumetric, mode);
         if (!(direction.LengthSquared() > 1e-12f) || !float.IsFinite(direction.LengthSquared()))
         {
             throw new ArgumentException($"A spot light needs a direction to shine in, not {direction}.", nameof(direction));
@@ -246,11 +252,26 @@ public sealed class View
             OuterAngle = outerAngle,
             CastsShadow = shadows,
             Volumetric = volumetric,
+            Mode = mode,
         });
     }
 
-    private void CheckLight(Vector3 position, Vector3 color, float range, float radius, float volumetric)
+    private static void CheckMode(LightMode mode)
     {
+        // Not Enum.IsDefined: a game checks this every frame for every light, and that allocates.
+        if (mode < LightMode.Mixed || mode > LightMode.Baked)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(mode),
+                (int)mode,
+                $"A light's mode must be Mixed, Realtime or Baked, but it was {(int)mode}.");
+        }
+    }
+
+    private void CheckLight(Vector3 position, Vector3 color, float range, float radius, float volumetric, LightMode mode)
+    {
+        CheckMode(mode);
+
         if (_lights.Count >= LocalLight.MaxPerFrame)
         {
             throw new InvalidOperationException(

@@ -854,6 +854,7 @@ internal sealed class SceneRenderer : IDisposable
                 Direction = suns[i].Direction,
                 Radiance = suns[i].Color,
                 CastsShadow = i == shadowSun,
+                Mode = suns[i].Mode,
             };
         }
 

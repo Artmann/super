@@ -237,6 +237,14 @@ particles get no shadows from them. They aren't seen in reflection probes. In
 [fog](#fog) they glow with a halo; `volumetric:` sets how strongly, and 0 leaves a light
 out of the fog (see [volumetric fog](#volumetric-fog)).
 
+### Light modes
+
+Every sun, point light and spot light takes a `mode:` of `LightMode.Mixed`, `Realtime` or
+`Baked`. `Mixed` is the default and changes nothing about how a light looks. The mode only
+says how a bake will treat the light: `Realtime` is never part of a bake, `Baked` is only
+part of one, and `Mixed` is both. Nothing reads the mode yet, so every frame is lit the same
+whatever it is. A mode that isn't one of the three throws.
+
 ## Shadows
 
 ```csharp

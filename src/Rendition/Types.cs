@@ -359,8 +359,27 @@ public struct DrawItem
 /// <summary>A run of a frame's bone matrices. A count of zero means no skinning.</summary>
 public readonly record struct BoneRange(int First, int Count);
 
+/// <summary>
+/// How a light is used once a space has a bake. Mixed is the default, so a light that names no mode
+/// behaves as it always did. Nothing reads the mode yet.
+/// </summary>
+public enum LightMode
+{
+    /// <summary>Lit live, and also part of any bake.</summary>
+    Mixed = 0,
+
+    /// <summary>Lit live only, never part of a bake.</summary>
+    Realtime = 1,
+
+    /// <summary>Part of a bake only, so a bake that covers it replaces the live light.</summary>
+    Baked = 2,
+}
+
 public struct DirectionalLight
 {
+    /// <summary>How a bake treats this light. Defaults to <see cref="LightMode.Mixed"/>.</summary>
+    public LightMode Mode;
+
     /// <summary>Unit vector pointing from the surface towards the light.</summary>
     public Vector3 Direction;
     public Vector3 Radiance;
@@ -378,6 +397,9 @@ public struct LocalLight
 {
     /// <summary>The most one frame can have. The renderer throws past this.</summary>
     public const int MaxPerFrame = 1024;
+
+    /// <summary>How a bake treats this light. Defaults to <see cref="LightMode.Mixed"/>.</summary>
+    public LightMode Mode;
 
     /// <summary>
     /// Picks out a light from one frame to the next, so its shadow keeps its sharpness as it
