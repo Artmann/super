@@ -1256,7 +1256,9 @@ The frame uniforms carry `skySun` (towards the sun, and the turbidity) and `sunD
 what it last baked each frame and, on a change, waits for the GPU and runs
 `EnvironmentMap.Rebake` with the same bands, so moving the sun under a clear sky rebakes
 every frame. That doesn't bump the environment version: the lighting hashes that decide
-when probes recapture already cover the turbidity, the lights and `LightAngle`.
+when probes recapture already cover the turbidity, the lights and `LightAngle`. The uniforms
+take `skySun` and `sunDisc` from that baked `SkySun`, not from the view being drawn, so a
+frame drawn again without a baked sun keeps the sky's sun (see "Each frame's bakes").
 
 ### Height fog
 
@@ -2993,8 +2995,10 @@ lights. Because the frame is reused, **the `BakeFrame` a call returns is valid o
 next call** (`LastBakeFrame` included): keep what you need from it, not the frame. The only
 other garbage is from a store that allocates in `IsFresh`, which is the store's own. The
 resolver expects the chunks to have passed `BakeFiles.IsRigid`, which `Render` checks first.
-A dropped Baked sun also leaves the sky's sun, since `SkyModel.Sun` reads the view's lights; the
-sky will need its own path once bakes exist.
+The sky is worked out once, from the original view: the second pass skips `BakeSky`, and
+`WriteUniforms` reads the `SkySun` that `BakeSky` stored rather than `SkyModel.Sun` of the view
+it draws. So a dropped Baked sun keeps lighting the sky and keeps its disc, and the sky isn't
+baked again without it each frame (`BakedSunGpuTests`).
 
 ## Ray tracing
 

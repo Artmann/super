@@ -1132,7 +1132,14 @@ public sealed unsafe class Renderer : IDisposable
         _api.DeviceWaitIdle(_context.Device).Check();
         _environment.Rebake(sky);
         _bakedSky = sky;
+        SkyRebakes++;
     }
+
+    /// <summary>How many times <see cref="BakeSky"/> has baked the environment again, for tests.</summary>
+    internal int SkyRebakes { get; private set; }
+
+    /// <summary>The sun's disc the last frame drawn from the camera wrote, leaving out probe faces, for tests.</summary>
+    internal Vector4 LastSunDisc { get; private set; }
 
     /// <summary>
     /// Hands a texture's bytes to the next frame's command buffer rather than waiting for
@@ -2058,7 +2065,13 @@ public sealed unsafe class Renderer : IDisposable
         PrepareDecals(view);
         BakeIds.CheckStaticDraws(draws);
         BakeFiles.CheckChunks(view.BakedChunks);
-        BakeSky(view);
+        if (!_drawingWithoutBakedLights)
+        {
+            // Worked out once, from the original view: a frame drawn again without its baked sun keeps the sky that sun
+            // lights, and its disc.
+            BakeSky(view);
+        }
+
         if (!_drawingWithoutBakedLights && ResolveBakes(view, draws, out var withoutBakedLights))
         {
             // A fresh bake has taken some lights over, so the frame is drawn without them.
@@ -3119,10 +3132,16 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->BackgroundRadiance = new Vector4(view.BackgroundRadiance, view.EnvironmentIntensity);
 
         // Probes leave the sun's disc out: their rough levels would scatter it into specks, and
-        // the sun's own light already gives surfaces its highlight.
-        var sky = SkyModel.Sun(view);
+        // the sun's own light already gives surfaces its highlight. The sky is the one BakeSky worked out from the
+        // original view, so a frame drawn without its baked sun still shows that sun's disc.
+        var sky = _bakedSky;
         uniforms->SkySun = new Vector4(sky.Direction, sky.Turbidity);
-        uniforms->SunDisc = new Vector4(capturingProbe ? Vector3.Zero : sky.DiscRadiance, sky.DiscCosine);
+        var disc = new Vector4(capturingProbe ? Vector3.Zero : sky.DiscRadiance, sky.DiscCosine);
+        uniforms->SunDisc = disc;
+        if (!capturingProbe)
+        {
+            LastSunDisc = disc;
+        }
 
         // Moving points two texels of the first cascade off their surface stops them
         // shadowing themselves. The lighting pass works this out per cascade itself.

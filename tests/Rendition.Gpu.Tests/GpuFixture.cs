@@ -116,7 +116,8 @@ public sealed unsafe class GpuFixture : IDisposable
     public byte[] CaptureOneFrame(DrawItem[]? draws = null) =>
         Renderer.Capture(View(DebugView.None), draws ?? [], out _, out _);
 
-    private FrameView View(DebugView debugView)
+    /// <summary>The view every frame here is drawn from: the window's size, looking at the origin from 3 metres.</summary>
+    internal FrameView View(DebugView debugView)
     {
         return new FrameView
         {
