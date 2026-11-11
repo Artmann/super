@@ -77,6 +77,16 @@ public readonly record struct ReflectionProbeHandle(int Index);
 /// <summary>Bounds and simpler versions for a <see cref="DrawItem"/>. The default stands for none.</summary>
 public readonly record struct DetailHandle(int Index);
 
+/// <summary>What a texture reads past its edge, chosen once when it's created.</summary>
+public enum TextureEdges
+{
+    /// <summary>The texture tiles, so the far edge shows. Most textures want this.</summary>
+    Repeat,
+
+    /// <summary>The edge texel carries on, for atlases whose far edge belongs to another island.</summary>
+    Clamp,
+}
+
 [Flags]
 public enum MaterialFlags
 {
@@ -197,7 +207,8 @@ public struct Material
     /// with 0.5 flat and above it convex, green how much of the sky the surface sees, blue height above the mesh's
     /// foot, 0 there and 1 at 30 cm or the mesh's top, and alpha how much an edge there wears, a slow noise so wear
     /// comes and goes. <see cref="Wear"/> and <see cref="Dirt"/> are laid by them. Without one, neither shows. The
-    /// mask's edges clamp rather than wrap, since it's an atlas of islands.
+    /// mask is an atlas of islands, so create it with <see cref="TextureEdges.Clamp"/>, as
+    /// <see cref="Renderer.CreateModel"/> does; the material doesn't change how its textures are sampled.
     /// </summary>
     public TextureHandle? MaskTexture;
 

@@ -694,13 +694,15 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>
     /// Hands a texture's bytes to the next frame's command buffer rather than waiting for
-    /// the GPU, so it can be sampled in that same frame.
+    /// the GPU, so it can be sampled in that same frame. <paramref name="edges"/> says what is
+    /// read past the texture's edge, for every material that uses it: an atlas such as a
+    /// <see cref="Material.MaskTexture"/> wants <see cref="TextureEdges.Clamp"/>.
     /// </summary>
-    public TextureHandle CreateTexture(TextureData data)
+    public TextureHandle CreateTexture(TextureData data, TextureEdges edges = TextureEdges.Repeat)
     {
         var texture = new GpuTexture(_context, data.Width, data.Height, data.Kind, (uint)data.Mips.Length, 1, format: data.Format);
         _uploads.Add(texture.CreateStaging([data]), texture);
-        return _resources.AddTexture(texture);
+        return _resources.AddTexture(texture, edges);
     }
 
     /// <summary>
@@ -1154,7 +1156,7 @@ public sealed unsafe class Renderer : IDisposable
         var textures = new TextureHandle[model.Textures.Length];
         for (int i = 0; i < textures.Length; i++)
         {
-            textures[i] = CreateTexture(model.Textures[i]);
+            textures[i] = CreateTexture(model.Textures[i], model.EdgesOf(i));
         }
 
         var materials = new MaterialHandle[model.Materials.Length];

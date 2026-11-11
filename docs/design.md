@@ -1606,7 +1606,9 @@ Texels no triangle covers read as flat, open, high and fully broken up, (128, 25
 which is clean. Eight rings around each island take the average of their covered neighbours,
 so bilinear filtering and the first mips at an island's edge read the island. The texture
 is sampled with a clamp-to-edge sampler (`_edgeSampler` in `ResourceTable`), so an island
-at the border never filters in the opposite side. Each texel is independent, so rows run
+at the border never filters in the opposite side. The sampler belongs to the texture, not the
+material: `CreateModel` creates mask textures with `TextureEdges.Clamp`, and the slot's
+descriptor is written once, so a texture another material tiles is never changed under it. Each texel is independent, so rows run
 in parallel.
 
 `applyLayers()` in `surface.glsl` runs inside `materialSurface()` after world variation, and

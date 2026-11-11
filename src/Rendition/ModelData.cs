@@ -122,6 +122,13 @@ public sealed class ModelData
         material < MaterialMasks.Length ? MaterialMasks[material] : null;
 
     /// <summary>
+    /// What texture <paramref name="texture"/> reads past its edge: <see cref="TextureEdges.Clamp"/> when it's
+    /// a material's masks, which are an atlas of the mesh's islands, and <see cref="TextureEdges.Repeat"/> otherwise.
+    /// </summary>
+    public TextureEdges EdgesOf(int texture) =>
+        MaterialMasks.Any(masks => masks?.Texture == texture) ? TextureEdges.Clamp : TextureEdges.Repeat;
+
+    /// <summary>
     /// Says why a material's cutoff can't work, or returns null when it can or there is
     /// none. Opacity is the colour texture's alpha times BaseColor.W times the surface
     /// texture's alpha, so a cutoff with no alpha below it keeps every pixel, and one

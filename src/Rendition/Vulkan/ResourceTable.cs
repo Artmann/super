@@ -239,7 +239,7 @@ internal sealed unsafe class ResourceTable : IDisposable
     /// Takes a slot for a texture and points it at the image. The slot is free in every
     /// frame in flight, which is what lets the set be written while bound.
     /// </summary>
-    public TextureHandle AddTexture(GpuTexture texture)
+    public TextureHandle AddTexture(GpuTexture texture, TextureEdges edges = TextureEdges.Repeat)
     {
         int slot;
         if (_freeTextures.Count > 0)
@@ -259,7 +259,9 @@ internal sealed unsafe class ResourceTable : IDisposable
             _textures.Add(texture);
         }
 
-        WriteTextureDescriptor(0, slot, texture);
+        // The slot's descriptor is written once, so its sampler is the texture's for life. A
+        // material can't change it, which would change it for every other material using it.
+        WriteTextureDescriptor(0, slot, texture, edges == TextureEdges.Clamp);
         return new TextureHandle(slot);
     }
 
@@ -521,11 +523,6 @@ internal sealed unsafe class ResourceTable : IDisposable
             owned[OwnTextures + i] = material.ShaderTextures[i]?.Index ?? -1;
         }
 
-        // A mask is an atlas, so its edges clamp. The built-in textures are shared, so they keep repeating.
-        if (material.MaskTexture is { } mask && !IsBuiltIn(mask) && IsLive(mask))
-        {
-            WriteTextureDescriptor(0, mask.Index, _textures[mask.Index]!, clampEdges: true);
-        }
     }
 
     public void Dispose()
