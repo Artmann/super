@@ -312,8 +312,9 @@ public sealed class BakeFreshnessTests
     {
         var at = new Vector3(20f, 1f, 0f);
         var other = new Vector3(19f, 1f, 1f);
-        DrawItem[] one = [Part(1, 0, at), Part(2, 0, other), Part(1, 1, at), Part(2, 1, other)];
-        DrawItem[] two = [Part(2, 0, other), Part(1, 0, at), Part(2, 1, other), Part(1, 1, at)];
+        // Each model's second part is outside the room alone, so a model split in two is filed differently.
+        DrawItem[] one = [Part(1, 0, at), Part(1, 1, at), Part(2, 0, other), Part(2, 1, other)];
+        DrawItem[] two = [Part(1, 0, at), Part(2, 0, other), Part(1, 1, at), Part(2, 1, other)];
 
         var first = Resolve(Courtyard, [Room], [], [], one, NoBakes.Instance, bounds: TwoParts);
         var second = Resolve(Courtyard, [Room], [], [], two, NoBakes.Instance, bounds: TwoParts);
