@@ -1450,6 +1450,39 @@ the old probes are thrown away and the sky is used until round 1 is done. Geomet
 hash. Without `shaderStorageImageExtendedFormats`, needed to write RG16F from compute, the
 volume is off.
 
+## Lightmap UVs
+
+`LightmapUnwrap.Unwrap` gives a mesh a second UV set (`Vertex.Uv2`) for baked lighting, and
+`LightmapUnwrap.Problem` checks such a set and names the first thing wrong with it, or
+returns null. Both keep the triangles and their order; `Unwrap` only splits a vertex where
+two charts meet.
+
+Charts are found without looking at the first UVs, so a texture seam doesn't cut one.
+Corners are welded by exact position, and two triangles join across an edge only when the
+vertex normals on both sides agree, so hard edges always cut. A chart grows breadth-first
+from the lowest free triangle while each new triangle stays within 60 degrees of the
+chart's running area-weighted mean normal. The chart is then laid flat on its mean normal's
+plane. If any two of its triangles overlap there, as on a ramp that turns over itself or
+where a triangle folds back, it is cut back to the part grown before the later of the two,
+and growth starts again from there. Triangles with no area join a neighbour's chart, or
+get a chart of their own one texel wide.
+
+Each flat chart is turned to its smallest bounding rectangle and scaled by its own
+`sqrt(world area / flat area)`, so a chart tilted from its plane gets the same density as a
+flat one. One scale for the whole mesh, in texels per metre at the 512-texel
+`ReferenceSize`, is then shrunk by a tenth at a time until `SkylinePacker` fits every chart
+with a two-texel `Gutter`. Each chart's rectangle is its width in texels rounded up plus
+one, with the chart centred, so every texel it touches, counted conservatively, lies inside
+its rectangle and the gutter `Problem` checks is the one the packer kept.
+
+`Problem` finds charts as triangles joined by edges whose corners match in both position
+and UV. It checks, in order, that every corner is inside 0 to 1, that no texel at 512 is
+touched by two charts, that no two triangles of one chart overlap by more than a hundredth
+of a texel, that at least two empty texels lie between different charts, and that
+texel density, per chart, varies less than four times across the mesh. The overlap inside a
+chart is measured by area rather than by touched texels, because neighbours in a fan share
+texels along their edges.
+
 ## Paint and glass
 
 Clearcoat adds a second, very smooth reflection on top of the surface, like the
