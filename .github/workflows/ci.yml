@@ -20,11 +20,6 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
 
-    # The cook keeps what it made here, on the same drive as the checkout so cooked content can be
-    # hard links to it. The build and the tests both read it.
-    env:
-      SUPER_CACHE: ${{ runner.temp }}\super-cache
-
     steps:
       - uses: actions/checkout@v4
 
@@ -58,10 +53,13 @@ jobs:
       # build, so an older cache is always safe to start from. The key changes when content or cook code
       # changes, so a new cache is saved then. The month in the key starts it afresh once a month, so
       # entries nothing uses any more don't pile up.
+      # The cook keeps what it made in SUPER_CACHE, on the same drive as the checkout so cooked content
+      # can be hard links to it. The build and the tests both read it.
       - name: Cook cache key
         id: cook-key
         shell: pwsh
         run: |
+          "SUPER_CACHE=$env:RUNNER_TEMP\super-cache" >> $env:GITHUB_ENV
           "month=$(Get-Date -Format yyyy-MM)" >> $env:GITHUB_OUTPUT
 
       - name: Restore cook cache
