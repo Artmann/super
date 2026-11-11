@@ -4,7 +4,9 @@ using Super.Cook.Models;
 
 namespace Courtyard.Tests;
 
-// Cooks every Courtyard model, graphs and mask bakes included, which takes minutes.
+// Cooks every Courtyard model, graphs and mask bakes included. That takes minutes from scratch, so it uses the shared
+// cook cache, which the game's own build has usually filled already. A cache hit gives back the warnings the cook made,
+// so this checks the same thing either way.
 [Trait("Speed", "Slow")]
 public sealed class LineupTests
 {
@@ -18,7 +20,8 @@ public sealed class LineupTests
     public void Every_material_cooks_without_warnings()
     {
         var store = new MemoryStore();
-        var result = new CookPipeline(ModelCookers.All, new CookOptions()).Cook([new FolderRoot(ContentFolder())], store);
+        var options = new CookOptions(CacheFolder: CookOptions.DefaultCacheFolder);
+        var result = new CookPipeline(ModelCookers.All, options).Cook([new FolderRoot(ContentFolder())], store);
 
         // The problems are the message, so a failure prints every warning in full.
         Assert.True(result.Problems.Count == 0, string.Join(Environment.NewLine, result.Problems.Select(problem => problem.ToString())));
