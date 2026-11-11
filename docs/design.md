@@ -1845,6 +1845,40 @@ its set at 512, the only size it checks, as the cooker does, since the layout co
 otherwise it unwraps at 512, then 1024 and 2048 when the charts don't fit. A set laid out
 for 1024 that fails at 512 is replaced.
 
+## Lightmap layout
+
+`LightmapLayout.Build` (`src/Rendition/Lightmaps/LightmapLayout.cs`) gives each static draw a
+square on a lightmap page. It is pure, needs no GPU, and returns a `LightmapRect` (page, scale,
+offset) for each bake id, so a bake and the frames that read it agree on where a draw's light
+is. Later steps rasterize into these squares, keep them in the `.lightbake` file and sample them.
+
+A draw takes part when its `BakeId` is non-zero and the optional `getsLightmap` says its
+material may have one. `DrawItem` doesn't say whether its material sways in the wind or is
+see-through; the material does, so the caller passes that as `getsLightmap` and a draw it
+refuses gets no rectangle and is not in `Left`. Draws are keyed by (`BakeIds.Instance`,
+transform, material): parts of one instance, in one place, with one material share a
+rectangle, since each material's `Uv2` fills its own 0 to 1. A group whose parts have
+different meshes is sized by the biggest.
+
+The side is `sqrt(area) * TexelsPerMetre` rounded and clamped to 8 to 1024 texels. The area
+is the mesh's world-free surface area times `|det(M)|^(2/3)`, with `M` the transform's upper
+3 by 3: the determinant is how much volume scales, so its two thirds power is how much area
+scales for a uniform scale (a 2x scale gives 4x). A non-uniform scale is approximated by its
+geometric mean. `Renderer.CreateMesh` finds the mesh's area once with
+`LightmapLayout.SurfaceArea` (triangle areas added up, in the mesh's own units) and
+`Renderer.SurfaceAreaOf` returns it.
+
+Pages are 2048 texels square and there are at most 8. Squares are sorted by side, largest
+first (ties by their first draw's order), and each page takes as many from the front as
+`SkylinePacker.TryPack` fits with a `LightmapUnwrap.Gutter` of 2: all of them if they fit,
+else a bisection on how many. The rest go to the next page. A 1024 side plus its gutter leaves
+room for only one on a page. Draws whose squares are not placed after 8 pages are named in
+`Left`, in draw order. `Scale` is the side over 2048 and `Offset` the corner over 2048, so
+the draw's 0 to 1 covers the square itself and the gutter lies outside it. The bisection
+assumes a smaller prefix fits whenever a bigger one does, which the skyline mostly keeps; when
+it doesn't, a page is left a little emptier. Nothing fills one page's gaps with smaller
+squares from later ones.
+
 ## Paint and glass
 
 Clearcoat adds a second, very smooth reflection on top of the surface, like the

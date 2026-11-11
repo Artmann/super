@@ -589,8 +589,17 @@ public sealed unsafe class Renderer : IDisposable
         _uploads.Add(vertexStaging, vertexBuffer);
         var indexBuffer = GpuBuffer.CreateDeviceLocalStaged(_context, indices, BufferUsageFlags.IndexBufferBit | traceInput, out var indexStaging);
         _uploads.Add(indexStaging, indexBuffer);
-        return AddMesh(new Mesh(vertexBuffer, indexBuffer, (uint)indices.Length));
+        return AddMesh(new Mesh(vertexBuffer, indexBuffer, (uint)indices.Length)
+        {
+            SurfaceArea = LightmapLayout.SurfaceArea(vertices, indices),
+        });
     }
+
+    /// <summary>
+    /// The surface area of a live mesh in its own units, found when it was made, for <see cref="LightmapLayout.Build"/>.
+    /// Throws for a mesh that isn't live.
+    /// </summary>
+    internal float SurfaceAreaOf(MeshHandle handle) => MeshFor(handle).SurfaceArea;
 
     /// <summary>The mesh behind a live handle. For tests, which read its buffers' addresses.</summary>
     internal Mesh MeshFor(MeshHandle handle) =>
