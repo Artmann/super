@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Numerics;
 
 namespace Rendition;
@@ -53,14 +54,18 @@ public sealed class LightmapLayout
     /// surface's side, clamped to <see cref="MinSide"/> and <see cref="MaxSide"/>. Rectangles are packed page by page
     /// with <see cref="SkylinePacker"/> and <see cref="LightmapUnwrap.Gutter"/> texels between them.
     /// </summary>
-    /// <param name="meshArea">A mesh's surface area in its own units, as <see cref="SurfaceArea"/> measures it.</param>
-    /// <param name="getsLightmap">
-    /// Whether a material may have a lightmap, or null for all. Materials that sway in the wind or are see-through
-    /// don't, and a draw with one gets no rectangle and isn't in <see cref="Left"/>.
+    /// <param name="meshArea">
+    /// The surface area, in the mesh's own units, of the triangles a draw covers: the mesh, its first index and its
+    /// index count, as <see cref="RangeArea"/> measures them. A rectangle's area is the sum over the draws that share it.
     /// </param>
+    /// <param name="getsLightmap">
+    /// Whether a material may have a lightmap. Materials that sway in the wind or are see-through don't, and a draw with
+    /// one gets no rectangle and isn't in <see cref="Left"/>. The caller decides, since a draw doesn't say.
+    /// </param>
+    /// <exception cref="InvalidOperationException">Two different meshes share an instance, transform and material.</exception>
     public static LightmapLayout Build(
-        ReadOnlySpan<DrawItem> draws, Func<MeshHandle, float> meshArea, BakeSettings settings,
-        Func<MaterialHandle, bool>? getsLightmap = null)
+        ReadOnlySpan<DrawItem> draws, Func<MeshHandle, uint, uint, float> meshArea, BakeSettings settings,
+        Func<MaterialHandle, bool> getsLightmap)
     {
         var layout = new LightmapLayout();
         var groupOf = new Dictionary<(ulong Instance, Matrix4x4 Transform, MaterialHandle Material), int>();
@@ -70,23 +75,31 @@ public sealed class LightmapLayout
 
         foreach (ref readonly var draw in draws)
         {
-            if (draw.BakeId == 0 || !seen.Add(draw.BakeId) || (getsLightmap is not null && !getsLightmap(draw.Material)))
+            if (draw.BakeId == 0 || !seen.Add(draw.BakeId) || !getsLightmap(draw.Material))
             {
                 continue;
             }
 
             var key = (BakeIds.Instance(draw.BakeId), draw.Transform, draw.Material);
-            float area = meshArea(draw.Mesh) * (float)Math.Pow(Math.Abs(Determinant(draw.Transform)), 2.0 / 3.0);
+            float area = meshArea(draw.Mesh, draw.FirstIndex, draw.IndexCount)
+                * (float)Math.Pow(Math.Abs(Determinant(draw.Transform)), 2.0 / 3.0);
             if (!groupOf.TryGetValue(key, out int index))
             {
                 index = groups.Count;
                 groupOf[key] = index;
-                groups.Add(new Group { Area = area });
+                groups.Add(new Group { Area = area, Mesh = draw.Mesh });
             }
             else
             {
-                // Parts with different meshes share the rectangle, so it must hold the biggest.
-                groups[index].Area = Math.Max(groups[index].Area, area);
+                // A rectangle holds one 0 to 1 of one mesh's second UVs. Two meshes in it would write over each other.
+                if (groups[index].Mesh != draw.Mesh)
+                {
+                    throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
+                        $"Draws of instance 0x{key.Item1:X16} use two different meshes with the same material and transform, so they would share one lightmap rectangle. Each mesh's second UVs fill their own 0 to 1, so give them different materials."));
+                }
+
+                // Parts of one mesh with one material are one unwrap, so the rectangle covers all their triangles.
+                groups[index].Area += area;
             }
 
             drawGroup.Add((draw.BakeId, index));
@@ -132,21 +145,36 @@ public sealed class LightmapLayout
     }
 
     /// <summary>
-    /// A mesh's surface area: its triangles' areas added up, in the mesh's own units, so a transform's scale is not in
-    /// it. <see cref="Build"/> multiplies by the transform's.
+    /// The running total of a mesh's triangle areas, in the mesh's own units, so a transform's scale is not in it:
+    /// entry <c>t</c> is the area of the first <c>t</c> triangles, and there is one more entry than triangles.
+    /// <see cref="RangeArea"/> reads a range from it.
     /// </summary>
-    public static float SurfaceArea(ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices)
+    public static float[] CumulativeAreas(ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices)
     {
+        var totals = new float[indices.Length / 3 + 1];
         double total = 0;
-        for (int i = 0; i + 2 < indices.Length; i += 3)
+        for (int t = 0; t < totals.Length - 1; t++)
         {
-            var a = vertices[(int)indices[i]].Position;
-            var b = vertices[(int)indices[i + 1]].Position;
-            var c = vertices[(int)indices[i + 2]].Position;
+            var a = vertices[(int)indices[t * 3]].Position;
+            var b = vertices[(int)indices[t * 3 + 1]].Position;
+            var c = vertices[(int)indices[t * 3 + 2]].Position;
             total += 0.5 * Vector3.Cross(b - a, c - a).Length();
+            totals[t + 1] = (float)total;
         }
 
-        return (float)total;
+        return totals;
+    }
+
+    /// <summary>
+    /// The area of the triangles in index range <paramref name="firstIndex"/> for <paramref name="indexCount"/>
+    /// indices, from <see cref="CumulativeAreas"/>. A range past the mesh's end counts only what the mesh has.
+    /// </summary>
+    public static float RangeArea(float[] cumulative, uint firstIndex, uint indexCount)
+    {
+        int last = cumulative.Length - 1;
+        int from = (int)Math.Min(firstIndex / 3, (uint)last);
+        int to = (int)Math.Min(((ulong)firstIndex + indexCount) / 3, (ulong)last);
+        return to > from ? cumulative[to] - cumulative[from] : 0f;
     }
 
     // The most groups, from the front of the order, that fit one page together. The packer takes all or nothing, so this
@@ -205,6 +233,7 @@ public sealed class LightmapLayout
     private sealed class Group
     {
         public float Area;
+        public MeshHandle Mesh;
         public int Side;
         public bool Placed;
         public LightmapRect Rect;

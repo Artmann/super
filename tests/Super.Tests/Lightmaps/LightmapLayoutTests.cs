@@ -16,8 +16,96 @@ public class LightmapLayoutTests
         Transform = transform ?? Matrix4x4.Identity,
     };
 
+    // Every layout here is built with default settings, which are 20 texels a metre, so a side is 20 times the square
+    // root of the area in square metres.
     private static LightmapLayout Build(DrawItem[] draws, float[] areas, Func<MaterialHandle, bool>? getsLightmap = null) =>
-        LightmapLayout.Build(draws, mesh => areas[mesh.Index], default, getsLightmap);
+        LightmapLayout.Build(draws, (mesh, _, _) => areas[mesh.Index], default, getsLightmap ?? (_ => true));
+
+    // A mesh of a wall of two triangles with 5 square metres each (indices 0 to 5) and a trim of one triangle with
+    // legs of 1 metre (indices 6 to 8).
+    private static float[] WallAndTrim()
+    {
+        Vertex[] vertices =
+        [
+            new(new Vector3(0, 0, 0), Vector3.UnitY, Vector4.Zero, Vector2.Zero),
+            new(new Vector3(4, 0, 0), Vector3.UnitY, Vector4.Zero, Vector2.Zero),
+            new(new Vector3(4, 2.5f, 0), Vector3.UnitY, Vector4.Zero, Vector2.Zero),
+            new(new Vector3(0, 2.5f, 0), Vector3.UnitY, Vector4.Zero, Vector2.Zero),
+            new(new Vector3(10, 0, 0), Vector3.UnitY, Vector4.Zero, Vector2.Zero),
+            new(new Vector3(11, 0, 0), Vector3.UnitY, Vector4.Zero, Vector2.Zero),
+            new(new Vector3(10, 1, 0), Vector3.UnitY, Vector4.Zero, Vector2.Zero),
+        ];
+        uint[] indices = [0, 1, 2, 0, 2, 3, 4, 5, 6];
+        return LightmapLayout.CumulativeAreas(vertices, indices);
+    }
+
+    [Fact]
+    public void Each_draw_is_sized_by_the_triangles_in_its_index_range()
+    {
+        var cumulative = WallAndTrim();
+        var wall = Draw(BakeIds.Of(InstanceA, 0), material: 1);
+        wall.FirstIndex = 0;
+        wall.IndexCount = 6;
+        var trim = Draw(BakeIds.Of(InstanceA, 1), material: 2);
+        trim.FirstIndex = 6;
+        trim.IndexCount = 3;
+
+        var layout = LightmapLayout.Build(
+            [wall, trim], (_, first, count) => LightmapLayout.RangeArea(cumulative, first, count), default, _ => true);
+
+        layout.TryGet(wall.BakeId, out var wallRect);
+        layout.TryGet(trim.BakeId, out var trimRect);
+        // sqrt(10) * 20 is 63.2 and sqrt(0.5) * 20 is 14.1. The whole mesh would give both 65.
+        Assert.Equal(63, SideInTexels(wallRect));
+        Assert.Equal(14, SideInTexels(trimRect));
+    }
+
+    [Fact]
+    public void Draws_of_one_mesh_that_share_a_material_add_their_ranges()
+    {
+        var cumulative = WallAndTrim();
+        var first = Draw(BakeIds.Of(InstanceA, 0), material: 1);
+        first.FirstIndex = 0;
+        first.IndexCount = 3;
+        var second = Draw(BakeIds.Of(InstanceA, 1), material: 1);
+        second.FirstIndex = 3;
+        second.IndexCount = 3;
+
+        var layout = LightmapLayout.Build(
+            [first, second], (_, from, count) => LightmapLayout.RangeArea(cumulative, from, count), default, _ => true);
+
+        layout.TryGet(first.BakeId, out var firstRect);
+        layout.TryGet(second.BakeId, out var secondRect);
+        // 5 + 5 square metres, so sqrt(10) * 20 is 63, where either alone would be sqrt(5) * 20 = 45.
+        Assert.Equal(63, SideInTexels(firstRect));
+        Assert.Equal(firstRect, secondRect);
+    }
+
+    [Fact]
+    public void An_index_range_reads_only_the_triangles_it_covers_and_stops_at_the_mesh_end()
+    {
+        var cumulative = WallAndTrim();
+
+        Assert.Equal(5f, LightmapLayout.RangeArea(cumulative, 3, 3), 4);
+        Assert.Equal(0.5f, LightmapLayout.RangeArea(cumulative, 6, 3), 4);
+        Assert.Equal(0.5f, LightmapLayout.RangeArea(cumulative, 6, 300), 4);
+        Assert.Equal(0f, LightmapLayout.RangeArea(cumulative, 300, 3));
+    }
+
+    [Fact]
+    public void Two_meshes_with_one_instance_transform_and_material_are_refused_naming_the_instance()
+    {
+        var draws = new[]
+        {
+            Draw(BakeIds.Of(InstanceA, 0), mesh: 0, material: 1),
+            Draw(BakeIds.Of(InstanceA, 1), mesh: 1, material: 1),
+        };
+
+        var error = Assert.Throws<InvalidOperationException>(() => Build(draws, [1f, 1f]));
+
+        Assert.Contains("0xA000000000001000", error.Message);
+        Assert.Contains("two different meshes", error.Message);
+    }
 
     private static int SideInTexels(LightmapRect rect) => (int)MathF.Round(rect.Scale.X * LightmapLayout.PageSize);
 
@@ -50,12 +138,12 @@ public class LightmapLayoutTests
         var draws = new[]
         {
             Draw(BakeIds.Of(InstanceA, 0), mesh: 0, material: 1),
-            Draw(BakeIds.Of(InstanceA, 1), mesh: 1, material: 1),
-            Draw(BakeIds.Of(InstanceA, 2), mesh: 2, material: 2),
+            Draw(BakeIds.Of(InstanceA, 1), mesh: 0, material: 1),
+            Draw(BakeIds.Of(InstanceA, 2), mesh: 0, material: 2),
             Draw(BakeIds.Of(InstanceB, 0), mesh: 0, material: 1),
         };
 
-        var layout = Build(draws, [1f, 1f, 1f]);
+        var layout = Build(draws, [1f]);
 
         layout.TryGet(BakeIds.Of(InstanceA, 0), out var first);
         layout.TryGet(BakeIds.Of(InstanceA, 1), out var second);
@@ -202,7 +290,7 @@ public class LightmapLayoutTests
         ];
         uint[] indices = [0, 1, 2, 0, 2, 3, 0, 4, 5];
 
-        Assert.Equal(8f, LightmapLayout.SurfaceArea(vertices, indices), 4);
+        Assert.Equal(8f, LightmapLayout.CumulativeAreas(vertices, indices)[^1], 4);
     }
 
     public static TheoryData<int> Seeds() => [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];

@@ -591,15 +591,16 @@ public sealed unsafe class Renderer : IDisposable
         _uploads.Add(indexStaging, indexBuffer);
         return AddMesh(new Mesh(vertexBuffer, indexBuffer, (uint)indices.Length)
         {
-            SurfaceArea = LightmapLayout.SurfaceArea(vertices, indices),
+            CumulativeAreas = LightmapLayout.CumulativeAreas(vertices, indices),
         });
     }
 
     /// <summary>
-    /// The surface area of a live mesh in its own units, found when it was made, for <see cref="LightmapLayout.Build"/>.
-    /// Throws for a mesh that isn't live.
+    /// The area, in a live mesh's own units, of the triangles in an index range, for <see cref="LightmapLayout.Build"/>.
+    /// Read from a running total kept when the mesh was made. Throws for a mesh that isn't live.
     /// </summary>
-    internal float SurfaceAreaOf(MeshHandle handle) => MeshFor(handle).SurfaceArea;
+    internal float AreaOf(MeshHandle handle, uint firstIndex, uint indexCount) =>
+        LightmapLayout.RangeArea(MeshFor(handle).CumulativeAreas, firstIndex, indexCount);
 
     /// <summary>The mesh behind a live handle. For tests, which read its buffers' addresses.</summary>
     internal Mesh MeshFor(MeshHandle handle) =>

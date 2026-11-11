@@ -1852,21 +1852,27 @@ square on a lightmap page. It is pure, needs no GPU, and returns a `LightmapRect
 offset) for each bake id, so a bake and the frames that read it agree on where a draw's light
 is. Later steps rasterize into these squares, keep them in the `.lightbake` file and sample them.
 
-A draw takes part when its `BakeId` is non-zero and the optional `getsLightmap` says its
-material may have one. `DrawItem` doesn't say whether its material sways in the wind or is
-see-through; the material does, so the caller passes that as `getsLightmap` and a draw it
-refuses gets no rectangle and is not in `Left`. Draws are keyed by (`BakeIds.Instance`,
-transform, material): parts of one instance, in one place, with one material share a
-rectangle, since each material's `Uv2` fills its own 0 to 1. A group whose parts have
-different meshes is sized by the biggest.
+A draw takes part when its `BakeId` is non-zero and `getsLightmap`, which `Build` requires,
+says its material may have one. `DrawItem` doesn't say whether its material sways in the wind
+or is see-through; the material does, so the caller decides, and a draw it refuses gets no
+rectangle and is not in `Left`. Draws are keyed by (`BakeIds.Instance`, transform, material):
+parts of one instance, in one place, with one material share a rectangle, since each
+material's `Uv2` fills its own 0 to 1. The parts are draws of one mesh with different index
+ranges, so one key always means one mesh: two different meshes under one key would write over
+each other's texels, and `Build` throws `InvalidOperationException`, naming the instance.
 
 The side is `sqrt(area) * TexelsPerMetre` rounded and clamped to 8 to 1024 texels. The area
-is the mesh's world-free surface area times `|det(M)|^(2/3)`, with `M` the transform's upper
-3 by 3: the determinant is how much volume scales, so its two thirds power is how much area
-scales for a uniform scale (a 2x scale gives 4x). A non-uniform scale is approximated by its
-geometric mean. `Renderer.CreateMesh` finds the mesh's area once with
-`LightmapLayout.SurfaceArea` (triangle areas added up, in the mesh's own units) and
-`Renderer.SurfaceAreaOf` returns it.
+is the sum, over the draws that share a rectangle, of the area of the triangles in each
+draw's index range (`FirstIndex`, `IndexCount`), in the mesh's own units, times
+`|det(M)|^(2/3)`, with `M` the transform's upper 3 by 3: the determinant is how much volume
+scales, so its two thirds power is how much area scales for a uniform scale (a 2x scale gives
+4x). A non-uniform scale is approximated by its geometric mean. So a wall of 10 square
+metres and a trim of 0.5 of one mesh get sides of 63 and 14 at 20 texels a metre, not 65
+each, because a material's `Uv2` is unwrapped from only that material's triangles. The area
+comes from the `meshArea` callback, `(mesh, firstIndex, indexCount)`. `Renderer.CreateMesh`
+keeps a running total of each mesh's triangle areas (`LightmapLayout.CumulativeAreas`, four
+bytes a triangle), and `Renderer.AreaOf` reads a range from it with `LightmapLayout.RangeArea`
+as the difference of two entries, so a range past the end counts only what the mesh has.
 
 Pages are 2048 texels square and there are at most 8. Squares are sorted by side, largest
 first (ties by their first draw's order), and each page takes as many from the front as
