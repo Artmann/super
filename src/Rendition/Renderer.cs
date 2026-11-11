@@ -489,12 +489,22 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     public MeshHandle CreateMesh(ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices)
     {
-        var vertexBuffer = GpuBuffer.CreateDeviceLocalStaged(_context, vertices, BufferUsageFlags.VertexBufferBit, out var vertexStaging);
+        var traceInput = GpuBuffer.TraceInput(_context);
+        var vertexBuffer = GpuBuffer.CreateDeviceLocalStaged(_context, vertices, BufferUsageFlags.VertexBufferBit | traceInput, out var vertexStaging);
         _uploads.Add(vertexStaging, vertexBuffer);
-        var indexBuffer = GpuBuffer.CreateDeviceLocalStaged(_context, indices, BufferUsageFlags.IndexBufferBit, out var indexStaging);
+        var indexBuffer = GpuBuffer.CreateDeviceLocalStaged(_context, indices, BufferUsageFlags.IndexBufferBit | traceInput, out var indexStaging);
         _uploads.Add(indexStaging, indexBuffer);
         return AddMesh(new Mesh(vertexBuffer, indexBuffer, (uint)indices.Length));
     }
+
+    /// <summary>The mesh behind a live handle. For tests, which read its buffers' addresses.</summary>
+    internal Mesh MeshFor(MeshHandle handle) =>
+        handle.Index >= 0 && handle.Index < _meshes.Count && _meshes[handle.Index] is { } mesh
+            ? mesh
+            : throw new ArgumentException($"Mesh {handle.Index} is not live.", nameof(handle));
+
+    /// <summary>The Vulkan context, for tests that make buffers of their own.</summary>
+    internal VulkanContext Context => _context;
 
     private MeshHandle AddMesh(Mesh mesh)
     {

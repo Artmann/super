@@ -2323,6 +2323,21 @@ Device memory is sub-allocated from 64 MB blocks in `GpuMemory`, one set of pool
 per memory type, kept apart for buffers and images and for host-visible memory.
 Anything larger than a block gets its own allocation.
 
+Where `VulkanContext.CanTrace` is true, every device memory allocation, block or dedicated,
+carries `MemoryAllocateFlagsInfo` with `DeviceAddressBit`, so any buffer made later can have a
+device address. A `GpuBuffer` made with `ShaderDeviceAddressBit` reads its address once after
+binding and keeps it in `Address`; it is 0 for any other buffer. `GpuBuffer.TraceInput` gives the
+usage flags a buffer needs to feed an acceleration structure build (its own address, and being a
+read-only build input), and `CreateMesh` adds them to the vertex and index buffers. On a device
+that can't trace, `TraceInput` is empty and nothing is chained onto the allocation, so those
+buffers are created exactly as before.
+
+`tests/Rendition.Gpu.Tests` runs the renderer on a real GPU. `GpuFixture` opens a hidden 256 by 256
+window the way `GameWindow` does and makes one `Renderer` with validation on, which every test
+shares; the tests run one at a time and carry `[Trait("Speed", "Slow")]`, so a machine without a
+GPU filters them out. A test that needs tracing fails with a message saying so on a GPU that
+can't trace, rather than passing without checking anything.
+
 ## Known simplifications to revisit
 
 - Only cooked models' textures are block-compressed. Textures loaded on their own, graph

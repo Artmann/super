@@ -134,9 +134,18 @@ internal sealed unsafe class GpuMemory(VulkanContext context) : IDisposable
 
     private DeviceMemory AllocateRaw(ulong size, uint memoryType, bool hostVisible, out byte* mapped)
     {
+        // A buffer can only have a device address if its memory was allocated to allow one. That is asked of every
+        // allocation where the device can trace, so a mesh made later for tracing never needs its own block. A device
+        // without bufferDeviceAddress must not be asked, so there the allocation is exactly what it always was.
+        var addressFlags = new MemoryAllocateFlagsInfo
+        {
+            SType = StructureType.MemoryAllocateFlagsInfo,
+            Flags = MemoryAllocateFlags.DeviceAddressBit,
+        };
         var allocInfo = new MemoryAllocateInfo
         {
             SType = StructureType.MemoryAllocateInfo,
+            PNext = context.CanTrace ? &addressFlags : null,
             AllocationSize = size,
             MemoryTypeIndex = memoryType,
         };
