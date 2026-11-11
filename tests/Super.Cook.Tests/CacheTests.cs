@@ -473,4 +473,28 @@ public sealed class CacheTests : IDisposable
 
         Assert.Equal(["later.dat"], input.Inputs);
     }
+
+    [Fact]
+    public void A_record_lists_its_inputs_in_name_order_whatever_order_they_were_read_in()
+    {
+        string src = Temp();
+        string cache = Temp();
+        File.WriteAllText(Path.Combine(src, "a.probe"), "x");
+        File.WriteAllText(Path.Combine(src, "b.txt"), "b");
+        File.WriteAllText(Path.Combine(src, "a.txt"), "a");
+        var cooker = new ProbeCooker((input, output) =>
+        {
+            input.Read("b.txt");
+            input.Read("a.txt");
+            output.Add(ContentKind.Data, [1]);
+        });
+
+        Cook(cache, [new FolderRoot(src)], null, cooker);
+
+        string record = Assert.Single(Directory.GetFiles(Path.Combine(cache, "records")));
+        var names = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(record))!["inputs"]!.AsArray()
+            .Select(item => item!["name"]!.GetValue<string>())
+            .ToList();
+        Assert.Equal(["a.txt", "b.txt"], names);
+    }
 }

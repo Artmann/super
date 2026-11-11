@@ -540,18 +540,13 @@ public sealed class ModelCooker : ICooker
 
             positions ??= vertices.Select(vertex => vertex.Position).ToArray();
             uvs ??= vertices.Select(vertex => vertex.Uv2).ToArray();
-            // Each part is one of the model's meshes, and height is measured from each one's own foot.
-            var own = parts.Where(part => part.Material == material).ToList();
-            var mesh = new MeshData(
-                positions, uvs, IndicesOf(own, indices),
-                own.SelectMany((part, i) => Enumerable.Repeat(i, (int)part.IndexCount / 3)).ToArray());
+            var (mesh, rest) = MaskMeshes(positions, uvs, parts, indices, material);
             if (MaskBaker.Problem(mesh, MaskBaker.DefaultSize) is { } problem)
             {
                 Error(problem + ".");
                 continue;
             }
 
-            var rest = new MeshData(positions, uvs, IndicesOf(parts.Where(part => part.Material != material), indices));
             byte[]? rgba = null;
             string? key = null;
             if (input.HasStepCache)
@@ -567,7 +562,8 @@ public sealed class ModelCooker : ICooker
                 }
             }
 
-            bakes.Add(new MaskBake(material, name, mesh, rest, key, wear, dirt) { Rgba = rgba });
+            // The meshes aren't kept: each holds most of the model's indices, so they're made again when it bakes.
+            bakes.Add(new MaskBake(material, name, key, wear, dirt) { Rgba = rgba });
         }
 
         // The materials bake at once, since each bake has serial steps that leave cores idle. They're added in material
@@ -578,7 +574,17 @@ public sealed class ModelCooker : ICooker
         {
             using (input.Time("bake masks"))
             {
-                toBake[i].Rgba = MaskBaker.Bake(toBake[i].Mesh, MaskBaker.DefaultSize, toBake[i].Rest).Rgba;
+                var (mesh, rest) = MaskMeshes(positions!, uvs!, parts, indices, toBake[i].Material);
+                BakePermits.Wait();
+                try
+                {
+                    toBake[i].Rgba = MaskBaker.Bake(mesh, MaskBaker.DefaultSize, rest).Rgba;
+                }
+                finally
+                {
+                    BakePermits.Release();
+                }
+
                 toBake[i].Baked = true;
             }
         });
@@ -605,11 +611,33 @@ public sealed class ModelCooker : ICooker
         return failed ? null : masks;
     }
 
-    /// <summary>How many materials' masks bake at once. Each bake runs its texels in parallel already.</summary>
+    /// <summary>How many of a model's materials' masks bake at once. Each bake runs its texels in parallel already.</summary>
     private const int MasksAtOnce = 4;
 
-    /// <summary>One material's masks: what they're baked from, and their pixels once recalled or baked.</summary>
-    private sealed record MaskBake(int Material, string Name, MeshData Mesh, MeshData Rest, string? Key, MaterialLayer Wear, MaterialLayer Dirt)
+    /// <summary>
+    /// How many masks bake at once in the process, whichever models they're for. A bake holds its own buffers at the mask
+    /// size and traces against the rest of the model, so this, not the number of workers, sets how much memory bakes take.
+    /// </summary>
+    internal static readonly int BakesAtOnce = Math.Clamp(Environment.ProcessorCount / 2, 2, 8);
+
+    private static readonly SemaphoreSlim BakePermits = new(BakesAtOnce);
+
+    /// <summary>
+    /// The mesh a material's masks are baked from, its own parts, and the rest of the model it traces against. Each part is
+    /// one of the model's meshes, and height is measured from each one's own foot.
+    /// </summary>
+    private static (MeshData Mesh, MeshData Others) MaskMeshes(Vector3[] positions, Vector2[] uvs, List<ModelPart> parts, List<uint> indices, int material)
+    {
+        var own = parts.Where(part => part.Material == material).ToList();
+        var mesh = new MeshData(
+            positions, uvs, IndicesOf(own, indices),
+            own.SelectMany((part, i) => Enumerable.Repeat(i, (int)part.IndexCount / 3)).ToArray());
+        var rest = new MeshData(positions, uvs, IndicesOf(parts.Where(part => part.Material != material), indices));
+        return (mesh, rest);
+    }
+
+    /// <summary>One material's masks: what they're laid with, and their pixels once recalled or baked.</summary>
+    private sealed record MaskBake(int Material, string Name, string? Key, MaterialLayer Wear, MaterialLayer Dirt)
     {
         public byte[]? Rgba { get; set; }
 
@@ -875,14 +903,16 @@ public sealed class ModelCooker : ICooker
     /// <summary>One graph's images, packed into the pixels of its textures.</summary>
     private sealed record GraphRun(string Key, int Size, float Width, float HeightDepth, MaterialPixels Pixels);
 
+    /// <summary>A material's graph, and the detail graph it runs when that graph works.</summary>
+    private sealed record WantedGraphs((string Path, int Size) Main, (string Path, int Size)? Detail);
+
     /// <summary>
-    /// The graphs and detail graphs the materials will run, by the same rules <see cref="RunGraph"/> and
-    /// <see cref="RunDetailGraph"/> follow, so none runs that they wouldn't. A detail graph is in even when its main graph
-    /// will fail, which costs a run but changes nothing, since a run made ahead only reports when it's asked for.
+    /// The graphs and detail graphs the materials will run, in material order, by the same rules <see cref="RunGraph"/> and
+    /// <see cref="RunDetailGraph"/> follow, so none runs that they wouldn't.
     /// </summary>
-    private static unsafe List<(string Path, int Size)> GraphsWanted(Assimp assimp, Scene* scene, ImportSettings settings)
+    private static unsafe List<WantedGraphs> GraphsWanted(Assimp assimp, Scene* scene, ImportSettings settings)
     {
-        var wanted = new List<(string Path, int Size)>();
+        var wanted = new List<WantedGraphs>();
         for (uint i = 0; i < scene->MNumMaterials; i++)
         {
             AssimpString name;
@@ -899,13 +929,10 @@ public sealed class ModelCooker : ICooker
                 continue;
             }
 
-            wanted.Add((path, size));
             int detailSize = rule.DetailGraphSize ?? MaterialGraphs.DefaultSize;
-            if (rule.DetailGraph is { } detail && rule.DetailColor is null && rule.DetailNormal is null
-                && MaterialGraphs.SizeProblem("detailGraphSize", detailSize) is null)
-            {
-                wanted.Add((detail, detailSize));
-            }
+            bool withDetail = rule.DetailGraph is not null && rule.DetailColor is null && rule.DetailNormal is null
+                && MaterialGraphs.SizeProblem("detailGraphSize", detailSize) is null;
+            wanted.Add(new WantedGraphs((path, size), withDetail ? (rule.DetailGraph!, detailSize) : null));
         }
 
         return wanted;
@@ -929,44 +956,77 @@ public sealed class ModelCooker : ICooker
         /// Runs <paramref name="wanted"/> at once, before the materials ask for them one by one with <see cref="Run"/>. Their
         /// errors wait until then, so they're reported by the material that asks first, in the order the materials come.
         /// </summary>
-        public void RunAhead(IEnumerable<(string Path, int Size)> wanted)
+        public void RunAhead(IReadOnlyList<WantedGraphs> wanted)
         {
-            var runs = wanted
-                .Select(run => (Path: run.Path.Replace('\\', '/'), run.Size))
-                .DistinctBy(run => $"{run.Path}@{run.Size}", StringComparer.Ordinal)
-                .Where(run => !_runs.ContainsKey($"{run.Path}@{run.Size}") && !_ahead.ContainsKey($"{run.Path}@{run.Size}"))
-                .ToList();
-            if (runs.Count < 2)
+            string KeyOf((string Path, int Size) run) => $"{run.Path.Replace('\\', '/')}@{run.Size}";
+            bool Fresh((string Path, int Size) run) => !_runs.ContainsKey(KeyOf(run)) && !_ahead.ContainsKey(KeyOf(run));
+
+            int count = wanted
+                .SelectMany(item => item.Detail is { } detail ? new[] { item.Main, detail } : [item.Main])
+                .Where(Fresh)
+                .Select(KeyOf)
+                .Distinct(StringComparer.Ordinal)
+                .Count();
+            if (count < 2)
             {
                 return;
             }
 
-            var made = new (PackedImages? Packed, List<string> Errors)[runs.Count];
-            try
+            // A graph two materials name runs once: the second waits for the first's.
+            var runs = new System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<(PackedImages? Packed, List<string> Errors)>>(StringComparer.Ordinal);
+            (PackedImages? Packed, List<string> Errors) Make((string Path, int Size) run)
             {
-                Parallel.For(0, runs.Count, new ParallelOptions { MaxDegreeOfParallelism = AtOnce }, i =>
+                string path = run.Path.Replace('\\', '/');
+                return runs.GetOrAdd(KeyOf(run), _ => new Lazy<(PackedImages?, List<string>)>(() =>
                 {
                     var errors = new List<string>();
-                    var packed = MaterialGraphs.RunPacked(input, runs[i].Path, runs[i].Size, message =>
+                    var packed = MaterialGraphs.RunPacked(input, path, run.Size, message =>
                     {
                         lock (errors)
                         {
                             errors.Add(message);
                         }
                     });
-                    made[i] = (packed, errors);
-                });
-            }
-            catch (AggregateException aggregate) when (aggregate.InnerExceptions.Count > 0)
-            {
-                // The pipeline tells a locked file from other failures by the exception itself.
-                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(aggregate.InnerExceptions[0]).Throw();
-                throw;
+                    return (packed, errors);
+                })).Value;
             }
 
-            for (int i = 0; i < runs.Count; i++)
+            // Each material's graphs, in the order the materials will ask for them. A detail graph only runs when its
+            // material's main graph worked, as it would when the material asked.
+            var failures = new Exception?[wanted.Count];
+            Parallel.For(0, wanted.Count, new ParallelOptions { MaxDegreeOfParallelism = AtOnce }, i =>
             {
-                _ahead[$"{runs[i].Path}@{runs[i].Size}"] = made[i];
+                try
+                {
+                    if (!Fresh(wanted[i].Main))
+                    {
+                        return;
+                    }
+
+                    if (Make(wanted[i].Main).Packed is not null && wanted[i].Detail is { } detail && Fresh(detail))
+                    {
+                        Make(detail);
+                    }
+                }
+                catch (Exception exception)
+                {
+                    failures[i] = exception;
+                }
+            });
+
+            foreach (var (key, run) in runs)
+            {
+                if (run.IsValueCreated)
+                {
+                    _ahead[key] = run.Value;
+                }
+            }
+
+            // The first material's failure is the one the materials would have met asking one by one. The pipeline tells
+            // a locked file from other failures by the exception itself, so it's thrown as it was.
+            if (failures.FirstOrDefault(failure => failure is not null) is { } first)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(first).Throw();
             }
         }
 

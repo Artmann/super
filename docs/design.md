@@ -434,13 +434,25 @@ timed sources, those the last cook didn't time are dropped. The order changes on
 source starts when: the results still merge in source order.
 
 Inside one model the slow steps also overlap. Before its materials are read, the models
-cooker runs every graph and detail graph they will ask for, three at a time
-(`GraphRuns.RunAhead`), and keeps each run's errors until the material that asks for it
-first, so problems come out in material order as before. The mask bakes then run four
-materials at a time and are added to the model in material order. Each graph run and each
-bake already spreads its pixels over every core, but has serial steps (compiling, packing,
-rasterizing, dilating) that left cores idle. The cost is memory: a cold cook of the whole
-Courtyard peaked at 10 to 17 GB, against about 9 GB with one at a time.
+cooker runs the graphs they will ask for, three materials at a time
+(`GraphRuns.RunAhead`). A material's detail graph runs only once its main graph has worked,
+as when the material asks for it. Each run's errors wait until the material that asks for it
+first, so problems come out in material order as before, and when several runs throw, the
+first material's exception is the one thrown. The mask bakes then run four materials at a
+time and are added to the model in material order; a bake builds its meshes when it starts,
+so a waiting one holds none. Each graph run and each bake already spreads its pixels over
+every core, but has serial steps (compiling, packing, rasterizing, dilating) that left cores
+idle.
+
+All of that is bounded for the whole process, not per model: at most half the processors,
+from 2 to 8, run a graph at once (`MaterialGraphs.RunsAtOnce`, taken around `GraphRunner.Run`
+only, never while waiting for a shared run, which would deadlock) and as many bake masks
+(`ModelCooker.BakesAtOnce`). Most of the memory a cook took was garbage, though: the large
+object heap grew with the images workers dropped, and a cold cook of the whole Courtyard
+peaked at 9 to 15 GB from run to run. `super-cook` sets `System.GC.ConserveMemory` to 7, so
+the collector compacts that heap, and the same cook peaks near 6 GB in the same time. Lower
+limits saved little more: four graphs and four bakes at once peaked half a gigabyte lower and
+took 6 seconds longer.
 
 **Hard links.** A fresh cook saves to the cache before it writes the store, so
 `StoreWriter.Put` can ask `ICookedStore.TryLink` to link the store's file to the cache's copy
@@ -543,11 +555,18 @@ run at the same size runs once: the Courtyard's graphs are run by its materials,
 keeps the path and SHA-256 of each image it read. The first source to ask runs the graph and
 the others wait for it. A source that gets a shared run reads each image through its own
 `CookInput.Read`, which tracks it for the record, and runs the graph itself if any hash
-differs. Only runs that worked are shared, so each source reports its own errors. The run
+differs, and its run then takes the stale one's place, so the cooks after it share the new
+one. Only runs that worked are shared, so each source reports its own errors. A material
+that runs its own graph keeps the run in the step cache as a model does. The run
 holds the packed pixels and what `MaterialChecks.Measure` found in them, so the material
-cooker's warnings need no second look at the floats. Runs are kept up to 1 GiB, after which
-all are dropped, and a run of more than 128 MiB, such as one at 4096 pixels, isn't kept at
-all, though the sources already waiting for it still get it.
+cooker's warnings need no second look at the floats. Runs are kept up to 1 GiB
+(`SharedGraphRuns.MaxSharedBytes`). Past it the runs kept longest are dropped until the rest
+fit, and may run again; a run still being made is never dropped, since sources wait for it.
+A run of more than 128 MiB, such as one at 4096 pixels, isn't kept at all, though the sources
+already waiting for it still get it.
+
+A cache record lists its inputs in ordinal order, since a model's parallel steps read them in
+whatever order they finish, and the same cook should write the same record.
 
 The models cooker shares decoded textures between the models of a cook, and the cooks after
 it in the same process. They're keyed by the SHA-256 of the image bytes (and of the alpha

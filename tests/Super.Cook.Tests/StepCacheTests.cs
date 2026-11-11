@@ -8,8 +8,11 @@ namespace Super.Cook.Tests;
 /// <summary>
 /// The step cache inside the cook cache, and the slow steps that keep their results in it: graph runs,
 /// baked masks and compressed textures. Each must give the same result from the cache as from running,
-/// miss when an input changes and hit when none does.
+/// miss when an input changes and hit when none does. Graph runs are also shared by the whole process, which these
+/// tests forget, so they run with the other tests that do.
 /// </summary>
+[Collection(SharedGraphRunsCollection.Name)]
+[Trait("Speed", "Slow")]
 public sealed class StepCacheTests : IDisposable
 {
     private readonly List<string> _folders = [];

@@ -182,8 +182,9 @@ internal sealed class CookCache(string folder, CacheUsage? usage = null)
     {
         try
         {
+            // Sorted, since parallel steps read their inputs in whatever order they run, and the same cook should make the same record.
             var inputNodes = new JsonArray();
-            foreach (string name in inputs)
+            foreach (string name in inputs.Order(StringComparer.Ordinal))
             {
                 string? resolved = CookInput.ResolveName(file.Name, name);
                 string? hash = resolved is null ? Unresolvable : HashFile(file.Root, resolved);
