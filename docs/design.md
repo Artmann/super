@@ -3044,6 +3044,22 @@ The sky is worked out once, from the original view: the second pass skips `BakeS
 it draws. So a dropped Baked sun keeps lighting the sky and keeps its disc, and the sky isn't
 baked again without it each frame (`BakedSunGpuTests`).
 
+### Shadow mask channels
+
+`ShadowMaskChannels.Assign` (`src/Rendition/Baking/ShadowMaskChannels.cs`) says which of a
+space's four mask channels each Mixed light writes. It puts -1 in every slot first, which means
+no channel. The first Mixed sun takes channel 0, and any other sun gets none. A local light is
+a member when it is Mixed and `BakeAreas.OwnerOfLight` says the space holds its position, the
+same rule that puts it in the space's hash, so a light the bake doesn't hold has no mask. This
+covers lights that cast shadows and lights with no shadow tile alike, since a light with no
+tile is shadowed by the mask alone. Members are sorted by (`Key`, index in the frame) and
+coloured greedily: each takes the lowest channel, from 1 when a sun has 0, that no earlier
+member with an overlapping range has taken. Two ranges overlap when the distance between the
+lights is less than the sum of their ranges. A member with no channel left is skipped by the
+lights after it, and its `Key` is added to `unassigned` (cleared first, in ascending order) for
+the bake report. Keys make the result the same whatever order the frame lists the lights
+in; two lights sharing a key are told apart by index, which is the one case where order shows.
+
 ## Ray tracing
 
 Device setup is in `VulkanContext.CreateDevice` (see above): ray queries are on only where nothing is

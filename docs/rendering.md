@@ -250,6 +250,11 @@ part of one, and `Mixed` is both. Until a [bake](#baked-lighting) exists, every 
 live whatever its mode, so every frame looks the same. A mode that isn't one of the three
 throws.
 
+A baked space keeps the shadows of its Mixed lights in a shadow mask with four channels. The
+sun takes one when it is Mixed, and Mixed point and spot lights whose ranges overlap need
+different channels, so a space has at most four Mixed lights reaching the same place. A light
+that finds none left keeps its real-time shadows only.
+
 ## Shadows
 
 ```csharp
