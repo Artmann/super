@@ -81,6 +81,14 @@ internal sealed unsafe class UploadQueue(VulkanContext context)
                 DstStageMask = PipelineStageFlags2.VertexInputBit,
                 DstAccessMask = AccessFlags2.VertexAttributeReadBit | AccessFlags2.IndexReadBit,
             };
+
+            // Where the device can trace, a mesh's bytes are also read by the build of its acceleration structure.
+            if (context.CanTrace)
+            {
+                barrier.DstStageMask |= PipelineStageFlags2.AccelerationStructureBuildBitKhr;
+                barrier.DstAccessMask |= AccessFlags2.ShaderReadBit;
+            }
+
             var dependency = new DependencyInfo
             {
                 SType = StructureType.DependencyInfo,

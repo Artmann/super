@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Runtime.InteropServices;
 using Rendition.Vulkan;
 using Silk.NET.Core.Native;
@@ -13,22 +14,42 @@ public sealed unsafe class GpuFixture : IDisposable
 {
     private const int Size = 256;
 
+    // GLFW is process-wide, and terminating it closes every window, so it ends with the last fixture.
+    private static readonly Lock GlfwLock = new();
+    private static int _glfwUsers;
+
     private readonly Glfw _glfw;
     private readonly WindowHandle* _window;
+    private readonly int _width;
+    private readonly int _height;
 
     public Renderer Renderer { get; }
 
     /// <summary>The Vulkan messages the validation layers have reported so far.</summary>
     public int ValidationErrors => Renderer.ValidationErrors;
 
+    /// <summary>A plain grey material: opaque, with no textures.</summary>
+    public MaterialHandle Matte { get; }
+
     internal VulkanContext Context => Renderer.Context;
 
     public GpuFixture()
+        : this(disableRayTracing: false)
+    {
+    }
+
+    /// <summary>A fixture of its own, alongside the shared one. Pass true to make its device without ray queries.</summary>
+    internal GpuFixture(bool disableRayTracing)
     {
         _glfw = Glfw.GetApi();
-        if (!_glfw.Init())
+        lock (GlfwLock)
         {
-            throw new InvalidOperationException("Could not initialize GLFW.");
+            if (!_glfw.Init())
+            {
+                throw new InvalidOperationException("Could not initialize GLFW.");
+            }
+
+            _glfwUsers++;
         }
 
         _glfw.WindowHint(WindowHintClientApi.ClientApi, ClientApi.NoApi);
@@ -36,35 +57,63 @@ public sealed unsafe class GpuFixture : IDisposable
         _window = _glfw.CreateWindow(Size, Size, "Rendition GPU tests", null, null);
         if (_window is null)
         {
-            _glfw.Terminate();
+            ReleaseGlfw();
             throw new InvalidOperationException("Could not create a window.");
         }
 
         try
         {
-            _glfw.GetFramebufferSize(_window, out int width, out int height);
+            _glfw.GetFramebufferSize(_window, out _width, out _height);
             Renderer = new Renderer(new RendererOptions
             {
                 InstanceExtensions = InstanceExtensions(),
                 CreateSurface = CreateSurface,
-                Width = width,
-                Height = height,
+                Width = _width,
+                Height = _height,
                 EnableValidation = true,
+                DisableRayTracing = disableRayTracing,
             });
+            Matte = Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.5f, 0.5f, 0.5f, 1f), Roughness = 0.8f });
         }
         catch
         {
             _glfw.DestroyWindow(_window);
-            _glfw.Terminate();
+            ReleaseGlfw();
             throw;
         }
+    }
+
+    /// <summary>Renders one frame of nothing, which also runs every copy waiting to ride a frame, such as a new mesh's.</summary>
+    public void RenderOneFrame()
+    {
+        var view = new FrameView
+        {
+            Width = _width,
+            Height = _height,
+            View = Matrix4x4.CreateLookAt(new Vector3(0, 0, 3), Vector3.Zero, Vector3.UnitY),
+            Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 4f, _width / (float)_height, 0.1f),
+            CameraPosition = new Vector3(0, 0, 3),
+        };
+        Renderer.Render(view, []);
     }
 
     public void Dispose()
     {
         Renderer.Dispose();
         _glfw.DestroyWindow(_window);
-        _glfw.Terminate();
+        ReleaseGlfw();
+    }
+
+    private void ReleaseGlfw()
+    {
+        lock (GlfwLock)
+        {
+            _glfwUsers--;
+            if (_glfwUsers == 0)
+            {
+                _glfw.Terminate();
+            }
+        }
     }
 
     private ulong CreateSurface(nint instance)

@@ -92,6 +92,7 @@ public sealed unsafe class Renderer : IDisposable
     private readonly DestroyedSlot[] _destroyed = [.. Enumerable.Range(0, FramesInFlight).Select(_ => new DestroyedSlot())];
     private readonly UploadQueue _uploads;
     private readonly ResourceTable _resources;
+    private readonly RayTracing? _tracing;
     private readonly EnvironmentMap _environment;
     private readonly ReflectionProbes _probes;
 
@@ -419,6 +420,13 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         _resources = new ResourceTable(_context);
+        if (_context.CanTrace)
+        {
+            _tracing = new RayTracing(_context, _resources, MeshFor,
+                releaseAfterSubmitted: structure => Destroying().Others.Add(structure),
+                releaseAfterRecorded: scratch => _destroyed[_frameIndex].Others.Add(scratch));
+        }
+
         _shadowResolution = ShadowPass.CheckResolution(options.ShadowResolution);
         _shadowPass = new ShadowPass(_context, _frameSetLayout, _resources, _shadowResolution);
         foreach (ref var frame in _frames.AsSpan())
@@ -506,6 +514,9 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>The Vulkan context, for tests that make buffers of their own.</summary>
     internal VulkanContext Context => _context;
 
+    /// <summary>The acceleration structures rays are traced through, or null when the GPU can't trace.</summary>
+    internal RayTracing? Tracing => _tracing;
+
     private MeshHandle AddMesh(Mesh mesh)
     {
         if (_freeMeshes.Count > 0)
@@ -539,6 +550,9 @@ public sealed unsafe class Renderer : IDisposable
         _uploads.Cancel(live.Vertices);
         _uploads.Cancel(live.Indices);
         Destroying().Meshes.Add(live);
+
+        // Its structures read its buffers, and its handle may go to another mesh, so they go with it.
+        _tracing?.Forget(mesh);
     }
 
     /// <summary>
@@ -1670,6 +1684,7 @@ public sealed unsafe class Renderer : IDisposable
             ReleaseDestroyed(slot);
         }
 
+        _tracing?.Dispose();
         _gpuTimer.Dispose();
         _overlayPass.Dispose();
         _overlayAtlas?.Dispose();

@@ -2337,7 +2337,41 @@ window the way `GameWindow` does and makes one `Renderer` with validation on, wh
 shares; the tests run one at a time and carry `[Trait("Speed", "Slow")]` and
 `[Trait("Needs", "GPU")]`. CI runs on machines without a GPU, so it filters them out with
 `--filter "Needs!=GPU"`; run them locally before merging rendering work. A test that needs tracing fails with a message saying so on a GPU that
-can't trace, rather than passing without checking anything.
+can't trace, rather than passing without checking anything. `GpuFixture.Matte` is a plain opaque
+material for tests to draw or trace with, and `RenderOneFrame` renders one empty frame, which also
+runs every queued upload. A test can make a fixture of its own, such as one whose device can't
+trace; GLFW is only terminated when the last fixture goes, since that closes every window.
+
+## Ray tracing
+
+`Renderer.Tracing` is a `RayTracing`, made only where `VulkanContext.CanTrace` is true; it is
+null everywhere else, and nothing below runs. It loads `KhrAccelerationStructure` from the device
+once and reads `minAccelerationStructureScratchOffsetAlignment` from the device's properties.
+
+Bottom-level structures are built the first time something traces a mesh.
+`BottomLevel(cmd, mesh, parts)` returns the structure's device address. The first call for a mesh
+and a part list records the build into `cmd`; after that the same address comes back and nothing is
+recorded. The key is the mesh and its `TracePart` list together, because the same mesh can be drawn
+with different index ranges. Each part becomes one triangle geometry over the mesh's own vertex and
+index buffers: `R32G32B32Sfloat` positions at `Vertex.Position` with a stride of `sizeof(Vertex)`,
+`Uint32` indices, and the part's first index as the range's byte offset. A geometry is `Opaque`,
+so rays skip the any-hit check, unless its material has cut-outs or is `Transparent`. Builds use
+`PreferFastTrace` and are not compacted yet.
+
+Every build shares one scratch buffer, which grows when a build needs more. Its address is rounded
+up to the device's scratch alignment, so the buffer is made that much bigger. An outgrown scratch
+buffer is retired into the destroy slot of the frame being recorded, because the command buffer
+being recorded may still use it. A barrier follows each build, from the build's writes to
+acceleration structure reads and writes at the build stage. That covers the next build reusing the
+scratch buffer and the top-level build that reads the structure.
+
+A mesh's bytes arrive through `UploadQueue`. Where the device can trace, the upload barrier also
+covers the acceleration structure build stage, so a build later in the same command buffer reads
+the uploaded bytes, not what was in the buffer before.
+
+`DestroyMesh` calls `Forget`, which drops the mesh's structures at once, since its handle may be
+handed to another mesh. The structures and their buffers are added to the same destroy slot as the
+mesh's own buffers, so they are released once no frame in flight can read them.
 
 ## Known simplifications to revisit
 
