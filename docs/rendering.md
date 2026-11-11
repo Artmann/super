@@ -1367,10 +1367,19 @@ TextureRef noise = content.Texture(new GeneratedTexture(256, rgbaPixels), Textur
 TextureArrayRef ground = content.TextureArray(sand, grass, rock, snow);
 ```
 
-The layers of a texture array must match in size, in colour or linear, and in their
-compressed format: all block-compressed or all with `compressTextures` off, and all normal
-maps (BC5) or none (BC7). Otherwise
-the array fails to load with an error naming the first layer that differs.
+A cooked normal map is BC5, which keeps only red and green, so its blue reads as 0. The
+renderer's own shaders rebuild the third axis from the other two, and a
+[surface shader](#surface-shaders) that reads a normal map must too, with `normalFrom`.
+A texture made from your own pixels, a `GeneratedTexture`, stays RGBA8 with all four
+channels.
+
+The layers of a texture array must match in size, in colour or linear, and in format:
+cooked colour or linear textures are BC7, cooked normal maps BC5, material heights BC4, and
+textures cooked with `compressTextures` off or made from a `GeneratedTexture` are RGBA8. So
+a `GeneratedTexture` can't share an array with cooked layers unless they're cooked
+uncompressed. Otherwise the array fails to load with an error that gives the index of the
+first layer that differs, such as `Layer 2 is 512x512 Linear Rgba8 with 10 mips, but layer
+0 is 512x512 Linear Bc5 with 10 mips.`
 
 A mesh or texture you're done with is let go with `content.Unload`, which frees it after
 the frames in flight. `content.IsReady(model)` says whether a mesh is on the GPU yet, so a
@@ -1515,6 +1524,18 @@ A shader that moves its UVs can still use the material: `materialUv()` is `inUv`
 the material's height map, and `materialSurface(uv)` reads the material at any UV.
 `parallaxUv(slot, uv, depth)` does the same depth trick with a shader texture as the height
 map, and `blendNormals(base, detail)` lays one tangent-space normal over another.
+
+A cooked normal map read with `shaderTexture` or `shaderLayer` holds only red and green;
+its blue is 0, because it's stored as BC5. Turn a texel into a tangent-space normal with
+`normalFrom(texel)`, which rebuilds the third axis, rather than `texel.xyz * 2.0 - 1.0`,
+which gives normals pointing into the surface and leaves it dark. The Archer clearing does
+this:
+
+```glsl
+bump += normalFrom(shaderLayer(1, inUv, float(i))) * weights[i];
+```
+
+![The Archer clearing on main, with BC5 normals read as xyz, and with normalFrom](media/archer-bc5-normals.webp)
 
 Unset slots read white. To compile shaders, put them in a `Shaders` folder in your game
 project and import the targets file, which runs `glslc` from the Vulkan SDK:

@@ -1855,7 +1855,16 @@ through BCnEncoder.NET's decoder (which `Super` now references), copies BC4's re
 and blue, and rebuilds a BC5 normal map's blue from red and green as the shaders do.
 `GameImage.ReadPixels` uses it, and so does `SceneRenderer.LoadImage`, because interface
 images build alpha-weighted mips with `ImageMips` that the cooked mips don't have. So a
-compressed image is smaller on disk only, and is uploaded as RGBA8.
+compressed image is smaller on disk only, and is uploaded as RGBA8. The cooker can't tell an
+image from a texture, since which one a file is depends on the code that loads it, so UI
+images aren't left uncompressed by default; a game turns `compressTextures` off for them
+with a rule, as Crafting does for `icons/**`.
+
+On the GPU a BC5 texture samples blue as 0 and a BC4 one green and blue as 0. The built-in
+shaders read normals through `normalFrom` and heights from red, and a surface shader that
+reads a cooked normal map must use `normalFrom` too; the Archer clearing's ground did
+`.xyz * 2.0 - 1.0` and went dark until it did. The plain texture cooker can't keep cut-out
+coverage, because a cutoff belongs to a model's material and a `Surface` has none.
 
 Compression would undo a cut-out's kept coverage. A few levels down, the filter leaves much
 of a thin cut-out's alpha just either side of the cutoff, and BC7 moves alpha by a few
