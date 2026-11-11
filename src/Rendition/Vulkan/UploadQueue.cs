@@ -96,11 +96,12 @@ internal sealed unsafe class UploadQueue(VulkanContext context)
                 DstAccessMask = AccessFlags2.VertexAttributeReadBit | AccessFlags2.IndexReadBit,
             };
 
-            // Where the device can trace, a mesh's bytes are also read by the build of its acceleration structure.
+            // Where the device can trace, a mesh's bytes are also read by the build of its acceleration structure, and
+            // by tracing shaders, which fetch a hit's vertices and indices through their buffer addresses.
             if (context.CanTrace)
             {
-                barrier.DstStageMask |= PipelineStageFlags2.AccelerationStructureBuildBitKhr;
-                barrier.DstAccessMask |= AccessFlags2.ShaderReadBit;
+                barrier.DstStageMask |= PipelineStageFlags2.AccelerationStructureBuildBitKhr | RayTracing.TraceStages;
+                barrier.DstAccessMask |= AccessFlags2.ShaderReadBit | AccessFlags2.ShaderStorageReadBit;
             }
 
             var dependency = new DependencyInfo

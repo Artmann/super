@@ -1324,12 +1324,14 @@ public sealed unsafe class Renderer : IDisposable
             return; // Minimized: there is nothing to present to.
         }
 
-        _traceView = view.DebugView == DebugView.Trace;
-        if (_traceView && _tracing is null)
+        bool traceView = view.DebugView == DebugView.Trace;
+        if (traceView && _tracing is null)
         {
             throw new InvalidOperationException(
                 $"The trace debug view needs a GPU that can trace rays, and this one can't ({_context.NoTraceReason}).");
         }
+
+        _traceView = traceView;
 
         // The trace debug view shows colours as they are, so nothing that blends, blurs or brightens them runs.
         var viewOff = _traceView ? view.Off | TraceViewOff : view.Off;

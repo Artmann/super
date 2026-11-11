@@ -2367,7 +2367,11 @@ scratch buffer and the top-level build that reads the structure.
 
 A mesh's bytes arrive through `UploadQueue`. Where the device can trace, the upload barrier also
 covers the acceleration structure build stage, so a build later in the same command buffer reads
-the uploaded bytes, not what was in the buffer before. `BottomLevel` throws if the mesh's vertex
+the uploaded bytes, not what was in the buffer before. It also covers storage reads in the stages
+that trace (`RayTracing.TraceStages`, compute for now), because a hit fetches its triangle's
+indices and vertices through the buffers' addresses. A texture's upload likewise ends its layout
+transition with those stages among the sampled readers, so a mesh or texture created this frame can
+be traced this frame. Where the device can't trace, both barriers name only the raster stages. `BottomLevel` throws if the mesh's vertex
 or index copy is still waiting in the queue (`UploadQueue.IsPending`), rather than caching a
 structure built from empty memory. Inside `Render` that never happens, because the frame's uploads
 are the first thing recorded. A caller that builds in its own `SubmitAndWait` straight after
@@ -2433,7 +2437,8 @@ tests. The table grows with the structure it belongs to and goes back to the poo
 
 A build ends with a barrier for the next build, at the build stage. Before a shader reads a
 structure, `RayTracing.ReadyToTrace(cmd)` records one more, from the build's writes to
-acceleration structure reads in compute shaders.
+acceleration structure reads in the tracing stages. It covers only the structures; the mesh and
+texture bytes a hit reads are made visible by their own upload barriers (see above).
 
 ### Tracing from shaders: trace.glsl
 

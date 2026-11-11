@@ -38,6 +38,12 @@ internal struct GpuTraceGeometry
 /// </summary>
 internal sealed unsafe class RayTracing : IDisposable
 {
+    /// <summary>
+    /// The stages that trace rays and read hit data: mesh bytes through buffer addresses and textures through the
+    /// resource table. Uploads and <see cref="ReadyToTrace"/> make their writes visible to these stages.
+    /// </summary>
+    public const PipelineStageFlags2 TraceStages = PipelineStageFlags2.ComputeShaderBit;
+
     private readonly VulkanContext _context;
     private readonly KhrAccelerationStructure _api;
     private readonly ResourceTable _resources;
@@ -213,7 +219,7 @@ internal sealed unsafe class RayTracing : IDisposable
             SType = StructureType.MemoryBarrier2,
             SrcStageMask = PipelineStageFlags2.AccelerationStructureBuildBitKhr,
             SrcAccessMask = AccessFlags2.AccelerationStructureWriteBitKhr,
-            DstStageMask = PipelineStageFlags2.ComputeShaderBit,
+            DstStageMask = TraceStages,
             DstAccessMask = AccessFlags2.AccelerationStructureReadBitKhr,
         };
         var dependency = new DependencyInfo

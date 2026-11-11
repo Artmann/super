@@ -79,6 +79,70 @@ public sealed class TraceDebugTests(GpuFixture gpu)
     }
 
     [Fact]
+    public void Finds_the_part_and_triangle_a_ray_hits_in_a_mesh_of_many_parts()
+    {
+        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        int errors = gpu.ValidationErrors;
+
+        // Two side-by-side quads in one mesh. The left one is the first part (indices 0-5) and the right one the
+        // second (indices 6-11, so FirstIndex 6). Their vertices run in the same order, and the right quad's u is the
+        // left quad's plus 0.5, so a hit on the right that reads the left quad's indices lands on the red half.
+        var tangent = new Vector4(1, 0, 0, 1);
+        Vertex[] vertices =
+        [
+            new(new Vector3(-1f, -0.5f, 0), Vector3.UnitZ, tangent, new Vector2(0f, 0)),
+            new(new Vector3(0f, -0.5f, 0), Vector3.UnitZ, tangent, new Vector2(0.5f, 0)),
+            new(new Vector3(0f, 0.5f, 0), Vector3.UnitZ, tangent, new Vector2(0.5f, 1)),
+            new(new Vector3(-1f, 0.5f, 0), Vector3.UnitZ, tangent, new Vector2(0f, 1)),
+            new(new Vector3(0f, -0.5f, 0), Vector3.UnitZ, tangent, new Vector2(0.5f, 0)),
+            new(new Vector3(1f, -0.5f, 0), Vector3.UnitZ, tangent, new Vector2(1f, 0)),
+            new(new Vector3(1f, 0.5f, 0), Vector3.UnitZ, tangent, new Vector2(1f, 1)),
+            new(new Vector3(0f, 0.5f, 0), Vector3.UnitZ, tangent, new Vector2(0.5f, 1)),
+        ];
+        uint[] indices = [0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7];
+        var mesh = gpu.Renderer.CreateMesh(vertices, indices);
+
+        // Red where u is below 0.5 and green above.
+        const int side = 64;
+        byte[] rgba = new byte[side * side * 4];
+        for (int y = 0; y < side; y++)
+        {
+            for (int x = 0; x < side; x++)
+            {
+                int at = (y * side + x) * 4;
+                rgba[at] = x < side / 2 ? (byte)255 : (byte)0;
+                rgba[at + 1] = x < side / 2 ? (byte)0 : (byte)255;
+                rgba[at + 3] = 255;
+            }
+        }
+
+        var redGreen = gpu.Renderer.CreateTexture(TextureData.FromPixels(side, side, TextureKind.Color, rgba));
+        var blue = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0, 0, 1, 1), Roughness = 0.8f });
+        var textured = gpu.Renderer.CreateMaterial(new Material
+        {
+            BaseColor = Vector4.One,
+            BaseColorTexture = redGreen,
+            Roughness = 0.8f,
+        });
+
+        // One mesh at one place, so both draws become one instance with two parts.
+        byte[] pixels = Capture(
+        [
+            new DrawItem { Mesh = mesh, FirstIndex = 0, IndexCount = 6, Material = blue, Transform = Matrix4x4.Identity },
+            new DrawItem { Mesh = mesh, FirstIndex = 6, IndexCount = 6, Material = textured, Transform = Matrix4x4.Identity },
+        ]);
+
+        // A unit is about 103 pixels here, so these sit in the middle of each quad.
+        AssertPixel(pixels, Size / 2 - 50, Size / 2, (0, 0, 255));
+        AssertPixel(pixels, Size / 2 + 50, Size / 2, (0, 255, 0));
+        gpu.Renderer.DestroyMaterial(textured);
+        gpu.Renderer.DestroyMaterial(blue);
+        gpu.Renderer.DestroyTexture(redGreen);
+        gpu.Renderer.DestroyMesh(mesh);
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
     public void Asking_for_it_without_ray_tracing_says_why_it_cannot()
     {
         using var fresh = new GpuFixture(disableRayTracing: true);

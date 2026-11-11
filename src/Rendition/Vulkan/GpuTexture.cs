@@ -139,11 +139,14 @@ internal sealed unsafe class GpuTexture : IDisposable
 
     /// <summary>
     /// Records the copy from a staging buffer made by <see cref="CreateStaging"/>, leaving
-    /// the image ready for fragment shaders to sample. Allocates nothing.
+    /// the image ready for fragment shaders to sample, and tracing shaders where the device can trace. Allocates nothing.
     /// </summary>
     public void RecordUpload(CommandBuffer cmd, GpuBuffer staging)
     {
         var api = _context.Api;
+        var readers = _context.CanTrace
+            ? PipelineStageFlags2.FragmentShaderBit | RayTracing.TraceStages
+            : PipelineStageFlags2.FragmentShaderBit;
         api.Transition(cmd, _image, ImageAspectFlags.ColorBit,
             ImageLayout.Undefined, ImageLayout.TransferDstOptimal,
             PipelineStageFlags2.None, AccessFlags2.None,
@@ -178,7 +181,7 @@ internal sealed unsafe class GpuTexture : IDisposable
         api.Transition(cmd, _image, ImageAspectFlags.ColorBit,
             ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
             PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit,
-            PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit, MipCount, 0, 0, Layers);
+            readers, AccessFlags2.ShaderSampledReadBit, MipCount, 0, 0, Layers);
     }
 
     private int MipSize(int level) => TextureData.LevelSize(_format, Math.Max(Width >> level, 1), Math.Max(Height >> level, 1));
