@@ -77,7 +77,8 @@ public static class Game
         bool validate = hidden && arguments.ProfilePath is null;
         using var window = new GameWindow(
             options.Title, arguments.Width ?? options.Width, arguments.Height ?? options.Height, hidden, validate, !host.Graphics.Vsync,
-            host.Graphics.ShadowResolution, host.Graphics.RenderScale, host.Graphics.Upscaler, options.Maximized, options.Borderless);
+            host.Graphics.ShadowResolution, host.Graphics.RenderScale, host.Graphics.Upscaler, options.Maximized, options.Borderless,
+            arguments.NoTrace);
 
         if (arguments.ProfilePath is { } report)
         {

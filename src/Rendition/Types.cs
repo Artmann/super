@@ -1210,6 +1210,12 @@ public sealed class RendererOptions
     /// </summary>
     public bool DisableVsync { get; init; }
 
+    /// <summary>
+    /// Makes the device without ray queries even where the GPU has them, so <see cref="Renderer.CanTrace"/> is false.
+    /// For seeing what a player whose GPU can't trace gets.
+    /// </summary>
+    public bool DisableRayTracing { get; init; }
+
     /// <summary>How many texels across each of the sun's cascade maps starts: 1024, 2048 or 4096. See <see cref="Renderer.ShadowResolution"/>.</summary>
     public int ShadowResolution { get; init; } = 2048;
 

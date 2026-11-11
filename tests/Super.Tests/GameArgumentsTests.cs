@@ -60,6 +60,13 @@ public class GameArgumentsTests
     }
 
     [Fact]
+    public void Reads_no_trace()
+    {
+        Assert.True(GameArguments.Parse(["--no-trace"]).NoTrace);
+        Assert.False(GameArguments.Parse([]).NoTrace);
+    }
+
+    [Fact]
     public void Reads_no_vsync()
     {
         Assert.True(GameArguments.Parse(["--no-vsync"]).NoVsync);

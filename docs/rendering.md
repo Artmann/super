@@ -144,6 +144,18 @@ out the same on every machine, but they do follow the effect switches. Turning
 `AntiAliasing` on or off waits for the GPU to finish once, so do it from a menu rather than
 every frame.
 
+### Ray tracing
+
+On a GPU that supports ray queries (`VK_KHR_ray_query` with `VK_KHR_acceleration_structure`,
+`VK_KHR_deferred_host_operations` and `bufferDeviceAddress`) the renderer turns them on when it
+makes the device, and `Renderer.CanTrace` is true. Some players have a GPU that
+can't, so nothing requires it: those players get the same game without tracing. Nothing draws
+with rays yet, so this changes no picture today.
+
+`--no-trace` makes the device without ray queries even on a GPU that has them, so you can see
+what a player without them gets. It works in the window and with `--screenshot`, `--record`
+and `--profile`.
+
 ## Lights
 
 ```csharp

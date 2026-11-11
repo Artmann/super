@@ -26,6 +26,7 @@ dotnet run -c Release --project MyColony -- --script tooltip --ticks 40 --screen
 | `--upscaler taa\|fsr` | Picks what smooths edges and, below a render scale of 1, rebuilds the picture at the window's size: the engine's TAA or AMD FSR. Same as [`Graphics.Upscaler`](rendering.md#upscaling); the game's own setting by default, which is TAA. Anything else is refused |
 | `--no-vsync` | Plays in the window without waiting for the display |
 | `--no-materials` | Draws every surface as plain grey clay, to judge the lighting. Works in the window and with `--screenshot`, `--record` and `--profile`. Same as [`Graphics.Materials`](rendering.md#graphics-settings) set to false |
+| `--no-trace` | Makes the GPU's device without ray queries, even if it has them, to see what a player whose GPU can't trace gets. Works in the window and with `--screenshot`, `--record` and `--profile`. Nothing draws with rays yet, so no picture changes. See [ray tracing](rendering.md#ray-tracing) |
 | `--user-data folder` | Keeps [user data](user-data.md) in this folder. Without it, the window uses the player's folder and runs without a window use a throwaway one |
 
 `--screenshot`, `--record` and `--profile` can't run together. A mistake in the options

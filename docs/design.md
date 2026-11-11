@@ -2239,6 +2239,14 @@ by its KHR name whenever the GPU offers dedicated allocations, and calls it with
 checking, so the device turns on `VK_KHR_get_memory_requirements2` where it exists; without
 it, making the context crashes.
 
+`CreateDevice` also turns on ray queries when `RayTracingSupport.Missing` finds nothing
+missing: the three extensions in `RayTracingSupport.Extensions`, and the `bufferDeviceAddress`,
+`accelerationStructure` and `rayQuery` features, checked on the same `GetPhysicalDeviceFeatures2`
+chain as the others. `VulkanContext.CanTrace` says whether they are on and `NoTraceReason` says
+what was missing, such as `no VK_KHR_ray_query`, or `turned off with --no-trace` for
+`RendererOptions.DisableRayTracing`. When anything is missing the device is made exactly as
+it was before, so a GPU without ray queries loses nothing.
+
 AMD's prebuilt shaders declare FSR's luma history storage image as Rgba8, though FSR makes
 that image RGBA16F. The validation layer reports it on every FSR dispatch, and it is a real
 bug in AMD's shader, not a harmless message: Vulkan says a storage image's declared format

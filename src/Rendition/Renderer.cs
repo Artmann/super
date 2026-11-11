@@ -206,6 +206,12 @@ public sealed unsafe class Renderer : IDisposable
     public int ValidationErrors => _context.ValidationErrors;
 
     /// <summary>
+    /// Whether the GPU can trace rays, with ray queries turned on for the device. Nothing requires it: a GPU
+    /// that can't, or <see cref="RendererOptions.DisableRayTracing"/>, just draws without tracing.
+    /// </summary>
+    public bool CanTrace => _context.CanTrace;
+
+    /// <summary>
     /// Waits for the display before showing each frame, so the picture never tears, and the
     /// frame rate stops at the display's. Turned off, frames are shown as soon as they're done.
     /// Displays that can't do that keep it on. A change takes effect on the next frame.

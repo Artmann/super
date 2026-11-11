@@ -44,7 +44,8 @@ internal sealed unsafe class GameWindow : IDisposable
 
     public GameWindow(
         string title, int windowWidth, int windowHeight, bool hidden, bool validate, bool disableVsync, int shadowResolution,
-        float renderScale = 1f, Upscaler upscaler = Upscaler.Taa, bool maximized = false, bool borderless = false)
+        float renderScale = 1f, Upscaler upscaler = Upscaler.Taa, bool maximized = false, bool borderless = false,
+        bool disableRayTracing = false)
     {
         _hidden = hidden;
         _glfw = Glfw.GetApi();
@@ -92,6 +93,7 @@ internal sealed unsafe class GameWindow : IDisposable
             Height = height,
             EnableValidation = validate,
             DisableVsync = disableVsync && !hidden,
+            DisableRayTracing = disableRayTracing,
             ShadowResolution = shadowResolution,
             RenderScale = renderScale,
             Upscaler = upscaler,

@@ -23,7 +23,8 @@ internal sealed record GameArguments(
     float? UiScale = null,
     bool NoMaterials = false,
     float? RenderScale = null,
-    Rendition.Upscaler? Upscaler = null)
+    Rendition.Upscaler? Upscaler = null,
+    bool NoTrace = false)
 {
     public const int DefaultFramesPerSecond = 60;
 
@@ -43,6 +44,7 @@ internal sealed record GameArguments(
         int? frames = null;
         bool noVsync = false;
         bool noMaterials = false;
+        bool noTrace = false;
         string? scriptName = null;
         string? userDataFolder = null;
         float? uiScale = null;
@@ -101,6 +103,9 @@ internal sealed record GameArguments(
                 case "--no-materials":
                     noMaterials = true;
                     break;
+                case "--no-trace":
+                    noTrace = true;
+                    break;
             }
         }
 
@@ -157,7 +162,7 @@ internal sealed record GameArguments(
 
         return new GameArguments(
             seed, ticks, screenshotPath, recordPath, seconds, framesPerSecond, width, height, profilePath, frames ?? DefaultProfileFrames, noVsync, scriptName, userDataFolder, uiScale, noMaterials,
-            renderScale, upscaler);
+            renderScale, upscaler, noTrace);
     }
 
     private static float PositiveScale(ReadOnlySpan<string> args, int index)
