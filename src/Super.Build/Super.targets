@@ -52,8 +52,14 @@
     with the same properties, so in a build of many games MSBuild builds the tool once and the others wait
     rather than race. The tool always builds in Release, whatever the game's configuration: running material
     graphs and baking masks takes about half as long as in Debug.
+
+    The reference is left out of MSBuild's project graph (IsGraphBuild). The Release tool references the
+    engine too, so with it the graph of a Debug game holds the engine twice, once for each configuration.
+    dotnet watch reads that graph and keeps its projects by path and target framework, so it stopped with
+    "An item with the same key has already been added" before the game started. The build that dotnet
+    watch runs is an ordinary one and still has the reference.
   -->
-  <ItemGroup>
+  <ItemGroup Condition="'$(IsGraphBuild)' != 'true'">
     <ProjectReference Include="$(SuperCookProject)"
                       ReferenceOutputAssembly="false"
                       Private="false"
@@ -105,6 +111,17 @@
         <OnlyOptions Condition="'%(_SuperRoot.Only)' != ''">--only &quot;$([System.String]::Copy('%(_SuperRoot.Only)').Replace(';', '&quot; --only &quot;'))&quot;</OnlyOptions>
       </_SuperRoot>
     </ItemGroup>
+
+    <!--
+      A graph build, as in dotnet build -graph, has no reference to the tool, so the tool is restored and
+      built here. ExcludeRestorePackageImports is what restore is normally evaluated with, and keeps that
+      evaluation apart from the build's.
+    -->
+    <MSBuild Projects="$(SuperCookProject)" Targets="Restore" Properties="Configuration=Release;ExcludeRestorePackageImports=true" RemoveProperties="$(_SuperCookRemovedProperties);IsGraphBuild" Condition="'$(IsGraphBuild)' == 'true' and '@(_SuperRoot)' != ''" />
+    <MSBuild Projects="$(SuperCookProject)" Targets="Build" Properties="Configuration=Release" RemoveProperties="$(_SuperCookRemovedProperties);IsGraphBuild" Condition="'$(IsGraphBuild)' == 'true' and '@(_SuperRoot)' != ''" />
+    <MSBuild Projects="$(SuperCookProject)" Targets="GetTargetPath" Properties="Configuration=Release" RemoveProperties="$(_SuperCookRemovedProperties);IsGraphBuild" Condition="'$(IsGraphBuild)' == 'true' and '@(_SuperRoot)' != ''">
+      <Output TaskParameter="TargetOutputs" ItemName="_SuperCookTool" />
+    </MSBuild>
 
     <PropertyGroup>
       <_SuperCookTool>@(_SuperCookTool)</_SuperCookTool>
