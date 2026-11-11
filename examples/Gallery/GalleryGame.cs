@@ -196,7 +196,8 @@ public sealed class GalleryGame(Content content, Input input) : IGame
             view.Camera(_tour.At(seconds));
         }
 
-        view.Sun(SunDirection, new Vector3(7.2f, 6.8f, 6f));
+        // Mixed: real-time cascades near the camera, and the bake's mask past the last one.
+        view.Sun(SunDirection, new Vector3(7.2f, 6.8f, 6f), mode: LightMode.Mixed);
         view.Sky(new SkySettings
         {
             Zenith = new Vector3(0.2f, 0.38f, 0.8f),
@@ -216,6 +217,10 @@ public sealed class GalleryGame(Content content, Input input) : IGame
         // It's kept on top of the probes that follow the camera: without it the rooms' walls and
         // floors came out blotchy, and the building greyer from the overview.
         view.LightProbes(new Vector3(-11.8f, -0.4f, -56.6f), new Vector3(7.8f, 8.6f, 10.6f), 1.65f);
+
+        // The same box is the baked space "gallery": once it has a bake, the building's static
+        // pieces take their light from it.
+        view.BakedLighting("gallery", new Vector3(-11.8f, -0.4f, -56.6f), new Vector3(7.8f, 8.6f, 10.6f), 1.65f);
 
         // The four reflection probes a frame can have, in the rooms with something shiny.
         view.ReflectionProbe(WhaleProbeKey, new Vector3(-6.5f, 2.5f, -15f), new Vector3(-11f, 0f, -19.85f), new Vector3(-2.3f, 7f, -10.15f));
@@ -237,7 +242,7 @@ public sealed class GalleryGame(Content content, Input input) : IGame
         var pieces = _building.Pieces;
         for (int i = 0; i < pieces.Count; i++)
         {
-            view.Model(1 + i, pieces[i].Mesh, pieces[i].Transform);
+            view.Model(1 + i, pieces[i].Mesh, pieces[i].Transform, isStatic: true);
         }
 
         view.Model(DynamicKey, _bust, Matrix4x4.CreateRotationY(MathF.PI / 2f) * Matrix4x4.CreateTranslation(BustAt));
@@ -253,7 +258,10 @@ public sealed class GalleryGame(Content content, Input input) : IGame
         for (int i = 0; i < Lamps.Length; i++)
         {
             var disc = Lamps[i];
-            view.PointLight(LampLightKey + i, disc - new Vector3(0f, 0.15f, 0f), new Vector3(2.2f, 1.6f, 0.95f), range: 5.5f, radius: 0.35f);
+            // Lamps 1 and 2 are baked, so their soft shadows cost nothing. Lamp 3 stays mixed with
+            // real-time shadows, so the rolling sphere still shades under it.
+            var mode = i < 2 ? LightMode.Baked : LightMode.Mixed;
+            view.PointLight(LampLightKey + i, disc - new Vector3(0f, 0.15f, 0f), new Vector3(2.2f, 1.6f, 0.95f), range: 5.5f, radius: 0.35f, mode: mode);
         }
 
         // The brass sphere rolls back and forth under the lamps, so their soft shadows swing round it.
@@ -281,7 +289,7 @@ public sealed class GalleryGame(Content content, Input input) : IGame
         view.Model(DynamicKey + 30, _wax, Matrix4x4.CreateScale(0.05f, 0.12f, 0.05f) * Matrix4x4.CreateTranslation(0f, -0.405f, 0f) * place);
         var wick = Vector3.Transform(new Vector3(0f, -0.335f, 0f), place);
         float lanternFlicker = 1f + 0.08f * MathF.Sin(_seconds * 9f) + 0.05f * MathF.Sin(_seconds * 23f);
-        view.PointLight(LanternKey, wick + new Vector3(0f, 0.05f, 0f), new Vector3(1.8f, 1.05f, 0.4f) * lanternFlicker, range: 9f, radius: 0.04f);
+        view.PointLight(LanternKey, wick + new Vector3(0f, 0.05f, 0f), new Vector3(1.8f, 1.05f, 0.4f) * lanternFlicker, range: 9f, radius: 0.04f, mode: LightMode.Mixed);
         DrawFlame(view, FlameKey, wick);
 
         // A row of candles on the altar, each flickering on its own, with no shadows.
@@ -291,7 +299,7 @@ public sealed class GalleryGame(Content content, Input input) : IGame
             view.Model(DynamicKey + 40 + i, _wax, Matrix4x4.CreateScale(0.045f, height, 0.045f) * Matrix4x4.CreateTranslation(foot + new Vector3(0f, height / 2f, 0f)));
             var tip = foot + new Vector3(0f, height + 0.012f, 0f);
             float flicker = 1f + 0.15f * MathF.Sin(_seconds * 13f + i * 1.7f) + 0.08f * MathF.Sin(_seconds * 29f + i);
-            view.PointLight(CandleKey + i, tip + new Vector3(0f, 0.03f, 0f), new Vector3(0.4f, 0.19f, 0.055f) * flicker, range: 3f, shadows: false);
+            view.PointLight(CandleKey + i, tip + new Vector3(0f, 0.03f, 0f), new Vector3(0.4f, 0.19f, 0.055f) * flicker, range: 3f, shadows: false, mode: LightMode.Mixed);
             DrawFlame(view, FlameKey + (i + 1) * 1000, tip);
         }
     }

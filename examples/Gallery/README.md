@@ -35,6 +35,26 @@ The camera walks a slow, fixed tour from `Tour.cs`, worked out from time alone, 
 tick always gives the same picture. Press F to fly it yourself: W, A, S and D move, E and
 Q go up and down, and the mouse looks around. F again goes back to the tour.
 
+## Baked lighting
+
+The Gallery is a baked space named `gallery`, over the same box as its light probes. The
+building's boxes, cylinders and spheres are drawn static (`isStatic: true`), so they get
+lightmap UVs; the statues, the rolling sphere, the lantern and the candles stay dynamic.
+Until the space has a bake on disk, every light is drawn live and nothing looks different.
+
+Each light has the mode that suits it:
+
+| Light | Mode | Shadows |
+| --- | --- | --- |
+| Sun through the skylight | Mixed | Real-time cascades; the bake's mask past the last |
+| Lamp room, lamps 1 and 2 | Baked | None live |
+| Lamp room, lamp 3 | Mixed | Real-time |
+| Chapel lantern (swings) | Mixed | Real-time. Made Baked it would be logged as animated |
+| Chapel candles (flicker) | Mixed | No shadow tiles; the mask only |
+
+The glow pieces (`Shaders/glow.frag`) are static too: their surface shader is hashed into the
+bake's identity from `shaders/glow.frag.spv` beside the program.
+
 ## Shots
 
 Each room's hold is halfway through at these ticks, which make repeatable shots:

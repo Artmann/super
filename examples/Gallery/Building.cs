@@ -267,7 +267,7 @@ public sealed class Building
         var key = (Round(size), material);
         if (!_boxes.TryGetValue(key, out var mesh))
         {
-            mesh = _content.Mesh(Shapes.Box(size, _materials[material], uvPerMetre: UvPerMetre));
+            mesh = _content.Mesh(Shapes.Box(size, _materials[material], uvPerMetre: UvPerMetre), isStatic: true);
             _boxes[key] = mesh;
         }
 
@@ -283,7 +283,7 @@ public sealed class Building
         var key = (new Vector3(bottom, top, height), "round " + material);
         if (!_boxes.TryGetValue(key, out var mesh))
         {
-            mesh = _content.Mesh(Shapes.Cylinder(top, bottom, height, 32, _materials[material], uvPerMetre: UvPerMetre));
+            mesh = _content.Mesh(Shapes.Cylinder(top, bottom, height, 32, _materials[material], uvPerMetre: UvPerMetre), isStatic: true);
             _boxes[key] = mesh;
         }
 
@@ -292,7 +292,7 @@ public sealed class Building
 
     private void Sphere(Vector3 centre, float radius, string material)
     {
-        var mesh = _content.Mesh(Shapes.Sphere(radius, 48, 24, _materials[material], uvPerMetre: UvPerMetre));
+        var mesh = _content.Mesh(Shapes.Sphere(radius, 48, 24, _materials[material], uvPerMetre: UvPerMetre), isStatic: true);
         _pieces.Add((mesh, Matrix4x4.CreateTranslation(centre)));
     }
 
