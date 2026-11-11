@@ -114,6 +114,10 @@ public sealed unsafe class Renderer : IDisposable
     // Goes up with every SetEnvironment, so the light probes see the sky has changed.
     private int _environmentVersion;
 
+    // What the last SetEnvironment gave, hashed, and the strength the last frame drew it at, for EnvironmentHash.
+    private ulong _environmentContent;
+    private float _environmentIntensity;
+
     // The clear sky and sun the environment was last baked with. The lighting hashes cover what
     // decides it through the view, so baking it again leaves the version alone.
     private SkySun _bakedSky;
@@ -724,6 +728,31 @@ public sealed unsafe class Renderer : IDisposable
         _api.DeviceWaitIdle(_context.Device).Check();
         _environment.Bake(environment, _bakedSky);
         _environmentVersion++;
+        _environmentContent = HashEnvironment(environment);
+    }
+
+    /// <summary>
+    /// A hash of what a baked space's light comes from besides its draws and lights: the environment's bands and panels
+    /// from the last <see cref="SetEnvironment"/>, and the clear sky's turbidity and the environment intensity of the
+    /// last frame drawn. It follows what they hold, so setting the same environment again gives the same hash. See
+    /// "Is the bake fresh?" in docs/design.md.
+    /// </summary>
+    public ulong EnvironmentHash => BakeInputHash.Hasher()
+        .Add(_environmentContent)
+        .Add(_bakedSky.Turbidity)
+        .Add(_environmentIntensity)
+        .Finish();
+
+    private static ulong HashEnvironment(in EnvironmentDescription environment)
+    {
+        var hasher = new StableHasher().Add(environment.Ceiling).Add(environment.Horizon).Add(environment.Floor);
+        hasher.Add(environment.Panels.Length);
+        foreach (ref readonly var panel in environment.Panels)
+        {
+            hasher.Add(panel.Direction).Add(panel.HalfWidth).Add(panel.HalfHeight).Add(panel.Radiance);
+        }
+
+        return hasher.Finish();
     }
 
     /// <summary>
@@ -732,6 +761,7 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     private void BakeSky(in FrameView view)
     {
+        _environmentIntensity = view.EnvironmentIntensity;
         var sky = SkyModel.Sun(view);
         if (sky == _bakedSky)
         {

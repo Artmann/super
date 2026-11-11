@@ -99,6 +99,15 @@ public sealed unsafe class GpuFixture : IDisposable
         Renderer.Render(view, []);
     }
 
+    /// <summary>Renders one frame of nothing, as <see cref="RenderOneFrame"/> does, under the sky and environment strength given.</summary>
+    public void RenderOneFrame(AnalyticSky sky, float environmentIntensity)
+    {
+        var view = View(DebugView.None);
+        view.Sky = sky;
+        view.EnvironmentIntensity = environmentIntensity;
+        Renderer.Render(view, []);
+    }
+
     /// <summary>Renders one frame of the draws given, as <see cref="RenderOneFrame"/> does, and reads its pixels back.</summary>
     public byte[] CaptureOneFrame(DrawItem[]? draws = null) =>
         Renderer.Capture(View(DebugView.None), draws ?? [], out _, out _);

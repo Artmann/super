@@ -2566,6 +2566,46 @@ it until the model is unloaded or the content reloads. It starts with a kind:
 A shader is hashed by name only, so editing a shader's source doesn't change the ids of the
 meshes drawn with it. A game that draws nothing static never hashes a model.
 
+## Is the bake fresh?
+
+A bake is kept with the hash of what it was made from, so a frame can tell whether it still
+fits. `BakeInputHash` (`src/Rendition/Baking/BakeInputHash.cs`) makes a `BakeInputs`
+(`src/Rendition/Baking/BakeInputs.cs`) of four hashes, and `BakeInputs.Combined` hashes those
+four in order. `BakeInputs.Changes(before)` names the parts that differ, always in the order
+`draws`, `lights`, `environment`, `settings`, so a stale bake can say why. Nothing calls these
+from a frame yet.
+
+`Draws` is the count of the area's static draws and then their `BakeId`s in ascending order.
+`Lights` is the count and the light hashes in ascending order, and for a space then 1 and the
+sun's hash, or 0 when it has no sun. Sorting makes the hash the same whatever order the draws
+and lights come in. It sorts a copy, on the stack for up to 256 values and in an array from
+`ArrayPool<ulong>.Shared` past that, so the caller's spans are untouched and a warm frame
+allocates nothing. Hashing uses one `StableHasher` per thread.
+
+`BakeInputHash.Light(light, toArea)` hashes a Mixed or Baked light; Realtime lights are never
+part of a bake, so they are never passed in. `toArea` takes the light into its baked area: the
+identity for a space, the chunk's inverse for a chunk, worked in doubles so every placed copy
+of a chunk gives the same hash even hundreds of metres out. The hash holds the mode, the
+position, the range, the radius (0 counted as `LocalLight.DefaultRadius`), whether it casts a
+shadow, and for a spot 1, its direction and both angles, or 0 for a point light, whose
+direction is unused. Its radiance goes in only for a Baked light, since a Mixed light's direct
+light stays live and a change of colour doesn't need a new bake. `Key` only follows a shadow
+from frame to frame and `Volumetric` only lights the fog, so neither goes in.
+`BakeInputHash.Sun(sun)` is the same for a `DirectionalLight`: its mode, direction and whether
+it casts a shadow, and its radiance when Baked.
+
+`Environment` is `Renderer.EnvironmentHash` for a space and zero for a chunk, whose sky and sun
+are applied live. `EnvironmentHash` hashes the bands and panels from the last `SetEnvironment`,
+kept as a hash when it's called, then the clear sky's turbidity as drawn (0 when off) and the
+`EnvironmentIntensity` of the last frame. It follows what they hold, not the version count the
+light probes use, so setting the same environment again gives the same hash.
+
+`Settings` is 0 for a space or 1 for a chunk, `TexelsPerMetre`, `Quality` and
+`BakeInputHash.BakerVersion`, then for a space its probe spacing, and the area's box. A bigger
+box means a different bake, so it counts as a setting. A chunk's box is in its own space and
+its name is in the bake's path, not its inputs, so neither where a chunk stands nor what it's
+called changes its hash. Raising `BakerVersion` makes every saved bake stale.
+
 ## Ray tracing
 
 Device setup is in `VulkanContext.CreateDevice` (see above): ray queries are on only where nothing is
