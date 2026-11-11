@@ -262,8 +262,9 @@ internal sealed class SceneRenderer : IDisposable
     };
 
     /// <summary>
-    /// Reads a named texture and builds its mips. Runs on the background thread. A cooked
-    /// texture's kind and normal-map flag come from its header, as its cook settings set them.
+    /// Reads a named texture and builds its mips, or takes the ones it was cooked with when it's
+    /// compressed. Runs on the background thread. A cooked texture's kind, normal-map flag and
+    /// format come from its header, as its cook settings set them.
     /// </summary>
     internal static TextureData LoadTexture(TextureItem item)
     {
@@ -272,12 +273,15 @@ internal sealed class SceneRenderer : IDisposable
             return TextureData.FromPixels(generated.Size, generated.Size, item.Kind, generated.Pixels, item.NormalMap);
         }
 
-        var cooked = CookedTexture.Read(item.Files.Read(item.Name!), item.Name!);
-        return TextureData.FromPixels(cooked.Width, cooked.Height, cooked.Kind, cooked.Pixels, cooked.NormalMap);
+        return CookedTexture.Read(item.Files.Read(item.Name!), item.Name!).ToTextureData();
     }
 
-    /// <summary>Reads an interface image and builds its mips. Runs on the background thread.</summary>
-    private static TextureData LoadImage(GameImage image)
+    /// <summary>
+    /// Reads an interface image and builds its mips. Runs on the background thread. A compressed
+    /// one is decoded first, because an image's mips weigh each pixel by its alpha, so a clear
+    /// pixel lends no colour to its neighbours, which the cooked mips don't.
+    /// </summary>
+    internal static TextureData LoadImage(GameImage image)
     {
         if (image.Pixels is { } pixels)
         {
@@ -296,7 +300,7 @@ internal sealed class SceneRenderer : IDisposable
             Width = cooked.Width,
             Height = cooked.Height,
             Kind = TextureKind.Color,
-            Mips = ImageMips.Build(cooked.Width, cooked.Height, cooked.Pixels),
+            Mips = ImageMips.Build(cooked.Width, cooked.Height, cooked.DecodePixels()),
         };
     }
 

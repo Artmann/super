@@ -1432,15 +1432,7 @@ public sealed class ModelCooker : ICooker
     /// <paramref name="opacity"/>, so the texture's alpha must reach <paramref name="cutoff"/> over that. 0, for no
     /// cutoff or for one the texture can't reach, leaves the texture's mips as the filter made them.
     /// </summary>
-    internal static float TextureCutoff(float cutoff, float opacity)
-    {
-        if (cutoff <= 0f || opacity <= 0f || cutoff > opacity)
-        {
-            return 0f;
-        }
-
-        return cutoff / opacity;
-    }
+    internal static float TextureCutoff(float cutoff, float opacity) => TextureCompression.TextureCutoff(cutoff, opacity);
 
     private static Subsurface Subsurface(MaterialRule rule) =>
         rule.Subsurface is { } subsurface

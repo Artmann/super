@@ -306,7 +306,7 @@ public sealed class SharedGraphRunsTests : IDisposable
     }
 
     private static byte[] Color(MemoryStore store, string name = "rock.material.cs") =>
-        CookedTexture.Read(store.Get(store.Manifest.Assets[name + "#color"].Hash), "rock").Pixels[..4];
+        CookedTexture.Read(store.Get(store.Manifest.Assets[name + "#color"].Hash), "rock").DecodePixels()[..4];
 }
 
 /// <summary>

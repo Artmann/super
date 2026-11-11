@@ -496,14 +496,24 @@ everything the result depends on, its code's version included. Three steps use i
   of the material's triangles, which part each is in, and the other triangles it traces against, with the
   `Super.Cook.Models` build and the mask size.
 - `TextureCompression` keys a compressed texture by the SHA-256 of every level's pixels, the
-  size, the format and the encoder's version: the `Super.Cook.Models` build, `Bc7Encoder.Version`,
+  size, the format and the encoder's version: the `Super.Cook` build, `Bc7Encoder.Version`,
   BCnEncoder.Net's version and the quality. Lookups and compressions run in parallel over the
   model's textures. The compressed texture is the object the model will name, so
   `StepCache.KeepObject` saves it once in the cache's `objects` and the entry holds only its
   hash; before, the same bytes were in the entry and in `objects`. `FindObject` reads and
   checks the object, and an entry whose object was trimmed or damaged is a miss. A hit hands
-  the object's hash and bytes to `ModelTextures.KnowSerialized`, so the texture isn't written
-  and hashed again.
+  the object's hash and bytes to `SerializedTextures.Know`, so the texture isn't written
+  and hashed again. The material and texture cookers use the same step through
+  `TextureCompression.CompressCooked(texture, format, normalMap, input)`, but what they write
+  is a cooked texture (`STEX`, read by the game's `CookedTexture`), not the model's
+  `TextureData` bytes. Naming a `TextureData` object would store the same blocks a second
+  time in `objects` just for the step cache, so their entry names the cooked texture they
+  write instead: the material's part or the texture itself, which the cook keeps in `objects`
+  anyway. Their key starts with `cooked 1` instead of `object 1`, and adds the kind and
+  whether it's a normal map, which the cooked texture holds, so an entry never names an
+  object of the other layout. A hit hands the cooked bytes to the output as they are, with
+  nothing compressed or written again. So the cache holds each texture's blocks once, and
+  each of these step entries is a 96-byte file: the object's hash and the entry's own check.
 
 **Trimming the cache.** The cache is kept under a limit, 4 GiB unless `SUPER_CACHE_SIZE`,
 `CookOptions.CacheLimit` or `--cache-limit` says otherwise, by deleting the least recently
@@ -1821,6 +1831,31 @@ BCnEncoder.NET's `Balanced` for colour and surface textures (51.2 against 52.2 d
 bricks), and up to 1.5 dB below on masks' colour and 3.5 dB on their alpha, at a hundred or
 more times the speed.
 `Bc7Encoder.Version` goes up whenever its output changes, which misses the step cache.
+
+`TextureCompression` and `Bc7Encoder` live in `Super.Cook`, in `Textures/`, so the models
+cooker, the material cooker (`Super.Cook.Materials`) and the plain `TextureCooker` share
+them. `Super.Cook` is the one project all three reference; a project of its own would only
+have added a reference. The material and texture cookers build the full mip chain with
+`TextureData.FromPixels`, the same Kaiser filter in linear light the game used to run at load,
+and compress each level: a graph's `#color` (sRGB) and `#surface` as BC7, `#normal` as BC5 and
+`#height` as BC4, red only, and a texture as BC7, or BC5 for a normal map. Neither keeps cut-out
+coverage nor widens roughness, as the models cooker does, since neither knows a cutoff or a
+normal map to widen by. Their versions fold in `Bc7Encoder.Version`, and their
+`compressTextures` setting is in the cook key like any other.
+
+They write cooked texture (`STEX`) version 2: magic, version, width, height, kind, a
+normal-map byte, the `TextureFormat`, the number of levels, then each level largest first,
+sized by `TextureData.LevelSize`. An RGBA8 texture has exactly one level, and
+`CookedTexture.ToTextureData` builds its mips with `FromPixels` when it loads, as before; a
+compressed one has the whole chain and is handed to the renderer as it is. `ReadSize` checks
+the version, the format, the level count and that the length is exactly what they add up to,
+so a version 1 file, or a cut-short one, says `<name> is not a current cooked texture. Cook
+again.` The readers on the CPU decode instead: `CookedTexture.DecodePixels` runs level 0
+through BCnEncoder.NET's decoder (which `Super` now references), copies BC4's red to green
+and blue, and rebuilds a BC5 normal map's blue from red and green as the shaders do.
+`GameImage.ReadPixels` uses it, and so does `SceneRenderer.LoadImage`, because interface
+images build alpha-weighted mips with `ImageMips` that the cooked mips don't have. So a
+compressed image is smaller on disk only, and is uploaded as RGBA8.
 
 Compression would undo a cut-out's kept coverage. A few levels down, the filter leaves much
 of a thin cut-out's alpha just either side of the cutoff, and BC7 moves alpha by a few

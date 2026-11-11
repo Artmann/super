@@ -202,6 +202,12 @@ naming a cooked file again after unloading it makes a new one.
 such as a texture tiled under a painting. A cooked image is decoded afresh on every call, so
 keep what it returns rather than asking every frame.
 
+Images are cooked like textures, so they're block-compressed unless a rule turns
+[`compressTextures`](#rules-and-sidecars) off. A compressed image is decoded when it loads
+and shown from RGBA pixels, since an image's mips weigh each pixel by its alpha, so
+compression saves space on disk but not memory. `ReadPixels` then gives the decoded pixels,
+close to the source's but not the same.
+
 ## Cooking
 
 A game never reads its sources. The build cooks every file under the content folder
@@ -232,7 +238,7 @@ Every file is an asset, chosen by its extension:
 | Extension | Kind | Cooked form |
 | --- | --- | --- |
 | `.json` | data | The file itself, once it parses. It isn't rewritten, so line numbers in load errors still match |
-| `.png` `.jpg` `.jpeg` `.tga` | texture | Decoded RGBA pixels, sRGB unless set linear. Mips are made when it loads |
+| `.png` `.jpg` `.jpeg` `.tga` | texture | Block-compressed with every mip: BC7, sRGB unless set linear, or BC5 for a normal map. With `compressTextures` off, RGBA pixels whose mips are made when it loads |
 | `.wav` `.ogg` `.mp3` | sound | The file itself, once it decodes |
 | `.glb` `.gltf` `.fbx` `.obj` | model | `.rmodel`, through `Super.Cook.Models` |
 | `.material.cs` | material | A [material graph](materials.md), compiled and run into `#color`, `#normal`, `#surface` and `#height` textures and a `#material` data part |
@@ -279,7 +285,22 @@ a glob. A later rule beats an earlier one, and a deeper `cook.json` beats a shal
 
 Textures take `linear` (non-colour data, not read as sRGB) and `normalMap` (always
 linear, and its mips stay unit length). These settings are why `content.Texture` takes
-only a name: the kind is in the cooked texture. A file named `<source>.cook.json` beside
+only a name: the kind is in the cooked texture.
+
+Textures and [material graphs](materials.md) also take `compressTextures`, which is on by
+default, like the [model setting](rendering.md#models) of the same name. The cook builds
+every mip and block-compresses each one, so a texture takes a quarter of the memory or less
+and loads without building mips. A texture becomes BC7, or BC5 for a normal map. A graph's
+colour and surface become BC7, its normal BC5 and its height BC4. Each compressed texture
+is kept in the cook cache by its pixels. Set it to `false` to keep every pixel exactly, such
+as for pixel art:
+
+```json
+{ "rules": [{ "match": "pixel-art/**", "texture": { "compressTextures": false } }] }
+```
+
+BC7 fits each 4 by 4 block of pixels to one line of colours, so a block where two colours
+cross, such as a sharp coloured edge in a small icon, comes out a little off. A file named `<source>.cook.json` beside
 a source holds settings for that one file and beats every rule. Models keep their import
 settings there; see [Rendering](rendering.md#models). An unknown setting is a cook error,
 so a typo can't drop one silently. A sidecar whose source isn't there is only a warning,

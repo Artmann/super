@@ -6,7 +6,117 @@ namespace Super.Cook.Tests;
 
 public sealed class MaterialCookerTests : IDisposable
 {
-    private const string SmallSize = """{ "rules": [{ "match": "*.material.*", "material": { "size": 16 } }] }""";
+    // Uncompressed, so the tests of what a graph makes read its exact pixels.
+    private const string SmallSize = """{ "rules": [{ "match": "**/*.material.*", "material": { "size": 16, "compressTextures": false } }] }""";
+
+    private const string SmallCompressed = """{ "rules": [{ "match": "**/*.material.*", "material": { "size": 16 } }] }""";
+
+    private const string Flat = """
+        using Super.Materials;
+
+        public sealed class Flat : MaterialGraph
+        {
+            public override Material Build() => new Material
+            {
+                Height = Gray.Of(0.2f),
+                Color = Rgb.Of(0.2f, 0.4f, 0.6f),
+                Metallic = Gray.Of(1f),
+                Roughness = Gray.Of(0.4f),
+                Opacity = Gray.Of(0.8f),
+            };
+        }
+        """;
+
+    private static MemoryStore CookCompressed(string name, string text)
+    {
+        var root = new MemoryRoot { ["cook.json"] = SmallCompressed, [name] = text };
+        var store = new MemoryStore();
+        var result = new CookPipeline([.. BuiltInCookers.All, new MaterialCooker()], new CookOptions()).Cook([root], store);
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        return store;
+    }
+
+    [Fact]
+    public void Each_part_is_compressed_in_its_own_format_with_every_mip()
+    {
+        var store = CookCompressed("bricks.material.cs", Bricks);
+
+        foreach (var (part, format) in new[] { ("color", TextureFormat.Bc7), ("normal", TextureFormat.Bc5), ("surface", TextureFormat.Bc7), ("height", TextureFormat.Bc4) })
+        {
+            var texture = Texture(store, $"bricks.material.cs#{part}");
+            Assert.Equal(format, texture.Format);
+
+            // 16, 8, 4, 2 and 1 pixels across.
+            Assert.Equal(5, texture.Mips.Length);
+            Assert.Equal(format == TextureFormat.Bc4 ? 8 : 16, texture.Mips[4].Length);
+            Assert.Equal(format == TextureFormat.Bc4 ? 16 * 8 : 16 * 16, texture.Mips[0].Length);
+        }
+    }
+
+    [Fact]
+    public void Compressed_parts_decode_close_to_the_graph()
+    {
+        var store = CookCompressed("flat.material.cs", Flat);
+
+        AssertNear([51, 102, 153, 255], Texture(store, "flat.material.cs#color").DecodePixels()[..4]);
+        AssertNear([128, 128, 255, 255], Texture(store, "flat.material.cs#normal").DecodePixels()[..4]);
+        AssertNear([255, 102, 0, 204], Texture(store, "flat.material.cs#surface").DecodePixels()[..4]);
+        AssertNear([51, 51, 51, 255], Texture(store, "flat.material.cs#height").DecodePixels()[..4]);
+    }
+
+    [Fact]
+    public void Compressed_bricks_decode_close_to_their_pixels_in_every_part()
+    {
+        // The bricks' edges slope, so the normal map leans every way and the colour and height change.
+        var store = CookCompressed("bricks.material.cs", Bricks);
+        var exact = Cook(("bricks.material.cs", Bricks)).Store;
+
+        foreach (string part in new[] { "color", "normal", "surface", "height" })
+        {
+            byte[] expected = Texture(exact, $"bricks.material.cs#{part}").DecodePixels();
+            byte[] decoded = Texture(store, $"bricks.material.cs#{part}").DecodePixels();
+            int shades = expected.Chunk(4).Select(pixel => BitConverter.ToInt32(pixel)).Distinct().Count();
+            Assert.True(shades > 1, $"{part} is one flat colour, too plain to tell anything.");
+            double error = expected.Zip(decoded, (a, b) => Math.Abs(a - b)).Average();
+            Assert.True(error < 3.0, $"{part} is off by {error:0.00} a byte on average.");
+        }
+    }
+
+    [Fact]
+    public void Compressed_cooks_give_the_same_bytes()
+    {
+        var first = CookCompressed("bricks.material.cs", Bricks);
+        var second = CookCompressed("bricks.material.cs", Bricks);
+
+        string[] parts = ["color", "normal", "surface", "height"];
+        Assert.All(parts, part => Assert.Equal(
+            first.Manifest.Assets[$"bricks.material.cs#{part}"].Hash,
+            second.Manifest.Assets[$"bricks.material.cs#{part}"].Hash));
+    }
+
+    [Fact]
+    public void With_compression_off_each_part_is_its_full_size_pixels()
+    {
+        var (result, store) = Cook(("bricks.material.cs", Bricks));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        foreach (string part in new[] { "color", "normal", "surface", "height" })
+        {
+            var texture = Texture(store, $"bricks.material.cs#{part}");
+            Assert.Equal(TextureFormat.Rgba8, texture.Format);
+            Assert.Equal(16 * 16 * 4, Assert.Single(texture.Mips).Length);
+        }
+    }
+
+    // Block compression moves a flat colour by a step or two at most.
+    private static void AssertNear(byte[] expected, byte[] actual)
+    {
+        Assert.Equal(expected.Length, actual.Length);
+        for (int i = 0; i < expected.Length; i++)
+        {
+            Assert.True(Math.Abs(expected[i] - actual[i]) <= 2, $"byte {i} is {actual[i]}, not near {expected[i]}: [{string.Join(", ", actual)}]");
+        }
+    }
 
     private const string Bricks = """
         using Super.Materials;
@@ -98,10 +208,10 @@ public sealed class MaterialCookerTests : IDisposable
             """)));
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
-        Assert.Equal([51, 102, 153, 255], Texture(store, "flat.material.cs#color").Pixels[..4]);
-        Assert.Equal([128, 128, 255, 255], Texture(store, "flat.material.cs#normal").Pixels[..4]);
-        Assert.Equal([255, 102, 0, 204], Texture(store, "flat.material.cs#surface").Pixels[..4]);
-        Assert.Equal([51, 51, 51, 255], Texture(store, "flat.material.cs#height").Pixels[..4]);
+        Assert.Equal([51, 102, 153, 255], Texture(store, "flat.material.cs#color").DecodePixels()[..4]);
+        Assert.Equal([128, 128, 255, 255], Texture(store, "flat.material.cs#normal").DecodePixels()[..4]);
+        Assert.Equal([255, 102, 0, 204], Texture(store, "flat.material.cs#surface").DecodePixels()[..4]);
+        Assert.Equal([51, 51, 51, 255], Texture(store, "flat.material.cs#height").DecodePixels()[..4]);
     }
 
     [Fact]
@@ -285,7 +395,7 @@ public sealed class MaterialCookerTests : IDisposable
         var (result, store) = Cook(("nan.material.cs", NanHeight));
 
         Assert.Contains(result.Problems, p => !p.IsError && p.Message == "nan.material.cs: height has pixels that aren't numbers. They were written as 0.");
-        Assert.All(Texture(store, "nan.material.cs#height").Pixels.Where((_, i) => i % 4 == 0), b => Assert.Equal(0, b));
+        Assert.All(Texture(store, "nan.material.cs#height").DecodePixels().Where((_, i) => i % 4 == 0), b => Assert.Equal(0, b));
     }
 
     [Fact]
@@ -294,7 +404,7 @@ public sealed class MaterialCookerTests : IDisposable
         var (result, store) = Cook(("bright.material.cs", Graph("        return new Material { Color = Rgb.Of(2f, -1f, 0.5f), Occlusion = 0f };")));
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
-        Assert.Equal([255, 0, 128, 255], Texture(store, "bright.material.cs#color").Pixels[..4]);
+        Assert.Equal([255, 0, 128, 255], Texture(store, "bright.material.cs#color").DecodePixels()[..4]);
     }
 
     [Fact]
@@ -448,8 +558,8 @@ public sealed class MaterialCookerTests : IDisposable
         var (result, store) = Cook(("bricks.material.cs", Moss), ("mossy.material.json", """{ "graph": "bricks.material.cs", "moss": 0.8 }"""));
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
-        Assert.Equal([51, 128, 0, 255], Texture(store, "bricks.material.cs#color").Pixels[..4]);
-        Assert.Equal([204, 128, 0, 255], Texture(store, "mossy.material.json#color").Pixels[..4]);
+        Assert.Equal([51, 128, 0, 255], Texture(store, "bricks.material.cs#color").DecodePixels()[..4]);
+        Assert.Equal([204, 128, 0, 255], Texture(store, "mossy.material.json#color").DecodePixels()[..4]);
         Assert.NotEqual(Hash(store, "bricks.material.cs#color"), Hash(store, "mossy.material.json#color"));
     }
 
@@ -468,7 +578,59 @@ public sealed class MaterialCookerTests : IDisposable
         var (result, store) = Cook(("a/bricks.material.cs", Moss), ("a/mossy.material.json", """{ "graph": "bricks.material.cs", "moss": 0.8 }"""));
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
-        Assert.Equal([204, 128, 0, 255], Texture(store, "a/mossy.material.json#color").Pixels[..4]);
+        Assert.Equal([204, 128, 0, 255], Texture(store, "a/mossy.material.json#color").DecodePixels()[..4]);
+    }
+
+    [Fact]
+    public void The_cache_keeps_each_compressed_texture_once_and_its_step_entry_only_names_it()
+    {
+        string source = Temp();
+        string cache = Temp();
+        File.WriteAllText(Path.Combine(source, "cook.json"), SmallCompressed);
+        File.WriteAllText(Path.Combine(source, "bricks.material.cs"), Moss);
+        File.WriteAllBytes(Path.Combine(source, "rock.png"), Png(2, 2, [.. Enumerable.Range(0, 16).Select(i => (byte)(i * 15))]));
+
+        var store = new MemoryStore();
+        var result = CookFolder(source, cache, store);
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+
+        // Four parts of the material and the texture: each step entry is the hash of one, then the entry's own SHA-256.
+        string[] textures = [.. new[] { "color", "normal", "surface", "height" }.Select(part => "bricks.material.cs#" + part).Append("rock.png")];
+        string[] entries = Directory.GetFiles(Path.Combine(cache, "steps", "compressed-texture"), "*", SearchOption.AllDirectories);
+        Assert.Equal(
+            textures.Select(name => Hash(store, name)).Order(),
+            entries.Select(entry => Encoding.ASCII.GetString(File.ReadAllBytes(entry)[..^32])).Order());
+
+        // Every object in the cache is one of the cooked assets, so no texture's blocks are kept a second time.
+        Assert.Equal(
+            store.Manifest.Assets.Values.Select(asset => asset.Hash).Distinct().Order(),
+            Directory.GetFiles(Path.Combine(cache, "objects"), "*", SearchOption.AllDirectories).Select(Path.GetFileName).Order());
+    }
+
+    [Fact]
+    public void A_compressed_texture_is_read_back_from_the_object_its_step_entry_names()
+    {
+        string source = Temp();
+        string cache = Temp();
+        byte[] rock = [.. Enumerable.Range(0, 16).Select(i => (byte)(i * 15))];
+        File.WriteAllBytes(Path.Combine(source, "rock.png"), Png(2, 2, rock));
+        File.WriteAllBytes(Path.Combine(source, "sand.png"), Png(2, 2, [.. rock.Select(b => (byte)(255 - b))]));
+        var first = new MemoryStore();
+        Assert.True(CookFolder(source, cache, first).Succeeded);
+
+        // Points rock's entry at sand's object, and forgets the cooked records, so the next cook compresses rock again.
+        string key = TextureCompression.CookedKey(TextureData.FromPixels(2, 2, TextureKind.Color, rock), TextureFormat.Bc7, normalMap: false);
+        string name = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(key)));
+        string entry = Path.Combine(cache, "steps", "compressed-texture", name[..2], name);
+        byte[] sand = Encoding.ASCII.GetBytes(Hash(first, "sand.png"));
+        Assert.Equal(Hash(first, "rock.png"), Encoding.ASCII.GetString(File.ReadAllBytes(entry)[..^32]));
+        File.WriteAllBytes(entry, [.. sand, .. System.Security.Cryptography.SHA256.HashData(sand)]);
+        Directory.Delete(Path.Combine(cache, "records"), true);
+
+        var second = new MemoryStore();
+        Assert.True(CookFolder(source, cache, second).Succeeded);
+
+        Assert.Equal(Hash(first, "sand.png"), Hash(second, "rock.png"));
     }
 
     [Fact]
@@ -486,8 +648,8 @@ public sealed class MaterialCookerTests : IDisposable
         var secondStore = new MemoryStore();
         Assert.True(CookFolder(source, cache, secondStore).Succeeded);
 
-        Assert.Equal([51, 255, 0, 255], Texture(firstStore, "mossy.material.json#color").Pixels[..4]);
-        Assert.Equal([102, 255, 0, 255], Texture(secondStore, "mossy.material.json#color").Pixels[..4]);
+        Assert.Equal([51, 255, 0, 255], Texture(firstStore, "mossy.material.json#color").DecodePixels()[..4]);
+        Assert.Equal([102, 255, 0, 255], Texture(secondStore, "mossy.material.json#color").DecodePixels()[..4]);
         Assert.NotEqual(Hash(firstStore, "mossy.material.json#color"), Hash(secondStore, "mossy.material.json#color"));
     }
 
@@ -646,7 +808,7 @@ public sealed class MaterialCookerTests : IDisposable
 
         // Pixel 0 is at u 1/32, so it is 0.5625 of the way from the wrapped-round blue to the red, and not linearised.
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
-        Assert.Equal([143, 0, 112, 255], Texture(store, "rock.material.cs#color").Pixels[..4]);
+        Assert.Equal([143, 0, 112, 255], Texture(store, "rock.material.cs#color").DecodePixels()[..4]);
     }
 
     [Fact]
@@ -665,8 +827,8 @@ public sealed class MaterialCookerTests : IDisposable
         Assert.True(CookFolder(source, cache, secondStore).Succeeded);
 
         // Rec. 709 weights: red is 0.2126 (54 of 255) and blue is 0.0722 (18 of 255).
-        Assert.Equal([54, 54, 54, 255], Texture(firstStore, "rock.material.cs#color").Pixels[..4]);
-        Assert.Equal([18, 18, 18, 255], Texture(secondStore, "rock.material.cs#color").Pixels[..4]);
+        Assert.Equal([54, 54, 54, 255], Texture(firstStore, "rock.material.cs#color").DecodePixels()[..4]);
+        Assert.Equal([18, 18, 18, 255], Texture(secondStore, "rock.material.cs#color").DecodePixels()[..4]);
     }
 
     [Fact]

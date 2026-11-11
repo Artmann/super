@@ -7,13 +7,14 @@ using BCnEncoder.Encoder;
 using BCnEncoder.Shared;
 using Rendition;
 
-namespace Super.Cook.Models;
+namespace Super.Cook;
 
 /// <summary>
-/// Turns a cooked model's RGBA8 textures into block-compressed ones, which take a quarter of the
-/// memory or less and are read faster. Each is compressed the way its use suits: normal maps
-/// keep only red and green, as BC5, height maps only red, as BC4, and everything else all four
-/// channels, as BC7. BC7 is written by <see cref="Bc7Encoder"/>, BC4 and BC5 by BCnEncoder.Net.
+/// Turns cooked RGBA8 textures into block-compressed ones, which take a quarter of the memory or
+/// less and are read faster: a model's textures, a material's parts and plain textures alike. Each
+/// is compressed the way its use suits: normal maps keep only red and green, as BC5, height maps
+/// only red, as BC4, and everything else all four channels, as BC7. BC7 is written by
+/// <see cref="Bc7Encoder"/>, BC4 and BC5 by BCnEncoder.Net.
 /// </summary>
 internal static class TextureCompression
 {
@@ -103,7 +104,7 @@ internal static class TextureCompression
                         if (sameKind && ReferenceEquals(remembered, compressed))
                         {
                             // The kept object is what the model writes for this texture, so it isn't written and hashed again.
-                            ModelTextures.KnowSerialized(compressed, hash, bytes);
+                            SerializedTextures.Know(compressed, hash, bytes);
                         }
 
                         textures[i] = remembered;
@@ -133,11 +134,84 @@ internal static class TextureCompression
                 // The entry names the texture's object, which the cache keeps once among its objects, as the model writes it.
                 Parallel.ForEach(made.Where(i => keys[i] is not null), i =>
                 {
-                    var (hash, bytes) = ModelTextures.Serialized(textures[i]);
+                    var (hash, bytes) = SerializedTextures.Of(textures[i]);
                     input.KeepObject(Step, keys[i]!, hash, bytes);
                 });
             }
         }
+    }
+
+    /// <summary>
+    /// Compresses one texture, every level of it, into <paramref name="format"/>, and returns it written as a cooked
+    /// texture, as a material's parts and plain textures are cooked. With <paramref name="input"/> and a cook cache the
+    /// step cache keeps it: the cooked texture is the asset the cooker writes, which the cook cache keeps among its
+    /// objects anyway, so the entry only names that object, and the blocks are kept once. A later cook with the same
+    /// pixels reads the object back and compresses nothing.
+    /// </summary>
+    public static byte[] CompressCooked(TextureData texture, TextureFormat format, bool normalMap, CookInput? input)
+    {
+        if (input is not { HasStepCache: true })
+        {
+            return CookedTexture.From(Compress(texture, format), normalMap).Write();
+        }
+
+        string key = CookedKey(texture, format, normalMap);
+        if (input.RecallObject(Step, key) is var (_, kept) && FitsCooked(kept, texture, format, normalMap))
+        {
+            return kept;
+        }
+
+        byte[] cooked = CookedTexture.From(Compress(texture, format), normalMap).Write();
+        input.KeepObject(Step, key, Convert.ToHexStringLower(SHA256.HashData(cooked)), cooked);
+        return cooked;
+    }
+
+    /// <summary>
+    /// What a step entry of <see cref="CompressCooked"/> holds, in its key: <c>cooked 1</c> is the hash of a cooked
+    /// texture's object, which is laid out unlike the model's objects that <see cref="EntryFormat"/> entries name.
+    /// </summary>
+    private const string CookedEntryFormat = "cooked 1";
+
+    /// <summary>
+    /// <see cref="Key"/> for a cooked texture: it also names the kind and whether it's a normal map, since the cooked
+    /// texture holds both, so the object an entry names is exactly the one the cooker writes.
+    /// </summary>
+    internal static string CookedKey(TextureData texture, TextureFormat format, bool normalMap) => string.Join('|',
+        CookedEntryFormat,
+        texture.Kind.ToString(),
+        normalMap ? "normal" : "plain",
+        Key(texture, format));
+
+    /// <summary>Whether <paramref name="kept"/> is a cooked texture of <paramref name="texture"/>'s size, kind and levels in <paramref name="format"/>.</summary>
+    private static bool FitsCooked(byte[] kept, TextureData texture, TextureFormat format, bool normalMap)
+    {
+        CookedTexture read;
+        try
+        {
+            read = CookedTexture.Read(kept, Step);
+        }
+        catch (ContentException)
+        {
+            return false;
+        }
+
+        return read.Width == texture.Width && read.Height == texture.Height && read.Kind == texture.Kind
+            && read.NormalMap == normalMap && read.Format == format && read.Mips.Length == texture.Mips.Length;
+    }
+
+    /// <summary>
+    /// The cutoff as a texture's own alpha meets it: the shader cuts by the texture's alpha times the colour's
+    /// <paramref name="opacity"/>, so the texture's alpha must reach <paramref name="cutoff"/> over that. 0, for no
+    /// cutoff or for one the texture can't reach, leaves the texture's mips as the filter made them.
+    /// </summary>
+    internal static float TextureCutoff(float cutoff, float opacity)
+    {
+        if (cutoff <= 0f || opacity <= 0f || cutoff > opacity)
+        {
+            return 0f;
+        }
+
+        return cutoff / opacity;
     }
 
     /// <summary>
@@ -174,7 +248,7 @@ internal static class TextureCompression
         for (int m = 0; m < materials.Count; m++)
         {
             var material = materials[m];
-            float cutoff = ModelCooker.TextureCutoff(material.AlphaCutoff, material.BaseColor.W);
+            float cutoff = TextureCutoff(material.AlphaCutoff, material.BaseColor.W);
             if (!(cutoff > 0f))
             {
                 continue;

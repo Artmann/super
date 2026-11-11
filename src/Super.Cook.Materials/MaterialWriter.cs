@@ -7,13 +7,21 @@ namespace Super.Cook.Materials;
 /// <summary>Turns a worked out material into its cooked parts: four textures and its width.</summary>
 internal static class MaterialWriter
 {
-    public static void Write(MaterialImages images, string name, CookOutput output)
+    /// <summary>
+    /// Writes the parts. With <paramref name="compress"/>, each texture is block-compressed with its whole mip chain,
+    /// kept in <paramref name="compress"/>'s step cache: the colour and surface as BC7, the normal map as BC5 and the
+    /// height, red only, as BC4. Without it they're RGBA8, full size only, and the game builds their mips.
+    /// </summary>
+    public static void Write(MaterialImages images, string name, CookOutput output, CookInput? compress = null)
     {
-        Write(new PackedImages(images.Size, images.Width, images.HeightDepth, MaterialPixels.Pack(images)), name, output);
+        Write(new PackedImages(images.Size, images.Width, images.HeightDepth, MaterialPixels.Pack(images)), name, output, compress);
     }
 
-    /// <summary>Writes images already packed, such as a graph run another source shared.</summary>
-    public static void Write(PackedImages images, string name, CookOutput output)
+    /// <summary>
+    /// Writes images already packed, such as a graph run another source shared, compressed as the other overload says.
+    /// The packed pixels may be shared with other sources, so they're only read.
+    /// </summary>
+    public static void Write(PackedImages images, string name, CookOutput output, CookInput? compress = null)
     {
         int size = images.Size;
         var pixels = images.Pixels;
@@ -22,10 +30,36 @@ internal static class MaterialWriter
             output.Warning($"{name}: {part} has pixels that aren't numbers. They were written as 0.");
         }
 
-        output.AddPart("color", ContentKind.Texture, new CookedTexture(size, size, TextureKind.Color, false, pixels.Color).Write());
-        output.AddPart("normal", ContentKind.Texture, new CookedTexture(size, size, TextureKind.Linear, true, pixels.Normal).Write());
-        output.AddPart("surface", ContentKind.Texture, new CookedTexture(size, size, TextureKind.Linear, false, pixels.Surface).Write());
-        output.AddPart("height", ContentKind.Texture, new CookedTexture(size, size, TextureKind.Linear, false, pixels.Height).Write());
+        (string Part, TextureKind Kind, bool NormalMap, TextureFormat Format, byte[] Pixels)[] parts =
+        [
+            ("color", TextureKind.Color, false, TextureFormat.Bc7, pixels.Color),
+            ("normal", TextureKind.Linear, true, TextureFormat.Bc5, pixels.Normal),
+            ("surface", TextureKind.Linear, false, TextureFormat.Bc7, pixels.Surface),
+            ("height", TextureKind.Linear, false, TextureFormat.Bc4, pixels.Height),
+        ];
+
+        var cooked = new byte[parts.Length][];
+        if (compress is null)
+        {
+            for (int i = 0; i < parts.Length; i++)
+            {
+                cooked[i] = new CookedTexture(size, size, parts[i].Kind, parts[i].NormalMap, parts[i].Pixels).Write();
+            }
+        }
+        else
+        {
+            Parallel.For(0, parts.Length, i =>
+            {
+                var part = parts[i];
+                var mips = TextureData.FromPixels(size, size, part.Kind, part.Pixels, part.NormalMap);
+                cooked[i] = TextureCompression.CompressCooked(mips, part.Format, part.NormalMap, compress);
+            });
+        }
+
+        for (int i = 0; i < parts.Length; i++)
+        {
+            output.AddPart(parts[i].Part, ContentKind.Texture, cooked[i]);
+        }
 
         using var json = new MemoryStream();
         using (var writer = new Utf8JsonWriter(json))

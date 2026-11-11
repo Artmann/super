@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <PackageReference Include="BCnEncoder.Net" Version="2.3.0" />
     <PackageReference Include="StbImageSharp" Version="2.30.16" />
     <ProjectReference Include="..\Super\Super.csproj" />
   </ItemGroup>
@@ -8,6 +9,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Super.Cook.Tests" />
     <InternalsVisibleTo Include="Super.Cook.Models" />
+    <InternalsVisibleTo Include="Super.Cook.Materials" />
   </ItemGroup>
 
 </Project>

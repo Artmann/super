@@ -894,7 +894,8 @@ whole Courtyard cooks from nothing in about 2 minutes, most of it running materi
 Each compressed texture is kept in the cook cache by its pixels, so editing one graph
 compresses only the textures that graph changed. Set it to `false` to keep every pixel
 exactly. The cook checks textures before it compresses them, so its warnings are the same
-either way.
+either way. Plain textures and material graphs take the same setting in their own `texture`
+and `material` rules, also on by default; see [Rules and sidecars](content.md#rules-and-sidecars).
 
 To use several pieces of one file, list them as `parts`. Each part is cooked as its own
 model, named `file#part`, and takes every setting written beside `parts` unless it sets
@@ -1365,6 +1366,11 @@ TextureRef bump = content.Texture("textures/bark-normal.png");
 TextureRef noise = content.Texture(new GeneratedTexture(256, rgbaPixels), TextureKind.Linear);
 TextureArrayRef ground = content.TextureArray(sand, grass, rock, snow);
 ```
+
+The layers of a texture array must match in size, in colour or linear, and in their
+compressed format: all block-compressed or all with `compressTextures` off, and all normal
+maps (BC5) or none (BC7). Otherwise
+the array fails to load with an error naming the first layer that differs.
 
 A mesh or texture you're done with is let go with `content.Unload`, which frees it after
 the frames in flight. `content.IsReady(model)` says whether a mesh is on the GPU yet, so a

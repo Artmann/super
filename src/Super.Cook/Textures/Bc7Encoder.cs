@@ -1,4 +1,4 @@
-namespace Super.Cook.Models;
+namespace Super.Cook;
 
 /// <summary>
 /// A fast BC7 encoder. Every block is tried in mode 6: one pair of RGBA endpoints with 7 bits a channel and a shared
