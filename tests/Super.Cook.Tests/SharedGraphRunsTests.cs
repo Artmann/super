@@ -165,8 +165,236 @@ public sealed class SharedGraphRunsTests : IDisposable
         Assert.Equal(2, SharedGraphRuns.Made - before);
         Assert.Equal([255, 255, 255, 255], Color(white));
         Assert.Equal([0, 0, 0, 255], Color(black));
+
+        // The new run took the old one's place, so the next cook shares it instead of running the graph again.
+        Cook(src, workers: 1);
+        Assert.Equal(2, SharedGraphRuns.Made - before);
     }
 
-    private static byte[] Color(MemoryStore store) =>
-        CookedTexture.Read(store.Get(store.Manifest.Assets["rock.material.cs#color"].Hash), "rock").Pixels[..4];
+    private const string RockGraph = """
+        using Super.Materials;
+
+        public sealed class Rock : MaterialGraph
+        {
+            public override Material Build() => new Material { Color = Image("rock.png").ToGray().GradientMap(Ramp.Of("#000000", "#ffffff")) };
+        }
+        """;
+
+    /// <summary>A rock material that reads a picture, cooked at 16 pixels, and, unless left out, a model that runs it at 16 too.</summary>
+    private string RockFolder(bool withModel = true)
+    {
+        string src = Temp();
+        Directory.CreateDirectory(Path.Combine(src, "models"));
+        Directory.CreateDirectory(Path.Combine(src, "materials"));
+        File.WriteAllText(Path.Combine(src, "cook.json"), """{ "rules": [{ "match": "**/*.material.*", "material": { "size": 16 } }] }""");
+        File.WriteAllText(Path.Combine(src, "materials", "rock.material.cs"), RockGraph);
+        PngFile.Write(Path.Combine(src, "materials", "rock.png"), [255, 255, 255, 255], 1, 1);
+        if (withModel)
+        {
+            AddRockModel(src);
+        }
+
+        return src;
+    }
+
+    private static void AddRockModel(string src)
+    {
+        TinyGltf.Write(Path.Combine(src, "models"), "a.gltf", "stone", ["a"]);
+        File.WriteAllText(Path.Combine(src, "models", "a.gltf.cook.json"), """
+            { "compressTextures": false, "materials": [{ "match": "stone", "graph": "../materials/rock.material.cs", "graphSize": 16 }] }
+            """);
+    }
+
+    private static (CookResult Result, MemoryStore Store) Cook(string src, int workers, string cache)
+    {
+        var store = new MemoryStore();
+        var result = new CookPipeline([.. ModelCookers.All, new MaterialCooker()], new CookOptions(Workers: workers, CacheFolder: cache))
+            .Cook([new FolderRoot(src)], store);
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        return (result, store);
+    }
+
+    [Fact]
+    public void A_material_that_shared_a_models_run_cooks_again_when_an_image_the_graph_read_changed()
+    {
+        string src = RockFolder();
+        string cache = Temp();
+
+        int before = SharedGraphRuns.Made;
+        var (_, white) = Cook(src, workers: 1, cache);
+        // The model and the material shared one run, so one of them never ran the graph.
+        Assert.Equal(1, SharedGraphRuns.Made - before);
+
+        // As in a new process, which has no runs to share.
+        SharedGraphRuns.Forget();
+        PngFile.Write(Path.Combine(src, "materials", "rock.png"), [0, 0, 0, 255], 1, 1);
+        var (_, black) = Cook(src, workers: 1, cache);
+
+        Assert.Equal([255, 255, 255, 255], Color(white, "materials/rock.material.cs"));
+        Assert.Equal([0, 0, 0, 255], Color(black, "materials/rock.material.cs"));
+    }
+
+    [Fact]
+    public void A_run_a_material_made_is_kept_for_a_model_that_cooks_later()
+    {
+        string src = RockFolder(withModel: false);
+        string cache = Temp();
+        Cook(src, workers: 1, cache);
+
+        AddRockModel(src);
+        SharedGraphRuns.Forget();
+        int before = SharedGraphRuns.Made;
+        var (result, _) = Cook(src, workers: 1, cache);
+
+        Assert.Equal(0, SharedGraphRuns.Made - before);
+        // Only the model cooked: the material came from the cook cache.
+        Assert.Equal(1, result.Cooked);
+    }
+
+    [Fact]
+    public void A_detail_graph_doesnt_run_ahead_when_its_main_graph_fails()
+    {
+        string src = Temp();
+        Directory.CreateDirectory(Path.Combine(src, "models"));
+        Directory.CreateDirectory(Path.Combine(src, "materials"));
+        File.WriteAllText(Path.Combine(src, "cook.json"), """{ "rules": [{ "match": "**/*.material.*", "cook": false }] }""");
+        File.WriteAllText(Path.Combine(src, "materials", "broken.material.cs"), "public sealed class Broken : MaterialGraph {");
+        File.WriteAllText(Path.Combine(src, "materials", "grain.material.cs"), FlatGraph.Replace("class Flat", "class Grain"));
+        TinyGltf.Write(Path.Combine(src, "models"), "a.gltf", "bark", ["a"]);
+        File.WriteAllText(Path.Combine(src, "models", "a.gltf.cook.json"), """
+            { "compressTextures": false, "materials": [{ "match": "bark", "graph": "../materials/broken.material.cs", "graphSize": 16,
+              "detailGraph": "../materials/grain.material.cs", "detailGraphSize": 16 }] }
+            """);
+
+        int before = SharedGraphRuns.Made;
+        var result = new CookPipeline([.. ModelCookers.All, new MaterialCooker()], new CookOptions(Workers: 1)).Cook([new FolderRoot(src)], new MemoryStore());
+
+        Assert.False(result.Succeeded);
+        Assert.Contains(result.Problems, problem => problem.IsError && problem.Message.Contains("broken.material.cs", StringComparison.Ordinal));
+        Assert.Equal(0, SharedGraphRuns.Made - before);
+    }
+
+    [Fact]
+    public void When_several_graphs_run_ahead_fail_the_first_materials_failure_is_the_one_thrown()
+    {
+        string src = Temp();
+        Directory.CreateDirectory(Path.Combine(src, "models"));
+        Directory.CreateDirectory(Path.Combine(src, "materials"));
+        File.WriteAllText(Path.Combine(src, "cook.json"), """{ "rules": [{ "match": "**/*.material.*", "cook": false }] }""");
+        string first = Path.Combine(src, "materials", "first.material.cs");
+        string second = Path.Combine(src, "materials", "second.material.cs");
+        File.WriteAllText(first, FlatGraph);
+        File.WriteAllText(second, FlatGraph);
+        TinyGltf.Write(Path.Combine(src, "models"), "a.gltf", "one", ["a", "b"], nodeMaterials: ["one", "two"]);
+        File.WriteAllText(Path.Combine(src, "models", "a.gltf.cook.json"), """
+            { "compressTextures": false, "materials": [
+              { "match": "one", "graph": "../materials/first.material.cs", "graphSize": 16 },
+              { "match": "two", "graph": "../materials/second.material.cs", "graphSize": 16 }] }
+            """);
+
+        // Both are held open by another program, so both runs fail. Asked one by one, the first material's would fail first.
+        IOException error;
+        using (File.Open(first, FileMode.Open, FileAccess.Read, FileShare.None))
+        using (File.Open(second, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            error = Assert.Throws<IOException>(() =>
+                new CookPipeline([.. ModelCookers.All], new CookOptions(Workers: 1)).Cook([new FolderRoot(src)], new MemoryStore()));
+        }
+
+        Assert.Contains("first.material.cs", error.Message);
+        Assert.DoesNotContain("second.material.cs", error.Message);
+    }
+
+    private static byte[] Color(MemoryStore store, string name = "rock.material.cs") =>
+        CookedTexture.Read(store.Get(store.Manifest.Assets[name + "#color"].Hash), "rock").Pixels[..4];
+}
+
+/// <summary>
+/// The runs kept for later sources stay under their cap by dropping the ones kept longest, and never one still being
+/// made, which other sources may be waiting for.
+/// </summary>
+[Collection(SharedGraphRunsCollection.Name)]
+[Trait("Speed", "Slow")]
+public sealed class SharedGraphRunsCapTests : IDisposable
+{
+    private readonly string _folder = Path.Combine(Path.GetTempPath(), "super-cap-" + Guid.NewGuid().ToString("N"));
+
+    public SharedGraphRunsCapTests()
+    {
+        Directory.CreateDirectory(_folder);
+        SharedGraphRuns.Forget();
+        // Each run below is 100 bytes, so eight fit.
+        SharedGraphRuns.MaxSharedBytes = 800;
+    }
+
+    public void Dispose()
+    {
+        SharedGraphRuns.MaxSharedBytes = SharedGraphRuns.DefaultMaxSharedBytes;
+        SharedGraphRuns.Forget();
+        Directory.Delete(_folder, true);
+    }
+
+    private CookInput Input() => new(new SourceFile(new FolderRoot(_folder), "a.bin"), [], [], "desktop");
+
+    // 25 bytes in each of its four textures, and nothing read, so it's shared with any source.
+    private static SharedGraphRuns.Run NewRun() => new(
+        new PackedImages(16, 1f, 0f, new MaterialPixels(new byte[25], new byte[25], new byte[25], new byte[25], [])),
+        [],
+        new MaterialChecks.MaterialFindings(null, null, false, false));
+
+    [Fact]
+    public void Past_the_cap_the_runs_kept_longest_are_dropped_first()
+    {
+        var input = Input();
+        for (int i = 0; i < 9; i++)
+        {
+            SharedGraphRuns.GetOrMake($"run {i}", input, "", NewRun);
+        }
+
+        Assert.Equal(800, SharedGraphRuns.SharedBytes);
+
+        int made = 0;
+        SharedGraphRuns.GetOrMake("run 8", input, "", () => { made++; return NewRun(); });
+        SharedGraphRuns.GetOrMake("run 1", input, "", () => { made++; return NewRun(); });
+        Assert.Equal(0, made);
+
+        SharedGraphRuns.GetOrMake("run 0", input, "", () => { made++; return NewRun(); });
+        Assert.Equal(1, made);
+        Assert.Equal(800, SharedGraphRuns.SharedBytes);
+    }
+
+    [Fact]
+    public async Task A_run_still_being_made_isnt_dropped_and_a_source_that_wants_it_waits_for_it()
+    {
+        var input = Input();
+        using var started = new ManualResetEventSlim();
+        using var finish = new ManualResetEventSlim();
+        var slow = NewRun();
+        var maker = Task.Run(() => SharedGraphRuns.GetOrMake("slow", input, "", () =>
+        {
+            started.Set();
+            finish.Wait();
+            return slow;
+        }));
+        Assert.True(started.Wait(TimeSpan.FromSeconds(30)), "the slow run to start");
+
+        // Twice the cap is kept while the slow run is made.
+        for (int i = 0; i < 16; i++)
+        {
+            SharedGraphRuns.GetOrMake($"run {i}", input, "", NewRun);
+        }
+
+        bool madeAgain = false;
+        var waiter = Task.Run(() => SharedGraphRuns.GetOrMake("slow", input, "", () =>
+        {
+            madeAgain = true;
+            return NewRun();
+        }));
+        finish.Set();
+
+        Assert.Same(slow, await waiter);
+        Assert.Same(slow, await maker);
+        Assert.False(madeAgain);
+        Assert.True(SharedGraphRuns.SharedBytes <= 800, $"{SharedGraphRuns.SharedBytes} bytes kept");
+    }
 }

@@ -13,9 +13,12 @@ internal static class TinyGltf
     /// (u, v for each corner, in the file's own top-left convention), every triangle gets those UVs.
     /// With <paramref name="uvs2"/>, six more, every triangle gets them as its second UV set, TEXCOORD_1,
     /// and when <paramref name="uvs"/> is null they're its first set too, since files always have a first.
+    /// With <paramref name="nodeMaterials"/>, node <c>i</c> uses the material of that name instead, listed after <paramref name="materialName"/>.
     /// </summary>
-    public static void Write(string folder, string name, string materialName, string[] nodeNames, string? bufferFile = null, float[]? uvs = null, float[]? uvs2 = null)
+    public static void Write(string folder, string name, string materialName, string[] nodeNames, string? bufferFile = null, float[]? uvs = null, float[]? uvs2 = null,
+        string[]? nodeMaterials = null)
     {
+        List<string> materialNames = [materialName, .. (nodeMaterials ?? []).Where(material => material != materialName).Distinct()];
         uvs ??= uvs2;
         byte[] buffer = Buffer(nodeNames.Length, uvs, uvs2);
         string uri = bufferFile ?? "data:application/octet-stream;base64," + Convert.ToBase64String(buffer);
@@ -51,7 +54,7 @@ internal static class TinyGltf
                 ["primitives"] = new JsonArray(new JsonObject
                 {
                     ["attributes"] = attributes,
-                    ["material"] = 0,
+                    ["material"] = nodeMaterials is null ? 0 : materialNames.IndexOf(nodeMaterials[i]),
                 }),
             });
             views.Add(new JsonObject { ["buffer"] = 0, ["byteOffset"] = i * 36, ["byteLength"] = 36 });
@@ -100,7 +103,7 @@ internal static class TinyGltf
             ["scenes"] = new JsonArray(new JsonObject { ["nodes"] = sceneNodes }),
             ["nodes"] = nodes,
             ["meshes"] = meshes,
-            ["materials"] = new JsonArray(new JsonObject { ["name"] = materialName }),
+            ["materials"] = new JsonArray([.. materialNames.Select(material => (JsonNode)new JsonObject { ["name"] = material })]),
             ["buffers"] = new JsonArray(new JsonObject { ["byteLength"] = buffer.Length, ["uri"] = uri }),
             ["bufferViews"] = views,
             ["accessors"] = accessors,

@@ -6,6 +6,15 @@
     <RootNamespace>Super.Cook.Tool</RootNamespace>
   </PropertyGroup>
 
+  <!--
+    A cook makes and drops many large images, such as graph runs and mask bakes, across all its workers. Left alone, the
+    garbage collector lets the large object heap grow with the garbage they leave, and a cold Courtyard cook peaked at 9 to
+    15 GB. Conserving memory makes it compact that heap instead: the same cook peaks near 6 GB and takes as long.
+  -->
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="7" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\Super.Cook\Super.Cook.csproj" />
     <ProjectReference Include="..\..\src\Super.Cook.Models\Super.Cook.Models.csproj" />

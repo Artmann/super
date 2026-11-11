@@ -23,6 +23,15 @@ public static class MaterialGraphs
     /// <summary>Changes whenever <c>Super.Materials</c>, <c>Super.Random</c> or this library is rebuilt with a change, so every graph cooks again.</summary>
     public static int Version { get; } = FoldVersion();
 
+    /// <summary>
+    /// How many graphs run at once in the process, whichever sources and cooks they're for. Each holds its float images
+    /// while it runs, so this, not the number of workers, sets how much memory graphs take. Each runs its nodes on every
+    /// core already, so more than this gains little. Only running a graph waits for it, never waiting for a shared run.
+    /// </summary>
+    internal static readonly int RunsAtOnce = Math.Clamp(Environment.ProcessorCount / 2, 2, 8);
+
+    private static readonly SemaphoreSlim RunPermits = new(RunsAtOnce);
+
     /// <summary>What is wrong with <paramref name="size"/>, named <paramref name="key"/> in the message, or null when it is a size a graph can cook at.</summary>
     public static string? SizeProblem(string key, int size)
     {
@@ -109,14 +118,7 @@ public static class MaterialGraphs
             }
 
             // Kept by the source that ran it. The others share the run, and the cache it was kept in, with it.
-            if (made is not null && key is not null && input.HasStepCache)
-            {
-                using (input.Time("keep graph runs"))
-                {
-                    input.Keep(RunStep, key, WriteKept(made.Packed, reads));
-                }
-            }
-
+            Keep(input, key, made, reads);
             return made;
         });
         return run?.Packed;
@@ -132,13 +134,29 @@ public static class MaterialGraphs
         return SharedGraphRuns.GetOrMake(key, input, "", () =>
         {
             var reads = new List<(string Path, byte[] Hash)>();
+            SharedGraphRuns.Run? made;
             using (input.Time("run graphs"))
             {
-                return Run(input, null, input.Bytes, size, (message, line) => output.Error(message, line), reads) is { } images
+                made = Run(input, null, input.Bytes, size, (message, line) => output.Error(message, line), reads) is { } images
                     ? Share(images, reads)
                     : null;
             }
+
+            // Kept as a model's run is, so a model that waited for this one, or cooks later, finds it in the step cache.
+            Keep(input, key, made, reads);
+            return made;
         });
+    }
+
+    private static void Keep(CookInput input, string? key, SharedGraphRuns.Run? made, List<(string Path, byte[] Hash)> reads)
+    {
+        if (made is not null && key is not null && input.HasStepCache)
+        {
+            using (input.Time("keep graph runs"))
+            {
+                input.Keep(RunStep, key, WriteKept(made.Packed, reads));
+            }
+        }
     }
 
     private static SharedGraphRuns.Run Share(MaterialImages images, List<(string Path, byte[] Hash)> reads)
@@ -422,7 +440,15 @@ public static class MaterialGraphs
             }
 
             SharedGraphRuns.CountRun();
-            return GraphRunner.Run(graph, size, new CookImages(input, folder, reads));
+            RunPermits.Wait();
+            try
+            {
+                return GraphRunner.Run(graph, size, new CookImages(input, folder, reads));
+            }
+            finally
+            {
+                RunPermits.Release();
+            }
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {

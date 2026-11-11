@@ -265,7 +265,9 @@ that. The output is the same whatever the number: problems print in the order of
 and the manifest is byte for byte the same. The slowest sources start first: the cache folder
 keeps how long each one took in `durations.json`, and sources it has no time for start first,
 models before the rest and then the biggest files. A graph that several sources run at the
-same size, such as a material's own graph that a model also uses, runs once per cook.
+same size, such as a material's own graph that a model also uses, usually runs once: its
+run is kept for the others. The kept runs are capped at 1 GiB, and past that the oldest are
+dropped, so a big cook may run such a graph again.
 
 `--timings` prints a summary before the last line. It lists the time of each step of the
 cook, the time each phase took added up over every source (decoding images, building mips,
@@ -297,7 +299,9 @@ A model's phases include `run graphs`, `bake masks`, `build mips` and `compress 
 slow steps of a model with material graphs, each with a `recall` phase before it and a `keep`
 phase after it for the step cache. On the Courtyard most of a cold cook is `run graphs`
 and `bake masks`. A model runs several graphs and bakes several materials' masks at once, so
-those phases can add up to more than the model's own time. `wait for shared graph runs` is
+those phases can add up to more than the model's own time. Across the whole cook, at most
+half the processors, from 2 to 8, run a graph at once, and as many bake masks, which keeps
+the memory a cook takes in bounds; a cold cook of the Courtyard peaks near 6 GB. `wait for shared graph runs` is
 time spent waiting for a graph run that another source of the cook is making at the same size. A model with an `alphaCutoff` also has `keep alpha coverage`, the time
 spent rescaling its cut-out textures' mips so they don't thin out in the distance.
 
