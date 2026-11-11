@@ -15,6 +15,7 @@ internal sealed unsafe class RayTracing : IDisposable
     private readonly KhrAccelerationStructure _api;
     private readonly ResourceTable _resources;
     private readonly Func<MeshHandle, Mesh> _meshes;
+    private readonly Func<GpuBuffer, bool> _uploadPending;
     private readonly Action<IDisposable> _releaseAfterSubmitted;
     private readonly Action<IDisposable> _releaseAfterRecorded;
     private readonly ulong _scratchAlignment;
@@ -28,17 +29,20 @@ internal sealed unsafe class RayTracing : IDisposable
     private GpuBuffer? _scratch;
 
     /// <param name="meshes">The live mesh behind a handle.</param>
+    /// <param name="uploadPending">Whether a buffer's bytes are still waiting in the upload queue.</param>
     /// <param name="releaseAfterSubmitted">
     /// Frees something once every frame submitted so far is done with it, for a destroyed mesh's structures.
     /// </param>
     /// <param name="releaseAfterRecorded">
     /// Frees something once the work recorded so far, including the command buffer being recorded now, is done with
-    /// it, for a scratch buffer that has been outgrown.
+    /// it, for a scratch buffer that has been outgrown. That assumes the command buffer is the frame being recorded or
+    /// is waited on before the next frame.
     /// </param>
     public RayTracing(
         VulkanContext context,
         ResourceTable resources,
         Func<MeshHandle, Mesh> meshes,
+        Func<GpuBuffer, bool> uploadPending,
         Action<IDisposable> releaseAfterSubmitted,
         Action<IDisposable> releaseAfterRecorded)
     {
@@ -50,6 +54,7 @@ internal sealed unsafe class RayTracing : IDisposable
         _context = context;
         _resources = resources;
         _meshes = meshes;
+        _uploadPending = uploadPending;
         _releaseAfterSubmitted = releaseAfterSubmitted;
         _releaseAfterRecorded = releaseAfterRecorded;
         if (!context.Api.TryGetDeviceExtension(context.Instance, context.Device, out _api))
@@ -73,7 +78,8 @@ internal sealed unsafe class RayTracing : IDisposable
     /// The device address of the bottom-level structure for these parts of the mesh. The first call for a mesh and
     /// part list records its build into <paramref name="cmd"/>, followed by a barrier, so later work in the same
     /// command buffer can read it; later calls return the same structure and record nothing. The mesh's bytes must
-    /// already be uploaded by work that runs before <paramref name="cmd"/>, or earlier in it.
+    /// already be uploaded by work that runs before <paramref name="cmd"/>, or earlier in it; a build from a mesh whose
+    /// copy is still queued throws rather than caching a structure made from empty memory.
     /// </summary>
     public ulong BottomLevel(CommandBuffer cmd, MeshHandle mesh, ReadOnlySpan<TracePart> parts)
     {
@@ -88,7 +94,14 @@ internal sealed unsafe class RayTracing : IDisposable
             }
         }
 
-        var created = Build(cmd, _meshes(mesh), parts);
+        var live = _meshes(mesh);
+        if (_uploadPending(live.Vertices) || _uploadPending(live.Indices))
+        {
+            throw new InvalidOperationException(
+                $"Mesh {mesh.Index}'s bytes haven't been uploaded yet; record the frame's uploads before building its structure.");
+        }
+
+        var created = Build(cmd, live, parts);
         if (built is null)
         {
             built = [];
@@ -117,6 +130,56 @@ internal sealed unsafe class RayTracing : IDisposable
         }
 
         _bottomLevelCount -= built.Count;
+    }
+
+    /// <summary>
+    /// Lets go of every structure with a part drawn in this material, because each part's opaque flag is baked in when
+    /// it's built. Call it when the material stops or starts being opaque to rays, and when it's destroyed, since its
+    /// handle may be handed to another material. Freed the same way as <see cref="Forget"/>.
+    /// </summary>
+    public void ForgetMaterial(MaterialHandle material)
+    {
+        List<MeshHandle>? emptied = null;
+        foreach (var (mesh, built) in _bottomLevels)
+        {
+            for (int i = built.Count - 1; i >= 0; i--)
+            {
+                if (!Uses(built[i].Parts, material))
+                {
+                    continue;
+                }
+
+                _releaseAfterSubmitted(built[i]);
+                built.RemoveAt(i);
+                _bottomLevelCount--;
+            }
+
+            if (built.Count == 0)
+            {
+                (emptied ??= []).Add(mesh);
+            }
+        }
+
+        if (emptied is not null)
+        {
+            foreach (var mesh in emptied)
+            {
+                _bottomLevels.Remove(mesh);
+            }
+        }
+    }
+
+    private static bool Uses(TracePart[] parts, MaterialHandle material)
+    {
+        foreach (var part in parts)
+        {
+            if (part.Material == material)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -218,8 +281,11 @@ internal sealed unsafe class RayTracing : IDisposable
                 BufferUsageFlags.StorageBufferBit | BufferUsageFlags.ShaderDeviceAddressBit, MemoryPropertyFlags.DeviceLocalBit);
         }
 
-        return (_scratch.Address + _scratchAlignment - 1) / _scratchAlignment * _scratchAlignment;
+        return AlignUp(_scratch.Address, _scratchAlignment);
     }
+
+    /// <summary>The smallest multiple of <paramref name="alignment"/> that is at least <paramref name="value"/>.</summary>
+    public static ulong AlignUp(ulong value, ulong alignment) => (value + alignment - 1) / alignment * alignment;
 
     /// <summary>
     /// Makes later work wait for the build: anything that reads the structure, and the next build, which reuses the

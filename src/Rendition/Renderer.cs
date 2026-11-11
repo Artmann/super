@@ -422,7 +422,7 @@ public sealed unsafe class Renderer : IDisposable
         _resources = new ResourceTable(_context);
         if (_context.CanTrace)
         {
-            _tracing = new RayTracing(_context, _resources, MeshFor,
+            _tracing = new RayTracing(_context, _resources, MeshFor, _uploads.IsPending,
                 releaseAfterSubmitted: structure => Destroying().Others.Add(structure),
                 releaseAfterRecorded: scratch => _destroyed[_frameIndex].Others.Add(scratch));
         }
@@ -635,6 +635,8 @@ public sealed unsafe class Renderer : IDisposable
 
     private void QueueMaterialDestroy(int slot)
     {
+        // The slot may go to a material with a different opaque flag, so no structure may keep using it.
+        _tracing?.ForgetMaterial(new MaterialHandle(slot));
         _resources.MarkMaterialDying(slot);
         Destroying().Materials.Add(slot);
     }
@@ -1128,7 +1130,16 @@ public sealed unsafe class Renderer : IDisposable
     public void UpdateMaterial(MaterialHandle handle, in Material material)
     {
         ValidateMaterial(material);
+        // A destroyed material's structures are already gone, so only a live one is checked.
+        bool traced = _tracing is not null && _resources.IsLive(handle);
+        var opaqueBefore = traced ? RayTracing.GeometryFlagsFor(_resources.HasCutouts(handle), _resources.GetFlags(handle)) : default;
         _resources.UpdateMaterial(handle, material);
+        if (traced
+            && RayTracing.GeometryFlagsFor(_resources.HasCutouts(handle), _resources.GetFlags(handle)) != opaqueBefore)
+        {
+            // Structures bake each part's opaque flag in, so ones drawn in this material are rebuilt when next traced.
+            _tracing!.ForgetMaterial(handle);
+        }
     }
 
     private void ValidateMaterial(in Material material)

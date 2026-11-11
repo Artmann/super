@@ -2367,11 +2367,22 @@ scratch buffer and the top-level build that reads the structure.
 
 A mesh's bytes arrive through `UploadQueue`. Where the device can trace, the upload barrier also
 covers the acceleration structure build stage, so a build later in the same command buffer reads
-the uploaded bytes, not what was in the buffer before.
+the uploaded bytes, not what was in the buffer before. `BottomLevel` throws if the mesh's vertex
+or index copy is still waiting in the queue (`UploadQueue.IsPending`), rather than caching a
+structure built from empty memory. Inside `Render` that never happens, because the frame's uploads
+are the first thing recorded. A caller that builds in its own `SubmitAndWait` straight after
+`CreateMesh` has to render a frame or flush uploads first.
 
 `DestroyMesh` calls `Forget`, which drops the mesh's structures at once, since its handle may be
 handed to another mesh. The structures and their buffers are added to the same destroy slot as the
 mesh's own buffers, so they are released once no frame in flight can read them.
+
+Each part's opaque flag is baked into the structure when it is built. So `UpdateMaterial` calls
+`ForgetMaterial` when a change makes the material start or stop having cut-outs or being
+`Transparent`, and destroying a material always does, because material handles are slot numbers
+and the slot may come back as a material with a different flag. `ForgetMaterial` drops every
+structure with a part in that material and releases it the same way as `Forget`; the next trace
+rebuilds it.
 
 ## Known simplifications to revisit
 

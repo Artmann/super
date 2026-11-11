@@ -27,6 +27,20 @@ internal sealed unsafe class UploadQueue(VulkanContext context)
     /// </summary>
     public void Cancel(GpuBuffer target) => Cancel(target, null);
 
+    /// <summary>Whether a copy into this buffer is still waiting to be recorded. Scans the queue.</summary>
+    public bool IsPending(GpuBuffer target)
+    {
+        foreach (var upload in _pending)
+        {
+            if (upload.Buffer == target)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>Drops a texture's waiting copy the same way as <see cref="Cancel(GpuBuffer)"/>.</summary>
     public void Cancel(GpuTexture target) => Cancel(null, target);
 
