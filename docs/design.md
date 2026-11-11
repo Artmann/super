@@ -1729,9 +1729,22 @@ can carry back. The full-size level is left as it was, and its drift measured un
 `TextureCompressionTests` checks the strand pattern at cutoffs of 0.3 and 0.5 from 128 by
 128 down to 4 by 4: each level's passing pixels stay within 1% of the uncompressed count,
 or 2 pixels on the small levels. The cutoff is part of the compressed-texture memo's key and
-the step cache's key, and the model cooker's version went to 18. A material whose colour
-and surface both carry alpha (above) has each texture checked at its own cutoff, not their
-product's, which no shipped material needs.
+the step cache's key, and the model cooker's version went to 18.
+
+A material whose colour and surface both carry alpha (above) keeps its product's coverage
+through compression too. `TextureCompression.Coverage` sees both textures' partial alpha,
+leaves the surface whole, so its alpha is encoded plainly and never stretched, and hands
+the colour the uncompressed surface as its partner. Each pixel of the colour's level then
+has its own threshold, `ceil(cutoff * 255 * 255 / p)` over the partner byte p under it, read
+as `KeepAlphaCoverage` reads it, and the stretch is about each pixel's own cutoff in bytes,
+so it keeps which products pass. The encoder's hint knows one threshold only, so it's left
+out over a partner. Stretching the surface about the cutoff, as before, moved the product:
+at a cutoff of 0.5, a colour alpha of 0.8 over a surface of 0.6 fails (0.48), but the surface
+stretched twice from the cutoff reads 0.7 and the product passes. The partner's pixels go
+in the step cache's key, and the model cooker's version went to 19. When two cut-out
+materials want different coverage from one texture, the first one's is kept and the cook
+warns, since one compressed texture can keep only one. The models cooker gives each cutoff
+its own texture, so only a hand-built `ModelData` can do it.
 
 Compressing is memoised on the shared `TextureData` it starts from, so an atlas a kit shares
 is compressed once per process and its compressed copy is written and hashed once. A failed

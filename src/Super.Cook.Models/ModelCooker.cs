@@ -44,9 +44,12 @@ public sealed class ModelCooker : ICooker
     // 12: vertices keep a second UV set, and materials bake masks for wear and dirt. 13: masks measure height per mesh,
     // carry the wear breakup in alpha and read as clean off their islands. 14: foliage sets its translucency, and
     // materials may sway in the wind. 15: BC7 from the cook's own encoder, and BC4 and BC5 at BCnEncoder's Fast. 16: a
-    // cut-out's textures keep their alpha coverage at every mip level. The graphs' own version is folded in, so a change
-    // to Super.Materials cooks every model again, since one may use a graph.
-    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 18);
+    // cut-out's textures keep their alpha coverage at every mip level. 17: when a cut-out's colour and surface both carry
+    // alpha, the colour keeps the coverage of their product and the surface is left whole. 18: BC7 compression keeps a
+    // cut-out's coverage too. 19: compression keeps the product's coverage on the colour, and leaves such a surface
+    // whole. The graphs' own version is folded in, so a change to Super.Materials cooks every model again, since one
+    // may use a graph.
+    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 19);
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -457,7 +460,8 @@ public sealed class ModelCooker : ICooker
         if (settings.CompressTextures)
         {
             // It times its own phases: taking textures from the step cache, compressing the rest, and keeping them.
-            TextureCompression.Compress(model.Textures, model.Materials, masks.OfType<ModelMaterialMasks>().Select(mask => mask.Texture), input);
+            TextureCompression.Compress(model.Textures, model.Materials, masks.OfType<ModelMaterialMasks>().Select(mask => mask.Texture), input,
+                message => output.Warning(prefix + message));
         }
 
         using (input.Time("write model"))

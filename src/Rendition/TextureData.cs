@@ -225,12 +225,10 @@ public sealed class TextureData
             return texture;
         }
 
-        // The shader's (a / 255) * (p / 255) >= cutoff, as the least byte of this texture's alpha that passes over a
-        // partner byte p. 256 means nothing passes, as over a clear partner.
         var thresholds = new int[256];
         for (int p = 0; p < 256; p++)
         {
-            thresholds[p] = p == 0 ? 256 : Math.Clamp((int)Math.Ceiling(cutoff * 255.0 * 255.0 / p - 1e-3), 0, 256);
+            thresholds[p] = ProductThreshold(cutoff, (byte)p);
         }
 
         long[] top = ProductHistogram(texture.Mips[0], PartnerAlpha(partner, texture, 0), thresholds);
@@ -276,9 +274,19 @@ public sealed class TextureData
         return new TextureData { Width = texture.Width, Height = texture.Height, Kind = texture.Kind, Mips = mips };
     }
 
-    // The partner's alpha under each pixel of the texture's level: from the partner's level that covers the same part
-    // of the surface, as the GPU picks it for the same footprint, at the nearest pixel.
-    private static byte[] PartnerAlpha(TextureData partner, TextureData texture, int level)
+    /// <summary>
+    /// The shader's <c>(a / 255) * (p / 255) >= cutoff</c>, as the least byte of a texture's alpha that passes over a
+    /// partner byte <paramref name="partner"/>. 256 means nothing passes, as over a clear partner.
+    /// </summary>
+    public static int ProductThreshold(float cutoff, byte partner) =>
+        partner == 0 ? 256 : Math.Clamp((int)Math.Ceiling(cutoff * 255.0 * 255.0 / partner - 1e-3), 0, 256);
+
+    /// <summary>
+    /// The partner's alpha under each pixel of <paramref name="texture"/>'s level <paramref name="level"/>: from the
+    /// partner's level that covers the same part of the surface, as the GPU picks it for the same footprint, at the
+    /// nearest pixel, so the two can be different sizes.
+    /// </summary>
+    public static byte[] PartnerAlpha(TextureData partner, TextureData texture, int level)
     {
         int width = Math.Max(texture.Width >> level, 1);
         int height = Math.Max(texture.Height >> level, 1);

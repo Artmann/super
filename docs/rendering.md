@@ -826,8 +826,12 @@ pixels passes the cutoff as on the full-size texture. When the colour and surfac
 both carry opacity, it's the share where their product passes that is kept, by scaling the
 colour's alpha alone. Compression keeps that share too: a cut-out's smaller levels are
 checked once compressed, and encoded again with their alpha pushed away from the cutoff when
-more than 1% of their pixels moved across it. This is only done for materials with a cutoff: blended, dithered and
-opaque textures keep their mips as before. Changing the cutoff cooks the textures again.
+more than 1% of their pixels moved across it. When both textures carry opacity, the colour
+is checked against the product, pixel by pixel, and the surface is compressed as it is. This
+is only done for materials with a cutoff: blended, dithered and opaque textures keep their
+mips as before. Changing the cutoff cooks the textures again. When two cut-out materials
+share a texture but want different coverage from it, such as two different cutoffs, the
+first material's wins and the cook warns.
 
 ![The cobweb in --leaves from about 6 m: left, plain mips leave one dot of the web and thin the dry grass; right, mips that keep their coverage keep the threads and the grass](media/alpha-coverage-mips.webp)
 
