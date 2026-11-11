@@ -1,6 +1,7 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
 #include "sampling.glsl"
+#include "sky.glsl"
 #include "probe_fold.glsl"
 
 // Folds one light probe's six rasterized faces into its two tiles, in one slot of the staging
@@ -9,26 +10,31 @@
 
 layout(local_size_x = 16, local_size_y = 16) in;
 
-// Alpha holds each pixel's distance from the probe, negative where it saw the back of a surface.
+// Six layers per slot, one per face. Alpha holds each pixel's distance from the probe, negative
+// where it saw the back of a surface, and SKY_MARK where nothing was drawn.
 layout(set = 0, binding = 0) uniform sampler2DArray faces;
 
 layout(std430, set = 0, binding = 1) writeonly buffer StagingTiles {
     StagedTile tiles[];
 };
 
+// The sharp sky, for the directions where the probe saw nothing.
+layout(set = 0, binding = 5) uniform samplerCube sky;
+
 // Must match FoldConstants in Vulkan/ProbeVolume.cs.
 layout(push_constant) uniform Fold {
     int slot;
     float maxDistance;
+    int showEnvironment; // 1 when the environment shows where nothing was drawn, as in lighting.frag
+    float unused;
+    vec4 background;     // rgb: the background where the environment doesn't show; a: the environment's intensity
+    vec4 skySun;         // the frame's skySun: xyz towards the clear sky's sun, w its turbidity, 0 for the environment's bands
 } fold;
 
-// Must match ProbeVolume.cs.
-const int FACE_SIZE = 32;
-
-// Each face is averaged down to this many texels across first, so every texel of a tile
-// can look at every sample.
-const int REDUCED = 16;
-const int SAMPLES = 6 * REDUCED * REDUCED;
+// Must match ProbeVolume.cs and probe_capture.frag's clear.
+const int FACE_SIZE = 16;
+const float SKY_MARK = 1e4;
+const int SAMPLES = 6 * FACE_SIZE * FACE_SIZE;
 
 shared vec4 samples[SAMPLES];
 shared uint backFaces;
@@ -45,16 +51,26 @@ vec3 cubeDirection(int face, vec2 uv) {
     }
 }
 
-// The world direction a reduced sample looks along, and the share of the sphere it covers.
+// The world direction a sample looks along, and the share of the sphere it covers.
 vec3 sampleDirection(int index, out float solidAngle) {
-    int face = index / (REDUCED * REDUCED);
-    int texel = index % (REDUCED * REDUCED);
-    vec2 uv = (vec2(texel % REDUCED, texel / REDUCED) + 0.5) / float(REDUCED) * 2.0 - 1.0;
+    int face = index / (FACE_SIZE * FACE_SIZE);
+    int texel = index % (FACE_SIZE * FACE_SIZE);
+    vec2 uv = (vec2(texel % FACE_SIZE, texel / FACE_SIZE) + 0.5) / float(FACE_SIZE) * 2.0 - 1.0;
     vec3 c = cubeDirection(face, uv);
     float lengthSquared = dot(c, c);
     solidAngle = 1.0 / (lengthSquared * sqrt(lengthSquared));
     // A cube map is mirrored compared with the camera that drew it, so z swaps back.
     return vec3(c.x, c.y, -c.z) * inversesqrt(lengthSquared);
+}
+
+// What the probe sees where nothing was drawn: what lighting.frag shows there, without the sun's
+// disc, as the sun's light reaches surfaces directly.
+vec3 skyRadianceAlong(vec3 direction) {
+    if (fold.showEnvironment == 1) {
+        return skyBehind(sky, direction, fold.skySun) * fold.background.a;
+    }
+
+    return fold.background.rgb;
 }
 
 void main() {
@@ -67,20 +83,17 @@ void main() {
 
     uint seenBehind = 0u;
     for (int s = local; s < SAMPLES; s += 256) {
-        int face = s / (REDUCED * REDUCED);
-        int texel = s % (REDUCED * REDUCED);
-        ivec2 corner = ivec2(texel % REDUCED, texel / REDUCED) * 2;
-        vec4 sum = vec4(0.0);
-        for (int i = 0; i < 4; i++) {
-            vec4 seen = texelFetch(faces, ivec3(corner + ivec2(i & 1, i >> 1), face), 0);
-            if (seen.a < 0.0) {
-                seenBehind++;
-            }
-
-            sum += vec4(seen.rgb, min(abs(seen.a), fold.maxDistance));
+        int face = s / (FACE_SIZE * FACE_SIZE);
+        int texel = s % (FACE_SIZE * FACE_SIZE);
+        vec4 seen = texelFetch(faces, ivec3(texel % FACE_SIZE, texel / FACE_SIZE, fold.slot * 6 + face), 0);
+        if (seen.a >= SKY_MARK * 0.5) {
+            float solidAngle;
+            seen = vec4(skyRadianceAlong(sampleDirection(s, solidAngle)), fold.maxDistance);
+        } else if (seen.a < 0.0) {
+            seenBehind++;
         }
 
-        samples[s] = sum * 0.25;
+        samples[s] = vec4(seen.rgb, min(abs(seen.a), fold.maxDistance));
     }
 
     atomicAdd(backFaces, seenBehind);
@@ -103,7 +116,7 @@ void main() {
         tiles[fold.slot].irradiance[local] = vec4(sum / max(total, 1e-6), 1.0);
     }
 
-    bool inside = probeSawInside(backFaces, uint(6 * FACE_SIZE * FACE_SIZE));
+    bool inside = probeSawInside(backFaces, uint(SAMPLES));
 
     for (int b = local; b < DEPTH_SIDE * DEPTH_SIDE; b += 256) {
         ivec2 bordered = ivec2(b % DEPTH_SIDE, b / DEPTH_SIDE);

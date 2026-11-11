@@ -64,7 +64,7 @@ component on its entity instead. See [Audio](audio.md).
 | `view.Ghost(key, model, transform, color, opacity)` | A model in one colour that glows a little, as a [preview of where something will go](rendering.md#ghosts) |
 | `view.Shadows(radius, cascades, sunSize, contact)` | How far shadows reach, how soft they are, and how far contact shadows look where things meet the ground. See [Rendering](rendering.md#shadows) |
 | `view.AmbientOcclusion(radius, strength)` | How far corners and creases reach out to darken the soft light, and how dark. See [Rendering](rendering.md#ambient-occlusion) |
-| `view.LightProbes(min, max, spacing)` | A box of light probes that gives what's inside light bounced off the walls and ground. See [Rendering](rendering.md#bounced-light) |
+| `view.LightProbes(min, max, spacing)` | A box of light probes of your own, finer than the ones the renderer keeps round the camera, whose probes win inside it. See [Rendering](rendering.md#bounced-light) |
 | `view.BakedLighting(name, min, max, probeSpacing)` | Names the one place this frame whose lighting will be baked. Nothing is baked yet. See [Baked lighting](rendering.md#baked-lighting) |
 | `view.BakedChunk(name, transform, min, max)` | Places a piece of the world that will be baked once and reused wherever it stands. Up to 256 a frame. See [Baked lighting](rendering.md#baked-lighting) |
 | `view.ReflectionProbe(key, position, boxMin, boxMax, blend)` | A photograph of the scene from one spot, which shiny surfaces and glass in its box reflect. Up to 4 a frame. See [Rendering](rendering.md#reflections) |
@@ -472,7 +472,7 @@ Decals have some limits:
   roughness and opacity. Its detail textures, height map and world variation are ignored.
 - On strongly bumped surfaces, the fade by angle follows the bumps, so near the limit it
   fades in specks.
-- Probes see decals, but moving or adding one doesn't photograph them again.
+- Reflection probes see decals, but moving or adding one doesn't photograph them again. Light probes don't see them, so a decal doesn't tint bounced light.
 
 ## Planned
 

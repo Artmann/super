@@ -183,10 +183,10 @@ internal struct FrameUniforms
     public float MipBias;
 
     /// <summary>
-    /// 1 while a light probe's faces are drawn: the lighting then writes each pixel's distance
-    /// from the probe into alpha, negative for the back of a surface, for probe_fold.comp.
+    /// How many point and spot lights light probe updates: <see cref="LocalLightCount"/> that reach the view, then
+    /// the rest of the frame's lights, which the clusters leave out but a probe behind the camera still sees.
     /// </summary>
-    public int ProbeCapture;
+    public int ProbeLightCount;
 
     /// <summary>
     /// Last frame's <see cref="Time"/>, which the G-buffer pass sways last frame's grass at for motion vectors. The same
@@ -195,6 +195,9 @@ internal struct FrameUniforms
     public float PreviousTime;
     public GpuLightArray Lights;
     public GpuReflectionProbeArray Probes;
+
+    /// <summary>World to the light probes' own sun shadow map, which covers the largest cascade. See ProbeSunShadow.</summary>
+    public Matrix4x4 ProbeSunMatrix;
 }
 
 /// <summary>One point or spot light as the shaders read it. Must match LocalLight in Shaders/light_data.glsl.</summary>

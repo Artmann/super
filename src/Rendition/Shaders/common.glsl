@@ -57,10 +57,11 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     int localLightCount;     // Point and spot lights in light_data.glsl's lights.
     int off;                 // The RenderEffects left out of this frame: see the OFF_ bits below.
     float mipBias;           // Added to the mip level of material textures: below 0 while anti-aliasing shifts the view.
-    int probeCapture;        // 1 while drawing a light probe's faces: alpha holds the distance, negative behind a surface.
+    int probeLightCount;     // Local lights probe updates read: localLightCount in view, then the rest of the frame's.
     float previousTime;      // Last frame's time, for motion vectors; the same as time when there's no last frame.
     Light lights[8];
     ReflectionProbe probes[4];
+    mat4 probeSunMatrix;         // World to the light probes' own sun shadow map, over the largest cascade.
 } frame;
 
 // Bits of frame.off. Must match RenderEffects in Types.cs.
@@ -79,7 +80,7 @@ const int OFF_WIND = 1 << 17;
 // and the finish pass then hand colours through as they are.
 const int OFF_DEBUG_VIEW = 1 << 30;
 
-// The normal target's alpha holds the side a surface faces, 1 or -1. Puddle water writes
+// The normal target's alpha holds 1 for a surface. Puddle water writes
 // WATER_SIDE instead, so the lighting knows to shade it at the water's surface, not on the
 // ground under it, which is all the depth buffer holds.
 const float WATER_SIDE = 2.0;

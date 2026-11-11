@@ -164,6 +164,23 @@ internal static class DrawSelection
         return count;
     }
 
+    /// <summary>
+    /// The world-space ball round one draw, or false when the draw has no bounds, as a draw made
+    /// without a part's details doesn't.
+    /// </summary>
+    public static bool TryBounds(in DrawItem draw, List<PartDetail> details, out Vector3 center, out float radius)
+    {
+        if (draw.Detail.Index == 0 || draw.Detail.Index >= details.Count)
+        {
+            center = default;
+            radius = 0f;
+            return false;
+        }
+
+        (center, radius) = Bounds(draw, details[draw.Detail.Index], Scale(draw.Transform));
+        return true;
+    }
+
     private static (Vector3 Center, float Radius) Bounds(in DrawItem draw, PartDetail detail, float scale) =>
         (Vector3.Transform(detail.Center, draw.Transform), (detail.Radius + MathF.Abs(draw.Swim.Amplitude)) * scale);
 

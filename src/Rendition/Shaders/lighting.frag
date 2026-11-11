@@ -25,8 +25,6 @@ layout(set = 1, binding = 7) uniform sampler2D emissiveClearcoatTexture;
 layout(set = 1, binding = 8) uniform sampler2D ambientOcclusionTexture;
 layout(set = 1, binding = 9) uniform sampler2D historyTexture;
 layout(set = 1, binding = 10) uniform samplerCubeArray probeTexture;
-// The studio without its panels, as the irradiance sees it. Light probe captures use it.
-layout(set = 1, binding = 13) uniform samplerCube skyTexture;
 
 layout(std430, set = 2, binding = 1) readonly buffer Materials {
     Material materials[];
@@ -84,28 +82,14 @@ float specularOcclusion(float nDotV, float ao, float roughness) {
     return clamp(pow(nDotV + ao, exp2(-16.0 * roughness - 1.0)) - 1.0 + ao, 0.0, 1.0);
 }
 
-// Whether a point is inside the light probes' box, where they, not the sky, give soft light.
-bool insideProbes(vec3 position) {
-    vec3 first = frame.lightProbeMin.xyz;
-    vec3 last = first + (frame.lightProbeCounts.xyz - 1.0) * frame.lightProbeMin.w;
-    return frame.lightProbeCounts.x > 0.5 && all(greaterThanEqual(position, first)) && all(lessThanEqual(position, last));
-}
-
 // The soft light reaching a point from around a direction, in the lit image's units: from the
 // light probes where the frame uses them and they see the point, otherwise from the sky.
-// While light probes capture, inside their box there is no sky light: in the first round only
-// the sun and what the probe sees directly count, and in the second the first round's probes
-// give the rest. So nothing in a closed room glows with light that can't get in.
 vec3 softLight(vec3 position, vec3 direction, vec3 v) {
     if (frame.lightProbeCounts.w > 0.5 || frame.probeCascadeCounts.w > 0.5) {
         vec3 fromProbes = probeIrradiance(position, direction, v);
         if (fromProbes.x >= 0.0) {
             return fromProbes;
         }
-    }
-
-    if (frame.probeCapture == 1 && insideProbes(position)) {
-        return vec3(0.0);
     }
 
     return texture(irradianceTexture, direction).rgb * frame.backgroundRadiance.a;
@@ -423,18 +407,8 @@ void main() {
 
     outScatter = vec4(0.0);
 
-    // A light probe's capture keeps each pixel's distance in alpha, for probe_fold.comp.
-    bool capturing = frame.probeCapture == 1;
-
     // Reversed-Z: a depth of 0 is the far plane, so nothing was drawn here.
     if (depth == 0.0) {
-        if (capturing) {
-            vec4 ahead = frame.inverseViewProjection * vec4(inUv * 2.0 - 1.0, 1.0, 1.0);
-            vec3 direction = normalize(ahead.xyz / ahead.w - frame.cameraPosition.xyz);
-            outColor = vec4(textureLod(skyTexture, direction, 0.0).rgb * frame.backgroundRadiance.a, NOTHING_DRAWN_DISTANCE);
-            return;
-        }
-
         if (isUnderwater()) {
             vec4 ahead = frame.inverseViewProjection * vec4(inUv * 2.0 - 1.0, 1.0, 1.0);
             vec3 direction = normalize(ahead.xyz / ahead.w - frame.cameraPosition.xyz);
@@ -519,14 +493,6 @@ void main() {
         position = onWaterSurface(clip, position);
     }
 
-    // Only light probe captures draw the backs of one-sided surfaces, which surface.glsl
-    // marks with a negative occlusion. They give no light, and the negative distance tells
-    // the probe it is inside something.
-    if (normalRoughnessAo.w < 0.0) {
-        outColor = vec4(0.0, 0.0, 0.0, -length(position - frame.cameraPosition.xyz));
-        return;
-    }
-
     vec3 v = normalize(frame.cameraPosition.xyz - position);
     float nDotV = max(dot(n, v), 1e-4);
     float alpha = roughness * roughness;
@@ -541,9 +507,7 @@ void main() {
 
     vec2 brdf = environmentBrdf(roughness, nDotV);
     vec3 multiscatter = isOff(OFF_MULTISCATTER_SPECULAR) ? vec3(1.0) : multiscatterCompensation(f0, nDotV, roughness);
-    // A light probe keeps diffuse light only. A reflection of the sky would also shine on
-    // walls the sky can't reach, which is the leak the probes are there to stop.
-    vec3 reflectedLight = capturing ? vec3(0.0) : sampleReflection(position, reflect(-v, n), roughness * REFLECTION_LODS);
+    vec3 reflectedLight = sampleReflection(position, reflect(-v, n), roughness * REFLECTION_LODS);
 
     // Coated surfaces are traced for their mirror-like coat, which then serves both layers.
     float traceStrength = isOff(OFF_REFLECTIONS) ? 0.0
@@ -584,7 +548,7 @@ void main() {
 
     // The coat reflects first and what it lets through lights the layers below.
     vec3 coatFresnel = fresnelSchlick(nDotV, CLEARCOAT_F0) * clearcoat;
-    if (clearcoat > 0.0 && !capturing) {
+    if (clearcoat > 0.0) {
         vec3 coatReflection = sampleReflection(position, reflect(-v, n), CLEARCOAT_ROUGHNESS * REFLECTION_LODS);
         coatReflection *= specularOcclusion(nDotV, ao, CLEARCOAT_ROUGHNESS);
         coatReflection = mix(coatReflection, traced.rgb, traced.a);
@@ -647,12 +611,6 @@ void main() {
         } else {
             color += (diffuseLit + specularLit) * arriving;
         }
-    }
-
-    // A probe has no blur to spread subsurface light, so it keeps it where it fell.
-    if (capturing) {
-        outColor = vec4(color + scattered, length(position - frame.cameraPosition.xyz));
-        return;
     }
 
     // Water tints everything on its way to the camera, which the blur can't redo, so

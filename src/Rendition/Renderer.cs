@@ -100,26 +100,54 @@ public sealed unsafe class Renderer : IDisposable
     private readonly EnvironmentMap _environment;
     private readonly ReflectionProbes _probes;
 
-    // The light probe volume, the small targets its faces are drawn to, and this frame's state:
-    // whether its faces are being drawn now, whether surfaces read it, and whether the sun's
-    // maps from the first face of a batch still hold, since every probe uses the same ones.
+    // The light probe atlases, which hold nothing until the first frame with the probes on, and the
+    // pass that draws a few probes' faces each frame, with the sun's shadow map they use.
     private readonly ProbeVolume _lightProbes;
+    private readonly ProbeCapturePass _probeUpdatePass;
+    private ProbeSunShadow? _probeSun;
     private readonly VolumetricFogVolume _volumetricFog;
-    private GBuffer? _lightProbeTargets;
     private GBuffer? _reflectionProbeTargets;
-    private bool _capturingLightProbes;
-    private bool _lightProbesInUse;
-    private bool _keepShadowMaps;
 
-    // The four probe cascades that follow the camera, moved to it at the start of every frame. Their
-    // tiles live in layers 0 to 3 of the light probe atlases.
-    private readonly ProbeCascades _probeCascades = new(ProbeQuality.High);
+    // Whether surfaces read the light probes this frame: they're on, the GPU can draw them, and the
+    // view has any.
+    private bool _lightProbesInUse;
+
+    // The four probe cascades that follow the camera, moved to it every frame the probes are on.
+    // Their tiles live in layers 0 to 3 of the light probe atlases. Made anew with the quality.
+    private ProbeCascades _probeCascades = new(ProbeQuality.High);
+    private ProbeQuality _probeQuality = ProbeQuality.High;
+
+    // Which probes to update next, made with the atlases, and this frame's batch of them.
+    private ProbeScheduler? _probeScheduler;
+    private IReadOnlyList<ProbeId> _probeBatch = [];
+    private readonly List<Vector3> _probeBatchPositions = [];
+    private readonly List<float> _probeBatchSpacings = [];
+
+    // The cascades' moves and the fixed grid's changes that this frame must clear from the atlases.
+    private readonly List<ProbeInvalidation> _probeInvalidations = [];
+
+    // What the probes were last updated for, to see what changed: the fixed grid, the lighting that
+    // reaches everything, and each point and spot light by its key.
+    private ProbeVolumeSettings? _probeGrid;
+    private int _probeLightingKey;
+    private readonly Dictionary<int, LocalLight> _probeLights = [];
+    private readonly HashSet<int> _probeLightsSeen = [];
+    private readonly List<int> _probeLightsGone = [];
+
+    // How far a probe already captured moves towards a new rasterized capture: halfway, so its light
+    // settles over a few updates instead of flickering. A first capture is taken whole.
+    private const float RasterBlend = 0.5f;
+
+    // What this frame's folds fill the sky with, where a probe saw nothing.
+    private bool _probeShowEnvironment;
+    private Vector4 _probeBackground;
+    private Vector4 _probeSkySun;
 
     // The frame whose uniforms Render wrote last, so SampleProbeIrradiance reads what that frame did.
     private int _uniformFrame;
 
-    // The single probe CaptureFaces blends, kept so a capture allocates nothing.
-    private readonly ProbeId[] _capturedProbe = new ProbeId[1];
+    /// <summary>One layer's cells to clear, as <see cref="ProbeVolume.RecordInvalidate"/> takes them.</summary>
+    private readonly record struct ProbeInvalidation(int Layer, Int3 Origin, Int3 Counts, Int3 SlabStart, Int3 SlabCount);
 
     // Goes up with every SetEnvironment, so the light probes see the sky has changed.
     private int _environmentVersion;
@@ -421,7 +449,7 @@ public sealed unsafe class Renderer : IDisposable
         _api.CreateSampler(_context.Device, &shadowSamplerInfo, null, out _shadowSampler).Check();
 
         _frameSetLayout = CreateFrameSetLayout();
-        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 14, ShaderStageFlags.FragmentBit);
+        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 13, ShaderStageFlags.FragmentBit);
         _threeTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 3, ShaderStageFlags.FragmentBit);
         _fourTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 4, ShaderStageFlags.FragmentBit);
         _twoTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 2, ShaderStageFlags.FragmentBit);
@@ -482,7 +510,8 @@ public sealed unsafe class Renderer : IDisposable
             Floor = new Vector3(0.2f),
         });
         _probes = new ReflectionProbes(_context, _environment.Sampler);
-        _lightProbes = new ProbeVolume(_context, ProbeQuality.High);
+        _lightProbes = new ProbeVolume(_context, _environment.Sampler, _environment.Sky);
+        _probeUpdatePass = new ProbeCapturePass(_context, _frameSetLayout, _resources);
         _volumetricFog = new VolumetricFogVolume(_context, _frameSetLayout, _linearSampler);
 
         _aoSet = AllocateSet(_threeTextureSetLayout);
@@ -553,9 +582,44 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     internal ProbeCascades LightProbeCascades => _probeCascades;
 
+    /// <summary>How many light probes the last frame updated: none while they're off, or settled and unchanged.</summary>
+    internal int ProbeUpdatesLastFrame { get; private set; }
+
+    /// <summary>
+    /// Whether every probe near the camera, in the two finest cascades and the fixed grid, has been
+    /// updated since its light last changed. False while the probes are off.
+    /// </summary>
+    internal bool ProbesSettled => _probeScheduler?.Settled ?? false;
+
+    /// <summary>For tests: while true, no probe is updated, so what a test writes into the atlases stays.</summary>
+    internal bool ProbeUpdatesPaused { get; set; }
+
+    /// <summary>For tests: the most triangles a frame draws round its probes, as <see cref="ProbeCapturePass.MaxTrianglesPerFrame"/>.</summary>
+    internal long ProbeTrianglesPerFrame { get; set; } = ProbeCapturePass.MaxTrianglesPerFrame;
+
+    /// <summary>
+    /// How many light probes follow the camera, and how many are updated a frame: see
+    /// <see cref="Rendition.ProbeQuality"/>. A change makes the probes' atlases again, all uncaptured,
+    /// on the next frame with the probes on, which waits for the GPU once.
+    /// </summary>
+    public ProbeQuality ProbeQuality
+    {
+        get => _probeQuality;
+        set
+        {
+            if (!Enum.IsDefined(value))
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), value, "Probe quality must be Low, Medium or High.");
+            }
+
+            _probeQuality = value;
+        }
+    }
+
     /// <summary>For tests: clears every probe tile, in every layer, so each probe is uncaptured. Waits for the GPU.</summary>
     internal void ClearProbesForTest()
     {
+        EnsureProbeStorage();
         _api.DeviceWaitIdle(_context.Device).Check();
         _context.SubmitAndWait(_lightProbes.RecordClear);
     }
@@ -570,6 +634,7 @@ public sealed unsafe class Renderer : IDisposable
         const int irradianceTexels = (ProbeVolume.IrradianceTexels + 2) * (ProbeVolume.IrradianceTexels + 2);
         const int depthTexels = (ProbeVolume.DepthTexels + 2) * (ProbeVolume.DepthTexels + 2);
 
+        EnsureProbeStorage();
         _api.DeviceWaitIdle(_context.Device).Check();
         using var source = GpuBuffer.CreateHostVisible(_context, ProbeVolume.StagedTileBytes, BufferUsageFlags.TransferSrcBit);
         var irradianceTile = new Span<Vector4>(source.Mapped, irradianceTexels);
@@ -1125,14 +1190,345 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     public int ReflectionLightingHash(in FrameView view)
     {
-        // Light probes fill in over a few frames, and probes captured before then look wrong.
-        bool lightProbesSettled = _lightProbesInUse && _lightProbes.Schedule.Round > 2;
-        return HashCode.Combine(ReflectionLightingHash(view, _environmentVersion), _lightProbesInUse, lightProbesSettled);
+        // Light probes fill in over many frames, and reflections captured before they settle look wrong.
+        return HashCode.Combine(ReflectionLightingHash(view, _environmentVersion), _lightProbesInUse, ProbesSettled);
     }
 
-    /// <summary>The part of <see cref="ReflectionLightingHash(in FrameView)"/> that the view alone decides.</summary>
-    internal static int ReflectionLightingHash(in FrameView view, int environmentVersion) =>
-        HashCode.Combine(LightingHash(view, environmentVersion), view.Occlusion, view.Off & RenderEffects.AmbientOcclusion);
+    /// <summary>
+    /// The part of <see cref="ReflectionLightingHash(in FrameView)"/> that the view alone decides: the
+    /// suns' directions and colours, the environment and its intensity, the clear sky's turbidity, the
+    /// background, the sun shadow's softness and cascades, the ambient occlusion settings, the light probe
+    /// settings, and the switches that change what a capture photographs. The scene's geometry and the
+    /// camera aren't in it: captures frame the sun's shadow on their own box (<see cref="CaptureShadows"/>).
+    /// </summary>
+    internal static int ReflectionLightingHash(in FrameView view, int environmentVersion)
+    {
+        var hash = new HashCode();
+        int count = Math.Min(view.Lights.Length, FrameUniforms.MaxLights);
+        for (int i = 0; i < count; i++)
+        {
+            ref readonly var light = ref view.Lights[i];
+            hash.Add(light.Direction);
+            hash.Add(light.Radiance);
+            hash.Add(light.CastsShadow);
+        }
+
+        hash.Add(count);
+        hash.Add(environmentVersion);
+        hash.Add(view.EnvironmentIntensity);
+        hash.Add(view.Sky.Turbidity);
+        hash.Add(view.BackgroundRadiance);
+        hash.Add(view.ShowEnvironment);
+        hash.Add(view.Shadows.Radius > 0f);
+        hash.Add(view.Shadows.Cascades);
+        hash.Add(view.Shadows.LightAngle);
+
+        // Plain materials and wear and dirt change what colour the bounced light picks up, and multiscatter how
+        // brightly rough metals shine in what a probe photographs.
+        hash.Add(view.Off & (RenderEffects.SunShadows | RenderEffects.Materials | RenderEffects.MultiscatterSpecular
+            | RenderEffects.WearAndDirt | RenderEffects.AmbientOcclusion));
+        hash.Add(view.LightProbes);
+        hash.Add(view.Occlusion);
+        return hash.ToHashCode();
+    }
+
+    /// <summary>
+    /// Sums up the light that reaches every light probe at once: the suns, the environment and
+    /// background, and the switches that change what colour a surface sends on. When it changes, every
+    /// probe is updated again. Point and spot lights are followed one by one instead, as each reaches
+    /// only the probes near it.
+    /// </summary>
+    private static int ProbeLightingKey(in FrameView view, int environmentVersion, RenderEffects off)
+    {
+        var hash = new HashCode();
+        int count = Math.Min(view.Lights.Length, FrameUniforms.MaxLights);
+        for (int i = 0; i < count; i++)
+        {
+            ref readonly var light = ref view.Lights[i];
+            hash.Add(light.Direction);
+            hash.Add(light.Radiance);
+            hash.Add(light.CastsShadow);
+        }
+
+        hash.Add(count);
+        hash.Add(environmentVersion);
+        hash.Add(view.EnvironmentIntensity);
+        hash.Add(view.Sky.Turbidity);
+        hash.Add(view.BackgroundRadiance);
+        hash.Add(view.ShowEnvironment);
+        hash.Add(view.Shadows.Radius > 0f);
+        hash.Add(off & (RenderEffects.SunShadows | RenderEffects.Materials | RenderEffects.WearAndDirt | RenderEffects.LightShadows));
+        return hash.ToHashCode();
+    }
+
+    /// <summary>
+    /// Makes the light probes' atlases on the first frame with the probes on, again after a change of
+    /// <see cref="ProbeQuality"/>, and frees them when the probes are switched off. Each of those waits
+    /// for the GPU, so this runs before the frame's fence, and an ordinary frame changes nothing.
+    /// </summary>
+    private void ManageProbeStorage()
+    {
+        if (_off.HasFlag(RenderEffects.LightProbes) || !_lightProbes.Supported)
+        {
+            if (_lightProbes.Release())
+            {
+                WriteTargetDescriptors();
+            }
+
+            _probeScheduler = null;
+            _probeBatch = [];
+            _probeInvalidations.Clear();
+            _lightProbesInUse = false;
+            ProbeUpdatesLastFrame = 0;
+            return;
+        }
+
+        EnsureProbeStorage();
+    }
+
+    /// <summary>
+    /// Makes the atlases for <see cref="ProbeQuality"/> if they aren't already, and with them new
+    /// cascades and a new scheduler, so every probe starts uncaptured. Waits for the GPU when it makes them.
+    /// </summary>
+    private void EnsureProbeStorage()
+    {
+        if (!_lightProbes.Supported || !_lightProbes.EnsureStorage(_probeQuality))
+        {
+            return;
+        }
+
+        _probeCascades = new ProbeCascades(_probeQuality);
+        _probeScheduler = new ProbeScheduler(_probeCascades, 0);
+        _probeSun ??= new ProbeSunShadow(_context);
+        _probeBatch = [];
+        _probeGrid = null;
+        _probeLightingKey = 0;
+        _probeLights.Clear();
+        _probeInvalidations.Clear();
+
+        WriteTargetDescriptors();
+        _probeUpdatePass.WriteSet(
+            new DescriptorImageInfo(_linearSampler, _lightProbes.IrradianceView, ImageLayout.General),
+            new DescriptorImageInfo(_linearSampler, _lightProbes.DepthView, ImageLayout.General),
+            new DescriptorImageInfo(_shadowSampler, _probeSun.View, ImageLayout.ShaderReadOnlyOptimal));
+    }
+
+    /// <summary>
+    /// Plans this frame's light probe work, before its uniforms are written: moves the cascades with
+    /// the camera, tells the scheduler what changed, picks the batch of probes to update and where they
+    /// are, and plans the probes' sun shadow map. Returns how many instances the work will draw.
+    /// </summary>
+    private int PlanProbes(in FrameView view, ReadOnlySpan<DrawItem> draws)
+    {
+        _probeBatch = [];
+        _probeBatchPositions.Clear();
+        _probeBatchSpacings.Clear();
+        if (_probeScheduler is not { } scheduler)
+        {
+            _lightProbesInUse = false;
+            return 0;
+        }
+
+        _lightProbesInUse = true;
+
+        // The cells the cascades left are cleared on the GPU, and the new probes in their slots are uncaptured.
+        var scroll = _probeCascades.Move(view.CameraPosition);
+        scheduler.Scrolled(scroll);
+        for (int c = 0; c < ProbeCascades.Count; c++)
+        {
+            var x = scroll.Slabs[c * 3];
+            var y = scroll.Slabs[c * 3 + 1];
+            var z = scroll.Slabs[c * 3 + 2];
+            if (x.Count == 0 && y.Count == 0 && z.Count == 0)
+            {
+                continue;
+            }
+
+            var layout = _probeCascades.Layout(c);
+            _probeInvalidations.Add(new ProbeInvalidation(c, _probeCascades.Origin(c),
+                new Int3(layout.CountX, layout.CountY, layout.CountZ),
+                new Int3(x.Start, y.Start, z.Start), new Int3(x.Count, y.Count, z.Count)));
+        }
+
+        // A new box for the fixed grid starts it again, with its old probes cleared.
+        if (view.LightProbes != _probeGrid)
+        {
+            _probeGrid = view.LightProbes;
+            if (_probeGrid is { } grid)
+            {
+                var (countX, countY, countZ) = ProbeGrid.Counts(grid);
+                scheduler.SetFixedGrid(grid.Min, countX, countY, countZ, grid.Spacing);
+            }
+            else
+            {
+                scheduler.ClearFixedGrid();
+            }
+
+            _probeInvalidations.Add(new ProbeInvalidation(ProbeVolume.FixedGridLayer, default,
+                new Int3(ProbeGrid.MaxProbes, 1, 1), default, new Int3(ProbeGrid.MaxProbes, 0, 0)));
+        }
+
+        // The suns and the sky reach every probe; a point or spot light only those in its range.
+        int lightingKey = ProbeLightingKey(view, _environmentVersion, _off);
+        if (lightingKey != _probeLightingKey)
+        {
+            _probeLightingKey = lightingKey;
+            scheduler.EverythingChanged();
+        }
+
+        FollowProbeLights(view.LocalLights, scheduler);
+
+        var camera = view.CameraPosition;
+        var forward = -new Vector3(view.View.M13, view.View.M23, view.View.M33);
+        int budget = Math.Min(ProbeBudget.For(_probeQuality).Raster, Math.Min(_lightProbes.FaceSlots, _lightProbes.StagingSlots));
+        if (!ProbeUpdatesPaused)
+        {
+            _probeBatch = scheduler.Next(budget, camera, forward);
+        }
+
+        if (_probeBatch.Count == 0)
+        {
+            return 0;
+        }
+
+        foreach (var id in _probeBatch)
+        {
+            if (id.Cascade == ProbeScheduler.FixedGrid)
+            {
+                var grid = _probeGrid!.Value;
+                _probeBatchPositions.Add(ProbeGrid.Position(grid, id.Slot));
+                _probeBatchSpacings.Add(grid.Spacing);
+            }
+            else
+            {
+                _probeBatchPositions.Add(_probeCascades.Position(id.Cascade, id.Slot));
+                _probeBatchSpacings.Add(_probeCascades.Layout(id.Cascade).Spacing);
+            }
+        }
+
+        // The probes' own sun shadow map reaches across the coarsest cascade, which holds every probe.
+        Vector3? sun = null;
+        if (view.Shadows.Radius > 0f && !_off.HasFlag(RenderEffects.SunShadows))
+        {
+            int lights = Math.Min(view.Lights.Length, FrameUniforms.MaxLights);
+            for (int i = 0; i < lights; i++)
+            {
+                if (view.Lights[i].CastsShadow)
+                {
+                    sun = view.Lights[i].Direction;
+                    break;
+                }
+            }
+        }
+
+        var coarsest = _probeCascades.Layout(ProbeCascades.Count - 1);
+        float reach = 0.5f * coarsest.Spacing * new Vector3(coarsest.CountX, coarsest.CountY, coarsest.CountZ).Length();
+        _probeSun!.Plan(sun, camera, reach, _frameNumber);
+
+        var sky = SkyModel.Sun(view);
+        _probeShowEnvironment = view.ShowEnvironment;
+        _probeBackground = new Vector4(view.BackgroundRadiance, view.EnvironmentIntensity);
+        _probeSkySun = new Vector4(sky.Direction, sky.Turbidity);
+
+        var (taken, captured) = _probeUpdatePass.Prepare(draws, _details,
+            CollectionsMarshal.AsSpan(_probeBatchPositions), CollectionsMarshal.AsSpan(_probeBatchSpacings), ProbeTrianglesPerFrame);
+
+        // Probes past the frame's triangle budget stay as they are in the scheduler, so a later frame picks them.
+        if (taken < _probeBatch.Count)
+        {
+            _probeBatch = _probeBatch.Take(taken).ToArray();
+        }
+
+        return captured + (_probeSun.Redraw ? draws.Length : 0);
+    }
+
+    /// <summary>
+    /// Marks the probes near each point and spot light that appeared, went out, or changed its place,
+    /// range, colour, cone or shadow since last frame, both where it was and where it is now.
+    /// </summary>
+    private void FollowProbeLights(ReadOnlySpan<LocalLight> lights, ProbeScheduler scheduler)
+    {
+        _probeLightsSeen.Clear();
+        foreach (ref readonly var light in lights)
+        {
+            _probeLightsSeen.Add(light.Key);
+            if (_probeLights.TryGetValue(light.Key, out var old))
+            {
+                if (SameProbeLight(old, light))
+                {
+                    continue;
+                }
+
+                scheduler.LightChanged(old.Position, old.Range);
+            }
+
+            scheduler.LightChanged(light.Position, light.Range);
+            _probeLights[light.Key] = light;
+        }
+
+        if (_probeLights.Count == _probeLightsSeen.Count)
+        {
+            return;
+        }
+
+        _probeLightsGone.Clear();
+        foreach (var (key, old) in _probeLights)
+        {
+            if (!_probeLightsSeen.Contains(key))
+            {
+                scheduler.LightChanged(old.Position, old.Range);
+                _probeLightsGone.Add(key);
+            }
+        }
+
+        foreach (int key in _probeLightsGone)
+        {
+            _probeLights.Remove(key);
+        }
+    }
+
+    private static bool SameProbeLight(in LocalLight a, in LocalLight b) =>
+        a.Position == b.Position
+        && a.Range == b.Range
+        && a.Radiance == b.Radiance
+        && a.Radius == b.Radius
+        && a.Direction == b.Direction
+        && a.InnerAngle == b.InnerAngle
+        && a.OuterAngle == b.OuterAngle
+        && a.CastsShadow == b.CastsShadow;
+
+    /// <summary>
+    /// Records this frame's light probe work, after the lights' shadow tiles: clears the cells the
+    /// cascades left, then draws the batch's probes, folds their faces and blends them into the atlases.
+    /// </summary>
+    private void RecordProbeUpdate(CommandBuffer cmd, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, InstanceBuffer instances)
+    {
+        foreach (var invalidation in _probeInvalidations)
+        {
+            _lightProbes.RecordInvalidate(cmd, invalidation.Layer, invalidation.Origin,
+                invalidation.Counts.X, invalidation.Counts.Y, invalidation.Counts.Z, invalidation.SlabStart, invalidation.SlabCount);
+        }
+
+        _probeInvalidations.Clear();
+
+        var batch = _probeBatch;
+        ProbeUpdatesLastFrame = batch.Count;
+        if (batch.Count == 0 || _probeScheduler is not { } scheduler)
+        {
+            return;
+        }
+
+        _probeSun!.Record(_api, cmd, _shadowPass, frameSet, draws, _meshes, _details, instances);
+        _probeUpdatePass.Record(cmd, _lightProbes, frameSet, draws, _meshes, instances);
+        _lightProbes.BeginFolds(cmd);
+        for (int i = 0; i < batch.Count; i++)
+        {
+            _lightProbes.RecordFold(cmd, i, _probeBatchSpacings[i], _probeShowEnvironment, _probeBackground, _probeSkySun);
+        }
+
+        _lightProbes.RecordBlend(cmd, batch, RasterBlend);
+        scheduler.Updated(batch);
+    }
 
     /// <summary>
     /// The shadow settings a capture uses: the view's, with the sharpest map round the box being
@@ -1158,7 +1554,7 @@ public sealed unsafe class Renderer : IDisposable
         BakeSky(view);
 
         // The passes are bound to the screen's targets, so small ones stand in for a while. Rebinding
-        // them forgets the held transition picture, so that is put back after, as light probes do.
+        // them forgets the held transition picture, so that is put back after.
         var screenTargets = _gBuffer;
         bool heldReady = _heldReady;
         bool ldrReady = _ldrReady;
@@ -1193,17 +1589,14 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>
     /// Draws the scene from <paramref name="position"/> into each face of <paramref name="cube"/>,
-    /// whose size the current targets must have, waiting for each face. With a
-    /// <paramref name="lightProbe"/> index, the faces are then folded into that probe of the fixed grid.
+    /// whose size the current targets must have, waiting for each face.
     /// </summary>
     private void CaptureFaces(
         in FrameView view,
         Vector3 position,
         ReadOnlySpan<DrawItem> visible,
         ReadOnlySpan<DrawItem> shadowCasters,
-        CaptureCube cube,
-        int lightProbe = -1,
-        float lightProbeSpacing = 0f)
+        CaptureCube cube)
     {
         const float probeNear = 0.05f;
 
@@ -1237,7 +1630,7 @@ public sealed unsafe class Renderer : IDisposable
         {
             faceView.View = Matrix4x4.CreateLookAt(position, position + faces[face].Forward, faces[face].Up);
             bool castsShadow = WriteUniforms(frame, faceView, Matrix4x4.Identity, Vector2.Zero, 0, false, capturingProbe: true, []);
-            bool drawShadows = castsShadow && !_keepShadowMaps;
+            bool drawShadows = castsShadow;
             WriteBones(frame, view.Bones);
             ResetInstances(frame, visible.Length + (drawShadows ? shadowCasters.Length * _shadowCascades : 0));
 
@@ -1252,13 +1645,6 @@ public sealed unsafe class Renderer : IDisposable
             RecordScene(cmd, frame.Set, visible, drawShadows ? shadowCasters : [], shadowsSelected: false,
                 TransparentView.From(faceView.View, faceView.Projection));
             cube.RecordFace(cmd, _gBuffer.Hdr.Image, face);
-            if (lightProbe >= 0 && face == faces.Length - 1)
-            {
-                // The fixed grid takes each new capture whole, as it did before the probes had layers.
-                _lightProbes.RecordFold(cmd, 0, lightProbeSpacing);
-                _capturedProbe[0] = new ProbeId(ProbeVolume.FixedGridLayer, lightProbe);
-                _lightProbes.RecordBlend(cmd, _capturedProbe, 1f);
-            }
 
             _api.EndCommandBuffer(cmd).Check();
 
@@ -1276,116 +1662,7 @@ public sealed unsafe class Renderer : IDisposable
             };
             _api.QueueSubmit2(_context.Queue, 1, &submit, fence).Check();
             _api.WaitForFences(_context.Device, 1, &fence, true, ulong.MaxValue).Check();
-
-            // Light probes all use maps round their volume's centre, whatever their position,
-            // so the rest of the batch keeps the first face's.
-            if (_capturingLightProbes && castsShadow)
-            {
-                _keepShadowMaps = true;
-            }
         }
-    }
-
-    /// <summary>
-    /// Captures the next few light probes of the view's volume, if any are due, before the frame
-    /// is drawn. Up to <see cref="ProbeVolume.ProbesPerFrame"/> a frame, so a volume fills in over
-    /// a few frames rather than in one long stall. Then decides whether this frame's surfaces read them.
-    /// </summary>
-    private void CaptureLightProbes(in FrameView view, ReadOnlySpan<DrawItem> draws)
-    {
-        _lightProbesInUse = false;
-        if (view.LightProbes is not { } settings || _off.HasFlag(RenderEffects.LightProbes) || !_lightProbes.Supported)
-        {
-            return;
-        }
-
-        var schedule = _lightProbes.Schedule;
-        schedule.Update(settings, LightingHash(view, _environmentVersion));
-        var (first, count) = schedule.Batch(ProbeVolume.ProbesPerFrame);
-        if (count > 0)
-        {
-            // Frames in flight still read the targets and sets the captures borrow.
-            _api.DeviceWaitIdle(_context.Device).Check();
-            _uploads.Flush();
-
-            var screenTargets = _gBuffer;
-            bool heldReady = _heldReady;
-            bool ldrReady = _ldrReady;
-            var screenOff = _off;
-            bool historyReady = _historyReady;
-            _lightProbeTargets ??= new GBuffer(_context, new Extent2D(ProbeVolume.FaceSize, ProbeVolume.FaceSize));
-            _gBuffer = _lightProbeTargets;
-            WriteTargetDescriptors();
-
-            // A probe keeps diffuse light only, and its faces are too small for screen-space occlusion.
-            _off |= RenderEffects.AmbientOcclusion | RenderEffects.Reflections;
-            _capturingLightProbes = true;
-
-            // The capture's targets have no history, so RecordScene readies an empty one each face.
-            _historyReady = false;
-            try
-            {
-                var volumeView = view;
-                volumeView.Shadows = CaptureShadows(view.Shadows, settings.Min, settings.Max);
-                for (int i = 0; i < count; i++)
-                {
-                    int probe = first + i;
-                    CaptureFaces(volumeView, ProbeGrid.Position(settings, probe), draws, draws, _lightProbes.Capture, probe, settings.Spacing);
-                }
-            }
-            finally
-            {
-                _capturingLightProbes = false;
-                _keepShadowMaps = false;
-                _off = screenOff;
-                _gBuffer = screenTargets;
-                WriteTargetDescriptors();
-                _heldReady = heldReady;
-                _ldrReady = ldrReady;
-                _historyReady = historyReady;
-            }
-
-            schedule.Captured(count);
-        }
-
-        _lightProbesInUse = schedule.Ready;
-    }
-
-    /// <summary>
-    /// Sums up everything that lights the light probes: the suns' directions and colours, the
-    /// environment and its intensity, the clear sky's turbidity, the background, and whether the sun
-    /// casts a shadow and how soft it is. When it changes, the probes are captured again. The scene's geometry isn't in it,
-    /// so moving things doesn't change it, and nor does the camera: captures frame the sun's shadow
-    /// on their own box (<see cref="CaptureShadows"/>), so the view's shadow centre and radius are left out.
-    /// </summary>
-    internal static int LightingHash(in FrameView view, int environmentVersion)
-    {
-        var hash = new HashCode();
-        int count = Math.Min(view.Lights.Length, FrameUniforms.MaxLights);
-        for (int i = 0; i < count; i++)
-        {
-            ref readonly var light = ref view.Lights[i];
-            hash.Add(light.Direction);
-            hash.Add(light.Radiance);
-            hash.Add(light.CastsShadow);
-        }
-
-        hash.Add(count);
-        hash.Add(environmentVersion);
-        hash.Add(view.EnvironmentIntensity);
-        hash.Add(view.Sky.Turbidity);
-        hash.Add(view.BackgroundRadiance);
-        hash.Add(view.ShowEnvironment);
-        hash.Add(view.Shadows.Radius > 0f);
-        hash.Add(view.Shadows.Cascades);
-        hash.Add(view.Shadows.LightAngle);
-
-        // Plain materials and wear and dirt change what colour the bounced light picks up, and multiscatter how
-        // brightly rough metals shine in what a probe photographs.
-        hash.Add(view.Off & (RenderEffects.SunShadows | RenderEffects.Materials | RenderEffects.MultiscatterSpecular
-            | RenderEffects.WearAndDirt));
-        hash.Add(view.LightProbes);
-        return hash.ToHashCode();
     }
 
     /// <summary>
@@ -1698,8 +1975,7 @@ public sealed unsafe class Renderer : IDisposable
             return;
         }
 
-        _probeCascades.Move(view.CameraPosition);
-        CaptureLightProbes(view, draws);
+        ManageProbeStorage();
 
         ref Frame frame = ref _frames[_frameIndex];
         var fence = frame.InFlight;
@@ -1756,6 +2032,10 @@ public sealed unsafe class Renderer : IDisposable
                 CameraNear(view.Projection),
                 VerticalFov(view.Projection));
         }
+
+        // Before the uniforms, which carry the probes' sun shadow map and whether surfaces read the probes.
+        int probeInstances = PlanProbes(view, draws);
+
         if (_casterBounds.Length < draws.Length)
         {
             _casterBounds = new Vector4[draws.Length * 2];
@@ -1775,7 +2055,7 @@ public sealed unsafe class Renderer : IDisposable
         _transitionHold = view.Transition.Hold;
         var (cameraCount, shadowCount) = SelectDraws(view, viewProjection, draws, castsShadow);
         int tileDrawCount = SelectTileDraws(draws);
-        ResetInstances(frame, cameraCount + shadowCount + tileDrawCount);
+        ResetInstances(frame, cameraCount + shadowCount + tileDrawCount + probeInstances);
 
         _api.ResetCommandPool(_context.Device, frame.CommandPool, 0).Check();
         var cmd = frame.CommandBuffer;
@@ -1797,8 +2077,6 @@ public sealed unsafe class Renderer : IDisposable
         int overlayQuads = _overlayAtlas is null ? 0 : _overlayPass.Upload(_frameIndex, view.Overlay);
         UploadParticles(view);
 
-        // Light probe captures may have packed this frame's decals over again, but they are the same ones.
-        PrepareDecals(view);
         _decalPass.Upload(_frameIndex);
         if (timed)
         {
@@ -1808,7 +2086,7 @@ public sealed unsafe class Renderer : IDisposable
         // Worked out here, just before the frame is recorded, so a frame that is never drawn doesn't move the clock.
         _exposureStep = _exposureClock.Next(
             !_off.HasFlag(RenderEffects.AutoExposure), view.Time, Exposure.Speed(view.Post.AdaptationSpeed));
-        RecordFrame(cmd, frame.Set, imageIndex, _cameraDraws.AsSpan(0, cameraCount), overlayQuads, traced);
+        RecordFrame(cmd, frame.Set, imageIndex, _cameraDraws.AsSpan(0, cameraCount), draws, overlayQuads, traced);
         _gpuTimer.End();
         _api.EndCommandBuffer(cmd).Check();
 
@@ -2068,7 +2346,8 @@ public sealed unsafe class Renderer : IDisposable
         _probes.Dispose();
         _lightProbes.Dispose();
         _volumetricFog.Dispose();
-        _lightProbeTargets?.Dispose();
+        _probeUpdatePass.Dispose();
+        _probeSun?.Dispose();
         _reflectionProbeTargets?.Dispose();
         _environment.Dispose();
         _resources.Dispose();
@@ -2112,6 +2391,7 @@ public sealed unsafe class Renderer : IDisposable
         DescriptorSet frameSet,
         uint imageIndex,
         ReadOnlySpan<DrawItem> draws,
+        ReadOnlySpan<DrawItem> sceneDraws,
         int overlayQuads,
         TopLevelStructure? traced)
     {
@@ -2127,7 +2407,7 @@ public sealed unsafe class Renderer : IDisposable
             _heldNumber = _transitionHold;
         }
 
-        RecordScene(cmd, frameSet, draws, [], shadowsSelected: true, _transparentView, _particleCount, _motion, traced);
+        RecordScene(cmd, frameSet, draws, [], shadowsSelected: true, _transparentView, _particleCount, _motion, traced, sceneDraws, updateProbes: true);
 
         // Anti-aliasing blends in the last frame, and reflections read it, so it's kept for
         // the next while either wants it. Without anti-aliasing the lit image is the frame.
@@ -2308,12 +2588,14 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>
-    /// Draws and lights the scene into the HDR target, for frames and probe captures
+    /// Draws and lights the scene into the HDR target, for frames and reflection probe captures
     /// alike. A frame's shadow draws were picked per cascade by <see cref="SelectDraws"/>;
     /// a probe capture draws <paramref name="shadowCasters"/> into every cascade.
     /// Probes leave particles out, since a puff of dust shouldn't stay in a reflection.
     /// Only a frame passes <paramref name="motion"/>: where its draws stood last frame, for motion
-    /// vectors. A probe's motion is never read, so its draws stand still.
+    /// vectors. A probe's motion is never read, so its draws stand still. Only a frame passes
+    /// <paramref name="probeDraws"/>, the whole scene's draws, and updates this frame's batch of
+    /// light probes from them.
     /// </summary>
     private void RecordScene(
         CommandBuffer cmd,
@@ -2324,7 +2606,9 @@ public sealed unsafe class Renderer : IDisposable
         in TransparentView view,
         int particleCount = 0,
         MotionHistory? motion = null,
-        TopLevelStructure? traced = null)
+        TopLevelStructure? traced = null,
+        ReadOnlySpan<DrawItem> probeDraws = default,
+        bool updateProbes = false)
     {
         var targets = _gBuffer;
         var instances = _frames[_frameIndex].Instances;
@@ -2342,9 +2626,8 @@ public sealed unsafe class Renderer : IDisposable
         // previous frame's sampling to finish. Contents are discarded via Undefined.
         // When no sun casts a shadow the maps aren't drawn, or even cleared, and nothing
         // reads them, but the lighting pass still binds them.
-        // A batch of light probes draws the maps once and the rest keep them as they are.
         var shadowMap = _shadowPass.Target.Image;
-        if (_sunShadowsDrawn && !_keepShadowMaps)
+        if (_sunShadowsDrawn)
         {
             _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
                 ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, ShadowReadStages, SampledAccess, DepthStages,
@@ -2359,7 +2642,7 @@ public sealed unsafe class Renderer : IDisposable
                 ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, ShadowReadStages, SampledAccess,
                 layerCount: ShadowPass.MaxCascades);
         }
-        else if (!_sunShadowsDrawn)
+        else
         {
             _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
                 ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, ShadowReadStages, SampledAccess, ShadowReadStages, SampledAccess,
@@ -2381,6 +2664,12 @@ public sealed unsafe class Renderer : IDisposable
         {
             _api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
                 ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, ShadowReadStages, SampledAccess, ShadowReadStages, SampledAccess);
+        }
+
+        // After the lights' tiles, which the probes' captures read for point and spot light shadows.
+        if (updateProbes)
+        {
+            RecordProbeUpdate(cmd, frameSet, probeDraws, instances);
         }
 
         _gpuTimer.Mark(cmd);
@@ -2412,9 +2701,8 @@ public sealed unsafe class Renderer : IDisposable
             ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, DepthStages, AccessFlags2.DepthStencilAttachmentReadBit, DepthStages,
             DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
 
-        // A light probe must see the backs of surfaces to know it is inside a wall.
         instances.History = motion;
-        _gBufferPass.Record(cmd, targets, frameSet, draws, _meshes, _details, instances, allTwoSided: _capturingLightProbes);
+        _gBufferPass.Record(cmd, targets, frameSet, draws, _meshes, _details, instances);
         instances.History = null;
         bool decalsDrawn = RecordDecals(cmd, targets, frameSet);
 
@@ -2480,9 +2768,8 @@ public sealed unsafe class Renderer : IDisposable
         _gpuTimer.Mark(cmd);
 
         // The diffuse light of skin and wax spreads across the screen, then down it and
-        // onto the lit image. Nothing to spread when no material scatters, and a light probe
-        // keeps the scattered light as it is, as its alpha holds distance.
-        if (_resources.AnySubsurface && !_capturingLightProbes)
+        // onto the lit image. Nothing to spread when no material scatters.
+        if (_resources.AnySubsurface)
         {
             var across = BlurConstants.Across;
             ReadOnlySpan<DescriptorSet> acrossSets = [frameSet, _scatterAcrossSet, _resources.Set];
@@ -2504,18 +2791,14 @@ public sealed unsafe class Renderer : IDisposable
 
         // Glass and particles blend over the lit image, furthest first. Depth is read-only
         // throughout: glass tests against it, and both read it to see what's behind them.
-        // A light probe leaves them out, as blending would spoil the distances in its alpha.
-        if (!_capturingLightProbes)
-        {
-            _api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
-                ColorWrite | AccessFlags2.ColorAttachmentReadBit);
-            _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
-                ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal, SampledStage, SampledAccess, DepthStages | SampledStage,
-                AccessFlags2.DepthStencilAttachmentReadBit | SampledAccess);
-            _transparentPass.Record(cmd, targets, frameSet, draws, _meshes, _details, instances, view,
-                _particlePass, _frameIndex, particleCount, _particleCamera, _windReach);
-        }
+        _api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
+            ColorWrite | AccessFlags2.ColorAttachmentReadBit);
+        _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
+            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal, SampledStage, SampledAccess, DepthStages | SampledStage,
+            AccessFlags2.DepthStencilAttachmentReadBit | SampledAccess);
+        _transparentPass.Record(cmd, targets, frameSet, draws, _meshes, _details, instances, view,
+            _particlePass, _frameIndex, particleCount, _particleCamera, _windReach);
 
         _api.EndColorTarget(cmd, targets.Hdr.Image);
         _gpuTimer.Mark(cmd);
@@ -2684,14 +2967,13 @@ public sealed unsafe class Renderer : IDisposable
             _probes.CopyToUniforms(uniforms);
         }
 
-        // A light probe capture reads the probes only in its second round, to add one more bounce.
-        uniforms->ProbeCapture = _capturingLightProbes ? 1 : 0;
-        if (view.LightProbes is { } lightProbes && (_capturingLightProbes || _lightProbesInUse))
+        // The fixed grid, read wherever it has a probe updated. A reflection probe's capture leaves
+        // the light probes out, as before.
+        if (!capturingProbe && _lightProbesInUse && view.LightProbes is { } lightProbes)
         {
             var (x, y, z) = ProbeGrid.Counts(lightProbes);
-            bool lookup = _capturingLightProbes ? _lightProbes.Schedule.CapturesBounce : _lightProbesInUse;
             uniforms->LightProbeMin = new Vector4(lightProbes.Min, lightProbes.Spacing);
-            uniforms->LightProbeCounts = new Vector4(x, y, z, lookup ? 1f : 0f);
+            uniforms->LightProbeCounts = new Vector4(x, y, z, 1f);
         }
         else
         {
@@ -2699,16 +2981,14 @@ public sealed unsafe class Renderer : IDisposable
             uniforms->LightProbeCounts = Vector4.Zero;
         }
 
-        // The cascades, read once any of their probes holds a capture. The fixed grid's own
-        // captures leave them out, so it lights itself as it always has.
+        // The cascades, read once any of their probes holds an update.
         for (int c = 0; c < ProbeCascades.Count; c++)
         {
             var origin = _probeCascades.Origin(c);
             uniforms->ProbeCascadeOrigins[c] = new Vector4(origin.X, origin.Y, origin.Z, _probeCascades.Layout(c).Spacing);
         }
 
-        bool readCascades = _lightProbes.CascadesWritten && _lightProbes.Supported && !_capturingLightProbes
-            && !_off.HasFlag(RenderEffects.LightProbes);
+        bool readCascades = !capturingProbe && _lightProbesInUse && _lightProbes.CascadesWritten;
         var cascadeLayout = _probeCascades.Layout(0);
         uniforms->ProbeCascadeCounts = new Vector4(
             cascadeLayout.CountX, cascadeLayout.CountY, cascadeLayout.CountZ, readCascades ? 1f : 0f);
@@ -2774,6 +3054,11 @@ public sealed unsafe class Renderer : IDisposable
             : TemporalMipBias;
         _sunShadowsDrawn = castsShadow;
         WriteLocalLights(frame, uniforms, view, capturingProbe);
+
+        // Probe updates light their faces with every point and spot light of the frame, and see the
+        // sun's shadow through a map of their own, which is zero when there is none this frame.
+        uniforms->ProbeLightCount = capturingProbe ? 0 : _localLights.ProbeLightCount;
+        uniforms->ProbeSunMatrix = !capturingProbe && _probeSun is not null ? _probeSun.Matrix : default;
         return castsShadow;
     }
 
@@ -3219,7 +3504,6 @@ public sealed unsafe class Renderer : IDisposable
             new(_environment.Sampler, _probes.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_linearSampler, _lightProbes.IrradianceView, ImageLayout.General),
             new(_linearSampler, _lightProbes.DepthView, ImageLayout.General),
-            new(_environment.Sampler, _environment.Sky, ImageLayout.ShaderReadOnlyOptimal),
         ]);
 
         // Glass and particles read depth while it's also attached for glass to test against.

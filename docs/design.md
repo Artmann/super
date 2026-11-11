@@ -1166,7 +1166,8 @@ Ghosts are left as they are, since they're already a flat colour.
 `RenderEffects.WearAndDirt` skips no pass either. `applyLayers()` returns before reading the
 mask texture, so the surface keeps its own colour and roughness. It is bit 10, after
 `LightProbes` and `MultiscatterSpecular`. It changes the colours a probe photographs, so it
-is in `LightingHash`, and flipping it captures the probes again.
+is in `ReflectionLightingHash` and the light probes' lighting key, and flipping it updates the
+probes again.
 
 The frame limit lives in Super's window loop, not the renderer (`FrameLimiter`). Each frame
 gets a slot one period after the last, so a long frame is made up by a shorter wait. A frame
@@ -1276,11 +1277,11 @@ scene was lit; particles add it before their premultiply. The fog's colour is
 background itself gets none.
 
 The frame uniforms carry `fog` (density, height, falloff, sun scatter). `Fog.Pack` zeroes
-it with `RenderEffects.Fog` off, under water and while a probe is captured, and a density of 0 makes
-every shader skip the fog. Light probes and reflection probes therefore capture clear air:
-fog belongs to the view that looks through it, not to the light in the scene. That is why
-the fog is in neither `LightingHash` nor `ReflectionLightingHash`, and changing it
-recaptures nothing.
+it with `RenderEffects.Fog` off, under water and while a reflection probe is captured, and a density
+of 0 makes every shader skip the fog. Light probe updates never apply fog (`probe_capture.frag`
+has none). Light probes and reflection probes therefore capture clear air: fog belongs to the
+view that looks through it, not to the light in the scene. That is why the fog is in neither
+the light probes' lighting key nor `ReflectionLightingHash`, and changing it recaptures nothing.
 
 Two limits follow from where the fog is drawn. Screen-space reflections read the previous
 finished frame, which is already fogged, so a reflected surface gets its fog once on the way
@@ -1374,12 +1375,13 @@ pass binds the probe cube array at set 2, binding 4. Glass sees no screen-space 
 
 `RecaptureReflectionProbe` draws a probe again into its own slot, and
 `ClearReflectionProbes` forgets them all, since a slot in the middle can't be dropped.
-`Renderer.ReflectionLightingHash` combines `LightingHash` (see below) with the occlusion
-settings and the `AmbientOcclusion` switch, and with whether the light probes are in use and
-have finished both rounds, so a probe captured while they fill in is redone once they settle;
-a probe can be captured two or three times at the start. `LightingHash` also takes the
-`SunShadows`, `Materials`, `MultiscatterSpecular` and `WearAndDirt` switches, since each changes what a
-probe photographs. Point and spot lights and the
+`Renderer.ReflectionLightingHash` hashes the suns' directions and colours, the environment (a
+version bumped by `SetEnvironment`), its intensity, the clear sky, the background, the sun
+shadow's softness and cascades, the light probe box, the occlusion settings, and whether the
+light probes are in use and have settled, so a probe captured while they fill in is redone once
+they settle; a probe can be captured two or three times at the start. It also takes the
+`SunShadows`, `Materials`, `MultiscatterSpecular`, `WearAndDirt` and `AmbientOcclusion` switches,
+since each changes what a probe photographs. Point and spot lights and the
 `ContactShadows` and `LightShadows` switches aren't in it, since captures draw neither
 local lights nor contact shadows. Super places probes with `view.ReflectionProbe`:
 `SceneRenderer`, before each frame's `Render`, asks `ReflectionProbeSchedule.ShouldCapture`
@@ -1391,18 +1393,20 @@ wants no probes, so it clears them and glass falls back to the studio cube.
 
 A capture frames the sun's shadow maps on what it captures, not on the camera:
 `Renderer.CaptureShadows` centres them on the probe's box with half its diagonal as the
-radius (light probes use the volume's box). That is why the view's shadow centre and radius
-are out of the hashes, and moving the camera captures nothing. Captures draw into a small
-G-buffer kept for reflection probes (`_reflectionProbeTargets`, like `_lightProbeTargets`),
+radius. That is why the view's shadow centre and radius are out of the hash, and moving the
+camera captures nothing. Captures draw into a small G-buffer kept for reflection probes
+(`_reflectionProbeTargets`),
 set the renderer's switches from the view first, since `Render` hasn't applied this frame's
 yet, and put back the switches and the held-transition, LDR and history flags after, because
 rebinding the targets clears them and a transition's held outgoing shot would be lost.
 
 ## Light probes
 
-A light probe volume gives bounced diffuse light, in the way of DDGI (Majercik et al.,
-2019) but captured by rasterising rather than tracing. `FrameView.LightProbes` sets a box
-and a spacing; `ProbeGrid` lays the probes out, x fastest, and `ProbeVolume` owns two
+Light probes give bounced diffuse light, in the way of DDGI (Majercik et al., 2019) but
+updated by rasterising rather than tracing. The renderer keeps four cascades of probes round
+the camera (`ProbeCascades`, below) with no setup, and `FrameView.LightProbes` can add a box
+and a spacing of its own, a fixed grid that `ProbeGrid` lays out, x fastest, and that wins where
+it reaches. `ProbeVolume` owns two
 atlases of octahedral tiles. The irradiance atlas (RGBA16F) has an 8×8 tile per probe and the
 depth atlas (RG16F) a 16×16 one, each with a one-texel border copied from across the
 octahedral map's edges, so bilinear filtering wraps round. Both stay in the `General` layout,
@@ -1414,28 +1418,54 @@ row. A layer is as many tiles square as fit the larger of a cascade (counts x ×
 fixed-grid probes: 64 × 64 tiles at `ProbeQuality.Low`, 84 × 83 at `Medium` and 128 × 128 at
 `High`. `ProbeVolume.AtlasBytes` gives the memory for both atlases and all five layers: about
 43 MB at Low, 73 MB at Medium and 172 MB at High, against 8.6 MB for the single fixed-grid atlas
-before. `Resize(quality)` waits for the device and makes them again, cleared. The renderer uses
-High for now.
+before. `EnsureStorage(quality)` makes them on the first frame with the probes on, and again,
+cleared, after `Renderer.ProbeQuality` (High by default) changes; `Release()` frees them when
+`RenderEffects.LightProbes` is switched off. Each of the three waits for the device once, in
+`ManageProbeStorage` before the frame's fence. With the switch off nothing else is allocated
+and nothing is recorded, and switching it back on starts every probe uncaptured.
 
 A probe's irradiance alpha is its valid flag: 1 once it has been captured, 0 while it is still
 cleared. The lookup multiplies each probe's trilinear weight by it, so a probe never captured
 counts for nothing rather than for black, and `ProbeGrid.Weight` takes the same `captured`.
 
-A capture draws the probe's six faces at 32² into the same small cube `CaptureCube` that
-reflection probes use, through the normal scene passes. The frame's `probeCapture` flag
-changes what `lighting.frag` writes: diffuse light only, with no reflections, coat or point
-and spot lights, and the distance to the surface in alpha. The G-buffer is drawn with every
-material two-sided, and a back face writes -1 into the normal target's occlusion channel, so
-lighting writes a negative distance for it. Where nothing was drawn the capture reads
-`EnvironmentMap.Sky`, a 64² cube baked with the same content as the irradiance cube: no
-panels, since the direct lights already give their diffuse light, and no sun disc for the
-same reason. Reading the reflection cube would count that light twice. Screen-space occlusion, reflections, subsurface
-blur and the transparent pass are skipped, as the faces are too small for them and blending
-would spoil the alpha. `probe_fold.comp` then reduces each face 2×2 into shared memory and
+An update draws a probe's six faces at 16² with `ProbeCapturePass`, into the probe's slot of
+`ProbeVolume.FacesImage`, in one `CmdBeginRendering` per probe with view mask `0x3F`: multiview
+draws all six faces at once, `gl_ViewIndex` picking the face. It is forward shading in one pass,
+`probe_capture.vert` and `probe_capture.frag`, with no G-buffer. Each surface sends on the light
+`probeRadiance` in `probe_light.glsl` gives it: `albedo * (direct / π + bounce) + emissive`, where
+direct is the suns plus every point and spot light of the frame in range (cone included), and
+bounce is `probeIrradiance` at the surface, the light the probes already hold, which gives the
+second and later bounces over successive updates. The shadow-casting sun's visibility comes from
+`ProbeSunShadow`, and a local light's from its own tile in the frame's shadow atlas when it has
+one, so the update is recorded after the tile atlas; a light without a tile is unblocked. Alpha
+holds the distance to the probe. Every draw is two-sided, and a back face writes black at a
+negative distance; where nothing is drawn the clear colour marks the sky. No reflections, coat,
+fog, occlusion or transparency are drawn, as probes keep only soft diffuse light.
+
+`ProbeCapturePass.Prepare` picks each probe's draws on the CPU: a draw whose bounds are more than
+16 spacings of the probe's cascade away is left out, and so are ghosts, skinned and swimming
+draws, empty draws and anything see-through, since they move on their own or would spoil the
+alpha. Wind is drawn at rest. A draw with no bounds (no `Detail`) is never culled. The instances
+go into the frame's instance buffer, which is sized for them first. It takes the batch's probes in
+order until their draws reach `MaxTrianglesPerFrame` (8 million, counted once per probe, not per
+face; the first probe is always taken), and the renderer cuts the batch there, so the rest stay
+as they were in the scheduler for a later frame. Thirty-two probes round Courtyard's 830,000
+triangles lost the device without it.
+
+`ProbeSunShadow` is one parallel 2048² map of the shadow-casting sun, centred on the camera and
+wide enough for the coarsest cascade, since the frame's own cascades are fitted to the view and
+miss probes behind the camera. It is drawn through the shadow pass's pipelines only when the
+sun turns, when the camera has moved an eighth of its width, or every 240 frames, so moved
+things show up; each costs one shadow draw in that frame, the same work as the main shadow pass.
+
+`probe_fold.comp` then reduces each face 2×2 into shared memory and
 works out both tiles in one dispatch: irradiance is the cosine-weighted mean of the radiance
 over the hemisphere, the same E/π as the environment's irradiance cube, and depth is the
 mean and the mean square of the distance around each direction, gathered with a cos⁵⁰ lobe
-so a wall's edge stays sharp. Distances are clamped to twice the spacing. The maths lives in
+so a wall's edge stays sharp. Distances are clamped to twice the spacing. Where the probe saw
+nothing the fold puts in what `lighting.frag` shows there: the environment's bands times its
+intensity when the view shows the environment, or else the background radiance, never the sun's
+disc, since the sun reaches surfaces directly. The maths lives in
 `probe_fold.glsl`, which has no bindings of its own, so a traced capture can fold the same way.
 
 The fold doesn't write the atlases. It writes a slot of the staging buffer
@@ -1444,10 +1474,9 @@ traced budget: about 4.3 MB at High), and `RecordBlend(cmd, ids, alpha)` then mo
 i into probe `ids[i]` with `probe_blend.comp`, one workgroup per probe. A probe not yet captured
 takes the new tile whole; one that was moves towards it by alpha, so its light settles over a few
 updates instead of flickering. The inside mark in the depth tile's first texel is never blended:
-when the old or the new tile has it, the new texel is copied. The fixed grid's captures blend
-with alpha 1, so each capture replaces the probe as before; the live probes will use 0.5 for
-rasterised and 0.25 for traced updates. All of this is recorded into the frame's command buffer
-with barriers and no waits.
+when the old or the new tile has it, the new texel is copied. Rasterised updates blend with
+alpha 0.5 (`Renderer.RasterBlend`), and traced updates will use 0.25. All of this is recorded
+into the frame's command buffer with barriers and no waits.
 
 Depth is stored because irradiance alone leaks. A probe on the far side of a wall sees
 bright sky, and blending it in would light the room. Each of the eight probes round a point
@@ -1476,26 +1505,34 @@ diffuse light; specular still comes from screen-space reflections, reflection pr
 the sky. Soft light is now worked out in absolute units in `softLight()`: the sky cube times
 the environment intensity, or the probe value as captured.
 
-`ProbeSchedule` runs the captures in `Renderer.Render`, before the frame: up to 64 probes a
-frame, each face submitted and waited on, so capture frames hitch. Round 1 lights the probes
-by the sun and sky alone, with the sky cut off inside the box where no probe can answer
-yet; round 2 captures them again reading round 1's probes, which adds a second bounce. A
-probe is used once round 1 has finished. Capture cascades are centred on the volume's box
-(`CaptureShadows`) rather than fitted to a view, so the sun's maps are drawn for the first
-face of a batch and kept for the rest. `Renderer.LightingHash` hashes the suns' directions and
-colours, the environment (a version bumped by `SetEnvironment`), its intensity, the
-background, whether the sun's shadow is on and its cascades and light angle, the sun-shadow,
-plain-materials, multiscatter and wear-and-dirt switches and the volume. The view's shadow centre and radius follow the
-camera, so they are left out, and moving the camera doesn't restart the probes. When it changes, the schedule restarts at round 1 over the old
-probes in place, without a second atlas: probes not yet redone stay old, and those redone
-have one bounce until round 2, so for a few frames old and new mix. When the box changes
-the old probes are thrown away and the sky is used until round 1 is done. Geometry isn't in the
-hash. Without `shaderStorageImageExtendedFormats`, needed to write RG16F from compute, the
-volume is off.
+The probes update a few a frame inside `Renderer.Render`, with no waits. `ManageProbeStorage`
+runs before the frame's fence, as above. `PlanProbes` runs before the frame's uniforms are
+written. It moves the cascades to the camera and hands the `ScrollResult` to the scheduler, and
+queues a `probe_invalidate.comp` dispatch for each cascade that scrolled, which clears the tiles
+of the slots it handed to new probes so they read as uncaptured instead of as the probes that
+left. When `FrameView.LightProbes` changes it sets or clears the scheduler's fixed grid and
+clears layer 4 the same way. `ProbeLightingKey` hashes the suns' directions, colours and shadow
+flags, the environment (a version bumped by `SetEnvironment`), its intensity, the sky's
+turbidity, the background, whether the view shows the environment, whether the sun's shadow is
+on, and the sun-shadow, light-shadow, plain-materials and wear-and-dirt switches; when it
+changes, `EverythingChanged` marks every probe dirty. Geometry and the camera are not in it.
+`FollowProbeLights` compares the frame's point and spot lights with last frame's by `Key`: a
+light that appeared, moved, turned, changed colour or range, or went away calls `LightChanged`
+for where it was and where it is. Then `Next` picks the batch, `ProbeBudget.Raster` probes (8,
+16 or 32 by `ProbeQuality`), and `ProbeCapturePass.Prepare` culls their draws and cuts the batch
+at the triangle budget. Updates are counted in frames, never seconds.
+
+`RecordProbeUpdate` runs after the shadow tile atlas: the invalidations, the probes' sun map
+when it is due, the captures, the fold and the blend, then `Updated` tells the scheduler which
+probes are clean. `ProbeUpdatesLastFrame` says how many were updated, and `ProbesSettled` is the
+scheduler's `Settled`. A dirty probe keeps its old light in use until it is redone, so a change
+fades in over the frames it takes to reach every probe rather than flashing. Without
+`shaderStorageImageExtendedFormats`, needed to write RG16F from compute, or without multiview,
+the probes are off.
 
 `ProbeCascades` is the layout of the live probes round the camera. The renderer moves its own
-copy to the camera each frame and passes the origins to the shaders, though nothing captures
-cascade probes yet. It keeps four cascades at 0.5, 1, 2 and 4 m spacing. Each is a
+copy to the camera each frame and passes the origins to the shaders. It keeps four cascades at
+0.5, 1, 2 and 4 m spacing. Each is a
 box of cells, 32 × 16 × 32 at `ProbeQuality.High`, 24 × 12 × 24 at `Medium` and 16 × 8 × 16 at
 `Low`. A cell's index is `floor(position / spacing)`, and a probe sits at the cell index times
 the spacing, so probes keep their world positions however the box moves. `Move` snaps each
@@ -1509,7 +1546,7 @@ first cascade where, on every axis, `(Origin + 1) * spacing <= p < (Origin + cou
 so the lookup's eight probes are always inside the box; -1 means none holds the point. The shader
 repeats this rule and the slot maths.
 
-`ProbeScheduler` picks which probes a frame updates (it isn't wired into the renderer yet either).
+`ProbeScheduler` picks which probes a frame updates.
 A probe is `ProbeId(cascade, slot)`, where cascade 4 is the fixed grid; the grid's positions are
 given with `SetFixedGrid`. Each probe is never captured, dirty or clean. `Scrolled` makes the
 `ScrollResult`'s new slots never captured, `LightChanged(center, range)` makes the clean probes in
@@ -1750,10 +1787,11 @@ hands over no decals and the renderer packs none, so the copy and the pass are b
 skipped. With `RenderEffects.Materials` off, `decal.frag` discards every pixel, so the
 plain clay stays plain.
 
-Reflection and light probe captures draw decals too: `CaptureFaces` uploads them after its
-idle wait, and `RecordScene` runs the pass for every face. They are left out of the
-lighting hash, so moving or adding one never photographs a probe again. A probe photographed
-before a decal appeared shows the wall without it until something else changes the hash.
+Reflection probe captures draw decals too: `CaptureFaces` uploads them after its idle wait, and
+`RecordScene` runs the pass for every face. They are left out of the lighting hash, so moving or
+adding one never photographs a probe again. A probe photographed before a decal appeared shows
+the wall without it until something else changes the hash. Light probe updates don't draw
+decals, so a decal doesn't tint the bounced light.
 
 What it doesn't do yet:
 
@@ -3021,12 +3059,11 @@ and `ReadyToTrace`, are checked by review and by the GPU tests, not by the valid
 - Reflection probes are captured again only when they move or the lighting changes, not when
   things or the camera move, and a scene gets at most four. Removing one recaptures the rest.
   They don't see point and spot lights.
-- Light probes are captured again only when the lighting or the box changes, not when
-  things move, and a sun that moves every frame keeps them capturing. Each capture frame
-  waits for the GPU face by face, so it hitches. They see the sun and the sky but not point
-  and spot lights, so bounced light follows neither a moving lamp nor a moving object.
-  Probes that update a few at a time while the game runs, as DDGI does, would be the next
-  step.
+- Light probes update a few a frame (8, 16 or 32), so after a load, a teleport or a change of
+  sun they take a while to settle: about a thousand frames for the two finest cascades at High.
+  Moving things don't mark probes dirty; the oldest probes are redone in turn, so a moved object's
+  bounce catches up within about probes ÷ budget frames. A sun that turns every frame keeps every
+  probe dirty. Nothing is traced yet; every update is rasterized.
 - Volumetric fog is a froxel grid of one cell per 8×8 scene pixels, so light bleeds a
   cell across silhouettes, a shaft narrower than a cell blurs, and its history smears a
   moving light or a fast camera for a few frames. Past `VolumetricDistance` the fog is the

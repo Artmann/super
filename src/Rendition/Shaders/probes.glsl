@@ -5,8 +5,14 @@
 #ifndef PROBES_GLSL
 #define PROBES_GLSL
 
-layout(set = 1, binding = 11) uniform sampler2DArray probeIrradianceAtlas;
-layout(set = 1, binding = 12) uniform sampler2DArray probeDepthAtlas;
+// The lighting pass reads the atlases from its set 1. Probe updates bind them in a set of their own,
+// and say which before including this.
+#ifndef PROBE_ATLAS_SET
+#define PROBE_ATLAS_SET 1
+#endif
+
+layout(set = PROBE_ATLAS_SET, binding = 11) uniform sampler2DArray probeIrradianceAtlas;
+layout(set = PROBE_ATLAS_SET, binding = 12) uniform sampler2DArray probeDepthAtlas;
 
 // Must match ProbeVolume.cs and probe_fold.glsl.
 const int PROBE_IRRADIANCE_TEXELS = 8;

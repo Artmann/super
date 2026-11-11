@@ -97,9 +97,7 @@ public class ReflectionProbeTests
         sunTurned.Lights = turned;
 
         Assert.Equal(before, Renderer.ReflectionLightingHash(reframed, environmentVersion: 1));
-        Assert.Equal(Renderer.LightingHash(view, 1), Renderer.LightingHash(reframed, 1));
         Assert.NotEqual(before, Renderer.ReflectionLightingHash(sunTurned, environmentVersion: 1));
-        Assert.NotEqual(Renderer.LightingHash(view, 1), Renderer.LightingHash(sunTurned, 1));
     }
 
     [Fact]
@@ -131,7 +129,6 @@ public class ReflectionProbeTests
         Assert.NotEqual(before, Renderer.ReflectionLightingHash(noOcclusion, 1));
         Assert.NotEqual(before, Renderer.ReflectionLightingHash(noMultiscatter, 1));
         Assert.NotEqual(before, Renderer.ReflectionLightingHash(clearSky, 1));
-        Assert.NotEqual(Renderer.LightingHash(view, 1), Renderer.LightingHash(clearSky, 1));
         Assert.NotEqual(before, Renderer.ReflectionLightingHash(noWear, 1));
         Assert.Equal(before, Renderer.ReflectionLightingHash(noContact, 1));
     }

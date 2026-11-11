@@ -225,8 +225,7 @@ internal static unsafe class SceneDraws
         InstanceBuffer instances,
         ScenePass pass,
         PipelineVariants? solid = null,
-        int cascade = 0,
-        bool allTwoSided = false)
+        int cascade = 0)
     {
         int[] pooled = ArrayPool<int>.Shared.Rent(draws.Length);
         int count = 0;
@@ -242,7 +241,7 @@ internal static unsafe class SceneDraws
         var batches = _batches ??= [];
         Batch(draws, order, keepOrder: pass == ScenePass.Transparent, batches);
 
-        var bound = new Bound { AllTwoSided = allTwoSided };
+        var bound = new Bound();
         foreach (var batch in batches)
         {
             var constants = Constants(draws[order[batch.First]], cascade, resources.SwayOf, details);
@@ -257,9 +256,6 @@ internal static unsafe class SceneDraws
     {
         public Pipeline Pipeline;
         public int Mesh = -1;
-
-        /// <summary>Draws back faces too, whatever the material says, so a light probe can see it is behind a surface.</summary>
-        public bool AllTwoSided;
     }
 
     /// <summary>
@@ -286,7 +282,7 @@ internal static unsafe class SceneDraws
         var variants = solid is { } solidVariants && !needsFragments
             ? solidVariants
             : pipelines[pipelines.Count > 1 ? resources.GetShader(draw.Material) : 0];
-        var pipeline = (flags & MaterialFlags.TwoSided) != 0 || bound.AllTwoSided ? variants.TwoSided : variants.Culled;
+        var pipeline = (flags & MaterialFlags.TwoSided) != 0 ? variants.TwoSided : variants.Culled;
         if (pipeline.Handle != bound.Pipeline.Handle)
         {
             api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, pipeline);

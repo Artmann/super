@@ -36,6 +36,9 @@ internal sealed unsafe class VulkanContext : IDisposable
     /// <summary>Whether compute shaders can write two-channel images such as rg16f, which the light probes' depth atlas prefers.</summary>
     public bool StorageImageExtendedFormats { get; private set; }
 
+    /// <summary>Whether one draw can render to six layers at once, which the light probes' cube captures need.</summary>
+    public bool Multiview { get; private set; }
+
     /// <summary>Whether the device was made with ray queries on: the three extensions and the features they need.</summary>
     public bool CanTrace { get; private set; }
 
@@ -317,6 +320,11 @@ internal sealed unsafe class VulkanContext : IDisposable
         var supportedAll = new PhysicalDeviceFeatures2 { SType = StructureType.PhysicalDeviceFeatures2, PNext = &supported11 };
         Api.GetPhysicalDeviceFeatures2(PhysicalDevice, &supportedAll);
 
+        var multiviewProperties = new PhysicalDeviceMultiviewProperties { SType = StructureType.PhysicalDeviceMultiviewProperties };
+        var properties2 = new PhysicalDeviceProperties2 { SType = StructureType.PhysicalDeviceProperties2, PNext = &multiviewProperties };
+        Api.GetPhysicalDeviceProperties2(PhysicalDevice, &properties2);
+        Multiview = supported11.Multiview && multiviewProperties.MaxMultiviewViewCount >= 6;
+
         var features = new PhysicalDeviceFeatures
         {
             SamplerAnisotropy = true,
@@ -333,6 +341,7 @@ internal sealed unsafe class VulkanContext : IDisposable
             SType = StructureType.PhysicalDeviceVulkan11Features,
             StorageBuffer16BitAccess = supported11.StorageBuffer16BitAccess,
             UniformAndStorageBuffer16BitAccess = supported11.UniformAndStorageBuffer16BitAccess,
+            Multiview = Multiview,
         };
         var features12 = new PhysicalDeviceVulkan12Features
         {

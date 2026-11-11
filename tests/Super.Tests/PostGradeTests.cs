@@ -84,7 +84,7 @@ public class PostGradeTests
         // light probes' two, the four probe cascade origins and the cascade counts, the clear sky's sun
         // and its disc, the fog, the white balance mat4, the curve, the volumetric fog's vec4, the
         // puddles' vec4 and the wind's vec4, then eight ints, the last the local light count, then the
-        // effects left out, the mip bias, the probe capture flag and one int of padding, so the lights
+        // effects left out, the mip bias, the probe light count and one int of padding, so the lights
         // start on a 16 byte boundary: 336 + 48 + 8 * 4 + 4 * 4 = 432 past shadowRadii.
         int radii = (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.ShadowRadii));
         Assert.Equal(radii + 16, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.ShadowFade)));
@@ -107,7 +107,7 @@ public class PostGradeTests
         Assert.Equal(radii + 384, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.LightCount)));
         Assert.Equal(radii + 412, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.LocalLightCount)));
         Assert.Equal(radii + 416, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Off)));
-        Assert.Equal(radii + 424, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.ProbeCapture)));
+        Assert.Equal(radii + 424, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.ProbeLightCount)));
         Assert.Equal(radii + 432, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Lights)));
     }
 

@@ -188,9 +188,9 @@ void applyPuddles(inout Surface surface, vec3 worldPos, float height, float heig
     puddleWater = water;
 }
 
-// The side to write in the normal target's alpha: WATER_SIDE for the front of puddle water.
-float waterSide(float side) {
-    return side > 0.0 && puddleWater >= 0.5 ? WATER_SIDE : side;
+// What to write in the normal target's alpha: WATER_SIDE for the front of puddle water, 1 for the rest.
+float waterSide() {
+    return puddleWater >= 0.5 ? WATER_SIDE : 1.0;
 }
 
 // Whether this pixel's material gets wet and the frame has puddles to wet it.
@@ -386,8 +386,6 @@ float foliageChannel(Material material) {
 // material puts its index there, plus SUBSURFACE_MARK, so the lighting and blur find it.
 // A ghost keeps only the surface's shape: one matte colour that glows a little,
 // whatever the material.
-// The normal's alpha is -1 on the back of a one-sided surface. Only a light probe's capture
-// draws those, to learn which of its probes sit inside a wall; the lighting reads its size.
 // Every surface also writes its motion: in scene pixels, from where it is now back to where it was, as Motion.Pack does.
 void writeSurface(Surface surface) {
     // Behind last frame's camera there's nowhere to point, so it points far off the picture, which has no history.
@@ -395,13 +393,11 @@ void writeSurface(Surface surface) {
         ? (inClipBefore.xy / inClipBefore.z - inClipNow.xy / inClipNow.z) * 0.5 * frame.screen.xy
         : vec2(MOTION_OFF_PICTURE);
     Material material = materials[draw.material];
-    bool back = !gl_FrontFacing && (material.flags & (MATERIAL_TWO_SIDED | MATERIAL_FOLIAGE)) == 0u;
-    float side = back ? -1.0 : 1.0;
 
     if (draw.ghost.a > 0.0) {
         vec3 color = clamp(draw.ghost.rgb, 0.0, 1.0);
         outBaseColorMetallic = vec4(color, 0.0);
-        outNormalRoughnessAo = vec4(octahedralEncode(surface.normal), 0.7, side);
+        outNormalRoughnessAo = vec4(octahedralEncode(surface.normal), 0.7, 1.0);
         outEmissiveClearcoat = vec4(color * GHOST_GLOW, 0.0);
         return;
     }
@@ -424,7 +420,7 @@ void writeSurface(Surface surface) {
         }
 
         outBaseColorMetallic = vec4(plain.baseColor, plain.metallic);
-        outNormalRoughnessAo = vec4(octahedralEncode(plain.normal), plain.roughness, waterSide(side));
+        outNormalRoughnessAo = vec4(octahedralEncode(plain.normal), plain.roughness, waterSide());
         outEmissiveClearcoat = vec4(surface.emissive, foliage ? foliageChannel(material) : 0.0);
         return;
     }
@@ -434,6 +430,6 @@ void writeSurface(Surface surface) {
         channel = SUBSURFACE_MARK + float(draw.material);
     }
     outBaseColorMetallic = vec4(surface.baseColor * draw.tint.rgb, surface.metallic);
-    outNormalRoughnessAo = vec4(octahedralEncode(surface.normal), surface.roughness, waterSide(side));
+    outNormalRoughnessAo = vec4(octahedralEncode(surface.normal), surface.roughness, waterSide());
     outEmissiveClearcoat = vec4(surface.emissive, channel);
 }

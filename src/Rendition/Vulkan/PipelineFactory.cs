@@ -34,6 +34,9 @@ internal ref struct PipelineDescription
 
     /// <summary>Which faces to leave out, in place of the usual choice.</summary>
     public CullModeFlags? CullMode;
+
+    /// <summary>Which layers one draw renders to at once, through multiview, with 0 for a single one.</summary>
+    public uint ViewMask;
 }
 
 internal static unsafe class PipelineFactory
@@ -159,6 +162,7 @@ internal static unsafe class PipelineFactory
             var rendering = new PipelineRenderingCreateInfo
             {
                 SType = StructureType.PipelineRenderingCreateInfo,
+                ViewMask = description.ViewMask,
                 ColorAttachmentCount = (uint)colorCount,
                 PColorAttachmentFormats = colorFormats,
                 DepthAttachmentFormat = description.DepthFormat,

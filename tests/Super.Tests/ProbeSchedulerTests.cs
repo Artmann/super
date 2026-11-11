@@ -269,6 +269,25 @@ public class ProbeSchedulerTests
     }
 
     [Fact]
+    public void Clearing_the_fixed_grid_lets_the_cascades_settle_without_it()
+    {
+        var cascades = new ProbeCascades(ProbeQuality.Low);
+        var scheduler = new ProbeScheduler(cascades, 8);
+        scheduler.SetFixedGrid(Vector3.Zero, 2, 2, 2, 1f);
+        scheduler.Scrolled(cascades.Move(Vector3.Zero));
+        var layouts = ProbeCascades.Layouts(ProbeQuality.Low);
+        scheduler.Updated(Probes(0, layouts[0].Total));
+        scheduler.Updated(Probes(1, layouts[1].Total));
+        Assert.False(scheduler.Settled);
+
+        scheduler.ClearFixedGrid();
+
+        Assert.Equal(0, scheduler.FixedGridProbes);
+        Assert.True(scheduler.Settled);
+        Assert.DoesNotContain(scheduler.Next(64, Vector3.Zero, Forward), id => id.Cascade == ProbeScheduler.FixedGrid);
+    }
+
+    [Fact]
     public void A_light_changing_inside_a_fixed_grid_dirties_its_probes()
     {
         var cascades = new ProbeCascades(ProbeQuality.Low);

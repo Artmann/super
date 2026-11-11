@@ -4,7 +4,7 @@ namespace Rendition.Gpu.Tests;
 
 /// <summary>
 /// The light probes' storage and lookup: tiles written straight into the cascade layers and the fixed grid's layer,
-/// then read back through the real probeIrradiance in probes.glsl.
+/// then read back through the real probeIrradiance in probes.glsl. Updates are paused, so no capture writes over them.
 /// </summary>
 [Collection(GpuCollection.Name)]
 [Trait("Speed", "Slow")]
@@ -21,6 +21,7 @@ public sealed class ProbeStorageTests(GpuFixture gpu)
     {
         int errors = gpu.ValidationErrors;
         gpu.Renderer.ClearProbesForTest();
+        gpu.Renderer.ProbeUpdatesPaused = true;
         try
         {
             Render();
@@ -35,6 +36,7 @@ public sealed class ProbeStorageTests(GpuFixture gpu)
         }
         finally
         {
+            gpu.Renderer.ProbeUpdatesPaused = false;
             gpu.Renderer.ClearProbesForTest();
         }
     }
@@ -44,6 +46,7 @@ public sealed class ProbeStorageTests(GpuFixture gpu)
     {
         int errors = gpu.ValidationErrors;
         gpu.Renderer.ClearProbesForTest();
+        gpu.Renderer.ProbeUpdatesPaused = true;
         try
         {
             Render();
@@ -58,6 +61,7 @@ public sealed class ProbeStorageTests(GpuFixture gpu)
         }
         finally
         {
+            gpu.Renderer.ProbeUpdatesPaused = false;
             gpu.Renderer.ClearProbesForTest();
         }
     }
@@ -67,6 +71,7 @@ public sealed class ProbeStorageTests(GpuFixture gpu)
     {
         int errors = gpu.ValidationErrors;
         gpu.Renderer.ClearProbesForTest();
+        gpu.Renderer.ProbeUpdatesPaused = true;
         try
         {
             // One probe 6 m away is captured, so the frame does look in the cascades, but none round the point is.
@@ -83,6 +88,7 @@ public sealed class ProbeStorageTests(GpuFixture gpu)
         }
         finally
         {
+            gpu.Renderer.ProbeUpdatesPaused = false;
             gpu.Renderer.ClearProbesForTest();
         }
     }
@@ -92,17 +98,16 @@ public sealed class ProbeStorageTests(GpuFixture gpu)
     {
         int errors = gpu.ValidationErrors;
         gpu.Renderer.ClearProbesForTest();
+        gpu.Renderer.ProbeUpdatesPaused = true;
 
         // 5 by 5 by 5 probes a metre apart, from -2 to 2.
         var box = new ProbeVolumeSettings(new Vector3(-2f), new Vector3(2f), 1f);
         var outside = new Vector3(4.2f, 0.2f, 0.2f);
         try
         {
-            // The box is still captured at load: let that finish before writing the tiles under test.
-            for (int i = 0; i < 6; i++)
-            {
-                Render(box);
-            }
+            // One frame gives the cascades their place and the frame the fixed grid. With updates paused,
+            // nothing captures over the tiles written below.
+            Render(box);
 
             // The eight grid probes round the inside point: the biased point (0.2, 0.4, 0.2) is in local cell (2, 2, 2).
             var green = new Vector3(0f, 1f, 0f);
@@ -127,6 +132,7 @@ public sealed class ProbeStorageTests(GpuFixture gpu)
         }
         finally
         {
+            gpu.Renderer.ProbeUpdatesPaused = false;
             gpu.Renderer.ClearProbesForTest();
         }
     }

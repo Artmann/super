@@ -24,7 +24,7 @@ What it does for every game, with no setup:
 
 And when a scene asks for it:
 
-- [Bounced light](#bounced-light) from a volume of light probes, which doesn't leak through walls
+- [Bounced light](#bounced-light) from light probes kept round the camera, lit by the sun and every lamp, which doesn't leak through walls
 - A [clear sky](#the-sky) worked out from the sun and the haze in the air, with the sun's disc in it
 - [Height fog](#fog) that glows towards the sun, and [volumetric fog](#volumetric-fog) near the camera, with shafts of sunlight and halos round lamps
 - [Auto exposure](#auto-exposure) that meters the frame and adapts like a camera
@@ -70,7 +70,7 @@ next frame follows, so it can back an options menu.
 | `LightShadows` | Point and spot lights shine through walls |
 | `AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. `view.AmbientOcclusion` only changes [how far and how dark](#ambient-occlusion) |
 | `MultiscatterSpecular` | Rough surfaces lose the light that bounces between their tiny facets, so rough metals such as worn iron come out darker than they should, by up to half at full roughness. It costs almost nothing, so leave it on unless you're comparing |
-| `LightProbes` | No [bounced light](#bounced-light): shade takes its soft light from the sky alone, as if no `view.LightProbes` were set, and no probes are captured |
+| `LightProbes` | No [bounced light](#bounced-light): shade takes its soft light from the sky alone, even inside a `view.LightProbes` box. No probes are drawn, and their memory, about 170 MB at `High`, is freed until it is switched back on, when every probe starts again |
 | `Reflections` | Shiny surfaces, water and glass reflect only the sky: not what's on screen, and no [reflection probes](#reflections) are photographed |
 | `AntiAliasing` | Edges show their pixels, and moving things stay sharp |
 | `Bloom` | No glow round bright things. `PostSettings.Bloom` only changes how much there is |
@@ -317,39 +317,54 @@ It only knows what the camera sees, plus what stands over a point in the sun's s
 
 ## Bounced light
 
+Sunlight that lands on a brick wall doesn't stop there: some of it bounces off and lights
+the ground and everything near it, tinted the colour of the brick. A lamp in a white room
+lights the whole room, not only what faces it. Without bounced light, shade gets its soft light
+from the sky alone, so a yard in shadow looks blue and flat and a room lit by a lamp is black
+wherever the lamp doesn't reach.
+
+The renderer keeps light probes round the camera for you, with no setup. Each probe records the
+light reaching it from every direction, and surfaces take their soft light from the probes
+round them instead of from the sky, so the shade under a sunlit wall takes on its warmth, a red
+wall tints the floor beside it, and the inside of a closed room stays dark however bright the
+sky is. The probes see the sun, the sky, point and spot lights (inside their cones), glowing
+surfaces and the light already bounced, so light bounces again with every update.
+
+The probes sit in four nested boxes centred on the camera, 0.5, 1, 2 and 4 metres apart, so
+detail is finest close by and the far boxes still reach a long way. They are updated a few a
+frame (8, 16 or 32 by `Renderer.ProbeQuality`: `Low`, `Medium` or `High`, the default, and
+fewer in a dense scene: a frame draws at most 8 million triangles round its probes, which is
+about 9 probes in Courtyard), so there is no pause while loading: the scene starts lit by the
+sky and fills in over the first frames, nearest probes first. At `High` the near probes have
+all been drawn after about a thousand frames in a light scene (nearer four thousand in
+Courtyard). After that the oldest probes are redone in turn, so objects that move or appear
+show up in the bounce within about 2,000 frames at `High`. A point or spot light that moves, turns, changes
+colour or is switched off marks the probes in its range for an update, and a change to the sun,
+the sky or the `Materials`, `WearAndDirt`, `SunShadows` or `LightShadows` switches marks them
+all; until it is redone, a probe keeps its old light, so a change fades in rather than flashing.
+As the camera moves, the boxes slide with it a row at a time: probes it keeps stay as they were,
+and the new row starts dark and is drawn next.
+
 ```csharp
-view.LightProbes(min: new(-2f, -0.5f, -9f), max: new(9f, 5f, 6f), spacing: 1f);
+view.LightProbes(min: new(-1f, 0f, -4f), max: new(1f, 2.5f, 4f), spacing: 0.25f);
 ```
 
-Sunlight that lands on a brick wall doesn't stop there: some of it bounces off and lights
-the ground and everything near it, tinted the colour of the brick. Without bounced light, shade
-gets its soft light from the sky alone, so a yard in shadow looks blue and flat. A light probe
-volume fills a box with a grid of probes, `spacing` metres apart, that each record the light
-reaching them from every direction. Surfaces inside the box take their soft light from the
-probes round them instead of from the sky, so the shade under a sunlit wall takes on its
-warmth, and the inside of a closed room stays dark however bright the sky is.
-
-Give the box a little room around what it lights, and keep the spacing near the size of the
-smallest space that should be lit differently: 1 metre suits a yard or a room, 0.5 a corridor.
-The box may hold at most 4,096 probes, so 1 metre spacing covers about 15 by 15 by 15 metres;
-a bigger box throws when it is set. `spacing` must be more than zero, and `max` above `min` on
-every axis.
+`view.LightProbes` adds a box of probes of your own on top, for a place that needs finer
+detail than the camera's probes give, such as a narrow corridor at 0.25 metres. Inside it,
+and up to a spacing round it, its probes win over the camera's. The box may hold at most 4,096
+probes, so 1 metre spacing covers about 15 by 15 by 15 metres; a bigger box throws when it is
+set. `spacing` must be more than zero, and `max` above `min` on every axis. A new box starts
+its probes again.
 
 Each probe also notes how far away the surfaces it sees are, so a point behind a wall from a
 probe gets nothing from it, and light doesn't leak into a room from the probes outside. A
 probe that ends up inside a wall or under the ground sees mostly the backs of surfaces, and
-is left out. Outside the box, or where no probe can see a point, the soft light comes from
-the sky as before. Reflections don't change; probes give only the soft, diffuse light.
+is left out. Where no probe can see a point yet, the soft light comes from the sky as before.
+Reflections don't change; probes give only the soft, diffuse light. See-through, skinned and
+swimming things don't show in the probes, as they would spoil them or move on their own.
 
-The probes are drawn by the renderer itself, from each probe's position, with the sun and the
-sky but without point and spot lights. That happens over the first frames after the box is set,
-64 probes a frame, and then once more, now lit by the first round, so light bounces twice. A
-change to the sun's direction or colour, the sky, the sun's shadow softness or cascades or the
-`Materials` switch starts it again (the camera doesn't: the sun's shadow is framed on the box), drawing over the old probes in place, so for a few frames
-old and new probes mix and the new ones have only one bounce. A change to the box throws the
-old probes away, and the sky lights the scene until the first round is done. Moving or adding objects doesn't, so
-probes suit what stands still. Each frame that draws probes takes longer, so a sun that moves
-every frame keeps them drawing; set it once and leave it, or turn `Graphics.LightProbes` off.
+`Graphics.LightProbes` turns all of this off and frees the probes' memory, about 170 MB at
+`High`. Switching it back on starts every probe again.
 
 ## Baked lighting
 
@@ -426,8 +441,8 @@ photographed the first frame it's placed and again only when it moves, its box c
 lighting does: the sun's direction or colour, the sky, the shadow softness or cascades, the
 ambient occlusion settings, the `SunShadows`, `Materials` or `AmbientOcclusion` switches. Moving
 the camera doesn't, because the photograph frames the sun's shadow on the probe's own box, and
-nor does moving or adding objects, so probes suit what stands still. While the [light
-probes](#bounced-light) fill in at the start, a probe can be photographed two or three times.
+nor does moving or adding objects, so probes suit what stands still. Once the [light
+probes](#bounced-light) round the camera have settled, each probe is photographed once more.
 Each photograph waits for the GPU and takes a moment, so a sun that moves every frame keeps
 them drawing. Point and spot lights aren't in the photograph, so a lantern's glow doesn't show in
 a reflection. A probe left out of a frame is dropped, and the rest are photographed again.

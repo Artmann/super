@@ -19,7 +19,7 @@ layout(push_constant) uniform Draw {
     float swimAmplitude;
     float swimBodyLength;
     float swimPhase;
-    int cascade; // a sun's cascade, or from 4 on a tile of the local lights' atlas
+    int cascade; // a sun's cascade, from 4 on a tile of the local lights' atlas, or -1 for the light probes' sun map
     int firstBone;
     float windBase; // the lowest height of the draw's part, in its own space; see wind.glsl
     float windSway; // the material's share of the wind's lean, 0 to stand still
@@ -31,7 +31,8 @@ void main() {
     outUv = inUv;
     vec3 posed = (skinMatrix(draw.firstBone, inJoints, inWeights) * vec4(inPosition, 1.0)).xyz;
     vec3 swum = swim(posed, draw.swimAmplitude, draw.swimBodyLength, draw.swimPhase);
-    mat4 light = draw.cascade < 4 ? frame.shadowMatrices[draw.cascade] : shadowTiles[draw.cascade - 4].matrix;
+    mat4 light = draw.cascade < 0 ? frame.probeSunMatrix
+        : draw.cascade < 4 ? frame.shadowMatrices[draw.cascade] : shadowTiles[draw.cascade - 4].matrix;
     mat4 placed = instanceModel();
     vec3 world = windSwayPlaced((placed * vec4(swum, 1.0)).xyz, placed, posed, draw.windBase, draw.windSway);
     gl_Position = light * vec4(world, 1.0);

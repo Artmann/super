@@ -120,6 +120,9 @@ internal sealed class ProbeScheduler
         }
     }
 
+    /// <summary>Takes away the fixed grid, for a view that no longer has one.</summary>
+    public void ClearFixedGrid() => AllocateGroup(FixedGrid, 0);
+
     /// <summary>
     /// Call with every <see cref="ProbeCascades.Move"/> result. Probes in new slots are now other
     /// probes and become never captured. The first result must be the cascades' first move, as that is
