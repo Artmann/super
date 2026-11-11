@@ -13,7 +13,8 @@ internal static class TestShapes
         "box" => Box(new Vector3(1f, 1f, 1f), mirrored: false),
         "box with one long side" => Box(new Vector3(4f, 1f, 1f), mirrored: false),
         "mirrored box" => Box(new Vector3(1f, 1f, 1f), mirrored: true),
-        "helical ramp" => HelicalRamp(),
+        "helical ramp" => HelicalRamp(stepsPerTurn: 36),
+        "coarse helical ramp" => HelicalRamp(stepsPerTurn: 12),
         "single triangle" => SingleTriangle(),
         "unshared triangles" => Unshared(Sphere(seamSplit: false, rings: 6, segments: 10)),
         "zero-area triangles" => WithZeroAreaTriangles(),
@@ -119,11 +120,14 @@ internal static class TestShapes
 
     /// <summary>
     /// A ramp 1.5 turns round a post, 1 m wide from radius 1 to 2, rising 1 m a turn, so every normal is within 10
-    /// degrees of up and its top half turn lies right over its bottom one.
+    /// degrees of up and its top half turn lies right over its bottom one. Each turn is
+    /// <paramref name="stepsPerTurn"/> steps of two triangles. With 12, the steps are long enough that the texel scale
+    /// leaves a chart grown one full turn ending in the same texels it started from, a storey lower, so it has to be cut
+    /// again once it's laid out.
     /// </summary>
-    private static (Vertex[], uint[]) HelicalRamp()
+    private static (Vertex[], uint[]) HelicalRamp(int stepsPerTurn)
     {
-        const int steps = 54;
+        int steps = stepsPerTurn * 3 / 2;
         var vertices = new List<Vertex>();
         for (int step = 0; step <= steps; step++)
         {

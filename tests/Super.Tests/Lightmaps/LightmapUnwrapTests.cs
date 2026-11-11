@@ -9,7 +9,7 @@ public class LightmapUnwrapTests
     public static TheoryData<string> Meshes =>
     [
         "welded sphere", "seam-split sphere", "box", "helical ramp", "single triangle", "unshared triangles",
-        "mirrored box", "zero-area triangles",
+        "mirrored box", "zero-area triangles", "coarse helical ramp",
     ];
 
     [Theory]
@@ -88,50 +88,15 @@ public class LightmapUnwrapTests
     }
 
     [Fact]
-    public void A_ramp_never_shares_a_texel_between_turns()
+    public void A_ramp_is_cut_again_where_its_laid_out_turns_share_a_texel()
     {
-        // 36 steps a turn, so a chart grown one full turn ends right next to where it started, a storey lower.
-        var (vertices, indices) = TestShapes.Get("helical ramp");
+        // Growing stops the first chart one full turn round, where it would overlap its start. Laid out, its last step
+        // touches the texels of its first, a storey lower, so Unwrap has to cut it into more charts than growing made.
+        var (vertices, indices) = TestShapes.Get("coarse helical ramp");
+        int grown = LightmapUnwrap.Charts(vertices, indices);
         var (v, i) = LightmapUnwrap.Unwrap(vertices, indices);
-        var positions = v.Select(x => x.Position).ToArray();
-        var uvs = v.Select(x => x.Uv2 * LightmapUnwrap.ReferenceSize).ToArray();
-
-        var byTexel = new Dictionary<(int, int), List<int>>();
-        for (int t = 0; t < i.Length / 3; t++)
-        {
-            foreach (var texel in TouchedTexels(uvs[i[t * 3]], uvs[i[t * 3 + 1]], uvs[i[t * 3 + 2]]))
-            {
-                if (!byTexel.TryGetValue(texel, out var list))
-                {
-                    byTexel[texel] = list = [];
-                }
-
-                list.Add(t);
-            }
-        }
-
-        double farthest = 0.0;
-        foreach (var list in byTexel.Values)
-        {
-            foreach (int a in list)
-            {
-                foreach (int b in list)
-                {
-                    double nearest = double.MaxValue;
-                    for (int ca = 0; ca < 3; ca++)
-                    {
-                        for (int cb = 0; cb < 3; cb++)
-                        {
-                            nearest = Math.Min(nearest, Vector3.Distance(positions[i[a * 3 + ca]], positions[i[b * 3 + cb]]));
-                        }
-                    }
-
-                    farthest = Math.Max(farthest, nearest);
-                }
-            }
-        }
-
-        Assert.InRange(farthest, 0.0, 0.5);
+        Assert.Null(LightmapUnwrap.Problem(v.Select(x => x.Position).ToArray(), v.Select(x => x.Uv2).ToArray(), i));
+        Assert.True(OutputCharts(i) > grown, $"Unwrap made {OutputCharts(i)} charts, no more than the {grown} grown.");
     }
 
     public static TheoryData<string> CurvedMeshes => ["welded sphere", "bent strip"];
@@ -171,21 +136,31 @@ public class LightmapUnwrapTests
         Assert.Equal(offset, size - offset - extent, 9);
     }
 
-    /// <summary>Texels whose closed squares a triangle meets, found by sampling densely: edges and inside.</summary>
-    private static IEnumerable<(int, int)> TouchedTexels(Vector2 a, Vector2 b, Vector2 c)
+    /// <summary>
+    /// How many charts an unwrapped mesh has: Unwrap splits every vertex where charts meet, so triangles joined
+    /// through shared vertices are one chart.
+    /// </summary>
+    private static int OutputCharts(uint[] indices)
     {
-        var texels = new HashSet<(int, int)>();
-        const int steps = 64;
-        for (int s = 0; s <= steps; s++)
+        int vertexCount = (int)indices.Max() + 1;
+        var parent = Enumerable.Range(0, vertexCount).ToArray();
+        int Find(int x)
         {
-            for (int r = 0; r <= steps - s; r++)
+            while (parent[x] != x)
             {
-                var p = a + (b - a) * (s / (float)steps) + (c - a) * (r / (float)steps);
-                texels.Add(((int)MathF.Floor(p.X), (int)MathF.Floor(p.Y)));
+                x = parent[x] = parent[parent[x]];
             }
+
+            return x;
         }
 
-        return texels;
+        for (int corner = 0; corner < indices.Length; corner += 3)
+        {
+            parent[Find((int)indices[corner + 1])] = Find((int)indices[corner]);
+            parent[Find((int)indices[corner + 2])] = Find((int)indices[corner]);
+        }
+
+        return indices.Select(index => Find((int)index)).Distinct().Count();
     }
 
     [Fact]
