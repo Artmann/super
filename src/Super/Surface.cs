@@ -127,4 +127,51 @@ public sealed record GeneratedMesh(Vertex[] Vertices, uint[] Indices, Surface Su
 
     /// <summary>A colour texture that lives and dies with this mesh, from the old constructor.</summary>
     internal GeneratedTexture? OwnedTexture { get; init; }
+
+    /// <summary>The largest lightmap page <see cref="WithLightmapUvs"/> tries, after <see cref="LightmapUnwrap.ReferenceSize"/> and twice that.</summary>
+    private const int LargestLightmapSize = 4 * LightmapUnwrap.ReferenceSize;
+
+    /// <summary>
+    /// This mesh when its <see cref="Vertex.Uv2"/> already passes <see cref="LightmapUnwrap.Problem"/>, otherwise a copy
+    /// unwrapped by <see cref="LightmapUnwrap.Unwrap"/>, with vertices split where its charts meet. The page is
+    /// <see cref="LightmapUnwrap.ReferenceSize"/> texels square, or twice or four times that when the charts don't fit,
+    /// and at each size a second UV set that already passes is kept.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The charts don't fit even the largest page.</exception>
+    public GeneratedMesh WithLightmapUvs()
+    {
+        if (Indices.Length == 0)
+        {
+            return this;
+        }
+
+        var positions = new Vector3[Vertices.Length];
+        var uvs = new Vector2[Vertices.Length];
+        for (int i = 0; i < Vertices.Length; i++)
+        {
+            positions[i] = Vertices[i].Position;
+            uvs[i] = Vertices[i].Uv2;
+        }
+
+        string? failure = null;
+        for (int size = LightmapUnwrap.ReferenceSize; size <= LargestLightmapSize; size *= 2)
+        {
+            if (LightmapUnwrap.Problem(positions, uvs, Indices, size) is null)
+            {
+                return this;
+            }
+
+            try
+            {
+                var (vertices, indices) = LightmapUnwrap.Unwrap(Vertices, Indices, size);
+                return this with { Vertices = vertices, Indices = indices };
+            }
+            catch (InvalidOperationException exception)
+            {
+                failure = exception.Message;
+            }
+        }
+
+        throw new InvalidOperationException(failure);
+    }
 }

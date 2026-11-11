@@ -1384,6 +1384,13 @@ A surface from `content.Surface` (a material graph) tiles at its graph's width w
 follow the same rule. A `uvPerMetre` or `TileWidth` must be a finite number above zero, or
 the shape throws an `ArgumentOutOfRangeException` naming it.
 
+Every shape also has a second UV set for lighting, like a cooked model's. Each part of the
+shape, such as a face of a box, the side of a cylinder or one of its ends, gets its own
+island in 0 to 1, laid out by the part's own rows and columns and sized by its size in
+metres, so every part gets about the same texels per metre. Islands have two empty texels
+between them at 512. `Shapes.Flat` keeps the set of the mesh it's given, as do ribbons,
+tubes and extrusions, which make theirs the same way.
+
 ## Meshes made by code
 
 A mesh built in code, such as ground from a height function, is handed over with
@@ -1400,6 +1407,15 @@ var mesh = new GeneratedMesh(vertices, indices, new Surface
 
 ModelRef rock = content.Mesh(mesh);
 ```
+
+A mesh you build yourself has no second UV set for lighting unless you set each vertex's
+`Uv2`. `mesh.WithLightmapUvs()` gives it one: it returns the mesh itself when its `Uv2`
+already fits a lightmap by the same rules as a cooked model's (inside 0 to 1, no overlaps,
+two empty texels at 512 between islands, and texel density within four times everywhere),
+and otherwise a copy unwrapped into islands, with vertices split where islands meet. A mesh
+with so many pieces that its islands don't fit a 512 page is laid on 1024, then 2048, and
+`WithLightmapUvs` throws an `InvalidOperationException` if they don't fit that either.
+Shapes, spline meshes and terrain chunks already have one.
 
 Textures come from a cooked image (PNG, JPEG or TGA), or from pixels you made. Whether a
 cooked one is a normal map or linear data is a cook setting, set by a
@@ -1533,7 +1549,8 @@ var ground = content.Mesh(field.Chunk(chunk.X, chunk.Z, quads: 32, new Surface
 ```
 
 `field.Height(x, z)` and `field.Normal(x, z)` answer gameplay questions about the same
-ground. The [Terrain example](../examples/Terrain) loads chunks around the camera and
+ground. Each chunk's second UV set, for lighting, is its vertices' places on the chunk's
+grid, from (0, 0) at its first corner to (1, 1) at the far one. The [Terrain example](../examples/Terrain) loads chunks around the camera and
 unloads the ones left behind.
 
 ## Surface shaders

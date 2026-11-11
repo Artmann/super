@@ -31,8 +31,9 @@ public sealed class Heightfield(Func<float, float, float> height, float spacing)
     /// <summary>
     /// The mesh for one chunk of <paramref name="quads"/> × <paramref name="quads"/> squares,
     /// starting at chunk coordinates times the chunk's size. UVs are world x and z times
-    /// <paramref name="uvPerMetre"/>, so tiled textures continue across chunks. It's never
-    /// simplified, so its edges stay where the neighbours expect.
+    /// <paramref name="uvPerMetre"/>, so tiled textures continue across chunks. The second
+    /// UVs, for the lightmap, are the vertex's place on the chunk's grid, 0 to 1 across it.
+    /// It's never simplified, so its edges stay where the neighbours expect.
     /// </summary>
     public GeneratedMesh Chunk(int chunkX, int chunkZ, int quads, Surface surface, float uvPerMetre)
     {
@@ -55,7 +56,10 @@ public sealed class Heightfield(Func<float, float, float> height, float spacing)
                     new Vector3(x, height(x, z), z),
                     Normal(x, z),
                     new Vector4(1f, 0f, 0f, 1f),
-                    new Vector2(x, z) * uvPerMetre);
+                    new Vector2(x, z) * uvPerMetre)
+                {
+                    Uv2 = new Vector2(column, row) / quads,
+                };
             }
         }
 

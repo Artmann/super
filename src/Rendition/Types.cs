@@ -23,7 +23,8 @@ public struct Vertex(Vector3 position, Vector3 normal, Vector4 tangent, Vector2 
 
     /// <summary>
     /// A second set of UVs, in which no two triangles share texels, for textures baked from the mesh's own shape such
-    /// as <see cref="Material.MaskTexture"/>. Every cooked model has one; a mesh built or generated in code has zeros unless it sets them.
+    /// as <see cref="Material.MaskTexture"/> and lightmaps. Every cooked model has one, and so does every built-in shape,
+    /// spline mesh and terrain chunk; any other mesh built in code has zeros unless it sets them.
     /// </summary>
     public Vector2 Uv2;
 

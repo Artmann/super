@@ -1534,6 +1534,24 @@ their vertices in order, and the unwrapped groups' vertices follow. Every group 
 model therefore passes `Problem` on its own, at 512 or at the larger size it was unwrapped
 at.
 
+Generated meshes are one group each. `Shapes` don't unwrap: they know their pieces, so
+`ShapeBuilder` makes each `Grid` (a box face, a revolved side, an extrusion strip) and each
+`Disc` cap one chart. A grid keeps its columns and rows, each column as wide in metres as its
+widest row and each row as tall as its tallest column, so a chart is only ever stretched
+where the surface narrows, never squeezed, and two triangles that share a texel are always
+neighbours. A row that is all one point, a pole or a cone's tip, becomes one point in the
+chart, so the fan round it is joined by edges and `Problem` sees one chart rather than a
+ring of single triangles touching at a texel. A cap is laid out by its own x and z. `Build`
+packs the charts' rectangles, sized by `ChartRectangle`'s rule (extent rounded up plus one,
+chart centred), with `SkylinePacker` and a two-texel gutter at one texels-per-metre for the
+whole shape: the most that lets the longest side fit, or else the largest that fits found by
+40 halvings, at 512, then 1024 and 2048. Extrusions along a spline go through the same
+`ShapeBuilder`, so they need no unwrap either. `Flat` and `Bend` keep the `Uv2` they're
+given. A `Heightfield` chunk's `Uv2` is its grid position over its quads, so the one chart
+fills 0 to 1. `GeneratedMesh.WithLightmapUvs` returns the mesh when `Problem` passes its set
+at 512; otherwise it unwraps at 512, and when the charts don't fit, checks and then unwraps
+at 1024 and 2048 in turn, like the cooker.
+
 ## Paint and glass
 
 Clearcoat adds a second, very smooth reflection on top of the surface, like the
