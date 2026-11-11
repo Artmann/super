@@ -47,9 +47,10 @@ public sealed class ModelCooker : ICooker
     // cut-out's textures keep their alpha coverage at every mip level. 17: when a cut-out's colour and surface both carry
     // alpha, the colour keeps the coverage of their product and the surface is left whole. 18: BC7 compression keeps a
     // cut-out's coverage too. 19: compression keeps the product's coverage on the colour, and leaves such a surface
-    // whole. The graphs' own version is folded in, so a change to Super.Materials cooks every model again, since one
+    // whole. 20: every model has a second UV set fit for a lightmap, its own when it's usable and an unwrapped one when
+    // it isn't. The graphs' own version is folded in, so a change to Super.Materials cooks every model again, since one
     // may use a graph.
-    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 19);
+    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 20);
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -190,8 +191,8 @@ public sealed class ModelCooker : ICooker
         // Each mesh's material and the run of vertices it added.
         var meshVertices = new List<(int Material, int First, int Count)>();
 
-        // Materials with a mesh that has no second UV set, which their masks would need.
-        var withoutUv2 = new HashSet<int>();
+        // For each material, how many of the meshes placed with it have a second UV set of their own, and how many don't.
+        var uv2Meshes = new Dictionary<int, (int With, int Without)>();
 
         Skeleton? skeleton = null;
         var clips = new List<AnimationClip>();
@@ -305,10 +306,10 @@ public sealed class ModelCooker : ICooker
                 uint baseVertex = (uint)vertices.Count;
                 float graphWidth = graphWidths[(int)mesh->MMaterialIndex];
                 var uvs2 = mesh->MTextureCoords[1];
-                if (uvs2 == null)
-                {
-                    withoutUv2.Add((int)mesh->MMaterialIndex);
-                }
+                uv2Meshes.TryGetValue((int)mesh->MMaterialIndex, out var uv2Count);
+                uv2Meshes[(int)mesh->MMaterialIndex] = uvs2 == null
+                    ? (uv2Count.With, uv2Count.Without + 1)
+                    : (uv2Count.With + 1, uv2Count.Without);
 
                 for (uint v = 0; v < mesh->MNumVertices; v++)
                 {
@@ -423,8 +424,17 @@ public sealed class ModelCooker : ICooker
             }
         }
 
+        // Lighting and the masks both read the second UV set, so it's made usable before either. Each material is
+        // checked and unwrapped on its own, the way its masks are baked.
+        if (LightmapUv(input, output, prefix, vertexArray, indices, parts, materialNames, uv2Meshes) is not { } lightmapped)
+        {
+            return null;
+        }
+
+        vertexArray = lightmapped;
+
         // It times its own phases: taking masks from the step cache, baking the rest, and keeping them.
-        var masks = BakeMasks(input, settings, output, prefix, vertexArray, indices, parts, materialNames, withoutUv2, textures);
+        var masks = BakeMasks(input, settings, output, prefix, vertexArray, indices, parts, materialNames, textures);
 
         if (masks is null)
         {
@@ -477,12 +487,311 @@ public sealed class ModelCooker : ICooker
         }
     }
 
+    private const string LightmapUvStep = "lightmap-uv";
+
+    /// <summary>The note's reason for a material none of whose meshes has a second UV set.</summary>
+    private const string NoUv2 = "the file has none";
+
+    /// <summary>Names the code that unwraps, for the step cache's keys: the build of the library that holds <see cref="LightmapUnwrap"/>.</summary>
+    private static readonly string UnwrapVersion = typeof(LightmapUnwrap).Assembly.ManifestModule.ModuleVersionId.ToString("N");
+
+    /// <summary>The largest page an unwrap tries, after <see cref="LightmapUnwrap.ReferenceSize"/> and twice that.</summary>
+    private const int LargestUnwrapSize = 4 * LightmapUnwrap.ReferenceSize;
+
+    /// <summary>
+    /// Gives every material's parts a second UV set fit for a lightmap. A material is the group the masks bake one mask
+    /// for, so each has its own 0 to 1, and two materials may overlap each other there. A material keeps the file's set
+    /// when it passes <see cref="LightmapUnwrap.Problem"/> for that material alone, and otherwise only that material is
+    /// unwrapped: at <see cref="LightmapUnwrap.ReferenceSize"/>, then twice and four times that when its charts don't
+    /// fit. A note says which materials got new ones, when they were unwrapped rather than recalled. Unwrapping splits
+    /// vertices where charts meet, so this returns the vertices to use and rewrites <paramref name="indices"/> in place,
+    /// keeping every part's triangles in their order. Null when a material can't be unwrapped, which was reported.
+    /// </summary>
+    private static Vertex[]? LightmapUv(
+        CookInput input, CookOutput output, string prefix, Vertex[] vertices, List<uint> indices, List<ModelPart> parts,
+        List<string> materialNames, Dictionary<int, (int With, int Without)> uv2Meshes)
+    {
+        var groups = parts.Select(part => part.Material).Distinct().Order().ToList();
+        var made = new Dictionary<int, (Vertex[] Vertices, uint[] Indices)>();
+        var notes = new List<(int Material, string Reason)>();
+        foreach (int material in groups)
+        {
+            var (groupVertices, groupIndices) = Group(vertices, indices, parts, material);
+            if (groupIndices.Length == 0)
+            {
+                continue;
+            }
+
+            var (with, without) = uv2Meshes.GetValueOrDefault(material);
+            string? reason = with == 0 ? NoUv2
+                : without > 0 ? $"{without} of its {with + without} meshes have none"
+                : null;
+            if (reason is null)
+            {
+                using (input.Time("check lightmap-uv"))
+                {
+                    var positions = groupVertices.Select(vertex => vertex.Position).ToArray();
+                    var uvs = groupVertices.Select(vertex => vertex.Uv2).ToArray();
+                    reason = LightmapUnwrap.Problem(positions, uvs, groupIndices);
+                }
+
+                if (reason is null)
+                {
+                    continue;
+                }
+            }
+
+            string? key = null;
+            if (input.HasStepCache)
+            {
+                using (input.Time("recall lightmap-uv"))
+                {
+                    key = UnwrapKey(groupVertices, groupIndices);
+                    if (input.Recall(LightmapUvStep, key) is { } kept && FromKept(kept, groupVertices, groupIndices.Length) is { } recalled)
+                    {
+                        made[material] = recalled;
+                        continue;
+                    }
+                }
+            }
+
+            (Vertex[] Vertices, uint[] Indices)? unwrapped = null;
+            using (input.Time("unwrap lightmap-uv"))
+            {
+                string? failure = null;
+                for (int size = LightmapUnwrap.ReferenceSize; size <= LargestUnwrapSize && unwrapped is null; size *= 2)
+                {
+                    try
+                    {
+                        unwrapped = LightmapUnwrap.Unwrap(groupVertices, groupIndices, size);
+                    }
+                    catch (InvalidOperationException exception)
+                    {
+                        failure = exception.Message;
+                    }
+                }
+
+                if (unwrapped is null)
+                {
+                    output.Error($"{prefix}material {materialNames[material]}: {failure}");
+                    return null;
+                }
+            }
+
+            var (newVertices, newIndices) = unwrapped.Value;
+
+            // Each corner's new vertex is a copy of its old one with new second UVs, which is all the cache needs to make it again.
+            var remap = new uint[newVertices.Length];
+            for (int corner = 0; corner < groupIndices.Length; corner++)
+            {
+                remap[newIndices[corner]] = groupIndices[corner];
+            }
+
+            if (key is not null)
+            {
+                using (input.Time("keep lightmap-uv"))
+                {
+                    input.Keep(LightmapUvStep, key, ToKept(newVertices, remap, newIndices));
+                }
+            }
+
+            made[material] = (newVertices, newIndices);
+            notes.Add((material, reason));
+        }
+
+        Note(output, prefix, notes, groups.Count, materialNames);
+        if (made.Count == 0)
+        {
+            return vertices;
+        }
+
+        // The materials kept hold on to their vertices, in their order, and the new ones follow, material by material.
+        var replaced = new bool[vertices.Length];
+        foreach (var part in parts.Where(part => made.ContainsKey(part.Material)))
+        {
+            for (int i = 0; i < part.IndexCount; i++)
+            {
+                replaced[indices[(int)part.FirstIndex + i]] = true;
+            }
+        }
+
+        var result = new List<Vertex>(vertices.Length);
+        var moved = new uint[vertices.Length];
+        for (int v = 0; v < vertices.Length; v++)
+        {
+            if (!replaced[v])
+            {
+                moved[v] = (uint)result.Count;
+                result.Add(vertices[v]);
+            }
+        }
+
+        for (int i = 0; i < indices.Count; i++)
+        {
+            if (!replaced[indices[i]])
+            {
+                indices[i] = moved[indices[i]];
+            }
+        }
+
+        foreach (var (material, (newVertices, newIndices)) in made.OrderBy(pair => pair.Key))
+        {
+            uint first = (uint)result.Count;
+            result.AddRange(newVertices);
+            int corner = 0;
+            foreach (var part in parts.Where(part => part.Material == material))
+            {
+                for (int i = 0; i < part.IndexCount; i++)
+                {
+                    indices[(int)part.FirstIndex + i] = first + newIndices[corner++];
+                }
+            }
+        }
+
+        return result.ToArray();
+    }
+
+    /// <summary>One material's parts on their own: the vertices they use, in the model's order, and their indices into those, part after part.</summary>
+    private static (Vertex[] Vertices, uint[] Indices) Group(Vertex[] vertices, List<uint> indices, List<ModelPart> parts, int material)
+    {
+        var local = new Dictionary<uint, uint>();
+        var sources = new List<Vertex>();
+        var groupIndices = new List<uint>();
+        foreach (var part in parts.Where(part => part.Material == material))
+        {
+            for (int i = 0; i < part.IndexCount; i++)
+            {
+                uint index = indices[(int)part.FirstIndex + i];
+                if (!local.TryGetValue(index, out uint at))
+                {
+                    at = (uint)sources.Count;
+                    local.Add(index, at);
+                    sources.Add(vertices[index]);
+                }
+
+                groupIndices.Add(at);
+            }
+        }
+
+        return (sources.ToArray(), groupIndices.ToArray());
+    }
+
+    /// <summary>
+    /// Says which materials got a second UV set made for lighting, and why. A model of one material, or one whose every
+    /// material had none, gets one line with the reason alone. Otherwise the materials that had none share a line, and
+    /// each of the rest has its own.
+    /// </summary>
+    private static void Note(CookOutput output, string prefix, List<(int Material, string Reason)> notes, int groupCount, List<string> materialNames)
+    {
+        if (notes.Count == 0)
+        {
+            return;
+        }
+
+        const string made = "made a second UV set for lighting";
+        bool allNone = notes.Count == groupCount && notes.All(note => note.Reason == NoUv2);
+        if (groupCount == 1 || allNone)
+        {
+            output.Warning($"{prefix}{made}: {notes[0].Reason}");
+            return;
+        }
+
+        var none = notes.Where(note => note.Reason == NoUv2).Select(note => materialNames[note.Material]).ToList();
+        if (none.Count == 1)
+        {
+            output.Warning($"{prefix}{made}: material {none[0]} has none");
+        }
+        else if (none.Count > 1)
+        {
+            output.Warning($"{prefix}{made}: materials {string.Join(", ", none.SkipLast(1))} and {none[^1]} have none");
+        }
+
+        foreach (var (material, reason) in notes.Where(note => note.Reason != NoUv2))
+        {
+            output.Warning($"{prefix}material {materialNames[material]}: {made}: {reason}");
+        }
+    }
+
+    /// <summary>
+    /// The step cache's key for one material's unwrap: everything <see cref="LightmapUnwrap.Unwrap"/> reads, which is the
+    /// corners' positions and normals and the indices, with the unwrapper's build and the largest page it may try.
+    /// </summary>
+    private static string UnwrapKey(Vertex[] vertices, uint[] indices)
+    {
+        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        hash.AppendData(BitConverter.GetBytes(vertices.Length));
+        foreach (var vertex in vertices)
+        {
+            var position = vertex.Position;
+            var normal = vertex.Normal;
+            hash.AppendData(MemoryMarshal.AsBytes(new ReadOnlySpan<Vector3>(in position)));
+            hash.AppendData(MemoryMarshal.AsBytes(new ReadOnlySpan<Vector3>(in normal)));
+        }
+
+        hash.AppendData(BitConverter.GetBytes(indices.Length));
+        hash.AppendData(MemoryMarshal.AsBytes(indices.AsSpan()));
+        return string.Join('|', UnwrapVersion, LargestUnwrapSize.ToString(CultureInfo.InvariantCulture), Convert.ToHexString(hash.GetHashAndReset()));
+    }
+
+    // The kept bytes: the vertex and index counts, then for each new vertex the old vertex it copies, then each new
+    // vertex's second UVs, then the new indices. All of them count within the material, not the model.
+    private static byte[] ToKept(Vertex[] unwrapped, uint[] remap, uint[] unwrappedIndices)
+    {
+        var uvs = unwrapped.Select(vertex => vertex.Uv2).ToArray();
+        using var stream = new MemoryStream(8 + unwrapped.Length * 12 + unwrappedIndices.Length * 4);
+        stream.Write(BitConverter.GetBytes(unwrapped.Length));
+        stream.Write(BitConverter.GetBytes(unwrappedIndices.Length));
+        stream.Write(MemoryMarshal.AsBytes(remap.AsSpan()));
+        stream.Write(MemoryMarshal.AsBytes(uvs.AsSpan()));
+        stream.Write(MemoryMarshal.AsBytes(unwrappedIndices.AsSpan()));
+        return stream.ToArray();
+    }
+
+    // Makes a material's unwrapped vertices and indices again from kept bytes, or null when the bytes don't fit it.
+    private static (Vertex[] Vertices, uint[] Indices)? FromKept(byte[] kept, Vertex[] vertices, int indexCount)
+    {
+        if (kept.Length < 8)
+        {
+            return null;
+        }
+
+        int vertexCount = BitConverter.ToInt32(kept, 0);
+        if (vertexCount < 0 || BitConverter.ToInt32(kept, 4) != indexCount || kept.Length != 8 + (long)vertexCount * 12 + (long)indexCount * 4)
+        {
+            return null;
+        }
+
+        var remap = MemoryMarshal.Cast<byte, uint>(kept.AsSpan(8, vertexCount * 4));
+        var uvs = MemoryMarshal.Cast<byte, Vector2>(kept.AsSpan(8 + vertexCount * 4, vertexCount * 8));
+        var keptIndices = MemoryMarshal.Cast<byte, uint>(kept.AsSpan(8 + vertexCount * 12, indexCount * 4)).ToArray();
+        var unwrapped = new Vertex[vertexCount];
+        for (int i = 0; i < vertexCount; i++)
+        {
+            if (remap[i] >= vertices.Length)
+            {
+                return null;
+            }
+
+            unwrapped[i] = vertices[remap[i]] with { Uv2 = uvs[i] };
+        }
+
+        foreach (uint index in keptIndices)
+        {
+            if (index >= vertexCount)
+            {
+                return null;
+            }
+        }
+
+        return (unwrapped, keptIndices);
+    }
+
     // Checks each used material's wear and dirt, and bakes the masks of those whose rule asks for them, laid out by the
     // second UV set. The rest of the model shades them, so a barrel's foot is dark where it meets the deck. Null when
     // something was wrong, which was reported.
     private static ModelMaterialMasks?[]? BakeMasks(
         CookInput input, ImportSettings settings, CookOutput output, string prefix, Vertex[] vertices, List<uint> indices, List<ModelPart> parts,
-        List<string> materialNames, HashSet<int> withoutUv2, ModelTextures textures)
+        List<string> materialNames, ModelTextures textures)
     {
         var masks = new ModelMaterialMasks?[materialNames.Count];
         bool failed = false;
@@ -528,13 +837,6 @@ public sealed class ModelCooker : ICooker
 
             if (Layer(rule.Wear, "wear", Error) is not { } wear || Layer(rule.Dirt, "dirt", Error) is not { } dirt)
             {
-                continue;
-            }
-
-            if (withoutUv2.Contains(material))
-            {
-                Error("bakeMasks needs a second UV set (TEXCOORD_1) for its masks, and a mesh of this material has none. "
-                    + "Give its meshes one whose islands don't overlap.");
                 continue;
             }
 

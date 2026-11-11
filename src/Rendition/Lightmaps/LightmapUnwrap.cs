@@ -10,10 +10,10 @@ namespace Rendition;
 /// </summary>
 public static class LightmapUnwrap
 {
-    /// <summary>The lightmap size, in texels square, that gutters and overlaps are measured at.</summary>
+    /// <summary>The lightmap size, in texels square, that gutters and overlaps are measured at unless a caller names another.</summary>
     public const int ReferenceSize = 512;
 
-    /// <summary>The empty texels kept between any two charts at <see cref="ReferenceSize"/>.</summary>
+    /// <summary>The empty texels kept between any two charts at the size they are laid out or checked at.</summary>
     public const int Gutter = 2;
 
     /// <summary>A chart takes triangles within 60 degrees of its mean normal.</summary>
@@ -56,10 +56,11 @@ public static class LightmapUnwrap
 
     /// <summary>
     /// Unwraps the mesh: the same triangles in the same order, with vertices split where charts meet and
-    /// <see cref="Vertex.Uv2"/> set. Every other vertex field is copied unchanged. The result passes
-    /// <see cref="Problem"/>.
+    /// <see cref="Vertex.Uv2"/> set. Every other vertex field is copied unchanged. The charts are packed on a page
+    /// <paramref name="size"/> texels square with <see cref="Gutter"/> texels between them, and the result passes
+    /// <see cref="Problem"/> at that size.
     /// </summary>
-    public static (Vertex[] Vertices, uint[] Indices) Unwrap(ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices)
+    public static (Vertex[] Vertices, uint[] Indices) Unwrap(ReadOnlySpan<Vertex> vertices, ReadOnlySpan<uint> indices, int size = ReferenceSize)
     {
         var mesh = new Mesh(vertices, indices);
         var charts = BuildCharts(mesh);
@@ -74,8 +75,8 @@ public static class LightmapUnwrap
         Vector2[] layout;
         while (true)
         {
-            layout = Lay(mesh, charts);
-            var shares = FarShares(cornerPositions, layout, charts.ChartOf, firstOnly: false);
+            layout = Lay(mesh, charts, size);
+            var shares = FarShares(cornerPositions, layout, charts.ChartOf, firstOnly: false, size);
             if (shares.Count == 0)
             {
                 break;
@@ -142,7 +143,7 @@ public static class LightmapUnwrap
     }
 
     /// <summary>
-    /// Says what's wrong with <paramref name="uvs"/> as a lightmap set at <see cref="ReferenceSize"/>, in one
+    /// Says what's wrong with <paramref name="uvs"/> as a lightmap set at <paramref name="size"/> texels square, in one
     /// sentence, or null when nothing is. The rules, in the order they're checked: every corner is inside 0 to 1; no
     /// texel is touched by triangles of two charts, and no two triangles of one chart overlap; no two triangles of one
     /// chart share a texel while lying more than four texels apart on the surface; every two charts have
@@ -150,7 +151,7 @@ public static class LightmapUnwrap
     /// varies less than 4 times between charts. A chart is the triangles joined by edges whose corners have the same
     /// positions and UVs, and every texel a triangle touches counts as its.
     /// </summary>
-    public static string? Problem(ReadOnlySpan<Vector3> positions, ReadOnlySpan<Vector2> uvs, ReadOnlySpan<uint> indices)
+    public static string? Problem(ReadOnlySpan<Vector3> positions, ReadOnlySpan<Vector2> uvs, ReadOnlySpan<uint> indices, int size = ReferenceSize)
     {
         CheckUvMesh(positions, uvs, indices);
 
@@ -166,7 +167,6 @@ public static class LightmapUnwrap
 
         var (chartOf, chartCount) = UvCharts(positions, uvs, indices);
         int triangleCount = indices.Length / 3;
-        const int size = ReferenceSize;
 
         // Every texel each triangle touches, first come owning it.
         var ownerTriangle = new int[size * size];
@@ -253,7 +253,7 @@ public static class LightmapUnwrap
             cornerUvs[corner] = uvs[(int)indices[corner]];
         }
 
-        var far = FarShares(cornerPositions, cornerUvs, chartOf, firstOnly: true);
+        var far = FarShares(cornerPositions, cornerUvs, chartOf, firstOnly: true, size);
         if (far.Count > 0)
         {
             var share = far[0];
@@ -797,7 +797,7 @@ public static class LightmapUnwrap
     /// margin round the chart, so every texel the chart touches is inside its rectangle and the packer's gutter lies
     /// between touched texels. Returns each corner's second UV.
     /// </summary>
-    private static Vector2[] Lay(Mesh mesh, Charting charts)
+    private static Vector2[] Lay(Mesh mesh, Charting charts, int size)
     {
         int chartCount = charts.Members.Count;
         var flats = new Flat[chartCount];
@@ -848,7 +848,7 @@ public static class LightmapUnwrap
 
         // UV units per metre: start where the charts' rectangles, with their margins and gutters, would fill the page,
         // and the longest just fits. In texels t = perMetre·512, the page holds Σ (w·t + 3)(h·t + 3) = 512².
-        double cap = longest > 0.0 ? (ReferenceSize - 1.0) / (ReferenceSize * longest) : 1.0;
+        double cap = longest > 0.0 ? (size - 1.0) / (size * longest) : 1.0;
         double perMetre = cap;
         if (boxArea > 0.0)
         {
@@ -862,10 +862,10 @@ public static class LightmapUnwrap
                 }
             }
 
-            double page = (double)ReferenceSize * ReferenceSize - chartCount * margin * margin;
+            double page = (double)size * size - chartCount * margin * margin;
             double b = sumSides * margin;
             double t = page > 0.0 ? (-b + Math.Sqrt(b * b + 4.0 * boxArea * page)) / (2.0 * boxArea) : 1e-6;
-            perMetre = Math.Min(cap, Math.Max(t, 1e-6) / ReferenceSize);
+            perMetre = Math.Min(cap, Math.Max(t, 1e-6) / size);
         }
 
         var sizes = new (int Width, int Height)[chartCount];
@@ -879,7 +879,7 @@ public static class LightmapUnwrap
         {
             bool smallest = Size(perMetre);
             attempts++;
-            if (SkylinePacker.TryPack(sizes, ReferenceSize, ReferenceSize, Gutter, places))
+            if (SkylinePacker.TryPack(sizes, size, size, Gutter, places))
             {
                 fits = perMetre;
                 sizes.CopyTo(bestSizes, 0);
@@ -902,7 +902,7 @@ public static class LightmapUnwrap
                 if (smallest || attempts > 500)
                 {
                     throw new InvalidOperationException(
-                        $"The mesh's {chartCount} lightmap charts don't fit a {ReferenceSize}-texel page with a {Gutter}-texel gutter, even at their smallest.");
+                        $"The mesh's {chartCount} lightmap charts don't fit a {size}-texel page with a {Gutter}-texel gutter, even at their smallest.");
                 }
 
                 perMetre *= Shrink;
@@ -914,7 +914,7 @@ public static class LightmapUnwrap
         {
             perMetre = (fits + fails) * 0.5;
             Size(perMetre);
-            if (SkylinePacker.TryPack(sizes, ReferenceSize, ReferenceSize, Gutter, places))
+            if (SkylinePacker.TryPack(sizes, size, size, Gutter, places))
             {
                 fits = perMetre;
                 sizes.CopyTo(bestSizes, 0);
@@ -942,7 +942,7 @@ public static class LightmapUnwrap
                     continue;
                 }
 
-                double texels = scaleNow * scale[chart] * ReferenceSize;
+                double texels = scaleNow * scale[chart] * size;
                 int width = ChartRectangle((bounds[chart].MaxX - bounds[chart].MinX) * texels).Size;
                 int height = ChartRectangle((bounds[chart].MaxY - bounds[chart].MinY) * texels).Size;
                 sizes[chart] = (width, height);
@@ -959,7 +959,7 @@ public static class LightmapUnwrap
             var (x, y) = places[chart];
             if (!hasArea[chart])
             {
-                var middle = new Vector2((x + 0.5f) / ReferenceSize, (y + 0.5f) / ReferenceSize);
+                var middle = new Vector2((x + 0.5f) / size, (y + 0.5f) / size);
                 foreach (int triangle in members)
                 {
                     for (int i = 0; i < 3; i++)
@@ -973,7 +973,7 @@ public static class LightmapUnwrap
 
             var flat = flats[chart];
             var box = bounds[chart];
-            double texels = perMetre * scale[chart] * ReferenceSize;
+            double texels = perMetre * scale[chart] * size;
             double left = x + ChartRectangle((box.MaxX - box.MinX) * texels).Offset;
             double top = y + ChartRectangle((box.MaxY - box.MinY) * texels).Offset;
             for (int k = 0; k < members.Count; k++)
@@ -982,7 +982,7 @@ public static class LightmapUnwrap
                 {
                     double u = left + (flat.X[k * 3 + i] - box.MinX) * texels;
                     double v = top + (flat.Y[k * 3 + i] - box.MinY) * texels;
-                    uvs[members[k] * 3 + i] = new Vector2((float)(u / ReferenceSize), (float)(v / ReferenceSize));
+                    uvs[members[k] * 3 + i] = new Vector2((float)(u / size), (float)(v / size));
                 }
             }
         }
@@ -1287,16 +1287,15 @@ public static class LightmapUnwrap
     private readonly record struct FarShare(int A, int B, int X, int Y, double Distance);
 
     /// <summary>
-    /// Every two triangles of one chart, A before B, that touch the same texel at <see cref="ReferenceSize"/> but are too
+    /// Every two triangles of one chart, A before B, that touch the same texel at <paramref name="size"/> but are too
     /// far apart on the surface to be neighbours, texel by texel, row by row; or only the first when
     /// <paramref name="firstOnly"/>. For each triangle it takes the point nearest the texel's middle and finds where that
     /// is on the surface. Neighbours put those within a texel and a half of each other, so they are far apart when
     /// more than <see cref="NeighbourReach"/> texels of either triangle's largest stretch lie between them. Triangles
     /// with no area, on the surface or in the UVs, are left out.
     /// </summary>
-    private static List<FarShare> FarShares(Vector3[] cornerPositions, Vector2[] cornerUvs, int[] chartOf, bool firstOnly)
+    private static List<FarShare> FarShares(Vector3[] cornerPositions, Vector2[] cornerUvs, int[] chartOf, bool firstOnly, int size)
     {
-        const int size = ReferenceSize;
         int triangleCount = cornerPositions.Length / 3;
         var (_, zero) = Areas(cornerPositions);
         var xs = new double[cornerUvs.Length];

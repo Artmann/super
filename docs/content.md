@@ -359,8 +359,8 @@ A model sidecar's material rule with `"bakeMasks": true` bakes curvature, occlus
 height masks from the material's meshes into a texture the model points to, stored like
 its other textures as a shared object, and its
 `wear` and `dirt` layers, each an sRGB `color`, an optional `roughness` and an `amount`
-from 0 to 1, are laid on by them. The masks go in the mesh's second UV set, so
-every mesh of the material needs one whose islands don't overlap. See
+from 0 to 1, are laid on by them. The masks go in the material's second UV set, which the
+cooker makes when the file has none or its own isn't fit for a lightmap. See
 [Wear and dirt](rendering.md#wear-and-dirt).
 
 ### Puddles on models

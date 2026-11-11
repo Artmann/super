@@ -265,8 +265,17 @@ exists, read from `TEXCOORD_1`, and `MaskBaker.Problem` already checks for overl
   less than 4× across the mesh. Otherwise the cooker makes one and logs a note, cached
   through the step cache. Masks are baked after this step, onto whichever `Uv2` the mesh
   ends up with, so `bakeMasks` no longer needs an authored second UV set either.
-- `Uv2` covers a whole mesh in 0–1, all its parts together, as masks already expect. So a
-  lightmap rectangle belongs to a mesh instance, and every part of it shares the rectangle.
+- `Uv2` is checked and made per mask group, the parts of one material, which is what the
+  mask baker bakes one mask for. Each group's `Uv2` is in its own 0–1, and two groups may
+  overlap each other there. A group keeps the file's `Uv2` when it passes on its own, and
+  otherwise only that group is unwrapped; the note names the groups that got new ones. This
+  came from the Courtyard: its model is the whole scene, 829k triangles in 68 meshes, and
+  its `TEXCOORD_1` lays out each material in 0–1 for its wear and dirt masks. One unwrap
+  of the whole model made 45,667 charts that didn't fit a 512 page, and would have shrunk
+  every material's masks to a sliver of it.
+- A group whose charts don't fit at the reference size of 512 is unwrapped at 1024, then
+  2048, before the cook fails. Its gutter is then two texels at that size, so its lightmap
+  rectangle should be at least that big.
 - The unwrapper is ours, in C#, in Rendition as `LightmapUnwrap`, so the cooker and meshes
   made by code share it. No native dependency. It splits the mesh into charts by face
   normal (a cone of about 60 degrees, and never across a hard edge), projects each chart
@@ -311,12 +320,14 @@ chunk.
 
 ### Lightmap layout
 
-Each static mesh instance in the box (its draws grouped by bake id minus the part) gets a
-rectangle sized by its world surface area times `TexelsPerMetre` (default 20, so 5 cm
-texels, my call), clamped to 8–1024 texels a side, packed with a skyline packer into pages.
-A space gets up to eight 2048² pages. A chunk packs into one page of its own size, at most
-2048². The rectangle becomes a scale and offset on `Uv2` for each of the instance's draws,
-carried in the instance buffer.
+Each static draw in the box, one part of one mesh instance, gets a rectangle sized by its
+group's world surface area times `TexelsPerMetre` (default 20, so 5 cm texels, my call),
+clamped to 8–1024 texels a side, packed with a skyline packer into pages. It's a rectangle
+per draw rather than per instance because each mask group's `Uv2` fills its own 0–1 (see
+Lightmap UVs), which the Courtyard's model needed. Parts of one instance that share a
+material are one group with one 0–1, so their draws share one rectangle. A space gets up to
+eight 2048² pages. A chunk packs into one page of its own size, at most 2048². The rectangle
+becomes a scale and offset on `Uv2` for that draw, carried in the instance buffer.
 
 ### Texel setup
 

@@ -516,7 +516,7 @@ public sealed class ModelCookerTests : IDisposable
     }
 
     [Fact]
-    public void Mesh_without_uvs_and_without_textures_cooks_without_warnings()
+    public void Mesh_without_uvs_and_without_textures_warns_only_that_it_made_a_lighting_uv_set()
     {
         string src = Temp();
         TinyGltf.Write(src, "a.gltf", "bark", ["a"]);
@@ -524,7 +524,7 @@ public sealed class ModelCookerTests : IDisposable
         var (result, _) = Cook(new FolderRoot(src));
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
-        Assert.Empty(result.Problems);
+        Assert.Equal(["made a second UV set for lighting: the file has none"], result.Problems.Select(problem => problem.Message));
     }
 
     [Fact]
@@ -541,9 +541,10 @@ public sealed class ModelCookerTests : IDisposable
         var (result, _) = Cook(new FolderRoot(src));
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
-        var warning = Assert.Single(result.Problems);
-        Assert.False(warning.IsError);
-        Assert.Equal("mesh 0 (trunk) has no UVs; using a flat tangent frame", warning.Message);
+        Assert.All(result.Problems, problem => Assert.False(problem.IsError));
+        Assert.Equal(
+            ["mesh 0 (trunk) has no UVs; using a flat tangent frame", "made a second UV set for lighting: the file has none"],
+            result.Problems.Select(problem => problem.Message));
     }
 
     [Fact]
@@ -1016,6 +1017,262 @@ public sealed class ModelCookerTests : IDisposable
         Assert.Equal((1, 0), (third.Result.Cooked, third.Result.FromCache));
         var model = Model(third.Store, "models/a.gltf");
         AllPixelsAre([255, 102, 153, 255], model.Textures[model.Materials[Assert.Single(model.Parts).Material].BaseColorTexture]);
+    }
+
+    // The second UV set for lighting. The two quads stand 1 metre apart and are 1 metre square, so their charts must
+    // get the same texels each.
+
+    // Quad 0 in the left half and quad 1 in the right, 0.35 square each, with 0.1 of the page between them.
+    private static readonly float[] SeparateUvs2 =
+    [
+        0.1f, 0.1f, 0.45f, 0.1f, 0.45f, 0.45f, 0.1f, 0.45f,
+        0.55f, 0.1f, 0.9f, 0.1f, 0.9f, 0.45f, 0.55f, 0.45f,
+    ];
+
+    // Quad 0 ends at u 0.45, 230.4 texels into the 512-texel page, so it touches texel 230; quad 1 starts at texel
+    // 232.5, in texel 232. Only texel 231 lies empty between them, where the gutter is 2.
+    private static readonly float[] TouchingUvs2 =
+    [
+        0.1f, 0.1f, 0.45f, 0.1f, 0.45f, 0.45f, 0.1f, 0.45f,
+        232.5f / 512f, 0.1f, 232.5f / 512f + 0.35f, 0.1f, 232.5f / 512f + 0.35f, 0.45f, 232.5f / 512f, 0.45f,
+    ];
+
+    private string QuadsFolder(float[]? uvs2, string? rule = null)
+    {
+        string src = Temp();
+        TinyGltf.WriteQuads(src, "quads.gltf", "bark", uvs2);
+        if (rule is not null)
+        {
+            File.WriteAllText(Path.Combine(src, "quads.gltf.cook.json"), $"{{ \"compressTextures\": false, \"materials\": [ {rule} ] }}");
+        }
+
+        return src;
+    }
+
+    private static string? LightmapProblem(ModelData model) => LightmapUnwrap.Problem(
+        model.Vertices.Select(vertex => vertex.Position).ToArray(), model.Vertices.Select(vertex => vertex.Uv2).ToArray(), model.Indices);
+
+    [Fact]
+    public void Keeps_a_valid_second_uv_set()
+    {
+        string src = QuadsFolder(SeparateUvs2);
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Empty(result.Problems);
+        var model = Model(store, "quads.gltf");
+        Assert.Equal(8, model.Vertices.Length);
+        // The cooker scales and centres the model, so each vertex is found by where it stands in the file's own metres:
+        // the model is 3 metres wide there.
+        float minX = model.Vertices.Min(v => v.Position.X);
+        float minY = model.Vertices.Min(v => v.Position.Y);
+        float metre = Width(model) / 3f;
+        foreach (var vertex in model.Vertices)
+        {
+            int x = (int)MathF.Round((vertex.Position.X - minX) / metre);
+            int y = (int)MathF.Round((vertex.Position.Y - minY) / metre);
+            int quad = x / 2;
+            int corner = (x % 2, y) switch { (0, 0) => 0, (1, 0) => 1, (1, 1) => 2, _ => 3 };
+            var expected = new Vector2(SeparateUvs2[(quad * 4 + corner) * 2], SeparateUvs2[(quad * 4 + corner) * 2 + 1]);
+            Assert.True(Vector2.Distance(expected, vertex.Uv2) < 1e-6f, $"corner {corner} of quad {quad}: {vertex.Uv2}, not {expected}");
+        }
+    }
+
+    [Fact]
+    public void Makes_one_when_the_file_has_none()
+    {
+        string src = QuadsFolder(uvs2: null);
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var note = Assert.Single(result.Problems);
+        Assert.False(note.IsError);
+        Assert.Equal("made a second UV set for lighting: the file has none", note.Message);
+        var model = Model(store, "quads.gltf");
+        Assert.Null(LightmapProblem(model));
+        Assert.Equal(12, model.Indices.Length);
+    }
+
+    [Fact]
+    public void Replaces_one_whose_charts_touch()
+    {
+        string src = QuadsFolder(TouchingUvs2);
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var note = Assert.Single(result.Problems);
+        Assert.False(note.IsError);
+        // Both quads start at v 0.1, row 51.2, so row 51 is the first with both. Quad 0's last texel there is 230, which
+        // its first triangle, (0, 0) (1, 0) (1, 1), covers; quad 1's first is 232, covered first by its first triangle,
+        // triangle 2.
+        Assert.Equal(
+            "made a second UV set for lighting: Triangles 0 and 2 are in different charts with only 1 empty texel between them at texel (230, 51), less than the 2-texel gutter.",
+            note.Message);
+        Assert.Null(LightmapProblem(Model(store, "quads.gltf")));
+    }
+
+    [Fact]
+    public void Bakes_masks_without_an_authored_second_uv_set()
+    {
+        string src = QuadsFolder(uvs2: null, rule: """
+            { "match": "bark", "bakeMasks": true,
+              "wear": { "color": [1, 0.5, 0], "amount": 0.6 },
+              "dirt": { "color": [0, 0, 0], "amount": 0.7 } }
+            """);
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Equal(["made a second UV set for lighting: the file has none"], result.Problems.Select(problem => problem.Message));
+        var model = Model(store, "quads.gltf");
+        var mask = model.MaskOf(Assert.Single(model.Parts).Material);
+        Assert.NotNull(mask);
+        // Off the charts a mask reads as flat, open, high and fully worn: 128, 255, 255, 255. On them, height (blue)
+        // falls from 1 at the top of the quads to 0 at their foot, so most covered texels differ from that.
+        byte[] pixels = model.Textures[mask.Texture].Mips[0];
+        int covered = 0;
+        for (int i = 0; i < pixels.Length; i += 4)
+        {
+            if (pixels[i] != 128 || pixels[i + 1] != 255 || pixels[i + 2] != 255 || pixels[i + 3] != 255)
+            {
+                covered++;
+            }
+        }
+
+        Assert.True(covered > pixels.Length / 4 / 10, $"only {covered} texels are covered");
+    }
+
+    [Fact]
+    public void Recalls_the_unwrap_from_the_step_cache()
+    {
+        string src = QuadsFolder(uvs2: null);
+        string cache = Temp();
+        var (first, firstStore) = Cook(new FolderRoot(src), cache);
+        // Forgets every cooked source but keeps the steps, so the model cooks again from the same inputs.
+        foreach (string entry in Directory.GetFileSystemEntries(cache).Where(entry => Path.GetFileName(entry) != "steps"))
+        {
+            if (Directory.Exists(entry))
+            {
+                Directory.Delete(entry, true);
+            }
+            else
+            {
+                File.Delete(entry);
+            }
+        }
+
+        var (second, secondStore) = Cook(new FolderRoot(src), cache);
+
+        IReadOnlyList<string> PhasesOf(CookResult result)
+        {
+            Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+            var file = Assert.Single(result.Report.Files, file => file.Name == "quads.gltf");
+            Assert.Equal(CookOutcome.Cooked, file.Outcome);
+            return [.. file.Phases.Select(phase => phase.Phase)];
+        }
+
+        Assert.Contains("unwrap lightmap-uv", PhasesOf(first));
+        Assert.Contains("recall lightmap-uv", PhasesOf(second));
+        Assert.DoesNotContain("unwrap lightmap-uv", PhasesOf(second));
+        // The note is for the cook that made the set; a recall says nothing.
+        Assert.Equal(["made a second UV set for lighting: the file has none"], first.Problems.Select(problem => problem.Message));
+        Assert.Empty(second.Problems);
+        var before = Model(firstStore, "quads.gltf");
+        var after = Model(secondStore, "quads.gltf");
+        Assert.Equal(before.Vertices, after.Vertices);
+        Assert.Equal(before.Indices, after.Indices);
+    }
+
+    // Each material's second UVs are their own 0 to 1, the way its masks are baked, so two materials may overlap there.
+
+    // One quad over the whole page, corners in the order TinyGltf.WriteQuadPair writes them.
+    private static readonly float[] WholePageUvs2 = [0f, 0f, 1f, 0f, 1f, 1f, 0f, 1f];
+
+    /// <summary>
+    /// Each corner's second UV for the quad of one material, found by where the corner stands: the cooker scales and
+    /// centres the model, which is 3 metres wide in the file, and the quad is 1 metre square.
+    /// </summary>
+    private static Dictionary<int, List<Vector2>> CornerUvs2(ModelData model, int part)
+    {
+        float minX = model.Vertices.Min(v => v.Position.X);
+        float minY = model.Vertices.Min(v => v.Position.Y);
+        float metre = Width(model) / 3f;
+        var corners = new Dictionary<int, List<Vector2>>();
+        var run = model.Parts[part];
+        foreach (uint index in model.Indices.AsSpan((int)run.FirstIndex, (int)run.IndexCount).ToArray().Distinct())
+        {
+            var vertex = model.Vertices[index];
+            int x = (int)MathF.Round((vertex.Position.X - minX) / metre) % 2;
+            int y = (int)MathF.Round((vertex.Position.Y - minY) / metre);
+            int corner = (x, y) switch { (0, 0) => 0, (1, 0) => 1, (1, 1) => 2, _ => 3 };
+            corners.TryAdd(corner, []);
+            corners[corner].Add(vertex.Uv2);
+        }
+
+        return corners;
+    }
+
+    private static string? LightmapProblem(ModelData model, int part)
+    {
+        var run = model.Parts[part];
+        return LightmapUnwrap.Problem(
+            model.Vertices.Select(vertex => vertex.Position).ToArray(), model.Vertices.Select(vertex => vertex.Uv2).ToArray(),
+            model.Indices.AsSpan((int)run.FirstIndex, (int)run.IndexCount));
+    }
+
+    [Fact]
+    public void Keeps_two_materials_second_uv_sets_that_overlap_each_other()
+    {
+        string src = Temp();
+        TinyGltf.WriteQuadPair(src, "pair.gltf", ("bark", WholePageUvs2), ("moss", WholePageUvs2));
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Empty(result.Problems);
+        var model = Model(store, "pair.gltf");
+        Assert.Equal(2, model.Parts.Length);
+        for (int part = 0; part < 2; part++)
+        {
+            var corners = CornerUvs2(model, part);
+            Assert.Equal(4, corners.Count);
+            foreach (var (corner, uvs) in corners)
+            {
+                var expected = new Vector2(WholePageUvs2[corner * 2], WholePageUvs2[corner * 2 + 1]);
+                Assert.All(uvs, uv => Assert.True(Vector2.Distance(expected, uv) < 1e-6f, $"part {part} corner {corner}: {uv}, not {expected}"));
+            }
+        }
+    }
+
+    [Fact]
+    public void Makes_one_only_for_the_material_without_its_own()
+    {
+        string src = Temp();
+        TinyGltf.WriteQuadPair(src, "pair.gltf", ("bark", WholePageUvs2), ("moss", null));
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Equal(["made a second UV set for lighting: material moss has none"], result.Problems.Select(problem => problem.Message));
+        var model = Model(store, "pair.gltf");
+        Assert.Equal(2, model.Parts.Length);
+        int bark = model.Parts[0].Material < model.Parts[1].Material ? 0 : 1;
+        int moss = 1 - bark;
+
+        // Bark keeps the file's whole-page quad, corner for corner.
+        foreach (var (corner, uvs) in CornerUvs2(model, bark))
+        {
+            var expected = new Vector2(WholePageUvs2[corner * 2], WholePageUvs2[corner * 2 + 1]);
+            Assert.All(uvs, uv => Assert.True(Vector2.Distance(expected, uv) < 1e-6f, $"bark corner {corner}: {uv}, not {expected}"));
+        }
+
+        // Moss gets its own, which has the gutter round it, so it isn't the whole page.
+        Assert.Null(LightmapProblem(model, moss));
+        var mossUvs = CornerUvs2(model, moss).Values.SelectMany(uvs => uvs).ToList();
+        Assert.True(mossUvs.Min(uv => uv.X) > 0f && mossUvs.Max(uv => uv.X) < 1f, string.Join(", ", mossUvs));
     }
 
     [Fact]

@@ -481,7 +481,7 @@ stores each at `steps/<step>/<hh>/<sha256 of key>` in the cook cache, with the S
 bytes after them, so a damaged or cut-short entry is a miss. It writes a temp file and moves
 it into place, like the rest of the cache, so workers and builds can share it; a failed write
 is ignored. Without a cache folder, as with `--no-cache`, both do nothing. The key must name
-everything the result depends on, its code's version included. Three steps use it:
+everything the result depends on, its code's version included. Four steps use it:
 
 - `MaterialGraphs.RunPacked` keys a graph run by `MaterialGraphs.Version`, the size, the graph's
   name from the root, and the SHA-256 of the graph or variant and of the graph a variant points
@@ -497,6 +497,9 @@ everything the result depends on, its code's version included. Three steps use i
   for several times the time. A body that doesn't decompress to exactly the right length is
   a miss. The same key also shares runs inside the process, with or without a cache folder
   (see below).
+- The model cooker keys an unwrap for [lightmap UVs](#lightmap-uvs) by the SHA-256 of one
+  material's positions, normals and indices, with the `Rendition` build and the largest
+  page it may try.
 - The model cooker keys a mask bake by the SHA-256 of the model's positions and second UVs and
   of the material's triangles, which part each is in, and the other triangles it traces against, with the
   `Super.Cook.Models` build and the mask size.
@@ -1473,8 +1476,8 @@ own one texel wide.
 
 Each flat chart is turned to its smallest bounding rectangle and scaled by its own
 `sqrt(world area / flat area)`, so a chart tilted from its plane gets the same density as a
-flat one. One scale for the whole mesh, in texels per metre at the 512-texel
-`ReferenceSize`, starts where the charts' areas, each with its rectangle margin and gutter
+flat one. One scale for the whole mesh, in texels per metre at the page size `Unwrap` is
+given (the 512-texel `ReferenceSize` unless the caller names another), starts where the charts' areas, each with its rectangle margin and gutter
 added, would just fill the page. It grows or shrinks by a tenth until it crosses between
 fitting and not fitting in `SkylinePacker` with a two-texel `Gutter`, then halves the gap
 six times and keeps the largest scale that fit. `ChartRectangle` gives each chart's
@@ -1490,13 +1493,41 @@ the surface, measured by the triangles' own stretch, it cuts the chart back to b
 later triangle, as for an overlap, regrows the rest and packs again.
 
 `Problem` finds charts as triangles joined by edges whose corners match in both position
-and UV. It checks, in order, that every corner is inside 0 to 1, that no texel at 512 is
+and UV. It checks, in order, that every corner is inside 0 to 1, that no texel at 512 (or
+the size it's given) is
 touched by two charts, that no two triangles of one chart overlap by more than a hundredth
 of a texel, that no two triangles of one chart share a texel while lying far apart by the
 rule above, that at least two empty texels lie between different charts, and that texel
 density, per chart, varies less than four times across the mesh. The overlap inside a
 chart is measured by area rather than by touched texels, because neighbours in a fan share
 texels along their edges.
+
+The model cooker runs this step once a model's vertices and indices are complete, scaled and
+centred, and before masks bake, so masks and lighting read the same set. It works per mask
+group, the parts of one material, which is what `MaskBaker` bakes one mask for. Each group
+has its own 0 to 1, and two groups may overlap each other there, so the lightmap gives each
+group its own rectangle. A group keeps the file's second UV set when every one of its meshes
+has one and `Problem` passes it for that group alone. Otherwise only that group is unwrapped:
+at 512, and at 1024 and then 2048 when its charts don't fit, with the two-texel gutter at
+that size. If they don't fit at 2048 either, the model's cook stops with `Unwrap`'s message
+and the material's name.
+
+The cooker warns which groups got new ones. A model of one material, or one whose every
+material had none, gets one line, `made a second UV set for lighting: ` and the reason: `the
+file has none`, how many of its meshes have none when only some do, or `Problem`'s sentence.
+Otherwise the materials that had none share a line, `made a second UV set for lighting:
+materials a and b have none`, and each of the rest gets
+`material a: made a second UV set for lighting: ` and its reason. The warning is only for an
+unwrap that ran; one recalled from the step cache says nothing.
+
+The step cache keeps each group's unwrap under the `lightmap-uv` step, keyed by the SHA-256
+of the group's vertices' positions and normals and its indices, which is all `Unwrap` reads,
+with the `Rendition` build and the largest page size it may try. The kept bytes are, for
+each of the group's new vertices, the group's old vertex it copies and its new second UVs,
+then the group's new indices, so a recall rebuilds the split vertices without unwrapping.
+Groups kept as they were hold on to their vertices in order, and the unwrapped groups'
+vertices follow. Every group of a cooked model therefore passes `Problem` on its own, at
+512 or at the larger size it was unwrapped at.
 
 ## Paint and glass
 
@@ -1747,12 +1778,14 @@ shader reads as 1. `DetailScale` defaults to the main graph's `Width` over the d
 
 `MaskBaker` in `Super.Cook.Models` bakes a material's wear and dirt masks while its model
 cooks. The cooker gathers every triangle of the material, across all its meshes, into one
-`MeshData`, laid out by the second UV set (`Vertex.Uv2`, from `TEXCOORD_1`), and bakes it into
+`MeshData`, laid out by the second UV set (`Vertex.Uv2`: the file's `TEXCOORD_1` when it's
+fit for a lightmap, or one the cooker [unwrapped](#lightmap-uvs)), and bakes it into
 one 1024-pixel RGBA texture, compressed as BC7. The first UV set can't hold masks, because
 graph materials tile it in metres and many places share a texel.
 
 Before baking, `MaskBaker.Problem` rasterizes the UV set and stops the cook at the first
-texel two triangles cover, or a UV outside 0 to 1. The check counts only texels well inside
+texel two triangles cover, or a UV outside 0 to 1. A set that passed the lightmap check
+passes this too, so it is a guard rather than a message a user sees. The check counts only texels well inside
 a triangle, so neighbours that share an edge don't count as overlapping. The bake then
 rasterizes again, and for each covered texel works out the point on the mesh and its face
 normal, and traces rays against a `Bvh`, a median-split bounding volume hierarchy over the
@@ -2658,8 +2691,8 @@ and `ReadyToTrace`, are checked by review and by the GPU tests, not by the valid
   is wet at its mesh's height, since there is no height map to sink it.
 - Wear and dirt masks are baked once, when the model cooks, from its own meshes: a crate
   moved against a wall in the game doesn't gather dirt where it now stands, and a graph
-  can't read the masks. They need a second UV set with no overlaps, and transparent
-  materials ignore them.
+  can't read the masks. They share each material's lightmap UV set, and transparent materials
+  ignore them.
 - Keeping alpha coverage in the mips scales only alpha, so a far cut-out keeps its
   outline but its colour is the plain filtered average, and it is done only for materials
   with an `alphaCutoff`.

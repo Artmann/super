@@ -111,6 +111,182 @@ internal static class TinyGltf
         File.WriteAllText(Path.Combine(folder, name), gltf.ToJsonString());
     }
 
+    /// <summary>
+    /// Writes one mesh of two 1-metre quads facing +z, quad 0 from x 0 to 1 and quad 1 from x 2 to 3, each two
+    /// triangles sharing their corners. Corners go (x, 0), (x + 1, 0), (x + 1, 1), (x, 1). Each quad's first UVs cover
+    /// 0 to 1. With <paramref name="uvs2"/>, sixteen numbers (u, v for each of the eight corners, in the file's own
+    /// top-left convention), the mesh gets them as its second UV set, TEXCOORD_1.
+    /// </summary>
+    public static void WriteQuads(string folder, string name, string materialName, float[]? uvs2)
+    {
+        if (uvs2 is not null && uvs2.Length != 16)
+        {
+            throw new ArgumentException("Two quads have eight corners, so they take sixteen UV numbers.", nameof(uvs2));
+        }
+
+        var floats = new List<float>();
+        for (int quad = 0; quad < 2; quad++)
+        {
+            float x = quad * 2f;
+            floats.AddRange([x, 0f, 0f, x + 1f, 0f, 0f, x + 1f, 1f, 0f, x, 1f, 0f]);
+        }
+
+        for (int corner = 0; corner < 8; corner++)
+        {
+            floats.AddRange([0f, 0f, 1f]);
+        }
+
+        for (int quad = 0; quad < 2; quad++)
+        {
+            floats.AddRange([0f, 1f, 1f, 1f, 1f, 0f, 0f, 0f]);
+        }
+
+        floats.AddRange(uvs2 ?? []);
+        uint[] indices = [0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7];
+        var bytes = new byte[floats.Count * 4 + indices.Length * 4];
+        System.Buffer.BlockCopy(floats.ToArray(), 0, bytes, 0, floats.Count * 4);
+        System.Buffer.BlockCopy(indices, 0, bytes, floats.Count * 4, indices.Length * 4);
+
+        var views = new JsonArray();
+        var accessors = new JsonArray();
+        int offset = 0;
+        void Add(int length, int count, string type, int componentType, JsonObject? extra = null)
+        {
+            views.Add(new JsonObject { ["buffer"] = 0, ["byteOffset"] = offset, ["byteLength"] = length });
+            var accessor = new JsonObject { ["bufferView"] = views.Count - 1, ["componentType"] = componentType, ["count"] = count, ["type"] = type };
+            foreach (var (key, value) in extra ?? [])
+            {
+                accessor[key] = value?.DeepClone();
+            }
+
+            accessors.Add(accessor);
+            offset += length;
+        }
+
+        Add(96, 8, "VEC3", 5126, new JsonObject { ["min"] = new JsonArray(0f, 0f, 0f), ["max"] = new JsonArray(3f, 1f, 0f) });
+        Add(96, 8, "VEC3", 5126);
+        Add(64, 8, "VEC2", 5126);
+        var attributes = new JsonObject { ["POSITION"] = 0, ["NORMAL"] = 1, ["TEXCOORD_0"] = 2 };
+        if (uvs2 is not null)
+        {
+            Add(64, 8, "VEC2", 5126);
+            attributes["TEXCOORD_1"] = 3;
+        }
+
+        int indexAccessor = accessors.Count;
+        Add(48, 12, "SCALAR", 5125);
+
+        var gltf = new JsonObject
+        {
+            ["asset"] = new JsonObject { ["version"] = "2.0" },
+            ["scene"] = 0,
+            ["scenes"] = new JsonArray(new JsonObject { ["nodes"] = new JsonArray(0) }),
+            ["nodes"] = new JsonArray(new JsonObject { ["name"] = "quads", ["mesh"] = 0 }),
+            ["meshes"] = new JsonArray(new JsonObject
+            {
+                ["name"] = "quads",
+                ["primitives"] = new JsonArray(new JsonObject { ["attributes"] = attributes, ["indices"] = indexAccessor, ["material"] = 0 }),
+            }),
+            ["materials"] = new JsonArray(new JsonObject { ["name"] = materialName }),
+            ["buffers"] = new JsonArray(new JsonObject
+            {
+                ["byteLength"] = bytes.Length,
+                ["uri"] = "data:application/octet-stream;base64," + Convert.ToBase64String(bytes),
+            }),
+            ["bufferViews"] = views,
+            ["accessors"] = accessors,
+        };
+        File.WriteAllText(Path.Combine(folder, name), gltf.ToJsonString());
+    }
+
+    /// <summary>
+    /// Writes one mesh of two 1-metre quads facing +z, each its own primitive with its own material: quad 0 from x 0 to 1
+    /// with <paramref name="first"/>'s, and quad 1 from x 2 to 3 with <paramref name="second"/>'s. Corners go (x, 0),
+    /// (x + 1, 0), (x + 1, 1), (x, 1), and each quad's first UVs cover 0 to 1. A quad with second UVs, eight numbers
+    /// (u, v for each corner), gets them as TEXCOORD_1; one with null has none.
+    /// </summary>
+    public static void WriteQuadPair(string folder, string name, (string Material, float[]? Uvs2) first, (string Material, float[]? Uvs2) second)
+    {
+        var floats = new List<float>();
+        var views = new JsonArray();
+        var accessors = new JsonArray();
+        var primitives = new JsonArray();
+        var materials = new JsonArray();
+
+        int Add(float[] values, string type, int count, JsonObject? extra = null)
+        {
+            views.Add(new JsonObject { ["buffer"] = 0, ["byteOffset"] = floats.Count * 4, ["byteLength"] = values.Length * 4 });
+            floats.AddRange(values);
+            var accessor = new JsonObject { ["bufferView"] = views.Count - 1, ["componentType"] = 5126, ["count"] = count, ["type"] = type };
+            foreach (var (key, value) in extra ?? [])
+            {
+                accessor[key] = value?.DeepClone();
+            }
+
+            accessors.Add(accessor);
+            return accessors.Count - 1;
+        }
+
+        var indexViews = new List<int>();
+        int quad = 0;
+        foreach (var (material, uvs2) in new[] { first, second })
+        {
+            if (uvs2 is not null && uvs2.Length != 8)
+            {
+                throw new ArgumentException("A quad has four corners, so it takes eight UV numbers.", nameof(first));
+            }
+
+            float x = quad * 2f;
+            var attributes = new JsonObject
+            {
+                ["POSITION"] = Add([x, 0f, 0f, x + 1f, 0f, 0f, x + 1f, 1f, 0f, x, 1f, 0f], "VEC3", 4,
+                    new JsonObject { ["min"] = new JsonArray(x, 0f, 0f), ["max"] = new JsonArray(x + 1f, 1f, 0f) }),
+                ["NORMAL"] = Add([0f, 0f, 1f, 0f, 0f, 1f, 0f, 0f, 1f, 0f, 0f, 1f], "VEC3", 4),
+                ["TEXCOORD_0"] = Add([0f, 1f, 1f, 1f, 1f, 0f, 0f, 0f], "VEC2", 4),
+            };
+            if (uvs2 is not null)
+            {
+                attributes["TEXCOORD_1"] = Add(uvs2, "VEC2", 4);
+            }
+
+            materials.Add(new JsonObject { ["name"] = material });
+            primitives.Add(new JsonObject { ["attributes"] = attributes, ["material"] = quad });
+            indexViews.Add(primitives.Count - 1);
+            quad++;
+        }
+
+        // The indices go last, after every float, as unsigned ints.
+        uint[] indices = [0, 1, 2, 0, 2, 3];
+        int indexOffset = floats.Count * 4;
+        var bytes = new byte[indexOffset + indices.Length * 4];
+        System.Buffer.BlockCopy(floats.ToArray(), 0, bytes, 0, indexOffset);
+        System.Buffer.BlockCopy(indices, 0, bytes, indexOffset, indices.Length * 4);
+        views.Add(new JsonObject { ["buffer"] = 0, ["byteOffset"] = indexOffset, ["byteLength"] = indices.Length * 4 });
+        accessors.Add(new JsonObject { ["bufferView"] = views.Count - 1, ["componentType"] = 5125, ["count"] = indices.Length, ["type"] = "SCALAR" });
+        foreach (int primitive in indexViews)
+        {
+            primitives[primitive]!["indices"] = accessors.Count - 1;
+        }
+
+        var gltf = new JsonObject
+        {
+            ["asset"] = new JsonObject { ["version"] = "2.0" },
+            ["scene"] = 0,
+            ["scenes"] = new JsonArray(new JsonObject { ["nodes"] = new JsonArray(0) }),
+            ["nodes"] = new JsonArray(new JsonObject { ["name"] = "quads", ["mesh"] = 0 }),
+            ["meshes"] = new JsonArray(new JsonObject { ["name"] = "quads", ["primitives"] = primitives }),
+            ["materials"] = materials,
+            ["buffers"] = new JsonArray(new JsonObject
+            {
+                ["byteLength"] = bytes.Length,
+                ["uri"] = "data:application/octet-stream;base64," + Convert.ToBase64String(bytes),
+            }),
+            ["bufferViews"] = views,
+            ["accessors"] = accessors,
+        };
+        File.WriteAllText(Path.Combine(folder, name), gltf.ToJsonString());
+    }
+
     private static byte[] Buffer(int triangles, float[]? uvs, float[]? uvs2)
     {
         var floats = new List<float>();

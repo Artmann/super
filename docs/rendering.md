@@ -881,7 +881,30 @@ as a separate grey image beside a colour JPEG with no alpha; name it with `alpha
 its red becomes the colour texture's opacity. A mesh without UVs whose material uses a
 texture warns, since every read lands on one texel; an untextured mesh needs no UVs. A
 texture a rule names that can't be found stops the cook; one the model file links to only
-warns. A texture path must match the file's name exactly, case included, even on Windows,
+warns.
+
+Every cooked model has a second UV set for lighting and for [wear and dirt](#wear-and-dirt),
+checked and made for each material on its own. Each material's set is in its own 0 to 1, in
+which no two places on that material's meshes share a texel, and two materials may overlap
+each other there. The cook keeps the file's own `TEXCOORD_1` for a material when every mesh
+of it has one and it fits a lightmap: inside 0 to 1, no overlaps, two empty texels at 512
+between islands, and texel density within four times everywhere. Otherwise it makes one for
+that material only and warns why:
+
+```text
+made a second UV set for lighting: the file has none
+made a second UV set for lighting: Triangles 0 and 2 are in different charts with only 1 empty texel between them at texel (230, 51), less than the 2-texel gutter.
+made a second UV set for lighting: materials bark and moss have none
+material leaf: made a second UV set for lighting: 2 of its 5 meshes have none
+```
+
+The first two are for a model of one material, or one where no material had a set. A
+material with so many separate pieces that their islands don't fit a 512 page is laid on
+1024, then 2048, and stops the cook if they don't fit that either. The made set is kept in
+the cook cache, so it's made again, and warned about, only when the material's shape
+changes.
+
+A texture path must match the file's name exactly, case included, even on Windows,
 so a model that cooks there cooks on every OS:
 
 ```json
@@ -1128,17 +1151,16 @@ model's textures can wear too. A transparent material doesn't show wear and dirt
 cook warns and ignores `bakeMasks` on one. [`Graphics.WearAndDirt`](#graphics-settings)
 turns them off everywhere.
 
-The masks are baked into the mesh's second UV set, `TEXCOORD_1`, whose islands must not
-overlap, since every texel stands for one place on the mesh. The first set stays free to
-tile, as a graph's metric UVs do. In Blender, add a second UV map, unwrap it with Smart UV
-Project and keep the first map active for rendering; the glTF exporter writes both. Give it
-an island margin of 0.004 or more, about 4 pixels of the mask, so the smaller mips of
-neighbouring islands don't blur into each other. Every mesh using the material needs it, and
-the cook stops otherwise:
+The masks are baked into the material's second UV set, the one lighting uses, where every
+texel stands for one place on the mesh. Each material has its own 0 to 1 there. The first set
+stays free to tile, as a graph's metric UVs do. The cooker keeps the file's own `TEXCOORD_1`
+for a material when it's fit for a lightmap and makes one otherwise (see [Models](#models)),
+so a model needs no second UV map for its masks. To lay out the masks yourself, add a second
+UV map in Blender, unwrap it with Smart UV Project with an island margin of 0.004 or more,
+and keep the first map active for rendering; the glTF exporter writes both. A rule that's
+wrong stops the cook:
 
 ```text
-material graph_wood: bakeMasks needs a second UV set (TEXCOORD_1) for its masks, and a mesh of this material has none. Give its meshes one whose islands don't overlap.
-material graph_wood: triangles 812 and 9301 of its second UV set overlap at texel (402, 77). Two places on the mesh can't share a texel of its masks, so give the masks a UV set whose islands don't overlap.
 material graph_wood: wear and dirt need bakeMasks, since they're laid by the masks it bakes.
 material graph_wood: dirt amount must be from 0 to 1, not 1.5.
 ```
@@ -1148,8 +1170,7 @@ spreads over many meshes gets fewer pixels for each. The Courtyard's stone, on t
 plinth and all the loose stones, is the coarsest. Every mesh of the material is baked
 together, and the rest of the model within half a metre shades it, so the deck darkens where
 the crates stand on it. Off its islands the mask reads as clean, so a mip that reaches past
-an island's edge adds neither wear nor dirt. A mesh without a second UV set gets zeros there,
-which is harmless for materials without masks. See [Mask bakes](design.md#mask-bakes) for how they're made.
+an island's edge adds neither wear nor dirt. See [Mask bakes](design.md#mask-bakes) for how they're made.
 
 ### A surface shader on a model
 
