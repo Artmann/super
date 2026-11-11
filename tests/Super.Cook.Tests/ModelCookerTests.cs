@@ -1275,6 +1275,99 @@ public sealed class ModelCookerTests : IDisposable
         Assert.True(mossUvs.Min(uv => uv.X) > 0f && mossUvs.Max(uv => uv.X) < 1f, string.Join(", ", mossUvs));
     }
 
+    /// <summary>Each corner of one part, in its triangles' order.</summary>
+    private static Vertex[] PartCorners(ModelData model, int part)
+    {
+        var run = model.Parts[part];
+        return model.Indices.AsSpan((int)run.FirstIndex, (int)run.IndexCount).ToArray().Select(index => model.Vertices[index]).ToArray();
+    }
+
+    [Fact]
+    public void Keeps_a_material_whose_vertices_move_down_when_the_one_before_it_is_replaced()
+    {
+        // Moss comes first in the file and is unwrapped, so its vertices leave the front of the model and bark's move down
+        // to take their place. Bark must come out just as it does when nothing is replaced.
+        string reference = Temp();
+        TinyGltf.WriteQuadPair(reference, "pair.gltf", ("moss", WholePageUvs2), ("bark", WholePageUvs2));
+        string src = Temp();
+        TinyGltf.WriteQuadPair(src, "pair.gltf", ("moss", null), ("bark", WholePageUvs2));
+
+        var (referenceResult, referenceStore) = Cook(new FolderRoot(reference));
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.Empty(referenceResult.Problems);
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Equal(["made a second UV set for lighting: material moss has none"], result.Problems.Select(problem => problem.Message));
+        var expected = Model(referenceStore, "pair.gltf");
+        var model = Model(store, "pair.gltf");
+        int Bark(ModelData m) => m.Parts[0].Material > m.Parts[1].Material ? 0 : 1;
+        int bark = Bark(model);
+
+        Assert.Equal(PartCorners(expected, Bark(expected)), PartCorners(model, bark));
+        Assert.Null(LightmapProblem(model, 1 - bark));
+    }
+
+    [Fact]
+    public void Names_the_materials_that_had_none_on_one_line()
+    {
+        string src = Temp();
+        TinyGltf.WriteQuadRow(src, "row.gltf", ("a", null), ("b", null), ("c", null), ("d", WholePageUvs2));
+
+        var (result, _) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Equal(["made a second UV set for lighting: materials a, b and c have none"], result.Problems.Select(problem => problem.Message));
+    }
+
+    [Fact]
+    public void Names_a_material_whose_own_set_reaches_outside_the_page()
+    {
+        string src = Temp();
+        TinyGltf.WriteQuadPair(src, "pair.gltf", ("bark", WholePageUvs2), ("moss", [0f, 0f, 1.25f, 0f, 1.25f, 1f, 0f, 1f]));
+
+        var (result, _) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Equal(
+            ["material moss: made a second UV set for lighting: Triangle 0 reaches outside 0 to 1, to (1.25, 0)."],
+            result.Problems.Select(problem => problem.Message));
+    }
+
+    [Fact]
+    public void Counts_the_meshes_of_a_material_that_have_none()
+    {
+        string src = Temp();
+        TinyGltf.WriteQuadRow(src, "row.gltf", ("bark", WholePageUvs2), ("leaf", WholePageUvs2), ("leaf", null), ("leaf", null));
+
+        // Flattening joins a material's meshes that have the same attributes, so the two without would count as one.
+        File.WriteAllText(Path.Combine(src, "row.gltf.cook.json"), "{ \"keepMeshes\": true }");
+
+        var (result, _) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Equal(
+            "material leaf: made a second UV set for lighting: 2 of its 3 meshes have none",
+            Assert.Single(result.Problems).Message);
+    }
+
+    [Fact]
+    public void Lays_a_material_out_at_1024_when_its_charts_dont_fit_512()
+    {
+        // 30,000 separate triangles: at 3 texels each with the gutter, 512 holds about 29,000 of them.
+        string src = Temp();
+        TinyGltf.WriteScattered(src, "scattered.gltf", "bark", 30_000);
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Equal(["made a second UV set for lighting: the file has none"], result.Problems.Select(problem => problem.Message));
+        var model = Model(store, "scattered.gltf");
+        var positions = model.Vertices.Select(vertex => vertex.Position).ToArray();
+        var uvs = model.Vertices.Select(vertex => vertex.Uv2).ToArray();
+        Assert.Null(LightmapUnwrap.Problem(positions, uvs, model.Indices, 1024));
+        Assert.NotNull(LightmapUnwrap.Problem(positions, uvs, model.Indices, 512));
+    }
+
     [Fact]
     public void Model_cookers_are_the_built_in_ones_and_the_material_and_model_cookers()
     {

@@ -200,7 +200,7 @@ under a minute rather than many. Each kind of step has its own key:
 | Step | Kept by |
 |---|---|
 | `graph-run` | The graph's code, a variant's values, the size, the cook's version, and the hash of every image the graph read |
-| `lightmap-uv` | One material's positions, normals and indices in the model, the unwrapper's build and the largest page it may try |
+| `lightmap-uv` | One material's positions, normals and indices in the model, the unwrapper's and the model cooker's builds and the largest page it may try |
 | `mask` | The model's positions and second UVs, the material's triangles and which part each is in, the other triangles the bake traces against, the mask size and the mask baker's build |
 | `compressed-texture` | The hash of the pixels of every mip level, the size and format, and the encoder's version. A cut-out's mips depend on its `alphaCutoff`, so changing the cutoff misses |
 

@@ -182,6 +182,57 @@ public class LightmapUnwrapTests
         float width = uvs.Max(uv => uv.X) - uvs.Min(uv => uv.X);
         Assert.InRange(width, 0.9f, 1f);
     }
+
+    /// <summary>
+    /// <paramref name="count"/> triangles that share no corner, so each is a chart of its own, half a metre each in a
+    /// grid of rows a metre apart.
+    /// </summary>
+    private static (Vertex[] Vertices, uint[] Indices) Scattered(int count)
+    {
+        var vertices = new Vertex[count * 3];
+        int row = (int)Math.Ceiling(Math.Sqrt(count));
+        for (int t = 0; t < count; t++)
+        {
+            var at = new Vector3(t % row, t / row, 0f);
+            vertices[t * 3] = new Vertex(at, Vector3.UnitZ, new Vector4(1f, 0f, 0f, 1f), Vector2.Zero);
+            vertices[t * 3 + 1] = new Vertex(at + new Vector3(0.5f, 0f, 0f), Vector3.UnitZ, new Vector4(1f, 0f, 0f, 1f), Vector2.Zero);
+            vertices[t * 3 + 2] = new Vertex(at + new Vector3(0f, 0.5f, 0f), Vector3.UnitZ, new Vector4(1f, 0f, 0f, 1f), Vector2.Zero);
+        }
+
+        return (vertices, Enumerable.Range(0, count * 3).Select(index => (uint)index).ToArray());
+    }
+
+    // The smallest chart takes 1 texel and its 2-texel gutter, 3 texels each way, so 512 texels square holds at most
+    // (512 / 3)² ≈ 29,000 charts and 1024 holds about 116,000.
+    [Fact]
+    public void Charts_that_dont_fit_512_texels_are_laid_out_at_1024()
+    {
+        var (vertices, indices) = Scattered(30_000);
+
+        var error = Assert.Throws<InvalidOperationException>(() => LightmapUnwrap.Unwrap(vertices, indices));
+        Assert.Equal("The mesh's 30000 lightmap charts don't fit a 512-texel page with a 2-texel gutter, even at their smallest.", error.Message);
+
+        var (v, i) = LightmapUnwrap.Unwrap(vertices, indices, 1024);
+        var positions = v.Select(x => x.Position).ToArray();
+        var uvs = v.Select(x => x.Uv2).ToArray();
+        Assert.Null(LightmapUnwrap.Problem(positions, uvs, i, 1024));
+        Assert.NotNull(LightmapUnwrap.Problem(positions, uvs, i, 512));
+    }
+
+    [Fact]
+    public void Charts_that_dont_fit_1024_texels_are_laid_out_at_2048()
+    {
+        var (vertices, indices) = Scattered(120_000);
+
+        var error = Assert.Throws<InvalidOperationException>(() => LightmapUnwrap.Unwrap(vertices, indices, 1024));
+        Assert.Equal("The mesh's 120000 lightmap charts don't fit a 1024-texel page with a 2-texel gutter, even at their smallest.", error.Message);
+
+        var (v, i) = LightmapUnwrap.Unwrap(vertices, indices, 2048);
+        var positions = v.Select(x => x.Position).ToArray();
+        var uvs = v.Select(x => x.Uv2).ToArray();
+        Assert.Null(LightmapUnwrap.Problem(positions, uvs, i, 2048));
+        Assert.NotNull(LightmapUnwrap.Problem(positions, uvs, i, 1024));
+    }
 }
 
 public class LightmapUnwrapProblemTests
@@ -350,6 +401,29 @@ public class LightmapUnwrapProblemTests
             Texels(22.5f, 10.5f), Texels(31.5f, 10.5f), Texels(31.5f, 19.5f), Texels(22.5f, 19.5f),
         ];
         Assert.Null(LightmapUnwrap.Problem(positions, uvs, [0u, 1u, 2u, 0u, 2u, 3u, 4u, 5u, 6u, 4u, 6u, 7u]));
+    }
+
+    [Fact]
+    public void Measures_the_gutter_at_the_size_it_is_given()
+    {
+        // At 1024 texels the quads cover texels 20 to 39 and 43 to 62 across, with three empty between. At 512 they
+        // halve to 10.25–19.75 and 21.75–31.25, texels 10 to 19 and 21 to 31, so only texel 20 lies between.
+        Vector3[] positions =
+        [
+            new(0f, 0f, 0f), new(1f, 0f, 0f), new(1f, 1f, 0f), new(0f, 1f, 0f),
+            new(0f, 0f, 5f), new(1f, 0f, 5f), new(1f, 1f, 5f), new(0f, 1f, 5f),
+        ];
+        Vector2[] uvs =
+        [
+            new Vector2(20.5f, 20.5f) / 1024f, new Vector2(39.5f, 20.5f) / 1024f, new Vector2(39.5f, 39.5f) / 1024f, new Vector2(20.5f, 39.5f) / 1024f,
+            new Vector2(43.5f, 20.5f) / 1024f, new Vector2(62.5f, 20.5f) / 1024f, new Vector2(62.5f, 39.5f) / 1024f, new Vector2(43.5f, 39.5f) / 1024f,
+        ];
+        uint[] indices = [0u, 1u, 2u, 0u, 2u, 3u, 4u, 5u, 6u, 4u, 6u, 7u];
+
+        Assert.Null(LightmapUnwrap.Problem(positions, uvs, indices, 1024));
+        Assert.Equal(
+            "Triangles 0 and 2 are in different charts with only 1 empty texel between them at texel (19, 10), less than the 2-texel gutter.",
+            LightmapUnwrap.Problem(positions, uvs, indices, 512));
     }
 
     private static Vector2 Texels(float x, float y) => new Vector2(x, y) / LightmapUnwrap.ReferenceSize;

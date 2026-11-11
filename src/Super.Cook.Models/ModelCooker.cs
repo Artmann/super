@@ -492,8 +492,8 @@ public sealed class ModelCooker : ICooker
     /// <summary>The note's reason for a material none of whose meshes has a second UV set.</summary>
     private const string NoUv2 = "the file has none";
 
-    /// <summary>Names the code that unwraps, for the step cache's keys: the build of the library that holds <see cref="LightmapUnwrap"/>.</summary>
-    private static readonly string UnwrapVersion = typeof(LightmapUnwrap).Assembly.ManifestModule.ModuleVersionId.ToString("N");
+    /// <summary>Names the code that unwraps and the kept bytes' layout, for the step cache's keys: the builds of the libraries that hold <see cref="LightmapUnwrap"/> and this cooker.</summary>
+    private static readonly string UnwrapVersion = typeof(LightmapUnwrap).Assembly.ManifestModule.ModuleVersionId.ToString("N") + typeof(ModelCooker).Assembly.ManifestModule.ModuleVersionId.ToString("N");
 
     /// <summary>The largest page an unwrap tries, after <see cref="LightmapUnwrap.ReferenceSize"/> and twice that.</summary>
     private const int LargestUnwrapSize = 4 * LightmapUnwrap.ReferenceSize;
@@ -511,7 +511,7 @@ public sealed class ModelCooker : ICooker
         CookInput input, CookOutput output, string prefix, Vertex[] vertices, List<uint> indices, List<ModelPart> parts,
         List<string> materialNames, Dictionary<int, (int With, int Without)> uv2Meshes)
     {
-        var groups = parts.Select(part => part.Material).Distinct().Order().ToList();
+        var groups = parts.Where(part => part.IndexCount > 0).Select(part => part.Material).Distinct().Order().ToList();
         var made = new Dictionary<int, (Vertex[] Vertices, uint[] Indices)>();
         var notes = new List<(int Material, string Reason)>();
         foreach (int material in groups)
@@ -714,7 +714,7 @@ public sealed class ModelCooker : ICooker
 
     /// <summary>
     /// The step cache's key for one material's unwrap: everything <see cref="LightmapUnwrap.Unwrap"/> reads, which is the
-    /// corners' positions and normals and the indices, with the unwrapper's build and the largest page it may try.
+    /// corners' positions and normals and the indices, with the unwrapper's and this cooker's builds and the largest page it may try.
     /// </summary>
     private static string UnwrapKey(Vertex[] vertices, uint[] indices)
     {

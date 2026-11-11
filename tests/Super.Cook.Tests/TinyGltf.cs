@@ -205,7 +205,14 @@ internal static class TinyGltf
     /// (x + 1, 0), (x + 1, 1), (x, 1), and each quad's first UVs cover 0 to 1. A quad with second UVs, eight numbers
     /// (u, v for each corner), gets them as TEXCOORD_1; one with null has none.
     /// </summary>
-    public static void WriteQuadPair(string folder, string name, (string Material, float[]? Uvs2) first, (string Material, float[]? Uvs2) second)
+    public static void WriteQuadPair(string folder, string name, (string Material, float[]? Uvs2) first, (string Material, float[]? Uvs2) second) =>
+        WriteQuadRow(folder, name, first, second);
+
+    /// <summary>
+    /// As <see cref="WriteQuadPair"/>, for any number of quads: quad <c>i</c> stands from x <c>2i</c> to <c>2i + 1</c>, in
+    /// its own primitive. Quads that name the same material share it, and materials are listed in the order first named.
+    /// </summary>
+    public static void WriteQuadRow(string folder, string name, params (string Material, float[]? Uvs2)[] quads)
     {
         var floats = new List<float>();
         var views = new JsonArray();
@@ -228,12 +235,13 @@ internal static class TinyGltf
         }
 
         var indexViews = new List<int>();
+        var materialNames = new List<string>();
         int quad = 0;
-        foreach (var (material, uvs2) in new[] { first, second })
+        foreach (var (material, uvs2) in quads)
         {
             if (uvs2 is not null && uvs2.Length != 8)
             {
-                throw new ArgumentException("A quad has four corners, so it takes eight UV numbers.", nameof(first));
+                throw new ArgumentException("A quad has four corners, so it takes eight UV numbers.", nameof(quads));
             }
 
             float x = quad * 2f;
@@ -249,8 +257,13 @@ internal static class TinyGltf
                 attributes["TEXCOORD_1"] = Add(uvs2, "VEC2", 4);
             }
 
-            materials.Add(new JsonObject { ["name"] = material });
-            primitives.Add(new JsonObject { ["attributes"] = attributes, ["material"] = quad });
+            if (!materialNames.Contains(material))
+            {
+                materialNames.Add(material);
+                materials.Add(new JsonObject { ["name"] = material });
+            }
+
+            primitives.Add(new JsonObject { ["attributes"] = attributes, ["material"] = materialNames.IndexOf(material) });
             indexViews.Add(primitives.Count - 1);
             quad++;
         }
@@ -283,6 +296,75 @@ internal static class TinyGltf
             }),
             ["bufferViews"] = views,
             ["accessors"] = accessors,
+        };
+        File.WriteAllText(Path.Combine(folder, name), gltf.ToJsonString());
+    }
+
+    /// <summary>
+    /// Writes one mesh of <paramref name="count"/> triangles facing +z that share no corner, so each is a lightmap chart
+    /// of its own: half a metre on a side, in a square grid of rows a metre apart. It has first UVs but no second set.
+    /// </summary>
+    public static void WriteScattered(string folder, string name, string materialName, int count)
+    {
+        int row = (int)Math.Ceiling(Math.Sqrt(count));
+        var floats = new float[count * 3 * 8];
+        for (int t = 0; t < count; t++)
+        {
+            float x = t % row;
+            float y = t / row;
+            float[] positions = [x, y, 0f, x + 0.5f, y, 0f, x, y + 0.5f, 0f];
+            positions.CopyTo(floats, t * 9);
+            for (int corner = 0; corner < 3; corner++)
+            {
+                floats[count * 9 + (t * 3 + corner) * 3 + 2] = 1f;
+            }
+
+            float[] uvs = [0f, 1f, 1f, 1f, 0f, 0f];
+            uvs.CopyTo(floats, count * 18 + t * 6);
+        }
+
+        int vertices = count * 3;
+        var indices = Enumerable.Range(0, vertices).Select(index => (uint)index).ToArray();
+        var bytes = new byte[floats.Length * 4 + indices.Length * 4];
+        System.Buffer.BlockCopy(floats, 0, bytes, 0, floats.Length * 4);
+        System.Buffer.BlockCopy(indices, 0, bytes, floats.Length * 4, indices.Length * 4);
+
+        var gltf = new JsonObject
+        {
+            ["asset"] = new JsonObject { ["version"] = "2.0" },
+            ["scene"] = 0,
+            ["scenes"] = new JsonArray(new JsonObject { ["nodes"] = new JsonArray(0) }),
+            ["nodes"] = new JsonArray(new JsonObject { ["name"] = "scattered", ["mesh"] = 0 }),
+            ["meshes"] = new JsonArray(new JsonObject
+            {
+                ["name"] = "scattered",
+                ["primitives"] = new JsonArray(new JsonObject
+                {
+                    ["attributes"] = new JsonObject { ["POSITION"] = 0, ["NORMAL"] = 1, ["TEXCOORD_0"] = 2 },
+                    ["indices"] = 3,
+                    ["material"] = 0,
+                }),
+            }),
+            ["materials"] = new JsonArray(new JsonObject { ["name"] = materialName }),
+            ["buffers"] = new JsonArray(new JsonObject
+            {
+                ["byteLength"] = bytes.Length,
+                ["uri"] = "data:application/octet-stream;base64," + Convert.ToBase64String(bytes),
+            }),
+            ["bufferViews"] = new JsonArray(
+                new JsonObject { ["buffer"] = 0, ["byteOffset"] = 0, ["byteLength"] = vertices * 12 },
+                new JsonObject { ["buffer"] = 0, ["byteOffset"] = vertices * 12, ["byteLength"] = vertices * 12 },
+                new JsonObject { ["buffer"] = 0, ["byteOffset"] = vertices * 24, ["byteLength"] = vertices * 8 },
+                new JsonObject { ["buffer"] = 0, ["byteOffset"] = vertices * 32, ["byteLength"] = vertices * 4 }),
+            ["accessors"] = new JsonArray(
+                new JsonObject
+                {
+                    ["bufferView"] = 0, ["componentType"] = 5126, ["count"] = vertices, ["type"] = "VEC3",
+                    ["min"] = new JsonArray(0f, 0f, 0f), ["max"] = new JsonArray(row - 0.5f, (count - 1) / row + 0.5f, 0f),
+                },
+                new JsonObject { ["bufferView"] = 1, ["componentType"] = 5126, ["count"] = vertices, ["type"] = "VEC3" },
+                new JsonObject { ["bufferView"] = 2, ["componentType"] = 5126, ["count"] = vertices, ["type"] = "VEC2" },
+                new JsonObject { ["bufferView"] = 3, ["componentType"] = 5125, ["count"] = vertices, ["type"] = "SCALAR" }),
         };
         File.WriteAllText(Path.Combine(folder, name), gltf.ToJsonString());
     }

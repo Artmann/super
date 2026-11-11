@@ -498,8 +498,8 @@ everything the result depends on, its code's version included. Four steps use it
   a miss. The same key also shares runs inside the process, with or without a cache folder
   (see below).
 - The model cooker keys an unwrap for [lightmap UVs](#lightmap-uvs) by the SHA-256 of one
-  material's positions, normals and indices, with the `Rendition` build and the largest
-  page it may try.
+  material's positions, normals and indices, with the `Rendition` and model cooker builds
+  and the largest page it may try.
 - The model cooker keys a mask bake by the SHA-256 of the model's positions and second UVs and
   of the material's triangles, which part each is in, and the other triangles it traces against, with the
   `Super.Cook.Models` build and the mask size.
@@ -1477,13 +1477,14 @@ own one texel wide.
 Each flat chart is turned to its smallest bounding rectangle and scaled by its own
 `sqrt(world area / flat area)`, so a chart tilted from its plane gets the same density as a
 flat one. One scale for the whole mesh, in texels per metre at the page size `Unwrap` is
-given (the 512-texel `ReferenceSize` unless the caller names another), starts where the charts' areas, each with its rectangle margin and gutter
-added, would just fill the page. It grows or shrinks by a tenth until it crosses between
-fitting and not fitting in `SkylinePacker` with a two-texel `Gutter`, then halves the gap
-six times and keeps the largest scale that fit. `ChartRectangle` gives each chart's
-rectangle: its width in texels rounded up plus one, with the chart centred, so every texel
-it touches, counted conservatively, lies inside its rectangle and the gutter `Problem`
-checks is the one the packer kept.
+given (the 512-texel `ReferenceSize` unless the caller names another), starts where the
+charts' areas, each with its rectangle margin and gutter added, would just fill the page.
+It grows or shrinks by a tenth until it crosses between fitting and not fitting in
+`SkylinePacker` with a two-texel `Gutter`, then halves the gap six times and keeps the
+largest scale that fit. `ChartRectangle` gives each chart's rectangle: its width in texels
+rounded up plus one, with the chart centred, so every texel it touches, counted
+conservatively, lies inside its rectangle and the gutter `Problem` checks is the one the
+packer kept.
 
 Once packed, two triangles of one chart can still touch the same texel while lying far
 apart on the surface, when a chart curls round so its arms come within a texel of each
@@ -1493,14 +1494,13 @@ the surface, measured by the triangles' own stretch, it cuts the chart back to b
 later triangle, as for an overlap, regrows the rest and packs again.
 
 `Problem` finds charts as triangles joined by edges whose corners match in both position
-and UV. It checks, in order, that every corner is inside 0 to 1, that no texel at 512 (or
-the size it's given) is
-touched by two charts, that no two triangles of one chart overlap by more than a hundredth
-of a texel, that no two triangles of one chart share a texel while lying far apart by the
-rule above, that at least two empty texels lie between different charts, and that texel
-density, per chart, varies less than four times across the mesh. The overlap inside a
-chart is measured by area rather than by touched texels, because neighbours in a fan share
-texels along their edges.
+and UV. It checks, in order, that every corner is inside 0 to 1, that no texel at 512, or
+the size it's given, is touched by two charts, that no two triangles of one chart overlap
+by more than a hundredth of a texel, that no two triangles of one chart share a texel
+while lying far apart by the rule above, that at least two empty texels lie between
+different charts, and that texel density, per chart, varies less than four times across
+the mesh. The overlap inside a chart is measured by area rather than by touched texels,
+because neighbours in a fan share texels along their edges.
 
 The model cooker runs this step once a model's vertices and indices are complete, scaled and
 centred, and before masks bake, so masks and lighting read the same set. It works per mask
@@ -1510,24 +1510,29 @@ group its own rectangle. A group keeps the file's second UV set when every one o
 has one and `Problem` passes it for that group alone. Otherwise only that group is unwrapped:
 at 512, and at 1024 and then 2048 when its charts don't fit, with the two-texel gutter at
 that size. If they don't fit at 2048 either, the model's cook stops with `Unwrap`'s message
-and the material's name.
+and the material's name. The cooked model doesn't record the size a group was unwrapped at.
+A group unwrapped above 512 has a gutter of under two texels in a 512 rectangle, like any
+group whose lightmap rectangle is smaller than the size its set was made for, so the
+lightmap layout's dilation must cover that.
 
 The cooker warns which groups got new ones. A model of one material, or one whose every
 material had none, gets one line, `made a second UV set for lighting: ` and the reason: `the
 file has none`, how many of its meshes have none when only some do, or `Problem`'s sentence.
-Otherwise the materials that had none share a line, `made a second UV set for lighting:
-materials a and b have none`, and each of the rest gets
-`material a: made a second UV set for lighting: ` and its reason. The warning is only for an
-unwrap that ran; one recalled from the step cache says nothing.
+Meshes are counted after flattening, which can join a material's meshes that have the same
+attributes, so the count can be lower than the file's. Otherwise the materials that had
+none share a line, `made a second UV set for lighting: materials a, b and c have none`, and
+each of the rest gets `material a: made a second UV set for lighting: ` and its reason. The
+warning is only for an unwrap that ran; one recalled from the step cache says nothing.
 
 The step cache keeps each group's unwrap under the `lightmap-uv` step, keyed by the SHA-256
 of the group's vertices' positions and normals and its indices, which is all `Unwrap` reads,
-with the `Rendition` build and the largest page size it may try. The kept bytes are, for
-each of the group's new vertices, the group's old vertex it copies and its new second UVs,
-then the group's new indices, so a recall rebuilds the split vertices without unwrapping.
-Groups kept as they were hold on to their vertices in order, and the unwrapped groups'
-vertices follow. Every group of a cooked model therefore passes `Problem` on its own, at
-512 or at the larger size it was unwrapped at.
+with the `Rendition` and model cooker builds, which define `Unwrap` and the kept bytes, and
+the largest page size it may try. The kept bytes are, for each of the group's new vertices,
+the group's old vertex it copies and its new second UVs, then the group's new indices, so a
+recall rebuilds the split vertices without unwrapping. Groups kept as they were hold on to
+their vertices in order, and the unwrapped groups' vertices follow. Every group of a cooked
+model therefore passes `Problem` on its own, at 512 or at the larger size it was unwrapped
+at.
 
 ## Paint and glass
 

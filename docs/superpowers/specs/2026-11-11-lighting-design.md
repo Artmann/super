@@ -327,7 +327,12 @@ per draw rather than per instance because each mask group's `Uv2` fills its own 
 Lightmap UVs), which the Courtyard's model needed. Parts of one instance that share a
 material are one group with one 0–1, so their draws share one rectangle. A space gets up to
 eight 2048² pages. A chunk packs into one page of its own size, at most 2048². The rectangle
-becomes a scale and offset on `Uv2` for that draw, carried in the instance buffer.
+becomes a scale and offset on `Uv2` for that draw, carried in the instance buffer. A
+group's `Uv2` keeps two empty texels between charts only at the size it was made for, 512
+unless the cooker had to unwrap it at 1024 or 2048, and the cooked model doesn't record
+that size. So a group unwrapped above 512, like any rectangle smaller than its group's
+reference size, ends up with a gutter under 2 texels, and the layout's dilation must cover
+that.
 
 ### Texel setup
 
