@@ -516,7 +516,7 @@ public sealed class ModelCookerTests : IDisposable
     }
 
     [Fact]
-    public void Mesh_without_uvs_and_without_textures_warns_only_that_it_made_a_lighting_uv_set()
+    public void Mesh_without_uvs_and_without_textures_only_notes_that_it_made_a_lighting_uv_set()
     {
         string src = Temp();
         TinyGltf.Write(src, "a.gltf", "bark", ["a"]);
@@ -524,7 +524,8 @@ public sealed class ModelCookerTests : IDisposable
         var (result, _) = Cook(new FolderRoot(src));
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
-        Assert.Equal(["made a second UV set for lighting: the file has none"], result.Problems.Select(problem => problem.Message));
+        Assert.Equal(["made a second UV set for lighting: the file has none"], result.Notes.Select(note => note.Message));
+        Assert.Empty(result.Problems);
     }
 
     [Fact]
@@ -542,9 +543,8 @@ public sealed class ModelCookerTests : IDisposable
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
         Assert.All(result.Problems, problem => Assert.False(problem.IsError));
-        Assert.Equal(
-            ["mesh 0 (trunk) has no UVs; using a flat tangent frame", "made a second UV set for lighting: the file has none"],
-            result.Problems.Select(problem => problem.Message));
+        Assert.Equal(["mesh 0 (trunk) has no UVs; using a flat tangent frame"], result.Problems.Select(problem => problem.Message));
+        Assert.Equal(["made a second UV set for lighting: the file has none"], result.Notes.Select(note => note.Message));
     }
 
     [Fact]
@@ -1087,8 +1087,8 @@ public sealed class ModelCookerTests : IDisposable
         var (result, store) = Cook(new FolderRoot(src));
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
-        var note = Assert.Single(result.Problems);
-        Assert.False(note.IsError);
+        Assert.Empty(result.Problems);
+        var note = Assert.Single(result.Notes);
         Assert.Equal("made a second UV set for lighting: the file has none", note.Message);
         var model = Model(store, "quads.gltf");
         Assert.Null(LightmapProblem(model));
@@ -1103,8 +1103,8 @@ public sealed class ModelCookerTests : IDisposable
         var (result, store) = Cook(new FolderRoot(src));
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
-        var note = Assert.Single(result.Problems);
-        Assert.False(note.IsError);
+        Assert.Empty(result.Problems);
+        var note = Assert.Single(result.Notes);
         // Both quads start at v 0.1, row 51.2, so row 51 is the first with both. Quad 0's last texel there is 230, which
         // its first triangle, (0, 0) (1, 0) (1, 1), covers; quad 1's first is 232, covered first by its first triangle,
         // triangle 2.
@@ -1126,7 +1126,8 @@ public sealed class ModelCookerTests : IDisposable
         var (result, store) = Cook(new FolderRoot(src));
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
-        Assert.Equal(["made a second UV set for lighting: the file has none"], result.Problems.Select(problem => problem.Message));
+        Assert.Equal(["made a second UV set for lighting: the file has none"], result.Notes.Select(note => note.Message));
+        Assert.Empty(result.Problems);
         var model = Model(store, "quads.gltf");
         var mask = model.MaskOf(Assert.Single(model.Parts).Material);
         Assert.NotNull(mask);
@@ -1178,12 +1179,28 @@ public sealed class ModelCookerTests : IDisposable
         Assert.Contains("recall lightmap-uv", PhasesOf(second));
         Assert.DoesNotContain("unwrap lightmap-uv", PhasesOf(second));
         // The note is for the cook that made the set; a recall says nothing.
-        Assert.Equal(["made a second UV set for lighting: the file has none"], first.Problems.Select(problem => problem.Message));
+        Assert.Equal(["made a second UV set for lighting: the file has none"], first.Notes.Select(note => note.Message));
+        Assert.Empty(second.Notes);
         Assert.Empty(second.Problems);
         var before = Model(firstStore, "quads.gltf");
         var after = Model(secondStore, "quads.gltf");
         Assert.Equal(before.Vertices, after.Vertices);
         Assert.Equal(before.Indices, after.Indices);
+    }
+
+    [Fact]
+    public void A_cook_taken_from_the_cache_repeats_no_note()
+    {
+        string src = QuadsFolder(uvs2: null);
+        string cache = Temp();
+
+        var (first, _) = Cook(new FolderRoot(src), cache);
+        var (second, _) = Cook(new FolderRoot(src), cache);
+
+        Assert.Equal(["made a second UV set for lighting: the file has none"], first.Notes.Select(note => note.Message));
+        Assert.Equal(CookOutcome.FromCache, Assert.Single(second.Report.Files, file => file.Name == "quads.gltf").Outcome);
+        Assert.Empty(second.Notes);
+        Assert.Empty(second.Problems);
     }
 
     // Each material's second UVs are their own 0 to 1, the way its masks are baked, so two materials may overlap there.
@@ -1256,7 +1273,8 @@ public sealed class ModelCookerTests : IDisposable
         var (result, store) = Cook(new FolderRoot(src));
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
-        Assert.Equal(["made a second UV set for lighting: material moss has none"], result.Problems.Select(problem => problem.Message));
+        Assert.Equal(["made a second UV set for lighting: material moss has none"], result.Notes.Select(note => note.Message));
+        Assert.Empty(result.Problems);
         var model = Model(store, "pair.gltf");
         Assert.Equal(2, model.Parts.Length);
         int bark = model.Parts[0].Material < model.Parts[1].Material ? 0 : 1;
@@ -1297,7 +1315,8 @@ public sealed class ModelCookerTests : IDisposable
 
         Assert.Empty(referenceResult.Problems);
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
-        Assert.Equal(["made a second UV set for lighting: material moss has none"], result.Problems.Select(problem => problem.Message));
+        Assert.Equal(["made a second UV set for lighting: material moss has none"], result.Notes.Select(note => note.Message));
+        Assert.Empty(result.Problems);
         var expected = Model(referenceStore, "pair.gltf");
         var model = Model(store, "pair.gltf");
         int Bark(ModelData m) => m.Parts[0].Material > m.Parts[1].Material ? 0 : 1;
@@ -1316,7 +1335,8 @@ public sealed class ModelCookerTests : IDisposable
         var (result, _) = Cook(new FolderRoot(src));
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
-        Assert.Equal(["made a second UV set for lighting: materials a, b and c have none"], result.Problems.Select(problem => problem.Message));
+        Assert.Equal(["made a second UV set for lighting: materials a, b and c have none"], result.Notes.Select(note => note.Message));
+        Assert.Empty(result.Problems);
     }
 
     [Fact]
@@ -1328,9 +1348,10 @@ public sealed class ModelCookerTests : IDisposable
         var (result, _) = Cook(new FolderRoot(src));
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Empty(result.Problems);
         Assert.Equal(
             ["material moss: made a second UV set for lighting: Triangle 0 reaches outside 0 to 1, to (1.25, 0)."],
-            result.Problems.Select(problem => problem.Message));
+            result.Notes.Select(note => note.Message));
     }
 
     [Fact]
@@ -1345,9 +1366,10 @@ public sealed class ModelCookerTests : IDisposable
         var (result, _) = Cook(new FolderRoot(src));
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Empty(result.Problems);
         Assert.Equal(
             "material leaf: made a second UV set for lighting: 2 of its 3 meshes have none",
-            Assert.Single(result.Problems).Message);
+            Assert.Single(result.Notes).Message);
     }
 
     [Fact]
@@ -1360,7 +1382,8 @@ public sealed class ModelCookerTests : IDisposable
         var (result, store) = Cook(new FolderRoot(src));
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
-        Assert.Equal(["made a second UV set for lighting: the file has none"], result.Problems.Select(problem => problem.Message));
+        Assert.Equal(["made a second UV set for lighting: the file has none"], result.Notes.Select(note => note.Message));
+        Assert.Empty(result.Problems);
         var model = Model(store, "scattered.gltf");
         var positions = model.Vertices.Select(vertex => vertex.Position).ToArray();
         var uvs = model.Vertices.Select(vertex => vertex.Uv2).ToArray();

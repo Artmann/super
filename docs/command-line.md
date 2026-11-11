@@ -177,6 +177,12 @@ when there is one:
 C:\game\content\items\axe.json(3): error SUPER001: 'o' is an invalid start of a property name.
 ```
 
+A cooker can also leave a note, which says what it did rather than what's wrong, such as
+making a [second UV set for lighting](rendering.md) a model lacked. Notes print before the
+problems as `<file>: note: <message>`. They aren't warnings, so MSBuild shows them as plain
+messages, and they print only on the cook that did the work, not when the source comes from
+the cache. Watch mode prints them the same way.
+
 The last line counts what happened and how long it took, such as `Cooked 2, from cache 56, 0 errors, in 0.4 s.` The exit
 code is 0 when it cooked and 1 on any error. A failed cook leaves the content folder as
 it was, so the last good content stays. A mistake in the options prints what's wrong and

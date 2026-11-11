@@ -362,9 +362,10 @@ public sealed class MaskBakerTests : IDisposable
         var (result, store) = Cook(src);
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Empty(result.Problems);
         Assert.Equal(
             ["made a second UV set for lighting: Triangles 0 and 1 overlap at texel (51, 51)."],
-            result.Problems.Select(problem => problem.Message));
+            result.Notes.Select(note => note.Message));
         var model = ModelData.Read(new MemoryStream(ModelCookers.StandAlone(store, store.Manifest.Assets["models/a.gltf"].Hash, "models/a.gltf")), "models/a.gltf");
         Assert.NotNull(model.MaskOf(model.Parts[0].Material));
     }

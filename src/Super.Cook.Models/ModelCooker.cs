@@ -692,23 +692,23 @@ public sealed class ModelCooker : ICooker
         bool allNone = notes.Count == groupCount && notes.All(note => note.Reason == NoUv2);
         if (groupCount == 1 || allNone)
         {
-            output.Warning($"{prefix}{made}: {notes[0].Reason}");
+            output.Note($"{prefix}{made}: {notes[0].Reason}");
             return;
         }
 
         var none = notes.Where(note => note.Reason == NoUv2).Select(note => materialNames[note.Material]).ToList();
         if (none.Count == 1)
         {
-            output.Warning($"{prefix}{made}: material {none[0]} has none");
+            output.Note($"{prefix}{made}: material {none[0]} has none");
         }
         else if (none.Count > 1)
         {
-            output.Warning($"{prefix}{made}: materials {string.Join(", ", none.SkipLast(1))} and {none[^1]} have none");
+            output.Note($"{prefix}{made}: materials {string.Join(", ", none.SkipLast(1))} and {none[^1]} have none");
         }
 
         foreach (var (material, reason) in notes.Where(note => note.Reason != NoUv2))
         {
-            output.Warning($"{prefix}material {materialNames[material]}: {made}: {reason}");
+            output.Note($"{prefix}material {materialNames[material]}: {made}: {reason}");
         }
     }
 

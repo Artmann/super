@@ -12,6 +12,10 @@ public sealed class CookOutput
 
     internal IReadOnlyList<(string Message, int? Line, bool IsError)> Problems => _problems;
 
+    private readonly List<string> _notes = [];
+
+    internal IReadOnlyList<string> Notes => _notes;
+
     /// <summary>Adds the asset the source stands for, under the source's own name.</summary>
     public void Add(ContentKind kind, byte[] bytes)
     {
@@ -55,5 +59,14 @@ public sealed class CookOutput
     public void Warning(string message, int? line = null)
     {
         _problems.Add((message, line, false));
+    }
+
+    /// <summary>
+    /// Says something the cooker did that isn't a mistake, such as making data the source lacked. It prints with the
+    /// cook but isn't a warning, and it isn't kept in the cache, so a cook taken from the cache doesn't repeat it.
+    /// </summary>
+    public void Note(string message)
+    {
+        _notes.Add(message);
     }
 }

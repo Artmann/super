@@ -888,8 +888,12 @@ checked and made for each material on its own. Each material's set is in its own
 which no two places on that material's meshes share a texel, and two materials may overlap
 each other there. The cook keeps the file's own `TEXCOORD_1` for a material when every mesh
 of it has one and it fits a lightmap: inside 0 to 1, no overlaps, two empty texels at 512
-between islands, and texel density within four times everywhere. Otherwise it makes one for
-that material only and warns why:
+between islands, and texel density within four times from island to island. Otherwise it
+makes one for that material only and says why in a note. A note isn't a warning, since
+nothing needs fixing: it doesn't fail a build that treats warnings as errors, and MSBuild
+shows it as a plain message, such as
+`C:\game\content\props\crate.glb: note: made a second UV set for lighting: the file has none`.
+These are the forms it takes:
 
 ```text
 made a second UV set for lighting: the file has none
@@ -898,11 +902,13 @@ made a second UV set for lighting: materials bark and moss have none
 material leaf: made a second UV set for lighting: 2 of its 5 meshes have none
 ```
 
-The first two are for a model of one material, or one where no material had a set. A
+The first two are for a model of one material, or one where no material had a set. Meshes
+are counted after the cook joins a material's meshes that share the same attributes, unless
+`keepMeshes` is on, so the count can be lower than the one in Blender. A
 material with so many separate pieces that their islands don't fit a 512 page is laid on
 1024, then 2048, and stops the cook if they don't fit that either. The made set is kept in
-the cook cache, so it's made again, and warned about, only when the material's shape
-changes.
+the cook cache, so it's made again, and noted, only when the material's shape changes. A
+cook that takes the model from the cache prints no note.
 
 A texture path must match the file's name exactly, case included, even on Windows,
 so a model that cooks there cooks on every OS:

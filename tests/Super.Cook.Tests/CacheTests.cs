@@ -298,6 +298,31 @@ public sealed class CacheTests : IDisposable
     }
 
     [Fact]
+    public void A_note_is_not_a_problem_and_a_cache_hit_drops_it()
+    {
+        string src = Temp();
+        string cache = Temp();
+        File.WriteAllText(Path.Combine(src, "a.probe"), "x");
+        var cooker = new ProbeCooker((input, output) =>
+        {
+            output.Note("made something");
+            output.Warning("careful");
+            output.Add(ContentKind.Data, [1]);
+        });
+        var fresh = Cook(cache, [new FolderRoot(src)], null, cooker);
+
+        var cached = Cook(cache, [new FolderRoot(src)], null, cooker);
+
+        string file = Path.Combine(src, "a.probe");
+        Assert.True(fresh.Succeeded);
+        Assert.Equal([$"{file}: note: made something"], fresh.Notes.Select(note => note.ToString()));
+        Assert.Equal([$"{file}: warning SUPER001: careful"], fresh.Problems.Select(problem => problem.ToString()));
+        Assert.Equal(1, cached.FromCache);
+        Assert.Empty(cached.Notes);
+        Assert.Equal(fresh.Problems, cached.Problems);
+    }
+
+    [Fact]
     public void A_corrupt_record_is_a_miss_not_an_error()
     {
         string src = Temp();

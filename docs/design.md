@@ -390,6 +390,12 @@ false, since otherwise the SDK writes the git commit into every assembly and its
 commit would miss the whole cache. `CookCache`
 keeps what a cook made under that key, in `~/.super/cache` or the folder in `SUPER_CACHE`, and
 restores it into the store when the key matches, checking the objects' hashes first.
+A record keeps the cooker's warnings, so a hit prints them again and a source that
+needs fixing keeps saying so. It doesn't keep notes (`CookOutput.Note`, which come out as
+`CookResult.Notes`, not `Problems`): a note says what the cooker did, such as making a
+second UV set a model lacked, so only the cook that did it prints it. A note is printed as
+`<file>: note: <message>`, with no `error` or `warning` in it, so MSBuild shows it as a
+message and it isn't counted as a warning.
 Deleting it is always safe. A cooker reads the files beside its source only through
 `CookInput.Read` and `Find`, which check names against the root's listing ordinally, so a
 name that differs only in case fails with a message naming the file that is there, even
@@ -1515,14 +1521,16 @@ A group unwrapped above 512 has a gutter of under two texels in a 512 rectangle,
 group whose lightmap rectangle is smaller than the size its set was made for, so the
 lightmap layout's dilation must cover that.
 
-The cooker warns which groups got new ones. A model of one material, or one whose every
+The cooker notes which groups got new ones, with `CookOutput.Note`, since the user did
+nothing wrong; a note isn't a warning and isn't kept in the cook cache. A model of one material, or one whose every
 material had none, gets one line, `made a second UV set for lighting: ` and the reason: `the
 file has none`, how many of its meshes have none when only some do, or `Problem`'s sentence.
 Meshes are counted after flattening, which can join a material's meshes that have the same
 attributes, so the count can be lower than the file's. Otherwise the materials that had
 none share a line, `made a second UV set for lighting: materials a, b and c have none`, and
 each of the rest gets `material a: made a second UV set for lighting: ` and its reason. The
-warning is only for an unwrap that ran; one recalled from the step cache says nothing.
+note is only for an unwrap that ran. One recalled from the step cache says nothing, and
+neither does a cook whose whole model comes from the record cache.
 
 The step cache keeps each group's unwrap under the `lightmap-uv` step, keyed by the SHA-256
 of the group's vertices' positions and normals and its indices, which is all `Unwrap` reads,
