@@ -3060,6 +3060,34 @@ lights after it, and its `Key` is added to `unassigned` (cleared first, in ascen
 the bake report. Keys make the result the same whatever order the frame lists the lights
 in; two lights sharing a key are told apart by index, which is the one case where order shows.
 
+### The .lightbake file
+
+`LightBakeFile` (`src/Rendition/Baking/LightBakeFile.cs`) is a baked space or chunk on disk.
+`ToBytes` writes it and `Read` reads it, all little-endian. Light keys are `int`, as
+`LocalLight.Key` is. The layout, in order:
+
+- Header, 41 bytes, never compressed: magic `0x4B41424C` ("LBAK") as a `uint`, version (1) as an
+  `int`, the four `BakeInputs` hashes (draws, lights, environment, settings) as `ulong`s, and the
+  `BakeQuality` as a byte. Quality sits here and not in the hashes because a bake made at another
+  quality is not stale. `ReadInputs` reads only this, so a freshness check never inflates a page.
+- Draws: a count, then for each the `ulong` bake id and its `LightmapRect` (page `int`, scale x and
+  y, offset x and y as `float`s).
+- Irradiance, direction and mask pages: each a count, then the pages.
+- A flags byte (1 probe irradiance, 2 probe depth, 4 probe settings), then those that are set, in
+  that order. The probe settings are `Min` xyz, `Max` xyz and `Spacing`, all `float`s.
+- Channels: a count, then (light key, channel) as two `int`s each.
+- The report: a count and the keys of the Mixed lights that found no channel, the invalid texel
+  share (`float`), the samples (`int`) and the time as `long` ticks.
+
+A page is width, height (`int`s), its `LightBakePageFormat` (a byte: 0 `Rgba16f`, 1 `Rgba8`,
+2 `Bc6h`, 3 `Bc7`), the raw pixel length, the compressed length (`int`s), then the pixels
+Brotli-compressed. The cooker rewrites pages as BC6H or BC7 into the same container through the
+format byte.
+
+A wrong magic or version throws `InvalidDataException` naming the part and giving the value found
+and the value expected. Bytes that end early, or a count or length that is more than the bytes left,
+throw `InvalidDataException` too ("cut off"), so a damaged count can't ask for gigabytes.
+
 ## Ray tracing
 
 Device setup is in `VulkanContext.CreateDevice` (see above): ray queries are on only where nothing is
