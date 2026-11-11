@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Security.Cryptography;
 using Rendition;
 
 namespace Super;
@@ -116,7 +117,7 @@ internal static class BakeIdentity
     /// What a model is, as a stable hash: a built-in shape's name, a cooked file's hash, or everything a mesh made in
     /// code is drawn with: its vertices, indices, surface, textures and shader.
     /// </summary>
-    public static ulong Model(ModelRef model, IReadOnlyList<object> items, IContentFiles files)
+    public static ulong Model(ModelRef model, IReadOnlyList<object> items, IContentFiles files, Func<string, byte[]> shaderBytes)
     {
         var hasher = new StableHasher();
         if (model.IsBuiltIn)
@@ -127,17 +128,47 @@ internal static class BakeIdentity
         switch (items[model.Index - 1])
         {
             case string name:
-                return hasher.Add(1).Add(files.HashOf(name)).Finish();
+                hasher.Add(1).Add(files.HashOf(name));
+                AddCookedReferences(hasher, name, files, shaderBytes);
+                return hasher.Finish();
             case GeneratedMesh mesh:
                 hasher.Add(2);
-                AddMesh(hasher, mesh, items);
+                AddMesh(hasher, mesh, items, shaderBytes);
                 return hasher.Finish();
             default:
                 throw new InvalidOperationException($"Item {model.Index} is not a model, so it can't be drawn static.");
         }
     }
 
-    private static void AddMesh(StableHasher hasher, GeneratedMesh mesh, IReadOnlyList<object> items)
+    /// <summary>
+    /// What a cooked model names rather than holds: the contents of each surface shader (its compiled bytes) and the
+    /// hash of each texture those shaders read. The model's own file hash already covers the textures it points to by hash.
+    /// </summary>
+    private static void AddCookedReferences(StableHasher hasher, string name, IContentFiles files, Func<string, byte[]> shaderBytes)
+    {
+        ModelData data;
+        using (var stream = files.Open(name))
+        {
+            // Only the names matter here, so a texture kept by hash isn't decoded.
+            data = ModelData.Read(stream, name, _ => TextureData.FromPixels(1, 1, TextureKind.Color, new byte[4]));
+        }
+
+        var shaders = data.MaterialShaders.OfType<ModelMaterialShader>().ToArray();
+        hasher.Add(shaders.Length);
+        foreach (var shader in shaders)
+        {
+            hasher.Add(shader.Name).Add(HashBytes(shaderBytes(shader.Name)));
+            hasher.Add(shader.Textures.Length);
+            foreach (string texture in shader.Textures)
+            {
+                hasher.Add(texture).Add(files.HashOf(texture));
+            }
+        }
+    }
+
+    private static string HashBytes(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
+
+    private static void AddMesh(StableHasher hasher, GeneratedMesh mesh, IReadOnlyList<object> items, Func<string, byte[]> shaderBytes)
     {
         hasher.Add(mesh.Vertices.Length);
         foreach (ref readonly var vertex in mesh.Vertices.AsSpan())
@@ -182,7 +213,8 @@ internal static class BakeIdentity
         hasher.Add(surface.Subsurface.Radius).Add(surface.Subsurface.Color).Add(surface.Subsurface.Transmission);
         if (surface.Shader is { } shader)
         {
-            hasher.Add(1).Add(((ShaderItem)items[shader.Index - 1]).Name);
+            string shaderName = ((ShaderItem)items[shader.Index - 1]).Name;
+            hasher.Add(1).Add(shaderName).Add(HashBytes(shaderBytes(shaderName)));
         }
         else
         {

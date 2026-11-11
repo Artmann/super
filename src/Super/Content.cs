@@ -86,6 +86,9 @@ public sealed class Content
     /// <summary>True only in the interactive window, where loading happens over real time.</summary>
     internal bool Streaming { get; set; }
 
+    /// <summary>Reads a surface shader's SPIR-V by name, for the bake identities of models that use it. Tests swap it.</summary>
+    internal Func<string, byte[]> ShaderBytes { get; set; } = SceneRenderer.LoadShader;
+
     /// <summary>Set by tests, to keep a loading screen up for as long as they need it.</summary>
     internal bool Held { get; set; }
 
@@ -909,7 +912,7 @@ public sealed class Content
     {
         if (!_identities.TryGetValue(model.Index, out ulong identity))
         {
-            identity = BakeIdentity.Model(model, _items, _files);
+            identity = BakeIdentity.Model(model, _items, _files, ShaderBytes);
             _identities[model.Index] = identity;
         }
 

@@ -428,6 +428,13 @@ one file for each version of its contents, named by the 16 hex digits of their h
 give these names. Nothing writes or reads them yet, and `.lightbake` has no cooker yet, so
 keep the folder empty for now.
 
+### What makes a bake stale
+
+A static draw's bake id covers what the draw is made of, so a bake goes stale when any of it is
+edited: a cooked model's file, the surface shaders its materials name (their compiled bytes)
+and the textures those shaders read, and for a mesh made in code its vertices, surface,
+textures and shader. Editing only a shader's source counts once it is compiled again.
+
 ### Code meshes drawn static
 
 A mesh made in code that will be [drawn static](views.md#static-draws) is handed over with

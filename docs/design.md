@@ -2847,14 +2847,18 @@ it until the model is unloaded or the content reloads. It starts with a kind:
 - 0, a built-in shape: its name, such as `cube` or `sphere`.
 - 1, a cooked model: `IContentFiles.HashOf(name)`, the SHA-256 of its cooked bytes.
   `CookedFolder` gives the hash the manifest already keeps, without reading the file; other
-  `IContentFiles` hash `Read(name)`.
+  `IContentFiles` hash `Read(name)`. The model is read once more (`ModelData.Read`, with its
+  by-hash textures left undecoded) for what it names rather than holds: each material shader's
+  name, the SHA-256 of its SPIR-V, and each shader texture's name and `HashOf`. A texture the
+  model keeps by hash is already in the model file's bytes.
 - 2, a mesh made in code: its vertices with every field, its indices, whether it simplifies,
   its own texture's pixels, every surface field, each texture (a cooked one by `HashOf`, a
-  generated one by its size, pixels, kind and normal-map flag), the shader's name, parameters,
-  shader textures and array layers.
+  generated one by its size, pixels, kind and normal-map flag), the shader's name and the
+  SHA-256 of its SPIR-V, parameters, shader textures and array layers.
 
-A shader is hashed by name only, so editing a shader's source doesn't change the ids of the
-meshes drawn with it. A game that draws nothing static never hashes a model.
+A shader's SPIR-V comes from `Content.ShaderBytes`, which is `SceneRenderer.LoadShader` (the
+`shaders` folder beside the program) unless a test swaps it, so editing a shader changes the
+ids of every static draw that uses it. A game that draws nothing static never hashes a model.
 
 A mesh made in code gets its lightmap UVs once, in `Content.Mesh(mesh, isStatic: true)`, through
 `GeneratedMesh.WithLightmapUvs`, before it's added. The stored mesh is then both what the window

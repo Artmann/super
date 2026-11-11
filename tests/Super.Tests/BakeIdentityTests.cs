@@ -188,6 +188,110 @@ public class BakeIdentityTests
     }
 
     [Fact]
+    public void Editing_a_code_mesh_shader_changes_its_identity()
+    {
+        ulong Id(byte[] spirv)
+        {
+            var content = Fresh();
+            content.ShaderBytes = name =>
+            {
+                Assert.Equal("glow", name);
+                return spirv;
+            };
+            var model = content.Mesh(Mesh(Triangle, new Surface { Shader = content.Shader("glow") }), isStatic: true);
+            return IdOf(content, model, InChunk);
+        }
+
+        ulong before = Id([1, 2, 3, 4]);
+
+        Assert.Equal(before, Id([1, 2, 3, 4]));
+        Assert.NotEqual(before, Id([1, 2, 3, 5]));
+    }
+
+    [Fact]
+    public void Editing_a_texture_a_cooked_model_names_changes_its_identity()
+    {
+        using var folder = new CookedModelFolder();
+        folder.Write(texture: [1, 2, 3], shader: "glow");
+        ulong before = folder.IdentityOf();
+
+        folder.Write(texture: [1, 2, 4], shader: "glow");
+
+        Assert.NotEqual(before, folder.IdentityOf());
+    }
+
+    [Fact]
+    public void Editing_a_shader_a_cooked_model_names_changes_its_identity()
+    {
+        using var folder = new CookedModelFolder();
+        folder.Write(texture: [1, 2, 3], shader: "glow");
+        ulong before = folder.IdentityOf(shaderBytes: [9, 9]);
+
+        Assert.Equal(before, folder.IdentityOf(shaderBytes: [9, 9]));
+        Assert.NotEqual(before, folder.IdentityOf(shaderBytes: [9, 8]));
+    }
+
+    [Fact]
+    public void Same_contents_keep_the_identity()
+    {
+        using var folder = new CookedModelFolder();
+        folder.Write(texture: [1, 2, 3], shader: "glow");
+        ulong before = folder.IdentityOf();
+
+        folder.Write(texture: [1, 2, 3], shader: "glow");
+
+        Assert.Equal(before, folder.IdentityOf());
+    }
+
+    /// <summary>A real cooked folder holding <c>hero.glb</c>, whose one material names a surface shader and a texture, and that texture.</summary>
+    private sealed class CookedModelFolder : IDisposable
+    {
+        private readonly string _folder = Path.Combine(Path.GetTempPath(), "super-identity-" + Guid.NewGuid().ToString("N"));
+
+        public void Dispose()
+        {
+            if (Directory.Exists(_folder))
+            {
+                Directory.Delete(_folder, recursive: true);
+            }
+        }
+
+        public void Write(byte[] texture, string shader)
+        {
+            var material = new ModelMaterial { BaseColorTexture = -1, NormalTexture = -1, SurfaceTexture = -1, EmissiveTexture = -1, HeightTexture = -1, DetailColorTexture = -1, DetailNormalTexture = -1 };
+            var model = new ModelData
+            {
+                Vertices = [],
+                Indices = [],
+                Parts = [],
+                Materials = [material],
+                Textures = [],
+                MaterialShaders = [new ModelMaterialShader(shader, [], ["grass.png"])],
+            };
+            byte[] modelBytes = model.ToBytes();
+            var store = new Super.Cook.FolderStore(_folder);
+            string modelHash = Hash(modelBytes);
+            string textureHash = Hash(texture);
+            store.Put(modelHash, modelBytes);
+            store.Put(textureHash, texture);
+            store.Commit(new ContentManifest("desktop", new Dictionary<string, ManifestEntry>
+            {
+                ["hero.glb"] = new(ContentKind.Model, modelHash, modelBytes.Length),
+                ["grass.png"] = new(ContentKind.Texture, textureHash, texture.Length),
+            }));
+        }
+
+        public ulong IdentityOf(byte[]? shaderBytes = null)
+        {
+            var content = new Content(new CookedFolder(_folder));
+            content.ShaderBytes = _ => shaderBytes ?? [7];
+            return content.IdentityOf(content.Model("hero.glb"));
+        }
+
+        private static string Hash(byte[] bytes) => Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
+    }
+
+    [Fact]
     public void Static_draw_that_swims_is_explained()
     {
         var view = new View();

@@ -413,7 +413,7 @@ internal sealed class SceneRenderer : IDisposable
         return new LoadedModel(parts, null, null, model.Skeleton?.Count ?? 0);
     }
 
-    private static byte[] LoadShader(string name)
+    internal static byte[] LoadShader(string name)
     {
         // Shaders.targets keeps the source extension, so Shaders/terrain.frag becomes shaders/terrain.frag.spv.
         string path = Path.Combine(AppContext.BaseDirectory, "shaders", name + ".frag.spv");
