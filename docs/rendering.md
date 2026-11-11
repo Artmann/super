@@ -442,7 +442,7 @@ lighting does: the sun's direction or colour, the sky, the shadow softness or ca
 ambient occlusion settings, the `SunShadows`, `Materials` or `AmbientOcclusion` switches. Moving
 the camera doesn't, because the photograph frames the sun's shadow on the probe's own box, and
 nor does moving or adding objects, so probes suit what stands still. Once the [light
-probes](#bounced-light) round the camera have settled, each probe is photographed once more.
+probes](#bounced-light) round the camera have first settled, each probe is photographed once more.
 Each photograph waits for the GPU and takes a moment, so a sun that moves every frame keeps
 them drawing. Point and spot lights aren't in the photograph, so a lantern's glow doesn't show in
 a reflection. A probe left out of a frame is dropped, and the rest are photographed again.

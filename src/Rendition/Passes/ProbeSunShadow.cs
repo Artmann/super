@@ -10,6 +10,8 @@ namespace Rendition.Passes;
 /// probes behind it or far off would fall outside them. This map is drawn again only when the sun
 /// turns, when the camera has moved an eighth of its width, or every <see cref="RedrawFrames"/>
 /// frames so moved things show up, which costs one shadow draw in that frame.
+/// Like the capture, it leaves out what moves on its own, ghosts and skinned and swimming draws,
+/// and draws what sways in the wind at rest.
 /// See "Light probes" in docs/design.md.
 /// </summary>
 internal sealed class ProbeSunShadow : IDisposable
@@ -21,6 +23,7 @@ internal sealed class ProbeSunShadow : IDisposable
     public const int RedrawFrames = 240;
 
     private readonly RenderTarget _target;
+    private DrawItem[] _casters = [];
     private Vector3 _direction;
     private Vector3 _center;
     private float _radius;
@@ -91,7 +94,9 @@ internal sealed class ProbeSunShadow : IDisposable
         {
             api.Transition(cmd, _target.Image, ImageAspectFlags.DepthBit,
                 ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, readStages, read, depthStages, depthAccess);
-            shadows.RecordInto(cmd, frameSet, draws, meshes, details, instances, _target.View, new Extent2D(Resolution, Resolution), cascade: -1);
+            int count = Casters(draws, ref _casters);
+            shadows.RecordInto(cmd, frameSet, _casters.AsSpan(0, count), meshes, details, instances, _target.View,
+                new Extent2D(Resolution, Resolution), cascade: -1, still: true);
             api.Transition(cmd, _target.Image, ImageAspectFlags.DepthBit,
                 ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, depthStages, AccessFlags2.DepthStencilAttachmentWriteBit, readStages, read);
             _ready = true;
@@ -102,6 +107,36 @@ internal sealed class ProbeSunShadow : IDisposable
                 ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, readStages, read, readStages, read);
             _ready = true;
         }
+    }
+
+    /// <summary>
+    /// Whether a draw casts a shadow into the map: not a ghost, which is a preview and not a thing, and nothing
+    /// skinned or swimming, which moves away from where probes updated long ago would see it, as TraceScene leaves out.
+    /// </summary>
+    public static bool Casts(in DrawItem draw) =>
+        draw.Ghost is null && draw.Bones.Count == 0 && draw.Swim.Amplitude == 0f;
+
+    /// <summary>
+    /// Copies the draws that <see cref="Casts"/>, in order, to the start of <paramref name="casters"/>, which grows to fit
+    /// and is kept for the next frame, and returns how many there are.
+    /// </summary>
+    internal static int Casters(ReadOnlySpan<DrawItem> draws, ref DrawItem[] casters)
+    {
+        if (casters.Length < draws.Length)
+        {
+            casters = new DrawItem[Math.Max(draws.Length, casters.Length * 2)];
+        }
+
+        int count = 0;
+        foreach (ref readonly var draw in draws)
+        {
+            if (Casts(draw))
+            {
+                casters[count++] = draw;
+            }
+        }
+
+        return count;
     }
 
     public void Dispose() => _target.Dispose();

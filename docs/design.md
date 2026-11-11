@@ -1378,8 +1378,11 @@ pass binds the probe cube array at set 2, binding 4. Glass sees no screen-space 
 `Renderer.ReflectionLightingHash` hashes the suns' directions and colours, the environment (a
 version bumped by `SetEnvironment`), its intensity, the clear sky, the background, the sun
 shadow's softness and cascades, the light probe box, the occlusion settings, and whether the
-light probes are in use and have settled, so a probe captured while they fill in is redone once
-they settle; a probe can be captured two or three times at the start. It also takes the
+light probes are in use and have settled at least once since their storage was made, so a probe
+captured while they fill in is redone once they first settle; a probe can be captured two or
+three times at the start. The live `ProbesSettled` isn't used, because it turns false whenever
+the camera crosses a cell of the two finest cascades or a light changes, and recapturing then
+would wait for the GPU every few steps. It also takes the
 `SunShadows`, `Materials`, `MultiscatterSpecular`, `WearAndDirt` and `AmbientOcclusion` switches,
 since each changes what a probe photographs. Point and spot lights and the
 `ContactShadows` and `LightShadows` switches aren't in it, since captures draw neither
@@ -1457,6 +1460,9 @@ wide enough for the coarsest cascade, since the frame's own cascades are fitted 
 miss probes behind the camera. It is drawn through the shadow pass's pipelines only when the
 sun turns, when the camera has moved an eighth of its width, or every 240 frames, so moved
 things show up; each costs one shadow draw in that frame, the same work as the main shadow pass.
+Like the capture it leaves out ghosts and skinned and swimming draws, as `TraceScene.Collect`
+does, and draws what sways in the wind at rest (`still` on `ShadowPass.RecordInto`), so a probe
+updated long ago never keeps the shadow of a pose that has gone.
 
 `probe_fold.comp` then reduces each face 2×2 into shared memory and
 works out both tiles in one dispatch: irradiance is the cosine-weighted mean of the radiance

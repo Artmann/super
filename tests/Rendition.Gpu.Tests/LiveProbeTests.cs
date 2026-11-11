@@ -168,6 +168,47 @@ public sealed class LiveProbeTests
     }
 
     [Fact]
+    public void A_teleport_forgets_every_probe_of_the_finest_cascade()
+    {
+        using var gpu = new GpuFixture(disableRayTracing: true);
+        var scene = ProbeScenes.RedWall(gpu, lightIsSpot: false);
+        Settle(gpu, scene);
+        var before = gpu.Renderer.SampleProbeIrradiance([(new Vector3(0.7f, 0.3f, 0f), Vector3.UnitX)])[0];
+
+        // Cascade 0 is 32 probes 0.5 m apart, so 20 m is wider than its box and every one of its slots is new. The probes
+        // round x = 16.7 take the slots the probes round x = 0.7 had, with the same weights, so if the slots kept their
+        // tiles the red wall's light would read there unchanged. No probe is updated, so only the invalidation can clear them.
+        gpu.Renderer.ProbeUpdatesPaused = true;
+        Render(gpu, scene, new Vector3(20f, 0f, 0f));
+        var after = gpu.Renderer.SampleProbeIrradiance([(new Vector3(16.7f, 0.3f, 0f), Vector3.UnitX)])[0];
+
+        Assert.True(before.X > 0.01f && before.X > 2f * before.Y, $"Before the teleport the probes read {before}.");
+        Assert.True(Vector3.Distance(before, after) > 0.1f * before.Length(), $"Before the teleport {before}, after it {after}.");
+        Assert.Equal(0, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void The_reflection_lighting_hash_keeps_still_when_a_scroll_unsettles_the_probes()
+    {
+        using var gpu = new GpuFixture(disableRayTracing: true);
+        var scene = ProbeScenes.RedWall(gpu, lightIsSpot: false);
+        Render(gpu, scene, Vector3.Zero);
+        int unsettled = gpu.Renderer.ReflectionLightingHash(View(scene, Vector3.Zero));
+        Settle(gpu, scene);
+        int settled = gpu.Renderer.ReflectionLightingHash(View(scene, Vector3.Zero));
+
+        // Half a metre is one cell of cascade 0, so the move brings in a slab of new probes and the probes are no longer
+        // settled; the reflections were captured with settled probes and must not be captured again for it.
+        Render(gpu, scene, new Vector3(0.5f, 0f, 0f));
+        Assert.False(gpu.Renderer.ProbesSettled);
+        int scrolled = gpu.Renderer.ReflectionLightingHash(View(scene, new Vector3(0.5f, 0f, 0f)));
+
+        Assert.NotEqual(unsettled, settled);
+        Assert.Equal(settled, scrolled);
+        Assert.Equal(0, gpu.ValidationErrors);
+    }
+
+    [Fact]
     public void Scrolling_forgets_the_probes_it_left()
     {
         using var gpu = new GpuFixture(disableRayTracing: true);
@@ -218,7 +259,12 @@ public sealed class LiveProbeTests
 
     private static void Render(GpuFixture gpu, ProbeScene scene, Vector3 camera)
     {
-        var view = new FrameView
+        gpu.Renderer.Render(View(scene, camera), scene.Draws);
+    }
+
+    private static FrameView View(ProbeScene scene, Vector3 camera)
+    {
+        return new FrameView
         {
             Width = Size,
             Height = Size,
@@ -228,8 +274,6 @@ public sealed class LiveProbeTests
             LocalLights = scene.Lights,
             BackgroundRadiance = scene.Sky,
         };
-
-        gpu.Renderer.Render(view, scene.Draws);
     }
 
     // Writes the eight cascade-0 probes round a point, as the lookup finds them for a normal facing up.

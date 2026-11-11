@@ -276,7 +276,7 @@ internal sealed unsafe class ShadowPass : IDisposable
     /// </summary>
     public void RecordInto(
         CommandBuffer cmd, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, List<Mesh?> meshes, List<PartDetail> details,
-        InstanceBuffer instances, ImageView view, Extent2D extent, int cascade)
+        InstanceBuffer instances, ImageView view, Extent2D extent, int cascade, bool still = false)
     {
         var api = _context.Api;
         var depthAttachment = new RenderingAttachmentInfo
@@ -301,7 +301,7 @@ internal sealed unsafe class ShadowPass : IDisposable
 
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set };
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
-        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, details, instances, ScenePass.Shadow, solid: _solid, cascade: cascade);
+        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, details, instances, ScenePass.Shadow, solid: _solid, cascade: cascade, still: still);
 
         api.CmdEndRendering(cmd);
     }

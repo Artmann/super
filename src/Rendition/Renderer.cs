@@ -112,6 +112,10 @@ public sealed unsafe class Renderer : IDisposable
     // view has any.
     private bool _lightProbesInUse;
 
+    // Latched: the probes have settled at least once since their storage was made. Reflection captures
+    // hash this rather than the live ProbesSettled, which flips on every cell the camera crosses.
+    private bool _probesSettledOnce;
+
     // The four probe cascades that follow the camera, moved to it every frame the probes are on.
     // Their tiles live in layers 0 to 3 of the light probe atlases. Made anew with the quality.
     private ProbeCascades _probeCascades = new(ProbeQuality.High);
@@ -622,6 +626,7 @@ public sealed unsafe class Renderer : IDisposable
         EnsureProbeStorage();
         _api.DeviceWaitIdle(_context.Device).Check();
         _context.SubmitAndWait(_lightProbes.RecordClear);
+        _probesSettledOnce = false;
     }
 
     /// <summary>
@@ -1183,15 +1188,17 @@ public sealed unsafe class Renderer : IDisposable
     /// A number that changes whenever something that lights a reflection probe's picture changes,
     /// so capture the probes again when it does. It covers the suns, the sky and background, the sun
     /// shadow's softness and cascades, the ambient occlusion settings, the light probes and whether
-    /// they have settled, and the switches for sun shadows, materials and ambient occlusion. Moving
-    /// things or the camera doesn't change it. Point and spot lights aren't in it, because captures
-    /// leave them out, and nor are the contact shadow and light shadow switches, which only touch
-    /// what captures leave out.
+    /// they have settled at least once since they were made, and the switches for sun shadows,
+    /// materials and ambient occlusion. Moving things or the camera doesn't change it. Point and spot
+    /// lights aren't in it, because captures leave them out, and nor are the contact shadow and light
+    /// shadow switches, which only touch what captures leave out.
     /// </summary>
     public int ReflectionLightingHash(in FrameView view)
     {
-        // Light probes fill in over many frames, and reflections captured before they settle look wrong.
-        return HashCode.Combine(ReflectionLightingHash(view, _environmentVersion), _lightProbesInUse, ProbesSettled);
+        // Light probes fill in over many frames, and reflections captured before they first settle look wrong. Only the
+        // first settle counts: the live ProbesSettled turns false on every cell the camera crosses, and recapturing
+        // every reflection probe then would wait for the GPU twice a cell.
+        return HashCode.Combine(ReflectionLightingHash(view, _environmentVersion), _lightProbesInUse, _probesSettledOnce);
     }
 
     /// <summary>
@@ -1277,6 +1284,7 @@ public sealed unsafe class Renderer : IDisposable
 
             _probeScheduler = null;
             _probeBatch = [];
+            _probesSettledOnce = false;
             _probeInvalidations.Clear();
             _lightProbesInUse = false;
             ProbeUpdatesLastFrame = 0;
@@ -1299,6 +1307,7 @@ public sealed unsafe class Renderer : IDisposable
 
         _probeCascades = new ProbeCascades(_probeQuality);
         _probeScheduler = new ProbeScheduler(_probeCascades, 0);
+        _probesSettledOnce = false;
         _probeSun ??= new ProbeSunShadow(_context);
         _probeBatch = [];
         _probeGrid = null;
@@ -1528,6 +1537,7 @@ public sealed unsafe class Renderer : IDisposable
 
         _lightProbes.RecordBlend(cmd, batch, RasterBlend);
         scheduler.Updated(batch);
+        _probesSettledOnce |= scheduler.Settled;
     }
 
     /// <summary>
