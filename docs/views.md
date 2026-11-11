@@ -254,6 +254,15 @@ one with a swim whose amplitude isn't zero, or with a pose or an animator, throw
 naming the model's key. A static model can have at most 4,095 parts; one with more throws
 when it is drawn, naming the model.
 
+Built-in shapes and cooked models can be drawn static as they are. A mesh made in code must
+be made static too, with `content.Mesh(mesh, isStatic: true)`, which gives it lightmap UVs
+before it's uploaded (see [Content](content.md#code-meshes-drawn-static)). Drawing a mesh made
+without it static throws `InvalidOperationException` on the next render:
+
+```
+Model 3 is a mesh made in code and drawn static, but it wasn't made static, so it has no lightmap UVs. Pass isStatic: true to Content.Mesh.
+```
+
 ## Particles
 
 Dust, smoke and spray are soft, see-through puffs. You build them from nodes, the way

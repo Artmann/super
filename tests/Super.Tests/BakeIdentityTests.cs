@@ -89,7 +89,7 @@ public class BakeIdentityTests
     public void Masked_static_draw_keeps_each_parts_own_number()
     {
         var content = Fresh();
-        var model = content.Mesh(Mesh(Triangle));
+        var model = content.Mesh(Mesh(Triangle), isStatic: true);
         var view = new View();
         view.Begin(0f);
         view.Model(1, model, Matrix4x4.Identity, null, new MeshMask(model.Index, 3, [2]), isStatic: true);
@@ -144,8 +144,8 @@ public class BakeIdentityTests
     public void Tint_material_and_model_each_change_the_id(string changed)
     {
         var content = Fresh();
-        var grey = content.Mesh(Mesh(Triangle, new Surface { Color = new Vector3(0.5f) }));
-        var shiny = content.Mesh(Mesh(Triangle, new Surface { Color = new Vector3(0.5f), Roughness = 0.1f }));
+        var grey = content.Mesh(Mesh(Triangle, new Surface { Color = new Vector3(0.5f) }), isStatic: true);
+        var shiny = content.Mesh(Mesh(Triangle, new Surface { Color = new Vector3(0.5f), Roughness = 0.1f }), isStatic: true);
         var tint = new Vector3(0.2f, 0.4f, 0.6f);
         ulong before = IdOf(content, grey, InChunk, tint);
 
@@ -179,9 +179,9 @@ public class BakeIdentityTests
         var moved = (Vertex[])Triangle.Clone();
         moved[1].Position.X += 0.001f;
 
-        ulong a = IdOf(first, first.Mesh(Mesh((Vertex[])Triangle.Clone())), InChunk);
-        ulong b = IdOf(second, second.Mesh(Mesh((Vertex[])Triangle.Clone())), InChunk);
-        ulong c = IdOf(first, first.Mesh(Mesh(moved)), InChunk);
+        ulong a = IdOf(first, first.Mesh(Mesh((Vertex[])Triangle.Clone()), isStatic: true), InChunk);
+        ulong b = IdOf(second, second.Mesh(Mesh((Vertex[])Triangle.Clone()), isStatic: true), InChunk);
+        ulong c = IdOf(first, first.Mesh(Mesh(moved), isStatic: true), InChunk);
 
         Assert.Equal(a, b);
         Assert.NotEqual(a, c);

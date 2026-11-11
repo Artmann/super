@@ -1488,6 +1488,9 @@ are one texel at 512, is replaced. A mesh with so many pieces that its islands d
 512 page is laid on 1024, then 2048, and `WithLightmapUvs` throws an
 `InvalidOperationException` if they don't fit that either. Shapes, ribbons, tubes,
 extrusions and terrain chunks already have one; a bent mesh keeps the one it had.
+A mesh that will be [drawn static](views.md#static-draws) is handed over with
+`content.Mesh(mesh, isStatic: true)`, which calls `WithLightmapUvs` for you before uploading
+it. See [Code meshes drawn static](content.md#code-meshes-drawn-static).
 
 Textures come from a cooked image (PNG, JPEG or TGA), or from pixels you made. Whether a
 cooked one is a normal map or linear data is a cook setting, set by a

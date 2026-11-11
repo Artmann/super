@@ -428,6 +428,25 @@ one file for each version of its contents, named by the 16 hex digits of their h
 give these names. Nothing writes or reads them yet, and `.lightbake` has no cooker yet, so
 keep the folder empty for now.
 
+### Code meshes drawn static
+
+A mesh made in code that will be [drawn static](views.md#static-draws) is handed over with
+`isStatic: true`:
+
+```csharp
+ModelRef rock = content.Mesh(mesh, isStatic: true);
+```
+
+That gives the mesh lightmap UVs once, there, with
+[`WithLightmapUvs`](rendering.md#meshes-made-by-code), before it's uploaded. A mesh whose
+`Uv2` already fits a lightmap, such as a shape's, is kept as it is; any other is unwrapped,
+which may split its vertices, and an `InvalidOperationException` says so if its islands don't
+fit even a 2048 page. Its bake id is made from the mesh with those UVs, so the same mesh made
+with and without the flag gets different ids. Without the flag, a mesh is uploaded exactly as
+given, and drawing it static throws on the next render, telling you to pass `isStatic: true`
+to `Content.Mesh`. Built-in shapes and cooked models need no flag, since they always have
+lightmap UVs.
+
 ## Shipping
 
 `dotnet publish` copies the cooked `content` folder beside the program and leaves

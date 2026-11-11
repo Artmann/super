@@ -728,6 +728,7 @@ internal sealed class SceneRenderer : IDisposable
     /// <summary>
     /// Gives the parts of one draw that <see cref="AddShown"/> copied what the draw says about them. A static draw's
     /// parts get bake ids, from <paramref name="partBounds"/>, which holds every part of the model; others keep zero.
+    /// Throws for a static draw of a mesh made in code without <c>isStatic</c>, which has no lightmap UVs.
     /// </summary>
     internal static void Dress(
         Span<DrawItem> shown,
@@ -754,6 +755,12 @@ internal sealed class SceneRenderer : IDisposable
         if (!draw.Static)
         {
             return;
+        }
+
+        if (!content.MadeStatic(draw.Model))
+        {
+            throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
+                $"Model {draw.Model.Index} is a mesh made in code and drawn static, but it wasn't made static, so it has no lightmap UVs. Pass isStatic: true to Content.Mesh."));
         }
 
         if (partBounds.Length > BakeIds.MaxParts)

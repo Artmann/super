@@ -52,6 +52,7 @@ public sealed class Content
     private readonly Dictionary<string, Rig> _rigs = [];
     private readonly Dictionary<int, string[]> _meshNames = [];
     private readonly Dictionary<int, ulong> _identities = [];
+    private readonly HashSet<int> _dynamicMeshes = [];
     private readonly Dictionary<string, GameImage> _images = [];
     private readonly List<SoundClip> _clips = [];
     private readonly Dictionary<string, SoundRef> _sounds = [];
@@ -400,13 +401,32 @@ public sealed class Content
 
     /// <summary>
     /// Hands over a surface made by code. Anything its surface names must have been named
-    /// first, which also means it's loaded first.
+    /// first, which also means it's loaded first. A mesh that will be drawn static must be made
+    /// with <paramref name="isStatic"/>, which gives it lightmap UVs once, here, through
+    /// <see cref="GeneratedMesh.WithLightmapUvs"/>, so what's uploaded and what its bake hashes
+    /// are the same mesh. Drawing a mesh made without it static throws on the next render.
     /// </summary>
-    public ModelRef Mesh(GeneratedMesh mesh)
+    /// <exception cref="InvalidOperationException">
+    /// <paramref name="isStatic"/> is set and the mesh's charts don't fit even <see cref="LightmapUnwrap.LargestSize"/>.
+    /// </exception>
+    public ModelRef Mesh(GeneratedMesh mesh, bool isStatic = false)
     {
         RequireSurface(mesh.Surface);
-        return Add(mesh);
+        if (!isStatic)
+        {
+            var model = Add(mesh);
+            _dynamicMeshes.Add(model.Index);
+            return model;
+        }
+
+        return Add(mesh.WithLightmapUvs());
     }
+
+    /// <summary>
+    /// False only for a mesh made in code without <c>isStatic</c>, which has no lightmap UVs. Built-in shapes and
+    /// cooked models always have them.
+    /// </summary>
+    internal bool MadeStatic(ModelRef model) => !_dynamicMeshes.Contains(model.Index);
 
     /// <summary>
     /// Throws unless everything the surface names was named here first and its arrays fit, as
@@ -900,6 +920,7 @@ public sealed class Content
     private void MarkUnloaded(int index)
     {
         _identities.Remove(index);
+        _dynamicMeshes.Remove(index);
         _unloaded.Add(index);
         _pendingUnloads.Add(index);
         _items[index - 1] = UnloadedItem.Instance;

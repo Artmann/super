@@ -2575,6 +2575,16 @@ it until the model is unloaded or the content reloads. It starts with a kind:
 A shader is hashed by name only, so editing a shader's source doesn't change the ids of the
 meshes drawn with it. A game that draws nothing static never hashes a model.
 
+A mesh made in code gets its lightmap UVs once, in `Content.Mesh(mesh, isStatic: true)`, through
+`GeneratedMesh.WithLightmapUvs`, before it's added. The stored mesh is then both what the window
+uploads and what `IdentityOf` hashes, so the identity covers the second UVs and the same
+`GeneratedMesh` made with and without the flag hashes differently when the unwrap changed it.
+Unwrapping on the first static draw instead would upload the mesh again mid-game and change its
+identity under its bake. `Content` keeps the indices of code meshes made without the flag in a
+set, dropped from it when one is unloaded, and `SceneRenderer.Dress` throws for a static draw of
+one, after its `Static` check, so a dynamic draw costs nothing more. Built-in shapes and cooked
+models always have lightmap UVs, so they are never in the set.
+
 ## Is the bake fresh?
 
 A bake is kept with the hash of what it was made from, so a frame can tell whether it still
