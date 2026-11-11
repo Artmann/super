@@ -223,6 +223,9 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     public bool CanTrace => _context.CanTrace;
 
+    /// <summary>Why <see cref="CanTrace"/> is false, such as "no VK_KHR_ray_query", or null when it is true.</summary>
+    public string? NoTraceReason => _context.NoTraceReason;
+
     /// <summary>
     /// Waits for the display before showing each frame, so the picture never tears, and the
     /// frame rate stops at the display's. Turned off, frames are shown as soon as they're done.

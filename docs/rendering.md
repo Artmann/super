@@ -150,11 +150,18 @@ On a GPU that supports ray queries (`VK_KHR_ray_query` with `VK_KHR_acceleration
 `VK_KHR_deferred_host_operations` and `bufferDeviceAddress`) the renderer turns them on when it
 makes the device, and `Renderer.CanTrace` is true. Some players have a GPU that
 can't, so nothing requires it: those players get the same game without tracing. Nothing draws
-with rays yet, so this changes no picture today.
+with rays yet, so this changes no picture except the debug view below.
 
 `--no-trace` makes the device without ray queries even on a GPU that has them, so you can see
 what a player without them gets. It works in the window and with `--screenshot`, `--record`
 and `--profile`.
+
+`--debug-view trace` shows what rays can see instead of the lit scene: each surface's base colour,
+unlit, and sky blue where a ray hits nothing. Use it to check that the ray tracing layer holds the
+scene you expect. Leaves in cut-out materials show holes, wind-swayed parts sit at rest, and skinned
+characters, swimming draws and ghosts are missing, because rays don't see them yet. From code, set
+`FrameView.DebugView` to `DebugView.Trace`; `Renderer.Render` throws on a GPU that can't trace, and
+`Renderer.NoTraceReason` says why. See [the command line](command-line.md).
 
 ## Lights
 

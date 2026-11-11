@@ -67,6 +67,27 @@ public class GameArgumentsTests
     }
 
     [Fact]
+    public void Reads_the_trace_debug_view()
+    {
+        Assert.Equal(Rendition.DebugView.Trace, GameArguments.Parse(["--debug-view", "trace"]).DebugView);
+        Assert.Equal(Rendition.DebugView.None, GameArguments.Parse([]).DebugView);
+    }
+
+    [Fact]
+    public void Names_the_views_it_knows_when_given_another()
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--debug-view", "normals"]));
+        Assert.Equal("--debug-view doesn't know 'normals'. It knows: trace.", error.Message);
+    }
+
+    [Fact]
+    public void Needs_a_name_after_debug_view()
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--debug-view"]));
+        Assert.Equal("--debug-view needs a value.", error.Message);
+    }
+
+    [Fact]
     public void Reads_no_vsync()
     {
         Assert.True(GameArguments.Parse(["--no-vsync"]).NoVsync);

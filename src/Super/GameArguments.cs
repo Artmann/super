@@ -24,7 +24,8 @@ internal sealed record GameArguments(
     bool NoMaterials = false,
     float? RenderScale = null,
     Rendition.Upscaler? Upscaler = null,
-    bool NoTrace = false)
+    bool NoTrace = false,
+    Rendition.DebugView DebugView = Rendition.DebugView.None)
 {
     public const int DefaultFramesPerSecond = 60;
 
@@ -50,6 +51,7 @@ internal sealed record GameArguments(
         float? uiScale = null;
         float? renderScale = null;
         Rendition.Upscaler? upscaler = null;
+        var debugView = Rendition.DebugView.None;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -96,6 +98,9 @@ internal sealed record GameArguments(
                     break;
                 case "--upscaler":
                     upscaler = UpscalerName(args, ++i);
+                    break;
+                case "--debug-view":
+                    debugView = DebugViewName(args, ++i);
                     break;
                 case "--no-vsync":
                     noVsync = true;
@@ -162,7 +167,17 @@ internal sealed record GameArguments(
 
         return new GameArguments(
             seed, ticks, screenshotPath, recordPath, seconds, framesPerSecond, width, height, profilePath, frames ?? DefaultProfileFrames, noVsync, scriptName, userDataFolder, uiScale, noMaterials,
-            renderScale, upscaler, noTrace);
+            renderScale, upscaler, noTrace, debugView);
+    }
+
+    private static Rendition.DebugView DebugViewName(ReadOnlySpan<string> args, int index)
+    {
+        string text = Value(args, index, "--debug-view");
+        return text switch
+        {
+            "trace" => Rendition.DebugView.Trace,
+            _ => throw new ArgumentException($"--debug-view doesn't know '{text}'. It knows: trace."),
+        };
     }
 
     private static float PositiveScale(ReadOnlySpan<string> args, int index)

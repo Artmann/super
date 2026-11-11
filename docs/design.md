@@ -2344,6 +2344,11 @@ trace; GLFW is only terminated when the last fixture goes, since that closes eve
 
 ## Ray tracing
 
+Device setup is in `VulkanContext.CreateDevice` (see above): ray queries are on only where nothing is
+missing, `Renderer.CanTrace` says so, and `Renderer.NoTraceReason` says what was missing. Super
+prints `Ray tracing is off (reason).` at start when it is off, and `--debug-view trace` turns that
+reason into the start-up error. Nothing else needs it, so a GPU that can't trace plays as before.
+
 `Renderer.Tracing` is a `RayTracing`, made only where `VulkanContext.CanTrace` is true; it is
 null everywhere else, and nothing below runs. It loads `KhrAccelerationStructure` from the device
 once and reads `minAccelerationStructureScratchOffsetAlignment` from the device's properties.
@@ -2474,7 +2479,29 @@ depth of field and auto exposure, and sets bit 30 of `frame.off` (`OFF_DEBUG_VIE
 exposure, grade or curve, and `finish.frag` skips sharpening, the vignette and grain, keeping
 only the dither. Asking for it where the device can't trace throws an `InvalidOperationException`
 that names `NoTraceReason`. Puddles and surface shaders aren't geometry, so the view doesn't show
-them.
+them. Super sets it from `--debug-view trace` through `SceneRenderer.DebugView`; `Game` checks
+`CanTrace` before anything plays and exits with code 1 and the error above if it is false, rather
+than failing on the first frame.
+
+### What a hit skips, and what is known to be rough
+
+A hit is the geometry the structures hold, not everything drawn, and it is deliberately cheap:
+
+- Skinned and swimming draws and ghosts aren't in the structures, since their built shape isn't where
+  they are drawn. Skinned characters are missing from the view.
+- Wind-swayed parts are traced at rest, because the structures are built from the mesh as stored.
+- A hit's colour is the base colour factor times the base colour texture only: no surface shader,
+  tint, variation, wear, dirt, puddles or lighting. Anything whose colour comes from a surface shader
+  shows its plain factor instead. Draws with the default white material, such as the Crypt's candles,
+  show white.
+- Textures are sampled at mip 0, since a ray has no derivatives, so fine textures such as burlap
+  alias into noise in the view.
+- Glass and other `Transparent` geometry is hit as if solid; rays aren't tinted by it yet.
+- The structures are rebuilt from scratch every frame that traces, with no refitting or compaction.
+
+On synchronisation: the upload barriers add the tracing stages (`RayTracing.TraceStages`) only on
+devices that can trace. Synchronisation validation doesn't fire on SDK 1.4.363, so those barriers,
+and `ReadyToTrace`, are checked by review and by the GPU tests, not by the validation layer.
 
 ## Known simplifications to revisit
 

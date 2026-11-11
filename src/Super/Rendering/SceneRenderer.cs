@@ -150,6 +150,15 @@ internal sealed class SceneRenderer : IDisposable
     /// <summary>The effects left out of every frame from now on.</summary>
     public RenderEffects Off { get; set; }
 
+    /// <summary>What every frame shows: the lit scene, or a look inside the renderer. See <see cref="Rendition.DebugView"/>.</summary>
+    public DebugView DebugView { get; set; }
+
+    /// <summary>Whether the GPU can trace rays. See <see cref="Renderer.CanTrace"/>.</summary>
+    public bool CanTrace => _renderer.CanTrace;
+
+    /// <summary>Why <see cref="CanTrace"/> is false, or null when it is true.</summary>
+    public string? NoTraceReason => _renderer.NoTraceReason;
+
     public ReadOnlySpan<GpuPassTime> GpuTimes => _renderer.GpuTimes;
 
     public double WaitMilliseconds => _renderer.WaitMilliseconds;
@@ -859,6 +868,7 @@ internal sealed class SceneRenderer : IDisposable
             Projection = shot.Matrix(aspect),
             CameraPosition = shot.Eye,
             Time = time,
+            DebugView = DebugView,
             Lights = _lights.AsSpan(0, lightCount),
             Bones = _bones.AsSpan(0, _boneCount),
             Shadows = FrameShadows(view, aspect),

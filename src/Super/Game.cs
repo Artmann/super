@@ -80,6 +80,21 @@ public static class Game
             host.Graphics.ShadowResolution, host.Graphics.RenderScale, host.Graphics.Upscaler, options.Maximized, options.Borderless,
             arguments.NoTrace);
 
+        if (!window.CanTrace)
+        {
+            Console.WriteLine($"Ray tracing is off ({window.NoTraceReason}).");
+        }
+
+        // Said before anything plays, so a run that can't show the view fails at once instead of on its first frame.
+        if (arguments.DebugView == Rendition.DebugView.Trace && !window.CanTrace)
+        {
+            Console.Error.WriteLine($"--debug-view trace needs a GPU that can trace rays, and this one can't ({window.NoTraceReason}).");
+            Environment.ExitCode = 1;
+            return;
+        }
+
+        window.DebugView = arguments.DebugView;
+
         if (arguments.ProfilePath is { } report)
         {
             window.Profile(host, options.Title, seed, arguments.Ticks ?? 0, arguments.Frames, options.TicksPerSecond, report);

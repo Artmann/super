@@ -183,6 +183,19 @@ internal sealed unsafe class GameWindow : IDisposable
         Show(host, (float)played);
     }
 
+    /// <summary>What every frame shows. See <see cref="SceneRenderer.DebugView"/>.</summary>
+    public Rendition.DebugView DebugView
+    {
+        get => _scene.DebugView;
+        set => _scene.DebugView = value;
+    }
+
+    /// <summary>Whether the GPU can trace rays.</summary>
+    public bool CanTrace => _scene.CanTrace;
+
+    /// <summary>Why <see cref="CanTrace"/> is false, or null when it is true.</summary>
+    public string? NoTraceReason => _scene.NoTraceReason;
+
     /// <summary>Plays the given number of ticks and saves the picture. Returns the validation message count.</summary>
     public int Screenshot<TGame>(GameHost<TGame> host, long ticks, string path)
         where TGame : class, IGame
