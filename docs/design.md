@@ -2496,6 +2496,36 @@ next to the decal check, before the frame waits on its fence or records anything
 renderer is left ready for the next frame. `Capture` clears its read-back buffer in a
 `finally`, so a frame that throws doesn't leave the next one copying into a freed buffer. It reads one field per draw when no draw is static.
 
+## Who owns a draw
+
+A frame's baked areas are its `BakedSpace` and its `BakedChunks`. `BakeAreas`
+(`src/Rendition/Baking/BakeAreas.cs`) decides which one owns a static draw or a light, and
+returns `BakeAreas.Space` (-1), a chunk's index in the frame, or `BakeAreas.None` (-2). It is
+pure and allocates nothing, since it runs once per static draw and once per light each frame.
+Nothing calls it yet.
+
+`OwnerOfDraw` takes the draw's sphere in world space. The space owns the draw if the sphere
+touches its box at all: the centre is clamped into the box and the draw counts when that point
+is within the radius. The space is asked first, so a draw in both the space and a chunk belongs
+to the space. Otherwise the first chunk whose box holds the sphere's centre owns it, so a draw
+that only reaches into a chunk isn't in it, and one in two overlapping chunks belongs to the
+earlier one. `OwnerOfLight` is the same with a point: the space if its box holds the light's
+position, else the first chunk holding it. Box faces count as inside.
+
+A chunk's box is in its own space, so the point is moved into chunk space first. The
+transform is rigid (`BakeFiles.IsRigid`), so its inverse is the translation taken off and then
+the transpose of the rotation: each chunk-space coordinate is the dot product of the offset
+with one of the transform's first three rows. This is done in doubles, so a chunk hundreds of
+metres from the origin keeps its edges to well under a millimetre.
+
+A draw's sphere comes from `Renderer.BoundsOf(detail)`, the sphere `MeshDetail` found around
+the part in the model's units; a part without detail is the point at its origin, radius 0.
+`BakeAreas.Transform` moves it into the world: the centre goes through the transform and the
+radius grows by its largest axis scale, the same as culling does. `BakeAreas.Union` grows one
+sphere to hold several, such as every part of a model. Each step keeps the bigger sphere when
+it already holds the other, or else spans from the far side of one to the far side of the
+other, so the result holds every part but isn't always the tightest sphere.
+
 ## Ray tracing
 
 Device setup is in `VulkanContext.CreateDevice` (see above): ray queries are on only where nothing is

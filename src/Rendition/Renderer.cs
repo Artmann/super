@@ -1320,6 +1320,16 @@ public sealed unsafe class Renderer : IDisposable
         return _details.Count - 1;
     }
 
+    /// <summary>
+    /// The sphere around a part, in the model's units, before its draw's transform. A part without detail is the
+    /// point at its origin.
+    /// </summary>
+    public BakeSphere BoundsOf(DetailHandle detail)
+    {
+        var part = _details[detail.Index];
+        return new BakeSphere(part.Center, part.Radius);
+    }
+
     public void Render(in FrameView view, ReadOnlySpan<DrawItem> draws)
     {
         if (view.Width <= 0 || view.Height <= 0)
