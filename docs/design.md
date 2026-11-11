@@ -618,7 +618,12 @@ assembly and files out of the game, `PrivateAssets="all"` keeps it from the game
 `GlobalPropertiesToRemove` drops what a publish sets, such as the runtime, so the tool always
 builds for the machine doing the build. `OutputItemType` hands the tool's path to the
 `SuperCook` target, which runs after `Build`. Because it's an ordinary reference, the game's
-own restore covers the tool and the tool builds alongside the engine. An earlier version
+own restore covers the tool and the tool builds alongside the engine. The reference is left out
+of MSBuild's project graph (`IsGraphBuild`): the Release tool references the engine, so a Debug
+game's graph would hold the engine twice, and `dotnet watch`, which keeps the graph's projects by
+path and target framework, stopped with "An item with the same key has already been added". In a
+graph build `SuperCook` restores and builds the tool with `MSBuild` tasks instead.
+`Super.Build.Tests` checks that a game's graph holds each project once. An earlier version
 restored and built it with `MSBuild` tasks inside `SuperCook`, which added about half a second
 to every build of a game with content. A game published with a runtime gets
 `PublishReadyToRun`, unless it sets it itself, so the shipped program doesn't compile the

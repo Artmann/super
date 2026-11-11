@@ -315,7 +315,8 @@ such as `dotnet build Super.slnx -c Debug`: the game still runs the Release tool
 Release cook libraries. A solution that lists `super-cook` also builds it in its own
 configuration, beside the Release one, which the game doesn't use.
 Every game in one build shares the one tool build. None of the tool's files end up beside
-the game.
+the game. `dotnet watch` and `dotnet build -graph` work too: there the build makes the tool
+itself, the same way.
 
 `dotnet publish` with a runtime, such as `-r win-x64`, compiles the game ahead of time
 (ReadyToRun), so the shipped game reaches its first frame sooner. On this repo's Fox example
