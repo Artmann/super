@@ -296,17 +296,22 @@ internal sealed unsafe class VulkanContext : IDisposable
         // FSR picks its shaders by what the GPU supports, not by what the device turned on: 16-bit maths where
         // the GPU has it, and a fixed subgroup size where it can choose one. So those are turned on wherever
         // they're supported, or FSR's pipelines would use features the device doesn't have.
+        var deviceExtensions = DeviceExtensionNames();
         var supportedRayQuery = new PhysicalDeviceRayQueryFeaturesKHR { SType = StructureType.PhysicalDeviceRayQueryFeaturesKhr };
         var supportedAccelerationStructure = new PhysicalDeviceAccelerationStructureFeaturesKHR
         {
             SType = StructureType.PhysicalDeviceAccelerationStructureFeaturesKhr,
             PNext = &supportedRayQuery,
         };
-        var supported13 = new PhysicalDeviceVulkan13Features
+        var supported13 = new PhysicalDeviceVulkan13Features { SType = StructureType.PhysicalDeviceVulkan13Features };
+
+        // The ray tracing feature structs belong to their extensions, so they're only asked about where the GPU
+        // lists them. Elsewhere the query is the one it was before tracing, and the features stay false.
+        if (RayTracingSupport.CanAskForFeatures(deviceExtensions))
         {
-            SType = StructureType.PhysicalDeviceVulkan13Features,
-            PNext = &supportedAccelerationStructure,
-        };
+            supported13.PNext = &supportedAccelerationStructure;
+        }
+
         var supported12 = new PhysicalDeviceVulkan12Features { SType = StructureType.PhysicalDeviceVulkan12Features, PNext = &supported13 };
         var supported11 = new PhysicalDeviceVulkan11Features { SType = StructureType.PhysicalDeviceVulkan11Features, PNext = &supported12 };
         var supportedAll = new PhysicalDeviceFeatures2 { SType = StructureType.PhysicalDeviceFeatures2, PNext = &supported11 };
@@ -350,7 +355,6 @@ internal sealed unsafe class VulkanContext : IDisposable
             SubgroupSizeControl = supported13.SubgroupSizeControl,
             ComputeFullSubgroups = supported13.ComputeFullSubgroups,
         };
-        var deviceExtensions = DeviceExtensionNames();
 
         // FSR looks up vkGetBufferMemoryRequirements2KHR by its extension name, which the driver only hands out
         // when the extension is on, even though Vulkan 1.1 has the function under its core name.

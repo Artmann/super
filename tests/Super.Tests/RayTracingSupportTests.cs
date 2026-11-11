@@ -34,6 +34,15 @@ public class RayTracingSupportTests
     }
 
     [Fact]
+    public void Asks_for_the_ray_tracing_features_only_when_both_extensions_are_listed()
+    {
+        Assert.True(RayTracingSupport.CanAskForFeatures(new HashSet<string> { "VK_KHR_acceleration_structure", "VK_KHR_ray_query" }));
+        Assert.False(RayTracingSupport.CanAskForFeatures(new HashSet<string> { "VK_KHR_acceleration_structure" }));
+        Assert.False(RayTracingSupport.CanAskForFeatures(new HashSet<string> { "VK_KHR_ray_query" }));
+        Assert.False(RayTracingSupport.CanAskForFeatures(new HashSet<string> { "VK_KHR_swapchain" }));
+    }
+
+    [Fact]
     public void Says_when_turned_off()
     {
         Assert.Equal("turned off with --no-trace", RayTracingSupport.Missing(All, true, true, true, disabled: true));

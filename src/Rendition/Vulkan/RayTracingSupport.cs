@@ -20,8 +20,17 @@ internal static class RayTracingSupport
     ];
 
     /// <summary>
-    /// Null when rays can be traced, otherwise a short reason such as "no VK_KHR_ray_query", for the log and for
-    /// anyone wondering why tracing is off.
+    /// Whether the GPU's feature query may carry the acceleration structure and ray query feature structs. They
+    /// belong to their extensions, so a GPU that doesn't list both is asked exactly what it was asked before.
+    /// </summary>
+    public static bool CanAskForFeatures(IReadOnlySet<string> deviceExtensions)
+    {
+        return deviceExtensions.Contains(KhrAccelerationStructure.ExtensionName) && deviceExtensions.Contains(RayQueryExtension);
+    }
+
+    /// <summary>
+    /// Null when rays can be traced, otherwise a short reason such as "no VK_KHR_ray_query", for the errors of
+    /// things that need tracing and for anyone wondering why it is off.
     /// </summary>
     public static string? Missing(
         IReadOnlySet<string> deviceExtensions, bool bufferDeviceAddress, bool accelerationStructure, bool rayQuery, bool disabled)

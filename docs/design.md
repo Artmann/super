@@ -2242,8 +2242,11 @@ it, making the context crashes.
 `CreateDevice` also turns on ray queries when `RayTracingSupport.Missing` finds nothing
 missing: the three extensions in `RayTracingSupport.Extensions`, and the `bufferDeviceAddress`,
 `accelerationStructure` and `rayQuery` features, checked on the same `GetPhysicalDeviceFeatures2`
-chain as the others. `VulkanContext.CanTrace` says whether they are on and `NoTraceReason` says
-what was missing, such as `no VK_KHR_ray_query`, or `turned off with --no-trace` for
+chain as the others. The last two feature structs belong to their extensions, so
+`RayTracingSupport.CanAskForFeatures` puts them on the chain only where the GPU lists both
+`VK_KHR_acceleration_structure` and `VK_KHR_ray_query`; elsewhere the query is the one it was
+before tracing and they read as false. `VulkanContext.CanTrace` says whether they are on and
+`NoTraceReason` says what was missing, such as `no VK_KHR_ray_query`, or `turned off with --no-trace` for
 `RendererOptions.DisableRayTracing`. When anything is missing the device is made exactly as
 it was before, so a GPU without ray queries loses nothing.
 
