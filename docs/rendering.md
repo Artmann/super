@@ -35,10 +35,11 @@ And when a scene asks for it:
 - [Wear and dirt](#wear-and-dirt) on edges and in hollows, from masks the cook bakes from the mesh
 - A [render scale](#graphics-settings) that draws the scene smaller or larger than the window, and [AMD FSR](#upscaling) to rebuild the full picture from a smaller one
 
-The [Courtyard example](../examples/Courtyard) uses most of them. Here it is before and
-after they and its materials were reworked, from the same camera and the same frame:
+The [Courtyard example](../examples/Courtyard) uses most of them. On the left is the
+Courtyard on the evening it was first built, on 6 November 2026; on the right is how it
+looks now, at the same seed and frame:
 
-![The Courtyard before and after: on the left orange-red bricks, a few bright green grass tufts, a dark flat puddle and smooth brown mud; on the right bricks from plum to pale buff, ivy of leaf cards, grey and sandstone flagstones, coarse mud with gravel, a puddle that mirrors the yard, weathered deck boards and a window that reflects the courtyard](media/courtyard-realism.webp)
+![The Courtyard before and after: on the left even dark-red bricks, star-shaped ivy, rows of bright green grass tufts, round stepping stones in smooth brown mud and a plain crate on a deck; on the right bricks from plum to pale buff, ivy of leaf cards, grey and sandstone flagstones, coarse mud with gravel, a puddle that mirrors the yard, weathered deck boards and a window that reflects the courtyard](media/courtyard-realism.webp)
 
 ## Graphics settings
 
