@@ -1459,6 +1459,21 @@ the old probes are thrown away and the sky is used until round 1 is done. Geomet
 hash. Without `shaderStorageImageExtendedFormats`, needed to write RG16F from compute, the
 volume is off.
 
+`ProbeCascades` is the layout the live probes will use in place of one fixed box (it isn't
+wired into the renderer yet). It keeps four cascades at 0.5, 1, 2 and 4 m spacing. Each is a
+box of cells, 32 × 16 × 32 at `ProbeQuality.High`, 24 × 12 × 24 at `Medium` and 16 × 8 × 16 at
+`Low`. A cell's index is `floor(position / spacing)`, and a probe sits at the cell index times
+the spacing, so probes keep their world positions however the box moves. `Move` snaps each
+cascade so the camera's cell is the one at index count / 2 from the origin; the camera therefore
+has to cross a whole spacing before that cascade moves. Slots are toroidal: a cell's slot is its
+index modulo the box size on each axis, taken positive, with x fastest. A move of n cells along
+one axis replaces only the n slices that fell off the far side, and those are the slots
+`ScrollResult.NewSlots` lists, to be captured again. A move of a whole box width or more along
+any axis, and the first move, makes the whole cascade new (`Teleported`). `Finest(p)` picks the
+first cascade where, on every axis, `(Origin + 1) * spacing <= p < (Origin + count - 1) * spacing`,
+so the lookup's eight probes are always inside the box; -1 means none holds the point. The shader
+repeats this rule and the slot maths.
+
 ## Lightmap UVs
 
 `LightmapUnwrap.Unwrap` gives a mesh a second UV set (`Vertex.Uv2`) for baked lighting, and

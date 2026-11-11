@@ -1365,3 +1365,16 @@ public struct Subsurface
         return null;
     }
 }
+
+/// <summary>How many light probes follow the camera, and so how much ground they cover and how much they cost.</summary>
+public enum ProbeQuality
+{
+    /// <summary>Four cascades of 16 × 8 × 16 probes.</summary>
+    Low,
+
+    /// <summary>Four cascades of 24 × 12 × 24 probes.</summary>
+    Medium,
+
+    /// <summary>Four cascades of 32 × 16 × 32 probes.</summary>
+    High
+}
