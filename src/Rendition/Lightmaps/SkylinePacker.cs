@@ -51,7 +51,7 @@ public static class SkylinePacker
             if (rectangles[i].Width <= 0 || rectangles[i].Height <= 0)
             {
                 throw new ArgumentException(
-                    $"rectangle {i} must have an area, not {rectangles[i].Width}x{rectangles[i].Height}.",
+                    $"Rectangle {i} must have an area, not {rectangles[i].Width}x{rectangles[i].Height}.",
                     nameof(rectangles));
             }
 

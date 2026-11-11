@@ -104,6 +104,24 @@ public class SkylinePackerTests
     }
 
     [Fact]
+    public void Rests_a_wide_rectangle_on_the_highest_step_it_spans()
+    {
+        // The 10x10 goes at the left and the 10x4 beside it, so the skyline is 10 high on
+        // the left and 4 high on the right. The 20x3 spans both and must sit at 10.
+        var at = new (int X, int Y)[3];
+        Assert.True(SkylinePacker.TryPack([(10, 10), (10, 4), (20, 3)], 20, 64, gutter: 0, at));
+        Assert.Equal(new[] { (0, 0), (10, 0), (0, 10) }, at);
+    }
+
+    [Fact]
+    public void Says_when_they_dont_fit_in_height() =>
+        Assert.False(SkylinePacker.TryPack([(10, 40), (10, 40)], 10, 64, gutter: 0, new (int, int)[2]));
+
+    [Fact]
+    public void Fits_a_rectangle_as_big_as_the_page_whatever_the_gutter() =>
+        Assert.True(SkylinePacker.TryPack([(64, 64)], 64, 64, gutter: 2, new (int, int)[1]));
+
+    [Fact]
     public void Packs_nothing_into_any_page()
     {
         Assert.True(SkylinePacker.TryPack([], 64, 64, gutter: 2, Span<(int, int)>.Empty));
@@ -114,7 +132,7 @@ public class SkylinePackerTests
     {
         var thrown = Assert.Throws<ArgumentException>(() =>
             SkylinePacker.TryPack([(0, 5)], 64, 64, gutter: 0, new (int, int)[1]));
-        Assert.Contains("rectangle 0", thrown.Message);
+        Assert.StartsWith("Rectangle 0 must have an area, not 0x5.", thrown.Message);
     }
 
     [Fact]
