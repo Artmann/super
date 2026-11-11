@@ -2349,8 +2349,9 @@ trace; GLFW is only terminated when the last fixture goes, since that closes eve
 
 Device setup is in `VulkanContext.CreateDevice` (see above): ray queries are on only where nothing is
 missing, `Renderer.CanTrace` says so, and `Renderer.NoTraceReason` says what was missing. Super
-prints `Ray tracing is off (reason).` at start when it is off, and `--debug-view trace` turns that
-reason into the start-up error. Nothing else needs it, so a GPU that can't trace plays as before.
+prints nothing at start about it: the reason is only shown when something that needs tracing is
+asked for, which today is `--debug-view trace`, whose start-up error carries it. Nothing else
+needs it, so a GPU that can't trace plays as before.
 
 `Renderer.Tracing` is a `RayTracing`, made only where `VulkanContext.CanTrace` is true; it is
 null everywhere else, and nothing below runs. It loads `KhrAccelerationStructure` from the device
@@ -2482,9 +2483,11 @@ depth of field and auto exposure, and sets bit 30 of `frame.off` (`OFF_DEBUG_VIE
 exposure, grade or curve, and `finish.frag` skips sharpening, the vignette and grain, keeping
 only the dither. Asking for it where the device can't trace throws an `InvalidOperationException`
 that names `NoTraceReason`. Puddles and surface shaders aren't geometry, so the view doesn't show
-them. Super sets it from `--debug-view trace` through `SceneRenderer.DebugView`; `Game` checks
-`CanTrace` before anything plays and exits with code 1 and the error above if it is false, rather
-than failing on the first frame.
+them. Super sets it from `--debug-view trace` through `SceneRenderer.DebugView`. Before anything
+plays, `Game` asks `GameArguments.DebugViewError` whether the view can be shown; where `CanTrace`
+is false it prints its own sentence to stderr, `--debug-view trace needs a GPU that can trace
+rays, and this one can't (reason).` with `NoTraceReason` as the reason, and exits with code 1, so
+the renderer's exception is never reached.
 
 ### What a hit skips, and what is known to be rough
 

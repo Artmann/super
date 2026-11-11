@@ -170,6 +170,20 @@ internal sealed record GameArguments(
             renderScale, upscaler, noTrace, debugView);
     }
 
+    /// <summary>
+    /// The start-up error for a debug view the GPU can't show, or null when it can. The trace view needs a GPU that
+    /// can trace rays, and the error carries why this one can't, such as "turned off with --no-trace".
+    /// </summary>
+    internal static string? DebugViewError(Rendition.DebugView view, bool canTrace, string? noTraceReason)
+    {
+        if (view == Rendition.DebugView.Trace && !canTrace)
+        {
+            return $"--debug-view trace needs a GPU that can trace rays, and this one can't ({noTraceReason}).";
+        }
+
+        return null;
+    }
+
     private static Rendition.DebugView DebugViewName(ReadOnlySpan<string> args, int index)
     {
         string text = Value(args, index, "--debug-view");

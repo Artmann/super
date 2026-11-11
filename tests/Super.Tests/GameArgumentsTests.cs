@@ -88,6 +88,26 @@ public class GameArgumentsTests
     }
 
     [Fact]
+    public void The_trace_view_on_a_GPU_that_cant_trace_names_the_reason()
+    {
+        Assert.Equal(
+            "--debug-view trace needs a GPU that can trace rays, and this one can't (turned off with --no-trace).",
+            GameArguments.DebugViewError(Rendition.DebugView.Trace, canTrace: false, "turned off with --no-trace"));
+    }
+
+    [Fact]
+    public void The_trace_view_on_a_GPU_that_can_trace_is_no_error()
+    {
+        Assert.Null(GameArguments.DebugViewError(Rendition.DebugView.Trace, canTrace: true, null));
+    }
+
+    [Fact]
+    public void No_debug_view_is_no_error_even_without_tracing()
+    {
+        Assert.Null(GameArguments.DebugViewError(Rendition.DebugView.None, canTrace: false, "no VK_KHR_ray_query"));
+    }
+
+    [Fact]
     public void Reads_no_vsync()
     {
         Assert.True(GameArguments.Parse(["--no-vsync"]).NoVsync);
