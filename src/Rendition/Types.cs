@@ -354,6 +354,13 @@ public struct DrawItem
     /// under anti-aliasing. See "Motion vectors" in docs/rendering.md.
     /// </summary>
     public int? Key;
+
+    /// <summary>
+    /// Marks this draw as static scenery that a bake may cover, with an id made by <see cref="BakeIds.Of"/> that stays the
+    /// same from run to run. Zero, the default, means not static. A static draw can't have <see cref="Bones"/> or
+    /// <see cref="Swim"/>. Nothing reads it yet besides that check. See "Bake ids" in docs/design.md.
+    /// </summary>
+    public ulong BakeId;
 }
 
 /// <summary>A run of a frame's bone matrices. A count of zero means no skinning.</summary>

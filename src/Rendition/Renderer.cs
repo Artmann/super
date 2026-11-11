@@ -1401,6 +1401,7 @@ public sealed unsafe class Renderer : IDisposable
 
         // Checked before anything is recorded, so a decal that can't be drawn throws with the frame untouched.
         PrepareDecals(view);
+        BakeIds.CheckStaticDraws(draws);
         BakeSky(view);
         CaptureLightProbes(view, draws);
 

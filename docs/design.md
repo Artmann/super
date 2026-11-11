@@ -2462,6 +2462,37 @@ material for tests to draw or trace with, and `RenderOneFrame` renders one frame
 which also runs every queued upload. A test can make a fixture of its own, such as one whose device can't
 trace; GLFW is only terminated when the last fixture goes, since that closes every window.
 
+## Bake ids
+
+A bake stores light per static draw, so each one needs a name that is the same in every run,
+on every machine, whatever order the draws come in. `DrawItem.BakeId` is that name. Zero means
+the draw isn't static, so every existing draw stays out of any bake. Nothing reads the id yet
+except the check below.
+
+`StableHasher` (`src/Rendition/Baking/StableHasher.cs`) makes the hashes. It feeds
+little-endian bytes to XxHash64 with seed 0, from the `System.IO.Hashing` package. `HashCode`
+and `string.GetHashCode` are seeded per process, so they can't be used for anything kept
+between runs. A float is divided by `StableHasher.Step`, a tenth of a millimetre, rounded to
+the nearest whole number in double precision, and that number is hashed. Floats are never
+hashed as text, so culture can't change a hash. Rounding makes negative zero hash as zero,
+and values a hair apart, such as a transform read back from a file, hash the same. Two values
+just either side of a rounding boundary still hash differently; that is accepted, since it
+only costs a rebake. A `Vector3` is its three floats and a `Matrix4x4` its sixteen, row by
+row. A string is its UTF-8 length and then its bytes, so `"ab"` then `"c"` differs from `"a"`
+then `"bc"`.
+
+`BakeIds.Of(instanceHash, part)` (`src/Rendition/Baking/BakeIds.cs`) turns an instance's hash
+and a part number into an id. It sets bit 63, so an id is never zero, and puts the part in
+the low 12 bits. `BakeIds.Instance` clears those bits, giving the same value for every part of
+one instance, and `BakeIds.Part` reads them back. A part runs from 0 to `BakeIds.MaxParts`,
+4095, and `Of` throws `ArgumentOutOfRangeException` past that.
+
+A static draw is held where it stands by its bake, so it can't move on its own. `Render`, and
+`Capture` through it, throw `ArgumentException` for a draw with a bake id and bones, or one
+with a bake id and a swim of nonzero amplitude, naming the draw and its id. The check runs
+next to the decal check, before the frame waits on its fence or records anything, so the
+renderer is left ready for the next frame. It reads one field per draw when no draw is static.
+
 ## Ray tracing
 
 Device setup is in `VulkanContext.CreateDevice` (see above): ray queries are on only where nothing is
