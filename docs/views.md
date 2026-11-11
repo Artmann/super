@@ -55,13 +55,19 @@ component on its entity instead. See [Audio](audio.md).
 | `view.Camera(position, lookAt, fieldOfView)` | A fixed camera. See [Cameras](cameras.md) for the rest |
 | `view.Camera(camera)` | A `Camera` value the game keeps |
 | `view.Sun(direction, color, shadows)` | A directional light. `color` is linear and can go past 1. The first sun casts shadows unless `shadows: true` picks another |
-| `view.PointLight(key, position, color, range, shadows, radius)` | A light shining every way, like a candle or a torch. See [Point and spot lights](rendering.md#point-and-spot-lights) |
-| `view.SpotLight(key, position, direction, color, range, innerAngle, outerAngle, shadows, radius)` | A light shining in a cone, like a lantern's beam |
+| `view.PointLight(key, position, color, range, shadows, radius, volumetric)` | A light shining every way, like a candle or a torch. See [Point and spot lights](rendering.md#point-and-spot-lights) |
+| `view.SpotLight(key, position, direction, color, range, innerAngle, outerAngle, shadows, radius, volumetric)` | A light shining in a cone, like a lantern's beam |
 | `view.Model(key, model, transform, color)` | A model. `color`, if given, tints it and keeps its textures. `ModelRef.Cube`, `Sphere`, `Capsule`, `Cylinder`, `Cone`, `Plane`, `Quad` and `Torus` are [built in](rendering.md#built-in-shapes) |
 | `view.Model(key, model, transform, meshes)` | Only the meshes a `MeshMask` shows, such as a body without its helmet. See [Showing some meshes](#showing-some-meshes) |
+| `view.Decal(key, box, material, blend)` | Grime, damp or a stain projected onto whatever is inside a box. Up to 256 a frame. See [Decals](#decals) |
 | `view.Ghost(key, model, transform, color, opacity)` | A model in one colour that glows a little, as a [preview of where something will go](rendering.md#ghosts) |
-| `view.Shadows(radius, cascades)` | How far shadows reach. See [Rendering](rendering.md#shadows) |
+| `view.Shadows(radius, cascades, sunSize, contact)` | How far shadows reach, how soft they are, and how far contact shadows look where things meet the ground. See [Rendering](rendering.md#shadows) |
+| `view.AmbientOcclusion(radius, strength)` | How far corners and creases reach out to darken the soft light, and how dark. See [Rendering](rendering.md#ambient-occlusion) |
+| `view.LightProbes(min, max, spacing)` | A box of light probes that gives what's inside light bounced off the walls and ground. See [Rendering](rendering.md#bounced-light) |
+| `view.ReflectionProbe(key, position, boxMin, boxMax, blend)` | A photograph of the scene from one spot, which shiny surfaces and glass in its box reflect. Up to 4 a frame. See [Rendering](rendering.md#reflections) |
 | `view.Water(settings)` | Puts the camera underwater. See [Rendering](rendering.md#water) |
+| `view.Puddles(level, band)` | Lets water stand below `level` on materials that ask for puddles, damp for `band` metres above. See [Rendering](rendering.md#puddles) |
+| `view.Wind(direction, strength, gustiness)` | A breeze that sways grass and leaves on materials that ask for wind, leaning grass 1 m tall `strength` metres downwind, with gusts from 0 for steady to 1. See [Rendering](rendering.md#wind) |
 | `view.Finish(settings)` | Exposure, contrast, vignette and other [post-processing](rendering.md#the-look-of-the-picture) |
 | `view.Models(world)` | Every entity with a model, from [`Super.Ecs`](ecs.md#drawing-entities) |
 
@@ -100,10 +106,13 @@ A key names something across frames, like a `key` in React. Super uses it for vi
 memory, and particles use it as their seed. A test can find a model draw by its key in
 `run.Drawn`. Use a stable ID from your game, and the same one every frame.
 
-The renderer doesn't read model keys, so two models that share a key draw fine. Keys
-don't need to be unique across a game, and there's no limit on how many you use. A
-grid of tiles can pass the tile's index, and a building and its ghost can both pass the
-building's ID.
+Two models that share a key draw fine. Keys don't need to be unique across a game, and
+there's no limit on how many you use. A grid of tiles can pass the tile's index, and a
+building and its ghost can both pass the building's ID. The renderer uses a model's key
+to find where it stood last frame, for [motion vectors](rendering.md#motion-vectors), so
+a model that moves keeps a sharp edge if its key is its own. Models that share a key and
+stand in different places look as they would without motion vectors: a little softer
+while they move.
 
 View memory also belongs to the line of code asking, like the order of hooks in React.
 So a lid and a latch on one box can both use the box's ID, and a box and a tree with the
@@ -340,7 +349,7 @@ allocates nothing.
 ### How they look
 
 Particles are lit by the sun, the sky and point and spot lights, shaded by the sun's
-shadows, fade into haze and melt softly into the ground and anything they touch. A
+shadows, sit in the fog, fade into haze and melt softly into the ground and anything they touch. A
 glowing particle gives off its own light on top, but doesn't light what's round it: put
 a `view.PointLight` at a fire for that. They cast no shadow, and underwater
 they fade with distance but miss the shafts of light. They're sorted with
@@ -348,6 +357,87 @@ they fade with distance but miss the shafts of light. They're sorted with
 seen through it. `Cached` keeps only
 models, so draw particles outside it. A frame holds at most 32,768 particles; more
 are dropped. The `Dust` example drops trees in a clearing.
+
+## Decals
+
+A decal lays a material onto whatever is already drawn inside a box: damp rising up a
+wall, a puddle stain on a floor, rust run down from a bolt. The box's matrix places, turns
+and sizes it, and the material is projected along the box's own −Y, so its +Y should look
+out of the surface. The material's U runs along the box's X and its V runs against its Z,
+each across the whole box, from −0.5 to 0.5 in the box's own units. Its normal map reads
+as it does on a mesh, with green pointing the way V falls, towards the box's +Z, and a
+mirrored box reads it the same way. A material graph is the usual material, loaded on its
+own with `content.Surface`:
+
+```csharp
+Surface damp = content.Surface("materials/grime.material.cs");
+
+// A metre wide, half a metre high, on a wall that faces +Z. Its +Y looks out of the wall,
+// and its +Z points down, so V is 0 at the bottom edge.
+Matrix4x4 box = new(
+    1f, 0f, 0f, 0f,
+    0f, 0f, 0.2f, 0f,
+    0f, -0.5f, 0f, 0f,
+    2f, 0.6f, -3.98f, 1f);
+
+view.Decal(DampKey, box, damp);
+```
+
+The material's opacity fades the decal: a graph's `Opacity`, or the alpha of a colour
+texture. Where it shows, the decal blends its colour over the surface, makes it as rough
+as its own roughness, and lays its bumps over the surface's own, so a brick wall's edges
+and mortar still show through the damp. Lighting, shadows, ambient occlusion and
+reflections all see the result. It also fades where the surface turns away from the box's
++Y, so a box over a corner stains the wall and not the floor below it, and over the last
+fifth of the box's depth at either end.
+
+`DecalBlend` sets how much of each part goes on, each from 0 to 1:
+
+| Field | Default | What it does |
+| --- | --- | --- |
+| `Color` | 1 | How much of the decal's colour covers the surface's |
+| `Normal` | 1 | How much of its bumps are laid on. 0 keeps the surface's bumps alone |
+| `Roughness` | 1 | How far the surface's roughness moves to the decal's. A wet stain is smoother, a dusty one rougher |
+| `AngleFade` | 0.5 | How far the surface can turn from the box's +Y before the decal fades. It's gone where the cosine of the angle is below this, and whole halfway from there to facing +Y. At 0.5 it fades from about 41° and is gone at 60°. At 0 it fades from 60° and is gone only where the surface is side-on |
+
+```csharp
+// Darkens the bricks but keeps them their own roughness.
+view.Decal(SootKey, box, soot, new DecalBlend { Roughness = 0f });
+```
+
+A surface's `Color` tints the decal's colour, so `damp with { Color = new Vector3(0.6f) }`
+lays the same stain darker. Each different surface gets a material of its own the first
+time a decal uses it. Make them once in `Load` rather than a new one each frame: past 512,
+the ones the frame didn't use are let go and made again when next used.
+
+A view refuses, with a message naming what's wrong:
+
+- more than 256 decals in a frame;
+- a key used twice in a frame;
+- a box squashed flat on any axis, or holding a number that isn't finite, since it can't be
+  inverted;
+- a `DecalBlend` field outside 0 to 1;
+- a surface with a [surface shader](rendering.md#surface-shaders), since a decal draws only
+  textures;
+- a surface naming a texture its content doesn't have.
+
+[`Graphics.Decals`](rendering.md#graphics-settings) turns them all off, and
+`Graphics.Fastest()` does too. The Courtyard lays its damp, the dirty water under its sill
+and the rust under its anchor plates as decals, and the gravel kicked off its path into the
+mud along both arms and round the barrel. D turns them off and on there.
+
+![The foot of the Courtyard's brick wall under the window, before and after. On the left the damp is a dithered quad on the wall and shows only faintly. On the right it is a decal that darkens the bricks and the mortar above the plinth and fades upward in streaks, while the bricks' edges still show through](media/decals.webp)
+
+Decals have some limits:
+
+- Where two decals overlap, both colours show, but the later one's bumps and roughness
+  replace the earlier one's.
+- A decal can't change how metallic a surface is or make it glow.
+- A decal's material uses its colour, normal and surface textures, and its colour,
+  roughness and opacity. Its detail textures, height map and world variation are ignored.
+- On strongly bumped surfaces, the fade by angle follows the bumps, so near the limit it
+  fades in specks.
+- Probes see decals, but moving or adding one doesn't photograph them again.
 
 ## Planned
 

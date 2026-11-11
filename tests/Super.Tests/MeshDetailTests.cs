@@ -46,6 +46,22 @@ public sealed class MeshDetailTests
     private static DetailView View(float maxError = 1f) => new(Camera, new Vector3(0f, 0f, 10f), 500f, 0f, maxError);
 
     [Fact]
+    public void A_part_knows_its_lowest_height_for_the_wind()
+    {
+        // The grid runs from 0 to 1 up y; lifted 2.5 and with only its upper half as the part, its foot is at 3.
+        var (vertices, indices) = Grid(4);
+        for (int i = 0; i < vertices.Length; i++)
+        {
+            vertices[i].Position += new Vector3(0f, 2.5f, 0f);
+        }
+
+        uint[] upperHalf = indices[(indices.Length / 2)..];
+
+        Assert.Equal(3f, MeshDetail.Build(vertices, upperHalf, []).MinY, 1e-5f);
+        Assert.Equal(3f, MeshDetail.Full(vertices, upperHalf).MinY, 1e-5f);
+    }
+
+    [Fact]
     public void Simplifying_uses_fewer_triangles_of_the_same_vertices()
     {
         var (vertices, indices) = Grid(32);
@@ -133,6 +149,63 @@ public sealed class MeshDetailTests
         DrawItem[] draws = [At(new Vector3(10.5f, 0f, 0f)) with { Swim = new SwimMotion(1f, 1f, 0f) }];
 
         Assert.Equal(1, DrawSelection.Select(View(), draws, Details(0.1f), new DrawItem[1]));
+    }
+
+    // At x = 10.5 a ball must reach about 0.354 (0.5 / √2) to touch the 90° view. A sway of 0.5 adds 0.52 at the tip.
+    [Fact]
+    public void A_swaying_draw_just_outside_the_view_is_kept_while_its_sway_could_bring_it_in()
+    {
+        DrawItem[] draws = [At(new Vector3(10.5f, 0f, 0f))];
+
+        Assert.Equal(1, DrawSelection.Select(View(), draws, Details(0.1f), new DrawItem[1], new WindReach(0.5f, _ => 1f)));
+    }
+
+    [Fact]
+    public void The_same_draw_is_culled_in_a_calm_or_when_its_material_stands_still()
+    {
+        DrawItem[] draws = [At(new Vector3(10.5f, 0f, 0f))];
+
+        Assert.Equal(0, DrawSelection.Select(View(), draws, Details(0.1f), new DrawItem[1], new WindReach(0f, _ => 1f)));
+        Assert.Equal(0, DrawSelection.Select(View(), draws, Details(0.1f), new DrawItem[1], new WindReach(0.5f, _ => 0f)));
+    }
+
+    [Fact]
+    public void The_sway_is_in_world_metres_so_a_shrunken_draw_reaches_as_far()
+    {
+        // Shrunk to a hundredth, a radius of 10 is 0.1 in the world. Scaling the 0.52 of sway too would leave 0.105.
+        DrawItem[] draws = [At(new Vector3(10.5f, 0f, 0f)) with
+        {
+            Transform = Matrix4x4.CreateScale(0.01f) * Matrix4x4.CreateTranslation(10.5f, 0f, 0f),
+        }];
+
+        Assert.Equal(1, DrawSelection.Select(View(), draws, Details(10f), new DrawItem[1], new WindReach(0.5f, _ => 1f)));
+    }
+
+    [Fact]
+    public void The_wind_does_not_change_which_simpler_version_is_picked()
+    {
+        // 0.0195 off, 10 − 0.1 away, is 0.0195 × 500 / 9.9 ≈ 0.985 pixels, inside 1, so the simpler version is used.
+        // Were the 0.52 of sway taken off the distance too, it would be 0.0195 × 500 / 9.38 ≈ 1.04 and stay in full.
+        DrawItem[] draws = [At(Vector3.Zero)];
+        var details = Details(0.1f, new DetailLevel(300, 60, 0.0195f));
+        var selected = new DrawItem[1];
+
+        DrawSelection.Select(View(), draws, details, selected, new WindReach(0.5f, _ => 1f));
+
+        Assert.Equal(60u, selected[0].IndexCount);
+    }
+
+    [Fact]
+    public void Shadow_caster_balls_grow_by_how_far_the_draw_can_sway()
+    {
+        // 0.1 of part, plus 0.5 × 0.5 of lean and 0.02 of flutter.
+        DrawItem[] draws = [At(new Vector3(1f, 2f, 3f))];
+        var bounds = new Vector4[1];
+
+        DrawSelection.Bounds(draws, Details(0.1f), bounds, new WindReach(0.5f, _ => 0.5f));
+
+        Assert.Equal(new Vector3(1f, 2f, 3f), new Vector3(bounds[0].X, bounds[0].Y, bounds[0].Z));
+        Assert.Equal(0.37f, bounds[0].W, 1e-6f);
     }
 
     [Fact]

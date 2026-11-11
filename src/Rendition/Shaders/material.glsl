@@ -8,6 +8,8 @@ layout(push_constant) uniform Draw {
     float swimPhase;
     int cascade;
     int firstBone;
+    float windBase; // the lowest height of the draw's part, in its own space; see wind.glsl
+    float windSway; // the material's share of the wind's lean, 0 to stand still
 } draw;
 
 // How brightly a ghost glows, so its colour reads in shadow and on the dark side.

@@ -39,6 +39,31 @@ float tileDepth(float away, ShadowTile tile) {
     return n * (f - away) / (away * (f - n));
 }
 
+// One tap of a light's shadow at a point in the air, for the volumetric fog: there's no
+// surface to lift off, and the fog softens the edge over frames. Returns 1 for fully lit.
+float localShadowInAir(LocalLight light, vec3 position) {
+    int index = localShadowTile(light, position);
+    if (index < 0) {
+        return 1.0;
+    }
+
+    ShadowTile tile = shadowTiles[index];
+    vec4 projected = tile.matrix * vec4(position, 1.0);
+    float receiver = projected.w;
+    if (receiver <= tile.depth.x) {
+        return 1.0;
+    }
+
+    float atlasTexel = 1.0 / float(textureSize(shadowAtlasCompare, 0).x);
+    float texelMetres = 2.0 * receiver / (tile.depth.z * tile.rect.z / atlasTexel);
+    vec2 uv = tile.rect.xy + (projected.xy / receiver * 0.5 + 0.5) * tile.rect.zw;
+    vec2 low = tile.rect.xy + 0.5 * atlasTexel;
+    vec2 high = tile.rect.xy + tile.rect.zw - 0.5 * atlasTexel;
+    float reference = tileDepth(max(receiver - 2.0 * texelMetres, tile.depth.x), tile);
+    return textureLod(shadowAtlasCompare, vec3(clamp(uv, low, high), reference), 0.0);
+}
+
+#ifndef VOLUMETRIC_WRITER
 // Soft shadow that is sharp where an object touches the surface and blurs with distance,
 // as the suns' is: blockers are found first, and how far they are from the surface sets
 // the blur. Returns 1 for fully lit.
@@ -94,3 +119,4 @@ float localShadow(LocalLight light, vec3 position, vec3 n, vec3 l) {
     }
     return visibility / float(LOCAL_SHADOW_SAMPLES);
 }
+#endif

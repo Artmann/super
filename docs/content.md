@@ -221,7 +221,8 @@ it uses. `Only` on a `SuperContent` item takes globs split by semicolons:
 ```
 
 A model still reads the textures beside it when they're left out, but naming a file `Only`
-left out fails like any name that wasn't cooked. See
+left out fails like any name that wasn't cooked. A texture a model's `shaderTextures` names
+is loaded by name, so the cook stops unless `Only` picks it too. See
 [cooking part of a root](command-line.md#cooking-part-of-a-root).
 
 Every file is an asset, chosen by its extension:
@@ -232,6 +233,11 @@ Every file is an asset, chosen by its extension:
 | `.png` `.jpg` `.jpeg` `.tga` | texture | Decoded RGBA pixels, sRGB unless set linear. Mips are made when it loads |
 | `.wav` `.ogg` `.mp3` | sound | The file itself, once it decodes |
 | `.glb` `.gltf` `.fbx` `.obj` | model | `.rmodel`, through `Super.Cook.Models` |
+| `.material.cs` | material | A [material graph](materials.md), compiled and run into `#color`, `#normal`, `#surface` and `#height` textures and a `#material` data part |
+
+The longest matching extension wins, so `bricks.material.cs` is a material graph, not
+code. A graph cooks at 1024 pixels unless a rule sets its `size`; see
+[Material graphs](materials.md#size).
 
 A file with no cooker fails the cook unless a rule turns cooking off for it. Files and
 folders whose names start with a dot, `.bin`, `.md` and `.txt` are never assets.
@@ -288,6 +294,52 @@ Naming a part that isn't there lists the ones that are:
 archer-props/firs.glb#tal isn't in the cooked content. Check the name, including its case and extension. archer-props/firs.glb has the parts: tall, young.
 ```
 
+### Materials
+
+A material graph is named with `content.Surface("materials/bricks.material.cs")`, which
+gives a `Surface` with the graph's textures and its width in metres as `TileWidth`. Naming
+it again gives the same surface without reading the material again, so it's fine to call
+while drawing. Unloading one of its textures makes the next call read it afresh. It stops
+with a `ContentException` for a name that has no `#material` part, or whose width isn't a
+positive number. See
+[materials.md](materials.md).
+
+### Shaders on models
+
+A model sidecar's material rule can name a surface shader with `shader`, its parameters with
+`shaderParameters` and up to 4 cooked textures with `shaderTextures`. The model keeps the names,
+and loading it loads the shader and the textures too, so a missing one is reported when the
+model loads. See [A surface shader on a model](rendering.md#a-surface-shader-on-a-model).
+
+### Wear and dirt on models
+
+A model sidecar's material rule with `"bakeMasks": true` bakes curvature, occlusion and
+height masks from the material's meshes into a texture the model points to, stored like
+its other textures as a shared object, and its
+`wear` and `dirt` layers, each an sRGB `color`, an optional `roughness` and an `amount`
+from 0 to 1, are laid on by them. The masks go in the mesh's second UV set, so
+every mesh of the material needs one whose islands don't overlap. See
+[Wear and dirt](rendering.md#wear-and-dirt).
+
+### Puddles on models
+
+A model sidecar's material rule with `"puddles": true` lets water stand on the material
+below the level the game sets with `view.Puddles`, and makes it damp for a band above.
+It changes only a flag on the cooked material, so the textures are the same. See
+[Puddles](rendering.md#puddles).
+
+### Foliage and wind on models
+
+A rule's `"foliage": true` marks a tree's leaves, which let 0.6 of the sunlight through from
+behind; `"foliage": { "translucency": 0.85 }` sets that share, from 0 to 1, and
+`"crown": false` keeps the model's own normals instead of pointing them out of one crown. A rule's
+`"wind": true` sways the material in the breeze the game sets with `view.Wind`, and
+`"wind": { "sway": 0.08 }` gives it a share of the lean, 0 or more. Each is `true`, `false`
+or an object; a number or a value out of range stops the cook with the material's name, such
+as `material leaf: foliage translucency 1.2 must be from 0 to 1.`. Both are kept on the cooked
+material, so the textures are the same. See [Models](rendering.md#models) and
+[Wind](rendering.md#wind).
+
 ### Mesh names
 
 A rigged model keeps the name of each of its meshes: the name of the node that holds the
@@ -333,8 +385,8 @@ without it knows it's shipped. There is nothing to add to the project for it.
 ## In tests
 
 A test can state its sources next to its checks. `MemoryContent` cooks them in memory
-with the built-in cookers the first time anything is read, so a test sees what a game
-would, and JSON that doesn't parse fails with the cook's message:
+with the built-in cookers and the material cooker the first time anything is read, so a
+test sees what a game would, and JSON that doesn't parse fails with the cook's message:
 
 ```csharp
 var files = new MemoryContent { ["items/axe.json"] = axeJson };

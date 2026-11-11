@@ -1,0 +1,126 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#define VOLUMETRIC_WRITER
+#include "common.glsl"
+#include "brdf.glsl"
+#include "sampling.glsl"
+#include "light_data.glsl"
+#include "local_shadows.glsl"
+#include "sky.glsl"
+#include "fog.glsl"
+
+// Lights each cell of the volumetric fog: how much light its air takes per metre, from the
+// height fog, and the light it sends towards the camera, from the sky, each sun through its
+// shadow and each point and spot light through its shadow where it has one. The point the
+// cell is lit at moves through its depth over 8 frames, and 90% of the result is last
+// frame's, found where the cell was then, so the slices blur into a smooth whole.
+// See "Volumetric fog" in docs/design.md.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 1, binding = 0) uniform sampler2DArrayShadow sunShadow;
+layout(set = 1, binding = 1) uniform samplerCube skyTexture;
+layout(set = 1, binding = 2) uniform sampler3D history;
+layout(set = 1, binding = 3, rgba16f) uniform writeonly image3D injected;
+
+// Where in its cell's depth this frame lights it: the base-2 van der Corput sequence of 8,
+// from the frame number, so a fixed frame number lights the same points.
+float depthJitter(int frameNumber) {
+    uint step = uint(frameNumber) & 7u;
+    return (float(bitfieldReverse(step) >> 29) + 0.5) / 8.0;
+}
+
+// The sun's shadow at a point in the air, from the first cascade that holds it, one tap:
+// the air has no surface to lift off and the fog softens the edge over frames. It fades out
+// with distance as the surfaces' shadows do.
+float sunShadowInAir(vec3 position) {
+    for (int c = 0; c < frame.shadowCascades; c++) {
+        vec4 projected = frame.shadowMatrices[c] * vec4(position, 1.0);
+        vec2 uv = projected.xy * 0.5 + 0.5;
+        if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0))) || projected.z <= 0.0 || projected.z >= 1.0) {
+            continue;
+        }
+
+        float texel = 1.0 / float(textureSize(sunShadow, 0).x);
+        float reference = projected.z + 2.0 * texel * frame.shadowDepthScales[c];
+        float lit = textureGrad(sunShadow, vec4(uv, float(c), reference), vec2(0.0), vec2(0.0));
+        float distance = length(position - frame.cameraPosition.xyz);
+        float fadeOut = frame.shadowFade.x < frame.shadowFade.y
+            ? smoothstep(frame.shadowFade.x, frame.shadowFade.y, distance) : 0.0;
+        return mix(lit, 1.0, fadeOut);
+    }
+
+    return 1.0;
+}
+
+// Whether a view-projection is parallel: its w doesn't change with the point.
+bool parallelProjection(mat4 m) {
+    return abs(m[0][3]) + abs(m[1][3]) + abs(m[2][3]) < 1e-6;
+}
+
+void main() {
+    ivec3 size = imageSize(injected);
+    ivec3 cell = ivec3(gl_GlobalInvocationID);
+    if (any(greaterThanEqual(cell, size))) {
+        return;
+    }
+
+    vec2 uv = (vec2(cell.xy) + 0.5) / vec2(size.xy);
+    vec3 origin;
+    vec3 along;
+    volumetricRay(uv, origin, along);
+    float depth = mix(volumetricCellStart(cell.z), volumetricCellStart(cell.z + 1), depthJitter(frame.frameNumber));
+    vec3 position = origin + along * depth;
+    vec3 towards = normalize(along);
+    float g = frame.volumetric.z;
+
+    vec3 light = fogSkyLight(skyTexture, towards);
+    for (int i = 0; i < frame.lightCount; i++) {
+        vec3 l = frame.lights[i].direction.xyz;
+        float shadow = frame.lights[i].direction.w > 0.5 ? sunShadowInAir(position) : 1.0;
+        light += frame.lights[i].radiance.rgb * shadow * volumetricPhase(dot(towards, l), g);
+    }
+
+    if (frame.localLightCount > 0) {
+        uvec2 tile = min(uvec2(uv * vec2(CLUSTER_X, CLUSTER_Y)), uvec2(CLUSTER_X - 1, CLUSTER_Y - 1));
+        uint cluster = (clusterSlice(depth) * CLUSTER_Y + tile.y) * CLUSTER_X + tile.x;
+        uint count = clusterLightCount(cluster);
+        for (uint i = 0u; i < count; i++) {
+            LocalLight local = localLights[clusterLight(cluster, i)];
+            float strength = local.fade.z;
+            if (strength <= 0.0) {
+                continue;
+            }
+
+            vec3 l;
+            float reaching = localLightReaching(local, position, l);
+            if (reaching <= 0.0) {
+                continue;
+            }
+
+            float shadow = local.radianceShadow.w >= 0.0 ? localShadowInAir(local, position) : 1.0;
+            light += local.radianceShadow.rgb * reaching * shadow * strength * volumetricPhase(dot(towards, l), g);
+        }
+    }
+
+    vec4 value = vec4(light, fogDensity(position));
+
+    // Last frame's light for the same air, where it was in last frame's volume. Air that was
+    // off screen or outside the volume then has none, and takes this frame's.
+    if (frame.volumetric.w > 0.5) {
+        vec4 clip = frame.previousViewProjection * vec4(position, 1.0);
+        if (clip.w > 0.0) {
+            vec2 previousUv = clip.xy / clip.w * 0.5 + 0.5;
+            float previousDepth = parallelProjection(frame.previousViewProjection) ? depth : clip.w;
+            float previousCell = volumetricCellOf(previousDepth);
+            bool inside = all(greaterThanEqual(previousUv, vec2(0.0))) && all(lessThanEqual(previousUv, vec2(1.0)))
+                && previousDepth >= 0.0 && previousCell <= float(VOLUMETRIC_SLICES);
+            if (inside) {
+                vec4 before = textureLod(history, vec3(previousUv, previousCell / float(VOLUMETRIC_SLICES)), 0.0);
+                value = mix(value, before, VOLUMETRIC_HISTORY);
+            }
+        }
+    }
+
+    imageStore(injected, cell, value);
+}

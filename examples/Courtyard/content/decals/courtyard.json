@@ -1,0 +1,31 @@
+{
+  "id": "courtyard",
+  "decals": [
+    { "name": "barrel-ring", "material": "materials/stain.material.cs", "position": [0.2, 0.0, -3.25], "size": [1.55, 1.55, 0.4] },
+    { "name": "wheel-ring", "material": "materials/stain.material.cs", "position": [5.55, 0.01, -3.24], "size": [0.6, 0.45, 0.4], "turn": 8 },
+    { "name": "crate-ring", "material": "materials/stain-square.material.json", "position": [7.0, 0.085, -2.8], "size": [1.6, 1.6, 0.3], "turn": -6 },
+    { "name": "small-crate-ring", "material": "materials/stain-square.material.json", "position": [7.6, 0.085, -1.2], "size": [1.0, 1.0, 0.3], "turn": 22 },
+    { "name": "sack-ring", "material": "materials/stain.material.cs", "position": [6.3, 0.085, -2.95], "size": [0.85, 0.85, 0.3] },
+    { "name": "open-sack-ring", "material": "materials/stain.material.cs", "position": [6.34, 0.085, -2.42], "size": [0.8, 0.8, 0.3] },
+    { "name": "laid-sack-ring", "material": "materials/stain.material.cs", "position": [6.75, 0.085, -1.85], "size": [1.0, 0.75, 0.3], "turn": -115 },
+
+    { "name": "hoop-rust-left", "material": "materials/rust-streak.material.json", "position": [0.342, 1.28, -2.721], "size": [0.12, 0.36, 0.14], "facing": [0.259, 0, 0.966] },
+    { "name": "hoop-rust-right", "material": "materials/rust-streak.material.json", "position": [0.62, 1.28, -2.898], "size": [0.1, 0.3, 0.14], "facing": [0.766, 0, 0.643] },
+
+    { "name": "plinth-moss-left", "material": "materials/stain-moss.material.json", "position": [-1.0, 0.16, -3.66], "size": [0.45, 0.28, 0.3], "facing": [0, 0, 1], "turn": 180 },
+    { "name": "plinth-moss-middle", "material": "materials/stain-moss.material.json", "position": [1.7, 0.12, -3.66], "size": [0.35, 0.22, 0.3], "facing": [0, 0, 1], "turn": 180 },
+    { "name": "plinth-moss-right", "material": "materials/stain-moss.material.json", "position": [3.9, 0.14, -3.66], "size": [0.5, 0.25, 0.3], "facing": [0, 0, 1], "turn": 180 },
+    { "name": "dry-wall-moss-back", "material": "materials/stain-moss.material.json", "position": [-1.6, 0.22, -2.7], "size": [0.5, 0.3, 0.4], "facing": [1, 0, 0], "turn": 180 },
+    { "name": "dry-wall-moss-front", "material": "materials/stain-moss.material.json", "position": [-1.6, 0.14, -0.9], "size": [0.35, 0.22, 0.4], "facing": [1, 0, 0], "turn": 180 },
+    { "name": "joint-moss", "material": "materials/stain-moss.material.json", "position": [2.6, 0.02, -3.45], "size": [0.5, 0.4, 0.3], "turn": 30 },
+
+    { "name": "drainpipe-wet", "material": "materials/stain-water.material.json", "position": [7.05, 0.085, -3.4], "size": [0.7, 0.9, 0.3] },
+    { "name": "barrel-wet", "material": "materials/stain-water.material.json", "position": [0.8, 0.0, -2.7], "size": [0.7, 0.55, 0.4], "turn": 40 },
+    { "name": "path-wet", "material": "materials/stain-water.material.json", "position": [1.0, 0.03, -1.2], "size": [0.8, 0.6, 0.4], "turn": -20 },
+
+    { "name": "boot-print-1", "material": "materials/stain-boot.material.json", "position": [1.227, 0.03, -0.246], "size": [0.11, 0.3, 0.3], "turn": -149, "color": 0.95 },
+    { "name": "boot-print-2", "material": "materials/stain-boot.material.json", "position": [1.257, 0.03, 0.156], "size": [0.11, 0.3, 0.3], "turn": -149, "color": 0.8 },
+    { "name": "boot-print-3", "material": "materials/stain-boot.material.json", "position": [1.594, 0.03, 0.373], "size": [0.11, 0.3, 0.3], "turn": -149, "color": 0.6 },
+    { "name": "boot-print-4", "material": "materials/stain-boot.material.json", "position": [1.624, 0.03, 0.775], "size": [0.11, 0.3, 0.3], "turn": -149, "color": 0.4 }
+  ]
+}

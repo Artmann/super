@@ -113,7 +113,9 @@ any managed memory or produced any validation message. It also resizes the windo
 during the warm-up.
 
 To save a picture, use `--screenshot`. The camera can be placed with `--yaw`,
-`--pitch`, `--distance` and `--height`.
+`--pitch`, `--distance` and `--height`. `--probes` puts a light probe volume round
+the cube, to check bounced light. The probes don't follow the spin, so the turning
+cube shows dark streaks with it on.
 
 ```
 dotnet run -c Release --project src/Rendition.Sample -- --screenshot shot.png --model out/ford-gt.rmodel --yaw -2.4

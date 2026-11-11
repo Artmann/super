@@ -54,15 +54,32 @@ internal sealed unsafe class ResourceTable : IDisposable
 
         /// <summary>How far red, green and blue spread under the surface, in metres, and the widest of them in w.</summary>
         public Vector4 Subsurface;
+
+        public uint MaskTexture;
+
+        /// <summary>Unused, so wear lands on a 16-byte boundary.</summary>
+        public float MaskPadding;
+
+        /// <summary>Below 0 keeps the surface's own roughness under the layer.</summary>
+        public float WearRoughness;
+        public float DirtRoughness;
+
+        /// <summary>The layer's colour in xyz and its amount in w. An amount of 0, as with no mask texture, skips it.</summary>
+        public Vector4 Wear;
+        public Vector4 Dirt;
     }
 
     private readonly VulkanContext _context;
     private readonly Sampler _sampler;
+
+    // For masks, which are atlases of islands: at the texture's edge an island must not pick up the far side.
+    private readonly Sampler _edgeSampler;
     private readonly DescriptorPool _pool;
     private readonly GpuBuffer _materials;
     private readonly MaterialFlags[] _materialFlags = new MaterialFlags[MaxMaterials];
     private readonly int[] _materialShaders = new int[MaxMaterials];
     private readonly bool[] _materialCutouts = new bool[MaxMaterials];
+    private readonly float[] _materialWind = new float[MaxMaterials];
     private readonly bool[] _materialSubsurface = new bool[MaxMaterials];
     private readonly int[] _materialTextures = new int[MaxMaterials * TexturesPerMaterial];
     private readonly List<GpuTexture?> _textures = [];
@@ -81,12 +98,12 @@ internal sealed unsafe class ResourceTable : IDisposable
 
     /// <summary>
     /// Texture slots a material can name: base colour, normal, surface, emissive, height,
-    /// detail colour and detail normal, then the four shader textures.
+    /// detail colour, detail normal and mask, then the four shader textures.
     /// </summary>
     public const int TexturesPerMaterial = OwnTextures + ShaderTextures.Length;
 
     /// <summary>How many of a material's texture slots come before its shader textures.</summary>
-    private const int OwnTextures = 7;
+    private const int OwnTextures = 8;
 
     public readonly DescriptorSetLayout Layout;
     public readonly DescriptorSet Set;
@@ -94,6 +111,7 @@ internal sealed unsafe class ResourceTable : IDisposable
     public ResourceTable(VulkanContext context)
     {
         _context = context;
+        SwayOf = GetWind;
         var api = context.Api;
 
         api.GetPhysicalDeviceProperties(context.PhysicalDevice, out var properties);
@@ -111,6 +129,10 @@ internal sealed unsafe class ResourceTable : IDisposable
             MaxLod = Vk.LodClampNone,
         };
         api.CreateSampler(context.Device, &samplerInfo, null, out _sampler).Check();
+        samplerInfo.AddressModeU = SamplerAddressMode.ClampToEdge;
+        samplerInfo.AddressModeV = SamplerAddressMode.ClampToEdge;
+        samplerInfo.AddressModeW = SamplerAddressMode.ClampToEdge;
+        api.CreateSampler(context.Device, &samplerInfo, null, out _edgeSampler).Check();
 
         var bindings = stackalloc DescriptorSetLayoutBinding[]
         {
@@ -190,6 +212,12 @@ internal sealed unsafe class ResourceTable : IDisposable
     /// <summary>Whether the material's texture cuts holes in it.</summary>
     public bool HasCutouts(MaterialHandle material) => _materialCutouts[material.Index];
 
+    /// <summary>How far the material sways in the wind, as a share of its strength: 0 for not at all.</summary>
+    public float GetWind(MaterialHandle material) => _materialWind[material.Index];
+
+    /// <summary><see cref="GetWind"/> as a lookup that passes and culling hold on to, made once.</summary>
+    public Func<MaterialHandle, float> SwayOf { get; }
+
     /// <summary>True when a live material scatters light under its surface, so the frame needs the subsurface blur.</summary>
     public bool AnySubsurface
     {
@@ -211,7 +239,7 @@ internal sealed unsafe class ResourceTable : IDisposable
     /// Takes a slot for a texture and points it at the image. The slot is free in every
     /// frame in flight, which is what lets the set be written while bound.
     /// </summary>
-    public TextureHandle AddTexture(GpuTexture texture)
+    public TextureHandle AddTexture(GpuTexture texture, TextureEdges edges = TextureEdges.Repeat)
     {
         int slot;
         if (_freeTextures.Count > 0)
@@ -231,7 +259,9 @@ internal sealed unsafe class ResourceTable : IDisposable
             _textures.Add(texture);
         }
 
-        WriteTextureDescriptor(0, slot, texture);
+        // The slot's descriptor is written once, so its sampler is the texture's for life. A
+        // material can't change it, which would change it for every other material using it.
+        WriteTextureDescriptor(0, slot, texture, edges == TextureEdges.Clamp);
         return new TextureHandle(slot);
     }
 
@@ -338,9 +368,9 @@ internal sealed unsafe class ResourceTable : IDisposable
         _freeTextureArrays.Push(slot);
     }
 
-    private void WriteTextureDescriptor(uint binding, int slot, GpuTexture texture)
+    private void WriteTextureDescriptor(uint binding, int slot, GpuTexture texture, bool clampEdges = false)
     {
-        var imageInfo = new DescriptorImageInfo(_sampler, texture.View, ImageLayout.ShaderReadOnlyOptimal);
+        var imageInfo = new DescriptorImageInfo(clampEdges ? _edgeSampler : _sampler, texture.View, ImageLayout.ShaderReadOnlyOptimal);
         var write = new WriteDescriptorSet
         {
             SType = StructureType.WriteDescriptorSet,
@@ -412,6 +442,28 @@ internal sealed unsafe class ResourceTable : IDisposable
         return new Vector4(spread, MathF.Max(spread.X, MathF.Max(spread.Y, spread.Z)));
     }
 
+    /// <summary>
+    /// How much light passes through the material, which the shader reads from the transmission slot: a scattering
+    /// surface's own, foliage's translucency, or none.
+    /// </summary>
+    internal static float Transmission(in Material material)
+    {
+        if (material.Subsurface.IsOn)
+        {
+            return Math.Clamp(material.Subsurface.Transmission, 0f, 1f);
+        }
+
+        return (material.Flags & MaterialFlags.Foliage) != 0 ? Math.Clamp(material.Translucency, 0f, 1f) : 0f;
+    }
+
+    /// <summary>The material's share of the wind's lean, never below 0, and 0 for a value that isn't a number.</summary>
+    internal static float Sway(in Material material) =>
+        float.IsFinite(material.Wind) ? MathF.Max(material.Wind, 0f) : 0f;
+
+    // Without a mask there's nothing to lay the layer by, so it's off.
+    private static Vector4 Layer(in MaterialLayer layer, bool masked) =>
+        new(layer.Color, masked ? Math.Clamp(layer.Amount, 0f, 1f) : 0f);
+
     private void WriteMaterial(int index, in Material material)
     {
         ref var gpu = ref ((GpuMaterial*)_materials.Mapped)[index];
@@ -437,8 +489,13 @@ internal sealed unsafe class ResourceTable : IDisposable
                 ? 0f
                 : material.DetailScale > 0f ? material.DetailScale : 1f,
             Ior = MathF.Max(material.Ior, 1f),
-            Transmission = material.Subsurface.IsOn ? Math.Clamp(material.Subsurface.Transmission, 0f, 1f) : 0f,
+            Transmission = Transmission(material),
             Subsurface = Spread(material.Subsurface),
+            MaskTexture = (uint)(material.MaskTexture ?? _white).Index,
+            WearRoughness = material.Wear.Roughness,
+            DirtRoughness = material.Dirt.Roughness,
+            Wear = Layer(material.Wear, material.MaskTexture is not null),
+            Dirt = Layer(material.Dirt, material.MaskTexture is not null),
         };
         for (int i = 0; i < ShaderTextures.Length; i++)
         {
@@ -449,6 +506,7 @@ internal sealed unsafe class ResourceTable : IDisposable
         _materialFlags[index] = material.Flags;
         _materialShaders[index] = material.Shader?.Index ?? 0;
         _materialCutouts[index] = material.AlphaCutoff > 0f;
+        _materialWind[index] = Sway(material);
         _materialSubsurface[index] = material.Subsurface.IsOn;
 
         var owned = _materialTextures.AsSpan(index * TexturesPerMaterial, TexturesPerMaterial);
@@ -459,10 +517,12 @@ internal sealed unsafe class ResourceTable : IDisposable
         owned[4] = material.HeightTexture?.Index ?? -1;
         owned[5] = material.DetailColorTexture?.Index ?? -1;
         owned[6] = material.DetailNormalTexture?.Index ?? -1;
+        owned[7] = material.MaskTexture?.Index ?? -1;
         for (int i = 0; i < ShaderTextures.Length; i++)
         {
             owned[OwnTextures + i] = material.ShaderTextures[i]?.Index ?? -1;
         }
+
     }
 
     public void Dispose()
@@ -481,6 +541,7 @@ internal sealed unsafe class ResourceTable : IDisposable
         _context.Api.DestroyDescriptorPool(_context.Device, _pool, null);
         _context.Api.DestroyDescriptorSetLayout(_context.Device, Layout, null);
         _context.Api.DestroySampler(_context.Device, _sampler, null);
+        _context.Api.DestroySampler(_context.Device, _edgeSampler, null);
     }
 
     private static TextureData SolidTexture(byte r, byte g, byte b) => new()

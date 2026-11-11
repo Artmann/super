@@ -7,17 +7,39 @@ Super hands that to Rendition each frame.
 What it does for every game, with no setup:
 
 - Cook-Torrance GGX shading with up to eight directional lights, and up to 1,024 point
-  and spot lights with soft shadows
-- Soft, contact-hardening shadows, in up to four cascades
+  and spot lights with soft shadows. Rough surfaces keep the light that bounces between
+  their tiny facets, so worn iron and brushed steel stay as bright as real metal does
+- Soft, contact-hardening shadows, in up to four cascades, with screen-space [contact shadows](#shadows) where things meet the ground
 - A generated environment that gives surfaces reflections and soft fill light
-- Screen-space reflections and box-corrected reflection probes
-- Temporal anti-aliasing, ambient occlusion (with light bounced back from the surface's colour) and bloom
+- Screen-space reflections and box-corrected [reflection probes](#reflections), which glass reflects too
+- Ground-truth [ambient occlusion](#ambient-occlusion) (GTAO), with a bent normal that turns the soft light towards the opening and specular occlusion that dims reflections in corners, and light bounced back from the surface's colour
+- Temporal anti-aliasing that follows moving, animated and swaying things with [motion vectors](#motion-vectors), and bloom
 - [Glass](#glass) that bends and frosts what's behind it, car paint clearcoat and surfaces that glow
 - [Height maps](#height-and-detail-maps) that sink mortar and grooves into a flat surface, and detail maps for fine grain
 - Skin, wax and jade that [let light spread under the surface](#skin-and-wax)
+- Cut-out leaves, grass and cobwebs that [keep their shape in the distance](#models), since the cook keeps their alpha coverage in every mip
 - Soft, lit [particles](views.md#particles) for dust and smoke
 - Culling and simpler versions of distant models, for the camera and for shadows
-- ACES filmic tonemapping, colour grading, sharpening, vignette, grain and dithering
+- [AgX](#tone-mapping) or ACES filmic tonemapping, white balance, colour grading, sharpening, vignette, grain and dithering
+
+And when a scene asks for it:
+
+- [Bounced light](#bounced-light) from a volume of light probes, which doesn't leak through walls
+- A [clear sky](#the-sky) worked out from the sun and the haze in the air, with the sun's disc in it
+- [Height fog](#fog) that glows towards the sun, and [volumetric fog](#volumetric-fog) near the camera, with shafts of sunlight and halos round lamps
+- [Auto exposure](#auto-exposure) that meters the frame and adapts like a camera
+- [Depth of field](#focus) from a lens with a focus distance, an aperture and a focal length
+- [Decals](views.md#decals) that lay grime, rust, moss and boot prints onto what is under them
+- [Puddles](#puddles) of standing water, with a damp band, wherever the ground lies below a level
+- [Wind](#wind) that sways grass, leaves and their shadows
+- [Wear and dirt](#wear-and-dirt) on edges and in hollows, from masks the cook bakes from the mesh
+- A [render scale](#graphics-settings) that draws the scene smaller or larger than the window, and [AMD FSR](#upscaling) to rebuild the full picture from a smaller one
+
+The [Courtyard example](../examples/Courtyard) uses most of them. On the left is the
+Courtyard on the evening it was first built, on 6 November 2026; on the right is how it
+looks now, at the same seed and frame:
+
+![The Courtyard before and after: on the left even dark-red bricks, star-shaped ivy, rows of bright green grass tufts, round stepping stones in smooth brown mud and a plain crate on a deck; on the right bricks from plum to pale buff, ivy of leaf cards, grey and sandstone flagstones, coarse mud with gravel, a puddle that mirrors the yard, weathered deck boards and a window that reflects the courtyard](media/courtyard-realism.webp)
 
 ## Graphics settings
 
@@ -32,7 +54,7 @@ Game.StartWindowsGameLoop<MyGame>(new GameOptions
 });
 ```
 
-`Graphics.Fastest()` turns every effect and vsync off, a start to turn back on only what
+`Graphics.Fastest()` turns every effect and vsync off (but keeps the materials), a start to turn back on only what
 the game needs. Ask for `Graphics` in a constructor to change it while the game runs; the
 next frame follows, so it can back an options menu.
 
@@ -41,11 +63,76 @@ next frame follows, so it can back an options menu.
 | `Vsync` | Frames come as fast as the machine draws them, and fast movement may tear. `--no-vsync` turns it off too |
 | `MaxFramesPerSecond` | The most frames drawn a second. 0, the default, is no limit. It saves power, and with vsync off it holds a steady rate |
 | `SunShadows` | Nothing is drawn into the sun's shadow maps, often the biggest saving. Ambient occlusion still darkens nooks |
+| `ShadowResolution` | How many texels across each of the sun's shadow maps is: 1024, 2048 (the default) or 4096. Each step up sharpens shadow edges for four times the memory. A change rebuilds the maps before the next frame, which waits for the GPU once |
+| `RenderScale` | How large the scene is drawn against the window, from 0.5 to 2 each way. 1, the default, draws it at the window's size with nothing resized. At 2 the scene has four times the pixels and is shrunk to fit, which smooths grass blades, railings and other thin things, for about four times the lighting and effects work. At 0.5 it has a quarter of the pixels and is stretched, which is much faster and softer. Below 1, meshes also switch to their simpler versions sooner, since they cover fewer scene pixels. A scene larger than the GPU can draw is shrunk to fit, keeping its shape. The interface, screenshots and recordings stay at the window's size. Anything else is refused. `--render-scale` sets it too. A change rebuilds the scene's targets before the next frame, which waits for the GPU once and restarts anti-aliasing |
+| `Upscaler` | What smooths edges when `AntiAliasing` is on: `Upscaler.Taa`, the default, or `Upscaler.Fsr`, which hands the frame to AMD FSR to rebuild at the window's size. See [upscaling](#upscaling). `--upscaler fsr` sets it too, and `Graphics.Fastest()` uses TAA |
+| `ContactShadows` | No thin dark line where things meet the ground in sunlight, only what the shadow maps show. `view.Shadows`' `contact` only changes [how far they look](#shadows) |
 | `LightShadows` | Point and spot lights shine through walls |
-| `AmbientOcclusion` | Corners and creases are as bright as open ground |
-| `Reflections` | Shiny surfaces and water reflect only the sky and reflection probes, not what's on screen |
+| `AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. `view.AmbientOcclusion` only changes [how far and how dark](#ambient-occlusion) |
+| `MultiscatterSpecular` | Rough surfaces lose the light that bounces between their tiny facets, so rough metals such as worn iron come out darker than they should, by up to half at full roughness. It costs almost nothing, so leave it on unless you're comparing |
+| `LightProbes` | No [bounced light](#bounced-light): shade takes its soft light from the sky alone, as if no `view.LightProbes` were set, and no probes are captured |
+| `Reflections` | Shiny surfaces, water and glass reflect only the sky: not what's on screen, and no [reflection probes](#reflections) are photographed |
 | `AntiAliasing` | Edges show their pixels, and moving things stay sharp |
 | `Bloom` | No glow round bright things. `PostSettings.Bloom` only changes how much there is |
+| `Fog` | Clear air, whatever `SkySettings.Fog` asks for. [Haze](#the-sky) stays, since it isn't fog. `SkySettings.Fog` only changes [how thick it is](#fog) |
+| `VolumetricFog` | The fog is the plain height fog all the way, exactly as if `FogSettings.VolumetricDistance` were 0: no shafts of sunlight and no halos round lamps. It saves two compute passes over a small grid and about 35 MB of memory at 1600 by 900, which is freed when it is switched off and made again, without its history, when it is switched back on. See [volumetric fog](#volumetric-fog) |
+| `AutoExposure` | Views that ask for [auto exposure](#auto-exposure) keep the fixed `PostSettings.Exposure` instead, as if they hadn't asked. It saves a compute pass over the frame |
+| `DepthOfField` | Everything is sharp, even in views that open the lens with `PostSettings.Aperture`. It saves three passes, two of them at half size. See [focus](#focus) |
+| `Decals` | No [decals](views.md#decals): surfaces show as they are, without the grime and stains `view.Decal` lays on them. It saves a copy of the normal target and a pass over the decals' pixels |
+| `Puddles` | Every surface is dry, whatever level `view.Puddles` sets: no water and no damp band. It saves a few noise lookups on each wet pixel. See [puddles](#puddles) |
+| `Wind` | Grass, leaves and anything else flagged for the [wind](#wind) stand still, whatever `view.Wind` sets, and so do their shadows |
+| `Materials` | Every surface is the same light grey, matte clay, shaped only by its mesh, so you can judge the lighting and the models without textures in the way. Glows still glow, cut-outs still cut, glass stays see-through and puddles still wet the clay. `--no-materials` turns it off too |
+| `WearAndDirt` | Models' materials show only their own colour and shine, without the pale worn edges and dark hollows their [baked masks](#wear-and-dirt) lay on, and the masks aren't read |
+
+`Graphics.Fastest()` leaves `RenderScale` at 1 too, since a smaller picture is a change the
+player can see, not only a saving. A game for slow GPUs on big screens sets it to 0.75 or 0.5
+itself, or offers it in an options menu.
+
+### Upscaling
+
+A render scale below 1 stretches the scene to the window, which softens it. With
+`Upscaler.Fsr`, AMD FSR 3.1 rebuilds the full picture instead: it gathers detail from the
+last frames as well as this one, so a scene drawn at 0.67 of the window's size comes back
+close to one drawn at full size. It takes the place of TAA, so it also smooths edges at a
+render scale of 1.
+
+```csharp
+Graphics = new Graphics { Upscaler = Upscaler.Fsr, RenderScale = 0.67f },
+```
+
+`--upscaler fsr` or `--upscaler taa` picks it from the command line. FSR is used only while
+`AntiAliasing` is on and the render scale is 1 or less; above 1 the scene is already larger
+than the window, so TAA and the plain shrink do the job. It needs `amd_fidelityfx_vk.dll`
+next to the game, which the build copies there. Without it the renderer says so once and
+uses TAA. A change while the game runs rebuilds the scene's targets before the next frame,
+which waits for the GPU once and starts FSR's history again.
+
+In the Courtyard at 1600 by 900 on an RTX 4060 Ti, FSR costs about 1.5 ms a frame at a render
+scale of 1, against 0.2 ms for TAA, and about 0.6 ms at 0.67, where the whole frame drops from
+about 13 ms to 7. At a scale of 1, FSR keeps grass blades and ivy a little sharper than TAA,
+and window bars look the same, so TAA stays the default. Below 1, FSR is the better choice.
+
+![Grass and a window in the Courtyard with TAA, FSR at render scale 1 and FSR at 0.67](media/fsr.webp)
+
+Only FSR is supported. NVIDIA's DLSS is not, see the [roadmap](roadmap.md).
+
+`Materials` is for looking, not for speed, so `Graphics.Fastest()` leaves it on. A key that
+flips it while the game runs makes a handy lighting check:
+
+```csharp
+internal sealed class MyGame(Graphics graphics, Input input) : IGame
+{
+    public void Update(GameTime time)
+    {
+        if (input.Pressed(Key.M))
+        {
+            graphics.Materials = !graphics.Materials;
+        }
+    }
+}
+```
+
+![The Shapes example with its materials, and with Materials off](media/graphics-materials.webp)
 
 An effect turned off skips its work on the GPU, not only its look. In the Crypt, the
 GPU time of a frame halves:
@@ -121,7 +208,9 @@ and more than that are dropped there. The `Crypt` example has four torches, five
 candelabras, a lantern, a beam from a grate and 126 candles, about 150 lights.
 
 Point and spot lights light models, glass and [particles](views.md#particles). Glass and
-particles get no shadows from them. They aren't seen in reflection probes.
+particles get no shadows from them. They aren't seen in reflection probes. In
+[fog](#fog) they glow with a halo; `volumetric:` sets how strongly, and 0 leaves a light
+out of the fog (see [volumetric fog](#volumetric-fog)).
 
 ## Shadows
 
@@ -141,6 +230,123 @@ instead of stopping at an edge.
 
 An orthographic camera centres every cascade on its target instead, and widens its
 shadows to cover the screen.
+
+Things out of frame still cast into it. A tree behind the camera or off to the side, up-sun
+of what you see, throws its shade into the picture, up to six cascade radii away.
+
+```csharp
+view.Shadows(7f, cascades: 3, sunSize: 0.02f);
+```
+
+`sunSize` is how wide the sun looks, in radians, from 0 to 0.5. It sets how fast a shadow
+blurs with distance from what casts it. The default of 0.12 is a soft, hazy sun that keeps
+shadows gentle. The real sun is about 0.01, and something near that lets a canopy several
+metres up throw crisp dappled light, where the default blurs it into one soft patch.
+0 gives hard edges everywhere.
+
+Each map is 2048 texels across unless `Graphics.ShadowResolution` asks for 1024 or 4096, so
+a 7 m radius gives texels about 7 mm wide. That's too coarse for the last centimetre where
+a barrel stands on the floor, so the sun also has contact shadows. Each pixel looks towards
+the sun through what the camera sees, and darkens where something is in the way, which
+draws a thin dark line where things touch the ground:
+
+```csharp
+view.Shadows(7f, cascades: 3, sunSize: 0.02f, contact: 0.3f);
+```
+
+`contact` is how far each pixel looks, in metres. The default of 0.25 suits barrels, crates
+and people; a longer one reaches under bigger things and costs no more. 0 turns them off, as
+`Graphics.ContactShadows` does. They're drawn only inside the first cascade's radius, fading
+out over its last tenth, since further away a centimetre is less than a pixel. They can only
+see what's on screen, so something just out of frame or hidden behind another object casts
+none. Something more than 15 cm in front of a surface never counts, so a near object puts no
+dark outline on the wall behind it. Materials marked `foliage` get none, because the camera
+only sees the front leaf.
+
+## Ambient occlusion
+
+```csharp
+view.AmbientOcclusion(radius: 1.2f, strength: 0.7f);
+```
+
+Corners, creases and the ground under things get less of the soft light from the sky,
+because the surfaces around them hide part of it. `radius` is how far, in metres, a point
+looks for those surfaces, and must be above 0. `strength`, from 0 to 1, is how dark they
+make it: 0 turns the darkening off and 1 is all of it. The defaults, a radius of 0.6 and a
+strength of 0.9, suit rooms and streets seen from head height. A wider radius darkens
+whole alcoves and the space under a cart, at the cost of losing fine creases.
+
+A point in a corner also sees the sky only through the opening, so the soft light it gets
+comes from that way rather than straight off the surface. Reflections of the sky fade in
+the same corners, most on rough surfaces, so a gap behind a barrel doesn't shine.
+It only knows what the camera sees, plus what stands over a point in the sun's shadow map.
+
+## Bounced light
+
+```csharp
+view.LightProbes(min: new(-2f, -0.5f, -9f), max: new(9f, 5f, 6f), spacing: 1f);
+```
+
+Sunlight that lands on a brick wall doesn't stop there: some of it bounces off and lights
+the ground and everything near it, tinted the colour of the brick. Without bounced light, shade
+gets its soft light from the sky alone, so a yard in shadow looks blue and flat. A light probe
+volume fills a box with a grid of probes, `spacing` metres apart, that each record the light
+reaching them from every direction. Surfaces inside the box take their soft light from the
+probes round them instead of from the sky, so the shade under a sunlit wall takes on its
+warmth, and the inside of a closed room stays dark however bright the sky is.
+
+Give the box a little room around what it lights, and keep the spacing near the size of the
+smallest space that should be lit differently: 1 metre suits a yard or a room, 0.5 a corridor.
+The box may hold at most 4,096 probes, so 1 metre spacing covers about 15 by 15 by 15 metres;
+a bigger box throws when it is set. `spacing` must be more than zero, and `max` above `min` on
+every axis.
+
+Each probe also notes how far away the surfaces it sees are, so a point behind a wall from a
+probe gets nothing from it, and light doesn't leak into a room from the probes outside. A
+probe that ends up inside a wall or under the ground sees mostly the backs of surfaces, and
+is left out. Outside the box, or where no probe can see a point, the soft light comes from
+the sky as before. Reflections don't change; probes give only the soft, diffuse light.
+
+The probes are drawn by the renderer itself, from each probe's position, with the sun and the
+sky but without point and spot lights. That happens over the first frames after the box is set,
+64 probes a frame, and then once more, now lit by the first round, so light bounces twice. A
+change to the sun's direction or colour, the sky, the sun's shadow softness or cascades or the
+`Materials` switch starts it again (the camera doesn't: the sun's shadow is framed on the box), drawing over the old probes in place, so for a few frames
+old and new probes mix and the new ones have only one bounce. A change to the box throws the
+old probes away, and the sky lights the scene until the first round is done. Moving or adding objects doesn't, so
+probes suit what stands still. Each frame that draws probes takes longer, so a sun that moves
+every frame keeps them drawing; set it once and leave it, or turn `Graphics.LightProbes` off.
+
+## Reflections
+
+```csharp
+view.ReflectionProbe(key: 1, position: new(3.5f, 1.6f, -1.5f), boxMin: new(-3f, -1f, -10f), boxMax: new(10f, 6f, 7f));
+```
+
+Shiny surfaces first mirror what's on screen. What they'd see off the edge of the screen, and
+everything glass sees, comes from the sky unless a reflection probe covers it. A reflection
+probe is a photograph of the scene in every direction from one spot, so a window in a yard
+reflects the walls and the house opposite rather than a sky it can't see. Put it at about head
+height in the middle of the space, and make the box match the space's walls, ground and
+roof: a reflected ray runs on to the box before it looks the probe up, so what it shows lands
+where it would really be and doesn't slide as the camera moves. Towards the sides of its box a
+probe fades out over `blend` metres, 0.5 by default, into the sky or the next probe.
+
+The key names the probe across frames, so place it every frame like a light. It is
+photographed the first frame it's placed and again only when it moves, its box changes or the
+lighting does: the sun's direction or colour, the sky, the shadow softness or cascades, the
+ambient occlusion settings, the `SunShadows`, `Materials` or `AmbientOcclusion` switches. Moving
+the camera doesn't, because the photograph frames the sun's shadow on the probe's own box, and
+nor does moving or adding objects, so probes suit what stands still. While the [light
+probes](#bounced-light) fill in at the start, a probe can be photographed two or three times.
+Each photograph waits for the GPU and takes a moment, so a sun that moves every frame keeps
+them drawing. Point and spot lights aren't in the photograph, so a lantern's glow doesn't show in
+a reflection. A probe left out of a frame is dropped, and the rest are photographed again.
+
+At most 4 probes fit in a frame, and a fifth throws. The position must be inside the box,
+`boxMax` above `boxMin` on every axis, `blend` 0 or more, and each key used once a frame.
+With `Graphics.Reflections` off, no probes are photographed and shiny surfaces and glass
+reflect only the sky.
 
 ## The look of the picture
 
@@ -162,6 +368,135 @@ view.Finish(new PostSettings
 Leaving a value at zero leaves that part unchanged. `Lift` adds colour to the dark parts
 and fades out towards white, so shade takes a tint and white stays white. `Gain` makes
 each channel that much brighter, by its share, so it shows most in the highlights.
+
+| Setting | What it does |
+| --- | --- |
+| `Tonemapper` | The curve that fits the scene's light into what a screen shows. `Tonemapper.Agx`, the default, or `Tonemapper.Aces` for the older, punchier look. See [tone mapping](#tone-mapping) |
+| `AgxLook` | The look on top of AgX. `AgxLook.Punchy`, the default, deepens the mid-tones and strengthens colour; `AgxLook.Base` is the plain, softer curve. ACES ignores it |
+| `Temperature` | White balance, from -1 to 1. Above 0 warms the picture, as if the camera were balanced for light bluer than daylight: 1 balances for 12000 K. Below 0 cools it, down to 4000 K at -1. 0.1 is a gentle afternoon warmth |
+| `Tint` | White balance the other way, from -1 to 1. Above 0 pulls the picture towards magenta, below 0 towards green |
+| `FocusDistance` | Where the lens is focused, in metres from the camera. See [focus](#focus) |
+| `Aperture` | The lens's f-number, such as 2.8 or 8. Smaller opens the lens wider and blurs more. 0, the default, is no depth of field |
+| `FocalLength` | The lens's focal length in millimetres, for the blur only. 0, the default, means 35. It doesn't change the field of view, which the camera sets |
+
+A view refuses a `Temperature` or `Tint` outside -1 to 1, or one that isn't a number.
+Rendition used on its own holds them at the nearest end instead, and counts a value that
+isn't a number as 0. White balance works on the light, after exposure and before contrast and the
+curve, the way a camera's does, so white surfaces in the sun take the warmth and the
+highlights still fade to white.
+
+### Tone mapping
+
+The scene's light runs far brighter than a screen can show, so a curve squeezes it in.
+AgX, the default, is the curve Blender 4 uses. It moves bright, strongly coloured light
+gradually towards white, so a sunlit brick wall keeps the difference between its bricks.
+ACES, the older look, is punchier in the mid-tones but takes saturated highlights to one
+flat colour.
+
+On its own AgX reads soft and pale, so it comes with Blender's Punchy look by default,
+which deepens the mid-tones and strengthens colour. Punchy also puts middle grey about
+0.8 of a stop darker on screen than ACES or the plain curve, so a scene moving over from
+ACES wants more `Exposure`: the Courtyard uses 1.05 with auto exposure, with `Contrast`
+0.25 and `Saturation` 0.15. `AgxLook.Base` is the plain curve, which keeps middle grey where
+ACES puts it and leaves the most room in the highlights.
+
+```csharp
+view.Finish(new PostSettings { Tonemapper = Tonemapper.Aces });   // the older look
+view.Finish(new PostSettings { AgxLook = AgxLook.Base });         // AgX without the Punchy look
+```
+
+Both curves and both looks cost about the same, so `Graphics.Fastest()` leaves the choice alone.
+
+![The Courtyard's sunlit wall at about the same brightness through ACES on the left, which runs the sunlit bricks hotter and more orange, and AgX with the Punchy look on the right, which keeps them a deeper red](media/agx.webp)
+
+`Sharpen` gives back the crispness anti-aliasing blends away, from 0 to 1. It sharpens fine,
+faint detail such as a texture's grain the most and edges that already stand out hardly at
+all, so they get no bright halos. While anti-aliasing is on, textures are also read a little
+sharper than their size on screen asks for. One frame alone would shimmer, but anti-aliasing
+blends the frames and they settle. Reflection probes are captured without it, since nothing
+blends their frames.
+
+### Auto exposure
+
+```csharp
+view.Finish(new PostSettings
+{
+    AutoExposure = true,
+    Exposure = -0.3f,        // now compensation: a third of a stop darker than metered
+    AdaptationSpeed = 2f,    // stops a second; 0 means the default of 2
+});
+```
+
+With `AutoExposure` on, the camera meters the picture and sets the brightness itself, so a
+scene lit much brighter or dimmer comes out about the same. It sorts the lit picture's pixels
+by brightness, before bloom, leaves out the darkest 40 per cent and the brightest 5 per
+cent, and puts the average of the rest at middle grey. Deep shade and the sun's disc so don't
+pull the picture one way or the other. `Exposure` then shifts that, in stops, for a
+brighter or darker picture than the meter picks.
+
+When the scene gets brighter or darker the exposure follows at `AdaptationSpeed` stops a second,
+the way eyes adjust walking out of a cellar. The first frame starts at the metered brightness,
+not from black, and so does the first after `AutoExposure` or [`Graphics.AutoExposure`](#graphics-settings)
+is turned back on, or after time goes backwards, as when the game restarts. A speed must be above 0, or 0 for the
+default. A view refuses anything else; Rendition used on its own takes the default instead. The meter sees from about 1/256 to 65000 times a white of 1. Anything darker or
+brighter counts as the darkest or brightest it sees.
+
+Screenshots and recordings step time a tick at a fixed rate, so the same `--seed` and `--ticks`
+give the same exposure and the same picture every run. Reflection and light probes don't
+use it: they hold light, and exposure is applied after lighting.
+
+![The Courtyard with a fixed exposure of +0.35 on the left, and with auto exposure and +0.3 of compensation on the right, which meters it to nearly the same brightness, with the shade open and the sunlit wall bright](media/auto-exposure.webp)
+
+### Focus
+
+```csharp
+view.Finish(new PostSettings
+{
+    FocusDistance = 11f,   // metres to what should be sharp
+    Aperture = 8f,         // the f-number; 0, the default, keeps everything sharp
+    FocalLength = 35f,     // millimetres; 0 means 35
+});
+```
+
+With an aperture set, the picture blurs nearer and further than the focus distance, as a
+camera lens does. The blur is worked out from a thin lens on a 36 mm full-frame sensor: a
+point d metres away spreads into a circle (f / N) * |d - S1| / d * f / (S1 - f) across,
+where f is the focal length, N the aperture and S1 the focus distance. A smaller f-number, a
+longer lens or a nearer focus blurs more. A 50 mm lens at f/2.8 focused at 10 m spreads a
+point at 5 m, or at the horizon, over 0.09 mm, about 4 pixels of a 1600 pixel picture.
+The blur is measured in the scene's own pixels, so it looks the same at any
+[render scale](#graphics-settings). No circle grows past 16 pixels in radius (32 across).
+
+`FocalLength` only sizes the blur. The field of view still comes from the camera, so set
+them to match if it matters. The sensor is 36 mm across the picture's width, so in a 16:9
+picture 35 mm sees about 0.56 radians top to bottom, the camera's `fieldOfView`, and 50 mm
+about 0.40.
+
+Small apertures blur gently. The Courtyard is focused on its window at f/8, so the window and
+the wall stay sharp, and the flagstones and grass at the camera's feet soften a little, by
+about a pixel. A portrait look wants f/1.4 to f/2.8 and a longer lens; cutscenes can change
+the focus each shot to pull attention.
+
+What's out of focus behind blurs only with other things behind, so a sharp thing never
+smears into the background. A blurred thing in front spreads over what's behind it, past its
+own edge, as a branch close to the lens veils the scene. The blur is gathered at half size
+and drawn back at full size, so edges in focus stay crisp.
+
+The blur goes by the depth of solid surfaces, so glass and particles take the blur of what's
+behind them: a window pane is as sharp or as soft as the room through it, and smoke in front
+of a blurred wall blurs with the wall. Where a sharp edge in front sits on a blurred
+background, the background can pick up a pixel-wide fringe of the edge's colour, since each
+half-size pixel mixes the four pixels under it.
+
+A view refuses a negative or broken `FocusDistance`, `Aperture` or `FocalLength`, and a focus
+distance no further than the focal length while the aperture is open. Rendition used on its
+own draws no depth of field for those instead. [`Graphics.DepthOfField`](#graphics-settings)
+turns it off for every view, and `Graphics.Fastest()` turns it off. Probes never see it, so
+changing the focus never captures them again.
+
+![The Courtyard's window, barrel, puddle and near grass with everything sharp on the left, and through an 85 mm lens at f/2.8 focused on the window 11 m away on the right, where the window and the wall stay sharp and the grass and mud in front blur strongly](media/depth-of-field.webp)
+
+The picture above uses a stronger lens than the Courtyard's own f/8 and 35 mm, so the blur shows.
 
 ## The sky
 
@@ -192,9 +527,126 @@ Haze from the focus leaves the middle clear and fades the edges of the view. `Ha
 sets what things fade into; zero fades them into the sky behind them, which for a camera
 looking down is the dark ground below the horizon.
 
+![The Courtyard sky as a gradient, then as a clear sky, then the clear sky round the sun's disc](media/clear-sky.webp)
+
+`Turbidity` swaps the gradient for a clear sky worked out from the sun, after Preetham,
+Shirley and Smits (1999). It is brighter and whiter towards the sun, a deeper blue
+straight up and away from it, and paler at the horizon, and the sun itself shows as a
+disc:
+
+```csharp
+view.Sun(direction: new Vector3(-0.75f, 0.5f, 0.42f), color: new Vector3(7.2f, 6.7f, 5.8f));
+view.Sky(new SkySettings
+{
+    Ground = new Vector3(0.2f, 0.17f, 0.14f),
+    Brightness = 1f,
+    Turbidity = 2.5f,   // 1.7 is a very clear day, 10 a hazy one
+});
+```
+
+Turbidity is how hazy the air is, from 1.7 to 10; 2 to 3 is a clear day. Zero, the
+default, keeps the gradient, and is the way to turn the clear sky off: there is no
+switch for it in `Graphics`. Any other value throws. The sky follows the sun that casts
+the shadows, or the first sun when none does. Its disc is as wide as `sunSize` in
+`view.Shadows` and as bright as the sun's colour spread over it, so a smaller sun is a
+brighter disc, held under what the screen can store. `Zenith` and `Horizon` are not used;
+`Ground` still colours what is below the horizon, and `Brightness` still scales the
+whole sky, disc included. A sun below the horizon is treated as on it, so this is a
+daytime sky.
+
+The disc shows in the background and in sharp reflections from the sky, but not in the
+soft light, in rough reflections or in what [probes](#bounced-light) capture: the sun's
+own light already gives those their highlight and their warmth. Moving the sun or
+changing the turbidity rebuilds the sky's lighting, the same as changing its colours.
+
 Changing the colours rebuilds the sky's lighting, which takes a moment, so keep them
 steady rather than animating them every frame. [Water](#water), when set, takes over the
-sky. The [Archer example](../examples/Archer) uses a golden-hour sky.
+sky. The [Archer example](../examples/Archer) uses a golden-hour sky, and the
+[Courtyard example](../examples/Courtyard) a clear one.
+
+### Fog
+
+Fog is air you can see: it thickens towards the ground, so the far side of a yard sits
+back in it while the near ground stays crisp. Set it on the sky:
+
+```csharp
+view.Sky(new SkySettings
+{
+    Turbidity = 2.5f,
+    Fog = new FogSettings(Density: 0.004f, Height: 0f, Falloff: 0.15f, SunScatter: 0.6f),
+});
+```
+
+![The Courtyard with Graphics.Fog off, and with fog of density 0.004 and falloff 0.15](media/fog.webp)
+
+`Density` is how much light the air takes per metre at `Height`, so 0.004 hides about 4%
+of what is 10 m away and a third of what is 100 m away. Above `Height` the fog thins by e
+every 1 / `Falloff` metres, 6.7 m at 0.15, and below it thickens the same way, so a
+valley fills and a tower's top stands clearer than its foot. A `Falloff` of 0 is fog of
+one density at every height. The default, a density of 0, is clear air.
+
+Fog takes its colour from the sky behind what it hides, without the sun's disc. Looking
+down, it takes the sky's colour at the horizon that way, since fog is lit by the sky all
+round it, not by the ground. Looking towards a sun it glows, by `SunScatter` times the
+sun's colour, in a lobe that narrows to nothing a right angle away; 0 gives no glow.
+Lit surfaces, glass and particles all sit in the same fog. The sky itself is drawn
+clear, apart from the light of the [volumetric fog](#volumetric-fog) in front of it, as is
+everything under [water](#water).
+
+Haze and fog work side by side. Haze fades things into the sky between two distances,
+which hides the edge of a world; fog is worked out along each line of sight and gives
+depth inside it. A negative density, falloff or sun scatter throws, as does a height that
+isn't a number. Fog is drawn for the camera only: [light probes](#bounced-light) and
+[reflection probes](#reflections) capture clear air, so changing the fog captures nothing
+again and costs nothing but its pixels. `Graphics.Fog` turns it off.
+
+#### Volumetric fog
+
+Near the camera the fog is lit by the light that really reaches it. Sunlight falls
+through it in shafts beside the shadows of walls and leaves, and point and spot lights
+glow in it with soft halos. It is on by default and needs nothing but a fog with some
+density; two more settings tune it:
+
+```csharp
+Fog = new FogSettings(Density: 0.004f, Height: 0f, Falloff: 0.15f, SunScatter: 0.6f)
+{
+    VolumetricDistance = 48f,
+    Anisotropy = 0.6f,
+},
+```
+
+![Plain fog on the left, volumetric on the right: above, the Courtyard's tree against the sun, with the fog raised to 0.02; below, the Crypt's torches in its own faint fog of 0.008](media/volumetric-fog.webp)
+
+Above, looking past the Courtyard's tree towards the sun: the plain fog washes the
+leaves with the sun's glow, while the volumetric fog leaves them dark and lets the light
+through between them in shafts. Below, the Crypt's faint, dusty air, with a density of
+0.008: the torches glow in the air round them, where the plain fog only darkens. The
+torches pass `volumetric: 2f`, so their halos read without thicker air hazing the far
+end of the room.
+
+`VolumetricDistance` is how far from the camera, in metres, the fog is worked out this
+way, 48 by default. Past it the plain fog carries on, seen through the volumetric part,
+so the far distance looks as it did. 0 is the plain fog only, and a negative or endless
+distance throws. `Anisotropy` is which way the air scatters light, from -0.9 to 0.9, 0.6
+by default: 0 sends it every way alike, more sends it onwards, so the air glows most
+looking towards a light, as real haze does, and less sends it back. Anything outside
+that range throws. In the volumetric part the anisotropy shapes the sun's glow, and
+`SunScatter` only shapes it past `VolumetricDistance`.
+
+Each light lights the fog at full strength unless asked otherwise.
+`view.PointLight` and `view.SpotLight` take a `volumetric:` strength: 1 is as much as the
+air really scatters, 0 leaves the light out of the fog, and more makes its halo
+stronger. A negative strength throws. A light's halo is cut by its own shadow where it
+casts one, so a lantern's beam shows as a cone.
+
+The fog near the camera is kept in a grid of cells, one for every 8 by 8 pixels of the
+scene and 64 deep: one cell for the first metre, then thin cells that get deeper further out. Each frame lights
+every cell at a different point of its depth and keeps 90% of what the cell held last
+frame, so a light that moves or switches on takes a few frames to settle in the fog.
+Screenshots and recordings that fix the frame come out the same every time. The grid
+follows [`RenderScale`](#graphics-settings), not the window. Like the plain fog, it is
+drawn for the camera only and is left out under water. `Graphics.VolumetricFog` turns it
+off, which gives the plain fog exactly, and `Graphics.Fastest()` turns it off.
 
 ## Water
 
@@ -217,6 +669,111 @@ view.Water(new UnderwaterSettings
 
 Leaving `Absorption` at zero means there's no water. The [Reef example](../examples/Reef)
 uses this.
+
+## Puddles
+
+`view.Puddles` lets water stand in the low places of the ground, with no mesh for the water.
+It takes the water's height in metres and, optionally, how far above it the ground is damp,
+8 cm unless given:
+
+```csharp
+view.Puddles(-0.045f);          // water at 4.5 cm below 0, damp for 8 cm above it
+view.Puddles(0.2f, band: 0.03f); // higher water and a narrower damp band
+```
+
+![The Courtyard puddle before, a flat grey sheet, and after, dark silty water at the level that mirrors the flagstones, the grass and the wall behind it](media/puddles-before-after.webp)
+
+Only materials that ask for it get wet: a model sidecar's rule with `"puddles": true`, or a
+`Surface` with `Puddles = true`. Each pixel's height is where it is in the world, less how
+deep its height map sinks it (the material's `heightDepth` times how far below white the
+height is), so the mortar between flagstones and the hollows in mud fill before the tops.
+A pixel below the level is water. It mirrors the sky and what's on screen with roughness
+0.03 and no metalness, its normal points straight up but for two layers of ripples 1 mm
+high that drift and change, at 0.4 and 0.9 cycles a second, so the wind breaks the reflection
+up a little. It reflects as water does: 2% of the light looking straight down, about a quarter
+from a standing eye a few metres off, and nearly all of it at grazing. Its colour is the
+ground's, turning to the near-black brown of turbid water as the water deepens to 4 cm, and it
+shows only through the light the reflection leaves, so the ground under shallow water shows
+most near your feet, deep water hides it, and the sky and what stands round the puddle read in
+it as reflections on a dark sheet, not as wet mud. Above the level, the surface is
+damp: at the waterline its colour is squared, which darkens it the way water darkens soil,
+and its roughness halved, fading in a straight line to dry at the band's top. A band of 0
+leaves only the water.
+
+The water is drawn on the ground, but it is lit as if at the level: its reflections start
+from the water's surface, so the sides of the hollow don't get in their way, and the sky
+reflects in it wherever nothing on screen stands in the way. Anything in the puddle
+with the rule, such as a plank or a wheel's rim, is wet and mirror-smooth below the level
+too. Puddles still apply with [`Graphics.Materials`](#graphics-settings) off: the plain clay
+gets wet at the height of its mesh, as there is no height map to sink it.
+
+The damp band is measured up from the water, so it is only a fringe where the ground rises
+well above the level. Where the ground sits only centimetres above the water, as round a
+shallow hollow, a band wider than that gap darkens all of it. Give a narrower band there, a
+little less than the ground's height above the water, so the ground round the puddle stays dry
+and only the slope down into it darkens.
+
+Without a level, the rule does nothing. [`Graphics.Puddles`](#graphics-settings) turns
+it off, and `Graphics.Fastest()` turns it off. The Courtyard uses it for its puddle, on the
+mud, the flagstones, the plank, the deck, the barrel's hoops and the wheel, with water 4.5 cm
+below the yard and a band of 3.5 cm.
+
+## Wind
+
+`view.Wind` sets a breeze that bends grass and leaves. It takes the way the wind blows, how
+strong it is and, optionally, how gusty, from 0 for steady to 1 for gusty, 0.5 unless given:
+
+```csharp
+view.Wind(new Vector3(0.6f, 0f, -0.3f), 0.35f);         // a fresh breeze, gusty by half
+view.Wind(Vector3.UnitX, 0.1f, gustiness: 0f);         // a light, steady air from the west
+```
+
+The strength is how far, in metres, it leans the tip of a blade of grass 1 m tall. Only the
+way along the ground counts, so a wind's direction needs some x or z, and a strength of 0 is
+a calm with no direction needed. Each frame starts calm, like the other view settings.
+
+![The Courtyard's grass in a calm, standing straight, and in a breeze of 0.35 on the same tick, leaning to the right](media/wind-before-after.webp)
+
+Only materials that ask for it move: a model sidecar's rule with `"wind": true`, or a
+`Surface` with `Wind = 1`. A rule can give a share of the lean instead, as
+`"wind": { "sway": 0.08 }`, for something stiffer than grass, such as ivy on a wall or a
+tree's crown, which would otherwise lean as far as a blade of grass of its height. A vertex
+moves downwind by the strength times its share times the square of its height above the
+lowest point of its part of the model, so the foot stays put and the tip bends most. The
+height counts up to 1 m, so a tall plant leans no further than a blade 1 m tall. Gusts swing
+the lean: noise 3 m across drifts downwind at 1.5 m/s, and at the default gustiness a lull
+leans the grass 60% as far as a gust. On top, leaves flutter 2 cm either way at their tips,
+four times a second, out of step from one place to the next. The flutter is the same at any
+share of the lean, and comes in fully from a strength of 0.25.
+
+The sway happens as the mesh is drawn, so its shadows sway with it, and a part that sways
+must be a separate part in the model, standing on its own foot: the lowest point of the whole
+part is what stays still. A copy can be moved, scaled or turned about the vertical and still
+sway from its own foot, but one tipped over sways from the wrong height, because the height
+is measured straight up. Culling knows how far a swaying part can reach, so grass at the
+edge of the screen or of a shadow doesn't pop in or out as it leans.
+[`Graphics.Wind`](#graphics-settings) turns it off, and
+`Graphics.Fastest()` turns it off. The Courtyard blows a breeze of 0.35 across its grass, with
+a share of 0.08 for the ivy and 0.4 for the tree's crown.
+
+## Motion vectors
+
+Anti-aliasing blends each pixel with where its surface was last frame. Every model draw
+also records how far it moved on screen since then: its own movement, its animation, the
+swim of a fish and the sway of grass in the wind, as well as the camera's. So a swinging
+lantern, a running character or a blade of grass keeps its edge instead of leaving a faint
+trail. There's nothing to turn on, and no setting.
+
+Super finds where a model stood last frame by its [key](views.md#keys). A model drawn for
+the first time, one whose key drew another model last frame, or one whose key is shared by
+models in different places, moves with the camera alone, which softens it a little while it moves. Still scenes look exactly as they did
+before. Glass and particles don't record their motion.
+
+![Courtyard grass swaying in a breeze, the same frame of a recording drawn without motion vectors and with them; without, the blades trail a faint copy of where they were](media/motion-vectors-grass.webp)
+
+Using Rendition alone, set `DrawItem.Key` to a number that names the thing drawn, the same
+every frame, on every part of it. The motion is kept in the G-buffer, in scene pixels, for
+anything that reads it later; [design.md](design.md#motion-vectors) has the encoding.
 
 ## Models
 
@@ -260,12 +817,38 @@ applies to every material whose name contains `match`:
 alpha times the surface texture's alpha, so leaves with alpha in their colour texture
 need nothing else, and a glTF file's own `MASK` cutoff is read without a rule. The
 import fails if the cutoff would cut out nothing, or everything, instead of quietly
-giving you solid cards.
+giving you solid cards. With a `graph`, the graph's `Opacity` is what gets cut.
+
+A cut-out keeps its shape in the distance. Plain mips average a thin opaque thread with the
+clear pixels round it, so its alpha falls under the cutoff a few levels down and it
+vanishes. The cook instead scales each smaller level's alpha so as large a share of its
+pixels passes the cutoff as on the full-size texture. When the colour and surface textures
+both carry opacity, it's the share where their product passes that is kept, by scaling the
+colour's alpha alone. Compression keeps that share too: a cut-out's smaller levels are
+checked once compressed, and encoded again with their alpha pushed away from the cutoff when
+more than 1% of their pixels moved across it. When both textures carry opacity, the colour
+is checked against the product, pixel by pixel, and the surface is compressed as it is. This
+is only done for materials with a cutoff: blended, dithered and opaque textures keep their
+mips as before. Changing the cutoff cooks the textures again. When two cut-out materials
+share a texture but want different coverage from it, such as two different cutoffs, the
+first material's wins and the cook warns.
+
+![The cobweb in --leaves from about 6 m: left, plain mips leave one dot of the web and thin the dry grass; right, mips that keep their coverage keep the threads and the grass](media/alpha-coverage-mips.webp)
 
 `foliage` is for a tree's leaves. It points their normals out of the crown so it's lit
 as one rounded shape instead of speckled cards, lets sunlight through the back of the
 leaves, and draws both sides. Every material the rule matches counts as one crown, so
-give the trunk its own material.
+give the trunk its own material. How much sunlight comes through is the leaves' own: 0.6
+with `"foliage": true`, or set as `"foliage": { "translucency": 0.85 }` for thin, bright
+leaves, down to 0 for leaves no light gets through. Anything outside 0 to 1 stops the cook.
+Leaves that aren't one rounded shape, such as ivy on a wall or grass across a yard, take
+`"foliage": { "crown": false }`. That keeps the normals the model gives, so bend them out of
+the surface the leaves grow on in your modelling tool. As one crown, ivy whose rule also
+covers ivy spilling into the yard would have its wall leaves facing into the wall, and
+lit dark.
+A `Surface` sets the same with `Foliage = true` and `Translucency`, and a Rendition `Material`
+with `MaterialFlags.Foliage` and `Translucency`; both start at 0.6. To make the leaves move,
+add a [`wind`](#wind) rule.
 
 Textures are looked for beside the source file, then in any folder under it, as
 Poly Haven's downloads keep them in `textures`. Some plants ship their leaf cut-outs
@@ -303,6 +886,15 @@ the file put it. Use it when the origin means something, such as a character who
 a few hundred alternative weapons, heads and shields spread around. Those would move the bounds,
 and the character would end up shifted by an amount you can't predict. A rigged model's skeleton
 stays in the same place as its mesh. It's `false` by default.
+
+`compressTextures` block-compresses the model's textures, which is on by default. Normal maps
+become BC5, height maps BC4 and the rest BC7, so a texture takes a quarter of the memory or less.
+Compressing is quick: BC7 takes about a tenth of a second for a 2048-pixel texture, and the
+whole Courtyard cooks from nothing in about 2 minutes, most of it running material graphs.
+Each compressed texture is kept in the cook cache by its pixels, so editing one graph
+compresses only the textures that graph changed. Set it to `false` to keep every pixel
+exactly. The cook checks textures before it compresses them, so its warnings are the same
+either way.
 
 To use several pieces of one file, list them as `parts`. Each part is cooked as its own
 model, named `file#part`, and takes every setting written beside `parts` unless it sets
@@ -360,10 +952,222 @@ as the shared `assets` folder does for Poly Haven's `textures` folders:
 ```
 
 Other options are the `baseColor`, `normal`, `surface` and `emissive` textures,
-`color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `twoSided`,
-`transparent`, `opacity`, `ior`, `noNormalMap` and `rotateY`; see `src/Super.Cook.Models/ImportSettings.cs`.
-`color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `heightDepth`, `detailScale`, `detailMask`, `twoSided`,
-`transparent`, `opacity`, `noNormalMap` and `rotateY`; see `src/Super.Cook.Models/ImportSettings.cs`.
+`color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `heightDepth`,
+`detailScale`, `detailMask`, `twoSided`, `transparent`, `opacity`, `ior`, `noNormalMap`,
+`worldVariation`, `dithered`, `puddles`, `wind` and `rotateY`, and `graph`, `graphSize`, `detailGraph` and
+`detailGraphSize`, and `shader`, `shaderParameters` and `shaderTextures`, below; see
+`src/Super.Cook.Models/ImportSettings.cs`.
+
+`worldVariation` darkens and lightens the colour in broad patches a few metres across, laid by
+where the surface is in the world rather than by its UVs, with a little more roughness in the
+dark patches. A texture repeated across a big wall or floor then doesn't show its repeats. It's
+on the Courtyard's bricks, stone, flagstones and mud.
+
+`dithered` fades a material out softly by its opacity instead of cutting it at `alphaCutoff`.
+Each frame a share of its pixels as large as its opacity is drawn, a different share each
+time, and anti-aliasing blends them into a smooth fade. Its shadow fades the same way. With
+`AntiAliasing` off the pattern shows as grain. Like any opaque surface, a dithered one
+replaces the normal and roughness of what's behind it. For grime, damp or a stain on a
+wall, use a [decal](views.md#decals) instead of a dithered quad in front of it: a decal
+blends its colour and roughness into the wall and lays its bumps over the wall's own, so
+the bricks still show through, and it never floats off the surface or flickers against it.
+Keep `dithered` for things that should fade as a whole, such as a leaf or a cobweb.
+
+`puddles` lets water stand on the material wherever it lies below the level the game sets
+with `view.Puddles`, and makes it damp for a band above. See [Puddles](#puddles).
+
+`wind` sways the material in the breeze the game sets with `view.Wind`: `true` for grass, or
+`{ "sway": 0.08 }` for a share of the lean, for something stiffer. A share below 0 stops the
+cook. See [Wind](#wind).
+
+### A material graph on a model
+
+A rule's `graph` gives the materials it matches a [material graph](materials.md), so a
+model exported from Blender can wear procedural bricks, dirt or wood. The path is from the
+model's folder and names a `.material.cs` graph or a `.material.json` variant:
+
+```json
+// models/courtyard.glb.cook.json
+{
+  "materials": [
+    { "match": "graph_bricks", "graph": "../materials/bricks.material.cs" },
+    { "match": "graph_dirt", "graph": "../materials/dirt.material.cs", "graphSize": 512 }
+  ]
+}
+```
+
+The graph runs while the model cooks, at `graphSize` pixels across, 1024 unless you give
+one. Like a graph's own [size](materials.md#size), it must be a power of two from 16 to
+4096, and anything else stops the cook:
+
+```text
+material graph_dirt: graphSize must be a power of two from 16 to 4096, not 500.
+```
+
+The graph's colour, normal and surface textures go into the model like any other textures.
+The material's colour is white and its `metallic` and `roughness` are 1, because they
+multiply the textures. Set `color`, `metallic` or `roughness` in the rule to tint or scale
+them. The model file's own colour and factors are ignored, since they were meant for its
+own textures. Since the graph makes the textures, a rule that also sets `baseColor`,
+`normal`, `surface` or `alpha` stops the cook. `emissive`, `noNormalMap`, `alphaCutoff` and
+the other switches work as usual. A graph's `Opacity` goes into the surface texture's alpha.
+With `alphaCutoff` it goes into the colour texture's alpha instead, and the surface alpha is
+left whole, so a graph can cut out leaves, lace or a torn edge. Otherwise it stays in the surface alpha,
+so for glass whose grime clouds it, add `"transparent": true` and the graph's opacity
+scales the tint, as the Courtyard's window does. With `"dithered": true` the opacity fades the
+material out instead. A stain such as the Courtyard's `grime.material.cs` looks better as a
+[decal](views.md#decals): `content.Surface` loads the graph on its own, and its opacity
+fades the decal.
+
+A graph that sets a `Height` also gives the material a height map, so its grooves sink in
+with [parallax](#height-and-detail-maps) up close. The depth is the graph's `Depth`. A rule's
+`heightDepth` sets another, and `"heightDepth": 0` turns the parallax off. A rule's own
+`height` texture wins over the graph's.
+
+A rule's `detailGraph` names a second, small graph to lay over the first as its detail
+textures, for grain that still holds up when the camera is a step away and the main graph's
+pixels run out. Its normal map becomes the detail normal. Its colour becomes the detail
+colour, divided by its average brightness so it brightens and darkens without changing the
+main graph's colour on the whole. It tiles at its own `Width`, so a 0.25 m grit graph over
+a 2 m brick graph repeats 8 times across each repeat of the bricks; a rule's `detailScale`
+sets another. It runs at `detailGraphSize`, 1024 by default:
+
+```json
+{
+  "match": "graph_bricks",
+  "graph": "../materials/bricks.material.cs",
+  "detailGraph": "../materials/grit.material.cs",
+  "worldVariation": true
+}
+```
+
+A detail graph needs a main graph, and it makes the detail textures, so a rule can't also
+give `detailColor` or `detailNormal`:
+
+```text
+material bark: detailGraph tiles at a size the main graph's width sets, so it needs a graph.
+material bark: detailGraph makes the detail textures, so it can't be used with detailColor or detailNormal.
+```
+
+![The Courtyard's wall before and after taller bricks, parallax, grit detail, world variation and sharper texture reads](media/courtyard-textures.webp)
+
+A graph material reads its UVs in metres. The cook divides the UVs of every mesh that uses
+it by the graph's `Width`, so a 2 m brick graph repeats once every 2 units of UV. In
+Blender, unwrap the surfaces at real-world scale, one UV unit to a metre, and a tile starts
+at the UV origin, so a wall unwrapped from its foot starts a row of bricks there. The
+division happens before `targetLength` is applied. A model cooked with `targetLength`
+changes size but keeps its UVs, so its bricks grow or shrink with it.
+
+Errors in the graph stop the model's cook and name the material, and the graph and its
+line where there is one:
+
+```text
+material graph_bricks: ../materials/bricks.material.cs line 12: scale must be at least 1, not 0. (Parameter 'scale')
+material graph_dirt: materials/dirt.material.cs isn't in the source root.
+```
+
+Editing the graph, its variant or an image it reads cooks the model again. A graph that
+several materials or parts use runs once per model cook at each size. The graph is a
+source of its own too, so it also cooks to its own textures. If only models use it, turn
+that off with a `"cook": false` rule in `cook.json`, as you would for a model's textures.
+
+### Wear and dirt
+
+A rule with `"bakeMasks": true` has the cook bake masks from the material's own meshes, and
+its `wear` and `dirt` are laid over the surface by them. Wear pales and polishes a band about
+two centimetres wide along the convex edges, where hands and knocks rub a barrel's staves,
+in patches, so some of an edge is rubbed and some not. Dirt darkens the hollows the sky
+can't reach and the foot of each mesh, its lowest 0.3 m or, on a mesh shorter than that,
+its lower part, where mud splashes, but not over wear:
+
+```json
+{
+  "match": "graph_wood",
+  "graph": "../materials/wood.material.cs",
+  "bakeMasks": true,
+  "wear": { "color": [0.86, 0.85, 0.82], "roughness": 0.45, "amount": 0.6 },
+  "dirt": { "color": [0.6, 0.55, 0.5], "roughness": 0.95, "amount": 0.65 }
+}
+```
+
+A layer tints the surface rather than covering it, so the grain and the stone's pattern show
+through. Each layer's `color` is red, green and blue from 0 to 1 as a colour picker shows it
+(sRGB), and the surface's own colour is multiplied by twice its linear value: 0.735 leaves
+the colour as it is, more pales it and less darkens it. This differs from the rule's own
+`color`, which is a plain linear multiplier on the graph or texture, so 0.5 there halves it.
+`amount`, from 0 to 1, is how far the layer goes where its mask is full. `roughness` is the
+layer's own, from 0 to 1. Leave it out and the surface keeps its roughness under the layer.
+A rule may give only one of the two. It works with or without a graph, so a downloaded
+model's textures can wear too. A transparent material doesn't show wear and dirt, so the
+cook warns and ignores `bakeMasks` on one. [`Graphics.WearAndDirt`](#graphics-settings)
+turns them off everywhere.
+
+The masks are baked into the mesh's second UV set, `TEXCOORD_1`, whose islands must not
+overlap, since every texel stands for one place on the mesh. The first set stays free to
+tile, as a graph's metric UVs do. In Blender, add a second UV map, unwrap it with Smart UV
+Project and keep the first map active for rendering; the glTF exporter writes both. Give it
+an island margin of 0.004 or more, about 4 pixels of the mask, so the smaller mips of
+neighbouring islands don't blur into each other. Every mesh using the material needs it, and
+the cook stops otherwise:
+
+```text
+material graph_wood: bakeMasks needs a second UV set (TEXCOORD_1) for its masks, and a mesh of this material has none. Give its meshes one whose islands don't overlap.
+material graph_wood: triangles 812 and 9301 of its second UV set overlap at texel (402, 77). Two places on the mesh can't share a texel of its masks, so give the masks a UV set whose islands don't overlap.
+material graph_wood: wear and dirt need bakeMasks, since they're laid by the masks it bakes.
+material graph_wood: dirt amount must be from 0 to 1, not 1.5.
+```
+
+The masks are 1024 pixels across for each material, whatever its size, so a material that
+spreads over many meshes gets fewer pixels for each. The Courtyard's stone, on the sill, the
+plinth and all the loose stones, is the coarsest. Every mesh of the material is baked
+together, and the rest of the model within half a metre shades it, so the deck darkens where
+the crates stand on it. Off its islands the mask reads as clean, so a mip that reaches past
+an island's edge adds neither wear nor dirt. A mesh without a second UV set gets zeros there,
+which is harmless for materials without masks. See [Mask bakes](design.md#mask-bakes) for how they're made.
+
+### A surface shader on a model
+
+A rule's `shader` gives the materials it matches a [surface shader](#surface-shaders), named
+by its file name as with `content.Shader`. `shaderParameters` are its parameters, up to 8 of
+up to 4 numbers each, with missing numbers read as 0. `shaderTextures` are up to 4 cooked
+textures for its texture slots, by their path from the model's folder:
+
+```json
+// models/courtyard.glb.cook.json
+{
+  "materials": [
+    {
+      "match": "graph_flagstones",
+      "graph": "../materials/flagstones.material.cs",
+      "shader": "puddles",
+      "shaderParameters": [[0.6], [0.2, 0.3, 0.35, 1]],
+      "shaderTextures": ["../textures/ripples.png"]
+    }
+  ]
+}
+```
+
+The cook writes the names and numbers into the model. When the model loads, the shader is
+read from the game's `shaders` folder and the textures from the cooked content, and the
+model's material gets them as if a `Surface` had named them. A texture a rule names must be
+cooked, so a `"cook": false` rule over it makes the model fail to load with the usual
+missing-content message. When a game cooks part of a root with `Only`, its globs must pick
+each texture a rule names as well as the model. The cook stops when a rule asks for too
+much, names a texture that isn't there or that `Only` leaves out, gives parameters or
+textures without a shader, or names a shader by a path
+rather than a file name. A transparent material can't use a surface shader yet, the same as
+with a `Surface`:
+
+```text
+material bark: shader "water/puddles" must be the file name of a shader in the shaders folder, such as "puddles", with no /, \ or "..".
+material bark: shaderParameters has 9 entries, but a surface shader takes at most 8.
+material bark: shaderParameters[2] has 5 numbers, but a parameter holds at most 4.
+material bark: shaderTextures has 5 entries, but a surface shader takes at most 4.
+material bark: shaderTextures[0] ../textures/missing.png isn't in the source root.
+material bark: shaderTextures[0] textures/ripples.png isn't cooked, because the source root's Only leaves it out. Pick it in Only too, such as "textures/ripples.png".
+material bark: shaderParameters and shaderTextures are read by a shader, so they need one.
+material bark: transparent materials can't use a surface shader yet.
+```
 
 A rigged model keeps its skeleton, bone weights and clips, and `animations` adds clips
 from other files of the same rig, such as Mixamo's:
@@ -411,7 +1215,7 @@ four times a frame. Past that, overlapping glass still blends but doesn't bend o
 frost. What's behind is bent once, at the near side, and followed half a metre at
 most, so solid glass looks right but isn't exact. Glass casts a lighter shadow, by how
 much light it lets through, and even clear glass keeps a quarter of its shadow, as
-bent light spreads. Glass reflects the sky, not probes or screen-space reflections.
+bent light spreads. Glass reflects [reflection probes](#reflections) where they cover it and the sky elsewhere, but not what's on screen.
 The `Glass` example shows each kind, and `--flat` draws it all without bending or
 frosting.
 
@@ -528,6 +1332,10 @@ prism and hex have sharp edges. Every call also takes a `Surface`, which default
 grey. UVs stretch once across each part, such as each face of a box or the side of a
 cylinder, unless `uvPerMetre` is given; then they count metres, so a tiled texture is the
 same size on every shape whatever its size. Round shapes measure round their widest point.
+A surface from `content.Surface` (a material graph) tiles at its graph's width when
+`uvPerMetre` is not given, and `uvPerMetre` wins when it is. Ribbons, tubes and extrusions
+follow the same rule. A `uvPerMetre` or `TileWidth` must be a finite number above zero, or
+the shape throws an `ArgumentOutOfRangeException` naming it.
 
 ## Meshes made by code
 
@@ -599,6 +1407,9 @@ ModelRef wall = content.Mesh(Shapes.Box(new Vector3(16f, 3f, 0.4f), new Surface
 A cooked model takes the same textures and values in its sidecar, as `height`,
 `heightDepth`, `detailColor`, `detailNormal`, `detailScale` and `detailMask` on a material
 rule. These textures are cooked as linear data, and `detailNormal` as a normal map.
+`detailScale` is 8 unless given, or, with a [`detailGraph`](#a-material-graph-on-a-model),
+the main graph's width over the detail graph's. A graph material gets its height map from
+its graph.
 
 The depth shows up close: it fades out between 15 and 25 metres from the camera, where
 the normal map alone looks the same and costs less. Keep `HeightDepth` to a few
@@ -632,7 +1443,7 @@ anticlockwise faces outwards, and a flat road listed from right to left faces up
 `closedOutline` joins the last point back to the first. Edges are sharp across the
 outline unless it's `smooth`, as for a pipe. The ends are left open. A ring of vertices
 goes every `step` metres. UVs are in metres: u runs across the outline and v runs along
-the spline, scaled by `uvPerMetre`.
+the spline, scaled by `uvPerMetre`, which is 1 unless the surface has a `TileWidth`.
 
 `Bend` measures along the spline from the back of the mesh (its lowest z). Each vertex
 keeps its x and y across the spline, so the mesh keeps its length. Past the end of an

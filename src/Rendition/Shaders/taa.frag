@@ -1,12 +1,14 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
 #include "common.glsl"
+#include "sampling.glsl"
 
 layout(location = 0) in vec2 inUv;
 
 layout(set = 1, binding = 0) uniform sampler2D currentTexture;
 layout(set = 1, binding = 1) uniform sampler2D historyTexture;
 layout(set = 1, binding = 2) uniform sampler2D depthTexture;
+layout(set = 1, binding = 3) uniform sampler2D motionTexture; // see Passes/Motion.cs
 
 layout(location = 0) out vec4 outColor;
 
@@ -14,6 +16,11 @@ const float HISTORY_WEIGHT = 0.92;
 
 // How far history may stray from this frame's nearby pixels, in standard deviations.
 const float HISTORY_TOLERANCE = 1.25;
+
+// How far, in pixels, a surface's own motion may differ from the camera's before it counts as moving by itself: a
+// hundredth of a pixel, plus what 16-bit floats lose of a large motion.
+const float MOTION_TOLERANCE = 0.01;
+const float MOTION_PRECISION = 1.0 / 512.0;
 
 // Averaging raw HDR lets one very bright pixel dominate, so edges next to bright
 // surfaces stay jagged. Blending in this squeezed range keeps them smooth.
@@ -27,28 +34,7 @@ vec3 unsqueeze(vec3 color) {
 
 // Catmull-Rom lookup. Plain blending would soften the picture a little every frame.
 vec3 sampleHistory(vec2 uv) {
-    vec2 size = vec2(textureSize(historyTexture, 0));
-    vec2 position = uv * size - 0.5;
-    vec2 base = floor(position);
-    vec2 f = position - base;
-
-    vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
-    vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
-    vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
-    vec2 w3 = f * f * (-0.5 + 0.5 * f);
-    vec2 w12 = w1 + w2;
-
-    vec2 uv0 = (base - 0.5) / size;
-    vec2 uv3 = (base + 2.5) / size;
-    vec2 uv12 = (base + 0.5 + w2 / w12) / size;
-
-    vec3 color = texture(historyTexture, vec2(uv12.x, uv0.y)).rgb * w12.x * w0.y
-        + texture(historyTexture, vec2(uv0.x, uv12.y)).rgb * w0.x * w12.y
-        + texture(historyTexture, uv12).rgb * w12.x * w12.y
-        + texture(historyTexture, vec2(uv3.x, uv12.y)).rgb * w3.x * w12.y
-        + texture(historyTexture, vec2(uv12.x, uv3.y)).rgb * w12.x * w3.y;
-    float total = w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y;
-    return max(color / total, vec3(0.0));
+    return catmullRom(historyTexture, uv);
 }
 
 // Temporal anti-aliasing: the camera shifts by less than a pixel each frame, so blending
@@ -65,13 +51,18 @@ void main() {
     vec3 mean = vec3(0.0);
     vec3 meanSquared = vec3(0.0);
     float nearest = 0.0;
+    vec2 nearestUv = inUv;
     for (int y = -1; y <= 1; y++) {
         for (int x = -1; x <= 1; x++) {
             vec2 uv = inUv + vec2(x, y) * texel;
             vec3 color = squeeze(texture(currentTexture, uv).rgb);
             mean += color;
             meanSquared += color * color;
-            nearest = max(nearest, texture(depthTexture, uv).r); // Reversed-Z: larger is nearer.
+            float depth = texture(depthTexture, uv).r;
+            if (depth > nearest) { // Reversed-Z: larger is nearer.
+                nearest = depth;
+                nearestUv = uv;
+            }
         }
     }
     mean /= 9.0;
@@ -82,7 +73,25 @@ void main() {
     vec4 world = frame.inverseViewProjection * vec4(inUv * 2.0 - 1.0 + frame.finish.zw, nearest, 1.0);
     vec4 previous = frame.previousViewProjection * world;
     vec2 historyUv = previous.xy / previous.w * 0.5 + 0.5;
-    if (previous.w <= 0.0 || any(lessThan(historyUv, vec2(0.0))) || any(greaterThan(historyUv, vec2(1.0)))) {
+    bool behind = previous.w <= 0.0;
+
+    // A surface that moved by itself, such as a walking figure or grass in the wind, follows its motion vector,
+    // from the nearest surface around too. Where the motion is the camera's alone, worked out here for the same
+    // pixel, the camera's reprojection above stands, so a still scene gives what it always has. The sky wrote no
+    // motion, and is left to the camera.
+    if (nearest > 0.0) {
+        vec2 motion = texture(motionTexture, nearestUv).xy;
+        vec2 ndc = nearestUv * 2.0 - 1.0;
+        vec4 surface = frame.previousViewProjection * (frame.inverseViewProjection * vec4(ndc, nearest, 1.0));
+        vec2 cameraMotion = (surface.xy / surface.w - (ndc - frame.finish.zw)) * 0.5 * frame.screen.xy;
+        if (surface.w > 0.0 && length(motion - cameraMotion) > MOTION_TOLERANCE + MOTION_PRECISION * length(cameraMotion)) {
+            historyUv = inUv + motion / frame.screen.xy;
+            behind = false;
+        }
+    }
+
+    // Written so a motion that isn't a number falls back too.
+    if (behind || !(all(greaterThanEqual(historyUv, vec2(0.0))) && all(lessThanEqual(historyUv, vec2(1.0))))) {
         outColor = vec4(current, 1.0);
         return;
     }

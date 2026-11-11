@@ -17,7 +17,7 @@ struct Material {
     uint shaderTextures[4];
     uint shaderArrays[4];
     uint flags; // MaterialFlags in Types.cs.
-    float transmission; // How much light from behind shines through, for subsurface materials.
+    float transmission; // How much light from behind shines through, for subsurface materials and foliage.
     uint heightTexture;
     float heightDepth; // Metres, 0 for no parallax.
     uint detailColorTexture;
@@ -25,11 +25,21 @@ struct Material {
     float detailScale; // 0 for no detail textures.
     float ior; // 1 or more; 1 bends nothing.
     vec4 subsurface; // How far red, green and blue spread under the surface in metres; w is the widest, 0 for none.
+    uint maskTexture; // Read by the second uv: curvature, sky seen, height above the foot, wear breakup.
+    float maskPadding; // Unused, so wear lands on a 16-byte boundary.
+    float wearRoughness; // Below 0 keeps the surface's roughness.
+    float dirtRoughness;
+    vec4 wear; // rgb is the colour, a the amount: 0 for none.
+    vec4 dirt;
 };
 
+const uint MATERIAL_TWO_SIDED = 1u;
 const uint MATERIAL_TRANSPARENT = 2u;
 const uint MATERIAL_FOLIAGE = 4u;
 const uint MATERIAL_DETAIL_MASK = 8u;
+const uint MATERIAL_WORLD_VARIATION = 16u;
+const uint MATERIAL_DITHERED = 32u;
+const uint MATERIAL_PUDDLES = 64u;
 
 // A G-buffer emissive alpha at or above this marks a subsurface pixel, holding the
 // material's index plus this. Clearcoat stays within 0 to 1 and foliage is negative.

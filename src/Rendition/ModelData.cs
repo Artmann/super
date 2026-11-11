@@ -34,7 +34,30 @@ public struct ModelMaterial
     public MaterialFlags Flags;
     public float Ior;
     public Subsurface Subsurface;
+
+    /// <summary>For foliage, how much sunlight shines through from behind, 0 to 1. See <see cref="Material.Translucency"/>.</summary>
+    public float Translucency;
+
+    /// <summary>How far it sways in the wind, as a share of the view's strength; 0 keeps it still. See <see cref="Material.Wind"/>.</summary>
+    public float Wind;
 }
+
+/// <summary>
+/// A surface shader a model's material is drawn with, by name, as <c>Material.Shader</c> is for a
+/// generated mesh. The game finds the shader and the textures by name when it loads the model.
+/// </summary>
+/// <param name="Name">The shader's file name without its extension, such as <c>puddles</c> for <c>Shaders/puddles.frag</c>.</param>
+/// <param name="Parameters">What the shader reads as <c>shaderParameters[i]</c>. At most <see cref="ShaderParameters.Length"/>.</param>
+/// <param name="Textures">The cooked names of the textures it reads with <c>shaderTexture(i, uv)</c>. At most <see cref="ShaderTextures.Length"/>.</param>
+public sealed record ModelMaterialShader(string Name, Vector4[] Parameters, string[] Textures);
+
+/// <summary>
+/// Masks the cooker baked from a material's mesh, and the wear and dirt laid by them. See <see cref="Material.MaskTexture"/>.
+/// </summary>
+/// <param name="Texture">The mask texture's index in <see cref="ModelData.Textures"/>.</param>
+/// <param name="Wear">Worn edges, laid where the mask is convex.</param>
+/// <param name="Dirt">Dirt, laid in hollows and near each mesh's foot.</param>
+public sealed record ModelMaterialMasks(int Texture, MaterialLayer Wear, MaterialLayer Dirt);
 
 /// <summary>One run of triangles sharing a material.</summary>
 public struct ModelPart
@@ -49,8 +72,10 @@ public sealed class ModelData
 {
     private const uint Magic = 0x4C444D52; // "RMDL"
     // 4: materials gained Subsurface. 5: height and detail textures. 6: materials gained Ior. 7: part names sit at the front.
-    // 8: a texture is either inside the file or named by the hash of an object of its own.
-    private const int Version = 8;
+    // 8: a texture is either inside the file or named by the hash of an object of its own. 9: textures say their format.
+    // 10: material shaders. 11: vertices gained Uv2, and materials masks. 12: masks lost their height.
+    // 13: materials gained Translucency and Wind.
+    private const int Version = 13;
 
     private const byte TextureInside = 0;
     private const byte TextureByHash = 1;
@@ -73,6 +98,35 @@ public sealed class ModelData
 
     /// <summary>Motions for the skeleton, each with as many joints as it has.</summary>
     public AnimationClip[] Clips { get; init; } = [];
+
+    /// <summary>
+    /// For each material, the surface shader it's drawn with, or null for the standard one. In the
+    /// same order as <see cref="Materials"/>. Empty when no material has one; otherwise it must be as
+    /// long as <see cref="Materials"/>. Read it with <see cref="ShaderOf"/>.
+    /// </summary>
+    public ModelMaterialShader?[] MaterialShaders { get; init; } = [];
+
+    /// <summary>The surface shader material <paramref name="material"/> is drawn with, or null for the standard one.</summary>
+    public ModelMaterialShader? ShaderOf(int material) =>
+        material < MaterialShaders.Length ? MaterialShaders[material] : null;
+
+    /// <summary>
+    /// For each material, its baked masks with the wear and dirt laid by them, or null for none. In the same order as
+    /// <see cref="Materials"/>. Empty when no material has them; otherwise it must be as long as
+    /// <see cref="Materials"/>. Read it with <see cref="MaskOf"/>.
+    /// </summary>
+    public ModelMaterialMasks?[] MaterialMasks { get; init; } = [];
+
+    /// <summary>Material <paramref name="material"/>'s baked masks, or null when it has none.</summary>
+    public ModelMaterialMasks? MaskOf(int material) =>
+        material < MaterialMasks.Length ? MaterialMasks[material] : null;
+
+    /// <summary>
+    /// What texture <paramref name="texture"/> reads past its edge: <see cref="TextureEdges.Clamp"/> when it's
+    /// a material's masks, which are an atlas of the mesh's islands, and <see cref="TextureEdges.Repeat"/> otherwise.
+    /// </summary>
+    public TextureEdges EdgesOf(int texture) =>
+        MaterialMasks.Any(masks => masks?.Texture == texture) ? TextureEdges.Clamp : TextureEdges.Repeat;
 
     /// <summary>
     /// Says why a material's cutoff can't work, or returns null when it can or there is
@@ -140,6 +194,18 @@ public sealed class ModelData
                 $"The model has {Parts.Length} parts and {MeshNames.Length} mesh names. Give one name to each part, or none.");
         }
 
+        if (MaterialShaders.Length != 0 && MaterialShaders.Length != Materials.Length)
+        {
+            throw new InvalidOperationException(
+                $"The model has {Materials.Length} materials and {MaterialShaders.Length} material shaders. Give one to each material, or none.");
+        }
+
+        if (MaterialMasks.Length != 0 && MaterialMasks.Length != Materials.Length)
+        {
+            throw new InvalidOperationException(
+                $"The model has {Materials.Length} materials and {MaterialMasks.Length} material masks. Give one to each material, or none.");
+        }
+
         var stream = new MemoryStream();
         using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
         {
@@ -190,6 +256,33 @@ public sealed class ModelData
         WriteArray(writer, Indices);
         WriteArray(writer, Parts);
         WriteArray(writer, Materials);
+        writer.Write(MaterialShaders.Length);
+        foreach (var shader in MaterialShaders)
+        {
+            writer.Write(shader is not null);
+            if (shader is not null)
+            {
+                writer.Write(shader.Name);
+                WriteArray(writer, shader.Parameters);
+                writer.Write(shader.Textures.Length);
+                foreach (string texture in shader.Textures)
+                {
+                    writer.Write(texture);
+                }
+            }
+        }
+
+        writer.Write(MaterialMasks.Length);
+        foreach (var masks in MaterialMasks)
+        {
+            writer.Write(masks is not null);
+            if (masks is not null)
+            {
+                writer.Write(masks.Texture);
+                WriteArray(writer, new[] { masks.Wear, masks.Dirt });
+            }
+        }
+
         writer.Write(Textures.Length);
         foreach (var texture in Textures)
         {
@@ -227,6 +320,28 @@ public sealed class ModelData
         var indices = ReadArray<uint>(reader);
         var parts = ReadArray<ModelPart>(reader);
         var materials = ReadArray<ModelMaterial>(reader);
+        var shaders = new ModelMaterialShader?[reader.ReadInt32()];
+        for (int i = 0; i < shaders.Length; i++)
+        {
+            if (reader.ReadBoolean())
+            {
+                string shaderName = reader.ReadString();
+                var parameters = ReadArray<Vector4>(reader);
+                shaders[i] = new ModelMaterialShader(shaderName, parameters, ReadNames(reader));
+            }
+        }
+
+        var masks = new ModelMaterialMasks?[reader.ReadInt32()];
+        for (int i = 0; i < masks.Length; i++)
+        {
+            if (reader.ReadBoolean())
+            {
+                int maskTexture = reader.ReadInt32();
+                var layers = ReadArray<MaterialLayer>(reader);
+                masks[i] = new ModelMaterialMasks(maskTexture, layers[0], layers[1]);
+            }
+        }
+
         var textures = new TextureData[reader.ReadInt32()];
         for (int i = 0; i < textures.Length; i++)
         {
@@ -253,6 +368,8 @@ public sealed class ModelData
             Indices = indices,
             Parts = parts,
             Materials = materials,
+            MaterialShaders = shaders,
+            MaterialMasks = masks,
             Textures = textures,
             Skeleton = skeleton,
             Clips = clips,

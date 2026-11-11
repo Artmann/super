@@ -36,6 +36,28 @@ internal sealed class SceneRenderer : IDisposable
     private int _uploadedAtlas;
     private Content? _content;
     private IContentFiles? _files;
+    private readonly ReflectionProbeSchedule _reflectionProbes = new();
+
+    /// <summary>
+    /// A material for each surface decals have used, made the first time, with the frame it was last used in.
+    /// Kept until content unloads, or until there are more than <see cref="MaxDecalMaterials"/>.
+    /// </summary>
+    private readonly Dictionary<Surface, (MaterialHandle Handle, long Frame)> _decalMaterials = [];
+
+    /// <summary>
+    /// How many decal materials are kept. Past this, the ones this frame didn't use are let go, so a game that
+    /// makes a new <see cref="Surface"/> value every frame doesn't fill the material slots. Twice what one
+    /// frame can use, so the materials of a steady scene are never made again.
+    /// </summary>
+    internal const int MaxDecalMaterials = 2 * Rendition.Passes.DecalBatch.MaxDecals;
+
+    private long _decalFrame;
+    private readonly List<Surface> _unusedDecalSurfaces = [];
+    private DecalDraw[] _decals = new DecalDraw[16];
+    private int _decalCount;
+
+    /// <summary>Surface shaders named by cooked models, made once for each name and kept for the renderer's life.</summary>
+    private readonly Dictionary<string, SurfaceShaderHandle> _modelShaders = [];
 
     public SceneRenderer(RendererOptions options)
     {
@@ -62,10 +84,13 @@ internal sealed class SceneRenderer : IDisposable
     /// <summary>The grey room a world without a sky sits in.</summary>
     private static readonly Bands Studio = new(new Vector3(0.45f, 0.5f, 0.6f), new Vector3(0.5f, 0.5f, 0.52f), new Vector3(0.25f, 0.24f, 0.23f));
 
-    private readonly record struct Bands(Vector3 Ceiling, Vector3 Horizon, Vector3 Floor);
+    internal readonly record struct Bands(Vector3 Ceiling, Vector3 Horizon, Vector3 Floor);
 
-    // Water wins over the sky, which wins over the studio.
-    private static Bands Surroundings(View view)
+    /// <summary>
+    /// The bands baked into the environment. Water wins over the sky, which wins over the studio.
+    /// A clear sky keeps its three colours here, and the renderer uses only the ground below its horizon.
+    /// </summary>
+    internal static Bands SurroundingColors(View view)
     {
         var water = view.WaterSettings;
         if (water.Absorption != Vector3.Zero)
@@ -81,6 +106,12 @@ internal sealed class SceneRenderer : IDisposable
         return Studio;
     }
 
+    /// <summary>The view's clear sky, or none under water, which takes over the sky.</summary>
+    internal static AnalyticSky FrameSky(View view) =>
+        view.WaterSettings.Absorption == Vector3.Zero && view.SkySettings is { } sky
+            ? new AnalyticSky { Turbidity = sky.Turbidity }
+            : default;
+
     public int ValidationErrors => _renderer.ValidationErrors;
 
     public bool MeasureGpu
@@ -93,6 +124,27 @@ internal sealed class SceneRenderer : IDisposable
     {
         get => _renderer.Vsync;
         set => _renderer.Vsync = value;
+    }
+
+    /// <summary>How many texels across each sun shadow map is. A change rebuilds the maps before the next frame.</summary>
+    public int ShadowResolution
+    {
+        get => _renderer.ShadowResolution;
+        set => _renderer.ShadowResolution = value;
+    }
+
+    /// <summary>How large the scene is drawn against the window. A change rebuilds the targets before the next frame.</summary>
+    public float RenderScale
+    {
+        get => _renderer.RenderScale;
+        set => _renderer.RenderScale = value;
+    }
+
+    /// <summary>What anti-aliases the scene, and upscales it with FSR. A change rebuilds the targets before the next frame.</summary>
+    public Upscaler Upscaler
+    {
+        get => _renderer.Upscaler;
+        set => _renderer.Upscaler = value;
     }
 
     /// <summary>The effects left out of every frame from now on.</summary>
@@ -108,14 +160,74 @@ internal sealed class SceneRenderer : IDisposable
     {
         Prepare(content, view);
         int count = PrepareDraws(view, content);
-        _renderer.Render(CreateFrame(view, width, height, time), _draws.AsSpan(0, count));
+        PrepareDecals(view, content);
+        var frame = CreateFrame(view, width, height, time);
+        CaptureReflectionProbes(view, frame, _draws.AsSpan(0, count));
+        _renderer.Render(frame, _draws.AsSpan(0, count));
     }
 
     public byte[] Capture(View view, Content content, int width, int height, float time, out int capturedWidth, out int capturedHeight)
     {
         Prepare(content, view);
         int count = PrepareDraws(view, content);
-        return _renderer.Capture(CreateFrame(view, width, height, time), _draws.AsSpan(0, count), out capturedWidth, out capturedHeight);
+        PrepareDecals(view, content);
+        var frame = CreateFrame(view, width, height, time);
+        CaptureReflectionProbes(view, frame, _draws.AsSpan(0, count));
+        return _renderer.Capture(frame, _draws.AsSpan(0, count), out capturedWidth, out capturedHeight);
+    }
+
+    /// <summary>The reflection probes to keep: the view's, or none while reflections are off.</summary>
+    internal static ReadOnlySpan<ReflectionProbeRequest> WantedReflectionProbes(View view, RenderEffects off) =>
+        off.HasFlag(RenderEffects.Reflections) ? [] : view.ReflectionProbes;
+
+    /// <summary>
+    /// Photographs each of the view's reflection probes the first frame it's placed, and again when
+    /// it moves or the lighting changes. Moving the camera isn't a lighting change. A probe that's gone takes the others with it, and they're
+    /// photographed again in their new slots.
+    /// </summary>
+    private void CaptureReflectionProbes(View view, in FrameView frame, ReadOnlySpan<DrawItem> draws)
+    {
+        var wanted = WantedReflectionProbes(view, Off);
+        if (_reflectionProbes.Forget(wanted))
+        {
+            _renderer.ClearReflectionProbes();
+        }
+
+        if (wanted.IsEmpty)
+        {
+            return;
+        }
+
+        int lighting = _renderer.ReflectionLightingHash(frame);
+        foreach (var request in wanted)
+        {
+            if (!_reflectionProbes.ShouldCapture(request, lighting))
+            {
+                continue;
+            }
+
+            var probe = new ReflectionProbe
+            {
+                Position = request.Position,
+                BoxMin = request.Min,
+                BoxMax = request.Max,
+                BlendDistance = request.Blend,
+            };
+
+            // The probe stands in the open, so it sees every draw, and every draw casts its shadow.
+            // The schedule hears of the capture only once it worked, so a throw leaves the two in step.
+            int slot = _reflectionProbes.SlotOf(request.Key);
+            if (slot >= 0)
+            {
+                _renderer.RecaptureReflectionProbe(new ReflectionProbeHandle(slot), probe, frame, draws, draws);
+            }
+            else
+            {
+                _renderer.CaptureReflectionProbe(probe, frame, draws, draws);
+            }
+
+            _reflectionProbes.Captured(request, lighting);
+        }
     }
 
     /// <summary>
@@ -199,6 +311,82 @@ internal sealed class SceneRenderer : IDisposable
         });
     }
 
+    /// <summary>
+    /// Reads a cooked model and, when its materials name surface shaders, those shaders and the
+    /// cooked textures they read, by name. Runs on the background thread. <paramref name="readShader"/>
+    /// reads a shader's SPIR-V by name, from the <c>shaders</c> folder beside the program unless a test gives another.
+    /// </summary>
+    internal static object PrepareModel(string name, IContentFiles files, Func<string, byte[]>? readShader = null)
+    {
+        var model = LoadModel(name, files);
+        var shaders = model.MaterialShaders.OfType<ModelMaterialShader>().ToArray();
+        if (shaders.Length == 0)
+        {
+            return model;
+        }
+
+        var spirv = new Dictionary<string, byte[]>();
+        var textures = new Dictionary<string, TextureData>();
+        foreach (var shader in shaders)
+        {
+            if (!spirv.ContainsKey(shader.Name))
+            {
+                spirv[shader.Name] = (readShader ?? LoadShader)(shader.Name);
+            }
+
+            foreach (string texture in shader.Textures)
+            {
+                if (!textures.ContainsKey(texture))
+                {
+                    ContentNames.Require(files, texture, ContentKind.Texture);
+                    textures[texture] = LoadTexture(new TextureItem(texture, null, files, TextureKind.Color, false));
+                }
+            }
+        }
+
+        return new PreparedModel(model, spirv, textures);
+    }
+
+    /// <summary>
+    /// Uploads a model whose materials use surface shaders. A shader is made once for each name and
+    /// kept for the renderer's life, as shaders named through <see cref="Content.Shader"/> are. The
+    /// textures are the model's own, since destroying a model frees every texture its materials name.
+    /// </summary>
+    private LoadedModel UploadModel(PreparedModel prepared)
+    {
+        foreach (var (name, spirv) in prepared.Shaders)
+        {
+            if (!_modelShaders.ContainsKey(name))
+            {
+                _modelShaders[name] = _renderer.CreateSurfaceShader(spirv);
+            }
+        }
+
+        var textures = prepared.Textures.ToDictionary(pair => pair.Key, pair => _renderer.CreateTexture(pair.Value));
+        var model = prepared.Model;
+        var parts = _renderer.CreateModel(model, (index, material) =>
+        {
+            if (model.ShaderOf(index) is not { } shader)
+            {
+                return material;
+            }
+
+            material.Shader = _modelShaders[shader.Name];
+            for (int i = 0; i < shader.Parameters.Length; i++)
+            {
+                material.ShaderParameters[i] = shader.Parameters[i];
+            }
+
+            for (int i = 0; i < shader.Textures.Length; i++)
+            {
+                material.ShaderTextures[i] = textures[shader.Textures[i]];
+            }
+
+            return material;
+        });
+        return new LoadedModel(parts, null, null, model.Skeleton?.Count ?? 0);
+    }
+
     private static byte[] LoadShader(string name)
     {
         // Shaders.targets keeps the source extension, so Shaders/terrain.frag becomes shaders/terrain.frag.spv.
@@ -218,6 +406,18 @@ internal sealed class SceneRenderer : IDisposable
         // Set before anything new starts preparing, since models are read through it on background threads.
         _files = content.Files;
         _items.Update(content);
+
+        // Decal materials point at the textures being freed, so they go too, and are made again when next used.
+        if (content.PendingUnloads.Length > 0)
+        {
+            foreach (var material in _decalMaterials.Values)
+            {
+                _renderer.DestroyMaterial(material.Handle);
+            }
+
+            _decalMaterials.Clear();
+        }
+
         foreach (int index in content.PendingUnloads)
         {
             if (_items.Take(index, Unloaded.Instance, content) is { } loaded)
@@ -230,7 +430,7 @@ internal sealed class SceneRenderer : IDisposable
 
         // Surfaces pick up the color of the water or sky around them. Baking is slow, so
         // it only happens when the colors change.
-        var bands = Surroundings(view);
+        var bands = SurroundingColors(view);
         if (bands != _bakedBands)
         {
             _renderer.SetEnvironment(new EnvironmentDescription
@@ -266,7 +466,7 @@ internal sealed class SceneRenderer : IDisposable
     /// <summary>The part of loading that needs no GPU, so it runs on a background thread.</summary>
     private object PrepareItem(object item) => item switch
     {
-        string name => LoadModel(name, _files!),
+        string name => PrepareModel(name, _files!),
         ShaderItem shader => LoadShader(shader.Name),
         TextureItem texture => LoadTexture(texture),
         TextureArrayItem array => Array.ConvertAll(array.Layers, LoadTexture),
@@ -281,6 +481,7 @@ internal sealed class SceneRenderer : IDisposable
     private Loaded Upload(object prepared, Content content) => prepared switch
     {
         ModelData model => new LoadedModel(_renderer.CreateModel(model), null, null, model.Skeleton?.Count ?? 0),
+        PreparedModel model => UploadModel(model),
         byte[] spirv => new LoadedShader(_renderer.CreateSurfaceShader(spirv)),
         TextureData texture => new LoadedTexture(_renderer.CreateTexture(texture)),
         TextureData[] layers => new LoadedTextureArray(_renderer.CreateTextureArray(layers)),
@@ -304,7 +505,7 @@ internal sealed class SceneRenderer : IDisposable
             DetailColorTexture = Texture(surface.DetailColorTexture, content),
             DetailNormalTexture = Texture(surface.DetailNormalTexture, content),
             DetailScale = surface.DetailScale,
-            Flags = surface.DetailMask ? MaterialFlags.DetailMask : 0,
+            Flags = FlagsOf(surface),
             Subsurface = surface.Subsurface,
             Shader = surface.Shader is { } shader ? Require<LoadedShader>(shader.Index, content).Handle : null,
         };
@@ -328,6 +529,81 @@ internal sealed class SceneRenderer : IDisposable
         return new LoadedModel([part], handle, ownedTexture);
     }
 
+    /// <summary>The view's decals, each with its surface's material, or none while decals are off.</summary>
+    private void PrepareDecals(View view, Content content)
+    {
+        _decalCount = 0;
+        if (Off.HasFlag(RenderEffects.Decals))
+        {
+            return;
+        }
+
+        var placed = view.DrawnDecals;
+        if (_decals.Length < placed.Length)
+        {
+            _decals = new DecalDraw[Math.Max(placed.Length, _decals.Length * 2)];
+        }
+
+        _decalFrame++;
+        foreach (ref readonly var decal in placed)
+        {
+            _decals[_decalCount++] = new DecalDraw(decal.Box, DecalMaterial(decal.Material, content), decal.Blend);
+        }
+
+        ForgetUnusedDecalMaterials();
+    }
+
+    /// <summary>
+    /// Past <see cref="MaxDecalMaterials"/>, lets go of every decal material this frame didn't use. The renderer
+    /// destroys them once the frames still in flight are done with them.
+    /// </summary>
+    private void ForgetUnusedDecalMaterials()
+    {
+        if (_decalMaterials.Count <= MaxDecalMaterials)
+        {
+            return;
+        }
+
+        _unusedDecalSurfaces.Clear();
+        foreach (var (surface, material) in _decalMaterials)
+        {
+            if (material.Frame != _decalFrame)
+            {
+                _unusedDecalSurfaces.Add(surface);
+            }
+        }
+
+        foreach (var surface in _unusedDecalSurfaces)
+        {
+            _renderer.DestroyMaterial(_decalMaterials[surface].Handle);
+            _decalMaterials.Remove(surface);
+        }
+    }
+
+    /// <summary>
+    /// The material a decal lays on: the surface's colour, roughness and opacity, and its colour, normal and
+    /// surface textures. A surface used before gets the material made then.
+    /// </summary>
+    private MaterialHandle DecalMaterial(Surface surface, Content content)
+    {
+        if (_decalMaterials.TryGetValue(surface, out var known))
+        {
+            _decalMaterials[surface] = (known.Handle, _decalFrame);
+            return known.Handle;
+        }
+
+        var material = MaterialOf(surface) with
+        {
+            BaseColorTexture = Texture(surface.ColorTexture, content),
+            NormalTexture = Texture(surface.NormalTexture, content),
+            SurfaceTexture = Texture(surface.SurfaceTexture, content),
+            Flags = MaterialFlags.None,
+        };
+        var handle = _renderer.CreateMaterial(material);
+        _decalMaterials.Add(surface, (handle, _decalFrame));
+        return handle;
+    }
+
     /// <summary>A surface's own values as a material, before its textures and shader are found. Below full opacity it's glass.</summary>
     internal static Material MaterialOf(Surface surface) => new()
     {
@@ -336,7 +612,15 @@ internal sealed class SceneRenderer : IDisposable
         Metallic = surface.Metallic,
         Flags = surface.Opacity < 1f ? MaterialFlags.Transparent : MaterialFlags.None,
         Ior = surface.Ior,
+        Translucency = surface.Translucency,
+        Wind = surface.Wind,
     };
+
+    /// <summary>The switches a generated mesh's surface turns on in its material.</summary>
+    internal static MaterialFlags FlagsOf(Surface surface) =>
+        (surface.DetailMask ? MaterialFlags.DetailMask : 0) | (surface.WorldVariation ? MaterialFlags.WorldVariation : 0)
+        | (surface.Dithered ? MaterialFlags.Dithered : 0) | (surface.Puddles ? MaterialFlags.Puddles : 0)
+        | (surface.Foliage ? MaterialFlags.Foliage : 0);
 
     private TextureHandle? Texture(TextureRef? texture, Content content) =>
         texture is { } named ? Require<LoadedTexture>(named.Index, content).Handle : null;
@@ -410,6 +694,7 @@ internal sealed class SceneRenderer : IDisposable
                 item.Tint = draw.Color ?? (draw.Model.IsBuiltIn ? CubeColor : null);
                 item.Bones = bones;
                 item.Ghost = draw.Ghost;
+                item.Key = draw.Key;
             }
         }
 
@@ -513,6 +798,9 @@ internal sealed class SceneRenderer : IDisposable
     /// <summary>Where the haze is measured from: the camera's focus when the sky asks for it, else the camera.</summary>
     internal static Vector3? HazeOrigin(SkySettings? sky, Camera shot) => sky is { HazeFromFocus: true } ? shot.Target : null;
 
+    /// <summary>The fog the sky asks for, or clear air without a sky.</summary>
+    internal static FogSettings FrameFog(SkySettings? sky) => sky?.Fog ?? default;
+
     /// <summary>Which sun casts the shadows: the one marked to, or else the first.</summary>
     internal static int ShadowSun(ReadOnlySpan<SunLight> suns)
     {
@@ -525,6 +813,20 @@ internal sealed class SceneRenderer : IDisposable
         }
 
         return 0;
+    }
+
+    /// <summary>The sun's shadows as the view asks for them, round its camera's target, for a picture this wide over its height.</summary>
+    internal static ShadowSettings FrameShadows(View view, float aspect)
+    {
+        var shot = view.Shot;
+        return new ShadowSettings
+        {
+            Center = shot.Target,
+            Radius = shot.ShadowRadius(view.ShadowRadius, aspect),
+            Cascades = view.ShadowCascades,
+            LightAngle = view.SunSize,
+            ContactLength = view.ShadowContact,
+        };
     }
 
     private FrameView CreateFrame(View view, int width, int height, float time)
@@ -555,24 +857,25 @@ internal sealed class SceneRenderer : IDisposable
             Time = time,
             Lights = _lights.AsSpan(0, lightCount),
             Bones = _bones.AsSpan(0, _boneCount),
-            Shadows = new ShadowSettings
-            {
-                Center = shot.Target,
-                Radius = shot.ShadowRadius(view.ShadowRadius, aspect),
-                Cascades = view.ShadowCascades,
-                LightAngle = 0.12f,
-            },
+            Shadows = FrameShadows(view, aspect),
+            Occlusion = view.Occlusion,
+            LightProbes = view.LightProbeVolume,
             EnvironmentIntensity = sky is null ? 0.8f : sky.Value.Brightness > 0f ? sky.Value.Brightness : 1f,
+            Sky = FrameSky(view),
             BackgroundRadiance = new Vector3(0.15f, 0.16f, 0.18f),
             ShowEnvironment = sky is not null,
             BackgroundFadeStart = sky?.HazeStart ?? 0f,
             BackgroundFadeEnd = sky?.HazeEnd ?? 0f,
             BackgroundFadeOrigin = HazeOrigin(sky, shot),
             BackgroundFadeColor = sky?.HazeColor ?? Vector3.Zero,
+            Fog = FrameFog(sky),
             Post = view.Post,
             Water = view.WaterSettings,
+            Puddles = view.PuddleSettings,
+            Wind = view.WindSettings,
             Overlay = view.Ui is { } ui ? ui.Quads : [],
             Particles = view.DrawnParticles,
+            Decals = _decals.AsSpan(0, _decalCount),
             Transition = view.Transition,
             Off = Off,
             LocalLights = view.DrawnLights,
@@ -580,6 +883,9 @@ internal sealed class SceneRenderer : IDisposable
     }
 
     private sealed record PreparedMesh(GeneratedMesh Mesh, TextureData? OwnedTexture);
+
+    /// <summary>A model whose materials name surface shaders, with the shaders and textures they read.</summary>
+    internal sealed record PreparedModel(ModelData Model, Dictionary<string, byte[]> Shaders, Dictionary<string, TextureData> Textures);
 
     private abstract record Loaded;
 

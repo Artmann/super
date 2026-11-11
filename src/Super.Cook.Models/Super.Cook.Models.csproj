@@ -1,10 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <PackageReference Include="BCnEncoder.Net" Version="2.3.0" />
     <ProjectReference Include="..\Super.Cook\Super.Cook.csproj" />
+    <ProjectReference Include="..\Super.Cook.Materials\Super.Cook.Materials.csproj" />
     <ProjectReference Include="..\Rendition\Rendition.csproj" />
     <PackageReference Include="Silk.NET.Assimp" Version="2.23.0" />
     <PackageReference Include="StbImageSharp" Version="2.30.16" />
+    <InternalsVisibleTo Include="Super.Cook.Tests" />
   </ItemGroup>
 
 </Project>

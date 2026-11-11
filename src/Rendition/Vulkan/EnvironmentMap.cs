@@ -1,18 +1,22 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Rendition.Passes;
 using Silk.NET.Vulkan;
 
 namespace Rendition.Vulkan;
 
 /// <summary>
 /// Cube maps of the surrounding studio. Reflections holds one mip per roughness step,
-/// and Irradiance holds the soft light that reaches a matte surface.
+/// Irradiance holds the soft light that reaches a matte surface, and Sky is the sharp
+/// studio without its panels, or the clear sky without its sun disc, the same light the
+/// irradiance is made from.
 /// </summary>
 internal sealed unsafe class EnvironmentMap : IDisposable
 {
     private const uint ReflectionSize = 512;
     private const uint IrradianceSize = 32;
+    private const uint SkySize = 64;
     private const int MaxPanels = 8;
 
     /// <summary>One roughness step per mip. REFLECTION_LODS in Shaders/lighting.frag must be one less.</summary>
@@ -42,6 +46,13 @@ internal sealed unsafe class EnvironmentMap : IDisposable
         public Vector4 Ceiling;
         public Vector4 Horizon;
         public Vector4 Floor;
+
+        /// <summary>xyz: towards the clear sky's sun; w: its turbidity, 0 for the bands.</summary>
+        public Vector4 SkySun;
+
+        /// <summary>rgb: how bright the sun's disc is; a: the cosine of its angular radius.</summary>
+        public Vector4 SunDisc;
+
         public int PanelCount;
         private readonly int _padding0;
         private readonly int _padding1;
@@ -55,6 +66,7 @@ internal sealed unsafe class EnvironmentMap : IDisposable
     {
         public int Irradiance;
         public float Roughness;
+        public int Sky;
     }
 
     /// <summary>A cube image, a view for sampling it and one writable view per mip.</summary>
@@ -69,16 +81,23 @@ internal sealed unsafe class EnvironmentMap : IDisposable
     private readonly VulkanContext _context;
     private readonly Cube _reflections;
     private readonly Cube _irradiance;
+    private readonly Cube _sky;
     private readonly GpuBuffer _uniforms;
     private readonly DescriptorSetLayout _setLayout;
     private readonly DescriptorPool _pool;
-    private readonly DescriptorSet[] _sets = new DescriptorSet[ReflectionMips + 1];
+    private readonly DescriptorSet[] _sets = new DescriptorSet[ReflectionMips + 2];
     private readonly PipelineLayout _pipelineLayout;
     private readonly Pipeline _pipeline;
 
     public readonly Sampler Sampler;
     public ImageView Reflections => _reflections.Sampled;
     public ImageView Irradiance => _irradiance.Sampled;
+
+    /// <summary>
+    /// What the light probes see past the scene. Direct lights already give the panels'
+    /// diffuse light, so a probe that saw them would count it twice. The sun's disc stays out for the same reason.
+    /// </summary>
+    public ImageView Sky => _sky.Sampled;
 
     public EnvironmentMap(VulkanContext context)
     {
@@ -87,6 +106,7 @@ internal sealed unsafe class EnvironmentMap : IDisposable
 
         _reflections = CreateCube(ReflectionSize, ReflectionMips);
         _irradiance = CreateCube(IrradianceSize, 1);
+        _sky = CreateCube(SkySize, 1);
         _uniforms = GpuBuffer.CreateHostVisible(context, (ulong)sizeof(GpuEnvironment), BufferUsageFlags.UniformBufferBit);
 
         var samplerInfo = new SamplerCreateInfo
@@ -132,7 +152,7 @@ internal sealed unsafe class EnvironmentMap : IDisposable
 
         for (int i = 0; i < _sets.Length; i++)
         {
-            _sets[i] = CreateBakeSet(i < ReflectionMips ? _reflections.Mips[i] : _irradiance.Mips[0]);
+            _sets[i] = CreateBakeSet(i < ReflectionMips ? _reflections.Mips[i] : i == ReflectionMips ? _irradiance.Mips[0] : _sky.Mips[0]);
         }
 
         var pushRange = new PushConstantRange(ShaderStageFlags.ComputeBit, 0, (uint)sizeof(BakeConstants));
@@ -149,10 +169,27 @@ internal sealed unsafe class EnvironmentMap : IDisposable
         _pipeline = PipelineFactory.CreateCompute(context, "environment.comp", _pipelineLayout);
     }
 
-    /// <summary>Renders the studio into the cube maps. Each level runs separately to keep GPU work short.</summary>
-    public void Bake(in EnvironmentDescription description)
+    /// <summary>
+    /// Renders the studio, or a clear sky over its floor, into the cube maps. Each level runs
+    /// separately to keep GPU work short.
+    /// </summary>
+    public void Bake(in EnvironmentDescription description, in SkySun sky)
     {
         WriteUniforms(description);
+        Rebake(sky);
+    }
+
+    /// <summary>
+    /// Renders the cube maps again from the last <see cref="Bake"/>'s bands and panels with another
+    /// clear sky. Only the reflections' sharpest level shows the sun's disc: the direct light
+    /// already gives a surface the sun's diffuse light and its highlight, so the soft light and the
+    /// rougher levels would count it twice. Their sky still brightens round the sun.
+    /// </summary>
+    public void Rebake(in SkySun sky)
+    {
+        var uniforms = (GpuEnvironment*)_uniforms.Mapped;
+        uniforms->SkySun = new Vector4(sky.Direction, sky.Turbidity);
+        uniforms->SunDisc = new Vector4(sky.DiscRadiance, sky.DiscCosine);
 
         for (int mip = 0; mip < ReflectionMips; mip++)
         {
@@ -161,6 +198,7 @@ internal sealed unsafe class EnvironmentMap : IDisposable
         }
 
         BakeLevel(_irradiance.Image, 0, _sets[ReflectionMips], IrradianceSize, new BakeConstants { Irradiance = 1 });
+        BakeLevel(_sky.Image, 0, _sets[ReflectionMips + 1], SkySize, new BakeConstants { Sky = 1 });
     }
 
     public void Dispose()
@@ -172,6 +210,7 @@ internal sealed unsafe class EnvironmentMap : IDisposable
         api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);
         api.DestroySampler(_context.Device, Sampler, null);
         _uniforms.Dispose();
+        DestroyCube(_sky);
         DestroyCube(_irradiance);
         DestroyCube(_reflections);
     }

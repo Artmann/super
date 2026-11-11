@@ -111,6 +111,7 @@ marked as planned. The examples are the best place to see it running:
 | [Shapes](examples/Shapes) | Every built-in shape, and shapes made in code with `Shapes` |
 | [Bricks](examples/Bricks) | A brick wall and a cobbled street whose mortar sinks in with height maps, with fine grit from detail maps; P and D turn them off |
 | [Rooms](examples/Rooms) | Game states, a loading screen, JSON content, clicking the ground and huts that rise on a curve |
+| [Courtyard](examples/Courtyard) | Material graphs: bricks, flagstones, dirt, wood, leather and rusty metal made in code, on a courtyard modelled in Blender |
 | [Crafting](examples/Crafting) | An inventory and crafting bench driven entirely by the mouse |
 | [Terrain](examples/Terrain) | Endless generated hills with a custom surface shader, a road built along a spline with a cart driving it, and a flyover on F |
 | [Reef](examples/Reef) | 6,240 schooling fish with the ECS, water and a stats panel |

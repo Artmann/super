@@ -238,6 +238,120 @@ public sealed class ScrollAndDragTests
         Assert.DoesNotContain(run.ShownText, shown => shown.Text == "preview");
     }
 
+    private static UiView Grabbing(PointerGame game, Func<DragStart, Item?> grab) => Corner(new HStack(Spacing: 0f)
+    {
+        new Text("source").Frame(100f, 100f).Background(Solid).Draggable(grab, item => new Text($"carrying {item.Name}")),
+        new Text("target").Frame(100f, 100f).Background(Solid).DropTarget<Item>(item => game.Log.Add(item.Name)),
+    });
+
+    private static void DragWith(HeadlessRun<PointerGame> run, MouseButton button, Vector2 from, Vector2 to)
+    {
+        MoveTo(run, from);
+        run.Input.Hold(button);
+        run.Ticks(1);
+        MoveTo(run, to);
+        run.Input.Release(button);
+        run.Ticks(2);
+    }
+
+    [Fact]
+    public void A_middle_drag_carries_what_the_grab_chose_for_it()
+    {
+        using var run = Run(game => Grabbing(game, start => new Item(start.Button == MouseButton.Middle ? "half" : "all")));
+
+        MoveTo(run, new Vector2(50f, 50f));
+        run.Input.Hold(MouseButton.Middle);
+        run.Ticks(1);
+        MoveTo(run, new Vector2(150f, 50f));
+        Assert.Contains(run.ShownText, shown => shown.Text == "carrying half");
+
+        run.Input.Release(MouseButton.Middle);
+        run.Ticks(2);
+
+        Assert.Equal(["half"], run.Game.Log);
+    }
+
+    [Fact]
+    public void Shift_at_the_press_is_seen_by_the_grab()
+    {
+        using var run = Run(game => Grabbing(game, start => new Item(start.Shift ? "one" : "all")));
+
+        run.Input.Hold(Key.LeftShift);
+        DragWith(run, MouseButton.Left, new Vector2(50f, 50f), new Vector2(150f, 50f));
+        run.Input.Release(Key.LeftShift);
+        run.Ticks(1);
+        DragWith(run, MouseButton.Left, new Vector2(50f, 50f), new Vector2(150f, 50f));
+
+        Assert.Equal(["one", "all"], run.Game.Log);
+    }
+
+    [Fact]
+    public void A_grab_that_returns_null_does_not_drag()
+    {
+        using var run = Run(game => Grabbing(game, start => start.Button == MouseButton.Left ? new Item("gem") : null));
+
+        DragWith(run, MouseButton.Right, new Vector2(50f, 50f), new Vector2(150f, 50f));
+
+        Assert.Empty(run.Game.Log);
+    }
+
+    [Fact]
+    public void A_drag_ends_only_with_the_button_that_began_it()
+    {
+        using var run = Run(game => Grabbing(game, start => new Item(start.Button.ToString())));
+
+        MoveTo(run, new Vector2(50f, 50f));
+        run.Input.Hold(MouseButton.Middle);
+        run.Ticks(1);
+        MoveTo(run, new Vector2(150f, 50f));
+        run.Input.Hold(MouseButton.Left);
+        run.Ticks(1);
+        run.Input.Release(MouseButton.Left);
+        run.Ticks(2);
+        Assert.Empty(run.Game.Log);
+
+        run.Input.Release(MouseButton.Middle);
+        run.Ticks(2);
+        Assert.Equal(["Middle"], run.Game.Log);
+    }
+
+    [Fact]
+    public void A_right_drag_keeps_a_left_click_held_on_something_else()
+    {
+        using var run = Run(game => Corner(new HStack(Spacing: 0f)
+        {
+            new Text("button").Frame(100f, 100f).Background(Solid).OnClick(() => game.Log.Add("click")),
+            new Text("source").Frame(100f, 100f).Background(Solid)
+                .Draggable(start => start.Button == MouseButton.Right ? new Item("gem") : null, item => new Text("carrying")),
+        }));
+
+        MoveTo(run, new Vector2(50f, 50f));
+        run.Input.Hold(MouseButton.Left);
+        run.Ticks(1);
+        MoveTo(run, new Vector2(150f, 50f));
+        run.Input.Hold(MouseButton.Right);
+        run.Ticks(1);
+        MoveTo(run, new Vector2(150f, 150f));
+        Assert.Contains(run.ShownText, shown => shown.Text == "carrying");
+        run.Input.Release(MouseButton.Right);
+        run.Ticks(2);
+        MoveTo(run, new Vector2(50f, 50f));
+        run.Input.Release(MouseButton.Left);
+        run.Ticks(2);
+
+        Assert.Equal(["click"], run.Game.Log);
+    }
+
+    [Fact]
+    public void A_payload_drag_ignores_the_middle_button()
+    {
+        using var run = Run(game => Slots(game));
+
+        DragWith(run, MouseButton.Middle, new Vector2(50f, 50f), new Vector2(150f, 50f));
+
+        Assert.Empty(run.Game.Log);
+    }
+
     [Fact]
     public void A_short_wiggle_is_not_a_drag()
     {

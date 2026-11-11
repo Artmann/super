@@ -23,6 +23,12 @@ public sealed record Surface
     public TextureRef? SurfaceTexture { get; init; }
 
     /// <summary>
+    /// How many metres the textures cover before they repeat, from a material graph's width.
+    /// Shapes tile at this size unless given <c>uvPerMetre</c>. Null when the surface isn't from a graph.
+    /// </summary>
+    public float? TileWidth { get; init; }
+
+    /// <summary>
     /// Below 1 the surface is glass: the world shows through it, tinted by
     /// <see cref="Color"/>, and its shadow is lighter. 0 is perfectly clear.
     /// </summary>
@@ -54,6 +60,41 @@ public sealed record Surface
 
     /// <summary>Lets the surface texture's blue channel say where the detail shows, from none at black to full at white.</summary>
     public bool DetailMask { get; init; }
+
+    /// <summary>
+    /// Darkens and lightens the colour in broad patches laid by where the surface is in the world, so a texture that
+    /// repeats across a big wall or floor doesn't show it.
+    /// </summary>
+    public bool WorldVariation { get; init; }
+
+    /// <summary>
+    /// Opacity fades the surface out softly instead of cutting it, through a pattern of pixels that anti-aliasing
+    /// blends. For decals such as stains and grime laid just in front of another surface.
+    /// </summary>
+    public bool Dithered { get; init; }
+
+    /// <summary>
+    /// Water stands on the surface where it lies below the level set with <see cref="View.Puddles"/>, and it is damp
+    /// for a band above. Its height map counts, so hollows fill first. Without a level it stays dry.
+    /// </summary>
+    public bool Puddles { get; init; }
+
+    /// <summary>
+    /// The surface is leaves or blades: sunlight shines through it from behind, as much as <see cref="Translucency"/>
+    /// says, both sides are lit as the front, and it gets no contact shadows, which thin cut-out leaves would only
+    /// spoil.
+    /// </summary>
+    public bool Foliage { get; init; }
+
+    /// <summary>For <see cref="Foliage"/>, how much sunlight shines through from behind, from 0 to 1.</summary>
+    public float Translucency { get; init; } = Rendition.Material.DefaultTranslucency;
+
+    /// <summary>
+    /// How far the surface sways in the wind set with <see cref="View.Wind"/>, as a share of it: 1 for grass, less for
+    /// stiffer things such as ivy or a tree's crown, and 0, the default, to stand still. Each part sways more the higher
+    /// it is above its lowest point, up to 1 m, so it stays rooted. Its shadow sways with it.
+    /// </summary>
+    public float Wind { get; init; }
 
     /// <summary>Light that spreads under the surface, for skin, wax and marble. Off by default.</summary>
     public Subsurface Subsurface { get; init; }

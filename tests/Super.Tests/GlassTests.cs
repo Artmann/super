@@ -201,6 +201,23 @@ public class GlassTests
     }
 
     [Fact]
+    public void A_swaying_draws_bounds_grow_by_its_sway_after_its_scale()
+    {
+        var draw = new DrawItem
+        {
+            Transform = Matrix4x4.CreateScale(2f) * Matrix4x4.CreateTranslation(10f, 0f, 0f),
+            Detail = new DetailHandle(1),
+            Material = new MaterialHandle(3),
+        };
+        List<PartDetail> details = [default, new PartDetail(Vector3.Zero, 0.5f, [])];
+
+        var (_, radius) = TransparentPass.Bounds(draw, details, new WindReach(0.4f, material => material.Index == 3 ? 0.5f : 0f));
+
+        // 0.5 scaled twice is 1, then 0.4 × 0.5 of lean and 0.02 of flutter.
+        Assert.Equal(1.22f, radius, 1e-6f);
+    }
+
+    [Fact]
     public void A_surface_below_full_opacity_is_glass_with_its_ior()
     {
         var material = SceneRenderer.MaterialOf(new Surface { Color = new Vector3(0.2f, 0.4f, 0.6f), Opacity = 0.3f, Ior = 1.5f });

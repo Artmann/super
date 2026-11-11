@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -5,6 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Rendition;
+using Super.Cook.Materials;
 using Silk.NET.Assimp;
 using Assimp = Silk.NET.Assimp.Assimp;
 using Skeleton = Rendition.Skeleton;
@@ -20,6 +22,9 @@ namespace Super.Cook.Models;
 /// </summary>
 public sealed class ModelCooker : ICooker
 {
+    // How many times detail textures repeat for each repeat of the others, unless a rule or a detail graph says.
+    private const float DefaultDetailScale = 8f;
+
     private static readonly JsonSerializerOptions SettingsOptions = new()
     {
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
@@ -30,7 +35,21 @@ public sealed class ModelCooker : ICooker
 
     public string Id => "model";
 
-    public int Version => 7; // 2: "has no UVs" warns only when the material uses a texture. 3: subsurface. 4: height and detail textures. 5: materials gained Ior. 6: parts keep the name of their mesh's node, keepMeshes and keepOrigin, and unskinned meshes follow their container node. 7: textures are objects of their own that models point to by hash.
+    // 2: "has no UVs" warns only when the material uses a texture. 3: subsurface. 4: height and detail textures.
+    // 5: materials gained Ior. 6: parts keep the name of their mesh's node, keepMeshes and keepOrigin, and unskinned
+    // meshes follow their container node. 7: textures are objects of their own that models point to by hash.
+    // 8: material graphs. 9: graph materials have no height or detail textures unless their rule names them, and an
+    // ior of 1. 10: Kaiser mips, roughness widened by the normal map, graph heights as parallax, detail graphs, and
+    // block-compressed textures. 11: material shaders, and a graph's opacity in the colour's alpha under a cutoff.
+    // 12: vertices keep a second UV set, and materials bake masks for wear and dirt. 13: masks measure height per mesh,
+    // carry the wear breakup in alpha and read as clean off their islands. 14: foliage sets its translucency, and
+    // materials may sway in the wind. 15: BC7 from the cook's own encoder, and BC4 and BC5 at BCnEncoder's Fast. 16: a
+    // cut-out's textures keep their alpha coverage at every mip level. 17: when a cut-out's colour and surface both carry
+    // alpha, the colour keeps the coverage of their product and the surface is left whole. 18: BC7 compression keeps a
+    // cut-out's coverage too. 19: compression keeps the product's coverage on the colour, and leaves such a surface
+    // whole. The graphs' own version is folded in, so a change to Super.Materials cooks every model again, since one
+    // may use a graph.
+    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 19);
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -44,10 +63,11 @@ public sealed class ModelCooker : ICooker
 
         var settings = input.SettingsAs<ModelSettings>();
         TrackOwnFiles(input);
+        var graphs = new GraphRuns(input);
 
         if (settings.Parts is null)
         {
-            if (CookOne(input, output, settings, "") is { } bytes)
+            if (CookOne(input, output, settings, "", graphs) is { } bytes)
             {
                 output.Add(ContentKind.Model, bytes);
             }
@@ -64,7 +84,7 @@ public sealed class ModelCooker : ICooker
         foreach (string part in settings.Parts.Keys.Order(StringComparer.Ordinal))
         {
             var partSettings = PartSettings(input.Settings, part);
-            if (CookOne(input, output, partSettings, $"part {part}: ") is { } bytes)
+            if (CookOne(input, output, partSettings, $"part {part}: ", graphs) is { } bytes)
             {
                 output.AddPart(part, ContentKind.Model, bytes);
             }
@@ -142,7 +162,7 @@ public sealed class ModelCooker : ICooker
     }
 
     /// <returns>The cooked bytes, or null when it failed and said why through <paramref name="output"/>.</returns>
-    private static unsafe byte[]? CookOne(CookInput input, CookOutput output, ImportSettings settings, string prefix)
+    private static unsafe byte[]? CookOne(CookInput input, CookOutput output, ImportSettings settings, string prefix, GraphRuns graphs)
     {
         string modelPath = input.FullPath!;
         string sourceDirectory = Path.GetDirectoryName(modelPath)!;
@@ -159,9 +179,16 @@ public sealed class ModelCooker : ICooker
         var meshNames = new List<string>();
         var materials = new List<ModelMaterial>();
         var materialNames = new List<string>();
+        var shaders = new List<ModelMaterialShader?>();
+
+        // The width in metres of each material's graph, or 0 for a material without one.
+        var graphWidths = new List<float>();
 
         // Each mesh's material and the run of vertices it added.
         var meshVertices = new List<(int Material, int First, int Count)>();
+
+        // Materials with a mesh that has no second UV set, which their masks would need.
+        var withoutUv2 = new HashSet<int>();
 
         Skeleton? skeleton = null;
         var clips = new List<AnimationClip>();
@@ -247,8 +274,13 @@ public sealed class ModelCooker : ICooker
 
             for (uint i = 0; i < scene->MNumMaterials; i++)
             {
-                materials.Add(ImportMaterial(assimp, scene->MMaterials[i], settings, textures, isGltf, out string materialName));
+                var context = new MaterialContext(settings, textures, graphs, output, prefix, isGltf);
+                var material = ImportMaterial(assimp, scene->MMaterials[i], context, out string materialName, out float graphWidth);
+                textures.WidenRoughness(material.SurfaceTexture, material.NormalTexture);
+                materials.Add(material);
                 materialNames.Add(materialName);
+                graphWidths.Add(graphWidth);
+                shaders.Add(RuleFor(settings, materialName) is { } rule ? ImportShader(rule, materialName, input, output, prefix) : null);
             }
 
             foreach (var (m, world, node) in Placements(scene, rig is null && settings.KeepMeshes))
@@ -265,10 +297,22 @@ public sealed class ModelCooker : ICooker
                 var normals = NormalMatrix(world);
                 bool mirrored = world.GetDeterminant() < 0f;
                 uint baseVertex = (uint)vertices.Count;
+                float graphWidth = graphWidths[(int)mesh->MMaterialIndex];
+                var uvs2 = mesh->MTextureCoords[1];
+                if (uvs2 == null)
+                {
+                    withoutUv2.Add((int)mesh->MMaterialIndex);
+                }
+
                 for (uint v = 0; v < mesh->MNumVertices; v++)
                 {
                     var normal = mesh->MNormals != null ? mesh->MNormals[v] : Vector3.UnitY;
                     var uv = mesh->MTextureCoords[0] != null ? mesh->MTextureCoords[0][v] : Vector3.Zero;
+                    if (graphWidth > 0f)
+                    {
+                        uv = GraphUv(uv, graphWidth);
+                    }
+
                     var tangent = new Vector4(Vector3.UnitX, 1f);
                     if (mesh->MTangents != null && mesh->MBitangents != null)
                     {
@@ -281,7 +325,10 @@ public sealed class ModelCooker : ICooker
                         Vector3.Transform(mesh->MVertices[v], world),
                         Vector3.TransformNormal(normal, normals),
                         new Vector4(direction, mirrored ? -tangent.W : tangent.W),
-                        new Vector2(uv.X, uv.Y)));
+                        new Vector2(uv.X, uv.Y))
+                    {
+                        Uv2 = uvs2 != null ? new Vector2(uvs2[v].X, uvs2[v].Y) : Vector2.Zero,
+                    });
                 }
 
                 rig?.Skin(mesh, (int)m, CollectionsMarshal.AsSpan(vertices).Slice((int)baseVertex, (int)mesh->MNumVertices));
@@ -364,10 +411,18 @@ public sealed class ModelCooker : ICooker
 
         for (int i = 0; i < materials.Count; i++)
         {
-            if ((materials[i].Flags & MaterialFlags.Foliage) != 0)
+            if ((materials[i].Flags & MaterialFlags.Foliage) != 0 && RuleFor(settings, materialNames[i])?.Foliage?.Crown != false)
             {
                 PointOutOfCrown(vertexArray, meshVertices.Where(mesh => mesh.Material == i));
             }
+        }
+
+        // It times its own phases: taking masks from the step cache, baking the rest, and keeping them.
+        var masks = BakeMasks(input, settings, output, prefix, vertexArray, indices, parts, materialNames, withoutUv2, textures);
+
+        if (masks is null)
+        {
+            return null;
         }
 
         var model = new ModelData
@@ -377,6 +432,8 @@ public sealed class ModelCooker : ICooker
             Parts = parts.ToArray(),
             MeshNames = meshNames.ToArray(),
             Materials = materials.ToArray(),
+            MaterialShaders = shaders.Any(shader => shader is not null) ? shaders.ToArray() : [],
+            MaterialMasks = masks.Any(mask => mask is not null) ? masks : [],
             Textures = textures.ToArray(),
             Skeleton = skeleton,
             Clips = clips.ToArray(),
@@ -386,7 +443,7 @@ public sealed class ModelCooker : ICooker
         // subsurface it can't store, so both stop the cook. Materials no part uses are
         // never drawn, so they can't be wrong.
         var problems = parts.Select(part => part.Material).Distinct().Order()
-            .Select(i => (Name: materialNames[i], Problem: model.CutoutProblem(i) ?? SubsurfaceProblem(model.Materials[i])))
+            .Select(i => (Name: materialNames[i], Problem: model.CutoutProblem(i) ?? SubsurfaceProblem(model.Materials[i]) ?? FoliageProblem(model.Materials[i])))
             .Where(entry => entry.Problem is not null)
             .ToList();
         foreach (var (materialName, problem) in problems)
@@ -399,6 +456,14 @@ public sealed class ModelCooker : ICooker
             return null;
         }
 
+        // Last, since the checks above read the textures' pixels.
+        if (settings.CompressTextures)
+        {
+            // It times its own phases: taking textures from the step cache, compressing the rest, and keeping them.
+            TextureCompression.Compress(model.Textures, model.Materials, masks.OfType<ModelMaterialMasks>().Select(mask => mask.Texture), input,
+                message => output.Warning(prefix + message));
+        }
+
         using (input.Time("write model"))
         {
             // Textures go out as objects of their own, so models that share an image share one copy of it.
@@ -406,8 +471,203 @@ public sealed class ModelCooker : ICooker
         }
     }
 
+    // Checks each used material's wear and dirt, and bakes the masks of those whose rule asks for them, laid out by the
+    // second UV set. The rest of the model shades them, so a barrel's foot is dark where it meets the deck. Null when
+    // something was wrong, which was reported.
+    private static ModelMaterialMasks?[]? BakeMasks(
+        CookInput input, ImportSettings settings, CookOutput output, string prefix, Vertex[] vertices, List<uint> indices, List<ModelPart> parts,
+        List<string> materialNames, HashSet<int> withoutUv2, ModelTextures textures)
+    {
+        var masks = new ModelMaterialMasks?[materialNames.Count];
+        bool failed = false;
+        Vector3[]? positions = null;
+        Vector2[]? uvs = null;
+        string? shape = null;
+        foreach (int material in parts.Select(part => part.Material).Distinct().Order())
+        {
+            string name = materialNames[material];
+            if (RuleFor(settings, name) is not { } rule)
+            {
+                continue;
+            }
+
+            void Error(string message)
+            {
+                output.Error($"{prefix}material {name}: {message}");
+                failed = true;
+            }
+
+            if (!rule.BakeMasks)
+            {
+                if (rule.Wear is not null || rule.Dirt is not null)
+                {
+                    Error("wear and dirt need bakeMasks, since they're laid by the masks it bakes.");
+                }
+
+                continue;
+            }
+
+            if (rule.Wear is null && rule.Dirt is null)
+            {
+                Error("bakeMasks bakes masks for wear and dirt, but the rule has neither.");
+                continue;
+            }
+
+            if (rule.Transparent)
+            {
+                output.Warning($"{prefix}material {name}: transparent materials don't show wear and dirt, so bakeMasks is ignored.");
+                continue;
+            }
+
+            if (Layer(rule.Wear, "wear", Error) is not { } wear || Layer(rule.Dirt, "dirt", Error) is not { } dirt)
+            {
+                continue;
+            }
+
+            if (withoutUv2.Contains(material))
+            {
+                Error("bakeMasks needs a second UV set (TEXCOORD_1) for its masks, and a mesh of this material has none. "
+                    + "Give its meshes one whose islands don't overlap.");
+                continue;
+            }
+
+            positions ??= vertices.Select(vertex => vertex.Position).ToArray();
+            uvs ??= vertices.Select(vertex => vertex.Uv2).ToArray();
+            // Each part is one of the model's meshes, and height is measured from each one's own foot.
+            var own = parts.Where(part => part.Material == material).ToList();
+            var mesh = new MeshData(
+                positions, uvs, IndicesOf(own, indices),
+                own.SelectMany((part, i) => Enumerable.Repeat(i, (int)part.IndexCount / 3)).ToArray());
+            if (MaskBaker.Problem(mesh, MaskBaker.DefaultSize) is { } problem)
+            {
+                Error(problem + ".");
+                continue;
+            }
+
+            var rest = new MeshData(positions, uvs, IndicesOf(parts.Where(part => part.Material != material), indices));
+            byte[]? rgba = null;
+            string? key = null;
+            if (input.HasStepCache)
+            {
+                using (input.Time("recall masks"))
+                {
+                    shape ??= MaskShape(positions, uvs);
+                    key = MaskKey(shape, mesh, rest);
+                    if (input.Recall(MaskStep, key) is { Length: MaskBaker.DefaultSize * MaskBaker.DefaultSize * 4 } kept)
+                    {
+                        rgba = kept;
+                    }
+                }
+            }
+
+            if (rgba is null)
+            {
+                using (input.Time("bake masks"))
+                {
+                    rgba = MaskBaker.Bake(mesh, MaskBaker.DefaultSize, rest).Rgba;
+                }
+
+                if (key is not null)
+                {
+                    using (input.Time("keep masks"))
+                    {
+                        input.Keep(MaskStep, key, rgba);
+                    }
+                }
+            }
+
+            int texture = textures.AddPixels($"{name}#mask", MaskBaker.DefaultSize, MaskBaker.DefaultSize, TextureKind.Linear, rgba);
+            masks[material] = new ModelMaterialMasks(texture, wear, dirt);
+        }
+
+        return failed ? null : masks;
+    }
+
+    private const string MaskStep = "mask";
+
+    /// <summary>
+    /// Names the code that bakes masks, for the step cache's keys: this library's build, which holds
+    /// <see cref="MaskBaker"/>, and the size it bakes at.
+    /// </summary>
+    private static readonly string MaskVersion = string.Join(',',
+        typeof(MaskBaker).Assembly.ManifestModule.ModuleVersionId.ToString("N"),
+        MaskBaker.DefaultSize.ToString(CultureInfo.InvariantCulture));
+
+    /// <summary>The hash of the corners and second UVs every material's mask is baked from.</summary>
+    private static string MaskShape(Vector3[] positions, Vector2[] uvs)
+    {
+        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        hash.AppendData(BitConverter.GetBytes(positions.Length));
+        hash.AppendData(MemoryMarshal.AsBytes(positions.AsSpan()));
+        hash.AppendData(BitConverter.GetBytes(uvs.Length));
+        hash.AppendData(MemoryMarshal.AsBytes(uvs.AsSpan()));
+        return Convert.ToHexString(hash.GetHashAndReset());
+    }
+
+    /// <summary>The step cache's key for one material's masks: everything <see cref="MaskBaker.Bake"/> reads.</summary>
+    private static string MaskKey(string shape, MeshData mesh, MeshData rest)
+    {
+        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        foreach (int[]? list in new[] { mesh.Indices, mesh.Parts, rest.Indices, rest.Parts })
+        {
+            hash.AppendData(BitConverter.GetBytes(list?.Length ?? -1));
+            hash.AppendData(MemoryMarshal.AsBytes((list ?? []).AsSpan()));
+        }
+
+        return string.Join('|', MaskVersion, shape, Convert.ToHexString(hash.GetHashAndReset()));
+    }
+
+    private static int[] IndicesOf(IEnumerable<ModelPart> parts, List<uint> indices) =>
+        parts.SelectMany(part => Enumerable.Range((int)part.FirstIndex, (int)part.IndexCount).Select(i => (int)indices[i])).ToArray();
+
+    // A rule's wear or dirt as the renderer takes it: none is an amount of 0, and no roughness keeps the surface's.
+    // Null when it's wrong, which was reported.
+    private static MaterialLayer? Layer(LayerRule? rule, string name, Action<string> error)
+    {
+        if (rule is null)
+        {
+            return new MaterialLayer(Vector3.Zero, -1f, 0f);
+        }
+
+        string Number(float value) => value.ToString(CultureInfo.InvariantCulture);
+        if (rule.Color is not { Length: 3 } color)
+        {
+            error($"{name} color needs three numbers, red, green and blue.");
+            return null;
+        }
+
+        foreach (float c in color)
+        {
+            if (c < 0f || c > 1f)
+            {
+                error($"{name} color is a colour as a picker shows it, each number from 0 to 1, not {Number(c)}.");
+                return null;
+            }
+        }
+
+        if (rule.Amount < 0f || rule.Amount > 1f)
+        {
+            error($"{name} amount must be from 0 to 1, not {Number(rule.Amount)}.");
+            return null;
+        }
+
+        if (rule.Roughness is { } roughness && (roughness < 0f || roughness > 1f))
+        {
+            error($"{name} roughness must be from 0 to 1, not {Number(roughness)}.");
+            return null;
+        }
+
+        // The rule's colour is sRGB, as a colour picker shows it; the shader mixes in linear.
+        static float Linear(float c) => c <= 0.04045f ? c / 12.92f : MathF.Pow((c + 0.055f) / 1.055f, 2.4f);
+        return new MaterialLayer(new Vector3(Linear(color[0]), Linear(color[1]), Linear(color[2])), rule.Roughness ?? -1f, rule.Amount);
+    }
+
     private static string? SubsurfaceProblem(in ModelMaterial material) =>
         material.Subsurface.Problem(material.Clearcoat, material.Flags);
+
+    private static string? FoliageProblem(in ModelMaterial material) =>
+        ((material.Flags & MaterialFlags.Foliage) != 0 ? Rendition.Material.TranslucencyProblem(material.Translucency) : null)
+        ?? Rendition.Material.WindProblem(material.Wind);
 
     // Every mesh of one foliage material counts as one crown.
     private static void PointOutOfCrown(Vertex[] vertices, IEnumerable<(int Material, int First, int Count)> meshes)
@@ -568,10 +828,255 @@ public sealed class ModelCooker : ICooker
         }
     }
 
-    private static unsafe ModelMaterial ImportMaterial(
-        Assimp assimp, Silk.NET.Assimp.Material* source, ImportSettings settings, ModelTextures textures, bool isGltf,
-        out string materialName)
+    // A graph's UVs are in metres, so they're divided by its width. FlipUVs has turned v upside down, so v is turned back
+    // first and again after. That keeps v running the way it did, and lines a tile's edge up with the file's own UV origin,
+    // so a brick wall laid out from its foot in Blender starts a row of bricks at its foot.
+    private static Vector3 GraphUv(Vector3 uv, float width)
     {
+        return new Vector3(uv.X / width, 1f - (1f - uv.Y) / width, uv.Z);
+    }
+
+    private sealed record MaterialContext(
+        ImportSettings Settings, ModelTextures Textures, GraphRuns Graphs, CookOutput Output, string Prefix, bool IsGltf);
+
+    /// <summary>One graph's images, packed into the pixels of its textures.</summary>
+    private sealed record GraphRun(string Key, int Size, float Width, float HeightDepth, MaterialPixels Pixels);
+
+    /// <summary>The graphs a model's materials name, each run once per (path, size) however many materials or parts use it.</summary>
+    private sealed class GraphRuns(CookInput input)
+    {
+        private readonly Dictionary<string, GraphRun?> _runs = new(StringComparer.Ordinal);
+
+        /// <returns>The run, or null after reporting why there is none to <paramref name="error"/>.</returns>
+        public GraphRun? Run(string path, int size, Action<string> error, Action<string> warning)
+        {
+            path = path.Replace('\\', '/');
+            string key = $"{path}@{size}";
+            if (_runs.TryGetValue(key, out var known))
+            {
+                return known;
+            }
+
+            GraphRun? run = null;
+            if (MaterialGraphs.RunPacked(input, path, size, error) is { } packed)
+            {
+                foreach (string part in packed.Pixels.NotNumbers)
+                {
+                    warning($"{path}: {part} has pixels that aren't numbers. They were written as 0.");
+                }
+
+                run = new GraphRun(key, packed.Size, packed.Width, packed.HeightDepth, packed.Pixels);
+            }
+
+            _runs[key] = run;
+            return run;
+        }
+    }
+
+    /// <returns>The detail graph's run, or null when the rule has none or it failed, which was reported.</returns>
+    private static GraphRun? RunDetailGraph(MaterialRule rule, string materialName, MaterialContext context)
+    {
+        if (rule.DetailGraph is not { } path)
+        {
+            return null;
+        }
+
+        void Error(string message) => context.Output.Error($"{context.Prefix}material {materialName}: {message}");
+
+        if (rule.Graph is null)
+        {
+            Error("detailGraph tiles at a size the main graph's width sets, so it needs a graph.");
+            return null;
+        }
+
+        if (rule.DetailColor is not null || rule.DetailNormal is not null)
+        {
+            Error("detailGraph makes the detail textures, so it can't be used with detailColor or detailNormal.");
+            return null;
+        }
+
+        int size = rule.DetailGraphSize ?? MaterialGraphs.DefaultSize;
+        if (MaterialGraphs.SizeProblem("detailGraphSize", size) is { } problem)
+        {
+            Error(problem);
+            return null;
+        }
+
+        return context.Graphs.Run(path, size, Error,
+            message => context.Output.Warning($"{context.Prefix}material {materialName}: {message}"));
+    }
+
+    /// <summary>
+    /// A detail graph's colour as a detail colour texture: grey, its brightness divided by the
+    /// average, so 128 is the average and the main graph's colour is kept on the whole.
+    /// </summary>
+    private static byte[] DetailColorPixels(byte[] color)
+    {
+        int count = color.Length / 4;
+        var brightness = new float[count];
+        double total = 0;
+        for (int i = 0; i < count; i++)
+        {
+            brightness[i] = 0.2126f * ToLinear(color[i * 4]) + 0.7152f * ToLinear(color[i * 4 + 1]) + 0.0722f * ToLinear(color[i * 4 + 2]);
+            total += brightness[i];
+        }
+
+        float average = (float)Math.Max(total / count, 1e-4);
+        var pixels = new byte[color.Length];
+        for (int i = 0; i < count; i++)
+        {
+            byte value = (byte)Math.Clamp((int)MathF.Round(brightness[i] / average * 128f), 0, 255);
+            pixels[i * 4] = value;
+            pixels[i * 4 + 1] = value;
+            pixels[i * 4 + 2] = value;
+            pixels[i * 4 + 3] = 255;
+        }
+
+        return pixels;
+
+        static float ToLinear(byte value)
+        {
+            float c = value / 255f;
+            return c <= 0.04045f ? c / 12.92f : MathF.Pow((c + 0.055f) / 1.055f, 2.4f);
+        }
+    }
+
+    /// <summary>A graph's colour with its opacity, from the surface's alpha, as alpha, and its surface with an alpha of 1.</summary>
+    private static (byte[] Color, byte[] Surface) OpacityInColor(MaterialPixels pixels)
+    {
+        byte[] color = (byte[])pixels.Color.Clone();
+        byte[] surface = (byte[])pixels.Surface.Clone();
+        for (int alpha = 3; alpha < color.Length; alpha += 4)
+        {
+            color[alpha] = surface[alpha];
+            surface[alpha] = 255;
+        }
+
+        return (color, surface);
+    }
+
+    /// <returns>
+    /// The surface shader a rule names, with its textures as their names in the cooked content, or null when it names
+    /// none or something about it is wrong, which was reported.
+    /// </returns>
+    private static ModelMaterialShader? ImportShader(MaterialRule rule, string materialName, CookInput input, CookOutput output, string prefix)
+    {
+        void Error(string message) => output.Error($"{prefix}material {materialName}: {message}");
+
+        float[][] parameters = rule.ShaderParameters ?? [];
+        string[] paths = rule.ShaderTextures ?? [];
+        if (rule.Shader is not { } name)
+        {
+            if (rule.ShaderParameters is not null || rule.ShaderTextures is not null)
+            {
+                Error("shaderParameters and shaderTextures are read by a shader, so they need one.");
+            }
+
+            return null;
+        }
+
+        bool wrong = false;
+        // The game reads shaders/<name>.frag.spv, so a name must stay inside that folder.
+        if (name.Length == 0 || name.Contains('/') || name.Contains('\\') || name.Contains(".."))
+        {
+            Error($"shader \"{name}\" must be the file name of a shader in the shaders folder, such as \"puddles\", with no /, \\ or \"..\".");
+            wrong = true;
+        }
+
+        if (rule.Transparent)
+        {
+            Error("transparent materials can't use a surface shader yet.");
+            wrong = true;
+        }
+
+        if (parameters.Length > ShaderParameters.Length)
+        {
+            Error($"shaderParameters has {parameters.Length} entries, but a surface shader takes at most {ShaderParameters.Length}.");
+            wrong = true;
+        }
+
+        var vectors = new Vector4[Math.Min(parameters.Length, ShaderParameters.Length)];
+        for (int i = 0; i < vectors.Length; i++)
+        {
+            float[] numbers = parameters[i] ?? [];
+            if (numbers.Length > 4)
+            {
+                Error($"shaderParameters[{i}] has {numbers.Length} numbers, but a parameter holds at most 4.");
+                wrong = true;
+                continue;
+            }
+
+            float At(int component) => component < numbers.Length ? numbers[component] : 0f;
+            vectors[i] = new Vector4(At(0), At(1), At(2), At(3));
+        }
+
+        if (paths.Length > ShaderTextures.Length)
+        {
+            Error($"shaderTextures has {paths.Length} entries, but a surface shader takes at most {ShaderTextures.Length}.");
+            wrong = true;
+        }
+
+        var names = new string[Math.Min(paths.Length, ShaderTextures.Length)];
+        for (int i = 0; i < names.Length; i++)
+        {
+            if (paths[i] is { } path && input.NameOf(path) is { } found)
+            {
+                // The game loads the texture by its name, so it must be cooked too, which Only can leave out.
+                if (input.IsPicked(found))
+                {
+                    names[i] = found;
+                }
+                else
+                {
+                    Error($"shaderTextures[{i}] {found} isn't cooked, because the source root's Only leaves it out. Pick it in Only too, such as \"{found}\".");
+                    wrong = true;
+                }
+            }
+            else
+            {
+                Error($"shaderTextures[{i}] {paths[i]} isn't in the source root.");
+                wrong = true;
+            }
+        }
+
+        return wrong ? null : new ModelMaterialShader(name, vectors, names);
+    }
+
+    /// <summary>The first rule whose <c>match</c> is in the material's name, or null when there is none.</summary>
+    private static MaterialRule? RuleFor(ImportSettings settings, string materialName) =>
+        settings.Materials.FirstOrDefault(rule => materialName.Contains(rule.Match, StringComparison.OrdinalIgnoreCase));
+
+    /// <returns>The graph's run, or null when the rule has no graph or it failed, which was reported.</returns>
+    private static GraphRun? RunGraph(MaterialRule rule, string materialName, MaterialContext context)
+    {
+        if (rule.Graph is not { } path)
+        {
+            return null;
+        }
+
+        void Error(string message) => context.Output.Error($"{context.Prefix}material {materialName}: {message}");
+
+        if (rule.BaseColor is not null || rule.Normal is not null || rule.Surface is not null || rule.Alpha is not null)
+        {
+            Error("graph makes the colour, normal and surface textures, so it can't be used with baseColor, normal, surface or alpha.");
+            return null;
+        }
+
+        int size = rule.GraphSize ?? MaterialGraphs.DefaultSize;
+        if (MaterialGraphs.SizeProblem("graphSize", size) is { } problem)
+        {
+            Error(problem);
+            return null;
+        }
+
+        return context.Graphs.Run(path, size, Error,
+            message => context.Output.Warning($"{context.Prefix}material {materialName}: {message}"));
+    }
+
+    private static unsafe ModelMaterial ImportMaterial(
+        Assimp assimp, Silk.NET.Assimp.Material* source, MaterialContext context, out string materialName, out float graphWidth)
+    {
+        var (settings, textures, isGltf) = (context.Settings, context.Textures, context.IsGltf);
         AssimpString name;
         assimp.GetMaterialString(source, Assimp.MaterialNameBase, 0, 0, &name);
         materialName = name.AsString;
@@ -588,55 +1093,166 @@ public sealed class ModelCooker : ICooker
         float[]? fileRoughness = isGltf ? GetFloats(assimp, source, "$mat.roughnessFactor", 1) : null;
         float? fileCutoff = isGltf ? GetGltfCutoff(assimp, source) : null;
 
-        // Use a local copy, since lambdas can't capture an out parameter.
-        string matchName = materialName;
-        var rule = settings.Materials.FirstOrDefault(r => matchName.Contains(r.Match, StringComparison.OrdinalIgnoreCase));
+        var rule = RuleFor(settings, materialName);
 
         // A texture the rule names must be there; one only the model file links to may not be.
         string? named = rule is null ? null : materialName;
         rule ??= new MaterialRule();
-        var flags = (rule.TwoSided || rule.Foliage ? MaterialFlags.TwoSided : 0)
+        bool foliage = rule.Foliage is not null;
+        float translucency = rule.Foliage?.Translucency ?? 0f;
+        float wind = rule.Wind?.Sway ?? 0f;
+        var flags = (rule.TwoSided || foliage ? MaterialFlags.TwoSided : 0)
             | (rule.Transparent ? MaterialFlags.Transparent : 0)
-            | (rule.Foliage ? MaterialFlags.Foliage : 0)
-            | (rule.DetailMask ? MaterialFlags.DetailMask : 0);
+            | (foliage ? MaterialFlags.Foliage : 0)
+            | (rule.DetailMask ? MaterialFlags.DetailMask : 0)
+            | (rule.WorldVariation ? MaterialFlags.WorldVariation : 0)
+            | (rule.Dithered ? MaterialFlags.Dithered : 0)
+            | (rule.Puddles ? MaterialFlags.Puddles : 0);
         var emissive = rule.EmissiveColor is { Length: 3 } e
             ? new Vector3(e[0], e[1], e[2])
             : rule.Emissive != null ? Vector3.One : Vector3.Zero;
+
+        var graph = RunGraph(rule, materialName, context);
+        graphWidth = graph?.Width ?? 0f;
+        if (graph is not null)
+        {
+            // The graph's textures hold the colour, metalness and roughness, which these values multiply, so they're 1
+            // unless the rule says otherwise. The model file's own values were for its own textures.
+            int size = graph.Size;
+
+            // A cutoff reads the graph's opacity from the colour's alpha, so it's moved there from the surface's, which is
+            // left whole so the opacity isn't counted twice.
+            int colorTexture, surfaceTexture;
+            if (rule.AlphaCutoff is { } cutoff)
+            {
+                var (color, surface) = OpacityInColor(graph.Pixels);
+                colorTexture = textures.AddPixels(graph.Key + "#color-opacity", size, size, TextureKind.Color, color,
+                    alphaCutoff: TextureCutoff(cutoff, rule.Opacity));
+                surfaceTexture = textures.AddPixels(graph.Key + "#surface-opaque", size, size, TextureKind.Linear, surface);
+            }
+            else
+            {
+                colorTexture = textures.AddPixels(graph.Key + "#color", size, size, TextureKind.Color, graph.Pixels.Color);
+                surfaceTexture = textures.AddPixels(graph.Key + "#surface", size, size, TextureKind.Linear, graph.Pixels.Surface);
+            }
+
+            // The graph's own height map sinks its grooves in with parallax, unless the rule gives a height map.
+            float heightDepth = rule.HeightDepth ?? (rule.Height is null ? graph.HeightDepth : 0f);
+            int heightTexture = rule.Height is not null
+                ? textures.Add(rule.Height, TextureKind.Linear, namedBy: named)
+                : heightDepth > 0f
+                    ? textures.AddPixels(graph.Key + "#height", size, size, TextureKind.Linear, graph.Pixels.Height)
+                    : -1;
+
+            // A detail graph tiles at its own width, which sets how many times it repeats across the main graph.
+            var detail = RunDetailGraph(rule, materialName, context);
+            int detailColor = detail is null
+                ? textures.Add(rule.DetailColor, TextureKind.Linear, namedBy: named)
+                : textures.AddPixels(detail.Key + "#detail", detail.Size, detail.Size, TextureKind.Linear,
+                    DetailColorPixels(detail.Pixels.Color));
+            int detailNormal = detail is null
+                ? textures.Add(rule.DetailNormal, TextureKind.Linear, isNormalMap: true, namedBy: named)
+                : textures.AddPixels(detail.Key + "#normal", detail.Size, detail.Size, TextureKind.Linear,
+                    detail.Pixels.Normal, isNormalMap: true);
+            float detailScale = rule.DetailScale ?? (detail is null ? DefaultDetailScale : graph.Width / detail.Width);
+
+            return new ModelMaterial
+            {
+                BaseColor = rule.Color is { Length: 3 } gc ? new Vector4(gc[0], gc[1], gc[2], rule.Opacity) : new Vector4(1f, 1f, 1f, rule.Opacity),
+                Metallic = rule.Metallic ?? 1f,
+                Roughness = rule.Roughness ?? 1f,
+                AlphaCutoff = rule.AlphaCutoff ?? 0f,
+                BaseColorTexture = colorTexture,
+                NormalTexture = rule.NoNormalMap
+                    ? -1
+                    : textures.AddPixels(graph.Key + "#normal", size, size, TextureKind.Linear, graph.Pixels.Normal, isNormalMap: true),
+                SurfaceTexture = surfaceTexture,
+                Emissive = emissive,
+                EmissiveTexture = textures.Add(rule.Emissive, TextureKind.Color, namedBy: named),
+                Clearcoat = rule.Clearcoat,
+                HeightTexture = heightTexture,
+                HeightDepth = heightDepth,
+                DetailColorTexture = detailColor,
+                DetailNormalTexture = detailNormal,
+                DetailScale = detailScale,
+                Flags = flags,
+                Ior = rule.Ior,
+                Subsurface = Subsurface(rule),
+                Translucency = translucency,
+                Wind = wind,
+            };
+        }
+
+        if (rule.Graph is null)
+        {
+            // Reports that a detail graph needs a main graph.
+            RunDetailGraph(rule, materialName, context);
+        }
+
+        var baseColor = rule.Color is { Length: 3 } c
+            ? new Vector4(c[0], c[1], c[2], rule.Opacity)
+            : fileColor is { } f ? new Vector4(f[0], f[1], f[2], f[3]) : new Vector4(1f, 1f, 1f, rule.Opacity);
+        float alphaCutoff = rule.AlphaCutoff ?? fileCutoff ?? 0f;
+        float textureCutoff = TextureCutoff(alphaCutoff, baseColor.W);
+        // When the colour and the surface both carry opacity, the shader cuts by their product, so the colour keeps
+        // the product's coverage and the surface is left whole.
+        var partner = rule.Surface is not null && textureCutoff > 0f
+            ? textures.CutoutPartner(rule.BaseColor ?? linkedColor, rule.Alpha, rule.Surface)
+            : null;
         return new ModelMaterial
         {
-            BaseColor = rule.Color is { Length: 3 } c
-                ? new Vector4(c[0], c[1], c[2], rule.Opacity)
-                : fileColor is { } f ? new Vector4(f[0], f[1], f[2], f[3]) : new Vector4(1f, 1f, 1f, rule.Opacity),
+            BaseColor = baseColor,
             Metallic = rule.Metallic ?? fileMetallic?[0] ?? 0f,
             Roughness = rule.Roughness ?? fileRoughness?[0] ?? 0.6f,
-            AlphaCutoff = rule.AlphaCutoff ?? fileCutoff ?? 0f,
+            AlphaCutoff = alphaCutoff,
             BaseColorTexture = textures.Add(rule.BaseColor ?? linkedColor, TextureKind.Color, alphaFile: rule.Alpha,
-                namedBy: rule.BaseColor is null ? null : named),
+                namedBy: rule.BaseColor is null ? null : named, alphaCutoff: textureCutoff, partner: partner),
             NormalTexture = textures.Add(rule.NoNormalMap ? null : rule.Normal ?? linkedNormal, TextureKind.Linear, isNormalMap: true,
                 namedBy: rule.Normal is null ? null : named),
+            // A glTF surface map's alpha is always whole, so only a surface texture the rule names can carry opacity.
             SurfaceTexture = rule.Surface is not null
-                ? textures.Add(rule.Surface, TextureKind.Linear, namedBy: named)
+                ? textures.Add(rule.Surface, TextureKind.Linear, namedBy: named, alphaCutoff: partner is null ? textureCutoff : 0f)
                 : textures.Add(linkedSurface, TextureKind.Linear, isGltfSurface: true),
             Emissive = emissive,
             EmissiveTexture = textures.Add(rule.Emissive, TextureKind.Color, namedBy: named),
             Clearcoat = rule.Clearcoat,
             HeightTexture = textures.Add(rule.Height, TextureKind.Linear, namedBy: named),
-            HeightDepth = rule.HeightDepth,
+            HeightDepth = rule.HeightDepth ?? 0f,
             DetailColorTexture = textures.Add(rule.DetailColor, TextureKind.Linear, namedBy: named),
             DetailNormalTexture = textures.Add(rule.DetailNormal, TextureKind.Linear, isNormalMap: true, namedBy: named),
-            DetailScale = rule.DetailScale,
+            DetailScale = rule.DetailScale ?? DefaultDetailScale,
             Flags = flags,
             Ior = rule.Ior,
-            Subsurface = rule.Subsurface is { } subsurface
-                ? new Subsurface
-                {
-                    Radius = subsurface.Radius,
-                    Color = subsurface.Color is { Length: 3 } spread ? new Vector3(spread[0], spread[1], spread[2]) : Vector3.Zero,
-                    Transmission = subsurface.Transmission,
-                }
-                : default,
+            Subsurface = Subsurface(rule),
+            Translucency = translucency,
+            Wind = wind,
         };
     }
+
+    /// <summary>
+    /// The cutoff as a texture's own alpha meets it: the shader cuts by the texture's alpha times the colour's
+    /// <paramref name="opacity"/>, so the texture's alpha must reach <paramref name="cutoff"/> over that. 0, for no
+    /// cutoff or for one the texture can't reach, leaves the texture's mips as the filter made them.
+    /// </summary>
+    internal static float TextureCutoff(float cutoff, float opacity)
+    {
+        if (cutoff <= 0f || opacity <= 0f || cutoff > opacity)
+        {
+            return 0f;
+        }
+
+        return cutoff / opacity;
+    }
+
+    private static Subsurface Subsurface(MaterialRule rule) =>
+        rule.Subsurface is { } subsurface
+            ? new Subsurface
+            {
+                Radius = subsurface.Radius,
+                Color = subsurface.Color is { Length: 3 } spread ? new Vector3(spread[0], spread[1], spread[2]) : Vector3.Zero,
+                Transmission = subsurface.Transmission,
+            }
+            : default;
 
     // glTF's MASK mode cuts out by alpha, at 0.5 unless the file says otherwise.
     private static unsafe float? GetGltfCutoff(Assimp assimp, Silk.NET.Assimp.Material* material)
@@ -674,7 +1290,7 @@ public sealed class ModelCooker : ICooker
 /// <summary>Every cooker that ships with Super, the model cooker included.</summary>
 public static class ModelCookers
 {
-    public static IReadOnlyList<ICooker> All { get; } = [.. BuiltInCookers.All, new ModelCooker()];
+    public static IReadOnlyList<ICooker> All { get; } = [.. BuiltInCookers.All, new MaterialCooker(), new ModelCooker()];
 
     /// <summary>
     /// A cooked model with every texture inside it, so it can be read on its own, away from the store its

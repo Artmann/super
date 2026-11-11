@@ -3,6 +3,8 @@
 A stone hall lit only by fire and two beams. Four torches cast shadows, five brass
 candelabras stand on the altar, 126 loose candles sit on the floor, a lantern swings
 over a chest, and a cold beam falls from a grate. That's about 150 lights a frame.
+The air is faintly dusty, a [volumetric fog](../../docs/rendering.md#volumetric-fog) of
+0.008, so the torches glow in it.
 
 ```
 dotnet run -c Release --project examples/Crypt

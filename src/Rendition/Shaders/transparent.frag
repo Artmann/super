@@ -5,6 +5,9 @@
 #include "brdf.glsl"
 #include "material.glsl"
 #include "light_data.glsl"
+#include "reflection_probes.glsl"
+#include "sky.glsl"
+#include "fog.glsl"
 
 layout(location = 0) in vec3 inNormal;
 layout(location = 2) in vec2 inUv;
@@ -14,6 +17,7 @@ layout(set = 2, binding = 0) uniform samplerCube reflectionTexture;
 layout(set = 2, binding = 1) uniform samplerCube irradianceTexture;
 layout(set = 2, binding = 2) uniform sampler2D sceneColor; // The picture behind, with blurrier mips.
 layout(set = 2, binding = 3) uniform sampler2D sceneDepth;
+layout(set = 2, binding = 4) uniform samplerCubeArray probeTexture;
 
 layout(location = 0) out vec4 outColor;
 
@@ -62,8 +66,11 @@ vec2 refractedUv(vec2 here, vec3 v, vec3 n, float ior) {
 // premultiplied by alpha and blends over what's there.
 void main() {
     Material material = materials[draw.material];
-    vec4 baseColor = texture(textures[material.baseColorTexture], inUv) * material.baseColor * vec4(draw.tint.rgb, 1.0);
-    vec3 emissive = texture(textures[material.emissiveTexture], inUv).rgb * material.emissive.rgb;
+    vec4 baseColor = texture(textures[material.baseColorTexture], inUv, frame.mipBias) * material.baseColor * vec4(draw.tint.rgb, 1.0);
+    // Opacity can come from either texture, as in surface.glsl and shadow.frag: a material
+    // graph keeps it in the surface texture's alpha.
+    baseColor.a *= texture(textures[material.surfaceTexture], inUv, frame.mipBias).a;
+    vec3 emissive = texture(textures[material.emissiveTexture], inUv, frame.mipBias).rgb * material.emissive.rgb;
     float roughnessOfSurface = material.roughness;
 
     // A see-through ghost is one matte colour that glows a little, like solid ghosts in
@@ -75,6 +82,14 @@ void main() {
         roughnessOfSurface = 0.7;
     }
 
+    // With materials off, see-through things keep how see-through they are, and only that:
+    // plain clay in colour, matte, and clear, with no bending or frosting of what's behind.
+    bool plain = isOff(OFF_MATERIALS) && draw.ghost.a <= 0.0;
+    if (plain) {
+        baseColor.rgb = PLAIN_COLOR;
+        roughnessOfSurface = PLAIN_ROUGHNESS;
+    }
+
     vec3 n = normalize(gl_FrontFacing ? inNormal : -inNormal);
     vec3 v = normalize(frame.cameraPosition.xyz - inPosition);
     float nDotV = max(dot(n, v), 1e-4);
@@ -83,8 +98,10 @@ void main() {
     vec3 f0 = vec3(0.04);
 
     vec2 brdf = environmentBrdf(roughness, nDotV);
-    vec3 reflectedLight = textureLod(reflectionTexture, reflect(-v, n), roughness * REFLECTION_LODS).rgb;
-    vec3 specular = reflectedLight * (f0 * brdf.x + brdf.y) * frame.backgroundRadiance.a;
+    vec3 multiscatter = isOff(OFF_MULTISCATTER_SPECULAR) ? vec3(1.0) : multiscatterCompensation(f0, nDotV, roughness);
+    // Glass reflects the yard or room round it where a reflection probe sees it, as lit surfaces do.
+    vec3 reflectedLight = probeReflection(probeTexture, reflectionTexture, inPosition, reflect(-v, n), roughness * REFLECTION_LODS);
+    vec3 specular = reflectedLight * (f0 * brdf.x + brdf.y) * frame.backgroundRadiance.a * multiscatter;
     vec3 diffuse = texture(irradianceTexture, n).rgb * frame.backgroundRadiance.a;
 
     for (int i = 0; i < frame.lightCount; i++) {
@@ -97,7 +114,7 @@ void main() {
         vec3 h = normalize(v + l);
         vec3 f = fresnelSchlick(max(dot(v, h), 0.0), f0);
         float highlight = distributionGgx(max(dot(n, h), 0.0), alpha) * visibilitySmithGgx(nDotV, nDotL, alpha);
-        specular += highlight * f * frame.lights[i].radiance.rgb * nDotL;
+        specular += highlight * f * multiscatter * frame.lights[i].radiance.rgb * nDotL;
         diffuse += frame.lights[i].radiance.rgb * nDotL / PI;
     }
 
@@ -117,7 +134,7 @@ void main() {
         vec3 h = normalize(v + l);
         vec3 f = fresnelSchlick(max(dot(v, h), 0.0), f0);
         float highlight = distributionGgx(max(dot(n, h), 0.0), alpha) * visibilitySmithGgx(nDotV, nDotL, alpha);
-        specular += highlight * f * radiance * nDotL;
+        specular += highlight * f * multiscatter * radiance * nDotL;
         diffuse += radiance * nDotL / PI;
     }
 
@@ -125,14 +142,22 @@ void main() {
     float reflectance = dot(fresnelSchlick(nDotV, f0), vec3(1.0 / 3.0));
     float coverage = opacity + (1.0 - opacity) * reflectance;
     vec3 own = baseColor.rgb * diffuse * opacity + specular + emissive;
+
+    // The fog in front dims the glass's own light and adds its own over the part the glass
+    // covers. What shows through already has the fog all the way to it.
+    vec4 fog = fogInFront(inPosition, reflectionTexture);
+    if (fog.a < 1.0) {
+        own = own * fog.a + fog.rgb * coverage;
+    }
+
     if (draw.tint.w < 0.5) {
         outColor = vec4(own, coverage);
         return;
     }
 
     vec2 here = gl_FragCoord.xy / vec2(textureSize(sceneDepth, 0));
-    vec2 uv = refractedUv(here, v, n, material.ior);
-    float lod = min(roughnessOfSurface * FROST_LODS, float(textureQueryLevels(sceneColor) - 1));
+    vec2 uv = plain ? here : refractedUv(here, v, n, material.ior);
+    float lod = plain ? 0.0 : min(roughnessOfSurface * FROST_LODS, float(textureQueryLevels(sceneColor) - 1));
     vec3 transmitted = textureLod(sceneColor, uv, lod).rgb;
     outColor = vec4(own + (1.0 - coverage) * transmitted, 1.0);
 }

@@ -14,7 +14,7 @@ struct LocalLight {
     vec4 positionRange;  // xyz: where it is; w: how far it reaches
     vec4 radianceShadow; // rgb: colour times brightness at one metre; w: first shadow tile, or -1
     vec4 directionCone;  // xyz: which way a spot shines; w: cosine of its outer angle, or -2 for a point light
-    vec4 fade;           // x: 1 / (cos inner - cos outer); y: the light's radius
+    vec4 fade;           // x: 1 / (cos inner - cos outer); y: the light's radius; z: how strongly it lights the volumetric fog
 };
 
 // Must match GpuShadowTile in Passes/FrameUniforms.cs.

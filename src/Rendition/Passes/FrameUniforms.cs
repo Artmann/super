@@ -99,7 +99,8 @@ internal struct FrameUniforms
 
     /// <summary>
     /// x, y: distance from the camera where shadows start to fade out and where they're gone;
-    /// z: the share of a cascade's map, at its edges, over which it hands over to the next.
+    /// z: the share of a cascade's map, at its edges, over which it hands over to the next;
+    /// w: how far contact shadows look along the sun, in metres, with 0 for none.
     /// </summary>
     public Vector4 ShadowFade;
 
@@ -115,6 +116,42 @@ internal struct FrameUniforms
     /// <summary>x, y: the size of the render targets in pixels.</summary>
     public Vector4 Screen;
 
+    /// <summary>x: how far ambient occlusion looks, in metres; y: its strength, 0 to 1.</summary>
+    public Vector4 Occlusion;
+
+    /// <summary>xyz: the first light probe's position; w: the probes' spacing in metres.</summary>
+    public Vector4 LightProbeMin;
+
+    /// <summary>xyz: how many probes run along each axis; w: 1 when surfaces take their soft light from the probes.</summary>
+    public Vector4 LightProbeCounts;
+
+    /// <summary>xyz: towards the clear sky's sun; w: its turbidity, 0 for the environment's bands.</summary>
+    public Vector4 SkySun;
+
+    /// <summary>rgb: how bright the sun's disc is, 0 for none; a: the cosine of its angular radius.</summary>
+    public Vector4 SunDisc;
+
+    /// <summary>x: the fog's density at its height, 0 for none; y: that height; z: its falloff per metre; w: how much it glows towards the suns.</summary>
+    public Vector4 Fog;
+
+    /// <summary>The white balance on linear colour, which the tone-mapping pass applies before its curve. See <see cref="PostGrade.WhiteBalance"/>.</summary>
+    public Matrix4x4 WhiteBalance;
+
+    /// <summary>x: 1 for the ACES curve, 0 for AgX; y, z: the AgX look's power and saturation. See <see cref="PostGrade.Curve"/>.</summary>
+    public Vector4 Curve;
+
+    /// <summary>
+    /// x: how far the volumetric fog reaches, 0 for none; y: where its first slice ends; z: its anisotropy;
+    /// w: 1 when last frame's volume can be used. See <see cref="VolumetricFog.Pack"/>.
+    /// </summary>
+    public Vector4 Volumetric;
+
+    /// <summary>x: the water's level; y: the damp band above it; z: 1 when there is water. See <see cref="Passes.Puddles.Pack(float, float)"/>.</summary>
+    public Vector4 Puddles;
+
+    /// <summary>xyz: the way the wind blows times its strength, zero in a calm; w: its gustiness. See <see cref="Passes.Wind.Pack(WindSettings?, RenderEffects)"/>.</summary>
+    public Vector4 Wind;
+
     public int LightCount;
     public float Time;
     public int FrameNumber;
@@ -126,9 +163,24 @@ internal struct FrameUniforms
 
     /// <summary>The <see cref="RenderEffects"/> left out of this frame, which the shaders skip.</summary>
     public int Off;
-    private int _pad0;
-    private int _pad1;
-    private int _pad2;
+
+    /// <summary>
+    /// Added to the mip level every material texture is read at. Below 0 while anti-aliasing
+    /// shifts the view, since the frames it blends together fill in the finer level.
+    /// </summary>
+    public float MipBias;
+
+    /// <summary>
+    /// 1 while a light probe's faces are drawn: the lighting then writes each pixel's distance
+    /// from the probe into alpha, negative for the back of a surface, for probe_fold.comp.
+    /// </summary>
+    public int ProbeCapture;
+
+    /// <summary>
+    /// Last frame's <see cref="Time"/>, which the G-buffer pass sways last frame's grass at for motion vectors. The same
+    /// as Time when there's no last frame.
+    /// </summary>
+    public float PreviousTime;
     public GpuLightArray Lights;
     public GpuReflectionProbeArray Probes;
 }
@@ -146,7 +198,7 @@ internal struct GpuLocalLight
     /// <summary>xyz: which way a spot shines; w: the cosine of its outer angle, or -2 for a point light.</summary>
     public Vector4 DirectionCone;
 
-    /// <summary>x: one over the cosines between the inner and outer angles, for the spot's fade; y: its radius.</summary>
+    /// <summary>x: one over the cosines between the inner and outer angles, for the spot's fade; y: its radius; z: how strongly it lights the volumetric fog.</summary>
     public Vector4 Fade;
 }
 

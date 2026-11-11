@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Super.Cook\Super.Cook.csproj" />
+    <ProjectReference Include="..\..\src\Super.Cook.Materials\Super.Cook.Materials.csproj" />
     <ProjectReference Include="..\..\src\Super.Cook.Models\Super.Cook.Models.csproj" />
     <ProjectReference Include="..\..\src\Super.Testing\Super.Testing.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />

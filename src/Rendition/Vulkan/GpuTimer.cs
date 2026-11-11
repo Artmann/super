@@ -13,8 +13,8 @@ internal sealed unsafe class GpuTimer : IDisposable
 
     private static readonly string[] PassNames =
     [
-        "Shadows", "G-buffer", "Ambient occlusion", "AO blur", "Lighting", "Glass and particles",
-        "Anti-aliasing", "Bloom", "Tonemap", "Finish", "Overlay",
+        "Shadows", "Light clusters", "Volumetric fog", "G-buffer", "Ambient occlusion", "AO blur", "Lighting", "Subsurface", "Glass and particles",
+        "Anti-aliasing", "Depth of field", "Bloom", "Tonemap", "Finish", "Overlay",
     ];
 
     private readonly VulkanContext _context;

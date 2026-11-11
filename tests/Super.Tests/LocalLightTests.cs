@@ -87,6 +87,23 @@ public class LocalLightTests
     }
 
     [Fact]
+    public void A_lights_volumetric_strength_reaches_the_gpu_and_none_given_means_full()
+    {
+        LocalLight[] lights =
+        [
+            Point(1, new Vector3(0f, 0f, -5f), 2f) with { Volumetric = 2.5f },
+            Point(2, new Vector3(0f, 0f, -6f), 2f),
+            Point(3, new Vector3(0f, 0f, -7f), 2f) with { Volumetric = 0f },
+        ];
+
+        var (_, gpu, _) = Prepare(lights);
+
+        Assert.Equal(2.5f, gpu[0].Fade.Z);
+        Assert.Equal(1f, gpu[1].Fade.Z);
+        Assert.Equal(0f, gpu[2].Fade.Z);
+    }
+
+    [Fact]
     public void A_point_lights_shadow_takes_six_tiles_and_a_spots_one()
     {
         LocalLight[] lights =

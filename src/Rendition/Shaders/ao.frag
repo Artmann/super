@@ -10,12 +10,15 @@ layout(set = 1, binding = 0) uniform sampler2D depthTexture;
 layout(set = 1, binding = 1) uniform sampler2D normalRoughnessAoTexture;
 layout(set = 1, binding = 2) uniform sampler2DArray shadowDepthTexture;
 
+// xy: the bent normal in view space, octahedral and moved into 0 to 1; z: visibility.
 layout(location = 0) out vec4 outOcclusion;
 
-const float RADIUS = 0.6; // Metres.
-const float STRENGTH = 0.9;
-const float BIAS = 0.02;
-const int SAMPLES = 24;
+const int SLICES = 2;
+const int STEPS = 8; // Each way along a slice.
+
+// Surfaces fade out of the search over the last part of the radius, so the occlusion
+// doesn't stop at a hard edge.
+const float FALLOFF_START = 0.6;
 
 // Share of the shadow map to search around a point, and how close a blocker can be
 // before it counts as the surface itself.
@@ -27,6 +30,10 @@ const int OVERHEAD_SAMPLES = 16;
 vec3 worldPosition(vec2 uv, float depth) {
     vec4 world = frame.inverseViewProjection * vec4(uv * 2.0 - 1.0, depth, 1.0);
     return world.xyz / world.w;
+}
+
+vec3 viewPosition(vec2 uv, float depth) {
+    return (frame.view * vec4(worldPosition(uv, depth), 1.0)).xyz;
 }
 
 // The camera can't see the underside of a car, but the light can. The shadow map's
@@ -60,42 +67,111 @@ float overheadOcclusion(vec3 position, vec3 n, float rotation) {
     return blocked / float(OVERHEAD_SAMPLES) * max(n.y, 0.0);
 }
 
-// Alchemy ambient obscurance (McGuire et al.): nearby surfaces that rise above this
-// point's tangent plane hide part of the sky from it.
+// Ground-truth ambient occlusion (Jimenez et al., "Practical Real-Time Strategies for
+// Accurate Indirect Occlusion", 2016). The hemisphere above a point is cut into slices
+// that face the camera. Along each, the highest surface within the radius on either side
+// is its horizon, and the arc between the two horizons, weighted by the cosine to the
+// normal, is how much of the sky's light reaches the point. The same arcs give the bent
+// normal: the average direction the point still sees the sky in.
 void main() {
     float depth = texture(depthTexture, inUv).r;
     if (depth == 0.0) {
-        outOcclusion = vec4(1.0);
+        outOcclusion = vec4(0.5, 0.5, 1.0, 1.0);
         return;
     }
 
-    vec3 position = worldPosition(inUv, depth);
-    vec3 n = octahedralDecode(texture(normalRoughnessAoTexture, inUv).xy);
+    float radius = frame.occlusion.x;
+    float strength = frame.occlusion.y;
+
+    vec3 world = worldPosition(inUv, depth);
+    vec3 worldNormal = octahedralDecode(texture(normalRoughnessAoTexture, inUv).xy);
+    vec3 position = (frame.view * vec4(world, 1.0)).xyz;
+    vec3 n = normalize(mat3(frame.view) * worldNormal);
+    vec3 v = normalize(-position);
 
     // How big the radius looks on screen at this distance.
-    vec3 view = normalize(frame.cameraPosition.xyz - position);
-    vec3 side = normalize(cross(view, vec3(0.01, 1.0, 0.0)));
-    vec4 edge = frame.viewProjection * vec4(position + side * RADIUS, 1.0);
+    vec3 toCamera = normalize(frame.cameraPosition.xyz - world);
+    vec3 side = normalize(cross(toCamera, vec3(0.01, 1.0, 0.0)));
+    vec4 edge = frame.viewProjection * vec4(world + side * radius, 1.0);
     vec2 size = vec2(textureSize(depthTexture, 0));
     float screenRadius = min(length((edge.xy / edge.w * 0.5 + 0.5 - inUv) * size), size.y * 0.25);
 
-    float rotation = frameNoise(gl_FragCoord.xy, frame.frameNumber) * 2.0 * PI;
-    float radiusSquared = RADIUS * RADIUS;
-    float sum = 0.0;
-    for (int i = 0; i < SAMPLES; i++) {
-        vec2 uv = inUv + diskSample(i, SAMPLES, rotation) * screenRadius / size;
-        float sampleDepth = texture(depthTexture, uv).r;
-        if (sampleDepth == 0.0) {
+    // One number turns the slices, the other shifts the steps along them.
+    float noise = frameNoise(gl_FragCoord.xy, frame.frameNumber);
+    float stepNoise = fract(interleavedGradientNoise(gl_FragCoord.yx + 47.0) + float(frame.frameNumber % 64) * 0.7548777);
+    float falloffRange = max((1.0 - FALLOFF_START) * radius, 1e-4);
+
+    float visibility = 0.0;
+    vec3 bentNormal = vec3(0.0);
+    for (int slice = 0; slice < SLICES; slice++) {
+        float angle = (float(slice) + noise) / float(SLICES) * PI;
+        vec2 omega = vec2(cos(angle), sin(angle));
+
+        // The slice's direction in view space, found by stepping across the screen at this
+        // depth, so it follows whichever way the screen's axes point.
+        vec3 along = viewPosition(inUv + omega / size, depth) - position;
+        vec3 direction = normalize(along - dot(along, v) * v);
+        vec3 axis = cross(direction, v);
+        vec3 projectedNormal = n - axis * dot(n, axis);
+        float projectedLength = length(projectedNormal);
+        if (projectedLength < 1e-4) {
             continue;
         }
 
-        vec3 toSample = worldPosition(uv, sampleDepth) - position;
-        float distanceSquared = dot(toSample, toSample);
-        float falloff = max(radiusSquared - distanceSquared, 0.0);
-        sum += falloff * falloff * falloff * max((dot(toSample, n) - BIAS) / (distanceSquared + 0.001), 0.0);
+        // Angles are measured from the view vector, positive towards the slice's direction.
+        float cosN = clamp(dot(projectedNormal, v) / projectedLength, -1.0, 1.0);
+        float normalAngle = (dot(projectedNormal, direction) < 0.0 ? -1.0 : 1.0) * acos(cosN);
+
+        // x: the side towards the direction, y: the side away. With nothing in the way, a
+        // horizon lies along the surface.
+        vec2 lowest = vec2(cos(normalAngle + 0.5 * PI), cos(normalAngle - 0.5 * PI));
+        vec2 horizonCos = lowest;
+        for (int s = 0; s < STEPS; s++) {
+            // Steps bunch up near the point, where small creases matter most, but each
+            // moves at least a pixel further.
+            float t = (float(s) + stepNoise) / float(STEPS);
+            vec2 offset = omega * max(t * t * screenRadius, float(s) + 1.0) / size;
+            for (int sideIndex = 0; sideIndex < 2; sideIndex++) {
+                vec2 uv = sideIndex == 0 ? inUv + offset : inUv - offset;
+                if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) {
+                    continue;
+                }
+
+                float sampleDepth = texture(depthTexture, uv).r;
+                if (sampleDepth == 0.0) {
+                    continue;
+                }
+
+                vec3 delta = viewPosition(uv, sampleDepth) - position;
+                float distance = length(delta);
+                float sampleCos = dot(delta, v) / max(distance, 1e-5);
+                float weight = clamp((radius - distance) / falloffRange, 0.0, 1.0);
+                horizonCos[sideIndex] = max(horizonCos[sideIndex], mix(lowest[sideIndex], sampleCos, weight));
+            }
+        }
+
+        // Neither horizon can be further than a right angle from the normal.
+        float h1 = normalAngle + min(acos(horizonCos.x) - normalAngle, 0.5 * PI);
+        float h0 = normalAngle + max(-acos(horizonCos.y) - normalAngle, -0.5 * PI);
+
+        float sinN = sin(normalAngle);
+        float arc0 = (cosN + 2.0 * h0 * sinN - cos(2.0 * h0 - normalAngle)) * 0.25;
+        float arc1 = (cosN + 2.0 * h1 * sinN - cos(2.0 * h1 - normalAngle)) * 0.25;
+        visibility += projectedLength * (arc0 + arc1);
+
+        // The cosine-weighted average direction across the visible arc, within the slice.
+        float t0 = (6.0 * sin(h0 - normalAngle) - sin(3.0 * h0 - normalAngle)
+            + 6.0 * sin(h1 - normalAngle) - sin(3.0 * h1 - normalAngle)
+            + 16.0 * sinN - 3.0 * (sin(h0 + normalAngle) + sin(h1 + normalAngle))) / 12.0;
+        float t1 = (-cos(3.0 * h0 - normalAngle) - cos(3.0 * h1 - normalAngle)
+            + 8.0 * cosN - 3.0 * (cos(h0 + normalAngle) + cos(h1 + normalAngle))) / 12.0;
+        bentNormal += (direction * t0 + v * t1) * projectedLength;
     }
 
-    float scale = STRENGTH * 5.0 / (radiusSquared * radiusSquared * radiusSquared * float(SAMPLES));
-    float occlusion = max(1.0 - sum * scale, 0.0);
-    outOcclusion = vec4(occlusion * (1.0 - OVERHEAD_STRENGTH * overheadOcclusion(position, n, rotation)));
+    visibility = clamp(visibility / float(SLICES), 0.0, 1.0);
+    bentNormal = dot(bentNormal, bentNormal) > 1e-8 ? normalize(bentNormal) : n;
+
+    visibility = mix(1.0, visibility, strength);
+    visibility *= 1.0 - OVERHEAD_STRENGTH * overheadOcclusion(world, worldNormal, noise * 2.0 * PI);
+    outOcclusion = vec4(octahedralEncode(bentNormal) * 0.5 + 0.5, visibility, 1.0);
 }

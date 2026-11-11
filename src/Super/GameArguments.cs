@@ -20,7 +20,10 @@ internal sealed record GameArguments(
     bool NoVsync = false,
     string? ScriptName = null,
     string? UserDataFolder = null,
-    float? UiScale = null)
+    float? UiScale = null,
+    bool NoMaterials = false,
+    float? RenderScale = null,
+    Rendition.Upscaler? Upscaler = null)
 {
     public const int DefaultFramesPerSecond = 60;
 
@@ -39,9 +42,12 @@ internal sealed record GameArguments(
         string? profilePath = null;
         int? frames = null;
         bool noVsync = false;
+        bool noMaterials = false;
         string? scriptName = null;
         string? userDataFolder = null;
         float? uiScale = null;
+        float? renderScale = null;
+        Rendition.Upscaler? upscaler = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -83,8 +89,17 @@ internal sealed record GameArguments(
                 case "--ui-scale":
                     uiScale = PositiveScale(args, ++i);
                     break;
+                case "--render-scale":
+                    renderScale = SceneScale(args, ++i);
+                    break;
+                case "--upscaler":
+                    upscaler = UpscalerName(args, ++i);
+                    break;
                 case "--no-vsync":
                     noVsync = true;
+                    break;
+                case "--no-materials":
+                    noMaterials = true;
                     break;
             }
         }
@@ -141,7 +156,8 @@ internal sealed record GameArguments(
         }
 
         return new GameArguments(
-            seed, ticks, screenshotPath, recordPath, seconds, framesPerSecond, width, height, profilePath, frames ?? DefaultProfileFrames, noVsync, scriptName, userDataFolder, uiScale);
+            seed, ticks, screenshotPath, recordPath, seconds, framesPerSecond, width, height, profilePath, frames ?? DefaultProfileFrames, noVsync, scriptName, userDataFolder, uiScale, noMaterials,
+            renderScale, upscaler);
     }
 
     private static float PositiveScale(ReadOnlySpan<string> args, int index)
@@ -150,6 +166,26 @@ internal sealed record GameArguments(
         return float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float scale) && scale > 0f && float.IsFinite(scale)
             ? scale
             : throw new ArgumentException($"--ui-scale needs a number above zero, such as 2 or 1.5, not '{text}'.");
+    }
+
+    private static float SceneScale(ReadOnlySpan<string> args, int index)
+    {
+        string text = Value(args, index, "--render-scale");
+        return float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float scale)
+            && scale is >= Rendition.Renderer.MinRenderScale and <= Rendition.Renderer.MaxRenderScale
+                ? scale
+                : throw new ArgumentException($"--render-scale needs a number from 0.5 to 2, such as 1.5, not '{text}'.");
+    }
+
+    private static Rendition.Upscaler UpscalerName(ReadOnlySpan<string> args, int index)
+    {
+        string text = Value(args, index, "--upscaler");
+        return text switch
+        {
+            "taa" => Rendition.Upscaler.Taa,
+            "fsr" => Rendition.Upscaler.Fsr,
+            _ => throw new ArgumentException($"--upscaler needs taa or fsr, not '{text}'."),
+        };
     }
 
     private static double PositiveSeconds(ReadOnlySpan<string> args, int index)

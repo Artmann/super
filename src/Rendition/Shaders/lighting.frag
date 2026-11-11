@@ -3,10 +3,14 @@
 #include "common.glsl"
 #include "brdf.glsl"
 #include "sampling.glsl"
+#include "probes.glsl"
+#include "reflection_probes.glsl"
 #include "water.glsl"
 #include "material_data.glsl"
 #include "light_data.glsl"
 #include "local_shadows.glsl"
+#include "sky.glsl"
+#include "fog.glsl"
 
 layout(location = 0) in vec2 inUv;
 
@@ -21,6 +25,8 @@ layout(set = 1, binding = 7) uniform sampler2D emissiveClearcoatTexture;
 layout(set = 1, binding = 8) uniform sampler2D ambientOcclusionTexture;
 layout(set = 1, binding = 9) uniform sampler2D historyTexture;
 layout(set = 1, binding = 10) uniform samplerCubeArray probeTexture;
+// The studio without its panels, as the irradiance sees it. Light probe captures use it.
+layout(set = 1, binding = 13) uniform samplerCube skyTexture;
 
 layout(std430, set = 2, binding = 1) readonly buffer Materials {
     Material materials[];
@@ -34,6 +40,14 @@ layout(location = 1) out vec4 outScatter;
 
 const int BLOCKER_SAMPLES = 16;
 const int SHADOW_SAMPLES = 24;
+
+// Contact shadows walk this many steps towards the sun, and count a surface as in the way
+// when the ray passes more than this many metres behind it.
+const int CONTACT_STEPS = 12;
+const float CONTACT_THICKNESS = 0.02;
+// A surface more than this far in front of the ray is a nearer object passing in front, not
+// something touching, and the shadow maps already cover it.
+const float CONTACT_DEPTH_LIMIT = 0.15;
 
 // The clear lacquer over car paint is very smooth and reflects like glass.
 const float CLEARCOAT_ROUGHNESS = 0.06;
@@ -62,6 +76,41 @@ vec3 multiBounceOcclusion(float visibility, vec3 albedo) {
     return max(vec3(visibility), ((visibility * a + b) * visibility + c) * visibility);
 }
 
+// How much of the environment's reflection gets out of a crease. A reflection leaves in a
+// narrow cone, which a mirror-like surface can aim through the opening, while a rough one
+// spreads into the walls; at grazing angles it skims along them. Lagarde and de
+// Rousiers, "Moving Frostbite to Physically Based Rendering" (2014).
+float specularOcclusion(float nDotV, float ao, float roughness) {
+    return clamp(pow(nDotV + ao, exp2(-16.0 * roughness - 1.0)) - 1.0 + ao, 0.0, 1.0);
+}
+
+// Whether a point is inside the light probes' box, where they, not the sky, give soft light.
+bool insideProbes(vec3 position) {
+    vec3 first = frame.lightProbeMin.xyz;
+    vec3 last = first + (frame.lightProbeCounts.xyz - 1.0) * frame.lightProbeMin.w;
+    return frame.lightProbeCounts.x > 0.5 && all(greaterThanEqual(position, first)) && all(lessThanEqual(position, last));
+}
+
+// The soft light reaching a point from around a direction, in the lit image's units: from the
+// light probes where the frame uses them and they see the point, otherwise from the sky.
+// While light probes capture, inside their box there is no sky light: in the first round only
+// the sun and what the probe sees directly count, and in the second the first round's probes
+// give the rest. So nothing in a closed room glows with light that can't get in.
+vec3 softLight(vec3 position, vec3 direction, vec3 v) {
+    if (frame.lightProbeCounts.w > 0.5) {
+        vec3 fromProbes = probeIrradiance(position, direction, v);
+        if (fromProbes.x >= 0.0) {
+            return fromProbes;
+        }
+    }
+
+    if (frame.probeCapture == 1 && insideProbes(position)) {
+        return vec3(0.0);
+    }
+
+    return texture(irradianceTexture, direction).rgb * frame.backgroundRadiance.a;
+}
+
 // What a surface is made of and how it's seen, for lighting it one light at a time.
 struct Surface {
     vec3 n;
@@ -69,6 +118,7 @@ struct Surface {
     float nDotV;
     float alpha;
     vec3 f0;
+    vec3 multiscatter; // What specular is multiplied by for the light that bounces between facets.
     vec3 baseColor;
     float metallic;
     float clearcoat;
@@ -94,7 +144,7 @@ bool shade(Surface s, vec3 l, out vec3 diffuseLit, out vec3 specularLit) {
 
     vec3 h = normalize(s.v + l);
     vec3 f = fresnelSchlick(max(dot(s.v, h), 0.0), s.f0);
-    vec3 specular = distributionGgx(max(dot(s.n, h), 0.0), s.alpha) * visibilitySmithGgx(s.nDotV, nDotL, s.alpha) * f;
+    vec3 specular = distributionGgx(max(dot(s.n, h), 0.0), s.alpha) * visibilitySmithGgx(s.nDotV, nDotL, s.alpha) * f * s.multiscatter;
     vec3 diffuse = (1.0 - f) * (1.0 - s.metallic) * s.baseColor / PI;
 
     diffuseLit = diffuse * nDotL;
@@ -215,35 +265,9 @@ float shadowVisibility(vec3 position, vec3 n, vec3 l) {
     return mix(visibility / float(SHADOW_SAMPLES), 1.0, fadeOut);
 }
 
-// Looks up what the room's probes saw in a direction, or the studio where there is no
-// probe. The ray runs on to the box, so the lookup matches where it really lands.
+// What the reflection probes, or the studio where there are none, show in a direction.
 vec3 sampleReflection(vec3 position, vec3 direction, float lod) {
-    vec3 sum = vec3(0.0);
-    float covered = 0.0;
-    for (int i = 0; i < frame.probeCount && covered < 1.0; i++) {
-        vec3 boxMin = frame.probes[i].boxMin.xyz;
-        vec3 boxMax = frame.probes[i].boxMax.xyz;
-        vec3 margins = min(position - boxMin, boxMax - position);
-        float margin = min(margins.x, min(margins.y, margins.z));
-        if (margin <= 0.0) {
-            continue;
-        }
-
-        vec3 exits = max((boxMax - position) / direction, (boxMin - position) / direction);
-        vec3 hit = position + direction * min(exits.x, min(exits.y, exits.z));
-        vec3 local = hit - frame.probes[i].position.xyz;
-
-        // Faces are stored the way a camera sees them, which mirrors the cube along z.
-        vec3 seen = textureLod(probeTexture, vec4(local.x, local.y, -local.z, float(i)), lod).rgb;
-
-        float weight = clamp(margin / max(frame.probes[i].position.w, 1e-3), 0.0, 1.0) * (1.0 - covered);
-        sum += seen * weight;
-        covered += weight;
-    }
-
-    // Probes hold the scene at full strength, but the caller scales for the studio.
-    vec3 scene = sum / max(frame.backgroundRadiance.a, 1e-3);
-    return scene + textureLod(reflectionTexture, direction, lod).rgb * (1.0 - covered);
+    return probeReflection(probeTexture, reflectionTexture, position, direction, lod);
 }
 
 // Tilts a mirror reflection the way a slightly rough surface scatters it. One random
@@ -277,6 +301,50 @@ float depthGap(vec4 clip, out vec2 uv) {
     }
 
     return clip.w - clip.z / stored;
+}
+
+// Light blocked by something touching the surface, nearer than the shadow maps' texels can
+// tell: walks frame.shadowFade.w metres towards the light, seeing each step where the camera
+// sees it, and darkens the light where the step is behind what the camera sees there. A
+// surface far more in front of the ray than the ray is long is a nearer object passing
+// across it, not something touching, so it doesn't count. Hits near the ray's end fade, as
+// does the whole effect towards the edge of the first cascade, past which it isn't drawn.
+// Returns 1 for fully lit.
+float contactShadow(vec3 position, vec3 n, vec3 l) {
+    float reach = frame.shadowFade.w;
+    if (reach <= 0.0) {
+        return 1.0;
+    }
+
+    // The first cascade's map spans its radius each way from its centre.
+    vec4 inFirst = frame.shadowMatrices[0] * vec4(position, 1.0);
+    float strength = 1.0 - smoothstep(0.9, 1.0, length(inFirst.xy));
+    if (strength <= 0.0) {
+        return 1.0;
+    }
+
+    float stepLength = reach / float(CONTACT_STEPS);
+    float noise = frameNoise(gl_FragCoord.xy + 71.0, frame.frameNumber);
+    vec3 start = position + n * 0.005;
+    for (int i = 0; i < CONTACT_STEPS; i++) {
+        float travelled = (float(i) + noise) * stepLength;
+        vec4 clip = frame.viewProjection * vec4(start + l * travelled, 1.0);
+        if (clip.w <= 0.0) {
+            break;
+        }
+
+        vec2 uv;
+        float gap = depthGap(clip, uv);
+        if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+            break;
+        }
+
+        if (gap > CONTACT_THICKNESS && gap < CONTACT_DEPTH_LIMIT) {
+            float blocked = 1.0 - smoothstep(0.75, 1.0, travelled / reach);
+            return 1.0 - blocked * strength;
+        }
+    }
+    return 1.0;
 }
 
 // Screen-space reflection: walks along the ray until it passes behind something the
@@ -335,13 +403,38 @@ vec4 traceReflection(vec3 position, vec3 n, vec3 direction, float noise) {
     return vec4(0.0);
 }
 
+// Where the camera's ray through this pixel crosses the puddles' water level. The depth
+// buffer holds the ground under the water, and a reflection traced from there would run
+// straight into the sides of its own hollow. Two points along the pixel's ray, at its depth
+// and nearer, give the ray under any projection.
+vec3 onWaterSurface(vec4 clip, vec3 ground) {
+    vec4 nearer = frame.inverseViewProjection * vec4(clip.xy, min(clip.z * 2.0 + 1e-4, 1.0), 1.0);
+    vec3 towardsCamera = nearer.xyz / nearer.w - ground;
+    float rise = frame.puddles.x - ground.y;
+    if (rise <= 0.0 || towardsCamera.y <= 1e-6) {
+        return ground;
+    }
+
+    return ground + towardsCamera * (rise / towardsCamera.y);
+}
+
 void main() {
     float depth = texture(depthTexture, inUv).r;
 
     outScatter = vec4(0.0);
 
+    // A light probe's capture keeps each pixel's distance in alpha, for probe_fold.comp.
+    bool capturing = frame.probeCapture == 1;
+
     // Reversed-Z: a depth of 0 is the far plane, so nothing was drawn here.
     if (depth == 0.0) {
+        if (capturing) {
+            vec4 ahead = frame.inverseViewProjection * vec4(inUv * 2.0 - 1.0, 1.0, 1.0);
+            vec3 direction = normalize(ahead.xyz / ahead.w - frame.cameraPosition.xyz);
+            outColor = vec4(textureLod(skyTexture, direction, 0.0).rgb * frame.backgroundRadiance.a, NOTHING_DRAWN_DISTANCE);
+            return;
+        }
+
         if (isUnderwater()) {
             vec4 ahead = frame.inverseViewProjection * vec4(inUv * 2.0 - 1.0, 1.0, 1.0);
             vec3 direction = normalize(ahead.xyz / ahead.w - frame.cameraPosition.xyz);
@@ -352,11 +445,22 @@ void main() {
         if (frame.showEnvironment == 1) {
             vec4 ahead = frame.inverseViewProjection * vec4(inUv * 2.0 - 1.0, 1.0, 1.0);
             vec3 direction = normalize(ahead.xyz / ahead.w - frame.cameraPosition.xyz);
-            outColor = vec4(textureLod(reflectionTexture, direction, 0.0).rgb * frame.backgroundRadiance.a, 1.0);
+
+            // A clear sky is worked out for each pixel, so the sun's disc is as sharp as the
+            // screen. Below the horizon the baked floor is the same either way.
+            vec3 background;
+            if (frame.skySun.w > 0.0 && direction.y >= 0.0) {
+                background = preethamRadiance(direction, frame.skySun.xyz, frame.skySun.w)
+                    + sunDiscRadiance(direction, frame.skySun.xyz, frame.sunDisc);
+            } else {
+                background = textureLod(reflectionTexture, direction, 0.0).rgb;
+            }
+
+            outColor = vec4(fogOverSky(background * frame.backgroundRadiance.a, inUv), 1.0);
             return;
         }
 
-        outColor = vec4(frame.backgroundRadiance.rgb, 1.0);
+        outColor = vec4(fogOverSky(frame.backgroundRadiance.rgb, inUv), 1.0);
         return;
     }
 
@@ -368,8 +472,25 @@ void main() {
     vec3 n = octahedralDecode(normalRoughnessAo.xy);
     float roughness = clamp(normalRoughnessAo.z, 0.045, 1.0);
     // Left out, the occlusion pass never ran, so its target holds nothing to read.
-    float screenAo = isOff(OFF_AMBIENT_OCCLUSION) ? 1.0 : texture(ambientOcclusionTexture, inUv).r;
-    float ao = normalRoughnessAo.w * screenAo;
+    // Its xy hold the bent normal, in view space; z how much of the sky the point sees.
+    bool occlusionOff = isOff(OFF_AMBIENT_OCCLUSION);
+    vec4 screenOcclusion = occlusionOff ? vec4(0.5, 0.5, 1.0, 1.0) : texture(ambientOcclusionTexture, inUv);
+    float screenAo = screenOcclusion.z;
+    // Puddle water lies open under the sky. The occlusion pass only saw the hollow beneath it.
+    bool water = normalRoughnessAo.w > 0.5 * (1.0 + WATER_SIDE);
+    if (water) {
+        screenAo = 1.0;
+    }
+    float ao = min(normalRoughnessAo.w, 1.0) * screenAo;
+
+    // A point in a crease sees the sky through the opening, so its soft light comes from
+    // along the bent normal. The bent normal is blurred, so the more open the point, the more
+    // its own normal and the detail in it take over.
+    vec3 bentNormal = n;
+    if (!occlusionOff && !water) {
+        vec3 bent = transpose(mat3(frame.view)) * octahedralDecode(screenOcclusion.xy * 2.0 - 1.0);
+        bentNormal = normalize(mix(n, bent, 1.0 - screenAo) + n * 1e-3);
+    }
     // Alpha holds the clearcoat, for foliage how much light shines through as a negative
     // number, or for a subsurface material its index plus SUBSURFACE_MARK.
     // writeSurface() in surface.glsl packs it.
@@ -378,6 +499,9 @@ void main() {
     int materialIndex = subsurface ? int(emissiveClearcoat.a - SUBSURFACE_MARK + 0.5) : 0;
     float clearcoat = subsurface ? 0.0 : max(emissiveClearcoat.a, 0.0);
     float translucency = max(-emissiveClearcoat.a, 0.0);
+    // Foliage is marked by a negative channel. Its cut-out leaves are too thin for the depth
+    // buffer, which holds only the front leaf, so it gets no contact shadows.
+    bool foliage = emissiveClearcoat.a < 0.0;
 
     // Light through a thin part of a subsurface material comes out in the colours that
     // travel furthest, which for skin is red.
@@ -391,14 +515,35 @@ void main() {
     vec4 clip = vec4(inUv * 2.0 - 1.0, depth, 1.0);
     vec4 world = frame.inverseViewProjection * clip;
     vec3 position = world.xyz / world.w;
+    if (water) {
+        position = onWaterSurface(clip, position);
+    }
+
+    // Only light probe captures draw the backs of one-sided surfaces, which surface.glsl
+    // marks with a negative occlusion. They give no light, and the negative distance tells
+    // the probe it is inside something.
+    if (normalRoughnessAo.w < 0.0) {
+        outColor = vec4(0.0, 0.0, 0.0, -length(position - frame.cameraPosition.xyz));
+        return;
+    }
 
     vec3 v = normalize(frame.cameraPosition.xyz - position);
     float nDotV = max(dot(n, v), 1e-4);
     float alpha = roughness * roughness;
     vec3 f0 = mix(vec3(0.04), baseColor, metallic);
+    // Puddle water reflects as water does, WATER_F0 straight on and nearly all at grazing, and
+    // what is in it, the silt and the ground under it, shows only by the light the surface lets
+    // back out: the share the reflection leaves. Puddles.WaterBody does the same sum.
+    if (water) {
+        f0 = vec3(WATER_F0);
+        baseColor *= 1.0 - fresnelSchlick(nDotV, f0);
+    }
 
     vec2 brdf = environmentBrdf(roughness, nDotV);
-    vec3 reflectedLight = sampleReflection(position, reflect(-v, n), roughness * REFLECTION_LODS);
+    vec3 multiscatter = isOff(OFF_MULTISCATTER_SPECULAR) ? vec3(1.0) : multiscatterCompensation(f0, nDotV, roughness);
+    // A light probe keeps diffuse light only. A reflection of the sky would also shine on
+    // walls the sky can't reach, which is the leak the probes are there to stop.
+    vec3 reflectedLight = capturing ? vec3(0.0) : sampleReflection(position, reflect(-v, n), roughness * REFLECTION_LODS);
 
     // Coated surfaces are traced for their mirror-like coat, which then serves both layers.
     float traceStrength = isOff(OFF_REFLECTIONS) ? 0.0
@@ -415,35 +560,42 @@ void main() {
         traced.a *= traceStrength;
     }
 
+    // Probes and the environment can't see what hides them in a crease, so their
+    // reflection is occluded. A traced reflection found what's in the way itself.
+    reflectedLight *= specularOcclusion(nDotV, ao, roughness);
     reflectedLight = mix(reflectedLight, traced.rgb, traced.a);
-    vec3 environmentSpecular = reflectedLight * (f0 * brdf.x + brdf.y);
-    vec3 environmentDiffuse = texture(irradianceTexture, n).rgb * baseColor * (1.0 - metallic);
+    vec3 environmentSpecular = reflectedLight * (f0 * brdf.x + brdf.y) * multiscatter;
+    // Soft light already carries the environment's intensity; the reflections don't yet.
+    vec3 diffuseColor = baseColor * (1.0 - metallic) * multiBounceOcclusion(ao, baseColor);
+    vec3 environmentDiffuse = softLight(position, bentNormal, v) * diffuseColor;
     if (translucency > 0.0) {
-        environmentDiffuse += texture(irradianceTexture, -n).rgb * baseColor * (1.0 - metallic) * translucency * transmissionTint;
+        environmentDiffuse += softLight(position, -n, v) * diffuseColor * translucency * transmissionTint;
     }
 
     // Subsurface materials keep their diffuse light apart, for the blur to spread.
-    vec3 occlusion = frame.backgroundRadiance.a * multiBounceOcclusion(ao, baseColor);
+    float environmentIntensity = frame.backgroundRadiance.a;
     vec3 scattered = vec3(0.0);
     if (subsurface) {
-        scattered = environmentDiffuse * occlusion;
+        scattered = environmentDiffuse;
         environmentDiffuse = vec3(0.0);
     }
 
-    vec3 environmentLight = environmentDiffuse + environmentSpecular;
+    vec3 environmentLight = environmentSpecular;
 
     // The coat reflects first and what it lets through lights the layers below.
     vec3 coatFresnel = fresnelSchlick(nDotV, CLEARCOAT_F0) * clearcoat;
-    if (clearcoat > 0.0) {
+    if (clearcoat > 0.0 && !capturing) {
         vec3 coatReflection = sampleReflection(position, reflect(-v, n), CLEARCOAT_ROUGHNESS * REFLECTION_LODS);
+        coatReflection *= specularOcclusion(nDotV, ao, CLEARCOAT_ROUGHNESS);
         coatReflection = mix(coatReflection, traced.rgb, traced.a);
         environmentLight = environmentLight * (1.0 - coatFresnel) + coatReflection * coatFresnel;
+        environmentDiffuse *= 1.0 - coatFresnel;
     }
 
-    vec3 color = environmentLight * occlusion + emissiveClearcoat.rgb;
+    vec3 color = environmentLight * environmentIntensity + environmentDiffuse + emissiveClearcoat.rgb;
 
     // Subsurface materials keep the diffuse light of every light apart, for the blur.
-    Surface surface = Surface(n, v, nDotV, alpha, f0, baseColor, metallic, clearcoat, translucency, transmissionTint);
+    Surface surface = Surface(n, v, nDotV, alpha, f0, multiscatter, baseColor, metallic, clearcoat, translucency, transmissionTint);
     for (int i = 0; i < frame.lightCount; i++) {
         vec3 l = frame.lights[i].direction.xyz;
         vec3 diffuseLit;
@@ -456,7 +608,9 @@ void main() {
         // surfaces are all that can block it. Light from behind is looked up from the
         // side it arrives on.
         vec3 lightSide = dot(n, l) >= 0.0 ? n : -n;
-        float visibility = frame.lights[i].direction.w > 0.5 ? shadowVisibility(position, lightSide, l) : screenAo;
+        float visibility = frame.lights[i].direction.w > 0.5
+            ? shadowVisibility(position, lightSide, l) * (foliage ? 1.0 : contactShadow(position, lightSide, l))
+            : screenAo;
         vec3 reaching = sunlightReaching(position, l, i) * visibility;
         if (subsurface) {
             scattered += diffuseLit * reaching;
@@ -495,11 +649,25 @@ void main() {
         }
     }
 
+    // A probe has no blur to spread subsurface light, so it keeps it where it fell.
+    if (capturing) {
+        outColor = vec4(color + scattered, length(position - frame.cameraPosition.xyz));
+        return;
+    }
+
     // Water tints everything on its way to the camera, which the blur can't redo, so
     // under water the light isn't spread.
     if (isUnderwater()) {
         outColor = vec4(throughWater(color + scattered, position), 1.0);
         return;
+    }
+
+    // The fog between the surface and the camera dims it and adds its own light. The light kept
+    // apart for the subsurface blur is dimmed alike, and the fog's light goes with the rest.
+    vec4 fog = fogInFront(position, reflectionTexture);
+    if (fog.a < 1.0) {
+        color = color * fog.a + fog.rgb;
+        scattered *= fog.a;
     }
 
     // Distant surfaces melt into the background, which hides the horizon of a studio floor.
@@ -512,7 +680,7 @@ void main() {
         if (frame.hazeColor.a > 0.5) {
             behind = frame.hazeColor.rgb;
         } else if (frame.showEnvironment == 1) {
-            behind = textureLod(reflectionTexture, normalize(away), 0.0).rgb * frame.backgroundRadiance.a;
+            behind = skyBehind(reflectionTexture, normalize(away), frame.skySun) * frame.backgroundRadiance.a;
         }
 
         float fade = smoothstep(fadeStart, fadeEnd, hazeDistance(position));

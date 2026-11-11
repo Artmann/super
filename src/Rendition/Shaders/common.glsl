@@ -30,10 +30,21 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 waterDeep;          // rgb: colour of the water looking down; a: strength of the light shafts
     vec4 waterLight;         // x: strength of the caustics; y: how small they are; z: reach of the shafts
     vec4 shadowRadii;        // The radius each cascade covers, in metres.
-    vec4 shadowFade;         // x, y: distance where shadows start fading and are gone; z: the hand-over band
+    vec4 shadowFade;         // x, y: distance where shadows start fading and are gone; z: the hand-over band; w: contact shadow length in metres, 0 for none
     vec4 shadowDepthScales;  // depth units per unit across each cascade's map, below 1 when it reaches further sunward
     vec4 clusters;           // x, y: nearest and furthest depth a local light reaches; z: 1 for even slices
     vec4 screen;             // xy: the render targets' size in pixels
+    vec4 occlusion;          // x: how far ambient occlusion looks, in metres; y: its strength, 0 to 1
+    vec4 lightProbeMin;      // xyz: the first light probe; w: the probes' spacing in metres
+    vec4 lightProbeCounts;   // xyz: probes along each axis; w: 1 when the soft light comes from them
+    vec4 skySun;             // xyz: towards the clear sky's sun; w: its turbidity, 0 for the environment's bands
+    vec4 sunDisc;            // rgb: how bright the sun's disc is, 0 for none; a: the cosine of its angular radius
+    vec4 fog;                // x: density at the fog's height, 0 for none; y: that height; z: falloff per metre; w: sun scatter
+    mat4 whiteBalance;       // Linear colour to white-balanced colour, used as mat3 by the tone mapping.
+    vec4 curve;              // x: 1 for ACES, 0 for AgX; y, z: the AgX look's power and saturation
+    vec4 volumetric;         // x: how far the volumetric fog reaches, 0 for none; y: where its first slice ends; z: anisotropy; w: 1 when last frame's volume can be used
+    vec4 puddles;            // x: puddleLevel, the water's height in metres; y: puddleBand, the damp band above it; z: 1 when there is water
+    vec4 wind;               // xyz: the way the wind blows times its strength, all zero in a calm; w: its gustiness. See wind.glsl.
     int lightCount;
     float time;              // Seconds, as set by the game.
     int frameNumber;
@@ -43,9 +54,9 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     int shadowCascades;      // How many of shadowMatrices are in use.
     int localLightCount;     // Point and spot lights in light_data.glsl's lights.
     int off;                 // The RenderEffects left out of this frame: see the OFF_ bits below.
-    int pad0;
-    int pad1;
-    int pad2;
+    float mipBias;           // Added to the mip level of material textures: below 0 while anti-aliasing shifts the view.
+    int probeCapture;        // 1 while drawing a light probe's faces: alpha holds the distance, negative behind a surface.
+    float previousTime;      // Last frame's time, for motion vectors; the same as time when there's no last frame.
     Light lights[8];
     ReflectionProbe probes[4];
 } frame;
@@ -54,6 +65,27 @@ layout(std140, set = 0, binding = 0) uniform Frame {
 const int OFF_AMBIENT_OCCLUSION = 1 << 2;
 const int OFF_REFLECTIONS = 1 << 3;
 const int OFF_BLOOM = 1 << 5;
+const int OFF_MATERIALS = 1 << 6;
+const int OFF_MULTISCATTER_SPECULAR = 1 << 9;
+const int OFF_WEAR_AND_DIRT = 1 << 10;
+const int OFF_AUTO_EXPOSURE = 1 << 12;
+const int OFF_DEPTH_OF_FIELD = 1 << 13;
+const int OFF_VOLUMETRIC_FOG = 1 << 15;
+const int OFF_PUDDLES = 1 << 16;
+const int OFF_WIND = 1 << 17;
+
+// The normal target's alpha holds the side a surface faces, 1 or -1. Puddle water writes
+// WATER_SIDE instead, so the lighting knows to shade it at the water's surface, not on the
+// ground under it, which is all the depth buffer holds.
+const float WATER_SIDE = 2.0;
+
+// How much light puddle water reflects straight on: 2%, for water's refractive index of 1.33.
+// Must match Puddles.WaterF0 in Passes/Puddles.cs.
+const float WATER_F0 = 0.02;
+
+// What every surface is made of when materials are off: light grey, matte clay.
+const vec3 PLAIN_COLOR = vec3(0.5);
+const float PLAIN_ROUGHNESS = 0.8;
 
 bool isOff(int effect) {
     return (frame.off & effect) != 0;

@@ -22,7 +22,10 @@ dotnet run -c Release --project MyColony -- --script tooltip --ticks 40 --screen
 | `--profile file.txt` | Measures where the time goes. See [Profiling](profiling.md) |
 | `--frames N` | How many frames `--profile` measures, 60 by default |
 | `--script name` | Plays one of the game's [input scripts](#scripted-input) |
+| `--render-scale N` | Draws the scene this many times the window's size each way, from 0.5 to 2, such as `2` for smoother edges or `0.5` for speed. The picture saved is still `--size`. Same as [`Graphics.RenderScale`](rendering.md#graphics-settings); the game's own setting by default, which is 1 |
+| `--upscaler taa\|fsr` | Picks what smooths edges and, below a render scale of 1, rebuilds the picture at the window's size: the engine's TAA or AMD FSR. Same as [`Graphics.Upscaler`](rendering.md#upscaling); the game's own setting by default, which is TAA. Anything else is refused |
 | `--no-vsync` | Plays in the window without waiting for the display |
+| `--no-materials` | Draws every surface as plain grey clay, to judge the lighting. Works in the window and with `--screenshot`, `--record` and `--profile`. Same as [`Graphics.Materials`](rendering.md#graphics-settings) set to false |
 | `--user-data folder` | Keeps [user data](user-data.md) in this folder. Without it, the window uses the player's folder and runs without a window use a throwaway one |
 
 `--screenshot`, `--record` and `--profile` can't run together. A mistake in the options
@@ -33,7 +36,8 @@ stops the game with a message saying what's wrong, such as
 
 `--screenshot` renders the real picture of that exact moment through the real renderer,
 so it needs a GPU. Pictures come straight from the renderer, so other windows can't end up
-in them, and the same seed and ticks give the same picture.
+in them, and the same seed and ticks give the same picture, down to the byte, for a game
+built with [`Super.targets`](#in-the-build).
 
 When a [test invariant](testing.md#invariants) fails, its message gives the options that
 take you back to that tick.
@@ -82,6 +86,7 @@ public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string
 | `Press(key)` | Taps a key: down on one tick and up on the next. It takes a tick |
 | `Hold(key)`, `Release(key)` | Holds a key down, or lets it go |
 | `Drag(from, to)` | Presses at one place, moves and lets go at the other |
+| `Drag(fromId, toId, button)` | The same between two views found by id, with any button (left if left out) |
 | `Scroll(notches)` | Turns the wheel |
 | `LeaveWindow()` | Moves the cursor out of the window |
 | `Wait(ticks)` | Waits before the next step |
@@ -182,6 +187,21 @@ the folder in the `SUPER_CACHE` environment variable when that is set, so a buil
 can keep it somewhere of its own. `--cache` picks a folder for one run. Deleting the cache
 is always safe: the next cook makes it again.
 
+A source that does cook again keeps its slow steps' results in the cache's `steps` folder too,
+each under the hash of everything that step reads. A model whose one material graph changed
+runs only that graph again: the other graphs' images, its baked masks and every texture whose
+pixels didn't change come from there, so editing one graph of the Courtyard recooks in well
+under a minute rather than many. Each kind of step has its own key:
+
+| Step | Kept by |
+|---|---|
+| `graph-run` | The graph's code, a variant's values, the size, the cook's version, and the hash of every image the graph read |
+| `mask` | The model's positions and second UVs, the material's triangles and which part each is in, the other triangles the bake traces against, the mask size and the mask baker's build |
+| `compressed-texture` | The hash of the pixels of every mip level, the size and format, and the encoder's version. A cut-out's mips depend on its `alphaCutoff`, so changing the cutoff misses |
+
+A damaged entry is a miss, never a wrong result. `--timings` shows the time spent looking
+up and keeping each, as the `recall` and `keep` phases below.
+
 The content folder's objects are hard links to the cache's copies when the two are on the
 same drive, so a cooked texture takes its space once, not once per game. When a link can't
 be made, such as across drives, the object is copied instead. Objects are never changed in
@@ -230,6 +250,12 @@ Why sources weren't taken from the cache:
     233  no record
       4  input changed
 ```
+
+A model's phases include `run graphs`, `bake masks`, `build mips` and `compress textures`, the
+slow steps of a model with material graphs, each with a `recall` phase before it and a `keep`
+phase after it for the step cache. On the Courtyard most of a cold cook is `run graphs`
+and `bake masks`. A model with an `alphaCutoff` also has `keep alpha coverage`, the time
+spent rescaling its cut-out textures' mips so they don't thin out in the distance.
 
 "No record" means the source is new, or its bytes, settings or cooker version changed.
 "Input changed" means a file it reads besides itself, such as a texture, changed.
@@ -283,6 +309,11 @@ leaves `content.dev.json` out, so a shipped game never thinks it's running from 
 
 The build restores and builds `super-cook` itself, for the machine doing the build, so a
 fresh clone needs nothing first and `dotnet publish -r linux-x64` still cooks on Windows.
+The tool always builds in Release, whatever the game's configuration, since running material
+graphs and baking masks take about twice as long in Debug. That holds in a solution build too,
+such as `dotnet build Super.slnx -c Debug`: the game still runs the Release tool, built with
+Release cook libraries. A solution that lists `super-cook` also builds it in its own
+configuration, beside the Release one, which the game doesn't use.
 Every game in one build shares the one tool build. None of the tool's files end up beside
 the game.
 
@@ -291,6 +322,13 @@ the game.
 that was about 0.7 s instead of 0.87 s. A publish with no runtime is left as it is, since
 ReadyToRun needs one. To turn it off, set
 `<PublishReadyToRun>false</PublishReadyToRun>` in the game's project.
+
+`Super.targets` also turns off tiered compilation, so the game's code is compiled once, fully
+optimized, instead of quickly first and again once it runs often. The second compilation can
+round a sum differently, and when it happens depends on the clock, so with it on, the same
+`--seed` and `--ticks` gave a slightly different picture from run to run. On the Courtyard
+the game starts as fast without it, and a frame costs the CPU no more. To turn it back on, set
+`<TieredCompilation>true</TieredCompilation>` in the game's project.
 
 ## Planned
 

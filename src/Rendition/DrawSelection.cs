@@ -1,4 +1,5 @@
 using System.Numerics;
+using Rendition.Passes;
 
 namespace Rendition;
 
@@ -65,13 +66,42 @@ internal readonly struct DetailView
     private static Plane Normalized(Vector4 plane) => Plane.Normalize(new Plane(plane));
 }
 
+/// <summary>
+/// How far the frame's wind can move a draw's vertices, in world metres, so a draw's bounds can grow to hold its sway.
+/// <paramref name="strength"/> is the wind's, 0 in a calm or with the switch off, and <paramref name="swayOf"/> gives
+/// each material's share of the lean.
+/// </summary>
+internal readonly struct WindReach(float strength, Func<MaterialHandle, float>? swayOf)
+{
+    public float Strength { get; } = strength;
+
+    /// <summary>
+    /// The farthest a vertex of the material can move: the full lean of a vertex 1 m or more up, at a gust's peak,
+    /// plus the flutter. Nothing for a material that stands still.
+    /// </summary>
+    public float Pad(MaterialHandle material)
+    {
+        if (!(Strength > 0f) || swayOf is null)
+        {
+            return 0f;
+        }
+
+        float sway = swayOf(material);
+        return sway > 0f ? Strength * sway + Wind.Flutter : 0f;
+    }
+}
+
 /// <summary>Picks what a view needs from a list of draws, keeping their order.</summary>
 internal static class DrawSelection
 {
     private const float NearestDistance = 0.1f;
 
-    /// <summary>Writes the draws to keep into <paramref name="selected"/> and returns how many there are.</summary>
-    public static int Select(in DetailView view, ReadOnlySpan<DrawItem> draws, List<PartDetail> details, Span<DrawItem> selected)
+    /// <summary>
+    /// Writes the draws to keep into <paramref name="selected"/> and returns how many there are. A draw that sways in
+    /// <paramref name="wind"/> is kept while its sway could still bring it into view.
+    /// </summary>
+    public static int Select(
+        in DetailView view, ReadOnlySpan<DrawItem> draws, List<PartDetail> details, Span<DrawItem> selected, WindReach wind = default)
     {
         int count = 0;
         foreach (ref readonly var draw in draws)
@@ -83,15 +113,12 @@ internal static class DrawSelection
             }
 
             var detail = details[draw.Detail.Index];
-            ref readonly var transform = ref draw.Transform;
-            var center = Vector3.Transform(detail.Center, transform);
-            float scale = MathF.Sqrt(MathF.Max(
-                new Vector3(transform.M11, transform.M12, transform.M13).LengthSquared(),
-                MathF.Max(
-                    new Vector3(transform.M21, transform.M22, transform.M23).LengthSquared(),
-                    new Vector3(transform.M31, transform.M32, transform.M33).LengthSquared())));
-            float radius = (detail.Radius + MathF.Abs(draw.Swim.Amplitude)) * scale;
-            if (!view.CanSee(center, radius))
+            float scale = Scale(draw.Transform);
+            var (center, radius) = Bounds(draw, detail, scale);
+
+            // The sway is in world metres, so it's added after the scale. Only the test for being seen counts it, so
+            // the wind doesn't change which simpler version is picked.
+            if (!view.CanSee(center, radius + wind.Pad(draw.Material)))
             {
                 continue;
             }
@@ -114,4 +141,36 @@ internal static class DrawSelection
 
         return count;
     }
+
+    /// <summary>
+    /// Writes the world-space ball, x, y and z with the radius in w, round each draw that has
+    /// bounds into <paramref name="bounds"/>, and returns how many there are. A ball holds all the draw's sway in
+    /// <paramref name="wind"/>.
+    /// </summary>
+    public static int Bounds(ReadOnlySpan<DrawItem> draws, List<PartDetail> details, Span<Vector4> bounds, WindReach wind = default)
+    {
+        int count = 0;
+        foreach (ref readonly var draw in draws)
+        {
+            if (draw.Detail.Index == 0)
+            {
+                continue;
+            }
+
+            var (center, radius) = Bounds(draw, details[draw.Detail.Index], Scale(draw.Transform));
+            bounds[count++] = new Vector4(center, radius + wind.Pad(draw.Material));
+        }
+
+        return count;
+    }
+
+    private static (Vector3 Center, float Radius) Bounds(in DrawItem draw, PartDetail detail, float scale) =>
+        (Vector3.Transform(detail.Center, draw.Transform), (detail.Radius + MathF.Abs(draw.Swim.Amplitude)) * scale);
+
+    /// <summary>How much a transform stretches its longest axis.</summary>
+    private static float Scale(in Matrix4x4 transform) => MathF.Sqrt(MathF.Max(
+        new Vector3(transform.M11, transform.M12, transform.M13).LengthSquared(),
+        MathF.Max(
+            new Vector3(transform.M21, transform.M22, transform.M23).LengthSquared(),
+            new Vector3(transform.M31, transform.M32, transform.M33).LengthSquared())));
 }

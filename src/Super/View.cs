@@ -1,7 +1,9 @@
+using System.Globalization;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Rendition;
+using Rendition.Passes;
 using Super.Ui;
 
 namespace Super;
@@ -28,6 +30,15 @@ public readonly record struct ModelDraw(
 /// shadows: the one marked with <see cref="CastsShadows"/>, or else the first.
 /// </summary>
 public readonly record struct SunLight(Vector3 Direction, Vector3 Color, bool CastsShadows = false);
+
+/// <summary>
+/// A reflection probe placed with <see cref="View.ReflectionProbe"/>: where it photographs the scene
+/// from, the box its reflections are bent to land on, and how far towards the box's sides it fades out.
+/// </summary>
+public readonly record struct ReflectionProbeRequest(int Key, Vector3 Position, Vector3 Min, Vector3 Max, float Blend);
+
+/// <summary>A decal placed with <see cref="View.Decal"/>: the box it fills, what it lays on and how much of each part.</summary>
+public readonly record struct DecalRequest(int Key, Matrix4x4 Box, Surface Material, DecalBlend Blend);
 
 /// <summary>
 /// Names a model. <see cref="Content"/> hands these out, and there are built-in shapes one
@@ -73,6 +84,9 @@ public sealed class View
     private readonly List<SunLight> _suns = [];
     private readonly List<Particle> _particles = [];
     private readonly List<LocalLight> _lights = [];
+    private readonly List<ReflectionProbeRequest> _reflectionProbes = [];
+    private readonly List<DecalRequest> _decals = [];
+    private readonly HashSet<int> _decalKeys = [];
     private readonly ViewMemory _memory = new();
     private long _frame;
     private long _tick;
@@ -85,10 +99,16 @@ public sealed class View
 
     internal ReadOnlySpan<SunLight> Suns => CollectionsMarshal.AsSpan(_suns);
     internal UnderwaterSettings WaterSettings { get; private set; }
+    internal PuddleSettings? PuddleSettings { get; private set; }
+    internal WindSettings? WindSettings { get; private set; }
     internal SkySettings? SkySettings { get; private set; }
     internal PostSettings Post { get; private set; }
     internal float ShadowRadius { get; private set; }
     internal int ShadowCascades { get; private set; }
+    internal float SunSize { get; private set; }
+    internal float ShadowContact { get; private set; } = ShadowSettings.DefaultContactLength;
+    internal OcclusionSettings Occlusion { get; private set; } = new();
+    internal ProbeVolumeSettings? LightProbeVolume { get; private set; }
     internal UiTree? Ui { get; set; }
 
     /// <summary>How the screen moves between pictures this frame. Set by <see cref="Transitions"/>.</summary>
@@ -105,6 +125,12 @@ public sealed class View
 
     /// <summary>Every particle drawn so far this frame, in no particular order.</summary>
     public ReadOnlySpan<Particle> DrawnParticles => CollectionsMarshal.AsSpan(_particles);
+
+    /// <summary>The reflection probes placed so far this frame, in the order they were placed.</summary>
+    public ReadOnlySpan<ReflectionProbeRequest> ReflectionProbes => CollectionsMarshal.AsSpan(_reflectionProbes);
+
+    /// <summary>The decals placed so far this frame, in the order they are drawn.</summary>
+    public ReadOnlySpan<DecalRequest> DrawnDecals => CollectionsMarshal.AsSpan(_decals);
 
     /// <summary>How far the display is between the last tick and the next, from 0 to 1.</summary>
     public float Blend { get; private set; }
@@ -146,13 +172,20 @@ public sealed class View
     /// <see cref="LocalLight.MaxPerFrame"/>, and lights with shadows share an atlas, so the
     /// biggest on screen get the sharpest ones. The radius is how big the glowing part is:
     /// raise it for a light right beside a wall, such as a torch in a bracket, so the wall
-    /// isn't blown out. It also softens the shadows. See "Point and spot lights" in
-    /// docs/views.md.
+    /// isn't blown out. It also softens the shadows. The volumetric strength is how brightly
+    /// it lights the volumetric fog around it, as a halo: 1 is true to the fog, 0 leaves it
+    /// out. See "Point and spot lights" in docs/views.md.
     /// </summary>
     public void PointLight(
-        int key, Vector3 position, Vector3 color, float range, bool shadows = true, float radius = LocalLight.DefaultRadius)
+        int key,
+        Vector3 position,
+        Vector3 color,
+        float range,
+        bool shadows = true,
+        float radius = LocalLight.DefaultRadius,
+        float volumetric = 1f)
     {
-        CheckLight(position, color, range, radius);
+        CheckLight(position, color, range, radius, volumetric);
         _lights.Add(new LocalLight
         {
             Key = key,
@@ -161,6 +194,7 @@ public sealed class View
             Range = range,
             Radius = radius,
             CastsShadow = shadows,
+            Volumetric = volumetric,
         });
     }
 
@@ -179,9 +213,10 @@ public sealed class View
         float innerAngle,
         float outerAngle,
         bool shadows = true,
-        float radius = LocalLight.DefaultRadius)
+        float radius = LocalLight.DefaultRadius,
+        float volumetric = 1f)
     {
-        CheckLight(position, color, range, radius);
+        CheckLight(position, color, range, radius, volumetric);
         if (!(direction.LengthSquared() > 1e-12f) || !float.IsFinite(direction.LengthSquared()))
         {
             throw new ArgumentException($"A spot light needs a direction to shine in, not {direction}.", nameof(direction));
@@ -210,10 +245,11 @@ public sealed class View
             InnerAngle = innerAngle,
             OuterAngle = outerAngle,
             CastsShadow = shadows,
+            Volumetric = volumetric,
         });
     }
 
-    private void CheckLight(Vector3 position, Vector3 color, float range, float radius)
+    private void CheckLight(Vector3 position, Vector3 color, float range, float radius, float volumetric)
     {
         if (_lights.Count >= LocalLight.MaxPerFrame)
         {
@@ -235,6 +271,12 @@ public sealed class View
         if (!float.IsFinite(position.X + position.Y + position.Z))
         {
             throw new ArgumentException($"A light can't be at {position}.", nameof(position));
+        }
+
+        if (!(volumetric >= 0f) || !float.IsFinite(volumetric))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(volumetric), volumetric, "A light's volumetric strength must be 0 or more, and 0 leaves it out of the fog.");
         }
 
         if (!(color.X >= 0f && color.Y >= 0f && color.Z >= 0f) || !float.IsFinite(color.X + color.Y + color.Z))
@@ -419,7 +461,7 @@ public sealed class View
 
     /// <summary>
     /// Sets the sky: a gradient from the ground up through the horizon to straight up, and
-    /// haze that fades distant things into it. Without one the world sits in a plain grey
+    /// haze and fog that set distant things back in it. Without one the world sits in a plain grey
     /// studio. Water, when set, takes over the sky.
     /// </summary>
     public void Sky(in SkySettings settings)
@@ -436,21 +478,157 @@ public sealed class View
                 $"The haze must start at zero or further and end no nearer than it starts, but it runs from {settings.HazeStart} to {settings.HazeEnd} metres.");
         }
 
+        float turbidity = settings.Turbidity;
+        if (!(turbidity == 0f || turbidity is >= Super.SkySettings.MinTurbidity and <= Super.SkySettings.MaxTurbidity))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(settings),
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"The sky's turbidity must be 0 for the gradient sky, or from {Super.SkySettings.MinTurbidity} to {Super.SkySettings.MaxTurbidity} for a clear one, but it is {turbidity}."));
+        }
+
+        RefuseBadFog(settings.Fog, nameof(settings));
         SkySettings = settings;
+    }
+
+    private static void RefuseBadFog(in FogSettings fog, string paramName)
+    {
+        RefuseBelowZero(fog.Density, "density", "per metre");
+        RefuseBelowZero(fog.Falloff, "falloff", "per metre, and 0 is fog of one density at every height");
+        RefuseBelowZero(fog.SunScatter, "sun scatter", "and 0 gives no glow towards the sun");
+        if (!float.IsFinite(fog.Height))
+        {
+            throw new ArgumentOutOfRangeException(
+                paramName,
+                string.Create(CultureInfo.InvariantCulture, $"The fog's height must be a number of metres, but it is {fog.Height}."));
+        }
+
+        if (!(MathF.Abs(fog.Anisotropy) <= FogSettings.MaxAnisotropy))
+        {
+            throw new ArgumentOutOfRangeException(
+                paramName,
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"The fog's anisotropy must be from -0.9 to 0.9, where 0 scatters light evenly and more scatters it onwards, but it is {fog.Anisotropy}."));
+        }
+
+        RefuseBelowZero(fog.VolumetricDistance, "volumetric distance", "in metres, and 0 is the plain fog only");
+
+        void RefuseBelowZero(float value, string name, string unit)
+        {
+            if (!(float.IsFinite(value) && value >= 0f))
+            {
+                throw new ArgumentOutOfRangeException(
+                    paramName,
+                    string.Create(CultureInfo.InvariantCulture, $"The fog's {name} must be 0 or more, {unit}, but it is {value}."));
+            }
+        }
     }
 
     /// <summary>Puts the whole view underwater.</summary>
     public void Water(in UnderwaterSettings settings) => WaterSettings = settings;
 
+    /// <summary>
+    /// Lets water stand at <paramref name="level"/>, a height in metres, on every surface whose material asks for
+    /// puddles. Whatever lies below it, counting the material's height map so hollows fill first, turns into a rippled
+    /// mirror that darkens as it deepens, and for <paramref name="band"/> metres above it the surface is damp: darker
+    /// and smoother at the waterline, dry at the band's top. <see cref="Graphics.Puddles"/> turns it off. See
+    /// docs/rendering.md.
+    /// </summary>
+    public void Puddles(float level, float band = Rendition.PuddleSettings.DefaultBand)
+    {
+        if (!float.IsFinite(level))
+        {
+            throw new ArgumentOutOfRangeException(nameof(level), level, "The water level must be a height in metres.");
+        }
+
+        if (!(float.IsFinite(band) && band >= 0f))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(band), band, "The damp band above the water must be 0 or more metres, and 0 leaves no damp band.");
+        }
+
+        PuddleSettings = new PuddleSettings(level, band);
+    }
+
+    /// <summary>
+    /// Lets the wind blow along the ground towards <paramref name="direction"/>, swaying every surface whose material
+    /// asks for it, and its shadow with it. <paramref name="strength"/> is how far, in metres, it leans the tip of grass
+    /// 1 m tall at a gust's peak: 0.1 is a breeze, 0.35 a fresh wind and 1 a gale. Gusts roll across the ground
+    /// downwind; <paramref name="gustiness"/> runs from 0 for a steady wind to 1 for one that drops to a fifth of its
+    /// strength between them. <see cref="Graphics.Wind"/> turns it off. See docs/rendering.md.
+    /// </summary>
+    public void Wind(Vector3 direction, float strength, float gustiness = Rendition.WindSettings.DefaultGustiness)
+    {
+        if (!(float.IsFinite(direction.X) && float.IsFinite(direction.Y) && float.IsFinite(direction.Z)))
+        {
+            throw new ArgumentOutOfRangeException(nameof(direction), direction, "The wind's direction must be finite.");
+        }
+
+        if (!(float.IsFinite(strength) && strength >= 0f))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(strength), strength, "The wind's strength must be 0 or more metres, and 0 is a calm.");
+        }
+
+        if (strength > 0f && direction.X * direction.X + direction.Z * direction.Z < 1e-12f)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(direction), direction, "The wind must blow along the ground, so its direction needs some x or z.");
+        }
+
+        if (!(gustiness is >= 0f and <= 1f))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(gustiness), gustiness, "The wind's gustiness must be from 0 for steady to 1 for gusty.");
+        }
+
+        WindSettings = new WindSettings(direction, strength, gustiness);
+    }
+
     /// <summary>Sets the look of the finished picture.</summary>
-    public void Finish(in PostSettings settings) => Post = settings;
+    public void Finish(in PostSettings settings)
+    {
+        float speed = settings.AdaptationSpeed;
+        if (!(float.IsFinite(speed) && speed >= 0f))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(settings),
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"The adaptation speed must be above 0 stops a second, or 0 for the default of 2, but it is {speed}."));
+        }
+
+        RefuseOutsideOne(settings.Temperature, "temperature");
+        RefuseOutsideOne(settings.Tint, "tint");
+        ThinLens.Check(
+            settings.FocusDistance, settings.Aperture, ThinLens.FocalLength(settings.FocalLength), nameof(settings));
+        Post = settings;
+
+        static void RefuseOutsideOne(float value, string name)
+        {
+            if (!(value is >= -1f and <= 1f))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(settings),
+                    string.Create(CultureInfo.InvariantCulture, $"The white balance {name} must be from -1 to 1, with 0 for no change, but it is {value}."));
+            }
+        }
+    }
 
     /// <summary>
     /// Sets how far around the camera's target the sharpest shadows reach, in metres,
     /// and how many maps to draw, 1 to 4. Each map covers three times the radius of the
     /// one before, so a wide world keeps sharp shadows near the camera.
+    /// <paramref name="sunSize"/> is how wide the sun looks, in radians, which sets how fast
+    /// its shadows blur with distance from what casts them: 0 is hard, the real sun is about
+    /// 0.01, and the default of 0.12 is a soft, hazy sun.
+    /// <paramref name="contact"/> is how far, in metres, each pixel looks towards the sun on screen
+    /// for something touching it, which darkens the last centimetres where things meet the ground
+    /// that the maps are too coarse to see. It works only inside the first map's radius; 0 turns it off.
     /// </summary>
-    public void Shadows(float radius, int cascades = 1)
+    public void Shadows(float radius, int cascades = 1, float sunSize = DefaultSunSize, float contact = ShadowSettings.DefaultContactLength)
     {
         if (!(radius > 0f))
         {
@@ -462,9 +640,182 @@ public sealed class View
             throw new ArgumentOutOfRangeException(nameof(cascades), cascades, "There can be 1 to 4 shadow cascades.");
         }
 
+        if (!(sunSize is >= 0f and <= MaxSunSize))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(sunSize), sunSize, $"The sun's size must be from 0 to {MaxSunSize.ToString(CultureInfo.InvariantCulture)} radians.");
+        }
+
+        if (!(float.IsFinite(contact) && contact >= 0f))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(contact), contact, "The contact shadows' length must be 0 or more metres, and 0 turns them off.");
+        }
+
         ShadowRadius = radius;
         ShadowCascades = cascades;
+        SunSize = sunSize;
+        ShadowContact = contact;
     }
+
+    /// <summary>
+    /// Sets how nearby surfaces darken the soft light from the sky in corners, creases and under
+    /// things. <paramref name="radius"/> is how far, in metres, a point looks for surfaces that hide
+    /// the sky from it; <paramref name="strength"/>, from 0 to 1, is how dark they make it. The
+    /// defaults suit rooms and streets seen from head height.
+    /// </summary>
+    public void AmbientOcclusion(float radius = OcclusionSettings.DefaultRadius, float strength = OcclusionSettings.DefaultStrength)
+    {
+        if (!(radius > 0f))
+        {
+            throw new ArgumentOutOfRangeException(nameof(radius), radius, "The ambient occlusion radius must be more than zero.");
+        }
+
+        if (!(strength is >= 0f and <= 1f))
+        {
+            throw new ArgumentOutOfRangeException(nameof(strength), strength, "The ambient occlusion strength must be from 0 to 1.");
+        }
+
+        Occlusion = new OcclusionSettings(radius, strength);
+    }
+
+    /// <summary>
+    /// Fills the box from <paramref name="min"/> to <paramref name="max"/> with light probes
+    /// <paramref name="spacing"/> metres apart, which give the surfaces inside the light bounced
+    /// off the walls, floor and everything else around them, in place of the sky's. A probe
+    /// keeps track of how far it sees in each direction, so light doesn't leak through walls. The
+    /// probes are drawn again over the next frames whenever the sun, the sky or the box changes.
+    /// At most <see cref="ProbeGrid.MaxProbes"/> fit. See docs/rendering.md.
+    /// </summary>
+    public void LightProbes(Vector3 min, Vector3 max, float spacing)
+    {
+        if (!(float.IsFinite(spacing) && spacing > 0f))
+        {
+            throw new ArgumentOutOfRangeException(nameof(spacing), spacing, "The light probes' spacing must be more than 0 metres.");
+        }
+
+        for (int axis = 0; axis < 3; axis++)
+        {
+            if (!(float.IsFinite(min[axis]) && float.IsFinite(max[axis]) && max[axis] > min[axis]))
+            {
+                string name = axis == 0 ? "x" : axis == 1 ? "y" : "z";
+                throw new ArgumentException(
+                    $"The light probes' box must reach further along {name} than it starts, but it runs from {min[axis].ToString(CultureInfo.InvariantCulture)} to {max[axis].ToString(CultureInfo.InvariantCulture)}.",
+                    nameof(max));
+            }
+        }
+
+        var settings = new ProbeVolumeSettings(min, max, spacing);
+        long total = ProbeGrid.Total(settings);
+        if (total > ProbeGrid.MaxProbes)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(spacing), spacing,
+                $"The box holds {total.ToString(CultureInfo.InvariantCulture)} light probes at this spacing, but at most {ProbeGrid.MaxProbes.ToString(CultureInfo.InvariantCulture)} fit. Space them further apart or make the box smaller.");
+        }
+
+        LightProbeVolume = settings;
+    }
+
+    /// <summary>
+    /// Places a reflection probe: a photograph of the scene in every direction from
+    /// <paramref name="position"/>, which shiny surfaces and glass inside the box from
+    /// <paramref name="boxMin"/> to <paramref name="boxMax"/> reflect in place of the sky. The box
+    /// should match the room or yard round it, since a reflection is bent to land on its walls.
+    /// Towards the box's sides the probe fades out over <paramref name="blend"/> metres. The key
+    /// names it across frames: it is photographed the first frame it's placed, and again only
+    /// when it moves or the lighting changes, so place it every frame. At most
+    /// <see cref="Renderer.MaxReflectionProbes"/> fit. See docs/rendering.md.
+    /// </summary>
+    public void ReflectionProbe(int key, Vector3 position, Vector3 boxMin, Vector3 boxMax, float blend = 0.5f)
+    {
+        if (_reflectionProbes.Count == Renderer.MaxReflectionProbes)
+        {
+            throw new InvalidOperationException(
+                $"At most {Renderer.MaxReflectionProbes.ToString(CultureInfo.InvariantCulture)} reflection probes fit in a frame.");
+        }
+
+        foreach (var placed in _reflectionProbes)
+        {
+            if (placed.Key == key)
+            {
+                throw new ArgumentException(
+                    $"Reflection probe {key.ToString(CultureInfo.InvariantCulture)} was already placed this frame. Give each probe its own key.",
+                    nameof(key));
+            }
+        }
+
+        if (!(float.IsFinite(blend) && blend >= 0f))
+        {
+            throw new ArgumentOutOfRangeException(nameof(blend), blend, "The reflection probe's blend must be 0 or more metres.");
+        }
+
+        for (int axis = 0; axis < 3; axis++)
+        {
+            if (!(float.IsFinite(boxMin[axis]) && float.IsFinite(boxMax[axis]) && boxMax[axis] > boxMin[axis]))
+            {
+                string name = axis == 0 ? "x" : axis == 1 ? "y" : "z";
+                throw new ArgumentException(
+                    $"The reflection probe's box must reach further along {name} than it starts, but it runs from {boxMin[axis].ToString(CultureInfo.InvariantCulture)} to {boxMax[axis].ToString(CultureInfo.InvariantCulture)}.",
+                    nameof(boxMax));
+            }
+        }
+
+        if (!(Vector3.Clamp(position, boxMin, boxMax) == position))
+        {
+            throw new ArgumentException(
+                $"The reflection probe's position {Format(position)} must be inside its box, from {Format(boxMin)} to {Format(boxMax)}.",
+                nameof(position));
+        }
+
+        _reflectionProbes.Add(new ReflectionProbeRequest(key, position, boxMin, boxMax, blend));
+    }
+
+    /// <summary>
+    /// Lays a material onto whatever lies inside a box, such as a damp patch on a wall, rust under a bracket or
+    /// a puddle's dark ring, without a mesh of its own. The box is the cube from −0.5 to 0.5 moved by
+    /// <paramref name="box"/>: the material spans its X and Z, and it projects down the box's −Y onto every
+    /// surface it reaches, so the bumps under it still show. Point the box's Y out of the wall or up from the floor.
+    /// The material's colour, surface and normal textures are used, and their opacity says where it shows.
+    /// <paramref name="blend"/> says how much of each reaches the surface, the whole material when left out.
+    /// Decals are drawn in order. The key names the decal, and each one can be placed once a frame.
+    /// At most <see cref="DecalBatch.MaxDecals"/> fit. See docs/views.md.
+    /// </summary>
+    public void Decal(int key, Matrix4x4 box, Surface material, DecalBlend? blend = default)
+    {
+        ArgumentNullException.ThrowIfNull(material);
+        if (_decals.Count == DecalBatch.MaxDecals)
+        {
+            throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
+                $"At most {DecalBatch.MaxDecals} decals fit in a frame."));
+        }
+
+        if (_decalKeys.Contains(key))
+        {
+            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture,
+                $"Decal {key} was already placed this frame. Give each decal its own key."), nameof(key));
+        }
+
+        var weights = blend ?? new DecalBlend();
+        DecalBatch.Check(box, weights);
+        if (material.Shader is not null)
+        {
+            throw new ArgumentException(
+                "A decal can't use a surface shader. Give it a surface made of textures, such as a material graph's.", nameof(material));
+        }
+
+        Content?.RequireSurface(material);
+        _decalKeys.Add(key);
+        _decals.Add(new DecalRequest(key, box, material, weights));
+    }
+
+    private static string Format(Vector3 value) => value.ToString(null, CultureInfo.InvariantCulture);
+
+    /// <summary>How wide the sun looks, in radians, unless <see cref="Shadows"/> says otherwise.</summary>
+    public const float DefaultSunSize = 0.12f;
+
+    /// <summary>The widest a sun can look, in radians. Wider would blur shadows away.</summary>
+    public const float MaxSunSize = 0.5f;
 
     /// <summary>
     /// Blends between a thing's transform on the last two ticks, which keeps motion
@@ -564,10 +915,19 @@ public sealed class View
         _particles.Clear();
         _lights.Clear();
         WaterSettings = default;
+        PuddleSettings = null;
+        WindSettings = null;
         SkySettings = null;
         Post = new PostSettings { Vignette = 0.3f, Sharpen = 0.4f };
         ShadowRadius = 8f;
         ShadowCascades = 1;
+        SunSize = DefaultSunSize;
+        ShadowContact = ShadowSettings.DefaultContactLength;
+        Occlusion = new OcclusionSettings();
+        LightProbeVolume = null;
+        _reflectionProbes.Clear();
+        _decals.Clear();
+        _decalKeys.Clear();
 
         // The hold stays, since changing it is what tells the renderer to keep a picture.
         Transition = new ScreenTransition { Hold = Transition.Hold };

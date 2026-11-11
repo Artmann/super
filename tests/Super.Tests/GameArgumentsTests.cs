@@ -1,3 +1,5 @@
+using Rendition;
+
 namespace Super.Tests;
 
 public class GameArgumentsTests
@@ -62,6 +64,14 @@ public class GameArgumentsTests
     {
         Assert.True(GameArguments.Parse(["--no-vsync"]).NoVsync);
         Assert.False(GameArguments.Parse([]).NoVsync);
+    }
+
+    [Fact]
+    public void Reads_no_materials_in_a_window_and_with_a_screenshot()
+    {
+        Assert.True(GameArguments.Parse(["--no-materials"]).NoMaterials);
+        Assert.True(GameArguments.Parse(["--no-materials", "--screenshot", "day.png"]).NoMaterials);
+        Assert.False(GameArguments.Parse(["--screenshot", "day.png"]).NoMaterials);
     }
 
     [Fact]
@@ -133,6 +143,77 @@ public class GameArgumentsTests
         {
             System.Globalization.CultureInfo.CurrentCulture = original;
         }
+    }
+
+    [Fact]
+    public void Render_scale_is_parsed_from_the_command_line()
+    {
+        var original = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("sv-SE");
+        try
+        {
+            Assert.Equal(1.5f, GameArguments.Parse(["--render-scale", "1.5", "--screenshot", "a.png"]).RenderScale);
+            Assert.Equal(0.5f, GameArguments.Parse(["--render-scale", "0.5"]).RenderScale);
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = original;
+        }
+    }
+
+    [Fact]
+    public void No_render_scale_leaves_it_to_the_game()
+    {
+        Assert.Null(GameArguments.Parse([]).RenderScale);
+    }
+
+    [Theory]
+    [InlineData("0.4")]
+    [InlineData("3")]
+    [InlineData("1,5")]
+    [InlineData("big")]
+    [InlineData("NaN")]
+    [InlineData("Infinity")]
+    public void A_render_scale_must_be_from_half_to_two(string scale)
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--render-scale", scale]));
+
+        Assert.Equal($"--render-scale needs a number from 0.5 to 2, such as 1.5, not '{scale}'.", error.Message);
+    }
+
+    [Fact]
+    public void Upscaler_is_parsed_from_the_command_line()
+    {
+        Assert.Equal(Upscaler.Fsr, GameArguments.Parse(["--upscaler", "fsr", "--screenshot", "a.png"]).Upscaler);
+        Assert.Equal(Upscaler.Taa, GameArguments.Parse(["--upscaler", "taa"]).Upscaler);
+        Assert.Null(GameArguments.Parse([]).Upscaler);
+    }
+
+    [Theory]
+    [InlineData("dlss")]
+    [InlineData("FSR")]
+    [InlineData("")]
+    public void An_upscaler_must_be_taa_or_fsr(string name)
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--upscaler", name]));
+
+        Assert.Equal($"--upscaler needs taa or fsr, not '{name}'.", error.Message);
+    }
+
+    [Fact]
+    public void An_upscaler_needs_a_value()
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--upscaler"]));
+
+        Assert.Equal("--upscaler needs a value.", error.Message);
+    }
+
+    [Fact]
+    public void A_render_scale_needs_a_value()
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--render-scale"]));
+
+        Assert.Equal("--render-scale needs a value.", error.Message);
     }
 
     [Fact]

@@ -157,7 +157,7 @@ internal sealed class LocalLights
                 DirectionCone = light.IsSpot
                     ? new Vector4(Vector3.Normalize(light.Direction), cosOuter)
                     : new Vector4(0f, 0f, 0f, -2f),
-                Fade = new Vector4(1f / MathF.Max(cosInner - cosOuter, 1e-4f), RadiusOf(light), 0f, 0f),
+                Fade = new Vector4(1f / MathF.Max(cosInner - cosOuter, 1e-4f), RadiusOf(light), light.Volumetric, 0f),
             };
         }
     }

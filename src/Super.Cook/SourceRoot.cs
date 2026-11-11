@@ -224,6 +224,12 @@ public static class Sources
         return name.EndsWith(".cook.json", StringComparison.Ordinal) && name != ".cook.json" && !name.EndsWith("/.cook.json", StringComparison.Ordinal);
     }
 
+    /// <summary>Whether the root's Only picks the name, so it's cooked as an asset of its own. An empty Only picks everything.</summary>
+    internal static bool Picks(ISourceRoot root, string name)
+    {
+        return root.Only.Count == 0 || root.Only.Any(pattern => Glob.Matches(pattern, name));
+    }
+
     /// <summary>Whether the root's Only picks the name, crossing off each pattern that matched.</summary>
     private static bool Picked(IReadOnlyList<string> only, string name, HashSet<string> unmatched)
     {

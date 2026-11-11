@@ -1,0 +1,92 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "decals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "material": {
+            "type": "string"
+          },
+          "position": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "size": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "facing": {
+            "default": null
+          },
+          "turn": {
+            "type": "number",
+            "default": 0
+          },
+          "color": {
+            "type": "number",
+            "default": 1
+          },
+          "normal": {
+            "type": "number",
+            "default": 1
+          },
+          "roughness": {
+            "type": "number",
+            "default": 1
+          },
+          "blend": {
+            "type": "object",
+            "properties": {
+              "color": {
+                "type": "number"
+              },
+              "normal": {
+                "type": "number"
+              },
+              "roughness": {
+                "type": "number"
+              },
+              "angleFade": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "name",
+          "material",
+          "position",
+          "size"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "$schema": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "decals"
+  ],
+  "additionalProperties": false,
+  "allowComments": true,
+  "allowTrailingCommas": true
+}

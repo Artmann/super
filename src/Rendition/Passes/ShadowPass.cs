@@ -13,7 +13,9 @@ namespace Rendition.Passes;
 /// </summary>
 internal sealed unsafe class ShadowPass : IDisposable
 {
-    public const int Resolution = 2048;
+    /// <summary>How many texels across each cascade's map is unless asked otherwise.</summary>
+    public const int DefaultResolution = 2048;
+
     public const int MaxCascades = 4;
     public const float CascadeGrowth = 3f;
 
@@ -23,7 +25,8 @@ internal sealed unsafe class ShadowPass : IDisposable
     /// <summary>The share of the furthest reach over which shadows fade out.</summary>
     public const float FadeShare = 0.15f;
 
-    private static readonly Extent2D Extent = new(Resolution, Resolution);
+    /// <summary>The furthest, in radii, that a caster can stretch a cascade towards the light.</summary>
+    public const float MaxReach = 6f;
 
     private readonly VulkanContext _context;
     private readonly ResourceTable _resources;
@@ -31,17 +34,23 @@ internal sealed unsafe class ShadowPass : IDisposable
     private readonly List<PipelineVariants> _pipelines = [];
     private readonly PipelineVariants _solid;
 
-    public readonly RenderTarget Target;
+    /// <summary>The cascades' maps, one layer each. Replaced when <see cref="Resize"/> changes the resolution.</summary>
+    public RenderTarget Target { get; private set; }
+
+    /// <summary>How many texels across each cascade's map is: 1024, 2048 or 4096.</summary>
+    public int Resolution { get; private set; }
+
+    private Extent2D Extent => new((uint)Resolution, (uint)Resolution);
 
     /// <summary>Every point and spot light's shadow, each in its own square of it.</summary>
     public readonly RenderTarget Atlas;
 
-    public ShadowPass(VulkanContext context, DescriptorSetLayout frameSetLayout, ResourceTable resources)
+    public ShadowPass(VulkanContext context, DescriptorSetLayout frameSetLayout, ResourceTable resources, int resolution)
     {
         _context = context;
         _resources = resources;
-        Target = new RenderTarget(
-            context, GBuffer.DepthFormat, Extent, ImageUsageFlags.DepthStencilAttachmentBit, ImageAspectFlags.DepthBit, MaxCascades);
+        Resolution = CheckResolution(resolution);
+        Target = CreateTarget();
         Atlas = new RenderTarget(
             context, GBuffer.DepthFormat, new Extent2D(LocalLights.AtlasSize, LocalLights.AtlasSize),
             ImageUsageFlags.DepthStencilAttachmentBit, ImageAspectFlags.DepthBit);
@@ -89,6 +98,32 @@ internal sealed unsafe class ShadowPass : IDisposable
         description.TwoSided = true;
         _solid = new PipelineVariants(solidCulled, PipelineFactory.Create(context, description));
     }
+
+    /// <summary>The resolution given, when it's one a cascade's map can be: 1024, 2048 or 4096.</summary>
+    public static int CheckResolution(int resolution) => resolution is 1024 or 2048 or 4096
+        ? resolution
+        : throw new ArgumentOutOfRangeException(nameof(resolution), resolution, "Shadow maps can be 1024, 2048 or 4096 texels across.");
+
+    /// <summary>
+    /// How far contact shadows look along the sun this frame, in metres: the settings' length, or 0
+    /// when they're left out or a reflection probe is being captured, whose faces are too coarse to show them.
+    /// </summary>
+    public static float ContactLength(in ShadowSettings shadows, RenderEffects off, bool capturingProbe) =>
+        capturingProbe || off.HasFlag(RenderEffects.ContactShadows) ? 0f : MathF.Max(shadows.ContactLength, 0f);
+
+    /// <summary>
+    /// Replaces the cascades' maps with ones <paramref name="resolution"/> texels across. The caller
+    /// waits for the GPU first and points every descriptor that reads <see cref="Target"/> at the new one.
+    /// </summary>
+    public void Resize(int resolution)
+    {
+        Resolution = CheckResolution(resolution);
+        Target.Dispose();
+        Target = CreateTarget();
+    }
+
+    private RenderTarget CreateTarget() => new(
+        _context, GBuffer.DepthFormat, Extent, ImageUsageFlags.DepthStencilAttachmentBit, ImageAspectFlags.DepthBit, MaxCascades);
 
     /// <summary>How many cascades a setting asks for: 1 to <see cref="MaxCascades"/>, with 0 meaning 1.</summary>
     public static int CascadeCount(in ShadowSettings shadows) => Math.Clamp(shadows.Cascades, 1, MaxCascades);
@@ -172,9 +207,9 @@ internal sealed unsafe class ShadowPass : IDisposable
     /// moves in whole texels as the camera does, so shadow edges don't shimmer.
     /// Depth runs from <paramref name="reach"/> towards the light, or the radius if that's
     /// further, to the radius away from it, so casters outside the sphere on the light's
-    /// side still land in the map.
+    /// side still land in the map. <paramref name="resolution"/> is the map's width in texels.
     /// </summary>
-    public static Matrix4x4 CreateMatrix(Vector3 lightDirection, Vector3 center, float radius, float reach = 0f)
+    public static Matrix4x4 CreateMatrix(Vector3 lightDirection, Vector3 center, float radius, float reach, int resolution)
     {
         reach = MathF.Max(reach, radius);
         var up = MathF.Abs(lightDirection.Y) > 0.99f ? Vector3.UnitZ : Vector3.UnitY;
@@ -182,7 +217,7 @@ internal sealed unsafe class ShadowPass : IDisposable
         // Snapping happens in the light's own x and y, which a rotation-only view gives.
         var rotation = Matrix4x4.CreateLookAt(lightDirection, Vector3.Zero, up);
         var lightSpace = Vector3.Transform(center, rotation);
-        float texel = 2f * radius / Resolution;
+        float texel = 2f * radius / resolution;
         lightSpace.X = MathF.Round(lightSpace.X / texel) * texel;
         lightSpace.Y = MathF.Round(lightSpace.Y / texel) * texel;
         Matrix4x4.Invert(rotation, out var back);
@@ -198,13 +233,41 @@ internal sealed unsafe class ShadowPass : IDisposable
     }
 
     /// <summary>
+    /// How far a cascade centred at <paramref name="center"/> must reach towards the light to
+    /// take in every caster that could shade it: those whose ball, x, y and z with the radius
+    /// in w, overlaps the column the map sees towards the light. Never less than
+    /// <paramref name="reach"/>, and a caster can stretch it to no more than
+    /// <see cref="MaxReach"/> radii, since a longer reach spreads depth thinner.
+    /// </summary>
+    public static float CasterReach(Vector3 center, float radius, Vector3 lightDirection, float reach, ReadOnlySpan<Vector4> casters)
+    {
+        float limit = radius * MaxReach;
+        // The map is a square, so its corners are root two radii out.
+        float column = radius * MathF.Sqrt(2f);
+        foreach (var caster in casters)
+        {
+            var offset = new Vector3(caster.X, caster.Y, caster.Z) - center;
+            float along = Vector3.Dot(offset, lightDirection);
+            float aside = (offset - lightDirection * along).Length();
+            if (aside > column + caster.W)
+            {
+                continue;
+            }
+
+            reach = MathF.Max(reach, MathF.Min(along + caster.W, limit));
+        }
+
+        return reach;
+    }
+
+    /// <summary>
     /// How many units of depth one unit across the map covers, for a cascade made by
     /// <see cref="CreateMatrix"/>: 1 when it reaches its radius each way, less when it reaches further.
     /// </summary>
     public static float DepthScale(float radius, float reach) => 2f * radius / (MathF.Max(reach, radius) + radius);
 
     /// <summary>Draws one cascade into its layer of the map.</summary>
-    public void Record(CommandBuffer cmd, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, List<Mesh?> meshes, InstanceBuffer instances, int cascade)
+    public void Record(CommandBuffer cmd, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, List<Mesh?> meshes, List<PartDetail> details, InstanceBuffer instances, int cascade)
     {
         var api = _context.Api;
         var depthAttachment = new RenderingAttachmentInfo
@@ -229,7 +292,7 @@ internal sealed unsafe class ShadowPass : IDisposable
 
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set };
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
-        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, instances, ScenePass.Shadow, solid: _solid, cascade: cascade);
+        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, details, instances, ScenePass.Shadow, solid: _solid, cascade: cascade);
 
         api.CmdEndRendering(cmd);
     }
@@ -245,6 +308,7 @@ internal sealed unsafe class ShadowPass : IDisposable
         ReadOnlySpan<DrawItem> draws,
         ReadOnlySpan<(int First, int Count)> ranges,
         List<Mesh?> meshes,
+        List<PartDetail> details,
         InstanceBuffer instances)
     {
         var api = _context.Api;
@@ -277,7 +341,7 @@ internal sealed unsafe class ShadowPass : IDisposable
             api.CmdSetViewport(cmd, 0, 1, &viewport);
             api.CmdSetScissor(cmd, 0, 1, &scissor);
             var (first, count) = ranges[tile];
-            SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws.Slice(first, count), meshes, instances,
+            SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws.Slice(first, count), meshes, details, instances,
                 ScenePass.Shadow, solid: _solid, cascade: MaxCascades + tile);
         }
 

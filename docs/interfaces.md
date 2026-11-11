@@ -84,6 +84,7 @@ Modifiers wrap a view, so their order usually matters.
 | `.OnClick(action)` | Runs on a left click |
 | `.Tooltip(view)` | Shows a view near the cursor after a short hover |
 | `.Draggable(payload, preview)`, `.DropTarget<T>(onDrop, canDrop)` | Lets the mouse carry a value from one view to another |
+| `.Draggable(start => payload, payload => preview)` | Chooses what to carry at the press, from the button and the Shift, Control and Alt keys held (`DragStart`), or null not to drag |
 | `.IgnoresPointer()` | Lets the mouse through, like CSS's `pointer-events: none` |
 
 ### The box
@@ -203,6 +204,25 @@ new Button("Craft", () => bag.Craft(recipe), Disabled: !bag.Has(recipe));
 new Pressable(look => Slot(stack).Background(look.Hovered ? hover : fill))
     .Draggable(slotNumber, new Image(icon).Frame(56f, 56f))
     .DropTarget<int>(from => bag.Move(from, slotNumber));
+```
+
+`.Draggable(payload)` drags with the left button. To let other buttons drag, or carry something
+different for each, hand it a function instead. It's told how the drag began and returns what to
+carry, or null when that press shouldn't drag. It runs at the press, so it only chooses; the drop
+is where the game changes. The drag ends when that button is let go, and other buttons pressed
+meanwhile do nothing. A left press that turns into a drag is no longer a click, but a left click
+already held on something else still clicks when it's let go, even if another button dragged in
+between:
+
+```csharp
+new Pressable(look => Cell(stack))
+    .Draggable(start => start.Button switch
+    {
+        MouseButton.Middle => new Carry(cell, stack.Count / 2),
+        MouseButton.Left => new Carry(cell, start.Shift ? 1 : stack.Count),
+        _ => null,
+    }, carry => Icon(carry))
+    .DropTarget<Carry>(carry => bag.Move(carry, cell));
 ```
 
 In a tick, the order is: clicks, then `Update`, then the next `Draw`. So `Update` already

@@ -21,6 +21,12 @@ public struct Vertex(Vector3 position, Vector3 normal, Vector4 tangent, Vector2 
     /// <summary>How much each joint moves this vertex, as four bytes from 0 to 255 that add up to 255. Zero when there is no skin.</summary>
     public uint Weights;
 
+    /// <summary>
+    /// A second set of UVs, in which no two triangles share texels, for textures baked from the mesh's own shape such
+    /// as <see cref="Material.MaskTexture"/>. Zero when the mesh has none.
+    /// </summary>
+    public Vector2 Uv2;
+
     /// <summary>The joints this vertex follows, most important first, and how much it follows each.</summary>
     public void SetSkin(ReadOnlySpan<(int Joint, float Weight)> influences)
     {
@@ -71,6 +77,16 @@ public readonly record struct ReflectionProbeHandle(int Index);
 /// <summary>Bounds and simpler versions for a <see cref="DrawItem"/>. The default stands for none.</summary>
 public readonly record struct DetailHandle(int Index);
 
+/// <summary>What a texture reads past its edge, chosen once when it's created.</summary>
+public enum TextureEdges
+{
+    /// <summary>The texture tiles, so the far edge shows. Most textures want this.</summary>
+    Repeat,
+
+    /// <summary>The edge texel carries on, for atlases whose far edge belongs to another island.</summary>
+    Clamp,
+}
+
 [Flags]
 public enum MaterialFlags
 {
@@ -95,6 +111,26 @@ public enum MaterialFlags
     /// none at black to full at white. Without it they show everywhere.
     /// </summary>
     DetailMask = 8,
+
+    /// <summary>
+    /// Darkens and lightens the colour in broad patches laid by where the surface is in the world, not by its uv,
+    /// with a little roughness to match, so a texture that repeats across a big wall or floor doesn't show it.
+    /// </summary>
+    WorldVariation = 16,
+
+    /// <summary>
+    /// Opacity fades the surface out softly instead of cutting it: a share of its pixels as large as the opacity
+    /// is drawn, a different share each frame, and anti-aliasing blends them with what's behind. For decals such as
+    /// stains and grime laid just in front of another surface. Without anti-aliasing the pattern shows as grain.
+    /// </summary>
+    Dithered = 32,
+
+    /// <summary>
+    /// Where the surface lies below the frame's <see cref="FrameView.Puddles"/> level it is water: a rippled mirror
+    /// over a colour that darkens with depth. Just above, it is damp: darker and smoother, fading to dry over the
+    /// band. Its height map counts, so the hollows flood before the tops. Without a level it does nothing.
+    /// </summary>
+    Puddles = 64,
 }
 
 /// <summary>
@@ -103,6 +139,11 @@ public enum MaterialFlags
 /// </summary>
 public struct Material
 {
+    /// <summary>A material with every field zero or unset, apart from <see cref="Translucency"/>.</summary>
+    public Material()
+    {
+    }
+
     public Vector4 BaseColor;
     public float Metallic;
     public float Roughness;
@@ -161,6 +202,28 @@ public struct Material
     /// </summary>
     public Subsurface Subsurface;
 
+    /// <summary>
+    /// Masks baked from the mesh's shape, read through its second UV set, <see cref="Vertex.Uv2"/>: red is curvature,
+    /// with 0.5 flat and above it convex, green how much of the sky the surface sees, blue height above the mesh's
+    /// foot, 0 there and 1 at 30 cm or the mesh's top, and alpha how much an edge there wears, a slow noise so wear
+    /// comes and goes. <see cref="Wear"/> and <see cref="Dirt"/> are laid by them. Without one, neither shows. The
+    /// mask is an atlas of islands, so create it with <see cref="TextureEdges.Clamp"/>, as
+    /// <see cref="Renderer.CreateModel"/> does; the material doesn't change how its textures are sampled.
+    /// </summary>
+    public TextureHandle? MaskTexture;
+
+    /// <summary>
+    /// Worn edges: where the mask says the surface is convex, the colour is multiplied by twice the layer's colour,
+    /// so 0.5 leaves it as it is and the grain shows through, and the roughness turns to the layer's.
+    /// </summary>
+    public MaterialLayer Wear;
+
+    /// <summary>
+    /// Dirt: in hollows the sky can't reach, and low down near the mesh's foot, the colour is multiplied by twice the
+    /// layer's colour and the roughness turns to the layer's.
+    /// </summary>
+    public MaterialLayer Dirt;
+
     /// <summary>Replaces the standard surface shader. Transparent materials can't use one yet.</summary>
     public SurfaceShaderHandle? Shader;
 
@@ -172,6 +235,35 @@ public struct Material
 
     /// <summary>Texture arrays for a surface shader, read with shaderLayer(i, uv, layer). Unset ones read white.</summary>
     public ShaderArrays ShaderArrays;
+
+    /// <summary>
+    /// For <see cref="MaterialFlags.Foliage"/>, how much sunlight shines through from behind, from 0 for none to 1 for
+    /// all of it. It starts at <see cref="DefaultTranslucency"/>, about what a leaf does; thin blades let through more.
+    /// Other materials ignore it. A <c>default</c> material, which skips the constructor, has 0.
+    /// </summary>
+    public float Translucency = DefaultTranslucency;
+
+    /// <summary>How much sunlight foliage lets through when nothing says: about what a leaf does.</summary>
+    public const float DefaultTranslucency = 0.6f;
+
+    /// <summary>
+    /// How far the surface sways in the frame's <see cref="FrameView.Wind"/>, as a share of its strength: 1 is grass,
+    /// less is stiffer, and 0, the default, keeps it still. Vertices sway more the higher they are above the lowest
+    /// point of their part, so its foot stays put. Shadows sway with it.
+    /// </summary>
+    public float Wind;
+
+    /// <summary>Says why a foliage translucency can't be used, or returns null when it can.</summary>
+    public static string? TranslucencyProblem(float translucency) =>
+        translucency is >= 0f and <= 1f
+            ? null
+            : $"foliage translucency {translucency.ToString(System.Globalization.CultureInfo.InvariantCulture)} must be from 0 to 1.";
+
+    /// <summary>Says why a wind sway can't be used, or returns null when it can.</summary>
+    public static string? WindProblem(float wind) =>
+        float.IsFinite(wind) && wind >= 0f
+            ? null
+            : $"wind sway {wind.ToString(System.Globalization.CultureInfo.InvariantCulture)} must be 0 or more.";
 }
 
 /// <summary>Eight vectors a surface shader can read as shaderParameters[0] to [7].</summary>
@@ -252,6 +344,14 @@ public struct DrawItem
     /// <see cref="Skeleton.SkinMatrices"/>. Leave it empty for a draw with no skin.
     /// </summary>
     public BoneRange Bones;
+
+    /// <summary>
+    /// The game's name for the thing this draws, such as an entity, the same from frame to frame, so the renderer
+    /// knows where it stood last frame and can tell how it moved. Every part of one thing shares its key. Null, or a
+    /// key two differently placed draws share, moves it with the camera alone, which smears a moving thing a little
+    /// under anti-aliasing. See "Motion vectors" in docs/rendering.md.
+    /// </summary>
+    public int? Key;
 }
 
 /// <summary>A run of a frame's bone matrices. A count of zero means no skinning.</summary>
@@ -317,6 +417,16 @@ public struct LocalLight
     /// <summary>Whether things block it. Shadows are drawn into a shared atlas; see docs/rendering.md.</summary>
     public bool CastsShadow;
 
+    /// <summary>
+    /// How strongly it lights the volumetric fog, giving it a halo: 1 is as much as the air
+    /// really scatters, 0 leaves it out of the fog, and more makes the halo stronger.
+    /// </summary>
+    public float Volumetric = 1f;
+
+    public LocalLight()
+    {
+    }
+
     /// <summary>Whether it's a spot rather than a point light.</summary>
     public readonly bool IsSpot => OuterAngle > 0f;
 }
@@ -343,6 +453,23 @@ public ref struct EnvironmentDescription
 }
 
 /// <summary>
+/// A real clear sky, worked out from the sun (Preetham, Shirley and Smits 1999), in place of the
+/// environment's ceiling and horizon. Its sun is the light that casts the shadows, or else the
+/// first, and it shows that light as a disc <see cref="ShadowSettings.LightAngle"/> across. The
+/// environment's floor still shows below the horizon. Changing it, or that sun, while it is on
+/// bakes the environment again, which waits for the GPU. See "Sky" in docs/rendering.md.
+/// </summary>
+public struct AnalyticSky
+{
+    /// <summary>
+    /// How hazy the air is, from 1.7 (very clear) to 10 (milky). 0 keeps the environment's bands. Rendition
+    /// doesn't refuse other values, but draws anything above 0 held to 1.7 to 10: below about 1.2 the
+    /// model breaks down at the horizon. Super's SkySettings refuses them.
+    /// </summary>
+    public float Turbidity;
+}
+
+/// <summary>
 /// A spot where the real scene is photographed in all directions, so nearby surfaces
 /// reflect it. The box is the room around it: reflections land on its walls and floor
 /// instead of infinitely far away, which keeps them lined up with the scene.
@@ -360,8 +487,26 @@ public struct ReflectionProbe
 /// <summary>The look of the finished picture. Leaving a value at zero leaves that part unchanged.</summary>
 public struct PostSettings
 {
-    /// <summary>Brightness in photographic stops: +1 is twice as bright.</summary>
+    /// <summary>
+    /// Brightness in photographic stops: +1 is twice as bright. With <see cref="AutoExposure"/> on it is
+    /// added to what the camera metered, so -0.3 keeps the picture a third of a stop darker than metered.
+    /// </summary>
     public float Exposure;
+
+    /// <summary>
+    /// Sets the brightness from what the camera sees, the way an eye or a camera does: it meters the lit
+    /// frame each frame, before the glow, and eases towards the brightness that puts it at middle grey.
+    /// The darkest 40 per cent and the brightest 5 per cent of the pixels are left out of the metering, so
+    /// the sun's disc and sparkle on water don't darken the picture. Off, <see cref="Exposure"/> alone
+    /// sets the brightness. See docs/rendering.md.
+    /// </summary>
+    public bool AutoExposure;
+
+    /// <summary>
+    /// How fast <see cref="AutoExposure"/> follows a change, in stops a second, which must be above 0. 0
+    /// means the default of 2, so stepping from a sunny yard into a room four stops darker settles in about two seconds.
+    /// </summary>
+    public float AdaptationSpeed;
 
     /// <summary>Added contrast. 0.1 is a gentle boost; negative values flatten the picture.</summary>
     public float Contrast;
@@ -395,6 +540,95 @@ public struct PostSettings
     /// 0.05 is five per cent brighter; (0.05, 0.02, -0.04) warms the highlights to cream.
     /// </summary>
     public Vector3 Gain;
+
+    /// <summary>
+    /// The curve that fits the scene's light into what a screen can show. <see cref="Tonemapper.Agx"/>,
+    /// the default, keeps bright colours from going flat; <see cref="Tonemapper.Aces"/> is the older,
+    /// punchier film look.
+    /// </summary>
+    public Tonemapper Tonemapper;
+
+    /// <summary>
+    /// The look on top of AgX. <see cref="AgxLook.Punchy"/>, the default, deepens the mid-tones and
+    /// strengthens colour; <see cref="AgxLook.Base"/> is the plain curve. It has no effect under ACES.
+    /// </summary>
+    public AgxLook AgxLook;
+
+    /// <summary>
+    /// White balance from -1 to 1, with 0 unchanged. Above 0 warms the picture, as if the camera were
+    /// balanced for light bluer than daylight (1 is 12000 K); below 0 cools it (-1 is 4000 K).
+    /// 0.1 is a gentle afternoon warmth.
+    /// </summary>
+    public float Temperature;
+
+    /// <summary>
+    /// White balance across the other way, from -1 to 1, with 0 unchanged. Above 0 pulls the picture
+    /// towards magenta and below 0 towards green, to take out a cast that <see cref="Temperature"/> can't.
+    /// </summary>
+    public float Tint;
+
+    /// <summary>
+    /// Where the camera is focused, in metres in front of it, for depth of field. Only things at this
+    /// distance are sharp once <see cref="Aperture"/> opens the lens. It must be further than
+    /// <see cref="FocalLength"/>. See docs/rendering.md.
+    /// </summary>
+    public float FocusDistance;
+
+    /// <summary>
+    /// How wide the lens is open, as an f-number: 2.8 blurs strongly, 8 gently, 16 hardly at all.
+    /// 0, the default, is no depth of field: everything is sharp, as through a pinhole.
+    /// </summary>
+    public float Aperture;
+
+    /// <summary>
+    /// The lens's focal length in millimetres for depth of field, on a 36 mm wide sensor. Longer lenses
+    /// blur more at the same f-number. 0 means the default of 35. It changes only the blur, not the
+    /// field of view, which the camera sets.
+    /// </summary>
+    public float FocalLength;
+}
+
+/// <summary>The curve that turns the scene's light into the colours a screen can show.</summary>
+public enum Tonemapper
+{
+    /// <summary>
+    /// AgX, as Blender 4 uses by default: bright, strongly coloured light fades towards white
+    /// gradually, so a sunlit brick wall keeps its detail instead of going one flat orange.
+    /// </summary>
+    Agx,
+
+    /// <summary>A fit of the ACES film curve: punchier mid-tones, but saturated highlights go flat.</summary>
+    Aces,
+}
+
+/// <summary>A look on top of the <see cref="Tonemapper.Agx"/> curve, as Blender offers. ACES ignores it.</summary>
+public enum AgxLook
+{
+    /// <summary>Blender's Punchy look: deeper mid-tones and richer colour, so a sunlit scene doesn't read pale.</summary>
+    Punchy,
+
+    /// <summary>The plain AgX curve: softer and paler, with the most room in the highlights.</summary>
+    Base,
+}
+
+/// <summary>
+/// What smooths the scene's edges over several frames and, below a <see cref="Renderer.RenderScale"/> of 1, rebuilds
+/// it at the window's size. See <see cref="Renderer.Upscaler"/>.
+/// </summary>
+public enum Upscaler
+{
+    /// <summary>
+    /// The engine's own temporal anti-aliasing, at the scene's size, then stretched to the window with a sharp
+    /// resample. Cheap, and it needs nothing outside the engine.
+    /// </summary>
+    Taa,
+
+    /// <summary>
+    /// AMD FidelityFX Super Resolution 3.1, which blends the frames at the window's size and keeps thin detail such
+    /// as grass and railings steadier. It needs its library next to the game, and falls back to <see cref="Taa"/>
+    /// without it or above a render scale of 1.
+    /// </summary>
+    Fsr,
 }
 
 /// <summary>How a <see cref="ScreenTransition"/> brings in the new picture.</summary>
@@ -452,6 +686,28 @@ public struct ScreenTransition
     public int Hold;
 }
 
+/// <summary>
+/// Standing water on surfaces whose material has <see cref="MaterialFlags.Puddles"/>. <see cref="Level"/> is the
+/// height of the water in metres; whatever lies below it is under water. <see cref="Band"/> is how far above the
+/// water, in metres, the surface is damp, darkest at the waterline and dry at the band's top.
+/// </summary>
+public readonly record struct PuddleSettings(float Level, float Band = PuddleSettings.DefaultBand)
+{
+    /// <summary>The damp band's height when none is given, in metres.</summary>
+    public const float DefaultBand = 0.08f;
+}
+
+/// <summary>
+/// Wind that sways materials with <see cref="Material.Wind"/>. <see cref="Direction"/> is the way it blows, flattened
+/// onto the ground; <see cref="Strength"/> is how far, in metres, it leans the tip of grass 1 m tall at a gust's peak;
+/// <see cref="Gustiness"/> runs from 0 for a steady wind to 1 for one that drops to a fifth of that between gusts.
+/// </summary>
+public readonly record struct WindSettings(Vector3 Direction, float Strength, float Gustiness = WindSettings.DefaultGustiness)
+{
+    /// <summary>How gusty the wind is when not said: between gusts it leans things 60 % as far as at their peak.</summary>
+    public const float DefaultGustiness = 0.5f;
+}
+
 /// <summary>Puts the camera underwater. Leaving Absorption at zero means there's no water.</summary>
 public struct UnderwaterSettings
 {
@@ -500,11 +756,81 @@ public struct ShadowSettings
     /// faster with distance from the object casting them.
     /// </summary>
     public float LightAngle;
+
+    /// <summary>
+    /// How far, in metres, each pixel looks along the light through the depth buffer for
+    /// something touching it, which darkens the last few centimetres the shadow maps are
+    /// too coarse to see. Only inside the first cascade's radius. 0 turns it off.
+    /// </summary>
+    public float ContactLength = DefaultContactLength;
+
+    public const float DefaultContactLength = 0.25f;
+
+    public ShadowSettings()
+    {
+    }
+}
+
+/// <summary>
+/// How nearby surfaces hide the soft light from the sky. <see cref="Radius"/> is how far, in
+/// metres, a point looks for them; <see cref="Strength"/>, from 0 to 1, is how dark they make it.
+/// </summary>
+public readonly record struct OcclusionSettings(float Radius = OcclusionSettings.DefaultRadius, float Strength = OcclusionSettings.DefaultStrength)
+{
+    public const float DefaultRadius = 0.6f;
+    public const float DefaultStrength = 0.9f;
+
+    /// <summary>The defaults, which suit rooms and streets seen from head height.</summary>
+    public OcclusionSettings() : this(DefaultRadius, DefaultStrength)
+    {
+    }
+}
+
+/// <summary>
+/// Air that thickens towards the ground and dims and tints what's far away. <see cref="Density"/>
+/// is how much light it takes per metre at <see cref="Height"/>, 0 for none; above that height
+/// it thins by e every 1 / <see cref="Falloff"/> metres, and below it thickens the same way, so
+/// 0 falloff is fog of one density everywhere. It takes the colour of the sky behind, and glows
+/// towards the sun by <see cref="SunScatter"/>.
+/// </summary>
+public readonly record struct FogSettings(float Density = 0f, float Height = 0f, float Falloff = FogSettings.DefaultFalloff, float SunScatter = FogSettings.DefaultSunScatter)
+{
+    public const float DefaultFalloff = 0.1f;
+    public const float DefaultSunScatter = 0.5f;
+
+    /// <summary>No fog yet, with a falloff and sun scatter that suit a day outdoors once given a density.</summary>
+    public FogSettings() : this(0f, 0f, DefaultFalloff, DefaultSunScatter)
+    {
+    }
+
+    public const float DefaultAnisotropy = 0.6f;
+    public const float DefaultVolumetricDistance = 48f;
+
+    /// <summary>The most <see cref="Anisotropy"/> can be either way.</summary>
+    public const float MaxAnisotropy = 0.9f;
+
+    /// <summary>
+    /// Which way the fog scatters light, from -0.9 to 0.9: 0 sends it every way alike, more
+    /// sends it onwards, so the air glows most looking towards a light, as real haze does,
+    /// and less sends it back. Only the volumetric fog uses it.
+    /// </summary>
+    public float Anisotropy { get; init; } = DefaultAnisotropy;
+
+    /// <summary>
+    /// How far from the camera, in metres, the fog is worked out in a volume that the sun's
+    /// shadows and the point and spot lights light up, giving shafts of light and halos.
+    /// Past it the plain fog carries on. 0 is the plain fog only.
+    /// </summary>
+    public float VolumetricDistance { get; init; } = DefaultVolumetricDistance;
 }
 
 /// <summary>Everything the renderer needs to know about one frame except the draws.</summary>
 public ref struct FrameView
 {
+    public FrameView()
+    {
+    }
+
     public int Width;
     public int Height;
     public Matrix4x4 View;
@@ -526,10 +852,22 @@ public ref struct FrameView
     /// </summary>
     public ReadOnlySpan<Matrix4x4> Bones;
 
-    public ShadowSettings Shadows;
+    public ShadowSettings Shadows = new();
+
+    /// <summary>How nearby surfaces darken the soft light. See docs/rendering.md.</summary>
+    public OcclusionSettings Occlusion = new();
+
+    /// <summary>
+    /// A box of light probes that gives the surfaces inside it bounced light in place of the sky's,
+    /// or none. At most <see cref="ProbeGrid.MaxProbes"/>. See docs/rendering.md.
+    /// </summary>
+    public ProbeVolumeSettings? LightProbes;
 
     /// <summary>Scales the light and reflections from the environment.</summary>
     public float EnvironmentIntensity;
+
+    /// <summary>A real clear sky in place of the environment's bands, or, with turbidity 0, the bands.</summary>
+    public AnalyticSky Sky;
 
     /// <summary>Shown where nothing was drawn, unless <see cref="ShowEnvironment"/> is set.</summary>
     public Vector3 BackgroundRadiance;
@@ -555,9 +893,26 @@ public ref struct FrameView
     /// <summary>What distant surfaces fade into. Zero fades them into the background behind them.</summary>
     public Vector3 BackgroundFadeColor;
 
+    /// <summary>
+    /// Height fog between the camera and what it sees, lit by the sky and the suns. It's
+    /// drawn for the view only: light and reflection probes capture clear air. See docs/rendering.md.
+    /// </summary>
+    public FogSettings Fog;
+
     public PostSettings Post;
 
     public UnderwaterSettings Water;
+
+    /// <summary>
+    /// The height water stands at on surfaces whose material has <see cref="MaterialFlags.Puddles"/>, and the damp
+    /// band above it. Null leaves every surface dry.
+    /// </summary>
+    public PuddleSettings? Puddles;
+
+    /// <summary>
+    /// The wind that sways materials with <see cref="Material.Wind"/>, and their shadows. Null keeps everything still.
+    /// </summary>
+    public WindSettings? Wind;
 
     /// <summary>Flat rectangles drawn last, over everything, in order. Needs <see cref="Renderer.SetOverlayAtlas"/>.</summary>
     public ReadOnlySpan<OverlayQuad> Overlay;
@@ -567,6 +922,12 @@ public ref struct FrameView
     /// <see cref="Particle.MaxPerFrame"/> are drawn; the rest are dropped.
     /// </summary>
     public ReadOnlySpan<Particle> Particles;
+
+    /// <summary>
+    /// Materials laid onto what lies inside a box, after the opaque surfaces are drawn and before they're lit.
+    /// At most <see cref="Passes.DecalBatch.MaxDecals"/>; more throws. Drawn in order, so a later one covers an earlier one.
+    /// </summary>
+    public ReadOnlySpan<DecalDraw> Decals;
 
     /// <summary>A fade, dissolve or wipe between two pictures, or none.</summary>
     public ScreenTransition Transition;
@@ -602,13 +963,112 @@ public enum RenderEffects
     /// <summary>The glow round bright things.</summary>
     Bloom = 1 << 5,
 
-    All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom,
+    /// <summary>
+    /// Every material's colour, textures, normal maps and shine. Without them every surface is the same
+    /// light grey, matte clay, shaped only by its mesh, which shows the lighting and the models on their own.
+    /// Cut-outs still cut, glows still glow and see-through things stay see-through.
+    /// </summary>
+    Materials = 1 << 6,
+
+    /// <summary>
+    /// The sun's contact shadows, the last centimetres where things meet the ground, found on screen.
+    /// Without them the sun's shadow maps alone shade those, as <see cref="ShadowSettings.ContactLength"/> 0 does.
+    /// </summary>
+    ContactShadows = 1 << 7,
+
+    /// <summary>
+    /// The light bounced off walls and floors, from <see cref="FrameView.LightProbes"/>. Without it
+    /// nothing is drawn into the probes and every surface takes its soft light from the sky.
+    /// </summary>
+    LightProbes = 1 << 8,
+
+    /// <summary>
+    /// The light that bounces between a rough surface's microfacets before it leaves, given back to its
+    /// shine. Without it rough metals come out darker than they should.
+    /// It costs a few instructions a pixel.
+    /// </summary>
+    MultiscatterSpecular = 1 << 9,
+
+    /// <summary>
+    /// Worn edges and dirt laid by materials' baked masks (<see cref="Material.Wear"/> and <see cref="Material.Dirt"/>).
+    /// Without them those surfaces show only their own colour and roughness, and their masks aren't read.
+    /// </summary>
+    WearAndDirt = 1 << 10,
+
+    /// <summary>The height fog from <see cref="FrameView.Fog"/>. Without it the air is clear, whatever its density.</summary>
+    Fog = 1 << 11,
+
+    /// <summary>
+    /// Metering the frame for <see cref="PostSettings.AutoExposure"/>. Without it the fixed
+    /// <see cref="PostSettings.Exposure"/> sets the brightness, whatever the frame asks for.
+    /// </summary>
+    AutoExposure = 1 << 12,
+
+    /// <summary>
+    /// Blurring what's nearer or further than <see cref="PostSettings.FocusDistance"/>, as a camera lens
+    /// does once <see cref="PostSettings.Aperture"/> opens it. Without it everything is sharp.
+    /// </summary>
+    DepthOfField = 1 << 13,
+
+    /// <summary>The frame's <see cref="FrameView.Decals"/>. Without them stains and grime aren't drawn.</summary>
+    Decals = 1 << 14,
+
+    /// <summary>
+    /// Working out the fog near the camera in a volume lit by the sun's shadows and the point and
+    /// spot lights, up to <see cref="FogSettings.VolumetricDistance"/>. Without it the fog is the
+    /// plain height fog everywhere, with no shafts of light or halos.
+    /// </summary>
+    VolumetricFog = 1 << 15,
+
+    /// <summary>
+    /// Water and a damp band on surfaces whose material has <see cref="MaterialFlags.Puddles"/>, below and just
+    /// above <see cref="FrameView.Puddles"/>. Without it every surface is dry.
+    /// </summary>
+    Puddles = 1 << 16,
+
+    /// <summary>
+    /// Materials with <see cref="Material.Wind"/> sway in <see cref="FrameView.Wind"/>, and their shadows with them.
+    /// Without it everything stands still.
+    /// </summary>
+    Wind = 1 << 17,
+
+    All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
+        | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind,
 }
+
+/// <summary>
+/// How much of a decal's material reaches the surface under it, each from 0 to 1, along with
+/// how far round a corner it reaches. Each weight is multiplied by the material's opacity.
+/// </summary>
+/// <param name="Color">How much of the decal's colour covers the surface's.</param>
+/// <param name="Normal">How much of the decal's normal map is laid over the surface's bumps.</param>
+/// <param name="Roughness">How much of the decal's roughness replaces the surface's, as a damp patch shines.</param>
+/// <param name="AngleFade">
+/// The cosine of the angle from the box's up at which a surface stops taking the decal. The decal fades out
+/// as a surface turns towards it, so 0.5 reaches surfaces up to 60 degrees away, and 0 reaches round to 90.
+/// </param>
+public readonly record struct DecalBlend(float Color = 1f, float Normal = 1f, float Roughness = 1f, float AngleFade = 0.5f)
+{
+    /// <summary>The whole material, fading out on surfaces more than 60 degrees from the box's up.</summary>
+    public DecalBlend() : this(1f, 1f, 1f, 0.5f)
+    {
+    }
+}
+
+/// <summary>
+/// A material laid onto whatever lies inside a box, such as a damp patch on a wall or rust under a
+/// bracket. It projects down the box's own −Y: the box's X and Z span the material's width and height, and
+/// its Y how deep it reaches. See docs/views.md.
+/// </summary>
+/// <param name="Box">Takes the cube from −0.5 to 0.5 on each axis to where the decal is in the world.</param>
+/// <param name="Material">What is laid on. Its colour, surface and normal textures are used.</param>
+/// <param name="Blend">How much of each part of the material reaches the surface.</param>
+public readonly record struct DecalDraw(Matrix4x4 Box, MaterialHandle Material, DecalBlend Blend);
 
 /// <summary>
 /// A soft, see-through puff that always faces the camera, such as one wisp of dust or
 /// smoke. It's lit by the sun, the sky and point and spot lights, falls into the sun's
-/// shadow, fades into haze, and melts into whatever it touches instead of showing a hard
+/// shadow, sits in the fog, fades into haze, and melts into whatever it touches instead of showing a hard
 /// edge where it meets the ground. A glowing one, such as a lick of flame, adds its own light.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
@@ -749,7 +1209,25 @@ public sealed class RendererOptions
     /// tear. Displays that can't do this keep vsync on.
     /// </summary>
     public bool DisableVsync { get; init; }
+
+    /// <summary>How many texels across each of the sun's cascade maps starts: 1024, 2048 or 4096. See <see cref="Renderer.ShadowResolution"/>.</summary>
+    public int ShadowResolution { get; init; } = 2048;
+
+    /// <summary>How large the scene starts out drawn against the window, from 0.5 to 2. See <see cref="Renderer.RenderScale"/>.</summary>
+    public float RenderScale { get; init; } = 1f;
+
+    /// <summary>What anti-aliases the scene and, below a render scale of 1, upscales it. See <see cref="Renderer.Upscaler"/>.</summary>
+    public Upscaler Upscaler { get; init; } = Upscaler.Taa;
 }
+
+/// <summary>
+/// A layer laid over a material where its mask says, such as wear on its edges or dirt in its hollows. See
+/// <see cref="Material.Wear"/>.
+/// </summary>
+/// <param name="Color">The layer's colour, linear.</param>
+/// <param name="Roughness">The layer's roughness, from 0 to 1, or below 0 to keep the surface's own.</param>
+/// <param name="Amount">How strongly it shows, from 0, which turns it off, to 1.</param>
+public readonly record struct MaterialLayer(Vector3 Color, float Roughness, float Amount);
 
 /// <summary>
 /// How light spreads under a surface. The lighting pass blurs the diffuse light of these

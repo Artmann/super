@@ -112,13 +112,14 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
         EndStep("read settings");
 
         var cache = options.CacheFolder is { } cacheFolder ? new CookCache(cacheFolder) : null;
+        var stepCache = options.CacheFolder is { } stepFolder ? new StepCache(stepFolder) : null;
         var writer = new StoreWriter(store);
         var done = new Done[jobs.Count];
         int workers = Math.Max(1, Math.Min(options.WorkerCount, jobs.Count));
         try
         {
             Parallel.For(0, jobs.Count, new ParallelOptions { MaxDegreeOfParallelism = workers },
-                i => done[i] = CookOne(jobs[i], cache, writer));
+                i => done[i] = CookOne(jobs[i], cache, stepCache, writer));
         }
         catch (AggregateException aggregate) when (aggregate.InnerExceptions.Count > 0)
         {
@@ -181,7 +182,7 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
     }
 
     /// <summary>Takes one source from the cache, or cooks it and puts it in the cache. Runs on a worker thread.</summary>
-    private Done CookOne(Job job, CookCache? cache, StoreWriter writer)
+    private Done CookOne(Job job, CookCache? cache, StepCache? stepCache, StoreWriter writer)
     {
         var (file, cooker, values) = job;
         var done = new Done();
@@ -247,7 +248,7 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
                 bytes = file.Root.Read(file.Name);
             }
 
-            cookInput = new CookInput(file, bytes, values, options.Target);
+            cookInput = new CookInput(file, bytes, values, options.Target, stepCache);
             long cooking = Stopwatch.GetTimestamp();
             try
             {

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
@@ -17,18 +18,27 @@ public sealed unsafe class Renderer : IDisposable
     private const int FramesInFlight = 2;
     private const int JitterSteps = 16;
 
+    // How much sharper a mip level material textures are read at while anti-aliasing shifts the
+    // view. Each frame alone would shimmer, but the frames blended together settle, and the
+    // picture keeps detail the blend would otherwise soften.
+    private const float TemporalMipBias = -0.75f;
+
     /// <summary>The most skin matrices one frame can hold across every skinned draw.</summary>
     public const int MaxBones = 16384;
 
+    /// <summary>The most reflection probes the renderer holds at once.</summary>
+    public const int MaxReflectionProbes = FrameUniforms.MaxProbes;
+
     private const PipelineStageFlags2 SampledStage = PipelineStageFlags2.FragmentShaderBit;
+
+    // The shadow maps are read by the lighting pass and by the volumetric fog's compute pass.
+    private const PipelineStageFlags2 ShadowReadStages = SampledStage | PipelineStageFlags2.ComputeShaderBit;
     private const AccessFlags2 SampledAccess = AccessFlags2.ShaderSampledReadBit;
     private const PipelineStageFlags2 ColorStage = PipelineStageFlags2.ColorAttachmentOutputBit;
     private const AccessFlags2 ColorWrite = AccessFlags2.ColorAttachmentWriteBit;
     private const PipelineStageFlags2 DepthStages =
         PipelineStageFlags2.EarlyFragmentTestsBit | PipelineStageFlags2.LateFragmentTestsBit;
     private const AccessFlags2 DepthWrite = AccessFlags2.DepthStencilAttachmentWriteBit;
-
-    private static readonly Vector2[] Jitter = CreateJitter();
 
     private struct Frame
     {
@@ -48,6 +58,12 @@ public sealed unsafe class Renderer : IDisposable
     private readonly VulkanContext _context;
     private bool _disableVsync;
     private bool _vsyncChanged;
+    // The cascade map size asked for, which the next frame rebuilds the maps at if it differs.
+    private int _shadowResolution;
+    // The scene's size against the window's, which the next frame rebuilds the targets at if it differs.
+    private float _renderScale = 1f;
+    // The largest image side the device can make, which the scene is shrunk to fit.
+    private readonly int _maxImageSize;
     private readonly Vk _api;
     private readonly Frame[] _frames = new Frame[FramesInFlight];
     // How far a simpler model may stray. Shadows are soft, so they can afford more.
@@ -79,10 +95,29 @@ public sealed unsafe class Renderer : IDisposable
     private readonly EnvironmentMap _environment;
     private readonly ReflectionProbes _probes;
 
+    // The light probe volume, the small targets its faces are drawn to, and this frame's state:
+    // whether its faces are being drawn now, whether surfaces read it, and whether the sun's
+    // maps from the first face of a batch still hold, since every probe uses the same ones.
+    private readonly ProbeVolume _lightProbes;
+    private readonly VolumetricFogVolume _volumetricFog;
+    private GBuffer? _lightProbeTargets;
+    private GBuffer? _reflectionProbeTargets;
+    private bool _capturingLightProbes;
+    private bool _lightProbesInUse;
+    private bool _keepShadowMaps;
+
+    // Goes up with every SetEnvironment, so the light probes see the sky has changed.
+    private int _environmentVersion;
+
+    // The clear sky and sun the environment was last baked with. The lighting hashes cover what
+    // decides it through the view, so baking it again leaves the version alone.
+    private SkySun _bakedSky;
+
     private readonly DescriptorPool _descriptorPool;
     private readonly DescriptorSetLayout _frameSetLayout;
     private readonly DescriptorSetLayout _lightingSetLayout;
     private readonly DescriptorSetLayout _threeTextureSetLayout;
+    private readonly DescriptorSetLayout _fourTextureSetLayout;
     private readonly DescriptorSetLayout _twoTextureSetLayout;
     private readonly DescriptorSetLayout _oneTextureSetLayout;
     private readonly DescriptorSet _aoSet;
@@ -107,12 +142,18 @@ public sealed unsafe class Renderer : IDisposable
     private readonly FullscreenPass _scatterDownPass;
     private readonly TransparentPass _transparentPass;
     private readonly ParticlePass _particlePass;
+    private readonly DecalPass _decalPass;
     private ParticlePass.CameraConstants _particleCamera;
     private TransparentView _transparentView;
     private int _particleCount;
     private readonly FullscreenPass _taaPass;
+    private readonly DepthOfFieldPass _depthOfFieldPass;
+    private DepthOfFieldConstants? _depthOfField;
     private readonly BloomPass _bloomPass;
     private readonly FullscreenPass _tonemapPass;
+    private readonly ExposureMeter _exposureMeter;
+    private readonly ExposureClock _exposureClock = new();
+    private ExposureStep? _exposureStep;
     private readonly FullscreenPass _finishPass;
     private readonly OverlayPass _overlayPass;
     private readonly DescriptorSet _overlaySet;
@@ -127,14 +168,31 @@ public sealed unsafe class Renderer : IDisposable
     private int _frameNumber;
     private bool _historyReady;
     private Matrix4x4 _previousViewProjection;
+    // Last frame's time and where its keyed draws stood, for motion vectors.
+    private float _previousTime;
+    private readonly MotionHistory _motion = new();
 
     // The effects this frame leaves out, and whether tonemapping and bloom are bound to the
     // anti-aliased image or, with anti-aliasing left out, straight to the lit one.
     private RenderEffects _off;
+
+    // How far the frame's wind can move each material's vertices, which culling adds to the bounds.
+    private WindReach _windReach;
     private bool _readsAntiAliased = true;
+
+    // The upscaler asked for, the one it comes to once FSR's library is looked for, and whether FSR draws the
+    // picture now: only with anti-aliasing on and the scene no larger than the window.
+    private Upscaler _upscaler;
+    private Upscaler _upscalerUsed;
+    private bool _upscaling;
+    private readonly FsrPass _fsrPass;
+    private FsrFrame _fsrFrame;
 
     // Whether a sun casts its shadow this frame, so its maps are drawn.
     private bool _sunShadowsDrawn;
+
+    // Whether the frame being recorded draws the volumetric fog.
+    private bool _volumetricDrawn;
 
     // Moving between pictures: what the frame asks for, which hold the held picture
     // belongs to, and whether the held picture and the last finished frame exist yet.
@@ -165,6 +223,92 @@ public sealed unsafe class Renderer : IDisposable
         }
     }
 
+    /// <summary>
+    /// How many texels across each of the sun's cascade maps is: 1024, 2048 or 4096. Finer maps
+    /// give sharper shadows for four times the memory and drawing each step up. A change
+    /// rebuilds the maps before the next frame.
+    /// </summary>
+    public int ShadowResolution
+    {
+        get => _shadowResolution;
+        set => _shadowResolution = ShadowPass.CheckResolution(value);
+    }
+
+    /// <summary>The smallest <see cref="RenderScale"/>: a quarter of the window's pixels.</summary>
+    public const float MinRenderScale = 0.5f;
+
+    /// <summary>The largest <see cref="RenderScale"/>: four times the window's pixels.</summary>
+    public const float MaxRenderScale = 2f;
+
+    /// <summary>
+    /// How large the scene is drawn against the window, from 0.5 to 2 each way. Above 1 the scene is
+    /// drawn larger and shrunk to fit, which smooths edges and fine detail. Below 1 it's drawn smaller
+    /// and stretched, which is faster and softer. 1 draws at the window's size, with nothing resampled.
+    /// The overlay is always drawn at the window's size. A change rebuilds the targets before the next frame.
+    /// </summary>
+    public float RenderScale
+    {
+        get => _renderScale;
+        set => _renderScale = CheckRenderScale(value);
+    }
+
+    /// <summary>
+    /// What anti-aliases the scene: the engine's own TAA, or AMD's FSR 3.1, which also rebuilds a scene drawn
+    /// below a <see cref="RenderScale"/> of 1 at the window's size instead of stretching it. FSR needs its library,
+    /// amd_fidelityfx_vk.dll, next to the game; without it, or above a render scale of 1, TAA is used, and a missing
+    /// library is said once on the error stream. A change takes effect on the next frame and starts the history again.
+    /// </summary>
+    public Upscaler Upscaler
+    {
+        get => _upscaler;
+        set
+        {
+            if (value != _upscaler)
+            {
+                _upscaler = value;
+                _upscalerUsed = Upscale.Choose(value, value == Upscaler.Fsr && Fsr.IsAvailable, Console.Error);
+            }
+        }
+    }
+
+    /// <summary>The FSR version in use, such as "FSR 3.1.4", or null while FSR isn't drawing the picture.</summary>
+    public string? UpscalerVersion => _upscaling ? _fsrPass.Version : null;
+
+    /// <summary>Returns <paramref name="value"/> if it's a <see cref="RenderScale"/> from 0.5 to 2, and throws if not.</summary>
+    public static float CheckRenderScale(float value) => value is >= MinRenderScale and <= MaxRenderScale
+        ? value
+        : throw new ArgumentOutOfRangeException(nameof(value), string.Create(
+            CultureInfo.InvariantCulture, $"RenderScale must be from {MinRenderScale} to {MaxRenderScale}, not {value}."));
+
+    /// <summary>
+    /// How many pixels across and down the scene is drawn for a window this size at this
+    /// <see cref="RenderScale"/>. At 1 it's the window's size. Otherwise each side is rounded to
+    /// the nearest even number, so at 0.5 each scene pixel covers exactly two by two window pixels.
+    /// A side longer than <paramref name="maxSize"/>, the largest image the device can make, shrinks
+    /// the whole scene to fit, keeping its shape.
+    /// </summary>
+    public static (int Width, int Height) SceneSize(int width, int height, float scale, int maxSize = int.MaxValue)
+    {
+        if (scale != 1f)
+        {
+            width = Even(width * (double)scale);
+            height = Even(height * (double)scale);
+        }
+
+        int longest = Math.Max(width, height);
+        if (longest <= maxSize)
+        {
+            return (width, height);
+        }
+
+        // Whole numbers, so the longest side lands on the limit exactly.
+        return (EvenBelow((long)width * maxSize / longest), EvenBelow((long)height * maxSize / longest));
+
+        static int Even(double size) => Math.Max((int)Math.Round(size / 2d) * 2, 2);
+
+        static int EvenBelow(long size) => (int)Math.Max(size / 2 * 2, 2);
+    }
+
     /// <summary>Times the render passes. Off by default, because reading the times costs a little.</summary>
     public bool MeasureGpu { get; set; }
 
@@ -178,6 +322,9 @@ public sealed unsafe class Renderer : IDisposable
     public (long Camera, long Shadows) DrawnTriangles { get; private set; }
 
     private DrawItem[] _cameraDraws = [];
+
+    // The world-space ball round each draw this frame, for fitting sun shadows to what casts them.
+    private Vector4[] _casterBounds = [];
     private readonly DrawItem[][] _shadowDraws = new DrawItem[ShadowPass.MaxCascades][];
     private readonly int[] _shadowCounts = new int[ShadowPass.MaxCascades];
     private readonly Matrix4x4[] _shadowMatrices = new Matrix4x4[ShadowPass.MaxCascades];
@@ -200,7 +347,14 @@ public sealed unsafe class Renderer : IDisposable
 
         _disableVsync = options.DisableVsync;
         _swapchain = new Swapchain(_context, (uint)options.Width, (uint)options.Height, _disableVsync);
-        _gBuffer = new GBuffer(_context, _swapchain.Extent);
+        _renderScale = CheckRenderScale(options.RenderScale);
+        // The targets start at the scene's size; the first frame makes FSR's, when it's used, as it learns
+        // whether anti-aliasing is on.
+        _upscaler = options.Upscaler;
+        _upscalerUsed = Upscale.Choose(_upscaler, _upscaler == Upscaler.Fsr && Fsr.IsAvailable, Console.Error);
+        _api.GetPhysicalDeviceProperties(_context.PhysicalDevice, out var deviceProperties);
+        _maxImageSize = (int)Math.Min(deviceProperties.Limits.MaxImageDimension2D, int.MaxValue);
+        _gBuffer = new GBuffer(_context, SceneExtent(_swapchain.Extent));
 
         var samplerInfo = new SamplerCreateInfo
         {
@@ -232,16 +386,17 @@ public sealed unsafe class Renderer : IDisposable
         _api.CreateSampler(_context.Device, &shadowSamplerInfo, null, out _shadowSampler).Check();
 
         _frameSetLayout = CreateFrameSetLayout();
-        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 11, ShaderStageFlags.FragmentBit);
+        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 14, ShaderStageFlags.FragmentBit);
         _threeTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 3, ShaderStageFlags.FragmentBit);
+        _fourTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 4, ShaderStageFlags.FragmentBit);
         _twoTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 2, ShaderStageFlags.FragmentBit);
         _oneTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit);
 
         var poolSizes = stackalloc DescriptorPoolSize[]
         {
             new(DescriptorType.UniformBuffer, FramesInFlight),
-            new(DescriptorType.StorageBuffer, 5 * FramesInFlight),
-            new(DescriptorType.CombinedImageSampler, 27 + 2 * FramesInFlight),
+            new(DescriptorType.StorageBuffer, 6 * FramesInFlight),
+            new(DescriptorType.CombinedImageSampler, 32 + 3 * FramesInFlight),
         };
         var poolInfo = new DescriptorPoolCreateInfo
         {
@@ -258,7 +413,8 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         _resources = new ResourceTable(_context);
-        _shadowPass = new ShadowPass(_context, _frameSetLayout, _resources);
+        _shadowResolution = ShadowPass.CheckResolution(options.ShadowResolution);
+        _shadowPass = new ShadowPass(_context, _frameSetLayout, _resources, _shadowResolution);
         foreach (ref var frame in _frames.AsSpan())
         {
             WriteAtlasDescriptors(frame);
@@ -282,19 +438,26 @@ public sealed unsafe class Renderer : IDisposable
             Floor = new Vector3(0.2f),
         });
         _probes = new ReflectionProbes(_context, _environment.Sampler);
+        _lightProbes = new ProbeVolume(_context, _sampler);
+        _volumetricFog = new VolumetricFogVolume(_context, _frameSetLayout, _linearSampler);
 
         _aoSet = AllocateSet(_threeTextureSetLayout);
         _aoBlurSet = AllocateSet(_twoTextureSetLayout);
         _scatterAcrossSet = AllocateSet(_twoTextureSetLayout);
         _scatterDownSet = AllocateSet(_twoTextureSetLayout);
         _lightingSet = AllocateSet(_lightingSetLayout);
-        _taaSet = AllocateSet(_threeTextureSetLayout);
+        _taaSet = AllocateSet(_fourTextureSetLayout);
         _tonemapSet = AllocateSet(_twoTextureSetLayout);
         _finishSet = AllocateSet(_twoTextureSetLayout);
         _overlaySet = AllocateSet(_oneTextureSetLayout);
-        _bloomPass = new BloomPass(_context, _linearSampler, _gBuffer.Resolved.View, _gBuffer.Extent);
+        _bloomPass = new BloomPass(_context, _linearSampler, _gBuffer.Resolved.View, _gBuffer.Display);
         _particlePass = new ParticlePass(_context, _frameSetLayout, FramesInFlight);
-        _transparentPass = new TransparentPass(_context, _frameSetLayout, _resources, _environment);
+        _decalPass = new DecalPass(_context, _frameSetLayout, _resources, FramesInFlight);
+        _transparentPass = new TransparentPass(_context, _frameSetLayout, _resources, _environment, _probes);
+        _exposureMeter = new ExposureMeter(_context, _sampler);
+        _fsrPass = new FsrPass(_context, _sampler, _frameSetLayout, _exposureMeter.SetLayout);
+        _depthOfFieldPass = new DepthOfFieldPass(_context, _sampler, _linearSampler, _frameSetLayout);
+        _depthOfFieldPass.SetTargets(DisplaySource, _gBuffer.Depth.View, _gBuffer.Extent);
         WriteTargetDescriptors();
 
         _gBufferPass = new GBufferPass(_context, _frameSetLayout, _resources);
@@ -306,8 +469,9 @@ public sealed unsafe class Renderer : IDisposable
             [_frameSetLayout, _twoTextureSetLayout, _resources.Layout], BlurConstants.Size);
         _scatterDownPass = new FullscreenPass(_context, "sss_blur.frag", [GBuffer.HdrFormat],
             [_frameSetLayout, _twoTextureSetLayout, _resources.Layout], BlurConstants.Size, blend: true);
-        _taaPass = new FullscreenPass(_context, "taa.frag", GBuffer.HdrFormat, [_frameSetLayout, _threeTextureSetLayout]);
-        _tonemapPass = new FullscreenPass(_context, "tonemap.frag", GBuffer.LdrFormat, [_frameSetLayout, _twoTextureSetLayout]);
+        _taaPass = new FullscreenPass(_context, "taa.frag", GBuffer.HdrFormat, [_frameSetLayout, _fourTextureSetLayout]);
+        _tonemapPass = new FullscreenPass(_context, "tonemap.frag", GBuffer.LdrFormat,
+            [_frameSetLayout, _twoTextureSetLayout, _exposureMeter.SetLayout]);
         _finishPass = new FullscreenPass(_context, "finish.frag", _swapchain.Format, [_frameSetLayout, _twoTextureSetLayout], TransitionConstants.Size);
         _overlayPass = new OverlayPass(_context, _swapchain.Format, _oneTextureSetLayout, _resources, FramesInFlight);
         _gpuTimer = new GpuTimer(_context, FramesInFlight);
@@ -507,24 +671,44 @@ public sealed unsafe class Renderer : IDisposable
     public void SetEnvironment(in EnvironmentDescription environment)
     {
         _api.DeviceWaitIdle(_context.Device).Check();
-        _environment.Bake(environment);
+        _environment.Bake(environment, _bakedSky);
+        _environmentVersion++;
+    }
+
+    /// <summary>
+    /// Bakes the environment again with the view's clear sky when it or its sun has changed. A
+    /// gradient sky gives the same empty <see cref="SkySun"/> whatever the sun does, so that never bakes.
+    /// </summary>
+    private void BakeSky(in FrameView view)
+    {
+        var sky = SkyModel.Sun(view);
+        if (sky == _bakedSky)
+        {
+            return;
+        }
+
+        _api.DeviceWaitIdle(_context.Device).Check();
+        _environment.Rebake(sky);
+        _bakedSky = sky;
     }
 
     /// <summary>
     /// Hands a texture's bytes to the next frame's command buffer rather than waiting for
-    /// the GPU, so it can be sampled in that same frame.
+    /// the GPU, so it can be sampled in that same frame. <paramref name="edges"/> says what is
+    /// read past the texture's edge, for every material that uses it: an atlas such as a
+    /// <see cref="Material.MaskTexture"/> wants <see cref="TextureEdges.Clamp"/>.
     /// </summary>
-    public TextureHandle CreateTexture(TextureData data)
+    public TextureHandle CreateTexture(TextureData data, TextureEdges edges = TextureEdges.Repeat)
     {
-        var texture = new GpuTexture(_context, data.Width, data.Height, data.Kind, (uint)data.Mips.Length, 1);
+        var texture = new GpuTexture(_context, data.Width, data.Height, data.Kind, (uint)data.Mips.Length, 1, format: data.Format);
         _uploads.Add(texture.CreateStaging([data]), texture);
-        return _resources.AddTexture(texture);
+        return _resources.AddTexture(texture, edges);
     }
 
     /// <summary>
     /// Stacks same-sized images into one texture that shaders read by layer, uploaded the
     /// same way as <see cref="CreateTexture"/>. Every layer must have the first layer's
-    /// size, kind and mip count.
+    /// size, kind, format and mip count.
     /// </summary>
     public TextureArrayHandle CreateTextureArray(ReadOnlySpan<TextureData> layers)
     {
@@ -537,17 +721,17 @@ public sealed unsafe class Renderer : IDisposable
         for (int i = 1; i < layers.Length; i++)
         {
             var layer = layers[i];
-            if (layer.Width != first.Width || layer.Height != first.Height || layer.Kind != first.Kind
+            if (layer.Width != first.Width || layer.Height != first.Height || layer.Kind != first.Kind || layer.Format != first.Format
                 || layer.Mips.Length != first.Mips.Length)
             {
                 throw new ArgumentException(
-                    $"Layer {i} is {layer.Width}x{layer.Height} {layer.Kind} with {layer.Mips.Length} mips, " +
-                    $"but layer 0 is {first.Width}x{first.Height} {first.Kind} with {first.Mips.Length} mips.",
+                    $"Layer {i} is {layer.Width}x{layer.Height} {layer.Kind} {layer.Format} with {layer.Mips.Length} mips, " +
+                    $"but layer 0 is {first.Width}x{first.Height} {first.Kind} {first.Format} with {first.Mips.Length} mips.",
                     nameof(layers));
             }
         }
 
-        var texture = new GpuTexture(_context, first.Width, first.Height, first.Kind, (uint)first.Mips.Length, (uint)layers.Length, true);
+        var texture = new GpuTexture(_context, first.Width, first.Height, first.Kind, (uint)first.Mips.Length, (uint)layers.Length, true, first.Format);
         _uploads.Add(texture.CreateStaging(layers), texture);
         return _resources.AddTextureArray(texture);
     }
@@ -569,13 +753,141 @@ public sealed unsafe class Renderer : IDisposable
     /// there. A probe usually sits inside an object, so <paramref name="visible"/> should
     /// leave that object out while <paramref name="shadowCasters"/> keeps it, which still
     /// puts its shadow in the picture. The view supplies the lights and shadow settings.
-    /// This takes a moment and waits for the GPU, so call it while loading.
+    /// This takes a moment and waits for the GPU, so call it while loading, or when
+    /// <see cref="ReflectionLightingHash(in FrameView)"/> changes. The sun's shadows are framed on
+    /// the probe's box, whatever the view's shadow centre. At most <see cref="MaxReflectionProbes"/> fit.
     /// </summary>
     public ReflectionProbeHandle CaptureReflectionProbe(
         in ReflectionProbe probe,
         in FrameView view,
         ReadOnlySpan<DrawItem> visible,
         ReadOnlySpan<DrawItem> shadowCasters)
+    {
+        if (_probes.Count == MaxReflectionProbes)
+        {
+            throw new InvalidOperationException($"Only {MaxReflectionProbes} reflection probes are supported.");
+        }
+
+        CaptureProbeFaces(probe, view, visible, shadowCasters);
+        return _probes.Add(probe);
+    }
+
+    /// <summary>
+    /// Photographs the scene again for a probe <see cref="CaptureReflectionProbe"/> made, which can
+    /// also move it or change its box. Surfaces reflect the new picture from the next frame.
+    /// </summary>
+    public void RecaptureReflectionProbe(
+        ReflectionProbeHandle handle,
+        in ReflectionProbe probe,
+        in FrameView view,
+        ReadOnlySpan<DrawItem> visible,
+        ReadOnlySpan<DrawItem> shadowCasters)
+    {
+        if ((uint)handle.Index >= (uint)_probes.Count)
+        {
+            throw new ArgumentException($"Reflection probe {handle.Index} does not exist; there are {_probes.Count}.", nameof(handle));
+        }
+
+        CaptureProbeFaces(probe, view, visible, shadowCasters);
+        _probes.Replace(handle, probe);
+    }
+
+    /// <summary>How many reflection probes have been captured and not cleared.</summary>
+    public int ReflectionProbeCount => _probes.Count;
+
+    /// <summary>Forgets every reflection probe, so surfaces reflect only the sky from the next frame.</summary>
+    public void ClearReflectionProbes() => _probes.Clear();
+
+    /// <summary>
+    /// A number that changes whenever something that lights a reflection probe's picture changes,
+    /// so capture the probes again when it does. It covers the suns, the sky and background, the sun
+    /// shadow's softness and cascades, the ambient occlusion settings, the light probes and whether
+    /// they have settled, and the switches for sun shadows, materials and ambient occlusion. Moving
+    /// things or the camera doesn't change it. Point and spot lights aren't in it, because captures
+    /// leave them out, and nor are the contact shadow and light shadow switches, which only touch
+    /// what captures leave out.
+    /// </summary>
+    public int ReflectionLightingHash(in FrameView view)
+    {
+        // Light probes fill in over a few frames, and probes captured before then look wrong.
+        bool lightProbesSettled = _lightProbesInUse && _lightProbes.Schedule.Round > 2;
+        return HashCode.Combine(ReflectionLightingHash(view, _environmentVersion), _lightProbesInUse, lightProbesSettled);
+    }
+
+    /// <summary>The part of <see cref="ReflectionLightingHash(in FrameView)"/> that the view alone decides.</summary>
+    internal static int ReflectionLightingHash(in FrameView view, int environmentVersion) =>
+        HashCode.Combine(LightingHash(view, environmentVersion), view.Occlusion, view.Off & RenderEffects.AmbientOcclusion);
+
+    /// <summary>
+    /// The shadow settings a capture uses: the view's, with the sharpest map round the box being
+    /// captured rather than round the camera, so moving the camera doesn't change the picture.
+    /// Shadows that are off stay off.
+    /// </summary>
+    internal static ShadowSettings CaptureShadows(in ShadowSettings shadows, Vector3 boxMin, Vector3 boxMax)
+    {
+        var framed = shadows;
+        if (shadows.Radius > 0f)
+        {
+            framed.Center = (boxMin + boxMax) * 0.5f;
+            framed.Radius = MathF.Max(Vector3.Distance(boxMin, boxMax) * 0.5f, 0.01f);
+        }
+
+        return framed;
+    }
+
+    private void CaptureProbeFaces(in ReflectionProbe probe, in FrameView view, ReadOnlySpan<DrawItem> visible, ReadOnlySpan<DrawItem> shadowCasters)
+    {
+        _api.DeviceWaitIdle(_context.Device).Check();
+        _uploads.Flush();
+        BakeSky(view);
+
+        // The passes are bound to the screen's targets, so small ones stand in for a while. Rebinding
+        // them forgets the held transition picture, so that is put back after, as light probes do.
+        var screenTargets = _gBuffer;
+        bool heldReady = _heldReady;
+        bool ldrReady = _ldrReady;
+        bool historyReady = _historyReady;
+        var screenOff = _off;
+        _reflectionProbeTargets ??= new GBuffer(_context, new Extent2D(ReflectionProbes.FaceSize, ReflectionProbes.FaceSize));
+        _gBuffer = _reflectionProbeTargets;
+        WriteTargetDescriptors();
+
+        // The picture follows the view's switches, which Render hasn't applied yet this frame.
+        _off = view.Off & RenderEffects.All;
+
+        // The probe's targets have no history, so RecordScene readies an empty one each face.
+        // The screen's history is kept, and so is the flag, which the finally puts back.
+        _historyReady = false;
+        try
+        {
+            var faceView = view;
+            faceView.Shadows = CaptureShadows(view.Shadows, probe.BoxMin, probe.BoxMax);
+            CaptureFaces(faceView, probe.Position, visible, shadowCasters, _probes.Capture);
+        }
+        finally
+        {
+            _off = screenOff;
+            _gBuffer = screenTargets;
+            WriteTargetDescriptors();
+            _heldReady = heldReady;
+            _ldrReady = ldrReady;
+            _historyReady = historyReady;
+        }
+    }
+
+    /// <summary>
+    /// Draws the scene from <paramref name="position"/> into each face of <paramref name="cube"/>,
+    /// whose size the current targets must have, waiting for each face. With a
+    /// <paramref name="lightProbe"/> index, the faces are then folded into that light probe.
+    /// </summary>
+    private void CaptureFaces(
+        in FrameView view,
+        Vector3 position,
+        ReadOnlySpan<DrawItem> visible,
+        ReadOnlySpan<DrawItem> shadowCasters,
+        CaptureCube cube,
+        int lightProbe = -1,
+        float lightProbeSpacing = 0f)
     {
         const float probeNear = 0.05f;
 
@@ -591,29 +903,27 @@ public sealed unsafe class Renderer : IDisposable
             (Vector3.UnitZ, Vector3.UnitY),
         ];
 
-        _api.DeviceWaitIdle(_context.Device).Check();
-        _uploads.Flush();
-
-        // The passes are bound to the current targets, so small ones stand in for a while.
-        var screenTargets = _gBuffer;
-        _gBuffer = new GBuffer(_context, new Extent2D(ReflectionProbes.FaceSize, ReflectionProbes.FaceSize));
-        WriteTargetDescriptors();
-        _historyReady = false;
-
         ref Frame frame = ref _frames[_frameIndex];
         var fence = frame.InFlight;
         var faceView = view;
-        faceView.CameraPosition = probe.Position;
+        faceView.CameraPosition = position;
         faceView.Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 2f, 1f, probeNear);
         faceView.BackgroundFadeStart = 0f;
         faceView.BackgroundFadeEnd = 0f;
 
+        // Probes see the decals too, so a stain's damp shine shows in a reflection. The GPU is idle, so
+        // this frame's buffer is free. Decals don't count towards a probe's lighting hash, so they never
+        // cause a capture of their own.
+        PrepareDecals(view);
+        _decalPass.Upload(_frameIndex);
+
         for (int face = 0; face < faces.Length; face++)
         {
-            faceView.View = Matrix4x4.CreateLookAt(probe.Position, probe.Position + faces[face].Forward, faces[face].Up);
-            bool castsShadow = WriteUniforms(frame, faceView, Matrix4x4.Identity, Vector2.Zero, 0, false, capturingProbe: true);
+            faceView.View = Matrix4x4.CreateLookAt(position, position + faces[face].Forward, faces[face].Up);
+            bool castsShadow = WriteUniforms(frame, faceView, Matrix4x4.Identity, Vector2.Zero, 0, false, capturingProbe: true, []);
+            bool drawShadows = castsShadow && !_keepShadowMaps;
             WriteBones(frame, view.Bones);
-            ResetInstances(frame, visible.Length + (castsShadow ? shadowCasters.Length * _shadowCascades : 0));
+            ResetInstances(frame, visible.Length + (drawShadows ? shadowCasters.Length * _shadowCascades : 0));
 
             _api.ResetCommandPool(_context.Device, frame.CommandPool, 0).Check();
             var cmd = frame.CommandBuffer;
@@ -623,9 +933,14 @@ public sealed unsafe class Renderer : IDisposable
                 Flags = CommandBufferUsageFlags.OneTimeSubmitBit,
             };
             _api.BeginCommandBuffer(cmd, &beginInfo).Check();
-            RecordScene(cmd, frame.Set, visible, castsShadow ? shadowCasters : [], shadowsSelected: false,
+            RecordScene(cmd, frame.Set, visible, drawShadows ? shadowCasters : [], shadowsSelected: false,
                 TransparentView.From(faceView.View, faceView.Projection));
-            _probes.RecordFace(cmd, _gBuffer.Hdr.Image, face);
+            cube.RecordFace(cmd, _gBuffer.Hdr.Image, face);
+            if (lightProbe >= 0 && face == faces.Length - 1)
+            {
+                _lightProbes.RecordFold(cmd, lightProbe, lightProbeSpacing);
+            }
+
             _api.EndCommandBuffer(cmd).Check();
 
             _api.ResetFences(_context.Device, 1, &fence).Check();
@@ -642,15 +957,116 @@ public sealed unsafe class Renderer : IDisposable
             };
             _api.QueueSubmit2(_context.Queue, 1, &submit, fence).Check();
             _api.WaitForFences(_context.Device, 1, &fence, true, ulong.MaxValue).Check();
+
+            // Light probes all use maps round their volume's centre, whatever their position,
+            // so the rest of the batch keeps the first face's.
+            if (_capturingLightProbes && castsShadow)
+            {
+                _keepShadowMaps = true;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Captures the next few light probes of the view's volume, if any are due, before the frame
+    /// is drawn. Up to <see cref="ProbeVolume.ProbesPerFrame"/> a frame, so a volume fills in over
+    /// a few frames rather than in one long stall. Then decides whether this frame's surfaces read them.
+    /// </summary>
+    private void CaptureLightProbes(in FrameView view, ReadOnlySpan<DrawItem> draws)
+    {
+        _lightProbesInUse = false;
+        if (view.LightProbes is not { } settings || _off.HasFlag(RenderEffects.LightProbes) || !_lightProbes.Supported)
+        {
+            return;
         }
 
-        var handle = _probes.Add(probe);
+        var schedule = _lightProbes.Schedule;
+        schedule.Update(settings, LightingHash(view, _environmentVersion));
+        var (first, count) = schedule.Batch(ProbeVolume.ProbesPerFrame);
+        if (count > 0)
+        {
+            // Frames in flight still read the targets and sets the captures borrow.
+            _api.DeviceWaitIdle(_context.Device).Check();
+            _uploads.Flush();
 
-        _gBuffer.Dispose();
-        _gBuffer = screenTargets;
-        WriteTargetDescriptors();
-        _historyReady = false;
-        return handle;
+            var screenTargets = _gBuffer;
+            bool heldReady = _heldReady;
+            bool ldrReady = _ldrReady;
+            var screenOff = _off;
+            bool historyReady = _historyReady;
+            _lightProbeTargets ??= new GBuffer(_context, new Extent2D(ProbeVolume.FaceSize, ProbeVolume.FaceSize));
+            _gBuffer = _lightProbeTargets;
+            WriteTargetDescriptors();
+
+            // A probe keeps diffuse light only, and its faces are too small for screen-space occlusion.
+            _off |= RenderEffects.AmbientOcclusion | RenderEffects.Reflections;
+            _capturingLightProbes = true;
+
+            // The capture's targets have no history, so RecordScene readies an empty one each face.
+            _historyReady = false;
+            try
+            {
+                var volumeView = view;
+                volumeView.Shadows = CaptureShadows(view.Shadows, settings.Min, settings.Max);
+                for (int i = 0; i < count; i++)
+                {
+                    int probe = first + i;
+                    CaptureFaces(volumeView, ProbeGrid.Position(settings, probe), draws, draws, _lightProbes.Capture, probe, settings.Spacing);
+                }
+            }
+            finally
+            {
+                _capturingLightProbes = false;
+                _keepShadowMaps = false;
+                _off = screenOff;
+                _gBuffer = screenTargets;
+                WriteTargetDescriptors();
+                _heldReady = heldReady;
+                _ldrReady = ldrReady;
+                _historyReady = historyReady;
+            }
+
+            schedule.Captured(count);
+        }
+
+        _lightProbesInUse = schedule.Ready;
+    }
+
+    /// <summary>
+    /// Sums up everything that lights the light probes: the suns' directions and colours, the
+    /// environment and its intensity, the clear sky's turbidity, the background, and whether the sun
+    /// casts a shadow and how soft it is. When it changes, the probes are captured again. The scene's geometry isn't in it,
+    /// so moving things doesn't change it, and nor does the camera: captures frame the sun's shadow
+    /// on their own box (<see cref="CaptureShadows"/>), so the view's shadow centre and radius are left out.
+    /// </summary>
+    internal static int LightingHash(in FrameView view, int environmentVersion)
+    {
+        var hash = new HashCode();
+        int count = Math.Min(view.Lights.Length, FrameUniforms.MaxLights);
+        for (int i = 0; i < count; i++)
+        {
+            ref readonly var light = ref view.Lights[i];
+            hash.Add(light.Direction);
+            hash.Add(light.Radiance);
+            hash.Add(light.CastsShadow);
+        }
+
+        hash.Add(count);
+        hash.Add(environmentVersion);
+        hash.Add(view.EnvironmentIntensity);
+        hash.Add(view.Sky.Turbidity);
+        hash.Add(view.BackgroundRadiance);
+        hash.Add(view.ShowEnvironment);
+        hash.Add(view.Shadows.Radius > 0f);
+        hash.Add(view.Shadows.Cascades);
+        hash.Add(view.Shadows.LightAngle);
+
+        // Plain materials and wear and dirt change what colour the bounced light picks up, and multiscatter how
+        // brightly rough metals shine in what a probe photographs.
+        hash.Add(view.Off & (RenderEffects.SunShadows | RenderEffects.Materials | RenderEffects.MultiscatterSpecular
+            | RenderEffects.WearAndDirt));
+        hash.Add(view.LightProbes);
+        return hash.ToHashCode();
     }
 
     /// <summary>
@@ -692,6 +1108,16 @@ public sealed unsafe class Renderer : IDisposable
             throw new ArgumentException($"The material's {problem}", nameof(material));
         }
 
+        if ((material.Flags & MaterialFlags.Foliage) != 0 && Material.TranslucencyProblem(material.Translucency) is { } translucency)
+        {
+            throw new ArgumentException($"The material's {translucency}", nameof(material));
+        }
+
+        if (Material.WindProblem(material.Wind) is { } wind)
+        {
+            throw new ArgumentException($"The material's {wind}", nameof(material));
+        }
+
         if (material.Shader is { } shader)
         {
             if (shader.Index <= 0 || shader.Index >= _gBufferPass.ShaderCount)
@@ -719,46 +1145,71 @@ public sealed unsafe class Renderer : IDisposable
         }
     }
 
-    /// <summary>Uploads a cooked model and returns one draw per part.</summary>
-    public DrawItem[] CreateModel(ModelData model)
+    /// <summary>
+    /// Uploads a cooked model and returns one draw per part. <paramref name="finish"/>, given each
+    /// material's index and what the model holds, can change it before it's made, such as to give it
+    /// the surface shader <see cref="ModelData.ShaderOf"/> names. <see cref="DestroyModel"/> frees
+    /// every texture a material names, its shader textures too, so give each model textures of its own.
+    /// </summary>
+    public DrawItem[] CreateModel(ModelData model, Func<int, Material, Material>? finish = null)
     {
         var textures = new TextureHandle[model.Textures.Length];
         for (int i = 0; i < textures.Length; i++)
         {
-            textures[i] = CreateTexture(model.Textures[i]);
+            textures[i] = CreateTexture(model.Textures[i], model.EdgesOf(i));
         }
 
         var materials = new MaterialHandle[model.Materials.Length];
         for (int i = 0; i < materials.Length; i++)
         {
-            ref readonly var source = ref model.Materials[i];
-            materials[i] = CreateMaterial(new Material
+            var material = MaterialOf(model.Materials[i], textures);
+            if (model.MaskOf(i) is { } masks)
             {
-                BaseColor = source.BaseColor,
-                Metallic = source.Metallic,
-                Roughness = source.Roughness,
-                AlphaCutoff = source.AlphaCutoff,
-                BaseColorTexture = source.BaseColorTexture >= 0 ? textures[source.BaseColorTexture] : null,
-                NormalTexture = source.NormalTexture >= 0 ? textures[source.NormalTexture] : null,
-                SurfaceTexture = source.SurfaceTexture >= 0 ? textures[source.SurfaceTexture] : null,
-                Emissive = source.Emissive,
-                EmissiveTexture = source.EmissiveTexture >= 0 ? textures[source.EmissiveTexture] : null,
-                Clearcoat = source.Clearcoat,
-                HeightTexture = source.HeightTexture >= 0 ? textures[source.HeightTexture] : null,
-                HeightDepth = source.HeightDepth,
-                DetailColorTexture = source.DetailColorTexture >= 0 ? textures[source.DetailColorTexture] : null,
-                DetailNormalTexture = source.DetailNormalTexture >= 0 ? textures[source.DetailNormalTexture] : null,
-                DetailScale = source.DetailScale,
-                Flags = source.Flags,
-                Ior = source.Ior,
-                Subsurface = source.Subsurface,
-            });
+                material.MaskTexture = textures[masks.Texture];
+                material.Wear = masks.Wear;
+                material.Dirt = masks.Dirt;
+            }
+
+            materials[i] = CreateMaterial(finish is null ? material : finish(i, material));
         }
 
         // A posed skeleton can reach well outside the rest pose, so a skinned part's
         // culling sphere is doubled rather than culled too early at the screen's edge.
         float radiusScale = model.Skeleton is null ? 1f : 2f;
         return CreateDetailedMesh(model.Vertices, model.Indices, model.Parts, materials, radiusScale: radiusScale);
+    }
+
+    /// <summary>
+    /// The material a cooked model's material makes, with its texture indices turned into <paramref name="textures"/>'
+    /// handles and -1 for none. The mask textures come separately, from <see cref="ModelData.MaskOf"/>.
+    /// </summary>
+    internal static Material MaterialOf(in ModelMaterial source, ReadOnlySpan<TextureHandle> textures)
+    {
+        static TextureHandle? Texture(int index, ReadOnlySpan<TextureHandle> textures) => index >= 0 ? textures[index] : null;
+
+        return new Material
+        {
+            BaseColor = source.BaseColor,
+            Metallic = source.Metallic,
+            Roughness = source.Roughness,
+            AlphaCutoff = source.AlphaCutoff,
+            BaseColorTexture = Texture(source.BaseColorTexture, textures),
+            NormalTexture = Texture(source.NormalTexture, textures),
+            SurfaceTexture = Texture(source.SurfaceTexture, textures),
+            Emissive = source.Emissive,
+            EmissiveTexture = Texture(source.EmissiveTexture, textures),
+            Clearcoat = source.Clearcoat,
+            HeightTexture = Texture(source.HeightTexture, textures),
+            HeightDepth = source.HeightDepth,
+            DetailColorTexture = Texture(source.DetailColorTexture, textures),
+            DetailNormalTexture = Texture(source.DetailNormalTexture, textures),
+            DetailScale = source.DetailScale,
+            Flags = source.Flags,
+            Ior = source.Ior,
+            Subsurface = source.Subsurface,
+            Translucency = source.Translucency,
+            Wind = source.Wind,
+        };
     }
 
     private DrawItem[] CreateDetailedMesh(
@@ -816,12 +1267,50 @@ public sealed unsafe class Renderer : IDisposable
             return; // Minimized: there is nothing to present to.
         }
 
+        // FSR draws the picture at the window's size, so starting or stopping it changes the targets.
+        bool upscaling = _upscalerUsed == Upscaler.Fsr && _renderScale <= 1f && !view.Off.HasFlag(RenderEffects.AntiAliasing);
+        bool upscalingChanged = upscaling != _upscaling;
+        _upscaling = upscaling;
         if (_vsyncChanged || (uint)view.Width != _swapchain.Extent.Width || (uint)view.Height != _swapchain.Extent.Height)
         {
             Resize((uint)view.Width, (uint)view.Height);
         }
+        else if (upscalingChanged || (SceneExtent(_swapchain.Extent) is var scene
+            && (scene.Width != _gBuffer.Extent.Width || scene.Height != _gBuffer.Extent.Height)))
+        {
+            // Frames in flight still read the targets being replaced. Changing the scale or upscaler is rare.
+            _api.DeviceWaitIdle(_context.Device).Check();
+            RebuildTargets();
+        }
 
-        _off = view.Off & RenderEffects.All;
+        if (_shadowResolution != _shadowPass.Resolution)
+        {
+            // Frames in flight still read the maps being replaced. Changing this is rare.
+            _api.DeviceWaitIdle(_context.Device).Check();
+            _shadowPass.Resize(_shadowResolution);
+            WriteTargetDescriptors();
+        }
+
+        // Metering is left out of the shaders unless the view asked for it, so the fixed exposure stays as it was.
+        _off = Exposure.ShaderOff(view.Post, view.Off & RenderEffects.All);
+        _windReach = new WindReach(Wind.Strength(view.Wind, _off), _resources.SwayOf);
+        if (!_volumetricFog.HasTargets && VolumetricFog.Pack(view.Fog, _off, false, view.Water.Absorption != Vector3.Zero).X > 0f)
+        {
+            // The fog's volumes are made the first time it's drawn. Frames in flight bind the stand-in.
+            _api.DeviceWaitIdle(_context.Device).Check();
+            _volumetricFog.SetSize((int)_gBuffer.Extent.Width, (int)_gBuffer.Extent.Height);
+            WriteTargetDescriptors();
+        }
+        else if (_volumetricFog.HasTargets && (_off & (RenderEffects.Fog | RenderEffects.VolumetricFog)) != 0)
+        {
+            // Switched off, the volumes are freed, and made again with no history if it's switched back on.
+            // Frames in flight still read them. Flipping the switch is rare.
+            _api.DeviceWaitIdle(_context.Device).Check();
+            _volumetricFog.Release();
+            WriteTargetDescriptors();
+        }
+
+        _depthOfField = DepthOfFieldConstants.For(view.Post, _off, (int)_gBuffer.Extent.Width);
         bool antiAliased = !_off.HasFlag(RenderEffects.AntiAliasing);
         if (antiAliased != _readsAntiAliased)
         {
@@ -834,7 +1323,14 @@ public sealed unsafe class Renderer : IDisposable
                 new(_sampler, DisplaySource, ImageLayout.ShaderReadOnlyOptimal),
                 new(_linearSampler, _bloomPass.Result, ImageLayout.ShaderReadOnlyOptimal),
             ]);
+            _exposureMeter.SetSource(DisplaySource, _gBuffer.Display);
+            _depthOfFieldPass.SetSource(DisplaySource, _gBuffer.Depth.View);
         }
+
+        // Checked before anything is recorded, so a decal that can't be drawn throws with the frame untouched.
+        PrepareDecals(view);
+        BakeSky(view);
+        CaptureLightProbes(view, draws);
 
         ref Frame frame = ref _frames[_frameIndex];
         var fence = frame.InFlight;
@@ -873,12 +1369,37 @@ public sealed unsafe class Renderer : IDisposable
         // A shift of less than a pixel, different every frame, lets anti-aliasing gather
         // detail from between the pixels.
         // Without anti-aliasing to gather it, the shift would only make the picture shake.
+        // The pixels are the scene's, which the render scale may make smaller or larger than the window's.
         var viewProjection = view.View * view.Projection;
-        var shift = antiAliased ? Jitter[_frameNumber % JitterSteps] * 2f / new Vector2(view.Width, view.Height) : Vector2.Zero;
+        // FSR takes as many shifts as it needs to land on every window pixel, more the smaller the scene.
+        var scenePixels = new Vector2(_gBuffer.Extent.Width, _gBuffer.Extent.Height);
+        int jitterPhases = _upscaling ? Upscale.JitterPhaseCount((float)_gBuffer.Extent.Width / _gBuffer.Display.Width) : JitterSteps;
+        var jitter = Upscale.Jitter(_frameNumber, jitterPhases);
+        var shift = antiAliased ? jitter * 2f / scenePixels : Vector2.Zero;
         var previous = _historyReady ? _previousViewProjection : viewProjection;
-        bool castsShadow = WriteUniforms(frame, view, previous, shift, _frameNumber, _historyReady, capturingProbe: false);
+        if (_upscaling)
+        {
+            float milliseconds = (view.Time - _previousTime) * 1000f;
+            _fsrFrame = new FsrFrame(
+                jitter,
+                _historyReady && milliseconds > 0f ? milliseconds : 1000f / 60f,
+                Reset: !_historyReady,
+                CameraNear(view.Projection),
+                VerticalFov(view.Projection));
+        }
+        if (_casterBounds.Length < draws.Length)
+        {
+            _casterBounds = new Vector4[draws.Length * 2];
+        }
+
+        int casters = DrawSelection.Bounds(draws, _details, _casterBounds, _windReach);
+        bool castsShadow = WriteUniforms(
+            frame, view, previous, shift, _frameNumber, _historyReady, capturingProbe: false, _casterBounds.AsSpan(0, casters));
         WriteBones(frame, view.Bones);
+        _motion.Begin(draws, view.Bones, _historyReady,
+            new Span<Matrix4x4>((Matrix4x4*)frame.Bones.Mapped + view.Bones.Length, 2 * MaxBones - view.Bones.Length));
         _previousViewProjection = viewProjection;
+        _previousTime = view.Time;
         _frameNumber++;
         _transition = TransitionConstants.From(view.Transition);
         _transitionHold = view.Transition.Hold;
@@ -897,11 +1418,18 @@ public sealed unsafe class Renderer : IDisposable
         _uploads.Record(cmd, _destroyed[_frameIndex].Others);
         int overlayQuads = _overlayAtlas is null ? 0 : _overlayPass.Upload(_frameIndex, view.Overlay);
         UploadParticles(view);
+
+        // Light probe captures may have packed this frame's decals over again, but they are the same ones.
+        PrepareDecals(view);
+        _decalPass.Upload(_frameIndex);
         if (timed)
         {
             _gpuTimer.Begin(cmd, _frameIndex);
         }
 
+        // Worked out here, just before the frame is recorded, so a frame that is never drawn doesn't move the clock.
+        _exposureStep = _exposureClock.Next(
+            !_off.HasFlag(RenderEffects.AutoExposure), view.Time, Exposure.Speed(view.Post.AdaptationSpeed));
         RecordFrame(cmd, frame.Set, imageIndex, _cameraDraws.AsSpan(0, cameraCount), overlayQuads);
         _gpuTimer.End();
         _api.EndCommandBuffer(cmd).Check();
@@ -913,11 +1441,13 @@ public sealed unsafe class Renderer : IDisposable
             Semaphore = frame.ImageAvailable,
             StageMask = PipelineStageFlags2.ColorAttachmentOutputBit,
         };
+        // Presenting waits for every command, so it comes after the last change of the image's layout
+        // too, which the frame's colour output alone doesn't cover, and after the copy of a capture.
         var signalInfo = new SemaphoreSubmitInfo
         {
             SType = StructureType.SemaphoreSubmitInfo,
             Semaphore = renderFinished,
-            StageMask = PipelineStageFlags2.ColorAttachmentOutputBit,
+            StageMask = PipelineStageFlags2.AllCommandsBit,
         };
         var commandInfo = new CommandBufferSubmitInfo
         {
@@ -975,9 +1505,9 @@ public sealed unsafe class Renderer : IDisposable
             }
         }
 
-        var (pixelsAtOneUnit, pixelsPerUnit) = Projection.PixelScale(view.Projection, view.Height);
+        var (pixelsAtOneUnit, pixelsPerUnit) = Projection.PixelScale(view.Projection, (int)_gBuffer.Extent.Height);
         var camera = new DetailView(viewProjection, view.CameraPosition, pixelsAtOneUnit, pixelsPerUnit, CameraDetailError);
-        int cameraCount = DrawSelection.Select(camera, draws, _details, _cameraDraws);
+        int cameraCount = DrawSelection.Select(camera, draws, _details, _cameraDraws, _windReach);
 
         int shadowCount = 0;
         Array.Clear(_shadowCounts);
@@ -985,10 +1515,10 @@ public sealed unsafe class Renderer : IDisposable
         {
             for (int cascade = 0; cascade < _shadowCascades; cascade++)
             {
-                float texelsPerUnit = ShadowPass.Resolution / (2f * ShadowPass.CascadeRadius(view.Shadows, cascade));
+                float texelsPerUnit = _shadowPass.Resolution / (2f * ShadowPass.CascadeRadius(view.Shadows, cascade));
                 var shadow = new DetailView(
                     _shadowMatrices[cascade], view.CameraPosition, 0f, texelsPerUnit, ShadowDetailError);
-                _shadowCounts[cascade] = DrawSelection.Select(shadow, draws, _details, _shadowDraws[cascade]);
+                _shadowCounts[cascade] = DrawSelection.Select(shadow, draws, _details, _shadowDraws[cascade], _windReach);
                 shadowCount += _shadowCounts[cascade];
             }
         }
@@ -1005,6 +1535,25 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         return (cameraCount, shadowCount);
+    }
+
+    /// <summary>
+    /// Checks and packs the view's decals, or none when they're switched off. Throws for a decal
+    /// that can't be drawn: too many, a box that can't be inverted, a weight outside 0 to 1 or a material that doesn't exist.
+    /// </summary>
+    private void PrepareDecals(in FrameView view)
+    {
+        ReadOnlySpan<DecalDraw> decals = _off.HasFlag(RenderEffects.Decals) ? [] : view.Decals;
+        for (int i = 0; i < decals.Length; i++)
+        {
+            if (!_resources.IsLive(decals[i].Material))
+            {
+                throw new ArgumentException(
+                    string.Create(CultureInfo.InvariantCulture, $"Decal {i}'s material does not exist."), nameof(view));
+            }
+        }
+
+        _decalPass.Prepare(decals);
     }
 
     /// <summary>
@@ -1044,7 +1593,7 @@ public sealed unsafe class Renderer : IDisposable
 
             ref readonly var view = ref tiles[tile];
             var shadow = new DetailView(view.Matrix, view.Eye, view.PixelsAtOneUnit, 0f, ShadowDetailError, far: true);
-            int count = DrawSelection.Select(shadow, draws, _details, _tileDraws.AsSpan(total));
+            int count = DrawSelection.Select(shadow, draws, _details, _tileDraws.AsSpan(total), _windReach);
             _tileRanges[tile] = (total, count);
             total += count;
         }
@@ -1110,10 +1659,14 @@ public sealed unsafe class Renderer : IDisposable
         _overlayAtlas?.Dispose();
         _finishPass.Dispose();
         _tonemapPass.Dispose();
+        _fsrPass.Dispose();
+        _exposureMeter.Dispose();
+        _depthOfFieldPass.Dispose();
         _bloomPass.Dispose();
         _taaPass.Dispose();
         _transparentPass.Dispose();
         _particlePass.Dispose();
+        _decalPass.Dispose();
         _lightingPass.Dispose();
         _scatterAcrossPass.Dispose();
         _scatterDownPass.Dispose();
@@ -1124,6 +1677,10 @@ public sealed unsafe class Renderer : IDisposable
         _api.DestroyPipeline(_context.Device, _clusterPipeline, null);
         _api.DestroyPipelineLayout(_context.Device, _clusterLayout, null);
         _probes.Dispose();
+        _lightProbes.Dispose();
+        _volumetricFog.Dispose();
+        _lightProbeTargets?.Dispose();
+        _reflectionProbeTargets?.Dispose();
         _environment.Dispose();
         _resources.Dispose();
 
@@ -1149,6 +1706,7 @@ public sealed unsafe class Renderer : IDisposable
         _api.DestroyDescriptorSetLayout(_context.Device, _oneTextureSetLayout, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _twoTextureSetLayout, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _threeTextureSetLayout, null);
+        _api.DestroyDescriptorSetLayout(_context.Device, _fourTextureSetLayout, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _lightingSetLayout, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _frameSetLayout, null);
         _api.DestroySampler(_context.Device, _shadowSampler, null);
@@ -1168,7 +1726,8 @@ public sealed unsafe class Renderer : IDisposable
         int overlayQuads)
     {
         var targets = _gBuffer;
-        var extent = targets.Extent;
+        // The picture's size from anti-aliasing on: the scene's, or the window's once FSR has rebuilt it.
+        var extent = targets.Display;
         var swapchainImage = _swapchain.Images[imageIndex];
 
         // Ldr still holds the last frame, so it's kept before this frame draws over it.
@@ -1178,15 +1737,22 @@ public sealed unsafe class Renderer : IDisposable
             _heldNumber = _transitionHold;
         }
 
-        RecordScene(cmd, frameSet, draws, [], shadowsSelected: true, _transparentView, _particleCount);
+        RecordScene(cmd, frameSet, draws, [], shadowsSelected: true, _transparentView, _particleCount, _motion);
 
         // Anti-aliasing blends in the last frame, and reflections read it, so it's kept for
         // the next while either wants it. Without anti-aliasing the lit image is the frame.
-        if (_readsAntiAliased)
+        // FSR keeps its own history, at the window's size, so reflections get the lit image. It's kept every frame,
+        // so the last frame's camera and motion stay known to FSR whether reflections are on or not.
+        if (_upscaling)
+        {
+            RecordHistoryCopy(cmd, targets.Hdr.Image, drawnJustNow: false);
+            _fsrPass.Record(cmd, frameSet, _exposureMeter.Set, targets.Hdr.Image, targets.Depth.Image, targets.Resolved.Image, _fsrFrame);
+        }
+        else if (_readsAntiAliased)
         {
             ReadOnlySpan<DescriptorSet> taaSets = [frameSet, _taaSet];
             _api.BeginColorTarget(cmd, targets.Resolved.Image);
-            _taaPass.Record(cmd, targets.Resolved.View, extent, taaSets);
+            _taaPass.Record(cmd, targets.Resolved.View, targets.Extent, taaSets);
             RecordHistoryCopy(cmd, targets.Resolved.Image, drawnJustNow: true);
         }
         else if (!_off.HasFlag(RenderEffects.Reflections))
@@ -1196,6 +1762,16 @@ public sealed unsafe class Renderer : IDisposable
         else
         {
             _historyReady = false;
+        }
+
+        _gpuTimer.Mark(cmd);
+
+        // After the history is kept, so anti-aliasing and reflections next frame see the scene sharp. Bloom
+        // and the meter read the blurred picture. Probe captures never come here, so they stay sharp.
+        if (_depthOfField is { } lens)
+        {
+            var source = _readsAntiAliased ? targets.Resolved : targets.Hdr;
+            _depthOfFieldPass.Record(cmd, frameSet, source.Image, source.View, extent, lens);
         }
 
         _gpuTimer.Mark(cmd);
@@ -1211,7 +1787,13 @@ public sealed unsafe class Renderer : IDisposable
 
         _gpuTimer.Mark(cmd);
 
-        ReadOnlySpan<DescriptorSet> tonemapSets = [frameSet, _tonemapSet];
+        // Metered from the lit frame before bloom. Its time counts towards the tonemap's.
+        if (_exposureStep is { } exposureStep)
+        {
+            _exposureMeter.Record(cmd, exposureStep);
+        }
+
+        ReadOnlySpan<DescriptorSet> tonemapSets = [frameSet, _tonemapSet, _exposureMeter.Set];
         _api.BeginColorTarget(cmd, targets.Ldr.Image);
         _tonemapPass.Record(cmd, targets.Ldr.View, extent, tonemapSets);
         _api.EndColorTarget(cmd, targets.Ldr.Image);
@@ -1220,23 +1802,26 @@ public sealed unsafe class Renderer : IDisposable
         _api.Transition(cmd, swapchainImage, ImageAspectFlags.ColorBit,
             ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, ColorStage, AccessFlags2.None, ColorStage, ColorWrite);
 
+        // From here on the picture is the window's size, which the scene may not be.
+        var window = _swapchain.Extent;
         ReadOnlySpan<DescriptorSet> finishSets = [frameSet, _finishSet];
         var transition = _transition;
-        _finishPass.Record(cmd, _swapchain.Views[imageIndex], extent, finishSets,
+        transition.Style.Z = extent.Width != window.Width || extent.Height != window.Height ? 1f : 0f;
+        _finishPass.Record(cmd, _swapchain.Views[imageIndex], window, finishSets,
             new ReadOnlySpan<byte>(&transition, (int)TransitionConstants.Size));
         _ldrReady = true;
         _gpuTimer.Mark(cmd);
 
         if (overlayQuads > 0)
         {
-            _overlayPass.Record(cmd, _swapchain.Views[imageIndex], extent, _overlaySet, _frameIndex, overlayQuads);
+            _overlayPass.Record(cmd, _swapchain.Views[imageIndex], window, _overlaySet, _frameIndex, overlayQuads);
         }
 
         _gpuTimer.Mark(cmd);
 
         if (_capture is not null)
         {
-            RecordCapture(cmd, swapchainImage, extent, _capture);
+            RecordCapture(cmd, swapchainImage, window, _capture);
             return;
         }
 
@@ -1266,7 +1851,7 @@ public sealed unsafe class Renderer : IDisposable
             {
                 SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
                 DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
-                Extent = new Extent3D(targets.Extent.Width, targets.Extent.Height, 1),
+                Extent = new Extent3D(targets.Display.Width, targets.Display.Height, 1),
             };
             _api.CmdCopyImage(cmd, targets.Ldr.Image, ImageLayout.TransferSrcOptimal,
                 targets.Held.Image, ImageLayout.TransferDstOptimal, 1, &region);
@@ -1337,6 +1922,8 @@ public sealed unsafe class Renderer : IDisposable
     /// alike. A frame's shadow draws were picked per cascade by <see cref="SelectDraws"/>;
     /// a probe capture draws <paramref name="shadowCasters"/> into every cascade.
     /// Probes leave particles out, since a puff of dust shouldn't stay in a reflection.
+    /// Only a frame passes <paramref name="motion"/>: where its draws stood last frame, for motion
+    /// vectors. A probe's motion is never read, so its draws stand still.
     /// </summary>
     private void RecordScene(
         CommandBuffer cmd,
@@ -1345,13 +1932,15 @@ public sealed unsafe class Renderer : IDisposable
         ReadOnlySpan<DrawItem> shadowCasters,
         bool shadowsSelected,
         in TransparentView view,
-        int particleCount = 0)
+        int particleCount = 0,
+        MotionHistory? motion = null)
     {
         var targets = _gBuffer;
         var instances = _frames[_frameIndex].Instances;
         var extent = targets.Extent;
 
-        // The lighting pass binds history even before there is any.
+        // The lighting pass binds history even before there is any. Probe captures have their
+        // own small targets, whose history is never drawn, so they clear the flag while they run.
         if (!_historyReady)
         {
             _api.Transition(cmd, targets.History.Image, ImageAspectFlags.ColorBit,
@@ -1362,26 +1951,27 @@ public sealed unsafe class Renderer : IDisposable
         // previous frame's sampling to finish. Contents are discarded via Undefined.
         // When no sun casts a shadow the maps aren't drawn, or even cleared, and nothing
         // reads them, but the lighting pass still binds them.
+        // A batch of light probes draws the maps once and the rest keep them as they are.
         var shadowMap = _shadowPass.Target.Image;
-        if (_sunShadowsDrawn)
+        if (_sunShadowsDrawn && !_keepShadowMaps)
         {
             _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
-                ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, SampledStage, SampledAccess, DepthStages,
+                ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, ShadowReadStages, SampledAccess, DepthStages,
                 DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit, layerCount: ShadowPass.MaxCascades);
             for (int cascade = 0; cascade < _shadowCascades; cascade++)
             {
                 var casters = shadowsSelected ? _shadowDraws[cascade].AsSpan(0, _shadowCounts[cascade]) : shadowCasters;
-                _shadowPass.Record(cmd, frameSet, casters, _meshes, instances, cascade);
+                _shadowPass.Record(cmd, frameSet, casters, _meshes, _details, instances, cascade);
             }
 
             _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
-                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess,
+                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, ShadowReadStages, SampledAccess,
                 layerCount: ShadowPass.MaxCascades);
         }
-        else
+        else if (!_sunShadowsDrawn)
         {
             _api.Transition(cmd, shadowMap, ImageAspectFlags.DepthBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess,
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, ShadowReadStages, SampledAccess, ShadowReadStages, SampledAccess,
                 layerCount: ShadowPass.MaxCascades);
         }
 
@@ -1390,16 +1980,16 @@ public sealed unsafe class Renderer : IDisposable
         if (_tileCount > 0)
         {
             _api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
-                ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, SampledStage, SampledAccess, DepthStages,
+                ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, ShadowReadStages, SampledAccess, DepthStages,
                 DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
-            _shadowPass.RecordTiles(cmd, frameSet, _localLights.Tiles, _tileDraws, _tileRanges.AsSpan(0, _tileCount), _meshes, instances);
+            _shadowPass.RecordTiles(cmd, frameSet, _localLights.Tiles, _tileDraws, _tileRanges.AsSpan(0, _tileCount), _meshes, _details, instances);
             _api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
-                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess);
+                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, ShadowReadStages, SampledAccess);
         }
         else
         {
             _api.Transition(cmd, atlas, ImageAspectFlags.DepthBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, ShadowReadStages, SampledAccess, ShadowReadStages, SampledAccess);
         }
 
         _gpuTimer.Mark(cmd);
@@ -1409,17 +1999,33 @@ public sealed unsafe class Renderer : IDisposable
             RecordClusters(cmd, frameSet);
         }
 
+        _gpuTimer.Mark(cmd);
+
+        // The fog's air needs the shadow maps and the light lists, and the lighting pass needs the fog.
+        if (_volumetricDrawn)
+        {
+            _volumetricFog.Record(cmd, frameSet);
+        }
+
+        _gpuTimer.Mark(cmd);
+
         _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
             ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, SampledStage, SampledAccess, ColorStage, ColorWrite);
         _api.Transition(cmd, targets.Normal.Image, ImageAspectFlags.ColorBit,
             ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, SampledStage, SampledAccess, ColorStage, ColorWrite);
         _api.Transition(cmd, targets.Emissive.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, SampledStage, SampledAccess, ColorStage, ColorWrite);
+        _api.Transition(cmd, targets.Motion.Image, ImageAspectFlags.ColorBit,
             ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, SampledStage, SampledAccess, ColorStage, ColorWrite);
         _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
             ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, DepthStages, AccessFlags2.DepthStencilAttachmentReadBit, DepthStages,
             DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
 
-        _gBufferPass.Record(cmd, targets, frameSet, draws, _meshes, instances);
+        // A light probe must see the backs of surfaces to know it is inside a wall.
+        instances.History = motion;
+        _gBufferPass.Record(cmd, targets, frameSet, draws, _meshes, _details, instances, allTwoSided: _capturingLightProbes);
+        instances.History = null;
+        bool decalsDrawn = RecordDecals(cmd, targets, frameSet);
 
         _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
             ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, ColorStage, ColorWrite, SampledStage, SampledAccess);
@@ -1427,8 +2033,14 @@ public sealed unsafe class Renderer : IDisposable
             ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, ColorStage, ColorWrite, SampledStage, SampledAccess);
         _api.Transition(cmd, targets.Emissive.Image, ImageAspectFlags.ColorBit,
             ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, ColorStage, ColorWrite, SampledStage, SampledAccess);
-        _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
-            ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess);
+        _api.Transition(cmd, targets.Motion.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, ColorStage, ColorWrite, SampledStage, SampledAccess);
+        if (!decalsDrawn)
+        {
+            _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
+                ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess);
+        }
+
         _gpuTimer.Mark(cmd);
 
         // Left out, the lighting pass reads no occlusion, but it still binds the target.
@@ -1463,8 +2075,9 @@ public sealed unsafe class Renderer : IDisposable
         _gpuTimer.Mark(cmd);
 
         // The diffuse light of skin and wax spreads across the screen, then down it and
-        // onto the lit image. Nothing to spread when no material scatters.
-        if (_resources.AnySubsurface)
+        // onto the lit image. Nothing to spread when no material scatters, and a light probe
+        // keeps the scattered light as it is, as its alpha holds distance.
+        if (_resources.AnySubsurface && !_capturingLightProbes)
         {
             var across = BlurConstants.Across;
             ReadOnlySpan<DescriptorSet> acrossSets = [frameSet, _scatterAcrossSet, _resources.Set];
@@ -1486,17 +2099,65 @@ public sealed unsafe class Renderer : IDisposable
 
         // Glass and particles blend over the lit image, furthest first. Depth is read-only
         // throughout: glass tests against it, and both read it to see what's behind them.
-        _api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
-            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
-            ColorWrite | AccessFlags2.ColorAttachmentReadBit);
-        _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
-            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal, SampledStage, SampledAccess, DepthStages | SampledStage,
-            AccessFlags2.DepthStencilAttachmentReadBit | SampledAccess);
-        _transparentPass.Record(cmd, targets, frameSet, draws, _meshes, _details, instances, view,
-            _particlePass, _frameIndex, particleCount, _particleCamera);
+        // A light probe leaves them out, as blending would spoil the distances in its alpha.
+        if (!_capturingLightProbes)
+        {
+            _api.Transition(cmd, targets.Hdr.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
+                ColorWrite | AccessFlags2.ColorAttachmentReadBit);
+            _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
+                ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal, SampledStage, SampledAccess, DepthStages | SampledStage,
+                AccessFlags2.DepthStencilAttachmentReadBit | SampledAccess);
+            _transparentPass.Record(cmd, targets, frameSet, draws, _meshes, _details, instances, view,
+                _particlePass, _frameIndex, particleCount, _particleCamera, _windReach);
+        }
 
         _api.EndColorTarget(cmd, targets.Hdr.Image);
         _gpuTimer.Mark(cmd);
+    }
+
+    /// <summary>
+    /// Lays the prepared decals onto the G-buffer just drawn, and returns whether there were any.
+    /// They read the normal target while writing it, so it is copied first and they read the copy.
+    /// Depth is left ready to sample, the base colour and normal targets ready to draw into.
+    /// </summary>
+    private bool RecordDecals(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet)
+    {
+        if (_decalPass.Count == 0)
+        {
+            return false;
+        }
+
+        const PipelineStageFlags2 copy = PipelineStageFlags2.CopyBit;
+        _api.Transition(cmd, targets.Normal.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferSrcOptimal, ColorStage, ColorWrite, copy, AccessFlags2.TransferReadBit);
+        _api.Transition(cmd, targets.NormalCopy.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.TransferDstOptimal, SampledStage, SampledAccess, copy, AccessFlags2.TransferWriteBit);
+        var region = new ImageCopy
+        {
+            SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
+            DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
+            Extent = new Extent3D(targets.Extent.Width, targets.Extent.Height, 1),
+        };
+        _api.CmdCopyImage(cmd, targets.Normal.Image, ImageLayout.TransferSrcOptimal,
+            targets.NormalCopy.Image, ImageLayout.TransferDstOptimal, 1, &region);
+        _api.Transition(cmd, targets.NormalCopy.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal, copy, AccessFlags2.TransferWriteBit, SampledStage, SampledAccess);
+        // The decals load the normals and blend over them, so the change of layout must land before
+        // that read as well as before their writes.
+        _api.Transition(cmd, targets.Normal.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferSrcOptimal, ImageLayout.ColorAttachmentOptimal, copy, AccessFlags2.TransferReadBit, ColorStage,
+            ColorWrite | AccessFlags2.ColorAttachmentReadBit);
+
+        // The colour blends over what the opaque pass wrote.
+        _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
+            ColorWrite | AccessFlags2.ColorAttachmentReadBit);
+        _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
+            ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess);
+
+        _decalPass.Record(cmd, targets, frameSet, _frameIndex);
+        return true;
     }
 
     /// <summary>
@@ -1515,7 +2176,7 @@ public sealed unsafe class Renderer : IDisposable
             SType = StructureType.MemoryBarrier2,
             SrcStageMask = PipelineStageFlags2.ComputeShaderBit,
             SrcAccessMask = AccessFlags2.ShaderStorageWriteBit,
-            DstStageMask = PipelineStageFlags2.FragmentShaderBit,
+            DstStageMask = PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit,
             DstAccessMask = AccessFlags2.ShaderStorageReadBit,
         };
         var dependency = new DependencyInfo
@@ -1572,7 +2233,8 @@ public sealed unsafe class Renderer : IDisposable
         Vector2 shift,
         int frameNumber,
         bool historyValid,
-        bool capturingProbe)
+        bool capturingProbe,
+        ReadOnlySpan<Vector4> casters)
     {
         var viewProjection = view.View * view.Projection * Matrix4x4.CreateTranslation(shift.X, shift.Y, 0f);
         Matrix4x4.Invert(viewProjection, out var inverse);
@@ -1589,19 +2251,61 @@ public sealed unsafe class Renderer : IDisposable
             MathF.Pow(2f, view.Post.Exposure), 1f + view.Post.Contrast, 1f + view.Post.Saturation, view.Post.Vignette);
         uniforms->Finish = new Vector4(view.Post.Sharpen, view.Post.Grain, shift.X, shift.Y);
         (uniforms->Lift, uniforms->Gain) = PostGrade.Tint(view.Post);
+        uniforms->WhiteBalance = PostGrade.WhiteBalance(view.Post.Temperature, view.Post.Tint);
+        uniforms->Curve = PostGrade.Curve(view.Post);
         (uniforms->HazeOrigin, uniforms->HazeColor) = Haze.Pack(view.CameraPosition, view.BackgroundFadeOrigin, view.BackgroundFadeColor);
+        uniforms->Occlusion = Occlusion.Pack(view.Occlusion);
+        uniforms->Fog = Fog.Pack(view.Fog, _off, capturingProbe, underwater: view.Water.Absorption != Vector3.Zero);
+        var volumetric = VolumetricFog.Pack(view.Fog, _off, capturingProbe, underwater: view.Water.Absorption != Vector3.Zero);
+        if (!_volumetricFog.HasTargets)
+        {
+            volumetric = Vector4.Zero;
+        }
+
+        volumetric.W = historyValid && _volumetricFog.HistoryReady ? 1f : 0f;
+        uniforms->Volumetric = volumetric;
+        uniforms->Puddles = Puddles.Pack(view.Puddles, _off);
+        uniforms->Wind = Wind.Pack(view.Wind, _off);
+        _volumetricDrawn = volumetric.X > 0f;
+        if (!capturingProbe && !_volumetricDrawn)
+        {
+            // A frame without the fog leaves nothing for the next to carry on from.
+            _volumetricFog.Skip();
+        }
+
         uniforms->ProbeCount = 0;
         if (!capturingProbe)
         {
             _probes.CopyToUniforms(uniforms);
         }
 
+        // A light probe capture reads the probes only in its second round, to add one more bounce.
+        uniforms->ProbeCapture = _capturingLightProbes ? 1 : 0;
+        if (view.LightProbes is { } lightProbes && (_capturingLightProbes || _lightProbesInUse))
+        {
+            var (x, y, z) = ProbeGrid.Counts(lightProbes);
+            bool lookup = _capturingLightProbes ? _lightProbes.Schedule.CapturesBounce : _lightProbesInUse;
+            uniforms->LightProbeMin = new Vector4(lightProbes.Min, lightProbes.Spacing);
+            uniforms->LightProbeCounts = new Vector4(x, y, z, lookup ? 1f : 0f);
+        }
+        else
+        {
+            uniforms->LightProbeMin = Vector4.Zero;
+            uniforms->LightProbeCounts = Vector4.Zero;
+        }
+
         uniforms->CameraPosition = new Vector4(view.CameraPosition, 1f);
         uniforms->BackgroundRadiance = new Vector4(view.BackgroundRadiance, view.EnvironmentIntensity);
 
+        // Probes leave the sun's disc out: their rough levels would scatter it into specks, and
+        // the sun's own light already gives surfaces its highlight.
+        var sky = SkyModel.Sun(view);
+        uniforms->SkySun = new Vector4(sky.Direction, sky.Turbidity);
+        uniforms->SunDisc = new Vector4(capturingProbe ? Vector3.Zero : sky.DiscRadiance, sky.DiscCosine);
+
         // Moving points two texels of the first cascade off their surface stops them
         // shadowing themselves. The lighting pass works this out per cascade itself.
-        float normalOffset = view.Shadows.Radius * 4f / ShadowPass.Resolution;
+        float normalOffset = view.Shadows.Radius * 4f / _shadowPass.Resolution;
         uniforms->Parameters = new Vector4(
             view.BackgroundFadeStart, view.BackgroundFadeEnd, view.Shadows.LightAngle, normalOffset);
 
@@ -1614,6 +2318,7 @@ public sealed unsafe class Renderer : IDisposable
         int count = Math.Min(view.Lights.Length, FrameUniforms.MaxLights);
         uniforms->LightCount = count;
         uniforms->Time = view.Time;
+        uniforms->PreviousTime = historyValid ? _previousTime : view.Time;
         _shadowCascades = ShadowPass.CascadeCount(view.Shadows);
         uniforms->ShadowCascades = _shadowCascades;
         bool castsShadow = false;
@@ -1625,7 +2330,8 @@ public sealed unsafe class Renderer : IDisposable
             bool casts = !castsShadow && light.CastsShadow && view.Shadows.Radius > 0f && !_off.HasFlag(RenderEffects.SunShadows);
             if (casts)
             {
-                uniforms->ShadowRadii = FitCascades(view, direction, fitToView: !capturingProbe, out uniforms->ShadowFade, out uniforms->ShadowDepthScales);
+                uniforms->ShadowRadii = FitCascades(view, direction, fitToView: !capturingProbe, casters, out uniforms->ShadowFade, out uniforms->ShadowDepthScales);
+                uniforms->ShadowFade.W = ShadowPass.ContactLength(view.Shadows, _off, capturingProbe);
                 for (int cascade = 0; cascade < _shadowCascades; cascade++)
                 {
                     uniforms->ShadowMatrices[cascade] = _shadowMatrices[cascade];
@@ -1644,6 +2350,9 @@ public sealed unsafe class Renderer : IDisposable
         // With no sun shadow there are no maps to look up, so nothing walks the cascades.
         uniforms->ShadowCascades = castsShadow ? _shadowCascades : 0;
         uniforms->Off = (int)_off;
+        uniforms->MipBias = capturingProbe || _off.HasFlag(RenderEffects.AntiAliasing) ? 0f
+            : _upscaling ? FsrMipBias(_gBuffer.Extent.Width, _gBuffer.Display.Width)
+            : TemporalMipBias;
         _sunShadowsDrawn = castsShadow;
         WriteLocalLights(frame, uniforms, view, capturingProbe);
         return castsShadow;
@@ -1674,7 +2383,7 @@ public sealed unsafe class Renderer : IDisposable
             view.LocalLights,
             view.View,
             view.Projection,
-            view.Height,
+            (int)_gBuffer.Extent.Height,
             new Span<GpuLocalLight>(frame.Lights.Mapped, LocalLight.MaxPerFrame),
             new Span<GpuShadowTile>(frame.ShadowTiles.Mapped, LocalLights.MaxTiles),
             shadows: !_off.HasFlag(RenderEffects.LightShadows));
@@ -1682,7 +2391,7 @@ public sealed unsafe class Renderer : IDisposable
         _clustersNeeded = _localLights.LightCount > 0;
         uniforms->LocalLightCount = _localLights.LightCount;
         uniforms->Clusters = new Vector4(_localLights.NearDepth, _localLights.FarDepth, _localLights.Parallel ? 1f : 0f, 0f);
-        uniforms->Screen = new Vector4(view.Width, view.Height, 1f / view.Width, 1f / view.Height);
+        uniforms->Screen = new Vector4(_gBuffer.Extent.Width, _gBuffer.Extent.Height, 1f / _gBuffer.Extent.Width, 1f / _gBuffer.Extent.Height);
     }
 
     /// <summary>
@@ -1693,7 +2402,8 @@ public sealed unsafe class Renderer : IDisposable
     /// settings' centre. Returns
     /// each cascade's radius, and how shadows fade out with distance.
     /// </summary>
-    private Vector4 FitCascades(in FrameView view, Vector3 direction, bool fitToView, out Vector4 fade, out Vector4 depthScales)
+    private Vector4 FitCascades(
+        in FrameView view, Vector3 direction, bool fitToView, ReadOnlySpan<Vector4> casters, out Vector4 fade, out Vector4 depthScales)
     {
         var radii = Vector4.Zero;
         depthScales = Vector4.One;
@@ -1715,9 +2425,13 @@ public sealed unsafe class Renderer : IDisposable
                 // Reach towards the sun at least as far as a cascade round the target would,
                 // so tall things out of view, like the edge of a wood in a low sun, still cast.
                 reach = radius + MathF.Max(Vector3.Dot(view.Shadows.Center - center, direction), 0f);
+
+                // And far enough to take in whatever stands up-sun of it, like a tree out of
+                // frame whose shade falls on a wall in it.
+                reach = ShadowPass.CasterReach(center, radius, direction, reach, casters);
             }
 
-            _shadowMatrices[cascade] = ShadowPass.CreateMatrix(direction, center, radius, reach);
+            _shadowMatrices[cascade] = ShadowPass.CreateMatrix(direction, center, radius, reach, _shadowPass.Resolution);
             radii[cascade] = radius;
             depthScales[cascade] = ShadowPass.DepthScale(radius, reach);
         }
@@ -1740,36 +2454,81 @@ public sealed unsafe class Renderer : IDisposable
         _swapchain.Dispose();
         _swapchain = new Swapchain(_context, width, height, _disableVsync);
         _vsyncChanged = false;
-        _gBuffer = new GBuffer(_context, _swapchain.Extent);
-        _bloomPass.Resize(DisplaySource, _gBuffer.Extent);
+        CreateTargets();
+    }
+
+    /// <summary>Replaces the scene's targets with ones at the render scale, keeping the window's swapchain.</summary>
+    private void RebuildTargets()
+    {
+        _gBuffer.Dispose();
+        CreateTargets();
+    }
+
+    /// <summary>
+    /// Makes the scene's targets at the window's size times the render scale, with everything that
+    /// follows their size: bloom's chain, the exposure meter's dispatch and the anti-aliasing history,
+    /// which starts again.
+    /// </summary>
+    private void CreateTargets()
+    {
+        var scene = SceneExtent(_swapchain.Extent);
+        _gBuffer = new GBuffer(_context, scene, _upscaling ? _swapchain.Extent : scene);
+        if (_upscaling)
+        {
+            try
+            {
+                _fsrPass.SetTargets(scene, _swapchain.Extent, _gBuffer.Depth.View, _gBuffer.Motion.View);
+            }
+            catch (InvalidOperationException e)
+            {
+                // TAA draws instead, at the scene's size, until the upscaler is asked for again.
+                Console.Error.WriteLine($"{e.Message} Anti-aliasing uses TAA instead.");
+                _upscalerUsed = Upscaler.Taa;
+                _upscaling = false;
+                _gBuffer.Dispose();
+                _gBuffer = new GBuffer(_context, scene);
+            }
+        }
+        else
+        {
+            _fsrPass.Release();
+        }
+
+        _bloomPass.Resize(DisplaySource, _gBuffer.Display);
+        _depthOfFieldPass.SetTargets(DisplaySource, _gBuffer.Depth.View, _gBuffer.Extent);
+        if (_volumetricFog.HasTargets)
+        {
+            _volumetricFog.SetSize((int)_gBuffer.Extent.Width, (int)_gBuffer.Extent.Height);
+        }
+
         WriteTargetDescriptors();
         _historyReady = false;
     }
 
-    /// <summary>Halton points spread the shifts evenly over a pixel, in fractions of a pixel.</summary>
-    private static Vector2[] CreateJitter()
+    /// <summary>The scene's size for a window this size, at the render scale.</summary>
+    private Extent2D SceneExtent(Extent2D window)
     {
-        static float Halton(int index, int radix)
-        {
-            float result = 0f;
-            float fraction = 1f;
-            for (; index > 0; index /= radix)
-            {
-                fraction /= radix;
-                result += fraction * (index % radix);
-            }
-
-            return result;
-        }
-
-        var shifts = new Vector2[JitterSteps];
-        for (int i = 0; i < JitterSteps; i++)
-        {
-            shifts[i] = new Vector2(Halton(i + 1, 2) - 0.5f, Halton(i + 1, 3) - 0.5f);
-        }
-
-        return shifts;
+        var (width, height) = SceneSize((int)window.Width, (int)window.Height, _renderScale, _maxImageSize);
+        return new Extent2D((uint)width, (uint)height);
     }
+
+    /// <summary>
+    /// The mip bias FSR asks for: textures read as sharp as the window's pixels would read them, and one level sharper
+    /// still, since FSR gathers the detail over its frames. -1 at a render scale of 1, -2 at 0.5.
+    /// </summary>
+    private static float FsrMipBias(uint sceneWidth, uint displayWidth) =>
+        MathF.Log2((float)sceneWidth / displayWidth) - 1f;
+
+    /// <summary>
+    /// The near plane's distance, for FSR. A reversed-Z perspective keeps it in M43; an orthographic view has no eye,
+    /// so it gets a small stand-in.
+    /// </summary>
+    private static float CameraNear(in Matrix4x4 projection) =>
+        projection.M34 != 0f && projection.M43 > 0f ? projection.M43 : 0.1f;
+
+    /// <summary>The view's height as an angle, in radians, for FSR: from M22, which is -1 / tan(fov / 2).</summary>
+    private static float VerticalFov(in Matrix4x4 projection) =>
+        projection.M34 != 0f && projection.M22 != 0f ? 2f * MathF.Atan(1f / MathF.Abs(projection.M22)) : MathF.PI / 3f;
 
     private Frame CreateFrame()
     {
@@ -1804,8 +2563,9 @@ public sealed unsafe class Renderer : IDisposable
 
         frame.Uniforms = GpuBuffer.CreateHostVisible(
             _context, (ulong)sizeof(FrameUniforms), BufferUsageFlags.UniformBufferBit);
+        // This frame's bone matrices, then last frame's for motion vectors.
         frame.Bones = GpuBuffer.CreateHostVisible(
-            _context, (ulong)(MaxBones * sizeof(Matrix4x4)), BufferUsageFlags.StorageBufferBit);
+            _context, (ulong)(2 * MaxBones * sizeof(Matrix4x4)), BufferUsageFlags.StorageBufferBit);
         frame.Lights = GpuBuffer.CreateHostVisible(
             _context, (ulong)(LocalLight.MaxPerFrame * sizeof(GpuLocalLight)), BufferUsageFlags.StorageBufferBit);
         frame.ShadowTiles = GpuBuffer.CreateHostVisible(
@@ -1902,19 +2662,32 @@ public sealed unsafe class Renderer : IDisposable
         _api.UpdateDescriptorSets(_context.Device, 2, writes, 0, null);
     }
 
-    private void WriteInstanceDescriptor(in Frame frame)
+    /// <summary>The volumetric fog's summed volume, or the texel that stands in until it's made.</summary>
+    private void WriteVolumetricDescriptor(in Frame frame)
     {
-        var info = new DescriptorBufferInfo(frame.Instances.Handle, 0, frame.Instances.Size);
+        var info = new DescriptorImageInfo(_linearSampler, _volumetricFog.Result, ImageLayout.General);
         var write = new WriteDescriptorSet
         {
             SType = StructureType.WriteDescriptorSet,
             DstSet = frame.Set,
-            DstBinding = 2,
+            DstBinding = 8,
             DescriptorCount = 1,
-            DescriptorType = DescriptorType.StorageBuffer,
-            PBufferInfo = &info,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            PImageInfo = &info,
         };
         _api.UpdateDescriptorSets(_context.Device, 1, &write, 0, null);
+    }
+
+    private void WriteInstanceDescriptor(in Frame frame)
+    {
+        var info = new DescriptorBufferInfo(frame.Instances.Handle, 0, frame.Instances.Size);
+        var previousInfo = new DescriptorBufferInfo(frame.Instances.PreviousHandle, 0, frame.Instances.PreviousSize);
+        var writes = stackalloc WriteDescriptorSet[]
+        {
+            StorageWrite(frame.Set, 2, &info),
+            StorageWrite(frame.Set, 9, &previousInfo),
+        };
+        _api.UpdateDescriptorSets(_context.Device, 2, writes, 0, null);
     }
 
     /// <summary>
@@ -1936,7 +2709,9 @@ public sealed unsafe class Renderer : IDisposable
     /// model matrix at binding 2, as Shaders/common.glsl, skinning.glsl and instances.glsl
     /// read them. Bindings 3 to 5 hold the point and spot lights, their shadow tiles and
     /// the cluster lists, and 6 and 7 the shadow atlas, as Shaders/light_data.glsl and
-    /// local_shadows.glsl read them.
+    /// local_shadows.glsl read them, 8 the volumetric fog's summed volume, as
+    /// volumetric.glsl reads it, and 9 where each copy stood last frame, as instances.glsl
+    /// reads it for motion vectors.
     /// </summary>
     private DescriptorSetLayout CreateFrameSetLayout()
     {
@@ -1949,13 +2724,15 @@ public sealed unsafe class Renderer : IDisposable
             new(3, DescriptorType.StorageBuffer, 1, everyStage),
             new(4, DescriptorType.StorageBuffer, 1, everyStage),
             new(5, DescriptorType.StorageBuffer, 1, everyStage),
-            new(6, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
+            new(6, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit | ShaderStageFlags.ComputeBit),
             new(7, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
+            new(8, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
+            new(9, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit),
         };
         var info = new DescriptorSetLayoutCreateInfo
         {
             SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 8,
+            BindingCount = 10,
             PBindings = bindings,
         };
         _api.CreateDescriptorSetLayout(_context.Device, &info, null, out var layout).Check();
@@ -1998,6 +2775,7 @@ public sealed unsafe class Renderer : IDisposable
     {
         var depth = new DescriptorImageInfo(_sampler, _gBuffer.Depth.View, ImageLayout.ShaderReadOnlyOptimal);
         var normal = new DescriptorImageInfo(_sampler, _gBuffer.Normal.View, ImageLayout.ShaderReadOnlyOptimal);
+        _decalPass.WriteTargets(depth, new DescriptorImageInfo(_sampler, _gBuffer.NormalCopy.View, ImageLayout.ShaderReadOnlyOptimal));
 
         var shadowDepth = new DescriptorImageInfo(_sampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal);
 
@@ -2020,6 +2798,9 @@ public sealed unsafe class Renderer : IDisposable
             new(_sampler, _gBuffer.AoBlurred.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_linearSampler, _gBuffer.History.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_environment.Sampler, _probes.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_linearSampler, _lightProbes.IrradianceView, ImageLayout.General),
+            new(_linearSampler, _lightProbes.DepthView, ImageLayout.General),
+            new(_environment.Sampler, _environment.Sky, ImageLayout.ShaderReadOnlyOptimal),
         ]);
 
         // Glass and particles read depth while it's also attached for glass to test against.
@@ -2048,17 +2829,27 @@ public sealed unsafe class Renderer : IDisposable
             new(_sampler, _gBuffer.Hdr.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_linearSampler, _gBuffer.History.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_sampler, _gBuffer.Depth.View, ImageLayout.DepthReadOnlyOptimal),
+            new(_sampler, _gBuffer.Motion.View, ImageLayout.ShaderReadOnlyOptimal),
         ]);
         WriteImages(_tonemapSet,
         [
             new(_sampler, DisplaySource, ImageLayout.ShaderReadOnlyOptimal),
             new(_linearSampler, _bloomPass.Result, ImageLayout.ShaderReadOnlyOptimal),
         ]);
+        _exposureMeter.SetSource(DisplaySource, _gBuffer.Display);
         WriteImages(_finishSet,
         [
             new(_linearSampler, _gBuffer.Ldr.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_linearSampler, _gBuffer.Held.View, ImageLayout.ShaderReadOnlyOptimal),
         ]);
+
+        _volumetricFog.SetSources(
+            new(_shadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_environment.Sampler, _environment.Reflections, ImageLayout.ShaderReadOnlyOptimal));
+        foreach (ref var frame in _frames.AsSpan())
+        {
+            WriteVolumetricDescriptor(frame);
+        }
 
         // New targets start empty, so neither a held picture nor a last frame survives them.
         _heldReady = false;

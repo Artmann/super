@@ -13,7 +13,7 @@ internal struct TransitionConstants
     /// <summary>xy: which way a wipe travels, one long; zw: where an iris opens from.</summary>
     public Vector4 Shape;
 
-    /// <summary>x: the style as a number; y: the edge's softness.</summary>
+    /// <summary>x: the style as a number; y: the edge's softness; z: 1 when the scene is resized to the window, set by the renderer.</summary>
     public Vector4 Style;
 
     public static unsafe uint Size => (uint)sizeof(TransitionConstants);

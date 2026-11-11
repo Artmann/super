@@ -9,7 +9,7 @@ namespace Rendition.Vulkan;
 /// </summary>
 internal sealed unsafe class GpuTexture : IDisposable
 {
-    private const int BytesPerTexel = 4;
+    private readonly TextureFormat _format;
 
     private readonly VulkanContext _context;
     private readonly Image _image;
@@ -23,14 +23,14 @@ internal sealed unsafe class GpuTexture : IDisposable
 
     /// <summary>A single 2D texture, filled right away. Waits for the GPU.</summary>
     public GpuTexture(VulkanContext context, TextureData data)
-        : this(context, data.Width, data.Height, data.Kind, (uint)data.Mips.Length, 1)
+        : this(context, data.Width, data.Height, data.Kind, (uint)data.Mips.Length, 1, format: data.Format)
     {
         Upload([data]);
     }
 
     /// <summary>A 2D array of same-sized layers, filled right away. Waits for the GPU.</summary>
     public GpuTexture(VulkanContext context, ReadOnlySpan<TextureData> layers)
-        : this(context, layers[0].Width, layers[0].Height, layers[0].Kind, (uint)layers[0].Mips.Length, (uint)layers.Length, true)
+        : this(context, layers[0].Width, layers[0].Height, layers[0].Kind, (uint)layers[0].Mips.Length, (uint)layers.Length, true, layers[0].Format)
     {
         Upload(layers);
     }
@@ -39,21 +39,24 @@ internal sealed unsafe class GpuTexture : IDisposable
     /// An empty texture. Fill it with <see cref="RecordUpload"/>. An array is sampled as
     /// one even with a single layer, which the view type has to say.
     /// </summary>
-    public GpuTexture(VulkanContext context, int width, int height, TextureKind kind, uint mipCount, uint layers, bool array = false)
+    public GpuTexture(
+        VulkanContext context, int width, int height, TextureKind kind, uint mipCount, uint layers, bool array = false,
+        TextureFormat format = TextureFormat.Rgba8)
     {
         _context = context;
         Width = width;
         Height = height;
         MipCount = mipCount;
         Layers = layers;
+        _format = format;
         var api = context.Api;
-        var format = kind == TextureKind.Color ? Format.R8G8B8A8Srgb : Format.R8G8B8A8Unorm;
+        var vulkanFormat = VulkanFormat(format, kind);
 
         var imageInfo = new ImageCreateInfo
         {
             SType = StructureType.ImageCreateInfo,
             ImageType = ImageType.Type2D,
-            Format = format,
+            Format = vulkanFormat,
             Extent = new Extent3D((uint)width, (uint)height, 1),
             MipLevels = mipCount,
             ArrayLayers = layers,
@@ -74,7 +77,7 @@ internal sealed unsafe class GpuTexture : IDisposable
             SType = StructureType.ImageViewCreateInfo,
             Image = _image,
             ViewType = array || layers > 1 ? ImageViewType.Type2DArray : ImageViewType.Type2D,
-            Format = format,
+            Format = vulkanFormat,
             SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, mipCount, 0, layers),
         };
         api.CreateImageView(context.Device, &viewInfo, null, out View).Check();
@@ -115,7 +118,7 @@ internal sealed unsafe class GpuTexture : IDisposable
                 {
                     throw new ArgumentException(
                         $"Layer {i} mip {level} holds {layer.Mips[level].Length} bytes, but " +
-                        $"{Math.Max(Width >> level, 1)}x{Math.Max(Height >> level, 1)} RGBA needs {expected}.", nameof(layers));
+                        $"{Math.Max(Width >> level, 1)}x{Math.Max(Height >> level, 1)} {_format} needs {expected}.", nameof(layers));
                 }
             }
         }
@@ -163,7 +166,7 @@ internal sealed unsafe class GpuTexture : IDisposable
                     ImageSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, level, layer, 1),
                     ImageExtent = new Extent3D(width, height, 1),
                 };
-                offset += width * height * BytesPerTexel;
+                offset += (ulong)MipSize((int)level);
             }
         }
 
@@ -178,7 +181,15 @@ internal sealed unsafe class GpuTexture : IDisposable
             PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit, MipCount, 0, 0, Layers);
     }
 
-    private int MipSize(int level) => Math.Max(Width >> level, 1) * Math.Max(Height >> level, 1) * BytesPerTexel;
+    private int MipSize(int level) => TextureData.LevelSize(_format, Math.Max(Width >> level, 1), Math.Max(Height >> level, 1));
+
+    private static Format VulkanFormat(TextureFormat format, TextureKind kind) => format switch
+    {
+        TextureFormat.Bc7 => kind == TextureKind.Color ? Format.BC7SrgbBlock : Format.BC7UnormBlock,
+        TextureFormat.Bc5 => Format.BC5UnormBlock,
+        TextureFormat.Bc4 => Format.BC4UnormBlock,
+        _ => kind == TextureKind.Color ? Format.R8G8B8A8Srgb : Format.R8G8B8A8Unorm,
+    };
 
     private ulong StagingSize()
     {

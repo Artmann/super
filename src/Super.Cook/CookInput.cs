@@ -17,13 +17,30 @@ public sealed class CookInput
     private readonly List<string> _inputs = [];
     private IReadOnlySet<string>? _names;
 
-    internal CookInput(SourceFile file, byte[] bytes, JsonObject settings, string target)
+    private readonly StepCache? _steps;
+
+    internal CookInput(SourceFile file, byte[] bytes, JsonObject settings, string target, StepCache? steps = null)
     {
         _file = file;
         Bytes = bytes;
         Settings = settings;
         Target = target;
+        _steps = steps;
     }
+
+    /// <summary>
+    /// What an earlier cook kept for <paramref name="key"/> of a slow step with <see cref="Keep"/>, or null when
+    /// there's nothing, the cook has no cache, or the entry was damaged. The key must name everything the step's result
+    /// depends on, its code's version included, so a change to any of them misses. Safe to call from several threads.
+    /// </summary>
+    /// <param name="step">The step's name, in letters, digits and dashes, such as <c>graph-run</c>.</param>
+    public byte[]? Recall(string step, string key) => _steps?.Find(step, key);
+
+    /// <summary>Keeps a slow step's result for <see cref="Recall"/> in later cooks. Does nothing when the cook has no cache.</summary>
+    public void Keep(string step, string key, byte[] bytes) => _steps?.Keep(step, key, bytes);
+
+    /// <summary>Whether <see cref="Recall"/> and <see cref="Keep"/> have a cache behind them.</summary>
+    public bool HasStepCache => _steps is not null;
 
     /// <summary>The source's name, such as <c>items/axe.json</c>.</summary>
     public string Name => _file.Name;
@@ -99,6 +116,24 @@ public sealed class CookInput
         Track(candidates[0]);
         return candidates[0];
     }
+
+    /// <summary>
+    /// The name in the root of a file by its path from the source's folder, such as <c>textures/ripples.png</c> for
+    /// <c>../textures/ripples.png</c> beside <c>models/a.glb</c>, or null when the root has no such file. It isn't read
+    /// or tracked, so for a file that's cooked as an asset of its own and only named by this one.
+    /// </summary>
+    public string? NameOf(string relative)
+    {
+        string? name = ResolveName(_file.Name, relative);
+        return name is not null && Names().Contains(name) ? name : null;
+    }
+
+    /// <summary>
+    /// Whether the root's Only picks <paramref name="name"/>, a name in the root such as <see cref="NameOf"/> gives, so it's
+    /// cooked as an asset of its own. Without an Only every file is. A file Only leaves out can still be read, but the game
+    /// can't load it by name.
+    /// </summary>
+    public bool IsPicked(string name) => Sources.Picks(_file.Root, name);
 
     /// <summary>Records a file the cooker opened some other way, so a change to it counts as a change to this source.</summary>
     public void Track(string relative)
