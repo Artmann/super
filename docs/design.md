@@ -1474,6 +1474,23 @@ first cascade where, on every axis, `(Origin + 1) * spacing <= p < (Origin + cou
 so the lookup's eight probes are always inside the box; -1 means none holds the point. The shader
 repeats this rule and the slot maths.
 
+`ProbeScheduler` picks which probes a frame updates (it isn't wired into the renderer yet either).
+A probe is `ProbeId(cascade, slot)`, where cascade 4 is the fixed grid; the grid's positions are
+given with `SetFixedGrid`. Each probe is never captured, dirty or clean. `Scrolled` makes the
+`ScrollResult`'s new slots never captured, `LightChanged(center, range)` makes the clean probes in
+range dirty, and `EverythingChanged` (sun, sky or environment) makes all of them dirty; a dirty
+probe keeps its old value in use until it is updated. `Next(budget, camera, forward)` returns at
+most `budget` distinct probes: never captured first, then dirty, then clean probes in order of the
+frames since their last update. In the first two tiers the nearer probe goes first, finer
+cascades win at equal distance (squared distance is scaled by `(1 + cascade / 2)²`) and probes in
+front of the camera count as nearer (×0.75). Among clean probes the oldest goes first and
+distance only breaks ties, so no probe waits longer than about probes ÷ budget frames. Ties end in
+the lowest cascade and slot, so the same calls always give the same batches. `Frame` counts the
+calls to `Next`, and ages are in frames, never seconds. The pass over all probes keeps the best
+`budget` in a binary heap rather than sorting, so a frame at High (65,536 probes) costs one scan.
+`Settled` means cascades 0 and 1 and the fixed grid are all captured and clean. The ProbeBudget
+is 8 raster and 256 traced probes a frame at Low, 16 and 512 at Medium, and 32 and 1,024 at High.
+
 ## Lightmap UVs
 
 `LightmapUnwrap.Unwrap` gives a mesh a second UV set (`Vertex.Uv2`) for baked lighting, and
