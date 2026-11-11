@@ -432,9 +432,6 @@ public static partial class Shapes
 
     private sealed class ShapeBuilder
     {
-        /// <summary>The largest lightmap page a shape's charts are packed on, after <see cref="LightmapUnwrap.ReferenceSize"/> and twice that.</summary>
-        private const int LargestLightmapSize = 4 * LightmapUnwrap.ReferenceSize;
-
         private readonly List<Vertex> _vertices = [];
         private readonly List<uint> _indices = [];
         private readonly List<Chart> _charts = [];
@@ -621,14 +618,16 @@ public static partial class Shapes
             }
 
             float longest = 0f;
+            double area = 0.0;
             foreach (var chart in _charts)
             {
                 longest = MathF.Max(longest, MathF.Max(chart.Extent.X, chart.Extent.Y));
+                area += (double)chart.Extent.X * chart.Extent.Y;
             }
 
             var rectangles = new (int Width, int Height)[_charts.Count];
             var places = new (int X, int Y)[_charts.Count];
-            for (int size = LightmapUnwrap.ReferenceSize; size <= LargestLightmapSize; size *= 2)
+            for (int size = LightmapUnwrap.ReferenceSize; size <= LightmapUnwrap.LargestSize; size *= 2)
             {
                 // A chart's rectangle is its extent in texels rounded up plus one, so the longest
                 // fits the page when it's no more than size - 1 texels long; a little less keeps
@@ -643,10 +642,13 @@ public static partial class Shapes
                         continue;
                     }
 
-                    // The largest scale that fits, between one that fits and one that doesn't.
-                    double fails = most;
+                    // The largest scale that fits, between one that fits and one that doesn't, to a
+                    // thousandth, far below a texel. Each rectangle is larger than its chart, so at the
+                    // scale where the charts alone would cover the page they can't fit, which starts
+                    // the search close.
+                    double fails = area > 0.0 ? Math.Min(most, Math.Sqrt((double)size * size / area)) : most;
                     fits = least;
-                    for (int halving = 0; halving < 40; halving++)
+                    while (fails / fits >= 1.001)
                     {
                         double middle = (fits + fails) * 0.5;
                         if (Fits(middle, size))
@@ -659,6 +661,8 @@ public static partial class Shapes
                         }
                     }
 
+                    // Packs again at the scale kept, since the last try may have been one that failed,
+                    // so rectangles and places below are this scale's.
                     Fits(fits, size);
                 }
 
@@ -679,10 +683,10 @@ public static partial class Shapes
             }
 
             throw new InvalidOperationException(
-                $"The shape's {_charts.Count} lightmap charts don't fit a {LargestLightmapSize}-texel page with a {LightmapUnwrap.Gutter}-texel gutter, even at their smallest.");
+                $"The shape's {_charts.Count} lightmap charts don't fit a {LightmapUnwrap.LargestSize}-texel page with a {LightmapUnwrap.Gutter}-texel gutter, even at their smallest.");
 
-            // Sizes each chart's rectangle at this many texels per metre, at least one texel a
-            // side, and packs them; whether they all fit.
+            // Sizes each chart's rectangle at this many texels per metre, its extent rounded up
+            // plus one, so at least one texel a side, and packs them; whether they all fit.
             bool Fits(double texelsPerMetre, int size)
             {
                 for (int i = 0; i < _charts.Count; i++)
@@ -694,7 +698,7 @@ public static partial class Shapes
                 return SkylinePacker.TryPack(rectangles, size, size, LightmapUnwrap.Gutter, places);
             }
 
-            static int Side(double texels) => Math.Max(1, (int)Math.Ceiling(texels) + 1);
+            static int Side(double texels) => (int)Math.Ceiling(texels) + 1;
         }
 
         private static (float Sin, float Cos) Around(int step, int steps) => SinCos(2f * MathF.PI * step / steps);

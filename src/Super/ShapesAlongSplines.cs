@@ -96,6 +96,8 @@ public static partial class Shapes
     /// mesh's back end, and its x and y keep their place across it, so it keeps its length.
     /// Past the end of an open spline it carries on straight. Give it plenty of vertices
     /// along z, since only vertices move. Loaded models can't be bent, only generated meshes.
+    /// The result keeps the mesh's <see cref="Vertex.Uv2"/>, which stretches with the bend, so call
+    /// <see cref="GeneratedMesh.WithLightmapUvs"/> on it after a tight bend.
     /// </summary>
     public static GeneratedMesh Bend(GeneratedMesh mesh, Spline spline)
     {

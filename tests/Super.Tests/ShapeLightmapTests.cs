@@ -79,6 +79,21 @@ public class ShapeLightmapTests
     }
 
     [Fact]
+    public void A_beam_bent_gently_keeps_a_valid_lightmap_set()
+    {
+        Vector2[] square = [new Vector2(0.1f, -0.1f), new Vector2(0.1f, 0.1f), new Vector2(-0.1f, 0.1f), new Vector2(-0.1f, -0.1f)];
+        var beam = Shapes.Extrude(Spline.Through([Vector3.Zero, new Vector3(0f, 0f, 1f)]), square, closedOutline: true, step: 0.05f);
+        // A quarter of a turn of 2 m radius, longer than the beam.
+        var arc = Spline.Through(Enumerable.Range(0, 9)
+            .Select(i => { float angle = i / 16f * MathF.PI; return new Vector3(2f - 2f * MathF.Cos(angle), 0f, 2f * MathF.Sin(angle)); })
+            .ToList());
+
+        var bent = Shapes.Bend(beam, arc);
+
+        Assert.Null(Problem(bent));
+    }
+
+    [Fact]
     public void A_mesh_that_already_has_one_is_kept()
     {
         var box = Shapes.Box(Vector3.One);
@@ -96,5 +111,22 @@ public class ShapeLightmapTests
         Assert.Null(Problem(made));
         Assert.Equal(bare.Indices.Length, made.Indices.Length);
         Assert.Same(bare.Surface, made.Surface);
+    }
+
+    [Fact]
+    public void A_set_that_only_passes_on_a_larger_page_is_replaced()
+    {
+        // The box's own layout shrunk to half: at 1024 it is the layout as made for 512, but at 512 its gutters are halved.
+        var box = Shapes.Box(Vector3.One);
+        var shrunk = box with { Vertices = [.. box.Vertices.Select(v => v with { Uv2 = v.Uv2 * 0.5f })] };
+        var positions = shrunk.Vertices.Select(v => v.Position).ToArray();
+        var uvs = shrunk.Vertices.Select(v => v.Uv2).ToArray();
+        Assert.Null(LightmapUnwrap.Problem(positions, uvs, shrunk.Indices, 1024));
+        Assert.NotNull(Problem(shrunk));
+
+        var made = shrunk.WithLightmapUvs();
+
+        Assert.NotSame(shrunk, made);
+        Assert.Null(Problem(made));
     }
 }

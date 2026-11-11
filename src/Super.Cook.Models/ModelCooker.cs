@@ -495,9 +495,6 @@ public sealed class ModelCooker : ICooker
     /// <summary>Names the code that unwraps and the kept bytes' layout, for the step cache's keys: the builds of the libraries that hold <see cref="LightmapUnwrap"/> and this cooker.</summary>
     private static readonly string UnwrapVersion = typeof(LightmapUnwrap).Assembly.ManifestModule.ModuleVersionId.ToString("N") + typeof(ModelCooker).Assembly.ManifestModule.ModuleVersionId.ToString("N");
 
-    /// <summary>The largest page an unwrap tries, after <see cref="LightmapUnwrap.ReferenceSize"/> and twice that.</summary>
-    private const int LargestUnwrapSize = 4 * LightmapUnwrap.ReferenceSize;
-
     /// <summary>
     /// Gives every material's parts a second UV set fit for a lightmap. A material is the group the masks bake one mask
     /// for, so each has its own 0 to 1, and two materials may overlap each other there. A material keeps the file's set
@@ -559,7 +556,7 @@ public sealed class ModelCooker : ICooker
             using (input.Time("unwrap lightmap-uv"))
             {
                 string? failure = null;
-                for (int size = LightmapUnwrap.ReferenceSize; size <= LargestUnwrapSize && unwrapped is null; size *= 2)
+                for (int size = LightmapUnwrap.ReferenceSize; size <= LightmapUnwrap.LargestSize && unwrapped is null; size *= 2)
                 {
                     try
                     {
@@ -730,7 +727,7 @@ public sealed class ModelCooker : ICooker
 
         hash.AppendData(BitConverter.GetBytes(indices.Length));
         hash.AppendData(MemoryMarshal.AsBytes(indices.AsSpan()));
-        return string.Join('|', UnwrapVersion, LargestUnwrapSize.ToString(CultureInfo.InvariantCulture), Convert.ToHexString(hash.GetHashAndReset()));
+        return string.Join('|', UnwrapVersion, LightmapUnwrap.LargestSize.ToString(CultureInfo.InvariantCulture), Convert.ToHexString(hash.GetHashAndReset()));
     }
 
     // The kept bytes: the vertex and index counts, then for each new vertex the old vertex it copies, then each new

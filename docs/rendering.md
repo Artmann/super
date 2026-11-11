@@ -1394,8 +1394,8 @@ Every shape also has a second UV set for lighting, like a cooked model's. Each p
 shape, such as a face of a box, the side of a cylinder or one of its ends, gets its own
 island in 0 to 1, laid out by the part's own rows and columns and sized by its size in
 metres, so every part gets about the same texels per metre. Islands have two empty texels
-between them at 512. `Shapes.Flat` keeps the set of the mesh it's given, as do ribbons,
-tubes and extrusions, which make theirs the same way.
+between them at 512. Ribbons, tubes and extrusions get one the same way, and `Shapes.Flat`
+keeps the set of the mesh it's given.
 
 ## Meshes made by code
 
@@ -1417,11 +1417,13 @@ ModelRef rock = content.Mesh(mesh);
 A mesh you build yourself has no second UV set for lighting unless you set each vertex's
 `Uv2`. `mesh.WithLightmapUvs()` gives it one: it returns the mesh itself when its `Uv2`
 already fits a lightmap by the same rules as a cooked model's (inside 0 to 1, no overlaps,
-two empty texels at 512 between islands, and texel density within four times everywhere),
-and otherwise a copy unwrapped into islands, with vertices split where islands meet. A mesh
-with so many pieces that its islands don't fit a 512 page is laid on 1024, then 2048, and
-`WithLightmapUvs` throws an `InvalidOperationException` if they don't fit that either.
-Shapes, spline meshes and terrain chunks already have one.
+two empty texels at 512 between islands, and texel density within four times from island
+to island), and otherwise a copy unwrapped into islands, with vertices split where islands
+meet. Your own set is checked at 512 only, so one laid out for a 1024 page, whose gutters
+are one texel at 512, is replaced. A mesh with so many pieces that its islands don't fit a
+512 page is laid on 1024, then 2048, and `WithLightmapUvs` throws an
+`InvalidOperationException` if they don't fit that either. Shapes, ribbons, tubes,
+extrusions and terrain chunks already have one; a bent mesh keeps the one it had.
 
 Textures come from a cooked image (PNG, JPEG or TGA), or from pixels you made. Whether a
 cooked one is a normal map or linear data is a cook setting, set by a
@@ -1531,7 +1533,9 @@ the spline, scaled by `uvPerMetre`, which is 1 unless the surface has a `TileWid
 `Bend` measures along the spline from the back of the mesh (its lowest z). Each vertex
 keeps its x and y across the spline, so the mesh keeps its length. Past the end of an
 open spline the mesh carries on straight. Only vertices move, so give the mesh plenty of
-them along z, such as a `Shapes.Plane` with many subdivisions.
+them along z, such as a `Shapes.Plane` with many subdivisions. The bent mesh keeps the
+lighting UV set of the mesh you gave it, which stretches with the bend; after a tight
+bend, call `WithLightmapUvs` on the result to get a fresh one.
 
 An outline folds over itself where the spline turns tighter than the outline is wide.
 Keep half the width narrower than the tightest turn. Only generated meshes can be bent;
@@ -1556,8 +1560,9 @@ var ground = content.Mesh(field.Chunk(chunk.X, chunk.Z, quads: 32, new Surface
 
 `field.Height(x, z)` and `field.Normal(x, z)` answer gameplay questions about the same
 ground. Each chunk's second UV set, for lighting, is its vertices' places on the chunk's
-grid, from (0, 0) at its first corner to (1, 1) at the far one. The [Terrain example](../examples/Terrain) loads chunks around the camera and
-unloads the ones left behind.
+grid, from (0, 0) at its first corner to (1, 1) at the far one. The
+[Terrain example](../examples/Terrain) loads chunks around the camera and unloads the ones
+left behind.
 
 ## Surface shaders
 

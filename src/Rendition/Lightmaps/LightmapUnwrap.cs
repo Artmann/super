@@ -13,6 +13,12 @@ public static class LightmapUnwrap
     /// <summary>The lightmap size, in texels square, that gutters and overlaps are measured at unless a caller names another.</summary>
     public const int ReferenceSize = 512;
 
+    /// <summary>
+    /// The largest page a mesh is laid out on, after <see cref="ReferenceSize"/> and twice that, when its charts don't fit
+    /// a smaller one. The model cooker, built-in shapes and <c>GeneratedMesh.WithLightmapUvs</c> all stop here.
+    /// </summary>
+    public const int LargestSize = 4 * ReferenceSize;
+
     /// <summary>The empty texels kept between any two charts at the size they are laid out or checked at.</summary>
     public const int Gutter = 2;
 

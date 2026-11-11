@@ -426,5 +426,41 @@ public class LightmapUnwrapProblemTests
             LightmapUnwrap.Problem(positions, uvs, indices, 512));
     }
 
+    [Fact]
+    public void Measures_far_shares_at_the_size_it_is_given()
+    {
+        // One chart in two storeys, in texels at 1024. The floor, rows 20 to 40, lies at height 0 and the upper strip,
+        // rows 41.5 to 61.5, at height 1 just above it in the UVs. They are joined the long way round, so the climb is
+        // far from both: a leg below the floor runs right to a riser at columns 200 to 220, which climbs 1 m between
+        // rows 20 and 61.5, and a leg above the upper strip runs back. The floor's top edge, on the texel line 40,
+        // touches row 40 and the upper strip starts in row 41, so at 1024 no texel has both. At 512 the floor reaches
+        // row 20 and the upper strip starts at 20.75, so texel (10, 20) has both storeys: triangle 1, the floor's upper
+        // half, at (0.21, 0.4, 0) and triangle 2, the upper strip's lower half, at (0.21, 0.415, 1).
+        Vector2[] texels =
+        [
+            new(20f, 20f), new(80f, 20f), new(80f, 40f), new(20f, 40f), // floor, 0 to 3
+            new(20f, 41.5f), new(80f, 41.5f), new(80f, 61.5f), new(20f, 61.5f), // upper strip, 4 to 7
+            new(20f, 0f), new(80f, 0f), new(200f, 0f), new(200f, 20f), // lower leg, 8 to 11
+            new(220f, 0f), new(220f, 20f), new(200f, 61.5f), new(220f, 61.5f), new(200f, 80f), new(220f, 80f), // riser
+            new(20f, 80f), new(80f, 80f), // upper leg, 18 and 19
+        ];
+        float[] heights = [0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f, 0f, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f, 1f, 1f];
+        var positions = texels.Select((p, k) => new Vector3(p.X / 100f, p.Y / 100f, heights[k])).ToArray();
+        var uvs = texels.Select(p => p / 1024f).ToArray();
+        uint[] indices =
+        [
+            0, 1, 2, 0, 2, 3, // floor: triangles 0 and 1
+            4, 5, 6, 4, 6, 7, // upper strip: triangles 2 and 3
+            8, 9, 1, 8, 1, 0, 9, 10, 11, 9, 11, 1, // lower leg
+            10, 12, 13, 10, 13, 11, 11, 13, 15, 11, 15, 14, 14, 15, 17, 14, 17, 16, // riser
+            6, 14, 16, 6, 16, 19, 7, 6, 19, 7, 19, 18, // upper leg
+        ];
+
+        Assert.Null(LightmapUnwrap.Problem(positions, uvs, indices, 1024));
+        Assert.Equal(
+            "Triangles 1 and 2 of one chart share texel (10, 20) but are 1 m apart.",
+            LightmapUnwrap.Problem(positions, uvs, indices, 512));
+    }
+
     private static Vector2 Texels(float x, float y) => new Vector2(x, y) / LightmapUnwrap.ReferenceSize;
 }

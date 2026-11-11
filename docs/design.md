@@ -1552,13 +1552,18 @@ chart, so the fan round it is joined by edges and `Problem` sees one chart rathe
 ring of single triangles touching at a texel. A cap is laid out by its own x and z. `Build`
 packs the charts' rectangles, sized by `ChartRectangle`'s rule (extent rounded up plus one,
 chart centred), with `SkylinePacker` and a two-texel gutter at one texels-per-metre for the
-whole shape: the most that lets the longest side fit, or else the largest that fits found by
-40 halvings, at 512, then 1024 and 2048. Extrusions along a spline go through the same
-`ShapeBuilder`, so they need no unwrap either. `Flat` and `Bend` keep the `Uv2` they're
-given. A `Heightfield` chunk's `Uv2` is its grid position over its quads, so the one chart
-fills 0 to 1. `GeneratedMesh.WithLightmapUvs` returns the mesh when `Problem` passes its set
-at 512; otherwise it unwraps at 512, and when the charts don't fit, checks and then unwraps
-at 1024 and 2048 in turn, like the cooker.
+whole shape: the most that lets the longest side fit, or else the largest that fits. That one
+is found by bisection, starting between a scale that fits and the one at which the charts'
+summed area fills the page, which no packing can beat, and stopping when the two are within
+0.1%, which takes about a dozen packs rather than 40. It tries 512, then 1024, then 2048
+(`LightmapUnwrap.LargestSize`, the one limit the cooker, shapes and `WithLightmapUvs`
+share). Extrusions along a spline go through the same `ShapeBuilder`, so they need no unwrap
+either. `Flat` and `Bend` keep the `Uv2` they're given, so a tightly bent mesh can fail
+`Problem`. A `Heightfield` chunk's `Uv2` is its grid position over its quads, so the one
+chart fills 0 to 1. `GeneratedMesh.WithLightmapUvs` returns the mesh when `Problem` passes
+its set at 512, the only size it checks, as the cooker does, since the layout counts on 512;
+otherwise it unwraps at 512, then 1024 and 2048 when the charts don't fit. A set laid out
+for 1024 that fails at 512 is replaced.
 
 ## Paint and glass
 

@@ -128,14 +128,13 @@ public sealed record GeneratedMesh(Vertex[] Vertices, uint[] Indices, Surface Su
     /// <summary>A colour texture that lives and dies with this mesh, from the old constructor.</summary>
     internal GeneratedTexture? OwnedTexture { get; init; }
 
-    /// <summary>The largest lightmap page <see cref="WithLightmapUvs"/> tries, after <see cref="LightmapUnwrap.ReferenceSize"/> and twice that.</summary>
-    private const int LargestLightmapSize = 4 * LightmapUnwrap.ReferenceSize;
-
     /// <summary>
-    /// This mesh when its <see cref="Vertex.Uv2"/> already passes <see cref="LightmapUnwrap.Problem"/>, otherwise a copy
-    /// unwrapped by <see cref="LightmapUnwrap.Unwrap"/>, with vertices split where its charts meet. The page is
-    /// <see cref="LightmapUnwrap.ReferenceSize"/> texels square, or twice or four times that when the charts don't fit,
-    /// and at each size a second UV set that already passes is kept.
+    /// This mesh when its <see cref="Vertex.Uv2"/> already passes <see cref="LightmapUnwrap.Problem"/> at
+    /// <see cref="LightmapUnwrap.ReferenceSize"/>, as the model cooker checks a file's set, otherwise a copy unwrapped by
+    /// <see cref="LightmapUnwrap.Unwrap"/>, with vertices split where its charts meet. The unwrap's page is
+    /// <see cref="LightmapUnwrap.ReferenceSize"/> texels square, or twice that up to
+    /// <see cref="LightmapUnwrap.LargestSize"/> when the charts don't fit. A set made for a larger page only, such as one
+    /// whose gutters are two texels at 1024 but one at 512, is replaced.
     /// </summary>
     /// <exception cref="InvalidOperationException">The charts don't fit even the largest page.</exception>
     public GeneratedMesh WithLightmapUvs()
@@ -153,14 +152,14 @@ public sealed record GeneratedMesh(Vertex[] Vertices, uint[] Indices, Surface Su
             uvs[i] = Vertices[i].Uv2;
         }
 
-        string? failure = null;
-        for (int size = LightmapUnwrap.ReferenceSize; size <= LargestLightmapSize; size *= 2)
+        if (LightmapUnwrap.Problem(positions, uvs, Indices) is null)
         {
-            if (LightmapUnwrap.Problem(positions, uvs, Indices, size) is null)
-            {
-                return this;
-            }
+            return this;
+        }
 
+        string? failure = null;
+        for (int size = LightmapUnwrap.ReferenceSize; size <= LightmapUnwrap.LargestSize; size *= 2)
+        {
             try
             {
                 var (vertices, indices) = LightmapUnwrap.Unwrap(Vertices, Indices, size);
