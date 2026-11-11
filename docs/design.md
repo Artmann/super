@@ -382,7 +382,12 @@ settings as canonical JSON (keys sorted, so their order in the file doesn't matt
 hash of the source. Other files the cooker read, such as a model's textures, aren't part of
 the key: the cache record lists them with their hashes, and a record only counts while every
 one still matches, so editing a texture cooks its model again. A
-cooker that changes its output bumps its version, which misses every old entry. `CookCache`
+cooker that changes its output bumps its version, which misses every old entry. The model and
+material cookers' versions, and the mask and texture step keys, come from the build ids of the
+cook libraries, so a change to their code misses too. That only works because unchanged code
+builds to the same bytes: `Directory.Build.props` sets `EnableSourceControlManagerQueries` to
+false, since otherwise the SDK writes the git commit into every assembly and its PDB, and any
+commit would miss the whole cache. `CookCache`
 keeps what a cook made under that key, in `~/.super/cache` or the folder in `SUPER_CACHE`, and
 restores it into the store when the key matches, checking the objects' hashes first.
 Deleting it is always safe. A cooker reads the files beside its source only through

@@ -16,8 +16,8 @@ dotnet test Super.slnx -c Release
 The tests need no window or GPU. GitHub Actions runs the same build and tests on every pull
 request and on each push to `main`, on Windows (`.github/workflows/ci.yml`). The recording tests
 there need `ffmpeg`, as they do locally. CI keeps the cook cache between runs, so it only cooks
-content that changed. Cooking the Courtyard from scratch takes about seven minutes there, which
-happens when the cook's code changes and once a month.
+content that changed. Cooking the Courtyard from scratch takes about six minutes there, which
+happens when the cook's code or the .NET SDK changes, and once a month.
 
 To see games running, try the examples:
 

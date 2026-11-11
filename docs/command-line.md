@@ -186,7 +186,8 @@ Cooking is a pure function of the sources and their settings, so the cooked resu
 file that hasn't changed is kept and used again. The cache is in `~/.super/cache`, or in
 the folder in the `SUPER_CACHE` environment variable when that is set, so a build server
 can keep it somewhere of its own. `--cache` picks a folder for one run. Deleting the cache
-is always safe: the next cook makes it again.
+is always safe: the next cook makes it again. A change to the cook's own code misses the
+entries it affects, but a commit that doesn't touch that code keeps the cache.
 
 A source that does cook again keeps its slow steps' results in the cache's `steps` folder too,
 each under the hash of everything that step reads. A model whose one material graph changed
