@@ -37,8 +37,22 @@ public static class LightmapUnwrap
     /// <summary>Triangles of one chart overlap when they share more than this many texels, at the reference size.</summary>
     private const double TexelOverlap = 0.01;
 
-    /// <summary>When the charts don't fit the page, they're all shrunk by this much and packed again.</summary>
+    /// <summary>
+    /// The scale search steps by this much until it has one scale that fits and one that doesn't, then halves the
+    /// gap between them <see cref="Halvings"/> times.
+    /// </summary>
     private const double Shrink = 0.9;
+
+    private const int Halvings = 6;
+
+    /// <summary>A finished chart keeps no triangle more than 75 degrees from its mean normal.</summary>
+    private const double SteepCosine = 0.2588;
+
+    /// <summary>
+    /// Two triangles of one chart touching one texel are neighbours when their points there are within this many
+    /// texels of the more stretched one's surface; neighbours are within about 1.5.
+    /// </summary>
+    private const double NeighbourReach = 4.0;
 
     /// <summary>
     /// Unwraps the mesh: the same triangles in the same order, with vertices split where charts meet and
@@ -49,7 +63,62 @@ public static class LightmapUnwrap
     {
         var mesh = new Mesh(vertices, indices);
         var charts = BuildCharts(mesh);
-        var layout = Lay(mesh, charts);
+        var cornerPositions = new Vector3[indices.Length];
+        for (int corner = 0; corner < indices.Length; corner++)
+        {
+            cornerPositions[corner] = vertices[(int)indices[corner]].Position;
+        }
+
+        // A chart can curl round until two far-apart parts of it land within a texel of each other, which only shows
+        // once its texel size is known. Cut each such chart back to before the later of the two, and lay out again.
+        Vector2[] layout;
+        while (true)
+        {
+            layout = Lay(mesh, charts);
+            var shares = FarShares(cornerPositions, layout, charts.ChartOf, firstOnly: false);
+            if (shares.Count == 0)
+            {
+                break;
+            }
+
+            var rank = new int[mesh.TriangleCount];
+            foreach (var members in charts.Members)
+            {
+                for (int k = 0; k < members.Count; k++)
+                {
+                    rank[members[k]] = k;
+                }
+            }
+
+            var cutAt = new Dictionary<int, int>();
+            foreach (var share in shares)
+            {
+                int chart = charts.ChartOf[share.A];
+                int later = Math.Max(1, Math.Max(rank[share.A], rank[share.B]));
+                cutAt[chart] = cutAt.TryGetValue(chart, out int at) ? Math.Min(at, later) : later;
+            }
+
+            var pending = new Stack<int>();
+            foreach (var (chart, cut) in cutAt.OrderByDescending(pair => pair.Key))
+            {
+                var members = charts.Members[chart];
+                var freed = new List<int>();
+                for (int k = cut; k < members.Count; k++)
+                {
+                    charts.ChartOf[members[k]] = -1;
+                    freed.Add(members[k]);
+                }
+
+                members.RemoveRange(cut, members.Count - cut);
+                Settle(mesh, members, charts.ChartOf, pending);
+                for (int k = freed.Count - 1; k >= 0; k--)
+                {
+                    pending.Push(freed[k]);
+                }
+            }
+
+            ChartFree(mesh, charts, pending);
+        }
 
         var outIndices = new uint[indices.Length];
         var outVertices = new List<Vertex>(vertices.Length + vertices.Length / 4);
@@ -75,7 +144,8 @@ public static class LightmapUnwrap
     /// <summary>
     /// Says what's wrong with <paramref name="uvs"/> as a lightmap set at <see cref="ReferenceSize"/>, in one
     /// sentence, or null when nothing is. The rules, in the order they're checked: every corner is inside 0 to 1; no
-    /// texel is touched by triangles of two charts, and no two triangles of one chart overlap; every two charts have
+    /// texel is touched by triangles of two charts, and no two triangles of one chart overlap; no two triangles of one
+    /// chart share a texel while lying more than four texels apart on the surface; every two charts have
     /// <see cref="Gutter"/> empty texels between them; and texel density, a chart's UV area over its world area,
     /// varies less than 4 times between charts. A chart is the triangles joined by edges whose corners have the same
     /// positions and UVs, and every texel a triangle touches counts as its.
@@ -172,6 +242,23 @@ public static class LightmapUnwrap
                 return string.Create(CultureInfo.InvariantCulture,
                     $"Triangles {a} and {b} overlap at texel ({(int)Math.Floor(overlap.X)}, {(int)Math.Floor(overlap.Y)}).");
             }
+        }
+
+        // Nor may one chart curl round so that two far-apart parts of it touch one texel, even without overlapping.
+        var cornerPositions = new Vector3[indices.Length];
+        var cornerUvs = new Vector2[indices.Length];
+        for (int corner = 0; corner < indices.Length; corner++)
+        {
+            cornerPositions[corner] = positions[(int)indices[corner]];
+            cornerUvs[corner] = uvs[(int)indices[corner]];
+        }
+
+        var far = FarShares(cornerPositions, cornerUvs, chartOf, firstOnly: true);
+        if (far.Count > 0)
+        {
+            var share = far[0];
+            return string.Create(CultureInfo.InvariantCulture,
+                $"Triangles {share.A} and {share.B} of one chart share texel ({share.X}, {share.Y}) but are {share.Distance:0.###} m apart.");
         }
 
         for (int y = 0; y < size; y++)
@@ -311,12 +398,21 @@ public static class LightmapUnwrap
     /// </summary>
     private static Charting BuildCharts(Mesh mesh)
     {
-        int count = mesh.TriangleCount;
-        var chartOf = new int[count];
+        var chartOf = new int[mesh.TriangleCount];
         Array.Fill(chartOf, -1);
-        var charts = new List<List<int>>();
+        var charts = new Charting(chartOf, []);
+        ChartFree(mesh, charts, []);
+        return charts;
+    }
 
-        var pending = new Stack<int>();
+    /// <summary>
+    /// Charts every triangle that has no chart yet: those with area grow into new charts, seeded first from
+    /// <paramref name="pending"/> and then in index order, and those without join a neighbour's chart or make one.
+    /// </summary>
+    private static void ChartFree(Mesh mesh, Charting charts, Stack<int> pending)
+    {
+        int count = mesh.TriangleCount;
+        var chartOf = charts.ChartOf;
         int next = 0;
         while (true)
         {
@@ -324,7 +420,7 @@ public static class LightmapUnwrap
             while (pending.Count > 0)
             {
                 int candidate = pending.Pop();
-                if (chartOf[candidate] < 0)
+                if (chartOf[candidate] < 0 && !mesh.Zero[candidate])
                 {
                     seed = candidate;
                     break;
@@ -346,47 +442,38 @@ public static class LightmapUnwrap
                 seed = next;
             }
 
-            int chart = charts.Count;
+            int chart = charts.Members.Count;
             var members = Grow(mesh, seed, chart, chartOf);
-            while (true)
-            {
-                int cut = FirstBadRank(mesh, members);
-                if (cut < 0)
-                {
-                    break;
-                }
-
-                for (int k = cut; k < members.Count; k++)
-                {
-                    chartOf[members[k]] = -1;
-                    next = Math.Min(next, members[k]);
-                }
-
-                pending.Push(members[cut]);
-                members.RemoveRange(cut, members.Count - cut);
-            }
-
-            charts.Add(members);
+            charts.Members.Add(members);
+            Settle(mesh, members, chartOf, pending);
         }
 
-        // Triangles with no area take a neighbour's chart; chains of them pass it along.
-        bool joined = true;
-        while (joined)
+        // Triangles with no area take a neighbour's chart; chains of them pass it along, breadth-first.
+        var queue = new Queue<int>();
+        for (int triangle = 0; triangle < count; triangle++)
         {
-            joined = false;
-            for (int triangle = 0; triangle < count; triangle++)
+            if (chartOf[triangle] < 0 && FirstNeighbourWithChart(mesh, triangle, chartOf) >= 0)
             {
-                if (chartOf[triangle] >= 0)
-                {
-                    continue;
-                }
+                queue.Enqueue(triangle);
+            }
+        }
 
-                int neighbour = FirstNeighbourWithChart(mesh, triangle, chartOf);
-                if (neighbour >= 0)
+        while (queue.Count > 0)
+        {
+            int triangle = queue.Dequeue();
+            if (chartOf[triangle] >= 0)
+            {
+                continue;
+            }
+
+            int neighbour = FirstNeighbourWithChart(mesh, triangle, chartOf);
+            chartOf[triangle] = chartOf[neighbour];
+            charts.Members[chartOf[triangle]].Add(triangle);
+            foreach (int other in Neighbours(mesh, triangle))
+            {
+                if (chartOf[other] < 0)
                 {
-                    chartOf[triangle] = chartOf[neighbour];
-                    charts[chartOf[triangle]].Add(triangle);
-                    joined = true;
+                    queue.Enqueue(other);
                 }
             }
         }
@@ -395,12 +482,157 @@ public static class LightmapUnwrap
         {
             if (chartOf[triangle] < 0)
             {
-                chartOf[triangle] = charts.Count;
-                charts.Add([triangle]);
+                chartOf[triangle] = charts.Members.Count;
+                charts.Members.Add([triangle]);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Cuts a chart until it is fine: triangles more than 75 degrees from its mean normal leave it, and so does
+    /// everything grown after the later of two triangles that overlap once it's laid flat. Whatever leaves goes on
+    /// <paramref name="pending"/>, first-grown on top, to grow into charts of its own.
+    /// </summary>
+    private static void Settle(Mesh mesh, List<int> members, int[] chartOf, Stack<int> pending)
+    {
+        int chart = chartOf[members[0]];
+        var freed = new List<int>();
+        while (true)
+        {
+            if (DropSteep(mesh, members, chart, chartOf, freed))
+            {
+                continue;
+            }
+
+            int cut = FirstBadRank(mesh, members);
+            if (cut < 0)
+            {
+                break;
+            }
+
+            for (int k = cut; k < members.Count; k++)
+            {
+                chartOf[members[k]] = -1;
+                freed.Add(members[k]);
+            }
+
+            members.RemoveRange(cut, members.Count - cut);
+        }
+
+        for (int k = freed.Count - 1; k >= 0; k--)
+        {
+            pending.Push(freed[k]);
+        }
+    }
+
+    /// <summary>
+    /// Takes out of the chart the triangles more than 75 degrees from its mean normal, which flattening would squash
+    /// to under a quarter of their density, and then whatever no longer joins up with the rest. The rest is put back in
+    /// breadth-first order, so every first part of it is still joined up. Whether anything was taken out.
+    /// </summary>
+    private static bool DropSteep(Mesh mesh, List<int> members, int chart, int[] chartOf, List<int> freed)
+    {
+        var sum = default(Vector3D);
+        foreach (int triangle in members)
+        {
+            sum += mesh.Cross[triangle];
+        }
+
+        double sumLength = sum.Length();
+        int first = -1;
+        bool any = false;
+        foreach (int triangle in members)
+        {
+            var face = mesh.Cross[triangle];
+            if (mesh.Zero[triangle] || Vector3D.Dot(face, sum) >= SteepCosine * face.Length() * sumLength)
+            {
+                if (first < 0 && !mesh.Zero[triangle])
+                {
+                    first = triangle;
+                }
+            }
+            else
+            {
+                any = true;
+                chartOf[triangle] = -1;
+                freed.Add(triangle);
             }
         }
 
-        return new Charting(chartOf, charts);
+        if (!any)
+        {
+            return false;
+        }
+
+        if (first < 0)
+        {
+            // Every triangle with area is steep, which a 60-degree cone can't grow; keep the seed.
+            first = members[0];
+            freed.Remove(first);
+            chartOf[first] = chart;
+        }
+
+        // Breadth-first from the first triangle left, across smooth edges, over what's still in the chart.
+        var order = new List<int> { first };
+        var reached = new HashSet<int> { first };
+        for (int k = 0; k < order.Count; k++)
+        {
+            int triangle = order[k];
+            for (int i = 0; i < 3; i++)
+            {
+                int corner = triangle * 3 + i;
+                int group = mesh.EdgeGroup[corner];
+                if (group < 0)
+                {
+                    continue;
+                }
+
+                for (int g = mesh.GroupStart[group]; g < mesh.GroupStart[group + 1]; g++)
+                {
+                    int other = mesh.GroupCorners[g];
+                    int neighbour = other / 3;
+                    if (chartOf[neighbour] == chart && !reached.Contains(neighbour) && SmoothEdge(mesh, corner, other))
+                    {
+                        reached.Add(neighbour);
+                        order.Add(neighbour);
+                    }
+                }
+            }
+        }
+
+        foreach (int triangle in members)
+        {
+            if (chartOf[triangle] == chart && !reached.Contains(triangle))
+            {
+                chartOf[triangle] = -1;
+                freed.Add(triangle);
+            }
+        }
+
+        members.Clear();
+        members.AddRange(order);
+        return true;
+    }
+
+    private static IEnumerable<int> Neighbours(Mesh mesh, int triangle)
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            int group = mesh.EdgeGroup[triangle * 3 + i];
+            if (group < 0)
+            {
+                continue;
+            }
+
+            for (int g = mesh.GroupStart[group]; g < mesh.GroupStart[group + 1]; g++)
+            {
+                int neighbour = mesh.GroupCorners[g] / 3;
+                if (neighbour != triangle)
+                {
+                    yield return neighbour;
+                }
+            }
+        }
     }
 
     private static List<int> Grow(Mesh mesh, int seed, int chart, int[] chartOf)
@@ -614,16 +846,92 @@ public static class LightmapUnwrap
             longest = Math.Max(longest, Math.Max(width, height));
         }
 
-        // UV units per metre: start where the charts' boxes would fill the page and the longest just fits.
-        double perMetre = longest > 0.0 ? (ReferenceSize - 1.0) / (ReferenceSize * longest) : 1.0;
+        // UV units per metre: start where the charts' rectangles, with their margins and gutters, would fill the page,
+        // and the longest just fits. In texels t = perMetre·512, the page holds Σ (w·t + 3)(h·t + 3) = 512².
+        double cap = longest > 0.0 ? (ReferenceSize - 1.0) / (ReferenceSize * longest) : 1.0;
+        double perMetre = cap;
         if (boxArea > 0.0)
         {
-            perMetre = Math.Min(perMetre, Math.Sqrt(1.0 / boxArea));
+            const double margin = 1.0 + Gutter;
+            double sumSides = 0.0;
+            for (int chart = 0; chart < chartCount; chart++)
+            {
+                if (hasArea[chart])
+                {
+                    sumSides += (bounds[chart].MaxX - bounds[chart].MinX + bounds[chart].MaxY - bounds[chart].MinY) * scale[chart];
+                }
+            }
+
+            double page = (double)ReferenceSize * ReferenceSize - chartCount * margin * margin;
+            double b = sumSides * margin;
+            double t = page > 0.0 ? (-b + Math.Sqrt(b * b + 4.0 * boxArea * page)) / (2.0 * boxArea) : 1e-6;
+            perMetre = Math.Min(cap, Math.Max(t, 1e-6) / ReferenceSize);
         }
 
         var sizes = new (int Width, int Height)[chartCount];
         var places = new (int X, int Y)[chartCount];
-        for (int attempt = 0; ; attempt++)
+        var bestSizes = new (int Width, int Height)[chartCount];
+        var bestPlaces = new (int X, int Y)[chartCount];
+        double fits = -1.0;
+        double fails = -1.0;
+        int attempts = 0;
+        while (true)
+        {
+            bool smallest = Size(perMetre);
+            attempts++;
+            if (SkylinePacker.TryPack(sizes, ReferenceSize, ReferenceSize, Gutter, places))
+            {
+                fits = perMetre;
+                sizes.CopyTo(bestSizes, 0);
+                places.CopyTo(bestPlaces, 0);
+                if (fails > 0.0 || perMetre >= cap)
+                {
+                    break;
+                }
+
+                perMetre = Math.Min(cap, perMetre / Shrink);
+            }
+            else
+            {
+                fails = perMetre;
+                if (fits > 0.0)
+                {
+                    break;
+                }
+
+                if (smallest || attempts > 500)
+                {
+                    throw new InvalidOperationException(
+                        $"The mesh's {chartCount} lightmap charts don't fit a {ReferenceSize}-texel page with a {Gutter}-texel gutter, even at their smallest.");
+                }
+
+                perMetre *= Shrink;
+            }
+        }
+
+        // Narrow the gap between the largest scale that fits and the smallest that doesn't.
+        for (int halving = 0; halving < Halvings && fails > 0.0; halving++)
+        {
+            perMetre = (fits + fails) * 0.5;
+            Size(perMetre);
+            if (SkylinePacker.TryPack(sizes, ReferenceSize, ReferenceSize, Gutter, places))
+            {
+                fits = perMetre;
+                sizes.CopyTo(bestSizes, 0);
+                places.CopyTo(bestPlaces, 0);
+            }
+            else
+            {
+                fails = perMetre;
+            }
+        }
+
+        perMetre = fits;
+        sizes = bestSizes;
+        places = bestPlaces;
+
+        // Sizes every chart's rectangle at the given scale; whether all are already as small as they get.
+        bool Size(double scaleNow)
         {
             bool smallest = true;
             for (int chart = 0; chart < chartCount; chart++)
@@ -634,25 +942,14 @@ public static class LightmapUnwrap
                     continue;
                 }
 
-                double texels = perMetre * scale[chart] * ReferenceSize;
-                int width = (int)Math.Ceiling((bounds[chart].MaxX - bounds[chart].MinX) * texels) + 1;
-                int height = (int)Math.Ceiling((bounds[chart].MaxY - bounds[chart].MinY) * texels) + 1;
+                double texels = scaleNow * scale[chart] * ReferenceSize;
+                int width = ChartRectangle((bounds[chart].MaxX - bounds[chart].MinX) * texels).Size;
+                int height = ChartRectangle((bounds[chart].MaxY - bounds[chart].MinY) * texels).Size;
                 sizes[chart] = (width, height);
                 smallest &= width <= 2 && height <= 2;
             }
 
-            if (SkylinePacker.TryPack(sizes, ReferenceSize, ReferenceSize, Gutter, places))
-            {
-                break;
-            }
-
-            if (smallest || attempt > 500)
-            {
-                throw new InvalidOperationException(
-                    $"The mesh's {chartCount} lightmap charts don't fit a {ReferenceSize}-texel page with a {Gutter}-texel gutter, even at their smallest.");
-            }
-
-            perMetre *= Shrink;
+            return smallest;
         }
 
         var uvs = new Vector2[mesh.Indices.Length];
@@ -677,8 +974,8 @@ public static class LightmapUnwrap
             var flat = flats[chart];
             var box = bounds[chart];
             double texels = perMetre * scale[chart] * ReferenceSize;
-            double left = x + (sizes[chart].Width - (box.MaxX - box.MinX) * texels) * 0.5;
-            double top = y + (sizes[chart].Height - (box.MaxY - box.MinY) * texels) * 0.5;
+            double left = x + ChartRectangle((box.MaxX - box.MinX) * texels).Offset;
+            double top = y + ChartRectangle((box.MaxY - box.MinY) * texels).Offset;
             for (int k = 0; k < members.Count; k++)
             {
                 for (int i = 0; i < 3; i++)
@@ -691,6 +988,18 @@ public static class LightmapUnwrap
         }
 
         return uvs;
+    }
+
+    /// <summary>
+    /// The texels a chart's rectangle takes along one side, for a chart that many texels long, and where the chart
+    /// starts in it. The rectangle is the length rounded up plus one, with the chart in the middle, so at least half a
+    /// texel lies on each side. Without it, a chart a whole number of texels long has its ends on texel lines, and the
+    /// texels just past them count as touched, outside the rectangle and into the gutter.
+    /// </summary>
+    internal static (int Size, double Offset) ChartRectangle(double extentTexels)
+    {
+        int size = (int)Math.Ceiling(extentTexels) + 1;
+        return (size, (size - extentTexels) * 0.5);
     }
 
     /// <summary>
@@ -972,6 +1281,206 @@ public static class LightmapUnwrap
         }
 
         return (area, cx / (3.0 * twice), cy / (3.0 * twice));
+    }
+
+    /// <summary>Two triangles of one chart touching one texel while far apart on the surface, and how far.</summary>
+    private readonly record struct FarShare(int A, int B, int X, int Y, double Distance);
+
+    /// <summary>
+    /// Every two triangles of one chart, A before B, that touch the same texel at <see cref="ReferenceSize"/> but are too
+    /// far apart on the surface to be neighbours, texel by texel, row by row; or only the first when
+    /// <paramref name="firstOnly"/>. For each triangle it takes the point nearest the texel's middle and finds where that
+    /// is on the surface. Neighbours put those within a texel and a half of each other, so they are far apart when
+    /// more than <see cref="NeighbourReach"/> texels of either triangle's largest stretch lie between them. Triangles
+    /// with no area, on the surface or in the UVs, are left out.
+    /// </summary>
+    private static List<FarShare> FarShares(Vector3[] cornerPositions, Vector2[] cornerUvs, int[] chartOf, bool firstOnly)
+    {
+        const int size = ReferenceSize;
+        int triangleCount = cornerPositions.Length / 3;
+        var (_, zero) = Areas(cornerPositions);
+        var xs = new double[cornerUvs.Length];
+        var ys = new double[cornerUvs.Length];
+        for (int corner = 0; corner < cornerUvs.Length; corner++)
+        {
+            xs[corner] = cornerUvs[corner].X * (double)size;
+            ys[corner] = cornerUvs[corner].Y * (double)size;
+        }
+
+        // Metres per texel along each triangle's most stretched direction, or NaN to leave it out.
+        var stretch = new double[triangleCount];
+        var touches = new List<(int Texel, int Triangle)>();
+        for (int t = 0; t < triangleCount; t++)
+        {
+            stretch[t] = zero[t] ? double.NaN : Stretch(cornerPositions, xs, ys, t * 3);
+            if (double.IsNaN(stretch[t]))
+            {
+                continue;
+            }
+
+            var tx = xs.AsSpan(t * 3, 3);
+            var ty = ys.AsSpan(t * 3, 3);
+            int x0 = Math.Clamp((int)Math.Floor(Min(tx)), 0, size - 1);
+            int x1 = Math.Clamp((int)Math.Floor(Max(tx)), 0, size - 1);
+            int y0 = Math.Clamp((int)Math.Floor(Min(ty)), 0, size - 1);
+            int y1 = Math.Clamp((int)Math.Floor(Max(ty)), 0, size - 1);
+            for (int y = y0; y <= y1; y++)
+            {
+                for (int x = x0; x <= x1; x++)
+                {
+                    if (TouchesTexel(tx, ty, x, y))
+                    {
+                        touches.Add((y * size + x, t));
+                    }
+                }
+            }
+        }
+
+        // Sorted by texel, and within a texel by triangle, since they were added in triangle order.
+        var start = new int[size * size + 1];
+        foreach (var (texel, _) in touches)
+        {
+            start[texel + 1]++;
+        }
+
+        for (int i = 1; i < start.Length; i++)
+        {
+            start[i] += start[i - 1];
+        }
+
+        var fill = (int[])start.Clone();
+        var inTexel = new int[touches.Count];
+        foreach (var (texel, triangle) in touches)
+        {
+            inTexel[fill[texel]++] = triangle;
+        }
+
+        var found = new List<FarShare>();
+        for (int texel = 0; texel < size * size; texel++)
+        {
+            int from = start[texel];
+            int to = start[texel + 1];
+            if (to - from < 2)
+            {
+                continue;
+            }
+
+            int x = texel % size;
+            int y = texel / size;
+            for (int i = from; i < to; i++)
+            {
+                int a = inTexel[i];
+                var pointA = SurfacePoint(cornerPositions, xs, ys, a * 3, x + 0.5, y + 0.5);
+                for (int j = i + 1; j < to; j++)
+                {
+                    int b = inTexel[j];
+                    if (chartOf[a] != chartOf[b])
+                    {
+                        continue;
+                    }
+
+                    var pointB = SurfacePoint(cornerPositions, xs, ys, b * 3, x + 0.5, y + 0.5);
+                    double distance = (pointA - pointB).Length();
+                    if (distance > NeighbourReach * Math.Max(stretch[a], stretch[b]))
+                    {
+                        found.Add(new FarShare(a, b, x, y, distance));
+                        if (firstOnly)
+                        {
+                            return found;
+                        }
+                    }
+                }
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>
+    /// How many metres one texel covers along the triangle's most stretched direction: the largest singular value of
+    /// the map from its UVs, in texels, to its corners. NaN when it has no area in the UVs.
+    /// </summary>
+    private static double Stretch(Vector3[] positions, double[] xs, double[] ys, int at)
+    {
+        double e1x = xs[at + 1] - xs[at];
+        double e1y = ys[at + 1] - ys[at];
+        double e2x = xs[at + 2] - xs[at];
+        double e2y = ys[at + 2] - ys[at];
+        double det = e1x * e2y - e2x * e1y;
+        if (Math.Abs(det) <= 1e-9)
+        {
+            return double.NaN;
+        }
+
+        var p0 = new Vector3D(positions[at]);
+        var p1 = new Vector3D(positions[at + 1]) - p0;
+        var p2 = new Vector3D(positions[at + 2]) - p0;
+
+        // The map's columns: how far the surface moves per texel along u and along v.
+        var ju = new Vector3D(p1.X * e2y - p2.X * e1y, p1.Y * e2y - p2.Y * e1y, p1.Z * e2y - p2.Z * e1y) / det;
+        var jv = new Vector3D(p2.X * e1x - p1.X * e2x, p2.Y * e1x - p1.Y * e2x, p2.Z * e1x - p1.Z * e2x) / det;
+        double uu = Vector3D.Dot(ju, ju);
+        double uv = Vector3D.Dot(ju, jv);
+        double vv = Vector3D.Dot(jv, jv);
+        double half = (uu + vv) * 0.5;
+        double largest = half + Math.Sqrt(Math.Max(0.0, half * half - (uu * vv - uv * uv)));
+        return Math.Sqrt(largest);
+    }
+
+    /// <summary>The point on the surface where the triangle comes nearest, in its UVs, to (px, py).</summary>
+    private static Vector3D SurfacePoint(Vector3[] positions, double[] xs, double[] ys, int at, double px, double py)
+    {
+        double ax = xs[at];
+        double ay = ys[at];
+        double e1x = xs[at + 1] - ax;
+        double e1y = ys[at + 1] - ay;
+        double e2x = xs[at + 2] - ax;
+        double e2y = ys[at + 2] - ay;
+        double det = e1x * e2y - e2x * e1y;
+        double qx = px - ax;
+        double qy = py - ay;
+        double s = (qx * e2y - e2x * qy) / det;
+        double t = (e1x * qy - qx * e1y) / det;
+
+        double w0;
+        double w1;
+        double w2;
+        if (s >= 0.0 && t >= 0.0 && s + t <= 1.0)
+        {
+            (w0, w1, w2) = (1.0 - s - t, s, t);
+        }
+        else
+        {
+            // Outside: the nearest point on the nearest edge.
+            double best = double.MaxValue;
+            (w0, w1, w2) = (1.0, 0.0, 0.0);
+            for (int e = 0; e < 3; e++)
+            {
+                int i = e;
+                int j = (e + 1) % 3;
+                double dx = xs[at + j] - xs[at + i];
+                double dy = ys[at + j] - ys[at + i];
+                double lengthSquared = dx * dx + dy * dy;
+                double along = lengthSquared > 0.0
+                    ? Math.Clamp(((px - xs[at + i]) * dx + (py - ys[at + i]) * dy) / lengthSquared, 0.0, 1.0)
+                    : 0.0;
+                double nx = xs[at + i] + dx * along - px;
+                double ny = ys[at + i] + dy * along - py;
+                double distance = nx * nx + ny * ny;
+                if (distance < best)
+                {
+                    best = distance;
+                    (w0, w1, w2) = e switch
+                    {
+                        0 => (1.0 - along, along, 0.0),
+                        1 => (0.0, 1.0 - along, along),
+                        _ => (along, 0.0, 1.0 - along),
+                    };
+                }
+            }
+        }
+
+        return new Vector3D(positions[at]) * w0 + new Vector3D(positions[at + 1]) * w1 + new Vector3D(positions[at + 2]) * w2;
     }
 
     private static double SignedArea(double[] xs, double[] ys, int at) =>
@@ -1327,6 +1836,8 @@ public static class LightmapUnwrap
         public static Vector3D operator -(Vector3D a, Vector3D b) => new(a.X - b.X, a.Y - b.Y, a.Z - b.Z);
 
         public static Vector3D operator /(Vector3D a, double s) => new(a.X / s, a.Y / s, a.Z / s);
+
+        public static Vector3D operator *(Vector3D a, double s) => new(a.X * s, a.Y * s, a.Z * s);
 
         public static double Dot(Vector3D a, Vector3D b) => a.X * b.X + a.Y * b.Y + a.Z * b.Z;
 

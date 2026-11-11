@@ -18,6 +18,7 @@ internal static class TestShapes
         "unshared triangles" => Unshared(Sphere(seamSplit: false, rings: 6, segments: 10)),
         "zero-area triangles" => WithZeroAreaTriangles(),
         "strip 40 by 0.2" => Strip(40f, 0.2f, 40),
+        "bent strip" => BentStrip(),
         _ => throw new ArgumentException($"There is no test shape called \"{name}\".", nameof(name)),
     };
 
@@ -195,6 +196,51 @@ internal static class TestShapes
         Vertex[] vertices = [At(0f, 0f), At(1f, 0f), At(1f, 1f), At(0f, 1f), At(1.5f, 0f), At(0.5f, 0f), At(0.5f, 0f)];
         uint[] indices = [0, 1, 2, 0, 2, 3, 1, 0, 4, 0, 5, 6, 3, 3, 3];
         return (vertices, indices);
+    }
+
+    /// <summary>
+    /// A smooth strip 1 m deep along z, bent in its cross-section: from left to right, small faces sloping down at 45
+    /// and 20 degrees, a flat face the chart grows from (triangles 0 and 1), four more flat faces, and one 20 m face
+    /// rising at 50 degrees. Each face is within 60 degrees of the chart's mean while it grows, but the big face pulls
+    /// the final mean round until the 45-degree face is about 85 degrees from it.
+    /// </summary>
+    private static (Vertex[], uint[]) BentStrip()
+    {
+        (float Degrees, float Length)[] faces = [(-45f, 0.1f), (-20f, 0.1f), (0f, 1f), (0f, 1f), (0f, 1f), (0f, 1f), (0f, 1f), (50f, 20f)];
+        const int seed = 2;
+        var points = new List<Vector3> { Vector3.Zero };
+        foreach (var (degrees, length) in faces)
+        {
+            float angle = degrees * MathF.PI / 180f;
+            points.Add(points[^1] + new Vector3(MathF.Cos(angle), MathF.Sin(angle), 0f) * length);
+        }
+
+        Vector3 FaceNormal(int face)
+        {
+            float angle = faces[face].Degrees * MathF.PI / 180f;
+            return new Vector3(-MathF.Sin(angle), MathF.Cos(angle), 0f);
+        }
+
+        var vertices = new List<Vertex>();
+        for (int i = 0; i < points.Count; i++)
+        {
+            var normal = Vector3.Normalize(FaceNormal(Math.Max(i - 1, 0)) + FaceNormal(Math.Min(i, faces.Length - 1)));
+            foreach (float z in new[] { 0f, 1f })
+            {
+                vertices.Add(new Vertex(points[i] + new Vector3(0f, 0f, z), normal, new Vector4(1f, 0f, 0f, 1f), new Vector2(i, z)));
+            }
+        }
+
+        var indices = new List<uint>();
+        var order = new List<int> { seed };
+        order.AddRange(Enumerable.Range(0, faces.Length).Where(face => face != seed));
+        foreach (int face in order)
+        {
+            uint a = (uint)(face * 2);
+            indices.AddRange([a, a + 1, a + 3, a, a + 3, a + 2]);
+        }
+
+        return (vertices.ToArray(), indices.ToArray());
     }
 
     /// <summary>A flat upright strip, <paramref name="quads"/> quads of one row along x.</summary>

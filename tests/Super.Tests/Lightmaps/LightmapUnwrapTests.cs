@@ -88,6 +88,107 @@ public class LightmapUnwrapTests
     }
 
     [Fact]
+    public void A_ramp_never_shares_a_texel_between_turns()
+    {
+        // 36 steps a turn, so a chart grown one full turn ends right next to where it started, a storey lower.
+        var (vertices, indices) = TestShapes.Get("helical ramp");
+        var (v, i) = LightmapUnwrap.Unwrap(vertices, indices);
+        var positions = v.Select(x => x.Position).ToArray();
+        var uvs = v.Select(x => x.Uv2 * LightmapUnwrap.ReferenceSize).ToArray();
+
+        var byTexel = new Dictionary<(int, int), List<int>>();
+        for (int t = 0; t < i.Length / 3; t++)
+        {
+            foreach (var texel in TouchedTexels(uvs[i[t * 3]], uvs[i[t * 3 + 1]], uvs[i[t * 3 + 2]]))
+            {
+                if (!byTexel.TryGetValue(texel, out var list))
+                {
+                    byTexel[texel] = list = [];
+                }
+
+                list.Add(t);
+            }
+        }
+
+        double farthest = 0.0;
+        foreach (var list in byTexel.Values)
+        {
+            foreach (int a in list)
+            {
+                foreach (int b in list)
+                {
+                    double nearest = double.MaxValue;
+                    for (int ca = 0; ca < 3; ca++)
+                    {
+                        for (int cb = 0; cb < 3; cb++)
+                        {
+                            nearest = Math.Min(nearest, Vector3.Distance(positions[i[a * 3 + ca]], positions[i[b * 3 + cb]]));
+                        }
+                    }
+
+                    farthest = Math.Max(farthest, nearest);
+                }
+            }
+        }
+
+        Assert.InRange(farthest, 0.0, 0.5);
+    }
+
+    public static TheoryData<string> CurvedMeshes => ["welded sphere", "bent strip"];
+
+    [Theory]
+    [MemberData(nameof(CurvedMeshes))]
+    public void Density_is_within_four_times_from_triangle_to_triangle(string name)
+    {
+        var (vertices, indices) = TestShapes.Get(name);
+        var (v, i) = LightmapUnwrap.Unwrap(vertices, indices);
+        var densities = new List<double>();
+        for (int t = 0; t < i.Length; t += 3)
+        {
+            var (a, b, c) = (v[i[t]], v[i[t + 1]], v[i[t + 2]]);
+            double world = Vector3.Cross(b.Position - a.Position, c.Position - a.Position).Length();
+            double uv = Math.Abs((b.Uv2.X - a.Uv2.X) * (c.Uv2.Y - a.Uv2.Y) - (c.Uv2.X - a.Uv2.X) * (b.Uv2.Y - a.Uv2.Y));
+            densities.Add(uv / world);
+        }
+
+        Assert.InRange(densities.Max() / densities.Min(), 1.0, 4.0);
+    }
+
+    [Theory]
+    [InlineData(10.0)]
+    [InlineData(10.0000001)]
+    [InlineData(9.9999999)]
+    [InlineData(0.25)]
+    public void A_chart_rectangle_holds_every_texel_the_chart_touches(double extent)
+    {
+        var (size, offset) = LightmapUnwrap.ChartRectangle(extent);
+
+        // Texel k is touched when the closed span [k, k + 1] meets the closed span the chart covers.
+        int first = (int)Math.Ceiling(offset) - 1;
+        int last = (int)Math.Floor(offset + extent);
+        Assert.InRange(first, 0, size - 1);
+        Assert.InRange(last, 0, size - 1);
+        Assert.Equal(offset, size - offset - extent, 9);
+    }
+
+    /// <summary>Texels whose closed squares a triangle meets, found by sampling densely: edges and inside.</summary>
+    private static IEnumerable<(int, int)> TouchedTexels(Vector2 a, Vector2 b, Vector2 c)
+    {
+        var texels = new HashSet<(int, int)>();
+        const int steps = 64;
+        for (int s = 0; s <= steps; s++)
+        {
+            for (int r = 0; r <= steps - s; r++)
+            {
+                var p = a + (b - a) * (s / (float)steps) + (c - a) * (r / (float)steps);
+                texels.Add(((int)MathF.Floor(p.X), (int)MathF.Floor(p.Y)));
+            }
+        }
+
+        return texels;
+    }
+
+    [Fact]
     public void A_long_thin_strip_still_fits()
     {
         var (vertices, indices) = TestShapes.Get("strip 40 by 0.2");
@@ -139,6 +240,57 @@ public class LightmapUnwrapProblemTests
         Assert.Equal(
             "Triangles 0 and 1 overlap at texel (85, 85).",
             LightmapUnwrap.Problem(positions, uvs, [0u, 1u, 2u, 1u, 2u, 3u]));
+    }
+
+    [Fact]
+    public void Names_a_chart_whose_arms_share_a_texel()
+    {
+        // Four 10-texel quads round the point (20, 20), one chart joined edge to edge, like a ramp turning once round a
+        // post: 1 cm a texel across, rising to 1 m at the last quad's outer corner. The last quad's bottom edge lies on
+        // the first quad's top edge in UV, but its corner at texel (10, 20) is 1 m above the first quad's. No area
+        // overlaps, yet the texels along that edge would get both storeys' light.
+        Vector2[] uv =
+        [
+            Texels(10f, 10f), Texels(20f, 10f), Texels(20f, 20f), Texels(10f, 20f),
+            Texels(30f, 10f), Texels(30f, 20f), Texels(30f, 30f), Texels(20f, 30f), Texels(10f, 30f), Texels(10f, 20f),
+        ];
+        float[] heights = [0f, 0f, 0f, 0f, 0.25f, 0.5f, 0.6f, 0.75f, 1f, 1f];
+        var positions = uv.Select((p, k) => new Vector3(p.X * LightmapUnwrap.ReferenceSize / 100f, p.Y * LightmapUnwrap.ReferenceSize / 100f, heights[k])).ToArray();
+        uint[] indices =
+        [
+            0, 1, 2, 0, 2, 3, // first quad, at the bottom
+            1, 4, 5, 1, 5, 2, // second
+            2, 5, 6, 2, 6, 7, // third
+            9, 2, 7, 9, 7, 8, // last, ending 1 m up over the first quad's left corner
+        ];
+
+        // A corner on a texel line touches the texels above and right of it, so row 20 is the first both touch. At
+        // texel (10, 20), triangle 1 comes nearest its middle on the floor at (10.5, 20), and triangle 6 has its middle
+        // inside, where the ramp has risen to 0.988 m.
+        Assert.Equal(
+            "Triangles 1 and 6 of one chart share texel (10, 20) but are 0.988 m apart.",
+            LightmapUnwrap.Problem(positions, uv, indices));
+    }
+
+    [Fact]
+    public void Names_charts_on_texel_lines_with_no_margin()
+    {
+        // Two 10-texel quads 2 texels apart, but with their edges on texel lines, as a chart rectangle with no margin
+        // would place them. An edge on a texel line touches the texel past it, so the first quad's right edge at 20
+        // touches texel 20, the second starts at texel 22, and only texel 21 lies empty between them.
+        Vector3[] positions =
+        [
+            new(0f, 0f, 0f), new(1f, 0f, 0f), new(1f, 1f, 0f), new(0f, 1f, 0f),
+            new(0f, 0f, 5f), new(1f, 0f, 5f), new(1f, 1f, 5f), new(0f, 1f, 5f),
+        ];
+        Vector2[] uvs =
+        [
+            Texels(10f, 10f), Texels(20f, 10f), Texels(20f, 20f), Texels(10f, 20f),
+            Texels(22f, 10f), Texels(32f, 10f), Texels(32f, 20f), Texels(22f, 20f),
+        ];
+        Assert.Equal(
+            "Triangles 0 and 2 are in different charts with only 1 empty texel between them at texel (20, 10), less than the 2-texel gutter.",
+            LightmapUnwrap.Problem(positions, uvs, [0u, 1u, 2u, 0u, 2u, 3u, 4u, 5u, 6u, 4u, 6u, 7u]));
     }
 
     [Fact]

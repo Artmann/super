@@ -1461,25 +1461,40 @@ Charts are found without looking at the first UVs, so a texture seam doesn't cut
 Corners are welded by exact position, and two triangles join across an edge only when the
 vertex normals on both sides agree, so hard edges always cut. A chart grows breadth-first
 from the lowest free triangle while each new triangle stays within 60 degrees of the
-chart's running area-weighted mean normal. The chart is then laid flat on its mean normal's
-plane. If any two of its triangles overlap there, as on a ramp that turns over itself or
-where a triangle folds back, it is cut back to the part grown before the later of the two,
-and growth starts again from there. Triangles with no area join a neighbour's chart, or
-get a chart of their own one texel wide.
+chart's running area-weighted mean normal. A finished chart then drops every triangle more
+than 75 degrees from its final mean normal, since a big face grown late can pull the mean
+round until an early small face is nearly edge-on and its density collapses, and keeps only
+the part still joined to its first triangle. It is laid flat on the mean normal's plane. If
+any two of its triangles overlap there, as on a ramp that turns over itself or where a
+triangle folds back, it is cut back to the part grown before the later of the two. Dropped
+and cut triangles grow charts of their own first. Triangles with no area join a
+neighbour's chart, breadth-first so a run of them all finds one, or get a chart of their
+own one texel wide.
 
 Each flat chart is turned to its smallest bounding rectangle and scaled by its own
 `sqrt(world area / flat area)`, so a chart tilted from its plane gets the same density as a
 flat one. One scale for the whole mesh, in texels per metre at the 512-texel
-`ReferenceSize`, is then shrunk by a tenth at a time until `SkylinePacker` fits every chart
-with a two-texel `Gutter`. Each chart's rectangle is its width in texels rounded up plus
-one, with the chart centred, so every texel it touches, counted conservatively, lies inside
-its rectangle and the gutter `Problem` checks is the one the packer kept.
+`ReferenceSize`, starts where the charts' areas, each with its rectangle margin and gutter
+added, would just fill the page. It grows or shrinks by a tenth until it crosses between
+fitting and not fitting in `SkylinePacker` with a two-texel `Gutter`, then halves the gap
+six times and keeps the largest scale that fit. `ChartRectangle` gives each chart's
+rectangle: its width in texels rounded up plus one, with the chart centred, so every texel
+it touches, counted conservatively, lies inside its rectangle and the gutter `Problem`
+checks is the one the packer kept.
+
+Once packed, two triangles of one chart can still touch the same texel while lying far
+apart on the surface, when a chart curls round so its arms come within a texel of each
+other. Their lighting would bleed across. For each such pair `Unwrap` takes the point of
+each triangle nearest the texel's centre, and if those are more than four texels apart on
+the surface, measured by the triangles' own stretch, it cuts the chart back to before the
+later triangle, as for an overlap, regrows the rest and packs again.
 
 `Problem` finds charts as triangles joined by edges whose corners match in both position
 and UV. It checks, in order, that every corner is inside 0 to 1, that no texel at 512 is
 touched by two charts, that no two triangles of one chart overlap by more than a hundredth
-of a texel, that at least two empty texels lie between different charts, and that
-texel density, per chart, varies less than four times across the mesh. The overlap inside a
+of a texel, that no two triangles of one chart share a texel while lying far apart by the
+rule above, that at least two empty texels lie between different charts, and that texel
+density, per chart, varies less than four times across the mesh. The overlap inside a
 chart is measured by area rather than by touched texels, because neighbours in a fan share
 texels along their edges.
 
