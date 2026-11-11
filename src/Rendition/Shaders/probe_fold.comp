@@ -1,41 +1,34 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
 #include "sampling.glsl"
+#include "probe_fold.glsl"
 
-// Folds one light probe's six captured faces into its two tiles. The irradiance tile holds,
-// for each direction a surface could face, the light reaching it: radiance averaged over the
-// half of the sphere in front, weighted by the cosine, as the studio's irradiance map is. The
-// depth tile holds the mean and the mean square of the distance seen around each direction,
-// which probes.glsl uses to tell whether a point is hidden from the probe. Both are octahedral
-// maps with a one-texel border copied from across each edge, so filtering wraps round.
+// Folds one light probe's six rasterized faces into its two tiles, in one slot of the staging
+// buffer. probe_blend.comp then blends them into the atlases. The sums are in probe_fold.glsl.
 // See "Light probes" in docs/design.md.
 
 layout(local_size_x = 16, local_size_y = 16) in;
 
 // Alpha holds each pixel's distance from the probe, negative where it saw the back of a surface.
 layout(set = 0, binding = 0) uniform sampler2DArray faces;
-layout(rgba16f, set = 0, binding = 1) uniform writeonly image2D irradianceAtlas;
-layout(rg16f, set = 0, binding = 2) uniform writeonly image2D depthAtlas;
+
+layout(std430, set = 0, binding = 1) writeonly buffer StagingTiles {
+    StagedTile tiles[];
+};
 
 // Must match FoldConstants in Vulkan/ProbeVolume.cs.
 layout(push_constant) uniform Fold {
-    int probe;
+    int slot;
     float maxDistance;
 } fold;
 
 // Must match ProbeVolume.cs.
 const int FACE_SIZE = 32;
-const int COLUMNS = 64;
-const int IRRADIANCE_TEXELS = 8;
-const int DEPTH_TEXELS = 16;
 
 // Each face is averaged down to this many texels across first, so every texel of a tile
 // can look at every sample.
 const int REDUCED = 16;
 const int SAMPLES = 6 * REDUCED * REDUCED;
-
-// How tightly the depth gathers round its direction. High, so a wall's edge stays sharp.
-const float DEPTH_SHARPNESS = 50.0;
 
 shared vec4 samples[SAMPLES];
 shared uint backFaces;
@@ -62,32 +55,6 @@ vec3 sampleDirection(int index, out float solidAngle) {
     solidAngle = 1.0 / (lengthSquared * sqrt(lengthSquared));
     // A cube map is mirrored compared with the camera that drew it, so z swaps back.
     return vec3(c.x, c.y, -c.z) * inversesqrt(lengthSquared);
-}
-
-// The texel inside an n by n tile that a texel of the bordered tile shows. A border texel
-// shows its neighbour across the octahedral map's edge, which is mirrored; a corner shows the
-// opposite corner.
-ivec2 interiorOf(ivec2 b, int n) {
-    bool sideX = b.x == 0 || b.x == n + 1;
-    bool sideY = b.y == 0 || b.y == n + 1;
-    if (sideX && sideY) {
-        return ivec2(b.x == 0 ? n - 1 : 0, b.y == 0 ? n - 1 : 0);
-    }
-
-    if (sideY) {
-        return ivec2(n - b.x, b.y == 0 ? 0 : n - 1);
-    }
-
-    if (sideX) {
-        return ivec2(b.x == 0 ? 0 : n - 1, n - b.y);
-    }
-
-    return b - 1;
-}
-
-vec3 texelDirection(ivec2 bordered, int n) {
-    vec2 e = (vec2(interiorOf(bordered, n)) + 0.5) / float(n) * 2.0 - 1.0;
-    return octahedralDecode(e);
 }
 
 void main() {
@@ -119,50 +86,39 @@ void main() {
     atomicAdd(backFaces, seenBehind);
     barrier();
 
-    ivec2 tile = ivec2(fold.probe % COLUMNS, fold.probe / COLUMNS);
-
-    int irradianceSide = IRRADIANCE_TEXELS + 2;
-    if (local < irradianceSide * irradianceSide) {
-        ivec2 bordered = ivec2(local % irradianceSide, local / irradianceSide);
+    if (local < IRRADIANCE_SIDE * IRRADIANCE_SIDE) {
+        ivec2 bordered = ivec2(local % IRRADIANCE_SIDE, local / IRRADIANCE_SIDE);
         vec3 direction = texelDirection(bordered, IRRADIANCE_TEXELS);
         vec3 sum = vec3(0.0);
         float total = 0.0;
         for (int s = 0; s < SAMPLES; s++) {
             float solidAngle;
             vec3 d = sampleDirection(s, solidAngle);
-            float weight = max(dot(direction, d), 0.0) * solidAngle;
+            float weight = irradianceWeight(direction, d, solidAngle);
             sum += samples[s].rgb * weight;
             total += weight;
         }
 
-        imageStore(irradianceAtlas, tile * irradianceSide + bordered, vec4(sum / max(total, 1e-6), 1.0));
+        // Alpha 1 marks the probe as captured.
+        tiles[fold.slot].irradiance[local] = vec4(sum / max(total, 1e-6), 1.0);
     }
 
-    // Inside a wall or under the floor a probe sees mostly the backs of surfaces, and its light
-    // would leak through. Its depth tile's first corner says so, and probes.glsl skips it.
-    bool inside = backFaces * 2u > uint(6 * FACE_SIZE * FACE_SIZE);
+    bool inside = probeSawInside(backFaces, uint(6 * FACE_SIZE * FACE_SIZE));
 
-    int depthSide = DEPTH_TEXELS + 2;
-    for (int b = local; b < depthSide * depthSide; b += 256) {
-        ivec2 bordered = ivec2(b % depthSide, b / depthSide);
+    for (int b = local; b < DEPTH_SIDE * DEPTH_SIDE; b += 256) {
+        ivec2 bordered = ivec2(b % DEPTH_SIDE, b / DEPTH_SIDE);
         vec3 direction = texelDirection(bordered, DEPTH_TEXELS);
         vec2 sum = vec2(0.0);
         float total = 0.0;
         for (int s = 0; s < SAMPLES; s++) {
             float solidAngle;
             vec3 d = sampleDirection(s, solidAngle);
-            float facing = max(dot(direction, d), 0.0);
-            float weight = pow(facing, DEPTH_SHARPNESS) * solidAngle;
+            float weight = depthWeight(direction, d, solidAngle);
             float seen = samples[s].a;
             sum += vec2(seen, seen * seen) * weight;
             total += weight;
         }
 
-        vec2 moments = sum / max(total, 1e-6);
-        if (inside && b == 0) {
-            moments.y = -1.0;
-        }
-
-        imageStore(depthAtlas, tile * depthSide + bordered, vec4(moments, 0.0, 0.0));
+        tiles[fold.slot].depth[b] = markInside(sum / max(total, 1e-6), b, inside);
     }
 }

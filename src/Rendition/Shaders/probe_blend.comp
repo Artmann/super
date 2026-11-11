@@ -1,0 +1,74 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "sampling.glsl"
+#include "probe_fold.glsl"
+
+// Blends a batch of freshly folded tiles from the staging buffer into the probes' atlases, one
+// workgroup per probe. Entry i of the batch is staging slot i, and goes to the probe ids[i] names:
+// its layer (cascades 0 to 3, or 4 for the fixed grid) and its slot in that layer. A probe that has
+// never been captured (irradiance alpha 0) takes the new tile whole; one that has moves towards it
+// by blend.alpha, so a probe's light settles over a few updates instead of flickering.
+// See "Light probes" in docs/design.md.
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(std430, set = 0, binding = 1) readonly buffer StagingTiles {
+    StagedTile tiles[];
+};
+
+layout(std430, set = 0, binding = 2) readonly buffer BatchIds {
+    ivec2 ids[]; // x: layer; y: slot
+};
+
+layout(rgba16f, set = 0, binding = 3) uniform image2DArray irradianceAtlas;
+layout(rg16f, set = 0, binding = 4) uniform image2DArray depthAtlas;
+
+// Must match BlendConstants in Vulkan/ProbeVolume.cs.
+layout(push_constant) uniform Blend {
+    float alpha;
+    int count;
+} blend;
+
+shared float share;
+
+void main() {
+    int entry = int(gl_WorkGroupID.x);
+    if (entry >= blend.count) {
+        return;
+    }
+
+    int local = int(gl_LocalInvocationIndex);
+    int layer = ids[entry].x;
+    int slot = ids[entry].y;
+
+    int irradianceColumns = imageSize(irradianceAtlas).x / IRRADIANCE_SIDE;
+    ivec2 irradianceTile = ivec2(slot % irradianceColumns, slot / irradianceColumns) * IRRADIANCE_SIDE;
+    int depthColumns = imageSize(depthAtlas).x / DEPTH_SIDE;
+    ivec2 depthTile = ivec2(slot % depthColumns, slot / depthColumns) * DEPTH_SIDE;
+
+    if (local == 0) {
+        bool captured = imageLoad(irradianceAtlas, ivec3(irradianceTile + 1, layer)).a > 0.5;
+        share = captured ? blend.alpha : 1.0;
+    }
+
+    barrier();
+    float a = share;
+
+    if (local < IRRADIANCE_SIDE * IRRADIANCE_SIDE) {
+        ivec3 texel = ivec3(irradianceTile + ivec2(local % IRRADIANCE_SIDE, local / IRRADIANCE_SIDE), layer);
+        vec3 old = imageLoad(irradianceAtlas, texel).rgb;
+        vec3 fresh = tiles[entry].irradiance[local].rgb;
+        imageStore(irradianceAtlas, texel, vec4(mix(old, fresh, a), 1.0));
+    }
+
+    for (int b = local; b < DEPTH_SIDE * DEPTH_SIDE; b += 256) {
+        ivec3 texel = ivec3(depthTile + ivec2(b % DEPTH_SIDE, b / DEPTH_SIDE), layer);
+        vec2 old = imageLoad(depthAtlas, texel).rg;
+        vec2 fresh = tiles[entry].depth[b];
+
+        // The first corner may carry the inside mark, -1, which must never be blended: the new
+        // tile's corner says whether the probe is inside now.
+        bool marked = b == 0 && (fresh.y < 0.0 || old.y < 0.0);
+        imageStore(depthAtlas, texel, vec4(marked ? fresh : mix(old, fresh, a), 0.0, 0.0));
+    }
+}

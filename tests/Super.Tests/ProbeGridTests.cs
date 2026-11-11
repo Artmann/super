@@ -126,6 +126,17 @@ public class ProbeGridTests
     }
 
     [Fact]
+    public void A_probe_not_yet_captured_gets_no_weight()
+    {
+        // The same probe as above, which would get 0.95 once captured.
+        float weight = ProbeGrid.Weight(
+            point: Vector3.Zero, normal: Vector3.UnitY, probe: new Vector3(0f, 0.05f, 0f),
+            meanDepth: 10f, meanSquares: 100f, distance: 0.05f, captured: false);
+
+        Assert.Equal(0f, weight);
+    }
+
+    [Fact]
     public void A_probe_half_a_cell_away_on_each_axis_gets_an_eighth()
     {
         float weight = ProbeGrid.Weight(

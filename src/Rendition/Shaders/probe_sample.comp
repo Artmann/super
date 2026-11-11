@@ -1,0 +1,37 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "common.glsl"
+#include "sampling.glsl"
+#include "probes.glsl"
+
+// For tests only: reads the light probes at a list of points through the same probeIrradiance the
+// lighting pass calls, with the last frame's uniforms. Renderer.SampleProbeIrradiance runs it.
+
+layout(local_size_x = 64) in;
+
+struct ProbeSample {
+    vec4 point;  // xyz: where; w unused
+    vec4 normal; // xyz: the surface's normal, which is also taken as the view direction
+};
+
+layout(std430, set = 1, binding = 0) readonly buffer Samples {
+    ProbeSample samples[];
+};
+
+layout(std430, set = 1, binding = 1) writeonly buffer Results {
+    vec4 results[];
+};
+
+layout(push_constant) uniform Count {
+    int count;
+} sampled;
+
+void main() {
+    int i = int(gl_GlobalInvocationID.x);
+    if (i >= sampled.count) {
+        return;
+    }
+
+    vec3 n = normalize(samples[i].normal.xyz);
+    results[i] = vec4(probeIrradiance(samples[i].point.xyz, n, n), 0.0);
+}

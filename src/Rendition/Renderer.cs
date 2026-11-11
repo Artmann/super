@@ -111,6 +111,16 @@ public sealed unsafe class Renderer : IDisposable
     private bool _lightProbesInUse;
     private bool _keepShadowMaps;
 
+    // The four probe cascades that follow the camera, moved to it at the start of every frame. Their
+    // tiles live in layers 0 to 3 of the light probe atlases.
+    private readonly ProbeCascades _probeCascades = new(ProbeQuality.High);
+
+    // The frame whose uniforms Render wrote last, so SampleProbeIrradiance reads what that frame did.
+    private int _uniformFrame;
+
+    // The single probe CaptureFaces blends, kept so a capture allocates nothing.
+    private readonly ProbeId[] _capturedProbe = new ProbeId[1];
+
     // Goes up with every SetEnvironment, so the light probes see the sky has changed.
     private int _environmentVersion;
 
@@ -472,7 +482,7 @@ public sealed unsafe class Renderer : IDisposable
             Floor = new Vector3(0.2f),
         });
         _probes = new ReflectionProbes(_context, _environment.Sampler);
-        _lightProbes = new ProbeVolume(_context, _sampler);
+        _lightProbes = new ProbeVolume(_context, ProbeQuality.High);
         _volumetricFog = new VolumetricFogVolume(_context, _frameSetLayout, _linearSampler);
 
         _aoSet = AllocateSet(_threeTextureSetLayout);
@@ -536,6 +546,189 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>The acceleration structures rays are traced through, or null when the GPU can't trace.</summary>
     internal RayTracing? Tracing => _tracing;
+
+    /// <summary>
+    /// The probe cascades, where the last frame moved them. For tests, which find a probe's slot with
+    /// <see cref="ProbeCascades.Slot"/>.
+    /// </summary>
+    internal ProbeCascades LightProbeCascades => _probeCascades;
+
+    /// <summary>For tests: clears every probe tile, in every layer, so each probe is uncaptured. Waits for the GPU.</summary>
+    internal void ClearProbesForTest()
+    {
+        _api.DeviceWaitIdle(_context.Device).Check();
+        _context.SubmitAndWait(_lightProbes.RecordClear);
+    }
+
+    /// <summary>
+    /// For tests: writes a probe's tiles as if it had been captured seeing <paramref name="irradiance"/>
+    /// all round and nothing within 100 m, through the staging buffer and the blend, so storage can be
+    /// tested without a capture. Waits for the GPU.
+    /// </summary>
+    internal void WriteProbeTileForTest(ProbeId id, Vector3 irradiance)
+    {
+        const int irradianceTexels = (ProbeVolume.IrradianceTexels + 2) * (ProbeVolume.IrradianceTexels + 2);
+        const int depthTexels = (ProbeVolume.DepthTexels + 2) * (ProbeVolume.DepthTexels + 2);
+
+        _api.DeviceWaitIdle(_context.Device).Check();
+        using var source = GpuBuffer.CreateHostVisible(_context, ProbeVolume.StagedTileBytes, BufferUsageFlags.TransferSrcBit);
+        var irradianceTile = new Span<Vector4>(source.Mapped, irradianceTexels);
+        irradianceTile.Fill(new Vector4(irradiance, 1f));
+        var depthTile = new Span<Vector2>((Vector4*)source.Mapped + irradianceTexels, depthTexels);
+        depthTile.Fill(new Vector2(100f, 100f * 100f));
+
+        _context.SubmitAndWait(cmd =>
+        {
+            var copy = new BufferCopy(0, 0, ProbeVolume.StagedTileBytes);
+            _api.CmdCopyBuffer(cmd, source.Handle, _lightProbes.StagingTiles, 1, &copy);
+            _lightProbes.RecordBlend(cmd, [id], 1f);
+        });
+    }
+
+    /// <summary>
+    /// For tests: the light probes' soft light at each point, facing its normal, from the same
+    /// probeIrradiance the lighting pass calls, with the uniforms of the last frame rendered. -1 where
+    /// no probe can tell, which the lighting turns into the sky. Waits for the GPU, so never on the frame path.
+    /// </summary>
+    internal Vector3[] SampleProbeIrradiance(ReadOnlySpan<(Vector3 Point, Vector3 Normal)> samples)
+    {
+        _api.DeviceWaitIdle(_context.Device).Check();
+        var device = _context.Device;
+        int count = samples.Length;
+        ulong bytes = (ulong)Math.Max(count, 1) * 32;
+        using var input = GpuBuffer.CreateHostVisible(_context, bytes, BufferUsageFlags.StorageBufferBit);
+        using var output = GpuBuffer.CreateHostVisible(_context, bytes / 2, BufferUsageFlags.StorageBufferBit);
+        var points = new Span<Vector4>(input.Mapped, count * 2);
+        for (int i = 0; i < count; i++)
+        {
+            points[i * 2] = new Vector4(samples[i].Point, 1f);
+            points[i * 2 + 1] = new Vector4(samples[i].Normal, 0f);
+        }
+
+        var bindings = stackalloc DescriptorSetLayoutBinding[]
+        {
+            new(0, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
+            new(1, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
+            new(11, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
+            new(12, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
+        };
+        var layoutInfo = new DescriptorSetLayoutCreateInfo
+        {
+            SType = StructureType.DescriptorSetLayoutCreateInfo,
+            BindingCount = 4,
+            PBindings = bindings,
+        };
+        _api.CreateDescriptorSetLayout(device, &layoutInfo, null, out var setLayout).Check();
+
+        var poolSizes = stackalloc DescriptorPoolSize[]
+        {
+            new(DescriptorType.StorageBuffer, 2),
+            new(DescriptorType.CombinedImageSampler, 2),
+        };
+        var poolInfo = new DescriptorPoolCreateInfo
+        {
+            SType = StructureType.DescriptorPoolCreateInfo,
+            MaxSets = 1,
+            PoolSizeCount = 2,
+            PPoolSizes = poolSizes,
+        };
+        _api.CreateDescriptorPool(device, &poolInfo, null, out var pool).Check();
+
+        var layouts = stackalloc DescriptorSetLayout[] { _frameSetLayout, setLayout };
+        var pushRange = new PushConstantRange(ShaderStageFlags.ComputeBit, 0, sizeof(int));
+        var pipelineLayoutInfo = new PipelineLayoutCreateInfo
+        {
+            SType = StructureType.PipelineLayoutCreateInfo,
+            SetLayoutCount = 2,
+            PSetLayouts = layouts,
+            PushConstantRangeCount = 1,
+            PPushConstantRanges = &pushRange,
+        };
+        _api.CreatePipelineLayout(device, &pipelineLayoutInfo, null, out var pipelineLayout).Check();
+        var pipeline = PipelineFactory.CreateCompute(_context, "probe_sample.comp", pipelineLayout);
+
+        try
+        {
+            var allocInfo = new DescriptorSetAllocateInfo
+            {
+                SType = StructureType.DescriptorSetAllocateInfo,
+                DescriptorPool = pool,
+                DescriptorSetCount = 1,
+                PSetLayouts = &setLayout,
+            };
+            _api.AllocateDescriptorSets(device, &allocInfo, out var set).Check();
+
+            var inputInfo = new DescriptorBufferInfo(input.Handle, 0, Vk.WholeSize);
+            var outputInfo = new DescriptorBufferInfo(output.Handle, 0, Vk.WholeSize);
+            var irradianceInfo = new DescriptorImageInfo(_linearSampler, _lightProbes.IrradianceView, ImageLayout.General);
+            var depthInfo = new DescriptorImageInfo(_linearSampler, _lightProbes.DepthView, ImageLayout.General);
+            var writes = stackalloc WriteDescriptorSet[]
+            {
+                new()
+                {
+                    SType = StructureType.WriteDescriptorSet, DstSet = set, DstBinding = 0, DescriptorCount = 1,
+                    DescriptorType = DescriptorType.StorageBuffer, PBufferInfo = &inputInfo,
+                },
+                new()
+                {
+                    SType = StructureType.WriteDescriptorSet, DstSet = set, DstBinding = 1, DescriptorCount = 1,
+                    DescriptorType = DescriptorType.StorageBuffer, PBufferInfo = &outputInfo,
+                },
+                new()
+                {
+                    SType = StructureType.WriteDescriptorSet, DstSet = set, DstBinding = 11, DescriptorCount = 1,
+                    DescriptorType = DescriptorType.CombinedImageSampler, PImageInfo = &irradianceInfo,
+                },
+                new()
+                {
+                    SType = StructureType.WriteDescriptorSet, DstSet = set, DstBinding = 12, DescriptorCount = 1,
+                    DescriptorType = DescriptorType.CombinedImageSampler, PImageInfo = &depthInfo,
+                },
+            };
+            _api.UpdateDescriptorSets(device, 4, writes, 0, null);
+
+            var sets = stackalloc DescriptorSet[] { _frames[_uniformFrame].Set, set };
+            _context.SubmitAndWait(cmd =>
+            {
+                int pushed = count;
+                _api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, pipeline);
+                _api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, pipelineLayout, 0, 2, sets, 0, null);
+                _api.CmdPushConstants(cmd, pipelineLayout, ShaderStageFlags.ComputeBit, 0, sizeof(int), &pushed);
+                _api.CmdDispatch(cmd, (uint)(count + 63) / 64, 1, 1);
+                var barrier = new MemoryBarrier2
+                {
+                    SType = StructureType.MemoryBarrier2,
+                    SrcStageMask = PipelineStageFlags2.ComputeShaderBit,
+                    SrcAccessMask = AccessFlags2.ShaderStorageWriteBit,
+                    DstStageMask = PipelineStageFlags2.HostBit,
+                    DstAccessMask = AccessFlags2.HostReadBit,
+                };
+                var dependency = new DependencyInfo
+                {
+                    SType = StructureType.DependencyInfo,
+                    MemoryBarrierCount = 1,
+                    PMemoryBarriers = &barrier,
+                };
+                _api.CmdPipelineBarrier2(cmd, &dependency);
+            });
+
+            var results = new Vector3[count];
+            var read = new ReadOnlySpan<Vector4>(output.Mapped, count);
+            for (int i = 0; i < count; i++)
+            {
+                results[i] = new Vector3(read[i].X, read[i].Y, read[i].Z);
+            }
+
+            return results;
+        }
+        finally
+        {
+            _api.DestroyPipeline(device, pipeline, null);
+            _api.DestroyPipelineLayout(device, pipelineLayout, null);
+            _api.DestroyDescriptorPool(device, pool, null);
+            _api.DestroyDescriptorSetLayout(device, setLayout, null);
+        }
+    }
 
     private TraceFlags TraceFlagsOf(MaterialHandle material) =>
         RayTracing.TraceFlagsFor(_resources.HasCutouts(material), _resources.GetFlags(material));
@@ -1001,7 +1194,7 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>
     /// Draws the scene from <paramref name="position"/> into each face of <paramref name="cube"/>,
     /// whose size the current targets must have, waiting for each face. With a
-    /// <paramref name="lightProbe"/> index, the faces are then folded into that light probe.
+    /// <paramref name="lightProbe"/> index, the faces are then folded into that probe of the fixed grid.
     /// </summary>
     private void CaptureFaces(
         in FrameView view,
@@ -1061,7 +1254,10 @@ public sealed unsafe class Renderer : IDisposable
             cube.RecordFace(cmd, _gBuffer.Hdr.Image, face);
             if (lightProbe >= 0 && face == faces.Length - 1)
             {
-                _lightProbes.RecordFold(cmd, lightProbe, lightProbeSpacing);
+                // The fixed grid takes each new capture whole, as it did before the probes had layers.
+                _lightProbes.RecordFold(cmd, 0, lightProbeSpacing);
+                _capturedProbe[0] = new ProbeId(ProbeVolume.FixedGridLayer, lightProbe);
+                _lightProbes.RecordBlend(cmd, _capturedProbe, 1f);
             }
 
             _api.EndCommandBuffer(cmd).Check();
@@ -1502,6 +1698,7 @@ public sealed unsafe class Renderer : IDisposable
             return;
         }
 
+        _probeCascades.Move(view.CameraPosition);
         CaptureLightProbes(view, draws);
 
         ref Frame frame = ref _frames[_frameIndex];
@@ -1567,6 +1764,7 @@ public sealed unsafe class Renderer : IDisposable
         int casters = DrawSelection.Bounds(draws, _details, _casterBounds, _windReach);
         bool castsShadow = WriteUniforms(
             frame, view, previous, shift, _frameNumber, _historyReady, capturingProbe: false, _casterBounds.AsSpan(0, casters));
+        _uniformFrame = _frameIndex;
         WriteBones(frame, view.Bones);
         _motion.Begin(draws, view.Bones, _historyReady,
             new Span<Matrix4x4>((Matrix4x4*)frame.Bones.Mapped + view.Bones.Length, 2 * MaxBones - view.Bones.Length));
@@ -2500,6 +2698,20 @@ public sealed unsafe class Renderer : IDisposable
             uniforms->LightProbeMin = Vector4.Zero;
             uniforms->LightProbeCounts = Vector4.Zero;
         }
+
+        // The cascades, read once any of their probes holds a capture. The fixed grid's own
+        // captures leave them out, so it lights itself as it always has.
+        for (int c = 0; c < ProbeCascades.Count; c++)
+        {
+            var origin = _probeCascades.Origin(c);
+            uniforms->ProbeCascadeOrigins[c] = new Vector4(origin.X, origin.Y, origin.Z, _probeCascades.Layout(c).Spacing);
+        }
+
+        bool readCascades = _lightProbes.CascadesWritten && _lightProbes.Supported && !_capturingLightProbes
+            && !_off.HasFlag(RenderEffects.LightProbes);
+        var cascadeLayout = _probeCascades.Layout(0);
+        uniforms->ProbeCascadeCounts = new Vector4(
+            cascadeLayout.CountX, cascadeLayout.CountY, cascadeLayout.CountZ, readCascades ? 1f : 0f);
 
         uniforms->CameraPosition = new Vector4(view.CameraPosition, 1f);
         uniforms->BackgroundRadiance = new Vector4(view.BackgroundRadiance, view.EnvironmentIntensity);

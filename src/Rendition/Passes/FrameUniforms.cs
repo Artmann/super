@@ -39,6 +39,12 @@ internal struct ShadowMatrixArray
     private Matrix4x4 _first;
 }
 
+[InlineArray(ProbeCascades.Count)]
+internal struct ProbeCascadeOriginArray
+{
+    private Vector4 _first;
+}
+
 /// <summary>Per-frame shader data. Must match the Frame block in Shaders/common.glsl.</summary>
 [StructLayout(LayoutKind.Sequential)]
 internal struct FrameUniforms
@@ -124,6 +130,12 @@ internal struct FrameUniforms
 
     /// <summary>xyz: how many probes run along each axis; w: 1 when surfaces take their soft light from the probes.</summary>
     public Vector4 LightProbeCounts;
+
+    /// <summary>Per cascade, finest first: xyz is the cell of its minimum corner, w its spacing in metres.</summary>
+    public ProbeCascadeOriginArray ProbeCascadeOrigins;
+
+    /// <summary>xyz: probes along each axis of every cascade; w: 1 when surfaces may read the cascades.</summary>
+    public Vector4 ProbeCascadeCounts;
 
     /// <summary>xyz: towards the clear sky's sun; w: its turbidity, 0 for the environment's bands.</summary>
     public Vector4 SkySun;

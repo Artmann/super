@@ -97,7 +97,7 @@ bool insideProbes(vec3 position) {
 // the sun and what the probe sees directly count, and in the second the first round's probes
 // give the rest. So nothing in a closed room glows with light that can't get in.
 vec3 softLight(vec3 position, vec3 direction, vec3 v) {
-    if (frame.lightProbeCounts.w > 0.5) {
+    if (frame.lightProbeCounts.w > 0.5 || frame.probeCascadeCounts.w > 0.5) {
         vec3 fromProbes = probeIrradiance(position, direction, v);
         if (fromProbes.x >= 0.0) {
             return fromProbes;

@@ -1403,10 +1403,23 @@ rebinding the targets clears them and a transition's held outgoing shot would be
 A light probe volume gives bounced diffuse light, in the way of DDGI (Majercik et al.,
 2019) but captured by rasterising rather than tracing. `FrameView.LightProbes` sets a box
 and a spacing; `ProbeGrid` lays the probes out, x fastest, and `ProbeVolume` owns two
-atlases of octahedral tiles, 64 tiles across. The irradiance atlas (RGBA16F) has an 8×8 tile
-per probe and the depth atlas (RG16F) a 16×16 one, each with a one-texel border copied from
-across the octahedral map's edges, so bilinear filtering wraps round. Both stay in the
-`General` layout, written by compute and read by the lighting pass, and start black.
+atlases of octahedral tiles. The irradiance atlas (RGBA16F) has an 8×8 tile per probe and the
+depth atlas (RG16F) a 16×16 one, each with a one-texel border copied from across the
+octahedral map's edges, so bilinear filtering wraps round. Both stay in the `General` layout,
+written by compute and read by the lighting pass, and start black.
+
+Each atlas is a 2D array of five layers: layers 0 to 3 hold the four `ProbeCascades` cascades,
+finest first, and layer 4 holds the fixed grid. A probe's slot is its tile in its layer, row by
+row. A layer is as many tiles square as fit the larger of a cascade (counts x × y × z) and 4,096
+fixed-grid probes: 64 × 64 tiles at `ProbeQuality.Low`, 84 × 83 at `Medium` and 128 × 128 at
+`High`. `ProbeVolume.AtlasBytes` gives the memory for both atlases and all five layers: about
+43 MB at Low, 73 MB at Medium and 172 MB at High, against 8.6 MB for the single fixed-grid atlas
+before. `Resize(quality)` waits for the device and makes them again, cleared. The renderer uses
+High for now.
+
+A probe's irradiance alpha is its valid flag: 1 once it has been captured, 0 while it is still
+cleared. The lookup multiplies each probe's trilinear weight by it, so a probe never captured
+counts for nothing rather than for black, and `ProbeGrid.Weight` takes the same `captured`.
 
 A capture draws the probe's six faces at 32² into the same small cube `CaptureCube` that
 reflection probes use, through the normal scene passes. The frame's `probeCapture` flag
@@ -1419,10 +1432,22 @@ panels, since the direct lights already give their diffuse light, and no sun dis
 same reason. Reading the reflection cube would count that light twice. Screen-space occlusion, reflections, subsurface
 blur and the transparent pass are skipped, as the faces are too small for them and blending
 would spoil the alpha. `probe_fold.comp` then reduces each face 2×2 into shared memory and
-writes both tiles in one dispatch: irradiance is the cosine-weighted mean of the radiance
+works out both tiles in one dispatch: irradiance is the cosine-weighted mean of the radiance
 over the hemisphere, the same E/π as the environment's irradiance cube, and depth is the
 mean and the mean square of the distance around each direction, gathered with a cos⁵⁰ lobe
-so a wall's edge stays sharp. Distances are clamped to twice the spacing.
+so a wall's edge stays sharp. Distances are clamped to twice the spacing. The maths lives in
+`probe_fold.glsl`, which has no bindings of its own, so a traced capture can fold the same way.
+
+The fold doesn't write the atlases. It writes a slot of the staging buffer
+(`ProbeVolume.StagingTiles`, one bordered tile pair of 4,192 bytes per slot, as many slots as the
+traced budget: about 4.3 MB at High), and `RecordBlend(cmd, ids, alpha)` then moves staging slot
+i into probe `ids[i]` with `probe_blend.comp`, one workgroup per probe. A probe not yet captured
+takes the new tile whole; one that was moves towards it by alpha, so its light settles over a few
+updates instead of flickering. The inside mark in the depth tile's first texel is never blended:
+when the old or the new tile has it, the new texel is copied. The fixed grid's captures blend
+with alpha 1, so each capture replaces the probe as before; the live probes will use 0.5 for
+rasterised and 0.25 for traced updates. All of this is recorded into the frame's command buffer
+with barriers and no waits.
 
 Depth is stored because irradiance alone leaks. A probe on the far side of a wall sees
 bright sky, and blending it in would light the room. Each of the eight probes round a point
@@ -1434,8 +1459,17 @@ weight falls as the variance allows (cubed, to cut it harder). The point is firs
 viewer, so a probe's view of the surface itself doesn't shadow it. `ProbeGrid.Weight` does
 the same sums in C# for the tests. A probe that saw more than half back faces sits inside
 something; the fold writes -1 into its depth tile's first border texel and the lookup
-skips it. When the total weight is under 0.001 the lookup gives up and lighting uses the
-sky, which also covers points outside the box.
+skips it.
+
+`probeIrradiance` in `probes.glsl` tries the layers in order. First the fixed grid: wherever
+its eight probes give a total weight of at least 0.001, which is inside the box and up to a
+spacing round it, the grid answers. Then the finest cascade that holds the point by the
+`Finest` rule, whose origins and spacings come from the frame's `probeCascadeOrigin[4]` and
+whose counts come from `probeCascadeCounts` (w is 1 once a cascade layer has been written). Over
+the cascade's outermost held cell the answer fades into the next coarser cascade, so the edge
+between them doesn't show. When the cascade's probes round the point give a total under 0.001,
+because they aren't captured yet or can't see the point, the next coarser cascade is asked
+instead. When nothing answers the lookup returns -1, and `softLight` uses the sky.
 
 The lookup uses the bent normal from ambient occlusion, and replaces only the sky's
 diffuse light; specular still comes from screen-space reflections, reflection probes and
@@ -1459,8 +1493,9 @@ the old probes are thrown away and the sky is used until round 1 is done. Geomet
 hash. Without `shaderStorageImageExtendedFormats`, needed to write RG16F from compute, the
 volume is off.
 
-`ProbeCascades` is the layout the live probes will use in place of one fixed box (it isn't
-wired into the renderer yet). It keeps four cascades at 0.5, 1, 2 and 4 m spacing. Each is a
+`ProbeCascades` is the layout of the live probes round the camera. The renderer moves its own
+copy to the camera each frame and passes the origins to the shaders, though nothing captures
+cascade probes yet. It keeps four cascades at 0.5, 1, 2 and 4 m spacing. Each is a
 box of cells, 32 × 16 × 32 at `ProbeQuality.High`, 24 × 12 × 24 at `Medium` and 16 × 8 × 16 at
 `Low`. A cell's index is `floor(position / spacing)`, and a probe sits at the cell index times
 the spacing, so probes keep their world positions however the box moves. `Move` snaps each

@@ -43,13 +43,14 @@ public static class ProbeGrid
 
     /// <summary>
     /// How much one of the eight probes round a point counts towards its light. The same sums as
-    /// probes.glsl, so these tests pin the shader. Three parts multiply. Trilinear: nearer probes
+    /// probes.glsl, so these tests pin the shader. Four parts multiply. Trilinear: nearer probes
     /// count more, falling to 0 a spacing away along any axis. Facing: a probe behind the surface,
     /// straight down its normal, counts for nothing. Chebyshev: the probe knows the mean and the mean
     /// of the squares of the distances it sees towards the point, so a point further away than
-    /// that is probably behind a wall from it, and counts for little.
+    /// that is probably behind a wall from it, and counts for little. Captured: a probe that has not
+    /// been captured yet (its irradiance alpha is still 0) counts for nothing.
     /// </summary>
-    public static float Weight(Vector3 point, Vector3 normal, Vector3 probe, float meanDepth, float meanSquares, float distance, float spacing = 1f)
+    public static float Weight(Vector3 point, Vector3 normal, Vector3 probe, float meanDepth, float meanSquares, float distance, float spacing = 1f, bool captured = true)
     {
         var offset = Vector3.Abs(point - probe) / spacing;
         float trilinear = MathF.Max(1f - offset.X, 0f) * MathF.Max(1f - offset.Y, 0f) * MathF.Max(1f - offset.Z, 0f);
@@ -72,7 +73,7 @@ public static class ProbeGrid
             visible = chebyshev * chebyshev * chebyshev;
         }
 
-        return trilinear * facing * visible;
+        return captured ? trilinear * facing * visible : 0f;
     }
 
     // Clamped so a huge box at a tiny spacing counts as too many rather than overflowing.

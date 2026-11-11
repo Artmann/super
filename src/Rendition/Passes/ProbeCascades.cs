@@ -121,6 +121,9 @@ internal sealed class ProbeCascades
         return layouts;
     }
 
+    /// <summary>One cascade's layout: its spacing and how many probes run along each axis.</summary>
+    public ProbeCascadeLayout Layout(int cascade) => _layouts[cascade];
+
     /// <summary>The cell index of the cascade's minimum corner. Its box is cells Origin to Origin + count, less one.</summary>
     public Int3 Origin(int cascade) => _origins[cascade];
 

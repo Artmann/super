@@ -37,6 +37,8 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 occlusion;          // x: how far ambient occlusion looks, in metres; y: its strength, 0 to 1
     vec4 lightProbeMin;      // xyz: the first light probe; w: the probes' spacing in metres
     vec4 lightProbeCounts;   // xyz: probes along each axis; w: 1 when the soft light comes from them
+    vec4 probeCascadeOrigin[4]; // Per cascade, finest first. xyz: the cell of its minimum corner; w: its spacing in metres
+    vec4 probeCascadeCounts; // xyz: probes along each axis of every cascade; w: 1 when the cascades may be read
     vec4 skySun;             // xyz: towards the clear sky's sun; w: its turbidity, 0 for the environment's bands
     vec4 sunDisc;            // rgb: how bright the sun's disc is, 0 for none; a: the cosine of its angular radius
     vec4 fog;                // x: density at the fog's height, 0 for none; y: that height; z: falloff per metre; w: sun scatter
