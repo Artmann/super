@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.IO.Enumeration;
 using System.Security.Cryptography;
 using System.Text;
@@ -39,7 +38,10 @@ internal sealed class CookCache(string folder, CacheUsage? usage = null)
     public string Folder => _folder;
     // Workers cook in parallel, so the hash index and object writes are guarded.
     private readonly object _hashesLock = new();
-    private readonly ConcurrentDictionary<string, object> _objectGates = new(StringComparer.Ordinal);
+
+    // Locks for object writes, picked by the object's path. A fixed set, shared by every cook in the process, so the
+    // record and step caches gate the same object with the same lock and the set doesn't grow with each object.
+    private static readonly object[] ObjectGates = [.. Enumerable.Range(0, 64).Select(_ => new object())];
     private Dictionary<string, string>? _hashes;
     private bool _hashesChanged;
 
@@ -234,28 +236,29 @@ internal sealed class CookCache(string folder, CacheUsage? usage = null)
     /// <summary>Keeps an object unless the cache has it already, as it often does for a texture models share.</summary>
     private void SaveObject(string hash, byte[] bytes)
     {
-        lock (_objectGates.GetOrAdd(hash, _ => new object()))
-        {
-            SaveObject(_folder, hash, bytes, Usage);
-        }
+        SaveObject(_folder, hash, bytes, Usage);
     }
 
     /// <summary>
     /// Keeps an object in the cache in <paramref name="folder"/> unless it has it already, and notes it in
-    /// <paramref name="usage"/>. Two writers of one object write the same bytes, so a race only costs time.
+    /// <paramref name="usage"/>. The record cache and the step cache both save objects from parallel workers, so one
+    /// object is written by one of them at a time: the others then find it there and only note it.
     /// </summary>
     /// <exception cref="IOException">It couldn't be written.</exception>
     internal static void SaveObject(string folder, string hash, byte[] bytes, CacheUsage usage)
     {
         var info = new FileInfo(ObjectFile(folder, hash));
-        if (info.Exists)
+        lock (ObjectGates[(int)((uint)CacheFolder.PathComparer.GetHashCode(info.FullName) % (uint)ObjectGates.Length)])
         {
-            usage.Used(info.FullName, info.LastWriteTimeUtc);
-            return;
-        }
+            if (info.Exists)
+            {
+                usage.Used(info.FullName, info.LastWriteTimeUtc);
+                return;
+            }
 
-        WriteAtomically(info.FullName, bytes);
-        usage.Wrote(info.FullName);
+            WriteAtomically(info.FullName, bytes);
+            usage.Wrote(info.FullName);
+        }
     }
 
     /// <summary>

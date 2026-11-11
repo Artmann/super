@@ -46,7 +46,7 @@ public static class CacheSize
 
         if (upper.Length == 0
             || !decimal.TryParse(upper, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out decimal number)
-            || number * unit > long.MaxValue)
+            || number > long.MaxValue / unit)
         {
             error = $"\"{text}\" isn't a size. Give a number with KB, MB, GB or TB, such as 4GB, 500MB or 1.5GB, a number of bytes, or none for no limit.";
             return false;

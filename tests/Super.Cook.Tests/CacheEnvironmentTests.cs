@@ -76,4 +76,28 @@ public sealed class CacheEnvironmentTests
             Directory.Delete(cache, true);
         }
     }
+
+    [Fact]
+    public void A_SUPER_CACHE_SIZE_that_isnt_a_size_doesnt_matter_to_a_cook_without_a_cache()
+    {
+        string? before = Environment.GetEnvironmentVariable("SUPER_CACHE_SIZE");
+        string src = Path.Combine(Path.GetTempPath(), "super-limit-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(src);
+            File.WriteAllText(Path.Combine(src, "a.json"), "{}");
+            Environment.SetEnvironmentVariable("SUPER_CACHE_SIZE", "lots");
+
+            var result = new CookPipeline(BuiltInCookers.All, new CookOptions(CacheFolder: null)).Cook([new FolderRoot(src)], new MemoryStore());
+
+            Assert.Empty(result.Problems);
+            Assert.Equal(1, result.Cooked);
+            Assert.Null(result.Report.Trim);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SUPER_CACHE_SIZE", before);
+            Directory.Delete(src, true);
+        }
+    }
 }

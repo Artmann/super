@@ -212,7 +212,9 @@ game bigger than the limit still cooks warm the second time; the cook then warns
 the cache is over its limit and how to raise it. Set the limit with `SUPER_CACHE_SIZE`, such
 as `SUPER_CACHE_SIZE=8GB`, or for one run with `--cache-limit`. Sizes are KB, MB, GB or TB,
 each 1024 of the one before, with a `.` for decimals in any language, such as `1.5GB`.
-`none` or `0` turns the limit off.
+`none` or `0` turns the limit off. A `SUPER_CACHE_SIZE` that isn't a size gives a warning
+and the default limit, for the tool, a build and a game alike, and isn't read at all by a
+cook with `--no-cache`. A `--cache-limit` that isn't a size stops the tool.
 
 `super-cook cache` shows where the cache is and what it holds:
 
@@ -228,11 +230,14 @@ C:\Users\you\.super\cache
   other                           8.7 KB       1 file
 ```
 
-`super-cook cache --trim` trims it to its limit now, or to `--cache-limit` when given,
-keeping what was used in the last hour in case a cook is running, and says so when that
-leaves it over the limit. `super-cook cache
---clear` deletes it. Both take `--cache` for a cache somewhere else, and leave any file in
-that folder that the cook didn't make.
+`super-cook cache --trim` trims it to its limit now, or to `--cache-limit` when given. In
+case a cook is running it keeps every file from the last two hours, which covers every file
+used in the last hour, since a cook only marks a file used when it's more than an hour old,
+and it says so when that leaves the cache over the limit. `super-cook cache --clear`
+deletes it. Both take `--cache` for a cache somewhere else. They only delete files named as
+the cache names them, and leave anything else in that folder, listed by `super-cook cache`
+as "not the cache's". They refuse a cooked content folder, one with a `content.manifest`,
+since its objects are named as the cache's are.
 
 The content folder's objects are hard links to the cache's copies when the two are on the
 same drive, so a cooked texture takes its space once, not once per game. When a link can't
