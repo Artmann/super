@@ -1680,3 +1680,24 @@ splat texture. More detail is in [design.md](design.md#custom-shaders).
 
 Rendition knows nothing of Super and can be used directly, with your own loop and
 window. Its [README](../src/Rendition/README.md) covers the API and the sample, and [design.md](design.md#rendition-design) explains the frame structure.
+
+## Moving lights
+
+A light that moves can't be baked, since the bake would hold it where it stood. Rendition
+watches every Mixed or Baked light and keeps one that moves out of the bake until it holds
+still. A light counts as moving from the frame its bake hash first differs from the last
+frame's, so a torch that sways, a lamp on a cart or a sun that turns with the clock all
+count. A light that stands still never changes its hash, so it stays in.
+
+A moving light returns to the bake once a full second of game time has passed since it last
+changed. If it moves again before then, the second starts over. A light seen for the first
+time, or back after a frame it was missing from, is a new light and not a moving one.
+
+Each light is logged once, the first time it moves, with a line such as "The point light 7 is
+moving, so it is kept out of the bake and lit live. It returns to the bake once it holds still
+for 1 second." Lights are told apart by their `Key`, so give each light its own: two lights
+that share a key look like one light that jumps every frame, so both are kept out and the log
+says which key they share. A sun is told apart by its place in the frame's list of suns. If
+the game clock goes back, as it does after a restart, every light is treated as new.
+
+Nothing reads this yet, so no frame is lit differently.

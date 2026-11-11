@@ -2606,6 +2606,23 @@ box means a different bake, so it counts as a setting. A chunk's box is in its o
 its name is in the bake's path, not its inputs, so neither where a chunk stands nor what it's
 called changes its hash. Raising `BakerVersion` makes every saved bake stale.
 
+### Animated lights
+
+`AnimatedLights` (`src/Rendition/Baking/AnimatedLights.cs`) is fed each frame the key and bake
+hash of every Mixed or Baked light, plus the frame's game time. A `LightKey` is a flag for sun
+and a number, which is `LocalLight.Key` or the sun's index, so a sun and a point light with
+the same number are apart. It keeps a small class per key (last hash, when it last changed,
+whether it was logged) in a `Dictionary`, and drops any key not seen this frame. A key seen
+for the first time is not animated. A hash that differs from the last frame's marks the key
+animated and restarts its timer, and it clears when `time - changedAt >= SettleSeconds`. A key
+seen twice in one frame is pinned animated with its timer restarted. A clock that goes back
+clears everything, logged flags included. Nothing calls it from a frame yet.
+
+A steady frame allocates nothing: the dictionary and a scratch list for dropped keys are
+reused. It allocates only when a key first appears or a light is logged. The log needs a light's
+kind, which `LightKey` doesn't carry, so there is an `Update` overload taking a third tuple
+item, `Spot`, and the plain one calls every local light a point light.
+
 ## Ray tracing
 
 Device setup is in `VulkanContext.CreateDevice` (see above): ray queries are on only where nothing is
