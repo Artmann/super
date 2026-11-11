@@ -113,6 +113,82 @@ public class ContentTests
     }
 
     [Fact]
+    public void Surface_named_again_is_the_same_one_and_reads_the_material_once()
+    {
+        var memory = new MemoryContent();
+        memory["cook.json"] = SmallSize;
+        memory["plain.material.cs"] = Plain;
+        var files = new WatchedFiles(memory);
+        var content = new Content(files);
+
+        var first = content.Surface("plain.material.cs");
+        var second = content.Surface("plain.material.cs");
+
+        Assert.Equal(first, second);
+        Assert.Equal(1, files.Reads("plain.material.cs#material"));
+    }
+
+    [Fact]
+    public void Surface_is_read_again_after_one_of_its_textures_is_unloaded()
+    {
+        var memory = new MemoryContent();
+        memory["cook.json"] = SmallSize;
+        memory["plain.material.cs"] = Plain;
+        var files = new WatchedFiles(memory);
+        var content = new Content(files);
+        var first = content.Surface("plain.material.cs");
+
+        content.Unload(first.ColorTexture!.Value);
+        var second = content.Surface("plain.material.cs");
+
+        Assert.Equal(2, files.Reads("plain.material.cs#material"));
+        Assert.NotEqual(first.ColorTexture, second.ColorTexture);
+    }
+
+    [Theory]
+    [InlineData("0", "0")]
+    [InlineData("-2", "-2")]
+    [InlineData("1e39", "Infinity")]
+    public void Surface_with_a_width_that_is_not_positive_explains_it(string written, string shown)
+    {
+        var memory = new MemoryContent();
+        memory["cook.json"] = SmallSize;
+        memory["plain.material.cs"] = Plain;
+        var files = new WatchedFiles(memory);
+        files.Replace("plain.material.cs#material", $$"""{ "width": {{written}} }""");
+        var content = new Content(files);
+
+        var problem = Assert.Throws<ContentException>(() => content.Surface("plain.material.cs"));
+
+        Assert.Contains($"plain.material.cs#material has a width of {shown} metres; it must be a positive number. Cook it again.", problem.Message);
+    }
+
+    /// <summary>Counts the reads of each name, and can hand out other bytes for one.</summary>
+    private sealed class WatchedFiles(IContentFiles inner) : IContentFiles
+    {
+        private readonly Dictionary<string, int> _reads = [];
+        private readonly Dictionary<string, byte[]> _replaced = [];
+
+        public int Reads(string name) => _reads.GetValueOrDefault(name);
+
+        public void Replace(string name, string text) => _replaced[name] = System.Text.Encoding.UTF8.GetBytes(text);
+
+        public ContentKind? KindOf(string name) => inner.KindOf(name);
+
+        public IReadOnlyList<string>? List(string folder) => inner.List(folder);
+
+        public byte[] Read(string name)
+        {
+            _reads[name] = Reads(name) + 1;
+            return _replaced.TryGetValue(name, out var bytes) ? bytes : inner.Read(name);
+        }
+
+        public Stream OpenObject(string hash) => inner.OpenObject(hash);
+
+        public IReadOnlyList<string> Parts(string name) => inner.Parts(name);
+    }
+
+    [Fact]
     public void Surface_of_a_texture_explains_what_a_material_is()
     {
         var files = Textures("a.png");

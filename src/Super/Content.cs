@@ -58,6 +58,7 @@ public sealed class Content
     private readonly Dictionary<string, AmbienceRef> _ambienceRefs = [];
     private readonly Dictionary<string, ShaderRef> _shaders = [];
     private readonly Dictionary<string, TextureRef> _textures = [];
+    private readonly Dictionary<string, Surface> _surfaces = [];
     private readonly Dictionary<(Type Type, string Folder), ICatalog> _catalogs = [];
     private readonly List<ContentReference> _waiting = [];
     private readonly ContentReader _reader;
@@ -474,11 +475,17 @@ public sealed class Content
     /// A surface for a cooked material graph or variant, such as <c>materials/bricks.material.cs</c>.
     /// It holds the graph's colour, normal and surface textures and its width in metres, which
     /// shapes tile at unless given <c>uvPerMetre</c>. Colour, roughness and metallic are 1, because
-    /// the surface texture's values pass straight through. A name that isn't a cooked material stops
-    /// here with a <see cref="ContentException"/>.
+    /// the surface texture's values pass straight through. Naming it again gives the same one, without
+    /// reading the material again. A name that isn't a cooked material, or a material whose width
+    /// isn't a positive number, stops here with a <see cref="ContentException"/>.
     /// </summary>
     public Surface Surface(string name)
     {
+        if (_surfaces.TryGetValue(name, out var known))
+        {
+            return known;
+        }
+
         string part = name + "#material";
         if (_files.KindOf(part) != ContentKind.Data)
         {
@@ -501,7 +508,13 @@ public sealed class Content
             throw new ContentException([$"{part} can't be read: {problem.Message}"]);
         }
 
-        return new Surface
+        // Shapes divide by the width to tile, so zero, a negative or a non-number would spread NaN or flip the UVs.
+        if (!float.IsFinite(width) || width <= 0f)
+        {
+            throw new ContentException([$"{part} has a width of {width.ToString(System.Globalization.CultureInfo.InvariantCulture)} metres; it must be a positive number. Cook it again."]);
+        }
+
+        var surface = new Surface
         {
             Color = System.Numerics.Vector3.One,
             Roughness = 1f,
@@ -511,6 +524,8 @@ public sealed class Content
             SurfaceTexture = Texture(name + "#surface"),
             TileWidth = width,
         };
+        _surfaces.Add(name, surface);
+        return surface;
     }
 
     /// <summary>Names an image made in code. Each call makes a new one.</summary>
@@ -599,6 +614,12 @@ public sealed class Content
         if (item.Name is { } name)
         {
             _textures.Remove(name);
+        }
+
+        // A surface that holds the texture would hand it out again after it's gone, so it's read afresh next time.
+        foreach (var (material, _) in _surfaces.Where(pair => Names(pair.Value, texture)).ToList())
+        {
+            _surfaces.Remove(material);
         }
     }
 

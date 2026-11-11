@@ -297,8 +297,11 @@ archer-props/firs.glb#tal isn't in the cooked content. Check the name, including
 ### Materials
 
 A material graph is named with `content.Surface("materials/bricks.material.cs")`, which
-gives a `Surface` with the graph's textures and its width in metres as `TileWidth`. It
-stops with a `ContentException` for a name that has no `#material` part. See
+gives a `Surface` with the graph's textures and its width in metres as `TileWidth`. Naming
+it again gives the same surface without reading the material again, so it's fine to call
+while drawing. Unloading one of its textures makes the next call read it afresh. It stops
+with a `ContentException` for a name that has no `#material` part, or whose width isn't a
+positive number. See
 [materials.md](materials.md).
 
 ### Shaders on models
