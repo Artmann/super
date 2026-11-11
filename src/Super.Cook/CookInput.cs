@@ -39,6 +39,19 @@ public sealed class CookInput
     /// <summary>Keeps a slow step's result for <see cref="Recall"/> in later cooks. Does nothing when the cook has no cache.</summary>
     public void Keep(string step, string key, byte[] bytes) => _steps?.Keep(step, key, bytes);
 
+    /// <summary>
+    /// Like <see cref="Recall"/>, for a step whose result is an object of the cook, kept with <see cref="KeepObject"/>:
+    /// the object's hash and its bytes, checked against the hash, or null when it isn't kept or the object is gone.
+    /// </summary>
+    internal (string Hash, byte[] Bytes)? RecallObject(string step, string key) => _steps?.FindObject(step, key);
+
+    /// <summary>
+    /// Like <see cref="Keep"/>, for a step whose result is an object the cook writes anyway, such as a shared texture: the
+    /// cache keeps the object once, among its objects, and the step's entry only names it.
+    /// </summary>
+    /// <param name="hash">The SHA-256 of <paramref name="bytes"/> in lowercase hex.</param>
+    internal void KeepObject(string step, string key, string hash, byte[] bytes) => _steps?.KeepObject(step, key, hash, bytes);
+
     /// <summary>Whether <see cref="Recall"/> and <see cref="Keep"/> have a cache behind them.</summary>
     public bool HasStepCache => _steps is not null;
 

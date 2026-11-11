@@ -451,14 +451,50 @@ everything the result depends on, its code's version included. Three steps use i
   `CookImages` records each image's path and hash, the entry lists them, and a hit reads each
   image again through `CookInput.Read`, which also tracks it for the record, and misses if a
   hash differs. That's sound because the graph compiler lets a graph read nothing else. The
-  entry holds the packed RGBA8 pixels, the height as one channel.
+  entry holds the packed RGBA8 pixels, the height as one channel, in format 2: the header as
+  is, then one Brotli stream at quality 1 of planes, one per channel, each the difference
+  from the pixel before. Material pixels change slowly, so on twelve Courtyard runs that is
+  22% of the raw 818 MB, written in about 160 ms and read in about 150 ms an entry. Plain
+  Brotli or Deflate on the pixels gave 30% to 43%, and higher qualities gained a point or two
+  for several times the time. A body that doesn't decompress to exactly the right length is
+  a miss.
 - The model cooker keys a mask bake by the SHA-256 of the model's positions and second UVs and
   of the material's triangles, which part each is in, and the other triangles it traces against, with the
   `Super.Cook.Models` build and the mask size.
 - `TextureCompression` keys a compressed texture by the SHA-256 of every level's pixels, the
   size, the format and the encoder's version: the `Super.Cook.Models` build, `Bc7Encoder.Version`,
   BCnEncoder.Net's version and the quality. Lookups and compressions run in parallel over the
-  model's textures.
+  model's textures. The compressed texture is the object the model will name, so
+  `StepCache.KeepObject` saves it once in the cache's `objects` and the entry holds only its
+  hash; before, the same bytes were in the entry and in `objects`. `FindObject` reads and
+  checks the object, and an entry whose object was trimmed or damaged is a miss. A hit hands
+  the object's hash and bytes to `ModelTextures.KnowSerialized`, so the texture isn't written
+  and hashed again.
+
+**Trimming the cache.** The cache is kept under a limit, 4 GiB unless `SUPER_CACHE_SIZE`,
+`CookOptions.CacheLimit` or `--cache-limit` says otherwise, by deleting the least recently
+used files after each cook. A file's last-write time is its last use. Reading the last-access
+time would be free but Windows and most Linux mounts don't keep it up to date, and a side
+index would need a lock between parallel cooks. `CacheUsage` notes every record, object and
+step entry the cook restored, read or wrote, and when it uses one whose last-write time is
+more than an hour older than the cook's start it sets it to the start. So a warm cook writes
+nothing, and the LRU order is good to an hour. After `Flush`, `CacheFolder.Trim` lists the
+folder once with `FileSystemEnumerable`, which gives sizes and times without opening a file,
+deletes temp files over an hour old, and then deletes the oldest files of `records`,
+`objects` and `steps` until the total fits, a record before the objects of the same age. It
+never deletes what this cook used, nor anything written after the cook started, which may
+be another cook's. If what the cook used is over the limit by itself, it keeps it and warns.
+A warm cook restores whole records and never reads the step entries, so under a tight limit
+the step entries are the first of a game's files to go, and the next edit runs its steps
+from nothing.
+On the Courtyard's 1.3 GB cache of 417 files the listing and trim take about 25 ms, a warm
+cook's only added cost. Deleting a record
+leaves its objects and deleting an object leaves the records naming it: both are a miss on
+the next cook, never a wrong result, as is a file that vanishes while a cook reads it. An
+object hard-linked into a content folder only frees its space once the content drops it too.
+`hashes.json`, the memo of file hashes keyed by path, size and last-write time, drops on
+`Flush` every key whose file is gone or has changed since (`CookCache.CurrentKeys`, one
+listing per folder), so it doesn't grow with every edit.
 
 The models cooker shares decoded textures between the models of a cook, and the cooks after
 it in the same process. They're keyed by the SHA-256 of the image bytes (and of the alpha

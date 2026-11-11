@@ -210,7 +210,9 @@ it points at. A texture several models use is kept once, however many models poi
 [`super-cook`](command-line.md#cooking-content) for running the cooker by hand, adding
 more content roots, and the build targets. Cooked results are cached in `~/.super/cache`,
 or in the folder named by the `SUPER_CACHE` environment variable, so a rebuild only cooks
-what changed; deleting that folder is always safe. The cooked objects are hard links to the
+what changed; deleting that folder is always safe. The cache is kept under 4 GB by deleting
+what was used least recently, and `SUPER_CACHE_SIZE` changes that, such as `SUPER_CACHE_SIZE=8GB`
+(see [the cache](command-line.md#the-cache)). The cooked objects are hard links to the
 cache's copies when they can be, so they don't take the space twice.
 
 A content root shared by several games can be cooked in part, so each game only gets what

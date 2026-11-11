@@ -19,6 +19,12 @@ internal static class TextureCompression
 {
     private const string Step = "compressed-texture";
 
+    /// <summary>
+    /// What a step entry holds, in its key so a change misses entries of the old kind: <c>object 1</c> is the hash of the
+    /// compressed texture's object in the cook cache, written as the model writes it.
+    /// </summary>
+    private const string EntryFormat = "object 1";
+
     /// <summary>How BCnEncoder.Net compresses BC4 and BC5. Fast loses nothing measurable on them against Balanced.</summary>
     private const CompressionQuality Quality = CompressionQuality.Fast;
 
@@ -41,7 +47,8 @@ internal static class TextureCompression
     /// <paramref name="masks"/> are the materials' baked masks, which keep all four channels.
     /// With <paramref name="input"/> and a cook cache, each compressed texture is kept in the step
     /// cache by the hash of its pixels, its size and format and the encoder's version, so a later
-    /// cook compresses only textures whose pixels changed. A cut-out's textures keep their coverage
+    /// cook compresses only textures whose pixels changed. The entry only names the texture's object,
+    /// which the cook cache keeps once among its objects, so the bytes aren't kept twice. A cut-out's textures keep their coverage
     /// as <see cref="Coverage"/> says, and <paramref name="warn"/> hears when two materials disagree on it.
     /// </summary>
     public static void Compress(
@@ -85,9 +92,21 @@ internal static class TextureCompression
                     }
 
                     keys[i] = Key(textures[i], form.Format, cutoff: form.Cutoff, partner: form.Partner);
-                    if (input.Recall(Step, keys[i]!) is { } kept && Read(kept, textures[i], form.Format) is { } compressed)
+                    if (input.RecallObject(Step, keys[i]!) is var (hash, bytes) && Read(bytes, textures[i], form.Format) is { } read)
                     {
-                        textures[i] = Remember(textures[i], form, compressed);
+                        // The key leaves out the texture's kind, so a texture with these pixels used another way takes its own.
+                        bool sameKind = read.Kind == textures[i].Kind;
+                        var compressed = sameKind
+                            ? read
+                            : new TextureData { Width = read.Width, Height = read.Height, Kind = textures[i].Kind, Format = read.Format, Mips = read.Mips };
+                        var remembered = Remember(textures[i], form, compressed);
+                        if (sameKind && ReferenceEquals(remembered, compressed))
+                        {
+                            // The kept object is what the model writes for this texture, so it isn't written and hashed again.
+                            ModelTextures.KnowSerialized(compressed, hash, bytes);
+                        }
+
+                        textures[i] = remembered;
                         keys[i] = null;
                     }
                 });
@@ -111,7 +130,12 @@ internal static class TextureCompression
         {
             using (input.Time("keep compressed textures"))
             {
-                Parallel.ForEach(made.Where(i => keys[i] is not null), i => input.Keep(Step, keys[i]!, Write(textures[i])));
+                // The entry names the texture's object, which the cache keeps once among its objects, as the model writes it.
+                Parallel.ForEach(made.Where(i => keys[i] is not null), i =>
+                {
+                    var (hash, bytes) = ModelTextures.Serialized(textures[i]);
+                    input.KeepObject(Step, keys[i]!, hash, bytes);
+                });
             }
         }
     }
@@ -241,6 +265,7 @@ internal static class TextureCompression
         TextureData? partner = null)
     {
         return string.Join('|',
+            EntryFormat,
             encoderVersion ?? EncoderVersion,
             format.ToString(),
             texture.Width.ToString(CultureInfo.InvariantCulture),
@@ -265,62 +290,37 @@ internal static class TextureCompression
         return Convert.ToHexString(hash.GetHashAndReset());
     }
 
-    private static byte[] Write(TextureData compressed)
-    {
-        var stream = new MemoryStream(compressed.Mips.Sum(mip => mip.Length) + 4 * compressed.Mips.Length + 4);
-        using (var writer = new BinaryWriter(stream))
-        {
-            writer.Write(compressed.Mips.Length);
-            foreach (byte[] mip in compressed.Mips)
-            {
-                writer.Write(mip.Length);
-                writer.Write(mip);
-            }
-        }
-
-        return stream.ToArray();
-    }
-
-    /// <returns>The compressed form of <paramref name="texture"/> kept in <paramref name="kept"/>, or null when it doesn't fit it.</returns>
+    /// <summary>
+    /// The compressed form of <paramref name="texture"/> in a kept object, a cooked texture file, or null when it doesn't
+    /// fit it: another size, format or number of levels, or a level of the wrong length. Its kind is the one it was
+    /// kept with, which may not be the texture's.
+    /// </summary>
     private static TextureData? Read(byte[] kept, TextureData texture, TextureFormat format)
     {
+        TextureData read;
         try
         {
-            using var reader = new BinaryReader(new MemoryStream(kept));
-            int count = reader.ReadInt32();
-            if (count != texture.Mips.Length)
-            {
-                return null;
-            }
-
-            var mips = new byte[count][];
-            for (int level = 0; level < count; level++)
-            {
-                int length = reader.ReadInt32();
-                int blocks = (Math.Max(texture.Width >> level, 1) + 3) / 4 * ((Math.Max(texture.Height >> level, 1) + 3) / 4);
-                if (length != blocks * (format == TextureFormat.Bc4 ? 8 : 16))
-                {
-                    return null;
-                }
-
-                mips[level] = reader.ReadBytes(length);
-                if (mips[level].Length != length)
-                {
-                    return null;
-                }
-            }
-
-            if (reader.BaseStream.Position != reader.BaseStream.Length)
-            {
-                return null;
-            }
-
-            return new TextureData { Width = texture.Width, Height = texture.Height, Kind = texture.Kind, Format = format, Mips = mips };
+            read = TextureData.Read(new MemoryStream(kept), Step);
         }
-        catch (EndOfStreamException)
+        catch (Exception exception) when (exception is InvalidDataException or EndOfStreamException or OverflowException or IOException)
         {
             return null;
         }
+
+        if (read.Width != texture.Width || read.Height != texture.Height || read.Format != format || read.Mips.Length != texture.Mips.Length)
+        {
+            return null;
+        }
+
+        for (int level = 0; level < read.Mips.Length; level++)
+        {
+            if (read.Mips[level].Length != TextureData.LevelSize(format, Math.Max(texture.Width >> level, 1), Math.Max(texture.Height >> level, 1)))
+            {
+                return null;
+            }
+        }
+
+        return read;
     }
 
     /// <summary>
