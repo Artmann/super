@@ -133,16 +133,18 @@ A graph cooks into four textures and a small data part, named as parts of its so
 | Name | Holds |
 | --- | --- |
 | `materials/bricks.material.cs#color` | The colour, with occlusion multiplied in. sRGB |
-| `materials/bricks.material.cs#normal` | The normal map, OpenGL style with green pointing up |
+| `materials/bricks.material.cs#normal` | The normal map, OpenGL style with green pointing up. Only red and green are kept; rebuild the third axis with `normalFrom` |
 | `materials/bricks.material.cs#surface` | Metalness in red, roughness in green and opacity in alpha. Blue is 0. Linear |
-| `materials/bricks.material.cs#height` | The height, grey. Linear. For surface shaders such as puddles |
+| `materials/bricks.material.cs#height` | The height in red; green and blue read as 0. Linear. For surface shaders such as puddles |
 | `materials/bricks.material.cs#material` | Data: `{"width":2}`, the graph's `Width` in metres |
 
 The four textures are block-compressed with every mip: the colour and surface as BC7, the
 normal as BC5 and the height as BC4. A rule's `"compressTextures": false` keeps them as
-RGBA pixels instead; see [Rules and sidecars](content.md#rules-and-sidecars).
-Compressed, each of the Courtyard's 1024 by 1024 materials takes 4.7 MB with its mips instead of 16 MB,
-and on screen the two are hard to tell apart:
+RGBA pixels instead, with the height grey and the normal's blue kept; see
+[Rules and sidecars](content.md#rules-and-sidecars). Compressed, each of the Courtyard's
+1024 by 1024 materials takes 4.7 MB with every mip, on disk and on the GPU. As RGBA
+pixels it takes 16 MB on disk without mips, and about 21.3 MB on the GPU once the game
+builds them. On screen the two are hard to tell apart:
 
 ![Courtyard materials before and after compression](media/compressed-materials.webp)
 

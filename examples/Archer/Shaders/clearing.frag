@@ -62,7 +62,8 @@ void main() {
             c = mix(c, vec3(dot(c, vec3(0.3, 0.55, 0.15))), 0.45) * vec3(0.72, 0.68, 0.6);
         }
         color += c * weights[i];
-        bump += (layer(1, float(i)).xyz * 2.0 - 1.0) * weights[i];
+        // The normal maps are cooked to BC5, which keeps only red and green, so z is rebuilt.
+        bump += normalFrom(layer(1, float(i))) * weights[i];
     }
 
     // Slow patches of lusher and sun-dried grass.

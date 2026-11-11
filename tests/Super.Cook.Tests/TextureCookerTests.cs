@@ -213,6 +213,41 @@ public sealed class TextureCookerTests
     }
 
     [Fact]
+    public void The_crafting_icons_cook_to_their_exact_pixels()
+    {
+        string content = CraftingContent();
+        var store = new MemoryStore();
+        var result = new CookPipeline(BuiltInCookers.All, new CookOptions()).Cook([new FolderRoot(content, ["icons/**"])], store);
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+
+        string[] icons = [.. store.Manifest.Assets.Keys.Where(name => name.StartsWith("icons/")).Order()];
+        Assert.Equal(Directory.GetFiles(Path.Combine(content, "icons"), "*.png").Length, icons.Length);
+        Assert.NotEmpty(icons);
+        foreach (string icon in icons)
+        {
+            var texture = CookedTexture.Read(store.Get(store.Manifest.Assets[icon].Hash), icon);
+            var source = StbImageSharp.ImageResult.FromMemory(File.ReadAllBytes(Path.Combine(content, icon)), StbImageSharp.ColorComponents.RedGreenBlueAlpha);
+
+            Assert.True(texture.Format == TextureFormat.Rgba8, $"{icon} cooked to {texture.Format}, not its exact pixels.");
+            Assert.True(source.Data.AsSpan().SequenceEqual(texture.DecodePixels()), $"{icon}'s pixels changed in the cook.");
+        }
+    }
+
+    private static string CraftingContent()
+    {
+        for (var folder = new DirectoryInfo(AppContext.BaseDirectory); folder is not null; folder = folder.Parent)
+        {
+            string content = Path.Combine(folder.FullName, "examples", "Crafting", "content");
+            if (Directory.Exists(content))
+            {
+                return content;
+            }
+        }
+
+        throw new DirectoryNotFoundException("examples/Crafting/content isn't in any folder above the tests.");
+    }
+
+    [Fact]
     public void Linear_setting_gives_linear()
     {
         var texture = CookPng("{ \"linear\": true }");

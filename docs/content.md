@@ -285,7 +285,12 @@ a glob. A later rule beats an earlier one, and a deeper `cook.json` beats a shal
 
 Textures take `linear` (non-colour data, not read as sRGB) and `normalMap` (always
 linear, and its mips stay unit length). These settings are why `content.Texture` takes
-only a name: the kind is in the cooked texture.
+only a name: the kind is in the cooked texture. A file named `<source>.cook.json` beside
+a source holds settings for that one file and beats every rule. Models keep their import
+settings there; see [Rendering](rendering.md#models). An unknown setting is a cook error,
+so a typo can't drop one silently. A sidecar whose source isn't there is only a warning,
+`No source file <name>; skipped.`, so a clone without sources kept out of git, such as
+licensed models, still builds. Neither `cook.json` nor `*.cook.json` is an asset.
 
 Textures and [material graphs](materials.md) also take `compressTextures`, which is on by
 default, like the [model setting](rendering.md#models) of the same name. The cook builds
@@ -300,12 +305,26 @@ as for pixel art:
 ```
 
 BC7 fits each 4 by 4 block of pixels to one line of colours, so a block where two colours
-cross, such as a sharp coloured edge in a small icon, comes out a little off. A file named `<source>.cook.json` beside
-a source holds settings for that one file and beats every rule. Models keep their import
-settings there; see [Rendering](rendering.md#models). An unknown setting is a cook error,
-so a typo can't drop one silently. A sidecar whose source isn't there is only a warning,
-`No source file <name>; skipped.`, so a clone without sources kept out of git, such as
-licensed models, still builds. Neither `cook.json` nor `*.cook.json` is an asset.
+cross, such as a sharp coloured edge in a small icon, comes out a little off.
+
+Turn `compressTextures` off for UI images and pixel art. An [image](#images) is decoded
+back to RGBA when it loads, so compressing it saves no memory, only disk, and costs its
+edges. The cook can't tell which textures are only shown as images, since that's decided
+by the code that loads them, so the Crafting example says so with a rule for its icons:
+
+```json
+{ "rules": [{ "match": "icons/**", "texture": { "compressTextures": false } }] }
+```
+
+A cooked normal map is BC5, which keeps only red and green, so a surface shader that reads
+one rebuilds the third axis with `normalFrom`; see
+[Surface shaders](rendering.md#surface-shaders).
+
+A texture cooked here knows no alpha cutoff, so its smaller mips don't keep the share of
+pixels that pass one, as a model's cut-out textures do. Nothing in the engine cuts a plain
+texture out by its alpha, since a `Surface` has no cutoff, but a surface shader that
+discards by one will see thin shapes such as leaves fade out at a distance. Put cut-out
+textures in a model, whose `alphaCutoff` setting keeps their coverage.
 
 ### Parts
 

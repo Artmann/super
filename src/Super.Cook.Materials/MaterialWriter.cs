@@ -78,9 +78,11 @@ internal static class MaterialWriter
 /// model with a graph on one of its materials uses them.
 /// </summary>
 /// <param name="Color">The colour, sRGB, with an alpha of 1.</param>
-/// <param name="Normal">The normal map, each axis mapped from -1..1 to 0..1.</param>
+/// <param name="Normal">
+/// The normal map, each axis mapped from -1..1 to 0..1. Compressed to BC5, the cooked part keeps only red and green.
+/// </param>
 /// <param name="Surface">Metalness in red, roughness in green, 0 in blue and opacity in alpha.</param>
-/// <param name="Height">The height in red, green and blue.</param>
+/// <param name="Height">The height in red, green and blue. Compressed to BC4, the cooked part keeps only red.</param>
 /// <param name="NotNumbers">The parts, of color, normal, surface and height, that had values that weren't numbers. Those were written as 0.</param>
 public sealed record MaterialPixels(byte[] Color, byte[] Normal, byte[] Surface, byte[] Height, IReadOnlyList<string> NotNumbers)
 {
