@@ -228,6 +228,67 @@ public sealed class StepCacheTests : IDisposable
     }
 
     [Fact]
+    public void A_kept_graph_run_is_compressed_and_gives_back_every_pixel()
+    {
+        // A picture of different pixels, so each channel's differences aren't all zero.
+        string src = Folder(Graph);
+        File.WriteAllBytes(Path.Combine(src, "materials", "tint.png"), Png([250, 30, 90, 255, 10, 200, 140, 255]));
+        string cache = Temp();
+        var (_, firstStore) = Cook(src, cache);
+        string entry = Assert.Single(Directory.GetFiles(Path.Combine(cache, "steps", "graph-run"), "*", SearchOption.AllDirectories));
+        ForgetCookedSources(cache);
+
+        var (second, secondStore) = Cook(src, cache);
+
+        Assert.DoesNotContain("run graphs", PhasesOf(second));
+        Assert.Equal(firstStore.Manifest.Assets["models/a.gltf"].Hash, secondStore.Manifest.Assets["models/a.gltf"].Hash);
+        Assert.Equal(Color(firstStore), Color(secondStore));
+        // Four 16 by 16 images of four bytes a pixel, three of them whole and the height's red, would be 3328 bytes.
+        Assert.True(new FileInfo(entry).Length < 1500, $"{new FileInfo(entry).Length} bytes");
+    }
+
+    [Fact]
+    public void A_kept_graph_run_with_damaged_pixels_runs_the_graph_again()
+    {
+        string src = Folder(Graph);
+        string cache = Temp();
+        var (_, firstStore) = Cook(src, cache);
+        ForgetCookedSources(cache);
+        // Intact as its hash says, but the compressed pixels end too soon.
+        string entry = Assert.Single(Directory.GetFiles(Path.Combine(cache, "steps", "graph-run"), "*", SearchOption.AllDirectories));
+        byte[] payload = File.ReadAllBytes(entry)[..^32][..^8];
+        File.WriteAllBytes(entry, [.. payload, .. SHA256.HashData(payload)]);
+
+        var (second, secondStore) = Cook(src, cache);
+
+        Assert.Contains("run graphs", PhasesOf(second));
+        Assert.Equal(firstStore.Manifest.Assets["models/a.gltf"].Hash, secondStore.Manifest.Assets["models/a.gltf"].Hash);
+    }
+
+    [Fact]
+    public void A_kept_graph_run_with_garbled_pixels_runs_the_graph_again()
+    {
+        string src = Folder(Graph);
+        string cache = Temp();
+        var (_, firstStore) = Cook(src, cache);
+        ForgetCookedSources(cache);
+        // Intact as its hash says, but the last bytes of the compressed pixels aren't Brotli.
+        string entry = Assert.Single(Directory.GetFiles(Path.Combine(cache, "steps", "graph-run"), "*", SearchOption.AllDirectories));
+        byte[] payload = File.ReadAllBytes(entry)[..^32];
+        for (int i = payload.Length - 12; i < payload.Length; i++)
+        {
+            payload[i] = 0xff;
+        }
+
+        File.WriteAllBytes(entry, [.. payload, .. SHA256.HashData(payload)]);
+
+        var (second, secondStore) = Cook(src, cache);
+
+        Assert.Contains("run graphs", PhasesOf(second));
+        Assert.Equal(firstStore.Manifest.Assets["models/a.gltf"].Hash, secondStore.Manifest.Assets["models/a.gltf"].Hash);
+    }
+
+    [Fact]
     public void Editing_the_graph_runs_it_again()
     {
         string src = Folder(Graph);
@@ -333,30 +394,89 @@ public sealed class StepCacheTests : IDisposable
         return new CookInput(new SourceFile(new FolderRoot(src), "a.bin"), [], [], "desktop", new StepCache(cache));
     }
 
-    /// <summary>Replaces every kept compressed texture with one whose blocks are all <paramref name="value"/>, so a texture taken from the cache shows it.</summary>
-    private static void Doctor(string cache, byte value)
-    {
-        foreach (string entry in Directory.GetFiles(Path.Combine(cache, "steps", "compressed-texture"), "*", SearchOption.AllDirectories))
-        {
-            byte[] payload = File.ReadAllBytes(entry)[..^32];
-            using var reader = new BinaryReader(new MemoryStream(payload));
-            var stream = new MemoryStream();
-            using (var writer = new BinaryWriter(stream))
-            {
-                int count = reader.ReadInt32();
-                writer.Write(count);
-                for (int level = 0; level < count; level++)
-                {
-                    int length = reader.ReadInt32();
-                    reader.ReadBytes(length);
-                    writer.Write(length);
-                    writer.Write(Enumerable.Repeat(value, length).ToArray());
-                }
-            }
+    private static string[] TextureEntries(string cache) =>
+        Directory.GetFiles(Path.Combine(cache, "steps", "compressed-texture"), "*", SearchOption.AllDirectories);
 
-            byte[] doctored = stream.ToArray();
-            File.WriteAllBytes(entry, [.. doctored, .. SHA256.HashData(doctored)]);
+    private static string ObjectFile(string cache, string hash) => Path.Combine(cache, "objects", hash[..2], hash);
+
+    /// <summary>The hash of the object a compressed texture's entry names.</summary>
+    private static string Named(string entry) => System.Text.Encoding.ASCII.GetString(File.ReadAllBytes(entry)[..^32]);
+
+    /// <summary>
+    /// Points every kept compressed texture at a new object whose blocks are all <paramref name="value"/>, so a texture
+    /// taken from the cache shows it. Returns the new objects' files.
+    /// </summary>
+    private static List<string> Doctor(string cache, byte value)
+    {
+        var doctoredObjects = new List<string>();
+        foreach (string entry in TextureEntries(cache))
+        {
+            var kept = TextureData.Read(new MemoryStream(File.ReadAllBytes(ObjectFile(cache, Named(entry)))), entry);
+            byte[] doctored = new TextureData
+            {
+                Width = kept.Width, Height = kept.Height, Kind = kept.Kind, Format = kept.Format,
+                Mips = [.. kept.Mips.Select(mip => Enumerable.Repeat(value, mip.Length).ToArray())],
+            }.ToBytes();
+            string hash = Convert.ToHexStringLower(SHA256.HashData(doctored));
+            Directory.CreateDirectory(Path.GetDirectoryName(ObjectFile(cache, hash))!);
+            File.WriteAllBytes(ObjectFile(cache, hash), doctored);
+            byte[] payload = System.Text.Encoding.ASCII.GetBytes(hash);
+            File.WriteAllBytes(entry, [.. payload, .. SHA256.HashData(payload)]);
+            doctoredObjects.Add(ObjectFile(cache, hash));
         }
+
+        return doctoredObjects;
+    }
+
+    [Fact]
+    public void A_compressed_texture_is_kept_once_as_an_object_and_its_entry_only_names_it()
+    {
+        string cache = Temp();
+        TextureData[] first = [Texture(1)];
+        TextureCompression.Compress(first, [], masks: [0], input: Input(cache));
+
+        string entry = Assert.Single(TextureEntries(cache));
+        Assert.Equal(64 + 32, new FileInfo(entry).Length);
+        byte[] kept = File.ReadAllBytes(ObjectFile(cache, Named(entry)));
+        Assert.Equal(first[0].ToBytes(), kept);
+
+        TextureData[] second = [Texture(1)];
+        TextureCompression.Compress(second, [], masks: [0], input: Input(cache));
+
+        Assert.Equal(first[0].Mips, second[0].Mips);
+        Assert.Equal(TextureFormat.Bc7, second[0].Format);
+        Assert.Equal(TextureKind.Color, second[0].Kind);
+    }
+
+    [Fact]
+    public void A_compressed_texture_whose_object_was_trimmed_is_compressed_again()
+    {
+        string cache = Temp();
+        TextureData[] first = [Texture(1)];
+        TextureCompression.Compress(first, [], masks: [0], input: Input(cache));
+        File.Delete(Assert.Single(Doctor(cache, 0xab)));
+
+        TextureData[] second = [Texture(1)];
+        TextureCompression.Compress(second, [], masks: [0], input: Input(cache));
+
+        Assert.Equal(first[0].Mips, second[0].Mips);
+    }
+
+    [Fact]
+    public void A_compressed_texture_whose_object_is_damaged_is_compressed_again()
+    {
+        string cache = Temp();
+        TextureData[] first = [Texture(1)];
+        TextureCompression.Compress(first, [], masks: [0], input: Input(cache));
+        string doctored = Assert.Single(Doctor(cache, 0xab));
+        byte[] bytes = File.ReadAllBytes(doctored);
+        bytes[^1] ^= 0xff;
+        File.WriteAllBytes(doctored, bytes);
+
+        TextureData[] second = [Texture(1)];
+        TextureCompression.Compress(second, [], masks: [0], input: Input(cache));
+
+        Assert.Equal(first[0].Mips, second[0].Mips);
     }
 
     [Fact]

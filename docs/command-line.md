@@ -160,7 +160,8 @@ dotnet run --project tools/Super.Cook.Tool -- --content examples/Crafting/conten
 | `--out dir` | Where the cooked content goes. Needed |
 | `--target name` | The platform to cook for, `desktop` by default |
 | `--cache dir` | Keeps cooked results in this folder between runs. See below |
-| `--no-cache` | Cooks everything again and keeps nothing. Can't be used with `--cache` |
+| `--no-cache` | Cooks everything again and keeps nothing. Can't be used with `--cache` or `--cache-limit` |
+| `--cache-limit size` | The most the cache keeps after the cook, such as `8GB`, `500MB` or `none`. 4 GB by default. See below |
 | `--dev-file path` | Also writes `content.dev.json` there, naming the roots, their `--only` globs, the tool and the target, for a game run from source |
 | `--watch` | After the first cook, cooks again whenever a source changes, until stdin closes |
 | `--workers n` | How many sources to cook at once. The default is one per processor, at most 8 |
@@ -200,7 +201,38 @@ under a minute rather than many. Each kind of step has its own key:
 | `compressed-texture` | The hash of the pixels of every mip level, the size and format, and the encoder's version. A cut-out's mips depend on its `alphaCutoff`, so changing the cutoff misses |
 
 A damaged entry is a miss, never a wrong result. `--timings` shows the time spent looking
-up and keeping each, as the `recall` and `keep` phases below.
+up and keeping each, as the `recall` and `keep` phases below. A compressed texture is kept
+once, as the cache's copy of the object the model points to, and a graph run's images are
+kept compressed, at about a fifth of their size.
+
+The cache is kept under a limit, 4 GB by default. After each cook the files used least
+recently are deleted until it fits, whole records, objects and step results, so the next
+cook that needs one of them cooks it again. What the cook just used is never deleted, so a
+game bigger than the limit still cooks warm the second time; the cook then warns once that
+the cache is over its limit and how to raise it. Set the limit with `SUPER_CACHE_SIZE`, such
+as `SUPER_CACHE_SIZE=8GB`, or for one run with `--cache-limit`. Sizes are KB, MB, GB or TB,
+each 1024 of the one before, with a `.` for decimals in any language, such as `1.5GB`.
+`none` or `0` turns the limit off.
+
+`super-cook cache` shows where the cache is and what it holds:
+
+```
+super-cook cache
+C:\Users\you\.super\cache
+1.3 GB in 417 files, limit 4.0 GB.
+  objects                         1.0 GB     247 files
+  steps/graph-run                 257 MB      23 files
+  steps/mask                       24 MB       6 files
+  records                          35 KB      38 files
+  steps/compressed-texture        9.6 KB     102 files
+  other                           8.7 KB       1 file
+```
+
+`super-cook cache --trim` trims it to its limit now, or to `--cache-limit` when given,
+keeping what was used in the last hour in case a cook is running, and says so when that
+leaves it over the limit. `super-cook cache
+--clear` deletes it. Both take `--cache` for a cache somewhere else, and leave any file in
+that folder that the cook didn't make.
 
 The content folder's objects are hard links to the cache's copies when the two are on the
 same drive, so a cooked texture takes its space once, not once per game. When a link can't
@@ -238,7 +270,9 @@ Cook took 3.104 s with 8 workers.
   read settings                    0.021 s
   cook                             3.010 s
   save cache index                 0.012 s
+  trim cache                       0.025 s
   write manifest                   0.057 s
+Cache 1.3 GB of 4.0 GB.
 Time in each phase, added up over every source (more than the wall clock when cooking in parallel):
   write store                      9.870 s
   model cooker, untimed            2.112 s
@@ -256,6 +290,9 @@ slow steps of a model with material graphs, each with a `recall` phase before it
 phase after it for the step cache. On the Courtyard most of a cold cook is `run graphs`
 and `bake masks`. A model with an `alphaCutoff` also has `keep alpha coverage`, the time
 spent rescaling its cut-out textures' mips so they don't thin out in the distance.
+
+The line after the steps is the cache's size after trimming, and how many files the trim
+deleted, such as `Cache 3.9 GB of 4.0 GB: deleted 12 least recently used files, 1.1 GB.`
 
 "No record" means the source is new, or its bytes, settings or cooker version changed.
 "Input changed" means a file it reads besides itself, such as a texture, changed.

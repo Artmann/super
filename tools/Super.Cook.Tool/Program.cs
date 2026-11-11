@@ -13,14 +13,19 @@ public static class Program
     private const string Usage = """
         Usage:
           super-cook --content <dir> [--only <glob> ...] [--content <dir> ...] --out <dir> [--target desktop] [--cache <dir> | --no-cache] [--dev-file <path>] [--watch]
-                     [--workers <n>] [--timings] [--verbose]
+                     [--cache-limit <size>] [--workers <n>] [--timings] [--verbose]
           super-cook file --content <dir> [--content <dir> ...] <name> <output path>
+          super-cook cache [--cache <dir>] [--clear | --trim] [--cache-limit <size>]
 
         --only cooks just the files of the --content before it that match the glob, such as props/**. Give it
         several times for several globs. The other files stay readable, so a model still finds its textures.
+        --cache-limit is the most the cache keeps after a cook, such as 8GB, 500MB or none; the least recently
+        used files go first. It's 4GB unless SUPER_CACHE_SIZE says otherwise. What a cook uses is always kept.
         --timings prints where the time went: each step, each phase of the cookers, the slowest sources
         and why sources weren't taken from the cache. --verbose adds one line per source.
         SUPER_COOK_TIMINGS=1 or SUPER_COOK_VERBOSE=1 do the same, for a cook started by a build or a game.
+        cache prints where the cache is and how big each part of it is. --clear deletes it, and --trim
+        deletes the least recently used files until it's under its limit.
         """;
 
     /// <summary>What to print besides the problems and the totals.</summary>
@@ -41,7 +46,9 @@ public static class Program
         // Console.Out flushes every write, so a game running this as a child sees each line as it's written.
         try
         {
-            return args.Length > 0 && args[0] == "file" ? CookOne(args[1..]) : CookAll(args);
+            return args.Length > 0 && args[0] == "file" ? CookOne(args[1..])
+                : args.Length > 0 && args[0] == "cache" ? Cache(args[1..])
+                : CookAll(args);
         }
         catch (UsageException exception)
         {
@@ -58,6 +65,7 @@ public static class Program
         string target = "desktop";
         string? cache = null;
         bool noCache = false;
+        long? cacheLimit = null;
         string? devFile = null;
         bool watch = false;
         int workers = 0;
@@ -111,6 +119,9 @@ public static class Program
                 case "--no-cache":
                     noCache = true;
                     break;
+                case "--cache-limit":
+                    cacheLimit = Limit(Value(args, ref i));
+                    break;
                 case "--dev-file":
                     devFile = Value(args, ref i);
                     break;
@@ -134,7 +145,16 @@ public static class Program
 
         var roots = Roots(contents);
         var reporting = Reporting.FromEnvironment(timings, verbose);
-        var pipeline = new CookPipeline(ModelCookers.All, new CookOptions(target, noCache ? null : cache ?? CookOptions.DefaultCacheFolder, workers));
+        if (cacheLimit is not null && noCache)
+        {
+            throw new UsageException("--cache-limit and --no-cache can't be used together.");
+        }
+
+        var options = new CookOptions(target, noCache ? null : cache ?? CookOptions.DefaultCacheFolder, workers)
+        {
+            CacheLimit = cacheLimit ?? EnvironmentLimit(),
+        };
+        var pipeline = new CookPipeline(ModelCookers.All, options);
         var store = new FolderStore(output);
         bool succeeded = CookAndReport(pipeline, roots, store, reporting);
 
@@ -189,7 +209,7 @@ public static class Program
         string name = positional[0];
         string output = positional[1];
         var store = new MemoryStore();
-        var pipeline = new CookPipeline(ModelCookers.All, new CookOptions(CacheFolder: CookOptions.DefaultCacheFolder));
+        var pipeline = new CookPipeline(ModelCookers.All, new CookOptions(CacheFolder: CookOptions.DefaultCacheFolder) { CacheLimit = EnvironmentLimit() });
         if (!CookAndReport(pipeline, Roots(contents), store, Reporting.FromEnvironment(false, false)))
         {
             return 1;
@@ -216,6 +236,90 @@ public static class Program
         // A model alone in a file has nowhere to find shared textures, so they go inside it.
         File.WriteAllBytes(output, entry.Kind == ContentKind.Model ? ModelCookers.StandAlone(store, entry.Hash, name) : store.Get(entry.Hash));
         return 0;
+    }
+
+    /// <summary><c>super-cook cache</c>: shows the cache's folder and size, or clears or trims it.</summary>
+    private static int Cache(string[] args)
+    {
+        string? folder = null;
+        bool clear = false;
+        bool trim = false;
+        long? limit = null;
+        for (int i = 0; i < args.Length; i++)
+        {
+            switch (args[i])
+            {
+                case "--cache":
+                    folder = Value(args, ref i);
+                    break;
+                case "--clear":
+                    clear = true;
+                    break;
+                case "--trim":
+                    trim = true;
+                    break;
+                case "--cache-limit":
+                    limit = Limit(Value(args, ref i));
+                    break;
+                default:
+                    throw new UsageException($"Unknown option {args[i]}.");
+            }
+        }
+
+        if (clear && trim)
+        {
+            throw new UsageException("--clear and --trim can't be used together.");
+        }
+
+        if (limit is not null && !trim)
+        {
+            throw new UsageException("--cache-limit only goes with --trim here.");
+        }
+
+        folder = Path.GetFullPath(folder ?? CookOptions.DefaultCacheFolder);
+        if (clear)
+        {
+            var (files, bytes) = CacheFolder.Clear(folder);
+            Console.WriteLine($"Cleared {folder}: deleted {files} {(files == 1 ? "file" : "files")}, {CacheSize.Format(bytes)}.");
+            return 0;
+        }
+
+        if (trim)
+        {
+            var result = CacheFolder.Trim(folder, limit ?? EnvironmentLimit());
+            Console.WriteLine(result.Describe());
+            if (result.Limit > 0 && result.Size > result.Limit)
+            {
+                Console.WriteLine("Files used in the last hour are kept, in case a cook is using them. --clear deletes everything.");
+            }
+
+            return 0;
+        }
+
+        var parts = CacheFolder.Parts(folder);
+        long total = parts.Sum(part => part.Size);
+        long cacheLimit = EnvironmentLimit();
+        Console.WriteLine(folder);
+        Console.WriteLine($"{CacheSize.Format(total)} in {parts.Sum(part => part.Files)} files, limit {(cacheLimit > 0 ? CacheSize.Format(cacheLimit) : "none")}.");
+        foreach (var (part, size, files) in parts)
+        {
+            Console.WriteLine(FormattableString.Invariant($"  {part,-28} {CacheSize.Format(size),9}  {files,6} {(files == 1 ? "file" : "files")}"));
+        }
+
+        return 0;
+    }
+
+    /// <summary>A size given to <c>--cache-limit</c>.</summary>
+    private static long Limit(string text)
+    {
+        return CacheSize.TryParse(text, out long bytes, out string? error) ? bytes : throw new UsageException($"--cache-limit: {error}");
+    }
+
+    /// <summary>The limit in <c>SUPER_CACHE_SIZE</c>, or the default. A value that isn't a size stops the tool before it starts.</summary>
+    private static long EnvironmentLimit()
+    {
+        long limit = CookOptions.DefaultCacheLimitOrError(out string? error);
+        return error is null ? limit : throw new UsageException(error);
     }
 
     /// <summary>Cooks once and prints every problem, then the totals. Returns whether it succeeded.</summary>

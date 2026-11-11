@@ -30,6 +30,37 @@ public sealed record CookOptions(string Target = "desktop", string? CacheFolder 
         }
     }
 
+    /// <summary>
+    /// The most bytes the cache may hold after a cook, least recently used files deleted first, or 0 for no limit.
+    /// Null means <see cref="DefaultCacheLimit"/>.
+    /// </summary>
+    public long? CacheLimit { get; init; }
+
+    /// <summary>
+    /// The limit in <c>SUPER_CACHE_SIZE</c>, such as <c>8GB</c> or <c>none</c>, or <see cref="CacheSize.Default"/> when that
+    /// isn't set. A value that isn't a size gives the default, and <paramref name="error"/> says what's wrong with it.
+    /// </summary>
+    public static long DefaultCacheLimitOrError(out string? error)
+    {
+        error = null;
+        string? set = Environment.GetEnvironmentVariable("SUPER_CACHE_SIZE");
+        if (string.IsNullOrWhiteSpace(set))
+        {
+            return CacheSize.Default;
+        }
+
+        if (CacheSize.TryParse(set, out long bytes, out string? problem))
+        {
+            return bytes;
+        }
+
+        error = $"SUPER_CACHE_SIZE: {problem}";
+        return CacheSize.Default;
+    }
+
+    /// <summary>The limit in <c>SUPER_CACHE_SIZE</c>, or <see cref="CacheSize.Default"/> when that isn't set or isn't a size.</summary>
+    public static long DefaultCacheLimit => DefaultCacheLimitOrError(out _);
+
     internal int WorkerCount => Workers > 0 ? Workers : Math.Clamp(Environment.ProcessorCount, 1, MaxDefaultWorkers);
 }
 
@@ -111,8 +142,10 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
 
         EndStep("read settings");
 
-        var cache = options.CacheFolder is { } cacheFolder ? new CookCache(cacheFolder) : null;
-        var stepCache = options.CacheFolder is { } stepFolder ? new StepCache(stepFolder) : null;
+        // One note of what this cook uses, shared by the record and step caches, so trimming keeps all of it.
+        var usage = new CacheUsage(DateTime.UtcNow);
+        var cache = options.CacheFolder is { } cacheFolder ? new CookCache(cacheFolder, usage) : null;
+        var stepCache = options.CacheFolder is { } stepFolder ? new StepCache(stepFolder, usage) : null;
         var writer = new StoreWriter(store);
         var done = new Done[jobs.Count];
         int workers = Math.Max(1, Math.Min(options.WorkerCount, jobs.Count));
@@ -131,6 +164,25 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
 
         cache?.Flush();
         EndStep("save cache index");
+
+        CacheTrim? trim = null;
+        if (cache is not null)
+        {
+            string? limitError = null;
+            long limit = options.CacheLimit ?? CookOptions.DefaultCacheLimitOrError(out limitError);
+            if (limitError is not null)
+            {
+                problems.Add(new CookProblem(cache.Folder, null, $"{limitError} Using the default, {CacheSize.Format(CacheSize.Default)}.", false));
+            }
+
+            trim = cache.Trim(limit);
+            if (trim.Warning() is { } warning)
+            {
+                problems.Add(new CookProblem(cache.Folder, null, warning, false));
+            }
+
+            EndStep("trim cache");
+        }
 
         var assets = new Dictionary<string, ManifestEntry>(StringComparer.Ordinal);
         var objects = new HashSet<string>(StringComparer.Ordinal);
@@ -177,7 +229,7 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
 
         EndStep("write manifest");
 
-        var report = new CookReport(Stopwatch.GetElapsedTime(started), steps, [.. done.Select(d => d.Report!)], workers, false);
+        var report = new CookReport(Stopwatch.GetElapsedTime(started), steps, [.. done.Select(d => d.Report!)], workers, false) { Trim = trim };
         return new CookResult(problems, cooked, fromCache) { Report = report };
     }
 

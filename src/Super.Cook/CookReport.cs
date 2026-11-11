@@ -43,13 +43,21 @@ public sealed record CookReport(
 {
     public static CookReport Empty { get; } = new(TimeSpan.Zero, [], [], 1, false);
 
-    /// <summary>A short summary: the steps, the time the cookers spent per phase, and the slowest files.</summary>
+    /// <summary>What trimming the cache after the cook did, or null when there's no cache or nothing was cooked.</summary>
+    public CacheTrim? Trim { get; init; }
+
+    /// <summary>A short summary: the steps, the cache's size, the time the cookers spent per phase, and the slowest files.</summary>
     public IEnumerable<string> Summary(int slowest = 15)
     {
         yield return Invariant($"Cook took {Seconds(Elapsed)} with {Workers} {(Workers == 1 ? "worker" : "workers")}{(Skipped ? ", nothing had changed since the last cook" : "")}.");
         foreach (var (step, elapsed) in Steps)
         {
             yield return Invariant($"  {step,-28} {Seconds(elapsed),9}");
+        }
+
+        if (Trim is not null)
+        {
+            yield return Trim.Describe();
         }
 
         var phases = Files

@@ -212,12 +212,27 @@ internal sealed class ModelTextures(CookInput input, CookOutput output, string p
     /// </summary>
     public static string Share(TextureData texture, CookOutput output)
     {
-        var (hash, bytes) = Written.GetValue(texture, key => new Lazy<(string, byte[])>(() =>
+        var (hash, bytes) = Serialized(texture);
+        return output.AddObject(bytes, hash);
+    }
+
+    /// <summary>The bytes a texture is written as, an object of its own, and their hash, made once per texture.</summary>
+    internal static (string Hash, byte[] Bytes) Serialized(TextureData texture)
+    {
+        return Written.GetValue(texture, key => new Lazy<(string, byte[])>(() =>
         {
             byte[] written = key.ToBytes();
             return (Convert.ToHexStringLower(SHA256.HashData(written)), written);
         })).Value;
-        return output.AddObject(bytes, hash);
+    }
+
+    /// <summary>
+    /// Tells <see cref="Serialized"/> the bytes and hash of a texture read from them, such as a compressed texture taken
+    /// from the step cache, so they aren't written and hashed again.
+    /// </summary>
+    internal static void KnowSerialized(TextureData texture, string hash, byte[] bytes)
+    {
+        Written.TryAdd(texture, new Lazy<(string, byte[])>((hash, bytes)));
     }
 
     /// <summary>The most decoded pixels kept for sharing. Past this everything is dropped and sharing starts again.</summary>

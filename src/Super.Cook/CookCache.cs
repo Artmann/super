@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.IO.Enumeration;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -20,9 +21,9 @@ internal sealed record CacheHit(
 /// Remembers cooked results between runs. A record is keyed by the cooker, its version, the target, the settings and the
 /// source's hash, and lists every other file the cooker read with the hash it had. The record only counts while all of those
 /// hashes still match. Two builds can share one cache: everything is written to a temp file and moved into place, and a record
-/// that can't be read is just a miss.
+/// that can't be read is just a miss. Every file a cook uses is noted in <see cref="Usage"/>, so <see cref="Trim"/> keeps it.
 /// </summary>
-internal sealed class CookCache(string folder)
+internal sealed class CookCache(string folder, CacheUsage? usage = null)
 {
     /// <summary>What an input that isn't there hashes to, so a record stays valid until the file appears.</summary>
     private const string Missing = "missing";
@@ -30,6 +31,12 @@ internal sealed class CookCache(string folder)
     private const string Unresolvable = "unresolvable";
 
     private readonly string _folder = Path.GetFullPath(folder);
+
+    /// <summary>The files this cook used, which trimming keeps. The step cache notes its entries here too.</summary>
+    public CacheUsage Usage { get; } = usage ?? new CacheUsage(DateTime.UtcNow);
+
+    /// <summary>The cache's folder, in full.</summary>
+    public string Folder => _folder;
     // Workers cook in parallel, so the hash index and object writes are guarded.
     private readonly object _hashesLock = new();
     private readonly ConcurrentDictionary<string, object> _objectGates = new(StringComparer.Ordinal);
@@ -57,12 +64,15 @@ internal sealed class CookCache(string folder)
         string recordFile = RecordFile(key);
         try
         {
-            if (!File.Exists(recordFile))
+            var recordInfo = new FileInfo(recordFile);
+            if (!recordInfo.Exists)
             {
                 miss = "no record: new source, or its bytes, settings or cooker version changed";
                 return null;
             }
 
+            // The files a hit uses, with their last-write times, noted only once it's a hit.
+            var files = new List<FileInfo> { recordInfo };
             if (JsonNode.Parse(File.ReadAllBytes(recordFile)) is not JsonObject record)
             {
                 miss = "record damaged";
@@ -99,6 +109,7 @@ internal sealed class CookCache(string folder)
                 }
 
                 outputs.Add(new CachedOutput(item["part"]?.GetValue<string>(), kind, hash, info.Length));
+                files.Add(info);
             }
 
             var objects = new List<(string Hash, long Size)>();
@@ -119,6 +130,7 @@ internal sealed class CookCache(string folder)
                 }
 
                 objects.Add((hash, info.Length));
+                files.Add(info);
             }
 
             var warnings = new List<(string, int?)>();
@@ -141,6 +153,11 @@ internal sealed class CookCache(string folder)
                     miss = $"cached object damaged: {hash}";
                     return null;
                 }
+            }
+
+            foreach (var info in files)
+            {
+                Usage.Used(info.FullName, info.LastWriteTimeUtc);
             }
 
             miss = null;
@@ -199,6 +216,7 @@ internal sealed class CookCache(string folder)
 
             var record = new JsonObject { ["inputs"] = inputNodes, ["outputs"] = outputNodes, ["objects"] = objectNodes, ["warnings"] = warningNodes };
             WriteAtomically(RecordFile(key), Encoding.UTF8.GetBytes(record.ToJsonString()));
+            Usage.Wrote(RecordFile(key));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -216,13 +234,61 @@ internal sealed class CookCache(string folder)
     /// <summary>Keeps an object unless the cache has it already, as it often does for a texture models share.</summary>
     private void SaveObject(string hash, byte[] bytes)
     {
-        string objectFile = ObjectFile(hash);
         lock (_objectGates.GetOrAdd(hash, _ => new object()))
         {
-            if (!File.Exists(objectFile))
+            SaveObject(_folder, hash, bytes, Usage);
+        }
+    }
+
+    /// <summary>
+    /// Keeps an object in the cache in <paramref name="folder"/> unless it has it already, and notes it in
+    /// <paramref name="usage"/>. Two writers of one object write the same bytes, so a race only costs time.
+    /// </summary>
+    /// <exception cref="IOException">It couldn't be written.</exception>
+    internal static void SaveObject(string folder, string hash, byte[] bytes, CacheUsage usage)
+    {
+        var info = new FileInfo(ObjectFile(folder, hash));
+        if (info.Exists)
+        {
+            usage.Used(info.FullName, info.LastWriteTimeUtc);
+            return;
+        }
+
+        WriteAtomically(info.FullName, bytes);
+        usage.Wrote(info.FullName);
+    }
+
+    /// <summary>
+    /// The bytes of the object <paramref name="hash"/> in the cache in <paramref name="folder"/>, checked against its hash,
+    /// and notes it in <paramref name="usage"/>. Null when it isn't there, can't be read or is damaged.
+    /// </summary>
+    internal static byte[]? ReadObject(string folder, string hash, CacheUsage usage)
+    {
+        if (!ContentManifest.IsHash(hash))
+        {
+            return null;
+        }
+
+        try
+        {
+            var info = new FileInfo(ObjectFile(folder, hash));
+            if (!info.Exists)
             {
-                WriteAtomically(objectFile, bytes);
+                return null;
             }
+
+            byte[] bytes = File.ReadAllBytes(info.FullName);
+            if (Convert.ToHexStringLower(SHA256.HashData(bytes)) != hash)
+            {
+                return null;
+            }
+
+            usage.Used(info.FullName, info.LastWriteTimeUtc);
+            return bytes;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return null;
         }
     }
 
@@ -236,10 +302,14 @@ internal sealed class CookCache(string folder)
 
         try
         {
+            var current = CurrentKeys(_hashes.Keys);
             var node = new JsonObject();
             foreach (var (key, hash) in _hashes.OrderBy(pair => pair.Key, StringComparer.Ordinal))
             {
-                node[key] = hash;
+                if (current.Contains(key))
+                {
+                    node[key] = hash;
+                }
             }
 
             WriteAtomically(Path.Combine(_folder, "hashes.json"), Encoding.UTF8.GetBytes(node.ToJsonString()));
@@ -249,6 +319,54 @@ internal sealed class CookCache(string folder)
         {
             // See Save.
         }
+    }
+
+    /// <summary>
+    /// Trims the cache to <paramref name="limit"/> bytes, least recently used first, keeping everything this cook used.
+    /// See <see cref="CacheFolder.Trim"/>.
+    /// </summary>
+    public CacheTrim Trim(long limit)
+    {
+        return CacheFolder.Trim(_folder, limit, Usage, DateTime.UtcNow);
+    }
+
+    /// <summary>
+    /// Which of the hash index's keys still name a file as it is on disk: its path, size and last-write time. Each folder
+    /// the keys name is listed once, so an index of a few thousand files costs a few dozen listings. A file that's gone, or
+    /// has changed since its key was made, drops out, so the index doesn't grow with every edit.
+    /// </summary>
+    internal static HashSet<string> CurrentKeys(IEnumerable<string> keys)
+    {
+        var current = new HashSet<string>(CacheFolder.PathComparer);
+        var folders = new HashSet<string>(CacheFolder.PathComparer);
+        foreach (string key in keys)
+        {
+            int ticks = key.LastIndexOf('|');
+            int length = ticks > 0 ? key.LastIndexOf('|', ticks - 1) : -1;
+            if (length <= 0 || Path.GetDirectoryName(key[..length]) is not { Length: > 0 } folder || !folders.Add(folder))
+            {
+                continue;
+            }
+
+            try
+            {
+                var listing = new FileSystemEnumerable<string>(folder,
+                    (ref FileSystemEntry entry) => string.Concat(entry.ToFullPath(), "|",
+                        entry.Length.ToString(System.Globalization.CultureInfo.InvariantCulture), "|",
+                        entry.LastWriteTimeUtc.UtcDateTime.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                    new EnumerationOptions { IgnoreInaccessible = true, AttributesToSkip = 0 })
+                {
+                    ShouldIncludePredicate = (ref FileSystemEntry entry) => !entry.IsDirectory,
+                };
+                current.UnionWith(listing);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // The folder is gone, so its files are too.
+            }
+        }
+
+        return current;
     }
 
     /// <summary>The hash of a file, the marker for a file that isn't there, or null when it can't be read.</summary>
@@ -334,10 +452,15 @@ internal sealed class CookCache(string folder)
 
     private string ObjectFile(string hash)
     {
-        return Path.Combine(_folder, "objects", hash[..2], hash);
+        return ObjectFile(_folder, hash);
     }
 
-    private static void WriteAtomically(string path, byte[] bytes)
+    private static string ObjectFile(string folder, string hash)
+    {
+        return Path.Combine(folder, "objects", hash[..2], hash);
+    }
+
+    internal static void WriteAtomically(string path, byte[] bytes)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         string temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";

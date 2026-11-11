@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO.Compression;
 using System.Numerics;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -157,12 +158,20 @@ public static class MaterialGraphs
     private const string RunStep = "graph-run";
 
     // 1: the images read, then the packed pixels, with the height's red only.
-    private const int KeptFormat = 1;
+    // 2: the same, with the pixels as planes of differences, Brotli compressed.
+    private const int KeptFormat = 2;
+
+    /// <summary>
+    /// How hard a kept run's pixels are compressed. Over Courtyard's runs, quality 1 on planes of differences keeps 22% of
+    /// the bytes and takes about 0.15 s each way for a 2048 run, against seconds to run the graph again; higher qualities
+    /// save a few percent more for several times the time.
+    /// </summary>
+    private const int KeptQuality = 1;
 
     private static byte[] WriteKept(PackedImages run, List<(string Path, byte[] Hash)> reads)
     {
         var pixels = run.Pixels;
-        var stream = new MemoryStream(pixels.Color.Length * 3 + pixels.Height.Length / 4 + 1024);
+        var stream = new MemoryStream(pixels.Color.Length + 1024);
         using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true))
         {
             writer.Write(reads.Count);
@@ -181,16 +190,51 @@ public static class MaterialGraphs
                 writer.Write(part);
             }
 
-            writer.Write(pixels.Color);
-            writer.Write(pixels.Normal);
-            writer.Write(pixels.Surface);
-            for (int i = 0; i < pixels.Height.Length; i += 4)
+        }
+
+        // Each channel on its own, as the difference from the pixel before, so the smooth images a graph makes turn into
+        // runs of small numbers that compress far better than the pixels do.
+        using (var brotli = new BrotliStream(stream, new BrotliCompressionOptions { Quality = KeptQuality }, leaveOpen: true))
+        {
+            var plane = new byte[pixels.Color.Length / 4];
+            foreach (byte[] image in (byte[][])[pixels.Color, pixels.Normal, pixels.Surface])
             {
-                writer.Write(pixels.Height[i]);
+                for (int channel = 0; channel < 4; channel++)
+                {
+                    WritePlane(brotli, plane, image, channel);
+                }
             }
+
+            WritePlane(brotli, plane, pixels.Height, 0);
         }
 
         return stream.ToArray();
+    }
+
+    /// <summary>Writes one channel of an RGBA image, each byte as its difference from the one before it.</summary>
+    private static void WritePlane(Stream stream, byte[] plane, byte[] image, int channel)
+    {
+        byte previous = 0;
+        for (int i = 0, at = channel; i < plane.Length; i++, at += 4)
+        {
+            byte value = image[at];
+            plane[i] = (byte)(value - previous);
+            previous = value;
+        }
+
+        stream.Write(plane);
+    }
+
+    /// <summary>Reads one channel written by <see cref="WritePlane"/> into an RGBA image.</summary>
+    private static void ReadPlane(Stream stream, byte[] plane, byte[] image, int channel)
+    {
+        stream.ReadExactly(plane);
+        byte value = 0;
+        for (int i = 0, at = channel; i < plane.Length; i++, at += 4)
+        {
+            value += plane[i];
+            image[at] = value;
+        }
     }
 
     /// <returns>The kept run, or null when an image it read has changed or is gone, or the entry doesn't read.</returns>
@@ -221,42 +265,54 @@ public static class MaterialGraphs
                 notNumbers[i] = reader.ReadString();
             }
 
-            int length = checked(size * size * 4);
-            byte[] color = ReadExactly(reader, length);
-            byte[] normal = ReadExactly(reader, length);
-            byte[] surface = ReadExactly(reader, length);
-            byte[] red = ReadExactly(reader, length / 4);
-            var height = new byte[length];
-            for (int i = 0; i < red.Length; i++)
-            {
-                height[i * 4] = red[i];
-                height[i * 4 + 1] = red[i];
-                height[i * 4 + 2] = red[i];
-                height[i * 4 + 3] = 255;
-            }
-
-            if (reader.BaseStream.Position != reader.BaseStream.Length)
+            if (SizeProblem("size", size) is not null)
             {
                 return null;
             }
 
+            int length = size * size * 4;
+            var color = new byte[length];
+            var normal = new byte[length];
+            var surface = new byte[length];
+            var height = new byte[length];
+            try
+            {
+                using var brotli = new BrotliStream(reader.BaseStream, CompressionMode.Decompress, leaveOpen: true);
+                var plane = new byte[length / 4];
+                foreach (byte[] image in (byte[][])[color, normal, surface])
+                {
+                    for (int channel = 0; channel < 4; channel++)
+                    {
+                        ReadPlane(brotli, plane, image, channel);
+                    }
+                }
+
+                ReadPlane(brotli, plane, height, 0);
+                if (brotli.ReadByte() >= 0)
+                {
+                    return null;
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                // BrotliStream says "Decoder ran into invalid data" this way, not with InvalidDataException.
+                return null;
+            }
+
+            for (int i = 0; i < length; i += 4)
+            {
+                height[i + 1] = height[i];
+                height[i + 2] = height[i];
+                height[i + 3] = 255;
+            }
+
             return new PackedImages(size, width, heightDepth, new MaterialPixels(color, normal, surface, height, notNumbers));
         }
-        catch (Exception exception) when (exception is EndOfStreamException or FileNotFoundException or OverflowException or FormatException or IOException)
+        catch (Exception exception) when (exception is EndOfStreamException or FileNotFoundException or OverflowException
+            or FormatException or InvalidDataException or IOException)
         {
             return null;
         }
-    }
-
-    private static byte[] ReadExactly(BinaryReader reader, int length)
-    {
-        byte[] bytes = reader.ReadBytes(length);
-        if (bytes.Length != length)
-        {
-            throw new EndOfStreamException();
-        }
-
-        return bytes;
     }
 
     /// <summary>Runs the source itself, a graph or a variant. An error in the source's own graph has its line.</summary>
