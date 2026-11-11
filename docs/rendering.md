@@ -163,6 +163,10 @@ characters, swimming draws and ghosts are missing, because rays don't see them y
 `FrameView.DebugView` to `DebugView.Trace`; `Renderer.Render` throws on a GPU that can't trace, and
 `Renderer.NoTraceReason` says why. See [the command line](command-line.md).
 
+![The Courtyard lit on the left and in the trace view on the right: the same bricks, ivy, barrel, wheel and flagstones as flat base colours, with a sky-blue background where rays hit nothing](media/trace-view-courtyard.webp)
+
+![The Crypt lit by candles on the left and in the trace view on the right: the pillars, walls, altar and chest in their unlit base colours, with candles and torches showing as flat white](media/trace-view-crypt.webp)
+
 ## Lights
 
 ```csharp
