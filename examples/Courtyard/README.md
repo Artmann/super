@@ -50,6 +50,11 @@ broad patches of light and dark laid by world position hide where the textures r
 
 ![The wall right of the window before and after: on the left bricks in a narrow range of reds and orange-browns; on the right bricks from dark plum through reds and orange-browns to ochre and pale buff](../../docs/media/courtyard-realism-wall.webp)
 
+Where the whitewash has flaked away, its graph cuts holes in the coat, so the wall's own
+bricks and mortar show through instead of a brick pattern painted onto the whitewash.
+
+![The whitewash before and after: on the left the flaked patches are painted with orange brick that has no mortar; on the right the holes show the real wall's bricks and mortar lines](../../docs/media/courtyard-whitewash.webp)
+
 The lantern, the crates and the wheel are models from Sketchfab, kept in `art/assets`. The
 script imports them, places them and puts them in the model with their own textures. They
 are used under [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/):
