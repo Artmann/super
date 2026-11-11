@@ -186,7 +186,7 @@ public sealed record LightBakeFile(
     /// <summary>Reads only the header, so a freshness check never inflates a page. Throws like <see cref="Read"/> for a wrong magic or version.</summary>
     public static BakeInputs ReadInputs(ReadOnlySpan<byte> bytes)
     {
-        using var stream = new MemoryStream(bytes.ToArray(), writable: false);
+        using var stream = new MemoryStream(bytes[..Math.Min(bytes.Length, HeaderSize)].ToArray(), writable: false);
         using var reader = new BinaryReader(stream);
         try
         {
@@ -296,18 +296,55 @@ public sealed record LightBakeFile(
             throw new InvalidDataException($"The .lightbake page format is wrong: found {format}, expected 0 to 3.");
         }
 
+        var pageFormat = (LightBakePageFormat)format;
+        if (width < 0 || height < 0)
+        {
+            throw new InvalidDataException(
+                $"The .lightbake page is damaged: it is {width} by {height} texels, and a size can't be negative.");
+        }
+
+        var expected = ExpectedSize(width, height, pageFormat);
+        if (rawLength != expected)
+        {
+            throw new InvalidDataException(
+                $"The .lightbake page is damaged: a {width} by {height} {pageFormat} page takes {expected} bytes " +
+                $"but the file says {rawLength}.");
+        }
+
         var compressed = reader.ReadBytes(compressedLength);
         var pixels = new byte[rawLength];
+        bool extra;
         try
         {
             using var brotli = new BrotliStream(new MemoryStream(compressed), CompressionMode.Decompress);
             brotli.ReadExactly(pixels);
+            extra = brotli.ReadByte() >= 0;
         }
         catch (Exception e) when (e is EndOfStreamException or InvalidDataException or IOException)
         {
             throw new InvalidDataException($"The .lightbake page's pixels can't be inflated: {e.Message}", e);
         }
 
-        return new LightBakePage(width, height, (LightBakePageFormat)format, pixels);
+        if (extra)
+        {
+            throw new InvalidDataException(
+                $"The .lightbake page is damaged: its pixels inflate to more than the {rawLength} bytes it says.");
+        }
+
+        return new LightBakePage(width, height, pageFormat, pixels);
+    }
+
+    // Bytes a page of this size and format takes: 8 or 4 a texel, or 16 a 4 by 4 block for the block formats.
+    private static long ExpectedSize(int width, int height, LightBakePageFormat format)
+    {
+        switch (format)
+        {
+            case LightBakePageFormat.Rgba16f:
+                return (long)width * height * 8;
+            case LightBakePageFormat.Rgba8:
+                return (long)width * height * 4;
+            default:
+                return (long)((width + 3) / 4) * ((height + 3) / 4) * 16;
+        }
     }
 }

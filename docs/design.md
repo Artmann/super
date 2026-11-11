@@ -3088,6 +3088,12 @@ A wrong magic or version throws `InvalidDataException` naming the part and givin
 and the value expected. Bytes that end early, or a count or length that is more than the bytes left,
 throw `InvalidDataException` too ("cut off"), so a damaged count can't ask for gigabytes.
 
+A page's raw length must equal what its size and format take: width x height x 8 bytes for
+`Rgba16f`, x 4 for `Rgba8`, and ceil(width / 4) x ceil(height / 4) x 16 for `Bc6h` and `Bc7`. A
+negative width or height, a raw length that differs, or pixels that inflate to more than the raw
+length throw `InvalidDataException`, and the buffer is only allocated after the length checks.
+`ReadInputs` copies only the 41 header bytes.
+
 ## Ray tracing
 
 Device setup is in `VulkanContext.CreateDevice` (see above): ray queries are on only where nothing is
