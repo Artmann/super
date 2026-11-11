@@ -639,39 +639,57 @@ public sealed class TextureData
         data[offset + 3] = value.W;
     }
 
+    // Each pixel on its own, in pieces of whole pixels on several threads, like decoding.
     private static void Renormalize(float[] level)
     {
-        for (int i = 0; i < level.Length; i += 4)
+        Parallel.For(0, (level.Length + ConvertChunk - 1) / ConvertChunk, chunk =>
         {
-            var normal = new Vector3(level[i], level[i + 1], level[i + 2]) * 2f - Vector3.One;
-            normal = normal.LengthSquared() > 1e-12f ? Vector3.Normalize(normal) : Vector3.UnitZ;
-            level[i] = normal.X * 0.5f + 0.5f;
-            level[i + 1] = normal.Y * 0.5f + 0.5f;
-            level[i + 2] = normal.Z * 0.5f + 0.5f;
-        }
+            int end = Math.Min(level.Length, (chunk + 1) * ConvertChunk);
+            for (int i = chunk * ConvertChunk; i < end; i += 4)
+            {
+                var normal = new Vector3(level[i], level[i + 1], level[i + 2]) * 2f - Vector3.One;
+                normal = normal.LengthSquared() > 1e-12f ? Vector3.Normalize(normal) : Vector3.UnitZ;
+                level[i] = normal.X * 0.5f + 0.5f;
+                level[i + 1] = normal.Y * 0.5f + 0.5f;
+                level[i + 2] = normal.Z * 0.5f + 0.5f;
+            }
+        });
     }
 
-    // Colour has to be filtered in linear light, or mips come out too dark.
+    // Values per piece when converting a level in parallel: whole pixels, and enough that a piece outweighs its scheduling.
+    private const int ConvertChunk = 1 << 16;
+
+    // Colour has to be filtered in linear light, or mips come out too dark. Each value is converted on its own, so
+    // converting in pieces on several threads gives the same floats.
     private static float[] Decode(byte[] data, TextureKind kind)
     {
         float[] colour = kind == TextureKind.Color ? LinearOfByte : UnitOfByte;
         var result = new float[data.Length];
-        for (int i = 0; i < data.Length; i++)
+        Parallel.For(0, (data.Length + ConvertChunk - 1) / ConvertChunk, chunk =>
         {
-            result[i] = i % 4 != 3 ? colour[data[i]] : UnitOfByte[data[i]];
-        }
+            int end = Math.Min(data.Length, (chunk + 1) * ConvertChunk);
+            for (int i = chunk * ConvertChunk; i < end; i++)
+            {
+                result[i] = i % 4 != 3 ? colour[data[i]] : UnitOfByte[data[i]];
+            }
+        });
 
         return result;
     }
 
+    // Like decoding, in pieces on several threads. The power in ToSrgb makes it the slow half of building mips.
     private static byte[] Encode(float[] data, TextureKind kind)
     {
         var result = new byte[data.Length];
-        for (int i = 0; i < data.Length; i++)
+        Parallel.For(0, (data.Length + ConvertChunk - 1) / ConvertChunk, chunk =>
         {
-            float value = kind == TextureKind.Color && i % 4 != 3 ? ToSrgb(data[i]) : data[i];
-            result[i] = (byte)MathF.Round(Math.Clamp(value, 0f, 1f) * 255f);
-        }
+            int end = Math.Min(data.Length, (chunk + 1) * ConvertChunk);
+            for (int i = chunk * ConvertChunk; i < end; i++)
+            {
+                float value = kind == TextureKind.Color && i % 4 != 3 ? ToSrgb(data[i]) : data[i];
+                result[i] = (byte)MathF.Round(Math.Clamp(value, 0f, 1f) * 255f);
+            }
+        });
 
         return result;
     }
