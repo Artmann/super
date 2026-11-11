@@ -2,10 +2,10 @@
 // shadow maps alike, so the shadows follow. Passes/Wind.cs works out the same, and WindTests check
 // the two agree. Needs common.glsl for the frame block.
 
-const float WIND_GUST_SPEED = 1.5;     // metres a second the gusts travel downwind
+const float WIND_GUST_SPEED = 0.15;    // metres a second the gusts travel downwind
 const float WIND_GUST_SIZE = 3.0;      // metres from one gust to the next
 const float WIND_FLUTTER = 0.02;       // metres a vertex 1 m up flutters either way
-const float WIND_FLUTTER_HZ = 4.0;
+const float WIND_FLUTTER_HZ = 0.4;
 const float WIND_FLUTTER_STRENGTH = 0.25; // the wind's strength at which leaves flutter fully
 const float WIND_TAU = 6.28318530718;
 const float WIND_FULL_HEIGHT = 1.0;    // metres above a part's foot past which a vertex sways no further

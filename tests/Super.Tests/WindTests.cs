@@ -91,9 +91,9 @@ public class WindTests
     [Fact]
     public void A_flutter_peak_adds_2_cm_up_and_downwind_at_the_tip()
     {
-        // At 1/16 s the 4 Hz flutter is a quarter of the way round, at its peak, and at the origin its phase is 0.
+        // At 0.625 s the 0.4 Hz flutter is a quarter of the way round, at its peak, and at the origin its phase is 0.
         // It moves along the diagonal between downwind and up, 0.02 / √2 = 0.0141421 m on each.
-        var sway = Wind.Sway(Vector3.Zero, 1f, East, 0.3f, gustiness: 0f, time: 1f / 16f);
+        var sway = Wind.Sway(Vector3.Zero, 1f, East, 0.3f, gustiness: 0f, time: 0.625f);
 
         Assert.Equal(0.3141421f, sway.X, Tolerance);
         Assert.Equal(0.0141421f, sway.Y, Tolerance);
@@ -103,12 +103,12 @@ public class WindTests
     [Fact]
     public void A_material_with_half_the_sway_leans_half_as_far_but_flutters_as_much()
     {
-        var full = Wind.Sway(Vector3.Zero, 1f, East, 0.3f, 0f, 1f / 16f, sway: 1f);
-        var half = Wind.Sway(Vector3.Zero, 1f, East, 0.3f, 0f, 1f / 16f, sway: 0.5f);
+        var full = Wind.Sway(Vector3.Zero, 1f, East, 0.3f, 0f, 0.625f, sway: 1f);
+        var half = Wind.Sway(Vector3.Zero, 1f, East, 0.3f, 0f, 0.625f, sway: 0.5f);
 
         Assert.Equal(0.15f, full.X - half.X, Tolerance);
         Assert.Equal(full.Y, half.Y, Tolerance);
-        Assert.Equal(Vector3.Zero, Wind.Sway(Vector3.Zero, 1f, East, 0.3f, 0f, 1f / 16f, sway: 0f));
+        Assert.Equal(Vector3.Zero, Wind.Sway(Vector3.Zero, 1f, East, 0.3f, 0f, 0.625f, sway: 0f));
     }
 
     [Fact]
@@ -134,17 +134,17 @@ public class WindTests
     }
 
     [Fact]
-    public void Gusts_travel_downwind_at_one_and_a_half_metres_a_second()
+    public void Gusts_travel_downwind_at_fifteen_centimetres_a_second()
     {
         var direction = Vector3.Normalize(new Vector3(0.6f, 0f, -0.3f));
         var here = new Vector3(1.1f, 0f, 2.6f);
 
-        // Two seconds later the gust that was here is 3 m downwind.
+        // Twenty seconds later the gust that was here is 3 m downwind.
         float now = Wind.GustFactor(here, direction, 0.5f, time: 1f);
-        float later = Wind.GustFactor(here + direction * 3f, direction, 0.5f, time: 3f);
+        float later = Wind.GustFactor(here + direction * 3f, direction, 0.5f, time: 21f);
 
         Assert.Equal(now, later, Tolerance);
-        Assert.NotEqual(now, Wind.GustFactor(here, direction, 0.5f, time: 3f), Tolerance);
+        Assert.NotEqual(now, Wind.GustFactor(here, direction, 0.5f, time: 21f), Tolerance);
     }
 
     [Fact]

@@ -11,7 +11,7 @@ namespace Rendition.Passes;
 internal static class Wind
 {
     /// <summary>How fast gusts travel downwind, in metres a second.</summary>
-    public const float GustSpeed = 1.5f;
+    public const float GustSpeed = 0.15f;
 
     /// <summary>How far apart, in metres, one gust is from the next: the size of the noise's cells.</summary>
     public const float GustSize = 3f;
@@ -20,7 +20,7 @@ internal static class Wind
     public const float Flutter = 0.02f;
 
     /// <summary>How many times a second leaves flutter.</summary>
-    public const float FlutterHz = 4f;
+    public const float FlutterHz = 0.4f;
 
     /// <summary>The wind's strength at which leaves flutter fully; in a lighter wind they flutter less, in a calm not at all.</summary>
     public const float FlutterStrength = 0.25f;

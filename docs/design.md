@@ -1824,8 +1824,8 @@ this frame's time; `windSwayPlacedAt` takes any time, and `gbuffer.vert` asks it
 `frame.previousTime` too, for where the vertex was last frame. The lean is
 `downwind * strength * share * h² * gust`, with `gust = 1 - 0.8g + 0.8g * noise`, where the noise
 is the same value noise as above but hashed with a PCG step so the C# and GLSL agree bit for
-bit, over 3 m cells of x and z that scroll downwind at 1.5 m/s. The flutter, `0.02 * h *
-min(strength / 0.25, 1) * sin(2π * 4 * time + dot(p, (3.1, 2.3, 2.7)))`, runs along the
+bit, over 3 m cells of x and z that scroll downwind at 0.15 m/s. The flutter, `0.02 * h *
+min(strength / 0.25, 1) * sin(2π * 0.4 * time + dot(p, (3.1, 2.3, 2.7)))`, runs along the
 diagonal between downwind and up, so a leaf bobs as well as sways, and doesn't scale with the
 share. The sway is worked out from the world position before it moves, so it doesn't feed back
 into itself, and the normal isn't bent: at these leans the lighting can't tell. `Wind.cs` does

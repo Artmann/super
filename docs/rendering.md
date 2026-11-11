@@ -741,9 +741,9 @@ tree's crown, which would otherwise lean as far as a blade of grass of its heigh
 moves downwind by the strength times its share times the square of its height above the
 lowest point of its part of the model, so the foot stays put and the tip bends most. The
 height counts up to 1 m, so a tall plant leans no further than a blade 1 m tall. Gusts swing
-the lean: noise 3 m across drifts downwind at 1.5 m/s, and at the default gustiness a lull
+the lean: noise 3 m across drifts downwind at 15 cm/s, and at the default gustiness a lull
 leans the grass 60% as far as a gust. On top, leaves flutter 2 cm either way at their tips,
-four times a second, out of step from one place to the next. The flutter is the same at any
+once every two and a half seconds, out of step from one place to the next. The flutter is the same at any
 share of the lean, and comes in fully from a strength of 0.25.
 
 The sway happens as the mesh is drawn, so its shadows sway with it, and a part that sways
