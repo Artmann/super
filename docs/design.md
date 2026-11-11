@@ -2338,8 +2338,8 @@ shares; the tests run one at a time and carry `[Trait("Speed", "Slow")]` and
 `[Trait("Needs", "GPU")]`. CI runs on machines without a GPU, so it filters them out with
 `--filter "Needs!=GPU"`; run them locally before merging rendering work. A test that needs tracing fails with a message saying so on a GPU that
 can't trace, rather than passing without checking anything. `GpuFixture.Matte` is a plain opaque
-material for tests to draw or trace with, and `RenderOneFrame` renders one empty frame, which also
-runs every queued upload. A test can make a fixture of its own, such as one whose device can't
+material for tests to draw or trace with, and `RenderOneFrame` renders one frame, empty or of the draws given,
+which also runs every queued upload. A test can make a fixture of its own, such as one whose device can't
 trace; GLFW is only terminated when the last fixture goes, since that closes every window.
 
 ## Ray tracing
@@ -2383,6 +2383,42 @@ Each part's opaque flag is baked into the structure when it is built. So `Update
 and the slot may come back as a material with a different flag. `ForgetMaterial` drops every
 structure with a part in that material and releases it the same way as `Forget`; the next trace
 rebuilds it.
+
+### What rays can hit, and the top-level structure
+
+`TraceScene.Collect(draws, flagsOf)` turns a frame's draws into `TraceInstance`s: one per distinct
+mesh and transform, in the order they are first drawn, with that placement's parts in draw order.
+It leaves out ghosts (previews, not things), skinned draws and swimming draws (their structure is
+the bind pose, which they move away from), and draws with no indices. An instance's `TraceFlags`
+are the union of its parts': `Cutout` when a material has cut-outs, `SeeThrough` when it is
+`Transparent`.
+
+`TraceScene.ToVulkan` turns a transform into Vulkan's 3×4. System.Numerics multiplies row vectors
+with the translation in `M41..M43`, while Vulkan's matrix is row-major and acts on column vectors,
+so it is the transpose: row r of the result is column r of the transform.
+
+`TopLevel(cmd, instances)` builds each instance's bottom-level structure if it isn't built yet, then
+records a build of the whole top-level structure, rebuilt from scratch every call with
+`PreferFastTrace` and no refitting. `RayTracing.Pack` writes the instances: an instance's custom
+index is where its first part sits in the geometry table, which lists every instance's parts in
+order, so a hit's entry is `gl_InstanceCustomIndexEXT + gl_GeometryIndexEXT`. The mask is `0xFF`,
+with bit `0x02` clear on see-through instances so later features can skip them with a cull mask.
+The custom index has 24 bits, so a frame can trace at most 16,777,216 parts; more throws.
+
+Each call takes a top-level structure, its host-visible instance buffer and its geometry table from
+a pool, sized for a power of two of instances, at least 16. They go back to the pool through the
+destroy slot of the frame being recorded, so a frame in flight never has its structure or instances
+rewritten, however many builds a frame makes. When no free one is big enough, the free ones are
+freed and a bigger one is made. The build uses the shared scratch buffer and is followed by the
+same barrier as a bottom-level build.
+
+The build has to come after the frame's uploads, which `BottomLevel` insists on. Inside `Render` it
+does, so a mesh made this frame is traced this frame; nothing is skipped. Nothing may destroy a
+material or change whether it is opaque to rays between a `TopLevel` call and the frame's submit,
+because `ForgetMaterial` frees into the slot of the frame submitted before. Nothing in `Render` does.
+
+The renderer builds a top-level structure only when something traces. For now that is the internal
+`Renderer.TraceEveryFrame`, which only tests turn on, so a normal frame costs nothing extra.
 
 ## Known simplifications to revisit
 

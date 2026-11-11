@@ -424,7 +424,7 @@ public sealed unsafe class Renderer : IDisposable
         {
             _tracing = new RayTracing(_context, _resources, MeshFor, _uploads.IsPending,
                 releaseAfterSubmitted: structure => Destroying().Others.Add(structure),
-                releaseAfterRecorded: scratch => _destroyed[_frameIndex].Others.Add(scratch));
+                releaseAfterRecorded: used => _destroyed[_frameIndex].Others.Add(used));
         }
 
         _shadowResolution = ShadowPass.CheckResolution(options.ShadowResolution);
@@ -516,6 +516,15 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>The acceleration structures rays are traced through, or null when the GPU can't trace.</summary>
     internal RayTracing? Tracing => _tracing;
+
+    /// <summary>
+    /// Builds the top-level structure from each frame's draws, which costs nothing until something asks. Until a view
+    /// traces (the trace debug view), only tests turn it on. Does nothing where the device can't trace.
+    /// </summary>
+    internal bool TraceEveryFrame { get; set; }
+
+    private TraceFlags TraceFlagsOf(MaterialHandle material) =>
+        RayTracing.TraceFlagsFor(_resources.HasCutouts(material), _resources.GetFlags(material));
 
     private MeshHandle AddMesh(Mesh mesh)
     {
@@ -1457,6 +1466,13 @@ public sealed unsafe class Renderer : IDisposable
         };
         _api.BeginCommandBuffer(cmd, &beginInfo).Check();
         _uploads.Record(cmd, _destroyed[_frameIndex].Others);
+        if (TraceEveryFrame && _tracing is not null)
+        {
+            // After the uploads, so a mesh made this frame is traced this frame. From here until the submit below,
+            // nothing may destroy or change a material: see RayTracing.TopLevel.
+            _tracing.TopLevel(cmd, TraceScene.Collect(draws, TraceFlagsOf));
+        }
+
         int overlayQuads = _overlayAtlas is null ? 0 : _overlayPass.Upload(_frameIndex, view.Overlay);
         UploadParticles(view);
 

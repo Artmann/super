@@ -83,8 +83,11 @@ public sealed unsafe class GpuFixture : IDisposable
         }
     }
 
-    /// <summary>Renders one frame of nothing, which also runs every copy waiting to ride a frame, such as a new mesh's.</summary>
-    public void RenderOneFrame()
+    /// <summary>
+    /// Renders one frame of the draws given, or of nothing, which also runs every copy waiting to ride a frame, such as
+    /// a new mesh's.
+    /// </summary>
+    public void RenderOneFrame(DrawItem[]? draws = null)
     {
         var view = new FrameView
         {
@@ -94,7 +97,7 @@ public sealed unsafe class GpuFixture : IDisposable
             Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 4f, _width / (float)_height, 0.1f),
             CameraPosition = new Vector3(0, 0, 3),
         };
-        Renderer.Render(view, []);
+        Renderer.Render(view, draws ?? []);
     }
 
     public void Dispose()

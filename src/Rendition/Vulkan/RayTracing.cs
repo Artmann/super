@@ -5,6 +5,13 @@ using Silk.NET.Vulkan.Extensions.KHR;
 namespace Rendition.Vulkan;
 
 /// <summary>
+/// A built top-level structure: its handle, the address a shader traces it by, and the geometry table its instances
+/// index, one entry per part. Valid only in the command buffer it was recorded into; see <see cref="RayTracing.TopLevel"/>.
+/// </summary>
+internal readonly record struct TopLevelStructure(
+    AccelerationStructureKHR Handle, ulong Address, IReadOnlyList<TraceGeometry> Geometries);
+
+/// <summary>
 /// The acceleration structures rays are traced through. A mesh's bottom-level structure is built the first time
 /// something traces it, into whatever command buffer asks, and kept until the mesh is destroyed. Exists only where
 /// the device can trace. See "Ray tracing" in docs/design.md.
@@ -28,6 +35,21 @@ internal sealed unsafe class RayTracing : IDisposable
     // build needs more.
     private GpuBuffer? _scratch;
 
+    // Top-level structures and their instance buffers that no recorded work reads any more, ready to be built into
+    // again. One goes out per TopLevel call and comes back once the work recorded with it is done, so a frame still in
+    // flight never sees its structure or instances overwritten, however many builds a frame makes.
+    private readonly List<TopLevelTarget> _freeTopLevels = [];
+    private int _topLevelBuilds;
+    private int _topLevelStructuresMade;
+    private int _bottomLevelsReleased;
+    private bool _disposed;
+
+    /// <summary>A see-through instance has this bit of its mask clear, so a ray can skip it with a cull mask.</summary>
+    public const byte SeeThroughMaskBit = 0x02;
+
+    /// <summary>The largest custom index an instance can have, and so the last geometry it can start at: 24 bits.</summary>
+    private const uint MaxCustomIndex = (1u << 24) - 1;
+
     /// <param name="meshes">The live mesh behind a handle.</param>
     /// <param name="uploadPending">Whether a buffer's bytes are still waiting in the upload queue.</param>
     /// <param name="releaseAfterSubmitted">
@@ -35,8 +57,8 @@ internal sealed unsafe class RayTracing : IDisposable
     /// </param>
     /// <param name="releaseAfterRecorded">
     /// Frees something once the work recorded so far, including the command buffer being recorded now, is done with
-    /// it, for a scratch buffer that has been outgrown. That assumes the command buffer is the frame being recorded or
-    /// is waited on before the next frame.
+    /// it, for a scratch buffer that has been outgrown and for a top-level structure going back to the pool. That
+    /// assumes the command buffer is the frame being recorded or is waited on before the next frame.
     /// </param>
     public RayTracing(
         VulkanContext context,
@@ -73,6 +95,181 @@ internal sealed unsafe class RayTracing : IDisposable
 
     /// <summary>How many bottom-level structures are live. For tests.</summary>
     public int BottomLevelCount => _bottomLevelCount;
+
+    /// <summary>How many bottom-level structures have really been freed, not just forgotten. For tests.</summary>
+    public int BottomLevelsReleased => _bottomLevelsReleased;
+
+    /// <summary>How many top-level structures have been built. For tests.</summary>
+    public int TopLevelBuilds => _topLevelBuilds;
+
+    /// <summary>How many top-level structures have been made to build into, rather than reused. For tests.</summary>
+    public int TopLevelStructuresMade => _topLevelStructuresMade;
+
+    /// <summary>
+    /// Records a build of the top-level structure over these instances into <paramref name="cmd"/>, building any
+    /// bottom-level structure they need first, followed by a barrier for later builds. Rebuilt whole every call, for
+    /// fast tracing; refitting is left until something needs it.
+    /// <para>
+    /// The structure, its instances and its geometry table belong to the work recorded so far and are reused once that
+    /// is done, so read them only in <paramref name="cmd"/>. That assumes <paramref name="cmd"/> is the frame being
+    /// recorded, after its uploads (which <see cref="BottomLevel"/> insists on), or is waited on before the next frame.
+    /// </para>
+    /// <para>
+    /// Destroying or changing the opacity of a material frees its bottom-level structures into the slot of the frame
+    /// last submitted (<see cref="ForgetMaterial"/>), which doesn't cover the frame being recorded. So nothing may
+    /// change a material between this call and the frame's submit. Nothing in <c>Renderer.Render</c> does today.
+    /// </para>
+    /// </summary>
+    public TopLevelStructure TopLevel(CommandBuffer cmd, IReadOnlyList<TraceInstance> instances)
+    {
+        var bottomLevels = new ulong[instances.Count];
+        for (int i = 0; i < instances.Count; i++)
+        {
+            bottomLevels[i] = BottomLevel(cmd, instances[i].Mesh, instances[i].Parts);
+        }
+
+        var target = Rent(instances.Count);
+        var packed = new Span<AccelerationStructureInstanceKHR>(target.Instances.Mapped, instances.Count);
+        target.Geometries.Clear();
+        try
+        {
+            Pack(instances, bottomLevels, packed, target.Geometries);
+        }
+        catch
+        {
+            // Nothing has been recorded with it, so it can go straight back.
+            Return(target);
+            throw;
+        }
+
+        var geometry = InstancesGeometry(target.Instances.Address);
+        var range = new AccelerationStructureBuildRangeInfoKHR { PrimitiveCount = (uint)instances.Count };
+        var rangePointer = &range;
+        var info = new AccelerationStructureBuildGeometryInfoKHR
+        {
+            SType = StructureType.AccelerationStructureBuildGeometryInfoKhr,
+            Type = AccelerationStructureTypeKHR.TopLevelKhr,
+            Flags = BuildAccelerationStructureFlagsKHR.PreferFastTraceBitKhr,
+            Mode = BuildAccelerationStructureModeKHR.BuildKhr,
+            GeometryCount = 1,
+            PGeometries = &geometry,
+            DstAccelerationStructure = target.Handle,
+            ScratchData = new DeviceOrHostAddressKHR { DeviceAddress = Scratch(target.ScratchSize) },
+        };
+        _api.CmdBuildAccelerationStructures(cmd, 1, &info, &rangePointer);
+        WaitForBuild(cmd);
+
+        _releaseAfterRecorded(new Recycle(this, target));
+        _topLevelBuilds++;
+        return new TopLevelStructure(target.Handle, target.Address, target.Geometries);
+    }
+
+    /// <summary>
+    /// Fills in one Vulkan instance per trace instance, and appends their parts to the geometry table they index. Each
+    /// instance's custom index is where its first part sits in the table, so a hit's entry is its custom index plus its
+    /// geometry index.
+    /// </summary>
+    public static void Pack(
+        IReadOnlyList<TraceInstance> instances,
+        ReadOnlySpan<ulong> bottomLevels,
+        Span<AccelerationStructureInstanceKHR> into,
+        List<TraceGeometry> geometries)
+    {
+        uint first = (uint)geometries.Count;
+        for (int i = 0; i < instances.Count; i++)
+        {
+            var instance = instances[i];
+            if (first + (ulong)instance.Parts.Length > MaxCustomIndex + 1ul)
+            {
+                throw new InvalidOperationException(
+                    $"The scene has more than {MaxCustomIndex + 1} traced parts, which is more than an instance's custom index can count.");
+            }
+
+            into[i] = new AccelerationStructureInstanceKHR
+            {
+                Transform = TraceScene.ToVulkan(instance.Transform),
+                InstanceCustomIndex = first,
+                Mask = (instance.Flags & TraceFlags.SeeThrough) != 0 ? 0xFFu & ~(uint)SeeThroughMaskBit : 0xFFu,
+                InstanceShaderBindingTableRecordOffset = 0,
+                AccelerationStructureReference = bottomLevels[i],
+            };
+            foreach (var part in instance.Parts)
+            {
+                geometries.Add(new TraceGeometry(instance.Mesh, part));
+            }
+
+            first += (uint)instance.Parts.Length;
+        }
+    }
+
+    /// <summary>How rays treat a material: whether it has holes to check, and whether it's see-through.</summary>
+    public static TraceFlags TraceFlagsFor(bool cutouts, MaterialFlags flags) =>
+        (cutouts ? TraceFlags.Cutout : TraceFlags.None)
+        | ((flags & MaterialFlags.Transparent) != 0 ? TraceFlags.SeeThrough : TraceFlags.None);
+
+    private static AccelerationStructureGeometryKHR InstancesGeometry(ulong instances) => new()
+    {
+        SType = StructureType.AccelerationStructureGeometryKhr,
+        GeometryType = GeometryTypeKHR.InstancesKhr,
+        Geometry = new AccelerationStructureGeometryDataKHR
+        {
+            Instances = new AccelerationStructureGeometryInstancesDataKHR
+            {
+                SType = StructureType.AccelerationStructureGeometryInstancesDataKhr,
+                ArrayOfPointers = false,
+                Data = new DeviceOrHostAddressConstKHR { DeviceAddress = instances },
+            },
+        },
+    };
+
+    /// <summary>A free top-level target with room for this many instances, made when none is big enough.</summary>
+    private TopLevelTarget Rent(int count)
+    {
+        for (int i = 0; i < _freeTopLevels.Count; i++)
+        {
+            if (_freeTopLevels[i].Capacity >= count)
+            {
+                var found = _freeTopLevels[i];
+                _freeTopLevels.RemoveAt(i);
+                return found;
+            }
+        }
+
+        // Every free one is too small and nothing reads them any more, so they go now.
+        foreach (var small in _freeTopLevels)
+        {
+            small.Dispose();
+        }
+
+        _freeTopLevels.Clear();
+        int capacity = (int)Math.Max(16u, System.Numerics.BitOperations.RoundUpToPowerOf2((uint)count));
+        var geometry = InstancesGeometry(0);
+        var info = new AccelerationStructureBuildGeometryInfoKHR
+        {
+            SType = StructureType.AccelerationStructureBuildGeometryInfoKhr,
+            Type = AccelerationStructureTypeKHR.TopLevelKhr,
+            Flags = BuildAccelerationStructureFlagsKHR.PreferFastTraceBitKhr,
+            Mode = BuildAccelerationStructureModeKHR.BuildKhr,
+            GeometryCount = 1,
+            PGeometries = &geometry,
+        };
+        uint maxInstances = (uint)capacity;
+        var sizes = new AccelerationStructureBuildSizesInfoKHR { SType = StructureType.AccelerationStructureBuildSizesInfoKhr };
+        _api.GetAccelerationStructureBuildSizes(_context.Device, AccelerationStructureBuildTypeKHR.DeviceKhr, &info, &maxInstances, &sizes);
+        _topLevelStructuresMade++;
+        return new TopLevelTarget(_context, _api, capacity, sizes.AccelerationStructureSize, sizes.BuildScratchSize);
+    }
+
+    private void Return(TopLevelTarget target)
+    {
+        if (_disposed)
+        {
+            target.Dispose();
+            return;
+        }
+
+        _freeTopLevels.Add(target);
+    }
 
     /// <summary>
     /// The device address of the bottom-level structure for these parts of the mesh. The first call for a mesh and
@@ -256,7 +453,7 @@ internal sealed unsafe class RayTracing : IDisposable
             _api.GetAccelerationStructureBuildSizes(
                 _context.Device, AccelerationStructureBuildTypeKHR.DeviceKhr, &info, triangleCount, &sizes);
 
-            var structure = new BottomLevelStructure(_context, _api, parts.ToArray(), sizes.AccelerationStructureSize);
+            var structure = new BottomLevelStructure(this, parts.ToArray(), sizes.AccelerationStructureSize);
             info.DstAccelerationStructure = structure.Handle;
             info.ScratchData = new DeviceOrHostAddressKHR { DeviceAddress = Scratch(sizes.BuildScratchSize) };
             _api.CmdBuildAccelerationStructures(cmd, 1, &info, &range);
@@ -323,13 +520,91 @@ internal sealed unsafe class RayTracing : IDisposable
 
         _bottomLevels.Clear();
         _bottomLevelCount = 0;
+        foreach (var target in _freeTopLevels)
+        {
+            target.Dispose();
+        }
+
+        _freeTopLevels.Clear();
+        _disposed = true;
         _scratch?.Dispose();
         _scratch = null;
+    }
+
+    /// <summary>Hands a top-level target back to the pool once the work recorded with it is done.</summary>
+    private sealed class Recycle(RayTracing owner, TopLevelTarget target) : IDisposable
+    {
+        public void Dispose() => owner.Return(target);
+    }
+
+    /// <summary>
+    /// A top-level structure sized for up to <see cref="Capacity"/> instances, the host-visible buffer its instances are
+    /// written into, and the geometry table those instances index.
+    /// </summary>
+    private sealed class TopLevelTarget : IDisposable
+    {
+        private readonly VulkanContext _context;
+        private readonly KhrAccelerationStructure _api;
+        private readonly GpuBuffer _buffer;
+
+        public readonly int Capacity;
+        public readonly ulong ScratchSize;
+        public readonly GpuBuffer Instances;
+        public readonly List<TraceGeometry> Geometries = [];
+        public readonly AccelerationStructureKHR Handle;
+        public readonly ulong Address;
+
+        public TopLevelTarget(VulkanContext context, KhrAccelerationStructure api, int capacity, ulong size, ulong scratchSize)
+        {
+            _context = context;
+            _api = api;
+            Capacity = capacity;
+            ScratchSize = scratchSize;
+            Instances = GpuBuffer.CreateHostVisible(
+                context, (ulong)(capacity * sizeof(AccelerationStructureInstanceKHR)), GpuBuffer.TraceInput(context));
+            if (Instances.Address % 16 != 0)
+            {
+                throw new InvalidOperationException($"Instance data must be 16-byte aligned, but sits at {Instances.Address:X}.");
+            }
+
+            _buffer = new GpuBuffer(context, size,
+                BufferUsageFlags.AccelerationStructureStorageBitKhr | BufferUsageFlags.ShaderDeviceAddressBit,
+                MemoryPropertyFlags.DeviceLocalBit);
+            (Handle, Address) = CreateStructure(context, api, _buffer, size, AccelerationStructureTypeKHR.TopLevelKhr);
+        }
+
+        public void Dispose()
+        {
+            _api.DestroyAccelerationStructure(_context.Device, Handle, null);
+            _buffer.Dispose();
+            Instances.Dispose();
+        }
+    }
+
+    private static (AccelerationStructureKHR Handle, ulong Address) CreateStructure(
+        VulkanContext context, KhrAccelerationStructure api, GpuBuffer buffer, ulong size, AccelerationStructureTypeKHR type)
+    {
+        var createInfo = new AccelerationStructureCreateInfoKHR
+        {
+            SType = StructureType.AccelerationStructureCreateInfoKhr,
+            Buffer = buffer.Handle,
+            Size = size,
+            Type = type,
+        };
+        api.CreateAccelerationStructure(context.Device, &createInfo, null, out var handle).Check();
+
+        var addressInfo = new AccelerationStructureDeviceAddressInfoKHR
+        {
+            SType = StructureType.AccelerationStructureDeviceAddressInfoKhr,
+            AccelerationStructure = handle,
+        };
+        return (handle, api.GetAccelerationStructureDeviceAddress(context.Device, &addressInfo));
     }
 
     /// <summary>One built bottom-level structure and the buffer it lives in.</summary>
     private sealed class BottomLevelStructure : IDisposable
     {
+        private readonly RayTracing _owner;
         private readonly VulkanContext _context;
         private readonly KhrAccelerationStructure _api;
         private readonly GpuBuffer _buffer;
@@ -338,36 +613,23 @@ internal sealed unsafe class RayTracing : IDisposable
         public readonly AccelerationStructureKHR Handle;
         public readonly ulong Address;
 
-        public BottomLevelStructure(VulkanContext context, KhrAccelerationStructure api, TracePart[] parts, ulong size)
+        public BottomLevelStructure(RayTracing owner, TracePart[] parts, ulong size)
         {
-            _context = context;
-            _api = api;
+            _owner = owner;
+            _context = owner._context;
+            _api = owner._api;
             Parts = parts;
-            _buffer = new GpuBuffer(context, size,
+            _buffer = new GpuBuffer(_context, size,
                 BufferUsageFlags.AccelerationStructureStorageBitKhr | BufferUsageFlags.ShaderDeviceAddressBit,
                 MemoryPropertyFlags.DeviceLocalBit);
-
-            var createInfo = new AccelerationStructureCreateInfoKHR
-            {
-                SType = StructureType.AccelerationStructureCreateInfoKhr,
-                Buffer = _buffer.Handle,
-                Size = size,
-                Type = AccelerationStructureTypeKHR.BottomLevelKhr,
-            };
-            api.CreateAccelerationStructure(context.Device, &createInfo, null, out Handle).Check();
-
-            var addressInfo = new AccelerationStructureDeviceAddressInfoKHR
-            {
-                SType = StructureType.AccelerationStructureDeviceAddressInfoKhr,
-                AccelerationStructure = Handle,
-            };
-            Address = api.GetAccelerationStructureDeviceAddress(context.Device, &addressInfo);
+            (Handle, Address) = CreateStructure(_context, _api, _buffer, size, AccelerationStructureTypeKHR.BottomLevelKhr);
         }
 
         public void Dispose()
         {
             _api.DestroyAccelerationStructure(_context.Device, Handle, null);
             _buffer.Dispose();
+            _owner._bottomLevelsReleased++;
         }
     }
 }
