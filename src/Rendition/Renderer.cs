@@ -852,6 +852,10 @@ public sealed unsafe class Renderer : IDisposable
 
         // The picture follows the view's switches, which Render hasn't applied yet this frame.
         _off = view.Off & RenderEffects.All;
+
+        // The probe's targets have no history, so RecordScene readies an empty one each face.
+        // The screen's history is kept, and so is the flag, which the finally puts back.
+        _historyReady = false;
         try
         {
             var faceView = view;
@@ -987,6 +991,7 @@ public sealed unsafe class Renderer : IDisposable
             bool heldReady = _heldReady;
             bool ldrReady = _ldrReady;
             var screenOff = _off;
+            bool historyReady = _historyReady;
             _lightProbeTargets ??= new GBuffer(_context, new Extent2D(ProbeVolume.FaceSize, ProbeVolume.FaceSize));
             _gBuffer = _lightProbeTargets;
             WriteTargetDescriptors();
@@ -994,21 +999,31 @@ public sealed unsafe class Renderer : IDisposable
             // A probe keeps diffuse light only, and its faces are too small for screen-space occlusion.
             _off |= RenderEffects.AmbientOcclusion | RenderEffects.Reflections;
             _capturingLightProbes = true;
-            var volumeView = view;
-            volumeView.Shadows = CaptureShadows(view.Shadows, settings.Min, settings.Max);
-            for (int i = 0; i < count; i++)
+
+            // The capture's targets have no history, so RecordScene readies an empty one each face.
+            _historyReady = false;
+            try
             {
-                int probe = first + i;
-                CaptureFaces(volumeView, ProbeGrid.Position(settings, probe), draws, draws, _lightProbes.Capture, probe, settings.Spacing);
+                var volumeView = view;
+                volumeView.Shadows = CaptureShadows(view.Shadows, settings.Min, settings.Max);
+                for (int i = 0; i < count; i++)
+                {
+                    int probe = first + i;
+                    CaptureFaces(volumeView, ProbeGrid.Position(settings, probe), draws, draws, _lightProbes.Capture, probe, settings.Spacing);
+                }
+            }
+            finally
+            {
+                _capturingLightProbes = false;
+                _keepShadowMaps = false;
+                _off = screenOff;
+                _gBuffer = screenTargets;
+                WriteTargetDescriptors();
+                _heldReady = heldReady;
+                _ldrReady = ldrReady;
+                _historyReady = historyReady;
             }
 
-            _capturingLightProbes = false;
-            _keepShadowMaps = false;
-            _off = screenOff;
-            _gBuffer = screenTargets;
-            WriteTargetDescriptors();
-            _heldReady = heldReady;
-            _ldrReady = ldrReady;
             schedule.Captured(count);
         }
 
@@ -1922,9 +1937,9 @@ public sealed unsafe class Renderer : IDisposable
         var instances = _frames[_frameIndex].Instances;
         var extent = targets.Extent;
 
-        // The lighting pass binds history even before there is any. Light probe captures
-        // have their own small targets, whose history is never drawn.
-        if (!_historyReady || _capturingLightProbes)
+        // The lighting pass binds history even before there is any. Probe captures have their
+        // own small targets, whose history is never drawn, so they clear the flag while they run.
+        if (!_historyReady)
         {
             _api.Transition(cmd, targets.History.Image, ImageAspectFlags.ColorBit,
                 ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
