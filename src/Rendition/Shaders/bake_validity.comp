@@ -1,0 +1,84 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#define TRACE_GEOMETRY_SET 0
+#define TRACE_GEOMETRY_BINDING 1
+#define TRACE_RESOURCE_SET 1
+#include "trace.glsl"
+
+// The baker's texel setup, last step: marks a texel invalid when it lies inside a wall, which shows as short rays from
+// it reaching the backs of surfaces. A texel nothing covers is invalid too. See "Texel setup" in docs/design.md and
+// Baking/Baker.cs.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform accelerationStructureEXT scene;
+layout(set = 0, binding = 2, rgba32f) uniform readonly image2D positions;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D geometricNormals;
+layout(set = 0, binding = 4, r8) uniform writeonly image2D validity;
+
+// Must match ProbeConstants in Baking/Baker.cs.
+layout(push_constant) uniform Probe {
+    uint rays;
+    float rayLength;
+    float invalidShare; // A texel is invalid when more than this share of its rays hit backs.
+    float lift;         // How far along the normal the rays start, so they don't hit the texel's own surface.
+} probe;
+
+const float GOLDEN_ANGLE = 2.39996323;
+const float TWO_PI = 6.28318531;
+
+// A number from 0 to 1 for each texel, which turns its rays so neighbours don't all miss the same gap.
+float texelTurn(uvec2 texel) {
+    uint h = texel.x * 1973u + texel.y * 9277u + 26699u;
+    h = (h ^ (h >> 16)) * 0x7feb352du;
+    h = (h ^ (h >> 15)) * 0x846ca68bu;
+    h ^= h >> 16;
+    return float(h) / 4294967296.0;
+}
+
+// Two directions across the surface, from the normal alone (Duff et al. 2017).
+void across(vec3 n, out vec3 t, out vec3 b) {
+    float s = n.z >= 0.0 ? 1.0 : -1.0;
+    float a = -1.0 / (s + n.z);
+    float c = n.x * n.y * a;
+    t = vec3(1.0 + s * n.x * n.x * a, s * c, -s * n.x);
+    b = vec3(c, s + n.y * n.y * a, -n.y);
+}
+
+void main() {
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(validity);
+    if (any(greaterThanEqual(texel, size))) {
+        return;
+    }
+
+    vec4 position = imageLoad(positions, texel);
+    if (position.w <= 0.0) {
+        imageStore(validity, texel, vec4(0.0));
+        return;
+    }
+
+    vec3 n = normalize(imageLoad(geometricNormals, texel).xyz);
+    vec3 t, b;
+    across(n, t, b);
+    vec3 origin = position.xyz + n * probe.lift;
+    float turn = texelTurn(uvec2(texel)) * TWO_PI;
+
+    // Spread evenly over the hemisphere by a Fibonacci spiral, even in the cosine of the angle from the normal.
+    uint backs = 0u;
+    for (uint i = 0u; i < probe.rays; i++) {
+        float cosine = (float(i) + 0.5) / float(probe.rays);
+        float sine = sqrt(max(0.0, 1.0 - cosine * cosine));
+        float angle = float(i) * GOLDEN_ANGLE + turn;
+        vec3 direction = (t * cos(angle) + b * sin(angle)) * sine + n * cosine;
+
+        TraceHit hit;
+        if (traceClosest(scene, origin, direction, probe.rayLength, hit) && !hit.frontFace
+            && (traceMaterials[nonuniformEXT(hit.material)].flags & MATERIAL_TWO_SIDED) == 0u) {
+            backs++;
+        }
+    }
+
+    bool valid = float(backs) <= probe.invalidShare * float(probe.rays);
+    imageStore(validity, texel, vec4(valid ? 1.0 : 0.0));
+}

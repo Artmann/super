@@ -45,6 +45,12 @@ internal sealed unsafe class VulkanContext : IDisposable
     /// <summary>Why <see cref="CanTrace"/> is false, such as "no VK_KHR_ray_query", or null when it is true.</summary>
     public string? NoTraceReason { get; private set; }
 
+    /// <summary>
+    /// Whether the device was made with VK_EXT_conservative_rasterization, so a pipeline can count a pixel as covered
+    /// when any part of a triangle touches it. The baker's texel setup uses it; see "Texel setup" in docs/design.md.
+    /// </summary>
+    public bool ConservativeRasterization { get; private set; }
+
     /// <summary>Owns every byte of device memory. Set once the device exists.</summary>
     public readonly GpuMemory Memory;
 
@@ -373,6 +379,13 @@ internal sealed unsafe class VulkanContext : IDisposable
             extensions.Add(MemoryRequirements2Extension);
         }
 
+        // It has no features to turn on, only a pipeline state, so nothing that doesn't ask for it changes.
+        ConservativeRasterization = deviceExtensions.Contains(ConservativeRasterizationExtension);
+        if (ConservativeRasterization)
+        {
+            extensions.Add(ConservativeRasterizationExtension);
+        }
+
         // Ray queries let a shader ask what a ray hits. Without all of them the device is made exactly as before,
         // and nothing that asks CanTrace traces.
         NoTraceReason = RayTracingSupport.Missing(
@@ -411,6 +424,7 @@ internal sealed unsafe class VulkanContext : IDisposable
     }
 
     private const string MemoryRequirements2Extension = "VK_KHR_get_memory_requirements2";
+    private const string ConservativeRasterizationExtension = "VK_EXT_conservative_rasterization";
 
     private HashSet<string> DeviceExtensionNames()
     {

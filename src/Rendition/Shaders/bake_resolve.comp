@@ -1,0 +1,48 @@
+#version 460
+
+// The baker's texel setup without conservative rasterization: one multisampled tile of a lightmap page to the page
+// itself. Each texel takes its first covered sample. The fragment shader runs once a texel and gives every sample it
+// covers the same centroid value, so any covered sample holds a point on the triangle; with the standard sample
+// positions, lower samples lie nearer the texel's centre, so the first is the triangle nearest it. See "Texel setup"
+// in docs/design.md and Baking/Baker.cs.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform sampler2DMS tilePositions;
+layout(set = 0, binding = 1) uniform sampler2DMS tileGeometricNormals;
+layout(set = 0, binding = 2) uniform sampler2DMS tileShadingNormals;
+layout(set = 0, binding = 3, rgba32f) uniform writeonly image2D positions;
+layout(set = 0, binding = 4, rgba16f) uniform writeonly image2D geometricNormals;
+layout(set = 0, binding = 5, rgba16f) uniform writeonly image2D shadingNormals;
+
+// Must match ResolveConstants in Baking/Baker.cs.
+layout(push_constant) uniform Tile {
+    ivec2 origin; // The tile's corner on the page, in texels.
+    int samples;
+} tile;
+
+void main() {
+    ivec2 local = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = textureSize(tilePositions);
+    ivec2 texel = tile.origin + local;
+    if (any(greaterThanEqual(local, size)) || any(greaterThanEqual(texel, imageSize(positions)))) {
+        return;
+    }
+
+    vec4 position = vec4(0.0);
+    vec4 geometric = vec4(0.0);
+    vec4 shading = vec4(0.0);
+    for (int s = 0; s < tile.samples; s++) {
+        vec4 candidate = texelFetch(tilePositions, local, s);
+        if (candidate.w > 0.0) {
+            position = candidate;
+            geometric = texelFetch(tileGeometricNormals, local, s);
+            shading = texelFetch(tileShadingNormals, local, s);
+            break;
+        }
+    }
+
+    imageStore(positions, texel, position);
+    imageStore(geometricNormals, texel, geometric);
+    imageStore(shadingNormals, texel, shading);
+}

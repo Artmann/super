@@ -1885,6 +1885,52 @@ assumes a smaller prefix fits whenever a bigger one does, which the skyline most
 it doesn't, a page is left a little emptier. Nothing fills one page's gaps with smaller
 squares from later ones.
 
+## Texel setup
+
+`Baker` (`src/Rendition/Baking/Baker.cs`) is the GPU baker, and texel setup is its first
+stage. `SetUpTexels(cmd, layout, draws)` records it: for every texel of every page in a
+`LightmapLayout`, it finds the world position, geometric normal and shading normal of the
+surface under it, and whether the texel is valid. Later stages trace light from these. The
+baker owns its images, pipelines and descriptor sets; none of the frame's bindings change.
+
+Each page has four 2048 square images: position (`rgba32f`, w is 1 where a surface covers the
+texel and 0 elsewhere), geometric normal and shading normal (`rgba16f`), and validity (`r8`, 1
+for a covered texel outside walls). They are made the first time a layout needs that many
+pages and kept, and `SetUpTexels` leaves them in the general layout for compute shaders and
+copies. `ReadTexels` copies a region back for tests, 11 floats a texel.
+
+`bake_texels.vert` draws each static draw with a rectangle into its page, using its second UV
+set, `Vertex.Uv2` (vertex attribute 6, the same set the wear and dirt masks read), as the
+position: `Uv2 * Scale + Offset` is 0 to 1 on the page, and twice that minus one is clip
+space. The draw's transform and rectangle are push constants, so the pipeline has no
+descriptor sets. `bake_texels.frag` writes the world position and the normal blended from the
+vertices, both moved by the transform as `gbuffer.vert` moves them. The geometric normal comes
+from how the position changes from texel to texel, turned to the side the vertex normals face,
+since second UVs may be mirrored. Nothing is culled.
+
+A triangle thinner than a texel can miss every texel's centre and leave its texels empty, so
+coverage must count any part of a texel. Where the device has
+`VK_EXT_conservative_rasterization` (`VulkanContext.ConservativeRasterization`), the pipeline
+overestimates: every texel a triangle touches is drawn, its attributes taken at the texel's
+centre, extended along the triangle's plane. A draw's own rectangle therefore spreads one texel
+into its gutter, which is what the gutter is for. Elsewhere the page is drawn in 512 square
+tiles into 8x multisampled targets (or the most samples below 8 the device has), with the
+viewport still spanning the page so a rectangle lands on the same texels from any tile, and
+`bake_resolve.comp` copies each tile into the page. The positions and normals are `centroid`,
+so every covered sample of a texel holds a point on its triangle; the resolve takes the first
+covered sample, and with the standard sample positions the lower samples lie nearer the centre.
+Tiles no rectangle reaches stay cleared. `Baker.ForceMultisample` takes this path on any device,
+so the GPU tests run both.
+
+`bake_validity.comp` then marks texels inside walls. From each covered texel, 1 mm along its
+geometric normal, it sends 16 rays of 5 cm over the hemisphere, spread by a Fibonacci spiral
+even in the cosine and turned by a hash of the texel. It traces them with `trace.glsl` through
+the same acceleration structures the frame uses: `SetUpTexels` builds a top-level structure from
+all the draws with `TraceScene.Collect` and `Renderer.TraceFlagsOf`, so walls that aren't baked
+still count. A ray that hits the back of a one-sided surface means the texel is enclosed; when
+more than half do (`Baker.InvalidShare`), the texel is invalid. A texel nothing covers is
+invalid too. The validity shader binds its own set 0 and the resource table as set 1.
+
 ## Paint and glass
 
 Clearcoat adds a second, very smooth reflection on top of the surface, like the

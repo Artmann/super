@@ -864,7 +864,11 @@ public sealed unsafe class Renderer : IDisposable
         }
     }
 
-    private TraceFlags TraceFlagsOf(MaterialHandle material) =>
+    /// <summary>The bindless textures and materials, which a shader that traces rays reads hits through.</summary>
+    internal ResourceTable Resources => _resources;
+
+    /// <summary>How rays treat a material, for <see cref="TraceScene.Collect"/>.</summary>
+    internal TraceFlags TraceFlagsOf(MaterialHandle material) =>
         RayTracing.TraceFlagsFor(_resources.HasCutouts(material), _resources.GetFlags(material));
 
     private MeshHandle AddMesh(Mesh mesh)
