@@ -129,7 +129,7 @@ jobs:
           key: ${{ steps.cook-cache.outputs.cache-primary-key }}
 
       - name: Test
-        run: dotnet test Super.slnx -c Release --no-build --logger trx --results-directory TestResults
+        run: dotnet test Super.slnx -c Release --no-build --filter "Needs!=GPU" --logger trx --results-directory TestResults
 
       - name: Upload test results
         if: always()

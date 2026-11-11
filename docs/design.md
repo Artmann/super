@@ -2334,8 +2334,9 @@ buffers are created exactly as before.
 
 `tests/Rendition.Gpu.Tests` runs the renderer on a real GPU. `GpuFixture` opens a hidden 256 by 256
 window the way `GameWindow` does and makes one `Renderer` with validation on, which every test
-shares; the tests run one at a time and carry `[Trait("Speed", "Slow")]`, so a machine without a
-GPU filters them out. A test that needs tracing fails with a message saying so on a GPU that
+shares; the tests run one at a time and carry `[Trait("Speed", "Slow")]` and
+`[Trait("Needs", "GPU")]`. CI runs on machines without a GPU, so it filters them out with
+`--filter "Needs!=GPU"`; run them locally before merging rendering work. A test that needs tracing fails with a message saying so on a GPU that
 can't trace, rather than passing without checking anything.
 
 ## Known simplifications to revisit

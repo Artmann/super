@@ -5,6 +5,7 @@ namespace Rendition.Gpu.Tests;
 
 [Collection(GpuCollection.Name)]
 [Trait("Speed", "Slow")]
+[Trait("Needs", "GPU")]
 public sealed class DeviceAddressTests(GpuFixture gpu)
 {
     [Fact]
