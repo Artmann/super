@@ -43,11 +43,13 @@ public sealed class GameImage
     /// <summary>
     /// Its pixels: rows from the top, four bytes each (red, green, blue, alpha), in sRGB with
     /// straight alpha. A cooked image is read afresh each time, so keep what's returned rather
-    /// than asking every frame; it's for painting new images from, not for drawing.
+    /// than asking every frame; it's for painting new images from, not for drawing. An image
+    /// cooked compressed, as images are unless <c>compressTextures</c> is off, gives its decoded
+    /// pixels, which are close to the file's but not the same.
     /// </summary>
     public byte[] ReadPixels() => Pixels is { } painted
         ? (byte[])painted.Clone()
-        : CookedTexture.Read(Cooked!, Path).Pixels;
+        : CookedTexture.Read(Cooked!, Path).DecodePixels();
 
     /// <summary>Its place among everything <see cref="Content"/> has named.</summary>
     internal int Index { get; }

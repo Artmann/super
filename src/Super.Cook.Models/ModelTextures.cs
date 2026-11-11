@@ -203,36 +203,14 @@ internal sealed class ModelTextures(CookInput input, CookOutput output, string p
 
     private static long _sharedBytes;
 
-    /// <summary>Each shared texture's cooked bytes and their hash, made once however many models point to it.</summary>
-    private static readonly ConditionalWeakTable<TextureData, Lazy<(string Hash, byte[] Bytes)>> Written = new();
-
     /// <summary>
     /// Adds a texture to the output as an object of its own and returns its hash, for the model to point to.
-    /// A texture several models share is written and hashed once.
+    /// A texture several models share is written and hashed once, by <see cref="SerializedTextures"/>.
     /// </summary>
     public static string Share(TextureData texture, CookOutput output)
     {
-        var (hash, bytes) = Serialized(texture);
+        var (hash, bytes) = SerializedTextures.Of(texture);
         return output.AddObject(bytes, hash);
-    }
-
-    /// <summary>The bytes a texture is written as, an object of its own, and their hash, made once per texture.</summary>
-    internal static (string Hash, byte[] Bytes) Serialized(TextureData texture)
-    {
-        return Written.GetValue(texture, key => new Lazy<(string, byte[])>(() =>
-        {
-            byte[] written = key.ToBytes();
-            return (Convert.ToHexStringLower(SHA256.HashData(written)), written);
-        })).Value;
-    }
-
-    /// <summary>
-    /// Tells <see cref="Serialized"/> the bytes and hash of a texture read from them, such as a compressed texture taken
-    /// from the step cache, so they aren't written and hashed again.
-    /// </summary>
-    internal static void KnowSerialized(TextureData texture, string hash, byte[] bytes)
-    {
-        Written.TryAdd(texture, new Lazy<(string, byte[])>((hash, bytes)));
     }
 
     /// <summary>The most decoded pixels kept for sharing. Past this everything is dropped and sharing starts again.</summary>

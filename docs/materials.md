@@ -138,6 +138,14 @@ A graph cooks into four textures and a small data part, named as parts of its so
 | `materials/bricks.material.cs#height` | The height, grey. Linear. For surface shaders such as puddles |
 | `materials/bricks.material.cs#material` | Data: `{"width":2}`, the graph's `Width` in metres |
 
+The four textures are block-compressed with every mip: the colour and surface as BC7, the
+normal as BC5 and the height as BC4. A rule's `"compressTextures": false` keeps them as
+RGBA pixels instead; see [Rules and sidecars](content.md#rules-and-sidecars).
+Compressed, each of the Courtyard's 1024 by 1024 materials takes 4.7 MB with its mips instead of 16 MB,
+and on screen the two are hard to tell apart:
+
+![Courtyard materials before and after compression](media/compressed-materials.webp)
+
 A surface takes them like any other textures. The renderer multiplies the surface
 texture by the surface's `Metallic` and `Roughness`, so set both to 1:
 

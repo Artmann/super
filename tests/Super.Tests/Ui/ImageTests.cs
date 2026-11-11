@@ -144,6 +144,78 @@ public class ImageTests
         Assert.All(pixels, value => Assert.Equal(255, value));
     }
 
+    /// <summary>
+    /// An 8 by 8 opaque PNG of a ramp across from blue to orange that lightens a little down, and its pixels. The
+    /// colours in a block lie near one line, as BC7 mode 6 needs: a block that ramps two ways at once comes out further off.
+    /// </summary>
+    private static (byte[] Png, byte[] Pixels) Ramp()
+    {
+        byte[] pixels = new byte[8 * 8 * 4];
+        for (int y = 0; y < 8; y++)
+        {
+            for (int x = 0; x < 8; x++)
+            {
+                int i = (y * 8 + x) * 4;
+                pixels[i] = (byte)(x * 30);
+                pixels[i + 1] = (byte)(40 + y * 4);
+                pixels[i + 2] = (byte)(200 - x * 10);
+                pixels[i + 3] = 255;
+            }
+        }
+
+        string folder = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            string path = Path.Combine(folder, "ramp.png");
+            PngFile.Write(path, pixels, 8, 8);
+            return (File.ReadAllBytes(path), pixels);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    private static GameImage LoadWith(byte[] png, string settings)
+    {
+        var files = new MemoryContent { ["cook.json"] = "{ \"rules\": [{ \"match\": \"*.png\", \"texture\": " + settings + " }] }" };
+        files.Add("a.png", png);
+        return new Content(files).Image("a.png");
+    }
+
+    [Fact]
+    public void An_uncompressed_image_gives_its_exact_pixels()
+    {
+        var (png, pixels) = Ramp();
+
+        Assert.Equal(pixels, LoadWith(png, "{ \"compressTextures\": false }").ReadPixels());
+    }
+
+    [Fact]
+    public void A_compressed_image_gives_pixels_close_to_its_own()
+    {
+        var (png, pixels) = Ramp();
+
+        byte[] read = Load(png).ReadPixels();
+
+        Assert.Equal(pixels.Length, read.Length);
+        int worst = pixels.Zip(read, (a, b) => Math.Abs(a - b)).Max();
+        Assert.True(worst <= 16, $"a byte is off by {worst}.");
+    }
+
+    [Fact]
+    public void A_compressed_image_loads_as_rgba_pixels_with_its_mips_built()
+    {
+        var (png, pixels) = Ramp();
+
+        var data = SceneRenderer.LoadImage(Load(png));
+
+        Assert.Equal(TextureFormat.Rgba8, data.Format);
+        Assert.Equal([256, 64, 16, 4], data.Mips.Select(mip => mip.Length));
+        int worst = pixels.Zip(data.Mips[0], (a, b) => Math.Abs(a - b)).Max();
+        Assert.True(worst <= 16, $"a byte is off by {worst}.");
+    }
+
     [Fact]
     public void A_painted_image_gives_back_its_pixels()
     {

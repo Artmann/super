@@ -318,11 +318,10 @@ public class ContentTests
         Assert.Throws<ArgumentException>(() => content.Unload(texture));
     }
 
-    [Fact]
-    public void Texture_from_png_in_memory_decodes()
+    private static readonly byte[] TinyPixels = TinyRamp();
+
+    private static byte[] TinyRamp()
     {
-        string folder = Directory.CreateTempSubdirectory().FullName;
-        string path = Path.Combine(folder, "tiny.png");
         byte[] pixels = new byte[4 * 4 * 4];
         for (int i = 0; i < 16; i++)
         {
@@ -332,21 +331,48 @@ public class ContentTests
             pixels[i * 4 + 3] = 255;
         }
 
-        PngFile.Write(path, pixels, 4, 4);
-        var files = new MemoryContent { ["textures/cook.json"] = "{ \"rules\": [{ \"match\": \"*.png\", \"texture\": { \"linear\": true } }] }" };
+        return pixels;
+    }
+
+    /// <summary>Cooks a 4x4 linear PNG in memory with the texture settings given, and loads it as the renderer would.</summary>
+    private static TextureData LoadTinyTexture(string settings)
+    {
+        string folder = Directory.CreateTempSubdirectory().FullName;
+        string path = Path.Combine(folder, "tiny.png");
+        PngFile.Write(path, TinyPixels, 4, 4);
+        var files = new MemoryContent { ["textures/cook.json"] = "{ \"rules\": [{ \"match\": \"*.png\", \"texture\": " + settings + " }] }" };
         files.Add("textures/tiny.png", File.ReadAllBytes(path));
         Directory.Delete(folder, recursive: true);
         var content = new Content(files);
         var texture = content.Texture("textures/tiny.png");
 
-        var data = SceneRenderer.LoadTexture((TextureItem)content.Items[texture.Index - 1]);
+        return SceneRenderer.LoadTexture((TextureItem)content.Items[texture.Index - 1]);
+    }
+
+    [Fact]
+    public void Uncompressed_texture_from_png_in_memory_decodes_and_gets_its_mips_built()
+    {
+        var data = LoadTinyTexture("{ \"linear\": true, \"compressTextures\": false }");
 
         Assert.Equal(4, data.Width);
         Assert.Equal(4, data.Height);
         Assert.Equal(TextureKind.Linear, data.Kind);
+        Assert.Equal(TextureFormat.Rgba8, data.Format);
         Assert.Equal(3, data.Mips.Length);
-        Assert.Equal(pixels, data.Mips[0]);
+        Assert.Equal(TinyPixels, data.Mips[0]);
         Assert.Equal(4, data.Mips[2].Length);
+    }
+
+    [Fact]
+    public void Compressed_texture_from_png_in_memory_loads_as_bc7_with_its_cooked_mips()
+    {
+        var data = LoadTinyTexture("{ \"linear\": true }");
+
+        Assert.Equal((4, 4, TextureKind.Linear), (data.Width, data.Height, data.Kind));
+        Assert.Equal(TextureFormat.Bc7, data.Format);
+
+        // 4x4, 2x2 and 1x1: one 16-byte block each.
+        Assert.Equal([16, 16, 16], data.Mips.Select(mip => mip.Length));
     }
 
     [Fact]

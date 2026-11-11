@@ -81,6 +81,8 @@ public class CookedContentTests
 
         Assert.Equal(TextureKind.Linear, normal.Kind);
         Assert.Equal(TextureKind.Color, color.Kind);
+        Assert.Equal(TextureFormat.Bc5, normal.Format);
+        Assert.Equal(TextureFormat.Bc7, color.Format);
     }
 
     [Fact]
