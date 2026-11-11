@@ -12,7 +12,8 @@ namespace Super;
 /// A model to draw. It only exists until the next frame describes the world again. A
 /// pose skins a rigged model; PoseAhead is how many seconds past the last tick the
 /// display is, so clips keep moving between ticks. A ghost draws it in one colour. Meshes,
-/// when set, shows only the masked meshes of the model; null shows them all.
+/// when set, shows only the masked meshes of the model; null shows them all. Static marks a
+/// draw that never moves, so baked lighting can hold it; its parts get bake ids.
 /// </summary>
 public readonly record struct ModelDraw(
     int Key,
@@ -23,7 +24,8 @@ public readonly record struct ModelDraw(
     AnimationPose? Pose = null,
     float PoseAhead = 0f,
     Ghost? Ghost = null,
-    MeshMask? Meshes = null);
+    MeshMask? Meshes = null,
+    bool Static = false);
 
 /// <summary>
 /// A light as far away as the sun, shining the same way everywhere. One sun casts the
@@ -317,10 +319,15 @@ public sealed class View
     /// Draws a model. The key names it across frames, so use a stable ID from your game.
     /// A color tints the model, as red, green and blue from 0 to 1. It multiplies the
     /// model's own colors and keeps its textures, and costs nothing extra, so every copy
-    /// of a model can have its own. The cube is white under a color.
+    /// of a model can have its own. The cube is white under a color. A static draw never moves,
+    /// so baked lighting can hold it; see "Static draws" in docs/views.md.
     /// </summary>
-    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color = null) =>
-        Model(key, model, transform, color, default);
+    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color = null, bool isStatic = false) =>
+        Model(key, model, transform, color, default, null, null, isStatic);
+
+    /// <summary>Draws some meshes of a model, or all of them when the mask is null, perhaps static.</summary>
+    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, MeshMask? meshes, bool isStatic = false) =>
+        Model(key, model, transform, color, default, null, meshes, isStatic);
 
     /// <summary>
     /// Draws a model that bends as it swims. Its head must face +z. Like a color, this
@@ -387,10 +394,25 @@ public sealed class View
 
     /// <summary>
     /// The full draw: a color, a swimming motion, a pose and the meshes to show, any of which
-    /// may be left out. Throws if the mask was made for another model.
+    /// may be left out. Throws if the mask was made for another model, or if a static draw
+    /// swims or has a pose, since a bake holds it where it stands.
     /// </summary>
-    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim, AnimationPose? pose, MeshMask? meshes)
+    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim, AnimationPose? pose, MeshMask? meshes, bool isStatic = false)
     {
+        if (isStatic && swim.Amplitude != 0f)
+        {
+            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture,
+                $"Model {key} is static, so it can't swim, but its swim has amplitude {swim.Amplitude}. Draw it without isStatic, or without the swim."),
+                nameof(swim));
+        }
+
+        if (isStatic && pose is not null)
+        {
+            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture,
+                $"Model {key} is static, so it can't move in a pose. Draw it without isStatic, or without the pose."),
+                nameof(pose));
+        }
+
         if (model.Index < -Shapes.BuiltInNames.Length)
         {
             throw new ArgumentException($"Model {model.Index} is not a built-in shape. Use ModelRef.Sphere and the others, or a model from Content.", nameof(model));
@@ -406,7 +428,7 @@ public sealed class View
             throw new ArgumentException($"The mesh mask was made for model {mask.Model}, not model {model.Index}. Make it with Content.Meshes for this model.", nameof(meshes));
         }
 
-        _models.Add(new ModelDraw(key, model, transform, color, swim, pose, pose is null ? 0f : Blend * _tickSeconds * _timeScale, null, meshes));
+        _models.Add(new ModelDraw(key, model, transform, color, swim, pose, pose is null ? 0f : Blend * _tickSeconds * _timeScale, null, meshes, isStatic));
     }
 
     /// <summary>

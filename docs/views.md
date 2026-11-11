@@ -59,6 +59,7 @@ component on its entity instead. See [Audio](audio.md).
 | `view.SpotLight(key, position, direction, color, range, innerAngle, outerAngle, shadows, radius, volumetric, mode)` | A light shining in a cone, like a lantern's beam |
 | `view.Model(key, model, transform, color)` | A model. `color`, if given, tints it and keeps its textures. `ModelRef.Cube`, `Sphere`, `Capsule`, `Cylinder`, `Cone`, `Plane`, `Quad` and `Torus` are [built in](rendering.md#built-in-shapes) |
 | `view.Model(key, model, transform, meshes)` | Only the meshes a `MeshMask` shows, such as a body without its helmet. See [Showing some meshes](#showing-some-meshes) |
+| `view.Model(key, model, transform, color, isStatic: true)` | A model that never moves, whose lighting will be baked. See [Static draws](#static-draws) |
 | `view.Decal(key, box, material, blend)` | Grime, damp or a stain projected onto whatever is inside a box. Up to 256 a frame. See [Decals](#decals) |
 | `view.Ghost(key, model, transform, color, opacity)` | A model in one colour that glows a little, as a [preview of where something will go](rendering.md#ghosts) |
 | `view.Shadows(radius, cascades, sunSize, contact)` | How far shadows reach, how soft they are, and how far contact shadows look where things meet the ground. See [Rendering](rendering.md#shadows) |
@@ -229,6 +230,29 @@ game draws with it without allocating.
 - A ghost takes a mask too, as `view.Ghost(key, model, transform, meshes, color, opacity)`.
 - `run.Drawn` entries carry the mask as `Meshes`, or null for a draw that shows every
   mesh. See [Testing](testing.md).
+
+## Static draws
+
+A model that never moves, such as a wall, a rock or a house, can be drawn static. Its
+lighting will be baked, so give it `isStatic: true`:
+
+```csharp
+view.Model(WallKey, wall, transform, isStatic: true);
+view.Model(KnightKey, statue, transform, color, statueMeshes, isStatic: true);
+```
+
+Nothing bakes yet, so a static draw looks the same as any other. What it gets now is a bake
+id for each of its parts: a name made from the model, its tint and where it stands, the same
+on every run and every machine, whatever order the draws come in. Draw it in the same place
+next frame and it keeps its ids. Move it by a millimetre and they change, so its bake would
+be made again; a move under a tenth of a millimetre doesn't count. A static draw inside a
+[baked chunk](rendering.md#baked-lighting) is placed relative to the chunk, so every copy of
+the chunk gives its draws the same ids wherever it stands.
+
+A static draw is held where it stands by its bake, so it can't swim or take a pose. Drawing
+one with a swim of any amplitude, or with a pose or an animator, throws `ArgumentException`
+naming the model's key. A static model can have at most 4,095 parts; one with more throws
+when it is drawn, naming the model.
 
 ## Particles
 

@@ -51,6 +51,7 @@ public sealed class Content
     private readonly Dictionary<string, ModelRef> _models = [];
     private readonly Dictionary<string, Rig> _rigs = [];
     private readonly Dictionary<int, string[]> _meshNames = [];
+    private readonly Dictionary<int, ulong> _identities = [];
     private readonly Dictionary<string, GameImage> _images = [];
     private readonly List<SoundClip> _clips = [];
     private readonly Dictionary<string, SoundRef> _sounds = [];
@@ -754,6 +755,7 @@ public sealed class Content
         try
         {
             _files.Refresh();
+            _identities.Clear(); // A cooked file named again may hash differently now.
             Load(all, all);
         }
         catch (ContentException mistake)
@@ -879,9 +881,25 @@ public sealed class Content
         return new ModelRef(_items.Count);
     }
 
+    /// <summary>
+    /// What a model is, as a stable hash for the bake ids of its static draws. Worked out the first time a static
+    /// draw asks, since hashing a big mesh made in code takes a while, and kept until the model is unloaded.
+    /// </summary>
+    internal ulong IdentityOf(ModelRef model)
+    {
+        if (!_identities.TryGetValue(model.Index, out ulong identity))
+        {
+            identity = BakeIdentity.Model(model, _items, _files);
+            _identities[model.Index] = identity;
+        }
+
+        return identity;
+    }
+
     /// <summary>Forgets an item's data and tells the window to free what it made of it.</summary>
     private void MarkUnloaded(int index)
     {
+        _identities.Remove(index);
         _unloaded.Add(index);
         _pendingUnloads.Add(index);
         _items[index - 1] = UnloadedItem.Instance;

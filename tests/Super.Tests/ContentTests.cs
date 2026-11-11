@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Security.Cryptography;
 using Rendition;
 using Super.Testing;
 
@@ -409,5 +410,57 @@ public class ContentTests
         Assert.Equal(2, data.Mips.Length);
         Assert.Equal(4, data.Mips[1].Length);
         Assert.InRange(data.Mips[1][2], 250, 255);
+    }
+
+    [Fact]
+    public void Cooked_hash_is_the_manifest_hash()
+    {
+        string root = Directory.CreateTempSubdirectory().FullName;
+        string cooked = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(root, "axe.json"), "{ \"id\": \"axe\", \"power\": 3 }");
+            IContentFiles files = CookedTemp.Cook(root, cooked);
+            // Objects are kept under their SHA-256, so the hash of the cooked bytes is the manifest's.
+            string expected = Convert.ToHexStringLower(SHA256.HashData(files.Read("axe.json")));
+
+            // With every object gone, only the manifest is left to answer.
+            foreach (string file in Directory.EnumerateFiles(cooked, "*", SearchOption.AllDirectories))
+            {
+                if (Path.GetFileName(file) != ContentManifest.FileName)
+                {
+                    File.Delete(file);
+                }
+            }
+
+            Assert.Throws<FileNotFoundException>(() => files.Read("axe.json"));
+            Assert.Equal(expected, files.HashOf("axe.json"));
+            var missing = Assert.Throws<FileNotFoundException>(() => files.HashOf("bow.json"));
+            Assert.Contains("bow.json isn't in the cooked content", missing.Message);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+            Directory.Delete(cooked, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Default_hash_is_the_files_sha256()
+    {
+        IContentFiles files = new AbcFiles();
+
+        // SHA-256 of "abc", from FIPS 180-2.
+        Assert.Equal("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", files.HashOf("notes.txt"));
+    }
+
+    /// <summary>Content files that only say what <see cref="IContentFiles"/> requires, so its own default hash answers.</summary>
+    private sealed class AbcFiles : IContentFiles
+    {
+        public ContentKind? KindOf(string name) => ContentKind.Data;
+
+        public IReadOnlyList<string>? List(string folder) => null;
+
+        public byte[] Read(string name) => "abc"u8.ToArray();
     }
 }

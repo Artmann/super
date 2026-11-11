@@ -2466,8 +2466,9 @@ trace; GLFW is only terminated when the last fixture goes, since that closes eve
 
 A bake stores light per static draw, so each one needs a name that is the same in every run,
 on every machine, whatever order the draws come in. `DrawItem.BakeId` is that name. Zero means
-the draw isn't static, so every existing draw stays out of any bake. Nothing reads the id yet
-except the check below.
+the draw isn't static, so every existing draw stays out of any bake. Only a `ModelDraw` with
+`Static` set, from `view.Model(..., isStatic: true)` or the `Static` component, gets one.
+Nothing reads the id yet except the check below.
 
 `StableHasher` (`src/Rendition/Baking/StableHasher.cs`) makes the hashes. It feeds
 little-endian bytes to XxHash64 with seed 0, from the `System.IO.Hashing` package. `HashCode`
@@ -2481,7 +2482,8 @@ only costs a rebake. Values past about ±9e14 saturate, and every NaN hashes ali
 Nothing marks a value's type or where it ends, so a caller must feed the same sequence of
 values for each kind of thing it hashes. A `Vector3` is its three floats and a `Matrix4x4` its sixteen, row by
 row. A string is its UTF-8 length and then its bytes, so `"ab"` then `"c"` differs from `"a"`
-then `"bc"`.
+then `"bc"`. Bytes, such as pixels, are their length and then themselves, unrounded. `Reset`
+starts a hasher again from nothing, so a frame hashes every static draw with one hasher.
 
 `BakeIds.Of(instanceHash, part)` (`src/Rendition/Baking/BakeIds.cs`) turns an instance's hash
 and a part number into an id. It sets bit 63, so an id is never zero, and puts the part in
@@ -2502,7 +2504,7 @@ A frame's baked areas are its `BakedSpace` and its `BakedChunks`. `BakeAreas`
 (`src/Rendition/Baking/BakeAreas.cs`) decides which one owns a static draw or a light, and
 returns `BakeAreas.Space` (-1), a chunk's index in the frame, or `BakeAreas.None` (-2). It is
 pure and allocates nothing, since it runs once per static draw and once per light each frame.
-Nothing calls it yet.
+Static draws use `OwnerOfDraw` (see below); nothing calls `OwnerOfLight` yet.
 
 `OwnerOfDraw` takes the draw's sphere in world space. The space owns the draw if the sphere
 touches its box at all: the centre is clamped into the box and the draw counts when that point
@@ -2525,6 +2527,44 @@ radius grows by its largest axis scale, the same as culling does. `BakeAreas.Uni
 sphere to hold several, such as every part of a model. Each step keeps the bigger sphere when
 it already holds the other, or else spans from the far side of one to the far side of the
 other, so the result holds every part but isn't always the tightest sphere.
+
+## A static draw's ids
+
+`SceneRenderer.PrepareDraws` copies a model's shown parts into the frame's draws, and
+`SceneRenderer.Dress` then sets each copy's transform, tint and the rest. For a static draw it
+also calls `BakeIdentity.Assign` (`src/Super/Rendering/BakeIdentity.cs`). `Dress` is static
+and takes the part spheres as an argument, so tests run it without a GPU; the renderer reads
+the spheres from `Renderer.BoundsOf` into a buffer it keeps.
+
+`Assign` moves the sphere of each shown part into the world, unions them, and asks
+`OwnerOfDraw` which baked area owns the draw. When a chunk owns it, the draw's transform is
+made relative to the chunk: world times the chunk's inverse, worked row by row in doubles as
+the translation taken off and a dot product with each rotation row. So every placed copy of a
+chunk gives its draws the same numbers to well under the hash's tenth of a millimetre, even
+hundreds of metres out. A draw in the space or in no area keeps its world transform.
+
+The instance hash is the model's identity, then 1 and the tint or 0 for none, then that
+transform. Each shown part's id is `BakeIds.Of(instance, part)`, where `part` is the part's
+number in the whole model, not among the shown ones, so a mask doesn't renumber the parts it
+keeps. The model's identity already fixes every part's mesh and material, so the part number
+is all a part adds. A static model of more than `BakeIds.MaxParts` parts throws when drawn.
+`View.Model` throws for a static draw with a swim or a pose, so the renderer's own check
+below never sees one from a view.
+
+`Content.IdentityOf(model)` hashes what the model is, once, on its first static draw, and keeps
+it until the model is unloaded or the content reloads. It starts with a kind:
+
+- 0, a built-in shape: its name, such as `cube` or `sphere`.
+- 1, a cooked model: `IContentFiles.HashOf(name)`, the SHA-256 of its cooked bytes.
+  `CookedFolder` gives the hash the manifest already keeps, without reading the file; other
+  `IContentFiles` hash `Read(name)`.
+- 2, a mesh made in code: its vertices with every field, its indices, whether it simplifies,
+  its own texture's pixels, every surface field, each texture (a cooked one by `HashOf`, a
+  generated one by its size, pixels, kind and normal-map flag), the shader's name, parameters,
+  shader textures and array layers.
+
+A shader is hashed by name only, so editing a shader's source doesn't change the ids of the
+meshes drawn with it. A game that draws nothing static never hashes a model.
 
 ## Ray tracing
 

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Numerics;
 using Rendition;
 using Super.Profiling;
@@ -32,6 +33,8 @@ internal sealed class SceneRenderer : IDisposable
     private readonly JointPose[] _pose = new JointPose[Skeleton.MaxJoints];
     private readonly JointPose[] _poseScratch = new JointPose[Skeleton.MaxJoints];
     private int _boneCount;
+    private BakeSphere[] _partBounds = new BakeSphere[16];
+    private readonly BakeIdentity.Scratch _bakeScratch = new();
     private Bands _bakedBands;
     private int _uploadedAtlas;
     private Content? _content;
@@ -699,19 +702,67 @@ internal sealed class SceneRenderer : IDisposable
 
             // Skinned once per draw, however many of its parts are shown.
             var bones = draw.Pose is { } pose ? Skin(pose, draw.PoseAhead, model, draw.Model.Index, content) : default;
-            for (int i = first; i < count; i++)
-            {
-                ref var item = ref _draws[i];
-                item.Transform = draw.Transform;
-                item.Swim = draw.Swim;
-                item.Tint = draw.Color ?? (draw.Model.IsBuiltIn ? CubeColor : null);
-                item.Bones = bones;
-                item.Ghost = draw.Ghost;
-                item.Key = draw.Key;
-            }
+            var partBounds = draw.Static ? BoundsOf(model.Parts) : default;
+            Dress(_draws.AsSpan(first, count - first), in draw, bones, partBounds, content, view.BakedSpace, view.PlacedBakedChunks, _bakeScratch);
         }
 
         return count;
+    }
+
+    /// <summary>The sphere around each of a model's parts, in the model's units, kept in a buffer reused each draw.</summary>
+    private ReadOnlySpan<BakeSphere> BoundsOf(DrawItem[] parts)
+    {
+        if (_partBounds.Length < parts.Length)
+        {
+            _partBounds = new BakeSphere[Math.Max(parts.Length, _partBounds.Length * 2)];
+        }
+
+        for (int p = 0; p < parts.Length; p++)
+        {
+            _partBounds[p] = _renderer.BoundsOf(parts[p].Detail);
+        }
+
+        return _partBounds.AsSpan(0, parts.Length);
+    }
+
+    /// <summary>
+    /// Gives the parts of one draw that <see cref="AddShown"/> copied what the draw says about them. A static draw's
+    /// parts get bake ids, from <paramref name="partBounds"/>, which holds every part of the model; others keep zero.
+    /// </summary>
+    internal static void Dress(
+        Span<DrawItem> shown,
+        in ModelDraw draw,
+        BoneRange bones,
+        ReadOnlySpan<BakeSphere> partBounds,
+        Content content,
+        BakedSpace? space,
+        ReadOnlySpan<BakedChunk> chunks,
+        BakeIdentity.Scratch scratch)
+    {
+        var tint = draw.Color ?? (draw.Model.IsBuiltIn ? CubeColor : null);
+        for (int i = 0; i < shown.Length; i++)
+        {
+            ref var item = ref shown[i];
+            item.Transform = draw.Transform;
+            item.Swim = draw.Swim;
+            item.Tint = tint;
+            item.Bones = bones;
+            item.Ghost = draw.Ghost;
+            item.Key = draw.Key;
+        }
+
+        if (!draw.Static)
+        {
+            return;
+        }
+
+        if (partBounds.Length > BakeIds.MaxParts)
+        {
+            throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
+                $"Model {draw.Model.Index} ({Name(draw.Model.Index, content, "a mesh made in code")}) is drawn static with {partBounds.Length} parts, but a static model can have at most {BakeIds.MaxParts}. Draw it without isStatic, or split it."));
+        }
+
+        BakeIdentity.Assign(shown, draw.Meshes, partBounds, content.IdentityOf(draw.Model), tint, draw.Transform, space, chunks, scratch);
     }
 
     /// <summary>

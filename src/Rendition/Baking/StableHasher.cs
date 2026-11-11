@@ -70,5 +70,16 @@ public sealed class StableHasher
         return this;
     }
 
+    /// <summary>Hashes the length and then the bytes, for data such as pixels that has no floats to round.</summary>
+    public StableHasher Add(ReadOnlySpan<byte> bytes)
+    {
+        Add(bytes.Length);
+        _hash.Append(bytes);
+        return this;
+    }
+
     public ulong Finish() => _hash.GetCurrentHashAsUInt64();
+
+    /// <summary>Starts again from nothing, so one hasher can serve every draw of a frame without garbage.</summary>
+    public void Reset() => _hash.Reset();
 }

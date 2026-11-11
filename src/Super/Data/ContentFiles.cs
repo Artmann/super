@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Microsoft.Extensions.DependencyInjection;
 using Rendition;
 
@@ -35,6 +36,12 @@ public interface IContentFiles
 
     /// <summary>The parts cooked from one source, such as <c>tall</c> and <c>young</c> for <c>firs.glb</c>, in ordinal order.</summary>
     IReadOnlyList<string> Parts(string name) => [];
+
+    /// <summary>
+    /// The SHA-256 of an asset's cooked bytes, as 64 lowercase hex digits. Static draws use it as the model's
+    /// identity in their bake ids. It fails the way <see cref="Read"/> does.
+    /// </summary>
+    string HashOf(string name) => Convert.ToHexStringLower(SHA256.HashData(Read(name)));
 
     /// <summary>Reads the manifest again, after the content was cooked again.</summary>
     void Refresh()
@@ -88,6 +95,9 @@ public sealed class CookedFolder : IContentFiles
         return File.ReadAllBytes(ObjectFile(name));
     }
 
+    /// <summary>The hash the manifest keeps for the asset, without reading the asset.</summary>
+    public string HashOf(string name) => Entry(name).Hash;
+
     /// <summary>
     /// Reads from the object file as the caller goes, with a buffer small enough to stay off the large
     /// object heap. The file stays open to deleting and replacing, so a cook running beside the game
@@ -119,14 +129,16 @@ public sealed class CookedFolder : IContentFiles
         _manifest = File.Exists(path) ? ContentManifest.Parse(File.ReadAllBytes(path), path) : ContentManifest.Empty;
     }
 
-    private string ObjectFile(string name)
+    private string ObjectFile(string name) => Path.Combine(_folder, ContentManifest.ObjectPath(Entry(name).Hash));
+
+    private ManifestEntry Entry(string name)
     {
         if (!_manifest.Assets.TryGetValue(name, out var entry))
         {
             throw new FileNotFoundException(ContentNames.Missing(this, name), name);
         }
 
-        return Path.Combine(_folder, ContentManifest.ObjectPath(entry.Hash));
+        return entry;
     }
 }
 

@@ -87,6 +87,7 @@ public void Draw(View view)
 | `Parent` | Counts the entity's transform from another entity's, so an attached thing follows |
 | `Swim` | Bends the model like a swimming fish, with the phase blended too when `Smoothed` |
 | `Animated` | Draws the model in its `Animator`'s pose, which the game loop moves on each tick. Without a `Model`, it draws the rig's own model. See [Animation](animation.md) |
+| `Static` | Draws the model static, so its lighting can be baked. See [Static draws](#static-draws) |
 | `ScopedTo<T>` | Destroys the entity when that game state ends |
 | `Sound` | Plays a looping sound from the entity for as long as it has this. See [Sounds from entities](#sounds-from-entities) |
 | `Ambience` | Plays an ambience for as long as the entity has this |
@@ -101,6 +102,20 @@ Entities without `Model` aren't drawn, so gameplay-only things cost nothing here
 
 The [Reef example](../examples/Reef) uses this for thousands of schooling fish, and its
 `Draw` is a camera, a sun, the seabed and `view.Models(world)`.
+
+### Static draws
+
+Give an entity that never moves the `Static` component, and `view.Models(world)` draws it
+static, the same as `isStatic: true` in [Views](views.md#static-draws):
+
+```csharp
+world.Add(wall, Transform.At(new Vector3(4f, 0f, 0f)));
+world.Add(wall, new Model(content.Model("castle/wall.glb")));
+world.Add(wall, new Static());
+```
+
+A static entity can't swim or take a pose, so one with `Swim` or `Animated` throws
+`ArgumentException` when it's drawn, naming the entity's ID as the model's key.
 
 ## Sounds from entities
 

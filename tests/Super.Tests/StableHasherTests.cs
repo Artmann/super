@@ -44,4 +44,22 @@ public class StableHasherTests
 
         Assert.NotEqual(split, other);
     }
+
+    [Fact]
+    public void Byte_length_is_part_of_the_hash()
+    {
+        ulong split = new StableHasher().Add([1, 2]).Add([3]).Finish();
+        ulong other = new StableHasher().Add([1]).Add([2, 3]).Finish();
+
+        Assert.NotEqual(split, other);
+    }
+
+    [Fact]
+    public void Reset_hasher_hashes_like_a_new_one()
+    {
+        var hasher = new StableHasher().Add(5).Add("left over");
+        hasher.Reset();
+
+        Assert.Equal(new StableHasher().Add(1).Finish(), hasher.Add(1).Finish());
+    }
 }

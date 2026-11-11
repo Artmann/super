@@ -27,6 +27,7 @@ public static class ViewExtensions
         int smoothedType = world.TypeIdOrMissing<Smoothed>();
         int parentType = world.TypeIdOrMissing<Parent>();
         int swimType = world.TypeIdOrMissing<Swim>();
+        int staticType = world.TypeIdOrMissing<Static>();
         ulong mask = 1UL << transformType;
         float blend = view.Blend;
 
@@ -48,6 +49,7 @@ public static class ViewExtensions
                 var smoothed = archetype.ColumnOrNull<Smoothed>(smoothedType)?.Values;
                 var parents = archetype.ColumnOrNull<Parent>(parentType)?.Values;
                 var swims = archetype.ColumnOrNull<Swim>(swimType)?.Values;
+                bool isStatic = staticType >= 0 && (archetype.Mask & (1UL << staticType)) != 0;
 
                 for (int i = 0; i < archetype.Count; i++)
                 {
@@ -78,7 +80,7 @@ public static class ViewExtensions
                     var pose = animator?.Pose;
                     if (swims is null)
                     {
-                        view.Model(entities[i].Id, model.Value, matrix, model.Color, default, pose, model.Meshes);
+                        view.Model(entities[i].Id, model.Value, matrix, model.Color, default, pose, model.Meshes, isStatic);
                         continue;
                     }
 
@@ -86,7 +88,7 @@ public static class ViewExtensions
                     float phase = smoothed is not null && smoothed[i].HasPrevious
                         ? float.Lerp(smoothed[i].PreviousPhase, swim.Phase, blend)
                         : swim.Phase;
-                    view.Model(entities[i].Id, model.Value, matrix, model.Color, new SwimMotion(swim.Amplitude, swim.BodyLength, phase), pose, model.Meshes);
+                    view.Model(entities[i].Id, model.Value, matrix, model.Color, new SwimMotion(swim.Amplitude, swim.BodyLength, phase), pose, model.Meshes, isStatic);
                 }
             }
         }
