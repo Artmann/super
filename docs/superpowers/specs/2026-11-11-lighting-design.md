@@ -260,7 +260,7 @@ them.)
 Lightmaps need a second UV set where no two triangles share a texel. `Vertex.Uv2` already
 exists, read from `TEXCOORD_1`, and `MaskBaker.Problem` already checks for overlaps.
 
-- Models: the model cooker keeps a valid `Uv2` from the file. Valid means `MaskBaker.Problem`
+- Models: the model cooker keeps a valid `Uv2` from the file. Valid means `LightmapUnwrap.Problem`
   finds no overlap, every chart keeps a two-texel gutter at 512, and texel density varies by
   less than 4× across the mesh. Otherwise the cooker makes one and logs a note, cached
   through the step cache. Masks are baked after this step, onto whichever `Uv2` the mesh
