@@ -90,6 +90,15 @@ public sealed unsafe class GpuFixture : IDisposable
     public void RenderOneFrame(DrawItem[]? draws = null, DebugView debugView = DebugView.None) =>
         Renderer.Render(View(debugView), draws ?? []);
 
+    /// <summary>Renders one frame of nothing, as <see cref="RenderOneFrame"/> does, naming a baked space and chunks.</summary>
+    public void RenderOneFrame(BakedSpace? bakedSpace, BakedChunk[] bakedChunks)
+    {
+        var view = View(DebugView.None);
+        view.BakedSpace = bakedSpace;
+        view.BakedChunks = bakedChunks;
+        Renderer.Render(view, []);
+    }
+
     /// <summary>Renders one frame of the draws given, as <see cref="RenderOneFrame"/> does, and reads its pixels back.</summary>
     public byte[] CaptureOneFrame(DrawItem[]? draws = null) =>
         Renderer.Capture(View(DebugView.None), draws ?? [], out _, out _);

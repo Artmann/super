@@ -350,6 +350,43 @@ old probes away, and the sky lights the scene until the first round is done. Mov
 probes suit what stands still. Each frame that draws probes takes longer, so a sun that moves
 every frame keeps them drawing; set it once and leave it, or turn `Graphics.LightProbes` off.
 
+## Baked lighting
+
+```csharp
+view.BakedLighting("crypt", min: new(-8f, -1f, -12f), max: new(8f, 6f, 12f), probeSpacing: 1f);
+
+foreach (var house in village.Houses)
+{
+    view.BakedChunk("house-garden", house.Transform, min: new(-6f, 0f, -8f), max: new(6f, 7f, 8f));
+}
+```
+
+A frame can name the parts of the world whose lighting will be baked. Nothing bakes them yet
+and nothing reads a bake, so naming them changes nothing on screen; the calls only check what
+they're given, so a game can name its baked areas now.
+
+`BakedLighting` names a space: one fixed place, baked as it stands, sun included. Its box also
+holds baked probes `probeSpacing` metres apart, at most 4,096 of them, counted the same way as
+[light probes](#bounced-light), so 1 metre spacing covers about 15 by 15 by 15 metres. A frame
+has at most one space, and naming a second throws with both names. Its bake will be
+`lighting/<name>.lightbake`.
+
+`BakedChunk` places a chunk: a piece of the world, such as a house, baked once in its own
+space and placed with `transform`. `min` and `max` are its box in its own space, before
+`transform`. One chunk can be placed many times in a frame, so its name may repeat, and every
+copy with the same contents will share one bake, kept in `lighting/<name>/<hash>.lightbake`
+with the 16 hex digits of a hash of its contents. A frame places at most 256 chunks. The
+transform may only turn and move the chunk: its first three rows must be unit length and
+square to each other within 0.0001, without a mirror, and its last column (0, 0, 0, 1). One
+that scales, shears or mirrors throws, since one bake serves every copy.
+
+A name is one or more letters, digits, `-` or `_`, since it names a file; a slash, a dot or a
+space throws. Each box must reach further than it starts on every axis, and `probeSpacing`
+must be more than zero. Everything else throws when it's named, with the value and the limit.
+For Rendition alone, `FrameView.BakedSpace` and `FrameView.BakedChunks` carry the same, and
+`Renderer.Render` throws for more than 256 chunks or a chunk transform that isn't only a turn
+and a move. `BakeFiles` has the limits, the file names and the checks.
+
 ## Reflections
 
 ```csharp

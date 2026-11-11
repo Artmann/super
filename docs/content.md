@@ -418,6 +418,16 @@ old.glb has no mesh names, because its file was cooked without them. A rigged mo
 A model file from before mesh names were kept is not a current model file, and fails with
 the message to cook it again.
 
+## Baked lighting
+
+Bakes of a frame's [baked lighting](rendering.md#baked-lighting) will live in a `lighting/`
+folder in the game's first content root. A space named with `view.BakedLighting("crypt", …)`
+gets `lighting/crypt.lightbake`. A chunk named with `view.BakedChunk("house-garden", …)` gets
+one file for each version of its contents, named by the 16 hex digits of their hash, such as
+`lighting/house-garden/00000000000000ab.lightbake`. `BakeFiles.Space` and `BakeFiles.Chunk`
+give these names. Nothing writes or reads them yet, and `.lightbake` has no cooker yet, so
+keep the folder empty for now.
+
 ## Shipping
 
 `dotnet publish` copies the cooked `content` folder beside the program and leaves

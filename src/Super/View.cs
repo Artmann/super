@@ -86,6 +86,7 @@ public sealed class View
     private readonly List<LocalLight> _lights = [];
     private readonly List<ReflectionProbeRequest> _reflectionProbes = [];
     private readonly List<DecalRequest> _decals = [];
+    private readonly List<BakedChunk> _bakedChunks = [];
     private readonly HashSet<int> _decalKeys = [];
     private readonly ViewMemory _memory = new();
     private long _frame;
@@ -109,6 +110,12 @@ public sealed class View
     internal float ShadowContact { get; private set; } = ShadowSettings.DefaultContactLength;
     internal OcclusionSettings Occlusion { get; private set; } = new();
     internal ProbeVolumeSettings? LightProbeVolume { get; private set; }
+    internal BakedSpace? BakedSpace { get; private set; }
+
+    /// <summary>The baked chunks placed so far this frame, in the order they were placed.</summary>
+    internal IReadOnlyList<BakedChunk> BakedChunks => _bakedChunks;
+
+    internal ReadOnlySpan<BakedChunk> PlacedBakedChunks => CollectionsMarshal.AsSpan(_bakedChunks);
     internal UiTree? Ui { get; set; }
 
     /// <summary>How the screen moves between pictures this frame. Set by <see cref="Transitions"/>.</summary>
@@ -739,6 +746,73 @@ public sealed class View
     }
 
     /// <summary>
+    /// Names the one fixed place this frame whose lighting is baked as it stands, sun included: the box from
+    /// <paramref name="min"/> to <paramref name="max"/>, holding baked probes <paramref name="probeSpacing"/> metres
+    /// apart, at most <see cref="BakeFiles.MaxSpaceProbes"/>. Its bake is <c>lighting/&lt;name&gt;.lightbake</c>.
+    /// A second space in one frame throws. Nothing is baked or read yet. See docs/rendering.md.
+    /// </summary>
+    public void BakedLighting(string name, Vector3 min, Vector3 max, float probeSpacing)
+    {
+        BakeFiles.CheckName(name);
+        if (BakedSpace is { } named)
+        {
+            throw new InvalidOperationException(
+                $"The baked space \"{named.Name}\" was already named this frame, so \"{name}\" can't be. A frame has at most one baked space.");
+        }
+
+        if (!(float.IsFinite(probeSpacing) && probeSpacing > 0f))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(probeSpacing), probeSpacing, "The baked space's probe spacing must be more than 0 metres.");
+        }
+
+        CheckBakedBox("baked space", min, max);
+        long total = ProbeGrid.Total(new ProbeVolumeSettings(min, max, probeSpacing));
+        if (total > BakeFiles.MaxSpaceProbes)
+        {
+            throw new ArgumentException(
+                $"The baked space \"{name}\" holds {total.ToString(CultureInfo.InvariantCulture)} probes at this spacing, but at most {BakeFiles.MaxSpaceProbes.ToString(CultureInfo.InvariantCulture)} fit. Space them further apart or make the box smaller.",
+                nameof(probeSpacing));
+        }
+
+        BakedSpace = new BakedSpace(name, min, max, probeSpacing);
+    }
+
+    /// <summary>
+    /// Places a piece of the world that is baked once in its own space: <paramref name="transform"/> places it and
+    /// may only turn and move it, and <paramref name="min"/> to <paramref name="max"/> is its box in its own space.
+    /// The same name may be placed many times, and every copy with the same contents shares one bake. At most
+    /// <see cref="BakeFiles.MaxChunks"/> a frame. Nothing is baked or read yet. See docs/rendering.md.
+    /// </summary>
+    public void BakedChunk(string name, Matrix4x4 transform, Vector3 min, Vector3 max)
+    {
+        BakeFiles.CheckName(name);
+        if (_bakedChunks.Count == BakeFiles.MaxChunks)
+        {
+            throw new InvalidOperationException(
+                $"At most {BakeFiles.MaxChunks.ToString(CultureInfo.InvariantCulture)} baked chunks fit in a frame.");
+        }
+
+        BakeFiles.CheckChunkTransform(_bakedChunks.Count, name, transform, nameof(transform));
+        CheckBakedBox("baked chunk", min, max);
+        _bakedChunks.Add(new BakedChunk(name, transform, min, max));
+    }
+
+    private static void CheckBakedBox(string what, Vector3 min, Vector3 max)
+    {
+        for (int axis = 0; axis < 3; axis++)
+        {
+            if (!(float.IsFinite(min[axis]) && float.IsFinite(max[axis]) && max[axis] > min[axis]))
+            {
+                string name = axis == 0 ? "x" : axis == 1 ? "y" : "z";
+                throw new ArgumentException(
+                    $"The {what}'s box must reach further along {name} than it starts, but it runs from {min[axis].ToString(CultureInfo.InvariantCulture)} to {max[axis].ToString(CultureInfo.InvariantCulture)}.",
+                    nameof(max));
+            }
+        }
+    }
+
+    /// <summary>
     /// Places a reflection probe: a photograph of the scene in every direction from
     /// <paramref name="position"/>, which shiny surfaces and glass inside the box from
     /// <paramref name="boxMin"/> to <paramref name="boxMax"/> reflect in place of the sky. The box
@@ -946,6 +1020,8 @@ public sealed class View
         ShadowContact = ShadowSettings.DefaultContactLength;
         Occlusion = new OcclusionSettings();
         LightProbeVolume = null;
+        BakedSpace = null;
+        _bakedChunks.Clear();
         _reflectionProbes.Clear();
         _decals.Clear();
         _decalKeys.Clear();

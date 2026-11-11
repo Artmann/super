@@ -875,6 +875,8 @@ internal sealed class SceneRenderer : IDisposable
             Shadows = FrameShadows(view, aspect),
             Occlusion = view.Occlusion,
             LightProbes = view.LightProbeVolume,
+            BakedSpace = view.BakedSpace,
+            BakedChunks = view.PlacedBakedChunks,
             EnvironmentIntensity = sky is null ? 0.8f : sky.Value.Brightness > 0f ? sky.Value.Brightness : 1f,
             Sky = FrameSky(view),
             BackgroundRadiance = new Vector3(0.15f, 0.16f, 0.18f),

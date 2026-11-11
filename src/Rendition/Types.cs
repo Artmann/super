@@ -868,6 +868,19 @@ public enum DebugView
     Trace,
 }
 
+/// <summary>
+/// One fixed place in the world whose lighting is baked as it stands, sun included: a box, and the spacing of the
+/// baked probes it holds. Its bake is <see cref="BakeFiles.Space"/>.
+/// </summary>
+public readonly record struct BakedSpace(string Name, Vector3 Min, Vector3 Max, float ProbeSpacing);
+
+/// <summary>
+/// A piece of the world baked once in its own space and placed with <see cref="Transform"/>, which may only turn and
+/// move it. <see cref="Min"/> and <see cref="Max"/> are its box in its own space. Its bakes are
+/// <see cref="BakeFiles.Chunk"/>.
+/// </summary>
+public readonly record struct BakedChunk(string Name, Matrix4x4 Transform, Vector3 Min, Vector3 Max);
+
 /// <summary>Everything the renderer needs to know about one frame except the draws.</summary>
 public ref struct FrameView
 {
@@ -912,6 +925,16 @@ public ref struct FrameView
     /// or none. At most <see cref="ProbeGrid.MaxProbes"/>. See docs/rendering.md.
     /// </summary>
     public ProbeVolumeSettings? LightProbes;
+
+    /// <summary>The one fixed place this frame whose lighting is baked, or none. Nothing reads it yet. See docs/rendering.md.</summary>
+    public BakedSpace? BakedSpace;
+
+    /// <summary>
+    /// The pieces of the world, each baked once in its own space, placed this frame. At most
+    /// <see cref="BakeFiles.MaxChunks"/>, each moved only by rotation and translation; otherwise
+    /// <see cref="Renderer.Render"/> throws. Nothing else reads them yet. See docs/rendering.md.
+    /// </summary>
+    public ReadOnlySpan<BakedChunk> BakedChunks;
 
     /// <summary>Scales the light and reflections from the environment.</summary>
     public float EnvironmentIntensity;
