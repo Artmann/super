@@ -174,7 +174,12 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
         else if (_dragSource is not null && !_dragging && Vector2.Distance(position, _pressedAt) >= DragThreshold)
         {
             _dragging = true;
-            _pressed = null;
+
+            // The drag's own press stops being a click. A left click held while another button drags is kept.
+            if (_dragButton == MouseButton.Left)
+            {
+                _pressed = null;
+            }
         }
     }
 

@@ -316,6 +316,33 @@ public sealed class ScrollAndDragTests
     }
 
     [Fact]
+    public void A_right_drag_keeps_a_left_click_held_on_something_else()
+    {
+        using var run = Run(game => Corner(new HStack(Spacing: 0f)
+        {
+            new Text("button").Frame(100f, 100f).Background(Solid).OnClick(() => game.Log.Add("click")),
+            new Text("source").Frame(100f, 100f).Background(Solid)
+                .Draggable(start => start.Button == MouseButton.Right ? new Item("gem") : null, item => new Text("carrying")),
+        }));
+
+        MoveTo(run, new Vector2(50f, 50f));
+        run.Input.Hold(MouseButton.Left);
+        run.Ticks(1);
+        MoveTo(run, new Vector2(150f, 50f));
+        run.Input.Hold(MouseButton.Right);
+        run.Ticks(1);
+        MoveTo(run, new Vector2(150f, 150f));
+        Assert.Contains(run.ShownText, shown => shown.Text == "carrying");
+        run.Input.Release(MouseButton.Right);
+        run.Ticks(2);
+        MoveTo(run, new Vector2(50f, 50f));
+        run.Input.Release(MouseButton.Left);
+        run.Ticks(2);
+
+        Assert.Equal(["click"], run.Game.Log);
+    }
+
+    [Fact]
     public void A_payload_drag_ignores_the_middle_button()
     {
         using var run = Run(game => Slots(game));

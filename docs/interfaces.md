@@ -210,7 +210,9 @@ new Pressable(look => Slot(stack).Background(look.Hovered ? hover : fill))
 different for each, hand it a function instead. It's told how the drag began and returns what to
 carry, or null when that press shouldn't drag. It runs at the press, so it only chooses; the drop
 is where the game changes. The drag ends when that button is let go, and other buttons pressed
-meanwhile do nothing:
+meanwhile do nothing. A left press that turns into a drag is no longer a click, but a left click
+already held on something else still clicks when it's let go, even if another button dragged in
+between:
 
 ```csharp
 new Pressable(look => Cell(stack))
