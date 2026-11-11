@@ -120,6 +120,7 @@ marked as planned. The examples are the best place to see it running:
 | [Archer](examples/Archer) | A short film: a cutscene with slow motion, root motion, a sky and a forest clearing |
 | [Transitions](examples/Transitions) | Fades, dissolves, wipes, irises and camera blends: a showreel cutscene, then each one on a key |
 | [Crypt](examples/Crypt) | A stone hall lit only by fire: torches casting shadows, brass candelabras, a lantern's beam and 126 candles, about 150 lights in all |
+| [Hamlet](examples/Hamlet) | A village on a hill made from the seed, through a two-minute day: the sun and sky move, and at dusk lamps and windows light up, about 200 lights; R for a new village |
 | [Wax](examples/Wax) | Skin, candle wax and jade with subsurface scattering, each beside a plain twin under a hard light |
 | [Dust](examples/Dust) | Trees falling in a clearing, throwing up soft particle dust along where they land |
 | [Forest](examples/Forest) | Sound: a looping ambience and music, a hammering builder whose sound pans as the camera circles, and channel volumes |

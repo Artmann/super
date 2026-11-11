@@ -205,7 +205,9 @@ A frame can have up to 1,024 lights, and one more throws. Lights are culled to w
 camera sees, and each part of the screen only works through the lights that reach it, so
 a frame can have hundreds of small lights. 256 can reach any one spot on the screen,
 and more than that are dropped there. The `Crypt` example has four torches, five
-candelabras, a lantern, a beam from a grate and 126 candles, about 150 lights.
+candelabras, a lantern, a beam from a grate and 126 candles, about 150 lights. The
+`Hamlet` example has about 200 at night: 56 lamps with shadows and 144 lit windows
+without.
 
 Point and spot lights light models, glass and [particles](views.md#particles). Glass and
 particles get no shadows from them. They aren't seen in reflection probes. In
