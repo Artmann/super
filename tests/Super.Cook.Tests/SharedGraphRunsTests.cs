@@ -143,7 +143,7 @@ public sealed class SharedGraphRunsTests : IDisposable
     public void A_later_cook_reuses_a_run_and_runs_again_when_an_image_the_graph_read_changed()
     {
         string src = Temp();
-        File.WriteAllText(Path.Combine(src, "cook.json"), """{ "rules": [{ "match": "*.material.*", "material": { "size": 16 } }] }""");
+        File.WriteAllText(Path.Combine(src, "cook.json"), """{ "rules": [{ "match": "*.material.*", "material": { "size": 16, "compressTextures": false } }] }""");
         File.WriteAllText(Path.Combine(src, "rock.material.cs"), """
             using Super.Materials;
 
@@ -186,7 +186,8 @@ public sealed class SharedGraphRunsTests : IDisposable
         string src = Temp();
         Directory.CreateDirectory(Path.Combine(src, "models"));
         Directory.CreateDirectory(Path.Combine(src, "materials"));
-        File.WriteAllText(Path.Combine(src, "cook.json"), """{ "rules": [{ "match": "**/*.material.*", "material": { "size": 16 } }] }""");
+        // Uncompressed, so the colour read back is exactly the run's.
+        File.WriteAllText(Path.Combine(src, "cook.json"), """{ "rules": [{ "match": "**/*.material.*", "material": { "size": 16, "compressTextures": false } }] }""");
         File.WriteAllText(Path.Combine(src, "materials", "rock.material.cs"), RockGraph);
         PngFile.Write(Path.Combine(src, "materials", "rock.png"), [255, 255, 255, 255], 1, 1);
         if (withModel)
