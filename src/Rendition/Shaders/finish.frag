@@ -94,7 +94,9 @@ float shown(vec2 aspect) {
 void main() {
     vec2 size = vec2(textureSize(sourceTexture, 0));
     vec2 texel = 1.0 / size;
-    vec3 color = sharpened(sourceTexture, inUv, texel);
+    // A debug view is shown unsharpened, with no vignette or grain; only the dither below is left.
+    bool debugView = isOff(OFF_DEBUG_VIEW);
+    vec3 color = debugView ? texture(sourceTexture, inUv).rgb : sharpened(sourceTexture, inUv, texel);
 
     int kind = int(transition.style.x + 0.5);
     if (kind == STYLE_FADE) {
@@ -106,10 +108,13 @@ void main() {
     }
 
     vec2 fromCenter = inUv - 0.5;
-    color *= 1.0 - frame.grade.w * smoothstep(0.1, 0.5, dot(fromCenter, fromCenter));
+    if (!debugView) {
+        color *= 1.0 - frame.grade.w * smoothstep(0.1, 0.5, dot(fromCenter, fromCenter));
+    }
 
     // Noise belongs in the same steps as the screen, which aren't linear in brightness.
     float noise = frameNoise(gl_FragCoord.xy, frame.frameNumber) - 0.5;
-    vec3 display = max(sqrt(color) + noise * (DITHER_STRENGTH + frame.finish.y), vec3(0.0));
+    float grain = debugView ? 0.0 : frame.finish.y;
+    vec3 display = max(sqrt(color) + noise * (DITHER_STRENGTH + grain), vec3(0.0));
     outColor = vec4(display * display, 1.0);
 }

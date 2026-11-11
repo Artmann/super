@@ -2417,8 +2417,59 @@ does, so a mesh made this frame is traced this frame; nothing is skipped. Nothin
 material or change whether it is opaque to rays between a `TopLevel` call and the frame's submit,
 because `ForgetMaterial` frees into the slot of the frame submitted before. Nothing in `Render` does.
 
-The renderer builds a top-level structure only when something traces. For now that is the internal
-`Renderer.TraceEveryFrame`, which only tests turn on, so a normal frame costs nothing extra.
+The renderer builds a top-level structure only when something traces. For now that is the trace
+debug view (`FrameView.DebugView = DebugView.Trace`), so a normal frame costs nothing extra.
+
+### The geometry table
+
+`TopLevel` fills the geometry table in the same call that builds the structure, so the two always
+describe the same scene. The table is a host-visible storage buffer of `GpuTraceGeometry`, one
+entry per part, 24 bytes each in std430: the mesh's vertex buffer address, its index buffer
+address (both `ulong`), the part's first index and its material's slot. Shaders read the addresses
+as `uvec2` through `GL_EXT_buffer_reference_uvec2`, so they need no 64-bit integers.
+`TopLevelStructure` carries the table and its entry count; `ReadGeometries()` reads it back for
+tests. The table grows with the structure it belongs to and goes back to the pool with it.
+`TraceGeometryLayoutTests` pins the layout and `Vertex`'s offsets against what the shader reads.
+
+A build ends with a barrier for the next build, at the build stage. Before a shader reads a
+structure, `RayTracing.ReadyToTrace(cmd)` records one more, from the build's writes to
+acceleration structure reads in compute shaders.
+
+### Tracing from shaders: trace.glsl
+
+`Shaders/trace.glsl` is what any shader that traces includes, after `common.glsl`. The including
+shader defines `TRACE_GEOMETRY_SET` and `TRACE_GEOMETRY_BINDING` (where the geometry table is
+bound) and `TRACE_RESOURCE_SET` (the resource table: textures at binding 0, materials at 1). The
+resource table's bindings are visible to compute shaders for this.
+
+`traceClosest(scene, origin, direction, maxDistance, out hit)` runs a ray query. Opaque geometry
+is hit outright. A non-opaque candidate looks up its table entry, reads its three indices at
+`firstIndex + 3 × primitive` and their vertices' UVs through the buffer addresses, and is
+confirmed only when it passes the same cut-out test as the shadow pass: base colour alpha times
+the base colour and surface textures' alpha against `alphaCutoff`, sampled at mip 0. So a ray
+passes through the holes in leaves and fences. `TraceHit` holds the world position, the
+interpolated normal (taken to world space by the world-to-object matrix and turned to face the
+ray), the UV, the material and whether the ray hit the front face. `hitAlbedo(hit)` is the base
+colour factor times the base colour texture, with no surface shader, tint, variation, wear, dirt
+or puddles. Later features include this file instead of copying it.
+
+### The trace debug view
+
+`FrameView.DebugView = DebugView.Trace` shows what the acceleration structures hold. `Render`
+collects the draws, builds the top-level structure after the uploads, and `TraceDebugPass` runs
+`trace_debug.comp` in place of the lighting, subsurface and transparent passes. It sends one ray
+per pixel from the near plane, through `inverseViewProjection`, and writes the hit's albedo, or
+`(0.25, 0.35, 0.55)` for a miss, into `Hdr` as a storage image. `Hdr` has storage use only where
+the device can trace. The pass keeps one descriptor set per frame in flight and leaves `Hdr` ready
+to sample and `Depth` read-only, as the passes it replaces would.
+
+The colours reach the screen unchanged. The view turns off anti-aliasing (and so FSR), bloom,
+depth of field and auto exposure, and sets bit 30 of `frame.off` (`OFF_DEBUG_VIEW`, not a
+`RenderEffects` bit), under which `tonemap.frag` writes the clamped linear colour with no
+exposure, grade or curve, and `finish.frag` skips sharpening, the vignette and grain, keeping
+only the dither. Asking for it where the device can't trace throws an `InvalidOperationException`
+that names `NoTraceReason`. Puddles and surface shaders aren't geometry, so the view doesn't show
+them.
 
 ## Known simplifications to revisit
 

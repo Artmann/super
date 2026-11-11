@@ -20,7 +20,7 @@ public sealed class TopLevelTests(GpuFixture gpu)
         gpu.Context.SubmitAndWait(cmd => built = tracing.TopLevel(cmd, []));
 
         Assert.NotEqual(0ul, built.Address);
-        Assert.Empty(built.Geometries);
+        Assert.Equal(0, built.GeometryCount);
         Assert.Equal(before, tracing.BottomLevelCount);
         Assert.Equal(errors, gpu.ValidationErrors);
     }
@@ -46,7 +46,18 @@ public sealed class TopLevelTests(GpuFixture gpu)
         gpu.Context.SubmitAndWait(cmd => built = tracing.TopLevel(cmd, instances));
 
         Assert.NotEqual(0ul, built.Address);
-        Assert.Equal([new TraceGeometry(mesh, parts[0]), new TraceGeometry(mesh, parts[0])], built.Geometries);
+        // Each placement gets its own entry in the table the shaders read, pointing at the mesh's own buffers.
+        var gpuMesh = gpu.Renderer.MeshFor(mesh);
+        var entries = built.ReadGeometries();
+        Assert.Equal(2, entries.Length);
+        foreach (var entry in entries)
+        {
+            Assert.Equal(gpuMesh.Vertices.Address, entry.Vertices);
+            Assert.Equal(gpuMesh.Indices.Address, entry.Indices);
+            Assert.Equal(0u, entry.FirstIndex);
+            Assert.Equal((uint)gpu.Matte.Index, entry.Material);
+        }
+
         Assert.Equal(before + 1, tracing.BottomLevelCount);
         gpu.Renderer.DestroyMesh(mesh);
         Assert.Equal(errors, gpu.ValidationErrors);
@@ -99,7 +110,7 @@ public sealed class TopLevelTests(GpuFixture gpu)
                 .ToArray();
             TopLevelStructure built = default;
             gpu.Context.SubmitAndWait(cmd => built = tracing.TopLevel(cmd, instances));
-            Assert.Equal(count, built.Geometries.Count);
+            Assert.Equal(count, built.GeometryCount);
         }
 
         gpu.Renderer.DestroyMesh(mesh);
@@ -123,15 +134,7 @@ public sealed class TopLevelTests(GpuFixture gpu)
         DrawItem[] draws = [new() { Mesh = mesh, IndexCount = 6, Material = gpu.Matte, Transform = Matrix4x4.Identity }];
 
         // The mesh's bytes ride this same frame, so the build has to come after the frame's uploads.
-        gpu.Renderer.TraceEveryFrame = true;
-        try
-        {
-            gpu.RenderOneFrame(draws);
-        }
-        finally
-        {
-            gpu.Renderer.TraceEveryFrame = false;
-        }
+        gpu.RenderOneFrame(draws, DebugView.Trace);
 
         Assert.Equal(before + 1, tracing.BottomLevelCount);
         gpu.Renderer.DestroyMesh(mesh);
@@ -147,6 +150,7 @@ public sealed class TopLevelTests(GpuFixture gpu)
     public void A_frame_that_does_not_trace_builds_nothing()
     {
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        int errors = gpu.ValidationErrors;
         var tracing = gpu.Renderer.Tracing!;
         int before = tracing.BottomLevelCount;
         int builds = tracing.TopLevelBuilds;
@@ -159,6 +163,7 @@ public sealed class TopLevelTests(GpuFixture gpu)
         Assert.Equal(before, tracing.BottomLevelCount);
         Assert.Equal(builds, tracing.TopLevelBuilds);
         gpu.Renderer.DestroyMesh(mesh);
+        Assert.Equal(errors, gpu.ValidationErrors);
     }
 
     [Fact]
@@ -172,15 +177,7 @@ public sealed class TopLevelTests(GpuFixture gpu)
         DrawItem[] draws = [new() { Mesh = mesh, IndexCount = 6, Material = gpu.Matte, Transform = Matrix4x4.Identity }];
         gpu.RenderOneFrame();
 
-        gpu.Renderer.TraceEveryFrame = true;
-        try
-        {
-            gpu.RenderOneFrame(draws);
-        }
-        finally
-        {
-            gpu.Renderer.TraceEveryFrame = false;
-        }
+        gpu.RenderOneFrame(draws, DebugView.Trace);
 
         // Render doesn't wait for the GPU, so the frame that built the top level over this mesh may still be running.
         int released = tracing.BottomLevelsReleased;

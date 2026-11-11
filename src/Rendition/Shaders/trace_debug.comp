@@ -1,0 +1,37 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "common.glsl"
+#define TRACE_GEOMETRY_SET 1
+#define TRACE_GEOMETRY_BINDING 1
+#define TRACE_RESOURCE_SET 2
+#include "trace.glsl"
+
+// The trace debug view: a ray from the camera through every pixel, showing the base colour of what it hits in the
+// acceleration structures, unlit. It writes the lit HDR target in place of the lighting pass.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 1, binding = 0) uniform accelerationStructureEXT scene;
+layout(set = 1, binding = 2, rgba16f) uniform writeonly image2D target;
+
+// What a ray that hits nothing shows, so open sky reads as sky.
+const vec3 MISS = vec3(0.25, 0.35, 0.55);
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(target);
+    if (any(greaterThanEqual(pixel, size))) {
+        return;
+    }
+
+    // Through the pixel's centre, from the near plane outwards. Depth is reversed, so 1 is near.
+    vec2 ndc = (vec2(pixel) + 0.5) / vec2(size) * 2.0 - 1.0;
+    vec4 near = frame.inverseViewProjection * vec4(ndc, 1.0, 1.0);
+    vec4 further = frame.inverseViewProjection * vec4(ndc, 0.5, 1.0);
+    vec3 origin = near.xyz / near.w;
+    vec3 direction = normalize(further.xyz / further.w - origin);
+
+    TraceHit hit;
+    vec3 color = traceClosest(scene, origin, direction, 1e30, hit) ? hitAlbedo(hit) : MISS;
+    imageStore(target, pixel, vec4(color, 1.0));
+}

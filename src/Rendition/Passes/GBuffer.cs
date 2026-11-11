@@ -73,7 +73,10 @@ internal sealed class GBuffer : IDisposable
         Emissive = new RenderTarget(context, EmissiveFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         Motion = new RenderTarget(context, MotionFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         Depth = new RenderTarget(context, DepthFormat, extent, ImageUsageFlags.DepthStencilAttachmentBit, ImageAspectFlags.DepthBit);
-        Hdr = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
+        // Where the device can trace, the trace debug view writes it from a compute shader instead of lighting it.
+        Hdr = new RenderTarget(context, HdrFormat, extent,
+            ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit | (context.CanTrace ? ImageUsageFlags.StorageBit : 0),
+            ImageAspectFlags.ColorBit);
         Resolved = new RenderTarget(
             context, HdrFormat, Display, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.StorageBit,
             ImageAspectFlags.ColorBit);

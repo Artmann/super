@@ -824,6 +824,19 @@ public readonly record struct FogSettings(float Density = 0f, float Height = 0f,
     public float VolumetricDistance { get; init; } = DefaultVolumetricDistance;
 }
 
+/// <summary>What a frame shows: the lit scene, or a look inside the renderer.</summary>
+public enum DebugView
+{
+    /// <summary>The lit scene.</summary>
+    None,
+
+    /// <summary>
+    /// What a ray from the camera hits in the acceleration structures, as the surface's base colour, unlit and
+    /// ungraded; sky blue where it hits nothing. Shows what rays see, which may differ from what's drawn.
+    /// </summary>
+    Trace,
+}
+
 /// <summary>Everything the renderer needs to know about one frame except the draws.</summary>
 public ref struct FrameView
 {
@@ -836,6 +849,12 @@ public ref struct FrameView
     public Matrix4x4 View;
     public Matrix4x4 Projection;
     public Vector3 CameraPosition;
+
+    /// <summary>
+    /// Shows something other than the lit scene, to look inside the renderer. <see cref="DebugView.Trace"/> needs a
+    /// GPU that can trace (<see cref="Renderer.CanTrace"/>), and <see cref="Renderer.Render"/> throws without one.
+    /// </summary>
+    public DebugView DebugView;
 
     /// <summary>Seconds. Reaches shaders as frame.time, for animated surfaces.</summary>
     public float Time;

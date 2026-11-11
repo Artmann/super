@@ -78,6 +78,12 @@ void main() {
     // themselves and no brightness threshold is needed.
     // Left out, the bloom pass never ran, so its target holds nothing to read.
     vec3 color = texture(hdrTexture, inUv).rgb;
+    // A debug view's colours are shown as they are: no exposure, grade or curve.
+    if (isOff(OFF_DEBUG_VIEW)) {
+        outColor = vec4(clamp(color, 0.0, 1.0), 1.0);
+        return;
+    }
+
     if (!isOff(OFF_BLOOM)) {
         color = mix(color, texture(bloomTexture, inUv).rgb, frame.lift.a);
     }

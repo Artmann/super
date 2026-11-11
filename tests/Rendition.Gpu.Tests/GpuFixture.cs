@@ -87,7 +87,7 @@ public sealed unsafe class GpuFixture : IDisposable
     /// Renders one frame of the draws given, or of nothing, which also runs every copy waiting to ride a frame, such as
     /// a new mesh's.
     /// </summary>
-    public void RenderOneFrame(DrawItem[]? draws = null)
+    public void RenderOneFrame(DrawItem[]? draws = null, DebugView debugView = DebugView.None)
     {
         var view = new FrameView
         {
@@ -96,6 +96,7 @@ public sealed unsafe class GpuFixture : IDisposable
             View = Matrix4x4.CreateLookAt(new Vector3(0, 0, 3), Vector3.Zero, Vector3.UnitY),
             Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 4f, _width / (float)_height, 0.1f),
             CameraPosition = new Vector3(0, 0, 3),
+            DebugView = debugView,
         };
         Renderer.Render(view, draws ?? []);
     }

@@ -73,6 +73,9 @@ const int OFF_DEPTH_OF_FIELD = 1 << 13;
 const int OFF_VOLUMETRIC_FOG = 1 << 15;
 const int OFF_PUDDLES = 1 << 16;
 const int OFF_WIND = 1 << 17;
+// Not a RenderEffects bit: set by the renderer while a debug view shows (DebugViewBit in Renderer.cs). Tonemapping
+// and the finish pass then hand colours through as they are.
+const int OFF_DEBUG_VIEW = 1 << 30;
 
 // The normal target's alpha holds the side a surface faces, 1 or -1. Puddle water writes
 // WATER_SIDE instead, so the lighting knows to shade it at the water's surface, not on the

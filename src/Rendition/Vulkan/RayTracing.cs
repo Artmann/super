@@ -6,10 +6,30 @@ namespace Rendition.Vulkan;
 
 /// <summary>
 /// A built top-level structure: its handle, the address a shader traces it by, and the geometry table its instances
-/// index, one entry per part. Valid only in the command buffer it was recorded into; see <see cref="RayTracing.TopLevel"/>.
+/// index, <see cref="GeometryCount"/> entries, one per part. Valid only in the command buffer it was recorded into;
+/// see <see cref="RayTracing.TopLevel"/>.
 /// </summary>
-internal readonly record struct TopLevelStructure(
-    AccelerationStructureKHR Handle, ulong Address, IReadOnlyList<TraceGeometry> Geometries);
+internal readonly unsafe record struct TopLevelStructure(
+    AccelerationStructureKHR Handle, ulong Address, GpuBuffer GeometryTable, int GeometryCount)
+{
+    /// <summary>The geometry table as the GPU will read it. For tests, before the work it was built for is done.</summary>
+    public ReadOnlySpan<GpuTraceGeometry> ReadGeometries() =>
+        new(GeometryTable.Mapped, GeometryCount);
+}
+
+/// <summary>
+/// One entry of the geometry table, for one part: where its mesh's vertices and indices are, where its triangles start
+/// among the indices, and its material. A hit's entry is its instance's custom index plus its geometry index. Must
+/// match TraceGeometry in Shaders/trace.glsl, laid out as std430: 24 bytes, with the addresses read as uvec2.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct GpuTraceGeometry
+{
+    public ulong Vertices;
+    public ulong Indices;
+    public uint FirstIndex;
+    public uint Material;
+}
 
 /// <summary>
 /// The acceleration structures rays are traced through. A mesh's bottom-level structure is built the first time
@@ -39,6 +59,9 @@ internal sealed unsafe class RayTracing : IDisposable
     // again. One goes out per TopLevel call and comes back once the work recorded with it is done, so a frame still in
     // flight never sees its structure or instances overwritten, however many builds a frame makes.
     private readonly List<TopLevelTarget> _freeTopLevels = [];
+
+    // The parts of the build being made, before they're copied into its geometry table. Reused by every build.
+    private readonly List<TraceGeometry> _packed = [];
     private int _topLevelBuilds;
     private int _topLevelStructuresMade;
     private int _bottomLevelsReleased;
@@ -130,16 +153,31 @@ internal sealed unsafe class RayTracing : IDisposable
 
         var target = Rent(instances.Count);
         var packed = new Span<AccelerationStructureInstanceKHR>(target.Instances.Mapped, instances.Count);
-        target.Geometries.Clear();
+        _packed.Clear();
         try
         {
-            Pack(instances, bottomLevels, packed, target.Geometries);
+            Pack(instances, bottomLevels, packed, _packed);
         }
         catch
         {
             // Nothing has been recorded with it, so it can go straight back.
             Return(target);
             throw;
+        }
+
+        // Copied into the target's own table now, so nothing holds on to the list once this returns.
+        var table = target.Table(_packed.Count);
+        for (int i = 0; i < _packed.Count; i++)
+        {
+            var (meshHandle, part) = _packed[i];
+            var mesh = _meshes(meshHandle);
+            table[i] = new GpuTraceGeometry
+            {
+                Vertices = mesh.Vertices.Address,
+                Indices = mesh.Indices.Address,
+                FirstIndex = part.FirstIndex,
+                Material = (uint)part.Material.Index,
+            };
         }
 
         var geometry = InstancesGeometry(target.Instances.Address);
@@ -161,7 +199,30 @@ internal sealed unsafe class RayTracing : IDisposable
 
         _releaseAfterRecorded(new Recycle(this, target));
         _topLevelBuilds++;
-        return new TopLevelStructure(target.Handle, target.Address, target.Geometries);
+        return new TopLevelStructure(target.Handle, target.Address, target.GeometryTable!, _packed.Count);
+    }
+
+    /// <summary>
+    /// Makes compute shaders recorded after this wait for every structure built before it, so they can trace them.
+    /// <see cref="TopLevel"/>'s own barrier only covers later builds.
+    /// </summary>
+    public void ReadyToTrace(CommandBuffer cmd)
+    {
+        var barrier = new MemoryBarrier2
+        {
+            SType = StructureType.MemoryBarrier2,
+            SrcStageMask = PipelineStageFlags2.AccelerationStructureBuildBitKhr,
+            SrcAccessMask = AccessFlags2.AccelerationStructureWriteBitKhr,
+            DstStageMask = PipelineStageFlags2.ComputeShaderBit,
+            DstAccessMask = AccessFlags2.AccelerationStructureReadBitKhr,
+        };
+        var dependency = new DependencyInfo
+        {
+            SType = StructureType.DependencyInfo,
+            MemoryBarrierCount = 1,
+            PMemoryBarriers = &barrier,
+        };
+        _context.Api.CmdPipelineBarrier2(cmd, &dependency);
     }
 
     /// <summary>
@@ -539,7 +600,7 @@ internal sealed unsafe class RayTracing : IDisposable
 
     /// <summary>
     /// A top-level structure sized for up to <see cref="Capacity"/> instances, the host-visible buffer its instances are
-    /// written into, and the geometry table those instances index.
+    /// written into, and the host-visible geometry table those instances index.
     /// </summary>
     private sealed class TopLevelTarget : IDisposable
     {
@@ -550,8 +611,29 @@ internal sealed unsafe class RayTracing : IDisposable
         public readonly int Capacity;
         public readonly ulong ScratchSize;
         public readonly GpuBuffer Instances;
-        public readonly List<TraceGeometry> Geometries = [];
         public readonly AccelerationStructureKHR Handle;
+
+        /// <summary>The geometry table, made by the first <see cref="Table"/> call and grown by later ones.</summary>
+        public GpuBuffer? GeometryTable { get; private set; }
+
+        private int _tableCapacity;
+
+        /// <summary>
+        /// Room for <paramref name="count"/> entries in the geometry table. A target is only handed out once nothing
+        /// reads it, so a table that's too small can go at once.
+        /// </summary>
+        public Span<GpuTraceGeometry> Table(int count)
+        {
+            if (GeometryTable is null || _tableCapacity < count)
+            {
+                GeometryTable?.Dispose();
+                _tableCapacity = (int)Math.Max(16u, System.Numerics.BitOperations.RoundUpToPowerOf2((uint)count));
+                GeometryTable = GpuBuffer.CreateHostVisible(
+                    _context, (ulong)(_tableCapacity * sizeof(GpuTraceGeometry)), BufferUsageFlags.StorageBufferBit);
+            }
+
+            return new Span<GpuTraceGeometry>(GeometryTable.Mapped, count);
+        }
         public readonly ulong Address;
 
         public TopLevelTarget(VulkanContext context, KhrAccelerationStructure api, int capacity, ulong size, ulong scratchSize)
@@ -578,6 +660,7 @@ internal sealed unsafe class RayTracing : IDisposable
             _api.DestroyAccelerationStructure(_context.Device, Handle, null);
             _buffer.Dispose();
             Instances.Dispose();
+            GeometryTable?.Dispose();
         }
     }
 

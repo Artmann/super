@@ -93,6 +93,10 @@ public sealed unsafe class Renderer : IDisposable
     private readonly UploadQueue _uploads;
     private readonly ResourceTable _resources;
     private readonly RayTracing? _tracing;
+    private readonly TraceDebugPass? _traceDebugPass;
+
+    // Whether this frame shows the trace debug view, which leaves out what would change its colours.
+    private bool _traceView;
     private readonly EnvironmentMap _environment;
     private readonly ReflectionProbes _probes;
 
@@ -176,6 +180,13 @@ public sealed unsafe class Renderer : IDisposable
     // The effects this frame leaves out, and whether tonemapping and bloom are bound to the
     // anti-aliased image or, with anti-aliasing left out, straight to the lit one.
     private RenderEffects _off;
+
+    /// <summary>What the trace debug view leaves out, so its colours reach the screen as they were traced.</summary>
+    private const RenderEffects TraceViewOff =
+        RenderEffects.AntiAliasing | RenderEffects.Bloom | RenderEffects.DepthOfField | RenderEffects.AutoExposure;
+
+    /// <summary>OFF_DEBUG_VIEW in common.glsl: tonemapping and the finish pass pass colours through untouched.</summary>
+    private const int DebugViewBit = 1 << 30;
 
     // How far the frame's wind can move each material's vertices, which culling adds to the bounds.
     private WindReach _windReach;
@@ -427,6 +438,8 @@ public sealed unsafe class Renderer : IDisposable
                 releaseAfterRecorded: used => _destroyed[_frameIndex].Others.Add(used));
         }
 
+        _traceDebugPass = _tracing is null ? null : new TraceDebugPass(_context, FramesInFlight, _frameSetLayout, _resources.Layout);
+
         _shadowResolution = ShadowPass.CheckResolution(options.ShadowResolution);
         _shadowPass = new ShadowPass(_context, _frameSetLayout, _resources, _shadowResolution);
         foreach (ref var frame in _frames.AsSpan())
@@ -516,12 +529,6 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>The acceleration structures rays are traced through, or null when the GPU can't trace.</summary>
     internal RayTracing? Tracing => _tracing;
-
-    /// <summary>
-    /// Builds the top-level structure from each frame's draws, which costs nothing until something asks. Until a view
-    /// traces (the trace debug view), only tests turn it on. Does nothing where the device can't trace.
-    /// </summary>
-    internal bool TraceEveryFrame { get; set; }
 
     private TraceFlags TraceFlagsOf(MaterialHandle material) =>
         RayTracing.TraceFlagsFor(_resources.HasCutouts(material), _resources.GetFlags(material));
@@ -1317,8 +1324,18 @@ public sealed unsafe class Renderer : IDisposable
             return; // Minimized: there is nothing to present to.
         }
 
+        _traceView = view.DebugView == DebugView.Trace;
+        if (_traceView && _tracing is null)
+        {
+            throw new InvalidOperationException(
+                $"The trace debug view needs a GPU that can trace rays, and this one can't ({_context.NoTraceReason}).");
+        }
+
+        // The trace debug view shows colours as they are, so nothing that blends, blurs or brightens them runs.
+        var viewOff = _traceView ? view.Off | TraceViewOff : view.Off;
+
         // FSR draws the picture at the window's size, so starting or stopping it changes the targets.
-        bool upscaling = _upscalerUsed == Upscaler.Fsr && _renderScale <= 1f && !view.Off.HasFlag(RenderEffects.AntiAliasing);
+        bool upscaling = _upscalerUsed == Upscaler.Fsr && _renderScale <= 1f && !viewOff.HasFlag(RenderEffects.AntiAliasing);
         bool upscalingChanged = upscaling != _upscaling;
         _upscaling = upscaling;
         if (_vsyncChanged || (uint)view.Width != _swapchain.Extent.Width || (uint)view.Height != _swapchain.Extent.Height)
@@ -1342,7 +1359,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         // Metering is left out of the shaders unless the view asked for it, so the fixed exposure stays as it was.
-        _off = Exposure.ShaderOff(view.Post, view.Off & RenderEffects.All);
+        _off = Exposure.ShaderOff(view.Post, viewOff & RenderEffects.All);
         _windReach = new WindReach(Wind.Strength(view.Wind, _off), _resources.SwayOf);
         if (!_volumetricFog.HasTargets && VolumetricFog.Pack(view.Fog, _off, false, view.Water.Absorption != Vector3.Zero).X > 0f)
         {
@@ -1466,11 +1483,12 @@ public sealed unsafe class Renderer : IDisposable
         };
         _api.BeginCommandBuffer(cmd, &beginInfo).Check();
         _uploads.Record(cmd, _destroyed[_frameIndex].Others);
-        if (TraceEveryFrame && _tracing is not null)
+        TopLevelStructure? traced = null;
+        if (_traceView)
         {
             // After the uploads, so a mesh made this frame is traced this frame. From here until the submit below,
             // nothing may destroy or change a material: see RayTracing.TopLevel.
-            _tracing.TopLevel(cmd, TraceScene.Collect(draws, TraceFlagsOf));
+            traced = _tracing!.TopLevel(cmd, TraceScene.Collect(draws, TraceFlagsOf));
         }
 
         int overlayQuads = _overlayAtlas is null ? 0 : _overlayPass.Upload(_frameIndex, view.Overlay);
@@ -1487,7 +1505,7 @@ public sealed unsafe class Renderer : IDisposable
         // Worked out here, just before the frame is recorded, so a frame that is never drawn doesn't move the clock.
         _exposureStep = _exposureClock.Next(
             !_off.HasFlag(RenderEffects.AutoExposure), view.Time, Exposure.Speed(view.Post.AdaptationSpeed));
-        RecordFrame(cmd, frame.Set, imageIndex, _cameraDraws.AsSpan(0, cameraCount), overlayQuads);
+        RecordFrame(cmd, frame.Set, imageIndex, _cameraDraws.AsSpan(0, cameraCount), overlayQuads, traced);
         _gpuTimer.End();
         _api.EndCommandBuffer(cmd).Check();
 
@@ -1711,6 +1729,7 @@ public sealed unsafe class Renderer : IDisposable
             ReleaseDestroyed(slot);
         }
 
+        _traceDebugPass?.Dispose();
         _tracing?.Dispose();
         _gpuTimer.Dispose();
         _overlayPass.Dispose();
@@ -1781,7 +1800,8 @@ public sealed unsafe class Renderer : IDisposable
         DescriptorSet frameSet,
         uint imageIndex,
         ReadOnlySpan<DrawItem> draws,
-        int overlayQuads)
+        int overlayQuads,
+        TopLevelStructure? traced)
     {
         var targets = _gBuffer;
         // The picture's size from anti-aliasing on: the scene's, or the window's once FSR has rebuilt it.
@@ -1795,7 +1815,7 @@ public sealed unsafe class Renderer : IDisposable
             _heldNumber = _transitionHold;
         }
 
-        RecordScene(cmd, frameSet, draws, [], shadowsSelected: true, _transparentView, _particleCount, _motion);
+        RecordScene(cmd, frameSet, draws, [], shadowsSelected: true, _transparentView, _particleCount, _motion, traced);
 
         // Anti-aliasing blends in the last frame, and reflections read it, so it's kept for
         // the next while either wants it. Without anti-aliasing the lit image is the frame.
@@ -1991,7 +2011,8 @@ public sealed unsafe class Renderer : IDisposable
         bool shadowsSelected,
         in TransparentView view,
         int particleCount = 0,
-        MotionHistory? motion = null)
+        MotionHistory? motion = null,
+        TopLevelStructure? traced = null)
     {
         var targets = _gBuffer;
         var instances = _frames[_frameIndex].Instances;
@@ -2122,6 +2143,20 @@ public sealed unsafe class Renderer : IDisposable
             _aoBlurPass.Record(cmd, targets.AoBlurred.View, extent, aoBlurSets);
             _api.EndColorTarget(cmd, targets.AoBlurred.Image);
             _gpuTimer.Mark(cmd);
+        }
+
+        if (traced is { } scene)
+        {
+            // The trace debug view writes Hdr in place of lighting, and nothing blends over it. Depth is left read-only
+            // as the transparent pass would leave it, for the passes after.
+            _traceDebugPass!.Record(cmd, _frameIndex, _tracing!, scene, frameSet, _resources.Set, targets.Hdr, extent);
+            _gpuTimer.Mark(cmd);
+            _gpuTimer.Mark(cmd);
+            _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
+                ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthReadOnlyOptimal, SampledStage, SampledAccess, DepthStages | SampledStage,
+                AccessFlags2.DepthStencilAttachmentReadBit | SampledAccess);
+            _gpuTimer.Mark(cmd);
+            return;
         }
 
         _api.BeginColorTarget(cmd, targets.Hdr.Image);
@@ -2407,7 +2442,7 @@ public sealed unsafe class Renderer : IDisposable
 
         // With no sun shadow there are no maps to look up, so nothing walks the cascades.
         uniforms->ShadowCascades = castsShadow ? _shadowCascades : 0;
-        uniforms->Off = (int)_off;
+        uniforms->Off = (int)_off | (_traceView && !capturingProbe ? DebugViewBit : 0);
         uniforms->MipBias = capturingProbe || _off.HasFlag(RenderEffects.AntiAliasing) ? 0f
             : _upscaling ? FsrMipBias(_gBuffer.Extent.Width, _gBuffer.Display.Width)
             : TemporalMipBias;

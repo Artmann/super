@@ -16,6 +16,9 @@ internal sealed unsafe class ResourceTable : IDisposable
     public const uint MaxTextureArrays = 256;
     public const int MaxMaterials = 1024;
 
+    /// <summary>Fragment shaders draw with the table; compute shaders that trace rays read it for what they hit.</summary>
+    private const ShaderStageFlags Stages = ShaderStageFlags.FragmentBit | ShaderStageFlags.ComputeBit;
+
     /// <summary>Must match the Material struct in Shaders/material.glsl, laid out as std430.</summary>
     [StructLayout(LayoutKind.Sequential)]
     internal struct GpuMaterial
@@ -136,9 +139,9 @@ internal sealed unsafe class ResourceTable : IDisposable
 
         var bindings = stackalloc DescriptorSetLayoutBinding[]
         {
-            new(0, DescriptorType.CombinedImageSampler, MaxTextures, ShaderStageFlags.FragmentBit),
-            new(1, DescriptorType.StorageBuffer, 1, ShaderStageFlags.FragmentBit),
-            new(2, DescriptorType.CombinedImageSampler, MaxTextureArrays, ShaderStageFlags.FragmentBit),
+            new(0, DescriptorType.CombinedImageSampler, MaxTextures, Stages),
+            new(1, DescriptorType.StorageBuffer, 1, Stages),
+            new(2, DescriptorType.CombinedImageSampler, MaxTextureArrays, Stages),
         };
 
         // Most of the texture arrays stay empty, which Vulkan only allows when told so, and
