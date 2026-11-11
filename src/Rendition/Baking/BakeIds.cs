@@ -8,7 +8,10 @@ namespace Rendition;
 /// </summary>
 public static class BakeIds
 {
-    /// <summary>The highest part number an id can hold, and so the most parts one static model can have, less one.</summary>
+    /// <summary>
+    /// The highest part number an id can hold, so parts run from 0 to it. It is also the most parts one static model
+    /// can have: a static model of more parts throws when drawn.
+    /// </summary>
     public const int MaxParts = 4095;
 
     private const ulong PartMask = 0xFFF;

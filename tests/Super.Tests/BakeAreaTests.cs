@@ -75,11 +75,20 @@ public class BakeAreaTests
     [Fact]
     public void Chunk_box_turns_with_the_chunk()
     {
-        BakedChunk[] chunks = [Cottage(new Vector3(20f, 0f, 0f))];
+        // The box reaches 3 m along the chunk's +X and 1 m along its -X. Turning 90 degrees about Y takes chunk
+        // (x, y, z) to world (20 + z, y, -x), so the long side lies along the world's -Z: world Z from -3 to 1.
+        BakedChunk[] chunks =
+        [
+            new("cottage", Matrix4x4.CreateRotationY(MathF.PI / 2f) * Matrix4x4.CreateTranslation(20f, 0f, 0f),
+                new Vector3(-1f, 0f, -2f), new Vector3(3f, 3f, 2f)),
+        ];
 
-        Assert.Equal(0, BakeAreas.OwnerOfLight(new Vector3(20f, 1f, 1.9f), null, chunks));
+        // Chunk (2.5, 1, 0): inside. Unturned it would be chunk z = -2.5, and turned the wrong way chunk x = -2.5.
+        Assert.Equal(0, BakeAreas.OwnerOfLight(new Vector3(20f, 1f, -2.5f), null, chunks));
+        // Chunk (0, 1, 1.9): inside.
         Assert.Equal(0, BakeAreas.OwnerOfLight(new Vector3(21.9f, 1f, 0f), null, chunks));
-        Assert.Equal(BakeAreas.None, BakeAreas.OwnerOfLight(new Vector3(20f, 1f, 2.5f), null, chunks));
+        // Chunk (-1.5, 1, 0): half a metre past the short side. Unturned or turned the wrong way it would be inside.
+        Assert.Equal(BakeAreas.None, BakeAreas.OwnerOfLight(new Vector3(20f, 1f, 1.5f), null, chunks));
     }
 
     [Fact]

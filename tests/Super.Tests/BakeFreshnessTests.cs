@@ -236,6 +236,48 @@ public sealed class BakeFreshnessTests
     }
 
     [Fact]
+    public void Moving_a_chunk_changes_the_space_draws()
+    {
+        // The room 5 m further east, with its draw moved along, so the draw's chunk-relative id is the same.
+        var moved = Room with { Transform = Matrix4x4.CreateTranslation(25f, 0f, 0f) };
+
+        var here = Resolve(Courtyard, [Room], [], [], [Static(1, InRoom)], NoBakes.Instance);
+        var there = Resolve(Courtyard, [moved], [], [], [Static(1, InRoom + new Vector3(5f, 0f, 0f))], NoBakes.Instance);
+
+        Assert.Equal(here.Chunks[0], there.Chunks[0]);
+        Assert.Equal(["draws"], there.Space!.Value.Changes(here.Space!.Value));
+    }
+
+    [Fact]
+    public void Swapping_where_two_chunks_stand_changes_the_space_draws()
+    {
+        // Two rooms, 20 m and 40 m east, each owning one draw. Swapping them keeps both the set of ids and the set of
+        // places, so only pairing each place with its draws can tell.
+        var far = Room with { Transform = Matrix4x4.CreateTranslation(40f, 0f, 0f) };
+        var farRoom = InRoom + new Vector3(20f, 0f, 0f);
+
+        var before = Resolve(Courtyard, [Room, far], [], [], [Static(1, InRoom), Static(2, farRoom)], NoBakes.Instance);
+        var after = Resolve(Courtyard, [Room, far], [], [], [Static(2, InRoom), Static(1, farRoom)], NoBakes.Instance);
+
+        Assert.Equal(["draws"], after.Space!.Value.Changes(before.Space!.Value));
+    }
+
+    [Fact]
+    public void Same_model_in_two_copies_of_a_chunk_counts_in_each()
+    {
+        // Two copies of the room hold the same draw at the same place in each, so both draws have one id. They come
+        // one after the other, like a model's parts, but stand in different places, so they are two models.
+        var far = Room with { Transform = Matrix4x4.CreateTranslation(40f, 0f, 0f) };
+        var farRoom = InRoom + new Vector3(20f, 0f, 0f);
+
+        var both = Resolve(null, [Room, far], [], [], [Static(1, InRoom), Static(1, farRoom)], NoBakes.Instance);
+        var alone = Resolve(null, [Room], [], [], [Static(1, InRoom)], NoBakes.Instance);
+
+        Assert.Equal(alone.Chunks[0].Draws, both.Chunks[0].Draws);
+        Assert.Equal(alone.Chunks[0].Draws, both.Chunks[1].Draws);
+    }
+
+    [Fact]
     public void Chunk_light_hash_does_not_depend_on_where_the_chunk_stands()
     {
         var turned = Room with { Transform = Matrix4x4.CreateRotationY(MathF.PI / 2f) * Matrix4x4.CreateTranslation(-40f, 0f, 30f) };

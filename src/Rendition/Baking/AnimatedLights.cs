@@ -69,7 +69,6 @@ public sealed class AnimatedLights(TextWriter log)
 
     private void Begin(float time)
     {
-
         if (hasTime && time < lastTime)
         {
             states.Clear();

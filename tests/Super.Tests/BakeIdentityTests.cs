@@ -28,13 +28,17 @@ public class BakeIdentityTests
 
     private readonly BakeIdentity.Scratch _scratch = new();
 
-    /// <summary>The parts of the view's last draw as the renderer would hand them over, each a sphere of half a metre.</summary>
-    private DrawItem[] Dressed(View view, Content content, int parts = 1)
+    /// <summary>
+    /// The parts of the view's last draw as the renderer would hand them over, each a sphere of half a metre round the
+    /// model's origin unless <paramref name="bounds"/> says otherwise. Part p's detail is <c>new DetailHandle(p)</c>.
+    /// </summary>
+    private DrawItem[] Dressed(View view, Content content, int parts = 1, BakeSphere[]? bounds = null)
     {
         ref readonly var draw = ref view.Drawn[^1];
+        bounds ??= Enumerable.Repeat(new BakeSphere(Vector3.Zero, 0.5f), parts).ToArray();
+        var model = Enumerable.Range(0, bounds.Length).Select(p => new DrawItem { Detail = new DetailHandle(p) }).ToArray();
         var shown = Array.Empty<DrawItem>();
-        int count = SceneRenderer.AddShown(new DrawItem[parts], draw.Meshes, ref shown, 0);
-        var bounds = Enumerable.Repeat(new BakeSphere(Vector3.Zero, 0.5f), parts).ToArray();
+        int count = SceneRenderer.AddShown(model, draw.Meshes, ref shown, 0);
         SceneRenderer.Dress(shown.AsSpan(0, count), in draw, default, bounds, content, view.BakedSpace, view.PlacedBakedChunks, _scratch);
         return shown[..count];
     }
@@ -269,6 +273,44 @@ public class BakeIdentityTests
         ulong away = ChunkId(moved, outside * moved);
 
         Assert.NotEqual(home, away);
+    }
+
+    [Fact]
+    public void Model_across_a_chunk_edge_is_filed_whole_under_the_chunk_that_gave_its_ids()
+    {
+        // Two chunks side by side: west (at x = 10) holds x from 8 to 12, east (at x = 14.5) from 12.5 to 16.5. The
+        // model's two parts are half-metre balls 1.5 m either side of its origin, and it stands at x = 11.5, so its
+        // parts sit at x = 10 (in west) and x = 13 (in east), and the whole model's centre, x = 11.5, is in west.
+        var view = new View();
+        view.Begin(0f);
+        view.BakedChunk("west", Matrix4x4.CreateTranslation(10f, 0f, 0f), ChunkMin, ChunkMax);
+        view.BakedChunk("east", Matrix4x4.CreateTranslation(14.5f, 0f, 0f), ChunkMin, ChunkMax);
+        view.Model(1, ModelRef.Cube, Matrix4x4.CreateTranslation(11.5f, 0f, 0f), isStatic: true);
+        BakeSphere[] bounds = [new(new Vector3(-1.5f, 0f, 0f), 0.5f), new(new Vector3(1.5f, 0f, 0f), 0.5f)];
+        var parts = Dressed(view, Fresh(), bounds: bounds);
+        var chunks = view.PlacedBakedChunks.ToArray();
+        var settings = new BakeSettings(Quality: BakeQuality.Final);
+
+        var resolved = BakeFreshness.Resolve(
+            new FrameView { BakedChunks = chunks }, parts, detail => bounds[detail.Index], 0, settings,
+            new AnimatedLights(new StringWriter()), NoBakes.Instance);
+
+        Assert.Equal(2, parts.Length);
+        Assert.Equal(BakeInputHash.Chunk([parts[0].BakeId, parts[1].BakeId], [], chunks[0], settings).Draws, resolved.Chunks[0].Draws);
+        Assert.Equal(BakeInputHash.Chunk([], [], chunks[1], settings).Draws, resolved.Chunks[1].Draws);
+        // The ids are relative to west: the model standing 1.5 m along a chunk at the origin gets the same ones.
+        Assert.Equal(
+            parts.Select(part => part.BakeId),
+            ChunkModelIds(Matrix4x4.Identity, Matrix4x4.CreateTranslation(1.5f, 0f, 0f), bounds));
+    }
+
+    private ulong[] ChunkModelIds(Matrix4x4 chunk, Matrix4x4 transform, BakeSphere[] bounds)
+    {
+        var view = new View();
+        view.Begin(0f);
+        view.BakedChunk("cottage", chunk, ChunkMin, ChunkMax);
+        view.Model(1, ModelRef.Cube, transform, isStatic: true);
+        return Dressed(view, Fresh(), bounds: bounds).Select(part => part.BakeId).ToArray();
     }
 
     private ulong ChunkId(Matrix4x4 chunk, Matrix4x4 transform)

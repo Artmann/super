@@ -20,28 +20,30 @@ public static class BakeInputHash
     private static StableHasher? _hasher;
 
     /// <summary>
-    /// A Mixed or Baked light, as seen from its baked area: <paramref name="toArea"/> takes it from the world into the
-    /// area, the identity for a space and the chunk's inverse for a chunk, so every placed copy of a chunk gives the
-    /// same hash. Realtime lights are never part of a bake, so they are never passed in.
+    /// A Mixed or Baked light, as seen from its baked area. <paramref name="area"/> is where the area stands: the
+    /// identity for a space, and the chunk's own rigid transform for a chunk. The light is taken into the area with
+    /// <see cref="BakeAreas.IntoChunk"/>, in doubles, so every placed copy of a chunk gives the same hash. Realtime
+    /// lights are never part of a bake, so they are never passed in.
     /// </summary>
     /// <remarks>
-    /// The hash holds the mode, the position, range and radius (0 counted as <see cref="LocalLight.DefaultRadius"/>),
-    /// whether it casts a shadow, and for a spot its direction and both angles. Colour counts only for a Baked light: a
-    /// Mixed light's direct light stays live. <see cref="LocalLight.Key"/> only tracks a shadow from frame to frame and
-    /// <see cref="LocalLight.Volumetric"/> only lights the fog, so neither is in it.
+    /// The hash holds the mode, the position, range and radius (one that is 0 or less, or not a number, counted as
+    /// <see cref="LocalLight.DefaultRadius"/>, as the renderer draws it), whether it casts a shadow, and for a spot its
+    /// direction and both angles. Colour counts only for a Baked light: a Mixed light's direct light stays live.
+    /// <see cref="LocalLight.Key"/> only tracks a shadow from frame to frame and <see cref="LocalLight.Volumetric"/>
+    /// only lights the fog, so neither is in it.
     /// </remarks>
-    public static ulong Light(in LocalLight light, in Matrix4x4 toArea)
+    public static ulong Light(in LocalLight light, in Matrix4x4 area)
     {
         var hasher = Hasher();
         hasher.Add((int)light.Mode);
-        hasher.Add(Point(light.Position, toArea));
+        hasher.Add(Into(area, light.Position, 1.0));
         hasher.Add(light.Range);
-        hasher.Add(light.Radius == 0f ? LocalLight.DefaultRadius : light.Radius);
+        hasher.Add(Passes.LocalLights.RadiusOf(light));
         hasher.Add(light.CastsShadow ? 1 : 0);
         if (light.IsSpot)
         {
             hasher.Add(1);
-            hasher.Add(Direction(light.Direction, toArea));
+            hasher.Add(Into(area, light.Direction, 0.0));
             hasher.Add(light.InnerAngle);
             hasher.Add(light.OuterAngle);
         }
@@ -79,14 +81,20 @@ public static class BakeInputHash
     /// <summary>
     /// A space's inputs. <paramref name="bakeIds"/> are its static draws' ids and <paramref name="lights"/> its lights'
     /// <see cref="Light"/> hashes, in any order; neither span is changed. <paramref name="sun"/> is the sun's
-    /// <see cref="Sun"/> hash, or null when the space has none.
+    /// <see cref="Sun"/> hash, or null when the space has none. <paramref name="placedChunks"/> holds a
+    /// <see cref="PlacedChunk"/> hash, in any order, for each chunk that owns some of those draws: their ids are
+    /// relative to the chunk, so only this says where they stand.
     /// </summary>
     public static BakeInputs Space(
         ReadOnlySpan<ulong> bakeIds, ReadOnlySpan<ulong> lights, BakedSpace space, ulong environment, ulong? sun,
-        BakeSettings settings)
+        BakeSettings settings, ReadOnlySpan<ulong> placedChunks = default)
     {
-        ulong draws = Sorted(bakeIds);
         var hasher = Hasher();
+        AddSorted(hasher, bakeIds);
+        AddSorted(hasher, placedChunks);
+        ulong draws = hasher.Finish();
+
+        hasher = Hasher();
         AddSorted(hasher, lights);
         if (sun is { } sunHash)
         {
@@ -124,6 +132,14 @@ public static class BakeInputHash
         hasher.Add(chunk.Max);
         return new BakeInputs(draws, lightHash, 0, hasher.Finish());
     }
+
+    /// <summary>
+    /// Where a chunk stands, with the draws it owns, for the space's <see cref="Space"/> hash: the chunk's transform,
+    /// rounded as every float is, then <paramref name="chunkDraws"/>, the chunk's own <see cref="BakeInputs.Draws"/>.
+    /// Moving or turning the chunk changes it, and so does swapping where two chunks stand.
+    /// </summary>
+    public static ulong PlacedChunk(in BakedChunk chunk, ulong chunkDraws) =>
+        Hasher().Add(chunk.Transform).Add(chunkDraws).Finish();
 
     /// <summary>This thread's hasher, started again, so hashing makes no garbage after the first call.</summary>
     internal static StableHasher Hasher()
@@ -175,15 +191,11 @@ public static class BakeInputHash
         }
     }
 
-    // A row vector times the matrix, as Vector3.Transform does, worked in doubles so a chunk far out keeps its
-    // precision past the float sums.
-    private static Vector3 Point(Vector3 p, in Matrix4x4 m) => new(
-        (float)((double)p.X * m.M11 + (double)p.Y * m.M21 + (double)p.Z * m.M31 + m.M41),
-        (float)((double)p.X * m.M12 + (double)p.Y * m.M22 + (double)p.Z * m.M32 + m.M42),
-        (float)((double)p.X * m.M13 + (double)p.Y * m.M23 + (double)p.Z * m.M33 + m.M43));
-
-    private static Vector3 Direction(Vector3 d, in Matrix4x4 m) => new(
-        (float)((double)d.X * m.M11 + (double)d.Y * m.M21 + (double)d.Z * m.M31),
-        (float)((double)d.X * m.M12 + (double)d.Y * m.M22 + (double)d.Z * m.M32),
-        (float)((double)d.X * m.M13 + (double)d.Y * m.M23 + (double)d.Z * m.M33));
+    // A point (w 1) or a direction (w 0) in the area's own space, worked in doubles by the same inverse the owner
+    // checks and the bake ids use.
+    private static Vector3 Into(in Matrix4x4 area, Vector3 world, double w)
+    {
+        var (x, y, z) = BakeAreas.IntoChunk(area, world.X, world.Y, world.Z, w);
+        return new Vector3((float)x, (float)y, (float)z);
+    }
 }

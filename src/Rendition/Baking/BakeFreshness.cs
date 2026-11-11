@@ -85,9 +85,10 @@ public static class BakeFreshness
     /// Hashes each of the frame's baked areas, asks <paramref name="store"/> whether its bake is fresh, and decides how
     /// each light is used. Every Mixed or Baked light is first given to <paramref name="animated"/> with its world-space
     /// hash, and one that is moving is left out of its area's inputs and stays real-time. Realtime lights are never
-    /// hashed or tracked. The space's draws are every static draw in the frame, since all of them block its light;
-    /// a chunk's are only the ones it owns (<see cref="BakeAreas.OwnerOfDraw"/>). The frame's chunks must already
-    /// pass <see cref="BakeFiles.IsRigid"/>, as <see cref="Renderer.Render"/> checks.
+    /// hashed or tracked. The space's draws are every static draw in the frame, since all of them block its light,
+    /// plus where each chunk that owns some stands (<see cref="BakeInputHash.PlacedChunk"/>); a chunk's are only the
+    /// models it owns (<see cref="BakeAreas.OwnerOfModel"/>), with every part of a model filed together. The frame's
+    /// chunks must already pass <see cref="BakeFiles.IsRigid"/>, as <see cref="Renderer.Render"/> checks.
     /// </summary>
     /// <remarks>
     /// A frame that names no space and no chunks returns one shared empty frame at once, without hashing anything,
@@ -137,11 +138,6 @@ public static class BakeFreshness
         // so every placed copy gives the same hash.
         var chunkIds = new List<ulong>?[chunks.Length];
         var chunkLights = new List<ulong>?[chunks.Length];
-        var toChunks = new Matrix4x4[chunks.Length];
-        for (int c = 0; c < chunks.Length; c++)
-        {
-            Matrix4x4.Invert(chunks[c].Transform, out toChunks[c]);
-        }
 
         // Which area owns each light that can join a bake: BakeAreas.None for a Realtime or moving one.
         var lightOwners = new int[locals.Length];
@@ -152,39 +148,44 @@ public static class BakeFreshness
                 : BakeAreas.None;
             if (lightOwners[i] >= 0)
             {
-                (chunkLights[lightOwners[i]] ??= []).Add(BakeInputHash.Light(locals[i], toChunks[lightOwners[i]]));
+                (chunkLights[lightOwners[i]] ??= []).Add(BakeInputHash.Light(locals[i], chunks[lightOwners[i]].Transform));
             }
         }
 
+        // A model's parts are filed together, under the area that owns the whole model, the same call Super made when
+        // it gave their ids, so a model straddling two areas is never split between them.
         int staticCount = 0;
-        for (int i = 0; i < draws.Length; i++)
+        var modelParts = new List<BakeSphere>();
+        for (int first = 0; first < draws.Length;)
         {
-            if (draws[i].BakeId == 0)
+            if (draws[first].BakeId == 0)
             {
+                first++;
                 continue;
             }
 
-            staticCount++;
-            if (chunks.IsEmpty)
+            int end = ModelEnd(draws, first);
+            staticCount += end - first;
+            if (!chunks.IsEmpty)
             {
-                continue;
+                modelParts.Clear();
+                for (int p = first; p < end; p++)
+                {
+                    modelParts.Add(BakeAreas.Transform(bounds(draws[p].Detail), draws[p].Transform));
+                }
+
+                int owner = BakeAreas.OwnerOfModel(CollectionsMarshal.AsSpan(modelParts), space, chunks);
+                if (owner >= 0)
+                {
+                    var ids = chunkIds[owner] ??= [];
+                    for (int p = first; p < end; p++)
+                    {
+                        ids.Add(draws[p].BakeId);
+                    }
+                }
             }
 
-            var world = BakeAreas.Transform(bounds(draws[i].Detail), draws[i].Transform);
-            int owner = BakeAreas.OwnerOfDraw(world, space, chunks);
-            if (owner >= 0)
-            {
-                (chunkIds[owner] ??= []).Add(draws[i].BakeId);
-            }
-        }
-
-        BakeInputs? spaceInputs = null;
-        bool spaceFresh = false;
-        if (space is { } baked)
-        {
-            spaceInputs = SpaceInputs(baked, draws, staticCount, locals, localHashes, lightOwners, suns, sunHashes,
-                animated, environment, settings);
-            spaceFresh = store.IsFresh(BakeFiles.Space(baked.Name), spaceInputs.Value);
+            first = end;
         }
 
         var chunkInputs = new BakeInputs[chunks.Length];
@@ -196,6 +197,25 @@ public static class BakeFreshness
                 chunkLights[c] is { } lights ? CollectionsMarshal.AsSpan(lights) : [],
                 chunks[c], settings);
             chunkFresh[c] = store.IsFresh(BakeFiles.Chunk(chunks[c].Name, chunkInputs[c].Combined), chunkInputs[c]);
+        }
+
+        BakeInputs? spaceInputs = null;
+        bool spaceFresh = false;
+        if (space is { } baked)
+        {
+            // A chunk's draws have ids relative to it, so where each chunk that owns some stands goes in too.
+            var placed = new List<ulong>();
+            for (int c = 0; c < chunks.Length; c++)
+            {
+                if (chunkIds[c] is not null)
+                {
+                    placed.Add(BakeInputHash.PlacedChunk(chunks[c], chunkInputs[c].Draws));
+                }
+            }
+
+            spaceInputs = SpaceInputs(baked, draws, staticCount, CollectionsMarshal.AsSpan(placed), locals, localHashes,
+                lightOwners, suns, sunHashes, animated, environment, settings);
+            spaceFresh = store.IsFresh(BakeFiles.Space(baked.Name), spaceInputs.Value);
         }
 
         // A light over a fresh bake keeps its mode, and a Baked one is left to the bake.
@@ -268,10 +288,28 @@ public static class BakeFreshness
     private static bool InBake(LightMode mode, LightKey key, AnimatedLights animated) =>
         mode != LightMode.Realtime && !animated.IsAnimated(key);
 
+    // The end of the model whose first part is draws[first]: SceneRenderer puts a model's shown parts one after
+    // another, every one with the model's instance (BakeIds.Instance) and transform. Two copies of a chunk can give a
+    // model the same instance, but they stand in different places, so the transform keeps them apart.
+    private static int ModelEnd(ReadOnlySpan<DrawItem> draws, int first)
+    {
+        ulong instance = BakeIds.Instance(draws[first].BakeId);
+        int end = first + 1;
+        while (end < draws.Length
+            && draws[end].BakeId != 0
+            && BakeIds.Instance(draws[end].BakeId) == instance
+            && draws[end].Transform == draws[first].Transform)
+        {
+            end++;
+        }
+
+        return end;
+    }
+
     private static BakeInputs SpaceInputs(
-        BakedSpace space, ReadOnlySpan<DrawItem> draws, int staticCount, ReadOnlySpan<LocalLight> locals,
-        ulong[] localHashes, int[] lightOwners, ReadOnlySpan<DirectionalLight> suns, ulong[] sunHashes,
-        AnimatedLights animated, ulong environment, BakeSettings settings)
+        BakedSpace space, ReadOnlySpan<DrawItem> draws, int staticCount, ReadOnlySpan<ulong> placedChunks,
+        ReadOnlySpan<LocalLight> locals, ulong[] localHashes, int[] lightOwners, ReadOnlySpan<DirectionalLight> suns,
+        ulong[] sunHashes, AnimatedLights animated, ulong environment, BakeSettings settings)
     {
         // Every static draw in the frame blocks and bounces the space's light, wherever it stands.
         var ids = new ulong[staticCount];
@@ -302,7 +340,7 @@ public static class BakeFreshness
             }
         }
 
-        return BakeInputHash.Space(ids, [.. lights], space, environment, SunHash(sunsInBake), settings);
+        return BakeInputHash.Space(ids, [.. lights], space, environment, SunHash(sunsInBake), settings, placedChunks);
     }
 
     // One sun is hashed as itself; more than one, which is rare, as their count and hashes in ascending order.

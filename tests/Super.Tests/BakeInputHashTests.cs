@@ -96,11 +96,15 @@ public class BakeInputHashTests
         Assert.Equal(BakeInputHash.Light(point, Matrix4x4.Identity), BakeInputHash.Light(turned, Matrix4x4.Identity));
     }
 
-    [Fact]
-    public void Light_radius_zero_hashes_as_the_default_radius()
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(-0.5f)]
+    [InlineData(float.NaN)]
+    [InlineData(float.PositiveInfinity)]
+    public void Light_radius_of_zero_or_less_or_not_a_size_hashes_as_the_default_radius(float radius)
     {
         var light = Torch(LightMode.Mixed);
-        light.Radius = 0f;
+        light.Radius = radius;
         var explicitDefault = light;
         explicitDefault.Radius = LocalLight.DefaultRadius;
 
@@ -281,13 +285,13 @@ public class BakeInputHashTests
     public void Known_space_hash()
     {
         // Worked out once from the implementation and written in. It pins the order every field is fed in: draws
-        // (count, then the sorted ids), lights (count, sorted light hashes, then 1 and the sun's hash or 0), the
+        // (count, then the sorted ids, then the count and sorted hashes of placed chunks, none here), lights (count, sorted light hashes, then 1 and the sun's hash or 0), the
         // environment as given, and settings (0 for a space, texels per metre, quality, baker version, probe spacing,
         // min, max), then Combined over the four in that order. Reordering any of them, or changing the baker
         // version, fails here; such a change makes every saved bake stale, so it must be on purpose.
         var inputs = BakeInputHash.Space(Draws, Lights, Crypt, 42, 5, new BakeSettings());
 
-        Assert.Equal(0xC60B_D7BE_AAC1_3C4Eul, inputs.Combined);
+        Assert.Equal(0x60B7_D31C_CBFD_CAA7ul, inputs.Combined);
     }
 
     private static ulong SwedishSensitiveHash()
@@ -301,14 +305,13 @@ public class BakeInputHashTests
     }
 
     // The light is given in the chunk's own space, placed in the world by the chunk's transform, and handed to the
-    // hash with the chunk's inverse, as a frame would hand a light it finds inside a placed chunk.
+    // hash with the chunk's transform, as a frame would hand a light it finds inside a placed chunk.
     private static BakeInputs ChunkInputs(LocalLight local, BakedChunk chunk)
     {
         var world = local;
         world.Position = Vector3.Transform(local.Position, chunk.Transform);
         world.Direction = Vector3.TransformNormal(local.Direction, chunk.Transform);
-        Assert.True(Matrix4x4.Invert(chunk.Transform, out var toArea));
-        ulong light = BakeInputHash.Light(world, toArea);
+        ulong light = BakeInputHash.Light(world, chunk.Transform);
         return BakeInputHash.Chunk(Draws, [light], chunk, new BakeSettings());
     }
 

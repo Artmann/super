@@ -51,8 +51,9 @@ internal static class BakeIdentity
     }
 
     /// <summary>
-    /// <paramref name="world"/> as seen from a rigid chunk: world times the chunk's inverse. Worked in doubles, so a chunk
-    /// far from the origin gives the same numbers as one at it.
+    /// <paramref name="world"/> as seen from a rigid chunk: world times the chunk's inverse, row by row through
+    /// <see cref="BakeAreas.IntoChunk"/>. Worked in doubles, so a chunk far from the origin gives the same numbers as one
+    /// at it.
     /// </summary>
     public static Matrix4x4 Relative(in Matrix4x4 world, in Matrix4x4 chunk)
     {
@@ -61,14 +62,10 @@ internal static class BakeIdentity
         {
             // A row with a 1 in its last column is a point, and takes off the chunk's translation; a direction doesn't.
             double w = world[row, 3];
-            double dx = world[row, 0] - w * chunk.M41;
-            double dy = world[row, 1] - w * chunk.M42;
-            double dz = world[row, 2] - w * chunk.M43;
-
-            // The inverse rotation is the transpose, so each local coordinate is a dot product with one of the chunk's rows.
-            result[row, 0] = (float)(dx * chunk.M11 + dy * chunk.M12 + dz * chunk.M13);
-            result[row, 1] = (float)(dx * chunk.M21 + dy * chunk.M22 + dz * chunk.M23);
-            result[row, 2] = (float)(dx * chunk.M31 + dy * chunk.M32 + dz * chunk.M33);
+            var (x, y, z) = BakeAreas.IntoChunk(chunk, world[row, 0], world[row, 1], world[row, 2], w);
+            result[row, 0] = (float)x;
+            result[row, 1] = (float)y;
+            result[row, 2] = (float)z;
             result[row, 3] = (float)w;
         }
 
@@ -101,7 +98,7 @@ internal static class BakeIdentity
             }
         }
 
-        int owner = BakeAreas.OwnerOfDraw(BakeAreas.Union(spheres), space, chunks);
+        int owner = BakeAreas.OwnerOfModel(spheres, space, chunks);
         var placed = owner >= 0 ? Relative(transform, chunks[owner].Transform) : transform;
         ulong instance = Instance(scratch.Hasher, model, tint, placed);
 

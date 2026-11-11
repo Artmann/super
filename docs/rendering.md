@@ -402,7 +402,8 @@ frame that names none does no bake work at all.
 From code, `Renderer.LastBakeFrame` shows what the last frame decided. It is null after a
 frame that named no baked area. Otherwise its `Space` and `Chunks` hold the inputs of each
 area, `SpaceFresh` and `ChunkFresh` say which bakes were found, `ModeOf(key)` gives the mode
-each light was drawn with (`Realtime` for every light drawn live), and `DroppedLocalLights`
+each light was drawn with: the light's own mode, or `Realtime` when it is moving or no fresh
+bake holds it, and `DroppedLocalLights`
 and `DroppedSuns` list the lights left to a bake, by their place in the frame's lists.
 
 ## Reflections

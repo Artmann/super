@@ -31,6 +31,14 @@ public static class BakeAreas
         return ChunkHolding(world.Center, chunks);
     }
 
+    /// <summary>
+    /// The owner of a whole model, from its shown parts' spheres in world space, in the model's part order:
+    /// <see cref="OwnerOfDraw"/> of their <see cref="Union"/>, so a model is never split between areas. Super gives
+    /// bake ids by it and <see cref="BakeFreshness.Resolve"/> files the ids by it, so the two always agree.
+    /// </summary>
+    public static int OwnerOfModel(ReadOnlySpan<BakeSphere> worldParts, BakedSpace? space, ReadOnlySpan<BakedChunk> chunks) =>
+        OwnerOfDraw(Union(worldParts), space, chunks);
+
     /// <summary>The space if <paramref name="position"/> is in its box, else the first chunk holding it, else <see cref="None"/>.</summary>
     public static int OwnerOfLight(Vector3 position, BakedSpace? space, ReadOnlySpan<BakedChunk> chunks)
     {
@@ -105,18 +113,30 @@ public static class BakeAreas
         return None;
     }
 
-    // The transform is rigid (BakeFiles.IsRigid), so its inverse is the transpose of its rotation after taking off
-    // the translation. Rows are the chunk's axes in world space, so each local coordinate is a dot product with one.
-    // Doubles keep a chunk far from the origin from losing the last centimetres.
+    /// <summary>
+    /// A world point (<paramref name="w"/> 1) or direction (<paramref name="w"/> 0) in the own space of the rigid
+    /// transform <paramref name="chunk"/> (<see cref="BakeFiles.IsRigid"/>). This is the one inverse every bake uses:
+    /// for which chunk holds a point, for a chunk's bake ids, and for its lights' hashes.
+    /// </summary>
+    /// <remarks>
+    /// The inverse of a rigid transform is the translation taken off, for a point, and then the transpose of the
+    /// rotation. Rows are the chunk's axes in world space, so each local coordinate is a dot product with one. Doubles
+    /// keep a chunk far from the origin from losing the last centimetres.
+    /// </remarks>
+    public static (double X, double Y, double Z) IntoChunk(in Matrix4x4 chunk, double x, double y, double z, double w)
+    {
+        double dx = x - w * chunk.M41;
+        double dy = y - w * chunk.M42;
+        double dz = z - w * chunk.M43;
+        return (
+            dx * chunk.M11 + dy * chunk.M12 + dz * chunk.M13,
+            dx * chunk.M21 + dy * chunk.M22 + dz * chunk.M23,
+            dx * chunk.M31 + dy * chunk.M32 + dz * chunk.M33);
+    }
+
     private static bool ChunkHolds(in BakedChunk chunk, Vector3 position)
     {
-        var m = chunk.Transform;
-        double dx = (double)position.X - m.M41;
-        double dy = (double)position.Y - m.M42;
-        double dz = (double)position.Z - m.M43;
-        double x = dx * m.M11 + dy * m.M12 + dz * m.M13;
-        double y = dx * m.M21 + dy * m.M22 + dz * m.M23;
-        double z = dx * m.M31 + dy * m.M32 + dz * m.M33;
+        var (x, y, z) = IntoChunk(chunk.Transform, position.X, position.Y, position.Z, 1.0);
         return x >= chunk.Min.X && x <= chunk.Max.X
             && y >= chunk.Min.Y && y <= chunk.Max.Y
             && z >= chunk.Min.Z && z <= chunk.Max.Z;

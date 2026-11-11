@@ -2504,7 +2504,8 @@ A frame's baked areas are its `BakedSpace` and its `BakedChunks`. `BakeAreas`
 (`src/Rendition/Baking/BakeAreas.cs`) decides which one owns a static draw or a light, and
 returns `BakeAreas.Space` (-1), a chunk's index in the frame, or `BakeAreas.None` (-2). It is
 pure and allocates nothing, since it runs once per static draw and once per light each frame.
-Static draws use `OwnerOfDraw` (see below); nothing calls `OwnerOfLight` yet.
+A static model uses `OwnerOfModel`, and `BakeFreshness.Resolve` gives each Mixed or Baked
+light an owner with `OwnerOfLight`.
 
 `OwnerOfDraw` takes the draw's sphere in world space. The space owns the draw if the sphere
 touches its box at all: the centre is clamped into the box and the draw counts when that point
@@ -2514,11 +2515,19 @@ that only reaches into a chunk isn't in it, and one in two overlapping chunks be
 earlier one. `OwnerOfLight` is the same with a point: the space if its box holds the light's
 position, else the first chunk holding it. Box faces count as inside.
 
-A chunk's box is in its own space, so the point is moved into chunk space first. The
-transform is rigid (`BakeFiles.IsRigid`), so its inverse is the translation taken off and then
-the transpose of the rotation: each chunk-space coordinate is the dot product of the offset
-with one of the transform's first three rows. This is done in doubles, so a chunk hundreds of
-metres from the origin keeps its edges to well under a millimetre.
+`OwnerOfModel` takes every shown part's sphere in world space, in part order, and is
+`OwnerOfDraw` of their `Union`, so a whole model always goes to one area even when its parts
+straddle a chunk's edge. It is the one rule for a model's owner: Super gives the bake ids by it
+and `BakeFreshness.Resolve` files those ids by it, both from the same spheres in the same
+order, so they always agree.
+
+A chunk's box is in its own space, so the point is moved into chunk space first with
+`BakeAreas.IntoChunk`. The transform is rigid (`BakeFiles.IsRigid`), so its inverse is the
+translation taken off and then the transpose of the rotation: each chunk-space coordinate is
+the dot product of the offset with one of the transform's first three rows. This is done in
+doubles, so a chunk hundreds of metres from the origin keeps its edges to well under a
+millimetre. `IntoChunk` is the one inverse every bake uses: for the owner checks, a chunk's
+bake ids and its lights' hashes.
 
 A draw's sphere comes from `Renderer.BoundsOf(detail)`, the sphere `MeshDetail` found around
 the part in the model's units; a part without detail is the point at its origin, radius 0.
@@ -2536,10 +2545,10 @@ also calls `BakeIdentity.Assign` (`src/Super/Rendering/BakeIdentity.cs`). `Dress
 and takes the part spheres as an argument, so tests run it without a GPU; the renderer reads
 the spheres from `Renderer.BoundsOf` into a buffer it keeps.
 
-`Assign` moves the sphere of each shown part into the world, unions them, and asks
-`OwnerOfDraw` which baked area owns the draw. When a chunk owns it, the draw's transform is
-made relative to the chunk: world times the chunk's inverse, worked row by row in doubles as
-the translation taken off and a dot product with each rotation row. So every placed copy of a
+`Assign` moves the sphere of each shown part into the world and asks `OwnerOfModel` which
+baked area owns the model. When a chunk owns it, the draw's transform is made relative to the
+chunk: each row goes through `BakeAreas.IntoChunk`, the translation row as a point and the
+others as directions. So every placed copy of a
 chunk gives its draws the same numbers to well under the hash's tenth of a millimetre, even
 hundreds of metres out. A draw in the space or in no area keeps its world transform.
 
@@ -2576,17 +2585,24 @@ four in order. `BakeInputs.Changes(before)` names the parts that differ, always 
 baked area calls these through `BakeFreshness.Resolve` (see [each frame's bakes](#each-frames-bakes)).
 
 `Draws` is the count of the area's static draws and then their `BakeId`s in ascending order.
+For a space it then holds the count and, in ascending order, a `BakeInputHash.PlacedChunk`
+hash for each chunk that owns static draws: the chunk's transform, rounded like every float,
+and that chunk's own `Draws`. The ids of a chunk's draws are relative to the chunk, so without
+this, moving a chunk, or swapping where two chunks stand, would leave the space's hash as it
+was though its light now falls differently.
 `Lights` is the count and the light hashes in ascending order, and for a space then 1 and the
 sun's hash, or 0 when it has no sun. Sorting makes the hash the same whatever order the draws
 and lights come in. It sorts a copy, on the stack for up to 256 values and in an array from
 `ArrayPool<ulong>.Shared` past that, so the caller's spans are untouched and a warm frame
 allocates nothing. Hashing uses one `StableHasher` per thread.
 
-`BakeInputHash.Light(light, toArea)` hashes a Mixed or Baked light; Realtime lights are never
-part of a bake, so they are never passed in. `toArea` takes the light into its baked area: the
-identity for a space, the chunk's inverse for a chunk, worked in doubles so every placed copy
-of a chunk gives the same hash even hundreds of metres out. The hash holds the mode, the
-position, the range, the radius (0 counted as `LocalLight.DefaultRadius`), whether it casts a
+`BakeInputHash.Light(light, area)` hashes a Mixed or Baked light; Realtime lights are never
+part of a bake, so they are never passed in. `area` is where the light's baked area stands:
+the identity for a space, the chunk's own transform for a chunk. The light is taken into the
+area with `BakeAreas.IntoChunk`, in doubles, so every placed copy of a chunk gives the same hash
+even hundreds of metres out. The hash holds the mode, the position, the range, the radius (one
+that is 0 or less, or not a finite number, counted as `LocalLight.DefaultRadius`, as
+`LocalLights.RadiusOf` draws it), whether it casts a
 shadow, and for a spot 1, its direction and both angles, or 0 for a point light, whose
 direction is unused. Its radiance goes in only for a Baked light, since a Mixed light's direct
 light stays live and a change of colour doesn't need a new bake. `Key` only follows a shadow
@@ -2642,14 +2658,20 @@ Otherwise it runs in this order:
    tracked nor hashed.
 2. Each local light that is Mixed or Baked and not animated is given an owner with
    `BakeAreas.OwnerOfLight`: the space, a chunk, or none. One owned by a chunk is hashed again
-   with the chunk's inverse transform, so every copy of the chunk gives the same hash. An
+   with `Light(light, chunk.Transform)`, so every copy of the chunk gives the same hash. An
    animated light is in no area's hash and stays live.
 3. Each static draw (nonzero `BakeId`) counts in the space, whatever owns it, since every
-   static draw blocks and bounces the space's light. When there are chunks, its bounds are
-   moved into the world with `BakeAreas.Transform` and `BakeAreas.OwnerOfDraw` picks its owner,
-   and only a chunk's own draws go in that chunk's hash. A draw the space owns is never in a
-   chunk's. One pass over the draws and one over the lights fill a list per chunk, so the work
-   is the number of draws, not draws times chunks.
+   static draw blocks and bounces the space's light. When there are chunks, the draws are
+   taken a model at a time: a run of neighbouring static draws with the same
+   `BakeIds.Instance` and the same transform, which is how `PrepareDraws` lays a model's parts
+   out. Each part's bounds are moved into the world with `BakeAreas.Transform` and
+   `BakeAreas.OwnerOfModel` picks the model's owner, exactly as `BakeIdentity.Assign` did, so
+   every part's id goes to the area that gave it. The transform check keeps two copies of a
+   chunk apart, since their draws share an instance hash. Only a chunk's own draws go in that
+   chunk's hash, and a draw the space owns is never in a chunk's. One pass over the draws and
+   one over the lights fill a list per chunk, so the work is the number of draws, not draws
+   times chunks. The chunks are hashed before the space, so the space can add each owning
+   chunk's `PlacedChunk` hash.
 4. The space's suns are every sun in the bake. No sun gives a null sun hash, one gives its own
    hash, and several give one hash of their count and their sorted hashes. Suns never belong to
    a chunk.
