@@ -34,6 +34,23 @@ public sealed class BakeIdGpuTests(GpuFixture gpu)
     }
 
     [Fact]
+    public void Capturing_a_static_draw_with_bones_is_explained_and_the_next_frame_is_clean()
+    {
+        int errors = gpu.ValidationErrors;
+        var draw = Quad() with { BakeId = BakeIds.Of(1, 0), Bones = new BoneRange(0, 2) };
+
+        var error = Assert.Throws<ArgumentException>(() => gpu.CaptureOneFrame([draw]));
+
+        Assert.Contains("static", error.Message);
+        Assert.Contains("bones", error.Message);
+        // The failed capture's buffer is freed, so a frame that still copied into it would be reported here.
+        gpu.RenderOneFrame();
+        gpu.CaptureOneFrame();
+        gpu.Renderer.DestroyMesh(draw.Mesh);
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
     public void Static_draw_without_bones_or_swim_renders()
     {
         int errors = gpu.ValidationErrors;

@@ -1707,8 +1707,17 @@ public sealed unsafe class Renderer : IDisposable
 
         _capture = capture;
         _captureRecorded = false;
-        Render(view, draws);
-        _capture = null;
+        try
+        {
+            Render(view, draws);
+        }
+        finally
+        {
+            // A frame that throws, such as for a draw it can't make, must not leave the next frame copying into the
+            // buffer the using frees.
+            _capture = null;
+        }
+
         _api.DeviceWaitIdle(_context.Device).Check();
 
         if (!_captureRecorded)

@@ -2459,7 +2459,7 @@ shares; the tests run one at a time and carry `[Trait("Speed", "Slow")]` and
 `--filter "Needs!=GPU"`; run them locally before merging rendering work. A test that needs tracing fails with a message saying so on a GPU that
 can't trace, rather than passing without checking anything. `GpuFixture.Matte` is a plain opaque
 material for tests to draw or trace with, and `RenderOneFrame` renders one frame, empty or of the draws given,
-which also runs every queued upload. A test can make a fixture of its own, such as one whose device can't
+which also runs every queued upload; `CaptureOneFrame` does the same through `Capture` and returns the pixels. A test can make a fixture of its own, such as one whose device can't
 trace; GLFW is only terminated when the last fixture goes, since that closes every window.
 
 ## Bake ids
@@ -2477,7 +2477,9 @@ the nearest whole number in double precision, and that number is hashed. Floats 
 hashed as text, so culture can't change a hash. Rounding makes negative zero hash as zero,
 and values a hair apart, such as a transform read back from a file, hash the same. Two values
 just either side of a rounding boundary still hash differently; that is accepted, since it
-only costs a rebake. A `Vector3` is its three floats and a `Matrix4x4` its sixteen, row by
+only costs a rebake. Values past about ±9e14 saturate, and every NaN hashes alike.
+Nothing marks a value's type or where it ends, so a caller must feed the same sequence of
+values for each kind of thing it hashes. A `Vector3` is its three floats and a `Matrix4x4` its sixteen, row by
 row. A string is its UTF-8 length and then its bytes, so `"ab"` then `"c"` differs from `"a"`
 then `"bc"`.
 
@@ -2491,7 +2493,8 @@ A static draw is held where it stands by its bake, so it can't move on its own. 
 `Capture` through it, throw `ArgumentException` for a draw with a bake id and bones, or one
 with a bake id and a swim of nonzero amplitude, naming the draw and its id. The check runs
 next to the decal check, before the frame waits on its fence or records anything, so the
-renderer is left ready for the next frame. It reads one field per draw when no draw is static.
+renderer is left ready for the next frame. `Capture` clears its read-back buffer in a
+`finally`, so a frame that throws doesn't leave the next one copying into a freed buffer. It reads one field per draw when no draw is static.
 
 ## Ray tracing
 

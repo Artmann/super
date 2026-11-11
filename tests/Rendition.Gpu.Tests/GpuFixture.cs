@@ -87,9 +87,16 @@ public sealed unsafe class GpuFixture : IDisposable
     /// Renders one frame of the draws given, or of nothing, which also runs every copy waiting to ride a frame, such as
     /// a new mesh's.
     /// </summary>
-    public void RenderOneFrame(DrawItem[]? draws = null, DebugView debugView = DebugView.None)
+    public void RenderOneFrame(DrawItem[]? draws = null, DebugView debugView = DebugView.None) =>
+        Renderer.Render(View(debugView), draws ?? []);
+
+    /// <summary>Renders one frame of the draws given, as <see cref="RenderOneFrame"/> does, and reads its pixels back.</summary>
+    public byte[] CaptureOneFrame(DrawItem[]? draws = null) =>
+        Renderer.Capture(View(DebugView.None), draws ?? [], out _, out _);
+
+    private FrameView View(DebugView debugView)
     {
-        var view = new FrameView
+        return new FrameView
         {
             Width = _width,
             Height = _height,
@@ -98,7 +105,6 @@ public sealed unsafe class GpuFixture : IDisposable
             CameraPosition = new Vector3(0, 0, 3),
             DebugView = debugView,
         };
-        Renderer.Render(view, draws ?? []);
     }
 
     public void Dispose()

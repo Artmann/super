@@ -9,7 +9,8 @@ namespace Rendition;
 /// Hashes values to a <see cref="ulong"/> that is the same across runs, machines, cultures and processes, unlike
 /// <see cref="HashCode"/> and <see cref="string.GetHashCode()"/>, which are seeded per process. Built on XxHash64 with a
 /// seed of zero, fed little-endian bytes. Floats are rounded to <see cref="Step"/> first, so values a hair apart, such
-/// as a transform read back from a file, hash the same. See "Bake ids" in docs/design.md.
+/// as a transform read back from a file, hash the same. Nothing marks a value's type or where it ends, so callers
+/// must feed a fixed sequence of values for each thing they hash. See "Bake ids" in docs/design.md.
 /// </summary>
 public sealed class StableHasher
 {
@@ -36,7 +37,8 @@ public sealed class StableHasher
 
     /// <summary>
     /// Rounds the value to the nearest <see cref="Step"/> and hashes that count of steps, so negative zero hashes as zero.
-    /// Two values a hair apart on either side of a step's midpoint still differ.
+    /// Two values a hair apart on either side of a step's midpoint still differ. Values past about ±9e14 saturate,
+    /// and every NaN hashes alike.
     /// </summary>
     public StableHasher Add(float value)
     {
