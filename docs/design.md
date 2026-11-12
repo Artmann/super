@@ -3577,7 +3577,9 @@ after encoding (`Baker.Crop`). Its lights are its own local `Baked` and `Mixed` 
 come from `ShadowMaskChannels.AssignChunk`, with every other light counted as `Realtime`, and are listed in
 `ChunkChannels` by `BakeInputHash.Light` under the chunk's transform. A chunk has no sun channel. The plain light has
 no sky (`skyIntensity` 0) and no suns, and its irradiance and direction pages are kept only when the chunk has a light
-or a glowing static surface (`ResourceTable.Glows`, any emissive channel above 0). There are no probes.
+or a glowing static surface (`ResourceTable.Glows`, any emissive channel above 0). That counts a surface with no
+lightmap of its own, such as a swaying one: it is still traced, so its glow still lights the chunk's other surfaces.
+There are no probes.
 
 With `Trace`'s `transfer` on, `bake_trace.comp` sets `chunk` in its push constants and `bake_paths.glsl`, compiled
 with `BAKE_TRANSFER` there and without it for the probes, sums the transfer into five more `rgba32f` sums alongside the
@@ -3593,10 +3595,13 @@ before, so a space's bake doesn't change. The rules, in the chunk's space:
   set of coefficients for all colours, and the light's colour is summed apart. The texel's own view of the sun is
   left out, since the sun's direct light stays live, so a lone plane has no sun transfer.
 
-The two extra random numbers are drawn at every surface the path reaches, whether the ray goes or not. The transfer
-is dilated as the plain light is, with `bake_dilate.comp`'s rings run twice over ten floats at a time
-(`Baker.DilateTransfer`), but isn't smoothed: a NaN becomes 0 and anything past a half's range is clamped to it first. `Baker.EncodeTransfer` then writes the sky's and sun's coefficients in RGBA16F and the sun's colour in
-RGBA8 as `SunTint`, divided by its largest channel. The sun's coefficients are scaled by that channel over the
+The two extra random numbers are drawn at every surface the path reaches, whether the ray goes or not.
+
+The transfer is dilated as the plain light is, with `bake_dilate.comp`'s rings run twice over ten floats at a time
+(`Baker.DilateTransfer`). First a NaN becomes 0 and anything past a half's range is clamped to it. The transfer isn't
+smoothed, so at Preview, 64 paths a texel, its bounce is grainy where the plain light would be smooth.
+`Baker.EncodeTransfer` then writes the sky's and sun's coefficients in RGBA16F and the sun's colour in RGBA8 as
+`SunTint`, divided by its largest channel. The sun's coefficients are scaled by that channel over the
 colour's luminance, so `SunTint * Sun` is each colour's transfer. A texel no rectangle or dilation reaches holds no
 transfer and a white tint.
 

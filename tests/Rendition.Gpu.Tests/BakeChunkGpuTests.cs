@@ -35,10 +35,10 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
             var file = BakeChunk(chunk, draws);
 
             // Under a sky of radiance 1 every way, a plane's irradiance is the integral of cos over the hemisphere, pi.
-            // A Preview bake takes 64 paths a texel; dotted with the sky, each gives pi Y0 * 4 pi Y0 = pi from the
-            // constant term and up to pi * 0.5 from the linear ones, which cancel on average, so sigma is about
-            // pi * 0.5 / 8.
-            float sigma = MathF.PI * 0.5f / MathF.Sqrt(64f);
+            // Every path from a lone plane escapes at once with throughput 1 and adds pi Y(w). A white sky has only a
+            // constant coefficient, so the dot reads only C0, which every path adds the same pi Y0 to: there is no
+            // noise, and only the half float's rounding is left.
+            const float tolerance = 0.01f;
             var white = ShL1.Uniform(1f);
             var (x0, y0, side) = Texels(file, RectOf(file, draws[0]));
             for (int y = y0; y < y0 + side; y++)
@@ -49,8 +49,8 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
                     foreach (var (name, transfer) in new[] { ("red", red), ("green", green), ("blue", blue) })
                     {
                         float lit = ShL1.Dot(transfer, white);
-                        Assert.True(MathF.Abs(lit - MathF.PI) <= 3f * sigma,
-                            $"Texel ({x}, {y}) transfers {lit} of a white sky in {name}, not pi within {3f * sigma}.");
+                        Assert.True(MathF.Abs(lit - MathF.PI) <= tolerance,
+                            $"Texel ({x}, {y}) transfers {lit} of a white sky in {name}, not pi within {tolerance}.");
                     }
                 }
             }
@@ -233,6 +233,151 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
     }
 
     [Fact]
+    public void Chunk_lights_its_plane_from_its_own_lamp_wherever_it_stands()
+    {
+        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        try
+        {
+            // A Baked lamp at (0.5, 1, 0.3) in the chunk's space, placed in the world by the chunk's transform. The
+            // chunk stands once as it is and once turned a quarter about y, so the lamp's world place differs in both
+            // where and which way from the chunk, and only moving it into the chunk's space lights the plane the same.
+            var local = new Vector3(0.5f, 1f, 0.3f);
+            // Each lamp has its own key: one key in two places would be a light that moved, which is kept out of bakes.
+            LightBakeFile BakeAt(Matrix4x4 transform, int key)
+            {
+                var lamp = new LocalLight
+                {
+                    Mode = LightMode.Baked, Key = key, Position = Vector3.Transform(local, transform),
+                    Radiance = new Vector3(10f), Range = 100f, Radius = 0.02f,
+                };
+                return BakeChunk(Chunk(transform), [StaticDraw(quad, Floor() * transform, gpu.Matte, 1)], [lamp]);
+            }
+
+            var upright = BakeAt(Placed, 1201);
+            var turned = BakeAt(Matrix4x4.CreateRotationY(MathF.PI / 2f) * Placed, 1203);
+
+            Assert.NotNull(upright.Irradiance);
+            Assert.NotNull(turned.Irradiance);
+            var (x0, y0, side) = Texels(upright, RectOf(upright, upright.Draws[0].BakeId));
+            Assert.Equal((x0, y0, side), Texels(turned, RectOf(turned, turned.Draws[0].BakeId)));
+
+            // With no sky and nothing to bounce from, a floor point p has only the lamp's direct light, I h / d^3 with
+            // I = 10 and h = 1, d being how far p is from the lamp. The texel (i, j) has its centre at
+            // (2u - 1, 0, 1 - 2v) with u = (i + 0.5) / side.
+            for (int j = 0; j < side; j++)
+            {
+                for (int i = 0; i < side; i++)
+                {
+                    var p = new Vector3(2f * (i + 0.5f) / side - 1f, 0f, 1f - 2f * (j + 0.5f) / side);
+                    float d = Vector3.Distance(p, local);
+                    float expected = 10f / (d * d * d);
+                    float a = IrradianceAt(upright, x0 + i, y0 + j).X;
+                    float b = IrradianceAt(turned, x0 + i, y0 + j).X;
+                    Assert.True(MathF.Abs(a - expected) <= 0.05f * expected,
+                        $"The upright chunk's texel ({i}, {j}) reads {a}, not the lamp's {expected} within 5%.");
+                    Assert.True(MathF.Abs(b - a) <= 0.02f * a,
+                        $"The turned chunk's texel ({i}, {j}) reads {b}, not the upright one's {a} within 2%.");
+                }
+            }
+        }
+        finally
+        {
+            gpu.Renderer.DestroyMesh(quad);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void Mixed_chunk_light_gets_mask_channel_0_under_the_chunks_hash()
+    {
+        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        try
+        {
+            var lamp = new LocalLight
+            {
+                Mode = LightMode.Mixed, Key = 1202, Position = Vector3.Transform(new Vector3(0f, 1f, 0f), Placed),
+                Radiance = new Vector3(10f), Range = 100f, Radius = 0.02f,
+            };
+            var plane = StaticDraw(quad, Floor() * Placed, gpu.Matte, 1);
+
+            var file = BakeChunk(Chunk(Placed), [plane], [lamp]);
+
+            var entry = Assert.Single(file.ChunkChannels);
+            Assert.Equal(BakeInputHash.Light(lamp, Placed), entry.LightHash);
+            Assert.Equal(0, entry.Channel);
+            Assert.Empty(file.Channels);
+
+            // The plane's middle sees all of the lamp, so channel 0 of its mask is full there.
+            var (x0, y0, side) = Texels(file, RectOf(file, plane));
+            int at = ((y0 + side / 2) * file.Mask[0].Width + x0 + side / 2) * 4;
+            Assert.Equal(255, file.Mask[0].Pixels[at]);
+        }
+        finally
+        {
+            gpu.Renderer.DestroyMesh(quad);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void Chunk_keeps_its_plain_light_only_with_a_glowing_surface()
+    {
+        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        var glow = gpu.Renderer.CreateMaterial(new Material
+        {
+            BaseColor = Vector4.One, Roughness = 0.8f, Emissive = new Vector3(2f),
+        });
+        var swayingGlow = gpu.Renderer.CreateMaterial(new Material
+        {
+            BaseColor = Vector4.One, Roughness = 0.8f, Emissive = new Vector3(2f), Wind = 0.5f,
+        });
+        try
+        {
+            // A panel a metre above the plane, facing down at it.
+            var plane = StaticDraw(quad, Floor() * Placed, gpu.Matte, 1);
+            Matrix4x4 above = Matrix4x4.CreateScale(2f) * Matrix4x4.CreateRotationX(MathF.PI / 2f)
+                * Matrix4x4.CreateTranslation(0f, 1f, 0f) * Placed;
+
+            // With no light and nothing glowing there is no plain light to keep.
+            var dark = BakeChunk(Chunk(Placed), [plane, StaticDraw(quad, above, gpu.Matte, 2)]);
+            Assert.Null(dark.Irradiance);
+            Assert.Null(dark.Direction);
+
+            // A glowing panel lights the plane, so the plain light is kept.
+            var lit = BakeChunk(Chunk(Placed), [plane, StaticDraw(quad, above, glow, 2)]);
+            Assert.NotNull(lit.Irradiance);
+            Assert.NotNull(lit.Direction);
+            var (x0, y0, side) = Texels(lit, RectOf(lit, plane));
+            float middle = IrradianceAt(lit, x0 + side / 2, y0 + side / 2).X;
+            Assert.True(middle > 0.5f, $"The plane under the glowing panel reads {middle}, so the glow wasn't baked.");
+
+            // A swaying panel gets no lightmap of its own, but it still glows onto the plane, so it keeps the plain
+            // light too.
+            var swaying = BakeChunk(Chunk(Placed), [plane, StaticDraw(quad, above, swayingGlow, 2)]);
+            Assert.NotNull(swaying.Irradiance);
+            Assert.DoesNotContain(swaying.Draws, entry => entry.BakeId != plane.BakeId);
+            (x0, y0, side) = Texels(swaying, RectOf(swaying, plane));
+            float swayingMiddle = IrradianceAt(swaying, x0 + side / 2, y0 + side / 2).X;
+            Assert.True(swayingMiddle > 0.5f,
+                $"The plane under the swaying glowing panel reads {swayingMiddle}, so its glow wasn't baked.");
+        }
+        finally
+        {
+            gpu.Renderer.DestroyMesh(quad);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
     public void Baking_a_missing_chunk_throws()
     {
         int errors = gpu.ValidationErrors;
@@ -272,13 +417,14 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
     private static BakedChunk Chunk(Matrix4x4 transform) =>
         new("chunk", transform, new Vector3(-2f, -1f, -2f), new Vector3(2f, 2f, 2f), Density);
 
-    private LightBakeFile BakeChunk(BakedChunk chunk, DrawItem[] draws) =>
-        LightBakeFile.Read(BakeChunk(chunk, draws, 0, Density));
+    private LightBakeFile BakeChunk(BakedChunk chunk, DrawItem[] draws, LocalLight[]? lights = null) =>
+        LightBakeFile.Read(BakeChunk(chunk, draws, 0, Density, lights));
 
-    private byte[] BakeChunk(BakedChunk chunk, DrawItem[] draws, int index, int density)
+    private byte[] BakeChunk(BakedChunk chunk, DrawItem[] draws, int index, int density, LocalLight[]? lights = null)
     {
         var view = gpu.View(DebugView.None);
         view.BakedChunks = new[] { chunk };
+        view.LocalLights = lights ?? [];
         return gpu.Renderer.BakeChunk(view, draws, index, new BakeSettings(density, BakeQuality.Preview));
     }
 
@@ -335,6 +481,15 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
         ShAt(file.Transfer!.SkyRed, x, y), ShAt(file.Transfer.SkyGreen, x, y), ShAt(file.Transfer.SkyBlue, x, y));
 
     private static ShL1 SunAt(LightBakeFile file, int x, int y) => ShAt(file.Transfer!.Sun, x, y);
+
+    private static Vector3 IrradianceAt(LightBakeFile file, int x, int y)
+    {
+        var page = file.Irradiance![0];
+        Assert.Equal(LightBakePageFormat.Rgba16f, page.Format);
+        var halves = MemoryMarshal.Cast<byte, Half>(page.Pixels.AsSpan());
+        int at = (y * page.Width + x) * 4;
+        return new Vector3((float)halves[at], (float)halves[at + 1], (float)halves[at + 2]);
+    }
 
     private static ShL1 ShAt(LightBakePage page, int x, int y)
     {
