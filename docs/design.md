@@ -3304,7 +3304,7 @@ does BC7. BC6H goes through BCnEncoder.Net at `Balanced` quality, and `Bc6hEncod
 all-zero 4x4 blocks as a black block without encoding them, then packs the rest into one strip
 to encode in parallel. Channels are floored at 0.0001 because that encoder writes exact zeros
 beside small values as 65504 at the Fast and Balanced qualities. The cooker's version folds in
-`Bc7Encoder.Version`. `TextureFormat.Bc6h` maps to `BC6HUfloatBlock`.
+`Bc7Encoder.Version` and `Bc6hEncoder.Version`. `TextureFormat.Bc6h` maps to `BC6HUfloatBlock`.
 
 A wrong magic or version throws `InvalidDataException` naming the part and giving the value found
 and the value expected. Bytes that end early, or a count or length that is more than the bytes left,

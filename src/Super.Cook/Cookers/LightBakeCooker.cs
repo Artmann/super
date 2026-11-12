@@ -14,8 +14,8 @@ namespace Super.Cook;
 /// </summary>
 public sealed class LightBakeCooker : ICooker
 {
-    // 1: irradiance as BC6H, direction and mask as BC7. The BC7 encoder's version is folded in, so a change to the bytes it writes cooks every bake again.
-    public int Version { get; } = unchecked(1 * 31 + Bc7Encoder.Version);
+    // 1: irradiance as BC6H, direction and mask as BC7. Both encoders' versions are folded in, so a change to the bytes either writes cooks every bake again.
+    public int Version { get; } = unchecked((1 * 31 + Bc7Encoder.Version) * 31 + Bc6hEncoder.Version);
 
     public string Id => "lightbake";
 
@@ -87,6 +87,9 @@ public sealed class LightBakeCooker : ICooker
 /// </summary>
 internal static class Bc6hEncoder
 {
+    // Bump this when the bytes it writes change: the quality, the light floor or the empty-block shortcut.
+    public const int Version = 1;
+
     // Measured on the Gallery's bake (one 2048 by 2048 page, 1.9 million lit texels): Fast took 1.7 s and was off by 1.76% of the
     // light, Balanced took 1.8 s and 1.25%, and BestQuality took 8.4 s and 0.60%. The empty blocks are what keep Balanced cheap.
     private const CompressionQuality Quality = CompressionQuality.Balanced;
