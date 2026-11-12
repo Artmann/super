@@ -4,7 +4,9 @@ namespace Rendition;
 /// The bakes in a game's content, read through a function so the renderer needn't know where content lives. Each
 /// file's header is read the first time it is asked about and kept until <see cref="Forget"/>, so asking every frame
 /// reads nothing and, once each file has been asked about, allocates nothing. A file that can't be read, whether
-/// damaged or failing to open, is lit live and logged once. It isn't thread-safe: use it from the render thread only.
+/// damaged or failing to open, is lit live and logged once. Its header cache isn't thread-safe, so ask
+/// <see cref="IsFresh"/>, <see cref="Saved"/> and <see cref="Forget"/> from the render thread only. <see cref="Load"/>
+/// keeps nothing, so it may be called from another thread as long as the read function can be.
 /// See "Baked lighting" in docs/rendering.md.
 /// </summary>
 public sealed class LightBakeStore : IBakeStore

@@ -543,8 +543,16 @@ Transparent surfaces and particles never read light
 probes, so they are lit from the sky in a baked space as anywhere else. A file whose header is
 fresh but whose pages can't be read or are larger than any bake makes, or that is gone by the
 time they're read, is reported once to the error output and its area lit live, as if it had
-no bake. Only the space is drawn from its bake so far; a fresh chunk's lights are left to its
-bake but its lightmap isn't drawn yet, so a fresh chunk is darker than it should be.
+no bake.
+
+A fresh chunk's bake is read and checked off the render thread, then goes up to the GPU at most
+8 MB a frame (`ChunkBakePool.ChunkUploadBudget`), so a big page can take a few frames. Until all
+its pages are there the chunk is pending: it is drawn live, its `Baked` lights included, so it
+never shows half a bake. Copies of a chunk that share a file share its bake. A bake that no
+chunk in the frame names is let go at the end of that frame and read again when one comes back,
+and a content reload drops every chunk bake and reads them again. For now a chunk draws its
+lightmap's plain irradiance; its sky and sun pages are uploaded but not yet used, and it has no
+shadow mask.
 
 For Rendition alone, `Renderer.Bakes` is where the renderer asks. It starts as
 `NoBakes.Instance`, which has no bakes. A `LightBakeStore` reads bakes through a function that
@@ -640,7 +648,8 @@ Probes aren't filtered.
 
 From code, `Renderer.LastBakeFrame` shows what the last frame decided. It is null after a
 frame that named no baked area. Otherwise its `Space` and `Chunks` hold the inputs of each
-area, `SpaceFresh` and `ChunkFresh` say which bakes were found, `ModeOf(key)` gives the mode
+area, `SpaceFresh` and `ChunkFresh` say which bakes were found (a chunk's only once all its
+pages are on the GPU), `ChunkPending(i)` says a chunk's fresh bake is still on its way, `ModeOf(key)` gives the mode
 each light was drawn with: the light's own mode, or `Realtime` when it is moving or no fresh
 bake holds it, and `DroppedLocalLights`
 and `DroppedSuns` list the lights left to a bake, by their place in the frame's lists.

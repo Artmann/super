@@ -58,6 +58,14 @@ public sealed class BakeResolver
     }
 
     /// <summary>
+    /// Asked, for each chunk whose bake the store holds fresh, whether that bake is on the GPU; a chunk only counts as
+    /// <see cref="BakeFrame.ChunkFresh"/> when it is, and as <see cref="BakeFrame.ChunkPending"/> otherwise. The
+    /// renderer sets it to its chunk bake pool, which starts the load the first time a file is asked about. With none,
+    /// a fresh bake counts as there.
+    /// </summary>
+    internal Func<string, BakeInputs, bool>? ChunkResident { get; set; }
+
+    /// <summary>
     /// Hashes each of the frame's baked areas, asks <see cref="Store"/> whether its bake is fresh, and decides how each
     /// light is used. Every Mixed or Baked light is first given to <paramref name="animated"/> with its world-space
     /// hash, and one that is moving is left out of its area's inputs and stays real-time. Realtime lights are never
@@ -157,7 +165,10 @@ public sealed class BakeResolver
                 CollectionsMarshal.AsSpan(_chunkIds[c]), CollectionsMarshal.AsSpan(_chunkLights[c]), chunks[c],
                 new BakeSettings(chunks[c].TexelsPerMetre));
             string file = ChunkFile(chunks[c].Name, inputs.Combined);
-            result.AddChunk(inputs, IsFresh(file, inputs, animated), file, _chunkIds[c].Count);
+            // A bake fresh in the store only counts once it is on the GPU; until then the chunk is pending.
+            bool stored = IsFresh(file, inputs, animated);
+            bool resident = stored && (ChunkResident is not { } isResident || isResident(file, inputs));
+            result.AddChunk(inputs, resident, stored && !resident, file, _chunkIds[c].Count);
         }
 
         if (space is { } baked)

@@ -58,6 +58,80 @@ public sealed class BakeResolverTests
     }
 
     [Fact]
+    public void Resolving_a_frame_with_chunks_again_allocates_nothing()
+    {
+        // Two copies of the room, whose bake is on the GPU, and the far room, whose bake is still on its way. Each
+        // chunk has a Baked light: the rooms' are dropped, and the far room's stays while its bake is pending.
+        var nextDoor = Room with { Transform = Matrix4x4.CreateTranslation(30f, 0f, 0f) };
+        BakedChunk[] chunks = [Room, nextDoor, FarRoom];
+        LocalLight[] lights =
+        [
+            Point(1, InRoom, LightMode.Baked), Point(2, InRoom + new Vector3(10f, 0f, 0f), LightMode.Baked),
+            Point(3, InRoom + new Vector3(20f, 0f, 0f), LightMode.Baked),
+        ];
+        DrawItem[] draws = [Static(1, InRoom), Static(1, InRoom + new Vector3(10f, 0f, 0f)), Static(2, InRoom + new Vector3(20f, 0f, 0f))];
+        var frame = new FrameView { BakedChunks = chunks, LocalLights = lights, Time = 1f };
+        var animated = new AnimatedLights(TextWriter.Null);
+        int asked = 0;
+        var resolver = new BakeResolver(new EveryBakeFresh())
+        {
+            ChunkResident = (file, _) =>
+            {
+                asked++;
+                return file.StartsWith("lighting/room/", StringComparison.Ordinal);
+            },
+        };
+        Func<DetailHandle, BakeSphere> bounds = TwoParts;
+
+        for (int i = 0; i < 3; i++)
+        {
+            resolver.Resolve(frame, draws, bounds, 42, animated);
+        }
+
+        asked = 0;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        BakeFrame? resolved = null;
+        for (int i = 0; i < 10; i++)
+        {
+            resolved = resolver.Resolve(frame, draws, bounds, 42, animated);
+        }
+
+        long after = GC.GetAllocatedBytesForCurrentThread();
+
+        Assert.Equal(before, after);
+        // Every fresh chunk was asked whether its bake is on the GPU, every frame.
+        Assert.Equal(30, asked);
+        Assert.Equal([true, true, false], resolved!.ChunkFresh);
+        Assert.False(resolved.ChunkPending(0));
+        Assert.False(resolved.ChunkPending(1));
+        Assert.True(resolved.ChunkPending(2));
+        Assert.Equal([0, 1], resolved.DroppedLocalLights);
+    }
+
+    [Fact]
+    public void Chunk_whose_bake_is_missing_is_neither_fresh_nor_pending()
+    {
+        var saved = new SavedBakes();
+        bool askedAboutMissing = false;
+        var resolver = new BakeResolver(saved)
+        {
+            ChunkResident = (_, _) =>
+            {
+                askedAboutMissing = true;
+                return false;
+            },
+        };
+        var frame = new FrameView { BakedChunks = [Room], LocalLights = [Point(1, InRoom, LightMode.Baked)], Time = 1f };
+
+        var resolved = resolver.Resolve(frame, [Static(1, InRoom)], TwoParts, 42, new AnimatedLights(TextWriter.Null));
+
+        Assert.Equal([false], resolved.ChunkFresh);
+        Assert.False(resolved.ChunkPending(0));
+        Assert.False(askedAboutMissing);
+        Assert.Empty(resolved.DroppedLocalLights);
+    }
+
+    [Fact]
     public void A_resolver_gives_the_same_frame_as_BakeFreshness()
     {
         var at = new Vector3(20f, 1f, 0f);

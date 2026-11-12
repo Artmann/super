@@ -496,6 +496,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         _resources = new ResourceTable(_context);
+        _chunkPool = new ChunkBakePool(_context, _resources, ChunkBakePool.ChunkUploadBudget, ChunkUnreadable);
         if (_context.CanTrace)
         {
             _tracing = new RayTracing(_context, _resources, MeshFor, _uploads.IsPending,
@@ -1108,8 +1109,29 @@ public sealed unsafe class Renderer : IDisposable
     // The space bake whose lightmaps are on the GPU, kept while it isn't drawn so turning it back on reads nothing.
     private LoadedBake _loadedBake;
 
-    // The loaded bake's rectangles while this frame draws it, or null when it draws no lightmaps.
+    // The lightmap rectangles this frame draws, by bake id: the loaded space bake's while it is drawn, and each named
+    // chunk's with its bake resident; or null when it draws no lightmaps.
     private IReadOnlyDictionary<ulong, GpuLightmapRect>? _activeLightmaps;
+
+    // Whether this frame draws the loaded space bake's lightmaps.
+    private bool _spaceLightmapsActive;
+
+    // The chunk bakes on the GPU, shared by every copy of a chunk.
+    private readonly ChunkBakePool _chunkPool;
+
+    /// <summary>The chunk bakes being read, uploaded or on the GPU. For tests.</summary>
+    internal ChunkBakePool ChunkBakes => _chunkPool;
+
+    // The resident chunk bakes this frame names, in the order first named, and the space rectangles and chunks that
+    // _mergedLightmaps was last made from, so a frame like the last reuses it without copying.
+    private readonly List<ChunkBakePool.Entry> _namedChunks = [];
+    private readonly List<ChunkBakePool.Entry> _mergedChunks = [];
+    private IReadOnlyDictionary<ulong, GpuLightmapRect>? _mergedSpace;
+    private readonly Dictionary<ulong, GpuLightmapRect> _mergedLightmaps = [];
+
+    // A hash of the chunk bakes this frame draws, 0 for none, for the reflection probes to see one come or go.
+    private ulong _chunkLightmapsHash;
+    private Func<string, BakeInputs, bool>? _chunkResident;
 
     // While this frame draws the loaded bake: the index, among the suns drawn, of the Mixed sun whose shadow is in the
     // mask's channel 0, or -1; and the mask channel of each Mixed local light that has one, by key. The mask's unused
@@ -1371,7 +1393,7 @@ public sealed unsafe class Renderer : IDisposable
         }
     }
 
-    private static TextureFormat PageFormat(LightBakePageFormat format) => format switch
+    internal static TextureFormat PageFormat(LightBakePageFormat format) => format switch
     {
         LightBakePageFormat.Rgba16f => TextureFormat.Rgba16f,
         LightBakePageFormat.Rgba8 => TextureFormat.Rgba8,
@@ -1403,30 +1425,40 @@ public sealed unsafe class Renderer : IDisposable
         {
             LastBakeFrame = null;
             _activeLightmaps = null;
+            _spaceLightmapsActive = false;
+            _chunkLightmapsHash = 0;
             _activeBakedProbes = null;
             return false;
         }
 
         // A bake that couldn't be read is tried again only once the store is another or its files may have changed.
+        // The chunk bakes on the GPU go too, so each is read again from the store as it is now.
         if (!ReferenceEquals(_readableBakes.Inner, Bakes) || _readableBakes.Reloads != Bakes.Reloads)
         {
             _readableBakes.Inner = Bakes;
             _readableBakes.Reloads = Bakes.Reloads;
             _readableBakes.Unreadable.Clear();
+            var destroying = Destroying();
+            _chunkPool.Clear(destroying.Textures, destroying.Others);
         }
 
         // With baked lighting off, every bake counts as missing, so the frame is drawn as if nothing were baked.
         _bakeResolver.Store = view.Off.HasFlag(RenderEffects.BakedLighting) ? NoBakes.Instance : _readableBakes;
+        _bakeResolver.ChunkResident = _chunkResident ??= ChunkResident;
+        _namedChunks.Clear();
         var bakes = _bakeResolver.Resolve(view, draws, _boundsOf ??= BoundsOf, EnvironmentHash, _animatedLights);
         if (bakes.SpaceFresh && !LoadSpaceBake(view.BakedSpace!.Value.Name, bakes.Space!.Value))
         {
             // Its file is now unreadable, so the space is worked out again as unbaked: its Baked lights come back.
+            _namedChunks.Clear();
             bakes = _bakeResolver.Resolve(view, draws, _boundsOf, EnvironmentHash, _animatedLights);
         }
 
-        _activeLightmaps = bakes.SpaceFresh && _loadedBake.Rects is { Count: > 0 } rects ? rects : null;
+        var spaceRects = bakes.SpaceFresh && _loadedBake.Rects is { Count: > 0 } rects ? rects : null;
+        _spaceLightmapsActive = spaceRects is not null;
+        _activeLightmaps = WithChunkLightmaps(spaceRects);
         _activeBakedProbes = bakes.SpaceFresh ? _loadedBake.Probes : null;
-        if (_activeLightmaps is not null)
+        if (spaceRects is not null)
         {
             FindMaskChannels(view, bakes);
         }
@@ -1441,6 +1473,92 @@ public sealed unsafe class Renderer : IDisposable
         lit.Lights = BakeFreshness.Without(view.Lights, bakes.DroppedSuns, ref _bakeKeptSuns);
         lit.LocalLights = BakeFreshness.Without(view.LocalLights, bakes.DroppedLocalLights, ref _bakeKeptLights);
         return true;
+    }
+
+    /// <summary>
+    /// The resolver's question for a chunk whose bake is fresh in the store: is every page of it on the GPU? A store
+    /// with no Load of its own has no lightmaps to wait for, so its fresh chunks count at once. Otherwise the pool is
+    /// asked, which starts reading the bake the first time, and a resident bake joins the frame's named chunks.
+    /// </summary>
+    private bool ChunkResident(string file, BakeInputs inputs)
+    {
+        var store = _readableBakes.Inner;
+        if (!GivesLightmaps(store))
+        {
+            return true;
+        }
+
+        if (_chunkPool.Use(file, store) is not { } entry)
+        {
+            return false;
+        }
+
+        if (!_namedChunks.Contains(entry))
+        {
+            _namedChunks.Add(entry);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// The frame's lightmap rectangles: the space's alone, the very same dictionary, when no chunk bake is drawn, so such
+    /// a frame is drawn exactly as before chunks had any. Otherwise the space's and each named chunk's together, made
+    /// again only when they change.
+    /// </summary>
+    private IReadOnlyDictionary<ulong, GpuLightmapRect>? WithChunkLightmaps(IReadOnlyDictionary<ulong, GpuLightmapRect>? spaceRects)
+    {
+        if (_namedChunks.Count == 0)
+        {
+            _chunkLightmapsHash = 0;
+            _mergedSpace = null;
+            _mergedChunks.Clear();
+            return spaceRects;
+        }
+
+        bool same = ReferenceEquals(spaceRects, _mergedSpace) && _mergedChunks.Count == _namedChunks.Count;
+        for (int i = 0; same && i < _namedChunks.Count; i++)
+        {
+            same = ReferenceEquals(_mergedChunks[i], _namedChunks[i]);
+        }
+
+        if (!same)
+        {
+            _mergedLightmaps.Clear();
+            if (spaceRects is not null)
+            {
+                foreach (var (bakeId, rect) in spaceRects)
+                {
+                    _mergedLightmaps[bakeId] = rect;
+                }
+            }
+
+            // A file's name is its chunk's name and inputs, so its hash says which bake it is.
+            ulong hash = 0;
+            foreach (var chunk in _namedChunks)
+            {
+                foreach (var (bakeId, rect) in chunk.Rects!)
+                {
+                    _mergedLightmaps.TryAdd(bakeId, rect);
+                }
+
+                hash = hash * 31 + (ulong)StringComparer.Ordinal.GetHashCode(chunk.File);
+            }
+
+            _chunkLightmapsHash = hash == 0 ? 1 : hash;
+            _mergedSpace = spaceRects;
+            _mergedChunks.Clear();
+            _mergedChunks.AddRange(_namedChunks);
+        }
+
+        return _mergedLightmaps;
+    }
+
+    // A chunk bake the pool couldn't read or check: reported once, and missing until the store reloads.
+    private void ChunkUnreadable(string file, string message)
+    {
+        Console.Error.WriteLine($"The bake {file} can't be read, so its area is lit live: {message}");
+        _readableBakes.Unreadable.Add(file);
     }
 
     /// <summary>
@@ -2001,8 +2119,8 @@ public sealed unsafe class Renderer : IDisposable
         // first settle counts: the live ProbesSettled turns false on every cell the camera crosses, and recapturing
         // every reflection probe then would wait for the GPU twice a cell.
         // A capture draws the lightmaps and the bake's probes, so a bake loaded, dropped or swapped for another changes
-        // what it sees.
-        ulong lightmaps = _activeLightmaps is null && _activeBakedProbes is null ? 0 : _loadedBake.Inputs;
+        // what it sees, and so does a chunk bake arriving or going.
+        ulong lightmaps = (_spaceLightmapsActive || _activeBakedProbes is not null ? _loadedBake.Inputs : 0) ^ _chunkLightmapsHash;
         return HashCode.Combine(ReflectionLightingHash(view, _environmentVersion), _lightProbesInUse, _probesSettledOnce, lightmaps);
     }
 
@@ -2921,6 +3039,8 @@ public sealed unsafe class Renderer : IDisposable
         };
         _api.BeginCommandBuffer(cmd, &beginInfo).Check();
         _uploads.Record(cmd, _destroyed[_frameIndex].Others);
+        // This frame's share of the chunk bakes going up, and those no copy named this frame let go once it is done.
+        _chunkPool.Record(cmd, _destroyed[_frameIndex].Textures, _destroyed[_frameIndex].Others);
         // One top-level structure a frame, shared by the trace debug view and the traced probe updates, made only on
         // a frame that traces something.
         TopLevelStructure? traced = null;
@@ -3175,6 +3295,9 @@ public sealed unsafe class Renderer : IDisposable
         {
             ReleaseDestroyed(slot);
         }
+
+        // Its pages already in the material table go with the table.
+        _chunkPool.Dispose();
 
         _traceDebugPass?.Dispose();
         _baker?.Dispose();

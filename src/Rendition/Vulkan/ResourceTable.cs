@@ -308,6 +308,11 @@ internal sealed unsafe class ResourceTable : IDisposable
         texture.Index >= 0 && texture.Index < _textures.Count && _textures[texture.Index] is not null
         && !_textureDying[texture.Index];
 
+    /// <summary>Whether a handle names a texture that has been destroyed but still waits for the frames reading it.</summary>
+    public bool IsDying(TextureHandle texture) =>
+        texture.Index >= 0 && texture.Index < _textures.Count && _textures[texture.Index] is not null
+        && _textureDying[texture.Index];
+
     /// <summary>Whether a handle names a material that hasn't been destroyed.</summary>
     public bool IsLive(MaterialHandle material) =>
         material.Index >= 0 && material.Index < _materialCount && _materialLive[material.Index];

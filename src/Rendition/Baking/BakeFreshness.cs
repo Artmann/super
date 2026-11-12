@@ -21,7 +21,9 @@ public interface IBakeStore
     /// <see cref="IsFresh"/> has said it is fresh. A store that leaves this out has no lightmaps to give: it answers
     /// null, and the area still counts as baked, but its surfaces take their soft light live. A store that has its own
     /// Load and answers null, as when the file was removed after its header was read, is treated as having an
-    /// unreadable file: the renderer reports it once and lights its area live.
+    /// unreadable file: the renderer reports it once and lights its area live. A chunk's bake is loaded on a worker
+    /// thread while the render thread goes on asking <see cref="IsFresh"/>, so a store's Load must be safe to call
+    /// alongside its other members.
     /// </summary>
     /// <exception cref="InvalidDataException">The file is damaged. The renderer then lights its area live.</exception>
     /// <exception cref="IOException">The read failed. The renderer then lights its area live.</exception>
@@ -60,6 +62,7 @@ public sealed class BakeFrame
     private readonly Dictionary<LightKey, LightMode> _modes = [];
     private readonly List<BakeInputs> _chunks = [];
     private readonly List<bool> _chunkFresh = [];
+    private readonly List<bool> _chunkPending = [];
     private readonly List<string> _chunkFiles = [];
     private readonly List<int> _chunkDraws = [];
     private readonly List<int> _droppedLocalLights = [];
@@ -78,8 +81,19 @@ public sealed class BakeFrame
     /// <summary>Whether the store holds a bake of the space made from <see cref="Space"/>.</summary>
     public bool SpaceFresh { get; private set; }
 
-    /// <summary>For each chunk, whether the store holds a bake made from its inputs.</summary>
+    /// <summary>
+    /// For each chunk, whether the store holds a bake made from its inputs and the renderer has every page of it on
+    /// the GPU. A chunk whose bake is fresh but still on its way is <see cref="ChunkPending"/> instead, and counts as
+    /// unbaked until it arrives.
+    /// </summary>
     public IReadOnlyList<bool> ChunkFresh => _chunkFresh;
+
+    /// <summary>
+    /// Whether chunk <paramref name="chunk"/>'s bake is fresh in the store but not yet all on the GPU: being read, or
+    /// uploaded a little a frame. Until it arrives the chunk isn't <see cref="ChunkFresh"/>, so its Baked lights are
+    /// drawn live. Always false for a frame resolved without a renderer, as by <see cref="BakeFreshness.Resolve"/>.
+    /// </summary>
+    public bool ChunkPending(int chunk) => _chunkPending[chunk];
 
     /// <summary>
     /// How the light is used this frame: its own mode when the area that owns it has a fresh bake and it isn't
@@ -112,6 +126,7 @@ public sealed class BakeFrame
         SpaceFresh = false;
         _chunks.Clear();
         _chunkFresh.Clear();
+        _chunkPending.Clear();
         _chunkFiles.Clear();
         _chunkDraws.Clear();
         _modes.Clear();
@@ -125,10 +140,11 @@ public sealed class BakeFrame
         SpaceFresh = fresh;
     }
 
-    internal void AddChunk(BakeInputs inputs, bool fresh, string file, int staticDraws)
+    internal void AddChunk(BakeInputs inputs, bool fresh, bool pending, string file, int staticDraws)
     {
         _chunks.Add(inputs);
         _chunkFresh.Add(fresh);
+        _chunkPending.Add(pending);
         _chunkFiles.Add(file);
         _chunkDraws.Add(staticDraws);
     }

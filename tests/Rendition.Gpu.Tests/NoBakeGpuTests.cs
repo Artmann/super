@@ -17,6 +17,9 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
     private static readonly BakedChunk[] Shed =
         [new("shed", Matrix4x4.CreateTranslation(20f, 0f, 0f), new Vector3(-2f, 0f, -2f), new Vector3(2f, 3f, 2f))];
 
+    // A chunk round the cube and the point light in front of it.
+    private static readonly BakedChunk[] Hut = [new("hut", Matrix4x4.Identity, new Vector3(-3f), new Vector3(3f))];
+
     [Fact]
     public void Baked_space_without_a_bake_renders_the_same_bytes()
     {
@@ -140,6 +143,39 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
+    [Fact]
+    public void Missing_chunk_bake_draws_the_same_bytes()
+    {
+        int errors = gpu.ValidationErrors;
+        var cube = Cube();
+        var store = new NothingFresh();
+        try
+        {
+            byte[] plain = Capture(cube, LightMode.Mixed, baked: false);
+            // A store that could load bakes, but has none for this chunk, so nothing goes to the pool.
+            gpu.Renderer.Bakes = store;
+            byte[] missing = Capture(cube, LightMode.Baked, baked: true, inChunk: true);
+
+            var frame = Assert.IsType<BakeFrame>(gpu.Renderer.LastBakeFrame);
+            Assert.Null(frame.Space);
+            Assert.Equal(1, frame.ChunkStaticDraws(0));
+            Assert.Equal([false], frame.ChunkFresh);
+            Assert.False(frame.ChunkPending(0));
+            Assert.Empty(frame.DroppedLocalLights);
+            Assert.Equal(0, gpu.Renderer.ChunkBakes.Pending);
+            Assert.Equal(0, gpu.Renderer.ChunkBakes.Resident);
+            Assert.Equal(0, store.Loads);
+            Assert.Equal(plain, missing);
+        }
+        finally
+        {
+            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.DestroyMesh(cube.Mesh);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
     private DrawItem Cube()
     {
         var (vertices, indices) = TestMeshes.Cube();
@@ -151,10 +187,10 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
 
     // A cube under a Mixed sun and a point light in front of it. Baked, the frame names a space round the cube and a
     // chunk off to the side, the cube is static, and the point light takes the mode given. Every effect is off but the
-    // baked lighting unless asked otherwise.
+    // baked lighting unless asked otherwise. In a chunk, the frame names no space and a chunk round the cube instead.
     private byte[] Capture(
         DrawItem cube, LightMode pointMode, bool baked, bool withPointLight = true,
-        RenderEffects off = RenderEffects.All & ~RenderEffects.BakedLighting)
+        RenderEffects off = RenderEffects.All & ~RenderEffects.BakedLighting, bool inChunk = false)
     {
         DirectionalLight[] suns =
         [
@@ -175,8 +211,8 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
             Lights = suns,
             LocalLights = withPointLight ? points : [],
             Off = off,
-            BakedSpace = baked ? Room : null,
-            BakedChunks = baked ? Shed : [],
+            BakedSpace = baked && !inChunk ? Room : null,
+            BakedChunks = !baked ? [] : inChunk ? Hut : Shed,
         };
 
         // The dither's noise repeats every 64 frames, so each capture is the 64th frame of its own, and two captures
@@ -192,5 +228,21 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
     private sealed class EveryBakeFresh : IBakeStore
     {
         public bool IsFresh(string file, BakeInputs inputs) => true;
+    }
+
+    // A store with lightmaps to give but no fresh bake, counting the loads asked of it.
+    private sealed class NothingFresh : IBakeStore
+    {
+        private int _loads;
+
+        public int Loads => Volatile.Read(ref _loads);
+
+        public bool IsFresh(string file, BakeInputs inputs) => false;
+
+        public LightBakeFile? Load(string file)
+        {
+            Interlocked.Increment(ref _loads);
+            return null;
+        }
     }
 }

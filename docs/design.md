@@ -3300,8 +3300,11 @@ with `LightBakeFile.ReadInputs` the first time it is asked about and keeps the r
 that throws `InvalidDataException`, or a read that throws `IOException` or
 `UnauthorizedAccessException`, such as while a cook replaces the file. That is logged once with
 its message and kept until `Forget`, so the file is tried again after the content reloads rather
-than every frame. The read gives the whole file for its header, once per file. The store isn't
-thread-safe; the render thread is its only caller. `IsFresh` compares the kept
+than every frame. The read gives the whole file for its header, once per file. The store's
+header cache isn't thread-safe, so `IsFresh`, `Saved` and `Forget` are called from the render
+thread only; `Load` keeps nothing and only calls the read function, so the chunk pool calls it
+from a worker thread while the render thread goes on (`CookedFolder.Read` is `File.ReadAllBytes`
+on a volatile manifest, safe to call alongside). `IsFresh` compares the kept
 inputs with the frame's by value. When they differ it logs once per file, kept in a
 `HashSet<string>`, joining `BakeInputs.Changes` into "draws, lights and environment". A missing
 file isn't logged. `IsFreshQuietly` makes the same comparison and logs nothing, so it doesn't use
@@ -3372,7 +3375,49 @@ fresh."). It answers not fresh for that file, so the frame is resolved again and
 Baked lights come back. The set is cleared when `Bakes` is another object or its `Reloads`
 moves. Anything else thrown while the pages are made, such as a full texture table or running
 out of device memory, destroys the pages made so far through the same deferred path and is
-rethrown, since it isn't the file's fault. Only the space is loaded; chunks are not yet.
+rethrown, since it isn't the file's fault. Chunks are loaded by the pool below.
+
+### Chunk bakes on the GPU
+
+A chunk's bake goes through `ChunkBakePool` (`src/Rendition/Baking/ChunkBakePool.cs`), which
+the renderer keeps one of. The resolver asks it through `BakeResolver.ChunkResident`, a hook
+called only for a chunk whose file is stored and fresh. When the store has no `Load` of its own
+(`GivesLightmaps`) the hook answers true at once, as before. Otherwise `Renderer.ChunkResident`
+calls `ChunkBakePool.Use(file, store)`, which marks the file used this frame and answers whether
+its pages are all on the GPU. A file asked about for the first time gets an entry and a
+`Task.Run` that calls `IBakeStore.Load` and `ChunkBakePool.CheckPages`, which checks the five
+transfer pages (sky red, green and blue and sun as `Rgba16f`, sun tint as `Rgba8`, all one size,
+at least 1x1), at most one irradiance page, direction and mask counts, each plain page's size,
+each page's bytes against `TextureData.LevelSize`, and that every rect is on page 0. Its result,
+the bake or the exception's message, comes back through a `ConcurrentQueue`. A chunk that isn't
+resident is added to the frame with `BakeFreshness.AddChunk(..., pending: true)`: it counts in
+`ChunkPending`, not `ChunkFresh`, and its Baked lights stay live, so a frame never draws half a
+bake. `Render` never waits on the worker.
+
+`ChunkBakePool.Record` runs once a frame right after the upload queue records, on the frame's
+command buffer. It takes what the workers finished: a failure removes the entry and goes to
+`Renderer.ChunkUnreadable`, which logs it like a space's and adds the file to the unreadable set,
+so the chunk is lit live until a reload. A loaded bake gets one empty one-level linear texture
+per page. Then it lets go of every entry no chunk named this frame: a page already in the
+resource table is marked dying and its slot added to the frame's `_destroyed` list, and a page
+still going up is disposed through the same list, so nothing is freed before the frames that
+used it have finished on the GPU. Then it uploads: it plans one band of rows per page, in order,
+until `ChunkUploadBudget` (8 MB) is spent, always at least one `GpuTexture.RowUnit` (4 rows for
+block-compressed pages) so a page bigger than the budget still moves, copies the bands into one
+host-visible staging buffer that the frame's `_destroyed` list frees, and records each with
+`GpuTexture.RecordRows`, which readies the image on a page's first band and hands it to shaders
+on its last. A finished page goes into the resource table with clamped edges. When a bake's last
+page is in, its rects become `GpuLightmapRect`s with its irradiance and direction slots, a mask
+of -1 (fully lit) until the mask is wired up, and the bake's bytes are let go.
+
+`Renderer.WithChunkLightmaps` merges the resident chunks' rects with the space's into the
+dictionary `InstanceBuffer.Lightmaps` reads. With no chunk named it hands on the space's rects
+themselves, so such a frame draws exactly as before; otherwise it rebuilds the merged dictionary
+only when the space's rects or the set of named chunks changes, space rects first. A hash of the
+named files goes into `ReflectionLightingHash`, so reflection probes are taken again when a chunk
+bake arrives or goes. A change of store or `Reloads` calls `ChunkBakePool.Clear`, which lets go
+of every entry the same deferred way. The sky and sun transfer pages are uploaded and given slots
+but no shader reads them yet.
 
 While the G-buffer pass records, `InstanceBuffer.Lightmaps` holds the loaded rects, and `Add`
 writes each copy's `GpuLightmapRect` into a buffer at set 0 binding 10, 32 bytes a copy, beside
