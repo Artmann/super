@@ -103,7 +103,7 @@ public static class ShadowMaskChannels
     /// position, taken into the chunk's own space with <see cref="BakeAreas.IntoChunk"/>, is inside the chunk's box.
     /// Members go in order of <see cref="BakeInputHash.Light"/> with the chunk's transform (ties by index), not of
     /// <see cref="LocalLight.Key"/>: each placed copy of a chunk gives its lights other keys, but the same hash. Ranges
-    /// are compared from the chunk-space positions too, so a copy's rounding at its place cannot change who overlaps.
+    /// are compared from the chunk-space positions too, so a copy's rounding at its place changes who overlaps less often, though not never at an exact boundary.
     /// The <see cref="LocalLight.Key"/> of every light left without a channel is added to
     /// <paramref name="unassigned"/>, in ascending order, after clearing it.
     /// </remarks>

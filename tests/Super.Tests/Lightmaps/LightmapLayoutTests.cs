@@ -328,15 +328,20 @@ public class LightmapLayoutTests
     [Fact]
     public void Single_page_never_passes_2048()
     {
-        // A 1024 square and its gutter leave room for just one on a 2048 page.
+        // A 1024 square and its gutter (1026) leave room for just one on a 2048 page, whose limit is 2050 across. The
+        // second 1024 is too large ever to fit, but a 100 square with its gutter (102) fits beside the first.
         var layout = LightmapLayout.Single(
             [Chart(0, 100), Chart(1, 1024), Chart(2, 1024), Chart(3, 100)], 1);
 
         Assert.Equal(2048, layout.PageSide);
         Assert.Equal(1, layout.Pages);
-        Assert.Equal([BakeIds.Of(InstanceA, 0), BakeIds.Of(InstanceA, 2), BakeIds.Of(InstanceA, 3)], layout.Left);
-        Assert.Equal([BakeIds.Of(InstanceA, 1)], layout.Draws.Select(d => d.BakeId));
+        Assert.Equal([BakeIds.Of(InstanceA, 2)], layout.Left);
+        Assert.Equal(
+            [BakeIds.Of(InstanceA, 0), BakeIds.Of(InstanceA, 1), BakeIds.Of(InstanceA, 3)],
+            layout.Draws.Select(d => d.BakeId).Order());
         Assert.False(layout.TryGet(BakeIds.Of(InstanceA, 2), out _));
+        layout.TryGet(BakeIds.Of(InstanceA, 3), out var small);
+        Assert.Equal(100f / 2048f, small.Scale.X);
     }
 
     [Fact]

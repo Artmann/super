@@ -1896,8 +1896,10 @@ tries `SkylinePacker.TryPack` on a page of 64, 128, 256 and so on up to 2048, an
 first side that holds every square with the gutter. Two squares of 127 and their gutters make
 258 across, so three of them fit 256; make one 128 and the page is 512. `PageSide` says which
 side was chosen (2048 for `Build`), and `Scale` and `Offset` are relative to it. A chart that
-is not placed even at 2048 is named in `Left`, in the order given; the largest squares are the
-ones kept, by the same bisection `Build` uses, and the baker reports the rest, which are lit
+is not placed even at 2048 is named in `Left`, in the order given. The largest squares that fit
+together are kept first, by the same bisection `Build` uses, and then each remaining square, largest
+first, is added if everything still packs, since there is no next page to take it. The baker reports
+the rest, which are lit
 live. A layout from `Single` has one page (page 0), or none when it is given no charts.
 
 ## Texel setup

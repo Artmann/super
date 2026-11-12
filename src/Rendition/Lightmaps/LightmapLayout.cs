@@ -160,7 +160,7 @@ public sealed class LightmapLayout
     /// <see cref="PageSize"/> that holds every chart at the density. Each chart gets a square of
     /// <paramref name="texelsPerMetre"/> texels to each metre of its side, clamped to <see cref="MinSide"/> and
     /// <see cref="MaxSide"/>, with <see cref="LightmapUnwrap.Gutter"/> texels between squares. Charts that don't fit
-    /// even at <see cref="PageSize"/> are in <see cref="Left"/>, in the order given, and the largest ones are kept.
+    /// even at <see cref="PageSize"/> are in <see cref="Left"/>, in the order given: the largest squares that fit together are kept, and then each smaller one that still fits beside them.
     /// A layout with no charts has <see cref="MinSinglePageSide"/> and no pages.
     /// </summary>
     public static LightmapLayout Single(ReadOnlySpan<LightmapChart> charts, int texelsPerMetre)
@@ -188,6 +188,30 @@ public sealed class LightmapLayout
             {
                 break;
             }
+        }
+
+        // Single has no next page, so a chart the prefix left out is tried again beside the ones kept, in the order
+        // given by size and then by index, and stays if everything still packs.
+        if (fits < order.Count)
+        {
+            var kept = order.GetRange(0, fits);
+            for (int j = fits; j < order.Count; j++)
+            {
+                kept.Add(order[j]);
+                var sizes = kept.Select(i => (groups[i].Side, groups[i].Side)).ToArray();
+                var trial = new (int X, int Y)[sizes.Length];
+                if (SkylinePacker.TryPack(sizes, layout.PageSide, layout.PageSide, LightmapUnwrap.Gutter, trial))
+                {
+                    positions = trial;
+                }
+                else
+                {
+                    kept.RemoveAt(kept.Count - 1);
+                }
+            }
+
+            order = kept;
+            fits = kept.Count;
         }
 
         for (int i = 0; i < fits; i++)
