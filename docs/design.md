@@ -1700,8 +1700,11 @@ frames with a light changing every frame, one alternates the camera across cells
 (`Move`, `NewSlots`, `Scrolled`, `Next` and `Updated`), and one collects the same 60 draws 100
 times. A GPU test renders a settled traced red-wall scene for 60 frames with the probes on and
 again with them off, and expects no more bytes with them on (both are 73,920 bytes: the rest of
-`Render` still allocates about 1.2 KB a frame). `Rendition.Sample --check` measures the whole
-sample over 900 frames: 676,800 bytes, the same as before the probes were live.
+`Render` still allocates about 1.2 KB a frame in that scene). `Rendition.Sample --check` measures
+a different scene, the sample's own, over 900 frames after a 240-frame warm-up: 676,800 bytes
+(752 B a frame), the same at the commit that made the probe path allocation-free and today
+(three runs of each). The two figures are not parts of one total. Neither is zero yet, so
+`--check` still exits 1.
 
 The ProbeBudget is 8 raster and 256 traced probes a frame at Low, 16 and 512 at Medium, and 32
 and 1,024 at High. The traced path refreshes clean probes for their age at only a quarter of its
