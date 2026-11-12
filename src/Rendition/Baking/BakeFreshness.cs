@@ -60,6 +60,7 @@ public sealed class BakeFrame
     private readonly Dictionary<LightKey, LightMode> _modes = [];
     private readonly List<BakeInputs> _chunks = [];
     private readonly List<bool> _chunkFresh = [];
+    private readonly List<string> _chunkFiles = [];
     private readonly List<int> _droppedLocalLights = [];
     private readonly List<int> _droppedSuns = [];
 
@@ -91,6 +92,13 @@ public sealed class BakeFrame
     /// <summary>The indices, ascending, of the frame's suns that are Baked and over a fresh space bake.</summary>
     public IReadOnlyList<int> DroppedSuns => _droppedSuns;
 
+    /// <summary>
+    /// The file chunk <paramref name="chunk"/>'s bake is in, <see cref="BakeFiles.Chunk"/> of its name and
+    /// <c>Chunks[chunk].Combined</c>. The resolver keeps the names, so asking allocates nothing once a frame has
+    /// seen them.
+    /// </summary>
+    public string ChunkFile(int chunk) => _chunkFiles[chunk];
+
     internal List<BakeInputs> ChunkInputs => _chunks;
 
     // Empties the frame for the resolver to fill again, keeping everything it allocated.
@@ -100,6 +108,7 @@ public sealed class BakeFrame
         SpaceFresh = false;
         _chunks.Clear();
         _chunkFresh.Clear();
+        _chunkFiles.Clear();
         _modes.Clear();
         _droppedLocalLights.Clear();
         _droppedSuns.Clear();
@@ -111,10 +120,11 @@ public sealed class BakeFrame
         SpaceFresh = fresh;
     }
 
-    internal void AddChunk(BakeInputs inputs, bool fresh)
+    internal void AddChunk(BakeInputs inputs, bool fresh, string file)
     {
         _chunks.Add(inputs);
         _chunkFresh.Add(fresh);
+        _chunkFiles.Add(file);
     }
 
     internal void SetMode(LightKey key, LightMode mode) => _modes[key] = mode;

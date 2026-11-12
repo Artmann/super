@@ -156,7 +156,8 @@ public sealed class BakeResolver
             var inputs = BakeInputHash.Chunk(
                 CollectionsMarshal.AsSpan(_chunkIds[c]), CollectionsMarshal.AsSpan(_chunkLights[c]), chunks[c],
                 new BakeSettings(chunks[c].TexelsPerMetre));
-            result.AddChunk(inputs, IsFresh(ChunkFile(chunks[c].Name, inputs.Combined), inputs, animated));
+            string file = ChunkFile(chunks[c].Name, inputs.Combined);
+            result.AddChunk(inputs, IsFresh(file, inputs, animated), file);
         }
 
         if (space is { } baked)

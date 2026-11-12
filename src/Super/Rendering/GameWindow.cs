@@ -219,65 +219,71 @@ internal sealed unsafe class GameWindow : IDisposable
     }
 
     /// <summary>
-    /// Plays the given number of ticks, then bakes the frame's baked space and saves it in <paramref name="folder"/>, the
-    /// first content root, as <c>lighting/&lt;name&gt;.lightbake</c>. Prints what the bake found. Returns the validation
-    /// message count.
+    /// Plays the given number of ticks, then bakes the frame's baked space, if it names one, and each distinct chunk file
+    /// it draws, and saves them in <paramref name="folder"/>, the first content root, as
+    /// <c>lighting/&lt;name&gt;.lightbake</c> and <c>lighting/&lt;name&gt;/&lt;hash&gt;.lightbake</c>. Chunks with the
+    /// same contents share a file, which is baked once. Prints what each bake found. Returns the validation message
+    /// count.
     /// </summary>
-    /// <exception cref="InvalidOperationException">The frame names no baked space.</exception>
+    /// <exception cref="InvalidOperationException">The frame names no baked space and no chunk.</exception>
     public int Bake<TGame>(GameHost<TGame> host, long ticks, BakeQuality quality, string folder)
         where TGame : class, IGame
     {
         float time = PlayAndDraw(host, ticks);
-        if (host.View.BakedSpace is not { } space)
-        {
-            throw new InvalidOperationException("--bake found no baked space in the frame. Name one with view.BakedLighting.");
-        }
+        var chunks = host.View.BakedChunks;
+        var frame = _scene.LastBakeFrame;
+        var targets = BakeCommand.Targets(
+            host.View.BakedSpace is { } named ? BakeFiles.Space(named.Name) : null,
+            chunks.Count,
+            chunk => frame!.ChunkFile(chunk));
 
-        // Baked at the space's own texel density, which is what a frame checks its bake against.
         _glfw.GetFramebufferSize(_window, out int width, out int height);
         ApplyGraphics(host.Graphics);
-        byte[] bake = _scene.Bake(
-            host.View, host.Content, width, height, time, new BakeSettings(space.TexelsPerMetre, quality));
+        foreach (var target in targets)
+        {
+            // Each is baked at its area's own texel density, which is what a frame checks its bake against.
+            byte[] bake = target.Chunk == BakeTarget.Space
+                ? _scene.Bake(host.View, host.Content, width, height, time,
+                    new BakeSettings(host.View.BakedSpace!.Value.TexelsPerMetre, quality))
+                : _scene.BakeChunk(host.View, host.Content, width, height, time, target.Chunk,
+                    new BakeSettings(chunks[target.Chunk].TexelsPerMetre, quality));
 
-        string file = BakeFiles.Space(space.Name);
-        string path = Path.GetFullPath(Path.Combine(folder, file));
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllBytes(path, bake);
-        Console.Write(DescribeBake(path, bake.Length, LightBakeFile.Read(bake).Report));
+            string path = Path.GetFullPath(Path.Combine(folder, target.File));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, bake);
+            Console.Write(DescribeBake(path, bake.Length, LightBakeFile.Read(bake).Report));
+        }
+
         return _scene.ValidationErrors;
     }
 
     /// <summary>
-    /// Plays the given number of ticks, draws the frame and checks its baked space's bake in the cooked content, the
-    /// one the frame was drawn with, printing whether it is missing, stale, with what changed, or fresh. Returns the
-    /// number of missing or stale bakes.
+    /// Plays the given number of ticks, draws the frame and checks the bake of its baked space and of each distinct
+    /// chunk file in the cooked content, the one the frame was drawn with, printing a line for each: missing, stale
+    /// with what changed, or fresh. Returns the number of missing or stale bakes.
     /// </summary>
     public int BakeCheck<TGame>(GameHost<TGame> host, long ticks)
         where TGame : class, IGame
     {
         PlayAndDraw(host, ticks);
-        if (host.View.BakedSpace is not { } space || _scene.LastBakeFrame?.Space is not { } inputs)
+        var frame = _scene.LastBakeFrame;
+        if (frame is null)
         {
-            Console.WriteLine("The frame names no baked space, so there is no bake to check.");
-            return 0;
+            return BakeCommand.Check([], _ => null, Console.Out);
         }
 
-        string file = BakeFiles.Space(space.Name);
-        if (_scene.Bakes.Saved(file) is not { } saved)
-        {
-            Console.WriteLine($"{file}: missing");
-            return 1;
-        }
-
-        var changes = inputs.Changes(saved);
-        if (changes.Count > 0)
-        {
-            Console.WriteLine($"{file}: stale, its {string.Join(", ", changes)} changed");
-            return 1;
-        }
-
-        Console.WriteLine($"{file}: fresh");
-        return 0;
+        var targets = BakeCommand.Targets(
+            frame.Space is not null && host.View.BakedSpace is { } space ? BakeFiles.Space(space.Name) : null,
+            frame.Chunks.Count,
+            chunk => frame.ChunkFile(chunk));
+        return BakeCommand.Check(
+            targets,
+            target =>
+            {
+                var inputs = target.Chunk == BakeTarget.Space ? frame.Space!.Value : frame.Chunks[target.Chunk];
+                return _scene.Bakes.Saved(target.File) is { } saved ? inputs.Changes(saved) : null;
+            },
+            Console.Out);
     }
 
     /// <summary>What <see cref="Bake"/> prints about a bake it saved.</summary>

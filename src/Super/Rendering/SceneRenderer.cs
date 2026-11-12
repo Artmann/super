@@ -214,6 +214,19 @@ internal sealed class SceneRenderer : IDisposable
         return _renderer.Bake(frame, _draws.AsSpan(0, count), settings);
     }
 
+    /// <summary>
+    /// Bakes chunk <paramref name="chunk"/> of the view from the same frame <see cref="Render"/> would draw, and returns
+    /// the <c>.lightbake</c> file's bytes. See <see cref="Renderer.BakeChunk"/>.
+    /// </summary>
+    public byte[] BakeChunk(View view, Content content, int width, int height, float time, int chunk, BakeSettings settings)
+    {
+        Prepare(content, view);
+        int count = PrepareDraws(view, content);
+        PrepareDecals(view, content);
+        var frame = CreateFrame(view, width, height, time);
+        return _renderer.BakeChunk(frame, _draws.AsSpan(0, count), chunk, settings);
+    }
+
     /// <summary>What the last frame's baked areas came to. See <see cref="Renderer.LastBakeFrame"/>.</summary>
     public BakeFrame? LastBakeFrame => _renderer.LastBakeFrame;
 

@@ -30,7 +30,7 @@ dotnet run -c Release --project MyColony -- --script tooltip --ticks 40 --screen
 | `--debug-view trace` | Shows what a ray from the camera hits in the ray tracing layer, as each surface's base colour with no lighting, and sky blue where it hits nothing, to check that rays see the scene you see. Leaves out skinned and swimming draws and ghosts, and rays pass through the holes in cut-outs. Works in the window and with `--screenshot` and `--record`. With `--profile` it runs too, so the profile times the trace view, not the lit scene. Needs a GPU that can trace, so with `--no-trace`, or on a GPU that can't, the game exits at once with `--debug-view trace needs a GPU that can trace rays, and this one can't (reason).` Any other name than `trace` or `probes` is refused. See [the debug view](rendering.md#ray-tracing) |
 | `--debug-view probes` | Draws the [light probes](rendering.md#bounced-light) of the finest box round the camera and of your own `view.LightProbes` box over the lit scene as small spheres (the coarser boxes aren't drawn), each shaded with the light its probe holds for every direction, so you can see where the bounce comes from. A probe not drawn yet is a grey wireframe, and one inside a wall isn't shown. Needs no tracing, so it works with `--no-trace` too. Shows no spheres while `Graphics.LightProbes` is off. Works in the window and with `--screenshot`, `--record` and `--profile` |
 | `--user-data folder` | Keeps [user data](user-data.md) in this folder. Without it, the window uses the player's folder and runs without a window use a throwaway one |
-| `--bake` | Bakes the frame's [baked space](rendering.md#baked-lighting) into the first content root, then exits. See [Baking lighting](#baking-lighting) |
+| `--bake` | Bakes the frame's [baked space](rendering.md#baked-lighting) and each [baked chunk](rendering.md#baked-lighting) it draws into the first content root, then exits. See [Baking lighting](#baking-lighting) |
 | `--bake-check` | Exits with 1 when the frame's baked space has no bake or a stale one, saying what changed |
 | `--bake-quality preview\|final` | How long `--bake` traces: `preview` for a quick look, `final` for the one to keep. `final` by default. Needs `--bake` |
 
@@ -415,8 +415,11 @@ dotnet run --project MyGame -- --bake-check
 
 `--bake` plays `--ticks` ticks, then bakes the frame's [baked space](rendering.md#baked-lighting) with
 [`Renderer.Bake`](rendering.md#making-a-bake) and saves it in the game's first content root as
-`lighting/<name>.lightbake`, replacing what was there. Like `--screenshot` it runs without a
-window and under validation, and `--seed` and `--script` work as usual. It prints the file,
+`lighting/<name>.lightbake`, replacing what was there. It then bakes each baked chunk the frame
+draws with `Renderer.BakeChunk` and saves it as `lighting/<name>/<hash>.lightbake`. Chunks with
+the same contents share one file however many copies stand in the frame, so each file is baked
+once, in order of first appearance, after the space. Like `--screenshot` it runs without a
+window and under validation, and `--seed` and `--script` work as usual. For each file it prints the path,
 how long the bake took, the samples each texel got, the share of texels no ray found a front
 face for, and the keys of `Mixed` lights that found no shadow mask channel:
 
@@ -439,21 +442,23 @@ already does.
 It exits with 1 when there were validation messages. `--bake-quality preview` traces 64
 samples a texel, which took 13 seconds on the Gallery; `final`, the default, traces 1,024,
 which took 16 seconds there. The
-space is baked at the texel density it was named with, `view.BakedLighting`'s
-`texelsPerMetre`, which is what a frame checks its bake against. A frame with no baked space throws "--bake found no baked space in the frame.
-Name one with view.BakedLighting." Only the space is baked; chunks aren't yet.
+space and each chunk are baked at the texel density they were named with, `texelsPerMetre`,
+which is what a frame checks its bake against. A frame with neither a baked space nor a chunk
+throws "--bake found no baked space or chunk in the frame. Name one with view.BakedLighting or
+view.BakedChunk." A chunk that owns no static draws throws too, as `Renderer.BakeChunk` does.
 
 `--bake-check` plays the same way, two seconds' worth unless `--ticks` says otherwise, so the
 lights it sees moving are the ones `--bake` left out. It draws the frame and compares what its baked space would be
-baked from with the header of the bake in the cooked content, the one the game draws with. It
-prints one line and exits with 0 when the bake is fresh, or 1 when it is missing or stale,
-naming what changed out of `draws`, `lights`, `environment` and `settings`:
+baked from, and each distinct chunk file, with the header of the bake in the cooked content, the
+one the game draws with. It prints one line for each file and exits with 0 when every bake is
+fresh, or 1 when any is missing or stale, naming what changed out of `draws`, `lights`,
+`environment` and `settings`:
 
 ```
 lighting/gallery.lightbake: stale, its lights changed
 ```
 
-A frame with no baked space has nothing to check and exits with 0. A bake that can't be read
+A frame with no baked space and no chunk has nothing to check and exits with 0. A bake that can't be read
 counts as missing, and the reason goes to the error output. `--bake` needs the game run from
 source, where the build writes `content.dev.json` to say where the content is, and a published
 game exits with 1 and says so. `--bake-check` works in a published game too, so a release can
