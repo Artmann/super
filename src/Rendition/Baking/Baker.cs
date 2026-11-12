@@ -38,9 +38,6 @@ internal sealed unsafe class Baker : IDisposable
     /// <summary>Texels traced round the rectangles on a page, so the edge texels conservative drawing adds get light too.</summary>
     internal const int TraceMargin = 2;
 
-    /// <summary>What a mask channel holds when no light has it: fully lit, so the runtime never darkens by it.</summary>
-    internal const uint NoMaskLight = uint.MaxValue;
-
     /// <summary>Probes traced side by side in one pass, each a row of its six faces.</summary>
     internal const int ProbesPerBatch = 64;
 
@@ -438,21 +435,17 @@ internal sealed unsafe class Baker : IDisposable
     /// another frame, which recycles the scene's top-level structure. Passes are submitted in batches sized from the
     /// first, so no submit runs much past <paramref name="batchBudget"/>. Waits for the GPU.
     /// </summary>
-    /// <param name="lights">Every light of the bake, sampled at each path vertex.</param>
-    /// <param name="maskLights">For each of the four mask channels, the index into <paramref name="lights"/> it measures, or <see cref="NoMaskLight"/>.</param>
+    /// <param name="lights">
+    /// Every light of the bake, sampled at each path vertex. Each light with a <see cref="GpuBakeLight.MaskChannel"/>
+    /// is also measured in that channel of the mask, wherever it reaches; lights that share a channel must not overlap.
+    /// </param>
     /// <param name="skyIntensity">What the sky is scaled by; 0 leaves it out.</param>
     /// <param name="sky">The sky to light by, a cube sampled by world direction, in the shader-read layout.</param>
     public TracedPage[] Trace(
-        LightmapLayout layout, ReadOnlySpan<GpuBakeLight> lights, ReadOnlySpan<uint> maskLights, int passes,
+        LightmapLayout layout, ReadOnlySpan<GpuBakeLight> lights, int passes,
         float skyIntensity, ImageView sky, Sampler skySampler, TimeSpan batchBudget)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(passes, 1);
-        if (maskLights.Length != ShadowMaskChannels.Count)
-        {
-            throw new ArgumentException(
-                $"maskLights holds {maskLights.Length} entries, not one for each of the {ShadowMaskChannels.Count} channels.",
-                nameof(maskLights));
-        }
 
         // An empty storage buffer isn't allowed, so there is always room for one light.
         ulong lightBytes = (ulong)Math.Max(lights.Length, 1) * (ulong)sizeof(GpuBakeLight);
@@ -464,10 +457,6 @@ internal sealed unsafe class Baker : IDisposable
             LightCount = (uint)lights.Length,
             Lift = TraceLift,
             SkyIntensity = skyIntensity,
-            MaskLight0 = maskLights[0],
-            MaskLight1 = maskLights[1],
-            MaskLight2 = maskLights[2],
-            MaskLight3 = maskLights[3],
         };
 
         var traced = new TracedPage[layout.Pages];
@@ -1742,10 +1731,6 @@ internal sealed unsafe class Baker : IDisposable
         public uint LightCount;
         public float Lift;
         public float SkyIntensity;
-        public uint MaskLight0;
-        public uint MaskLight1;
-        public uint MaskLight2;
-        public uint MaskLight3;
     }
 
     // Must match the push constants in bake_probes.comp.
@@ -1798,13 +1783,20 @@ internal struct GpuBakeLight
     public Vector4 DirectionCone;
     public Vector4 FadeKind;
 
+    /// <summary>The shadow mask channel the light is measured in, or -1 for none, which both makers start with.</summary>
+    public int MaskChannel
+    {
+        readonly get => (int)FadeKind.W;
+        set => FadeKind.W = value;
+    }
+
     /// <summary>A sun, its disc <paramref name="lightAngle"/> radians across (<see cref="ShadowSettings.LightAngle"/>).</summary>
     public static GpuBakeLight Sun(in DirectionalLight sun, float lightAngle) => new()
     {
         PositionRange = new Vector4(Vector3.Normalize(sun.Direction), 0f),
         RadianceRadius = new Vector4(sun.Radiance, MathF.Cos(lightAngle * 0.5f)),
         DirectionCone = new Vector4(0f, 0f, 0f, -2f),
-        FadeKind = new Vector4(0f, 1f, sun.Mode == LightMode.Mixed ? 1f : 0f, 0f),
+        FadeKind = new Vector4(0f, 1f, sun.Mode == LightMode.Mixed ? 1f : 0f, -1f),
     };
 
     /// <summary>A point or spot light, dimming as the runtime dims it.</summary>
@@ -1827,7 +1819,7 @@ internal struct GpuBakeLight
             PositionRange = new Vector4(light.Position, light.Range),
             RadianceRadius = new Vector4(light.Radiance, Passes.LocalLights.RadiusOf(light)),
             DirectionCone = new Vector4(direction, cosOuter),
-            FadeKind = new Vector4(fade, 0f, light.Mode == LightMode.Mixed ? 1f : 0f, 0f),
+            FadeKind = new Vector4(fade, 0f, light.Mode == LightMode.Mixed ? 1f : 0f, -1f),
         };
     }
 }

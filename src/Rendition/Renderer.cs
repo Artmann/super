@@ -1548,19 +1548,20 @@ public sealed unsafe class Renderer : IDisposable
             }
         }
 
-        // Each mask channel measures one Mixed light; the sun's channel 0 is implied, so only local lights are listed.
+        // Each Mixed light is measured in its mask channel. Local lights that don't overlap can share one, so the channel
+        // goes on each light rather than each channel naming one light. The sun's channel 0 is implied, so only local
+        // lights are listed.
         var sunChannels = new int[suns.Length];
         var localChannels = new int[locals.Length];
         var unassigned = new List<int>();
         ShadowMaskChannels.Assign(space, sunsForMask, localsForMask, sunChannels, localChannels, unassigned);
-        var maskLights = new uint[ShadowMaskChannels.Count];
-        Array.Fill(maskLights, Baker.NoMaskLight);
+        var bakeLights = CollectionsMarshal.AsSpan(lights);
         var channels = new List<(int LightKey, int Channel)>();
         for (int i = 0; i < suns.Length; i++)
         {
             if (sunChannels[i] >= 0)
             {
-                maskLights[sunChannels[i]] = (uint)sunIndex[i];
+                bakeLights[sunIndex[i]].MaskChannel = sunChannels[i];
             }
         }
 
@@ -1568,13 +1569,13 @@ public sealed unsafe class Renderer : IDisposable
         {
             if (localChannels[i] >= 0)
             {
-                maskLights[localChannels[i]] = (uint)localIndex[i];
+                bakeLights[localIndex[i]].MaskChannel = localChannels[i];
                 channels.Add((locals[i].Key, localChannels[i]));
             }
         }
 
         int passes = settings.Quality == BakeQuality.Preview ? 64 : 1024;
-        var traced = baker.Trace(layout, CollectionsMarshal.AsSpan(lights), maskLights, passes,
+        var traced = baker.Trace(layout, bakeLights, passes,
             view.EnvironmentIntensity, _environment.Sky, _environment.Sampler, BakeBatchBudget);
 
         var irradiance = new List<LightBakePage>();

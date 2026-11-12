@@ -8,7 +8,8 @@ struct BakeLight {
     vec4 positionRange;  // A local light's position and range; for a sun, the unit vector towards it.
     vec4 radianceRadius; // Radiance; w is a local light's radius, or for a sun the cosine of its disc's angular radius.
     vec4 directionCone;  // For a spot, the unit vector it shines along and the cosine of its outer angle; w -2 otherwise.
-    vec4 fadeKind;       // x: 1 / (cos inner - cos outer); y: 1 for a sun, 0 otherwise; z: 1 for Mixed, 0 for Baked.
+    vec4 fadeKind;       // x: 1 / (cos inner - cos outer); y: 1 for a sun, 0 otherwise; z: 1 for Mixed, 0 for Baked;
+                         // w: the shadow mask channel it writes, or -1 for none.
 };
 
 const float BAKE_TWO_PI = 6.28318531;

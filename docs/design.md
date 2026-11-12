@@ -1984,12 +1984,15 @@ filter does this before it smooths. It is stored as `d * 0.5 + 0.5` in RGBA8 wit
 alpha. A texel that isn't valid gets nothing from the tracer and is filled by dilation; one
 that dilation doesn't reach holds no light, direction (0, 0, 0) and a mask of 1.
 
-The shadow mask comes from shadow rays alone. Each of its four channels names one `Mixed`
-light (`maskLights` in the push constants, from `ShadowMaskChannels.Assign`), and every pass
-sends one ray from the texel to a random point on that light, adding what gets through: 1 when
-nothing is in the way, the panes' transmission when only panes are, and 0 when the texel is
-beyond its range or outside a spot's cone. The mean is the share of the light the texel sees.
-A channel with no light holds 0 on valid texels and 1 elsewhere; nothing reads it.
+The shadow mask comes from shadow rays alone. Each `Mixed` light with a channel from
+`ShadowMaskChannels.Assign` carries it in its own bake light (`fadeKind.w`, -1 for none), and
+every pass sends one ray from the texel to a random point on each such light that reaches it,
+adding what gets through to that light's channel: 1 when nothing is in the way and the panes'
+transmission when only panes are. A texel beyond the light's range or outside a spot's cone
+gets 0. Several local lights share a channel when their ranges don't overlap, so at most one of
+them reaches a texel, and each is measured where it shines. The mean is the share of the light
+the texel sees. A channel with no light holds 0 on valid texels and 1 elsewhere; nothing reads
+it.
 
 Passes go to the GPU in batches. The first is one pass; after each, the baker times it and
 sizes the next to fit `Renderer.BakeBatchBudget` (80 ms) at that rate, at most double the last,

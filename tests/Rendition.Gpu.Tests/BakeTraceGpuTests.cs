@@ -170,6 +170,46 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
     }
 
     [Fact]
+    public void Two_lights_sharing_a_channel_are_each_measured_under_themselves()
+    {
+        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        try
+        {
+            // Two floors 8 metres apart, each under a light whose range of 2.5 never reaches the other, so the two
+            // lights don't overlap and take the same channel.
+            var left = StaticDraw(quad, Floor(size: 2f) * Matrix4x4.CreateTranslation(-4f, 0f, 0f), gpu.Matte, 32);
+            var right = StaticDraw(quad, Floor(size: 2f) * Matrix4x4.CreateTranslation(4f, 0f, 0f), gpu.Matte, 33);
+            LocalLight Lamp(int key, float x) => new()
+            {
+                Mode = LightMode.Mixed, Key = key, Position = new Vector3(x, 1f, 0f), Radiance = new Vector3(5f), Range = 2.5f,
+            };
+
+            var file = Bake([left, right], [Lamp(1112, -4f), Lamp(1113, 4f)], sky: 0f, new BakeSettings(4, BakeQuality.Preview));
+
+            Assert.Equal(2, file.Channels.Count);
+            Assert.Equal(file.Channels[0].Channel, file.Channels[1].Channel);
+            int channel = file.Channels[0].Channel;
+
+            // Nothing stands between either floor's middle and its own light, so both see all of it.
+            foreach (var floor in new[] { left, right })
+            {
+                var rect = RectOf(file, floor);
+                var (x0, y0, size) = Texels(rect);
+                byte seen = MaskAt(file, rect.Page, x0 + size / 2, y0 + size / 2, channel);
+                Assert.True(seen >= 250, $"The mask under the light over draw {floor.BakeId} is {seen}, not 255.");
+            }
+        }
+        finally
+        {
+            gpu.Renderer.DestroyMesh(quad);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
     public void A_mixed_light_bounces_but_its_direct_light_is_not_baked()
     {
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");

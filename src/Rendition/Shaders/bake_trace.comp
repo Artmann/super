@@ -33,12 +33,9 @@ layout(push_constant) uniform Trace {
     uint lightCount;
     float lift;         // How far along the normal rays start, so they don't hit their own surface.
     float skyIntensity; // The environment's intensity; 0 leaves the sky out.
-    uvec4 maskLights;   // For each mask channel, the light it measures, or ~0 for none.
 } trace;
 
 #include "bake_paths.glsl"
-
-const uint NO_LIGHT = 0xFFFFFFFFu;
 
 void main() {
     ivec2 local = ivec2(gl_GlobalInvocationID.xy);
@@ -56,19 +53,20 @@ void main() {
     vec3 n = normalize(imageLoad(geometricNormals, texel).xyz);
     vec3 origin = p + n * trace.lift;
 
-    // The shadow mask: one shadow ray to a point on each channel's light.
+    // The shadow mask: one shadow ray to a point on each light with a channel that reaches p. Lights that share a
+    // channel never overlap, so at most one of them reaches p and writes it.
     vec4 mask = vec4(0.0);
-    for (uint channel = 0u; channel < 4u; channel++) {
-        uint index = trace.maskLights[channel];
-        if (index == NO_LIGHT) {
+    for (uint i = 0u; i < trace.lightCount; i++) {
+        float channel = lights[i].fadeKind.w;
+        if (channel < 0.0) {
             continue;
         }
 
         vec3 l;
         float distance;
-        bakeSampleLight(lights[index], p, n, vec2(random01(), random01()), l, distance);
+        bakeSampleLight(lights[i], p, n, vec2(random01(), random01()), l, distance);
         if (distance > 0.0) {
-            mask[channel] = transmission(origin, l, distance);
+            mask[int(channel + 0.5)] = transmission(origin, l, distance);
         }
     }
 
