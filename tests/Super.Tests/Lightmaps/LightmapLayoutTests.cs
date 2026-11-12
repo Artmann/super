@@ -293,6 +293,88 @@ public class LightmapLayoutTests
         Assert.Equal(8f, LightmapLayout.CumulativeAreas(vertices, indices)[^1], 4);
     }
 
+    // At one texel to the metre a chart's side in texels is the square root of its area, so the area is the side squared.
+    private static LightmapChart Chart(int id, int side) => new(BakeIds.Of(InstanceA, id), (float)side * side);
+
+    [Fact]
+    public void Single_page_picks_the_smallest_side_that_fits()
+    {
+        // Two 127 squares and their gutters (2 each) make 258 across, and the page plus one gutter is 258, so three
+        // squares go two over one on a 256 page. A 128 square makes 260 across, which only 512 holds.
+        var fits = LightmapLayout.Single([Chart(0, 127), Chart(1, 127), Chart(2, 127)], 1);
+        var tooBig = LightmapLayout.Single([Chart(0, 127), Chart(1, 127), Chart(2, 128)], 1);
+
+        Assert.Equal(256, fits.PageSide);
+        Assert.Equal(1, fits.Pages);
+        Assert.Empty(fits.Left);
+        Assert.True(fits.TryGet(BakeIds.Of(InstanceA, 0), out var rect));
+        Assert.Equal(0, rect.Page);
+        Assert.Equal(127f / 256f, rect.Scale.X);
+        Assert.Equal(127f / 256f, rect.Scale.Y);
+        Assert.Equal(512, tooBig.PageSide);
+        Assert.Empty(tooBig.Left);
+    }
+
+    [Fact]
+    public void Single_page_starts_at_64_and_only_grows_when_it_must()
+    {
+        var tiny = LightmapLayout.Single([Chart(0, 20)], 1);
+
+        Assert.Equal(64, tiny.PageSide);
+        Assert.True(tiny.TryGet(BakeIds.Of(InstanceA, 0), out var rect));
+        Assert.Equal(20f / 64f, rect.Scale.X);
+    }
+
+    [Fact]
+    public void Single_page_never_passes_2048()
+    {
+        // A 1024 square and its gutter leave room for just one on a 2048 page.
+        var layout = LightmapLayout.Single(
+            [Chart(0, 100), Chart(1, 1024), Chart(2, 1024), Chart(3, 100)], 1);
+
+        Assert.Equal(2048, layout.PageSide);
+        Assert.Equal(1, layout.Pages);
+        Assert.Equal([BakeIds.Of(InstanceA, 0), BakeIds.Of(InstanceA, 2), BakeIds.Of(InstanceA, 3)], layout.Left);
+        Assert.Equal([BakeIds.Of(InstanceA, 1)], layout.Draws.Select(d => d.BakeId));
+        Assert.False(layout.TryGet(BakeIds.Of(InstanceA, 2), out _));
+    }
+
+    [Fact]
+    public void Single_page_keeps_the_gutter()
+    {
+        int[] sides = [90, 61, 33, 120, 8, 47, 75, 19, 100, 64];
+        var charts = sides.Select((side, i) => Chart(i, side)).ToArray();
+
+        var layout = LightmapLayout.Single(charts, 1);
+
+        Assert.Equal(10, layout.Draws.Count);
+        int page = layout.PageSide;
+        var placed = layout.Draws.Select(d => (X: (int)MathF.Round(d.Rect.Offset.X * page),
+            Y: (int)MathF.Round(d.Rect.Offset.Y * page), Side: (int)MathF.Round(d.Rect.Scale.X * page))).ToArray();
+        int gutter = LightmapUnwrap.Gutter;
+        for (int a = 0; a < placed.Length; a++)
+        {
+            var ra = placed[a];
+            Assert.True(ra.X >= 0 && ra.Y >= 0 && ra.X + ra.Side <= page && ra.Y + ra.Side <= page,
+                $"rectangle {a} leaves the page");
+            for (int b = a + 1; b < placed.Length; b++)
+            {
+                var rb = placed[b];
+                bool apartX = ra.X + ra.Side + gutter <= rb.X || rb.X + rb.Side + gutter <= ra.X;
+                bool apartY = ra.Y + ra.Side + gutter <= rb.Y || rb.Y + rb.Side + gutter <= ra.Y;
+                Assert.True(apartX || apartY, $"rectangles {a} and {b} are closer than the gutter");
+            }
+        }
+    }
+
+    [Fact]
+    public void A_built_layout_pages_are_2048_wide()
+    {
+        var layout = Build([Draw(BakeIds.Of(InstanceA, 0))], [1f]);
+
+        Assert.Equal(2048, layout.PageSide);
+    }
+
     public static TheoryData<int> Seeds() => [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
     private static (int X, int Y, int Side) ToTexels(LightmapRect rect) => (

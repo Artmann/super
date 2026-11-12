@@ -1889,6 +1889,17 @@ assumes a smaller prefix fits whenever a bigger one does, which the skyline most
 it doesn't, a page is left a little emptier. Nothing fills one page's gaps with smaller
 squares from later ones.
 
+A chunk's lightmap is one page of its own size, from `LightmapLayout.Single`. It takes
+`LightmapChart`s (a bake id and an area in square metres) and the density, and gives each the
+same square as `Build` would (`sqrt(area) * texelsPerMetre`, clamped to 8 to 1024). It then
+tries `SkylinePacker.TryPack` on a page of 64, 128, 256 and so on up to 2048, and keeps the
+first side that holds every square with the gutter. Two squares of 127 and their gutters make
+258 across, so three of them fit 256; make one 128 and the page is 512. `PageSide` says which
+side was chosen (2048 for `Build`), and `Scale` and `Offset` are relative to it. A chart that
+is not placed even at 2048 is named in `Left`, in the order given; the largest squares are the
+ones kept, by the same bisection `Build` uses, and the baker reports the rest, which are lit
+live. A layout from `Single` has one page (page 0), or none when it is given no charts.
+
 ## Texel setup
 
 `Baker` (`src/Rendition/Baking/Baker.cs`) is the GPU baker, and texel setup is its first

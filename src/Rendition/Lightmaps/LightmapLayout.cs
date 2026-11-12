@@ -11,10 +11,18 @@ namespace Rendition;
 public readonly record struct LightmapRect(int Page, Vector2 Scale, Vector2 Offset);
 
 /// <summary>
+/// One chart for <see cref="LightmapLayout.Single"/>: the id it is found by, and its surface area in square metres.
+/// </summary>
+public readonly record struct LightmapChart(ulong BakeId, float Area);
+
+/// <summary>
 /// Gives every static draw a square on a lightmap page. See "Lightmap layout" in docs/design.md.
 /// </summary>
 public sealed class LightmapLayout
 {
+    /// <summary>The smallest page <see cref="Single"/> uses, in texels.</summary>
+    public const int MinSinglePageSide = 64;
+
     /// <summary>A page's side, in texels.</summary>
     public const int PageSize = 2048;
 
@@ -37,6 +45,9 @@ public sealed class LightmapLayout
 
     /// <summary>The number of pages used, 0 when no draw has a rectangle.</summary>
     public int Pages { get; private set; }
+
+    /// <summary>A page's side, in texels: <see cref="PageSize"/> for <see cref="Build"/>, the chosen side for <see cref="Single"/>.</summary>
+    public int PageSide { get; private set; } = PageSize;
 
     /// <summary>Every placed draw's bake id and rectangle, in the order of the draws given. Parts that share one share its rectangle.</summary>
     public IReadOnlyList<(ulong BakeId, LightmapRect Rect)> Draws => _draws;
@@ -145,6 +156,68 @@ public sealed class LightmapLayout
     }
 
     /// <summary>
+    /// Packs into one square page, the smallest power of two from <see cref="MinSinglePageSide"/> to
+    /// <see cref="PageSize"/> that holds every chart at the density. Each chart gets a square of
+    /// <paramref name="texelsPerMetre"/> texels to each metre of its side, clamped to <see cref="MinSide"/> and
+    /// <see cref="MaxSide"/>, with <see cref="LightmapUnwrap.Gutter"/> texels between squares. Charts that don't fit
+    /// even at <see cref="PageSize"/> are in <see cref="Left"/>, in the order given, and the largest ones are kept.
+    /// A layout with no charts has <see cref="MinSinglePageSide"/> and no pages.
+    /// </summary>
+    public static LightmapLayout Single(ReadOnlySpan<LightmapChart> charts, int texelsPerMetre)
+    {
+        var layout = new LightmapLayout { PageSide = MinSinglePageSide };
+        var groups = new List<Group>(charts.Length);
+        foreach (var chart in charts)
+        {
+            groups.Add(new Group { Side = SideOf(chart.Area, texelsPerMetre) });
+        }
+
+        var order = Enumerable.Range(0, groups.Count).OrderByDescending(i => groups[i].Side).ThenBy(i => i).ToList();
+        if (order.Count == 0)
+        {
+            return layout;
+        }
+
+        var positions = Array.Empty<(int X, int Y)>();
+        var fits = 0;
+        for (int side = MinSinglePageSide; side <= PageSize; side *= 2)
+        {
+            fits = Fit(order, groups, side, out positions);
+            layout.PageSide = side;
+            if (fits == order.Count)
+            {
+                break;
+            }
+        }
+
+        for (int i = 0; i < fits; i++)
+        {
+            var group = groups[order[i]];
+            group.Placed = true;
+            group.Rect = new LightmapRect(
+                0,
+                new Vector2((float)group.Side / layout.PageSide),
+                new Vector2((float)positions[i].X / layout.PageSide, (float)positions[i].Y / layout.PageSide));
+        }
+
+        layout.Pages = 1;
+        for (int i = 0; i < charts.Length; i++)
+        {
+            if (groups[i].Placed)
+            {
+                layout._draws.Add((charts[i].BakeId, groups[i].Rect));
+                layout._byId[charts[i].BakeId] = groups[i].Rect;
+            }
+            else
+            {
+                layout._left.Add(charts[i].BakeId);
+            }
+        }
+
+        return layout;
+    }
+
+    /// <summary>
     /// The running total of a mesh's triangle areas, in the mesh's own units, so a transform's scale is not in it:
     /// entry <c>t</c> is the area of the first <c>t</c> triangles, and there is one more entry than triangles.
     /// <see cref="RangeArea"/> reads a range from it.
@@ -181,6 +254,11 @@ public sealed class LightmapLayout
     // tries all of them and then bisects on how many.
     private static int Fit(List<int> order, List<Group> groups, out (int X, int Y)[] positions)
     {
+        return Fit(order, groups, PageSize, out positions);
+    }
+
+    private static int Fit(List<int> order, List<Group> groups, int pageSide, out (int X, int Y)[] positions)
+    {
         var sizes = new (int Width, int Height)[order.Count];
         for (int i = 0; i < sizes.Length; i++)
         {
@@ -188,18 +266,23 @@ public sealed class LightmapLayout
         }
 
         positions = new (int X, int Y)[sizes.Length];
-        if (SkylinePacker.TryPack(sizes, PageSize, PageSize, LightmapUnwrap.Gutter, positions))
+        if (SkylinePacker.TryPack(sizes, pageSide, pageSide, LightmapUnwrap.Gutter, positions))
         {
             return sizes.Length;
         }
 
-        // One rectangle always fits, since MaxSide is under the page, so the low end holds.
+        // On a full page one rectangle always fits, since MaxSide is under it. On a smaller one the first may not.
+        if (!SkylinePacker.TryPack(sizes.AsSpan(0, 1), pageSide, pageSide, LightmapUnwrap.Gutter, positions))
+        {
+            return 0;
+        }
+
         int low = 1;
         int high = sizes.Length - 1;
         while (low < high)
         {
             int middle = (low + high + 1) / 2;
-            if (SkylinePacker.TryPack(sizes.AsSpan(0, middle), PageSize, PageSize, LightmapUnwrap.Gutter, positions))
+            if (SkylinePacker.TryPack(sizes.AsSpan(0, middle), pageSide, pageSide, LightmapUnwrap.Gutter, positions))
             {
                 low = middle;
             }
@@ -209,7 +292,7 @@ public sealed class LightmapLayout
             }
         }
 
-        SkylinePacker.TryPack(sizes.AsSpan(0, low), PageSize, PageSize, LightmapUnwrap.Gutter, positions);
+        SkylinePacker.TryPack(sizes.AsSpan(0, low), pageSide, pageSide, LightmapUnwrap.Gutter, positions);
         return low;
     }
 
