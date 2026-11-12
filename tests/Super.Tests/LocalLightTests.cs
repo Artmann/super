@@ -104,6 +104,53 @@ public class LocalLightTests
     }
 
     [Fact]
+    public void A_lights_shadow_mask_channel_is_found_by_its_key_and_none_means_minus_one()
+    {
+        LocalLight[] lights =
+        [
+            Point(7, new Vector3(0f, 0f, -5f), 2f),
+            Point(3, new Vector3(0f, 0f, -6f), 2f),
+            Point(9, new Vector3(0f, 0f, -7f), 2f),
+        ];
+
+        var (_, gpu, _) = Prepare(lights, maskChannels: new Dictionary<int, int> { [3] = 2, [7] = 0 });
+        Assert.Equal(0, gpu[0].MaskChannel);
+        Assert.Equal(2, gpu[1].MaskChannel);
+        Assert.Equal(-1, gpu[2].MaskChannel);
+
+        // Without a bake drawn, no light reads the mask.
+        var (_, unbaked, _) = Prepare(lights);
+        Assert.Equal(-1, unbaked[0].MaskChannel);
+        Assert.Equal(-1, unbaked[1].MaskChannel);
+        Assert.Equal(-1, unbaked[2].MaskChannel);
+    }
+
+    [Fact]
+    public void A_light_keeps_both_its_shadow_mark_and_its_mask_channel()
+    {
+        // In front, in reach, and behind the camera, where only the light probes see it: both keep both marks.
+        LocalLight[] lights =
+        [
+            Point(3, new Vector3(0f, 0f, -5f), 2f) with { CastsShadow = true },
+            Point(7, new Vector3(0f, 0f, 10f), 2f) with { CastsShadow = true },
+            Point(9, new Vector3(0f, 0f, -6f), 2f) with { CastsShadow = false },
+        ];
+
+        var (_, gpu, _) = Prepare(lights, maskChannels: new Dictionary<int, int> { [3] = 2, [7] = 3, [9] = 0 });
+
+        // Hand-worked packing, which light_data.glsl reads back: 1 for the shadow plus twice one more than the channel.
+        Assert.Equal(7f, gpu[0].Fade.W);
+        Assert.Equal(2f, gpu[1].Fade.W);
+        Assert.Equal(9f, gpu[2].Fade.W);
+        Assert.True(gpu[0].CastsShadow);
+        Assert.Equal(2, gpu[0].MaskChannel);
+        Assert.False(gpu[1].CastsShadow);
+        Assert.Equal(0, gpu[1].MaskChannel);
+        Assert.True(gpu[2].CastsShadow);
+        Assert.Equal(3, gpu[2].MaskChannel);
+    }
+
+    [Fact]
     public void A_point_lights_shadow_takes_six_tiles_and_a_spots_one()
     {
         LocalLight[] lights =
@@ -229,10 +276,10 @@ public class LocalLightTests
     }
 
     [Theory]
-    [InlineData(true, true, 1f)]
-    [InlineData(false, true, 0f)]
-    [InlineData(true, false, 0f)]
-    public void A_light_out_of_view_has_no_tile_but_is_still_marked_as_casting_a_shadow(bool castsShadow, bool shadows, float marked)
+    [InlineData(true, true, true)]
+    [InlineData(false, true, false)]
+    [InlineData(true, false, false)]
+    public void A_light_out_of_view_has_no_tile_but_is_still_marked_as_casting_a_shadow(bool castsShadow, bool shadows, bool marked)
     {
         // Behind the camera, which looks down -z, and too short to reach the view: only the light probes see it.
         var light = Point(3, new Vector3(0f, 0f, 10f), 2f) with { CastsShadow = castsShadow };
@@ -242,7 +289,7 @@ public class LocalLightTests
         Assert.Equal(0, prepared.LightCount);
         Assert.Equal(1, prepared.ProbeLightCount);
         Assert.Equal(-1f, gpu[0].RadianceShadow.W);
-        Assert.Equal(marked, gpu[0].Fade.W);
+        Assert.Equal(marked, gpu[0].CastsShadow);
     }
 
     [Fact]
@@ -333,12 +380,13 @@ public class LocalLightTests
         CastsShadow = true,
     };
 
-    private static (LocalLights Prepared, GpuLocalLight[] Lights, GpuShadowTile[] Tiles) Prepare(LocalLight[] lights, bool shadows = true)
+    private static (LocalLights Prepared, GpuLocalLight[] Lights, GpuShadowTile[] Tiles) Prepare(
+        LocalLight[] lights, bool shadows = true, IReadOnlyDictionary<int, int>? maskChannels = null)
     {
         var prepared = new LocalLights();
         var gpu = new GpuLocalLight[LocalLight.MaxPerFrame];
         var tiles = new GpuShadowTile[LocalLights.MaxTiles];
-        prepared.Prepare(lights, LookingDownZ, Perspective, Height, gpu, tiles, shadows);
+        prepared.Prepare(lights, LookingDownZ, Perspective, Height, gpu, tiles, shadows, maskChannels);
         return (prepared, gpu, tiles);
     }
 }

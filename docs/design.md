@@ -949,7 +949,7 @@ G-buffer layout:
 | 2 | `R16G16B16A16_SFLOAT` | emissive colour, clearcoat (or minus the translucency, for foliage, or 2 plus the material index, for subsurface) |
 | 3 | `R16G16_SFLOAT` | motion since last frame, in scene pixels; see "Motion vectors" |
 | 4 | `R16G16B16A16_SFLOAT` | baked diffuse light over pi, turned by the normal, and 1 in alpha for a lightmapped pixel; cleared to 0. See "Drawing a bake" |
-| 5 | `R8G8B8A8_UNORM` | the baked shadow mask, a channel per Mixed light; cleared to 1, and not read yet |
+| 5 | `R8G8B8A8_UNORM` | the baked shadow mask, a channel per Mixed light; cleared to 1, read by the lighting for Mixed lights on lightmapped pixels |
 | depth | `D32_SFLOAT` | reversed-Z, position is reconstructed from it |
 
 ### Motion vectors
@@ -1116,7 +1116,8 @@ cone too, and writes up to 256 indices, 16 bits each. The lighting pass,
 glass and particles read only their pixel's cluster. Each light is a 64-byte
 `GpuLocalLight`: position and range, radiance and its first shadow tile, direction and
 the cosine of the outer angle (-2 for a point light), and the fade's scale, the
-light's radius, its volumetric strength and whether it casts a shadow, tile or not. A light reaches a point as `(1 + r²) / (d² + r²)` times its windowed
+light's radius, its volumetric strength, and in one float whether it casts a shadow, tile or not,
+and its [shadow mask](#drawing-a-bake) channel (-1 for none). A light reaches a point as `(1 + r²) / (d² + r²)` times its windowed
 falloff: plain inverse square far away, 1 at a metre whatever the radius, and no more
 than about `1 / r²` close up, so a torch on a wall lights the room without blowing the
 wall out.
@@ -3341,9 +3342,28 @@ page, or 1. A copy without a lightmap, and a ghost, writes 0 and a mask of 1.
 alpha above 0.5 takes `baked.rgb` times its diffuse colour in place of the soft light from the
 sky or probes, keeps its translucency, and its diffuse occlusion is the material's AO times
 `mix(1, screen AO, 0.5)` (`LIGHTMAP_OCCLUSION`), since the bake already holds the shade;
-specular occlusion is unchanged. The mask isn't read yet. `ReflectionLightingHash` adds the
+specular occlusion is unchanged. `ReflectionLightingHash` adds the
 loaded bake's inputs while lightmaps are drawn, so the probes are captured again when the bake
 changes. With no bake, every pixel's alpha is 0 and the frame is the same to the byte.
+
+The mask shadows Mixed lights. `LoadSpaceBake` keeps the file's `Channels` as a key-to-channel
+dictionary in `LoadedBake`. While `_activeLightmaps` is set (the space fresh, `BakedLighting`
+on, rects loaded) `FindMaskChannels` works out the frame's: the first sun that
+`BakeFrame.ModeOf` calls Mixed takes channel 0, the same rule `ShadowMaskChannels.Assign`
+followed at bake time over the suns the bake held (Mixed and not moving), so nothing more is
+stored for it. Its index is moved down past the Baked suns before it, since the frame drawn
+leaves those out. A local light takes its listed channel while `ModeOf` still calls it Mixed.
+Every other frame clears both. The sun's channel goes in `GpuLight.Radiance.w` and a local
+light's in `GpuLocalLight.Fade.w` (`LocalLights.Prepare`'s `maskChannels`), packed beside the shadow flag as `castsShadow + 2 * (channel + 1)`, so -1 for none packs as 0 and `localMaskChannel` in `light_data.glsl` unpacks it.
+
+`lighting.frag` samples the mask once per pixel, only when it is lightmapped, and
+`maskedVisibility` changes a light's visibility only when the pixel is lightmapped and the light
+has a channel. The mask's unused channels hold 0, so the -1 is what keeps a light without one
+from going dark. A light with a shadow map takes `min(mask, real-time)`. Past the last cascade
+`shadowVisibility` gives 1, so there the mask alone shadows the sun, and a moving object's
+real-time shadow still falls inside the cascades. A light with no shadow map or no tile takes
+the mask in place of the screen AO it would use. A pixel without a lightmap writes a mask of 1
+and keeps what it had (`ShadowMaskGpuTests`).
 
 ### Shadow mask channels
 

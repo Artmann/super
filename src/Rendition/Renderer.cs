@@ -1111,9 +1111,19 @@ public sealed unsafe class Renderer : IDisposable
     // The loaded bake's rectangles while this frame draws it, or null when it draws no lightmaps.
     private IReadOnlyDictionary<ulong, GpuLightmapRect>? _activeLightmaps;
 
-    /// <summary>The bake whose lightmaps are uploaded, and which file, inputs and store reload it came from.</summary>
+    // While this frame draws the loaded bake: the index, among the suns drawn, of the Mixed sun whose shadow is in the
+    // mask's channel 0, or -1; and the mask channel of each Mixed local light that has one, by key. The mask's unused
+    // channels hold 0, so a light missing here must never read it.
+    private int _maskSun = -1;
+    private readonly Dictionary<int, int> _maskChannels = [];
+
+    /// <summary>
+    /// The bake whose lightmaps are uploaded, and which file, inputs and store reload it came from. Channels is each
+    /// listed local light's shadow mask channel, by key.
+    /// </summary>
     private record struct LoadedBake(
-        string? File, ulong Inputs, IBakeStore? Store, int Reloads, Dictionary<ulong, GpuLightmapRect>? Rects, List<TextureHandle> Pages);
+        string? File, ulong Inputs, IBakeStore? Store, int Reloads, Dictionary<ulong, GpuLightmapRect>? Rects, List<TextureHandle> Pages,
+        Dictionary<int, int>? Channels);
 
     /// <summary>A store's bakes, less those found unreadable, which count as missing.</summary>
     private sealed class ReadableBakes : IBakeStore
@@ -1164,9 +1174,16 @@ public sealed unsafe class Renderer : IDisposable
         // A store with no lightmaps to give still has the area baked; its surfaces take their soft light live.
         var pages = _loadedBake.Pages ?? [];
         Dictionary<ulong, GpuLightmapRect>? rects = null;
+        Dictionary<int, int>? channels = null;
         if (bake is not null)
         {
             rects = [];
+            channels = [];
+            foreach (var (lightKey, channel) in bake.Channels)
+            {
+                channels[lightKey] = channel;
+            }
+
             int count = bake.Irradiance.Count;
             for (int page = 0; page < count; page++)
             {
@@ -1188,7 +1205,7 @@ public sealed unsafe class Renderer : IDisposable
             }
         }
 
-        _loadedBake = new LoadedBake(file, combined, store, store.Reloads, rects, pages);
+        _loadedBake = new LoadedBake(file, combined, store, store.Reloads, rects, pages, channels);
         return true;
     }
 
@@ -1208,7 +1225,7 @@ public sealed unsafe class Renderer : IDisposable
             pages.Clear();
         }
 
-        _loadedBake = _loadedBake with { File = null, Inputs = 0, Store = null, Rects = null };
+        _loadedBake = _loadedBake with { File = null, Inputs = 0, Store = null, Rects = null, Channels = null };
     }
 
     /// <summary>Throws when a bake's pages don't fit together, as a damaged file's might not.</summary>
@@ -1265,6 +1282,8 @@ public sealed unsafe class Renderer : IDisposable
     private bool ResolveBakes(in FrameView view, ReadOnlySpan<DrawItem> draws, out FrameView lit)
     {
         lit = default;
+        _maskSun = -1;
+        _maskChannels.Clear();
         if (view.BakedSpace is null && view.BakedChunks.IsEmpty)
         {
             LastBakeFrame = null;
@@ -1290,6 +1309,11 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         _activeLightmaps = bakes.SpaceFresh && _loadedBake.Rects is { Count: > 0 } rects ? rects : null;
+        if (_activeLightmaps is not null)
+        {
+            FindMaskChannels(view, bakes);
+        }
+
         LastBakeFrame = bakes;
         if (bakes.DroppedSuns.Count == 0 && bakes.DroppedLocalLights.Count == 0)
         {
@@ -1300,6 +1324,46 @@ public sealed unsafe class Renderer : IDisposable
         lit.Lights = BakeFreshness.Without(view.Lights, bakes.DroppedSuns, ref _bakeKeptSuns);
         lit.LocalLights = BakeFreshness.Without(view.LocalLights, bakes.DroppedLocalLights, ref _bakeKeptLights);
         return true;
+    }
+
+    /// <summary>
+    /// Works out which of the frame's Mixed lights the drawn bake's shadow mask measures. The first Mixed sun takes
+    /// channel 0, as <see cref="ShadowMaskChannels.Assign"/> gave it at bake time, and the bake lists the local lights'
+    /// channels by key. A light only counts while it is still Mixed in the bake, so one turned Realtime never reads it.
+    /// </summary>
+    private void FindMaskChannels(in FrameView view, BakeFrame bakes)
+    {
+        for (int i = 0; i < view.Lights.Length; i++)
+        {
+            if (bakes.ModeOf(new LightKey(true, i)) == LightMode.Mixed)
+            {
+                // The suns drawn leave out the Baked ones, so this one's index moves down past those before it.
+                int dropped = 0;
+                foreach (int sun in bakes.DroppedSuns)
+                {
+                    if (sun < i)
+                    {
+                        dropped++;
+                    }
+                }
+
+                _maskSun = i - dropped;
+                break;
+            }
+        }
+
+        if (_loadedBake.Channels is not { } channels)
+        {
+            return;
+        }
+
+        foreach (var (key, channel) in channels)
+        {
+            if (bakes.ModeOf(new LightKey(false, key)) == LightMode.Mixed)
+            {
+                _maskChannels[key] = channel;
+            }
+        }
     }
 
     // How long one submit of the path tracer may run, below Windows' two-second GPU timeout with room to spare.
@@ -3576,7 +3640,7 @@ public sealed unsafe class Renderer : IDisposable
             uniforms->Lights[i] = new GpuLight
             {
                 Direction = new Vector4(direction, casts ? 1f : 0f),
-                Radiance = new Vector4(light.Radiance, 0f),
+                Radiance = new Vector4(light.Radiance, i == _maskSun ? 0f : -1f),
             };
         }
 
@@ -3624,7 +3688,8 @@ public sealed unsafe class Renderer : IDisposable
             (int)_gBuffer.Extent.Height,
             new Span<GpuLocalLight>(frame.Lights.Mapped, LocalLight.MaxPerFrame),
             new Span<GpuShadowTile>(frame.ShadowTiles.Mapped, LocalLights.MaxTiles),
-            shadows: !_off.HasFlag(RenderEffects.LightShadows));
+            shadows: !_off.HasFlag(RenderEffects.LightShadows),
+            maskChannels: _maskChannels);
         _tileCount = _localLights.TileCount;
         _clustersNeeded = _localLights.LightCount > 0;
         uniforms->LocalLightCount = _localLights.LightCount;

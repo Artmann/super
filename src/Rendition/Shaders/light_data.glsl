@@ -15,8 +15,19 @@ struct LocalLight {
     vec4 radianceShadow; // rgb: colour times brightness at one metre; w: first shadow tile, or -1
     vec4 directionCone;  // xyz: which way a spot shines; w: cosine of its outer angle, or -2 for a point light
     vec4 fade;           // x: 1 / (cos inner - cos outer); y: the light's radius; z: how strongly it lights the volumetric fog;
-                         // w: 1 when it casts a shadow, with a tile or not, else 0
+                         // w: shadow flags, see GpuLocalLight.ShadowFlags: bit 0 is 1 when it casts a shadow, with a
+                         // tile or not; the bits above hold one more than its baked shadow mask channel, 0 for none
 };
+
+// Whether a local light casts a shadow, with a shadow tile or not. Traced probe updates trace these.
+bool localCastsShadow(LocalLight light) {
+    return (int(light.fade.w + 0.5) & 1) != 0;
+}
+
+// A local light's channel of the baked shadow mask, or -1 for none.
+float localMaskChannel(LocalLight light) {
+    return float((int(light.fade.w + 0.5) >> 1) - 1);
+}
 
 // Must match GpuShadowTile in Passes/FrameUniforms.cs.
 struct ShadowTile {

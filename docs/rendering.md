@@ -256,6 +256,15 @@ sun takes one when it is Mixed, and Mixed point and spot lights whose ranges ove
 different channels, so a space has at most four Mixed lights reaching the same place. A light
 that finds none left keeps its real-time shadows only.
 
+While the bake is drawn, a Mixed light on a lightmapped surface is shadowed by its channel. A
+light with a real-time shadow takes the darker of the two, so something that moves still casts
+its shadow, and the baked one covers what the shadow map doesn't: past the sun's last
+[cascade](#shadows) the mask takes over, so a sun lights a baked space with shadows however far
+it reaches. A light with no shadow map, or one that didn't get a [tile](#point-and-spot-lights),
+takes the mask alone, so a light with `shadows: false` is still shadowed by the walls the
+bake saw. A light without a channel, a surface without a lightmap, and every light while
+[`BakedLighting`](#graphics-settings) is off or the bake is stale are lit as before.
+
 ## Shadows
 
 ```csharp
@@ -546,8 +555,8 @@ on its mode:
 
 - A `Baked` light is in the lightmap in full, both its direct light and the light it bounces.
 - A `Mixed` light gives only its bounced light, since it stays drawn live. Its direct shadow
-  goes in a shadow mask channel instead, so the live light can be shadowed by what the bake
-  saw. There are four channels: a `Mixed` sun takes the first, and local lights whose ranges
+  goes in a shadow mask channel instead, so the live light is shadowed by what the bake saw
+  (see [light modes](#light-modes)). There are four channels: a `Mixed` sun takes the first, and local lights whose ranges
   overlap get different ones.
 - A `Realtime` light, a light that is [moving](#moving-lights), and a local light in no
   baked area are left out, as is the sun when it is `Realtime` or moving.

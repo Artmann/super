@@ -80,7 +80,7 @@ float probeSunVisibility(vec3 position, vec3 normal) {
 // would otherwise light the probes through walls. probe_light.glsl only asks for lights in range.
 float probeLightVisibility(int index, vec3 position, vec3 normal) {
     LocalLight light = localLights[index];
-    if (light.fade.w < 0.5) {
+    if (!localCastsShadow(light)) {
         return 1.0;
     }
 

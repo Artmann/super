@@ -34,6 +34,20 @@ layout(set = 1, binding = 14) uniform sampler2D shadowMaskTexture;
 // could resolve, so taking all of it would darken them twice; the screen still adds the contact it is too coarse for.
 const float LIGHTMAP_OCCLUSION = 0.5;
 
+// A Mixed light's visibility on a lightmapped pixel, which the bake's shadow mask also measured in one channel. With a
+// real-time shadow too it takes the darker of the two, so a moving thing's shadow still falls and the mask covers what
+// the shadow map can't, such as past the sun's last cascade, where shadowVisibility gives 1. A light without a shadow
+// map takes the mask alone. A light without a channel (-1), or a pixel without a lightmap, keeps what it had: the
+// mask's unused channels hold 0, so they must never be read.
+float maskedVisibility(bool lightmapped, vec4 shadowMask, float channel, bool shadowed, float visibility) {
+    if (!lightmapped || channel < 0.0) {
+        return visibility;
+    }
+
+    float mask = shadowMask[int(channel + 0.5)];
+    return shadowed ? min(mask, visibility) : mask;
+}
+
 layout(std430, set = 2, binding = 1) readonly buffer Materials {
     Material materials[];
 };
@@ -542,6 +556,7 @@ void main() {
     // weighs on it only by LIGHTMAP_OCCLUSION. Its reflections are occluded as any other pixel's.
     vec4 baked = texture(bakedTexture, inUv);
     bool lightmapped = baked.a > 0.5;
+    vec4 shadowMask = lightmapped ? texture(shadowMaskTexture, inUv) : vec4(1.0);
     float diffuseAo = lightmapped ? min(normalRoughnessAo.w, 1.0) * mix(1.0, screenAo, LIGHTMAP_OCCLUSION) : ao;
     vec3 diffuseColor = baseColor * (1.0 - metallic) * multiBounceOcclusion(diffuseAo, baseColor);
     vec3 environmentDiffuse = (lightmapped ? baked.rgb : softLight(position, bentNormal, v)) * diffuseColor;
@@ -588,6 +603,7 @@ void main() {
         float visibility = frame.lights[i].direction.w > 0.5
             ? shadowVisibility(position, lightSide, l) * (foliage ? 1.0 : contactShadow(position, lightSide, l))
             : screenAo;
+        visibility = maskedVisibility(lightmapped, shadowMask, frame.lights[i].radiance.w, frame.lights[i].direction.w > 0.5, visibility);
         vec3 reaching = sunlightReaching(position, l, i) * visibility;
         if (subsurface) {
             scattered += diffuseLit * reaching;
@@ -616,7 +632,9 @@ void main() {
         }
 
         vec3 lightSide = dot(n, l) >= 0.0 ? n : -n;
-        float visibility = light.radianceShadow.w >= 0.0 ? localShadow(light, position, lightSide, l) : screenAo;
+        bool shadowed = light.radianceShadow.w >= 0.0;
+        float visibility = shadowed ? localShadow(light, position, lightSide, l) : screenAo;
+        visibility = maskedVisibility(lightmapped, shadowMask, localMaskChannel(light), shadowed, visibility);
         vec3 arriving = light.radianceShadow.rgb * reaching * visibility;
         if (subsurface) {
             scattered += diffuseLit * arriving;

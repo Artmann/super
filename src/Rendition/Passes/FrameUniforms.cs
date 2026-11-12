@@ -9,6 +9,8 @@ internal struct GpuLight
 {
     /// <summary>xyz points towards the light; w is 1 when it casts the shadow.</summary>
     public Vector4 Direction;
+
+    /// <summary>rgb: colour times brightness; w: its channel of the baked shadow mask, or -1 for none.</summary>
     public Vector4 Radiance;
 }
 
@@ -215,9 +217,22 @@ internal struct GpuLocalLight
 
     /// <summary>
     /// x: one over the cosines between the inner and outer angles, for the spot's fade; y: its radius; z: how strongly it
-    /// lights the volumetric fog; w: 1 when it casts a shadow, with a tile or not, else 0.
+    /// lights the volumetric fog; w: its shadow flags, made by <see cref="ShadowFlags"/>: 1 when it casts a shadow, with a
+    /// tile or not, plus twice one more than its channel of the baked shadow mask, so nothing there means no channel.
     /// </summary>
     public Vector4 Fade;
+
+    /// <summary>
+    /// Packs whether a light casts a shadow and its channel of the baked shadow mask, -1 for none, into
+    /// <see cref="Fade"/>'s w. localCastsShadow and localMaskChannel in Shaders/light_data.glsl read it back.
+    /// </summary>
+    public static float ShadowFlags(bool castsShadow, int maskChannel) => (castsShadow ? 1 : 0) + 2 * (maskChannel + 1);
+
+    /// <summary>Whether the light casts a shadow, with a tile or not, as <see cref="Fade"/>'s w holds it.</summary>
+    public readonly bool CastsShadow => ((int)Fade.W & 1) != 0;
+
+    /// <summary>The light's channel of the baked shadow mask, or -1 for none, as <see cref="Fade"/>'s w holds it.</summary>
+    public readonly int MaskChannel => ((int)Fade.W >> 1) - 1;
 }
 
 /// <summary>Where one view of a light sits in the shadow atlas. Must match ShadowTile in Shaders/light_data.glsl.</summary>
