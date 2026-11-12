@@ -452,8 +452,9 @@ public sealed class CacheTests : IDisposable
         root["a.probe"] = "x";
         var input = InputFor(root, "a.probe");
 
-        Assert.Throws<FileNotFoundException>(() => input.Read("nope.png"));
+        var problem = Assert.Throws<FileNotFoundException>(() => input.Read("nope.png"));
 
+        Assert.Equal("nope.png isn't in the source root.", problem.Message);
         Assert.Empty(input.Inputs);
     }
 
