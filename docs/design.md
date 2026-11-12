@@ -3536,9 +3536,14 @@ its slots: the Mixed sun, when drawn, holds slot 0 and each Mixed local light in
 carry no position there. Then every Mixed local light owned by a relit chunk
 (`BakeResolver.LightOwners`) whose chunk-space hash (`BakeResolver.LightChunkHashes`) is in its
 bake's `ChunkChannels` (kept on the pool's `ChunkBakePool.Entry.Channels`) takes a slot
-greedily, smallest `Key` first: the lowest one neither the space nor an earlier chunk light
-whose world range overlaps it holds. So two copies of one chunk side by side, whose lights are
-both channel 0 in the one bake, take two slots, and lights far apart share one. A light left
+greedily, smallest `Key` first: the lowest one neither the space, nor an earlier light of the
+same placed chunk, nor an earlier chunk light whose world range overlaps it holds. The chunk's
+index rides in the `chunkLights` tuple for that. One placed chunk has one table, which can name
+only one of its channels per slot, so its lights never share a slot however far apart, and the
+chunk bake gives channels in chunk-space hash order while the frame goes by key, so the
+overlap test alone could pair them. So two copies of one chunk side by side, whose lights are
+both channel 0 in the one bake, take two slots, and lights far apart, from different placed
+chunks, share one. A light left
 with none keeps its real-time shadow only and its key goes in `BakeFrame.UnslottedLights`
 (ascending).
 

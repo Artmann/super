@@ -9,11 +9,12 @@ namespace Super.Tests;
 /// </summary>
 public class MaskSlotsTests
 {
-    private static (int Key, Vector3 Position, float Range) Lamp(int key, float x, float range = 2f) =>
-        (key, new Vector3(x, 1f, 0f), range);
+    // A lamp in a chunk of its own, unless a chunk is given.
+    private static (int Key, int Chunk, Vector3 Position, float Range) Lamp(int key, float x, float range = 2f, int chunk = -1) =>
+        (key, chunk < 0 ? key : chunk, new Vector3(x, 1f, 0f), range);
 
     private static (int[] Slots, List<int> Unslotted) Run(
-        int spaceSun, (int Key, int SpaceChannel)[] space, (int Key, Vector3 Position, float Range)[] chunk)
+        int spaceSun, (int Key, int SpaceChannel)[] space, (int Key, int Chunk, Vector3 Position, float Range)[] chunk)
     {
         var slots = new int[space.Length + chunk.Length];
         var unslotted = new List<int> { 99 };
@@ -40,6 +41,26 @@ public class MaskSlotsTests
 
         Assert.Equal([0, 0], slots);
         Assert.Empty(unslotted);
+    }
+
+    [Fact]
+    public void Two_lights_of_one_chunk_never_share_a_slot()
+    {
+        // Two forge fires 20 metres apart in one placed chunk. The chunk's one table can give each slot only one of its
+        // channels, so they need two slots however far apart they stand.
+        var (slots, unslotted) = Run(-1, [], [Lamp(7, 20f, chunk: 4), Lamp(3, 0f, chunk: 4)]);
+
+        Assert.Equal([1, 0], slots);
+        Assert.Empty(unslotted);
+    }
+
+    [Fact]
+    public void Lights_of_two_copies_of_a_chunk_share_a_slot_when_far_apart()
+    {
+        // The same chunk placed twice, 20 metres apart: each copy has its own table, so only overlap keeps them apart.
+        var (slots, _) = Run(-1, [], [Lamp(7, 20f, chunk: 1), Lamp(3, 0f, chunk: 0)]);
+
+        Assert.Equal([0, 0], slots);
     }
 
     [Fact]
@@ -85,7 +106,7 @@ public class MaskSlotsTests
     public void Assign_allocates_nothing_with_the_scratch_given()
     {
         (int Key, int SpaceChannel)[] space = [(1, 1), (2, 2)];
-        (int Key, Vector3 Position, float Range)[] chunk = [Lamp(8, 0.5f), Lamp(4, 1f), Lamp(10, 50f), Lamp(2, 0f), Lamp(6, 1.5f)];
+        (int Key, int Chunk, Vector3 Position, float Range)[] chunk = [Lamp(8, 0.5f), Lamp(4, 1f), Lamp(10, 50f), Lamp(2, 0f), Lamp(6, 1.5f)];
         var slots = new int[space.Length + chunk.Length];
         var unslotted = new List<int>(chunk.Length);
         MaskSlots.Assign(0, space, chunk, slots, unslotted);

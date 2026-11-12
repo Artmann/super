@@ -1194,7 +1194,7 @@ public sealed unsafe class Renderer : IDisposable
 
     // MaskSlots.Assign's scratch, grown when a frame has more lights, and which chunk and channel each chunk light is.
     private (int Key, int SpaceChannel)[] _slotSpaceLights = [];
-    private (int Key, Vector3 Position, float Range)[] _slotChunkLights = [];
+    private (int Key, int Chunk, Vector3 Position, float Range)[] _slotChunkLights = [];
     private (int Chunk, int Channel)[] _slotChunkOf = [];
     private int[] _slots = [];
 
@@ -1730,7 +1730,7 @@ public sealed unsafe class Renderer : IDisposable
         if (_slotSpaceLights.Length < locals.Length)
         {
             _slotSpaceLights = new (int, int)[locals.Length];
-            _slotChunkLights = new (int, Vector3, float)[locals.Length];
+            _slotChunkLights = new (int, int, Vector3, float)[locals.Length];
             _slotChunkOf = new (int, int)[locals.Length];
             _slots = new int[2 * locals.Length];
         }
@@ -1742,10 +1742,12 @@ public sealed unsafe class Renderer : IDisposable
                 if (bakes.ModeOf(new LightKey(true, i)) == LightMode.Mixed)
                 {
                     // The suns drawn leave out the Baked ones, so this one's index moves down past those before it.
+                    // Indexed, since a foreach over the IReadOnlyList would box its enumerator every frame.
                     int dropped = 0;
-                    foreach (int sun in bakes.DroppedSuns)
+                    var droppedSuns = bakes.DroppedSuns;
+                    for (int d = 0; d < droppedSuns.Count; d++)
                     {
-                        if (sun < i)
+                        if (droppedSuns[d] < i)
                         {
                             dropped++;
                         }
@@ -1785,7 +1787,7 @@ public sealed unsafe class Renderer : IDisposable
                 {
                     if (hash == hashes[i])
                     {
-                        _slotChunkLights[chunkCount] = (locals[i].Key, locals[i].Position, locals[i].Range);
+                        _slotChunkLights[chunkCount] = (locals[i].Key, c, locals[i].Position, locals[i].Range);
                         _slotChunkOf[chunkCount] = (c, channel);
                         chunkCount++;
                         break;

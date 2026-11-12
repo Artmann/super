@@ -329,6 +329,84 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
+    [Fact]
+    public void Lights_of_one_chunk_read_their_own_mask_channels()
+    {
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        try
+        {
+            // One chunk round the origin with a 5 metre floor and three lamps of range 1, half a metre up. A, red, at
+            // x = -2.2 is far from the others. C, green, at 0.4 and X, blue, at 1.3 overlap, so the bake gives them
+            // channels 0 and 1, which one by their hashes; A takes 0. Each has a wall 0.3 metres tall on one side that
+            // casts a mask shadow on the floor from the wall to about 0.8 metres past it.
+            var a = new Vector3(-2.2f, 0.5f, 0f);
+            var c = new Vector3(0.4f, 0.5f, 0f);
+            var x = new Vector3(1.3f, 0.5f, 0f);
+            BakedChunk[] chunks = [new("pair", Matrix4x4.Identity, new Vector3(-3f, -1f, -3f), new Vector3(3f, 2f, 3f), TexelsPerMetre)];
+            LocalLight Lamp(int key, Vector3 position, Vector3 radiance) =>
+                ChunkLamp(key, position, radiance, range: 1f, castsShadow: false);
+            LocalLight[] Lamps(int keyA, int keyC, int keyX) =>
+            [
+                Lamp(keyC, c, new Vector3(0f, 30f, 0f)), Lamp(keyX, x, new Vector3(0f, 0f, 30f)),
+                Lamp(keyA, a, new Vector3(30f, 0f, 0f)),
+            ];
+            var floor = ChunkDraw(quad, FloorAt(0f, 5f), 1);
+            DrawItem[] all =
+            [
+                floor,
+                ChunkDraw(quad, WallAt(-1.8f, 0.3f, facingPlusX: false), 2),
+                ChunkDraw(quad, WallAt(0f, 0.3f, facingPlusX: true), 3),
+                ChunkDraw(quad, WallAt(1.7f, 0.3f, facingPlusX: false), 4),
+            ];
+            var bakes = BakeChunks(TopDown(Lamps(1403, 1401, 1402), chunks), all, 1);
+            var channels = bakes["pair"].ChunkChannels;
+            int ChannelOf(LocalLight light) => channels.Single(entry => entry.LightHash == BakeInputHash.Light(light, Matrix4x4.Identity)).Channel;
+            var baked0 = Lamps(1403, 1401, 1402);
+            Assert.Equal(0, ChannelOf(baked0[2]));
+            Assert.Equal(new[] { 0, 1 }, new[] { ChannelOf(baked0[0]), ChannelOf(baked0[1]) }.Order());
+
+            // Keys that put the lamp on channel 1 first, so it takes frame slot 0, which A, out of everyone's reach,
+            // would share were the chunk's one table not able to give slot 0 only one of its channels.
+            bool cFirst = ChannelOf(baked0[0]) == 1;
+            var lamps = Lamps(1503,cFirst ? 1501 : 1502, cFirst ? 1502 : 1501);
+            var view = TopDown(lamps, chunks);
+
+            // The walls go after the bake, so only the mask shades the floor.
+            var open = Capture(view, [floor]);
+            gpu.Renderer.Bakes = new Named(bakes);
+            Assert.True(RenderUntilFresh(view, [floor]) <= MostFrames, $"The chunk's bake wasn't resident after {MostFrames} frames.");
+            var baked = Capture(view, [floor]);
+            Assert.Empty(gpu.Renderer.LastBakeFrame!.UnslottedLights);
+
+            // Each lamp's shadow 0.3 metres past its wall, and a lit point by the lamp that no other lamp reaches, where
+            // reading another lamp's channel would give 0.
+            (string Name, int Colour, float Shadow, float Lit)[] checks =
+            [
+                ("A", 0, -1.5f, -2.4f),
+                ("C", 1, -0.3f, 0.25f),
+                ("X", 2, 2.0f, 1.6f),
+            ];
+            foreach (var (name, colour, shadow, litAt) in checks)
+            {
+                float openShadow = FloorPixel(open, shadow)[colour];
+                float openLit = FloorPixel(open, litAt)[colour];
+                Assert.True(openShadow > 30f && openLit > 30f,
+                    $"With no walls lamp {name} leaves the floor at {FloorPixel(open, shadow)} and {FloorPixel(open, litAt)}.");
+                Assert.True(FloorPixel(baked, shadow)[colour] < 0.25f * openShadow,
+                    $"In lamp {name}'s mask shadow at x = {shadow} the floor reads {FloorPixel(baked, shadow)}, not dark against the open {FloorPixel(open, shadow)}.");
+                Assert.True(FloorPixel(baked, litAt)[colour] > 0.8f * openLit,
+                    $"By lamp {name} at x = {litAt} the floor reads {FloorPixel(baked, litAt)}, darker than the open {FloorPixel(open, litAt)}.");
+            }
+        }
+        finally
+        {
+            LetGo(quad);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
     private const int MostFrames = 120;
 
     // From 6 metres up a 45 degree view sees 6 tan 22.5 = 2.485 metres either side of the centre.

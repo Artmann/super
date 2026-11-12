@@ -260,7 +260,8 @@ A frame shares four mask slots between all the bakes it draws: the space's and e
 baked chunk's. The space's lights keep their channels, with the sun first. Each chunk's
 Mixed lights then take the slots left, so lights from different bakes whose ranges overlap,
 or two copies of one chunk standing side by side, get different slots and each surface reads
-its own bake's shadow. Lights far apart share a slot, but the space's hold theirs everywhere.
+its own bake's shadow. Lights of one placed chunk always get different slots. Lights far apart
+in different chunks share a slot, but the space's hold theirs everywhere.
 A chunk light that finds every slot held, by the space or by lights its range overlaps, keeps
 only its real-time shadow that frame, and its key is in `Renderer.LastBakeFrame.UnslottedLights`.
 A surface whose bake has nothing in a slot,
