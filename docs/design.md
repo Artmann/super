@@ -3112,14 +3112,20 @@ and `ReadyToTrace`, are checked by review and by the GPU tests, not by the valid
 - Reflection probes are captured again only when they move or the lighting changes, not when
   things or the camera move, and a scene gets at most four. Removing one recaptures the rest.
   They don't see point and spot lights.
-- Light probes update a few a frame (8, 16 or 32), so after a load, a teleport or a change of
-  sun they take a while to settle: about a thousand frames for the two finest cascades at High.
-  Moving things don't mark probes dirty; the oldest probes are redone in turn, so a moved object's
-  bounce catches up within about probes ÷ budget frames. A sun that turns every frame keeps every
-  probe dirty. Never-captured probes go before dirty ones wherever they are, so until the coarse
-  cascades have all been drawn once, a light moving near the camera waits for them. Courtyard
-  takes longer than a screenshot's 2,048-frame wait to settle at High, so its shots can still be
-  filling in. Nothing is traced yet; every update is rasterized.
+- Where the GPU traces, light probes update 256, 512 or 1,024 a frame, so the two finest
+  cascades settle within a few dozen frames at High and every probe is redone about every 64
+  frames. A traced update moves a probe only a quarter of the way, though, so the light bounced
+  between walls fills in over about 80 refreshes of each probe, over a minute at 60 fps: a lamp
+  turned on in a white room keeps brightening for that long.
+- Where it doesn't, light probes are rasterized a few a frame (8, 16 or 32), so after a load, a
+  teleport or a change of sun they take a while to settle: about a thousand frames for the two
+  finest cascades at High. Courtyard takes longer than a screenshot's 2,048-frame wait to settle
+  at High, so its shots can still be filling in.
+- On either path, moving things don't mark probes dirty; the oldest probes are redone in turn, so
+  a moved object's bounce catches up within about probes ÷ budget frames. A sun that turns every
+  frame keeps every probe dirty. Never-captured probes go before dirty ones wherever they are, so
+  until the coarse cascades have all been captured once, a light moving near the camera waits for
+  them.
 - Volumetric fog is a froxel grid of one cell per 8×8 scene pixels, so light bleeds a
   cell across silhouettes, a shaft narrower than a cell blurs, and its history smears a
   moving light or a fast camera for a few frames. Past `VolumetricDistance` the fog is the

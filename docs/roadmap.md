@@ -27,10 +27,12 @@ Super is early. These are the known gaps, so you can plan around them.
 - **Local lights in reflections.** [Reflection probes](rendering.md#reflections) are
   photographed by the sun and sky alone, so a lantern or a lit window doesn't show in a
   reflection, and turning one on doesn't photograph the probe again.
-- [Light probes](rendering.md#bounced-light) update a few a frame by rasterising, so they take
-  about a thousand frames to settle after a load or a teleport, and a moved object reaches the
-  bounce only when its probes come round again. Tracing the updates with ray queries, as DDGI
-  does, is the next step, and later a surface cache like Unreal's Lumen.
+- [Light probes](rendering.md#bounced-light) are traced with ray queries, as DDGI does, where
+  the GPU can, but each update moves a probe only a quarter of the way, so bounce between walls
+  takes about a minute to build up, and a moved object reaches the bounce only when its probes
+  come round again. On a GPU that can't trace they are rasterized a few a frame and take about
+  a thousand frames to settle after a load or a teleport. A surface cache like Unreal's Lumen
+  is a later step.
 - [Height maps](rendering.md#height-and-detail-maps) sink mortar and grooves with parallax,
   but the grooves cast no shadow of their own, so a low sun across a brick wall doesn't
   darken the side of each joint away from it.
