@@ -888,9 +888,17 @@ public readonly record struct BakedSpace(
 /// A piece of the world baked once in its own space and placed with <see cref="Transform"/>, which may only turn and
 /// move it. <see cref="Min"/> and <see cref="Max"/> are its box in its own space, and <see cref="TexelsPerMetre"/> its
 /// lightmap density, as for a <see cref="BakedSpace"/>. Its bakes are <see cref="BakeFiles.Chunk"/>.
+/// <see cref="EdgeBlend"/> is how many metres in from the box's four sides, its own ±x and ±z, the bake's light blends
+/// into the live light, so the chunk meets what stands beside it without a step: 0 to half the box's smaller side across
+/// x and z, and 0 for a hard edge. It changes how the bake is drawn, not what it holds, so it isn't in the bake's hash.
 /// </summary>
 public readonly record struct BakedChunk(
-    string Name, Matrix4x4 Transform, Vector3 Min, Vector3 Max, int TexelsPerMetre = BakeSettings.DefaultTexelsPerMetre);
+    string Name, Matrix4x4 Transform, Vector3 Min, Vector3 Max, int TexelsPerMetre = BakeSettings.DefaultTexelsPerMetre,
+    float EdgeBlend = BakedChunk.DefaultEdgeBlend)
+{
+    /// <summary>The metres of band a chunk gets unless it asks for another.</summary>
+    public const float DefaultEdgeBlend = 0.5f;
+}
 
 /// <summary>Everything the renderer needs to know about one frame except the draws.</summary>
 public ref struct FrameView

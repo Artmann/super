@@ -96,7 +96,30 @@ public static class BakeFiles
         }
     }
 
-    /// <summary>Throws for more than <see cref="MaxChunks"/> chunks, or for one whose transform isn't rigid.</summary>
+    /// <summary>
+    /// Throws unless the chunk's <see cref="BakedChunk.EdgeBlend"/> is 0 or more and at most half its box's smaller side
+    /// across x and z, since the band runs in from all four sides and two that crossed would leave no bake at the middle.
+    /// </summary>
+    public static void CheckEdgeBlend(string name, float edgeBlend, Vector3 min, Vector3 max, string? paramName)
+    {
+        if (!(edgeBlend >= 0f))
+        {
+            throw new ArgumentOutOfRangeException(paramName, edgeBlend, string.Create(CultureInfo.InvariantCulture,
+                $"The baked chunk \"{name}\"'s edge blend must be 0 metres or more, not {edgeBlend}."));
+        }
+
+        float smaller = MathF.Min(max.X - min.X, max.Z - min.Z);
+        if (edgeBlend > smaller * 0.5f)
+        {
+            throw new ArgumentOutOfRangeException(paramName, edgeBlend, string.Create(CultureInfo.InvariantCulture,
+                $"The baked chunk \"{name}\"'s edge blend of {edgeBlend} metres is more than half its box's smaller side across x and z, {smaller} metres."));
+        }
+    }
+
+    /// <summary>
+    /// Throws for more than <see cref="MaxChunks"/> chunks, or for one whose transform isn't rigid or whose edge blend
+    /// doesn't fit its box.
+    /// </summary>
     internal static void CheckChunks(ReadOnlySpan<BakedChunk> chunks)
     {
         if (chunks.Length > MaxChunks)
@@ -109,6 +132,7 @@ public static class BakeFiles
         for (int i = 0; i < chunks.Length; i++)
         {
             CheckChunkTransform(i, chunks[i].Name, chunks[i].Transform, nameof(FrameView.BakedChunks));
+            CheckEdgeBlend(chunks[i].Name, chunks[i].EdgeBlend, chunks[i].Min, chunks[i].Max, nameof(FrameView.BakedChunks));
         }
     }
 }

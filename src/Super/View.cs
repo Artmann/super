@@ -813,13 +813,14 @@ public sealed class View
     /// may only turn and move it, and <paramref name="min"/> to <paramref name="max"/> is its box in its own space.
     /// Its lightmaps have <paramref name="texelsPerMetre"/> texels for each metre of surface. The same name may be
     /// placed many times, and every copy with the same contents shares one bake. At most
-    /// <see cref="BakeFiles.MaxChunks"/> a frame. Nothing bakes chunks yet, so with no bake each is lit live. A fresh
-    /// chunk bake's <c>Baked</c> lights are left to it, but its lightmap isn't drawn yet, so a fresh chunk is darker
-    /// than it should be. See docs/rendering.md.
+    /// <see cref="BakeFiles.MaxChunks"/> a frame. With no fresh bake the chunk is lit live. The bake's light blends into
+    /// the live light over <paramref name="edgeBlend"/> metres in from the box's four sides, its own ±x and ±z, so it
+    /// meets what stands beside it without a step: 0 for a hard edge, and at most half the box's smaller side across x
+    /// and z. See docs/rendering.md.
     /// </summary>
     public void BakedChunk(
         string name, Matrix4x4 transform, Vector3 min, Vector3 max,
-        int texelsPerMetre = BakeSettings.DefaultTexelsPerMetre)
+        int texelsPerMetre = BakeSettings.DefaultTexelsPerMetre, float edgeBlend = global::Rendition.BakedChunk.DefaultEdgeBlend)
     {
         BakeFiles.CheckName(name);
         if (_bakedChunks.Count == BakeFiles.MaxChunks)
@@ -831,7 +832,8 @@ public sealed class View
         BakeFiles.CheckChunkTransform(_bakedChunks.Count, name, transform, nameof(transform));
         CheckBakedBox("baked chunk", min, max);
         CheckTexelsPerMetre("baked chunk", texelsPerMetre);
-        _bakedChunks.Add(new BakedChunk(name, transform, min, max, texelsPerMetre));
+        BakeFiles.CheckEdgeBlend(name, edgeBlend, min, max, nameof(edgeBlend));
+        _bakedChunks.Add(new BakedChunk(name, transform, min, max, texelsPerMetre, edgeBlend));
     }
 
     private static void CheckTexelsPerMetre(string what, int texelsPerMetre)

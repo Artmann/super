@@ -65,6 +65,7 @@ public sealed unsafe class Renderer : IDisposable
         public Vector4 IntoX;
         public Vector4 IntoY;
         public Vector4 IntoZ;
+        // The box in the chunk's space, with its edge blend in Min's w.
         public Vector4 Min;
         public Vector4 Max;
         // For each of the frame's four mask slots, the bake's channel that holds it, or -1 when none does.
@@ -260,6 +261,13 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>The number the next frame drawn gets, which picks its frame of the dither's noise. For tests.</summary>
     internal int FrameNumber => _frameNumber;
+
+    /// <summary>
+    /// Whether a baked space's probes blend into the live light over one probe spacing in from its box's faces, as they
+    /// always do; off, the box is a hard edge, as before the band. For tests, to show the band is what keeps a moving
+    /// thing from jumping as it crosses the box.
+    /// </summary>
+    internal bool BakedProbeBand { get; set; } = true;
 
     private bool _historyReady;
     private Matrix4x4 _previousViewProjection;
@@ -1608,7 +1616,7 @@ public sealed unsafe class Renderer : IDisposable
                 IntoX = new Vector4(m.M11, m.M12, m.M13, -(t.X * m.M11 + t.Y * m.M12 + t.Z * m.M13)),
                 IntoY = new Vector4(m.M21, m.M22, m.M23, -(t.X * m.M21 + t.Y * m.M22 + t.Z * m.M23)),
                 IntoZ = new Vector4(m.M31, m.M32, m.M33, -(t.X * m.M31 + t.Y * m.M32 + t.Z * m.M33)),
-                Min = new Vector4(chunks[c].Min, 0f),
+                Min = new Vector4(chunks[c].Min, chunks[c].EdgeBlend),
                 Max = new Vector4(chunks[c].Max, 0f),
                 // No slot reads the mask until FindMaskSlots gives the chunk's lights theirs.
                 Mask0 = -1, Mask1 = -1, Mask2 = -1, Mask3 = -1,
@@ -4286,13 +4294,15 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->ProbeCascadeCounts = new Vector4(
             cascadeLayout.CountX, cascadeLayout.CountY, cascadeLayout.CountZ, readCascades ? 1f : 0f);
 
-        // Inside the baked space's box, a fresh bake's probes give the soft light. The shader's box is the probe grid's
-        // Min..Max, which is the space's box: the space's box is in the bake's input hash, so a fresh bake's grid matches it.
+        // Inside the baked space's box, a fresh bake's probes give the soft light, blended into the live light over one
+        // probe spacing in from the box's faces, or, with BakedProbeBand off for a test, cut off hard at them. The
+        // shader's box is the probe grid's Min..Max, which is the space's box: the space's box is in the bake's input
+        // hash, so a fresh bake's grid matches it.
         if (_activeBakedProbes is { } baked)
         {
             var (x, y, z) = ProbeGrid.Counts(baked.Settings);
             uniforms->BakedProbeMin = new Vector4(baked.Settings.Min, baked.Settings.Spacing);
-            uniforms->BakedProbeCounts = new Vector4(x, y, z, 1f);
+            uniforms->BakedProbeCounts = new Vector4(x, y, z, BakedProbeBand ? 1f : 2f);
             uniforms->BakedSpaceMin = new Vector4(baked.Settings.Min, baked.Irradiance);
             uniforms->BakedSpaceMax = new Vector4(baked.Settings.Max, baked.Depth);
         }

@@ -948,7 +948,7 @@ G-buffer layout:
 | 1 | `R16G16B16A16_SFLOAT` | octahedral normal (xy), roughness, AO |
 | 2 | `R16G16B16A16_SFLOAT` | emissive colour, clearcoat (or minus the translucency, for foliage, or 2 plus the material index, for subsurface) |
 | 3 | `R16G16_SFLOAT` | motion since last frame, in scene pixels; see "Motion vectors" |
-| 4 | `R16G16B16A16_SFLOAT` | baked diffuse light over pi, turned by the normal, and 1 in alpha for a lightmapped pixel; cleared to 0. See "Drawing a bake" |
+| 4 | `R16G16B16A16_SFLOAT` | baked diffuse light over pi, turned by the normal, and in alpha how much the lightmap counts: 1 for a lightmapped pixel, less in a chunk's edge band; cleared to 0. See "Drawing a bake" and "Edge bands" |
 | 5 | `R8G8B8A8_UNORM` | the baked shadow mask, a channel per Mixed light; cleared to 1, read by the lighting for Mixed lights on lightmapped pixels |
 | depth | `D32_SFLOAT` | reversed-Z, position is reconstructed from it |
 
@@ -3467,13 +3467,12 @@ from 2D textures laid out in `BakedProbeAtlas.Columns` (64) columns rather than 
 layers. It reads at level 0 with `textureLod`: the material table's sampler filters
 anisotropically, and neighbouring pixels can read different tiles, so derivatives would pick a
 wrong level. In `lighting.frag`, `softLight` first reads the bake's probes when the unbiased point
-is inside the space's box (`insideBakedProbes`). Where they give -1, because no probe of the bake
-sees the point, it falls through to `probeIrradiance`, which tries the view's fixed grid
-(`View.LightProbes(...)`) and then the camera's cascades, and then to the sky. The box test matters:
-the lookup clamps to the grid, so a point within a spacing past the last probe still weighs it
-(`BakedProbeGpuTests`, which also checks the fall through to live probes inside the box). Nothing
-blends the two at the box's faces, so there is a hard seam there between the bake's probe light
-and the live probes'.
+is inside the space's box (`bakedProbeWeight` above 0). Where they give -1, because no probe of the
+bake sees the point, it falls through to `liveSoftLight`: `probeIrradiance`, which tries the view's
+fixed grid (`View.LightProbes(...)`) and then the camera's cascades, and then the sky. The box test
+matters: the lookup clamps to the grid, so a point within a spacing past the last probe still
+weighs it (`BakedProbeGpuTests`, which also checks the fall through to live probes inside the
+box). Near the box's faces the two are blended; see [Edge bands](#edge-bands).
 Transparent surfaces and particles don't read probes at all, so they are unchanged.
 
 The mask shadows Mixed lights. `LoadSpaceBake` keeps the file's `Channels` as a key-to-channel
@@ -3716,7 +3715,8 @@ matching `GpuChunk` in `Renderer.cs`:
   light took it. Written every frame, chunks or none (see [Shadow mask channels](#shadow-mask-channels)).
 - `intoChunk`, a `mat3x4`: from the world into the chunk's space, the transpose of the rigid transform's 3x3 with
   `-dot(t, row)` in w, so `vec4(world, 1) * intoChunk` is the point and `vec4(direction, 0) * intoChunk` the direction.
-- `min` and `max`, the chunk's box in its own space.
+- `min` and `max`, the chunk's box in its own space. `min.w` is the chunk's `EdgeBlend` in metres (see
+  [Edge bands](#edge-bands)).
 - `maskSlots`: for each frame mask slot, the channel of the chunk bake's mask that holds it, or -1 where none of this
   copy's lights holds the slot.
 - `transfer`, the bindless slots of the sky's red, green and blue transfer pages and the sun's, and `pages`: `x` the
@@ -3730,7 +3730,7 @@ among the frame's draws, and `InstanceBuffer.Add` writes the chunk into `GpuLigh
 lightmap. Only the camera's G-buffer pass sets it; reflection and light probe captures draw a chunk with its plain
 light only. `gbuffer.vert` passes the chunk in w of the flat `ivec4` at location 8 rather than as an `int` of its own,
 since `transparent.frag` shares the vertex shader and a lone unread `int` output draws a validation warning. The
-chunk-space position goes out at location 9. Nothing reads it yet: the mask is read at the copy's lightmap UV, which
+chunk-space position goes out at location 9, for the [edge band](#edge-bands); the mask is read at the copy's lightmap UV, which
 is already the chunk's.
 
 `writeBaked` adds `chunkLight`. Each colour's sky set is turned into the chunk's space by `intoChunkSh`, whose vector
@@ -3751,6 +3751,38 @@ with its wall where the turn puts it, which is L1 too: 2.5 to 2.7 steps, held to
 `glow.frag` and any other custom surface shader includes `surface.glsl`, and a static model's identity hashes its
 shaders' compiled bytes, so any change to `surface.glsl` changes those models' bake ids and makes a space bake that
 draws them stale until it is baked again.
+
+### Edge bands
+
+A chunk's bake sees only the chunk, and a space's probes only the space, so each meets the live light at its edge with
+a step. Both are blended into the live light near the edge instead, each frame, so neither is in a bake's hash: a
+chunk's `EdgeBlend` can change and its bake stays fresh.
+
+A chunk's band runs `EdgeBlend` metres (0.5 by default, `BakedChunk.DefaultEdgeBlend`) in from its box's ±x and ±z
+sides; the top and bottom have none, since floors and roofs don't meet the world there. `surface.glsl`'s
+`chunkEdgeWeight` takes the pixel's chunk-space position (location 9), the distance to the nearest of the four sides,
+and `smoothstep(0, EdgeBlend, distance)`; `EdgeBlend` 0 gives 1 everywhere. `writeBaked` puts it in `outBaked.a`,
+leaving the rgb unweighted. A space's lightmap and every pixel of a chunk with no relight write exactly 1, and a pixel
+with no lightmap 0. `lighting.frag` treats `a > 0` as lightmapped. At 1 it takes the baked rule alone, with the same
+code as before the band, so space-lightmapped and unlightmapped pixels are drawn bit for bit as without it. In between
+it takes `mix(softLight, baked.rgb, a)` for the diffuse light, mixes the live ambient occlusion with the lightmap's by
+`a`, and `maskedVisibility` moves the mask's visibility towards the live shadow's by the same weight: a shadowed
+light takes `min(mix(1, mask, a), live)`, an unshadowed one `mix(live, mask, a)`. The weight is per pixel, so a light
+is counted once across the band, never by both sides (`EdgeBandGpuTests.Edge_band_keeps_a_light_counted_once`).
+`BakeFiles.CheckEdgeBlend` throws for a negative or NaN blend, or one over half the box's smaller side across x and
+z, where opposite bands would overlap.
+
+A space's probe band runs one `probeSpacing` in from all six faces of its box. `bakedProbeWeight` is the product of
+the three axes' `smoothstep(0, spacing, distance in from the nearer face)`, and `softLight` returns
+`mix(liveSoftLight, bakedProbeIrradiance, weight)`; where the bake's probes give -1 the weight is 0, and at 1 the
+bake's probes are returned alone. `frame.bakedProbeCounts.w` is 1 for the band, 0 with no fresh space bake, and 2
+for a hard box, which only `Renderer.BakedProbeBand`, an internal test hook, asks for. The space's lightmap has no
+band, as the space's static surfaces end inside its box.
+
+Measured in `EdgeBandGpuTests`: a floor running out of a chunk's alley into the open steps by at most 4 of 255
+between neighbouring pixels with the band and 27 without; a quad moving out of a space's box in 10 cm steps changes
+by at most 4 with the band and 32 at the face without. Both bands are smoothstep over a fixed distance, so the step
+grows with the difference between the two lights: a darker bake against a brighter live light shows a steeper band.
 
 ## Ray tracing
 

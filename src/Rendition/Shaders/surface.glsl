@@ -23,7 +23,7 @@ layout(location = 0) out vec4 outBaseColorMetallic;
 layout(location = 1) out vec4 outNormalRoughnessAo;
 layout(location = 2) out vec4 outEmissiveClearcoat;
 layout(location = 3) out vec2 outMotion;   // see Passes/Motion.cs
-layout(location = 4) out vec4 outBaked;    // baked diffuse light over pi, alpha 1 when lightmapped; see writeBaked
+layout(location = 4) out vec4 outBaked;    // baked diffuse light over pi, alpha how much the bake lights it; see writeBaked
 layout(location = 5) out vec4 outShadowMask; // the baked shadow mask, 1 where nothing is masked
 
 // The motion of a point that was behind last frame's camera: far off any picture, near the most a 16-bit float holds.
@@ -409,6 +409,9 @@ float foliageChannel(Material material) {
 // lit for the way it faces. Its pages' direction is in that space too, and is turned back to the world. A chunk with no
 // plain light has no irradiance or direction page, and its d is the transfer's own lean towards the sky that lights it.
 // See "Chunk transfer" in docs/design.md.
+//
+// Alpha is how much of the pixel the bake lights: exactly 1 for a space's lightmap, and chunkEdgeWeight for a chunk's,
+// which falls to 0 at its sides. The light itself is never weighted; the lighting blends it with the live light.
 const float LIGHTMAP_PI = 3.14159265359;
 const float LIGHTMAP_LEAST_SHARE = 0.5;
 const vec3 LIGHTMAP_LUMINANCE = vec3(0.2126, 0.7152, 0.0722);
@@ -455,6 +458,24 @@ vec4 frameMaskSlots(int page, ivec4 table) {
     return slots;
 }
 
+// How much of a chunk's pixel the bake lights, which writeBaked puts in the baked alpha for the lighting to blend by: 1
+// deeper than the chunk's edge blend (min.w) in from its four sides, its own ±x and ±z, falling to 0 at them by a
+// smoothstep of the distance to the nearest. Not the top or bottom, where a chunk's floor and roof usually sit. Two
+// chunks that touch both reach the live light at the face they share, so they meet without a step. An edge blend of 0
+// is a hard edge. See "Edge bands" in docs/design.md.
+float chunkEdgeWeight(int c) {
+    ChunkData chunk = chunkData.chunks[c];
+    float blend = chunk.min.w;
+    if (blend <= 0.0) {
+        return 1.0;
+    }
+
+    vec2 fromMin = inChunkPosition.xz - chunk.min.xz;
+    vec2 fromMax = chunk.max.xz - inChunkPosition.xz;
+    float nearest = max(min(min(fromMin.x, fromMin.y), min(fromMax.x, fromMax.y)), 0.0);
+    return smoothstep(0.0, blend, nearest);
+}
+
 void writeBaked(vec3 normal) {
     int chunk = inLightmap.w;
     if (inLightmap.x < 0 && chunk < 0) {
@@ -484,7 +505,7 @@ void writeBaked(vec3 normal) {
 
     vec3 vertexNormal = surfaceFrame()[2];
     float turned = (dot(normal, d) * 0.5 + 0.5) / max(LIGHTMAP_LEAST_SHARE, dot(vertexNormal, d) * 0.5 + 0.5);
-    outBaked = vec4(irradiance / LIGHTMAP_PI * turned, 1.0);
+    outBaked = vec4(irradiance / LIGHTMAP_PI * turned, chunk >= 0 ? chunkEdgeWeight(chunk) : 1.0);
     outShadowMask = chunk >= 0
         ? frameMaskSlots(chunkData.chunks[chunk].pages.y, chunkData.chunks[chunk].maskSlots)
         : frameMaskSlots(inLightmap.z, chunkData.spaceSlots);

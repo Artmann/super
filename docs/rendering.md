@@ -457,7 +457,8 @@ view.BakedLighting("crypt", min: new(-8f, -1f, -12f), max: new(8f, 6f, 12f), pro
 
 foreach (var house in village.Houses)
 {
-    view.BakedChunk("house-garden", house.Transform, min: new(-6f, 0f, -8f), max: new(6f, 7f, 8f));
+    view.BakedChunk("house-garden", house.Transform, min: new(-6f, 0f, -8f), max: new(6f, 7f, 8f),
+        edgeBlend: 0.5f);
 }
 ```
 
@@ -490,6 +491,16 @@ with the 16 hex digits of a hash of its contents. A frame places at most 256 chu
 transform may only turn and move the chunk: its first three rows must be unit length and
 square to each other within 0.0001, without a mirror, and its last column (0, 0, 0, 1). One
 that scales, shears or mirrors throws, since one bake serves every copy.
+
+A chunk's bake knows only the chunk, so where its floor meets the world beside it the two
+would be lit differently, and a seam would show along the chunk's side. `edgeBlend`, half a
+metre by default, blends them: over that many metres in from each of the chunk's four sides
+(its x and z faces, not the top or bottom), its lightmap fades into the live light the world
+beyond it gets, with its ambient occlusion and shadow mask. At the side itself the chunk is lit
+like the world next to it, and from `edgeBlend` in it is lit by its bake alone. `edgeBlend: 0`
+gives a hard edge. It may be at most half the box's smaller side across x and z, so the bands of
+opposite sides never overlap; more than that, a negative value or NaN throws with the value.
+The band is drawn each frame, not baked, so changing it needs no new bake.
 
 A name is one or more letters, digits, `-` or `_`, since it names a file; a slash, a dot or a
 space throws. Each box must reach further than it starts on every axis, and `probeSpacing`
@@ -549,8 +560,10 @@ character, takes its soft light from the bake's probes while it is inside the sp
 hold the same light as the lightmap, `Baked` lights included, so a character walking through a
 room lit only by `Baked` lamps is lit by them too, though they are no longer drawn live. Outside
 the box, or where none of the bake's probes sees the point, it is lit as before, from the
-[light probes](#bounced-light) or the sky. The two are not blended at the box's edge, so
-something crossing it can change its light at once, from the bake's probes to the live ones.
+[light probes](#bounced-light) or the sky. Over one `probeSpacing` in from each of the box's six
+faces, the bake's probes blend into that live light, so something crossing the box's edge fades
+from one light to the other over that distance rather than changing at once. The space's own
+lightmap has no such band, since the space's static surfaces end inside its box.
 Transparent surfaces and particles never read light
 probes, so they are lit from the sky in a baked space as anywhere else. A file whose header is
 fresh but whose pages can't be read or are larger than any bake makes, or that is gone by the
@@ -619,8 +632,7 @@ holds:
 
 A chunk has no probes. `BakeChunk` throws `ArgumentOutOfRangeException` for a chunk the frame
 doesn't have, `ArgumentException` when the settings' `TexelsPerMetre` isn't the chunk's, and
-`InvalidOperationException` when the chunk owns no static draws. Frames don't draw chunk bakes
-yet. `--bake` bakes each chunk file the frame draws once.
+`InvalidOperationException` when the chunk owns no static draws. `--bake` bakes each chunk file the frame draws once.
 
 The lightmap covers the static draws the space owns, apart from ones that sway in the wind or
 are see-through, at the space's texel density. Each texel holds the light reaching it from every

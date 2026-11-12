@@ -260,6 +260,71 @@ public class BakedAreaViewTests
     }
 
     [Fact]
+    public void Edge_blend_is_kept_on_each_chunk_and_is_half_a_metre_unless_given()
+    {
+        var view = new View();
+
+        view.BakedChunk("well", Matrix4x4.Identity, -Vector3.One, Vector3.One, edgeBlend: 0f);
+        view.BakedChunk("barn", Matrix4x4.Identity, -Vector3.One, Vector3.One);
+        view.BakedChunk("hall", Matrix4x4.Identity, -Vector3.One, Vector3.One, edgeBlend: 1f);
+
+        Assert.Equal([0f, 0.5f, 1f], view.BakedChunks.Select(chunk => chunk.EdgeBlend));
+    }
+
+    [Fact]
+    public void Edge_blend_over_half_the_box_throws()
+    {
+        var original = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = new CultureInfo("sv-SE");
+        try
+        {
+            var view = new View();
+            // 4 metres across x and 3 across z, so at most 1.5 metres of band fit. The box is only half a metre tall,
+            // which doesn't count: the band runs in from the sides, not the top or bottom.
+            var min = new Vector3(-2f, 0f, -1.5f);
+            var max = new Vector3(2f, 0.5f, 1.5f);
+            view.BakedChunk("room", Matrix4x4.Identity, min, max, edgeBlend: 1.5f);
+
+            var error = Assert.Throws<ArgumentOutOfRangeException>(
+                () => view.BakedChunk("room", Matrix4x4.Identity, min, max, edgeBlend: 1.75f));
+
+            Assert.StartsWith(
+                "The baked chunk \"room\"'s edge blend of 1.75 metres is more than half its box's smaller side across x and z, 3 metres.",
+                error.Message);
+            Assert.Equal("edgeBlend", error.ParamName);
+            Assert.Single(view.BakedChunks);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
+    }
+
+    [Fact]
+    public void Negative_edge_blend_throws()
+    {
+        var view = new View();
+
+        var error = Assert.Throws<ArgumentOutOfRangeException>(
+            () => view.BakedChunk("room", Matrix4x4.Identity, -Vector3.One, Vector3.One, edgeBlend: -0.25f));
+
+        Assert.StartsWith("The baked chunk \"room\"'s edge blend must be 0 metres or more, not -0.25.", error.Message);
+        Assert.Empty(view.BakedChunks);
+    }
+
+    [Fact]
+    public void Edge_blend_that_is_not_a_number_throws()
+    {
+        var view = new View();
+
+        var error = Assert.Throws<ArgumentOutOfRangeException>(
+            () => view.BakedChunk("room", Matrix4x4.Identity, -Vector3.One, Vector3.One, edgeBlend: float.NaN));
+
+        Assert.StartsWith("The baked chunk \"room\"'s edge blend must be 0 metres or more, not NaN.", error.Message);
+        Assert.Empty(view.BakedChunks);
+    }
+
+    [Fact]
     public void Baked_file_names()
     {
         Assert.Equal("lighting/courtyard.lightbake", BakeFiles.Space("courtyard"));

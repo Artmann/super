@@ -48,7 +48,7 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 puddles;            // x: puddleLevel, the water's height in metres; y: puddleBand, the damp band above it; z: 1 when there is water
     vec4 wind;               // xyz: the way the wind blows times its strength, all zero in a calm; w: its gustiness. See wind.glsl.
     vec4 bakedProbeMin;      // xyz: the drawn bake's first light probe; w: their spacing in metres
-    vec4 bakedProbeCounts;   // xyz: the bake's probes along each axis; w: 1 while they light the baked space
+    vec4 bakedProbeCounts;   // xyz: the bake's probes along each axis; w: 1 while they light the baked space, banded at its faces, 2 cut off hard (tests only), 0 when not
     vec4 bakedSpaceMin;      // xyz: the baked space's box, where its probes are read; w: the irradiance atlas's slot in the material table
     vec4 bakedSpaceMax;      // xyz: the box's far corner; w: the depth atlas's slot
     int lightCount;

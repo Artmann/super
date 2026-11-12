@@ -10,7 +10,7 @@ struct ChunkData {
     // From the world into the chunk's own space: vec4(world, 1) * intoChunk is the point in the chunk, and
     // vec4(direction, 0) * intoChunk a direction. A chunk only turns and moves, so this is a rotation and a move.
     mat3x4 intoChunk;
-    vec4 min;          // xyz: the chunk's box in its own space
+    vec4 min;          // xyz: the chunk's box in its own space; w: its edge blend in metres, 0 for a hard edge
     vec4 max;
     ivec4 maskSlots;   // for each of the frame's four mask slots, the channel of the bake's mask that holds it, or -1
     ivec4 transfer;    // bindless slots of the sky's red, green and blue transfer pages, then the sun's

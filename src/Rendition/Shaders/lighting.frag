@@ -26,8 +26,9 @@ layout(set = 1, binding = 7) uniform sampler2D emissiveClearcoatTexture;
 layout(set = 1, binding = 8) uniform sampler2D ambientOcclusionTexture;
 layout(set = 1, binding = 9) uniform sampler2D historyTexture;
 layout(set = 1, binding = 10) uniform samplerCubeArray probeTexture;
-// The G-buffer's baked light and shadow mask; see writeBaked in surface.glsl. Alpha 1 in the baked light marks a pixel
-// with a lightmap, whose soft light comes from it instead of the probes or the sky.
+// The G-buffer's baked light and shadow mask; see writeBaked in surface.glsl. Alpha above 0 in the baked light marks a
+// pixel with a lightmap, whose soft light comes from it instead of the probes or the sky; alpha below 1 is a chunk's edge
+// band, which blends the two.
 layout(set = 1, binding = 13) uniform sampler2D bakedTexture;
 layout(set = 1, binding = 14) uniform sampler2D shadowMaskTexture;
 
@@ -39,13 +40,19 @@ const float LIGHTMAP_OCCLUSION = 0.5;
 // real-time shadow too it takes the darker of the two, so a moving thing's shadow still falls and the mask covers what
 // the shadow map can't, such as past the sun's last cascade, where shadowVisibility gives 1. A light without a shadow
 // map takes the mask alone. A light without a channel (-1), or a pixel without a lightmap, keeps what it had: the
-// mask's unused channels hold 0, so they must never be read.
-float maskedVisibility(bool lightmapped, vec4 shadowMask, float channel, bool shadowed, float visibility) {
-    if (!lightmapped || channel < 0.0) {
+// mask's unused channels hold 0, so they must never be read. In a chunk's edge band, where the baked weight is between
+// 0 and 1, the mask moves towards 1, the real-time shadow alone, by the weight, and a light without a shadow map moves
+// from the mask to what it had, so both meet the live light at the band's edge.
+float maskedVisibility(float bakedWeight, vec4 shadowMask, float channel, bool shadowed, float visibility) {
+    if (bakedWeight <= 0.0 || channel < 0.0) {
         return visibility;
     }
 
     float mask = shadowMask[int(channel + 0.5)];
+    if (bakedWeight < 1.0) {
+        return shadowed ? min(mix(1.0, mask, bakedWeight), visibility) : mix(visibility, mask, bakedWeight);
+    }
+
     return shadowed ? min(mask, visibility) : mask;
 }
 
@@ -108,28 +115,31 @@ float specularOcclusion(float nDotV, float ao, float roughness) {
     return clamp(pow(nDotV + ao, exp2(-16.0 * roughness - 1.0)) - 1.0 + ao, 0.0, 1.0);
 }
 
-// Whether a point is inside the baked space's box while the frame draws its fresh bake's probes.
-bool insideBakedProbes(vec3 position) {
-    return frame.bakedProbeCounts.w > 0.5 && all(greaterThanEqual(position, frame.bakedSpaceMin.xyz))
-        && all(lessThanEqual(position, frame.bakedSpaceMax.xyz));
-}
-
-// The soft light reaching a point from around a direction, in the lit image's units. In order:
-// inside a fresh baked space, the bake's probes, which hold its Baked lights the live frame leaves
-// out; then, there and everywhere else, the live light probes, as probeIrradiance orders them:
-// the view's fixed grid, then the cascades round the camera; then the sky. Each falls through to
-// the next where none of its probes can see the point. Lightmapped pixels take theirs from the
-// lightmap instead, so this lights dynamic objects and surfaces without a lightmap.
-vec3 softLight(vec3 position, vec3 direction, vec3 v) {
-    if (insideBakedProbes(position)) {
-        vec3 fromBake = bakedProbeIrradiance(textures[int(frame.bakedSpaceMin.w + 0.5)],
-            textures[int(frame.bakedSpaceMax.w + 0.5)], frame.bakedProbeMin.xyz, frame.bakedProbeMin.w,
-            ivec3(frame.bakedProbeCounts.xyz + 0.5), position, direction, v);
-        if (fromBake.x >= 0.0) {
-            return fromBake;
-        }
+// How much a point takes the baked space's probes over the live light, while the frame draws its fresh bake's probes: 1
+// deep inside the box, falling to 0 at its faces over one probe spacing in from each, the product of each axis's
+// smoothstep, and 0 outside the box or with no bake. A moving thing that crosses the box then blends from one light into
+// the other with no jump. With the band off for a test (w 2), 1 anywhere in the box.
+float bakedProbeWeight(vec3 position) {
+    if (frame.bakedProbeCounts.w < 0.5) {
+        return 0.0;
     }
 
+    vec3 inside = min(position - frame.bakedSpaceMin.xyz, frame.bakedSpaceMax.xyz - position);
+    if (any(lessThan(inside, vec3(0.0)))) {
+        return 0.0;
+    }
+
+    if (frame.bakedProbeCounts.w > 1.5) {
+        return 1.0;
+    }
+
+    vec3 band = smoothstep(vec3(0.0), vec3(frame.bakedProbeMin.w), inside);
+    return band.x * band.y * band.z;
+}
+
+// The soft light from the live frame: the live light probes, as probeIrradiance orders them, the view's fixed grid,
+// then the cascades round the camera; then the sky, where none of the probes can see the point.
+vec3 liveSoftLight(vec3 position, vec3 direction, vec3 v) {
     if (frame.lightProbeCounts.w > 0.5 || frame.probeCascadeCounts.w > 0.5) {
         vec3 fromProbes = probeIrradiance(position, direction, v);
         if (fromProbes.x >= 0.0) {
@@ -138,6 +148,29 @@ vec3 softLight(vec3 position, vec3 direction, vec3 v) {
     }
 
     return texture(irradianceTexture, direction).rgb * frame.backgroundRadiance.a;
+}
+
+// The soft light reaching a point from around a direction, in the lit image's units. Inside a fresh baked space, the
+// bake's probes, which hold its Baked lights the live frame leaves out, blended by bakedProbeWeight with the live soft
+// light, which alone lights everywhere else; where none of the bake's probes sees the point, the live light alone.
+// Lightmapped pixels take theirs from the lightmap instead, or in a chunk's edge band blend the two, so this lights
+// dynamic objects and surfaces without a lightmap.
+vec3 softLight(vec3 position, vec3 direction, vec3 v) {
+    float weight = bakedProbeWeight(position);
+    vec3 fromBake = vec3(0.0);
+    if (weight > 0.0) {
+        fromBake = bakedProbeIrradiance(textures[int(frame.bakedSpaceMin.w + 0.5)],
+            textures[int(frame.bakedSpaceMax.w + 0.5)], frame.bakedProbeMin.xyz, frame.bakedProbeMin.w,
+            ivec3(frame.bakedProbeCounts.xyz + 0.5), position, direction, v);
+        if (fromBake.x < 0.0) {
+            weight = 0.0;
+        } else if (weight >= 1.0) {
+            return fromBake;
+        }
+    }
+
+    vec3 live = liveSoftLight(position, direction, v);
+    return weight > 0.0 ? mix(live, fromBake, weight) : live;
 }
 
 // What a surface is made of and how it's seen, for lighting it one light at a time.
@@ -576,13 +609,29 @@ void main() {
     vec3 environmentSpecular = reflectedLight * (f0 * brdf.x + brdf.y) * multiscatter;
     // Soft light already carries the environment's intensity; the reflections don't yet.
     // A lightmapped pixel's soft light is baked, with the environment's intensity in it, and the screen's occlusion
-    // weighs on it only by LIGHTMAP_OCCLUSION. Its reflections are occluded as any other pixel's.
+    // weighs on it only by LIGHTMAP_OCCLUSION. Its reflections are occluded as any other pixel's. In a chunk's edge band
+    // the baked alpha is less than 1, and the pixel moves by it from the baked rule to the live one: its soft light, its
+    // occlusion and, in maskedVisibility, its shadow mask. Alpha 1 takes the baked rule alone and 0 the live one alone,
+    // so a space's lightmap and an unlightmapped pixel are drawn exactly as without the band.
     vec4 baked = texture(bakedTexture, inUv);
-    bool lightmapped = baked.a > 0.5;
+    float bakedWeight = baked.a;
+    bool lightmapped = bakedWeight > 0.0;
     vec4 shadowMask = lightmapped ? textureLod(shadowMaskTexture, inUv, 0.0) : vec4(1.0);
-    float diffuseAo = lightmapped ? min(normalRoughnessAo.w, 1.0) * mix(1.0, screenAo, LIGHTMAP_OCCLUSION) : ao;
+    float diffuseAo = ao;
+    vec3 softDiffuse;
+    if (lightmapped) {
+        diffuseAo = min(normalRoughnessAo.w, 1.0) * mix(1.0, screenAo, LIGHTMAP_OCCLUSION);
+        softDiffuse = baked.rgb;
+        if (bakedWeight < 1.0) {
+            diffuseAo = mix(ao, diffuseAo, bakedWeight);
+            softDiffuse = mix(softLight(position, bentNormal, v), baked.rgb, bakedWeight);
+        }
+    } else {
+        softDiffuse = softLight(position, bentNormal, v);
+    }
+
     vec3 diffuseColor = baseColor * (1.0 - metallic) * multiBounceOcclusion(diffuseAo, baseColor);
-    vec3 environmentDiffuse = (lightmapped ? baked.rgb : softLight(position, bentNormal, v)) * diffuseColor;
+    vec3 environmentDiffuse = softDiffuse * diffuseColor;
     if (translucency > 0.0) {
         environmentDiffuse += softLight(position, -n, v) * diffuseColor * translucency * transmissionTint;
     }
@@ -626,7 +675,7 @@ void main() {
         float visibility = frame.lights[i].direction.w > 0.5
             ? shadowVisibility(position, lightSide, l) * (foliage ? 1.0 : contactShadow(position, lightSide, l))
             : screenAo;
-        visibility = maskedVisibility(lightmapped, shadowMask, frame.lights[i].radiance.w, frame.lights[i].direction.w > 0.5, visibility);
+        visibility = maskedVisibility(bakedWeight, shadowMask, frame.lights[i].radiance.w, frame.lights[i].direction.w > 0.5, visibility);
         vec3 reaching = sunlightReaching(position, l, i) * visibility;
         if (subsurface) {
             scattered += diffuseLit * reaching;
@@ -657,7 +706,7 @@ void main() {
         vec3 lightSide = dot(n, l) >= 0.0 ? n : -n;
         bool shadowed = light.radianceShadow.w >= 0.0;
         float visibility = shadowed ? localShadow(light, position, lightSide, l) : screenAo;
-        visibility = maskedVisibility(lightmapped, shadowMask, localMaskChannel(light), shadowed, visibility);
+        visibility = maskedVisibility(bakedWeight, shadowMask, localMaskChannel(light), shadowed, visibility);
         vec3 arriving = light.radianceShadow.rgb * reaching * visibility;
         if (subsurface) {
             scattered += diffuseLit * arriving;
