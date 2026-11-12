@@ -1,6 +1,7 @@
 using System.Numerics;
 using Rendition;
 using Super;
+using Super.Ui;
 
 namespace Gallery;
 
@@ -12,9 +13,26 @@ namespace Gallery;
 /// room with a bronze whale under a skylight, a dark lamp room, and a chapel lit by a swinging
 /// lantern and candles. A courtyard waits at the end behind tinted glass. The camera tours the
 /// rooms on its own; F lets you fly it with WASD and the mouse, and F again goes back to the tour.
+/// Keys 1, 2 and 3 switch between live lighting, the bake, and direct light only.
 /// </summary>
-public sealed class GalleryGame(Content content, Input input) : IGame
+public sealed class GalleryGame(Content content, Input input, Graphics graphics) : IGame
 {
+    /// <summary>How the Gallery is lit, chosen with keys 1, 2 and 3.</summary>
+    public enum Lighting
+    {
+        /// <summary>Key 1: every light live and bounced light from the live probes, as if nothing were baked.</summary>
+        Live,
+
+        /// <summary>Key 2: the bake's lightmaps and probes where the bake is fresh.</summary>
+        Baked,
+
+        /// <summary>Key 3: direct light only, with no bake and no bounced light.</summary>
+        Direct,
+    }
+
+    private static readonly Color Muted = new(0.8f, 0.82f, 0.86f);
+    private static readonly Color Panel = new(0.06f, 0.07f, 0.09f, 0.72f);
+
     /// <summary>Where the sun is: high in the north-east, so it rakes through the colonnade.</summary>
     public static readonly Vector3 SunDirection = Vector3.Normalize(new Vector3(0.8f, 0.9f, -0.35f));
 
@@ -43,6 +61,8 @@ public sealed class GalleryGame(Content content, Input input) : IGame
     private const int LampLightKey = 100;
     private const int LanternKey = 110;
     private const int CandleKey = 120;
+    private const int CandlesALight = 3;
+    private const int CandleLights = 3;
     private const int WhaleProbeKey = 1;
     private const int ColourProbeKey = 2;
     private const int LampProbeKey = 3;
@@ -79,6 +99,7 @@ public sealed class GalleryGame(Content content, Input input) : IGame
     private ModelRef _wax;
     private float _seconds;
     private long _tick;
+    private Lighting _lighting = Lighting.Baked;
 
     private bool _flying;
     private Vector3 _position;
@@ -144,6 +165,22 @@ public sealed class GalleryGame(Content content, Input input) : IGame
     {
         _tick = time.Tick;
         _seconds = time.Tick / (float)time.TicksPerSecond;
+
+        if (input.Pressed(Key.D1))
+        {
+            _lighting = Lighting.Live;
+        }
+        else if (input.Pressed(Key.D2))
+        {
+            _lighting = Lighting.Baked;
+        }
+        else if (input.Pressed(Key.D3))
+        {
+            _lighting = Lighting.Direct;
+        }
+
+        graphics.BakedLighting = _lighting == Lighting.Baked;
+        graphics.LightProbes = _lighting != Lighting.Direct;
 
         if (input.Pressed(Key.F))
         {
@@ -252,6 +289,32 @@ public sealed class GalleryGame(Content content, Input input) : IGame
         DrawChapel(view, seconds);
     }
 
+    /// <summary>The lighting modes in the bottom-left corner, with the current one in bold.</summary>
+    public UiView? Ui
+    {
+        get
+        {
+            var modes = new VStack(HorizontalAlignment.Leading, 4f);
+            foreach (var (lighting, key, name) in new[]
+            {
+                (Lighting.Live, 1, "Live lighting"),
+                (Lighting.Baked, 2, "Baked lighting"),
+                (Lighting.Direct, 3, "Direct light only"),
+            })
+            {
+                var text = new Text($"{key}  {name}");
+                modes.Add(lighting == _lighting ? text.Bold() : text.Foreground(Muted));
+            }
+
+            return modes
+                .Padding(12f)
+                .Background(Panel)
+                .CornerRadius(8f)
+                .Padding(20f)
+                .Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity, alignment: Alignment.BottomLeading);
+        }
+    }
+
     private void DrawLampRoom(View view, float seconds)
     {
         // Three hanging lamps with big glowing discs, so their shadows are soft and wide.
@@ -292,14 +355,21 @@ public sealed class GalleryGame(Content content, Input input) : IGame
         view.PointLight(LanternKey, wick + new Vector3(0f, 0.05f, 0f), new Vector3(1.8f, 1.05f, 0.4f) * lanternFlicker, range: 9f, radius: 0.04f, mode: LightMode.Mixed);
         DrawFlame(view, FlameKey, wick);
 
-        // A row of candles on the altar, each flickering on its own, with no shadows.
+        // A row of candles on the altar. Every third one, the first, middle and last, carries a light for its
+        // neighbours too, flickering on its own, with no shadow tiles. Their shadows come from the bake's mask, which
+        // has three channels for point lights whose ranges overlap, so the row has three lights, not seven.
         for (int i = 0; i < _candles.Count; i++)
         {
             var (foot, height) = _candles[i];
             view.Model(DynamicKey + 40 + i, _wax, Matrix4x4.CreateScale(0.045f, height, 0.045f) * Matrix4x4.CreateTranslation(foot + new Vector3(0f, height / 2f, 0f)));
             var tip = foot + new Vector3(0f, height + 0.012f, 0f);
-            float flicker = 1f + 0.15f * MathF.Sin(_seconds * 13f + i * 1.7f) + 0.08f * MathF.Sin(_seconds * 29f + i);
-            view.PointLight(CandleKey + i, tip + new Vector3(0f, 0.03f, 0f), new Vector3(0.4f, 0.19f, 0.055f) * flicker, range: 3f, shadows: false, mode: LightMode.Mixed);
+            if (i % CandlesALight == 0)
+            {
+                float flicker = 1f + 0.15f * MathF.Sin(_seconds * 13f + i * 1.7f) + 0.08f * MathF.Sin(_seconds * 29f + i);
+                var color = new Vector3(0.4f, 0.19f, 0.055f) * (_candles.Count / (float)CandleLights) * flicker;
+                view.PointLight(CandleKey + i / CandlesALight, tip + new Vector3(0f, 0.03f, 0f), color, range: 3f, shadows: false, mode: LightMode.Mixed);
+            }
+
             DrawFlame(view, FlameKey + (i + 1) * 1000, tip);
         }
     }

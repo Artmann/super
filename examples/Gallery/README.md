@@ -1,9 +1,11 @@
 # Gallery
 
-Plaster rooms along one corridor, lit only the way Rendition lights things today: a sun,
-the sky, [light probes](../../docs/rendering.md#bounced-light),
-[reflection probes](../../docs/rendering.md#reflections) and ordinary point lights. It's the
-baseline that baked and mixed lighting will be compared against later.
+Plaster rooms along one corridor, lit by a sun, the sky,
+[light probes](../../docs/rendering.md#bounced-light),
+[reflection probes](../../docs/rendering.md#reflections) and point lights, and by a
+[bake](../../docs/rendering.md#baked-lighting) of all of them that ships with it. Keys 1, 2
+and 3 switch between live lighting, the bake, and direct light alone, so you can see what each
+adds.
 
 ```
 dotnet run -c Release --project examples/Gallery
@@ -39,8 +41,16 @@ Q go up and down, and the mouse looks around. F again goes back to the tour.
 
 The Gallery is a baked space named `gallery`, over the same box as its light probes. The
 building's boxes, cylinders and spheres are drawn static (`isStatic: true`), so they get
-lightmap UVs; the statues, the rolling sphere, the lantern and the candles stay dynamic.
-Until the space has a bake on disk, every light is drawn live and nothing looks different.
+lightmap UVs; the statues, the rolling sphere, the lantern and the candles stay dynamic. Its
+bake is `content/lighting/gallery.lightbake`, made at the final quality.
+
+The current lighting shows in the bottom-left corner. The keys switch between:
+
+| Key | Lighting | What's on |
+| --- | --- | --- |
+| 1 | Live lighting | Every light live, and bounced light from the live light probes, as if nothing were baked (`Graphics.BakedLighting` off) |
+| 2 | Baked lighting | The bake: lightmaps on the building and its probes for everything else. The default |
+| 3 | Direct light only | No bake and no bounced light (`BakedLighting` and `LightProbes` off) |
 
 Each light has the mode that suits it:
 
@@ -49,8 +59,28 @@ Each light has the mode that suits it:
 | Sun through the skylight | Mixed | Real-time cascades; the bake's mask past the last |
 | Lamp room, lamps 1 and 2 | Baked | None live |
 | Lamp room, lamp 3 | Mixed | Real-time |
-| Chapel lantern (swings) | Mixed | Real-time. Made Baked it would be logged as animated |
+| Chapel lantern (swings) | Mixed | Real-time. It moves, so it is never baked; made Baked it is logged as moving |
 | Chapel candles (flicker) | Mixed | No shadow tiles; the mask only |
+
+Seven candles stand on the altar, but only three of them, the first, middle and last, carry a
+light, each 7/3 as bright so the row gives the same light. The bake's shadow mask has four channels, the sun takes one, and
+lights whose ranges overlap can't share one, so a fourth candle light would have no shadow.
+
+### Rebaking
+
+Bake again after changing the building, a light, the sky or the light modes:
+
+```
+dotnet run -c Release --project examples/Gallery -- --bake
+dotnet run -c Release --project examples/Gallery -- --bake-check
+```
+
+`--bake` writes `content/lighting/gallery.lightbake` and prints a report; the last bake took
+16 seconds, traced 1,024 samples a texel, found 5.74% of texels inside walls and gave every
+Mixed light a shadow mask channel. `--bake-check` builds first, so it reads the new bake, and
+prints `fresh`. A stale bake isn't drawn: the Gallery is lit live, as with key 1, and the log
+says what changed. `--bake-quality preview` bakes in about the same time on a fast GPU but
+looks blotchy.
 
 The glow pieces (`Shaders/glow.frag`) are static too: their surface shader is hashed into the
 bake's identity from `shaders/glow.frag.spv` beside the program.

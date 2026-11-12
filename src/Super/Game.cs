@@ -109,8 +109,9 @@ public static class Game
 
         if (baking)
         {
-            // One tick by default, so the game has set up its scene before it's baked.
-            long bakeTicks = arguments.Ticks ?? 1;
+            // Two seconds by default, all of them drawn, so a light that sways or flickers is seen moving and left out
+            // of the bake, as it is in play. After one tick it would have been drawn only where it stood then.
+            long bakeTicks = arguments.Ticks ?? BakeTicks(options.TicksPerSecond);
             if (!arguments.Bake)
             {
                 // The check reads the cooked bake, the one the game draws with, so it works in a published game too.
@@ -147,6 +148,13 @@ public static class Game
         host.Audio.UseDevice(Console.Error);
         window.Run(host, options.TicksPerSecond);
     }
+
+    /// <summary>
+    /// The ticks <c>--bake</c> and <c>--bake-check</c> play without <c>--ticks</c>: two seconds, more than the second a
+    /// moving light needs to hold still before it returns to the bake, so the frame sees every light that moves at
+    /// least once a second as moving.
+    /// </summary>
+    private static long BakeTicks(int ticksPerSecond) => 2L * ticksPerSecond;
 
     private static InputScript? FindScript<TGame>(GameHost<TGame> host, string? name)
         where TGame : class, IGame

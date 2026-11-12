@@ -454,6 +454,10 @@ bakes a space, and the game finds the bake in its content and checks it against 
 the bake is fresh, its surfaces are lit from their lightmap; until a space is baked, naming it
 changes nothing on screen.
 
+The [Gallery](../examples/Gallery/README.md#baked-lighting) is the example to look at: it ships
+with a bake, keys 1, 2 and 3 switch between live lighting, the bake and direct light only, and
+its README says which light has which [mode](#light-modes) and why, and how to bake it again.
+
 `BakedLighting` names a space: one fixed place, baked as it stands, sun included. Its box also
 holds baked probes `probeSpacing` metres apart, at most 4,096 of them, counted the same way as
 [light probes](#bounced-light), so 1 metre spacing covers about 15 by 15 by 15 metres. A frame
@@ -1927,3 +1931,9 @@ restart, every light is treated as new.
 
 Lights are only watched on frames that name a [baked area](#baked-lighting). A light that
 moves while no frame names one isn't seen to move.
+
+A bake sees only the frames drawn before it, so a light can only be left out of it once it has
+been seen to move. `--bake` draws two seconds of play before it bakes, which is enough for any
+light that moves at least once a second, such as the Gallery's swinging lantern. A light that
+holds still then and moves later is baked in, and the bake goes stale when it starts to move.
+See [Baking lighting](command-line.md#baking-lighting).

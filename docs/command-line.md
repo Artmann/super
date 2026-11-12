@@ -413,8 +413,7 @@ dotnet run --project MyGame -- --bake --bake-quality preview
 dotnet run --project MyGame -- --bake-check
 ```
 
-`--bake` plays `--ticks` ticks, one by default so the game has drawn its scene, then bakes
-the frame's [baked space](rendering.md#baked-lighting) with
+`--bake` plays `--ticks` ticks, then bakes the frame's [baked space](rendering.md#baked-lighting) with
 [`Renderer.Bake`](rendering.md#making-a-bake) and saves it in the game's first content root as
 `lighting/<name>.lightbake`, replacing what was there. Like `--screenshot` it runs without a
 window and under validation, and `--seed` and `--script` work as usual. It prints the file,
@@ -422,16 +421,24 @@ how long the bake took, the samples each texel got, the share of texels no ray f
 face for, and the keys of `Mixed` lights that found no shadow mask channel:
 
 ```
-C:\Code\MyGame\content\lighting\gallery.lightbake: 13.3 MB
-  time: 15.0 s
-  samples: 64 a texel
+C:\Code\MyGame\content\lighting\gallery.lightbake: 11.2 MB
+  time: 16.4 s
+  samples: 1024 a texel
   invalid texels: 5.74%
-  Mixed lights without a shadow mask channel: 122, 123, 124, 125, 126
+  Mixed lights without a shadow mask channel: none
 0 validation messages
 ```
 
+Without `--ticks` it plays two seconds' worth, drawing each frame, so a light that sways or
+flickers has been seen to [move](rendering.md#moving-lights) and is left out of the bake, as it
+is in play. After a single tick every light would look still, a swinging lantern would be
+baked in, and the bake would go stale as soon as the game saw the lantern move. A light that
+only starts moving later is still baked in, so pick `--ticks` where every light that will move
+already does.
+
 It exits with 1 when there were validation messages. `--bake-quality preview` traces 64
-samples a texel, which took 15 seconds on the Gallery; `final`, the default, traces 1,024. The
+samples a texel, which took 13 seconds on the Gallery; `final`, the default, traces 1,024,
+which took 16 seconds there. The
 space is baked at the texel density it was named with, `view.BakedLighting`'s
 `texelsPerMetre`, which is what a frame checks its bake against. A frame with no baked space throws "--bake found no baked space in the frame.
 Name one with view.BakedLighting." Only the space is baked; chunks aren't yet.
@@ -452,8 +459,8 @@ game exits with 1 and says so. `--bake-check` works in a published game too, so 
 be checked as shipped.
 
 A saved bake is cooked with the rest of the content: the build rewrites its irradiance pages as
-BC6H and its direction and mask pages as BC7, which takes the Gallery's 13.3 MB down to about
-4.7 MB in about four seconds. See [Baked lighting](content.md#baked-lighting). Since
+BC6H and its direction and mask pages as BC7, which takes the Gallery's 11.2 MB down to about
+4.5 MB. See [Baked lighting](content.md#baked-lighting). Since
 `--bake-check` reads the cooked bake, build after `--bake` before checking; `dotnet run` does.
 
 ## Planned
