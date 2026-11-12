@@ -1890,7 +1890,7 @@ squares from later ones.
 `Baker` (`src/Rendition/Baking/Baker.cs`) is the GPU baker, and texel setup is its first
 stage. `SetUpTexels(cmd, layout, draws)` records it: for every texel of every page in a
 `LightmapLayout`, it finds the world position, geometric normal and shading normal of the
-surface under it, and whether the texel is valid. Later stages trace light from these. The
+surface under it, and whether the texel is valid. [The path tracer](#the-path-tracer) traces light from these. The
 baker owns its images, pipelines and descriptor sets; none of the frame's bindings change.
 
 Each page has four 2048 square images: position (`rgba32f`, w is 1 where a surface covers the
@@ -1930,6 +1930,63 @@ all the draws with `TraceScene.Collect` and `Renderer.TraceFlagsOf`, so walls th
 still count. A ray that hits the back of a one-sided surface means the texel is enclosed; when
 more than half do (`Baker.InvalidShare`), the texel is invalid. A texel nothing covers is
 invalid too. The validity shader binds its own set 0 and the resource table as set 1.
+
+## The path tracer
+
+`Baker.Trace` is the baker's second stage, and `bake_trace.comp` with `bake_lights.glsl` is its
+shader. One pass sends one path from every valid texel of a page's region (the bounding box of
+its rectangles) and adds what it brings back to three `rgba32f` sums: irradiance, direction and
+shadow mask. Sums are float32 so 1024 passes add up without losing the small ones. The baker
+reads them back and divides by the passes; `Baker.Encode` then writes the page as the file
+stores it. Every texel's random numbers come from a hash of its place and the pass, so a bake
+of the same scene with the same settings gives the same file.
+
+Each pass first adds the light reaching the texel straight from the lights. Then a path starts
+1 mm (`Baker.TraceLift`) along the texel's geometric normal and goes out cosine-weighted,
+through the same acceleration structures and material tables as the frame (`trace.glsl`). At
+each surface it meets, the path adds the surface's emission, takes the surface's diffuse colour
+into its throughput, adds the light reaching that surface from the lights, and bounces. It
+makes at most 4 bounces (`MAX_BOUNCES`), and from the second on Russian roulette may end it,
+weighting the survivors up. Hitting the back of a one-sided surface ends it in the dark, since
+that is inside something. A path that misses everything adds the sky cube, times π and
+`skyIntensity`, as the sky lights a surface under it; with `skyIntensity` 0 the sky is left
+out.
+
+Lights are sampled at every surface (next-event estimation) over their area, so their shadows
+come out soft: a point light over the disc of its sphere facing the point, a spot over its disc
+across its axis, a sun over a cone `ShadowSettings.LightAngle` across. A local light dims with
+distance and range as `localLightReaching` has it at runtime, measured to its centre. With up
+to 16 lights (`ALL_LIGHTS_UP_TO`) every light is sampled; above that, 8 candidates
+(`CANDIDATES`) are picked at random and one is kept by resampled importance sampling, weighted
+by how much it would give unshadowed. The direct light of a `Mixed` light is skipped at the
+texel itself, since the frame draws it live; its light reaches the texel after a bounce. Its
+random numbers are drawn all the same, so the paths that follow don't depend on light modes. A
+`Baked` light is counted at every surface.
+
+A shadow ray treats a surface whose material is see-through as a pane: it walks up to 8
+(`MAX_LAYERS`) of them and weakens the light by 1 minus each one's opacity, without tinting it,
+as the frame's shadows do. Anything opaque stops it. Each extra layer costs another query.
+
+The direction sum adds the direction of each light sampled at the texel and the path's first
+direction, each weighted by the luminance it brought, with the luminances in w. `Encode` divides one by the other: the mean direction, whose length says
+how much the light leans one way. It is stored as `d * 0.5 + 0.5` in RGBA8 with `|d|` in
+alpha. A texel that isn't valid holds no light, direction (0, 0, 0) and a mask of 1, for the
+filter to fill.
+
+The shadow mask comes from shadow rays alone. Each of its four channels names one `Mixed`
+light (`maskLights` in the push constants, from `ShadowMaskChannels.Assign`), and every pass
+sends one ray from the texel to a random point on that light, adding what gets through: 1 when
+nothing is in the way, the panes' transmission when only panes are, and 0 when the texel is
+beyond its range or outside a spot's cone. The mean is the share of the light the texel sees.
+A channel with no light holds 0 on valid texels and 1 elsewhere; nothing reads it.
+
+Passes go to the GPU in batches. The first is one pass; after each, the baker times it and
+sizes the next to fit `Renderer.BakeBatchBudget` (80 ms) at that rate, at most double the last,
+so no submit holds the GPU long enough to trip a device timeout. `Renderer.Bake` takes the
+lights' modes from `BakeResolver`, so the bake and the frame agree on which lights are moving,
+and builds the top-level structure with `SetUpTexels`. That structure goes on the frame slot's
+destroyed list like any other, and is released only by a later `Render`; `Bake` waits for every
+batch before returning, so it stays alive for the whole trace.
 
 ## Paint and glass
 

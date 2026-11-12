@@ -65,7 +65,7 @@ component on its entity instead. See [Audio](audio.md).
 | `view.Shadows(radius, cascades, sunSize, contact)` | How far shadows reach, how soft they are, and how far contact shadows look where things meet the ground. See [Rendering](rendering.md#shadows) |
 | `view.AmbientOcclusion(radius, strength)` | How far corners and creases reach out to darken the soft light, and how dark. See [Rendering](rendering.md#ambient-occlusion) |
 | `view.LightProbes(min, max, spacing)` | A box of light probes of your own, finer than the ones the renderer keeps round the camera, whose probes win inside it. `--debug-view probes` shows its probes and those of the finest box round the camera, not the coarser ones. See [Rendering](rendering.md#bounced-light) |
-| `view.BakedLighting(name, min, max, probeSpacing)` | Names the one place this frame whose lighting will be baked. Nothing is baked yet. See [Baked lighting](rendering.md#baked-lighting) |
+| `view.BakedLighting(name, min, max, probeSpacing)` | Names the one place this frame whose lighting will be baked. `Renderer.Bake` bakes it; nothing loads the bake yet. See [Baked lighting](rendering.md#baked-lighting) |
 | `view.BakedChunk(name, transform, min, max)` | Places a piece of the world that will be baked once and reused wherever it stands. Up to 256 a frame. See [Baked lighting](rendering.md#baked-lighting) |
 | `view.ReflectionProbe(key, position, boxMin, boxMax, blend)` | A photograph of the scene from one spot, which shiny surfaces and glass in its box reflect. Up to 4 a frame. See [Rendering](rendering.md#reflections) |
 | `view.Water(settings)` | Puts the camera underwater. See [Rendering](rendering.md#water) |
@@ -241,7 +241,7 @@ view.Model(WallKey, wall, transform, isStatic: true);
 view.Model(KnightKey, statue, transform, color, statueMeshes, isStatic: true);
 ```
 
-Nothing bakes yet, so a static draw looks the same as any other. What it gets now is a bake
+Nothing loads bakes yet, so a static draw looks the same as any other. What it gets now is a bake
 id for each of its parts: a name made from the model, its tint and where it stands, the same
 on every run and every machine, whatever order the draws come in. Draw it in the same place
 next frame and it keeps its ids. Move it by a millimetre and they change, so its bake would

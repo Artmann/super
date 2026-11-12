@@ -434,8 +434,9 @@ foreach (var house in village.Houses)
 }
 ```
 
-A frame can name the parts of the world whose lighting will be baked. Nothing bakes them yet,
-so naming them changes nothing on screen; a game can name its baked areas now.
+A frame can name the parts of the world whose lighting will be baked. [`Renderer.Bake`](#making-a-bake)
+can bake a space, but nothing loads a bake yet, so naming them changes nothing on screen; a game
+can name its baked areas now.
 
 `BakedLighting` names a space: one fixed place, baked as it stands, sun included. Its box also
 holds baked probes `probeSpacing` metres apart, at most 4,096 of them, counted the same way as
@@ -472,9 +473,42 @@ A bake's texel density is `BakeSettings.TexelsPerMetre`: 20 by default (5 cm tex
 (`Preview` or `Final`) does not: it only decides how long a bake takes, so a Preview bake is as
 fresh as a Final one.
 
-Nothing makes bakes yet, so no bake is ever fresh and every light is drawn live, whatever its
+Nothing loads bakes yet, so no bake is ever fresh and every light is drawn live, whatever its
 mode. A frame that names baked areas looks exactly as it would without them, to the byte. A
 frame that names none does no bake work at all.
+
+### Making a bake
+
+```csharp
+byte[] bake = renderer.Bake(view, draws, new BakeSettings(quality: BakeQuality.Preview));
+File.WriteAllBytes("lighting/crypt.lightbake", bake);
+```
+
+`Renderer.Bake` path traces the frame's space into a lightmap and returns the `.lightbake`
+file's bytes. It takes the same view and draws as `Render`, waits for the GPU, and draws
+nothing. A view without a space throws "Bake needs a baked space in the frame; call
+view.BakedLighting first." Chunks aren't baked yet.
+
+The lightmap covers the static draws the space owns, apart from ones that sway in the wind or
+are see-through, at `TexelsPerMetre`. Each texel holds the light reaching it from every
+direction, the direction most of it comes from, and a shadow mask. What a light gives depends
+on its mode:
+
+- A `Baked` light is in the lightmap in full, both its direct light and the light it bounces.
+- A `Mixed` light gives only its bounced light, since it stays drawn live. Its direct shadow
+  goes in a shadow mask channel instead, so the live light can be shadowed by what the bake
+  saw. There are four channels: a `Mixed` sun takes the first, and local lights whose ranges
+  overlap get different ones.
+- A `Realtime` light, a light that is [moving](#moving-lights), and a local light in no
+  baked area are left out, as is the sun when it is `Realtime` or moving.
+- Emissive surfaces light their surroundings, and the sky lights them at
+  `view.EnvironmentIntensity`. Glass and other see-through surfaces let light through, dimmed
+  by their opacity but not tinted.
+
+A `Preview` bake sends 64 paths from each texel and a `Final` one 1024, so Preview is about
+16 times quicker and noisier. A texel inside a wall gets no light, to be filled later. The
+file's report gives the time taken, the share of texels found inside walls, and the lights that
+didn't get a mask channel.
 
 From code, `Renderer.LastBakeFrame` shows what the last frame decided. It is null after a
 frame that named no baked area. Otherwise its `Space` and `Chunks` hold the inputs of each

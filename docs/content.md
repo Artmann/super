@@ -425,8 +425,8 @@ folder in the game's first content root. A space named with `view.BakedLighting(
 gets `lighting/crypt.lightbake`. A chunk named with `view.BakedChunk("house-garden", …)` gets
 one file for each version of its contents, named by the 16 hex digits of their hash, such as
 `lighting/house-garden/00000000000000ab.lightbake`. `BakeFiles.Space` and `BakeFiles.Chunk`
-give these names. Nothing writes or reads them yet, and `.lightbake` has no cooker yet, so
-keep the folder empty for now.
+give these names. `Renderer.Bake` makes a space's bytes, but nothing writes or reads the files
+yet, and `.lightbake` has no cooker yet, so keep the folder empty for now.
 
 ### What makes a bake stale
 
