@@ -156,7 +156,7 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
             Assert.True(fromProbes.Y > 20f, $"The quad lit by the live probes reads {fromProbes}, unlit.");
             Assert.True(fromProbes.Y - fromProbes.X > skyOnly.Y - skyOnly.X + 10f,
                 $"The quad lit by the live probes reads {fromProbes}, no greener than under the sky alone, {skyOnly}.");
-            Assert.Equal(live, baked);
+            AssertAlike(live, baked);
         }
         finally
         {
@@ -244,6 +244,27 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
         }
 
         return gpu.Renderer.Capture(view, draws, out _, out _);
+    }
+
+    // Two frames lit by the live probes, the same but for noise. The probes trace new directions every frame, so the
+    // same view a few dozen frames later is a step or two of 255 off here and there; what the bake would change is
+    // far more.
+    private static void AssertAlike(byte[] expected, byte[] actual)
+    {
+        Assert.Equal(expected.Length, actual.Length);
+        int worst = 0;
+        int at = 0;
+        for (int i = 0; i < expected.Length; i++)
+        {
+            int difference = Math.Abs(expected[i] - actual[i]);
+            if (difference > worst)
+            {
+                worst = difference;
+                at = i;
+            }
+        }
+
+        Assert.True(worst <= 3, $"The frames differ by {worst} at byte {at}: {expected[at]} against {actual[at]}.");
     }
 
     private static Vector3 Centre(byte[] frame)
