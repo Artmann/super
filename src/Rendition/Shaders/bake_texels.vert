@@ -12,11 +12,13 @@ layout(location = 6) in vec2 inUv2; // The lightmap's 0 to 1 for this draw's mat
 layout(push_constant) uniform Draw {
     mat4 model;
     vec4 rect; // xy scale and zw offset from Uv2 to 0 to 1 on the page: the draw's LightmapRect.
+    float chart; // The rectangle's number, from 1, which the filter keeps texels of different rectangles apart by.
 } draw;
 
 layout(location = 0) out vec3 outPosition;
 layout(location = 1) out vec3 outNormal;
 layout(location = 2) out vec3 outPlanePosition;
+layout(location = 3) flat out float outChart;
 
 void main() {
     vec3 world = (draw.model * vec4(inPosition, 1.0)).xyz;
@@ -27,6 +29,7 @@ void main() {
     outNormal = cofactor * inNormal * sign(dot(model[0], cofactor[0]));
     outPosition = world;
     outPlanePosition = world;
+    outChart = draw.chart;
 
     // 0 to 1 on the page is -1 to 1 in clip space. The viewport covers the page, or a tile of it, so texel (x, y)
     // holds page uv ((x + 0.5) / size, (y + 0.5) / size), the same way a texture lookup reads it back.

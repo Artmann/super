@@ -278,6 +278,20 @@ public class BakeInputHashTests
     }
 
     [Fact]
+    public void Filtering_does_not_change_the_input_hash()
+    {
+        var filtered = new BakeSettings(20, filter: true);
+        var raw = new BakeSettings(20, filter: false);
+
+        Assert.Equal(
+            BakeInputHash.Chunk(Draws, Lights, House, filtered),
+            BakeInputHash.Chunk(Draws, Lights, House, raw));
+        Assert.Equal(
+            BakeInputHash.Space(Draws, Lights, Crypt, 42, 5, filtered).Settings,
+            BakeInputHash.Space(Draws, Lights, Crypt, 42, 5, raw).Settings);
+    }
+
+    [Fact]
     public void Changes_names_every_part_that_moved()
     {
         var before = BakeInputHash.Space(Draws, Lights, Crypt, 42, 5, new BakeSettings());

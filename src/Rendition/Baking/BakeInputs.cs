@@ -9,7 +9,8 @@ public enum BakeQuality
 
 /// <summary>
 /// What a bake is asked for beyond the scene itself. A bake made with another texel density is stale; one made with
-/// another quality is not, since quality decides how long a bake runs and not what it shows.
+/// another quality or filter setting is not, since those decide how long a bake runs and how clean it is, not what it
+/// shows.
 /// </summary>
 public readonly record struct BakeSettings
 {
@@ -23,7 +24,11 @@ public readonly record struct BakeSettings
     // The same for quality: false is Final, so default(BakeSettings) is the same as new BakeSettings().
     private readonly bool _preview;
 
-    public BakeSettings(int texelsPerMetre = DefaultTexelsPerMetre, BakeQuality quality = BakeQuality.Final)
+    // And for the filter: false filters, so default(BakeSettings) filters.
+    private readonly bool _unfiltered;
+
+    public BakeSettings(
+        int texelsPerMetre = DefaultTexelsPerMetre, BakeQuality quality = BakeQuality.Final, bool filter = true)
     {
         if (texelsPerMetre < MinTexelsPerMetre || texelsPerMetre > MaxTexelsPerMetre)
         {
@@ -34,6 +39,7 @@ public readonly record struct BakeSettings
 
         _texelsOffset = texelsPerMetre - DefaultTexelsPerMetre;
         _preview = quality == BakeQuality.Preview;
+        _unfiltered = !filter;
     }
 
     /// <summary>Texels in a lightmap for each metre of surface, 1 to 200. 20 unless asked for otherwise.</summary>
@@ -41,6 +47,13 @@ public readonly record struct BakeSettings
 
     /// <summary>How long the bake runs. It isn't part of what makes a bake fresh.</summary>
     public BakeQuality Quality => _preview ? BakeQuality.Preview : BakeQuality.Final;
+
+    /// <summary>
+    /// Whether the baked lightmaps are smoothed by an edge-aware filter, which takes the path tracer's noise out. On
+    /// unless asked otherwise; off is for seeing the raw trace. Gutters are filled and bad values cleared either way.
+    /// Like <see cref="Quality"/>, it isn't part of what makes a bake fresh.
+    /// </summary>
+    public bool Filter => !_unfiltered;
 }
 
 /// <summary>

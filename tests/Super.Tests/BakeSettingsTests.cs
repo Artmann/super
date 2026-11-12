@@ -13,6 +13,14 @@ public class BakeSettingsTests
         Assert.Equal(BakeQuality.Final, new BakeSettings().Quality);
     }
 
+    [Fact]
+    public void Default_settings_filter_the_lightmaps()
+    {
+        Assert.True(default(BakeSettings).Filter);
+        Assert.True(new BakeSettings().Filter);
+        Assert.False(new BakeSettings(filter: false).Filter);
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(201)]

@@ -1255,8 +1255,9 @@ public sealed unsafe class Renderer : IDisposable
         var mask = new List<LightBakePage>();
         long covered = 0;
         long invalid = 0;
-        foreach (var page in traced)
+        foreach (var raw in traced)
         {
+            var page = baker.FilterAndDilate(raw, settings.Filter);
             var encoded = Baker.Encode(page);
             irradiance.Add(encoded.Irradiance);
             direction.Add(encoded.Direction);

@@ -10,8 +10,12 @@ layout(location = 0) centroid in vec3 inPosition;
 layout(location = 1) centroid in vec3 inNormal;
 // The same position at the texel's centre, which changes evenly across the texels, for the triangle's slope.
 layout(location = 2) in vec3 inPlanePosition;
+// The number of the rectangle this draw was drawn for, from 1. A texel conservative drawing spills into the gutter
+// still takes its own rectangle's number.
+layout(location = 3) flat in float inChart;
 
-layout(location = 0) out vec4 outPosition; // w = 1 marks a covered texel; the targets are cleared to 0.
+// w is the rectangle's number, so above 0 marks a covered texel; the targets are cleared to 0.
+layout(location = 0) out vec4 outPosition;
 layout(location = 1) out vec4 outGeometricNormal;
 layout(location = 2) out vec4 outShadingNormal;
 
@@ -28,7 +32,7 @@ void main() {
         geometric = -geometric;
     }
 
-    outPosition = vec4(inPosition, 1.0);
+    outPosition = vec4(inPosition, inChart);
     outGeometricNormal = vec4(geometric, 1.0);
     outShadingNormal = vec4(shading, 1.0);
 }

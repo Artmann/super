@@ -207,7 +207,8 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
         try
         {
             var draws = LampUnderCeiling(quad, black);
-            var settings = new BakeSettings(8, BakeQuality.Preview);
+            // Unfiltered, since the filter would spread the lamp's sharp peak over the texels round it.
+            var settings = new BakeSettings(8, BakeQuality.Preview, filter: false);
 
             // The same seed in both, so the bounce is the same and only the direct light differs. Each lamp has its own
             // key, since one key changing mode between bakes looks like a light that moved, which is left out.
