@@ -61,6 +61,7 @@ public sealed class BakeFrame
     private readonly List<BakeInputs> _chunks = [];
     private readonly List<bool> _chunkFresh = [];
     private readonly List<string> _chunkFiles = [];
+    private readonly List<int> _chunkDraws = [];
     private readonly List<int> _droppedLocalLights = [];
     private readonly List<int> _droppedSuns = [];
 
@@ -99,6 +100,9 @@ public sealed class BakeFrame
     /// </summary>
     public string ChunkFile(int chunk) => _chunkFiles[chunk];
 
+    /// <summary>How many of the frame's static draws chunk <paramref name="chunk"/> owns. A chunk that owns none has nothing to bake.</summary>
+    public int ChunkStaticDraws(int chunk) => _chunkDraws[chunk];
+
     internal List<BakeInputs> ChunkInputs => _chunks;
 
     // Empties the frame for the resolver to fill again, keeping everything it allocated.
@@ -109,6 +113,7 @@ public sealed class BakeFrame
         _chunks.Clear();
         _chunkFresh.Clear();
         _chunkFiles.Clear();
+        _chunkDraws.Clear();
         _modes.Clear();
         _droppedLocalLights.Clear();
         _droppedSuns.Clear();
@@ -120,11 +125,12 @@ public sealed class BakeFrame
         SpaceFresh = fresh;
     }
 
-    internal void AddChunk(BakeInputs inputs, bool fresh, string file)
+    internal void AddChunk(BakeInputs inputs, bool fresh, string file, int staticDraws)
     {
         _chunks.Add(inputs);
         _chunkFresh.Add(fresh);
         _chunkFiles.Add(file);
+        _chunkDraws.Add(staticDraws);
     }
 
     internal void SetMode(LightKey key, LightMode mode) => _modes[key] = mode;

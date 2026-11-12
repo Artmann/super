@@ -49,6 +49,31 @@ internal static class BakeCommand
     }
 
     /// <summary>
+    /// Bakes each of <paramref name="targets"/> in order with <paramref name="bake"/>. A target with no static draws
+    /// to bake gets a line saying so and counts as a failure, and the targets after it are still baked. Returns the
+    /// number of targets that failed.
+    /// </summary>
+    public static int Bake(
+        IReadOnlyList<BakeTarget> targets, Func<BakeTarget, bool> hasStaticDraws, Action<BakeTarget> bake,
+        TextWriter output)
+    {
+        int failed = 0;
+        foreach (var target in targets)
+        {
+            if (!hasStaticDraws(target))
+            {
+                output.WriteLine($"{target.File}: no static draws, nothing to bake");
+                failed++;
+                continue;
+            }
+
+            bake(target);
+        }
+
+        return failed;
+    }
+
+    /// <summary>
     /// Writes one line a file to <paramref name="output"/>: <c>missing</c>, <c>stale, its … changed</c> or <c>fresh</c>.
     /// <paramref name="changesOf"/> answers null for a target with no bake, and what changed for one that has. Returns the
     /// number of files that are missing or stale.

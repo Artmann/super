@@ -128,9 +128,9 @@ public static class Game
                 return;
             }
 
-            int problems = window.Bake(host, bakeTicks, arguments.BakeQuality, dev.Roots[0]);
+            int problems = window.Bake(host, bakeTicks, arguments.BakeQuality, dev.Roots[0], out int failed);
             Console.WriteLine($"{problems} validation messages");
-            Environment.ExitCode = problems == 0 ? 0 : 1;
+            Environment.ExitCode = problems == 0 && failed == 0 ? 0 : 1;
             return;
         }
 

@@ -567,7 +567,7 @@ view.BakedLighting first." A space with more than 4,096 probes, which only a han
 must be the space's, since no frame would find a bake at another density fresh; one that differs
 throws with both.
 A game doesn't need to call it itself: [`--bake`](command-line.md#baking-lighting) bakes the
-frame's space and saves it, and `--bake-check` says whether the saved bake is fresh.
+frame's space and each chunk it draws and saves them, and `--bake-check` says whether each saved bake is fresh.
 
 ```csharp
 byte[] bake = renderer.BakeChunk(view, draws, chunk: 0, new BakeSettings(texelsPerMetre: 20));
@@ -591,7 +591,7 @@ holds:
 A chunk has no probes. `BakeChunk` throws `ArgumentOutOfRangeException` for a chunk the frame
 doesn't have, `ArgumentException` when the settings' `TexelsPerMetre` isn't the chunk's, and
 `InvalidOperationException` when the chunk owns no static draws. Frames don't draw chunk bakes
-yet, and `--bake` bakes only the space.
+yet. `--bake` bakes each chunk file the frame draws once.
 
 The lightmap covers the static draws the space owns, apart from ones that sway in the wind or
 are see-through, at the space's texel density. Each texel holds the light reaching it from every

@@ -86,8 +86,34 @@ public sealed class BakeCommandTests
         var frame = new FrameView { BakedChunks = new[] { room }, Time = 1f };
         var resolver = new BakeResolver(NoBakes.Instance);
 
-        var resolved = resolver.Resolve(frame, [], _ => new BakeSphere(Vector3.Zero, 1f), 0, new AnimatedLights(TextWriter.Null));
+        var animated = new AnimatedLights(TextWriter.Null);
 
-        Assert.Equal(BakeFiles.Chunk("room", resolved.Chunks[0].Combined), resolved.ChunkFile(0));
+        var resolved = resolver.Resolve(frame, [], _ => new BakeSphere(Vector3.Zero, 1f), 0, animated);
+        string first = resolved.ChunkFile(0);
+        resolved = resolver.Resolve(frame, [], _ => new BakeSphere(Vector3.Zero, 1f), 0, animated);
+
+        Assert.Equal(BakeFiles.Chunk("room", resolved.Chunks[0].Combined), first);
+        // The resolver keeps the name, so a later frame hands back the same string rather than building another.
+        Assert.Same(first, resolved.ChunkFile(0));
+        Assert.Equal(0, resolved.ChunkStaticDraws(0));
+    }
+
+    [Fact]
+    public void A_chunk_with_no_static_draws_is_reported_and_the_rest_are_still_baked()
+    {
+        BakeTarget[] targets =
+        [
+            new("lighting/town.lightbake", BakeTarget.Space),
+            new("lighting/empty/aaaa.lightbake", 0),
+            new("lighting/hall/bbbb.lightbake", 1)
+        ];
+        var baked = new List<string>();
+        var output = new StringWriter();
+
+        int failed = BakeCommand.Bake(targets, target => target.Chunk != 0, target => baked.Add(target.File), output);
+
+        Assert.Equal(1, failed);
+        Assert.Equal(["lighting/town.lightbake", "lighting/hall/bbbb.lightbake"], baked);
+        Assert.Equal("lighting/empty/aaaa.lightbake: no static draws, nothing to bake", output.ToString().Trim());
     }
 }

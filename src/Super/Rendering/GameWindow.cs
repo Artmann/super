@@ -222,11 +222,11 @@ internal sealed unsafe class GameWindow : IDisposable
     /// Plays the given number of ticks, then bakes the frame's baked space, if it names one, and each distinct chunk file
     /// it draws, and saves them in <paramref name="folder"/>, the first content root, as
     /// <c>lighting/&lt;name&gt;.lightbake</c> and <c>lighting/&lt;name&gt;/&lt;hash&gt;.lightbake</c>. Chunks with the
-    /// same contents share a file, which is baked once. Prints what each bake found. Returns the validation message
-    /// count.
+    /// same contents share a file, which is baked once. Prints what each bake found. A chunk that owns no static draws is
+    /// reported and skipped, and counted in <paramref name="failed"/>. Returns the validation message count.
     /// </summary>
     /// <exception cref="InvalidOperationException">The frame names no baked space and no chunk.</exception>
-    public int Bake<TGame>(GameHost<TGame> host, long ticks, BakeQuality quality, string folder)
+    public int Bake<TGame>(GameHost<TGame> host, long ticks, BakeQuality quality, string folder, out int failed)
         where TGame : class, IGame
     {
         float time = PlayAndDraw(host, ticks);
@@ -239,20 +239,24 @@ internal sealed unsafe class GameWindow : IDisposable
 
         _glfw.GetFramebufferSize(_window, out int width, out int height);
         ApplyGraphics(host.Graphics);
-        foreach (var target in targets)
-        {
-            // Each is baked at its area's own texel density, which is what a frame checks its bake against.
-            byte[] bake = target.Chunk == BakeTarget.Space
-                ? _scene.Bake(host.View, host.Content, width, height, time,
-                    new BakeSettings(host.View.BakedSpace!.Value.TexelsPerMetre, quality))
-                : _scene.BakeChunk(host.View, host.Content, width, height, time, target.Chunk,
-                    new BakeSettings(chunks[target.Chunk].TexelsPerMetre, quality));
+        failed = BakeCommand.Bake(
+            targets,
+            target => target.Chunk == BakeTarget.Space || frame!.ChunkStaticDraws(target.Chunk) > 0,
+            target =>
+            {
+                // Each is baked at its area's own texel density, which is what a frame checks its bake against.
+                byte[] bake = target.Chunk == BakeTarget.Space
+                    ? _scene.Bake(host.View, host.Content, width, height, time,
+                        new BakeSettings(host.View.BakedSpace!.Value.TexelsPerMetre, quality))
+                    : _scene.BakeChunk(host.View, host.Content, width, height, time, target.Chunk,
+                        new BakeSettings(chunks[target.Chunk].TexelsPerMetre, quality));
 
-            string path = Path.GetFullPath(Path.Combine(folder, target.File));
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllBytes(path, bake);
-            Console.Write(DescribeBake(path, bake.Length, LightBakeFile.Read(bake).Report));
-        }
+                string path = Path.GetFullPath(Path.Combine(folder, target.File));
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                File.WriteAllBytes(path, bake);
+                Console.Write(DescribeBake(path, bake.Length, LightBakeFile.Read(bake).Report));
+            },
+            Console.Out);
 
         return _scene.ValidationErrors;
     }

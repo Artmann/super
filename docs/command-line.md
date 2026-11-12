@@ -31,7 +31,7 @@ dotnet run -c Release --project MyColony -- --script tooltip --ticks 40 --screen
 | `--debug-view probes` | Draws the [light probes](rendering.md#bounced-light) of the finest box round the camera and of your own `view.LightProbes` box over the lit scene as small spheres (the coarser boxes aren't drawn), each shaded with the light its probe holds for every direction, so you can see where the bounce comes from. A probe not drawn yet is a grey wireframe, and one inside a wall isn't shown. Needs no tracing, so it works with `--no-trace` too. Shows no spheres while `Graphics.LightProbes` is off. Works in the window and with `--screenshot`, `--record` and `--profile` |
 | `--user-data folder` | Keeps [user data](user-data.md) in this folder. Without it, the window uses the player's folder and runs without a window use a throwaway one |
 | `--bake` | Bakes the frame's [baked space](rendering.md#baked-lighting) and each [baked chunk](rendering.md#baked-lighting) it draws into the first content root, then exits. See [Baking lighting](#baking-lighting) |
-| `--bake-check` | Exits with 1 when the frame's baked space has no bake or a stale one, saying what changed |
+| `--bake-check` | Exits with 1 when the frame's baked space or any chunk it draws has no bake or a stale one, saying what changed |
 | `--bake-quality preview\|final` | How long `--bake` traces: `preview` for a quick look, `final` for the one to keep. `final` by default. Needs `--bake` |
 
 `--screenshot`, `--record` and `--profile` can't run together, and `--bake` and `--bake-check`
@@ -445,7 +445,9 @@ which took 16 seconds there. The
 space and each chunk are baked at the texel density they were named with, `texelsPerMetre`,
 which is what a frame checks its bake against. A frame with neither a baked space nor a chunk
 throws "--bake found no baked space or chunk in the frame. Name one with view.BakedLighting or
-view.BakedChunk." A chunk that owns no static draws throws too, as `Renderer.BakeChunk` does.
+view.BakedChunk." A chunk that owns no static draws has nothing to bake: `--bake` prints
+`lighting/<name>/<hash>.lightbake: no static draws, nothing to bake`, carries on with the other
+files, and exits with 1 at the end. `--bake-check` lists such a chunk as missing.
 
 `--bake-check` plays the same way, two seconds' worth unless `--ticks` says otherwise, so the
 lights it sees moving are the ones `--bake` left out. It draws the frame and compares what its baked space would be
