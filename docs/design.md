@@ -3355,6 +3355,9 @@ stored for it. Its index is moved down past the Baked suns before it, since the 
 leaves those out. A local light takes its listed channel while `ModeOf` still calls it Mixed.
 Every other frame clears both. The sun's channel goes in `GpuLight.Radiance.w` and a local
 light's in `GpuLocalLight.Fade.w` (`LocalLights.Prepare`'s `maskChannels`), packed beside the shadow flag as `castsShadow + 2 * (channel + 1)`, so -1 for none packs as 0 and `localMaskChannel` in `light_data.glsl` unpacks it.
+Two Mixed suns that swap places in the frame keep the bake fresh, because the sun hashes are
+sorted, so the new first sun reads the other's channel. Storing the sun's hash beside channel 0
+would close that, at the cost of a file version.
 
 `lighting.frag` samples the mask once per pixel, only when it is lightmapped, and
 `maskedVisibility` changes a light's visibility only when the pixel is lightmapped and the light

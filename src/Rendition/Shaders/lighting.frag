@@ -556,7 +556,7 @@ void main() {
     // weighs on it only by LIGHTMAP_OCCLUSION. Its reflections are occluded as any other pixel's.
     vec4 baked = texture(bakedTexture, inUv);
     bool lightmapped = baked.a > 0.5;
-    vec4 shadowMask = lightmapped ? texture(shadowMaskTexture, inUv) : vec4(1.0);
+    vec4 shadowMask = lightmapped ? textureLod(shadowMaskTexture, inUv, 0.0) : vec4(1.0);
     float diffuseAo = lightmapped ? min(normalRoughnessAo.w, 1.0) * mix(1.0, screenAo, LIGHTMAP_OCCLUSION) : ao;
     vec3 diffuseColor = baseColor * (1.0 - metallic) * multiBounceOcclusion(diffuseAo, baseColor);
     vec3 environmentDiffuse = (lightmapped ? baked.rgb : softLight(position, bentNormal, v)) * diffuseColor;

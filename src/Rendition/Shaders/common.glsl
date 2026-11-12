@@ -1,6 +1,6 @@
 struct Light {
     vec4 direction; // xyz: unit vector pointing towards the light; w: 1 if it casts the shadow
-    vec4 radiance;  // rgb: colour multiplied by intensity
+    vec4 radiance;  // rgb: colour multiplied by intensity; w: shadow mask channel, or -1 for none
 };
 
 struct ReflectionProbe {
