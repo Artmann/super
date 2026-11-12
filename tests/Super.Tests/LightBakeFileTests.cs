@@ -194,6 +194,58 @@ public sealed class LightBakeFileTests
         Assert.Equal("The .lightbake page is damaged: it is -4 by 2 texels, and a size can't be negative.", error.Message);
     }
 
+    [Theory]
+    [InlineData(0, 2049, "2049 by 2")]
+    [InlineData(4, 16000, "4 by 16000")]
+    public void A_lightmap_page_larger_than_any_bake_makes_throws_instead_of_allocating(int field, int size, string named)
+    {
+        // The first page is 4 by 2 Rgba16f; its width is the page's first field and its height the next. Its raw length
+        // is patched to match, so only the size is wrong.
+        var bytes = Build(false).ToBytes();
+        bytes = Patched(bytes, FirstPageOffset(2) + field, size);
+        int width = field == 0 ? size : 4;
+        int height = field == 0 ? 2 : size;
+        bytes = Patched(bytes, FirstPageOffset(2) + 9, width * height * 8);
+
+        var error = Assert.Throws<InvalidDataException>(() => LightBakeFile.Read(bytes));
+
+        Assert.Equal(
+            $"The .lightbake page is damaged: it is {named} texels, but a lightmap page is at most 2048 a side.",
+            error.Message);
+    }
+
+    [Theory]
+    [InlineData(true, 641, "probe irradiance atlas is at most 640")]
+    [InlineData(false, 1153, "probe depth atlas is at most 1152")]
+    public void A_probe_atlas_larger_than_any_bake_makes_throws(bool irradiance, int width, string limit)
+    {
+        // 64 columns of 8 + 2 irradiance texels make 640, and of 16 + 2 depth texels 1152.
+        var atlas = new LightBakePage(width, 1, LightBakePageFormat.Rgba8, new byte[width * 4]);
+        var file = Build(true);
+        file = irradiance ? file with { ProbeIrradiance = atlas } : file with { ProbeDepth = atlas };
+
+        var error = Assert.Throws<InvalidDataException>(() => LightBakeFile.Read(file.ToBytes()));
+
+        Assert.Equal($"The .lightbake page is damaged: it is {width} by 1 texels, but a {limit} a side.", error.Message);
+    }
+
+    [Fact]
+    public void Pages_as_large_as_a_bake_makes_read()
+    {
+        var file = Build(true) with
+        {
+            Irradiance = [new LightBakePage(2048, 1, LightBakePageFormat.Rgba8, new byte[2048 * 4])],
+            ProbeIrradiance = new LightBakePage(640, 1, LightBakePageFormat.Rgba8, new byte[640 * 4]),
+            ProbeDepth = new LightBakePage(1, 1152, LightBakePageFormat.Rgba8, new byte[1152 * 4]),
+        };
+
+        var read = LightBakeFile.Read(file.ToBytes());
+
+        Assert.Equal(2048, read.Irradiance[0].Width);
+        Assert.Equal(640, read.ProbeIrradiance!.Width);
+        Assert.Equal(1152, read.ProbeDepth!.Height);
+    }
+
     [Fact]
     public void A_page_that_inflates_to_more_than_it_says_throws()
     {

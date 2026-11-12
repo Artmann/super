@@ -2054,7 +2054,10 @@ from then on. A covered texel only takes neighbours drawn for its own rectangle;
 nothing covers takes any. Every texel leaves with direction w set to 1, dropping the variance. Eight rings fill invalid texels up to eight deep and every gutter,
 which is only two texels wide, as `MaskBaker` dilates its masks, so bilinear
 filtering and mips at an edge read the chart. `TracedPage.Filled` marks every texel that holds
-light, and `Encode` writes those.
+light, and `Encode` writes those. It casts irradiance to half floats through `Light`, which turns
+a value that isn't a number or is below 0 into 0 and holds one past 65,504 there, so the light
+added up by the filter, or a page that skipped it, never reaches the file as infinity, which
+`writeBaked` would carry into the HDR target for bloom to spread.
 
 Each page takes three submits: upload and prepare, the filter and dilation passes, and the
 readback. Probes aren't filtered; each is one point with its own many rays, with no neighbours
@@ -3293,7 +3296,11 @@ since the last frame; `Content.Reload` counts up right after it refreshes the fi
 reads a whole file with `LightBakeFile.Read` and keeps nothing; it is for drawing a fresh bake.
 `Forget` also counts up `Reloads`, so the renderer reads the bake it holds again. Both are on
 `IBakeStore` with defaults (`Load` gives null, `Reloads` stays 0), so a store that only answers
-`IsFresh` still works and its areas count as baked with live soft light.
+`IsFresh` still works and its areas count as baked with live soft light. A store with a `Load` of
+its own, `LightBakeStore` among them, has no such excuse: when its `Load` gives null for a file
+it called fresh, the file went after its header was read, such as when it is removed without a
+reload calling `Forget`, and the renderer treats it as unreadable (see "Drawing a bake").
+`Renderer.GivesLightmaps` tells the two apart from the store type's interface map, once a type.
 `GameWindow.BakeCheck` asks the same store's `Saved` and prints what `Changes` names, so
 `--bake-check` judges the bake the game would draw with.
 
@@ -3340,10 +3347,13 @@ it, so turning `BakedLighting` back on reads nothing.
 
 A file that throws `InvalidDataException`, `IOException` or `UnauthorizedAccessException` while
 it is loaded or checked is logged once to `Console.Error` and added to the unreadable set of
-`ReadableBakes`, the wrapper the resolver asks instead of `Renderer.Bakes`. It answers not fresh
-for that file, so the frame is resolved again and the space's Baked lights come back. The set
-is cleared when `Bakes` is another object or its `Reloads` moves. Only the space is loaded;
-chunks are not yet.
+`ReadableBakes`, the wrapper the resolver asks instead of `Renderer.Bakes`. So is a file whose
+store has its own `Load` but gives null for it ("The file is gone, though its header was read as
+fresh."). It answers not fresh for that file, so the frame is resolved again and the space's
+Baked lights come back. The set is cleared when `Bakes` is another object or its `Reloads`
+moves. Anything else thrown while the pages are made, such as a full texture table or running
+out of device memory, destroys the pages made so far through the same deferred path and is
+rethrown, since it isn't the file's fault. Only the space is loaded; chunks are not yet.
 
 While the G-buffer pass records, `InstanceBuffer.Lightmaps` holds the loaded rects, and `Add`
 writes each copy's `GpuLightmapRect` into a buffer at set 0 binding 10, 32 bytes a copy, beside
@@ -3470,6 +3480,11 @@ A page's raw length must equal what its size and format take: width x height x 8
 `Rgba16f`, x 4 for `Rgba8`, and ceil(width / 4) x ceil(height / 4) x 16 for `Bc6h` and `Bc7`. A
 negative width or height, a raw length that differs, or pixels that inflate to more than the raw
 length throw `InvalidDataException`, and the buffer is only allocated after the length checks.
+So is a page larger than any bake makes, naming its size and the limit: a lightmap page over
+`LightmapLayout.PageSize` (2048) a side, a probe irradiance atlas over
+`ProbeVolume.IrradianceAtlasSize` (640) or a depth atlas over `DepthAtlasSize` (1152), the sizes
+that hold `BakeFiles.MaxSpaceProbes`. That bounds the buffer at 32 MB, so a damaged size can't
+take the game down with an out-of-memory error, which nothing catches.
 `ReadInputs` copies only the 41 header bytes.
 
 ## Ray tracing

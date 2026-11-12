@@ -770,7 +770,7 @@ internal sealed unsafe class Baker : IDisposable
                 int at = (traced.Y + row) * side + traced.X + column;
                 for (int c = 0; c < 3; c++)
                 {
-                    halves[at * 4 + c] = (Half)traced.Irradiance[here * 4 + c];
+                    halves[at * 4 + c] = Light(traced.Irradiance[here * 4 + c]);
                 }
 
                 halves[at * 4 + 3] = (Half)1f;
@@ -798,6 +798,10 @@ internal sealed unsafe class Baker : IDisposable
     private static float Luminance(float r, float g, float b) => 0.2126f * r + 0.7152f * g + 0.0722f * b;
 
     private static byte Unorm(float value) => (byte)MathF.Round(Math.Clamp(value, 0f, 1f) * 255f);
+
+    // Irradiance as a half float the lighting can add up: not a number and anything below 0 are no light, and anything
+    // past a half's largest, 65504, is held there rather than becoming infinity, which bloom would spread.
+    private static Half Light(float value) => float.IsNaN(value) ? Half.Zero : (Half)Math.Clamp(value, 0f, 65504f);
 
     /// <summary>The texels a page's rectangles cover, with <see cref="TraceMargin"/> round them, clamped to the page.</summary>
     internal static (int X, int Y, int Width, int Height) UsedRegion(LightmapLayout layout, int page)

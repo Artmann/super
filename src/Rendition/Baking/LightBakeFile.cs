@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Numerics;
+using Rendition.Vulkan;
 
 namespace Rendition;
 
@@ -120,7 +121,11 @@ public sealed record LightBakeFile(
         return stream.ToArray();
     }
 
-    /// <summary>Reads a whole file. Throws <see cref="InvalidDataException"/> for a wrong magic or version or for cut-off bytes.</summary>
+    /// <summary>
+    /// Reads a whole file. Throws <see cref="InvalidDataException"/> for a wrong magic or version, for cut-off bytes,
+    /// and for a page larger than any bake makes: a lightmap page over <see cref="LightmapLayout.PageSize"/> a side, or
+    /// a probe atlas over the size that holds <see cref="BakeFiles.MaxSpaceProbes"/> probes.
+    /// </summary>
     public static LightBakeFile Read(ReadOnlySpan<byte> bytes)
     {
         using var stream = new MemoryStream(bytes.ToArray(), writable: false);
@@ -145,8 +150,12 @@ public sealed record LightBakeFile(
             var mask = ReadPages(reader, stream);
 
             var present = reader.ReadByte();
-            var probeIrradiance = (present & HasProbeIrradiance) != 0 ? ReadPage(reader, stream) : null;
-            var probeDepth = (present & HasProbeDepth) != 0 ? ReadPage(reader, stream) : null;
+            var probeIrradiance = (present & HasProbeIrradiance) != 0
+                ? ReadPage(reader, stream, BakedProbeAtlas.IrradianceAtlasSize, "probe irradiance atlas")
+                : null;
+            var probeDepth = (present & HasProbeDepth) != 0
+                ? ReadPage(reader, stream, BakedProbeAtlas.DepthAtlasSize, "probe depth atlas")
+                : null;
             ProbeVolumeSettings? probes = null;
             if ((present & HasProbes) != 0)
             {
@@ -270,13 +279,14 @@ public sealed record LightBakeFile(
         var pages = new List<LightBakePage>(count);
         for (var i = 0; i < count; i++)
         {
-            pages.Add(ReadPage(reader, stream));
+            pages.Add(ReadPage(reader, stream, LightmapLayout.PageSize, "lightmap page"));
         }
 
         return pages;
     }
 
-    private static LightBakePage ReadPage(BinaryReader reader, MemoryStream stream)
+    // largest is the most texels a side the page may have, which what names in the message.
+    private static LightBakePage ReadPage(BinaryReader reader, MemoryStream stream, int largest, string what)
     {
         var width = reader.ReadInt32();
         var height = reader.ReadInt32();
@@ -301,6 +311,13 @@ public sealed record LightBakeFile(
         {
             throw new InvalidDataException(
                 $"The .lightbake page is damaged: it is {width} by {height} texels, and a size can't be negative.");
+        }
+
+        // Checked before the pixels are allocated, so a damaged size can't ask for gigabytes.
+        if (width > largest || height > largest)
+        {
+            throw new InvalidDataException(
+                $"The .lightbake page is damaged: it is {width} by {height} texels, but a {what} is at most {largest} a side.");
         }
 
         var expected = ExpectedSize(width, height, pageFormat);

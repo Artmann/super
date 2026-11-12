@@ -772,8 +772,10 @@ public sealed class View
     /// <paramref name="min"/> to <paramref name="max"/>, holding baked probes <paramref name="probeSpacing"/> metres
     /// apart, at most <see cref="BakeFiles.MaxSpaceProbes"/>, with lightmaps of <paramref name="texelsPerMetre"/>
     /// texels for each metre of surface. Its bake is <c>lighting/&lt;name&gt;.lightbake</c>, made with
-    /// <c>--bake</c>, and a bake made at another density is stale. A second space in one frame throws. The bake is
-    /// checked against the frame, but its light isn't drawn yet. See docs/rendering.md.
+    /// <c>--bake</c>, and a bake made at another density is stale. A second space in one frame throws. While the bake
+    /// is fresh, its lightmaps light the draws it holds in place of its <c>Baked</c> lights, which are no longer drawn
+    /// live, its shadow mask shadows its <c>Mixed</c> lights, and its probes light other draws inside the box. A
+    /// missing, stale or unreadable bake leaves the space lit live. See docs/rendering.md.
     /// </summary>
     public void BakedLighting(
         string name, Vector3 min, Vector3 max, float probeSpacing,
@@ -811,8 +813,9 @@ public sealed class View
     /// may only turn and move it, and <paramref name="min"/> to <paramref name="max"/> is its box in its own space.
     /// Its lightmaps have <paramref name="texelsPerMetre"/> texels for each metre of surface. The same name may be
     /// placed many times, and every copy with the same contents shares one bake. At most
-    /// <see cref="BakeFiles.MaxChunks"/> a frame. Chunks can't be baked yet, so each is lit live. See
-    /// docs/rendering.md.
+    /// <see cref="BakeFiles.MaxChunks"/> a frame. Nothing bakes chunks yet, so with no bake each is lit live. A fresh
+    /// chunk bake's <c>Baked</c> lights are left to it, but its lightmap isn't drawn yet, so a fresh chunk is darker
+    /// than it should be. See docs/rendering.md.
     /// </summary>
     public void BakedChunk(
         string name, Matrix4x4 transform, Vector3 min, Vector3 max,

@@ -1171,6 +1171,11 @@ public sealed unsafe class Renderer : IDisposable
             {
                 CheckPages(bake);
             }
+            else if (GivesLightmaps(store))
+            {
+                // Its header was fresh a moment ago, so the file was removed or renamed since, without a reload.
+                throw new InvalidDataException("The file is gone, though its header was read as fresh.");
+            }
         }
         catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException)
         {
@@ -1179,7 +1184,7 @@ public sealed unsafe class Renderer : IDisposable
             return false;
         }
 
-        // A store with no lightmaps to give still has the area baked; its surfaces take their soft light live.
+        // A store with no Load of its own still has the area baked; its surfaces take their soft light live.
         var pages = _loadedBake.Pages ?? [];
         Dictionary<ulong, GpuLightmapRect>? rects = null;
         Dictionary<int, int>? channels = null;
@@ -1193,34 +1198,42 @@ public sealed unsafe class Renderer : IDisposable
                 channels[lightKey] = channel;
             }
 
-            int count = bake.Irradiance.Count;
-            for (int page = 0; page < count; page++)
+            try
             {
-                pages.Add(CreateTexture(PageTexture(bake.Irradiance[page]), TextureEdges.Clamp));
-                pages.Add(CreateTexture(PageTexture(bake.Direction[page]), TextureEdges.Clamp));
-                pages.Add(page < bake.Mask.Count ? CreateTexture(PageTexture(bake.Mask[page]), TextureEdges.Clamp) : new TextureHandle(-1));
-            }
-
-            foreach (var (bakeId, rect) in bake.Draws)
-            {
-                rects[bakeId] = new GpuLightmapRect
+                int count = bake.Irradiance.Count;
+                for (int page = 0; page < count; page++)
                 {
-                    ScaleOffset = new Vector4(rect.Scale, rect.Offset.X, rect.Offset.Y),
-                    Irradiance = pages[rect.Page * 3].Index,
-                    Direction = pages[rect.Page * 3 + 1].Index,
-                    Mask = pages[rect.Page * 3 + 2].Index,
-                    Page = rect.Page,
-                };
-            }
+                    pages.Add(CreateTexture(PageTexture(bake.Irradiance[page]), TextureEdges.Clamp));
+                    pages.Add(CreateTexture(PageTexture(bake.Direction[page]), TextureEdges.Clamp));
+                    pages.Add(page < bake.Mask.Count ? CreateTexture(PageTexture(bake.Mask[page]), TextureEdges.Clamp) : new TextureHandle(-1));
+                }
 
-            // Its probe atlases go in the material table too, and so live and die with the lightmaps.
-            if (bake is { ProbeIrradiance: { } probeIrradiance, ProbeDepth: { } probeDepth, Probes: { } probeSettings })
+                foreach (var (bakeId, rect) in bake.Draws)
+                {
+                    rects[bakeId] = new GpuLightmapRect
+                    {
+                        ScaleOffset = new Vector4(rect.Scale, rect.Offset.X, rect.Offset.Y),
+                        Irradiance = pages[rect.Page * 3].Index,
+                        Direction = pages[rect.Page * 3 + 1].Index,
+                        Mask = pages[rect.Page * 3 + 2].Index,
+                        Page = rect.Page,
+                    };
+                }
+
+                // Its probe atlases go in the material table too, and so live and die with the lightmaps.
+                if (bake is { ProbeIrradiance: { } probeIrradiance, ProbeDepth: { } probeDepth, Probes: { } probeSettings })
+                {
+                    pages.Add(CreateTexture(PageTexture(probeIrradiance), TextureEdges.Clamp));
+                    pages.Add(CreateTexture(PageTexture(probeDepth), TextureEdges.Clamp));
+                    probes = new BakedProbes(probeSettings, pages[^2].Index, pages[^1].Index);
+                }
+            }
+            catch
             {
-                var irradianceAtlas = CreateTexture(PageTexture(probeIrradiance), TextureEdges.Clamp);
-                var depthAtlas = CreateTexture(PageTexture(probeDepth), TextureEdges.Clamp);
-                pages.Add(irradianceAtlas);
-                pages.Add(depthAtlas);
-                probes = new BakedProbes(probeSettings, irradianceAtlas.Index, depthAtlas.Index);
+                // Such as running out of device memory part way: the pages made so far go the usual way, and the
+                // error goes on, since it isn't the file's fault.
+                ReleasePages(pages);
+                throw;
             }
         }
 
@@ -1228,24 +1241,51 @@ public sealed unsafe class Renderer : IDisposable
         return true;
     }
 
+    // Whether each store type has a Load of its own, rather than the interface's, which gives no lightmaps.
+    private readonly Dictionary<Type, bool> _givesLightmaps = [];
+
+    /// <summary>
+    /// Whether the store has its own <see cref="IBakeStore.Load"/>. Only a store that leaves it out may answer null for
+    /// a fresh file and still have the area count as baked.
+    /// </summary>
+    private bool GivesLightmaps(IBakeStore store)
+    {
+        var type = store.GetType();
+        if (!_givesLightmaps.TryGetValue(type, out bool gives))
+        {
+            var map = type.GetInterfaceMap(typeof(IBakeStore));
+            int load = Array.FindIndex(map.InterfaceMethods, m => m.Name == nameof(IBakeStore.Load));
+            gives = map.TargetMethods[load].DeclaringType != typeof(IBakeStore);
+            _givesLightmaps[type] = gives;
+        }
+
+        return gives;
+    }
+
     /// <summary>Lets the loaded bake's pages go, once the frames drawing them are done.</summary>
     private void UnloadBake()
     {
         if (_loadedBake.Pages is { } pages)
         {
-            foreach (var page in pages)
-            {
-                if (page.Index >= 0)
-                {
-                    DestroyTexture(page);
-                }
-            }
-
-            pages.Clear();
+            ReleasePages(pages);
         }
 
         _loadedBake = _loadedBake with { File = null, Inputs = 0, Store = null, Rects = null, Channels = null, Probes = null };
         _activeBakedProbes = null;
+    }
+
+    /// <summary>Lets a bake's pages go, once the frames drawing them are done, and empties the list.</summary>
+    private void ReleasePages(List<TextureHandle> pages)
+    {
+        foreach (var page in pages)
+        {
+            if (page.Index >= 0)
+            {
+                DestroyTexture(page);
+            }
+        }
+
+        pages.Clear();
     }
 
     /// <summary>Throws when a bake's pages don't fit together, as a damaged file's might not.</summary>
@@ -1663,7 +1703,16 @@ public sealed unsafe class Renderer : IDisposable
     {
         var texture = new GpuTexture(_context, data.Width, data.Height, data.Kind, (uint)data.Mips.Length, 1, format: data.Format);
         _uploads.Add(texture.CreateStaging([data]), texture);
-        return _resources.AddTexture(texture, edges);
+        try
+        {
+            return _resources.AddTexture(texture, edges);
+        }
+        catch
+        {
+            // A full table has already let the texture go, so its copy must never ride a frame.
+            _uploads.Cancel(texture);
+            throw;
+        }
     }
 
     /// <summary>

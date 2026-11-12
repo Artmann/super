@@ -540,8 +540,9 @@ the box, or where none of the bake's probes sees the point, it is lit as before,
 [light probes](#bounced-light) or the sky. The two are not blended at the box's edge, so
 something crossing it can change its light at once, from the bake's probes to the live ones.
 Transparent surfaces and particles never read light
-probes, so they are lit from the sky in a baked space as anywhere else. A file whose header is fresh but whose
-pages can't be read is reported once to the error output and its area lit live, as if it had
+probes, so they are lit from the sky in a baked space as anywhere else. A file whose header is
+fresh but whose pages can't be read or are larger than any bake makes, or that is gone by the
+time they're read, is reported once to the error output and its area lit live, as if it had
 no bake. Only the space is drawn from its bake so far; a fresh chunk's lights are left to its
 bake but its lightmap isn't drawn yet, so a fresh chunk is darker than it should be.
 
@@ -589,7 +590,7 @@ as [light probes](#bounced-light) are, so the bake's probes can stand in for liv
 Each records the light from every direction and how far away the surfaces it sees are, by the
 same rules as the lightmap: a `Mixed` light gives a probe only its bounced light, and `Baked`
 lights, emissive surfaces and the sky count in full. A probe inside a closed room with no light
-in it reads black. The probes aren't drawn from yet.
+in it reads black.
 
 A `Preview` bake sends 64 paths from each texel and a `Final` one 1024, so Preview is about
 16 times quicker and noisier. Probes take a sixteenth of that per direction, 4 and 64, since
@@ -607,7 +608,8 @@ a little, and blotches larger than about 8 texels stay. The shadow mask isn't sm
 shadows of `Mixed` lights stay sharp. Then the edges of each chart are grown
 by up to 8 texels, which fills texels inside walls from their neighbours and gives bilinear
 filtering and mips something right to read at a chart's edge. A path that came out as not a
-number or past a half float's range is cleared first, so one bad sample can't spoil a patch.
+number or past a half float's range is cleared first, so one bad sample can't spoil a patch,
+and light the filter adds past that range is held at its largest value, 65,504, when written.
 `new BakeSettings(filter: false)` turns the smoothing off to show the raw trace; the edges are
 still grown and bad values still cleared. Like the quality, it doesn't make a bake stale.
 Probes aren't filtered.

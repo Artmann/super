@@ -18,8 +18,10 @@ public interface IBakeStore
 
     /// <summary>
     /// Reads the whole of <paramref name="file"/>, for the renderer to draw its lightmaps once
-    /// <see cref="IsFresh"/> has said it is fresh, or null when the store has no lightmaps to give. Then the area
-    /// still counts as baked, but its surfaces take their soft light live.
+    /// <see cref="IsFresh"/> has said it is fresh. A store that leaves this out has no lightmaps to give: it answers
+    /// null, and the area still counts as baked, but its surfaces take their soft light live. A store that has its own
+    /// Load and answers null, as when the file was removed after its header was read, is treated as having an
+    /// unreadable file: the renderer reports it once and lights its area live.
     /// </summary>
     /// <exception cref="InvalidDataException">The file is damaged. The renderer then lights its area live.</exception>
     /// <exception cref="IOException">The read failed. The renderer then lights its area live.</exception>

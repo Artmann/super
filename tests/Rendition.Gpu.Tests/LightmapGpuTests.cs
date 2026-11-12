@@ -277,6 +277,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
     [InlineData("damaged")]
     [InlineData("page out of range")]
     [InlineData("probe atlas too short")]
+    [InlineData("gone")]
     public void An_unreadable_bake_is_lit_live_said_once_and_read_again_after_a_reload(string fault)
     {
         int errors = gpu.ValidationErrors;
@@ -292,12 +293,19 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
             [
                 new() { Mode = LightMode.Baked, Key = 1701, Position = new Vector3(0f, 0f, 1f), Radiance = new Vector3(2f), Range = 5f },
             ];
-            Func<LightBakeFile> load;
+            Func<LightBakeFile?> load;
             string reason;
             if (fault == "damaged")
             {
                 load = () => throw new InvalidDataException("The bake is cut off.");
                 reason = "The bake is cut off.";
+            }
+            else if (fault == "gone")
+            {
+                // The store has its own Load, so null means the file went after its header was found fresh, as when
+                // it is removed without the content reloading.
+                load = () => null;
+                reason = "The file is gone, though its header was read as fresh.";
             }
             else if (fault == "page out of range")
             {
@@ -348,6 +356,69 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         {
             Console.SetError(error);
             gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.SetEnvironment(DefaultEnvironment());
+            gpu.Renderer.DestroyMesh(quad);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void A_bake_that_runs_out_of_texture_slots_part_way_lets_the_pages_it_made_go()
+    {
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        var fillers = new List<TextureHandle>();
+        var tiny = TextureData.FromPixels(1, 1, TextureKind.Linear, [0, 0, 0, 255]);
+        try
+        {
+            gpu.Renderer.SetEnvironment(EvenSky());
+            var plane = Plane(quad, gpu.Matte);
+            var bake = Bake(plane);
+            Assert.True(bake.Irradiance.Count >= 1, "The bake has no lightmap pages.");
+
+            // A fresh area whose store gives no lightmaps lets go of any bake loaded before, and the frames after
+            // it free their slots.
+            gpu.Renderer.Bakes = new FreshWithoutLightmaps();
+            RenderFrames(plane, 4);
+
+            // Fill every free slot, then free one, so the bake's first page fits and its second doesn't.
+            Action fill = () =>
+            {
+                while (true)
+                {
+                    fillers.Add(gpu.Renderer.CreateTexture(tiny));
+                }
+            };
+            var full = Assert.Throws<InvalidOperationException>(fill);
+            Assert.Equal("The renderer holds at most 1024 textures.", full.Message);
+            gpu.Renderer.DestroyTexture(fillers[^1]);
+            fillers.RemoveAt(fillers.Count - 1);
+            RenderFrames(plane, 4);
+
+            gpu.Renderer.Bakes = new Loaded(bake);
+            var error = Assert.Throws<InvalidOperationException>(() => gpu.Renderer.Render(View(0f, OnlyBaked), [plane]));
+            Assert.Equal("The renderer holds at most 1024 textures.", error.Message);
+
+            // Once the frames in flight are done, the page it made has gone back, so one texture fits again.
+            gpu.Renderer.Bakes = NoBakes.Instance;
+            RenderFrames(plane, 4);
+            fillers.Add(gpu.Renderer.CreateTexture(tiny));
+        }
+        finally
+        {
+            foreach (var filler in fillers)
+            {
+                gpu.Renderer.DestroyTexture(filler);
+            }
+
+            // Let the frames in flight finish so the fillers' slots are free for the tests after this one.
+            gpu.Renderer.Bakes = NoBakes.Instance;
+            for (int i = 0; i < 4; i++)
+            {
+                gpu.Renderer.Render(View(0f, OnlyBaked), []);
+            }
+
             gpu.Renderer.SetEnvironment(DefaultEnvironment());
             gpu.Renderer.DestroyMesh(quad);
         }
@@ -472,6 +543,16 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         return gpu.Renderer.Capture(view, [plane], out _, out _);
     }
 
+    // Enough frames for every frame in flight to finish, so textures destroyed before them are freed.
+    private void RenderFrames(DrawItem plane, int count)
+    {
+        var view = View(0f, OnlyBaked);
+        for (int i = 0; i < count; i++)
+        {
+            gpu.Renderer.Render(view, [plane]);
+        }
+    }
+
     private static Vector3 Centre(byte[] frame) => Pixel(frame, 0.5f, 0.5f);
 
     // The pixel at a share of the width and height, as 0 to 255.
@@ -502,7 +583,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
     }
 
     // A store that calls every area fresh, then fails to load it, counting the tries.
-    private sealed class Unreadable(Func<LightBakeFile> load) : IBakeStore
+    private sealed class Unreadable(Func<LightBakeFile?> load) : IBakeStore
     {
         public int Loads { get; private set; }
 
