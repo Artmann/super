@@ -607,8 +607,10 @@ sky changes. The frame after the sky or a sun changes, every copy shows it. Its 
 `Mixed` lights are added on top. The sun's direct light and shadows stay live, while its bounce
 follows every `Mixed` and `Baked` sun, moving ones included. The sky's light is kept to its
 broad shape, so a sky much brighter at the horizon than overhead lights an open floor a little
-too brightly, about 8 steps in 255 against a space baked under that sky. Reflection captures
-draw a chunk with its plain light only. A chunk's own `Mixed` lights are shadowed through its
+too brightly, about 8 steps in 255 against a space baked under that sky. Each copy draws only its
+own bake, so a pending copy is lit live even while another copy of the same chunk with another
+bake is resident. Reflection captures don't draw chunk bakes: they light a chunk's surfaces as if
+it had none. A chunk's own `Mixed` lights are shadowed through its
 bake's shadow mask, in the frame's shared [mask slots](#light-modes), as a space's are.
 
 For Rendition alone, `Renderer.Bakes` is where the renderer asks. It starts as

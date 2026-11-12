@@ -1166,8 +1166,9 @@ public sealed unsafe class Renderer : IDisposable
     // The space bake whose lightmaps are on the GPU, kept while it isn't drawn so turning it back on reads nothing.
     private LoadedBake _loadedBake;
 
-    // The lightmap rectangles this frame draws, by bake id: the loaded space bake's while it is drawn, and each named
-    // chunk's with its bake resident; or null when it draws no lightmaps.
+    // The space's lightmap rectangles this frame draws, by bake id: the loaded space bake's while it is drawn, or null.
+    // A chunk's rectangles are kept apart, in _chunkLightmaps, because copies of one chunk name can have different bakes
+    // with the same ids.
     private IReadOnlyDictionary<ulong, GpuLightmapRect>? _activeLightmaps;
 
     // Whether this frame draws the loaded space bake's lightmaps.
@@ -1179,12 +1180,12 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>The chunk bakes being read, uploaded or on the GPU. For tests.</summary>
     internal ChunkBakePool ChunkBakes => _chunkPool;
 
-    // The resident chunk bakes this frame names, in the order first named, and the space rectangles and chunks that
-    // _mergedLightmaps was last made from, so a frame like the last reuses it without copying.
+    // The resident chunk bakes this frame names, in the order first named.
     private readonly List<ChunkBakePool.Entry> _namedChunks = [];
-    private readonly List<ChunkBakePool.Entry> _mergedChunks = [];
-    private IReadOnlyDictionary<ulong, GpuLightmapRect>? _mergedSpace;
-    private readonly Dictionary<ulong, GpuLightmapRect> _mergedLightmaps = [];
+
+    // The lightmap rectangles of each chunk this frame relights, by bake id, or null. A draw reads only its own chunk's.
+    private readonly IReadOnlyDictionary<ulong, GpuLightmapRect>?[] _chunkLightmaps =
+        new IReadOnlyDictionary<ulong, GpuLightmapRect>?[BakeFiles.MaxChunks];
 
     // A hash of the chunk bakes this frame draws, 0 for none, for the reflection probes to see one come or go.
     private ulong _chunkLightmapsHash;
@@ -1532,7 +1533,8 @@ public sealed unsafe class Renderer : IDisposable
 
         var spaceRects = bakes.SpaceFresh && _loadedBake.Rects is { Count: > 0 } rects ? rects : null;
         _spaceLightmapsActive = spaceRects is not null;
-        _activeLightmaps = WithChunkLightmaps(spaceRects);
+        _activeLightmaps = spaceRects;
+        _chunkLightmapsHash = ChunkLightmapsHash();
         FindRelitChunks(view, draws.Length, bakes);
         _activeBakedProbes = bakes.SpaceFresh ? _loadedBake.Probes : null;
         if (spaceRects is not null || _relightChunks)
@@ -1598,6 +1600,7 @@ public sealed unsafe class Renderer : IDisposable
         for (int c = 0; c < chunks.Length; c++)
         {
             _relitEntries[c] = null;
+            _chunkLightmaps[c] = null;
             // A chunk not relit keeps last frame's _chunkData, which is harmless: its draws get chunk -1, so no shader reads it.
             if (!bakes.ChunkFresh[c] || _chunkPool.Use(bakes.ChunkFile(c), store) is not { IsResident: true } entry
                 || entry.Transfer[0] < 0)
@@ -1606,6 +1609,7 @@ public sealed unsafe class Renderer : IDisposable
             }
 
             _relitEntries[c] = entry;
+            _chunkLightmaps[c] = entry.Rects;
             _relightChunks = true;
             var m = chunks[c].Transform;
             var t = m.Translation;
@@ -1663,56 +1667,23 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>
-    /// The frame's lightmap rectangles: the space's alone, the very same dictionary, when no chunk bake is drawn, so such
-    /// a frame is drawn exactly as before chunks had any. Otherwise the space's and each named chunk's together, made
-    /// again only when they change.
+    /// A hash of the resident chunk bakes this frame names, 0 for none, so the reflection probes see one come or go.
+    /// A file's name is its chunk's name and inputs, so its hash says which bake it is.
     /// </summary>
-    private IReadOnlyDictionary<ulong, GpuLightmapRect>? WithChunkLightmaps(IReadOnlyDictionary<ulong, GpuLightmapRect>? spaceRects)
+    private ulong ChunkLightmapsHash()
     {
         if (_namedChunks.Count == 0)
         {
-            _chunkLightmapsHash = 0;
-            _mergedSpace = null;
-            _mergedChunks.Clear();
-            return spaceRects;
+            return 0;
         }
 
-        bool same = ReferenceEquals(spaceRects, _mergedSpace) && _mergedChunks.Count == _namedChunks.Count;
-        for (int i = 0; same && i < _namedChunks.Count; i++)
+        ulong hash = 0;
+        foreach (var chunk in _namedChunks)
         {
-            same = ReferenceEquals(_mergedChunks[i], _namedChunks[i]);
+            hash = hash * 31 + (ulong)StringComparer.Ordinal.GetHashCode(chunk.File);
         }
 
-        if (!same)
-        {
-            _mergedLightmaps.Clear();
-            if (spaceRects is not null)
-            {
-                foreach (var (bakeId, rect) in spaceRects)
-                {
-                    _mergedLightmaps[bakeId] = rect;
-                }
-            }
-
-            // A file's name is its chunk's name and inputs, so its hash says which bake it is.
-            ulong hash = 0;
-            foreach (var chunk in _namedChunks)
-            {
-                foreach (var (bakeId, rect) in chunk.Rects!)
-                {
-                    _mergedLightmaps.TryAdd(bakeId, rect);
-                }
-
-                hash = hash * 31 + (ulong)StringComparer.Ordinal.GetHashCode(chunk.File);
-            }
-
-            _chunkLightmapsHash = hash == 0 ? 1 : hash;
-            _mergedSpace = spaceRects;
-            _mergedChunks.Clear();
-            _mergedChunks.AddRange(_namedChunks);
-        }
-
-        return _mergedLightmaps;
+        return hash == 0 ? 1 : hash;
     }
 
     // A chunk bake the pool couldn't read or check: reported once, and missing until the store reloads.
@@ -3985,12 +3956,14 @@ public sealed unsafe class Renderer : IDisposable
             ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, DepthStages, AccessFlags2.DepthStencilAttachmentReadBit, DepthStages,
             DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
 
-        // Reflection captures draw the lightmaps too, so they see the baked light the camera does. Only the camera's
-        // draws relight a chunk's bake by the frame's sky and suns: its sky is projected first, for writeBaked.
+        // Reflection captures draw the space's lightmaps too, so they see its baked light as the camera does. Only the
+        // camera's draws know their chunk, so only they draw a chunk's bake, relit by the frame's sky and suns: its sky
+        // is projected first, for writeBaked. A capture lights a chunk's surfaces live.
         if (relightChunks)
         {
             _skySh.Record(cmd);
             instances.Chunks = _cameraChunks;
+            instances.ChunkLightmaps = _chunkLightmaps;
         }
 
         instances.History = motion;
@@ -3999,6 +3972,7 @@ public sealed unsafe class Renderer : IDisposable
         instances.History = null;
         instances.Lightmaps = null;
         instances.Chunks = null;
+        instances.ChunkLightmaps = null;
         bool decalsDrawn = RecordDecals(cmd, targets, frameSet);
 
         _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,

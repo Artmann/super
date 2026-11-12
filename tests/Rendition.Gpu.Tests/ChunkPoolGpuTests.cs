@@ -299,6 +299,65 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
+    [Fact]
+    public void Pending_chunk_never_borrows_the_lightmap_of_a_resident_chunk_with_the_same_name()
+    {
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        var store = new TwoBakeStore();
+        try
+        {
+            var first = Wall(quad, First);
+            var second = Wall(quad, Second);
+            // Two copies of one chunk whose lamps stand in different places, so each copy has its own bake but its wall
+            // has the same id in both.
+            LocalLight[] lamps =
+            [
+                Lamp(First, 7461),
+                Lamp(Second, 7462) with { Position = Vector3.Transform(new Vector3(-0.5f, -0.4f, 0.8f), Second) },
+            ];
+            var resident = Bake(first, First, [lamps[0]]);
+            var held = Bake(second, Second, [lamps[1]]);
+            Assert.NotEqual(resident.Inputs, held.Inputs);
+            store.Add(resident, release: true);
+            store.Add(held, release: false);
+            byte[] liveFirst = Capture(View(First, lamps, []), first, second);
+            byte[] liveSecond = Capture(View(Second, lamps, []), first, second);
+
+            gpu.Renderer.Bakes = store;
+            BakedChunk[] chunks = [Chunk(First), Chunk(Second)];
+            int frames = 0;
+            do
+            {
+                gpu.Renderer.Render(View(First, lamps, chunks), [first, second]);
+                frames++;
+            }
+            while (!gpu.Renderer.LastBakeFrame!.ChunkFresh[0] && frames <= MostFrames);
+
+            Assert.True(frames <= MostFrames, $"The first chunk's bake wasn't resident after {MostFrames} frames.");
+            byte[] seenFromSecond = Capture(View(Second, lamps, chunks), first, second);
+            var frame = gpu.Renderer.LastBakeFrame!;
+            Assert.Equal([true, false], frame.ChunkFresh);
+            Assert.True(frame.ChunkPending(1), "The second chunk isn't pending while its load is held.");
+            Assert.Equal(1, gpu.Renderer.ChunkBakes.Resident);
+            Assert.Equal(1, gpu.Renderer.ChunkBakes.Pending);
+            // The pending copy is drawn live, just as with no chunk named, not with the resident copy's lightmap.
+            Assert.Equal(liveSecond, seenFromSecond);
+
+            byte[] seenFromFirst = Capture(View(First, lamps, chunks), first, second);
+            byte[] onlyFirst = Capture(View(First, lamps, [Chunk(First)]), first, second);
+            Assert.NotEqual(liveFirst, seenFromFirst);
+            AssertWithinOneStep(onlyFirst, seenFromFirst, "with only the first chunk named", "with both named");
+        }
+        finally
+        {
+            store.ReleaseAll();
+            LetGo(quad);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
     // Two captures that should draw the same light agree to within a step in every byte.
     private static void AssertWithinOneStep(byte[] expected, byte[] actual, string expectedName, string actualName)
     {
@@ -442,6 +501,67 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             }
 
             return _bake;
+        }
+    }
+
+    /// <summary>
+    /// A store holding several bakes of the one chunk name, each fresh for the chunk file whose inputs match it. Each
+    /// bake's load waits until the test releases that bake, and gives up after a while rather than hang the test.
+    /// </summary>
+    private sealed class TwoBakeStore : IBakeStore
+    {
+        private readonly List<(LightBakeFile Bake, ManualResetEventSlim Gate)> _bakes = [];
+        private readonly Dictionary<string, int> _files = [];
+        private readonly Lock _lock = new();
+
+        public int Reloads => 0;
+
+        public void Add(LightBakeFile bake, bool release) => _bakes.Add((bake, new ManualResetEventSlim(release)));
+
+        public void ReleaseAll()
+        {
+            foreach (var (_, gate) in _bakes)
+            {
+                gate.Set();
+            }
+        }
+
+        public bool IsFresh(string file, BakeInputs inputs)
+        {
+            if (!file.StartsWith("lighting/pooled/", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            int found = _bakes.FindIndex(held => held.Bake.Inputs == inputs);
+            if (found < 0)
+            {
+                return false;
+            }
+
+            lock (_lock)
+            {
+                _files[file] = found;
+            }
+
+            return true;
+        }
+
+        public LightBakeFile? Load(string file)
+        {
+            int found;
+            lock (_lock)
+            {
+                found = _files[file];
+            }
+
+            var (bake, gate) = _bakes[found];
+            if (!gate.Wait(TimeSpan.FromSeconds(60)))
+            {
+                throw new IOException("The test held the load and never let it go.");
+            }
+
+            return bake;
         }
     }
 }

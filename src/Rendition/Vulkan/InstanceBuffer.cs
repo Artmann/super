@@ -88,17 +88,24 @@ internal sealed unsafe class InstanceBuffer : IDisposable
     public MotionHistory? History { get; set; }
 
     /// <summary>
-    /// The loaded bake's lightmap rectangles, by <see cref="DrawItem.BakeId"/>. Set while the G-buffer pass records,
-    /// a reflection capture's included; null otherwise, and a copy it doesn't hold gets <see cref="GpuLightmapRect.None"/>.
+    /// The loaded space bake's lightmap rectangles, by <see cref="DrawItem.BakeId"/>, read by every copy not in a
+    /// relit chunk. Set while the G-buffer pass records, a reflection capture's included; null otherwise, and a copy it
+    /// doesn't hold gets <see cref="GpuLightmapRect.None"/>.
     /// </summary>
     public IReadOnlyDictionary<ulong, GpuLightmapRect>? Lightmaps { get; set; }
 
     /// <summary>
     /// The chunk each of the draws being recorded belongs to, by its index among them, or -1 for none. Set while the
-    /// G-buffer pass records the camera's draws; null otherwise, so a reflection capture's copies keep their plain baked
-    /// light only.
+    /// G-buffer pass records the camera's draws; null otherwise, so a reflection capture's copies of a chunk are lit live.
     /// </summary>
     public int[]? Chunks { get; set; }
+
+    /// <summary>
+    /// Each relit chunk's lightmap rectangles, by chunk, or null for a chunk not relit. A copy in a chunk reads only its
+    /// own chunk's, never the space's or another chunk's: copies of one chunk name may hold different bakes whose ids
+    /// match. Set along with <see cref="Chunks"/>.
+    /// </summary>
+    public IReadOnlyDictionary<ulong, GpuLightmapRect>?[]? ChunkLightmaps { get; set; }
 
     /// <summary>
     /// Empties the buffer for a frame that writes at most <paramref name="count"/> matrices.
@@ -137,10 +144,12 @@ internal sealed unsafe class InstanceBuffer : IDisposable
         ((Matrix4x4*)_buffer.Mapped)[Count] = draw.Transform;
         ((PreviousInstance*)_previous.Mapped)[Count] = History is { } history ? history.Previous(draw) : PreviousInstance.None(draw);
         var lightmap = GpuLightmapRect.None;
-        if (draw.BakeId != 0 && Lightmaps is { } lightmaps && lightmaps.TryGetValue(draw.BakeId, out var rect))
+        int chunk = Chunks is { } chunks ? chunks[index] : -1;
+        var rects = chunk >= 0 ? ChunkLightmaps?[chunk] : Lightmaps;
+        if (draw.BakeId != 0 && rects is not null && rects.TryGetValue(draw.BakeId, out var rect))
         {
             lightmap = rect;
-            lightmap.Chunk = Chunks is { } chunks ? chunks[index] : -1;
+            lightmap.Chunk = chunk;
         }
 
         ((GpuLightmapRect*)_lightmaps.Mapped)[Count] = lightmap;

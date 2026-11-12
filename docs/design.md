@@ -3423,10 +3423,14 @@ on its last. A finished page goes into the resource table with clamped edges. Wh
 page is in, its rects become `GpuLightmapRect`s with its irradiance and direction slots, a mask
 of -1 (fully lit) until the mask is wired up, and the bake's bytes are let go.
 
-`Renderer.WithChunkLightmaps` merges the resident chunks' rects with the space's into the
-dictionary `InstanceBuffer.Lightmaps` reads. With no chunk named it hands on the space's rects
-themselves, so such a frame draws exactly as before; otherwise it rebuilds the merged dictionary
-only when the space's rects or the set of named chunks changes, space rects first. A hash of the
+A chunk's rects are never merged with the space's or another chunk's. Copies of one chunk name
+can hold different bakes, one per set of inputs, whose rects share bake ids, so a merged
+dictionary would hand a pending copy a resident copy's rect. `InstanceBuffer.Lightmaps` holds
+the space's rects alone, and `InstanceBuffer.ChunkLightmaps` holds each relit chunk's entry rects
+by chunk index (`Renderer._chunkLightmaps`, filled in `FindRelitChunks`). `Add` looks a copy up
+in its own chunk's rects when `Chunks` gives it one, and in the space's otherwise. A copy whose
+chunk isn't relit, being pending, stale or unowned, gets chunk -1 and finds nothing among the
+space's rects, so it is lit live. A frame with no chunk draws exactly as before. A hash of the
 named files goes into `ReflectionLightingHash`, so reflection probes are taken again when a chunk
 bake arrives or goes. A change of store or `Reloads` calls `ChunkBakePool.Clear`, which lets go
 of every entry the same deferred way. The sky and sun transfer pages are read as described in
@@ -3436,7 +3440,8 @@ While the G-buffer pass records, `InstanceBuffer.Lightmaps` holds the loaded rec
 writes each copy's `GpuLightmapRect` into a buffer at set 0 binding 10, 48 bytes a copy, beside
 the instance matrices: the draw's `BakeId` looked up, or all -1 for a copy with no bake id or
 none in the bake. Reflection and light probe captures draw the G-buffer the same way, so they see
-the baked light the camera does; the shadow passes see no rects.
+the space's baked light the camera does. They set no `Chunks`, so they draw a chunk's surfaces
+lit live; the shadow passes see no rects.
 `gbuffer.vert` reads it by `gl_InstanceIndex` and passes on the lightmap uv, `Uv2` times the
 scale plus the offset, at location 7 and the three texture indices, flat, at location 8, with
 the copy's chunk in w.
@@ -3564,8 +3569,8 @@ surface never reads its own channel for another bake's light. The 1 matters: a s
 a neighbouring chunk's lamp reaches has nothing for that lamp in its own bake, and 1 leaves it
 the lamp's real-time shadow (`ShadowMaskGpuTests`). With no chunk relit, the slots are the
 space's channels and `spaceSlots` is the identity, so a space-only frame writes the same mask
-as before. A chunk's copy in a reflection or light probe capture has chunk -1 and its rect's
-mask -1, so it reads no page and writes 1 in every slot.
+as before. A chunk's copy in a reflection or light probe capture has no rect at all, so it is
+lit live and writes 1 in every slot.
 
 ### The .lightbake file
 
@@ -3735,8 +3740,8 @@ matching `GpuChunk` in `Renderer.cs`:
 the pool and has transfer pages. `BakeResolver.Owners` gives each draw's owning chunk, from the same filing as its
 ids, and a draw owned by a relit chunk gets that chunk's index. `DrawSelection.Select` reports each kept draw's index
 among the frame's draws, and `InstanceBuffer.Add` writes the chunk into `GpuLightmapRect.Chunk` for a copy that has a
-lightmap. Only the camera's G-buffer pass sets it; reflection and light probe captures draw a chunk with its plain
-light only. `gbuffer.vert` passes the chunk in w of the flat `ivec4` at location 8 rather than as an `int` of its own,
+lightmap, looked up in that chunk's own rects. Only the camera's G-buffer pass sets it; reflection and light probe
+captures draw a chunk's surfaces lit live. `gbuffer.vert` passes the chunk in w of the flat `ivec4` at location 8 rather than as an `int` of its own,
 since `transparent.frag` shares the vertex shader and a lone unread `int` output draws a validation warning. The
 chunk-space position goes out at location 9, for the [edge band](#edge-bands); the mask is read at the copy's lightmap UV, which
 is already the chunk's.
