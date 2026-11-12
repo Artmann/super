@@ -363,6 +363,8 @@ internal sealed unsafe class GameWindow : IDisposable
     /// Renders on until the light probes near the camera are all drawn, up to <see cref="ScreenshotProbeFrames"/>
     /// frames, so a screenshot shows the bounced light as it will be rather than still filling in. With the probes
     /// off there is nothing to wait for. Says how long it waited, as a slow scene can make a shot take a while.
+    /// These frames don't wait for the display, as nobody sees them; the count of frames, not the time, decides
+    /// what the shot shows, so it's the same either way.
     /// </summary>
     private void SettleProbes<TGame>(GameHost<TGame> host, float time)
         where TGame : class, IGame
@@ -377,7 +379,7 @@ internal sealed unsafe class GameWindow : IDisposable
             () => _scene.ProbesSettled,
             () =>
             {
-                ApplyGraphics(host.Graphics);
+                ApplyGraphics(host.Graphics, settlingProbes: true);
                 _scene.Render(host.View, host.Content, width, height, time);
             },
             ScreenshotProbeFrames);
@@ -438,20 +440,22 @@ internal sealed unsafe class GameWindow : IDisposable
     }
 
     /// <summary>Hands the game's graphics settings, as they are now, to the renderer for the next frame.</summary>
-    private void ApplyGraphics(Graphics graphics)
+    private void ApplyGraphics(Graphics graphics, bool settlingProbes = false)
     {
         (_scene.Off, _scene.Vsync, _scene.ShadowResolution, _scene.RenderScale, _scene.Upscaler, _scene.ProbeQuality) =
-            RendererSettings(graphics, _hidden);
+            RendererSettings(graphics, _hidden, settlingProbes);
     }
 
     /// <summary>
     /// What the renderer is told from the game's graphics settings: the effects left out, whether to wait
-    /// for the display, which a hidden window always does, the sun's shadow map size, the render scale, the upscaler
-    /// and the light probes' quality.
+    /// for the display, the sun's shadow map size, the render scale, the upscaler and the light probes' quality.
+    /// A hidden window always waits for the display, except while a screenshot waits for the light probes to
+    /// settle, where waiting would only slow the shot down.
     /// </summary>
     internal static (RenderEffects Off, bool Vsync, int ShadowResolution, float RenderScale, Upscaler Upscaler, ProbeQuality ProbeQuality)
-        RendererSettings(Graphics graphics, bool hidden) =>
-        (graphics.Off, hidden || graphics.Vsync, graphics.ShadowResolution, graphics.RenderScale, graphics.Upscaler, graphics.ProbeQuality);
+        RendererSettings(Graphics graphics, bool hidden, bool settlingProbes = false) =>
+        (graphics.Off, hidden ? !settlingProbes : graphics.Vsync, graphics.ShadowResolution, graphics.RenderScale, graphics.Upscaler,
+            graphics.ProbeQuality);
 
     /// <summary>Feeds the window's events into the game's input. Only the interactive loop does this.</summary>
     private void ListenForInput(Input input)

@@ -60,6 +60,21 @@ public class GraphicsTests
     }
 
     [Theory]
+    [InlineData(false, false, true, true)]
+    [InlineData(false, false, false, false)]
+    [InlineData(true, false, false, true)]
+    [InlineData(true, false, true, true)]
+    [InlineData(true, true, true, false)]
+    [InlineData(true, true, false, false)]
+    public void A_hidden_window_waits_for_the_display_except_while_a_shot_settles_its_probes(
+        bool hidden, bool settlingProbes, bool vsync, bool expected)
+    {
+        var graphics = new Graphics { Vsync = vsync };
+
+        Assert.Equal(expected, GameWindow.RendererSettings(graphics, hidden, settlingProbes).Vsync);
+    }
+
+    [Theory]
     [InlineData(1600, 900, 1.5f, 2400, 1350)]
     [InlineData(1600, 900, 0.5f, 800, 450)]
     [InlineData(1600, 900, 2f, 3200, 1800)]

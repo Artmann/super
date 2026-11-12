@@ -141,7 +141,9 @@ GPU time of a frame halves:
 ![Crypt with every effect on, 4.4 ms of GPU a frame, and with Graphics.Fastest, 2.0 ms](media/graphics-fastest.webp)
 
 Screenshots, recordings and profiles keep vsync and ignore the frame limit, so they come
-out the same on every machine, but they do follow the effect switches. Turning
+out the same on every machine, but they do follow the effect switches. The one exception is
+the frames a screenshot draws while it waits for the light probes to settle: nobody sees those,
+so they don't wait for the display, and the shot comes out the same. Turning
 `AntiAliasing` on or off waits for the GPU to finish once, so do it from a menu rather than
 every frame.
 

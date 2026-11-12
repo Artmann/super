@@ -3266,14 +3266,22 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>What tonemapping and bloom read: the anti-aliased image, or the lit one when anti-aliasing is left out.</summary>
     private ImageView DisplaySource => _readsAntiAliased ? _gBuffer.Resolved.View : _gBuffer.Hdr.View;
 
+    /// <summary>
+    /// Makes a new swapchain for the window's size and vsync. The scene's targets are only made again when
+    /// the size changed, so switching vsync keeps the anti-aliasing history and the next picture is the
+    /// same as it would have been.
+    /// </summary>
     private void Resize(uint width, uint height)
     {
         _api.DeviceWaitIdle(_context.Device).Check();
-        _gBuffer.Dispose();
+        var extent = _swapchain.Extent;
         _swapchain.Dispose();
         _swapchain = new Swapchain(_context, width, height, _disableVsync);
         _vsyncChanged = false;
-        CreateTargets();
+        if (_swapchain.Extent.Width != extent.Width || _swapchain.Extent.Height != extent.Height)
+        {
+            RebuildTargets();
+        }
     }
 
     /// <summary>Replaces the scene's targets with ones at the render scale, keeping the window's swapchain.</summary>

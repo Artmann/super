@@ -1153,7 +1153,9 @@ in place of the resolved one. Those descriptor sets can't change while a frame i
 flight, so the switch waits for the device to go idle once and rewrites them. Traced
 reflections still need last frame's picture, so the HDR image is copied to history instead
 of the resolved one. With reflections off too, nothing is copied and history counts as
-stale. Vsync switches by remaking the swapchain on the next frame.
+stale. Vsync switches by remaking the swapchain on the next frame, after waiting for the device
+to go idle once. The scene's targets are kept when the window's size didn't change, so the
+anti-aliasing history carries on and the picture is the same as it would have been with no switch.
 
 `RenderEffects.Materials` skips no pass. It's read where surfaces are written: `writeSurface()`
 in `surface.glsl` writes `PLAIN_COLOR` and `PLAIN_ROUGHNESS` from `common.glsl`, no metal, full
@@ -1569,10 +1571,17 @@ is public, is the scheduler's `Settled`, false while the probes are switched off
 GPU that can't run them. Super's `GameWindow.Screenshot` renders on after its 48
 settle frames until `ProbesSettled`, at most `ScreenshotProbeFrames` (2,048) more, through
 `ExtraSettleFrames`, and prints how many it took or that it hit the cap; with `Graphics.LightProbes`
-off it doesn't wait. The wait renders like the other settle frames, with vsync, which a hidden
-window can make slow: a Gallery frame waited about 250 ms to present against about 21 ms of GPU
-work. Turning vsync off for the wait made Gallery's shot about three times faster but Courtyard's
-about four times slower, so it stays on. Recordings don't wait. `Settled` counts only cascades 0 and 1 and the fixed grid.
+off it doesn't wait. The wait renders without vsync, through `RendererSettings(…, settlingProbes: true)`,
+because nobody sees those frames and the count of frames, not the time, decides what the shot shows.
+The 48 frames before it and the shot itself keep vsync, so a shot switches twice, which costs two
+device waits outside the game's own frames. At 1280×720 on the development machine, Gallery with
+`--no-trace` waits 1,534 frames, which took 20.5 s at about 13 ms a frame with vsync and now takes
+8.9 s at about 5 ms, for a bit-identical shot. Courtyard with `--no-trace` hits the 2,048-frame cap
+either way at about 16.6 ms a frame, as its GPU work is the limit, so it isn't faster. An earlier
+attempt made Courtyard about four times slower because it set vsync off after `ApplyGraphics` had
+set it on, so the setting flipped twice each frame and each flip remade the swapchain and the
+targets, waiting for the device every frame. Setting it once a frame avoids that. The 250 ms
+presents to a hidden window measured then didn't come back. Recordings don't wait. `Settled` counts only cascades 0 and 1 and the fixed grid.
 Dirty probes in those go before never-captured probes in the coarse cascades, so a light moved
 near the camera is picked up within a few frames even while cascades 2 and 3 are still filling
 in. A quarter of each batch stays kept for never-captured probes while any are left, so a light
