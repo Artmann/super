@@ -50,10 +50,9 @@ layout(std430, set = TRACE_GEOMETRY_SET, binding = 2) readonly buffer TracedProb
 
 // Must match TraceConstants in Passes/ProbeTracePass.cs.
 layout(push_constant) uniform Trace {
-    vec4 background;     // rgb: the background where the environment doesn't show; a: the environment's intensity
-    vec4 skySun;         // the frame's skySun: xyz towards the clear sky's sun, w its turbidity, 0 for the environment's bands
-    uint frame;          // the probe scheduler's frame, which seeds the rays' rotation
-    int showEnvironment; // 1 when the environment shows where nothing is hit, as in lighting.frag
+    vec4 skySun;                // the frame's skySun: xyz towards the clear sky's sun, w its turbidity, 0 for the environment's bands
+    uint frame;                 // the probe scheduler's frame, which seeds the rays' rotation
+    float environmentIntensity; // the frame's, as lighting.frag scales the environment by
 } trace;
 
 // How far a shading point moves off its surface before its shadow rays start, so it doesn't shadow itself. The same
@@ -135,14 +134,10 @@ vec3 sphericalFibonacci(int i, int n) {
     return vec3(r * cos(phi), r * sin(phi), z);
 }
 
-// What the probe sees where a ray hits nothing: what lighting.frag shows there, without the sun's disc, as in
-// probe_fold.comp.
+// What the probe sees where a ray hits nothing: the environment, without the sun's disc, even when the view shows a
+// plain background there, as in probe_fold.comp.
 vec3 skyRadianceAlong(vec3 direction) {
-    if (trace.showEnvironment == 1) {
-        return skyBehind(sky, direction, trace.skySun) * trace.background.a;
-    }
-
-    return trace.background.rgb;
+    return skyBehind(sky, direction, trace.skySun) * trace.environmentIntensity;
 }
 
 void main() {

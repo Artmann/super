@@ -88,6 +88,38 @@ public sealed class LiveProbeTests(GpuFixture shared)
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void With_no_sky_a_probe_in_the_open_reads_the_light_it_would_get_with_no_probe(bool traced)
+    {
+        // Nothing drawn, a sky of (0.4, 0.6, 1) all the way round at 0.8, and a dim grey background like Super's. Where
+        // no probe can tell, a surface is lit by the sky times its intensity, (0.32, 0.48, 0.8), so a probe that sees
+        // only sky must read that too, and not the background.
+        using var probes = Open(traced);
+        var scene = probes.Scene(_ => new ProbeScene(
+            [], [], new Vector3(0.4f, 0.6f, 1f), SkyIntensity: 0.8f, Background: new Vector3(0.15f, 0.16f, 0.18f)));
+        Settle(probes.Gpu, scene);
+
+        var expected = new Vector3(0.32f, 0.48f, 0.8f);
+        var samples = probes.Gpu.Renderer.SampleProbeIrradiance(
+        [
+            (new Vector3(0.2f, 0.2f, 0.2f), Vector3.UnitY),
+            (new Vector3(0.2f, 0.2f, 0.2f), -Vector3.UnitY),
+            (new Vector3(1.3f, 0.7f, -0.4f), Vector3.UnitX),
+        ]);
+
+        foreach (var sample in samples)
+        {
+            var error = Vector3.Abs(sample - expected) / expected;
+            Assert.True(
+                error.X < 0.05f && error.Y < 0.05f && error.Z < 0.05f,
+                $"Probes in the open read {string.Join(", ", samples)}, not {expected}.");
+        }
+
+        Assert.Equal(0, probes.NewValidationErrors);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void A_probe_inside_a_solid_box_is_left_out(bool traced)
     {
         using var probes = Open(traced);
@@ -589,7 +621,8 @@ public sealed class LiveProbeTests(GpuFixture shared)
             CameraPosition = camera,
             LocalLights = scene.Lights,
             Lights = scene.Suns ?? [],
-            BackgroundRadiance = scene.Sky,
+            EnvironmentIntensity = scene.SkyIntensity,
+            BackgroundRadiance = scene.Background,
             Water = scene.Water,
         };
     }
@@ -623,10 +656,12 @@ public sealed class LiveProbeTests(GpuFixture shared)
         /// <summary>The validation messages since the renderer was lent.</summary>
         public int NewValidationErrors => gpu.ValidationErrors - _errorsAtStart;
 
+        /// <summary>Makes the scene and gives the renderer its sky, the same radiance all the way round.</summary>
         public ProbeScene Scene(Func<GpuFixture, ProbeScene> make)
         {
             var scene = make(gpu);
             _scenes.Add(scene);
+            gpu.Renderer.SetEnvironment(new EnvironmentDescription { Ceiling = scene.Sky, Horizon = scene.Sky, Floor = scene.Sky });
             return scene;
         }
 
@@ -647,6 +682,15 @@ public sealed class LiveProbeTests(GpuFixture shared)
             foreach (var material in _scenes.SelectMany(scene => scene.Draws).Select(draw => draw.Material).Distinct())
             {
                 renderer.DestroyMaterial(material);
+            }
+
+            if (_scenes.Count > 0)
+            {
+                // The environment the renderer starts with, for the tests after this one.
+                renderer.SetEnvironment(new EnvironmentDescription
+                {
+                    Ceiling = new Vector3(0.5f), Horizon = new Vector3(0.4f), Floor = new Vector3(0.2f),
+                });
             }
 
             renderer.ProbeQuality = ProbeQuality.High;

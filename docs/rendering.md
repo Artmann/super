@@ -336,10 +336,10 @@ surfaces and the light already bounced, so light bounces again with every update
 
 ![The Courtyard's window wall, barrel and wheel lit by a box of probes captured once at load on the left, and by the live probes round the camera on the right, where the shaded wall right of the window and the barrel pick up a little more warm light off the sunlit brick](media/probes-courtyard.webp)
 
-A scene with no [`view.Sky`](#the-sky) has nothing for the probes to see where they look at
-open sky, so those directions take the plain background colour, which is darker than the light
-the renderer gives shade without probes. Such a scene comes out darker in the shade with
-probes than without them; give it a sky to light it from all round.
+Where a probe sees nothing it sees the same sky that lights the scene without probes, so in a
+scene with no [`view.Sky`](#the-sky) it sees the soft studio light rather than the plain
+background colour drawn behind the scene. Out in the open, a probe gives the light the
+scene would have had without it.
 
 The probes sit in four nested boxes centred on the camera, 0.5, 1, 2 and 4 metres apart, so
 detail is finest close by and the far boxes still reach a long way. On a GPU that can

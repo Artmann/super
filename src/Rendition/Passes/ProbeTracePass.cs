@@ -38,10 +38,9 @@ internal sealed unsafe class ProbeTracePass : IDisposable
     [StructLayout(LayoutKind.Sequential)]
     private struct TraceConstants
     {
-        public Vector4 Background;
         public Vector4 SkySun;
         public uint Frame;
-        public int ShowEnvironment;
+        public float EnvironmentIntensity;
         public uint Unused0;
         public uint Unused1;
     }
@@ -197,7 +196,8 @@ internal sealed unsafe class ProbeTracePass : IDisposable
     /// order. <paramref name="frame"/> seeds each probe's rotation of its rays, so the same frames give the same rays.
     /// <paramref name="tracing"/> built the scene earlier in <paramref name="cmd"/>; the frame in flight's set and buffer
     /// are rewritten, so only call it once that frame's last use is done. The caller makes the staging slots safe to
-    /// write first (<see cref="ProbeVolume.BeginFolds"/>) and blends them after.
+    /// write first (<see cref="ProbeVolume.BeginFolds"/>) and blends them after. A ray that hits nothing sees the
+    /// environment times <paramref name="environmentIntensity"/>, with the clear sky of <paramref name="skySun"/>.
     /// </summary>
     public void Record(
         CommandBuffer cmd,
@@ -209,8 +209,7 @@ internal sealed unsafe class ProbeTracePass : IDisposable
         ReadOnlySpan<Vector3> positions,
         ReadOnlySpan<float> spacings,
         uint frame,
-        bool showEnvironment,
-        Vector4 background,
+        float environmentIntensity,
         Vector4 skySun)
     {
         ArgumentNullException.ThrowIfNull(batch);
@@ -244,10 +243,9 @@ internal sealed unsafe class ProbeTracePass : IDisposable
         var api = _context.Api;
         var constants = new TraceConstants
         {
-            Background = background,
             SkySun = skySun,
             Frame = frame,
-            ShowEnvironment = showEnvironment ? 1 : 0,
+            EnvironmentIntensity = environmentIntensity,
         };
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set, _probeSet, sceneSet };
         api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _pipeline);

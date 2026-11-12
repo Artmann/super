@@ -159,8 +159,7 @@ public sealed unsafe class Renderer : IDisposable
     private const float TracedSnap = 0.05f;
 
     // What this frame's folds fill the sky with, where a probe saw nothing.
-    private bool _probeShowEnvironment;
-    private Vector4 _probeBackground;
+    private float _probeEnvironmentIntensity;
     private Vector4 _probeSkySun;
 
     // The frame whose uniforms Render wrote last, so SampleProbeIrradiance reads what that frame did.
@@ -1293,8 +1292,8 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>
-    /// Sums up the light that reaches every light probe at once: the suns, the environment and
-    /// background, and the switches that change what colour a surface sends on. When it changes, every
+    /// Sums up the light that reaches every light probe at once: the suns, the environment and its
+    /// intensity, and the switches that change what colour a surface sends on. When it changes, every
     /// probe is updated again. Point and spot lights are followed one by one instead, as each reaches
     /// only the probes near it.
     /// </summary>
@@ -1314,8 +1313,6 @@ public sealed unsafe class Renderer : IDisposable
         hash.Add(environmentVersion);
         hash.Add(view.EnvironmentIntensity);
         hash.Add(view.Sky.Turbidity);
-        hash.Add(view.BackgroundRadiance);
-        hash.Add(view.ShowEnvironment);
         hash.Add(view.Shadows.Radius > 0f);
         hash.Add(off & (RenderEffects.SunShadows | RenderEffects.Materials | RenderEffects.WearAndDirt | RenderEffects.LightShadows));
         return hash.ToHashCode();
@@ -1483,8 +1480,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         var sky = SkyModel.Sun(view);
-        _probeShowEnvironment = view.ShowEnvironment;
-        _probeBackground = new Vector4(view.BackgroundRadiance, view.EnvironmentIntensity);
+        _probeEnvironmentIntensity = view.EnvironmentIntensity;
         _probeSkySun = new Vector4(sky.Direction, sky.Turbidity);
 
         // Traced probes find the sun with shadow rays, through the frame's top-level structure, and draw nothing.
@@ -1607,7 +1603,7 @@ public sealed unsafe class Renderer : IDisposable
             _lightProbes.BeginFolds(cmd);
             tracePass.Record(cmd, batch, scene, _tracing!, _frameIndex, frameSet,
                 CollectionsMarshal.AsSpan(_probeBatchPositions), CollectionsMarshal.AsSpan(_probeBatchSpacings),
-                (uint)scheduler.Frame, _probeShowEnvironment, _probeBackground, _probeSkySun);
+                (uint)scheduler.Frame, _probeEnvironmentIntensity, _probeSkySun);
             _lightProbes.RecordBlend(cmd, batch, TracedBlend, TracedSnap);
             scheduler.Updated(batch);
             _probesSettledOnce |= scheduler.Settled;
@@ -1619,7 +1615,7 @@ public sealed unsafe class Renderer : IDisposable
         _lightProbes.BeginFolds(cmd);
         for (int i = 0; i < batch.Count; i++)
         {
-            _lightProbes.RecordFold(cmd, i, _probeBatchSpacings[i], _probeShowEnvironment, _probeBackground, _probeSkySun);
+            _lightProbes.RecordFold(cmd, i, _probeBatchSpacings[i], _probeEnvironmentIntensity, _probeSkySun);
         }
 
         _lightProbes.RecordBlend(cmd, batch, RasterBlend);

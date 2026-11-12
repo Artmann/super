@@ -25,10 +25,9 @@ layout(set = 0, binding = 5) uniform samplerCube sky;
 layout(push_constant) uniform Fold {
     int slot;
     float maxDistance;
-    int showEnvironment; // 1 when the environment shows where nothing was drawn, as in lighting.frag
+    float environmentIntensity; // the frame's, as lighting.frag scales the environment by
     float unused;
-    vec4 background;     // rgb: the background where the environment doesn't show; a: the environment's intensity
-    vec4 skySun;         // the frame's skySun: xyz towards the clear sky's sun, w its turbidity, 0 for the environment's bands
+    vec4 skySun;        // the frame's skySun: xyz towards the clear sky's sun, w its turbidity, 0 for the environment's bands
 } fold;
 
 // Must match ProbeVolume.cs and probe_capture.frag's clear.
@@ -63,14 +62,12 @@ vec3 sampleDirection(int index, out float solidAngle) {
     return vec3(c.x, c.y, -c.z) * inversesqrt(lengthSquared);
 }
 
-// What the probe sees where nothing was drawn: what lighting.frag shows there, without the sun's
-// disc, as the sun's light reaches surfaces directly.
+// What the probe sees where nothing was drawn: the environment, without the sun's disc, as the
+// sun's light reaches surfaces directly. It is the environment even when the view shows a plain
+// background there, as that is what lighting.frag lights a surface with where no probe can tell, so
+// a probe in the open reads the same as no probe at all.
 vec3 skyRadianceAlong(vec3 direction) {
-    if (fold.showEnvironment == 1) {
-        return skyBehind(sky, direction, fold.skySun) * fold.background.a;
-    }
-
-    return fold.background.rgb;
+    return skyBehind(sky, direction, fold.skySun) * fold.environmentIntensity;
 }
 
 void main() {

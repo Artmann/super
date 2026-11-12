@@ -4,11 +4,20 @@ namespace Rendition.Gpu.Tests;
 
 /// <summary>
 /// A scene for the live light probe tests: its draws, its point and spot lights and the radiance of its sky, and for a
-/// few its suns and the water the camera is under. The environment's intensity is 0, so the sky reaches the probes
-/// only where they see nothing.
+/// few its suns and the water the camera is under. The sky is an environment of that radiance all the way round, seen
+/// at <paramref name="SkyIntensity"/>, so it reaches the probes where they see nothing, as it lights a surface no probe
+/// can tell about. The intensity is 0 unless the scene says, so a scene made without the test's environment (see
+/// LiveProbeTests' ProbeRenderer.Scene) has no sky at all. <paramref name="Background"/> is the plain colour the view
+/// shows behind the scene, which the probes do not see.
 /// </summary>
 internal sealed record ProbeScene(
-    DrawItem[] Draws, LocalLight[] Lights, Vector3 Sky, DirectionalLight[]? Suns = null, UnderwaterSettings Water = default);
+    DrawItem[] Draws,
+    LocalLight[] Lights,
+    Vector3 Sky,
+    DirectionalLight[]? Suns = null,
+    UnderwaterSettings Water = default,
+    float SkyIntensity = 0f,
+    Vector3 Background = default);
 
 /// <summary>
 /// Scenes made of flat quads from <see cref="TestMeshes.Quad"/>, for the live light probe tests. No surface lies on a
@@ -226,7 +235,7 @@ internal static class ProbeScenes
             Face(quad, white, new Vector3(0f, 0f, -half), -sign * Vector3.UnitZ, Vector3.UnitY, size, size),
         ];
 
-        return new ProbeScene(draws, [], new Vector3(4f));
+        return new ProbeScene(draws, [], new Vector3(4f), SkyIntensity: 1f);
     }
 
     private static MeshHandle Quad(GpuFixture gpu)
