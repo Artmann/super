@@ -194,4 +194,16 @@ public sealed class ChunkTests
             Assert.Contains(colours.Keys, variant => variant.Name == kind);
         }
     }
+
+    [Fact]
+    public void TheLiveScriptSwitchesToLiveLighting()
+    {
+        using var run = Start(1);
+        Assert.Equal(HamletGame.Lighting.Baked, run.Game.CurrentLighting);
+
+        run.Play(run.Game.Scripts["live"]);
+        run.Ticks(4);
+
+        Assert.Equal(HamletGame.Lighting.Live, run.Game.CurrentLighting);
+    }
 }

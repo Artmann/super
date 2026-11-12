@@ -66,6 +66,19 @@ public sealed class HamletGame(GameRandom random, Input input, Content content, 
     /// <summary>The village now shown.</summary>
     internal Village Village => _village;
 
+    /// <summary>The lighting now on.</summary>
+    internal Lighting CurrentLighting => _lighting;
+
+    /// <summary>
+    /// Scripts for <c>--script</c>: <c>live</c> presses key 1, so a shot shows live lighting; <c>probes</c> presses P,
+    /// so a shot shows the light probes.
+    /// </summary>
+    public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
+    {
+        ["live"] = new InputScript().Press(Key.D1).Wait(1),
+        ["probes"] = new InputScript().Press(Key.P).Wait(1),
+    };
+
     public void Load()
     {
         _palette = new Palette(content);
