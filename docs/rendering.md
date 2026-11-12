@@ -526,7 +526,9 @@ character, takes its soft light from the bake's probes while it is inside the sp
 hold the same light as the lightmap, `Baked` lights included, so a character walking through a
 room lit only by `Baked` lamps is lit by them too, though they are no longer drawn live. Outside
 the box, or where none of the bake's probes sees the point, it is lit as before, from the
-[light probes](#bounced-light) or the sky. Transparent surfaces and particles never read light
+[light probes](#bounced-light) or the sky. The two are not blended at the box's edge, so
+something crossing it can change its light at once, from the bake's probes to the live ones.
+Transparent surfaces and particles never read light
 probes, so they are lit from the sky in a baked space as anywhere else. A file whose header is fresh but whose
 pages can't be read is reported once to the error output and its area lit live, as if it had
 no bake. Only the space is drawn from its bake so far; a fresh chunk's lights are left to its

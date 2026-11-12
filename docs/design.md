@@ -3377,7 +3377,8 @@ no anisotropy, so the live lookup reads what `texture` did. In `lighting.frag`, 
 first reads the bake's probes when the unbiased point is inside the space's box
 (`insideBakedProbes`), then the live probes when the bake's give -1, then the sky. The box test
 matters: the lookup clamps to the grid, so a point within a spacing past the last probe still
-weighs it (`BakedProbeGpuTests`). The live probes' own plan may change this order when it lands.
+weighs it (`BakedProbeGpuTests`). Nothing blends the two at the box's faces, so there is a hard
+seam there between the bake's probe light and the live probes'. The live probes' own plan may change this order when it lands.
 Transparent surfaces and particles don't read probes at all, so they are unchanged.
 
 The mask shadows Mixed lights. `LoadSpaceBake` keeps the file's `Channels` as a key-to-channel

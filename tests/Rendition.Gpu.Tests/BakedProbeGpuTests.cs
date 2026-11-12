@@ -119,6 +119,57 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
+    [Fact]
+    public void Outside_the_space_live_probes_are_used()
+    {
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        var red = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.05f, 0.05f, 1f), Roughness = 1f });
+        var green = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.05f, 0.8f, 0.05f, 1f), Roughness = 1f });
+        try
+        {
+            var bake = Bake(Wall(quad, red));
+
+            // The same grey quad as above, just outside the box. Behind the camera, a 4 metre green wall, dynamic and all
+            // of it outside the box too (x = 4.5 to 8.5), fills much of what the live probes see towards +z, so they
+            // give the quad a green cast the sky alone can't. The baked red wall is left out of the frame: its lightmap
+            // holds the bake's sun, so the live probes would see it lit differently with the bake loaded and without.
+            var dynamic = Dynamic(quad, Matrix4x4.CreateScale(0.5f) * Matrix4x4.CreateTranslation(4.5f, 0f, 0f));
+            var greenWall = Dynamic(quad, Matrix4x4.CreateScale(4f) * Matrix4x4.CreateRotationY(MathF.PI)
+                * Matrix4x4.CreateTranslation(6.5f, 0f, 2.5f)) with { Material = green };
+            DrawItem[] draws = [dynamic, greenWall];
+            var camera = new Vector3(4.5f, 0f, 1.5f);
+            // 3 x 3 x 3 probes, x = 4.2 to 6.2, round the quad and clear of the box.
+            var probes = new ProbeVolumeSettings(new Vector3(4.2f, -1f, -1f), new Vector3(6.2f, 1f, 1f), 1f);
+            // Materials on too, or the live probes would see the green wall as grey clay.
+            const RenderEffects off = OnlyBaked & ~RenderEffects.LightProbes & ~RenderEffects.Materials;
+            gpu.Renderer.SetEnvironment(EvenSky());
+
+            var skyOnly = Centre(Capture(draws, camera, sky: 1f, off));
+            byte[] live = Capture(draws, camera, sky: 1f, off, probes);
+            gpu.Renderer.Bakes = new Loaded(bake);
+            byte[] baked = Capture(draws, camera, sky: 1f, off, probes);
+
+            // The live probes light the quad, not the sky alone: greener than the sky's grey.
+            var fromProbes = Centre(live);
+            Assert.True(gpu.Renderer.LastBakeFrame!.SpaceFresh, "The bake isn't drawn, so the test shows nothing.");
+            Assert.True(fromProbes.Y > 20f, $"The quad lit by the live probes reads {fromProbes}, unlit.");
+            Assert.True(fromProbes.Y - fromProbes.X > skyOnly.Y - skyOnly.X + 10f,
+                $"The quad lit by the live probes reads {fromProbes}, no greener than under the sky alone, {skyOnly}.");
+            Assert.Equal(live, baked);
+        }
+        finally
+        {
+            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.SetEnvironment(DefaultEnvironment());
+            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.DestroyMaterial(red);
+            gpu.Renderer.DestroyMaterial(green);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
     // An 8 metre red wall at z = 3.5, inside the space, turned to face -z. Static, so the bake covers it.
     private static DrawItem Wall(MeshHandle mesh, MaterialHandle material) => new()
     {
@@ -167,7 +218,8 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
     }
 
     // Looking down -z from the camera.
-    private static FrameView View(Vector3 camera, float sky, RenderEffects off, DirectionalLight[] suns) => new()
+    private static FrameView View(
+        Vector3 camera, float sky, RenderEffects off, DirectionalLight[] suns, ProbeVolumeSettings? probes = null) => new()
     {
         Width = Size,
         Height = Size,
@@ -178,12 +230,14 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
         Off = off,
         BakedSpace = Room,
         Lights = suns,
+        LightProbes = probes,
     };
 
     // The 64th frame, with no lights, so two captures fall on the same noise.
-    private byte[] Capture(DrawItem[] draws, Vector3 camera, float sky, RenderEffects off = OnlyBaked)
+    private byte[] Capture(
+        DrawItem[] draws, Vector3 camera, float sky, RenderEffects off = OnlyBaked, ProbeVolumeSettings? probes = null)
     {
-        var view = View(camera, sky, off, []);
+        var view = View(camera, sky, off, [], probes);
         for (int i = 0; i < NoisePeriod - 1; i++)
         {
             gpu.Renderer.Render(view, draws);

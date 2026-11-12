@@ -1243,6 +1243,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         _loadedBake = _loadedBake with { File = null, Inputs = 0, Store = null, Rects = null, Channels = null, Probes = null };
+        _activeBakedProbes = null;
     }
 
     /// <summary>Throws when a bake's pages don't fit together, as a damaged file's might not.</summary>
@@ -3651,7 +3652,8 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->ProbeCascadeCounts = new Vector4(
             cascadeLayout.CountX, cascadeLayout.CountY, cascadeLayout.CountZ, readCascades ? 1f : 0f);
 
-        // Inside the baked space's box, a fresh bake's probes give the soft light: its grid is the space's box.
+        // Inside the baked space's box, a fresh bake's probes give the soft light. The shader's box is the probe grid's
+        // Min..Max, which is the space's box: the space's box is in the bake's input hash, so a fresh bake's grid matches it.
         if (_activeBakedProbes is { } baked)
         {
             var (x, y, z) = ProbeGrid.Counts(baked.Settings);
