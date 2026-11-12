@@ -1360,7 +1360,7 @@ public sealed unsafe class Renderer : IDisposable
         _probeCascades = new ProbeCascades(_probeQuality);
         _probeScheduler = new ProbeScheduler(_probeCascades, 0);
         _probesSettledOnce = false;
-        _probeSun ??= new ProbeSunShadow(_context);
+        _probeSun ??= new ProbeSunShadow(_context, _resources.GetFlags);
         _probeBatch.Clear();
         _probeGrid = null;
         _probeLightingKey = 0;

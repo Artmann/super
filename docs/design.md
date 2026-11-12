@@ -1467,7 +1467,9 @@ sun turns, when the camera has moved an eighth of its width, or every 240 frames
 things show up; each costs one shadow draw in that frame, the same work as the main shadow pass.
 Like the capture it leaves out ghosts and skinned and swimming draws, as `TraceScene.Collect`
 does, and draws what sways in the wind at rest (`still` on `ShadowPass.RecordInto`), so a probe
-updated long ago never keeps the shadow of a pose that has gone.
+updated long ago never keeps the shadow of a pose that has gone. It leaves out see-through draws
+too (`ProbeSunShadow.Casts`), as traced shadow rays pass glass, so neither path's probes see a
+pane's shadow from the sun.
 
 `probe_fold.comp` then reduces each face 2×2 into shared memory and
 works out both tiles in one dispatch: irradiance is the cosine-weighted mean of the radiance
@@ -1543,9 +1545,12 @@ into the probe's two tiles in its staging slot, with the same cosine and cos⁵�
 
 Glass, water and anything else `Transparent` is skipped by every probe ray, shadow rays
 included, though the top-level structure keeps it, so the trace debug view still shows it.
-The rasterised capture leaves see-through draws out, so both paths agree; a pane that stopped
-rays would shut the light out of a glasshouse, and one tinted by its colour would paint the
-whole room. Cut-outs are still tested, so light passes through the holes in leaves.
+The rasterised capture and its sun map leave see-through draws out, so for what the probes see
+and for the sun's shadow both paths agree; a pane that stopped rays would shut the light out of
+a glasshouse, and one tinted by its colour would paint the whole room. They differ in one place:
+the rasterised capture reads a local light's shadow from that light's tile in the frame's atlas,
+which it shares with the main view, where glass casts a shadow, so there a pane still shades the
+probes from a point or spot light, while the traced probes' shadow rays pass it. Cut-outs are still tested, so light passes through the holes in leaves.
 
 A traced batch is `ProbeBudget.Traced` probes (256, 512 or 1,024 by `ProbeQuality`), with no
 triangle budget, since a ray's cost hardly depends on the scene's size. The pass's descriptor

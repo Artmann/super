@@ -390,7 +390,8 @@ shadow map, which only lamps that light the view have, so a lamp out of view lig
 through walls as if it cast no shadow. A probe that ends up inside a wall or under the ground sees mostly the backs of surfaces, and
 is left out. Where no probe can see a point yet, the soft light comes from the sky as before.
 Reflections don't change; probes give only the soft, diffuse light. See-through, skinned and
-swimming things don't show in the probes, as they would spoil them or move on their own.
+swimming things don't show in the probes or shade them from the sun, as they would spoil them or
+move on their own. Without tracing, glass still shades the probes from a lamp that lights the view.
 
 `Graphics.LightProbes` turns all of this off and frees the probes' memory, about 170 MB at
 `High`. Switching it back on starts every probe again. `Graphics.ProbeQuality` trades the

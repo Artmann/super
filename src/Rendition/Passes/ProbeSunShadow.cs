@@ -23,6 +23,7 @@ internal sealed class ProbeSunShadow : IDisposable
     public const int RedrawFrames = 240;
 
     private readonly RenderTarget _target;
+    private readonly Func<MaterialHandle, MaterialFlags> _flagsOf;
     private DrawItem[] _casters = [];
     private Vector3 _direction;
     private Vector3 _center;
@@ -31,10 +32,11 @@ internal sealed class ProbeSunShadow : IDisposable
     private bool _drawn;
     private bool _ready;
 
-    public ProbeSunShadow(VulkanContext context)
+    public ProbeSunShadow(VulkanContext context, Func<MaterialHandle, MaterialFlags> flagsOf)
     {
         _target = new RenderTarget(
             context, GBuffer.DepthFormat, new Extent2D(Resolution, Resolution), ImageUsageFlags.DepthStencilAttachmentBit, ImageAspectFlags.DepthBit);
+        _flagsOf = flagsOf;
     }
 
     /// <summary>The map, which the capture samples with a compare sampler.</summary>
@@ -94,7 +96,7 @@ internal sealed class ProbeSunShadow : IDisposable
         {
             api.Transition(cmd, _target.Image, ImageAspectFlags.DepthBit,
                 ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, readStages, read, depthStages, depthAccess);
-            int count = Casters(draws, ref _casters);
+            int count = Casters(draws, _flagsOf, ref _casters);
             shadows.RecordInto(cmd, frameSet, _casters.AsSpan(0, count), meshes, details, instances, _target.View,
                 new Extent2D(Resolution, Resolution), cascade: -1, still: true);
             api.Transition(cmd, _target.Image, ImageAspectFlags.DepthBit,
@@ -112,15 +114,17 @@ internal sealed class ProbeSunShadow : IDisposable
     /// <summary>
     /// Whether a draw casts a shadow into the map: not a ghost, which is a preview and not a thing, and nothing
     /// skinned or swimming, which moves away from where probes updated long ago would see it, as TraceScene leaves out.
+    /// Nothing see-through either: probes look through glass, and traced shadow rays pass it, so it shades no probe.
     /// </summary>
-    public static bool Casts(in DrawItem draw) =>
-        draw.Ghost is null && draw.Bones.Count == 0 && draw.Swim.Amplitude == 0f;
+    public static bool Casts(in DrawItem draw, MaterialFlags flags) =>
+        draw.Ghost is null && draw.Bones.Count == 0 && draw.Swim.Amplitude == 0f
+        && (flags & MaterialFlags.Transparent) == 0;
 
     /// <summary>
     /// Copies the draws that <see cref="Casts"/>, in order, to the start of <paramref name="casters"/>, which grows to fit
     /// and is kept for the next frame, and returns how many there are.
     /// </summary>
-    internal static int Casters(ReadOnlySpan<DrawItem> draws, ref DrawItem[] casters)
+    internal static int Casters(ReadOnlySpan<DrawItem> draws, Func<MaterialHandle, MaterialFlags> flagsOf, ref DrawItem[] casters)
     {
         if (casters.Length < draws.Length)
         {
@@ -130,7 +134,7 @@ internal sealed class ProbeSunShadow : IDisposable
         int count = 0;
         foreach (ref readonly var draw in draws)
         {
-            if (Casts(draw))
+            if (Casts(draw, flagsOf(draw.Material)))
             {
                 casters[count++] = draw;
             }
