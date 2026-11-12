@@ -23,7 +23,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The runner image usually has a .NET 10 SDK already. Installing one takes about 30 seconds, so only do it
+      # when it's missing.
+      - name: Find .NET 10 SDK
+        id: dotnet
+        shell: pwsh
+        run: |
+          $sdks = if (Get-Command dotnet -ErrorAction SilentlyContinue) { @(dotnet --list-sdks) } else { @() }
+          $sdks
+          $found = [bool]($sdks -match '^10\.')
+          "found=$($found.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
       - uses: actions/setup-dotnet@v4
+        if: steps.dotnet.outputs.found != 'true'
         with:
           dotnet-version: 10.0.x
 
@@ -36,14 +48,29 @@ jobs:
           cache: true
           stripdown: true
 
-      # The recording tests run ffmpeg for real.
+      # The recording tests run ffmpeg for real. Taking ffmpeg.exe straight from the build's zip takes a few
+      # seconds, where Chocolatey took about 30.
       - name: Install ffmpeg
         shell: pwsh
         run: |
-          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
-            choco install ffmpeg -y --no-progress
-          }
-          ffmpeg -version | Select-Object -First 1
+          $PSNativeCommandUseErrorActionPreference = $true
+          $version = '9.0.2'
+          $name = "ffmpeg-$version-essentials_build"
+          $zip = "$env:RUNNER_TEMP\ffmpeg.zip"
+          curl.exe -fsSL -o $zip "https://github.com/GyanD/codexffmpeg/releases/download/$version/$name.zip"
+          C:\Windows\System32\tar.exe -xf $zip -C $env:RUNNER_TEMP "$name/bin/ffmpeg.exe"
+          $bin = "$env:RUNNER_TEMP\$name\bin"
+          $bin >> $env:GITHUB_PATH
+          & "$bin\ffmpeg.exe" -version | Select-Object -First 1
+
+      # Saved at the end of the job when the key is new, which is when a project's packages may have changed.
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
 
       - name: Restore
         run: dotnet restore Super.slnx
@@ -52,8 +79,8 @@ jobs:
       # a run only cooks what changed. Its entries are keyed by what each cook read and by the cook's own
       # build, so an older cache is always safe to start from. The key changes with anything that can
       # change what the cook makes or the cook's build: content, any code (the cook libraries compile in
-      # constants from the engine) and the SDK. A new cache is saved then. The month in the key starts it
-      # afresh once a month, so entries nothing uses any more don't pile up.
+      # constants from the engine) and the SDK. A new cache is saved then, if the cook changed it. The month
+      # in the key starts it afresh once a month, so entries nothing uses any more don't pile up.
       # The cook keeps what it made in SUPER_CACHE, on the same drive as the checkout so cooked content
       # can be hard links to it. The build and the tests both read it.
       - name: Cook cache key
@@ -73,12 +100,38 @@ jobs:
           restore-keys: |
             super-cook-${{ runner.os }}-${{ steps.cook-key.outputs.month }}-
 
+      # The cache is about 2 GB, and saving it takes about 25 seconds and room in the repository's 10 GB of
+      # caches, where a new one evicts the oldest. Most commits change code the cook doesn't use, so they get a new
+      # key but cook nothing. The cache's entries are listed before and after the build, and it's only saved when
+      # the cook added or removed one.
+      - name: List cook cache entries
+        if: steps.cook-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./.github/scripts/list-cook-cache.ps1 -Cache $env:SUPER_CACHE -Out "$env:RUNNER_TEMP\cook-before.txt"
+
       - name: Build
         run: dotnet build Super.slnx -c Release --no-restore
 
+      - name: Look for new cook cache entries
+        id: cook-new
+        if: steps.cook-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          ./.github/scripts/list-cook-cache.ps1 -Cache $env:SUPER_CACHE -Out "$env:RUNNER_TEMP\cook-after.txt"
+          $before = (Get-FileHash "$env:RUNNER_TEMP\cook-before.txt").Hash
+          $after = (Get-FileHash "$env:RUNNER_TEMP\cook-after.txt").Hash
+          $changed = $before -ne $after
+          "changed=$($changed.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          if ($changed) {
+            Write-Output "The cook changed the cache, so it's saved."
+          }
+          else {
+            Write-Output "The cook added nothing to the cache, so it isn't saved."
+          }
+
       # Saved right after the build, so a failing test doesn't throw the cook away.
       - name: Save cook cache
-        if: steps.cook-cache.outputs.cache-hit != 'true'
+        if: steps.cook-new.outputs.changed == 'true'
         uses: actions/cache/save@v4
         with:
           path: ${{ env.SUPER_CACHE }}
