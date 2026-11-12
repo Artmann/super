@@ -19,8 +19,9 @@ internal readonly unsafe record struct TopLevelStructure(
 
 /// <summary>
 /// One entry of the geometry table, for one part: where its mesh's vertices and indices are, where its triangles start
-/// among the indices, and its material. A hit's entry is its instance's custom index plus its geometry index. Must
-/// match TraceGeometry in Shaders/trace.glsl, laid out as std430: 24 bytes, with the addresses read as uvec2.
+/// among the indices, its material, and its draw's tint. A hit's entry is its instance's custom index plus its geometry
+/// index. Must match TraceGeometry in Shaders/trace.glsl, laid out as std430: 32 bytes, with the addresses read as
+/// uvec2 and the tint as three half floats, red and green in one word and blue in the low half of the next.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 internal struct GpuTraceGeometry
@@ -29,6 +30,8 @@ internal struct GpuTraceGeometry
     public ulong Indices;
     public uint FirstIndex;
     public uint Material;
+    public uint TintRG;
+    public uint TintB;
 }
 
 /// <summary>
@@ -183,7 +186,7 @@ internal sealed unsafe class RayTracing : IDisposable
         var table = target.Table(_packed.Count);
         for (int i = 0; i < _packed.Count; i++)
         {
-            var (meshHandle, part) = _packed[i];
+            var (meshHandle, part, tint) = _packed[i];
             var mesh = _meshes(meshHandle);
             table[i] = new GpuTraceGeometry
             {
@@ -191,6 +194,8 @@ internal sealed unsafe class RayTracing : IDisposable
                 Indices = mesh.Indices.Address,
                 FirstIndex = part.FirstIndex,
                 Material = (uint)part.Material.Index,
+                TintRG = Half2(tint.X, tint.Y),
+                TintB = Half2(tint.Z, 0f),
             };
         }
 
@@ -269,14 +274,19 @@ internal sealed unsafe class RayTracing : IDisposable
                 InstanceShaderBindingTableRecordOffset = 0,
                 AccelerationStructureReference = bottomLevels[i],
             };
-            foreach (var part in instance.Parts.Span)
+            var parts = instance.Parts.Span;
+            for (int p = 0; p < parts.Length; p++)
             {
-                geometries.Add(new TraceGeometry(instance.Mesh, part));
+                geometries.Add(new TraceGeometry(instance.Mesh, parts[p], instance.TintOf(p)));
             }
 
             first += (uint)instance.Parts.Length;
         }
     }
+
+    /// <summary>Two floats as half floats in one word, as GLSL's unpackHalf2x16 reads them: the first in the low half.</summary>
+    internal static uint Half2(float low, float high) =>
+        BitConverter.HalfToUInt16Bits((Half)low) | ((uint)BitConverter.HalfToUInt16Bits((Half)high) << 16);
 
     /// <summary>How rays treat a material: whether it has holes to check, and whether it's see-through.</summary>
     public static TraceFlags TraceFlagsFor(bool cutouts, MaterialFlags flags) =>

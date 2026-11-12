@@ -11,9 +11,11 @@ public class TraceGeometryLayoutTests
     [Fact]
     public void Matches_the_shaders_std430_layout()
     {
-        Assert.Equal(24, Unsafe.SizeOf<GpuTraceGeometry>());
+        Assert.Equal(32, Unsafe.SizeOf<GpuTraceGeometry>());
         Assert.Equal(16, (int)Marshal.OffsetOf<GpuTraceGeometry>(nameof(GpuTraceGeometry.FirstIndex)));
         Assert.Equal(20, (int)Marshal.OffsetOf<GpuTraceGeometry>(nameof(GpuTraceGeometry.Material)));
+        Assert.Equal(24, (int)Marshal.OffsetOf<GpuTraceGeometry>(nameof(GpuTraceGeometry.TintRG)));
+        Assert.Equal(28, (int)Marshal.OffsetOf<GpuTraceGeometry>(nameof(GpuTraceGeometry.TintB)));
     }
 
     [Fact]

@@ -21,7 +21,13 @@ struct TraceGeometry {
     uvec2 indices;
     uint firstIndex; // Where the part's triangles start among the mesh's indices.
     uint material;
+    uint tintRG;     // The draw's tint as half floats: red and green,
+    uint tintB;      // and blue.
 };
+
+vec3 traceTint(TraceGeometry geometry) {
+    return vec3(unpackHalf2x16(geometry.tintRG), unpackHalf2x16(geometry.tintB).x);
+}
 
 layout(std430, set = TRACE_GEOMETRY_SET, binding = TRACE_GEOMETRY_BINDING) readonly buffer TraceGeometries {
     TraceGeometry traceGeometries[]; // A hit's entry is its instance's custom index plus its geometry index.
@@ -52,6 +58,7 @@ struct TraceHit {
     vec3 normal;
     vec2 uv;
     uint material;
+    vec3 tint; // The draw's tint, white when it has none.
     bool frontFace;
 };
 
@@ -141,7 +148,7 @@ bool traceClosest(
     }
 
     if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
-        hit = TraceHit(vec3(0.0), vec3(0.0), vec2(0.0), 0u, false);
+        hit = TraceHit(vec3(0.0), vec3(0.0), vec2(0.0), 0u, vec3(1.0), false);
         return false;
     }
 
@@ -164,6 +171,7 @@ bool traceClosest(
     hit.normal = normal;
     hit.uv = traceUv(vertices, triangle.x) * w.x + traceUv(vertices, triangle.y) * w.y + traceUv(vertices, triangle.z) * w.z;
     hit.material = geometry.material;
+    hit.tint = traceTint(geometry);
     hit.frontFace = rayQueryGetIntersectionFrontFaceEXT(query, true);
     return true;
 }
@@ -172,9 +180,9 @@ bool traceClosest(accelerationStructureEXT scene, vec3 origin, vec3 direction, f
     return traceClosest(scene, origin, direction, maxDistance, false, hit);
 }
 
-// The surface's own colour where the ray landed: the material's base colour by its base colour texture. No surface
-// shader, tint, variation, wear, dirt or puddles.
+// The surface's own colour where the ray landed: the material's base colour by its base colour texture, by the draw's
+// tint, as probe_capture.frag colours it. No surface shader, variation, wear, dirt or puddles.
 vec3 hitAlbedo(TraceHit hit) {
     Material m = traceMaterials[nonuniformEXT(hit.material)];
-    return m.baseColor.rgb * textureLod(traceTextures[nonuniformEXT(m.baseColorTexture)], hit.uv, 0.0).rgb;
+    return m.baseColor.rgb * textureLod(traceTextures[nonuniformEXT(m.baseColorTexture)], hit.uv, 0.0).rgb * hit.tint;
 }

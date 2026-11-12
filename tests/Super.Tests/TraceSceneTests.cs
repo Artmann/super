@@ -106,6 +106,33 @@ public class TraceSceneTests
     }
 
     [Fact]
+    public void Each_part_keeps_its_draws_tint_and_an_untinted_draw_is_white()
+    {
+        var red = new Vector3(1f, 0.1f, 0.1f);
+        DrawItem[] draws =
+        [
+            new() { Mesh = Rock, FirstIndex = 0, IndexCount = 6, Material = Stone, Transform = Matrix4x4.Identity, Tint = red },
+            new() { Mesh = Rock, FirstIndex = 6, IndexCount = 6, Material = Stone, Transform = Matrix4x4.Identity },
+        ];
+
+        var instance = Assert.Single(new TraceScene(Flags).Collect(draws));
+
+        Assert.Equal([red, Vector3.One], instance.Tints.ToArray());
+        Assert.Equal(red, instance.TintOf(0));
+        Assert.Equal(Vector3.One, instance.TintOf(1));
+    }
+
+    [Theory]
+    [InlineData(1f, 0.5f, 0x3800_3C00u)]
+    [InlineData(0f, 0f, 0u)]
+    [InlineData(2f, 0.25f, 0x3400_4000u)]
+    public void Two_floats_pack_as_half_floats_the_first_in_the_low_half(float low, float high, uint expected)
+    {
+        // 1.0 is 0x3C00 as a half, 0.5 is 0x3800, 2.0 is 0x4000 and 0.25 is 0x3400.
+        Assert.Equal(expected, RayTracing.Half2(low, high));
+    }
+
+    [Fact]
     public void Collecting_the_same_frame_again_allocates_nothing()
     {
         var scene = new TraceScene(Flags);
@@ -175,7 +202,10 @@ public class TraceSceneTests
     {
         TraceInstance[] instances =
         [
-            new(Matrix4x4.Identity, Rock, new TracePart[] { new(0, 30, Stone), new(30, 12, Leaves) }, TraceFlags.Cutout),
+            new(Matrix4x4.Identity, Rock, new TracePart[] { new(0, 30, Stone), new(30, 12, Leaves) }, TraceFlags.Cutout)
+            {
+                Tints = new Vector3[] { new(1f, 0.2f, 0.1f), new(0.5f, 0.5f, 1f) },
+            },
             new(Matrix4x4.CreateTranslation(1, 0, 0), Tree, new TracePart[] { new(0, 9, Glass) }, TraceFlags.SeeThrough),
             new(Matrix4x4.CreateTranslation(2, 0, 0), Rock, new TracePart[] { new(0, 6, Stone) }, TraceFlags.None),
         ];
@@ -187,12 +217,13 @@ public class TraceSceneTests
 
         Assert.Equal([0u, 2u, 3u], packed.Select(i => i.InstanceCustomIndex).ToArray());
         Assert.Equal([0x1000ul, 0x2000ul, 0x3000ul], packed.Select(i => i.AccelerationStructureReference).ToArray());
+        // Each part keeps its own draw's tint; an instance with no tints is white.
         Assert.Equal(
             [
-                new TraceGeometry(Rock, new(0, 30, Stone)),
-                new TraceGeometry(Rock, new(30, 12, Leaves)),
-                new TraceGeometry(Tree, new(0, 9, Glass)),
-                new TraceGeometry(Rock, new(0, 6, Stone)),
+                new TraceGeometry(Rock, new(0, 30, Stone), new(1f, 0.2f, 0.1f)),
+                new TraceGeometry(Rock, new(30, 12, Leaves), new(0.5f, 0.5f, 1f)),
+                new TraceGeometry(Tree, new(0, 9, Glass), Vector3.One),
+                new TraceGeometry(Rock, new(0, 6, Stone), Vector3.One),
             ],
             geometries);
         Assert.Equal(1f, At(packed[1].Transform, 0, 3));

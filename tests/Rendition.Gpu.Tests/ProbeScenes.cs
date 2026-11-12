@@ -63,6 +63,18 @@ internal static class ProbeScenes
     }
 
     /// <summary>
+    /// <see cref="RedWall"/> with its point light and a white wall drawn with a red <see cref="DrawItem.Tint"/>, so only
+    /// the tint can make the wall red.
+    /// </summary>
+    public static ProbeScene TintedWall(GpuFixture gpu)
+    {
+        var scene = RedWall(gpu, lightIsSpot: false, wallIsWhite: true);
+        var draws = scene.Draws.ToArray();
+        draws[1].Tint = new Vector3(1f, 0.025f, 0.025f);
+        return scene with { Draws = draws };
+    }
+
+    /// <summary>
     /// <see cref="RedWall"/> with its point light, and a blue glass pane as big as the wall at x = 0.9, between the wall
     /// and the probes at x = 0.5, facing them. Probes leave glass out, so they should read as if it weren't there.
     /// </summary>

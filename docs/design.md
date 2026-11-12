@@ -3033,8 +3033,12 @@ so its build counts in no pass's time. A frame with neither builds nothing.
 
 `TopLevel` fills the geometry table in the same call that builds the structure, so the two always
 describe the same scene. The table is a host-visible storage buffer of `GpuTraceGeometry`, one
-entry per part, 24 bytes each in std430: the mesh's vertex buffer address, its index buffer
-address (both `ulong`), the part's first index and its material's slot. Shaders read the addresses
+entry per part, 32 bytes each in std430: the mesh's vertex buffer address, its index buffer
+address (both `ulong`), the part's first index, its material's slot, and its draw's `Tint` (white
+when it has none) as three half floats in two words, which `traceTint` unpacks with
+`unpackHalf2x16`. `TraceScene.Collect` keeps each part's tint beside it in `TraceInstance.Tints`;
+tints stay out of `TracePart`, which keys the cached bottom-level structures, so a tint that
+changes never rebuilds one. Shaders read the addresses
 as `uvec2` through `GL_EXT_buffer_reference_uvec2`, so they need no 64-bit integers.
 `TopLevelStructure` carries the table and its entry count; `ReadGeometries()` reads it back for
 tests. The table grows with the structure it belongs to and goes back to the pool with it.
@@ -3063,9 +3067,10 @@ confirmed only when it passes the same cut-out test as the shadow pass: base col
 the base colour and surface textures' alpha against `alphaCutoff`, sampled at mip 0. So a ray
 passes through the holes in leaves and fences. `TraceHit` holds the world position, the
 interpolated normal (taken to world space by the world-to-object matrix and turned to face the
-ray), the UV, the material and whether the ray hit the front face. `hitAlbedo(hit)` is the base
-colour factor times the base colour texture, with no surface shader, tint, variation, wear, dirt
-or puddles. Later features include this file instead of copying it.
+ray), the UV, the material, the draw's tint and whether the ray hit the front face.
+`hitAlbedo(hit)` is the base colour factor times the base colour texture times the tint, as
+probe_capture.frag colours a rasterized probe's faces, with no surface shader, variation, wear,
+dirt or puddles. Later features include this file instead of copying it.
 
 ### The trace debug view
 
@@ -3096,8 +3101,8 @@ A hit is the geometry the structures hold, not everything drawn, and it is delib
 - Skinned and swimming draws and ghosts aren't in the structures, since their built shape isn't where
   they are drawn. Skinned characters are missing from the view.
 - Wind-swayed parts are traced at rest, because the structures are built from the mesh as stored.
-- A hit's colour is the base colour factor times the base colour texture only: no surface shader,
-  tint, variation, wear, dirt, puddles or lighting. Anything whose colour comes from a surface shader
+- A hit's colour is the base colour factor times the base colour texture times the draw's tint
+  only: no surface shader, variation, wear, dirt, puddles or lighting. Anything whose colour comes from a surface shader
   shows its plain factor instead. Draws with the default white material, such as the Crypt's candles,
   show white.
 - Textures are sampled at mip 0, since a ray has no derivatives, so fine textures such as burlap

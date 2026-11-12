@@ -23,15 +23,25 @@ public enum TraceFlags : byte
     SeeThrough = 2,
 }
 
-/// <summary>One placed mesh in the scene rays are traced through, with every part of it the frame draws.</summary>
+/// <summary>
+/// One placed mesh in the scene rays are traced through, with every part of it the frame draws. <see cref="Tints"/>
+/// holds each part's draw tint, in the same order; when it's empty, every part is untinted (white).
+/// </summary>
 public readonly record struct TraceInstance(
-    Matrix4x4 Transform, MeshHandle Mesh, ReadOnlyMemory<TracePart> Parts, TraceFlags Flags);
+    Matrix4x4 Transform, MeshHandle Mesh, ReadOnlyMemory<TracePart> Parts, TraceFlags Flags)
+{
+    /// <summary>Each part's draw tint, multiplied into what a ray sees of it; empty when nothing is tinted.</summary>
+    public ReadOnlyMemory<Vector3> Tints { get; init; }
+
+    /// <summary>The tint of part <paramref name="part"/>, white when <see cref="Tints"/> is empty.</summary>
+    public Vector3 TintOf(int part) => Tints.IsEmpty ? Vector3.One : Tints.Span[part];
+}
 
 /// <summary>
-/// One entry of a top-level structure's geometry table: a part of a mesh. A hit's entry is its instance's custom index
-/// plus its geometry index.
+/// One entry of a top-level structure's geometry table: a part of a mesh, and its draw's tint. A hit's entry is its
+/// instance's custom index plus its geometry index.
 /// </summary>
-public readonly record struct TraceGeometry(MeshHandle Mesh, TracePart Part);
+public readonly record struct TraceGeometry(MeshHandle Mesh, TracePart Part, Vector3 Tint);
 
 /// <summary>
 /// Chooses what in a frame's draws rays can hit. One is kept for the renderer's life and reuses its buffers, so a
@@ -57,8 +67,9 @@ internal sealed unsafe class TraceScene(Func<MaterialHandle, TraceFlags> flagsOf
     // Per draw, the instance it belongs to, or -1 when it's left out.
     private int[] _instanceOf = [];
 
-    // Every instance's parts, one run per instance, which the instances' memories point into.
+    // Every instance's parts and tints, one run per instance, which the instances' memories point into.
     private TracePart[] _parts = [];
+    private Vector3[] _tints = [];
 
     /// <summary>
     /// One instance per distinct mesh and transform, in the order they're first drawn, with the parts in draw order.
@@ -104,7 +115,9 @@ internal sealed unsafe class TraceScene(Func<MaterialHandle, TraceFlags> flagsOf
 
         if (_parts.Length < partCount)
         {
-            _parts = new TracePart[Math.Max(partCount, _parts.Length * 2)];
+            int size = Math.Max(partCount, _parts.Length * 2);
+            _parts = new TracePart[size];
+            _tints = new Vector3[size];
         }
 
         var all = CollectionsMarshal.AsSpan(_placed);
@@ -115,7 +128,7 @@ internal sealed unsafe class TraceScene(Func<MaterialHandle, TraceFlags> flagsOf
             start += placed.Count;
         }
 
-        // Second pass: each draw's part into its instance's run, in draw order.
+        // Second pass: each draw's part and tint into its instance's run, in draw order.
         for (int d = 0; d < draws.Length; d++)
         {
             int index = _instanceOf[d];
@@ -128,12 +141,16 @@ internal sealed unsafe class TraceScene(Func<MaterialHandle, TraceFlags> flagsOf
             ref var placed = ref all[index];
             int at = placed.Start + placed.Filled++;
             _parts[at] = new TracePart(draw.FirstIndex, draw.IndexCount, draw.Material);
+            _tints[at] = draw.Tint ?? Vector3.One;
         }
 
         foreach (ref readonly var placed in all)
         {
             _instances.Add(new TraceInstance(
-                placed.Transform, placed.Mesh, _parts.AsMemory(placed.Start, placed.Count), placed.Flags));
+                placed.Transform, placed.Mesh, _parts.AsMemory(placed.Start, placed.Count), placed.Flags)
+            {
+                Tints = _tints.AsMemory(placed.Start, placed.Count),
+            });
         }
 
         return _instances;

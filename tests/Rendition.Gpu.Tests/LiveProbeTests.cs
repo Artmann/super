@@ -42,6 +42,17 @@ public sealed class LiveProbeTests(GpuFixture shared)
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void A_white_wall_drawn_with_a_red_tint_tints_the_probe_red(bool traced)
+    {
+        var (tinted, _) = Settled(traced, ProbeScenes.TintedWall, new Vector3(0.7f, 0.3f, 0f), Vector3.UnitX);
+
+        Assert.True(tinted.X > 0.01f, $"The tinted wall gave {tinted}.");
+        Assert.True(tinted.X > 2f * tinted.Y && tinted.X > 2f * tinted.Z, $"The tinted wall gave {tinted}.");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void A_spot_light_lights_the_probe_only_inside_its_cone(bool traced)
     {
         using var probes = Open(traced);
