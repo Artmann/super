@@ -52,8 +52,28 @@ public sealed unsafe class Renderer : IDisposable
         public GpuBuffer Lights;
         public GpuBuffer ShadowTiles;
         public GpuBuffer Clusters;
+        // The frame's suns and placed chunks, as chunks.glsl reads them at binding 11. See GpuChunk.
+        public GpuBuffer Chunks;
         public DescriptorSet Set;
     }
+
+    /// <summary>One placed chunk, as chunks.glsl's ChunkData reads it. Must match it.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct GpuChunk
+    {
+        // From the world into the chunk's space, as columns of a mat3x4: column i is row i of the turn, and the move.
+        public Vector4 IntoX;
+        public Vector4 IntoY;
+        public Vector4 IntoZ;
+        public Vector4 Min;
+        public Vector4 Max;
+        public int Mask0, Mask1, Mask2, Mask3;
+        public int SkyRed, SkyGreen, SkyBlue, Sun;
+        public int Tint, Pad0, Pad1, Pad2;
+    }
+
+    // The suns' four coefficients ahead of the chunks in each frame's chunk buffer.
+    private const int SunShBytes = 4 * 16;
 
     private readonly VulkanContext _context;
     private bool _disableVsync;
@@ -409,6 +429,19 @@ public sealed unsafe class Renderer : IDisposable
     public (long Camera, long Shadows) DrawnTriangles { get; private set; }
 
     private DrawItem[] _cameraDraws = [];
+    // Which draw each camera draw came from, and the placed chunk each camera draw is relit as, -1 for none. Only
+    // filled on frames that relight a chunk.
+    private int[] _cameraSources = [];
+    private int[] _cameraChunks = [];
+
+    // The frame's relit chunks, written into the frame's chunk buffer, and each draw's chunk, -1 for none. See
+    // FindRelitChunks.
+    private readonly GpuChunk[] _chunkData = new GpuChunk[BakeFiles.MaxChunks];
+    private readonly Vector4[] _sunSh = new Vector4[4];
+    private int[] _drawChunks = [];
+    private int _chunkCount;
+    private bool _relightChunks;
+    private SkySh _skySh = null!;
 
     // The world-space ball round each draw this frame, for fitting sun shadows to what casts them.
     private Vector4[] _casterBounds = [];
@@ -482,7 +515,7 @@ public sealed unsafe class Renderer : IDisposable
         var poolSizes = stackalloc DescriptorPoolSize[]
         {
             new(DescriptorType.UniformBuffer, FramesInFlight),
-            new(DescriptorType.StorageBuffer, 7 * FramesInFlight),
+            new(DescriptorType.StorageBuffer, 9 * FramesInFlight),
             new(DescriptorType.CombinedImageSampler, 34 + 3 * FramesInFlight),
         };
         var poolInfo = new DescriptorPoolCreateInfo
@@ -535,6 +568,14 @@ public sealed unsafe class Renderer : IDisposable
             Horizon = new Vector3(0.4f),
             Floor = new Vector3(0.2f),
         });
+        _skySh = new SkySh(_context, _environment.Sky, _environment.Sampler);
+        foreach (ref var frame in _frames.AsSpan())
+        {
+            var skyShInfo = new DescriptorBufferInfo(_skySh.Handle, 0, SkySh.Size);
+            var skyShWrite = StorageWrite(frame.Set, 12, &skyShInfo);
+            _api.UpdateDescriptorSets(_context.Device, 1, &skyShWrite, 0, null);
+        }
+
         _probes = new ReflectionProbes(_context, _environment.Sampler);
         _lightProbes = new ProbeVolume(_context, _environment.Sampler, _environment.Sky);
         _probeUpdatePass = new ProbeCapturePass(_context, _frameSetLayout, _resources);
@@ -1432,6 +1473,7 @@ public sealed unsafe class Renderer : IDisposable
             _spaceLightmapsActive = false;
             _chunkLightmapsHash = 0;
             _activeBakedProbes = null;
+            _relightChunks = false;
             return false;
         }
 
@@ -1461,6 +1503,7 @@ public sealed unsafe class Renderer : IDisposable
         var spaceRects = bakes.SpaceFresh && _loadedBake.Rects is { Count: > 0 } rects ? rects : null;
         _spaceLightmapsActive = spaceRects is not null;
         _activeLightmaps = WithChunkLightmaps(spaceRects);
+        FindRelitChunks(view, draws.Length, bakes);
         _activeBakedProbes = bakes.SpaceFresh ? _loadedBake.Probes : null;
         if (spaceRects is not null)
         {
@@ -1503,6 +1546,89 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Works out which placed chunks this frame relights by its sky and suns: each fresh one whose bake is on the GPU
+    /// with its transfer pages. Fills their GpuChunk data, the suns' coefficients, and the chunk each draw is relit as,
+    /// from the resolver's owners. A frame with none leaves <see cref="_relightChunks"/> off and is drawn as before. See
+    /// "Chunk transfer" in docs/design.md.
+    /// </summary>
+    private void FindRelitChunks(in FrameView view, int drawCount, BakeFrame bakes)
+    {
+        _relightChunks = false;
+        _chunkCount = 0;
+        var chunks = view.BakedChunks;
+        var store = _readableBakes.Inner;
+        if (chunks.IsEmpty || !GivesLightmaps(store))
+        {
+            return;
+        }
+
+        Span<bool> relit = stackalloc bool[chunks.Length];
+        for (int c = 0; c < chunks.Length; c++)
+        {
+            relit[c] = false;
+            if (!bakes.ChunkFresh[c] || _chunkPool.Use(bakes.ChunkFile(c), store) is not { IsResident: true } entry
+                || entry.Transfer[0] < 0)
+            {
+                continue;
+            }
+
+            relit[c] = true;
+            _relightChunks = true;
+            var m = chunks[c].Transform;
+            var t = m.Translation;
+            var transfer = entry.Transfer;
+            _chunkData[c] = new GpuChunk
+            {
+                // A chunk only turns and moves, so the way back is the turn's transpose after taking the move off.
+                IntoX = new Vector4(m.M11, m.M12, m.M13, -(t.X * m.M11 + t.Y * m.M12 + t.Z * m.M13)),
+                IntoY = new Vector4(m.M21, m.M22, m.M23, -(t.X * m.M21 + t.Y * m.M22 + t.Z * m.M23)),
+                IntoZ = new Vector4(m.M31, m.M32, m.M33, -(t.X * m.M31 + t.Y * m.M32 + t.Z * m.M33)),
+                Min = new Vector4(chunks[c].Min, 0f),
+                Max = new Vector4(chunks[c].Max, 0f),
+                // Task 9 fills the chunk's shadow masks.
+                Mask0 = -1, Mask1 = -1, Mask2 = -1, Mask3 = -1,
+                SkyRed = transfer[0], SkyGreen = transfer[1], SkyBlue = transfer[2], Sun = transfer[3],
+                Tint = transfer[4],
+            };
+        }
+
+        if (!_relightChunks)
+        {
+            return;
+        }
+
+        _chunkCount = chunks.Length;
+        if (_drawChunks.Length < drawCount)
+        {
+            _drawChunks = new int[drawCount * 2];
+        }
+
+        var owners = _bakeResolver.Owners;
+        for (int d = 0; d < drawCount; d++)
+        {
+            int owner = d < owners.Length ? owners[d] : BakeAreas.None;
+            _drawChunks[d] = owner >= 0 && relit[owner] ? owner : -1;
+        }
+
+        // Every sun a bake's bounce can follow, as deltas: each one's radiance times the basis towards it.
+        _sunSh.AsSpan().Clear();
+        foreach (var sun in view.Lights)
+        {
+            if (sun.Mode == LightMode.Realtime)
+            {
+                continue;
+            }
+
+            var towards = Vector3.Normalize(sun.Direction);
+            var radiance = new Vector4(sun.Radiance, 0f);
+            _sunSh[0] += ShL1.Y0 * radiance;
+            _sunSh[1] += ShL1.Y1 * towards.Y * radiance;
+            _sunSh[2] += ShL1.Y1 * towards.Z * radiance;
+            _sunSh[3] += ShL1.Y1 * towards.X * radiance;
+        }
     }
 
     /// <summary>
@@ -1989,6 +2115,9 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>How many times <see cref="BakeSky"/> has baked the environment again, for tests.</summary>
     internal int SkyRebakes { get; private set; }
+
+    /// <summary>Projects the sky cube to L1 now and reads it back, coefficient by coefficient, for tests.</summary>
+    internal Vector4[] ProjectSky() => _skySh.Project();
 
     /// <summary>The sun's disc the last frame drawn from the camera wrote, leaving out probe faces, for tests.</summary>
     internal Vector4 LastSunDisc { get; private set; }
@@ -3033,6 +3162,11 @@ public sealed unsafe class Renderer : IDisposable
         var (cameraCount, shadowCount) = SelectDraws(view, viewProjection, draws, castsShadow);
         int tileDrawCount = SelectTileDraws(draws);
         ResetInstances(frame, cameraCount + shadowCount + tileDrawCount + probeInstances);
+        if (_relightChunks)
+        {
+            _sunSh.AsSpan().CopyTo(new Span<Vector4>(frame.Chunks.Mapped, _sunSh.Length));
+            _chunkData.AsSpan(0, _chunkCount).CopyTo(new Span<GpuChunk>((byte*)frame.Chunks.Mapped + SunShBytes, _chunkCount));
+        }
 
         _api.ResetCommandPool(_context.Device, frame.CommandPool, 0).Check();
         var cmd = frame.CommandBuffer;
@@ -3144,7 +3278,25 @@ public sealed unsafe class Renderer : IDisposable
 
         var (pixelsAtOneUnit, pixelsPerUnit) = Projection.PixelScale(view.Projection, (int)_gBuffer.Extent.Height);
         var camera = new DetailView(viewProjection, view.CameraPosition, pixelsAtOneUnit, pixelsPerUnit, CameraDetailError);
-        int cameraCount = DrawSelection.Select(camera, draws, _details, _cameraDraws, _windReach);
+        int cameraCount;
+        if (_relightChunks)
+        {
+            if (_cameraSources.Length < _cameraDraws.Length)
+            {
+                _cameraSources = new int[_cameraDraws.Length];
+                _cameraChunks = new int[_cameraDraws.Length];
+            }
+
+            cameraCount = DrawSelection.Select(camera, draws, _details, _cameraDraws, _windReach, _cameraSources);
+            for (int i = 0; i < cameraCount; i++)
+            {
+                _cameraChunks[i] = _drawChunks[_cameraSources[i]];
+            }
+        }
+        else
+        {
+            cameraCount = DrawSelection.Select(camera, draws, _details, _cameraDraws, _windReach);
+        }
 
         int shadowCount = 0;
         Array.Clear(_shadowCounts);
@@ -3336,6 +3488,7 @@ public sealed unsafe class Renderer : IDisposable
         _probeTracePass?.Dispose();
         _probeSun?.Dispose();
         _reflectionProbeTargets?.Dispose();
+        _skySh.Dispose();
         _environment.Dispose();
         _resources.Dispose();
 
@@ -3352,6 +3505,7 @@ public sealed unsafe class Renderer : IDisposable
             frame.Lights.Dispose();
             frame.ShadowTiles.Dispose();
             frame.Clusters.Dispose();
+            frame.Chunks.Dispose();
             _api.DestroySemaphore(_context.Device, frame.ImageAvailable, null);
             _api.DestroyFence(_context.Device, frame.InFlight, null);
             _api.DestroyCommandPool(_context.Device, frame.CommandPool, null);
@@ -3395,7 +3549,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         RecordScene(cmd, frameSet, draws, [], shadowsSelected: true, _transparentView, _particleCount, _motion, traced, sceneDraws, updateProbes: true,
-            probeView: _probeView);
+            probeView: _probeView, relightChunks: _relightChunks);
 
         // Anti-aliasing blends in the last frame, and reflections read it, so it's kept for
         // the next while either wants it. Without anti-aliasing the lit image is the frame.
@@ -3597,7 +3751,8 @@ public sealed unsafe class Renderer : IDisposable
         TopLevelStructure? traced = null,
         ReadOnlySpan<DrawItem> probeDraws = default,
         bool updateProbes = false,
-        bool probeView = false)
+        bool probeView = false,
+        bool relightChunks = false)
     {
         var targets = _gBuffer;
         var instances = _frames[_frameIndex].Instances;
@@ -3696,12 +3851,20 @@ public sealed unsafe class Renderer : IDisposable
             ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, DepthStages, AccessFlags2.DepthStencilAttachmentReadBit, DepthStages,
             DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
 
-        // Reflection captures draw the lightmaps too, so they see the baked light the camera does.
+        // Reflection captures draw the lightmaps too, so they see the baked light the camera does. Only the camera's
+        // draws relight a chunk's bake by the frame's sky and suns: its sky is projected first, for writeBaked.
+        if (relightChunks)
+        {
+            _skySh.Record(cmd);
+            instances.Chunks = _cameraChunks;
+        }
+
         instances.History = motion;
         instances.Lightmaps = _activeLightmaps;
         _gBufferPass.Record(cmd, targets, frameSet, draws, _meshes, _details, instances);
         instances.History = null;
         instances.Lightmaps = null;
+        instances.Chunks = null;
         bool decalsDrawn = RecordDecals(cmd, targets, frameSet);
 
         _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
@@ -4325,8 +4488,11 @@ public sealed unsafe class Renderer : IDisposable
             _context, (ulong)(LocalLights.MaxTiles * sizeof(GpuShadowTile)), BufferUsageFlags.StorageBufferBit);
         frame.Clusters = new GpuBuffer(
             _context, LocalLights.ClusterBytes, BufferUsageFlags.StorageBufferBit, MemoryPropertyFlags.DeviceLocalBit);
+        frame.Chunks = GpuBuffer.CreateHostVisible(
+            _context, (ulong)(SunShBytes + BakeFiles.MaxChunks * sizeof(GpuChunk)), BufferUsageFlags.StorageBufferBit);
         frame.Set = AllocateSet(_frameSetLayout);
 
+        var chunksInfo = new DescriptorBufferInfo(frame.Chunks.Handle, 0, frame.Chunks.Size);
         var uniformInfo = new DescriptorBufferInfo(frame.Uniforms.Handle, 0, (ulong)sizeof(FrameUniforms));
         var bonesInfo = new DescriptorBufferInfo(frame.Bones.Handle, 0, frame.Bones.Size);
         var lightsInfo = new DescriptorBufferInfo(frame.Lights.Handle, 0, frame.Lights.Size);
@@ -4355,8 +4521,9 @@ public sealed unsafe class Renderer : IDisposable
             StorageWrite(frame.Set, 3, &lightsInfo),
             StorageWrite(frame.Set, 4, &tilesInfo),
             StorageWrite(frame.Set, 5, &clustersInfo),
+            StorageWrite(frame.Set, 11, &chunksInfo),
         };
-        _api.UpdateDescriptorSets(_context.Device, 5, writes, 0, null);
+        _api.UpdateDescriptorSets(_context.Device, 6, writes, 0, null);
 
         frame.Instances = new InstanceBuffer(_context);
         WriteInstanceDescriptor(frame);
@@ -4466,7 +4633,9 @@ public sealed unsafe class Renderer : IDisposable
     /// the cluster lists, and 6 and 7 the shadow atlas, as Shaders/light_data.glsl and
     /// local_shadows.glsl read them, 8 the volumetric fog's summed volume, as
     /// volumetric.glsl reads it, 9 where each copy stood last frame, as instances.glsl
-    /// reads it for motion vectors, and 10 where each copy reads its baked light.
+    /// reads it for motion vectors, and 10 where each copy reads its baked light. 11 holds
+    /// the frame's suns and placed chunks and 12 the sky projected by SkySh, as
+    /// chunks.glsl reads them, to relight every copy of a chunk's bake.
     /// </summary>
     private DescriptorSetLayout CreateFrameSetLayout()
     {
@@ -4484,11 +4653,13 @@ public sealed unsafe class Renderer : IDisposable
             new(8, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
             new(9, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit),
             new(10, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit),
+            new(11, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit),
+            new(12, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit),
         };
         var info = new DescriptorSetLayoutCreateInfo
         {
             SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 11,
+            BindingCount = 13,
             PBindings = bindings,
         };
         _api.CreateDescriptorSetLayout(_context.Device, &info, null, out var layout).Check();

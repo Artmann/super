@@ -34,6 +34,7 @@ PreviousInstance previousInstance() {
 struct LightmapRect {
     vec4 scaleOffset; // xy scale and zw offset from the second uv to 0 to 1 on the page
     ivec4 textures;   // bindless irradiance, direction and shadow mask, then the page; -1 for no lightmap
+    ivec4 chunk;      // x: the copy's placed chunk in chunks.glsl, relit by the frame's sky and suns, or -1 for none
 };
 
 layout(std430, set = 0, binding = 10) readonly buffer LightmapRects {

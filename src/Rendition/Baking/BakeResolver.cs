@@ -31,6 +31,8 @@ public sealed class BakeResolver
     private ulong[] _localHashes = [];
     private (LightKey Key, ulong Hash, bool Spot)[] _tracked = [];
     private int[] _lightOwners = [];
+    private int[] _owners = [];
+    private int _ownerCount;
     private List<ulong>[] _chunkIds = [];
     private List<ulong>[] _chunkLights = [];
     private int[] _drawIndex = [];
@@ -89,8 +91,13 @@ public sealed class BakeResolver
         var chunks = frame.BakedChunks;
         if (space is null && chunks.IsEmpty)
         {
+            _ownerCount = 0;
             return BakeFrame.None;
         }
+
+        Grow(ref _owners, draws.Length);
+        _ownerCount = draws.Length;
+        _owners.AsSpan(0, draws.Length).Fill(BakeAreas.None);
 
         var suns = frame.Lights;
         var locals = frame.LocalLights;
@@ -224,6 +231,13 @@ public sealed class BakeResolver
     /// </summary>
     internal IReadOnlyList<ulong> ChunkIds(int chunk) => _chunkIds[chunk];
 
+    /// <summary>
+    /// For each draw of the last <see cref="Resolve"/>, the index of the chunk that owns its model, or
+    /// <see cref="BakeAreas.None"/> for a draw no chunk owns: a moving one, or one in the space or outside every area.
+    /// Empty after a frame that names no area.
+    /// </summary>
+    public ReadOnlySpan<int> Owners => _owners.AsSpan(0, _ownerCount);
+
     // A model's parts are filed together, under the area that owns the whole model, the same call Super made when it
     // gave their ids, so a model straddling two areas is never split between them. The parts need not come one after
     // another: they are sorted by (instance, transform, draw order) first.
@@ -271,6 +285,7 @@ public sealed class BakeResolver
                 for (int p = first; p < end; p++)
                 {
                     ids.Add(draws[_drawIndex[_order[p]]].BakeId);
+                    _owners[_drawIndex[_order[p]]] = owner;
                 }
             }
 

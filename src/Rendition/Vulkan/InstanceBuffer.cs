@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.InteropServices;
 using Rendition.Passes;
 using Silk.NET.Vulkan;
 using Buffer = Silk.NET.Vulkan.Buffer;
@@ -10,6 +11,7 @@ namespace Rendition.Vulkan;
 /// moves the second uv onto the page, and the bindless indices of the page's irradiance, direction and shadow mask
 /// textures. Must match LightmapRect in Shaders/instances.glsl.
 /// </summary>
+[StructLayout(LayoutKind.Sequential)]
 internal struct GpuLightmapRect
 {
     /// <summary>xy scale and zw offset from the second uv to 0 to 1 on the page.</summary>
@@ -23,8 +25,18 @@ internal struct GpuLightmapRect
     /// <summary>The page's number in the bake, or -1 for a copy with no lightmap.</summary>
     public int Page;
 
+    /// <summary>
+    /// The placed chunk this copy belongs to, its index in the frame's chunk buffer (set 0, binding 11), so its bake is
+    /// relit by the frame's sky and suns turned into that chunk's space; or -1 for none. Set per copy by
+    /// <see cref="InstanceBuffer.Add"/>, since every copy of a chunk shares one rectangle.
+    /// </summary>
+    public int Chunk;
+    private int _pad0;
+    private int _pad1;
+    private int _pad2;
+
     /// <summary>A copy with no lightmap: it is lit live, as if no bake were loaded.</summary>
-    public static GpuLightmapRect None => new() { Irradiance = -1, Direction = -1, Mask = -1, Page = -1 };
+    public static GpuLightmapRect None => new() { Irradiance = -1, Direction = -1, Mask = -1, Page = -1, Chunk = -1 };
 }
 
 /// <summary>
@@ -82,6 +94,13 @@ internal sealed unsafe class InstanceBuffer : IDisposable
     public IReadOnlyDictionary<ulong, GpuLightmapRect>? Lightmaps { get; set; }
 
     /// <summary>
+    /// The chunk each of the draws being recorded belongs to, by its index among them, or -1 for none. Set while the
+    /// G-buffer pass records the camera's draws; null otherwise, so a reflection capture's copies keep their plain baked
+    /// light only.
+    /// </summary>
+    public int[]? Chunks { get; set; }
+
+    /// <summary>
     /// Empties the buffer for a frame that writes at most <paramref name="count"/> matrices.
     /// Returns true when it had to grow, so the descriptor must point at the new buffer.
     /// Call it only once the GPU is done with this frame.
@@ -103,8 +122,12 @@ internal sealed unsafe class InstanceBuffer : IDisposable
         return true;
     }
 
-    /// <summary>Writes the next copy's matrix, where it stood last frame and its lightmap, and returns its index.</summary>
-    public int Add(in DrawItem draw)
+    /// <summary>
+    /// Writes the next copy's matrix, where it stood last frame and its lightmap, and returns its index.
+    /// <paramref name="index"/> is the draw's place among the draws being recorded, which finds its chunk in
+    /// <see cref="Chunks"/>.
+    /// </summary>
+    public int Add(in DrawItem draw, int index)
     {
         if (Count >= Capacity)
         {
@@ -113,10 +136,14 @@ internal sealed unsafe class InstanceBuffer : IDisposable
 
         ((Matrix4x4*)_buffer.Mapped)[Count] = draw.Transform;
         ((PreviousInstance*)_previous.Mapped)[Count] = History is { } history ? history.Previous(draw) : PreviousInstance.None(draw);
-        ((GpuLightmapRect*)_lightmaps.Mapped)[Count] =
-            draw.BakeId != 0 && Lightmaps is { } lightmaps && lightmaps.TryGetValue(draw.BakeId, out var rect)
-                ? rect
-                : GpuLightmapRect.None;
+        var lightmap = GpuLightmapRect.None;
+        if (draw.BakeId != 0 && Lightmaps is { } lightmaps && lightmaps.TryGetValue(draw.BakeId, out var rect))
+        {
+            lightmap = rect;
+            lightmap.Chunk = Chunks is { } chunks ? chunks[index] : -1;
+        }
+
+        ((GpuLightmapRect*)_lightmaps.Mapped)[Count] = lightmap;
         return Count++;
     }
 

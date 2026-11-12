@@ -550,9 +550,18 @@ A fresh chunk's bake is read and checked off the render thread, then goes up to 
 its pages are there the chunk is pending: it is drawn live, its `Baked` lights included, so it
 never shows half a bake. Copies of a chunk that share a file share its bake. A bake that no
 chunk in the frame names is let go at the end of that frame and read again when one comes back,
-and a content reload drops every chunk bake and reads them again. For now a chunk draws its
-lightmap's plain irradiance; its sky and sun pages are uploaded but not yet used, and it has no
-shadow mask.
+and a content reload drops every chunk bake and reads them again.
+
+A chunk's bake holds how the sky and the sun reach each of its surfaces, not the light itself,
+so every copy is lit by the frame's sky and suns as it stands. The same house can face north in
+one place and south in another, at noon or at dusk, and each copy gets the light from its own
+open side and the bounce from its own sunlit walls, with no bake per copy and none again when the
+sky changes. The frame after the sky or a sun changes, every copy shows it. Its own `Baked` and
+`Mixed` lights are added on top. The sun's direct light and shadows stay live, while its bounce
+follows every `Mixed` and `Baked` sun, moving ones included. The sky's light is kept to its
+broad shape, so a sky much brighter at the horizon than overhead lights an open floor a little
+too brightly, about 8 steps in 255 against a space baked under that sky. Reflection captures
+draw a chunk with its plain light only. A chunk has no shadow mask yet.
 
 For Rendition alone, `Renderer.Bakes` is where the renderer asks. It starts as
 `NoBakes.Instance`, which has no bakes. A `LightBakeStore` reads bakes through a function that

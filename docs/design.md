@@ -3123,8 +3123,11 @@ others as directions. So every placed copy of a
 chunk gives its draws the same numbers to well under the hash's tenth of a millimetre, even
 hundreds of metres out. A draw in the space or in no area keeps its world transform.
 
-The instance hash is the model's identity, then 1 and the tint or 0 for none, then that
-transform. Each shown part's id is `BakeIds.Of(instance, part)`, where `part` is the part's
+The instance hash is the model's identity, then, for a draw a chunk owns, the chunk's name, then
+1 and the tint or 0 for none, then that transform. The renderer finds a copy's lightmap by its id
+alone, so without the name the same door at the same spot in a cottage and a barn would share an
+id and the barn would read the cottage's page. A draw in the space or in no area adds no name, so
+its id is as it was. Each shown part's id is `BakeIds.Of(instance, part)`, where `part` is the part's
 number in the whole model, not among the shown ones, so a mask doesn't renumber the parts it
 keeps. The model's identity already fixes every part's mesh and material, so the part number
 is all a part adds. A static model of more than `BakeIds.MaxParts` parts throws when drawn.
@@ -3361,7 +3364,8 @@ grid's spacing and corners are finite and the spacing above 0, it holds at most
 (`BakedProbeAtlas.IrradianceAtlasSize`, `DepthAtlasSize`) and tall enough for a row of tiles per 64
 probes, so `bakedProbeIrradiance` in `probes.glsl` finds every probe's tile. Each page becomes a one-level linear texture with clamped edges, three a page
 (irradiance, direction, mask, a missing mask as -1), and each draw's `LightmapRect` becomes a
-`GpuLightmapRect` keyed by bake id: the rect's scale and offset and the three texture indices.
+`GpuLightmapRect` keyed by bake id: the rect's scale and offset and the three texture indices. The instance buffer
+adds the copy's relit chunk, or -1 (see [Relighting a chunk](#relighting-a-chunk)).
 `Rgba16f` irradiance from an uncooked bake goes up as `TextureFormat.Rgba16f`
 (`R16G16B16A16_SFLOAT`, eight bytes a pixel), a format only these pages use; `CookedTexture`
 rejects it, since a cook never writes it. The bake stays loaded through frames that don't draw
@@ -3387,7 +3391,8 @@ calls `ChunkBakePool.Use(file, store)`, which marks the file used this frame and
 its pages are all on the GPU. A file asked about for the first time gets an entry and a
 `Task.Run` that calls `IBakeStore.Load` and `ChunkBakePool.CheckPages`, which checks the five
 transfer pages (sky red, green and blue and sun as `Rgba16f`, sun tint as `Rgba8`, all one size,
-at least 1x1), at most one irradiance page, direction and mask counts, each plain page's size,
+at least 1x1), at most one irradiance page and one mask page, as many direction pages as
+irradiance ones, each plain page's size,
 each page's bytes against `TextureData.LevelSize`, and that every rect is on page 0. Its result,
 the bake or the exception's message, comes back through a `ConcurrentQueue`. A chunk that isn't
 resident is added to the frame with `BakeFreshness.AddChunk(..., pending: true)`: it counts in
@@ -3416,16 +3421,17 @@ themselves, so such a frame draws exactly as before; otherwise it rebuilds the m
 only when the space's rects or the set of named chunks changes, space rects first. A hash of the
 named files goes into `ReflectionLightingHash`, so reflection probes are taken again when a chunk
 bake arrives or goes. A change of store or `Reloads` calls `ChunkBakePool.Clear`, which lets go
-of every entry the same deferred way. The sky and sun transfer pages are uploaded and given slots
-but no shader reads them yet.
+of every entry the same deferred way. The sky and sun transfer pages are read as described in
+[Relighting a chunk](#relighting-a-chunk).
 
 While the G-buffer pass records, `InstanceBuffer.Lightmaps` holds the loaded rects, and `Add`
-writes each copy's `GpuLightmapRect` into a buffer at set 0 binding 10, 32 bytes a copy, beside
+writes each copy's `GpuLightmapRect` into a buffer at set 0 binding 10, 48 bytes a copy, beside
 the instance matrices: the draw's `BakeId` looked up, or all -1 for a copy with no bake id or
 none in the bake. Reflection and light probe captures draw the G-buffer the same way, so they see
 the baked light the camera does; the shadow passes see no rects.
 `gbuffer.vert` reads it by `gl_InstanceIndex` and passes on the lightmap uv, `Uv2` times the
-scale plus the offset, at location 7 and the three texture indices, flat, at location 8.
+scale plus the offset, at location 7 and the three texture indices, flat, at location 8, with
+the copy's chunk in w.
 `writeBaked` in `surface.glsl` samples the pages at level 0 and writes G-buffer target 4:
 irradiance over pi, turned by `(n·d * 0.5 + 0.5) / max(0.5, v·d * 0.5 + 0.5)`, where `n` is the
 shaded normal, `v` the vertex normal and `d` the direction page unpacked to -1..1, so a normal map
@@ -3649,6 +3655,61 @@ smoothed, so at Preview, 64 paths a texel, its bounce is grainy where the plain 
 `SunTint`, divided by its largest channel. The sun's coefficients are scaled by that channel over the
 colour's luminance, so `SunTint * Sun` is each colour's transfer. A texel no rectangle or dilation reaches holds no
 transfer and a white tint.
+
+### Relighting a chunk
+
+Every copy of a chunk reads the one bake, and the frame's sky and suns are turned into each copy's space, so the same
+house can face north or south, at noon or at dusk, from one bake.
+
+The sky is projected by `SkySh` (`src/Rendition/Passes/SkySh.cs`) and `sky_sh.comp`, one group of 256 threads, into a
+64-byte buffer at set 0 binding 12: four `vec4`s, coefficient k's red, green and blue and its luminance, unscaled by the
+environment's intensity. It reads the 64² sky cube as its 16² mip would be, without one: each thread takes one cell of
+a 16 x 16 grid on every face and reads it as four bilinear taps at the centres of 2 x 2 texel blocks, so a cell is the
+mean of its 4 x 4 texels, and each tap is weighted by its block's exact solid angle. A sky of the same radiance
+everywhere gives `C0 = 4 pi Y0 L` to well within 1%. It is recorded before the G-buffer pass, after the sky cube is
+updated, only on frames that draw a relit chunk, so a sky change shows the very next frame.
+
+The frame's chunks are at set 0 binding 11 (`chunks.glsl`): first the suns, then a `ChunkData` per placed chunk, up to 256 (`BakeFiles.MaxChunks`), 128 bytes each and matching `GpuChunk`
+in `Renderer.cs`:
+
+- `sun[4]`: every `Mixed` and `Baked` sun summed as deltas, each its radiance times `Y` towards it, in world space.
+  A sun that moves is still counted, so a chunk's bounce follows a moving sun.
+- `intoChunk`, a `mat3x4`: from the world into the chunk's space, the transpose of the rigid transform's 3x3 with
+  `-dot(t, row)` in w, so `vec4(world, 1) * intoChunk` is the point and `vec4(direction, 0) * intoChunk` the direction.
+- `min` and `max`, the chunk's box in its own space.
+- `maskSlots`, the chunk's shadow mask channels for the frame's lights. They are all -1 for now; the mask is wired up
+  next.
+- `transfer`, the bindless slots of the sky's red, green and blue transfer pages and the sun's, and `tint.x` the sun
+  tint's. These go beyond the plan's struct, since a chunk's transfer pages are read through it, not through the
+  copy's `GpuLightmapRect`.
+
+`Renderer.FindRelitChunks` fills these after the resolver runs. A chunk is relit when its bake is fresh, resident in
+the pool and has transfer pages. `BakeResolver.Owners` gives each draw's owning chunk, from the same filing as its
+ids, and a draw owned by a relit chunk gets that chunk's index. `DrawSelection.Select` reports each kept draw's index
+among the frame's draws, and `InstanceBuffer.Add` writes the chunk into `GpuLightmapRect.Chunk` for a copy that has a
+lightmap. Only the camera's G-buffer pass sets it; reflection and light probe captures draw a chunk with its plain
+light only. `gbuffer.vert` passes the chunk in w of the flat `ivec4` at location 8 rather than as an `int` of its own,
+since `transparent.frag` shares the vertex shader and a lone unread `int` output draws a validation warning. The
+chunk-space position goes out at location 9 for the mask.
+
+`writeBaked` adds `chunkLight`. Each colour's sky set is turned into the chunk's space by `intoChunkSh`, whose vector
+part (`C3`, `C1`, `C2`) turns as (x, y, z) does, and dotted with that colour's transfer, times the environment's
+intensity. The summed suns are turned the same way and dotted with the sun page, times the tint. The plain page's
+light, if any, is added to that. With no plain page, `d` is the luminance transfer's vector part weighted by the
+turned sky's, and either way it is turned back to the world by `outOfChunkDirection`, the transpose.
+
+`ChunkBakePool.CheckPages` takes a chunk lit only by the sky and suns: it has a mask page but no irradiance or
+direction page, which it used to refuse.
+
+L1 keeps only the sky's broad shape. It is exact for an even sky, but a sky much brighter at the horizon than
+overhead is smeared over the zenith, so an open floor reads too bright. Under a clear `AnalyticSky` at turbidity 3, a
+chunk's floor is 8.03 steps of 255 on average from a space baked under the same sky; under an even sky it is about 1.
+`ChunkRelightGpuTests.Chunk_stays_near_a_space_bake` holds it to 9. Turning is checked apart, against a chunk baked
+with its wall where the turn puts it, which is L1 too: 2.5 to 2.7 steps, held to 6.
+
+`glow.frag` and any other custom surface shader includes `surface.glsl`, and a static model's identity hashes its
+shaders' compiled bytes, so any change to `surface.glsl` changes those models' bake ids and makes a space bake that
+draws them stale until it is baked again.
 
 ## Ray tracing
 

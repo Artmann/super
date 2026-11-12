@@ -367,6 +367,17 @@ public class BakeIdentityTests
     }
 
     [Fact]
+    public void Same_model_in_two_kinds_of_chunk_gets_different_ids()
+    {
+        // The renderer finds a copy's lightmap by its id, so a cottage's door and a barn's door at the same spot in their
+        // chunks must not share one, or the barn would read the cottage's bake.
+        ulong cottage = ChunkId(Matrix4x4.Identity, InChunk, "cottage");
+        ulong barn = ChunkId(Matrix4x4.Identity, InChunk, "barn");
+
+        Assert.NotEqual(cottage, barn);
+    }
+
+    [Fact]
     public void Draw_outside_every_chunk_uses_world_space()
     {
         // The draw moves with the chunk, but sits outside its box, so the chunk doesn't own it.
@@ -402,26 +413,26 @@ public class BakeIdentityTests
         Assert.Equal(2, parts.Length);
         Assert.Equal(BakeInputHash.Chunk([parts[0].BakeId, parts[1].BakeId], [], chunks[0], settings).Draws, resolved.Chunks[0].Draws);
         Assert.Equal(BakeInputHash.Chunk([], [], chunks[1], settings).Draws, resolved.Chunks[1].Draws);
-        // The ids are relative to west: the model standing 1.5 m along a chunk at the origin gets the same ones.
+        // The ids are relative to west: the model standing 1.5 m along a west chunk at the origin gets the same ones.
         Assert.Equal(
             parts.Select(part => part.BakeId),
-            ChunkModelIds(Matrix4x4.Identity, Matrix4x4.CreateTranslation(1.5f, 0f, 0f), bounds));
+            ChunkModelIds("west", Matrix4x4.Identity, Matrix4x4.CreateTranslation(1.5f, 0f, 0f), bounds));
     }
 
-    private ulong[] ChunkModelIds(Matrix4x4 chunk, Matrix4x4 transform, BakeSphere[] bounds)
+    private ulong[] ChunkModelIds(string name, Matrix4x4 chunk, Matrix4x4 transform, BakeSphere[] bounds)
     {
         var view = new View();
         view.Begin(0f);
-        view.BakedChunk("cottage", chunk, ChunkMin, ChunkMax);
+        view.BakedChunk(name, chunk, ChunkMin, ChunkMax);
         view.Model(1, ModelRef.Cube, transform, isStatic: true);
         return Dressed(view, Fresh(), bounds: bounds).Select(part => part.BakeId).ToArray();
     }
 
-    private ulong ChunkId(Matrix4x4 chunk, Matrix4x4 transform)
+    private ulong ChunkId(Matrix4x4 chunk, Matrix4x4 transform, string name = "cottage")
     {
         var view = new View();
         view.Begin(0f);
-        view.BakedChunk("cottage", chunk, ChunkMin, ChunkMax);
+        view.BakedChunk(name, chunk, ChunkMin, ChunkMax);
         view.Model(1, ModelRef.Cube, transform, isStatic: true);
         return Assert.Single(Dressed(view, Fresh())).BakeId;
     }

@@ -4,6 +4,7 @@
 #include "common.glsl"
 #include "material.glsl"
 #include "sampling.glsl"
+#include "chunks.glsl"
 
 layout(location = 0) in vec3 inNormal;
 layout(location = 1) in vec4 inTangent;
@@ -13,7 +14,10 @@ layout(location = 4) in vec2 inUv2;
 layout(location = 5) in vec3 inClipNow;    // clip x, y and w, without the anti-aliasing shift; see gbuffer.vert
 layout(location = 6) in vec3 inClipBefore; // the same, last frame
 layout(location = 7) in vec2 inLightmapUv; // where the pixel is on its lightmap page; see gbuffer.vert
-layout(location = 8) flat in ivec3 inLightmap; // the page's irradiance, direction and mask textures, -1 for none
+// The page's irradiance, direction and mask textures, -1 for none, and in w the copy's placed chunk in chunks.glsl, -1
+// for none.
+layout(location = 8) flat in ivec4 inLightmap;
+layout(location = 9) in vec3 inChunkPosition; // where the pixel is in that chunk's own space
 
 layout(location = 0) out vec4 outBaseColorMetallic;
 layout(location = 1) out vec4 outNormalRoughnessAo;
@@ -399,19 +403,72 @@ float foliageChannel(Material material) {
 // turn the light up thousands of times into a bright speck, or infinity. The share is floored at 0.5, its least for a d
 // the baker could have made, so light from behind counts as light from the side: the gain is never more than 2, the
 // most a normal map can turn up light that came along the surface, and a d in front is turned exactly as before.
+//
+// A copy of a chunk (inLightmap.w at least 0) also gets the frame's sky and suns, through its bake's transfer, which is in
+// the chunk's own space: the sky's and suns' L1 sets are turned into that space and dotted with it, so every copy is
+// lit for the way it faces. Its pages' direction is in that space too, and is turned back to the world. A chunk with no
+// plain light has no irradiance or direction page, and its d is the transfer's own lean towards the sky that lights it.
+// See "Chunk transfer" in docs/design.md.
 const float LIGHTMAP_PI = 3.14159265359;
 const float LIGHTMAP_LEAST_SHARE = 0.5;
+const vec3 LIGHTMAP_LUMINANCE = vec3(0.2126, 0.7152, 0.0722);
+
+// The irradiance, with pi in, that the frame's sky and suns give a chunk's texel, and in towards the way its sky light
+// leans, in the chunk's own space, unnormalised.
+vec3 chunkLight(int c, out vec3 towards) {
+    ChunkData chunk = chunkData.chunks[c];
+    vec4 skyR = textureLod(textures[nonuniformEXT(chunk.transfer.x)], inLightmapUv, 0.0);
+    vec4 skyG = textureLod(textures[nonuniformEXT(chunk.transfer.y)], inLightmapUv, 0.0);
+    vec4 skyB = textureLod(textures[nonuniformEXT(chunk.transfer.z)], inLightmapUv, 0.0);
+    vec4 sun = textureLod(textures[nonuniformEXT(chunk.transfer.w)], inLightmapUv, 0.0);
+    vec3 tint = textureLod(textures[nonuniformEXT(chunk.tint.x)], inLightmapUv, 0.0).rgb;
+
+    // The sky's sets per colour, and its luminance's, each coefficient's colours in one vec4 of the buffer.
+    mat4 sky = mat4(skySh.coefficients[0], skySh.coefficients[1], skySh.coefficients[2], skySh.coefficients[3]);
+    vec4 lightR = intoChunkSh(c, vec4(sky[0].r, sky[1].r, sky[2].r, sky[3].r));
+    vec4 lightG = intoChunkSh(c, vec4(sky[0].g, sky[1].g, sky[2].g, sky[3].g));
+    vec4 lightB = intoChunkSh(c, vec4(sky[0].b, sky[1].b, sky[2].b, sky[3].b));
+    vec4 lightL = intoChunkSh(c, vec4(sky[0].a, sky[1].a, sky[2].a, sky[3].a));
+    vec3 light = vec3(dot(skyR, lightR), dot(skyG, lightG), dot(skyB, lightB)) * frame.backgroundRadiance.a;
+
+    vec4 sunR = intoChunkSh(c, vec4(chunkData.sun[0].r, chunkData.sun[1].r, chunkData.sun[2].r, chunkData.sun[3].r));
+    vec4 sunG = intoChunkSh(c, vec4(chunkData.sun[0].g, chunkData.sun[1].g, chunkData.sun[2].g, chunkData.sun[3].g));
+    vec4 sunB = intoChunkSh(c, vec4(chunkData.sun[0].b, chunkData.sun[1].b, chunkData.sun[2].b, chunkData.sun[3].b));
+    light += tint * vec3(dot(sun, sunR), dot(sun, sunG), dot(sun, sunB));
+
+    // The luminance transfer's vector part, weighted by the turned sky's, both as (x, y, z).
+    vec4 transfer = skyR * LIGHTMAP_LUMINANCE.r + skyG * LIGHTMAP_LUMINANCE.g + skyB * LIGHTMAP_LUMINANCE.b;
+    towards = vec3(transfer.w * lightL.w, transfer.y * lightL.y, transfer.z * lightL.z);
+    return max(light, vec3(0.0));
+}
 
 void writeBaked(vec3 normal) {
-    if (inLightmap.x < 0) {
+    int chunk = inLightmap.w;
+    if (inLightmap.x < 0 && chunk < 0) {
         outBaked = vec4(0.0);
         outShadowMask = vec4(1.0);
         return;
     }
 
     // The pages have one level each, so they are read at it.
-    vec3 irradiance = textureLod(textures[nonuniformEXT(inLightmap.x)], inLightmapUv, 0.0).rgb;
-    vec3 d = textureLod(textures[nonuniformEXT(inLightmap.y)], inLightmapUv, 0.0).xyz * 2.0 - 1.0;
+    vec3 irradiance = vec3(0.0);
+    vec3 d = vec3(0.0);
+    if (inLightmap.x >= 0) {
+        irradiance = textureLod(textures[nonuniformEXT(inLightmap.x)], inLightmapUv, 0.0).rgb;
+        d = textureLod(textures[nonuniformEXT(inLightmap.y)], inLightmapUv, 0.0).xyz * 2.0 - 1.0;
+    }
+
+    if (chunk >= 0) {
+        vec3 towards;
+        irradiance += chunkLight(chunk, towards);
+        if (inLightmap.x < 0) {
+            float length2 = dot(towards, towards);
+            d = length2 > 0.0 ? towards * inversesqrt(length2) : vec3(0.0);
+        }
+
+        d = outOfChunkDirection(chunk, d);
+    }
+
     vec3 vertexNormal = surfaceFrame()[2];
     float turned = (dot(normal, d) * 0.5 + 0.5) / max(LIGHTMAP_LEAST_SHARE, dot(vertexNormal, d) * 0.5 + 0.5);
     outBaked = vec4(irradiance / LIGHTMAP_PI * turned, 1.0);

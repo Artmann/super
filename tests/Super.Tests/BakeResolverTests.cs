@@ -109,6 +109,31 @@ public sealed class BakeResolverTests
     }
 
     [Fact]
+    public void Owners_gives_each_draw_the_chunk_that_owns_its_model()
+    {
+        var resolver = new BakeResolver(NoBakes.Instance);
+        var animated = new AnimatedLights(TextWriter.Null);
+        var inFarRoom = new Vector3(40.5f, 1f, 0f);
+        // A model in the room, a moving draw, a model in the courtyard, the far room's and another in the room.
+        DrawItem[] draws =
+        [
+            Static(1, InRoom), new DrawItem { Transform = Matrix4x4.CreateTranslation(InRoom) },
+            Static(2, InCourtyard), Static(3, inFarRoom), Static(4, InRoom),
+        ];
+        var frame = new FrameView { BakedSpace = Courtyard, BakedChunks = new[] { Room, FarRoom } };
+
+        resolver.Resolve(frame, draws, TwoParts, 42, animated);
+
+        Assert.Equal([0, BakeAreas.None, BakeAreas.None, 1, 0], resolver.Owners.ToArray());
+
+        // A frame with no chunks owns nothing, though the last one did.
+        resolver.Resolve(new FrameView { BakedSpace = Courtyard }, draws, TwoParts, 42, animated);
+
+        Assert.Equal(
+            [BakeAreas.None, BakeAreas.None, BakeAreas.None, BakeAreas.None, BakeAreas.None], resolver.Owners.ToArray());
+    }
+
+    [Fact]
     public void Chunk_whose_bake_is_missing_is_neither_fresh_nor_pending()
     {
         var saved = new SavedBakes();

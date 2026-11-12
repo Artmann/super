@@ -235,15 +235,18 @@ internal sealed unsafe class ChunkBakePool : IDisposable
 
         int irradiance = bake.Irradiance?.Count ?? 0;
         int direction = bake.Direction?.Count ?? 0;
-        if (direction != irradiance || bake.Mask.Count > irradiance)
+        if (direction != irradiance)
         {
             throw new InvalidDataException(
-                $"The chunk bake {file} has {irradiance} irradiance pages but {direction} direction and {bake.Mask.Count} mask pages.");
+                $"The chunk bake {file} has {irradiance} irradiance pages but {direction} direction pages.");
         }
 
-        if (irradiance > 1)
+        // A chunk lit only by the sky and suns has no plain light, so no irradiance page, but the baker still writes
+        // its mask page.
+        if (irradiance > 1 || bake.Mask.Count > 1)
         {
-            throw new InvalidDataException($"The chunk bake {file} has {irradiance} irradiance pages, but a chunk's bake has one.");
+            throw new InvalidDataException(
+                $"The chunk bake {file} has {irradiance} irradiance and {bake.Mask.Count} mask pages, but a chunk's bake has at most one of each.");
         }
 
         var plainPages = new List<(LightBakePage Page, string Name)>();

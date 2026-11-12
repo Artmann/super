@@ -33,11 +33,19 @@ internal static class BakeIdentity
 
     /// <summary>
     /// The instance hash. The model's identity covers its meshes and materials, so the part number is all a part adds.
+    /// <paramref name="chunk"/> is the name of the chunk that owns the draw, or null for none: the renderer finds a copy's
+    /// lightmap by its id, so the same model at the same spot in two kinds of chunk must not share one.
     /// </summary>
-    public static ulong Instance(StableHasher hasher, ulong model, Vector3? tint, in Matrix4x4 relative)
+    public static ulong Instance(StableHasher hasher, ulong model, Vector3? tint, in Matrix4x4 relative, string? chunk = null)
     {
         hasher.Reset();
         hasher.Add(model);
+        // Only a chunk's draws add it, so a space's ids, and the space bakes made from them, stay as they were.
+        if (chunk is not null)
+        {
+            hasher.Add(chunk);
+        }
+
         if (tint is { } color)
         {
             hasher.Add(1).Add(color);
@@ -85,7 +93,7 @@ internal static class BakeIdentity
 
         int owner = BakeAreas.OwnerOfModel(spheres, space, chunks);
         var placed = owner >= 0 ? Relative(transform, chunks[owner].Transform) : transform;
-        ulong instance = Instance(scratch.Hasher, model, tint, placed);
+        ulong instance = Instance(scratch.Hasher, model, tint, placed, owner >= 0 ? chunks[owner].Name : null);
 
         s = 0;
         for (int p = 0; p < partBounds.Length; p++)
