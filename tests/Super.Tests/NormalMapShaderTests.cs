@@ -15,6 +15,14 @@ public sealed partial class NormalMapShaderTests
     /// </summary>
     private static readonly string[] ReadingGeneratedNormals = ["examples/Terrain/Shaders/terrain.frag"];
 
+    /// <summary>
+    /// Single lines that decode xyz on purpose, each a shader and a piece of the line, with why. Only that line is let
+    /// off, so the rest of the shader is still checked. A lightmap's direction page (<c>inLightmap.y</c>) is a direction,
+    /// not a normal map: RGBA8 from the baker or BC7 once cooked, both of which keep blue.
+    /// </summary>
+    private static readonly (string Shader, string Line)[] ReadingFullDirections =
+        [("src/Rendition/Shaders/surface.glsl", "nonuniformEXT(inLightmap.y)")];
+
     [GeneratedRegex(@"\.(xyz|rgb)\s*\*\s*2\.0\s*-\s*1\.0")]
     private static partial Regex DecodesXyz();
 
@@ -35,7 +43,9 @@ public sealed partial class NormalMapShaderTests
 
         string[] decoding = [.. shaders
             .Where(shader => !ReadingGeneratedNormals.Contains(shader))
-            .Where(shader => DecodesXyz().IsMatch(File.ReadAllText(Path.Combine(root, shader))))];
+            .Where(shader => File.ReadAllLines(Path.Combine(root, shader))
+                .Any(line => DecodesXyz().IsMatch(line)
+                    && !ReadingFullDirections.Any(allowed => allowed.Shader == shader && line.Contains(allowed.Line))))];
 
         Assert.True(decoding.Length == 0,
             $"These decode a normal as .xyz * 2.0 - 1.0, but a cooked normal map's blue is 0; use normalFrom: {string.Join(", ", decoding)}");

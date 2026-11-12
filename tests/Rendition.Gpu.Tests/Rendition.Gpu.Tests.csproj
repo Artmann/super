@@ -6,6 +6,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Rendition\Rendition.csproj" />
+    <!-- For LightBakeCooker.Compress, so a cooked bake is drawn as the game draws it. -->
+    <ProjectReference Include="..\..\src\Super.Cook\Super.Cook.csproj" />
     <PackageReference Include="Silk.NET.GLFW" Version="2.23.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.9.3" />

@@ -392,7 +392,15 @@ float foliageChannel(Material material) {
 // faces d against the share that normal does: a surface that faces the light gets more, one that faces away less, and
 // under an even sky, where d is near nothing, it is unchanged. Irradiance alpha is never read, since BC6H drops it.
 // A copy with no lightmap, and a ghost, writes no light, which the lighting reads as lit live, and a mask of 1.
+//
+// The baker gathers over the geometric normal, so d stays in its half of the sphere and the vertex normal's share is at
+// least 0.5 there. But a smooth-shaded mesh's vertex normal leans away from the geometric one, and a texel at a chart's
+// edge is filled from its neighbours, so d can point behind the vertex normal and the share fall towards 0, which would
+// turn the light up thousands of times into a bright speck, or infinity. The share is floored at 0.5, its least for a d
+// the baker could have made, so light from behind counts as light from the side: the gain is never more than 2, the
+// most a normal map can turn up light that came along the surface, and a d in front is turned exactly as before.
 const float LIGHTMAP_PI = 3.14159265359;
+const float LIGHTMAP_LEAST_SHARE = 0.5;
 
 void writeBaked(vec3 normal) {
     if (inLightmap.x < 0) {
@@ -403,10 +411,9 @@ void writeBaked(vec3 normal) {
 
     // The pages have one level each, so they are read at it.
     vec3 irradiance = textureLod(textures[nonuniformEXT(inLightmap.x)], inLightmapUv, 0.0).rgb;
-    // The direction page is RGBA8 or BC7, which keep blue, unlike a cooked normal map, so all three axes are read.
-    vec3 d = 2.0 * textureLod(textures[nonuniformEXT(inLightmap.y)], inLightmapUv, 0.0).xyz - 1.0;
+    vec3 d = textureLod(textures[nonuniformEXT(inLightmap.y)], inLightmapUv, 0.0).xyz * 2.0 - 1.0;
     vec3 vertexNormal = surfaceFrame()[2];
-    float turned = (dot(normal, d) * 0.5 + 0.5) / max(1e-4, dot(vertexNormal, d) * 0.5 + 0.5);
+    float turned = (dot(normal, d) * 0.5 + 0.5) / max(LIGHTMAP_LEAST_SHARE, dot(vertexNormal, d) * 0.5 + 0.5);
     outBaked = vec4(irradiance / LIGHTMAP_PI * turned, 1.0);
     outShadowMask = inLightmap.z < 0 ? vec4(1.0) : textureLod(textures[nonuniformEXT(inLightmap.z)], inLightmapUv, 0.0);
 }

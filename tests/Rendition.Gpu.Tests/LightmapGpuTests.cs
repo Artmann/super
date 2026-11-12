@@ -224,6 +224,187 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
+    [Fact]
+    public void Light_from_behind_the_vertex_normal_is_not_turned_up()
+    {
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        // A normal map leaning 60 degrees towards the quad's tangent, +x: n = (sin 60, 0, cos 60) = (0.866, 0, 0.5),
+        // packed as n * 0.5 + 0.5 = (238, 128, 191).
+        var normals = gpu.Renderer.CreateTexture(
+            TextureData.FromPixels(4, 4, TextureKind.Linear, Fill(16, 238, 128, 191), normalMap: true), TextureEdges.Clamp);
+        var leaning = gpu.Renderer.CreateMaterial(new Material
+        {
+            BaseColor = new Vector4(0.5f, 0.5f, 0.5f, 1f),
+            Roughness = 1f,
+            NormalTexture = normals,
+        });
+        try
+        {
+            gpu.Renderer.SetEnvironment(EvenSky());
+            var plane = Plane(quad, leaning);
+            var bake = Bake(plane);
+            // Normal maps are a material effect, so it is left on.
+            const RenderEffects off = OnlyBaked & ~RenderEffects.Materials;
+
+            // d packed as 128 is 0.004 on each axis, near nothing, as under an even sky: the light is turned by 1.004.
+            gpu.Renderer.Bakes = new Loaded(WithDirection(bake, 128, 128, 128));
+            var even = Centre(Capture(plane, sky: 0f, off));
+
+            // (166, 128, 6) is d = (0.302, 0.004, -0.953), behind the vertex normal +z, as a gutter texel or a smooth
+            // normal can give. n.d = 0.867 * 0.302 + 0.498 * -0.953 = -0.213 and v.d = -0.953, so the light would be
+            // turned by (-0.213 * 0.5 + 0.5) / (-0.953 * 0.5 + 0.5) = 0.394 / 0.0235 = 16.7. With the vertex normal's
+            // share floored at 0.5 it is 0.394 / 0.5 = 0.787: a little darker than the even light, not 17 times brighter.
+            gpu.Renderer.Bakes = new Loaded(WithDirection(bake, 166, 128, 6));
+            var behind = Centre(Capture(plane, sky: 0f, off));
+
+            Assert.True(even.X > 40f, $"The evenly lit plane reads {even}, unlit.");
+            Assert.True(behind.X < even.X, $"Light from behind reads {behind}, brighter than the even light, {even}.");
+            // 0.787 of the light shows as more than three quarters of the pixel, since sRGB lifts dark values.
+            Assert.True(behind.X > 0.75f * even.X, $"Light from behind reads {behind}, much darker than {even}.");
+        }
+        finally
+        {
+            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.SetEnvironment(DefaultEnvironment());
+            gpu.Renderer.DestroyMesh(quad);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Theory]
+    [InlineData("damaged")]
+    [InlineData("page out of range")]
+    public void An_unreadable_bake_is_lit_live_said_once_and_read_again_after_a_reload(string fault)
+    {
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        var error = Console.Error;
+        var log = new StringWriter();
+        try
+        {
+            gpu.Renderer.SetEnvironment(EvenSky());
+            var plane = Plane(quad, gpu.Matte);
+            // A Baked lamp a metre in front of the plane, the only light with the sky off.
+            LocalLight[] lamp =
+            [
+                new() { Mode = LightMode.Baked, Key = 1701, Position = new Vector3(0f, 0f, 1f), Radiance = new Vector3(2f), Range = 5f },
+            ];
+            Func<LightBakeFile> load;
+            string reason;
+            if (fault == "damaged")
+            {
+                load = () => throw new InvalidDataException("The bake is cut off.");
+                reason = "The bake is cut off.";
+            }
+            else
+            {
+                var bake = Bake(plane);
+                var misplaced = bake with { Draws = [(plane.BakeId, bake.Draws[0].Rect with { Page = 5 })] };
+                load = () => misplaced;
+                reason = $"Draw 0x{plane.BakeId:X16} is on page 5, but the bake has {bake.Irradiance.Count} pages.";
+            }
+
+            byte[] live = Capture(plane, sky: 0f, lights: lamp);
+
+            // A fresh bake that can be read takes the lamp out of the live lighting. A whole capture keeps the
+            // noise in step with the other two.
+            gpu.Renderer.Bakes = new FreshWithoutLightmaps();
+            Capture(plane, sky: 0f, lights: lamp);
+            Assert.Equal([0], gpu.Renderer.LastBakeFrame!.DroppedLocalLights);
+
+            Console.SetError(log);
+            var store = new Unreadable(load);
+            gpu.Renderer.Bakes = store;
+            byte[] unreadable = Capture(plane, sky: 0f, lights: lamp);
+
+            // Over 64 frames it is read once and said once, and the lamp is back.
+            Assert.True(Centre(live).X > 2f, $"The lamp leaves the plane at {Centre(live)}, unlit.");
+            Assert.Equal(live, unreadable);
+            Assert.Equal(1, store.Loads);
+            Assert.Equal([$"The bake lighting/lightmap-room.lightbake can't be read, so its area is lit live: {reason}"], Lines(log));
+
+            // Once the store's files may have changed, it is read again, and the frame that finds it still unreadable
+            // keeps the lamp.
+            store.Reloads++;
+            gpu.Renderer.Render(View(0f, OnlyBaked, lamp), [plane]);
+            Assert.Equal(2, store.Loads);
+            Assert.Equal(2, Lines(log).Length);
+            Assert.False(gpu.Renderer.LastBakeFrame!.SpaceFresh);
+            Assert.Empty(gpu.Renderer.LastBakeFrame.DroppedLocalLights);
+        }
+        finally
+        {
+            Console.SetError(error);
+            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.SetEnvironment(DefaultEnvironment());
+            gpu.Renderer.DestroyMesh(quad);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void A_cooked_bake_lights_the_plane_as_the_bake_it_was_cooked_from()
+    {
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        try
+        {
+            gpu.Renderer.SetEnvironment(EvenSky());
+            var plane = Plane(quad, gpu.Matte);
+            var bake = Bake(plane);
+            var cooked = LightBakeFile.Read(Super.Cook.LightBakeCooker.Compress(bake).ToBytes());
+            Assert.Equal(LightBakePageFormat.Bc6h, cooked.Irradiance[0].Format);
+            Assert.Equal(LightBakePageFormat.Bc7, cooked.Direction[0].Format);
+
+            gpu.Renderer.Bakes = new Loaded(bake);
+            var raw = Centre(Capture(plane, sky: 0f));
+            gpu.Renderer.Bakes = new Loaded(cooked);
+            var fromCooked = Centre(Capture(plane, sky: 0f));
+
+            // BC6H keeps about 3 significant figures of an even light, and BC7 the direction to a byte or two.
+            Assert.True(raw.X > 40f, $"The lightmapped plane reads {raw}, unlit.");
+            AssertWithin(raw.X, fromCooked.X, 0.03f, "red from the cooked bake");
+            AssertWithin(raw.Y, fromCooked.Y, 0.03f, "green from the cooked bake");
+            AssertWithin(raw.Z, fromCooked.Z, 0.03f, "blue from the cooked bake");
+        }
+        finally
+        {
+            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.SetEnvironment(DefaultEnvironment());
+            gpu.Renderer.DestroyMesh(quad);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    // The bake with every direction page one colour of RGBA8.
+    private static LightBakeFile WithDirection(LightBakeFile bake, byte x, byte y, byte z) => bake with
+    {
+        Direction = [.. bake.Direction.Select(page =>
+            new LightBakePage(page.Width, page.Height, LightBakePageFormat.Rgba8, Fill(page.Width * page.Height, x, y, z)))],
+    };
+
+    // Pixels of one RGBA8 colour, alpha 255.
+    private static byte[] Fill(int pixels, byte x, byte y, byte z)
+    {
+        byte[] bytes = new byte[pixels * 4];
+        for (int i = 0; i < bytes.Length; i += 4)
+        {
+            bytes[i] = x;
+            bytes[i + 1] = y;
+            bytes[i + 2] = z;
+            bytes[i + 3] = 255;
+        }
+
+        return bytes;
+    }
+
+    private static string[] Lines(StringWriter log) =>
+        log.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+
     // The test quad, 2 metres square, facing the camera, static in the room.
     private static DrawItem Plane(MeshHandle mesh, MaterialHandle material) => new()
     {
@@ -256,7 +437,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         return handle;
     }
 
-    private static FrameView View(float sky, RenderEffects off) => new()
+    private static FrameView View(float sky, RenderEffects off, LocalLight[]? lights = null) => new()
     {
         Width = Size,
         Height = Size,
@@ -266,12 +447,13 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         EnvironmentIntensity = sky,
         Off = off,
         BakedSpace = Room,
+        LocalLights = lights ?? [],
     };
 
     // The 64th frame of the plane under the sky at the strength given, so two captures fall on the same noise.
-    private byte[] Capture(DrawItem plane, float sky, RenderEffects off = OnlyBaked)
+    private byte[] Capture(DrawItem plane, float sky, RenderEffects off = OnlyBaked, LocalLight[]? lights = null)
     {
-        var view = View(sky, off);
+        var view = View(sky, off, lights);
         for (int i = 0; i < NoisePeriod - 1; i++)
         {
             gpu.Renderer.Render(view, [plane]);
@@ -301,5 +483,27 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
         public bool IsFresh(string file, BakeInputs inputs) => true;
 
         public LightBakeFile? Load(string file) => bake;
+    }
+
+    // A store that calls every area fresh but has no lightmaps to give.
+    private sealed class FreshWithoutLightmaps : IBakeStore
+    {
+        public bool IsFresh(string file, BakeInputs inputs) => true;
+    }
+
+    // A store that calls every area fresh, then fails to load it, counting the tries.
+    private sealed class Unreadable(Func<LightBakeFile> load) : IBakeStore
+    {
+        public int Loads { get; private set; }
+
+        public int Reloads { get; set; }
+
+        public bool IsFresh(string file, BakeInputs inputs) => true;
+
+        public LightBakeFile? Load(string file)
+        {
+            Loads++;
+            return load();
+        }
     }
 }

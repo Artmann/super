@@ -3329,9 +3329,12 @@ the baked light the camera does; the shadow passes see no rects.
 `gbuffer.vert` reads it by `gl_InstanceIndex` and passes on the lightmap uv, `Uv2` times the
 scale plus the offset, at location 7 and the three texture indices, flat, at location 8.
 `writeBaked` in `surface.glsl` samples the pages at level 0 and writes G-buffer target 4:
-irradiance over pi, turned by `(n·d + 1) / (v·d + 1)`, where `n` is the shaded normal, `v` the
-vertex normal and `d` the direction page unpacked to -1..1, so a normal map still shows under
-baked light and an even sky (`d` near 0) leaves it unchanged. Alpha is 1. Target 5 gets the mask
+irradiance over pi, turned by `(n·d * 0.5 + 0.5) / max(0.5, v·d * 0.5 + 0.5)`, where `n` is the
+shaded normal, `v` the vertex normal and `d` the direction page unpacked to -1..1, so a normal map
+still shows under baked light and an even sky (`d` near 0) leaves it unchanged. The floor,
+`LIGHTMAP_LEAST_SHARE`, is the share a `d` the baker made in front of `v` always has, so such a
+texel is unchanged by it; a `d` behind `v`, which a gutter texel or a smooth-shaded edge can give,
+would otherwise divide by nearly 0, and with it the light is turned up at most twice. Alpha is 1. Target 5 gets the mask
 page, or 1. A copy without a lightmap, and a ghost, writes 0 and a mask of 1.
 
 `lighting.frag` reads target 4 at set 1 binding 14 and target 5 at binding 15. A pixel with

@@ -10,6 +10,7 @@
     <InternalsVisibleTo Include="Super.Cook.Tests" />
     <InternalsVisibleTo Include="Super.Cook.Models" />
     <InternalsVisibleTo Include="Super.Cook.Materials" />
+    <InternalsVisibleTo Include="Rendition.Gpu.Tests" />
   </ItemGroup>
 
 </Project>
