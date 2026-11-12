@@ -219,7 +219,6 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             var wrong = new LightBakePage(tint.Width, tint.Height, LightBakePageFormat.Rgba16f, new byte[tint.Width * tint.Height * 8]);
             store.Hold(bake with { Transfer = bake.Transfer with { SunTint = wrong } });
             store.Release();
-            byte[] live = Capture(View(First, lamps, []), wall);
 
             gpu.Renderer.Bakes = store;
             var view = View(First, lamps, [Chunk(First)]);
@@ -232,19 +231,17 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             while (gpu.Renderer.LastBakeFrame!.ChunkPending(0) && frames < MostFrames);
 
             Assert.True(frames < MostFrames, $"The chunk was still pending after {MostFrames} frames.");
-            // Up to a whole number of the noise's periods since the live capture, so the capture lands on its frame.
-            for (; frames % NoisePeriod != 0; frames++)
-            {
-                gpu.Renderer.Render(view, [wall]);
-            }
-
             byte[] refused = Capture(view, wall);
             var frame = gpu.Renderer.LastBakeFrame!;
             Assert.Equal([false], frame.ChunkFresh);
             Assert.False(frame.ChunkPending(0));
             Assert.Empty(frame.DroppedLocalLights);
             Assert.Equal(0, gpu.Renderer.ChunkBakes.Resident);
+            Assert.Empty(gpu.Renderer.ChunkBakes.Entries);
             Assert.Equal(1, store.Loads);
+
+            // The same scene with no chunk at all, straight after: the refused chunk is drawn just as live.
+            byte[] live = Capture(View(First, lamps, []), wall);
             Assert.Equal(live, refused);
         }
         finally
@@ -254,6 +251,63 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void Chunk_that_drops_out_for_a_frame_comes_back_with_its_bake_read_again()
+    {
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        var store = new HeldStore();
+        try
+        {
+            var wall = Wall(quad, First);
+            LocalLight[] lamps = [Lamp(First, 7451)];
+            store.Hold(Bake(wall, First, lamps));
+            store.Release();
+            byte[] live = Capture(View(First, lamps, []), wall);
+
+            gpu.Renderer.Bakes = store;
+            var view = View(First, lamps, [Chunk(First)]);
+            Assert.True(RenderUntilFresh(view, wall) <= MostFrames, $"The chunk's bake wasn't resident after {MostFrames} frames.");
+            byte[] resident = Capture(view, wall);
+            var oldPages = gpu.Renderer.ChunkBakes.Entries.Single().Transfer.Select(slot => new TextureHandle(slot)).ToArray();
+
+            // One frame without the chunk lets its bake go while the frames before it may still be drawing from it,
+            // then the chunk comes straight back, inside the frames in flight.
+            gpu.Renderer.Render(View(First, lamps, []), [wall]);
+            Assert.Empty(gpu.Renderer.ChunkBakes.Entries);
+            Assert.All(oldPages, page => Assert.True(gpu.Renderer.Resources.IsDying(page), "An old page went before the frames drawing it were done."));
+            gpu.Renderer.Render(view, [wall]);
+            Assert.True(gpu.Renderer.LastBakeFrame!.ChunkPending(0), "The chunk came back with its old bake, which was let go.");
+
+            Assert.True(RenderUntilFresh(view, wall) <= MostFrames, $"The chunk's bake wasn't resident again after {MostFrames} frames.");
+            byte[] again = Capture(view, wall);
+
+            Assert.Equal(2, store.Loads);
+            Assert.Equal(1, gpu.Renderer.ChunkBakes.Resident);
+            Assert.NotEqual(live, resident);
+            AssertWithinOneStep(resident, again, "first resident", "back again");
+            Assert.Equal(errors, gpu.ValidationErrors);
+        }
+        finally
+        {
+            store.Release();
+            LetGo(quad);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    // Two captures that should draw the same light agree to within a step in every byte.
+    private static void AssertWithinOneStep(byte[] expected, byte[] actual, string expectedName, string actualName)
+    {
+        Assert.Equal(expected.Length, actual.Length);
+        for (int i = 0; i < expected.Length; i++)
+        {
+            Assert.True(Math.Abs(expected[i] - actual[i]) <= 1,
+                $"Byte {i} reads {expected[i]} {expectedName} but {actual[i]} {actualName}.");
+        }
     }
 
     // Renders until the frame's chunks are all fresh, and gives how many frames that took, or more than MostFrames.
@@ -340,10 +394,11 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
         };
     }
 
-    // The 64th frame, so two captures fall on the same frame of the dither's noise.
+    // After at least 63 frames of the view, on the first frame of the dither's noise, so any two captures fall on the
+    // same frame of it however many frames came between them.
     private byte[] Capture(FrameView view, params DrawItem[] draws)
     {
-        for (int i = 0; i < NoisePeriod - 1; i++)
+        for (int i = 0; i < NoisePeriod - 1 || gpu.Renderer.FrameNumber % NoisePeriod != 0; i++)
         {
             gpu.Renderer.Render(view, draws);
         }
@@ -363,7 +418,10 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
 
         public int Loads => Volatile.Read(ref _loads);
 
-        public int LoadThread { get; private set; }
+        private int _loadThread;
+
+        // Written by the worker that loads, read by the test.
+        public int LoadThread => Volatile.Read(ref _loadThread);
 
         public int Reloads { get; set; }
 
@@ -377,7 +435,7 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
         public LightBakeFile? Load(string file)
         {
             Interlocked.Increment(ref _loads);
-            LoadThread = Environment.CurrentManagedThreadId;
+            Volatile.Write(ref _loadThread, Environment.CurrentManagedThreadId);
             if (!_gate.Wait(TimeSpan.FromSeconds(5)))
             {
                 throw new IOException("The test held the load and never let it go.");

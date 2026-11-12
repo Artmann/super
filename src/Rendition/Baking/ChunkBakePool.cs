@@ -70,6 +70,9 @@ internal sealed unsafe class ChunkBakePool : IDisposable
         public readonly int Role = role;
         public int RowsDone;
         public int Slot = -1;
+
+        // Set when the material table freed the texture while refusing it.
+        public bool Freed;
     }
 
     private readonly record struct Band(Page Page, int FirstRow, int Rows, int Bytes);
@@ -175,7 +178,7 @@ internal sealed unsafe class ChunkBakePool : IDisposable
         {
             foreach (var page in entry.Pages)
             {
-                if (page.Slot < 0)
+                if (page.Slot < 0 && !page.Freed)
                 {
                     page.Texture.Dispose();
                 }
@@ -373,25 +376,40 @@ internal sealed unsafe class ChunkBakePool : IDisposable
         var staging = GpuBuffer.CreateHostVisible(_context, (ulong)total, BufferUsageFlags.TransferSrcBit);
         others.Add(staging);
         ulong offset = 0;
-        foreach (var band in _bands)
+        try
         {
-            var page = band.Page;
-            int start = page.Texture.RowsSize(band.FirstRow);
-            page.Source!.Pixels.AsSpan(start, band.Bytes).CopyTo(new Span<byte>((byte*)staging.Mapped + offset, band.Bytes));
-            bool first = band.FirstRow == 0;
-            bool last = band.FirstRow + band.Rows == page.Texture.Height;
-            page.Texture.RecordRows(cmd, staging, offset, band.FirstRow, band.Rows, first, last);
-            page.RowsDone = band.FirstRow + band.Rows;
-            if (last)
+            foreach (var band in _bands)
             {
-                page.Slot = _resources.AddTexture(page.Texture, TextureEdges.Clamp).Index;
-                page.Source = null;
+                var page = band.Page;
+                int start = page.Texture.RowsSize(band.FirstRow);
+                page.Source!.Pixels.AsSpan(start, band.Bytes).CopyTo(new Span<byte>((byte*)staging.Mapped + offset, band.Bytes));
+                bool first = band.FirstRow == 0;
+                bool last = band.FirstRow + band.Rows == page.Texture.Height;
+                page.Texture.RecordRows(cmd, staging, offset, band.FirstRow, band.Rows, first, last);
+                page.RowsDone = band.FirstRow + band.Rows;
+                if (last)
+                {
+                    try
+                    {
+                        page.Slot = _resources.AddTexture(page.Texture, TextureEdges.Clamp).Index;
+                    }
+                    catch
+                    {
+                        // A full table frees the texture itself, so neither Release nor Dispose may free it again.
+                        page.Freed = true;
+                        throw;
+                    }
+
+                    page.Source = null;
+                }
+
+                offset += (ulong)band.Bytes;
             }
-
-            offset += (ulong)band.Bytes;
         }
-
-        _bands.Clear();
+        finally
+        {
+            _bands.Clear();
+        }
         for (int i = _uploading.Count - 1; i >= 0; i--)
         {
             var entry = _uploading[i];
@@ -455,7 +473,7 @@ internal sealed unsafe class ChunkBakePool : IDisposable
                 _resources.MarkTextureDying(page.Slot);
                 textures.Add(page.Slot);
             }
-            else
+            else if (!page.Freed)
             {
                 others.Add(page.Texture);
             }

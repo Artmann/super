@@ -233,6 +233,10 @@ public sealed unsafe class Renderer : IDisposable
     private GpuBuffer? _capture;
     private bool _captureRecorded;
     private int _frameNumber;
+
+    /// <summary>The number the next frame drawn gets, which picks its frame of the dither's noise. For tests.</summary>
+    internal int FrameNumber => _frameNumber;
+
     private bool _historyReady;
     private Matrix4x4 _previousViewProjection;
     // Last frame's time and where its keyed draws stood, for motion vectors.
