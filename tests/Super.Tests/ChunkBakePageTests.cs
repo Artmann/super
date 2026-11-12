@@ -111,7 +111,7 @@ public sealed class ChunkBakePageTests
     {
         var bake = Chunk(plainLight: true) with { Direction = null };
 
-        Assert.Equal($"The chunk bake {File} has 1 irradiance pages but 0 direction and 0 mask pages.", Refusal(bake));
+        Assert.Equal($"The chunk bake {File} has 1 irradiance pages but 0 direction pages.", Refusal(bake));
     }
 
     [Fact]
@@ -120,7 +120,7 @@ public sealed class ChunkBakePageTests
         var page = Page(8, 8, LightBakePageFormat.Rgba16f);
         var bake = Chunk(plainLight: true) with { Irradiance = [page, page], Direction = [page, page] };
 
-        Assert.Equal($"The chunk bake {File} has 2 irradiance pages, but a chunk's bake has one.", Refusal(bake));
+        Assert.Equal($"The chunk bake {File} has 2 irradiance and 0 mask pages, but a chunk's bake has at most one of each.", Refusal(bake));
     }
 
     [Fact]
