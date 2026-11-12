@@ -16,8 +16,9 @@ internal readonly record struct ProbeBudget(int Raster, int Traced)
     }
 
     /// <summary>
-    /// How many clean probes the traced path refreshes a frame once the probes near the camera are settled: a quarter
-    /// of its budget. Refreshing the full budget cost up to about 1 ms of GPU time a frame in a settled scene.
+    /// How many clean probes the traced path refreshes a frame once the probes near the camera are settled and their
+    /// bounce has built up (see <see cref="ProbeScheduler.BounceRefreshes"/>): a quarter of its budget. Refreshing the
+    /// full budget cost up to about 1 ms of GPU time a frame in a settled scene.
     /// </summary>
     public int TracedRefresh => Traced / 4;
 }
@@ -39,8 +40,8 @@ internal readonly record struct ProbeId(int Cascade, int Slot);
 /// frame (a flickering lantern) can't stop new probes from ever being captured. In the dirty and
 /// never-captured tiers nearer probes go first, and so do finer cascades and probes in front of the
 /// camera. In the last tier the oldest goes first, whatever its place, which bounds the time between
-/// two updates of any probe to about (probes / budget) frames, or (probes / refreshBudget) once settled; distance
-/// only breaks ties.
+/// two updates of any probe to about (probes / budget) frames, or (probes / refreshBudget) once settled and the
+/// bounce has had <see cref="BounceRefreshes"/> refreshes; distance only breaks ties.
 ///
 /// <see cref="Next"/> is one pass over every probe that keeps the best <c>budget</c> in a small
 /// binary heap, so it costs O(probes + budget log budget) with no sort of all probes. Once its
@@ -52,6 +53,13 @@ internal sealed class ProbeScheduler
 {
     /// <summary>The cascade index of the fixed grid in a <see cref="ProbeId"/>.</summary>
     public const int FixedGrid = ProbeCascades.Count;
+
+    /// <summary>
+    /// How many refreshes of every probe, counted together, <see cref="Next"/> hands out at the full budget after the
+    /// last never-captured or dirty probe is done, before it holds clean refreshes to its refresh budget. Each refresh
+    /// adds one more bounce of light, and the white test room has about 80% of its bounce after 12.
+    /// </summary>
+    public const int BounceRefreshes = 12;
 
     private const byte NeverCaptured = 0;
     private const byte Dirty = 1;
@@ -75,6 +83,9 @@ internal sealed class ProbeScheduler
     private readonly int[] _pending = new int[FixedGrid + 1];
 
     private bool _scrolled;
+
+    // Clean probes refreshed since the last frame that had a never-captured or dirty probe in any group.
+    private long _refreshesSinceChange;
 
     // Where the fixed grid's probes are, so LightChanged can find the cells a light covers. A spacing of 0 means
     // SetFixedGrid hasn't been called.
@@ -305,15 +316,31 @@ internal sealed class ProbeScheduler
     /// Advances the frame and returns the probes to update in it, best first: never more than
     /// <paramref name="budget"/>, none twice. Call <see cref="Updated"/> with the batch once its probes
     /// are captured, in the same frame and before the next change to the lighting. The list is the
-    /// scheduler's own and the next call refills it, so copy it to keep it. Once <see cref="Settled"/>, at most
-    /// <paramref name="refreshBudget"/> of the batch are clean probes refreshed for their age, so a settled scene
-    /// costs less than one still filling in.
+    /// scheduler's own and the next call refills it, so copy it to keep it. Once <see cref="Settled"/>, and once
+    /// <see cref="BounceRefreshes"/> refreshes of every probe have been updated since the last never-captured or dirty
+    /// probe, at most <paramref name="refreshBudget"/> of the batch are clean probes refreshed for their age, so a
+    /// settled scene costs less than one still filling in, yet bounce builds up at the full budget first.
     /// </summary>
     public IReadOnlyList<ProbeId> Next(int budget, Vector3 camera, Vector3 forward, int refreshBudget = int.MaxValue)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(refreshBudget);
         Frame++;
         _batch.Clear();
+
+        long probes = 0;
+        bool pending = false;
+        for (int group = 0; group <= FixedGrid; group++)
+        {
+            probes += _state[group]?.Length ?? 0;
+            pending |= _pending[group] > 0;
+        }
+
+        if (pending)
+        {
+            _refreshesSinceChange = 0;
+        }
+
+        bool bounced = _refreshesSinceChange >= BounceRefreshes * probes;
         if (budget <= 0)
         {
             return _batch;
@@ -386,8 +413,9 @@ internal sealed class ProbeScheduler
         int nearTaken = Math.Min(nearSize, budget - Math.Min(waiting, budget / 4));
         int restTaken = Math.Min(size, budget - nearTaken);
 
-        // Clean probes sort last in the rest. Once the fine groups are settled, only refreshBudget of them are taken.
-        if (Settled && refreshBudget < restTaken)
+        // Clean probes sort last in the rest. Once the fine groups are settled and the bounce has had its refreshes,
+        // only refreshBudget of them are taken.
+        if (Settled && bounced && refreshBudget < restTaken)
         {
             int unsettled = 0;
             while (unsettled < rest.Length && rest[unsettled].Tier != Clean)
@@ -397,6 +425,7 @@ internal sealed class ProbeScheduler
 
             restTaken = Math.Min(restTaken, unsettled + refreshBudget);
         }
+
         foreach (var candidate in near[..nearTaken])
         {
             _batch.Add(new ProbeId(candidate.Group, candidate.Slot));
@@ -442,6 +471,10 @@ internal sealed class ProbeScheduler
             if (state[id.Slot] != Clean)
             {
                 _pending[id.Cascade]--;
+            }
+            else
+            {
+                _refreshesSinceChange++;
             }
 
             state[id.Slot] = Clean;

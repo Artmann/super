@@ -347,11 +347,15 @@ detail is finest close by and the far boxes still reach a long way. On a GPU tha
 probes are updated a frame by [`Graphics.ProbeQuality`](#graphics-settings): `Low`, `Medium` or
 `High`, the default. Nothing turns this on; it is used whenever the GPU can. Each traced update
 moves a probe a quarter of the way to what its rays saw, so a little noise averages away, but a
-probe whose light changed by 5% or more takes the new light whole, so a lamp turned on, or
-light still bouncing between walls, fills in within a few updates. At `High` the near probes
-are all traced within the first few dozen frames. Once they have settled, only a quarter as many
-are redone a frame, to save GPU time, so every probe is redone about every four seconds at 60
-fps; a changed light or a new probe still gets the full count.
+big change, well above the probe's own noise, comes in whole, so a lamp turned on near the
+probe fills in within a few updates. A small change, or one at a probe lit mostly by a small,
+noisy light, still moves a quarter of the way an update. At `High` the near probes are all
+traced within the first few dozen frames, and each is then redone about every second at 60 fps
+for 12 more updates, as each update adds one more bounce of light between walls: in a white
+room the bounce is about 80% there after 12 seconds. After that only a quarter as many are
+redone a frame, to save GPU time, so every probe is redone about every four seconds and the
+last of the bounce takes a minute or two to come in. A changed light or a new probe starts the
+full count again.
 
 Without tracing, each update draws the scene round the probe six times instead, so far fewer
 fit in a frame: 8, 16 or 32 by `ProbeQuality`, and fewer in a dense scene, since a frame draws

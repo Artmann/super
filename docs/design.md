@@ -1664,7 +1664,7 @@ since their last update. Among dirty and never-captured probes the nearer probe 
 cascades win at equal distance (squared distance is scaled by `(1 + cascade / 2)²`) and probes in
 front of the camera count as nearer (×0.75). Among clean probes the oldest goes first and
 distance only breaks ties, so no probe waits longer than about probes ÷ budget frames, or
-probes ÷ `refreshBudget` once settled. Ties end in the lowest cascade and slot, so the same calls
+probes ÷ `refreshBudget` once settled and past the bounce window below. Ties end in the lowest cascade and slot, so the same calls
 always give the same batches. `Frame` counts the
 calls to `Next`, and ages are in frames, never seconds. The pass over all probes keeps the best
 `budget` in a binary heap rather than sorting, so a frame at High (65,536 probes) costs one scan.
@@ -1696,11 +1696,22 @@ sample over 900 frames: 676,800 bytes, the same as before the probes were live.
 
 The ProbeBudget is 8 raster and 256 traced probes a frame at Low, 16 and 512 at Medium, and 32
 and 1,024 at High. The traced path refreshes clean probes for their age at only a quarter of its
-budget (`TracedRefresh`: 64, 128 and 256) once `Settled` is true, which `Next` takes as
-`refreshBudget`. Never-captured and dirty probes still get the whole budget. Refreshing the whole
+budget (`TracedRefresh`: 64, 128 and 256), which `Next` takes as `refreshBudget`, but only once
+`Settled` is true and the bounce has had time to build. Each refresh adds one more bounce, so
+`Next` counts the clean refreshes it hands out since the last frame that had a never-captured or
+dirty probe in any group, and keeps the whole budget until that count reaches
+`BounceRefreshes` (12) refreshes of every probe: 768 frames at High, about 13 seconds at 60 fps.
+A light change, a scroll that brings in new probes or a new grid starts the count again. It is a
+count of refreshes, not a GPU reading, so it is the same on every run. Never-captured and dirty
+probes always get the whole budget. Refreshing the whole
 budget kept the probe pass busy in a settled scene: at High and 1280 × 720, `--profile` measured
 0.97 ms of GPU time a frame in Rooms and 0.62 ms in Bricks, and with the quarter it measures 0.27
-and 0.22 ms. At 256 refreshes a frame a probe at High is refreshed about every 260 frames. Scenes
+and 0.22 ms once the window has passed. At 256 refreshes a frame a probe at High is refreshed
+every 256 frames, against every 64 at the whole budget. In the white test room, traced at High,
+the near probes settle in 37 frames, and the bounce reaches half its full reading after about
+220 frames, 80% after about 740, 90% after about 3,900 and 95% after more than 6,000. Holding
+the whole budget for good would reach 90% after about 1,600 and 95% after about 2,600, and
+dropping to the quarter at once took about 540 frames for half and 2,100 for 80%. Scenes
 whose near probes never settle keep the whole budget: Crypt's flickering torches dirty probes
 every frame (0.90 ms), and Gallery's camera tour keeps bringing in new ones (0.42 ms). On the
 CPU, `Next` scans every probe each frame whatever the budget, which `--profile` puts at about 1 ms
@@ -3234,12 +3245,13 @@ and `ReadyToTrace`, are checked by review and by the GPU tests, not by the valid
   things or the camera move, and a scene gets at most four. Removing one recaptures the rest.
   They don't see point and spot lights.
 - Where the GPU traces, light probes update 256, 512 or 1,024 a frame, so the two finest
-  cascades settle within a few dozen frames at High and every probe is redone about every 64
-  frames. Each update adds one more bounce, so the light bounced between walls gets to 80% in
-  about 10 refreshes of each probe, about ten seconds at 60 fps, and the last few percent take
-  about 30 refreshes, as changes under 5% still move a probe only a quarter of the way: a lamp
-  turned on in a white room is mostly lit within seconds and keeps brightening slightly for
-  about half a minute.
+  cascades settle within a few dozen frames at High and every probe is redone every 64 frames
+  for the first 12 refreshes after a change, then every 256. Each update adds one more bounce,
+  so in the white test room the light bounced between walls gets to half in about 4 seconds at
+  60 fps and to 80% in about 12, inside that window. The rest comes in at the quarter budget,
+  and changes within the noise move a probe only a quarter of the way, so 90% takes about a
+  minute and the last few percent close to two: a lamp turned on in a white room is mostly lit
+  within seconds and keeps brightening slightly for a minute or two.
 - Where it doesn't, light probes are rasterized a few a frame (8, 16 or 32), so after a load, a
   teleport or a change of sun they take a while to settle: about a thousand frames for the two
   finest cascades at High. Courtyard takes longer than a screenshot's 2,048-frame wait to settle

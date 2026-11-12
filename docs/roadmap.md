@@ -29,7 +29,7 @@ Super is early. These are the known gaps, so you can plan around them.
   reflection, and turning one on doesn't photograph the probe again.
 - [Light probes](rendering.md#bounced-light) are traced with ray queries, as DDGI does, where
   the GPU can, but each update adds only one more bounce, so bounce between walls takes about
-  ten seconds to mostly build up and half a minute to finish, and a moved object reaches the bounce only when its probes
+  12 seconds to mostly build up and a minute or two to finish, and a moved object reaches the bounce only when its probes
   come round again. On a GPU that can't trace they are rasterized a few a frame and take about
   a thousand frames to settle after a load or a teleport. A surface cache like Unreal's Lumen
   is a later step.

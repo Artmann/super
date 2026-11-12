@@ -575,6 +575,7 @@ public class ProbeSchedulerTests
         scheduler.Updated(first);
         CaptureEverything(scheduler, camera);
         Assert.True(scheduler.Settled);
+        RunFrames(scheduler, camera, 384);
 
         var settled = scheduler.Next(256, camera, Forward, refreshBudget: 64);
         Assert.Equal(64, settled.Count);
@@ -587,6 +588,45 @@ public class ProbeSchedulerTests
         int near = relit.Count(id => Vector3.Distance(cascades.Position(id.Cascade, id.Slot), camera) <= 1.5f);
         Assert.Equal(256, relit.Count);
         Assert.InRange(near, 100, 200);
+    }
+
+    [Fact]
+    public void The_full_budget_keeps_refreshing_settled_probes_for_twelve_rounds_after_each_change()
+    {
+        // Low has 4 cascades of 16 x 8 x 16 = 2,048 probes, 8,192 in all. Twelve refreshes of each, 98,304 updates,
+        // take 384 frames of 256.
+        var cascades = new ProbeCascades(ProbeQuality.Low);
+        var scheduler = new ProbeScheduler(cascades, 0);
+        var camera = new Vector3(0.25f, 1.1f, 0.25f);
+        scheduler.Scrolled(cascades.Move(camera));
+        CaptureEverything(scheduler, camera);
+
+        Assert.Equal(Enumerable.Repeat(256, 384), RunFrames(scheduler, camera, 384));
+        Assert.Equal([64, 64], RunFrames(scheduler, camera, 2));
+
+        // A light dirties some probes: once they're done, the window starts again from nothing.
+        scheduler.LightChanged(camera, 1.5f);
+        while (!scheduler.Settled)
+        {
+            scheduler.Updated(scheduler.Next(256, camera, Forward, refreshBudget: 64));
+        }
+
+        Assert.Equal(Enumerable.Repeat(256, 384), RunFrames(scheduler, camera, 384));
+        Assert.Equal([64], RunFrames(scheduler, camera, 1));
+    }
+
+    // Runs frames with a budget of 256 and a refresh budget of 64, and returns each batch's size.
+    private static int[] RunFrames(ProbeScheduler scheduler, Vector3 camera, int frames)
+    {
+        var counts = new int[frames];
+        for (int frame = 0; frame < frames; frame++)
+        {
+            var batch = scheduler.Next(256, camera, Forward, refreshBudget: 64);
+            counts[frame] = batch.Count;
+            scheduler.Updated(batch);
+        }
+
+        return counts;
     }
 
     [Fact]
