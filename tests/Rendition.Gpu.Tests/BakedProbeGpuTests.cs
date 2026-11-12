@@ -17,6 +17,7 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
 {
     private const int Size = 256;
     private const int NoisePeriod = 64;
+    private const int MaxSettleFrames = 600;
     private const int TexelsPerMetre = 4;
     private const RenderEffects OnlyBaked = RenderEffects.All & ~RenderEffects.BakedLighting;
 
@@ -312,6 +313,23 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
         DrawItem[] draws, Vector3 camera, float sky, RenderEffects off = OnlyBaked, ProbeVolumeSettings? probes = null)
     {
         var view = View(camera, sky, off, [], probes);
+        if (probes is not null)
+        {
+            // The scheduler only exists once a frame has run, and before that the probes read as settled.
+            gpu.Renderer.Render(view, draws);
+            int waited = 1;
+            while (!gpu.Renderer.ProbesSettled)
+            {
+                if (waited == MaxSettleFrames)
+                {
+                    Assert.Fail($"The live probes never settled in {MaxSettleFrames} frames.");
+                }
+
+                gpu.Renderer.Render(view, draws);
+                waited++;
+            }
+        }
+
         for (int i = 0; i < NoisePeriod - 1; i++)
         {
             gpu.Renderer.Render(view, draws);
