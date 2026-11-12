@@ -3650,9 +3650,9 @@ probes are traced after, in `Bake`.
 
 A chunk's job holds only the static draws `BakeResolver.ChunkIds` files under it, the same ones its inputs hash, each
 moved by `BakeAreas.Relative` into the chunk's space, so a chunk's bake is the same wherever it stands and nothing
-outside it blocks or bounces its light. The draws are picked by id alone, and copies of a chunk share ids, so a frame
-that places the chunk twice bakes both copies' draws into the one bake, each moved by the baked copy's transform: bake a chunk
-from a frame that places it once. Its layout is `LightmapLayout.BuildSingle`: draws share rectangles as in
+outside it blocks or bounces its light. Copies of a chunk share ids, so a draw is taken only when
+`BakeResolver.Owners` also gives it to the chosen copy: a frame that places the chunk many times bakes the same file
+from any one of them (`BakeChunkGpuTests`). Its layout is `LightmapLayout.BuildSingle`: draws share rectangles as in
 `Build`, and the rectangles go on one page with `Single`. The baker works on 2048-texel pages, so the page is baked at
 the top left of one (`LightmapLayout.OnFullPage`) and every page the file stores is cut to the layout's `PageSide`
 after encoding (`Baker.Crop`). Its lights are its own local `Baked` and `Mixed` lights that hold still, the ones

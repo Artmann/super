@@ -2038,12 +2038,15 @@ public sealed unsafe class Renderer : IDisposable
         _uploads.Flush();
         BakeSky(view);
 
-        // The chunk's draws, in its own space. The rest of the world neither blocks nor bounces its light.
+        // The chunk's draws, in its own space. The rest of the world neither blocks nor bounces its light. Only this
+        // copy's: every copy of a chunk has the same ids, so an id alone would take the other copies' draws too.
+        var owners = resolver.Owners;
         var owned = new List<DrawItem>();
         bool glows = false;
-        foreach (ref readonly var draw in draws)
+        for (int d = 0; d < draws.Length; d++)
         {
-            if (draw.BakeId != 0 && ids.Contains(draw.BakeId))
+            ref readonly var draw = ref draws[d];
+            if (d < owners.Length && owners[d] == chunk && draw.BakeId != 0 && ids.Contains(draw.BakeId))
             {
                 var moved = draw;
                 moved.Transform = BakeAreas.Relative(draw.Transform, baked.Transform);

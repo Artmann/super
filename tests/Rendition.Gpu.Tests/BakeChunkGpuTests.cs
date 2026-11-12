@@ -291,6 +291,65 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
     }
 
     [Fact]
+    public void Chunk_placed_twice_bakes_as_if_placed_once_from_either_copy()
+    {
+        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        try
+        {
+            // A floor, a wall a metre tall at x = 0.5 and a Baked lamp at (-0.5, 1, 0.3), all in the chunk's space. The
+            // wall shades part of the floor from the lamp. The chunk stands once at Placed and once 20 metres away,
+            // turned a quarter about y. Both copies have the same ids, as copies of a chunk do, and each its own lamp.
+            var local = new Vector3(-0.5f, 1f, 0.3f);
+            var wall = Matrix4x4.CreateRotationY(-MathF.PI / 2f) * Matrix4x4.CreateTranslation(0.5f, 0.5f, 0f);
+            var other = Matrix4x4.CreateRotationY(MathF.PI / 2f) * Matrix4x4.CreateTranslation(-20f, 0f, 8f);
+            DrawItem[] Copy(Matrix4x4 transform) =>
+            [
+                StaticDraw(quad, Floor() * transform, gpu.Matte, 1),
+                StaticDraw(quad, wall * transform, gpu.Matte, 2),
+            ];
+            LocalLight Lamp(Matrix4x4 transform, int key) => new()
+            {
+                Mode = LightMode.Baked, Key = key, Position = Vector3.Transform(local, transform),
+                Radiance = new Vector3(10f), Range = 100f, Radius = 0.02f,
+            };
+
+            var once = LightBakeFile.Read(BakeChunks([Chunk(Placed)], Copy(Placed), [Lamp(Placed, 1301)], 0));
+            BakedChunk[] twice = [Chunk(Placed), Chunk(other)];
+            DrawItem[] both = [.. Copy(Placed), .. Copy(other)];
+            LocalLight[] lamps = [Lamp(Placed, 1301), Lamp(other, 1302)];
+            var first = LightBakeFile.Read(BakeChunks(twice, both, lamps, 0));
+            var second = LightBakeFile.Read(BakeChunks(twice, both, lamps, 1));
+
+            // The first copy stands where the lone one does, so its bake is the same to the bit. The second is turned,
+            // so its lamp is moved into the chunk through other floats: within the 2% a turned chunk's lamp gets.
+            Assert.Equal(once.Draws, first.Draws);
+            Assert.Equal(once.Irradiance![0].Pixels, first.Irradiance![0].Pixels);
+            Assert.Equal(once.Transfer!.SkyRed.Pixels, first.Transfer!.SkyRed.Pixels);
+            Assert.Equal(once.Draws, second.Draws);
+            Assert.Equal(once.Transfer.SkyRed.Pixels, second.Transfer!.SkyRed.Pixels);
+            var (x0, y0, side) = Texels(once, RectOf(once, Copy(Placed)[0]));
+            for (int j = 0; j < side; j++)
+            {
+                for (int i = 0; i < side; i++)
+                {
+                    float a = IrradianceAt(once, x0 + i, y0 + j).X;
+                    float b = IrradianceAt(second, x0 + i, y0 + j).X;
+                    Assert.True(MathF.Abs(b - a) <= 0.02f * a + 1e-4f,
+                        $"The turned copy's floor texel ({i}, {j}) reads {b}, not the lone chunk's {a} within 2%.");
+                }
+            }
+        }
+        finally
+        {
+            gpu.Renderer.DestroyMesh(quad);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
     public void Mixed_chunk_light_gets_mask_channel_0_under_the_chunks_hash()
     {
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
@@ -426,6 +485,14 @@ public sealed class BakeChunkGpuTests(GpuFixture gpu)
         view.BakedChunks = new[] { chunk };
         view.LocalLights = lights ?? [];
         return gpu.Renderer.BakeChunk(view, draws, index, new BakeSettings(density, BakeQuality.Preview));
+    }
+
+    private byte[] BakeChunks(BakedChunk[] chunks, DrawItem[] draws, LocalLight[] lights, int index)
+    {
+        var view = gpu.View(DebugView.None);
+        view.BakedChunks = chunks;
+        view.LocalLights = lights;
+        return gpu.Renderer.BakeChunk(view, draws, index, new BakeSettings(Density, BakeQuality.Preview));
     }
 
     private MeshHandle CreateQuad()

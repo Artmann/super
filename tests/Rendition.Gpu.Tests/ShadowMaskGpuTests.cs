@@ -296,10 +296,7 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
                 floors[1], ChunkDraw(quad, WallAt(0.9f, 0.3f, facingPlusX: true), 2),
             ];
             var view = TopDown(lamps, chunks);
-
-            // Baked from a frame that holds the first copy alone: the copies' draws share ids, so with both placed the
-            // bake would take the second copy's draws as well.
-            var bakes = BakeChunks(TopDown([lamps[0]], [chunks[0]]), all[..2], 1);
+            var bakes = BakeChunks(view, all, 1);
             Assert.Equal(new[] { 0 }, bakes["twin"].ChunkChannels.Select(c => c.Channel));
 
             var open = Capture(view, floors);
