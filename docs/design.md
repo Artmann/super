@@ -1531,10 +1531,14 @@ at the triangle budget. Updates are counted in frames, never seconds.
 `RecordProbeUpdate` runs after the shadow tile atlas: the invalidations, the probes' sun map
 when it is due, the captures, the fold and the blend, then `Updated` tells the scheduler which
 probes are clean. `ProbeUpdatesLastFrame` says how many were updated, and `ProbesSettled`, which
-is public, is the scheduler's `Settled`. Super's `GameWindow.Screenshot` renders on after its 48
+is public, is the scheduler's `Settled`, false while the probes are switched off and true on a
+GPU that can't run them. Super's `GameWindow.Screenshot` renders on after its 48
 settle frames until `ProbesSettled`, at most `ScreenshotProbeFrames` (2,048) more, through
 `ExtraSettleFrames`, and prints how many it took or that it hit the cap; with `Graphics.LightProbes`
-off it doesn't wait. Recordings don't wait. `Settled` counts only cascades 0 and 1, and the
+off it doesn't wait. The wait renders like the other settle frames, with vsync, which a hidden
+window can make slow: a Gallery frame waited about 250 ms to present against about 21 ms of GPU
+work. Turning vsync off for the wait made Gallery's shot about three times faster but Courtyard's
+about four times slower, so it stays on. Recordings don't wait. `Settled` counts only cascades 0 and 1, and the
 scheduler hands out every never-captured probe before any dirty one, wherever it is, so while
 the coarse cascades are still filling in, probes dirtied by a light near the camera wait for
 them. A dirty probe keeps its old light in use until it is redone, so a change

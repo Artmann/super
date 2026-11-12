@@ -591,9 +591,10 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>
     /// Whether every probe near the camera, in the two finest cascades and the fixed grid, has been
-    /// updated since its light last changed. False while the probes are off. Screenshots wait for it.
+    /// updated since its light last changed. Screenshots wait for it. False while the probes are switched off and
+    /// before their first frame, but true on a GPU that can't run them, as there is nothing to wait for there.
     /// </summary>
-    public bool ProbesSettled => _probeScheduler?.Settled ?? false;
+    public bool ProbesSettled => _probeScheduler?.Settled ?? !_lightProbes.Supported;
 
     /// <summary>For tests: while true, no probe is updated, so what a test writes into the atlases stays.</summary>
     internal bool ProbeUpdatesPaused { get; set; }
@@ -613,7 +614,7 @@ public sealed unsafe class Renderer : IDisposable
         {
             if (!Enum.IsDefined(value))
             {
-                throw new ArgumentOutOfRangeException(nameof(value), value, "Probe quality must be Low, Medium or High.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "Probe quality can be Low, Medium or High.");
             }
 
             _probeQuality = value;

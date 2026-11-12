@@ -45,8 +45,8 @@ Before it saves, `--screenshot` renders on, at that moment, until the
 [light probes](rendering.md#bounced-light) near the camera have all been drawn, up to 2,048
 frames, so the bounced light is as it will be rather than still filling in. It prints how many
 frames that took, or that the probes were still filling in at 2,048, which a big scene such as
-Courtyard can reach at `ProbeQuality.High`. With `Graphics.LightProbes` off it doesn't wait.
-`--record` doesn't wait for the probes.
+Courtyard can reach at `ProbeQuality.High`. With `Graphics.LightProbes` off, or on a GPU that
+can't run the probes, it doesn't wait. `--record` doesn't wait for the probes.
 
 When a [test invariant](testing.md#invariants) fails, its message gives the options that
 take you back to that tick.

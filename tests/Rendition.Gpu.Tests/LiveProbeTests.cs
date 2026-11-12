@@ -287,7 +287,10 @@ public sealed class LiveProbeTests
             entry.Updated <= entry.Budget, $"Frame {entry.Frame} updated {entry.Updated} probes, over its budget of {entry.Budget}."));
         Assert.Contains(budgets, entry => entry.Frame < LowFrom && entry.Updated > ProbeBudget.For(ProbeQuality.Low).Raster);
         Assert.True(before.X > 0.01f, $"Before the move the probes read {before}.");
-        Assert.True(beforeLow.X >= 1.2f * before.X,$"Before the move the probes read {before}, before the drop to Low {beforeLow}.");
+        // This is the check that proves LightChanged works: the drop to Low recaptures every probe, so the last check
+        // would pass without it. 1.2x is tuned to about one blend update, as hysteresis keeps a probe from jumping all
+        // the way to the moved light's value at once.
+        Assert.True(beforeLow.X >= 1.2f * before.X, $"Before the move the probes read {before}, before the drop to Low {beforeLow}.");
         Assert.True(after.X >= 1.5f * before.X, $"Before the move the probes read {before}, after it {after}.");
         Assert.Equal(0, gpu.ValidationErrors);
     }
