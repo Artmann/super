@@ -492,6 +492,7 @@ void writeBaked(vec3 normal) {
         d = textureLod(textures[nonuniformEXT(inLightmap.y)], inLightmapUv, 0.0).xyz * 2.0 - 1.0;
     }
 
+    vec3 vertexNormal = surfaceFrame()[2];
     if (chunk >= 0) {
         vec3 towards;
         irradiance += chunkLight(chunk, towards);
@@ -501,9 +502,15 @@ void writeBaked(vec3 normal) {
         }
 
         d = outOfChunkDirection(chunk, d);
+
+        // Light only reaches a surface from in front, as a space bake's way always is, but the transfer's lean is the
+        // way its light escaped, not the way it came in, and can point behind. There it would turn the light off, so
+        // only the part along the surface is kept. See "Chunk transfer" in docs/design.md.
+        if (inLightmap.x < 0) {
+            d -= min(dot(d, vertexNormal), 0.0) * vertexNormal;
+        }
     }
 
-    vec3 vertexNormal = surfaceFrame()[2];
     float turned = (dot(normal, d) * 0.5 + 0.5) / max(LIGHTMAP_LEAST_SHARE, dot(vertexNormal, d) * 0.5 + 0.5);
     outBaked = vec4(irradiance / LIGHTMAP_PI * turned, chunk >= 0 ? chunkEdgeWeight(chunk) : 1.0);
     outShadowMask = chunk >= 0

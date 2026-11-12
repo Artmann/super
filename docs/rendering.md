@@ -639,6 +639,11 @@ holds:
   same rules as a space but with no sky and no sun. A chunk with none of these has no plain
   lightmap. Its `Mixed` lights get shadow mask channels of their own.
 
+The edge-aware filter below smooths a chunk's plain lightmap but not its sky and sun transfer,
+which is only grown at chart edges. A room lit only by light bounced in through its windows can
+look blotchy at `Final`'s 1024 paths: the Hamlet's cottage walls do at 10 texels a metre, and
+they come out smooth at 8192, which `BakeSettings` can't ask for yet.
+
 A chunk has no probes. `BakeChunk` throws `ArgumentOutOfRangeException` for a chunk the frame
 doesn't have, `ArgumentException` when the settings' `TexelsPerMetre` isn't the chunk's, and
 `InvalidOperationException` when the chunk owns no static draws. `--bake` bakes each chunk file the frame draws once.

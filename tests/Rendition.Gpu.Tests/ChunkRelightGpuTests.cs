@@ -127,6 +127,54 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
+    [Fact]
+    public void Chunk_floor_under_a_sky_brighter_below_is_lit_like_a_space_bake()
+    {
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        try
+        {
+            // The floor sees only the sky above it, but the sky is brighter below the horizon, so its L1 leans down
+            // while the floor's transfer leans up. The way the baked light comes from must still be in front of the
+            // floor: a quad has no normal map, so the floor's light is its irradiance whatever way that is, as a space
+            // bake's is. A way behind the floor turned its light off: the chunk's floor read 0 against the space's 84.
+            // Kept in front it reads 76.6, 7.52 steps from the space's on average, the L1 cost.
+            gpu.Renderer.SetEnvironment(new EnvironmentDescription
+            {
+                Ceiling = new Vector3(0.3f),
+                Horizon = new Vector3(0.4f),
+                Floor = new Vector3(1.2f),
+            });
+            var settings = new BakeSettings(Density, BakeQuality.Preview);
+            DrawItem[] draws = [Draw(quad, Floor, gpu.Matte, 1)];
+
+            var chunkView = View([], default, 1f, chunks: [Chunk(Matrix4x4.Identity)]);
+            gpu.Renderer.Bakes = new Store(LightBakeFile.Read(gpu.Renderer.BakeChunk(chunkView, draws, 0, settings)));
+            Assert.True(RenderUntilFresh(chunkView, draws) <= MostFrames, $"The chunk's bake wasn't resident after {MostFrames} frames.");
+            byte[] chunk = Capture(chunkView, draws);
+
+            var spaceView = View([], default, 1f, space: Room);
+            gpu.Renderer.Bakes = new Store(LightBakeFile.Read(gpu.Renderer.Bake(spaceView, draws, settings)));
+            byte[] space = Capture(spaceView, draws);
+            Assert.True(gpu.Renderer.LastBakeFrame!.SpaceFresh, "The space's bake isn't fresh.");
+
+            float spaceLit = Mean(space, FloorFrom, FloorTo, FloorFrom, FloorTo);
+            float chunkLit = Mean(chunk, FloorFrom, FloorTo, FloorFrom, FloorTo);
+            Assert.True(spaceLit > 20f, $"The space's floor reads {spaceLit}, too dark to compare.");
+            Assert.True(chunkLit > spaceLit * 0.75f,
+                $"The chunk's floor reads {chunkLit} and the space's {spaceLit}, so the chunk's light was turned away.");
+            float error = MeanDifference(chunk, space);
+            Assert.True(error <= 9f, $"The chunk's floor is {error:F2} steps from the space's on average, more than 9.");
+        }
+        finally
+        {
+            gpu.Renderer.SetEnvironment(DefaultEnvironment());
+            LetGo(quad);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
     // A clear sky is brightest round its sun, here high on the side the wall stands on once turned by placed, so the dark
     // wall shades the floor beside it from the bright part of the sky. The sun itself is Realtime and gives no light here.
     // Live light from the sky knows nothing of the wall, so only a bake shades the floor.

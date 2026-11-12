@@ -3747,6 +3747,19 @@ intensity. The summed suns are turned the same way and dotted with the sun page,
 light, if any, is added to that. With no plain page, `d` is the luminance transfer's vector part weighted by the
 turned sky's, and either way it is turned back to the world by `outOfChunkDirection`, the transpose.
 
+That `d` can point behind the surface. The transfer's vector part leans the way its paths escaped, not the way their
+light came in: light that bounced off a ceiling and left through a window below it leans down, and a sky brighter
+below the horizon leans down too. A `d` behind the surface takes `turned`, `(n·d / 2 + 1/2) / max(1/2, v·d / 2 + 1/2)`,
+towards 0 and turns the light off, which showed in the Hamlet as crisp holes in a blanket's light where the live blue
+sky's reflection was all that was left. A space bake's `d` comes from the first, cosine-sampled bounce and is always in
+front. So with no plain page, the part of `d` behind the vertex normal is taken off, `d -= min(d·v, 0) v`, which leaves
+`turned` at 1 without a normal map and still lets a normal map shade by the part along the surface.
+`ChunkRelightGpuTests.Chunk_floor_under_a_sky_brighter_below_is_lit_like_a_space_bake` lights an open floor under a
+sky brighter below: its chunk read 0 against the space's 84 before, and reads 76.6, 7.52 steps away, after.
+
+Multiplying the two vectors axis by axis doesn't give the product's own lean either, which would be `t0 l + l0 t`,
+and doesn't turn with the chunk. It only picks the way a normal map shades, so it is kept for now.
+
 `ChunkBakePool.CheckPages` takes a chunk lit only by the sky and suns: it has a mask page but no irradiance or
 direction page, which it used to refuse.
 
