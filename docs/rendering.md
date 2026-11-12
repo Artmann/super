@@ -54,7 +54,7 @@ Game.StartWindowsGameLoop<MyGame>(new GameOptions
 });
 ```
 
-`Graphics.Fastest()` turns every effect and vsync off (but keeps the materials), a start to turn back on only what
+`Graphics.Fastest()` turns every effect and vsync off (but keeps the materials and the baked lighting), a start to turn back on only what
 the game needs. Ask for `Graphics` in a constructor to change it while the game runs; the
 next frame follows, so it can back an options menu.
 
@@ -82,6 +82,7 @@ next frame follows, so it can back an options menu.
 | `Decals` | No [decals](views.md#decals): surfaces show as they are, without the grime and stains `view.Decal` lays on them. It saves a copy of the normal target and a pass over the decals' pixels |
 | `Puddles` | Every surface is dry, whatever level `view.Puddles` sets: no water and no damp band. It saves a few noise lookups on each wet pixel. See [puddles](#puddles) |
 | `Wind` | Grass, leaves and anything else flagged for the [wind](#wind) stand still, whatever `view.Wind` sets, and so do their shadows |
+| `BakedLighting` | Every bake is ignored, so each [baked area](#baked-lighting) is lit live, as if it had never been baked: lights its bake holds are drawn again. It shows what a bake changes. A bake costs less than the live light it stands in for, so `Graphics.Fastest()` leaves it on |
 | `Materials` | Every surface is the same light grey, matte clay, shaped only by its mesh, so you can judge the lighting and the models without textures in the way. Glows still glow, cut-outs still cut, glass stays see-through and puddles still wet the clay. `--no-materials` turns it off too |
 | `WearAndDirt` | Models' materials show only their own colour and shine, without the pale worn edges and dark hollows their [baked masks](#wear-and-dirt) lay on, and the masks aren't read |
 
@@ -434,15 +435,17 @@ foreach (var house in village.Houses)
 }
 ```
 
-A frame can name the parts of the world whose lighting will be baked. [`Renderer.Bake`](#making-a-bake)
-can bake a space, but nothing loads a bake yet, so naming them changes nothing on screen; a game
-can name its baked areas now.
+A frame can name the parts of the world whose lighting is baked. [`Renderer.Bake`](#making-a-bake)
+bakes a space, and the game finds the bake in its content and checks it against the frame. The
+bake's light isn't drawn yet, so until a space is baked, naming it changes nothing on screen.
 
 `BakedLighting` names a space: one fixed place, baked as it stands, sun included. Its box also
 holds baked probes `probeSpacing` metres apart, at most 4,096 of them, counted the same way as
 [light probes](#bounced-light), so 1 metre spacing covers about 15 by 15 by 15 metres. A frame
-has at most one space, and naming a second throws with both names. Its bake will be
-`lighting/<name>.lightbake`.
+has at most one space, and naming a second throws with both names. Its bake is
+`lighting/<name>.lightbake`. `texelsPerMetre`, 20 by default (5 cm texels), sets how fine its
+lightmap is, from 1 to 200; anything else throws with the value. `view.BakedChunk` takes the same
+parameter for a chunk.
 
 `BakedChunk` places a chunk: a piece of the world, such as a house, baked once in its own
 space and placed with `transform`. `min` and `max` are its box in its own space, before
@@ -468,14 +471,35 @@ then left to the bake: a `Baked` light is no longer drawn live, and a `Mixed` on
 in no baked area, a `Realtime` light, and a light that is [moving](#moving-lights) are always
 drawn live.
 
-A bake's texel density is `BakeSettings.TexelsPerMetre`: 20 by default (5 cm texels), from 1 to
-200, and a value outside that throws. Changing it makes a bake stale. The bake's quality
-(`Preview` or `Final`) does not: it only decides how long a bake takes, so a Preview bake is as
-fresh as a Final one.
+An area's texel density is part of what its bake is made from, so changing the
+`texelsPerMetre` an area is named with makes its bake stale. The bake's quality (`Preview` or
+`Final`) does not: it only decides how long a bake takes, so a Preview bake is as fresh as a
+Final one.
 
-Nothing loads bakes yet, so no bake is ever fresh and every light is drawn live, whatever its
-mode. A frame that names baked areas looks exactly as it would without them, to the byte. A
-frame that names none does no bake work at all.
+A Super game looks for each bake in its cooked content, where [`--bake`](command-line.md#baking-lighting)
+puts it, reading only the header of each file once and keeping it, so asking every frame reads
+and allocates nothing. A missing bake is quietly lit live, since most areas start unbaked. A
+stale one is lit live too, and the game writes one line to the error output the first time it
+meets it, naming what changed:
+
+```
+The bake lighting/crypt.lightbake is stale, since its draws and lights changed, so its area is lit live until it is baked again.
+```
+
+A file that can't be read is reported once the same way, with the reason, and lit live. When the
+content reloads, every bake is read again and each stale one is reported again.
+
+The bake's light isn't drawn yet. A fresh bake still takes its lights out of the live lighting,
+so a space whose bake is fresh is darker than it should be, without its `Baked` lights, until
+the lightmap is drawn. A frame with no bake, or only stale ones, looks exactly as it would
+without its baked areas, to the byte, and a frame that names none does no bake work at all.
+[`Graphics.BakedLighting`](#graphics-settings) off treats every bake as missing.
+
+For Rendition alone, `Renderer.Bakes` is where the renderer asks. It starts as
+`NoBakes.Instance`, which has no bakes. A `LightBakeStore` reads bakes through a function that
+gives a file's bytes, or null when there is none, and reports stale and damaged ones to a
+`TextWriter`; any other `IBakeStore` can stand in for it. `LightBakeStore.Forget` drops what it
+has read, for after the files change, and `LightBakeStore.Load` reads a whole bake.
 
 ### Making a bake
 
@@ -488,12 +512,14 @@ File.WriteAllBytes("lighting/crypt.lightbake", bake);
 the `.lightbake` file's bytes. It takes the same view and draws as `Render`, waits for the GPU,
 and draws nothing. A view without a space throws "Bake needs a baked space in the frame; call
 view.BakedLighting first." A space with more than 4,096 probes, which only a hand-made
-`FrameView.BakedSpace` can have, throws with its name and count. Chunks aren't baked yet.
+`FrameView.BakedSpace` can have, throws with its name and count. The settings' `TexelsPerMetre`
+must be the space's, since no frame would find a bake at another density fresh; one that differs
+throws with both. Chunks aren't baked yet.
 A game doesn't need to call it itself: [`--bake`](command-line.md#baking-lighting) bakes the
 frame's space and saves it, and `--bake-check` says whether the saved bake is fresh.
 
 The lightmap covers the static draws the space owns, apart from ones that sway in the wind or
-are see-through, at `TexelsPerMetre`. Each texel holds the light reaching it from every
+are see-through, at the space's texel density. Each texel holds the light reaching it from every
 direction, the direction most of it comes from, and a shadow mask. What a light gives depends
 on its mode:
 
@@ -513,7 +539,7 @@ as [light probes](#bounced-light) are, so the bake's probes can stand in for liv
 Each records the light from every direction and how far away the surfaces it sees are, by the
 same rules as the lightmap: a `Mixed` light gives a probe only its bounced light, and `Baked`
 lights, emissive surfaces and the sky count in full. A probe inside a closed room with no light
-in it reads black. Nothing loads the probes yet.
+in it reads black. The probes aren't drawn from yet.
 
 A `Preview` bake sends 64 paths from each texel and a `Final` one 1024, so Preview is about
 16 times quicker and noisier. Probes take a sixteenth of that per direction, 4 and 64, since

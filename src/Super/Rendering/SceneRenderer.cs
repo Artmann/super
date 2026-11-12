@@ -39,6 +39,7 @@ internal sealed class SceneRenderer : IDisposable
     private int _uploadedAtlas;
     private Content? _content;
     private IContentFiles? _files;
+    private int _filesReloads;
     private readonly ReflectionProbeSchedule _reflectionProbes = new();
 
     /// <summary>
@@ -65,6 +66,8 @@ internal sealed class SceneRenderer : IDisposable
     public SceneRenderer(RendererOptions options)
     {
         _renderer = new Renderer(options);
+        Bakes = new LightBakeStore(ReadBake, Console.Error);
+        _renderer.Bakes = Bakes;
         // White, so a draw's color comes out exactly as asked. CubeColor greys the rest.
         _defaultMaterial = _renderer.CreateMaterial(CreateMaterial(Vector3.One));
         _items = new ContentLoader<Loaded>(
@@ -213,6 +216,13 @@ internal sealed class SceneRenderer : IDisposable
 
     /// <summary>What the last frame's baked areas came to. See <see cref="Renderer.LastBakeFrame"/>.</summary>
     public BakeFrame? LastBakeFrame => _renderer.LastBakeFrame;
+
+    /// <summary>The bakes in the content last drawn with, which the renderer checks each frame's baked areas against.</summary>
+    internal LightBakeStore Bakes { get; }
+
+    // A bake is cooked as data under its own name, so anything else of that name isn't one.
+    private byte[]? ReadBake(string name) =>
+        _files is { } files && files.KindOf(name) == ContentKind.Data ? files.Read(name) : null;
 
     /// <summary>The reflection probes to keep: the view's, or none while reflections are off.</summary>
     internal static ReadOnlySpan<ReflectionProbeRequest> WantedReflectionProbes(View view, RenderEffects off) =>
@@ -445,6 +455,13 @@ internal sealed class SceneRenderer : IDisposable
 
     private void Prepare(Content content, View view)
     {
+        // The bakes read so far came from other files, or from these before they were read again, so they're read again.
+        if (!ReferenceEquals(_files, content.Files) || _filesReloads != content.Reloads)
+        {
+            Bakes.Forget();
+            _filesReloads = content.Reloads;
+        }
+
         // Set before anything new starts preparing, since models are read through it on background threads.
         _files = content.Files;
         _items.Update(content);

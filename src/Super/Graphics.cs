@@ -187,8 +187,16 @@ public sealed class Graphics
     public bool Wind { get; set; } = true;
 
     /// <summary>
-    /// Every effect off and vsync off: the fastest the engine draws, and a start for a game that
-    /// must run on modest hardware. Turn back on only what it needs. The light probes are at
+    /// Light read from the bakes made with <c>--bake</c> for the areas set with <see cref="View.BakedLighting"/> and
+    /// <see cref="View.BakedChunk"/>. Off, every bake is ignored and each area is lit live, as if it had never been
+    /// baked, which shows what the bake changes. A bake costs less than the live light it stands in for, so
+    /// <see cref="Fastest"/> leaves it on.
+    /// </summary>
+    public bool BakedLighting { get; set; } = true;
+
+    /// <summary>
+    /// Every effect off but the materials and the baked lighting, and vsync off: the fastest the engine draws, and a
+    /// start for a game that must run on modest hardware. Turn back on only what it needs. The light probes are at
     /// <see cref="Rendition.ProbeQuality.Low"/>, so turning them back on keeps them cheap.
     /// </summary>
     public static Graphics Fastest() => new()
@@ -233,6 +241,7 @@ public sealed class Graphics
         | (VolumetricFog ? 0 : RenderEffects.VolumetricFog)
         | (Puddles ? 0 : RenderEffects.Puddles)
         | (Wind ? 0 : RenderEffects.Wind)
+        | (BakedLighting ? 0 : RenderEffects.BakedLighting)
         | (Materials ? 0 : RenderEffects.Materials)
         | (WearAndDirt ? 0 : RenderEffects.WearAndDirt);
 }

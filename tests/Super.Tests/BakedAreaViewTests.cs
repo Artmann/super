@@ -149,6 +149,39 @@ public class BakedAreaViewTests
     }
 
     [Fact]
+    public void Lightmap_density_is_kept_on_the_space_and_each_chunk()
+    {
+        var view = new View();
+
+        view.BakedLighting("crypt", Min, Max, 1f, texelsPerMetre: 8);
+        view.BakedChunk("well", Matrix4x4.Identity, -Vector3.One, Vector3.One, texelsPerMetre: 40);
+        view.BakedChunk("barn", Matrix4x4.Identity, -Vector3.One, Vector3.One);
+
+        Assert.Equal(8, view.BakedSpace?.TexelsPerMetre);
+        Assert.Equal([40, 20], view.BakedChunks.Select(chunk => chunk.TexelsPerMetre));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(201)]
+    public void Lightmap_density_out_of_range_is_explained(int texelsPerMetre)
+    {
+        var view = new View();
+
+        var space = Assert.Throws<ArgumentOutOfRangeException>(
+            () => view.BakedLighting("crypt", Min, Max, 1f, texelsPerMetre));
+        var chunk = Assert.Throws<ArgumentOutOfRangeException>(
+            () => view.BakedChunk("well", Matrix4x4.Identity, -Vector3.One, Vector3.One, texelsPerMetre));
+
+        Assert.StartsWith(
+            $"The baked space's lightmap density must be 1 to 200 texels a metre, not {texelsPerMetre}.", space.Message);
+        Assert.StartsWith(
+            $"The baked chunk's lightmap density must be 1 to 200 texels a metre, not {texelsPerMetre}.", chunk.Message);
+        Assert.Null(view.BakedSpace);
+        Assert.Empty(view.BakedChunks);
+    }
+
+    [Fact]
     public void Chunk_257_is_explained()
     {
         var view = new View();

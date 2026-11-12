@@ -876,17 +876,21 @@ public enum DebugView
 }
 
 /// <summary>
-/// One fixed place in the world whose lighting is baked as it stands, sun included: a box, and the spacing of the
-/// baked probes it holds. Its bake is <see cref="BakeFiles.Space"/>.
+/// One fixed place in the world whose lighting is baked as it stands, sun included: a box, the spacing of the baked
+/// probes it holds, and the lightmap texels for each metre of surface, 1 to
+/// <see cref="BakeSettings.MaxTexelsPerMetre"/>. Its bake is <see cref="BakeFiles.Space"/>, and a bake made at another
+/// density is stale.
 /// </summary>
-public readonly record struct BakedSpace(string Name, Vector3 Min, Vector3 Max, float ProbeSpacing);
+public readonly record struct BakedSpace(
+    string Name, Vector3 Min, Vector3 Max, float ProbeSpacing, int TexelsPerMetre = BakeSettings.DefaultTexelsPerMetre);
 
 /// <summary>
 /// A piece of the world baked once in its own space and placed with <see cref="Transform"/>, which may only turn and
-/// move it. <see cref="Min"/> and <see cref="Max"/> are its box in its own space. Its bakes are
-/// <see cref="BakeFiles.Chunk"/>.
+/// move it. <see cref="Min"/> and <see cref="Max"/> are its box in its own space, and <see cref="TexelsPerMetre"/> its
+/// lightmap density, as for a <see cref="BakedSpace"/>. Its bakes are <see cref="BakeFiles.Chunk"/>.
 /// </summary>
-public readonly record struct BakedChunk(string Name, Matrix4x4 Transform, Vector3 Min, Vector3 Max);
+public readonly record struct BakedChunk(
+    string Name, Matrix4x4 Transform, Vector3 Min, Vector3 Max, int TexelsPerMetre = BakeSettings.DefaultTexelsPerMetre);
 
 /// <summary>Everything the renderer needs to know about one frame except the draws.</summary>
 public ref struct FrameView
@@ -1116,8 +1120,16 @@ public enum RenderEffects
     /// </summary>
     Wind = 1 << 17,
 
+    /// <summary>
+    /// Light read from the <c>.lightbake</c> files in <see cref="Renderer.Bakes"/> for the
+    /// <see cref="FrameView.BakedSpace"/> and <see cref="FrameView.BakedChunks"/>. Without it every bake counts as
+    /// missing, so each area is lit live, as if it had never been baked.
+    /// </summary>
+    BakedLighting = 1 << 18,
+
     All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
-        | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind,
+        | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind
+        | BakedLighting,
 }
 
 /// <summary>

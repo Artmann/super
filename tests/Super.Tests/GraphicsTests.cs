@@ -219,6 +219,7 @@ public class GraphicsTests
     [InlineData(nameof(Graphics.VolumetricFog), RenderEffects.VolumetricFog)]
     [InlineData(nameof(Graphics.Puddles), RenderEffects.Puddles)]
     [InlineData(nameof(Graphics.Wind), RenderEffects.Wind)]
+    [InlineData(nameof(Graphics.BakedLighting), RenderEffects.BakedLighting)]
     public void Each_switch_turned_off_leaves_out_only_its_own_effect(string setting, RenderEffects effect)
     {
         var graphics = new Graphics();
@@ -228,7 +229,21 @@ public class GraphicsTests
     }
 
     [Fact]
-    public void Fastest_leaves_out_every_effect_but_keeps_the_materials_and_turns_vsync_off()
+    public void Baked_lighting_is_on_by_default_and_off_maps_to_the_effect()
+    {
+        var graphics = new Graphics();
+        Assert.True(graphics.BakedLighting);
+        Assert.False(graphics.Off.HasFlag(RenderEffects.BakedLighting));
+
+        graphics.BakedLighting = false;
+
+        Assert.Equal(RenderEffects.BakedLighting, graphics.Off);
+        Assert.True(RenderEffects.All.HasFlag(RenderEffects.BakedLighting));
+    }
+
+    // A bake is cheaper than lighting live, so the fastest settings keep it.
+    [Fact]
+    public void Fastest_leaves_out_every_effect_but_keeps_the_materials_and_baked_lighting_and_turns_vsync_off()
     {
         var graphics = Graphics.Fastest();
 
@@ -240,6 +255,7 @@ public class GraphicsTests
             | RenderEffects.Puddles | RenderEffects.Wind,
             graphics.Off);
         Assert.True(graphics.Materials);
+        Assert.True(graphics.BakedLighting);
         Assert.False(graphics.Vsync);
 
         // Dropping the resolution would be a change the game can see, so it stays the game's choice.

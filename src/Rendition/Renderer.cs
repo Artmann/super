@@ -1074,8 +1074,20 @@ public sealed unsafe class Renderer : IDisposable
         .Add(_environmentIntensity)
         .Finish();
 
-    /// <summary>Where bakes are looked up. None yet, so every area is lit live; plan 5 adds a real store.</summary>
-    internal IBakeStore Bakes { get; set; } = NoBakes.Instance;
+    /// <summary>
+    /// Where bakes are looked up, such as a <see cref="LightBakeStore"/> over the game's content. With none, or with
+    /// <see cref="RenderEffects.BakedLighting"/> in <see cref="FrameView.Off"/>, every bake counts as missing and every
+    /// area is lit live. See "Baked lighting" in docs/rendering.md.
+    /// </summary>
+    public IBakeStore Bakes
+    {
+        get;
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            field = value;
+        }
+    } = NoBakes.Instance;
 
     /// <summary>
     /// What the last frame's baked areas came to, or null when it named no baked space or chunk. See "Baked lighting"
@@ -1103,9 +1115,9 @@ public sealed unsafe class Renderer : IDisposable
             return false;
         }
 
-        _bakeResolver.Store = Bakes;
-        var bakes = _bakeResolver.Resolve(view, draws, _boundsOf ??= BoundsOf, EnvironmentHash,
-            default, _animatedLights);
+        // With baked lighting off, every bake counts as missing, so the frame is drawn as if nothing were baked.
+        _bakeResolver.Store = view.Off.HasFlag(RenderEffects.BakedLighting) ? NoBakes.Instance : Bakes;
+        var bakes = _bakeResolver.Resolve(view, draws, _boundsOf ??= BoundsOf, EnvironmentHash, _animatedLights);
         LastBakeFrame = bakes;
         if (bakes.DroppedSuns.Count == 0 && bakes.DroppedLocalLights.Count == 0)
         {
@@ -1136,11 +1148,22 @@ public sealed unsafe class Renderer : IDisposable
     /// The view names no baked space, the space holds more than <see cref="BakeFiles.MaxSpaceProbes"/> probes, or the GPU
     /// can't trace rays.
     /// </exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="settings"/> asks for another texel density than the space's
+    /// <see cref="BakedSpace.TexelsPerMetre"/>, so no frame would find the bake fresh.
+    /// </exception>
     public byte[] Bake(in FrameView view, ReadOnlySpan<DrawItem> draws, BakeSettings settings)
     {
         if (view.BakedSpace is not { } space)
         {
             throw new InvalidOperationException("Bake needs a baked space in the frame; call view.BakedLighting first.");
+        }
+
+        if (settings.TexelsPerMetre != space.TexelsPerMetre)
+        {
+            throw new ArgumentException(
+                $"The baked space \"{space.Name}\" is lit at {space.TexelsPerMetre.ToString(CultureInfo.InvariantCulture)} texels a metre, so it can't be baked at {settings.TexelsPerMetre.ToString(CultureInfo.InvariantCulture)}: no frame would find that bake fresh.",
+                nameof(settings));
         }
 
         // The space's probes, laid out as the live probes are, so the runtime copies their tiles straight in.
@@ -1162,7 +1185,7 @@ public sealed unsafe class Renderer : IDisposable
         // A resolver of its own, so the frame's resolver keeps what the last frame drew. It still tells the tracker
         // where each light is, so a light that moved between frames is known to be moving.
         var inputs = new BakeResolver(NoBakes.Instance)
-            .Resolve(view, draws, _boundsOf ??= BoundsOf, EnvironmentHash, settings, _animatedLights).Space!.Value;
+            .Resolve(view, draws, _boundsOf ??= BoundsOf, EnvironmentHash, _animatedLights).Space!.Value;
 
         var chunks = view.BakedChunks;
         var owned = new List<DrawItem>();

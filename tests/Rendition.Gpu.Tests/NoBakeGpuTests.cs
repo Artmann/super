@@ -114,6 +114,32 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
+    [Fact]
+    public void Baked_lighting_off_treats_a_fresh_bake_as_missing()
+    {
+        int errors = gpu.ValidationErrors;
+        var cube = Cube();
+        try
+        {
+            byte[] lit = Capture(cube, LightMode.Mixed, baked: false);
+            gpu.Renderer.Bakes = new EveryBakeFresh();
+            byte[] off = Capture(cube, LightMode.Baked, baked: true, off: RenderEffects.All);
+
+            var frame = Assert.IsType<BakeFrame>(gpu.Renderer.LastBakeFrame);
+            Assert.False(frame.SpaceFresh);
+            Assert.Equal([false], frame.ChunkFresh);
+            Assert.Empty(frame.DroppedLocalLights);
+            Assert.Equal(lit, off);
+        }
+        finally
+        {
+            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.DestroyMesh(cube.Mesh);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
     private DrawItem Cube()
     {
         var (vertices, indices) = TestMeshes.Cube();
@@ -124,8 +150,11 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
     }
 
     // A cube under a Mixed sun and a point light in front of it. Baked, the frame names a space round the cube and a
-    // chunk off to the side, the cube is static, and the point light takes the mode given.
-    private byte[] Capture(DrawItem cube, LightMode pointMode, bool baked, bool withPointLight = true)
+    // chunk off to the side, the cube is static, and the point light takes the mode given. Every effect is off but the
+    // baked lighting unless asked otherwise.
+    private byte[] Capture(
+        DrawItem cube, LightMode pointMode, bool baked, bool withPointLight = true,
+        RenderEffects off = RenderEffects.All & ~RenderEffects.BakedLighting)
     {
         DirectionalLight[] suns =
         [
@@ -145,7 +174,7 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
             CameraPosition = new Vector3(0, 0, 3),
             Lights = suns,
             LocalLights = withPointLight ? points : [],
-            Off = RenderEffects.All,
+            Off = off,
             BakedSpace = baked ? Room : null,
             BakedChunks = baked ? Shed : [],
         };

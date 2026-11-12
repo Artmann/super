@@ -64,16 +64,18 @@ public sealed class BakeResolver
     /// hashed or tracked. The space's draws are every static draw in the frame, since all of them block its light,
     /// plus where each chunk that owns some stands (<see cref="BakeInputHash.PlacedChunk"/>); a chunk's are only the
     /// models it owns (<see cref="BakeAreas.OwnerOfModel"/>), with every part of a model filed together. The frame's
-    /// chunks must already pass <see cref="BakeFiles.IsRigid"/>, as <see cref="Renderer.Render"/> checks.
+    /// chunks must already pass <see cref="BakeFiles.IsRigid"/>, as <see cref="Renderer.Render"/> checks. Each area is
+    /// hashed at its own <see cref="BakedSpace.TexelsPerMetre"/> or <see cref="BakedChunk.TexelsPerMetre"/>.
     /// </summary>
     /// <returns>
     /// The frame, which the resolver owns and writes again on the next call. A frame that names no space and no chunks
     /// returns one shared empty frame at once, without hashing anything, asking the store or updating
     /// <paramref name="animated"/>.
     /// </returns>
+    /// <exception cref="ArgumentOutOfRangeException">An area's texel density is outside 1 to 200.</exception>
     public BakeFrame Resolve(
         in FrameView frame, ReadOnlySpan<DrawItem> draws, Func<DetailHandle, BakeSphere> bounds, ulong environment,
-        BakeSettings settings, AnimatedLights animated)
+        AnimatedLights animated)
     {
         var space = frame.BakedSpace;
         var chunks = frame.BakedChunks;
@@ -152,7 +154,8 @@ public sealed class BakeResolver
         for (int c = 0; c < chunks.Length; c++)
         {
             var inputs = BakeInputHash.Chunk(
-                CollectionsMarshal.AsSpan(_chunkIds[c]), CollectionsMarshal.AsSpan(_chunkLights[c]), chunks[c], settings);
+                CollectionsMarshal.AsSpan(_chunkIds[c]), CollectionsMarshal.AsSpan(_chunkLights[c]), chunks[c],
+                new BakeSettings(chunks[c].TexelsPerMetre));
             result.AddChunk(inputs, Store.IsFresh(ChunkFile(chunks[c].Name, inputs.Combined), inputs));
         }
 
@@ -168,7 +171,7 @@ public sealed class BakeResolver
                 }
             }
 
-            var spaceInputs = SpaceInputs(baked, draws, staticCount, locals, suns, animated, environment, settings);
+            var spaceInputs = SpaceInputs(baked, draws, staticCount, locals, suns, animated, environment);
             result.SetSpace(spaceInputs, Store.IsFresh(SpaceFile(baked.Name), spaceInputs));
         }
 
@@ -259,7 +262,7 @@ public sealed class BakeResolver
 
     private BakeInputs SpaceInputs(
         BakedSpace space, ReadOnlySpan<DrawItem> draws, int staticCount, ReadOnlySpan<LocalLight> locals,
-        ReadOnlySpan<DirectionalLight> suns, AnimatedLights animated, ulong environment, BakeSettings settings)
+        ReadOnlySpan<DirectionalLight> suns, AnimatedLights animated, ulong environment)
     {
         // Every static draw in the frame blocks and bounces the space's light, wherever it stands.
         Grow(ref _spaceIds, staticCount);
@@ -292,7 +295,7 @@ public sealed class BakeResolver
 
         return BakeInputHash.Space(
             _spaceIds.AsSpan(0, idCount), CollectionsMarshal.AsSpan(_spaceLights), space, environment, SunHash(),
-            settings, CollectionsMarshal.AsSpan(_placedChunks));
+            new BakeSettings(space.TexelsPerMetre), CollectionsMarshal.AsSpan(_placedChunks));
     }
 
     // One sun is hashed as itself; more than one, which is rare, as their count and hashes in ascending order.

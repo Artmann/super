@@ -34,18 +34,17 @@ public sealed class BakeResolverTests
         var animated = new AnimatedLights(TextWriter.Null);
         var resolver = new BakeResolver(new EveryBakeFresh());
         Func<DetailHandle, BakeSphere> bounds = TwoParts;
-        var settings = new BakeSettings(quality: BakeQuality.Final);
 
         for (int i = 0; i < 3; i++)
         {
-            resolver.Resolve(frame, draws, bounds, 42, settings, animated);
+            resolver.Resolve(frame, draws, bounds, 42, animated);
         }
 
         long before = GC.GetAllocatedBytesForCurrentThread();
         BakeFrame? resolved = null;
         for (int i = 0; i < 10; i++)
         {
-            resolved = resolver.Resolve(frame, draws, bounds, 42, settings, animated);
+            resolved = resolver.Resolve(frame, draws, bounds, 42, animated);
         }
 
         long after = GC.GetAllocatedBytesForCurrentThread();
@@ -80,7 +79,7 @@ public sealed class BakeResolverTests
         // The bigger frames come first, so the resolver has more to forget when the smaller ones follow.
         var first = Scenario(Courtyard, [Room, FarRoom], twoSuns, lights, interleaved, new EveryBakeFresh());
         saved.Save("lighting/courtyard.lightbake", BakeFreshness.Resolve(
-            first.Frame, first.Draws, TwoParts, 42, Settings, new AnimatedLights(TextWriter.Null), NoBakes.Instance).Space!.Value);
+            first.Frame, first.Draws, TwoParts, 42,new AnimatedLights(TextWriter.Null), NoBakes.Instance).Space!.Value);
         var scenarios = new[]
         {
             first,
@@ -99,10 +98,10 @@ public sealed class BakeResolverTests
         {
             var scenario = scenarios[s];
             var expected = BakeFreshness.Resolve(
-                scenario.Frame, scenario.Draws, TwoParts, 42, Settings, new AnimatedLights(TextWriter.Null), scenario.Store);
+                scenario.Frame, scenario.Draws, TwoParts, 42,new AnimatedLights(TextWriter.Null), scenario.Store);
             resolver.Store = scenario.Store;
             var actual = resolver.Resolve(
-                scenario.Frame, scenario.Draws, TwoParts, 42, Settings, new AnimatedLights(TextWriter.Null));
+                scenario.Frame, scenario.Draws, TwoParts, 42,new AnimatedLights(TextWriter.Null));
 
             string where = $"scenario {s}";
             Assert.True(expected.SpaceFresh == actual.SpaceFresh, where);
@@ -122,7 +121,7 @@ public sealed class BakeResolverTests
 
         // The scenarios must not all come to the same thing, or the comparison would prove little.
         Assert.NotEmpty(BakeFreshness.Resolve(
-            first.Frame, first.Draws, TwoParts, 42, Settings, new AnimatedLights(TextWriter.Null), first.Store).DroppedLocalLights);
+            first.Frame, first.Draws, TwoParts, 42,new AnimatedLights(TextWriter.Null), first.Store).DroppedLocalLights);
     }
 
     [Fact]
@@ -132,10 +131,10 @@ public sealed class BakeResolverTests
         var animated = new AnimatedLights(TextWriter.Null);
         var busy = new FrameView { BakedSpace = Courtyard, Lights = [Sun(LightMode.Baked)], LocalLights = [Point(1, InCourtyard, LightMode.Baked)] };
 
-        var withAreas = resolver.Resolve(busy, [], TwoParts, 42, Settings, animated);
+        var withAreas = resolver.Resolve(busy, [], TwoParts, 42,animated);
         Assert.Equal([0], withAreas.DroppedLocalLights);
 
-        var empty = resolver.Resolve(default, [], TwoParts, 42, Settings, animated);
+        var empty = resolver.Resolve(default, [], TwoParts, 42,animated);
 
         Assert.Null(empty.Space);
         Assert.Empty(empty.DroppedLocalLights);
@@ -143,7 +142,34 @@ public sealed class BakeResolverTests
         Assert.Empty(empty.Chunks);
     }
 
-    private static readonly BakeSettings Settings = new(quality: BakeQuality.Final);
+    [Fact]
+    public void Each_area_is_hashed_at_its_own_texel_density()
+    {
+        var resolver = new BakeResolver(NoBakes.Instance);
+        var animated = new AnimatedLights(TextWriter.Null);
+        DrawItem[] draws = [Static(1, InCourtyard), Static(2, InRoom)];
+        var denseCourtyard = Courtyard with { TexelsPerMetre = 40 };
+        var denseRoom = Room with { TexelsPerMetre = 40 };
+        BakeInputs Space(BakedSpace space, BakedChunk room) => resolver.Resolve(
+            new FrameView { BakedSpace = space, BakedChunks = new[] { room } }, draws, TwoParts, 42, animated).Space!.Value;
+        BakeInputs Chunk(BakedSpace space, BakedChunk room) => resolver.Resolve(
+            new FrameView { BakedSpace = space, BakedChunks = new[] { room } }, draws, TwoParts, 42, animated).Chunks[0];
+
+        var plain = Space(Courtyard, Room);
+        var plainRoom = Chunk(Courtyard, Room);
+
+        // Only the settings hash moves, and only for the area whose density changed.
+        Assert.Equal(plain with { Settings = Space(denseCourtyard, Room).Settings }, Space(denseCourtyard, Room));
+        Assert.NotEqual(plain.Settings, Space(denseCourtyard, Room).Settings);
+        Assert.Equal(plainRoom, Chunk(denseCourtyard, Room));
+        Assert.NotEqual(plainRoom.Settings, Chunk(Courtyard, denseRoom).Settings);
+        Assert.Equal(plain.Settings, Space(Courtyard, denseRoom).Settings);
+
+        // And it's the same hash a bake made at that density is saved with.
+        Assert.Equal(
+            BakeInputHash.Space([], [], denseCourtyard, 42, null, new BakeSettings(40)).Settings,
+            Space(denseCourtyard, Room).Settings);
+    }
 
     private static ResolveCase Scenario(
         BakedSpace? space, BakedChunk[] chunks, DirectionalLight[] suns, LocalLight[] lights, DrawItem[] draws,
@@ -188,7 +214,8 @@ public sealed class BakeResolverTests
         Detail = new DetailHandle(part),
     };
 
-    // Answers fresh without allocating, which the real store need not do until it exists.
+    // Answers fresh without allocating, as LightBakeStore does once warm (see LightBakeStoreTests), so what is
+    // measured is the resolver alone.
     private sealed class EveryBakeFresh : IBakeStore
     {
         public bool IsFresh(string file, BakeInputs inputs) => true;

@@ -770,10 +770,14 @@ public sealed class View
     /// <summary>
     /// Names the one fixed place this frame whose lighting is baked as it stands, sun included: the box from
     /// <paramref name="min"/> to <paramref name="max"/>, holding baked probes <paramref name="probeSpacing"/> metres
-    /// apart, at most <see cref="BakeFiles.MaxSpaceProbes"/>. Its bake is <c>lighting/&lt;name&gt;.lightbake</c>.
-    /// A second space in one frame throws. Nothing is baked or read yet. See docs/rendering.md.
+    /// apart, at most <see cref="BakeFiles.MaxSpaceProbes"/>, with lightmaps of <paramref name="texelsPerMetre"/>
+    /// texels for each metre of surface. Its bake is <c>lighting/&lt;name&gt;.lightbake</c>, made with
+    /// <c>--bake</c>, and a bake made at another density is stale. A second space in one frame throws. The bake is
+    /// checked against the frame, but its light isn't drawn yet. See docs/rendering.md.
     /// </summary>
-    public void BakedLighting(string name, Vector3 min, Vector3 max, float probeSpacing)
+    public void BakedLighting(
+        string name, Vector3 min, Vector3 max, float probeSpacing,
+        int texelsPerMetre = BakeSettings.DefaultTexelsPerMetre)
     {
         BakeFiles.CheckName(name);
         if (BakedSpace is { } named)
@@ -781,6 +785,8 @@ public sealed class View
             throw new InvalidOperationException(
                 $"The baked space \"{named.Name}\" was already named this frame, so \"{name}\" can't be. A frame has at most one baked space.");
         }
+
+        CheckTexelsPerMetre("baked space", texelsPerMetre);
 
         if (!(float.IsFinite(probeSpacing) && probeSpacing > 0f))
         {
@@ -797,16 +803,20 @@ public sealed class View
                 nameof(probeSpacing));
         }
 
-        BakedSpace = new BakedSpace(name, min, max, probeSpacing);
+        BakedSpace = new BakedSpace(name, min, max, probeSpacing, texelsPerMetre);
     }
 
     /// <summary>
     /// Places a piece of the world that is baked once in its own space: <paramref name="transform"/> places it and
     /// may only turn and move it, and <paramref name="min"/> to <paramref name="max"/> is its box in its own space.
-    /// The same name may be placed many times, and every copy with the same contents shares one bake. At most
-    /// <see cref="BakeFiles.MaxChunks"/> a frame. Nothing is baked or read yet. See docs/rendering.md.
+    /// Its lightmaps have <paramref name="texelsPerMetre"/> texels for each metre of surface. The same name may be
+    /// placed many times, and every copy with the same contents shares one bake. At most
+    /// <see cref="BakeFiles.MaxChunks"/> a frame. Chunks can't be baked yet, so each is lit live. See
+    /// docs/rendering.md.
     /// </summary>
-    public void BakedChunk(string name, Matrix4x4 transform, Vector3 min, Vector3 max)
+    public void BakedChunk(
+        string name, Matrix4x4 transform, Vector3 min, Vector3 max,
+        int texelsPerMetre = BakeSettings.DefaultTexelsPerMetre)
     {
         BakeFiles.CheckName(name);
         if (_bakedChunks.Count == BakeFiles.MaxChunks)
@@ -817,7 +827,18 @@ public sealed class View
 
         BakeFiles.CheckChunkTransform(_bakedChunks.Count, name, transform, nameof(transform));
         CheckBakedBox("baked chunk", min, max);
-        _bakedChunks.Add(new BakedChunk(name, transform, min, max));
+        CheckTexelsPerMetre("baked chunk", texelsPerMetre);
+        _bakedChunks.Add(new BakedChunk(name, transform, min, max, texelsPerMetre));
+    }
+
+    private static void CheckTexelsPerMetre(string what, int texelsPerMetre)
+    {
+        if (texelsPerMetre < BakeSettings.MinTexelsPerMetre || texelsPerMetre > BakeSettings.MaxTexelsPerMetre)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(texelsPerMetre), texelsPerMetre,
+                $"The {what}'s lightmap density must be {BakeSettings.MinTexelsPerMetre.ToString(CultureInfo.InvariantCulture)} to {BakeSettings.MaxTexelsPerMetre.ToString(CultureInfo.InvariantCulture)} texels a metre, not {texelsPerMetre.ToString(CultureInfo.InvariantCulture)}.");
+        }
     }
 
     private static void CheckBakedBox(string what, Vector3 min, Vector3 max)

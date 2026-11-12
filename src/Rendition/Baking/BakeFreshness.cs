@@ -117,8 +117,8 @@ public static class BakeFreshness
     /// </remarks>
     public static BakeFrame Resolve(
         in FrameView frame, ReadOnlySpan<DrawItem> draws, Func<DetailHandle, BakeSphere> bounds, ulong environment,
-        BakeSettings settings, AnimatedLights animated, IBakeStore store) =>
-        new BakeResolver(store).Resolve(frame, draws, bounds, environment, settings, animated);
+        AnimatedLights animated, IBakeStore store) =>
+        new BakeResolver(store).Resolve(frame, draws, bounds, environment, animated);
 
     /// <summary>
     /// <paramref name="items"/> without the ones at <paramref name="dropped"/> (ascending indices), copied into

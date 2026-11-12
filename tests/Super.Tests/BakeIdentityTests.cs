@@ -393,10 +393,10 @@ public class BakeIdentityTests
         BakeSphere[] bounds = [new(new Vector3(-1.5f, 0f, 0f), 0.5f), new(new Vector3(1.5f, 0f, 0f), 0.5f)];
         var parts = Dressed(view, Fresh(), bounds: bounds);
         var chunks = view.PlacedBakedChunks.ToArray();
-        var settings = new BakeSettings(quality: BakeQuality.Final);
+        var settings = new BakeSettings();
 
         var resolved = BakeFreshness.Resolve(
-            new FrameView { BakedChunks = chunks }, parts, detail => bounds[detail.Index], 0, settings,
+            new FrameView { BakedChunks = chunks }, parts, detail => bounds[detail.Index], 0,
             new AnimatedLights(new StringWriter()), NoBakes.Instance);
 
         Assert.Equal(2, parts.Length);

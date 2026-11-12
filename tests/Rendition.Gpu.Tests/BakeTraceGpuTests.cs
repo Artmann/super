@@ -393,6 +393,74 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
+    [Fact]
+    public void Bake_at_another_density_than_the_space_throws()
+    {
+        int errors = gpu.ValidationErrors;
+        var error = Assert.Throws<ArgumentException>(() =>
+        {
+            var view = gpu.View(DebugView.None);
+            view.BakedSpace = Room with { TexelsPerMetre = 8 };
+            gpu.Renderer.Bake(view, [], new BakeSettings(20));
+        });
+
+        Assert.Equal(
+            "The baked space \"trace-room\" is lit at 8 texels a metre, so it can't be baked at 20: no frame would find that bake fresh. (Parameter 'settings')",
+            error.Message);
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void A_bake_at_the_space_density_is_fresh_next_frame_through_the_store_and_stale_at_another()
+    {
+        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        var log = new StringWriter();
+        try
+        {
+            var draws = new[] { StaticDraw(quad, Floor(), gpu.Matte, 51) };
+            var lamp = new LocalLight
+            {
+                Mode = LightMode.Baked, Key = 1111, Position = new Vector3(0f, 1f, 0f), Radiance = new Vector3(10f),
+                Range = 10f,
+            };
+            var dense = Room with { TexelsPerMetre = 8 };
+            FrameView View(BakedSpace space)
+            {
+                var view = gpu.View(DebugView.None);
+                view.BakedSpace = space;
+                view.LocalLights = new[] { lamp };
+                return view;
+            }
+
+            gpu.Renderer.Render(View(dense), draws);
+            byte[] bytes = gpu.Renderer.Bake(View(dense), draws, new BakeSettings(8, BakeQuality.Preview));
+            gpu.Renderer.Bakes = new LightBakeStore(name => name == "lighting/trace-room.lightbake" ? bytes : null, log);
+
+            gpu.Renderer.Render(View(dense), draws);
+            var frame = gpu.Renderer.LastBakeFrame;
+            Assert.NotNull(frame);
+            Assert.True(frame.SpaceFresh, $"The bake was stale on the next frame: {log}");
+            Assert.Equal([0], frame.DroppedLocalLights);
+            Assert.Equal("", log.ToString());
+
+            // The same space at the default density asks for another bake.
+            gpu.Renderer.Render(View(Room), draws);
+            Assert.False(gpu.Renderer.LastBakeFrame!.SpaceFresh);
+            Assert.Equal(
+                $"The bake lighting/trace-room.lightbake is stale, since its settings changed, so its area is lit live until it is baked again.{Environment.NewLine}",
+                log.ToString());
+        }
+        finally
+        {
+            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.DestroyMesh(quad);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
     // The lamp sits over the centre of floor texel (8, 8) of 16, at tpm 8 on the 2 metre floor: uv 8.5 / 16.
     private const float LampU = 8.5f / 16f;
     private const float LampV = 8.5f / 16f;
@@ -436,7 +504,8 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
     private LightBakeFile Bake(DrawItem[] draws, LocalLight[] lights, float sky, BakeSettings settings)
     {
         var view = gpu.View(DebugView.None);
-        view.BakedSpace = Room;
+        // The space is lit at the density the test bakes at, as a space must be.
+        view.BakedSpace = Room with { TexelsPerMetre = settings.TexelsPerMetre };
         view.EnvironmentIntensity = sky;
         view.LocalLights = lights;
         return LightBakeFile.Read(gpu.Renderer.Bake(view, draws, settings));

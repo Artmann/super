@@ -262,7 +262,7 @@ public sealed class BakeProbeGpuTests(GpuFixture gpu)
     private LightBakeFile Bake(DrawItem[] draws, LocalLight[] lights, float sky, BakeSettings settings)
     {
         var view = gpu.View(DebugView.None);
-        view.BakedSpace = Room;
+        view.BakedSpace = Room with { TexelsPerMetre = settings.TexelsPerMetre };
         view.EnvironmentIntensity = sky;
         view.LocalLights = lights;
         return LightBakeFile.Read(gpu.Renderer.Bake(view, draws, settings));

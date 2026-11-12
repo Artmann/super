@@ -83,6 +83,9 @@ public sealed class Content
     /// <summary>Where the cooked bytes come from. The window reads models and textures through it.</summary>
     internal IContentFiles Files => _files;
 
+    /// <summary>How many times the files have been read again by <see cref="Reload"/>, so what was read from them before can be forgotten.</summary>
+    internal int Reloads { get; private set; }
+
     /// <summary>True only in the interactive window, where loading happens over real time.</summary>
     internal bool Streaming { get; set; }
 
@@ -778,6 +781,7 @@ public sealed class Content
         try
         {
             _files.Refresh();
+            Reloads++;
             _identities.Clear(); // A cooked file named again may hash differently now.
             Load(all, all);
         }

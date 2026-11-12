@@ -109,28 +109,27 @@ public static class Game
 
         if (baking)
         {
+            // One tick by default, so the game has set up its scene before it's baked.
+            long bakeTicks = arguments.Ticks ?? 1;
+            if (!arguments.Bake)
+            {
+                // The check reads the cooked bake, the one the game draws with, so it works in a published game too.
+                Environment.ExitCode = window.BakeCheck(host, bakeTicks) == 0 ? 0 : 1;
+                return;
+            }
+
             // Bakes are sources, like the scene's models, so they're saved beside them in the first content root.
             if (host.Content.Files is not CookedFolder { Dev: { Roots.Length: > 0 } dev })
             {
                 Console.Error.WriteLine(
-                    $"{(arguments.Bake ? "--bake" : "--bake-check")} needs the game run from source, where the build writes {DevSettings.FileName} to say where the content is.");
+                    $"--bake needs the game run from source, where the build writes {DevSettings.FileName} to say where the content is.");
                 Environment.ExitCode = 1;
                 return;
             }
 
-            // One tick by default, so the game has set up its scene before it's baked.
-            long bakeTicks = arguments.Ticks ?? 1;
-            if (arguments.Bake)
-            {
-                int problems = window.Bake(host, bakeTicks, arguments.BakeQuality, dev.Roots[0]);
-                Console.WriteLine($"{problems} validation messages");
-                Environment.ExitCode = problems == 0 ? 0 : 1;
-            }
-            else
-            {
-                Environment.ExitCode = window.BakeCheck(host, bakeTicks, dev.Roots[0]) == 0 ? 0 : 1;
-            }
-
+            int problems = window.Bake(host, bakeTicks, arguments.BakeQuality, dev.Roots[0]);
+            Console.WriteLine($"{problems} validation messages");
+            Environment.ExitCode = problems == 0 ? 0 : 1;
             return;
         }
 

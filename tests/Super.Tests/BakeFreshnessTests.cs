@@ -374,8 +374,7 @@ public sealed class BakeFreshnessTests
             Time = time,
         };
         return BakeFreshness.Resolve(
-            frame, draws, bounds ?? HalfMetreBall, 42, new BakeSettings(quality: BakeQuality.Final),
-            animated ?? new AnimatedLights(new StringWriter()), store);
+            frame, draws, bounds ?? HalfMetreBall, 42, animated ?? new AnimatedLights(new StringWriter()), store);
     }
 
     private static DirectionalLight Sun(LightMode mode) => new()

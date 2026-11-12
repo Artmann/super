@@ -233,11 +233,11 @@ internal sealed unsafe class GameWindow : IDisposable
             throw new InvalidOperationException("--bake found no baked space in the frame. Name one with view.BakedLighting.");
         }
 
-        // The space doesn't choose a texel density, so it's baked at the default one, which is what a frame checks
-        // its bake against.
+        // Baked at the space's own texel density, which is what a frame checks its bake against.
         _glfw.GetFramebufferSize(_window, out int width, out int height);
         ApplyGraphics(host.Graphics);
-        byte[] bake = _scene.Bake(host.View, host.Content, width, height, time, new BakeSettings(quality: quality));
+        byte[] bake = _scene.Bake(
+            host.View, host.Content, width, height, time, new BakeSettings(space.TexelsPerMetre, quality));
 
         string file = BakeFiles.Space(space.Name);
         string path = Path.GetFullPath(Path.Combine(folder, file));
@@ -248,10 +248,11 @@ internal sealed unsafe class GameWindow : IDisposable
     }
 
     /// <summary>
-    /// Plays the given number of ticks, draws the frame and checks its baked space's bake in <paramref name="folder"/>,
-    /// printing whether it is missing, stale, with what changed, or fresh. Returns the number of missing or stale bakes.
+    /// Plays the given number of ticks, draws the frame and checks its baked space's bake in the cooked content, the
+    /// one the frame was drawn with, printing whether it is missing, stale, with what changed, or fresh. Returns the
+    /// number of missing or stale bakes.
     /// </summary>
-    public int BakeCheck<TGame>(GameHost<TGame> host, long ticks, string folder)
+    public int BakeCheck<TGame>(GameHost<TGame> host, long ticks)
         where TGame : class, IGame
     {
         PlayAndDraw(host, ticks);
@@ -262,21 +263,20 @@ internal sealed unsafe class GameWindow : IDisposable
         }
 
         string file = BakeFiles.Space(space.Name);
-        string path = Path.GetFullPath(Path.Combine(folder, file));
-        if (!File.Exists(path))
+        if (_scene.Bakes.Saved(file) is not { } saved)
         {
-            Console.WriteLine($"{path}: missing");
+            Console.WriteLine($"{file}: missing");
             return 1;
         }
 
-        var changes = inputs.Changes(LightBakeFile.ReadInputs(File.ReadAllBytes(path)));
+        var changes = inputs.Changes(saved);
         if (changes.Count > 0)
         {
-            Console.WriteLine($"{path}: stale, its {string.Join(", ", changes)} changed");
+            Console.WriteLine($"{file}: stale, its {string.Join(", ", changes)} changed");
             return 1;
         }
 
-        Console.WriteLine($"{path}: fresh");
+        Console.WriteLine($"{file}: fresh");
         return 0;
     }
 

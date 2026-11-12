@@ -421,14 +421,19 @@ the message to cook it again.
 
 ## Baked lighting
 
-Bakes of a frame's [baked lighting](rendering.md#baked-lighting) will live in a `lighting/`
+Bakes of a frame's [baked lighting](rendering.md#baked-lighting) live in a `lighting/`
 folder in the game's first content root. A space named with `view.BakedLighting("crypt", …)`
 gets `lighting/crypt.lightbake`. A chunk named with `view.BakedChunk("house-garden", …)` gets
 one file for each version of its contents, named by the 16 hex digits of their hash, such as
 `lighting/house-garden/00000000000000ab.lightbake`. `BakeFiles.Space` and `BakeFiles.Chunk`
 give these names. `Renderer.Bake` makes a space's bytes, and
-[`--bake`](command-line.md#baking-lighting) writes them to this folder, but nothing reads the
-files yet.
+[`--bake`](command-line.md#baking-lighting) writes them to this folder.
+
+The game reads its bakes from the cooked content, like any other asset, so a bake shows up
+after the build that cooks it. Each file's header is read the first time a frame asks for it
+and kept, and when the content [reloads while the game runs](#change-it-while-the-game-runs)
+every bake is read again, so a bake made with `--bake` shows up once it is cooked. A bake that is missing, stale or damaged leaves its area lit live; see
+[Without a bake](rendering.md#without-a-bake) for what is reported.
 
 ### Cooking a bake
 

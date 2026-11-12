@@ -3166,7 +3166,8 @@ kept as a hash when it's called, then the clear sky's turbidity as drawn (0 when
 `EnvironmentIntensity` of the last frame. It follows what they hold, not the version count the
 light probes use, so setting the same environment again gives the same hash.
 
-`Settings` is 0 for a space or 1 for a chunk, `TexelsPerMetre` and
+`Settings` is 0 for a space or 1 for a chunk, the area's own `TexelsPerMetre` (from
+`BakedSpace.TexelsPerMetre` or `BakedChunk.TexelsPerMetre`, so two areas in one frame can differ) and
 `BakeInputHash.BakerVersion`, then for a space its probe spacing, and the area's box. `Quality`
 is not hashed: it decides how long a bake runs, not what it shows, so a Preview bake counts
 as fresh (the file header records which quality made it). A bigger
@@ -3228,8 +3229,9 @@ Otherwise it runs in this order:
    hash, and several give one hash of their count and their sorted hashes. Suns never belong to
    a chunk.
 5. `IBakeStore.IsFresh(file, inputs)` is asked about each area, with `BakeFiles.Space(name)` or
-   `BakeFiles.Chunk(name, inputs.Combined)`. `Renderer.Bakes` is the store, `NoBakes.Instance`
-   by default, which answers false for everything. It is internal until bakes can be written.
+   `BakeFiles.Chunk(name, inputs.Combined)`. The store is `Renderer.Bakes`, `NoBakes.Instance`
+   by default, which answers false for everything, or `NoBakes.Instance` whatever `Bakes` is
+   when the view has `RenderEffects.BakedLighting` in `Off`.
 6. A light whose area is fresh keeps its mode in `BakeFrame.ModeOf`, and every other light
    reads as Realtime. A fresh area's Baked lights are listed in `DroppedLocalLights` or
    `DroppedSuns`, by their index in the frame's lists. A fresh chunk never frees the space's
@@ -3239,8 +3241,36 @@ When something was dropped, `Render` draws a copy of the frame view whose `Light
 `LocalLights` leave those lights out, by calling itself once more with a flag set so the second
 pass doesn't resolve again. `BakeFreshness.Without` copies the kept lights into an array the
 renderer keeps, grown only when a frame has more lights, and returns the frame's own span
-untouched when nothing is dropped. With no store yet, nothing is ever dropped, so frames look
-exactly as they did, to the byte (`NoBakeGpuTests`).
+untouched when nothing is dropped. With no fresh bake nothing is dropped, so frames look
+exactly as they would without baked areas, to the byte (`NoBakeGpuTests`). Lightmaps aren't
+drawn yet, so a dropped light's place is empty for now.
+
+### The bake store
+
+`LightBakeStore` (`src/Rendition/Baking/LightBakeStore.cs`) is the `IBakeStore` a Super game
+uses. It reads files through a `Func<string, byte[]?>`, so Rendition doesn't know where content
+lives; `SceneRenderer` gives it `Content.Files.Read` for names whose kind is `ContentKind.Data`,
+so it sees the cooked bakes, and logs to `Console.Error`. `Saved(file)` reads a file's header
+with `LightBakeFile.ReadInputs` the first time it is asked about and keeps the result in a
+`Dictionary<string, BakeInputs?>`, null for a missing file or one whose header throws
+`InvalidDataException`, which is logged once with its message. `IsFresh` compares the kept
+inputs with the frame's by value. When they differ it logs once per file, kept in a
+`HashSet<string>`, joining `BakeInputs.Changes` into "draws, lights and environment". A missing
+file isn't logged. So once every area's file has been asked about, a frame reads nothing and
+allocates nothing, the stale path included, which `LightBakeStoreTests` checks with
+`GC.GetAllocatedBytesForCurrentThread`.
+
+`Forget` clears both, so the next frame reads the headers again and logs again. `SceneRenderer`
+calls it in `Prepare` when `Content.Files` is a different object or `Content.Reloads` has moved
+since the last frame; `Content.Reload` counts up right after it refreshes the files. `Load`
+reads a whole file with `LightBakeFile.Read` and keeps nothing; it is for drawing a fresh bake.
+`GameWindow.BakeCheck` asks the same store's `Saved` and prints what `Changes` names, so
+`--bake-check` judges the bake the game would draw with.
+
+Each area's texel density is on the area (`BakedSpace.TexelsPerMetre`, `BakedChunk.TexelsPerMetre`),
+not passed to the resolver, since it is part of what the scene asks for, like probe spacing.
+`Renderer.Bake` throws when its `BakeSettings.TexelsPerMetre` isn't the space's, since the bake
+it made would never be fresh.
 
 The work is done by a `BakeResolver` (`src/Rendition/Baking/BakeResolver.cs`), which the
 renderer keeps one of; `BakeFreshness.Resolve` makes a new one for a single call and is for

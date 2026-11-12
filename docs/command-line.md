@@ -432,28 +432,29 @@ C:\Code\MyGame\content\lighting\gallery.lightbake: 13.3 MB
 
 It exits with 1 when there were validation messages. `--bake-quality preview` traces 64
 samples a texel, which took 15 seconds on the Gallery; `final`, the default, traces 1,024. The
-space is baked at the default texel density, 20 a metre, which is what a frame checks its
-bake against. A frame with no baked space throws "--bake found no baked space in the frame.
+space is baked at the texel density it was named with, `view.BakedLighting`'s
+`texelsPerMetre`, which is what a frame checks its bake against. A frame with no baked space throws "--bake found no baked space in the frame.
 Name one with view.BakedLighting." Only the space is baked; chunks aren't yet.
 
 `--bake-check` plays the same way, draws the frame, and compares what its baked space would be
-baked from with the header of the saved bake. It prints one line and exits with 0 when the
-bake is fresh, or 1 when it is missing or stale, naming what changed out of `draws`, `lights`,
-`environment` and `settings`:
+baked from with the header of the bake in the cooked content, the one the game draws with. It
+prints one line and exits with 0 when the bake is fresh, or 1 when it is missing or stale,
+naming what changed out of `draws`, `lights`, `environment` and `settings`:
 
 ```
-C:\Code\MyGame\content\lighting\gallery.lightbake: stale, its lights changed
+lighting/gallery.lightbake: stale, its lights changed
 ```
 
-A frame with no baked space has nothing to check and exits with 0. Both need the game run from
-source, where the build writes `content.dev.json` to say where the content is; a published game
-exits with 1 and says so.
+A frame with no baked space has nothing to check and exits with 0. A bake that can't be read
+counts as missing, and the reason goes to the error output. `--bake` needs the game run from
+source, where the build writes `content.dev.json` to say where the content is, and a published
+game exits with 1 and says so. `--bake-check` works in a published game too, so a release can
+be checked as shipped.
 
 A saved bake is cooked with the rest of the content: the build rewrites its irradiance pages as
 BC6H and its direction and mask pages as BC7, which takes the Gallery's 13.3 MB down to about
-4.7 MB in about four seconds. See [Baked lighting](content.md#baked-lighting). `--bake-check`
-reads the file in the content root, so run it before the build, or from the program the bake
-was made with, such as `bin/Debug/net10.0/MyGame.exe --bake-check`.
+4.7 MB in about four seconds. See [Baked lighting](content.md#baked-lighting). Since
+`--bake-check` reads the cooked bake, build after `--bake` before checking; `dotnet run` does.
 
 ## Planned
 
