@@ -228,6 +228,23 @@ public class LocalLightTests
         Assert.Equal(near, SizeAt(6f));
     }
 
+    [Theory]
+    [InlineData(true, true, 1f)]
+    [InlineData(false, true, 0f)]
+    [InlineData(true, false, 0f)]
+    public void A_light_out_of_view_has_no_tile_but_is_still_marked_as_casting_a_shadow(bool castsShadow, bool shadows, float marked)
+    {
+        // Behind the camera, which looks down -z, and too short to reach the view: only the light probes see it.
+        var light = Point(3, new Vector3(0f, 0f, 10f), 2f) with { CastsShadow = castsShadow };
+
+        var (prepared, gpu, _) = Prepare([light], shadows);
+
+        Assert.Equal(0, prepared.LightCount);
+        Assert.Equal(1, prepared.ProbeLightCount);
+        Assert.Equal(-1f, gpu[0].RadianceShadow.W);
+        Assert.Equal(marked, gpu[0].Fade.W);
+    }
+
     [Fact]
     public void More_lights_than_a_frame_holds_is_explained()
     {

@@ -5,7 +5,8 @@
 // Needs common.glsl, sampling.glsl, brdf.glsl, light_data.glsl and probes.glsl first, and two
 // macros from the includer, each giving 0 for blocked to 1 for lit:
 //   PROBE_SUN_VISIBILITY(p, n)    the shadow-casting sun's, at point p with normal n;
-//   PROBE_LIGHT_VISIBILITY(i, p, n) local light i's, from its own shadow tile or 1 without one.
+//   PROBE_LIGHT_VISIBILITY(i, p, n) local light i's: traced for every light that casts a shadow, or rasterized from
+//                                   its own shadow tile, and 1 without one.
 // See "Light probes" in docs/design.md.
 #ifndef PROBE_LIGHT_GLSL
 #define PROBE_LIGHT_GLSL

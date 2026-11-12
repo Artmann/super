@@ -213,7 +213,10 @@ internal struct GpuLocalLight
     /// <summary>xyz: which way a spot shines; w: the cosine of its outer angle, or -2 for a point light.</summary>
     public Vector4 DirectionCone;
 
-    /// <summary>x: one over the cosines between the inner and outer angles, for the spot's fade; y: its radius; z: how strongly it lights the volumetric fog.</summary>
+    /// <summary>
+    /// x: one over the cosines between the inner and outer angles, for the spot's fade; y: its radius; z: how strongly it
+    /// lights the volumetric fog; w: 1 when it casts a shadow, with a tile or not, else 0.
+    /// </summary>
     public Vector4 Fade;
 }
 

@@ -203,6 +203,19 @@ public sealed class LiveProbeTests(GpuFixture shared)
     }
 
     [Fact]
+    public void Traced_probes_are_not_lit_through_a_wall_by_a_light_out_of_view()
+    {
+        // Facing down, on the camera's side of the wall: the floor there is lit by the light only without the wall. The
+        // light is out of view, so it has no shadow tile, and only a traced shadow ray can see the wall.
+        var point = new Vector3(0.2f, 0.3f, 0.7f);
+        var (open, _) = Settled(true, gpu => ProbeScenes.LightBehindWall(gpu, walled: false), point, -Vector3.UnitY);
+        var (walled, _) = Settled(true, gpu => ProbeScenes.LightBehindWall(gpu, walled: true), point, -Vector3.UnitY);
+
+        Assert.True(open.X > 0.01f, $"Without the wall the probes read {open}.");
+        Assert.True(walled.X >= 0f && walled.X < 0.05f * open.X, $"Without the wall the probes read {open}, behind it {walled}.");
+    }
+
+    [Fact]
     public void Scrolling_the_camera_keeps_the_probes_it_did_not_leave()
     {
         using var gpu = new GpuFixture(disableRayTracing: true);

@@ -367,8 +367,11 @@ set. `spacing` must be more than zero, and `max` above `min` on every axis. A ne
 its probes again.
 
 Each probe also notes how far away the surfaces it sees are, so a point behind a wall from a
-probe gets nothing from it, and light doesn't leak into a room from the probes outside. A
-probe that ends up inside a wall or under the ground sees mostly the backs of surfaces, and
+probe gets nothing from it, and light doesn't leak into a room from the probes outside. Traced
+probes also send a shadow ray towards every point or spot light that casts shadows, so a lamp
+behind a wall doesn't light them. Without tracing, the probes take a lamp's shadow from its
+shadow map, which only lamps that light the view have, so a lamp out of view lights the probes
+through walls as if it cast no shadow. A probe that ends up inside a wall or under the ground sees mostly the backs of surfaces, and
 is left out. Where no probe can see a point yet, the soft light comes from the sky as before.
 Reflections don't change; probes give only the soft, diffuse light. See-through, skinned and
 swimming things don't show in the probes, as they would spoil them or move on their own.

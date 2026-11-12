@@ -103,6 +103,38 @@ internal static class ProbeScenes
         return new ProbeScene([.. draws], [light], Vector3.Zero);
     }
 
+    /// <summary>
+    /// A white floor 8 m square just below y = 0 and a point light that casts shadows at (0, 1.5, 3), behind the tests'
+    /// camera, which looks towards -z from the origin. Its range of 3 m stops short of the view, which starts 0.1 m in
+    /// front of the camera, so the light is out of view and gets no shadow tile, yet it reaches the floor round
+    /// (0, 0, 1). With <paramref name="walled"/>, a solid wall 8 m wide and 4 m high at z = 1.55 stands between it and
+    /// that floor. The sky is black.
+    /// </summary>
+    public static ProbeScene LightBehindWall(GpuFixture gpu, bool walled)
+    {
+        var quad = Quad(gpu);
+        var white = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.8f, 0.8f, 1f), Roughness = 1f });
+        var draws = new List<DrawItem> { Face(quad, white, new Vector3(0f, -0.05f, 0f), Vector3.UnitY, -Vector3.UnitZ, 8f, 8f) };
+        if (walled)
+        {
+            // Two-sided, so it blocks the light from either side.
+            var wall = gpu.Renderer.CreateMaterial(
+                new Material { BaseColor = new Vector4(0.8f, 0.8f, 0.8f, 1f), Roughness = 1f, Flags = MaterialFlags.TwoSided });
+            draws.Add(Face(quad, wall, new Vector3(0f, 1.9f, 1.55f), -Vector3.UnitZ, Vector3.UnitY, 8f, 4f));
+        }
+
+        var light = new LocalLight
+        {
+            Key = 1,
+            Position = new Vector3(0f, 1.5f, 3f),
+            Radiance = new Vector3(20f),
+            Range = 3f,
+            CastsShadow = true,
+        };
+
+        return new ProbeScene([.. draws], [light], Vector3.Zero);
+    }
+
     /// <summary>What lies between the light and the floor in <see cref="ShadedFloor"/>.</summary>
     public enum Pane
     {

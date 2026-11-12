@@ -76,10 +76,11 @@ float probeSunVisibility(vec3 position, vec3 normal) {
     return 1.0;
 }
 
-// A light with no shadow tile casts no shadow in the lighting pass either, so it isn't traced.
+// Every light that casts a shadow is traced, with a shadow tile or not: one out of view or left out of the atlas
+// would otherwise light the probes through walls. probe_light.glsl only asks for lights in range.
 float probeLightVisibility(int index, vec3 position, vec3 normal) {
     LocalLight light = localLights[index];
-    if (light.radianceShadow.w < 0.0) {
+    if (light.fade.w < 0.5) {
         return 1.0;
     }
 

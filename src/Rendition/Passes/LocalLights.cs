@@ -147,17 +147,19 @@ internal sealed class LocalLights
 
         for (int k = 0; k < kept; k++)
         {
-            gpuLights[k] = ToGpu(lights[_kept[k]], _sizes[k] > 0 ? _sizeKeys[k] : -1f);
+            ref readonly var light = ref lights[_kept[k]];
+            gpuLights[k] = ToGpu(light, _sizes[k] > 0 ? _sizeKeys[k] : -1f, shadows && light.CastsShadow);
         }
 
-        // Light probes behind the camera still see the lights the view misses, so those follow, with no shadow.
+        // Light probes behind the camera still see the lights the view misses, so those follow, with no shadow tile.
+        // Traced probe updates still trace their shadows, so they are marked as casting one.
         int all = kept;
         for (int i = 0; i < lights.Length; i++)
         {
             ref readonly var light = ref lights[i];
             if (light.Range > 0f && !frustum.CanSee(light.Position, light.Range))
             {
-                gpuLights[all++] = ToGpu(light, -1f);
+                gpuLights[all++] = ToGpu(light, -1f, shadows && light.CastsShadow);
             }
         }
 
@@ -170,7 +172,7 @@ internal sealed class LocalLights
     /// </summary>
     public int ProbeLightCount { get; private set; }
 
-    private static GpuLocalLight ToGpu(in LocalLight light, float shadow)
+    private static GpuLocalLight ToGpu(in LocalLight light, float shadow, bool castsShadow)
     {
         float cosOuter = MathF.Cos(light.OuterAngle);
         float cosInner = MathF.Cos(MathF.Min(light.InnerAngle, light.OuterAngle));
@@ -181,7 +183,7 @@ internal sealed class LocalLights
             DirectionCone = light.IsSpot
                 ? new Vector4(Vector3.Normalize(light.Direction), cosOuter)
                 : new Vector4(0f, 0f, 0f, -2f),
-            Fade = new Vector4(1f / MathF.Max(cosInner - cosOuter, 1e-4f), RadiusOf(light), light.Volumetric, 0f),
+            Fade = new Vector4(1f / MathF.Max(cosInner - cosOuter, 1e-4f), RadiusOf(light), light.Volumetric, castsShadow ? 1f : 0f),
         };
     }
 

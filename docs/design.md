@@ -1113,8 +1113,8 @@ cluster tests every light's sphere against a sphere round the cluster's box, and
 cone too, and writes up to 256 indices, 16 bits each. The lighting pass,
 glass and particles read only their pixel's cluster. Each light is a 64-byte
 `GpuLocalLight`: position and range, radiance and its first shadow tile, direction and
-the cosine of the outer angle (-2 for a point light), and the fade's scale and the
-light's radius. A light reaches a point as `(1 + r²) / (d² + r²)` times its windowed
+the cosine of the outer angle (-2 for a point light), and the fade's scale, the
+light's radius, its volumetric strength and whether it casts a shadow, tile or not. A light reaches a point as `(1 + r²) / (d² + r²)` times its windowed
 falloff: plain inverse square far away, 1 at a metre whatever the radius, and no more
 than about `1 / r²` close up, so a torch on a wall lights the room without blowing the
 wall out.
@@ -1494,8 +1494,11 @@ in, at a distance of twice the spacing. A hit on the back of a one-sided surface
 minus the distance and counts towards the inside mark, as a rasterised back face does. Any other
 hit is shaded with `probeRadiance`, the same `probe_light.glsl` the capture uses, with its
 visibility from shadow rays (`traceVisible`) instead of shadow maps: one towards the shadow-casting
-sun, and one towards each point or spot light that has a shadow tile this frame, stopping 2 cm
-short of it. Every shadow ray starts 5 cm off the surface. Then the workgroup sums its 128 samples
+sun, and one towards each point or spot light in range that casts shadows, stopping 2 cm short
+of it. A light needs no shadow tile for this, so one out of view, or left out of a full atlas,
+still doesn't light the probes through a wall; `GpuLocalLight.Fade.w` marks the lights that cast
+shadows, since a light without a tile has -1 for its tile either way. The rasterized capture
+can only read tiles, so there such a light still shines through walls (see the limitations). Every shadow ray starts 5 cm off the surface. Then the workgroup sums its 128 samples
 into the probe's two tiles in its staging slot, with the same cosine and cos⁵⁰ weights as
 `probe_fold.comp`, distances clamped to twice the spacing, and `RecordBlend` blends them in.
 
@@ -3144,7 +3147,13 @@ and `ReadyToTrace`, are checked by review and by the GPU tests, not by the valid
 - Where it doesn't, light probes are rasterized a few a frame (8, 16 or 32), so after a load, a
   teleport or a change of sun they take a while to settle: about a thousand frames for the two
   finest cascades at High. Courtyard takes longer than a screenshot's 2,048-frame wait to settle
-  at High, so its shots can still be filling in.
+  at High, so its shots can still be filling in. A rasterized capture takes a point or spot
+  light's shadow from its shadow tile, and only lights that reach the view get tiles, so a lamp
+  out of view, or left out of a full atlas, lights the probes through walls. In a test room a
+  light behind a closed wall reached 92% of the floor's open-room reading. Giving every shadow
+  caster near the frame's probes a tile would draw up to six more shadow faces a light a frame,
+  and leaving those lights out of the probes would drop their bounce whenever the camera looks
+  away, which is worse in an open scene, so the leak stays on GPUs that can't trace.
 - On either path, moving things don't mark probes dirty; the oldest probes are redone in turn, so
   a moved object's bounce catches up within about probes ÷ budget frames. A sun that turns every
   frame keeps every probe dirty, and so does a light that changes every frame, like a flickering
