@@ -63,15 +63,6 @@ jobs:
           $bin >> $env:GITHUB_PATH
           & "$bin\ffmpeg.exe" -version | Select-Object -First 1
 
-      # Saved at the end of the job when the key is new, which is when a project's packages may have changed.
-      - name: Cache NuGet packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.nuget/packages
-          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
-          restore-keys: |
-            nuget-${{ runner.os }}-
-
       - name: Restore
         run: dotnet restore Super.slnx
 
@@ -96,7 +87,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.SUPER_CACHE }}
-          key: super-cook-${{ runner.os }}-${{ steps.cook-key.outputs.month }}-${{ steps.cook-key.outputs.sdk }}-${{ hashFiles('Directory.Build.props', 'src/**', 'tools/**', 'examples/*/content/**', 'assets/**') }}-probe
+          key: super-cook-${{ runner.os }}-${{ steps.cook-key.outputs.month }}-${{ steps.cook-key.outputs.sdk }}-${{ hashFiles('Directory.Build.props', 'src/**', 'tools/**', 'examples/*/content/**', 'assets/**') }}
           restore-keys: |
             super-cook-${{ runner.os }}-${{ steps.cook-key.outputs.month }}-
 
