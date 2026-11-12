@@ -1711,7 +1711,8 @@ reflection probe's capture), after the transparent pass and only while `_lightPr
 the probes off it records nothing and no atlases are made. It needs no buffers: probe_debug.vert
 builds a 12 × 8 UV sphere (576 vertices) from `gl_VertexIndex` and finds its probe from
 `gl_InstanceIndex`. The first instances are cascade 0's cells, placed and slotted with the same
-origin and wrap maths as probes.glsl; the rest are the fixed grid's probes, layer 4. A cascade
+origin and wrap maths as probes.glsl; the rest are the fixed grid's probes, layer 4. Cascades 1
+to 3 aren't drawn. A cascade
 probe inside the fixed grid's box is moved behind the near plane, since the grid's probes light
 that space. The radius is 0.15 × spacing. probe_debug.frag reads the atlases through the lighting
 set (bindings 11 and 12), so it works on either update path. It shows the texel of the probe's

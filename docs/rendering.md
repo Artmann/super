@@ -359,6 +359,9 @@ at most 8 million triangles round its probes, which is about 9 probes in Courtya
 way there is no pause while loading: the scene starts lit by the sky and fills in over the
 first frames, nearest probes first. Drawn this way at `High`, the near probes have all been
 drawn after about a thousand frames in a light scene (nearer four thousand in Courtyard).
+Without a `view.LightProbes` box of your own, the first seconds after a load can look blotchy,
+as neighbouring probes have been drawn different numbers of times, until each has been redone
+a few times and they even out.
 After that the oldest probes are redone in turn, so objects that move or appear show up in the
 bounce within about 2,000 frames at `High`. A point or spot light that moves, turns, changes
 colour or is switched off marks the probes in its range for an update, and a change to the sun,
@@ -400,7 +403,8 @@ A [screenshot](command-line.md#screenshots) waits for the probes near the camera
 up to 2,048 frames, so it shows the bounce as it will be rather than still filling in.
 
 `--debug-view probes` shows the probes themselves, over the lit scene. Every probe of the finest
-box and of your `view.LightProbes` box is a small sphere, and each point of a sphere shows the
+box and of your `view.LightProbes` box is a small sphere; the three coarser boxes aren't shown.
+Each point of a sphere shows the
 light that probe gives a white surface facing the same way, so a probe beside a red wall is red
 on the wall's side. The spheres are 0.15 of their probes' spacing in radius, 7.5 cm in the
 finest box, so they read clearly from a few metres away while neighbours stay well apart and
