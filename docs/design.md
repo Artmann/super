@@ -3147,9 +3147,10 @@ and `ReadyToTrace`, are checked by review and by the GPU tests, not by the valid
   at High, so its shots can still be filling in.
 - On either path, moving things don't mark probes dirty; the oldest probes are redone in turn, so
   a moved object's bounce catches up within about probes ÷ budget frames. A sun that turns every
-  frame keeps every probe dirty. Never-captured probes go before dirty ones wherever they are, so
-  until the coarse cascades have all been captured once, a light moving near the camera waits for
-  them.
+  frame keeps every probe dirty, and so does a light that changes every frame, like a flickering
+  lantern, for the probes in its range. Dirty probes go nearest first, ahead of clean ones, so
+  while such a light flickers near the camera, dirty probes further off and the clean probes'
+  refreshes wait for it.
 - Volumetric fog is a froxel grid of one cell per 8×8 scene pixels, so light bleeds a
   cell across silhouettes, a shaft narrower than a cell blurs, and its history smears a
   moving light or a fast camera for a few frames. Past `VolumetricDistance` the fog is the
