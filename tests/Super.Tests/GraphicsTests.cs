@@ -59,6 +59,39 @@ public class GraphicsTests
         Assert.Equal(ProbeQuality.Medium, GameWindow.RendererSettings(host.Graphics, hidden: false).ProbeQuality);
     }
 
+    [Fact]
+    public void A_debug_view_the_game_sets_reaches_the_renderer_next_frame()
+    {
+        using var host = new GameHost<Settings>(1, 30, null, graphics: new Graphics());
+        Assert.Equal(DebugView.None, GameWindow.RendererSettings(host.Graphics, hidden: false).DebugView);
+
+        host.Game.Graphics.DebugView = DebugView.Probes;
+
+        Assert.Equal(DebugView.Probes, GameWindow.RendererSettings(host.Graphics, hidden: false).DebugView);
+    }
+
+    [Theory]
+    [InlineData(DebugView.Probes, DebugView.Trace, DebugView.Trace)]
+    [InlineData(DebugView.Trace, DebugView.Probes, DebugView.Probes)]
+    [InlineData(DebugView.Probes, DebugView.None, DebugView.Probes)]
+    [InlineData(DebugView.None, DebugView.Probes, DebugView.Probes)]
+    [InlineData(DebugView.None, DebugView.None, DebugView.None)]
+    public void The_command_line_debug_view_wins_over_the_games(DebugView game, DebugView commandLine, DebugView expected)
+    {
+        var graphics = new Graphics { DebugView = game };
+
+        Assert.Equal(expected, GameWindow.RendererSettings(graphics, hidden: false, commandLineDebugView: commandLine).DebugView);
+    }
+
+    [Fact]
+    public void A_trace_view_the_game_sets_is_ignored_on_a_gpu_that_cannot_trace()
+    {
+        var graphics = new Graphics { DebugView = DebugView.Trace };
+
+        Assert.Equal(DebugView.None, GameWindow.RendererSettings(graphics, hidden: false, canTrace: false).DebugView);
+        Assert.Equal(DebugView.Trace, GameWindow.RendererSettings(graphics, hidden: false, canTrace: true).DebugView);
+    }
+
     [Theory]
     [InlineData(false, false, true, true)]
     [InlineData(false, false, false, false)]

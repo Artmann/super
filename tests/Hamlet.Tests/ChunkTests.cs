@@ -1,4 +1,5 @@
 using System.Numerics;
+using Rendition;
 using Super;
 using Super.Testing;
 
@@ -43,11 +44,10 @@ public sealed class ChunkTests
     }
 
     [Fact]
-    public void Seed_one_has_at_most_nine_chunk_variants()
+    public void Seed_one_has_the_seven_chunk_variants_the_committed_bakes_are_for()
     {
         using var run = Start(1);
         var buildings = run.Game.Village.Buildings;
-        Assert.True(buildings.Count >= 30, $"Seed 1 placed only {buildings.Count} buildings.");
 
         var variants = new List<(string Name, (ModelRef Model, Vector3? Color)[] Contents)>();
         for (int i = 0; i < buildings.Count; i++)
@@ -60,7 +60,53 @@ public sealed class ChunkTests
             }
         }
 
-        Assert.True(variants.Count <= 9, $"Seed 1 has {variants.Count} chunk variants: {string.Join(", ", variants.Select(variant => variant.Name))}.");
+        // One well, one workshop, one tower and four cottage layouts: the seven .lightbake files in content/lighting.
+        // If this changes, the bakes are stale and the Hamlet must be baked again.
+        Assert.True(variants.Count == 7, $"Seed 1 has {variants.Count} chunk variants: {string.Join(", ", variants.Select(variant => variant.Name))}.");
+    }
+
+    [Fact]
+    public void Every_seed_places_a_village_of_buildings()
+    {
+        // The village tries for 4 wells (one in the middle, three more), 4 towers, 8 workshops and 24 cottages: at
+        // most 40 buildings. A building that finds no spot is dropped, so a seed can place fewer; a village short of
+        // three quarters of its 40 would be a thin one.
+        using var run = Start(1);
+        foreach (int seed in Seeds(run))
+        {
+            int count = run.Game.Village.Buildings.Count;
+            Assert.True(count <= 40, $"Seed {seed} placed {count} buildings, more than the 40 it tries for.");
+            Assert.True(count >= 30, $"Seed {seed} placed only {count} buildings.");
+        }
+    }
+
+    [Fact]
+    public void Every_seed_gives_each_mixed_light_a_mask_slot()
+    {
+        // The frame has four shadow mask slots, shared by every baked chunk's Mixed lights (the forge fires). Lights of
+        // one placed chunk, or of chunks whose ranges overlap, can't share a slot, so a village with too many fires
+        // close together would leave one without a slot, and it would lose its shadow. The Hamlet has no baked space,
+        // so no slot is held for a space's sun; the real assignment is run with none.
+        using var run = Start(1);
+        foreach (int seed in Seeds(run))
+        {
+            var fires = new List<(int Key, int Chunk, Vector3 Position, float Range)>();
+            foreach (var building in run.Game.Village.Buildings)
+            {
+                foreach (var lamp in building.Plan.Lamps.Where(lamp => lamp.Mode == LightMode.Mixed))
+                {
+                    fires.Add((fires.Count, building.Index, building.ToWorld(lamp.Position), lamp.Range));
+                }
+            }
+
+            Assert.NotEmpty(fires);
+            var slots = new int[fires.Count];
+            var unslotted = new List<int>();
+            Rendition.MaskSlots.Assign(-1, [], fires.ToArray(), slots, unslotted);
+
+            Assert.True(unslotted.Count == 0, $"Seed {seed}: {unslotted.Count} of {fires.Count} Mixed lights found no mask slot.");
+            Assert.All(slots, slot => Assert.InRange(slot, 0, 3));
+        }
     }
 
     [Fact]

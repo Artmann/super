@@ -10,6 +10,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Super.Tests" />
     <InternalsVisibleTo Include="Rendition.Gpu.Tests" />
+    <InternalsVisibleTo Include="Hamlet.Tests" />
   </ItemGroup>
 
   <!-- AMD FidelityFX's prebuilt, signed Vulkan library, for FSR upscaling. MIT licensed; see CREDITS.md. -->
