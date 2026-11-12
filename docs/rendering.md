@@ -486,6 +486,8 @@ For chunks, look at the [Hamlet](../examples/Hamlet/README.md#baked-lighting): e
 a chunk named for its kind, so with seed 1 its 40 buildings share seven bakes, and the same keys
 switch its lighting.
 
+![Part of the Hamlet at dusk, lit live (left) and with baked chunks (right): the well shows its paving slabs and the cottages get softer contact shade, while the village looks much the same overall](media/hamlet-baked-before-after.webp)
+
 ![The Gallery from above, before and after baking: the bake darkens the doorway and the deep window, and shades under the colonnade](media/gallery-baked-before-after.webp)
 
 ![The colour room before and after baking: softer contact shade under the bust's plinth, and the walls' colour bleeds onto the floor much as before](media/gallery-colour-room-baked.webp)

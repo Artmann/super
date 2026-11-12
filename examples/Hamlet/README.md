@@ -55,7 +55,7 @@ The current lighting shows in the bottom-left corner. The keys switch between:
 | P | Light probes | Draws the live light probes over the scene, on and off; works in any lighting. Watch the cart's light move between chunks |
 | R | A new village | The next seed |
 
-P sets `Graphics.DebugView` to `DebugView.Probes` and back to `None`. `--debug-view probes` on the
+P sets `Graphics.DebugView` to `DebugView.Probes` and back to `None`. `--script live` presses key 1 and `--script probes` presses P, so a screenshot shows live lighting or the probes. `--debug-view probes` on the
 command line shows the same view from the start, and while it names a view, P changes nothing.
 
 Each light has the mode that suits it:
@@ -67,6 +67,8 @@ Each light has the mode that suits it:
 | Forge fires | Mixed | They burn all day, so their bounced light is baked, while their shadows stay live |
 | Window lights | Realtime, no shadows | They come and go with the lamps |
 | Cart lantern | Realtime | The cart moves, so it is never in a bake |
+
+![Part of the Hamlet at dusk, lit live (left) and with baked chunks (right): the well shows its paving slabs and the cottages get softer contact shade, while the village looks much the same overall](../../docs/media/hamlet-baked-before-after.webp)
 
 Other seeds place cottage layouts that seed 1 doesn't use. Those have no bake yet, so
 they are lit live, as with key 1, until a later plan bakes every layout.
