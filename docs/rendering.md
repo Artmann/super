@@ -484,10 +484,11 @@ byte[] bake = renderer.Bake(view, draws, new BakeSettings(quality: BakeQuality.P
 File.WriteAllBytes("lighting/crypt.lightbake", bake);
 ```
 
-`Renderer.Bake` path traces the frame's space into a lightmap and returns the `.lightbake`
-file's bytes. It takes the same view and draws as `Render`, waits for the GPU, and draws
-nothing. A view without a space throws "Bake needs a baked space in the frame; call
-view.BakedLighting first." Chunks aren't baked yet.
+`Renderer.Bake` path traces the frame's space into a lightmap and its light probes, and returns
+the `.lightbake` file's bytes. It takes the same view and draws as `Render`, waits for the GPU,
+and draws nothing. A view without a space throws "Bake needs a baked space in the frame; call
+view.BakedLighting first." A space with more than 4,096 probes, which only a hand-made
+`FrameView.BakedSpace` can have, throws with its name and count. Chunks aren't baked yet.
 
 The lightmap covers the static draws the space owns, apart from ones that sway in the wind or
 are see-through, at `TexelsPerMetre`. Each texel holds the light reaching it from every
@@ -505,8 +506,16 @@ on its mode:
   `view.EnvironmentIntensity`. Glass and other see-through surfaces let light through, dimmed
   by their opacity but not tinted.
 
+The bake also holds the space's probes, one every `probeSpacing` metres in its box, laid out
+as [light probes](#bounced-light) are, so the bake's probes can stand in for live ones there.
+Each records the light from every direction and how far away the surfaces it sees are, by the
+same rules as the lightmap: a `Mixed` light gives a probe only its bounced light, and `Baked`
+lights, emissive surfaces and the sky count in full. A probe inside a closed room with no light
+in it reads black. Nothing loads the probes yet.
+
 A `Preview` bake sends 64 paths from each texel and a `Final` one 1024, so Preview is about
-16 times quicker and noisier. A texel inside a wall gets no light, to be filled later. The
+16 times quicker and noisier. Probes take a sixteenth of that per direction, 4 and 64, since
+each probe direction already averages many. A texel inside a wall gets no light, to be filled later. The
 file's report gives the time taken, the share of texels found inside walls, and the lights that
 didn't get a mask channel.
 

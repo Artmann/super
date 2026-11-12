@@ -1490,7 +1490,8 @@ in Super a scene with no sky has a dark grey background of 0.15 but a studio env
 0.25 at the floor to 0.6 overhead at intensity 0.8, so its shade came out darker with probes
 than without. The background now only colours the pixels where nothing is drawn. The maths
 lives in `probe_fold.glsl`, which has no bindings of its own, so a traced capture can fold the
-same way.
+same way. The direction each cube face texel looks in comes from `cube_faces.glsl`
+(`cubeDirection`, `cubeWorldDirection`), which the bake's probes share; see "Baking probes".
 
 The fold doesn't write the atlases. It writes a slot of the staging buffer
 (`ProbeVolume.StagingTiles`, one bordered tile pair of 4,192 bytes per slot, as many slots as the
@@ -1934,7 +1935,8 @@ invalid too. The validity shader binds its own set 0 and the resource table as s
 ## The path tracer
 
 `Baker.Trace` is the baker's second stage, and `bake_trace.comp` with `bake_lights.glsl` is its
-shader. One pass sends one path from every valid texel of a page's region (the bounding box of
+shader. The path itself, from its first direction to its last bounce, is `pathFrom` in
+`bake_paths.glsl`, which the probes' shader shares (see "Baking probes"). One pass sends one path from every valid texel of a page's region (the bounding box of
 its rectangles) and adds what it brings back to three `rgba32f` sums: irradiance, direction and
 shadow mask. Sums are float32 so 1024 passes add up without losing the small ones. The baker
 reads them back and divides by the passes; `Baker.Encode` then writes the page as the file
@@ -1987,6 +1989,52 @@ lights' modes from `BakeResolver`, so the bake and the frame agree on which ligh
 and builds the top-level structure with `SetUpTexels`. That structure goes on the frame slot's
 destroyed list like any other, and is released only by a later `Render`; `Bake` waits for every
 batch before returning, so it stays alive for the whole trace.
+
+## Baking probes
+
+`Baker.TraceProbes` bakes the space's light probes after the lightmap, with the same scene and
+lights, into the file's probe pages. The settings are the space's own box and `ProbeSpacing`
+(`BakedSpace` from `view.BakedLighting`), so `ProbeGrid` lays the baked probes out exactly as it
+would live probes in that box, at most `BakeFiles.MaxSpaceProbes` (4,096); `Renderer.Bake`
+refuses a space with more before it starts. The tiles are the live probes' own, but the pages
+keep a fixed layout of their own, `BakedProbeAtlas`: one 2D page each, 64 tiles across, probe i at
+column i % 64 and row i / 64. The live atlases are five layers sized by `ProbeQuality`, so a bake
+can't share their layout, and `probes.glsl` reads both.
+
+`bake_probes.comp` traces what a live capture draws: each probe's six 16² cube faces. Probes go
+in batches of 64 (`Baker.ProbesPerBatch`), each a row of six faces in a 96 × 1024 `rgba32f` sum.
+One pass sends four paths through every face texel, one through the centre of each quarter, with
+`pathFrom` from `bake_paths.glsl`, so they meet the same first surfaces each pass and the bounces
+after them differ. The texel keeps radiance, the paths' mean light divided by π, and the mean
+distance to their first surfaces, negative when most of them saw a back face, as a live capture
+writes its alpha. Each distance is clamped to twice the spacing first, as the fold clamps it, so a
+path that met nothing never reaches the fold's sky mark: it already added the sky itself, and the
+fold mustn't add it again. The last pass writes the mean, clamped to 65,000 to fit half floats,
+to an `rgba16f` copy of the faces. Four paths a texel at 16² send as many paths as one at 32²,
+which the baker drew before the live probes' faces shrank to 16².
+
+A light is too small for a texel's paths to find, so its direct light is splatted. Each
+pass picks one point on every light that isn't `Mixed` (`bakeLightReaching` in
+`bake_lights.glsl`, the light reaching a point before any cosine), finds the face texel that
+looks at it (`cubeFaceOf` in `cube_faces.glsl`), and that texel adds the light, shadowed by
+`transmission`, divided by the solid angle it covers. A `Mixed` light's direct light is left out
+here as it is at a lightmap texel, since the frame draws it live; its light still arrives after
+a bounce through `pathFrom`. `Baked` lights, emission and the sky count in full.
+
+The fold is the live one. The baker makes a `ProbeVolume` of its own at `ProbeQuality.Low`, and
+for each group of up to `FaceSlots` (8) probes copies their faces into `FacesImage`, one slot each,
+calls `ProbeVolume.RecordFold` per slot, and `RecordStagingReadBack` copies the staging slots to a
+host buffer. So the tiles, borders, depth moments and inside marks come from `probe_fold.comp`
+itself, not a copy of it. `Baker.WriteTile` writes each probe's float32 tiles into the pages as
+`Rgba16f`: irradiance (640²) with alpha 1, and depth (1152²) widened from two channels with blue and
+alpha 0, since the file has no two-channel format. Tiles past the last probe stay black. The
+volume's own atlases are never written.
+
+A probe face texel sees one direction rather than a cosine-weighted hemisphere, and the fold
+averages about a thousand of them into each tile texel, so probes take a sixteenth of the
+lightmap's passes: 4 at `Preview`, 64 at `Final`. Passes are batched by the same 80 ms budget as
+the lightmap's. Random numbers come from the probe, the texel, the quarter and the pass, so the
+same scene bakes the same probes.
 
 ## Paint and glass
 
