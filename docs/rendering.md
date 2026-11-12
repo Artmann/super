@@ -515,9 +515,19 @@ in it reads black. Nothing loads the probes yet.
 
 A `Preview` bake sends 64 paths from each texel and a `Final` one 1024, so Preview is about
 16 times quicker and noisier. Probes take a sixteenth of that per direction, 4 and 64, since
-each probe direction already averages many. A texel inside a wall gets no light, to be filled later. The
-file's report gives the time taken, the share of texels found inside walls, and the lights that
-didn't get a mask channel.
+each probe direction already averages many. The file's report gives the time taken, the share
+of texels found inside walls, and the lights that didn't get a mask channel.
+
+Before the lightmap is written, an edge-aware filter smooths out the path tracer's noise. It
+follows the surfaces, so it doesn't blur light across a crease or a step, and it never mixes
+two charts, so light from one wall doesn't leak onto the floor beside it in the lightmap. The
+shadow mask isn't smoothed, so shadow edges stay sharp. Then the edges of each chart are grown
+by up to 8 texels, which fills texels inside walls from their neighbours and gives bilinear
+filtering and mips something right to read at a chart's edge. A path that came out as not a
+number or past a half float's range is cleared first, so one bad sample can't spoil a patch.
+`new BakeSettings(filter: false)` turns the smoothing off to show the raw trace; the edges are
+still grown and bad values still cleared. Like the quality, it doesn't make a bake stale.
+Probes aren't filtered.
 
 From code, `Renderer.LastBakeFrame` shows what the last frame decided. It is null after a
 frame that named no baked area. Otherwise its `Space` and `Chunks` hold the inputs of each

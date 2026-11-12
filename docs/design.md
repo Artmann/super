@@ -1894,19 +1894,19 @@ stage. `SetUpTexels(cmd, layout, draws)` records it: for every texel of every pa
 surface under it, and whether the texel is valid. [The path tracer](#the-path-tracer) traces light from these. The
 baker owns its images, pipelines and descriptor sets; none of the frame's bindings change.
 
-Each page has four 2048 square images: position (`rgba32f`, w is 1 where a surface covers the
-texel and 0 elsewhere), geometric normal and shading normal (`rgba16f`), and validity (`r8`, 1
-for a covered texel outside walls). They are made the first time a layout needs that many
-pages and kept, and `SetUpTexels` leaves them in the general layout for compute shaders and
+Each page has four 2048 square images: position (`rgba32f`, w is the number of the rectangle
+covering the texel, from 1, and 0 where nothing does), geometric normal and shading normal
+(`rgba16f`), and validity (`r8`, 1 for a covered texel outside walls). They are made the first
+time a layout needs that many pages and kept, and `SetUpTexels` leaves them in the general layout for compute shaders and
 copies. `ReadTexels` copies a region back for tests, 11 floats a texel.
 
 `bake_texels.vert` draws each static draw with a rectangle into its page, using its second UV
 set, `Vertex.Uv2` (vertex attribute 6, the same set the wear and dirt masks read), as the
 position: `Uv2 * Scale + Offset` is 0 to 1 on the page, and twice that minus one is clip
-space. The draw's transform and rectangle are push constants, so the pipeline has no
-descriptor sets. `bake_texels.frag` writes the world position and the normal blended from the
-vertices, both moved by the transform as `gbuffer.vert` moves them. The geometric normal comes
-from how the position changes from texel to texel, turned to the side the vertex normals face,
+space. The draw's transform, rectangle and the rectangle's number are push constants, so the
+pipeline has no descriptor sets. `bake_texels.frag` writes the world position, with the
+rectangle's number in w, and the normal blended from the vertices, both moved by the transform
+as `gbuffer.vert` moves them. The geometric normal comes from how the position changes from texel to texel, turned to the side the vertex normals face,
 since second UVs may be mirrored. Nothing is culled.
 
 A triangle thinner than a texel can miss every texel's centre and leave its texels empty, so
@@ -1914,7 +1914,8 @@ coverage must count any part of a texel. Where the device has
 `VK_EXT_conservative_rasterization` (`VulkanContext.ConservativeRasterization`), the pipeline
 overestimates: every texel a triangle touches is drawn, its attributes taken at the texel's
 centre, extended along the triangle's plane. A draw's own rectangle therefore spreads one texel
-into its gutter, which is what the gutter is for. Elsewhere the page is drawn in 512 square
+into its gutter, which is what the gutter is for. Those texels hold their own rectangle's number,
+so the filter keeps them with their chart. Elsewhere the page is drawn in 512 square
 tiles into 8x multisampled targets (or the most samples below 8 the device has), with the
 viewport still spanning the page so a rectangle lands on the same texels from any tile, and
 `bake_resolve.comp` copies each tile into the page. The positions and normals are `centroid`,
@@ -1936,12 +1937,14 @@ invalid too. The validity shader binds its own set 0 and the resource table as s
 
 `Baker.Trace` is the baker's second stage, and `bake_trace.comp` with `bake_lights.glsl` is its
 shader. The path itself, from its first direction to its last bounce, is `pathFrom` in
-`bake_paths.glsl`, which the probes' shader shares (see "Baking probes"). One pass sends one path from every valid texel of a page's region (the bounding box of
-its rectangles) and adds what it brings back to three `rgba32f` sums: irradiance, direction and
-shadow mask. Sums are float32 so 1024 passes add up without losing the small ones. The baker
-reads them back and divides by the passes; `Baker.Encode` then writes the page as the file
-stores it. Every texel's random numbers come from a hash of its place and the pass, so a bake
-of the same scene with the same settings gives the same file.
+`bake_paths.glsl`, which the probes' shader shares (see "Baking probes"). One pass sends one
+path from every valid texel of a page's region (the bounding box of its rectangles) and adds
+what it brings back to three `rgba32f` sums: irradiance, direction and shadow mask. Sums are
+float32 so 1024 passes add up without losing the small ones. The baker reads them back and
+divides by the passes; `Baker.FilterAndDilate` cleans the page up (see "Filtering and
+dilation") and `Baker.Encode` then writes it as the file stores it. Every texel's random
+numbers come from a hash of its place and the pass, so a bake of the same scene with the same
+settings gives the same file.
 
 Each pass first adds the light reaching the texel straight from the lights. Then a path starts
 1 mm (`Baker.TraceLift`) along the texel's geometric normal and goes out cosine-weighted,
@@ -1970,10 +1973,11 @@ A shadow ray treats a surface whose material is see-through as a pane: it walks 
 as the frame's shadows do. Anything opaque stops it. Each extra layer costs another query.
 
 The direction sum adds the direction of each light sampled at the texel and the path's first
-direction, each weighted by the luminance it brought, with the luminances in w. `Encode` divides one by the other: the mean direction, whose length says
-how much the light leans one way. It is stored as `d * 0.5 + 0.5` in RGBA8 with `|d|` in
-alpha. A texel that isn't valid holds no light, direction (0, 0, 0) and a mask of 1, for the
-filter to fill.
+direction, each weighted by the luminance it brought, with the luminances in w. Dividing one by
+the other gives the mean direction, whose length says how much the light leans one way; the
+filter does this before it smooths. It is stored as `d * 0.5 + 0.5` in RGBA8 with `|d|` in
+alpha. A texel that isn't valid gets nothing from the tracer and is filled by dilation; one
+that dilation doesn't reach holds no light, direction (0, 0, 0) and a mask of 1.
 
 The shadow mask comes from shadow rays alone. Each of its four channels names one `Mixed`
 light (`maskLights` in the push constants, from `ShadowMaskChannels.Assign`), and every pass
@@ -1989,6 +1993,45 @@ lights' modes from `BakeResolver`, so the bake and the frame agree on which ligh
 and builds the top-level structure with `SetUpTexels`. That structure goes on the frame slot's
 destroyed list like any other, and is released only by a later `Render`; `Bake` waits for every
 batch before returning, so it stays alive for the whole trace.
+
+## Filtering and dilation
+
+`Baker.FilterAndDilate` runs on each traced page before `Encode`, on the GPU, over the same
+region the tracer covered. It uploads the region's means into three `rgba32f` images, works
+between two copies of them, and reads the result back. Two shaders do the work, and they share
+one descriptor set: the page's position, geometric normal and validity, the three inputs and the
+three outputs.
+
+`bake_filter.comp` runs first with `stage` 0, which prepares the values. A value that isn't a
+number becomes 0, and one past a half float's ±65,504 (infinite ones too) is clamped to it, so
+one bad path can't spread through the filter or overflow the file. The direction sum becomes its
+mean direction, no longer than 1. A texel that isn't valid is emptied. From here irradiance w is
+1 on a texel that holds light and 0 on one that doesn't.
+
+Then, when `BakeSettings.Filter` is on (the default), come 4 passes of an edge-aware à-trous
+filter with steps of 1, 2, 4 and 8 texels, which reach 30 texels out with only
+25 taps a pass. Each tap's weight is the 5-tap B-spline (3/8, 1/4, 1/16 out from the middle)
+on both axes, times three edge terms: a Gaussian on the world distance between the two texels
+with a sigma of one texel; a Gaussian on how far the tap sits off this texel's plane, with a
+sigma of half a texel, so steps and creases stop it; and the cosine between their geometric
+normals to the 32nd power. A texel's world size is the distance to its neighbours of the same
+rectangle, so the terms work at any density. Only taps that hold light and were drawn for the
+same rectangle count, which keeps one chart's light out of another even where conservative
+drawing has pushed both into the gutter between them. The weights only depend on geometry, so a
+flat lightmap comes out flat. The irradiance and direction are filtered; the shadow mask isn't,
+since its noise is only inside penumbrae and blurring it would soften every shadow's edge.
+
+`bake_dilate.comp` then runs 8 rings, filtering or not. In each, a texel that holds no light and
+has neighbours that do takes the mean of their irradiance, direction and mask, and holds light
+from then on. A covered texel only takes neighbours drawn for its own rectangle; a gutter texel
+nothing covers takes any. Eight rings fill invalid texels up to eight deep and every gutter,
+which is only two texels wide, as `MaskBaker` dilates its masks, so bilinear
+filtering and mips at an edge read the chart. `TracedPage.Filled` marks every texel that holds
+light, and `Encode` writes those.
+
+Each page takes three submits: upload and prepare, the filter and dilation passes, and the
+readback. Probes aren't filtered; each is one point with its own many rays, with no neighbours
+in a texture to borrow from.
 
 ## Baking probes
 
