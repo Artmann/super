@@ -1626,8 +1626,10 @@ targets, waiting for the device every frame. Setting it once a frame avoids that
 presents to a hidden window measured then didn't come back. Recordings don't wait. `Settled` counts only cascades 0 and 1 and the fixed grid.
 Dirty probes in those go before never-captured probes in the coarse cascades, so a light moved
 near the camera is picked up within a few frames even while cascades 2 and 3 are still filling
-in. A quarter of each batch stays kept for never-captured probes while any are left, so a light
-that changes every frame, like a flickering lantern, can't keep the coarse cascades empty. A dirty probe keeps its old light in use until it is redone, so a change
+in. A quarter of each batch, rounded down, stays kept for never-captured probes in any cascade
+or the fixed grid while any are left, so a light that changes every frame, like a flickering
+lantern, can't keep the coarse cascades empty. Under a budget of 4 that quarter is 0 and nothing
+is kept; the shipped budgets are 8 or more. A dirty probe keeps its old light in use until it is redone, so a change
 fades in over the frames it takes to reach every probe rather than flashing. Without
 `shaderStorageImageExtendedFormats`, needed to write RG16F from compute, or without multiview,
 the probes are off.
@@ -1655,7 +1657,8 @@ given with `SetFixedGrid`. Each probe is never captured, dirty or clean. `Scroll
 range dirty, and `EverythingChanged` (sun, sky or environment) makes all of them dirty; a dirty
 probe keeps its old value in use until it is updated. `Next(budget, camera, forward)` returns at
 most `budget` distinct probes. Dirty probes in cascades 0 and 1 and the fixed grid come first,
-less a quarter of the budget kept for never-captured probes while any are left. Then come
+less `Math.Min(waiting, budget / 4)` kept for never-captured probes, where `waiting` counts the
+never-captured probes of any group that made the list. Then come
 never-captured probes, then the other dirty probes, then clean probes in order of the frames
 since their last update. Among dirty and never-captured probes the nearer probe goes first, finer
 cascades win at equal distance (squared distance is scaled by `(1 + cascade / 2)²`) and probes in
