@@ -3255,6 +3255,12 @@ and `ReadyToTrace`, are checked by review and by the GPU tests, not by the valid
   lantern, for the probes in its range. Dirty probes go nearest first, ahead of clean ones, so
   while such a light flickers near the camera, dirty probes further off and the clean probes'
   refreshes wait for it.
+- The traced and rasterized probes don't agree exactly. In the test's white room lit by one
+  point light the traced ones read 11 to 14% higher (an earlier build measured a 7–10% gap), and the test allows 15%. Turning off the rasterized capture's 16-spacing draw
+  cull changed none of the readings, as the whole room is within reach, and the room has no
+  glass or tint, so the likely causes, not yet pinned down, are what is left: the capture shades
+  cube texels rather than exact hit points, its 5 cm near plane clips what is closer, and it
+  takes the light's shadow from a shadow tile where the trace casts shadow rays.
 - Volumetric fog is a froxel grid of one cell per 8×8 scene pixels, so light bleeds a
   cell across silhouettes, a shaft narrower than a cell blurs, and its history smears a
   moving light or a fast camera for a few frames. Past `VolumetricDistance` the fog is the
