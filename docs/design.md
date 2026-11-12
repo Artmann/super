@@ -1435,7 +1435,10 @@ counts for nothing rather than for black, and `ProbeGrid.Weight` takes the same 
 
 An update draws a probe's six faces at 16² with `ProbeCapturePass`, into the probe's slot of
 `ProbeVolume.FacesImage`, in one `CmdBeginRendering` per probe with view mask `0x3F`: multiview
-draws all six faces at once, `gl_ViewIndex` picking the face. It is forward shading in one pass,
+draws all six faces at once, `gl_ViewIndex` picking the face. Each face is a 90° reversed-Z
+projection with no far plane and a near plane of 1 mm (`CAPTURE_NEAR`), so a probe a few
+centimetres from a wall still sees the wall rather than through it; the depth is 32-bit float,
+which keeps the same relative precision whatever the near plane. It is forward shading in one pass,
 `probe_capture.vert` and `probe_capture.frag`, with no G-buffer. Each surface sends on the light
 `probeRadiance` in `probe_light.glsl` gives it: `albedo * (direct / π + bounce) + emissive`, where
 direct is the suns plus every point and spot light of the frame in range (cone included), and
@@ -3268,12 +3271,12 @@ and `ReadyToTrace`, are checked by review and by the GPU tests, not by the valid
   lantern, for the probes in its range. Dirty probes go nearest first, ahead of clean ones, so
   while such a light flickers near the camera, dirty probes further off and the clean probes'
   refreshes wait for it.
-- The traced and rasterized probes don't agree exactly. In the test's white room lit by one
-  point light the traced ones read 11 to 14% higher (an earlier build measured a 7–10% gap), and the test allows 15%. Turning off the rasterized capture's 16-spacing draw
-  cull changed none of the readings, as the whole room is within reach, and the room has no
-  glass or tint, so the likely causes, not yet pinned down, are what is left: the capture shades
-  cube texels rather than exact hit points, its 5 cm near plane clips what is closer, and it
-  takes the light's shadow from a shadow tile where the trace casts shadow rays.
+- The traced and rasterized probes agree only where a rasterized capture gets the same light. In
+  the test's white room lit by one point light they read within 1% of each other, at 80 traced
+  rounds and at 400, and the test allows 5%. Where a light's shadow tile is missing they part, as
+  the rasterized capture then lights through walls (above). The capture's near plane is 1 mm;
+  at 5 cm the room's outer probes, which sit 5 cm from the walls, floor and ceiling, saw through
+  them into the black sky, and the rasterized readings were 10 to 15% lower.
 - Volumetric fog is a froxel grid of one cell per 8×8 scene pixels, so light bleeds a
   cell across silhouettes, a shaft narrower than a cell blurs, and its history smears a
   moving light or a fast camera for a few frames. Past `VolumetricDistance` the fog is the

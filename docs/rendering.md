@@ -374,7 +374,7 @@ don't draw wear and dirt, so `WearAndDirt` leaves them be); until it is redone, 
 As the camera moves, the boxes slide with it a row at a time: probes it keeps stay as they were,
 and the new row starts dark and is drawn next.
 
-![The same corner of the Courtyard with its probes drawn by rasterising on the left and by tracing rays on the right, at the same tick: the two come out nearly the same, the traced wall a touch warmer in the shade](media/probes-courtyard-paths.webp)
+![The same corner of the Courtyard with its probes drawn by rasterising on the left and by tracing rays on the right, at the same tick: the two come out nearly the same in colour, the traced side a shade brighter, as by tick 300 the rasterized probes are still filling in](media/probes-courtyard-paths.webp)
 
 ```csharp
 view.LightProbes(min: new(-1f, 0f, -4f), max: new(1f, 2.5f, 4f), spacing: 0.25f);

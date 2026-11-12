@@ -42,8 +42,12 @@ const vec3 FACE_UP[6] = vec3[6](
     vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 1.0),
     vec3(0.0, 0.0, -1.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0));
 
-// Where the probe's view starts. Nearer than this, a surface is cut away.
-const float CAPTURE_NEAR = 0.05;
+// Where the probe's view starts. Nearer than this, a surface is cut away, so it is kept to 1 mm:
+// a probe often sits a few centimetres from a wall whose plane lies near the probe grid, and a
+// larger near plane let it see through that wall. The traced path's rays start at the probe.
+// Depth is reversed-Z in 32-bit float, which stores near / distance, so its relative precision
+// is the same whatever this is.
+const float CAPTURE_NEAR = 0.001;
 
 void main() {
     mat4 placed = instanceModel();

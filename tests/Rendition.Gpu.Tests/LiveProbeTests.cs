@@ -282,9 +282,9 @@ public sealed class LiveProbeTests(GpuFixture shared)
             (new Vector3(0.2f, 1.3f, 0.2f), -Vector3.UnitY),
             (new Vector3(0.7f, 1.3f, 0.2f), Vector3.UnitX),
             (new Vector3(-0.7f, 1.3f, -0.7f), -Vector3.UnitZ),
-            // Below the plane of probes at y = 3, which sit 5 cm under the ceiling: as close as a rasterized face's
-            // near plane, so they see through it there and the paths can't agree.
-            (new Vector3(0.2f, 2.2f, 0.2f), Vector3.UnitY),
+            // Up here it reads the probes at y = 3, which sit 5 cm under the ceiling, as the outer probes sit 5 cm
+            // from each wall: a rasterized face must not see through a surface that close.
+            (new Vector3(0.2f, 2.5f, 0.2f), Vector3.UnitY),
         ];
 
         var rasterized = Converged(traced: false, points);
@@ -297,7 +297,7 @@ public sealed class LiveProbeTests(GpuFixture shared)
             float r = Luminance(rasterized[i]);
             float t = Luminance(traced[i]);
             Assert.True(r > 0.01f, $"The rasterized probes read too little: {report}.");
-            Assert.True(MathF.Abs(t - r) <= 0.15f * r, $"The two paths differ by more than 15%: {report}.");
+            Assert.True(MathF.Abs(t - r) <= 0.05f * r, $"The two paths differ by more than 5%: {report}.");
         }
     }
 
