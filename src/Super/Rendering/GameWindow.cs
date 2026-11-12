@@ -190,12 +190,21 @@ internal sealed unsafe class GameWindow : IDisposable
         Show(host, (float)played);
     }
 
-    /// <summary>What every frame shows. See <see cref="SceneRenderer.DebugView"/>.</summary>
+    /// <summary>
+    /// What every frame shows when <c>--debug-view</c> asked for a view, or <see cref="Rendition.DebugView.None"/>
+    /// when it didn't, and then the game's <see cref="Graphics.DebugView"/> decides. See <see cref="SceneRenderer.DebugView"/>.
+    /// </summary>
     public Rendition.DebugView DebugView
     {
-        get => _scene.DebugView;
-        set => _scene.DebugView = value;
+        get => _commandLineDebugView;
+        set
+        {
+            _commandLineDebugView = value;
+            _scene.DebugView = value;
+        }
     }
+
+    private Rendition.DebugView _commandLineDebugView;
 
     /// <summary>Whether the GPU can trace rays.</summary>
     public bool CanTrace => _scene.CanTrace;
@@ -543,20 +552,32 @@ internal sealed unsafe class GameWindow : IDisposable
     /// <summary>Hands the game's graphics settings, as they are now, to the renderer for the next frame.</summary>
     private void ApplyGraphics(Graphics graphics, bool settlingProbes = false)
     {
-        (_scene.Off, _scene.Vsync, _scene.ShadowResolution, _scene.RenderScale, _scene.Upscaler, _scene.ProbeQuality) =
-            RendererSettings(graphics, _hidden, settlingProbes);
+        (_scene.Off, _scene.Vsync, _scene.ShadowResolution, _scene.RenderScale, _scene.Upscaler, _scene.ProbeQuality,
+            _scene.DebugView) = RendererSettings(graphics, _hidden, settlingProbes, _commandLineDebugView, CanTrace);
     }
 
     /// <summary>
     /// What the renderer is told from the game's graphics settings: the effects left out, whether to wait
-    /// for the display, the sun's shadow map size, the render scale, the upscaler and the light probes' quality.
+    /// for the display, the sun's shadow map size, the render scale, the upscaler, the light probes' quality and the debug view.
     /// A hidden window always waits for the display, except while a screenshot waits for the light probes to
-    /// settle, where waiting would only slow the shot down.
+    /// settle, where waiting would only slow the shot down. The debug view is the command line's when it named one,
+    /// else the game's <see cref="Graphics.DebugView"/>, except that a game's Trace view is dropped to None on a
+    /// GPU that can't trace (<paramref name="canTrace"/>), where the renderer would throw.
     /// </summary>
-    internal static (RenderEffects Off, bool Vsync, int ShadowResolution, float RenderScale, Upscaler Upscaler, ProbeQuality ProbeQuality)
-        RendererSettings(Graphics graphics, bool hidden, bool settlingProbes = false) =>
-        (graphics.Off, hidden ? !settlingProbes : graphics.Vsync, graphics.ShadowResolution, graphics.RenderScale, graphics.Upscaler,
-            graphics.ProbeQuality);
+    internal static (RenderEffects Off, bool Vsync, int ShadowResolution, float RenderScale, Upscaler Upscaler, ProbeQuality ProbeQuality,
+        Rendition.DebugView DebugView) RendererSettings(
+            Graphics graphics, bool hidden, bool settlingProbes = false, Rendition.DebugView commandLineDebugView = Rendition.DebugView.None,
+            bool canTrace = true)
+    {
+        var debugView = commandLineDebugView;
+        if (debugView == Rendition.DebugView.None && (graphics.DebugView != Rendition.DebugView.Trace || canTrace))
+        {
+            debugView = graphics.DebugView;
+        }
+
+        return (graphics.Off, hidden ? !settlingProbes : graphics.Vsync, graphics.ShadowResolution, graphics.RenderScale,
+            graphics.Upscaler, graphics.ProbeQuality, debugView);
+    }
 
     /// <summary>Feeds the window's events into the game's input. Only the interactive loop does this.</summary>
     private void ListenForInput(Input input)

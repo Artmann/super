@@ -195,6 +195,15 @@ public sealed class Graphics
     public bool BakedLighting { get; set; } = true;
 
     /// <summary>
+    /// What the frame shows: the lit scene, the default, or a look inside the renderer such as
+    /// <see cref="Rendition.DebugView.Probes"/>, which a game can switch on with a key. It is not an effect and costs
+    /// nothing while <see cref="Rendition.DebugView.None"/>. <c>--debug-view</c> on the command line wins: while it
+    /// names a view, this is ignored. <see cref="Rendition.DebugView.Trace"/> needs a GPU that can trace rays; where
+    /// the GPU can't, it is ignored and the lit scene is shown, as a game can't know what a player's GPU has.
+    /// </summary>
+    public DebugView DebugView { get; set; } = DebugView.None;
+
+    /// <summary>
     /// Every effect off but the materials and the baked lighting, and vsync off: the fastest the engine draws, and a
     /// start for a game that must run on modest hardware. Turn back on only what it needs. The light probes are at
     /// <see cref="Rendition.ProbeQuality.Low"/>, so turning them back on keeps them cheap.

@@ -3968,6 +3968,12 @@ is false it prints its own sentence to stderr, `--debug-view trace needs a GPU t
 rays, and this one can't (reason).` with `NoTraceReason` as the reason, and exits with code 1, so
 the renderer's exception is never reached.
 
+A game can set the view too, with `Graphics.DebugView`. `GameWindow.RendererSettings` picks what
+`ApplyGraphics` gives `SceneRenderer.DebugView` each frame: the command line's view when it named
+one (kept in `GameWindow.DebugView`), else the game's, except that a game's Trace is turned to None
+where `CanTrace` is false. That is ignored rather than refused, because the renderer would throw
+and a game can't know its player's GPU.
+
 ### What a hit skips, and what is known to be rough
 
 A hit is the geometry the structures hold, not everything drawn, and it is deliberately cheap:

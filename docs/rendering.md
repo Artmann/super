@@ -90,6 +90,16 @@ next frame follows, so it can back an options menu.
 player can see, not only a saving. A game for slow GPUs on big screens sets it to 0.75 or 0.5
 itself, or offers it in an options menu.
 
+### The debug view from a game
+
+`Graphics.DebugView` sets what the frame shows from game code, so a key can toggle
+`DebugView.Probes` (the [Hamlet](../examples/Hamlet/README.md) does, with P). It is not an effect:
+it is `DebugView.None` by default and costs nothing then. `--debug-view` on the command line wins:
+while it names a view, `Graphics.DebugView` is ignored, and when it doesn't, the game's value is
+shown. `DebugView.Trace` needs a GPU that can trace rays. A `--debug-view trace` that can't run
+exits at once with an error, but a game's `Graphics.DebugView = Trace` on such a GPU is ignored and
+the lit scene is shown, because a game can't know what a player's GPU has.
+
 ### Upscaling
 
 A render scale below 1 stretches the scene to the window, which softens it. With
@@ -448,7 +458,9 @@ leave the scene visible between them. A probe not drawn yet is a grey wireframe,
 left out for being inside a wall isn't shown. Where your box covers the finest box, only your
 box's probes are shown, as only they light that space. It works with or without tracing, and
 shows no spheres while `Graphics.LightProbes` is off. From code, set `FrameView.DebugView` to
-`DebugView.Probes`. See [the command line](command-line.md).
+`DebugView.Probes`. A game can switch it on while it runs, as the Hamlet does with P, by setting
+`Graphics.DebugView`; see [the debug view from a game](#the-debug-view-from-a-game). See [the
+command line](command-line.md).
 
 ## Baked lighting
 
@@ -471,8 +483,8 @@ The [Gallery](../examples/Gallery/README.md#baked-lighting) is the example to lo
 with a bake, keys 1, 2 and 3 switch between live lighting, the bake and direct light only, and
 its README says which light has which [mode](#light-modes) and why, and how to bake it again.
 For chunks, look at the [Hamlet](../examples/Hamlet/README.md#baked-lighting): every building is
-a chunk named for its kind, so its 40 buildings share seven bakes, and the same keys switch
-its lighting.
+a chunk named for its kind, so with seed 1 its 40 buildings share seven bakes, and the same keys
+switch its lighting.
 
 ![The Gallery from above, before and after baking: the bake darkens the doorway and the deep window, and shades under the colonnade](media/gallery-baked-before-after.webp)
 

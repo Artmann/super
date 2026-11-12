@@ -11,7 +11,7 @@ namespace Hamlet;
 /// one by one and flicker. Every building is a baked chunk, so the light bounced round its
 /// rooms is baked once per kind and shared by every copy. The camera circles the village,
 /// then walks into a cottage to see the window light by day and the lamp by night. R makes
-/// a new village from the next seed, and 1, 2 and 3 switch between live lighting, the
+/// a new village from the next seed, P shows the light probes, and 1, 2 and 3 switch between live lighting, the
 /// bakes and direct light only.
 /// </summary>
 public sealed class HamletGame(GameRandom random, Input input, Content content, Graphics graphics) : IGame
@@ -99,6 +99,12 @@ public sealed class HamletGame(GameRandom random, Input input, Content content, 
             UseLighting(Lighting.Direct);
         }
 
+        // The live light probes drawn over the scene, to watch the cart's light move between chunks.
+        if (input.Pressed(Key.P))
+        {
+            graphics.DebugView = graphics.DebugView == DebugView.Probes ? DebugView.None : DebugView.Probes;
+        }
+
         if (input.Pressed(Key.R))
         {
             _villages++;
@@ -172,6 +178,9 @@ public sealed class HamletGame(GameRandom random, Input input, Content content, 
                 var text = new Text($"{key}  {name}");
                 modes.Add(lighting == _lighting ? text.Bold() : text.Foreground(Muted));
             }
+
+            var probes = new Text("P  Light probes");
+            modes.Add(graphics.DebugView == DebugView.Probes ? probes.Bold() : probes.Foreground(Muted));
 
             return modes
                 .Padding(12f)

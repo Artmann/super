@@ -1,7 +1,7 @@
 # Hamlet
 
-A village on a hill, made from the seed, through a day that lasts two minutes. Forty
-buildings stand at any angle along winding paths: cottages with garden walls, workshops
+A village on a hill, made from the seed, through a day that lasts two minutes. About forty
+buildings (with seed 1, exactly forty) stand at any angle along winding paths: cottages with garden walls, workshops
 with a big open door and a forge, round towers, and wells in small paved yards. The sun
 crosses the sky and the sky's colours follow it. At dusk each building's lamps come on
 and flicker, and its windows glow and throw a little warm light onto the ground. A cart
@@ -43,7 +43,7 @@ dim through the day, and the lit window panes. The ground and the cart stay dyna
 are lit by the probes.
 
 The bakes are in `content/lighting/<kind>/<hash>.lightbake`, made from seed 1: one well,
-one workshop, one tower and the four cottage layouts seed 1 uses, about 8 MB in all.
+one workshop, one tower and the four cottage layouts seed 1 uses (seven bakes, with seed 1), about 8 MB in all.
 
 The current lighting shows in the bottom-left corner. The keys switch between:
 
@@ -52,9 +52,11 @@ The current lighting shows in the bottom-left corner. The keys switch between:
 | 1 | Live lighting | Every light live, and bounced light from the live light probes, as if nothing were baked |
 | 2 | Baked lighting | The chunks' bakes where they are fresh. The default |
 | 3 | Direct light only | No bake and no bounced light |
+| P | Light probes | Draws the live light probes over the scene, on and off; works in any lighting. Watch the cart's light move between chunks |
 | R | A new village | The next seed |
 
-There is no key for the probe debug view yet; `--debug-view probes` shows it.
+P sets `Graphics.DebugView` to `DebugView.Probes` and back to `None`. `--debug-view probes` on the
+command line shows the same view from the start, and while it names a view, P changes nothing.
 
 Each light has the mode that suits it:
 
