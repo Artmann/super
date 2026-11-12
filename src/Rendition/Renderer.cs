@@ -1140,6 +1140,8 @@ public sealed unsafe class Renderer : IDisposable
 
         public bool IsFresh(string file, BakeInputs inputs) => !Unreadable.Contains(file) && Inner.IsFresh(file, inputs);
 
+        public bool IsFreshQuietly(string file, BakeInputs inputs) => !Unreadable.Contains(file) && Inner.IsFreshQuietly(file, inputs);
+
         public LightBakeFile? Load(string file) => Inner.Load(file);
 
         int IBakeStore.Reloads => Reloads;

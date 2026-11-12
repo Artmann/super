@@ -499,7 +499,10 @@ A Super game looks for each bake in its cooked content, where [`--bake`](command
 puts it, reading only the header of each file once and keeping it, so asking every frame reads
 and allocates nothing. A missing bake is quietly lit live, since most areas start unbaked. A
 stale one is lit live too, and the game writes one line to the error output the first time it
-meets it, naming what changed:
+meets it, naming what changed. It waits a second after the game starts before it says so, since
+a light that moves is only known to be moving once it has been seen to move, and until then
+it still counts in the bake's lights (see [Moving lights](#moving-lights)). The bake is still lit
+live on those frames while it doesn't match:
 
 ```
 The bake lighting/crypt.lightbake is stale, since its draws and lights changed, so its area is lit live until it is baked again.

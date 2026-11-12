@@ -33,6 +33,14 @@ public sealed class AnimatedLights(TextWriter log)
     private int frame;
     private bool hasTime;
     private float lastTime;
+    private float startTime;
+
+    /// <summary>
+    /// True once the tracker has watched for <see cref="SettleSeconds"/> since its first frame, or since time went
+    /// back. Before then a light that moves may not have been seen moving yet, so a bake that looks stale may only be
+    /// waiting for it to be left out.
+    /// </summary>
+    public bool Settled => hasTime && lastTime - startTime >= SettleSeconds;
 
     /// <summary>
     /// Called once per frame with every Mixed or Baked light's key, its bake hash, and the frame's game time. Every
@@ -69,9 +77,10 @@ public sealed class AnimatedLights(TextWriter log)
 
     private void Begin(float time)
     {
-        if (hasTime && time < lastTime)
+        if (!hasTime || time < lastTime)
         {
             states.Clear();
+            startTime = time;
         }
 
         hasTime = true;

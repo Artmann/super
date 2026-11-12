@@ -10,6 +10,13 @@ public interface IBakeStore
     bool IsFresh(string file, BakeInputs inputs);
 
     /// <summary>
+    /// The same answer as <see cref="IsFresh"/>, but a stale bake isn't reported. The resolver asks this way until
+    /// <see cref="AnimatedLights.Settled"/>, while a bake may look stale only because a moving light hasn't been seen
+    /// moving yet.
+    /// </summary>
+    bool IsFreshQuietly(string file, BakeInputs inputs) => IsFresh(file, inputs);
+
+    /// <summary>
     /// Reads the whole of <paramref name="file"/>, for the renderer to draw its lightmaps once
     /// <see cref="IsFresh"/> has said it is fresh, or null when the store has no lightmaps to give. Then the area
     /// still counts as baked, but its surfaces take their soft light live.

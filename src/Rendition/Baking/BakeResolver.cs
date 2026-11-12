@@ -156,7 +156,7 @@ public sealed class BakeResolver
             var inputs = BakeInputHash.Chunk(
                 CollectionsMarshal.AsSpan(_chunkIds[c]), CollectionsMarshal.AsSpan(_chunkLights[c]), chunks[c],
                 new BakeSettings(chunks[c].TexelsPerMetre));
-            result.AddChunk(inputs, Store.IsFresh(ChunkFile(chunks[c].Name, inputs.Combined), inputs));
+            result.AddChunk(inputs, IsFresh(ChunkFile(chunks[c].Name, inputs.Combined), inputs, animated));
         }
 
         if (space is { } baked)
@@ -172,7 +172,7 @@ public sealed class BakeResolver
             }
 
             var spaceInputs = SpaceInputs(baked, draws, staticCount, locals, suns, animated, environment);
-            result.SetSpace(spaceInputs, Store.IsFresh(SpaceFile(baked.Name), spaceInputs));
+            result.SetSpace(spaceInputs, IsFresh(SpaceFile(baked.Name), spaceInputs, animated));
         }
 
         // A light over a fresh bake keeps its mode, and a Baked one is left to the bake.
@@ -351,6 +351,12 @@ public sealed class BakeResolver
 
         return file;
     }
+
+    // Until the tracker has settled, a light that moves may not have been seen moving yet, so a bake can look stale for
+    // its first frames only because that light is still in its inputs. It is asked quietly then, and only a bake still
+    // stale once the tracker has settled is reported.
+    private bool IsFresh(string file, BakeInputs inputs, AnimatedLights animated) =>
+        animated.Settled ? Store.IsFresh(file, inputs) : Store.IsFreshQuietly(file, inputs);
 
     private static bool InBake(LightMode mode, LightKey key, AnimatedLights animated) =>
         mode != LightMode.Realtime && !animated.IsAnimated(key);

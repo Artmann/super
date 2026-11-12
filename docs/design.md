@@ -3198,6 +3198,12 @@ seen twice in one frame is pinned animated with its timer restarted. A clock tha
 clears everything, logged flags included. The renderer keeps one, logging to `Console.Error`,
 and feeds it from `BakeResolver` on each frame that names a baked area.
 
+`Settled` turns true once the frame time is `SettleSeconds` past the first frame the tracker saw,
+or past the frame where the clock went back. Until then a light that moves may not have been
+seen moving yet: on a game's first frame the swinging lantern is still in the bake's inputs, and
+only the second frame shows it moving. The resolver asks the store quietly until then, so a bake
+made from `--bake`'s two seconds of play isn't reported stale on frame 1.
+
 A steady frame allocates nothing: the dictionary and a scratch list for dropped keys are
 reused. It allocates only when a key first appears or a light is logged. The log needs a light's
 kind, which `LightKey` doesn't carry, so there is an `Update` overload taking a third tuple
@@ -3238,7 +3244,9 @@ Otherwise it runs in this order:
 4. The space's suns are every sun in the bake. No sun gives a null sun hash, one gives its own
    hash, and several give one hash of their count and their sorted hashes. Suns never belong to
    a chunk.
-5. `IBakeStore.IsFresh(file, inputs)` is asked about each area, with `BakeFiles.Space(name)` or
+5. `IBakeStore.IsFresh(file, inputs)` is asked about each area, or `IsFreshQuietly` while
+   `AnimatedLights.Settled` is false, which gives the same answer without reporting a stale bake,
+   with `BakeFiles.Space(name)` or
    `BakeFiles.Chunk(name, inputs.Combined)`. The store is `Renderer.Bakes`, `NoBakes.Instance`
    by default, which answers false for everything, or `NoBakes.Instance` whatever `Bakes` is
    when the view has `RenderEffects.BakedLighting` in `Off`.
@@ -3271,7 +3279,8 @@ than every frame. The read gives the whole file for its header, once per file. T
 thread-safe; the render thread is its only caller. `IsFresh` compares the kept
 inputs with the frame's by value. When they differ it logs once per file, kept in a
 `HashSet<string>`, joining `BakeInputs.Changes` into "draws, lights and environment". A missing
-file isn't logged. So once every area's file has been asked about, a frame reads nothing and
+file isn't logged. `IsFreshQuietly` makes the same comparison and logs nothing, so it doesn't use
+up a file's one report either. So once every area's file has been asked about, a frame reads nothing and
 allocates nothing, the stale path included, which `LightBakeStoreTests` checks with
 `GC.GetAllocatedBytesForCurrentThread`.
 

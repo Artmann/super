@@ -55,6 +55,22 @@ public sealed class LightBakeStoreTests
     }
 
     [Fact]
+    public void Asking_quietly_answers_the_same_and_logs_nothing()
+    {
+        var log = new StringWriter();
+        var store = new LightBakeStore(Files((Crypt, Bake(Saved))), log);
+
+        Assert.True(store.IsFreshQuietly(Crypt, Saved));
+        Assert.False(store.IsFreshQuietly(Crypt, Saved with { Lights = 23UL }));
+        Assert.False(store.IsFreshQuietly("lighting/missing.lightbake", Saved));
+        Assert.Equal("", log.ToString());
+
+        // A quiet question doesn't use up the one report, so asking out loud still reports it.
+        Assert.False(store.IsFresh(Crypt, Saved with { Lights = 23UL }));
+        Assert.Contains("lighting/crypt.lightbake is stale", log.ToString());
+    }
+
+    [Fact]
     public void Each_stale_file_is_logged_once()
     {
         var log = new StringWriter();

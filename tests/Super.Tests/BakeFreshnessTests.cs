@@ -78,6 +78,60 @@ public sealed class BakeFreshnessTests
     }
 
     [Fact]
+    public void Bake_is_not_reported_stale_before_a_moving_light_is_seen_moving()
+    {
+        var store = new SavedBakes();
+        DrawItem[] draws = [Static(1, InCourtyard)];
+
+        // Baked after the light was seen moving, so it is left out of the bake, as --bake's two seconds of play do.
+        var baking = new AnimatedLights(new StringWriter());
+        Resolve(Courtyard, [], [], [Swinging(0f)], draws, store, baking, time: 0f);
+        var baked = Resolve(Courtyard, [], [], [Swinging(0.1f)], draws, store, baking, time: 0.1f);
+        store.Save("lighting/courtyard.lightbake", baked.Space!.Value);
+        store.Reported.Clear();
+
+        // On a new run's first frame the light hasn't moved yet, so it is in the inputs and the bake doesn't match.
+        var animated = new AnimatedLights(new StringWriter());
+        var first = Resolve(Courtyard, [], [], [Swinging(0f)], draws, store, animated, time: 0f);
+        Assert.False(first.SpaceFresh);
+
+        // From the next frame it is seen moving, and the bake is fresh through the tracker settling and after.
+        for (int i = 1; i <= 15; i++)
+        {
+            var later = Resolve(Courtyard, [], [], [Swinging(i * 0.1f)], draws, store, animated, time: i * 0.1f);
+            Assert.True(later.SpaceFresh);
+        }
+
+        Assert.True(animated.Settled);
+        Assert.Empty(store.Reported);
+    }
+
+    [Fact]
+    public void Bake_still_stale_once_the_tracker_settles_is_reported()
+    {
+        LocalLight[] lights = [Point(2, InCourtyard, LightMode.Baked)];
+        var store = new SavedBakes();
+        var baked = Resolve(Courtyard, [], [], lights, [Static(1, InCourtyard)], store, time: 0f);
+        store.Save("lighting/courtyard.lightbake", baked.Space!.Value);
+        store.Reported.Clear();
+
+        // A draw added since the bake makes it stale, whatever the lights do.
+        DrawItem[] draws = [Static(1, InCourtyard), Static(2, InCourtyard)];
+        var animated = new AnimatedLights(new StringWriter());
+        Resolve(Courtyard, [], [], lights, draws, store, animated, time: 0f);
+        Resolve(Courtyard, [], [], lights, draws, store, animated, time: 0.5f);
+        Assert.Empty(store.Reported);
+
+        var settled = Resolve(Courtyard, [], [], lights, draws, store, animated, time: AnimatedLights.SettleSeconds);
+
+        Assert.False(settled.SpaceFresh);
+        Assert.Equal(["lighting/courtyard.lightbake"], store.Reported);
+    }
+
+    // A Mixed lantern swinging along x in the courtyard, at the moment given.
+    private static LocalLight Swinging(float seconds) => Point(9, new Vector3(MathF.Sin(seconds * 3f), 2f, 0f), LightMode.Mixed);
+
+    [Fact]
     public void Baked_light_outside_every_area_stays()
     {
         LocalLight[] lights = [Point(4, Nowhere, LightMode.Baked)];
@@ -400,14 +454,28 @@ public sealed class BakeFreshnessTests
 
     private static DrawItem Moving(Vector3 at) => new() { Transform = Matrix4x4.CreateTranslation(at) };
 
-    // Keeps what each bake was made from, and answers fresh only for the same inputs, as a real store will.
+    // Keeps what each bake was made from, and answers fresh only for the same inputs, as a real store will. Each stale
+    // answer to a question asked out loud is kept in Reported, where a real store would log it.
     private sealed class SavedBakes : IBakeStore
     {
         private readonly Dictionary<string, BakeInputs> _saved = [];
 
+        public List<string> Reported { get; } = [];
+
         public void Save(string file, BakeInputs inputs) => _saved[file] = inputs;
 
-        public bool IsFresh(string file, BakeInputs inputs) => _saved.TryGetValue(file, out var saved) && saved == inputs;
+        public bool IsFresh(string file, BakeInputs inputs)
+        {
+            bool fresh = IsFreshQuietly(file, inputs);
+            if (!fresh)
+            {
+                Reported.Add(file);
+            }
+
+            return fresh;
+        }
+
+        public bool IsFreshQuietly(string file, BakeInputs inputs) => _saved.TryGetValue(file, out var saved) && saved == inputs;
     }
 
     private sealed class EveryBakeFresh : IBakeStore

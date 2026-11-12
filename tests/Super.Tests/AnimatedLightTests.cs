@@ -28,6 +28,35 @@ public sealed class AnimatedLightTests
     }
 
     [Fact]
+    public void Settles_a_second_after_its_first_frame()
+    {
+        var lights = new AnimatedLights(new StringWriter());
+        Assert.False(lights.Settled);
+
+        // Starting at 5 s, as a game watched from part way through does.
+        Feed(lights, 5f, (Point7, 1ul));
+        Assert.False(lights.Settled);
+        Feed(lights, 5.9f, (Point7, 1ul));
+        Assert.False(lights.Settled);
+        Feed(lights, 6f, (Point7, 1ul));
+        Assert.True(lights.Settled);
+    }
+
+    [Fact]
+    public void Time_going_back_starts_settling_again()
+    {
+        var lights = new AnimatedLights(new StringWriter());
+        Feed(lights, 0f, (Point7, 1ul));
+        Feed(lights, 2f, (Point7, 1ul));
+        Assert.True(lights.Settled);
+
+        Feed(lights, 0.5f, (Point7, 1ul));
+        Assert.False(lights.Settled);
+        Feed(lights, 1.5f, (Point7, 1ul));
+        Assert.True(lights.Settled);
+    }
+
+    [Fact]
     public void Light_whose_hash_changes_is_animated()
     {
         var lights = new AnimatedLights(new StringWriter());

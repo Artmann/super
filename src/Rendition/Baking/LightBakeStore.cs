@@ -53,6 +53,9 @@ public sealed class LightBakeStore : IBakeStore
         return false;
     }
 
+    /// <summary>Whether <paramref name="file"/> exists and was made from exactly <paramref name="inputs"/>, logging nothing if not.</summary>
+    public bool IsFreshQuietly(string file, BakeInputs inputs) => Saved(file) is { } saved && saved == inputs;
+
     /// <summary>
     /// The inputs <paramref name="file"/> was made from, read from its header, or null when it is missing or its header
     /// can't be read. A damaged header is logged once.

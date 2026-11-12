@@ -426,11 +426,12 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
                 Range = 10f,
             };
             var dense = Room with { TexelsPerMetre = 8 };
-            FrameView View(BakedSpace space)
+            FrameView View(BakedSpace space, float time = 0f)
             {
                 var view = gpu.View(DebugView.None);
                 view.BakedSpace = space;
                 view.LocalLights = new[] { lamp };
+                view.Time = time;
                 return view;
             }
 
@@ -445,8 +446,13 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
             Assert.Equal([0], frame.DroppedLocalLights);
             Assert.Equal("", log.ToString());
 
-            // The same space at the default density asks for another bake.
+            // The same space at the default density asks for another bake. It is lit live at once, but reported only
+            // once the moving-light tracker has settled, in case a light not yet seen moving is what differs.
             gpu.Renderer.Render(View(Room), draws);
+            Assert.False(gpu.Renderer.LastBakeFrame!.SpaceFresh);
+            Assert.Equal("", log.ToString());
+
+            gpu.Renderer.Render(View(Room, AnimatedLights.SettleSeconds), draws);
             Assert.False(gpu.Renderer.LastBakeFrame!.SpaceFresh);
             Assert.Equal(
                 $"The bake lighting/trace-room.lightbake is stale, since its settings changed, so its area is lit live until it is baked again.{Environment.NewLine}",
