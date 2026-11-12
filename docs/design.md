@@ -1478,13 +1478,21 @@ disc, since the sun reaches surfaces directly. The maths lives in
 
 The fold doesn't write the atlases. It writes a slot of the staging buffer
 (`ProbeVolume.StagingTiles`, one bordered tile pair of 4,192 bytes per slot, as many slots as the
-traced budget: about 4.3 MB at High), and `RecordBlend(cmd, ids, alpha)` then moves staging slot
+traced budget: about 4.3 MB at High), and `RecordBlend(cmd, ids, alpha, snap)` then moves staging slot
 i into probe `ids[i]` with `probe_blend.comp`, one workgroup per probe. A probe not yet captured
 takes the new tile whole; one that was moves towards it by alpha, so its light settles over a few
 updates instead of flickering. The inside mark in the depth tile's first texel is never blended:
 when the old or the new tile has it, the new texel is copied. Rasterised updates blend with
-alpha 0.5 (`Renderer.RasterBlend`), and traced updates with 0.25 (`Renderer.TracedBlend`). All of
-this is recorded into the frame's command buffer with barriers and no waits.
+alpha 0.5 (`Renderer.RasterBlend`), and traced updates with 0.25 (`Renderer.TracedBlend`). Traced
+updates also pass `snap`, 0.05 (`Renderer.TracedSnap`): the blend compares the mean of the whole new
+tile with the mean of the old one, and a probe whose light changed by a share s of the brighter
+of the two moves `clamp(s / snap, alpha, 1)` of the way, so a change of 5% or more is taken whole
+and smaller ones, such as noise, still move a quarter. This is DDGI's lowered hysteresis for big
+changes, measured on the tile's mean because single texels of 128 rays are too noisy to tell a
+change from noise. In the white room test it gets 80% of the bounce in about 10 refreshes instead
+of about 40, and the readings after convergence flicker no more than before; a snap of 0.025 made a
+dim probe flicker about half as much again. Rasterised updates don't snap, as they weren't
+measured. All of this is recorded into the frame's command buffer with barriers and no waits.
 
 Where the GPU can trace (`Renderer.Tracing` is set), `ProbeTracePass` replaces the capture, the
 sun map and the fold. `probe_trace.comp` runs one workgroup of 128 invocations per probe of the
@@ -1516,8 +1524,8 @@ sets are written once the probes' storage exists; the probes buffer holds the ba
 spacings and ids, one per frame in flight. Its time shows as the "Light probes" pass in the GPU
 timer, after "Shadows"; a rasterised update is timed there too. Traced probes settle within a few
 dozen frames, long before the light bounced between walls has built up: each update adds one
-more bounce, a quarter of the way, so a white room reaches its full bounce only after some
-hundred updates of each probe.
+more bounce, so a white room has 80% of its bounce after about 10 updates of each probe and 95%
+after about 30, as the last few percent change too little to snap.
 
 Depth is stored because irradiance alone leaks. A probe on the far side of a wall sees
 bright sky, and blending it in would light the room. Each of the eight probes round a point
@@ -3150,9 +3158,11 @@ and `ReadyToTrace`, are checked by review and by the GPU tests, not by the valid
   They don't see point and spot lights.
 - Where the GPU traces, light probes update 256, 512 or 1,024 a frame, so the two finest
   cascades settle within a few dozen frames at High and every probe is redone about every 64
-  frames. A traced update moves a probe only a quarter of the way, though, so the light bounced
-  between walls fills in over about 80 refreshes of each probe, over a minute at 60 fps: a lamp
-  turned on in a white room keeps brightening for that long.
+  frames. Each update adds one more bounce, so the light bounced between walls gets to 80% in
+  about 10 refreshes of each probe, about ten seconds at 60 fps, and the last few percent take
+  about 30 refreshes, as changes under 5% still move a probe only a quarter of the way: a lamp
+  turned on in a white room is mostly lit within seconds and keeps brightening slightly for
+  about half a minute.
 - Where it doesn't, light probes are rasterized a few a frame (8, 16 or 32), so after a load, a
   teleport or a change of sun they take a while to settle: about a thousand frames for the two
   finest cascades at High. Courtyard takes longer than a screenshot's 2,048-frame wait to settle

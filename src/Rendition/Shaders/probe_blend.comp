@@ -7,8 +7,10 @@
 // workgroup per probe. Entry i of the batch is staging slot i, and goes to the probe ids[i] names:
 // its layer (cascades 0 to 3, or 4 for the fixed grid) and its slot in that layer. A probe that has
 // never been captured (irradiance alpha 0) takes the new tile whole; one that has moves towards it
-// by blend.alpha, so a probe's light settles over a few updates instead of flickering.
-// See "Light probes" in docs/design.md.
+// by blend.alpha, so a probe's light settles over a few updates instead of flickering. With
+// blend.snap above 0, a probe whose mean light changed by a big share moves further: all the way at
+// blend.snap or more, so a lamp turned on or bounce still building up fills in within a few updates,
+// while the small changes of noise still move only blend.alpha. See "Light probes" in docs/design.md.
 
 layout(local_size_x = 16, local_size_y = 16) in;
 
@@ -27,9 +29,31 @@ layout(rg16f, set = 0, binding = 4) uniform image2DArray depthAtlas;
 layout(push_constant) uniform Blend {
     float alpha;
     int count;
+    float snap;
 } blend;
 
 shared float share;
+
+// How far a captured probe moves towards its new tile. The change is measured on the whole tile's
+// mean, which averages the noise of single texels away, as a share of the brighter of the two.
+float blendShare(ivec2 irradianceTile, int layer, int entry) {
+    if (blend.snap <= 0.0) {
+        return blend.alpha;
+    }
+
+    vec3 oldSum = vec3(0.0);
+    vec3 freshSum = vec3(0.0);
+    for (int t = 0; t < IRRADIANCE_SIDE * IRRADIANCE_SIDE; t++) {
+        ivec3 texel = ivec3(irradianceTile + ivec2(t % IRRADIANCE_SIDE, t / IRRADIANCE_SIDE), layer);
+        oldSum += imageLoad(irradianceAtlas, texel).rgb;
+        freshSum += tiles[entry].irradiance[t].rgb;
+    }
+
+    float oldLight = oldSum.r + oldSum.g + oldSum.b;
+    float freshLight = freshSum.r + freshSum.g + freshSum.b;
+    float change = abs(freshLight - oldLight) / max(max(oldLight, freshLight), 1e-6);
+    return clamp(change / blend.snap, blend.alpha, 1.0);
+}
 
 void main() {
     int entry = int(gl_WorkGroupID.x);
@@ -48,7 +72,7 @@ void main() {
 
     if (local == 0) {
         bool captured = imageLoad(irradianceAtlas, ivec3(irradianceTile + 1, layer)).a > 0.5;
-        share = captured ? blend.alpha : 1.0;
+        share = captured ? blendShare(irradianceTile, layer, entry) : 1.0;
     }
 
     barrier();

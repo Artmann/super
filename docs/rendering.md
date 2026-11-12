@@ -339,8 +339,9 @@ detail is finest close by and the far boxes still reach a long way. On a GPU tha
 [trace rays](#ray-tracing), each update sends 128 rays out from the probe, and 256, 512 or 1,024
 probes are updated a frame by [`Graphics.ProbeQuality`](#graphics-settings): `Low`, `Medium` or
 `High`, the default. Nothing turns this on; it is used whenever the GPU can. Each traced update
-moves a probe a quarter of the way to what its rays saw, so a little noise averages away and a
-change fades in over a few updates. At `High` the near probes are all traced within the first
+moves a probe a quarter of the way to what its rays saw, so a little noise averages away, but a
+probe whose light changed by 5% or more takes the new light whole, so a lamp turned on, or
+light still bouncing between walls, fills in within a few updates. At `High` the near probes are all traced within the first
 few dozen frames, and every probe is redone about once a second at 60 fps.
 
 Without tracing, each update draws the scene round the probe six times instead, so far fewer

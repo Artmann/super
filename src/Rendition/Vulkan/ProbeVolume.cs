@@ -69,6 +69,7 @@ internal sealed unsafe class ProbeVolume : IDisposable
     {
         public float Alpha;
         public int Count;
+        public float Snap;
     }
 
     /// <summary>Must match the Invalidate block in Shaders/probe_invalidate.comp.</summary>
@@ -374,10 +375,12 @@ internal sealed unsafe class ProbeVolume : IDisposable
     /// <summary>
     /// Blends staging slots 0 to batch.Count - 1 into the probes the batch names, in the same
     /// order: a probe never captured takes its new tile whole, and one already captured moves
-    /// <paramref name="alpha"/> of the way towards it. Surfaces lit from the probes in this same
-    /// command buffer, and in later ones, wait for it. Allocates nothing.
+    /// <paramref name="alpha"/> of the way towards it. With <paramref name="snap"/> above 0, a probe whose
+    /// mean light changed by more moves further, all the way once the change is <paramref name="snap"/> of its
+    /// light. Surfaces lit from the probes in this same command buffer, and in later ones, wait for it.
+    /// Allocates nothing.
     /// </summary>
-    public void RecordBlend(CommandBuffer cmd, IReadOnlyList<ProbeId> batch, float alpha)
+    public void RecordBlend(CommandBuffer cmd, IReadOnlyList<ProbeId> batch, float alpha, float snap = 0f)
     {
         ArgumentNullException.ThrowIfNull(batch);
         if (batch.Count == 0)
@@ -421,7 +424,7 @@ internal sealed unsafe class ProbeVolume : IDisposable
             AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit);
 
         var set = _set;
-        var constants = new BlendConstants { Alpha = alpha, Count = count };
+        var constants = new BlendConstants { Alpha = alpha, Count = count, Snap = snap };
         api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _blendPipeline);
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 1, &set, 0, null);
         api.CmdPushConstants(cmd, _pipelineLayout, ShaderStageFlags.ComputeBit, 0, (uint)sizeof(BlendConstants), &constants);

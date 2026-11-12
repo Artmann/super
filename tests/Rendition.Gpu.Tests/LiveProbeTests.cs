@@ -118,9 +118,9 @@ public sealed class LiveProbeTests(GpuFixture shared)
         Settle(gpu, scene);
         if (traced)
         {
-            // Traced probes settle in a few dozen frames, before any bounce has built up, and a traced update adds only a
-            // quarter of what changed, so the bounce goes on growing for thousands of frames. It is let finish first, so
-            // the readings below can tell a probe that keeps growing from one still filling in.
+            // Traced probes settle in a few dozen frames, before any bounce has built up, and the bounce then takes a
+            // few dozen refreshes to fill in. It is let finish first, so the readings below can tell a probe that keeps
+            // growing from one still filling in.
             Bounce(gpu, scene, traced);
         }
 
@@ -143,6 +143,35 @@ public sealed class LiveProbeTests(GpuFixture shared)
         float before = readings[^2];
         Assert.True(MathF.Abs(last - before) <= tolerance * before, $"The readings were {string.Join(", ", readings)}.");
         Assert.All(readings, reading => Assert.True(reading <= 2f * readings[0], $"The readings were {string.Join(", ", readings)}."));
+        Assert.Equal(0, probes.NewValidationErrors);
+    }
+
+    [Fact]
+    public void A_traced_room_gets_most_of_its_bounce_within_a_few_refreshes()
+    {
+        using var probes = Open(traced: true);
+        var gpu = probes.Gpu;
+        var scene = probes.Scene(ProbeScenes.WhiteRoom);
+        Settle(gpu, scene);
+
+        // The first capture sees the walls lit only by the lamp; each refresh after it adds another bounce.
+        var centre = new Vector3(0.2f, 1.3f, 0.2f);
+        float first = gpu.Renderer.SampleProbeIrradiance([(centre, Vector3.UnitY)])[0].X;
+        const int Refreshes = 12;
+        for (int round = 0; round < Refreshes; round++)
+        {
+            gpu.Renderer.MarkProbesDirtyForTest(new Vector3(0f, 1.5f, 0f), 2.8f);
+            Settle(gpu, scene);
+        }
+
+        float early = gpu.Renderer.SampleProbeIrradiance([(centre, Vector3.UnitY)])[0].X;
+        Bounce(gpu, scene, traced: true);
+        float full = gpu.Renderer.SampleProbeIrradiance([(centre, Vector3.UnitY)])[0].X;
+
+        // Moving a quarter of the way each refresh, 12 refreshes gave about 40% of the bounce, and 80% took about 40.
+        Assert.True(full > 2f * first, $"The first capture read {first}, the filled-in room {full}.");
+        Assert.True(early - first >= 0.7f * (full - first),
+            $"The first capture read {first}, after {Refreshes} refreshes {early}, and the filled-in room {full}.");
         Assert.Equal(0, probes.NewValidationErrors);
     }
 

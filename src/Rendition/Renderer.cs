@@ -153,6 +153,11 @@ public sealed unsafe class Renderer : IDisposable
     // out. A first capture is still taken whole.
     private const float TracedBlend = 0.25f;
 
+    // A traced update whose tile's mean light changed by this share or more is taken whole, and a smaller change moves
+    // in proportion, never less than TracedBlend. Big changes, such as bounce arriving, land at once, while noise
+    // still averages out. Lower than 0.05 and a dim probe flickers more.
+    private const float TracedSnap = 0.05f;
+
     // What this frame's folds fill the sky with, where a probe saw nothing.
     private bool _probeShowEnvironment;
     private Vector4 _probeBackground;
@@ -1603,7 +1608,7 @@ public sealed unsafe class Renderer : IDisposable
             tracePass.Record(cmd, batch, scene, _tracing!, _frameIndex, frameSet,
                 CollectionsMarshal.AsSpan(_probeBatchPositions), CollectionsMarshal.AsSpan(_probeBatchSpacings),
                 (uint)scheduler.Frame, _probeShowEnvironment, _probeBackground, _probeSkySun);
-            _lightProbes.RecordBlend(cmd, batch, TracedBlend);
+            _lightProbes.RecordBlend(cmd, batch, TracedBlend, TracedSnap);
             scheduler.Updated(batch);
             _probesSettledOnce |= scheduler.Settled;
             return;
