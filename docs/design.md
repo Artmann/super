@@ -3455,6 +3455,17 @@ lights after it, and its `Key` is added to `unassigned` (cleared first, in ascen
 the bake report. Keys make the result the same whatever order the frame lists the lights
 in; two lights sharing a key are told apart by index, which is the one case where order shows.
 
+`ShadowMaskChannels.AssignChunk` does the same for a chunk, with three differences. A chunk has
+no sun channel, so the first Mixed light takes channel 0. A light belongs to the chunk when it
+is Mixed and its position, taken into the chunk's own space with `BakeAreas.IntoChunk`, is
+inside the chunk's box (edges count), since a chunk's box is not the world's. And the colouring
+runs in chunk space: members are sorted by (`BakeInputHash.Light` with the chunk's transform,
+index in the frame) and not by `Key`, and overlap is measured between their chunk-space
+positions. Every placed copy of a chunk gives its lights other keys but the same hash, so each
+light gets the same channel in every copy, which the one chunk bake relies on. A light left
+without a channel has its `Key` added to `unassigned` in ascending order, and two lights with
+one hash (the same light twice) are told apart by index.
+
 ### The .lightbake file
 
 `LightBakeFile` (`src/Rendition/Baking/LightBakeFile.cs`) is a baked space or chunk on disk.

@@ -93,6 +93,87 @@ public static class ShadowMaskChannels
         }
     }
 
+    /// <summary>
+    /// Gives the chunk's Mixed local lights channels 0..3 by greedy colouring of their range overlap in chunk space, in
+    /// order of their chunk-space hash. There is no sun channel. Lights left without one go in
+    /// <paramref name="unassigned"/>.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="channels"/> gets -1 for a light that has none. A light is the chunk's when it is Mixed and its
+    /// position, taken into the chunk's own space with <see cref="BakeAreas.IntoChunk"/>, is inside the chunk's box.
+    /// Members go in order of <see cref="BakeInputHash.Light"/> with the chunk's transform (ties by index), not of
+    /// <see cref="LocalLight.Key"/>: each placed copy of a chunk gives its lights other keys, but the same hash. Ranges
+    /// are compared from the chunk-space positions too, so a copy's rounding at its place cannot change who overlaps.
+    /// The <see cref="LocalLight.Key"/> of every light left without a channel is added to
+    /// <paramref name="unassigned"/>, in ascending order, after clearing it.
+    /// </remarks>
+    public static void AssignChunk(
+        BakedChunk chunk, ReadOnlySpan<LocalLight> lights, Span<int> channels, List<int> unassigned)
+    {
+        ArgumentNullException.ThrowIfNull(unassigned);
+        if (channels.Length < lights.Length)
+        {
+            throw new ArgumentException(
+                $"channels holds {channels.Length} entries for {lights.Length} lights.", nameof(channels));
+        }
+
+        unassigned.Clear();
+
+        var members = new List<(ulong Hash, int Index, Vector3 Position)>();
+        for (var i = 0; i < lights.Length; i++)
+        {
+            channels[i] = -1;
+            if (lights[i].Mode != LightMode.Mixed)
+            {
+                continue;
+            }
+
+            var position = lights[i].Position;
+            var (x, y, z) = BakeAreas.IntoChunk(chunk.Transform, position.X, position.Y, position.Z, 1.0);
+            if (x < chunk.Min.X || x > chunk.Max.X
+                || y < chunk.Min.Y || y > chunk.Max.Y
+                || z < chunk.Min.Z || z > chunk.Max.Z)
+            {
+                continue;
+            }
+
+            members.Add((BakeInputHash.Light(lights[i], chunk.Transform), i, new Vector3((float)x, (float)y, (float)z)));
+        }
+
+        members.Sort((a, b) => a.Hash != b.Hash ? a.Hash.CompareTo(b.Hash) : a.Index.CompareTo(b.Index));
+
+        for (var m = 0; m < members.Count; m++)
+        {
+            var light = members[m].Index;
+            var taken = 0;
+            for (var earlier = 0; earlier < m; earlier++)
+            {
+                var other = members[earlier].Index;
+                var reach = lights[light].Range + lights[other].Range;
+                if (channels[other] >= 0 && Vector3.DistanceSquared(members[m].Position, members[earlier].Position) < reach * reach)
+                {
+                    taken |= 1 << channels[other];
+                }
+            }
+
+            for (var channel = 0; channel < Count; channel++)
+            {
+                if ((taken & (1 << channel)) == 0)
+                {
+                    channels[light] = channel;
+                    break;
+                }
+            }
+
+            if (channels[light] < 0)
+            {
+                unassigned.Add(lights[light].Key);
+            }
+        }
+
+        unassigned.Sort();
+    }
+
     private static bool RangesOverlap(in LocalLight a, in LocalLight b)
     {
         var reach = a.Range + b.Range;
