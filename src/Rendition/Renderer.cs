@@ -697,7 +697,7 @@ public sealed unsafe class Renderer : IDisposable
         _api.DeviceWaitIdle(_context.Device).Check();
         using var source = GpuBuffer.CreateHostVisible(_context, ProbeVolume.StagedTileBytes, BufferUsageFlags.TransferSrcBit);
         var irradianceTile = new Span<Vector4>(source.Mapped, irradianceTexels);
-        irradianceTile.Fill(new Vector4(irradiance, 1f));
+        irradianceTile.Fill(new Vector4(irradiance, 0f));
         var depthTile = new Span<Vector2>((Vector4*)source.Mapped + irradianceTexels, depthTexels);
         depthTile.Fill(new Vector2(100f, 100f * 100f));
 

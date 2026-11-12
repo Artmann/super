@@ -1501,7 +1501,27 @@ changes, measured on the tile's mean because single texels of 128 rays are too n
 change from noise. In the white room test it gets 80% of the bounce in about 10 refreshes instead
 of about 40, and the readings after convergence flicker no more than before; a snap of 0.025 made a
 dim probe flicker about half as much again. Rasterised updates don't snap, as they weren't
-measured. All of this is recorded into the frame's command buffer with barriers and no waits.
+measured.
+
+A change only snaps when it is bigger than the update's own noise could make it. Where a small
+bright thing is seen by only a few rays, those few rays move the tile's mean by far more than 5%
+from one update to the next. In a dark room lit only by an emissive square covering about 3% of
+the probe's sphere (about four of its 128 rays), the probe wandered by 10.7% (standard deviation
+over mean, 20 updates after convergence) against 0.1% in the white room. So `probe_trace.comp`
+measures each update's noise: it splits the rays into eight groups of 16 (ray i in group i mod 8,
+each still spread over the sphere), and the spread of the groups' mean luminance gives the standard
+error of the mean of all 128, as a share of it. It passes this in the staged tile's texel 0 alpha,
+which the blend never writes to the atlas. Treating the rays as independent would overstate the
+noise many times over in a smoothly lit room, because the spiral spreads them far more evenly than
+chance, and would stop the white room from snapping at all. The blend takes `alpha` whenever the
+change is no more than three standard errors (`NOISE_ERRORS`), and the ramp above otherwise.
+Rasterised captures leave the noise at 0. With this, the emitter's probe wanders by 2.8% and the
+white room's by 0.2%. The white room gets 79% of its bounce in 12 refreshes, where it got 85%
+before (the test asks for 70%). A change made by a small light turning on is noisy in the same way,
+so it fills in at a quarter an update rather than snapping. The test
+`A_traced_probe_lit_by_a_small_bright_emitter_holds_as_steady_as_one_in_a_lit_room` measures both
+rooms and fails without the check. All of this is recorded into the frame's command buffer with
+barriers and no waits.
 
 Where the GPU can trace (`Renderer.Tracing` is set), `ProbeTracePass` replaces the capture, the
 sun map and the fold. `probe_trace.comp` runs one workgroup of 128 invocations per probe of the

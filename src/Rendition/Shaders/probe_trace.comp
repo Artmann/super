@@ -102,6 +102,37 @@ shared vec4 samples[RAYS];
 shared vec3 directions[RAYS];
 shared uint backFaces;
 
+// The standard error of the mean light the rays saw, as a share of that mean. The rays are split into eight groups,
+// ray i in group i mod 8, each still spread over the whole sphere; how much the groups' means differ tells how far the
+// mean of all 128 would move if the rays were turned another way. Counting each ray as independent would overstate it
+// many times over in a smoothly lit room, as the spiral spreads the rays far more evenly than chance.
+float updateNoise() {
+    const int GROUPS = 8;
+    float means[GROUPS];
+    for (int g = 0; g < GROUPS; g++) {
+        means[g] = 0.0;
+    }
+
+    for (int s = 0; s < RAYS; s++) {
+        means[s % GROUPS] += dot(samples[s].rgb, vec3(0.2126, 0.7152, 0.0722));
+    }
+
+    float mean = 0.0;
+    for (int g = 0; g < GROUPS; g++) {
+        means[g] /= float(RAYS / GROUPS);
+        mean += means[g];
+    }
+
+    mean /= float(GROUPS);
+    float variance = 0.0;
+    for (int g = 0; g < GROUPS; g++) {
+        variance += (means[g] - mean) * (means[g] - mean);
+    }
+
+    variance /= float(GROUPS - 1);
+    return sqrt(variance / float(GROUPS)) / max(mean, 1e-6);
+}
+
 uint pcgHash(uint value) {
     uint state = value * 747796405u + 2891336453u;
     uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
@@ -196,8 +227,8 @@ void main() {
             total += weight;
         }
 
-        // Alpha 1 marks the probe as captured.
-        tiles[slot].irradiance[local] = vec4(sum / max(total, 1e-6), 1.0);
+        // Texel 0's alpha carries how noisy the update is, for probe_blend.comp; the other alphas aren't read.
+        tiles[slot].irradiance[local] = vec4(sum / max(total, 1e-6), local == 0 ? updateNoise() : 0.0);
     }
 
     bool inside = probeSawInside(backFaces, uint(RAYS));

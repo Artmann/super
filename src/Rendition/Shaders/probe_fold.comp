@@ -109,8 +109,8 @@ void main() {
             total += weight;
         }
 
-        // Alpha 1 marks the probe as captured.
-        tiles[fold.slot].irradiance[local] = vec4(sum / max(total, 1e-6), 1.0);
+        // Texel 0's alpha is how noisy the update is, which only a traced update measures (see probe_trace.comp).
+        tiles[fold.slot].irradiance[local] = vec4(sum / max(total, 1e-6), 0.0);
     }
 
     bool inside = probeSawInside(backFaces, uint(SAMPLES));

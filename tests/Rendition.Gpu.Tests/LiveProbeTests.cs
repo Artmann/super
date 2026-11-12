@@ -218,6 +218,44 @@ public sealed class LiveProbeTests(GpuFixture shared)
         Assert.Equal(0, probes.NewValidationErrors);
     }
 
+    [Fact]
+    public void A_traced_probe_lit_by_a_small_bright_emitter_holds_as_steady_as_one_in_a_lit_room()
+    {
+        // A light seen by only a few of a probe's 128 rays changes its tile's mean by far more than the snap from one
+        // update to the next, by noise alone. The blend must not take that noise whole.
+        float lit = Spread(ProbeScenes.WhiteRoom);
+        float emitter = Spread(ProbeScenes.DarkRoomWithEmitter);
+
+        Assert.True(emitter <= 0.05f,
+            $"Over 20 updates the probe under the emitter wandered by {emitter:P1} and the one in the lit room by {lit:P1}.");
+    }
+
+    // How much the probe at (0, 1.5, 0), facing up, wanders over 20 traced updates once its room has filled in: the
+    // standard deviation of its readings as a share of their mean.
+    private float Spread(Func<GpuFixture, ProbeScene> make)
+    {
+        using var probes = Open(traced: true);
+        var gpu = probes.Gpu;
+        var scene = probes.Scene(make);
+        Settle(gpu, scene);
+        Bounce(gpu, scene, traced: true);
+
+        var probe = new Vector3(0f, 1.5f, 0f);
+        var readings = new List<float>();
+        for (int update = 0; update < 20; update++)
+        {
+            gpu.Renderer.MarkProbesDirtyForTest(new Vector3(0f, 1.5f, 0f), 2.8f);
+            Settle(gpu, scene);
+            readings.Add(Luminance(gpu.Renderer.SampleProbeIrradiance([(probe, Vector3.UnitY)])[0]));
+        }
+
+        Assert.Equal(0, probes.NewValidationErrors);
+        float mean = readings.Average();
+        Assert.True(mean > 0.01f, $"The probe read {string.Join(", ", readings)}.");
+        float variance = readings.Sum(r => (r - mean) * (r - mean)) / (readings.Count - 1);
+        return MathF.Sqrt(variance) / mean;
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

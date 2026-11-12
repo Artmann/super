@@ -10,7 +10,8 @@
 // by blend.alpha, so a probe's light settles over a few updates instead of flickering. With
 // blend.snap above 0, a probe whose mean light changed by a big share moves further: all the way at
 // blend.snap or more, so a lamp turned on or bounce still building up fills in within a few updates,
-// while the small changes of noise still move only blend.alpha. See "Light probes" in docs/design.md.
+// while the small changes of noise still move only blend.alpha. A change no bigger than three standard errors of the
+// update's own noise, which a traced update measures, never snaps. See "Light probes" in docs/design.md.
 
 layout(local_size_x = 16, local_size_y = 16) in;
 
@@ -34,6 +35,10 @@ layout(push_constant) uniform Blend {
 
 shared float share;
 
+// How many standard errors of an update's own noise its change must exceed to snap. Texel 0's alpha in the staged tile
+// is that standard error as a share of the mean; rasterized updates leave it 0.
+const float NOISE_ERRORS = 3.0;
+
 // How far a captured probe moves towards its new tile. The change is measured on the whole tile's
 // mean, which averages the noise of single texels away, as a share of the brighter of the two.
 float blendShare(ivec2 irradianceTile, int layer, int entry) {
@@ -52,6 +57,14 @@ float blendShare(ivec2 irradianceTile, int layer, int entry) {
     float oldLight = oldSum.r + oldSum.g + oldSum.b;
     float freshLight = freshSum.r + freshSum.g + freshSum.b;
     float change = abs(freshLight - oldLight) / max(max(oldLight, freshLight), 1e-6);
+
+    // A change the update's own noise could make is no change: a small bright light seen by a few of the rays moves the
+    // mean by far more than the snap from one update to the next. Only a change of over three standard errors snaps.
+    float noise = tiles[entry].irradiance[0].a;
+    if (change <= NOISE_ERRORS * noise) {
+        return blend.alpha;
+    }
+
     return clamp(change / blend.snap, blend.alpha, 1.0);
 }
 

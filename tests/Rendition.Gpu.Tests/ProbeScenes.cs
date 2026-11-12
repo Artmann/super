@@ -228,6 +228,44 @@ internal static class ProbeScenes
         return new ProbeScene(draws, [light], Vector3.Zero);
     }
 
+    /// <summary>
+    /// A dark closed room the size of <see cref="WhiteRoom"/>, with walls of albedo 0.2 and no light, lit only by a
+    /// bright emissive square 0.95 m wide just under the middle of the ceiling, facing down. From the probe at
+    /// (0, 1.5, 0) the square covers about 3% of the sphere, so each traced update sees it with only about four of its
+    /// 128 rays. The sky is black.
+    /// </summary>
+    public static ProbeScene DarkRoomWithEmitter(GpuFixture gpu)
+    {
+        var quad = Quad(gpu);
+        var dark = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.2f, 0.2f, 0.2f, 1f), Roughness = 1f });
+        var lamp = gpu.Renderer.CreateMaterial(new Material
+        {
+            BaseColor = new Vector4(0f, 0f, 0f, 1f),
+            Roughness = 1f,
+            Emissive = new Vector3(20f),
+        });
+
+        const float half = 1.55f;
+        const float bottom = -0.05f;
+        const float top = 3.05f;
+        const float height = top - bottom;
+        const float middle = (top + bottom) * 0.5f;
+        const float side = 2f * half;
+
+        DrawItem[] draws =
+        [
+            Face(quad, dark, new Vector3(0f, bottom, 0f), Vector3.UnitY, -Vector3.UnitZ, side, side),
+            Face(quad, dark, new Vector3(0f, top, 0f), -Vector3.UnitY, Vector3.UnitZ, side, side),
+            Face(quad, dark, new Vector3(-half, middle, 0f), Vector3.UnitX, Vector3.UnitY, side, height),
+            Face(quad, dark, new Vector3(half, middle, 0f), -Vector3.UnitX, Vector3.UnitY, side, height),
+            Face(quad, dark, new Vector3(0f, middle, -half), Vector3.UnitZ, Vector3.UnitY, side, height),
+            Face(quad, dark, new Vector3(0f, middle, half), -Vector3.UnitZ, Vector3.UnitY, side, height),
+            Face(quad, lamp, new Vector3(0f, 3.0f, 0f), -Vector3.UnitY, Vector3.UnitZ, 0.95f, 0.95f),
+        ];
+
+        return new ProbeScene(draws, [], Vector3.Zero);
+    }
+
     private static ProbeScene Box(GpuFixture gpu, bool facingIn)
     {
         var quad = Quad(gpu);
