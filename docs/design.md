@@ -3450,16 +3450,29 @@ in; two lights sharing a key are told apart by index, which is the one case wher
 `ToBytes` writes it and `Read` reads it, all little-endian. Light keys are `int`, as
 `LocalLight.Key` is. The layout, in order:
 
-- Header, 41 bytes, never compressed: magic `0x4B41424C` ("LBAK") as a `uint`, version (1) as an
+- Header, 41 bytes, never compressed: magic `0x4B41424C` ("LBAK") as a `uint`, version (2) as an
   `int`, the four `BakeInputs` hashes (draws, lights, environment, settings) as `ulong`s, and the
   `BakeQuality` as a byte. Quality sits here and not in the hashes because a bake made at another
   quality is not stale. `ReadInputs` reads only this, so a freshness check never inflates a page.
 - Draws: a count, then for each the `ulong` bake id and its `LightmapRect` (page `int`, scale x and
   y, offset x and y as `float`s).
-- Irradiance, direction and mask pages: each a count, then the pages.
-- A flags byte (1 probe irradiance, 2 probe depth, 4 probe settings), then those that are set, in
-  that order. The probe settings are `Min` xyz, `Max` xyz and `Spacing`, all `float`s.
-- Channels: a count, then (light key, channel) as two `int`s each.
+- A flags byte: 1 probe irradiance, 2 probe depth, 4 probe settings, 8 transfer, 16 plain light.
+  In version 1 it sat after the mask pages and every file had a plain light.
+- If 16 is set, the irradiance pages and then the direction pages, each a count and then the pages. A
+  chunk with no Baked or Mixed light and no glowing surface has no plain light, so it stores neither
+  and `Irradiance` and `Direction` read as null. Most Hamlet cottages are like that. A space always
+  has them, and `Renderer.LoadSpaceBake` rejects one without, naming the file.
+- Mask pages: a count, then the pages.
+- The probe atlases (flags 1 and 2) and then the probe settings (flag 4), when set. The probe
+  settings are `Min` xyz, `Max` xyz and `Spacing`, all `float`s.
+- If 8 is set, the transfer: five pages, `SkyRed`, `SkyGreen`, `SkyBlue` and `Sun` as `Rgba16f`
+  holding the four L1 coefficients of [Chunk transfer](#chunk-transfer) in RGBA, and `SunTint` as
+  `Rgba8`. The tint is the sun's colour per texel divided by its largest channel, and `Sun` holds
+  that channel's share, so one set of coefficients serves all three colours. Only a chunk has it.
+- Channels: a count, then (light key, channel) as two `int`s each, for a space.
+- Chunk channels (version 2): a count, then (light hash `ulong`, channel `int`). A chunk keys its
+  mask channels by the light's chunk-space hash, `BakeInputHash.Light(light, chunkTransform)`,
+  because every copy of a chunk gives its lights different keys and the hash is the same for all.
 - The report: a count and the keys of the Mixed lights that found no channel, the invalid texel
   share (`float`), the samples (`int`) and the time as `long` ticks.
 
@@ -3468,15 +3481,19 @@ A page is width, height (`int`s), its `LightBakePageFormat` (a byte: 0 `Rgba16f`
 Brotli-compressed. `LightBakeCooker` (`src/Super.Cook/Cookers/LightBakeCooker.cs`) rewrites pages as
 BC6H or BC7 into the same container through the format byte: `Rgba16f` irradiance to `Bc6h`,
 `Rgba8` direction and mask to `Bc7`, with the header untouched so `ReadInputs` gives the same
-hashes. Probe atlases and pages with a side that isn't a multiple of 4 are kept. `Bc7Encoder`
+hashes. Probe atlases, transfer pages and pages with a side that isn't a multiple of 4 are kept
+(signed BC6H could carry the transfer pages later; it is not done). `Bc7Encoder`
 does BC7. BC6H goes through BCnEncoder.Net at `Balanced` quality, and `Bc6hEncoder` first writes
 all-zero 4x4 blocks as a black block without encoding them, then packs the rest into one strip
 to encode in parallel. Channels are floored at 0.0001 because that encoder writes exact zeros
 beside small values as 65504 at the Fast and Balanced qualities. The cooker's version folds in
 `Bc7Encoder.Version` and `Bc6hEncoder.Version`. `TextureFormat.Bc6h` maps to `BC6HUfloatBlock`.
 
-A wrong magic or version throws `InvalidDataException` naming the part and giving the value found
-and the value expected. Bytes that end early, or a count or length that is more than the bytes left,
+A wrong magic throws `InvalidDataException` giving the value found and the value expected. `Read`
+takes versions 1 and 2, so a space's committed version 1 bake still reads, with `Transfer` null
+and no chunk channels; any other version throws naming the version found and the two it reads.
+`BakeInputHash.BakerVersion` stays 2, since a space's bake is made from the same inputs, so that
+bake stays fresh. Bytes that end early, or a count or length that is more than the bytes left,
 throw `InvalidDataException` too ("cut off"), so a damaged count can't ask for gigabytes.
 
 A page's raw length must equal what its size and format take: width x height x 8 bytes for

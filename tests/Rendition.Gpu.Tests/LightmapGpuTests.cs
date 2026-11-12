@@ -312,7 +312,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
                 var bake = Bake(plane);
                 var misplaced = bake with { Draws = [(plane.BakeId, bake.Draws[0].Rect with { Page = 5 })] };
                 load = () => misplaced;
-                reason = $"Draw 0x{plane.BakeId:X16} is on page 5, but the bake has {bake.Irradiance.Count} pages.";
+                reason = $"Draw 0x{plane.BakeId:X16} is on page 5, but the bake has {bake.Irradiance!.Count} pages.";
             }
             else
             {
@@ -375,7 +375,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
             gpu.Renderer.SetEnvironment(EvenSky());
             var plane = Plane(quad, gpu.Matte);
             var bake = Bake(plane);
-            Assert.True(bake.Irradiance.Count >= 1, "The bake has no lightmap pages.");
+            Assert.True(bake.Irradiance!.Count >= 1, "The bake has no lightmap pages.");
 
             // A fresh area whose store gives no lightmaps lets go of any bake loaded before, and the frames after
             // it free their slots.
@@ -437,8 +437,8 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
             var plane = Plane(quad, gpu.Matte);
             var bake = Bake(plane);
             var cooked = LightBakeFile.Read(Super.Cook.LightBakeCooker.Compress(bake).ToBytes());
-            Assert.Equal(LightBakePageFormat.Bc6h, cooked.Irradiance[0].Format);
-            Assert.Equal(LightBakePageFormat.Bc7, cooked.Direction[0].Format);
+            Assert.Equal(LightBakePageFormat.Bc6h, cooked.Irradiance![0].Format);
+            Assert.Equal(LightBakePageFormat.Bc7, cooked.Direction![0].Format);
 
             gpu.Renderer.Bakes = new Loaded(bake);
             var raw = Centre(Capture(plane, sky: 0f));
@@ -464,7 +464,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
     // The bake with every direction page one colour of RGBA8.
     private static LightBakeFile WithDirection(LightBakeFile bake, byte x, byte y, byte z) => bake with
     {
-        Direction = [.. bake.Direction.Select(page =>
+        Direction = [.. bake.Direction!.Select(page =>
             new LightBakePage(page.Width, page.Height, LightBakePageFormat.Rgba8, Fill(page.Width * page.Height, x, y, z)))],
     };
 

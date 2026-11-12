@@ -444,6 +444,11 @@ probe atlases stay RGBA16F, since a probe's light is blended between texels, whi
 smear. A page whose width or height isn't a multiple of 4 is left as the baker wrote it, and so
 is a page that is already compressed, so cooking a bake twice changes nothing.
 
+A chunk's bake also has transfer pages: its sky's light for each colour and its sun's, four numbers
+a texel, and a tint for the sun. They are kept as they were baked, in half floats and bytes. A
+chunk with no Baked or Mixed light and no glowing surface has no irradiance or direction pages at
+all, and a cooked one keeps it that way. See [The .lightbake file](design.md#the-lightbake-file).
+
 The header, with the hashes the bake is checked against, is written as it was read, so a cooked
 bake is as fresh or as stale as the one it came from. A file that isn't a light bake this version
 can read fails the cook with a message naming it.

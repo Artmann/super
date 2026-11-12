@@ -1169,7 +1169,7 @@ public sealed unsafe class Renderer : IDisposable
             bake = store.Load(file);
             if (bake is not null)
             {
-                CheckPages(bake);
+                CheckPages(bake, file);
             }
             else if (GivesLightmaps(store))
             {
@@ -1200,11 +1200,14 @@ public sealed unsafe class Renderer : IDisposable
 
             try
             {
-                int count = bake.Irradiance.Count;
+                // CheckPages made sure a space's bake has both.
+                var irradiancePages = bake.Irradiance!;
+                var directionPages = bake.Direction!;
+                int count = irradiancePages.Count;
                 for (int page = 0; page < count; page++)
                 {
-                    pages.Add(CreateTexture(PageTexture(bake.Irradiance[page]), TextureEdges.Clamp));
-                    pages.Add(CreateTexture(PageTexture(bake.Direction[page]), TextureEdges.Clamp));
+                    pages.Add(CreateTexture(PageTexture(irradiancePages[page]), TextureEdges.Clamp));
+                    pages.Add(CreateTexture(PageTexture(directionPages[page]), TextureEdges.Clamp));
                     pages.Add(page < bake.Mask.Count ? CreateTexture(PageTexture(bake.Mask[page]), TextureEdges.Clamp) : new TextureHandle(-1));
                 }
 
@@ -1288,17 +1291,23 @@ public sealed unsafe class Renderer : IDisposable
         pages.Clear();
     }
 
-    /// <summary>Throws when a bake's pages don't fit together, as a damaged file's might not.</summary>
-    private static void CheckPages(LightBakeFile bake)
+    /// <summary>Throws when a bake's pages don't fit together, as a damaged file's might not, or when it has no irradiance and direction pages, which a space needs (only a chunk may leave them out).</summary>
+    private static void CheckPages(LightBakeFile bake, string file)
     {
-        if (bake.Direction.Count != bake.Irradiance.Count || bake.Mask.Count > bake.Irradiance.Count)
+        if (bake is not { Irradiance: { } irradiance, Direction: { } direction })
         {
             throw new InvalidDataException(
-                $"The bake has {bake.Irradiance.Count} irradiance pages but {bake.Direction.Count} direction and {bake.Mask.Count} mask pages.");
+                $"The bake {file} has no irradiance and direction pages, but a space's bake needs them: only a chunk's may leave them out.");
+        }
+
+        if (direction.Count != irradiance.Count || bake.Mask.Count > irradiance.Count)
+        {
+            throw new InvalidDataException(
+                $"The bake has {irradiance.Count} irradiance pages but {direction.Count} direction and {bake.Mask.Count} mask pages.");
         }
 
         var probePages = CheckProbes(bake);
-        foreach (var page in bake.Irradiance.Concat(bake.Direction).Concat(bake.Mask).Concat(probePages))
+        foreach (var page in irradiance.Concat(direction).Concat(bake.Mask).Concat(probePages))
         {
             if (page.Width < 1 || page.Height < 1
                 || page.Pixels.Length != TextureData.LevelSize(PageFormat(page.Format), page.Width, page.Height))
@@ -1309,10 +1318,10 @@ public sealed unsafe class Renderer : IDisposable
 
         foreach (var (bakeId, rect) in bake.Draws)
         {
-            if (rect.Page < 0 || rect.Page >= bake.Irradiance.Count)
+            if (rect.Page < 0 || rect.Page >= irradiance.Count)
             {
                 throw new InvalidDataException(
-                    $"Draw 0x{bakeId:X16} is on page {rect.Page}, but the bake has {bake.Irradiance.Count} pages.");
+                    $"Draw 0x{bakeId:X16} is on page {rect.Page}, but the bake has {irradiance.Count} pages.");
             }
         }
     }

@@ -622,7 +622,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
         Assert.True(found, "The bake has no rectangle for the floor.");
         var (x0, y0, side) = Texels(rect);
         Assert.Equal(40, side);
-        var halves = MemoryMarshal.Cast<byte, Half>(file.Irradiance[rect.Page].Pixels.AsSpan());
+        var halves = MemoryMarshal.Cast<byte, Half>(file.Irradiance![rect.Page].Pixels.AsSpan());
         var values = new List<float>();
         for (int y = 5; y < 35; y++)
         {

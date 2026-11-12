@@ -86,7 +86,7 @@ public sealed class LightBakeCookerTests
     {
         var cooked = CookedBake(Bake(Irradiance(Side, Side, Side), Irradiance(Side, 32, 8)));
 
-        Assert.Equal(2, cooked.Irradiance.Count);
+        Assert.Equal(2, cooked.Irradiance!.Count);
         Assert.All(cooked.Irradiance, page => Assert.Equal(LightBakePageFormat.Bc6h, page.Format));
 
         // Hand-worked: 64 by 64 texels are 16 by 16 blocks of 16 bytes, and 64 by 32 are 16 by 8.
@@ -100,7 +100,7 @@ public sealed class LightBakeCookerTests
     {
         var cooked = CookedBake(Bake(Irradiance(Side, Side, Side)));
 
-        var direction = Assert.Single(cooked.Direction);
+        var direction = Assert.Single(cooked.Direction!);
         var mask = Assert.Single(cooked.Mask);
         Assert.Equal(LightBakePageFormat.Bc7, direction.Format);
         Assert.Equal(LightBakePageFormat.Bc7, mask.Format);
@@ -134,11 +134,49 @@ public sealed class LightBakeCookerTests
         Assert.Equal(bake.ProbeDepth!.Pixels, cooked.ProbeDepth.Pixels);
 
         // 30 is not a multiple of 4, so the page keeps the baker's bytes.
-        var page = Assert.Single(cooked.Irradiance);
+        var page = Assert.Single(cooked.Irradiance!);
         Assert.Equal(LightBakePageFormat.Rgba16f, page.Format);
         Assert.Equal(odd.Pixels, page.Pixels);
     }
 
+    [Fact]
+    public void Cooking_keeps_transfer_pages_uncompressed_half_floats()
+    {
+        // 64 by 64 would suit a block format, so only the cooker's choice keeps these as they are.
+        var transfer = new LightBakeTransfer(
+            Irradiance(Side, Side, Side), Irradiance(Side, Side, 32), Irradiance(Side, Side, 8), Irradiance(Side, Side, Side),
+            Rgba8(Side, Side));
+        var bake = Bake(Irradiance(Side, Side, Side)) with { Transfer = transfer, ChunkChannels = [(77UL, 1)] };
+
+        var cooked = CookedBake(bake);
+
+        var read = Assert.IsType<LightBakeTransfer>(cooked.Transfer);
+        foreach (var (expected, actual) in new[]
+        {
+            (transfer.SkyRed, read.SkyRed), (transfer.SkyGreen, read.SkyGreen), (transfer.SkyBlue, read.SkyBlue),
+            (transfer.Sun, read.Sun),
+        })
+        {
+            Assert.Equal(LightBakePageFormat.Rgba16f, actual.Format);
+            Assert.Equal(expected.Pixels, actual.Pixels);
+        }
+
+        Assert.Equal(LightBakePageFormat.Rgba8, read.SunTint.Format);
+        Assert.Equal(transfer.SunTint.Pixels, read.SunTint.Pixels);
+        Assert.Equal(bake.ChunkChannels, cooked.ChunkChannels);
+    }
+
+    [Fact]
+    public void Cooking_a_chunk_with_no_plain_light_keeps_it_without_irradiance()
+    {
+        var bake = Bake(Irradiance(Side, Side, Side)) with { Irradiance = null, Direction = null };
+
+        var cooked = CookedBake(bake);
+
+        Assert.Null(cooked.Irradiance);
+        Assert.Null(cooked.Direction);
+        Assert.Equal(LightBakePageFormat.Bc7, Assert.Single(cooked.Mask).Format);
+    }
     [Fact]
     public void Cooking_keeps_the_input_hash()
     {
@@ -163,7 +201,7 @@ public sealed class LightBakeCookerTests
         var source = Irradiance(Side, Side, 32);
         var cooked = CookedBake(Bake(source));
 
-        var page = Assert.Single(cooked.Irradiance);
+        var page = Assert.Single(cooked.Irradiance!);
         var decoded = new BcDecoder().DecodeRawHdr(page.Pixels, Side, Side, CompressionFormat.Bc6U);
         double difference = 0;
         double total = 0;
@@ -212,7 +250,7 @@ public sealed class LightBakeCookerTests
 
         var cooked = CookedBake(Bake(new LightBakePage(Side, Side, LightBakePageFormat.Rgba16f, pixels)));
 
-        var decoded = new BcDecoder().DecodeRawHdr(Assert.Single(cooked.Irradiance).Pixels, Side, Side, CompressionFormat.Bc6U);
+        var decoded = new BcDecoder().DecodeRawHdr(Assert.Single(cooked.Irradiance!).Pixels, Side, Side, CompressionFormat.Bc6U);
         float brightest = decoded.Max(color => Math.Max(color.r, Math.Max(color.g, color.b)));
         Assert.True(brightest < 0.1f, $"The brightest texel came back as {brightest}, from a page whose brightest is 0.05.");
     }
@@ -226,8 +264,8 @@ public sealed class LightBakeCookerTests
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
         var twice = LightBakeFile.Read(cooked!);
-        Assert.Equal(once.Irradiance[0].Pixels, twice.Irradiance[0].Pixels);
-        Assert.Equal(once.Direction[0].Pixels, twice.Direction[0].Pixels);
+        Assert.Equal(once.Irradiance![0].Pixels, twice.Irradiance![0].Pixels);
+        Assert.Equal(once.Direction![0].Pixels, twice.Direction![0].Pixels);
     }
 
     [Fact]

@@ -617,7 +617,7 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
 
     private static Vector3 IrradianceAt(LightBakeFile file, int page, int x, int y)
     {
-        var halves = MemoryMarshal.Cast<byte, Half>(file.Irradiance[page].Pixels.AsSpan());
+        var halves = MemoryMarshal.Cast<byte, Half>(file.Irradiance![page].Pixels.AsSpan());
         int at = (y * LightmapLayout.PageSize + x) * 4;
         return new Vector3((float)halves[at], (float)halves[at + 1], (float)halves[at + 2]);
     }

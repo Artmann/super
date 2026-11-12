@@ -7,7 +7,7 @@ public sealed class LightBakeFileTests
 {
     private static readonly BakeInputs Inputs = new(0x1111111111111111UL, 0x2222222222222222UL, 0x3333333333333333UL, 0x4444444444444444UL);
 
-    // The layout, worked by hand: a 41 byte header, then the draw count and the draws at 28 bytes each, then the
+    // The layout, worked by hand: a 41 byte header, then the draw count and the draws at 28 bytes each, a flags byte, then the
     // irradiance count, then the first irradiance page whose header is width, height, format, raw length and
     // compressed length at 4, 4, 1, 4 and 4 bytes.
     private const int HeaderSize = 41;
@@ -15,7 +15,8 @@ public sealed class LightBakeFileTests
     private const int PageHeaderBytes = 17;
     private const int DrawCountOffset = HeaderSize;
 
-    private static int FirstPageOffset(int draws) => HeaderSize + 4 + draws * DrawBytes + 4;
+    // Version 2 puts the present-flags byte after the draws, then the irradiance count.
+    private static int FirstPageOffset(int draws) => HeaderSize + 4 + draws * DrawBytes + 1 + 4;
 
     private static byte[] Patched(byte[] bytes, int offset, int value)
     {
@@ -96,8 +97,8 @@ public sealed class LightBakeFileTests
         Assert.Equal(written.Inputs, read.Inputs);
         Assert.Equal(written.Quality, read.Quality);
         Assert.Equal(written.Draws, read.Draws);
-        AssertPages(written.Irradiance, read.Irradiance);
-        AssertPages(written.Direction, read.Direction);
+        AssertPages(written.Irradiance!, read.Irradiance!);
+        AssertPages(written.Direction!, read.Direction!);
         AssertPages(written.Mask, read.Mask);
         AssertPage(written.ProbeIrradiance, read.ProbeIrradiance);
         AssertPage(written.ProbeDepth, read.ProbeDepth);
@@ -241,7 +242,7 @@ public sealed class LightBakeFileTests
 
         var read = LightBakeFile.Read(file.ToBytes());
 
-        Assert.Equal(2048, read.Irradiance[0].Width);
+        Assert.Equal(2048, read.Irradiance![0].Width);
         Assert.Equal(640, read.ProbeIrradiance!.Width);
         Assert.Equal(1152, read.ProbeDepth!.Height);
     }
@@ -288,7 +289,7 @@ public sealed class LightBakeFileTests
 
         var read = LightBakeFile.Read(file.ToBytes());
 
-        Assert.Equal(bytes, read.Irradiance[0].Pixels.Length);
+        Assert.Equal(bytes, read.Irradiance![0].Pixels.Length);
     }
 
     [Fact]
@@ -303,14 +304,113 @@ public sealed class LightBakeFileTests
     }
 
     [Fact]
-    public void A_wrong_version_throws_naming_the_version()
+    public void Version_three_throws_with_the_version()
     {
         var bytes = Build(false).ToBytes();
-        bytes[4] = 2;
+        bytes[4] = 3;
 
-        var expected = "The .lightbake version is wrong: found 2, expected 1.";
+        var expected = "The .lightbake version is wrong: found 3, but this reads versions 1 and 2.";
         Assert.Equal(expected, Assert.Throws<InvalidDataException>(() => LightBakeFile.Read(bytes)).Message);
         Assert.Equal(expected, Assert.Throws<InvalidDataException>(() => LightBakeFile.ReadInputs(bytes)).Message);
+    }
+
+    // Four pages of 2 by 1 texels for the sky's red, green and blue and the sun, then a tint of 2 by 1.
+    private static LightBakeTransfer Transfer()
+    {
+        return new LightBakeTransfer(
+            Page(2, 1, LightBakePageFormat.Rgba16f, 11), Page(2, 1, LightBakePageFormat.Rgba16f, 12),
+            Page(2, 1, LightBakePageFormat.Rgba16f, 13), Page(2, 1, LightBakePageFormat.Rgba16f, 14),
+            Page(2, 1, LightBakePageFormat.Rgba8, 15));
+    }
+
+    [Fact]
+    public void Chunk_bake_round_trips_its_transfer()
+    {
+        var chunk = Build(false) with
+        {
+            Transfer = Transfer(),
+            ChunkChannels = [(0xFEDCBA9876543210UL, 2), (5UL, 0)],
+        };
+
+        var bytes = chunk.ToBytes();
+        var read = LightBakeFile.Read(bytes);
+
+        Assert.NotNull(read.Transfer);
+        AssertPage(chunk.Transfer!.SkyRed, read.Transfer.SkyRed);
+        AssertPage(chunk.Transfer.SkyGreen, read.Transfer.SkyGreen);
+        AssertPage(chunk.Transfer.SkyBlue, read.Transfer.SkyBlue);
+        AssertPage(chunk.Transfer.Sun, read.Transfer.Sun);
+        AssertPage(chunk.Transfer.SunTint, read.Transfer.SunTint);
+        Assert.Equal(chunk.ChunkChannels, read.ChunkChannels);
+        Assert.Equal(chunk.Channels, read.Channels);
+        AssertPages(chunk.Irradiance!, read.Irradiance!);
+        AssertPages(chunk.Direction!, read.Direction!);
+        AssertPages(chunk.Mask, read.Mask);
+        Assert.Equal(bytes, read.ToBytes());
+    }
+
+    [Fact]
+    public void A_space_bake_has_no_transfer_and_no_chunk_channels()
+    {
+        var read = LightBakeFile.Read(Build(true).ToBytes());
+
+        Assert.Null(read.Transfer);
+        Assert.Empty(read.ChunkChannels);
+    }
+
+    [Fact]
+    public void Version_one_space_bake_still_reads()
+    {
+        // Written by the version 1 writer, before transfer pages existed: one draw, one 2 by 2 page of each kind, no
+        // probes. Its pixel bytes are (i * 7 + seed), with seed 1 for irradiance, 2 for direction and 3 for the mask.
+        var bytes = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", "space-v1.lightbake"));
+        Assert.Equal(1, BitConverter.ToInt32(bytes, 4));
+
+        var read = LightBakeFile.Read(bytes);
+
+        Assert.Null(read.Transfer);
+        Assert.Empty(read.ChunkChannels);
+        Assert.Equal(new BakeInputs(0x1111111111111111UL, 0x2222222222222222UL, 0x3333333333333333UL, 0x4444444444444444UL), read.Inputs);
+        Assert.Equal(BakeQuality.Final, read.Quality);
+        Assert.Equal(
+            [(0xAABBCCDDEEFF0011UL, new LightmapRect(0, new Vector2(0.5f, 0.25f), new Vector2(0.125f, 0.75f)))],
+            read.Draws);
+        var irradiance = Assert.Single(read.Irradiance!);
+        Assert.Equal((2, 2, LightBakePageFormat.Rgba16f), (irradiance.Width, irradiance.Height, irradiance.Format));
+        Assert.Equal(new byte[] { 1, 8, 15, 22 }, irradiance.Pixels[..4]);
+        var direction = Assert.Single(read.Direction!);
+        Assert.Equal(LightBakePageFormat.Rgba8, direction.Format);
+        Assert.Equal(new byte[] { 2, 9, 16, 23 }, direction.Pixels[..4]);
+        Assert.Equal(new byte[] { 3, 10, 17, 24 }, Assert.Single(read.Mask).Pixels[..4]);
+        Assert.Null(read.ProbeIrradiance);
+        Assert.Equal([(101, 0)], read.Channels);
+        Assert.Equal([9], read.Report.LightsWithoutChannel);
+        Assert.Equal(TimeSpan.FromTicks(1234), read.Report.Time);
+    }
+
+    [Fact]
+    public void Chunk_without_plain_light_stores_no_irradiance()
+    {
+        var withLight = Build(false) with { Transfer = Transfer() };
+        var without = withLight with { Irradiance = null, Direction = null };
+
+        var read = LightBakeFile.Read(without.ToBytes());
+
+        Assert.Null(read.Irradiance);
+        Assert.Null(read.Direction);
+        Assert.NotNull(read.Transfer);
+        AssertPages(without.Mask, read.Mask);
+        Assert.True(without.ToBytes().Length < withLight.ToBytes().Length);
+    }
+
+    [Fact]
+    public void A_bake_with_only_one_of_irradiance_and_direction_cannot_be_written()
+    {
+        var half = Build(false) with { Direction = null };
+
+        var error = Assert.Throws<InvalidOperationException>(() => half.ToBytes());
+
+        Assert.Equal("A bake has both its irradiance and direction pages or neither.", error.Message);
     }
 
     [Fact]

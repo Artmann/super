@@ -9,8 +9,9 @@ namespace Super.Cook;
 /// Rewrites a baked space's pages as block-compressed ones, so they take a fraction of the memory on the GPU: the
 /// irradiance pages as BC6H, the direction and mask pages as BC7. The probe atlases stay RGBA16F, since a probe's light is
 /// read with a blend between texels that a block would smear. A page whose sides aren't both multiples of 4 stays as the
-/// baker wrote it, and so does one that is already compressed, so cooking is safe to repeat. The header, with the hashes
-/// the bake is checked against, is written as it was read.
+/// baker wrote it, and so does one that is already compressed, so cooking is safe to repeat. A chunk's transfer pages stay
+/// RGBA16F and RGBA8, as signed BC6H could carry them later but nothing needs it yet. A chunk with no plain light has no
+/// irradiance or direction pages to compress. The header, with the hashes the bake is checked against, is written as it was read.
 /// </summary>
 public sealed class LightBakeCooker : ICooker
 {
@@ -51,8 +52,8 @@ public sealed class LightBakeCooker : ICooker
     {
         return bake with
         {
-            Irradiance = [.. bake.Irradiance.Select(page => ToBc6h(page))],
-            Direction = [.. bake.Direction.Select(page => ToBc7(page))],
+            Irradiance = bake.Irradiance is null ? null : [.. bake.Irradiance.Select(page => ToBc6h(page))],
+            Direction = bake.Direction is null ? null : [.. bake.Direction.Select(page => ToBc7(page))],
             Mask = [.. bake.Mask.Select(page => ToBc7(page))],
         };
     }

@@ -223,7 +223,7 @@ public sealed class LightBakeStoreTests
         var (bakeId, rect) = Assert.Single(file.Draws);
         Assert.Equal(7UL, bakeId);
         Assert.Equal(new LightmapRect(0, new Vector2(0.5f), new Vector2(0.25f)), rect);
-        Assert.Equal([1, 2, 3, 4, 5, 6, 7, 8], Assert.Single(file.Irradiance).Pixels);
+        Assert.Equal([1, 2, 3, 4, 5, 6, 7, 8], Assert.Single(file.Irradiance!).Pixels);
     }
 
     // Ruling R1: the renderer asks the real store every frame, so once each file's header is read, asking again makes
