@@ -25,7 +25,10 @@ internal sealed record GameArguments(
     float? RenderScale = null,
     Rendition.Upscaler? Upscaler = null,
     bool NoTrace = false,
-    Rendition.DebugView DebugView = Rendition.DebugView.None)
+    Rendition.DebugView DebugView = Rendition.DebugView.None,
+    bool Bake = false,
+    bool BakeCheck = false,
+    Rendition.BakeQuality BakeQuality = Rendition.BakeQuality.Final)
 {
     public const int DefaultFramesPerSecond = 60;
 
@@ -52,6 +55,9 @@ internal sealed record GameArguments(
         float? renderScale = null;
         Rendition.Upscaler? upscaler = null;
         var debugView = Rendition.DebugView.None;
+        bool bake = false;
+        bool bakeCheck = false;
+        Rendition.BakeQuality? bakeQuality = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -111,6 +117,15 @@ internal sealed record GameArguments(
                 case "--no-trace":
                     noTrace = true;
                     break;
+                case "--bake":
+                    bake = true;
+                    break;
+                case "--bake-check":
+                    bakeCheck = true;
+                    break;
+                case "--bake-quality":
+                    bakeQuality = BakeQualityName(args, ++i);
+                    break;
             }
         }
 
@@ -119,9 +134,34 @@ internal sealed record GameArguments(
             throw new ArgumentException("--ticks can't be negative.");
         }
 
-        if (ticks is not null && screenshotPath is null && recordPath is null && profilePath is null)
+        // A bake is a run of its own: it neither saves a picture nor plays in a window.
+        foreach (var (asked, name) in new[] { (bake, "--bake"), (bakeCheck, "--bake-check") })
         {
-            throw new ArgumentException("--ticks needs --screenshot, --record or --profile, because those are the only runs without a window so far.");
+            if (!asked)
+            {
+                continue;
+            }
+
+            string? other = screenshotPath is not null ? "--screenshot"
+                : recordPath is not null ? "--record"
+                : profilePath is not null ? "--profile"
+                : name == "--bake" && bakeCheck ? "--bake-check"
+                : noVsync ? "--no-vsync"
+                : null;
+            if (other is not null)
+            {
+                throw new ArgumentException($"{name} can't run with {other}.");
+            }
+        }
+
+        if (bakeQuality is not null && !bake)
+        {
+            throw new ArgumentException("--bake-quality needs --bake.");
+        }
+
+        if (ticks is not null && screenshotPath is null && recordPath is null && profilePath is null && !bake && !bakeCheck)
+        {
+            throw new ArgumentException("--ticks needs --screenshot, --record, --profile, --bake or --bake-check, because those are the only runs without a window so far.");
         }
 
         if ((screenshotPath is not null ? 1 : 0) + (recordPath is not null ? 1 : 0) + (profilePath is not null ? 1 : 0) > 1)
@@ -167,7 +207,18 @@ internal sealed record GameArguments(
 
         return new GameArguments(
             seed, ticks, screenshotPath, recordPath, seconds, framesPerSecond, width, height, profilePath, frames ?? DefaultProfileFrames, noVsync, scriptName, userDataFolder, uiScale, noMaterials,
-            renderScale, upscaler, noTrace, debugView);
+            renderScale, upscaler, noTrace, debugView, bake, bakeCheck, bakeQuality ?? Rendition.BakeQuality.Final);
+    }
+
+    private static Rendition.BakeQuality BakeQualityName(ReadOnlySpan<string> args, int index)
+    {
+        string text = Value(args, index, "--bake-quality");
+        return text switch
+        {
+            "preview" => Rendition.BakeQuality.Preview,
+            "final" => Rendition.BakeQuality.Final,
+            _ => throw new ArgumentException($"--bake-quality needs preview or final, not '{text}'."),
+        };
     }
 
     /// <summary>

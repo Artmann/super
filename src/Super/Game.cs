@@ -29,7 +29,8 @@ public static class Game
             Console.WriteLine(pick.Kept ? $"seed {seed}, kept from before the restart" : $"seed {seed}");
         }
 
-        bool hidden = arguments.ScreenshotPath is not null || arguments.RecordPath is not null || arguments.ProfilePath is not null;
+        bool baking = arguments.Bake || arguments.BakeCheck;
+        bool hidden = arguments.ScreenshotPath is not null || arguments.RecordPath is not null || arguments.ProfilePath is not null || baking;
 
         // Worked out even when unused, so a bad id fails in a screenshot run as well as in play.
         string playerFolder = UserData.FolderFor(options.Id ?? UserData.IdFromTitle(options.Title));
@@ -103,6 +104,33 @@ public static class Game
             int problems = window.Screenshot(host, arguments.Ticks ?? 0, path);
             Console.WriteLine($"{path}: {problems} validation messages");
             Environment.ExitCode = problems == 0 ? 0 : 1;
+            return;
+        }
+
+        if (baking)
+        {
+            // Bakes are sources, like the scene's models, so they're saved beside them in the first content root.
+            if (host.Content.Files is not CookedFolder { Dev: { Roots.Length: > 0 } dev })
+            {
+                Console.Error.WriteLine(
+                    $"{(arguments.Bake ? "--bake" : "--bake-check")} needs the game run from source, where the build writes {DevSettings.FileName} to say where the content is.");
+                Environment.ExitCode = 1;
+                return;
+            }
+
+            // One tick by default, so the game has set up its scene before it's baked.
+            long bakeTicks = arguments.Ticks ?? 1;
+            if (arguments.Bake)
+            {
+                int problems = window.Bake(host, bakeTicks, arguments.BakeQuality, dev.Roots[0]);
+                Console.WriteLine($"{problems} validation messages");
+                Environment.ExitCode = problems == 0 ? 0 : 1;
+            }
+            else
+            {
+                Environment.ExitCode = window.BakeCheck(host, bakeTicks, dev.Roots[0]) == 0 ? 0 : 1;
+            }
+
             return;
         }
 

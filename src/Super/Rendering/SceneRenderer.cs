@@ -198,6 +198,22 @@ internal sealed class SceneRenderer : IDisposable
         return _renderer.Capture(frame, _draws.AsSpan(0, count), out capturedWidth, out capturedHeight);
     }
 
+    /// <summary>
+    /// Bakes the view's baked space from the same frame <see cref="Render"/> would draw, and returns the
+    /// <c>.lightbake</c> file's bytes. See <see cref="Renderer.Bake"/>.
+    /// </summary>
+    public byte[] Bake(View view, Content content, int width, int height, float time, BakeSettings settings)
+    {
+        Prepare(content, view);
+        int count = PrepareDraws(view, content);
+        PrepareDecals(view, content);
+        var frame = CreateFrame(view, width, height, time);
+        return _renderer.Bake(frame, _draws.AsSpan(0, count), settings);
+    }
+
+    /// <summary>What the last frame's baked areas came to. See <see cref="Renderer.LastBakeFrame"/>.</summary>
+    public BakeFrame? LastBakeFrame => _renderer.LastBakeFrame;
+
     /// <summary>The reflection probes to keep: the view's, or none while reflections are off.</summary>
     internal static ReadOnlySpan<ReflectionProbeRequest> WantedReflectionProbes(View view, RenderEffects off) =>
         off.HasFlag(RenderEffects.Reflections) ? [] : view.ReflectionProbes;

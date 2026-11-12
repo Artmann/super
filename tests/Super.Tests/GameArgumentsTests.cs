@@ -293,4 +293,72 @@ public class GameArgumentsTests
 
         Assert.Equal($"--ui-scale needs a number above zero, such as 2 or 1.5, not '{scale}'.", error.Message);
     }
+
+    [Fact]
+    public void Bake_is_parsed()
+    {
+        var arguments = GameArguments.Parse(["--bake", "--ticks", "30", "--seed", "1"]);
+
+        Assert.True(arguments.Bake);
+        Assert.False(arguments.BakeCheck);
+        Assert.Equal(30, arguments.Ticks);
+        Assert.Equal(1, arguments.Seed);
+        Assert.Equal(BakeQuality.Final, arguments.BakeQuality);
+        Assert.False(GameArguments.Parse([]).Bake);
+    }
+
+    [Fact]
+    public void Bake_check_is_parsed_with_ticks()
+    {
+        var arguments = GameArguments.Parse(["--bake-check", "--ticks", "30"]);
+
+        Assert.True(arguments.BakeCheck);
+        Assert.False(arguments.Bake);
+        Assert.Equal(30, arguments.Ticks);
+        Assert.False(GameArguments.Parse([]).BakeCheck);
+    }
+
+    [Theory]
+    [InlineData("preview", BakeQuality.Preview)]
+    [InlineData("final", BakeQuality.Final)]
+    public void Bake_quality_reads_preview_and_final(string name, BakeQuality expected)
+    {
+        Assert.Equal(expected, GameArguments.Parse(["--bake", "--bake-quality", name]).BakeQuality);
+    }
+
+    [Fact]
+    public void An_unknown_bake_quality_throws()
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--bake", "--bake-quality", "draft"]));
+
+        Assert.Equal("--bake-quality needs preview or final, not 'draft'.", error.Message);
+    }
+
+    [Fact]
+    public void Bake_with_screenshot_throws()
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--bake", "--screenshot", "day.png"]));
+
+        Assert.Equal("--bake can't run with --screenshot.", error.Message);
+    }
+
+    [Theory]
+    [InlineData("--bake", "--record", "clip.mp4", "--seconds", "1")]
+    [InlineData("--bake", "--profile", "reef.txt")]
+    [InlineData("--bake", "--bake-check")]
+    [InlineData("--bake-check", "--screenshot", "day.png")]
+    public void Bake_or_bake_check_with_another_run_names_both(params string[] args)
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(args));
+
+        Assert.Equal($"{args[0]} can't run with {args[1]}.", error.Message);
+    }
+
+    [Fact]
+    public void Bake_quality_without_bake_throws()
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--bake-quality", "preview"]));
+
+        Assert.Equal("--bake-quality needs --bake.", error.Message);
+    }
 }

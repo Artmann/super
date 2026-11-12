@@ -13,7 +13,7 @@ dotnet run -c Release --project MyColony -- --script tooltip --ticks 40 --screen
 | Option | What it does |
 | --- | --- |
 | `--seed N` | Seeds [`GameRandom`](random.md). The same seed plays the same game |
-| `--ticks N` | Plays this many ticks first, as fast as the machine can. Needs `--screenshot`, `--record` or `--profile` |
+| `--ticks N` | Plays this many ticks first, as fast as the machine can. Needs `--screenshot`, `--record`, `--profile`, `--bake` or `--bake-check` |
 | `--screenshot file.png` | Saves the picture at that moment, then exits. It first waits for the light probes near the camera to settle, up to 2,048 frames. Without tracing (`--no-trace`, or a GPU that can't trace), a dense scene such as Courtyard can reach that cap first, and then the shot shows the probes still filling in and the console says so. See [Screenshots](#screenshots) |
 | `--record file.mp4 --seconds S` | Saves that many seconds of video, then exits |
 | `--fps N` | Frames per second for `--record`, 60 by default |
@@ -30,8 +30,12 @@ dotnet run -c Release --project MyColony -- --script tooltip --ticks 40 --screen
 | `--debug-view trace` | Shows what a ray from the camera hits in the ray tracing layer, as each surface's base colour with no lighting, and sky blue where it hits nothing, to check that rays see the scene you see. Leaves out skinned and swimming draws and ghosts, and rays pass through the holes in cut-outs. Works in the window and with `--screenshot` and `--record`. With `--profile` it runs too, so the profile times the trace view, not the lit scene. Needs a GPU that can trace, so with `--no-trace`, or on a GPU that can't, the game exits at once with `--debug-view trace needs a GPU that can trace rays, and this one can't (reason).` Any other name than `trace` or `probes` is refused. See [the debug view](rendering.md#ray-tracing) |
 | `--debug-view probes` | Draws the [light probes](rendering.md#bounced-light) of the finest box round the camera and of your own `view.LightProbes` box over the lit scene as small spheres (the coarser boxes aren't drawn), each shaded with the light its probe holds for every direction, so you can see where the bounce comes from. A probe not drawn yet is a grey wireframe, and one inside a wall isn't shown. Needs no tracing, so it works with `--no-trace` too. Shows no spheres while `Graphics.LightProbes` is off. Works in the window and with `--screenshot`, `--record` and `--profile` |
 | `--user-data folder` | Keeps [user data](user-data.md) in this folder. Without it, the window uses the player's folder and runs without a window use a throwaway one |
+| `--bake` | Bakes the frame's [baked space](rendering.md#baked-lighting) into the first content root, then exits. See [Baking lighting](#baking-lighting) |
+| `--bake-check` | Exits with 1 when the frame's baked space has no bake or a stale one, saying what changed |
+| `--bake-quality preview\|final` | How long `--bake` traces: `preview` for a quick look, `final` for the one to keep. `final` by default. Needs `--bake` |
 
-`--screenshot`, `--record` and `--profile` can't run together. A mistake in the options
+`--screenshot`, `--record` and `--profile` can't run together, and `--bake` and `--bake-check`
+run with none of them, nor with each other. A mistake in the options
 stops the game with a message saying what's wrong, such as
 `--record needs --seconds.`
 
@@ -401,6 +405,54 @@ round a sum differently, and when it happens depends on the clock, so with it on
 `--seed` and `--ticks` gave a slightly different picture from run to run. On the Courtyard
 the game starts as fast without it, and a frame costs the CPU no more. To turn it back on, set
 `<TieredCompilation>true</TieredCompilation>` in the game's project.
+
+## Baking lighting
+
+```
+dotnet run --project MyGame -- --bake --bake-quality preview
+dotnet run --project MyGame -- --bake-check
+```
+
+`--bake` plays `--ticks` ticks, one by default so the game has drawn its scene, then bakes
+the frame's [baked space](rendering.md#baked-lighting) with
+[`Renderer.Bake`](rendering.md#making-a-bake) and saves it in the game's first content root as
+`lighting/<name>.lightbake`, replacing what was there. Like `--screenshot` it runs without a
+window and under validation, and `--seed` and `--script` work as usual. It prints the file,
+how long the bake took, the samples each texel got, the share of texels no ray found a front
+face for, and the keys of `Mixed` lights that found no shadow mask channel:
+
+```
+C:\Code\MyGame\content\lighting\gallery.lightbake: 13.3 MB
+  time: 15.0 s
+  samples: 64 a texel
+  invalid texels: 5.74%
+  Mixed lights without a shadow mask channel: 122, 123, 124, 125, 126
+0 validation messages
+```
+
+It exits with 1 when there were validation messages. `--bake-quality preview` traces 64
+samples a texel, which took 15 seconds on the Gallery; `final`, the default, traces 1,024. The
+space is baked at the default texel density, 20 a metre, which is what a frame checks its
+bake against. A frame with no baked space throws "--bake found no baked space in the frame.
+Name one with view.BakedLighting." Only the space is baked; chunks aren't yet.
+
+`--bake-check` plays the same way, draws the frame, and compares what its baked space would be
+baked from with the header of the saved bake. It prints one line and exits with 0 when the
+bake is fresh, or 1 when it is missing or stale, naming what changed out of `draws`, `lights`,
+`environment` and `settings`:
+
+```
+C:\Code\MyGame\content\lighting\gallery.lightbake: stale, its lights changed
+```
+
+A frame with no baked space has nothing to check and exits with 0. Both need the game run from
+source, where the build writes `content.dev.json` to say where the content is; a published game
+exits with 1 and says so.
+
+`.lightbake` has no cooker yet, so once a bake is saved, building the game fails with
+`lighting/gallery.lightbake has no cooker`. Until it has one, run `--bake-check` from the
+program the bake was made with, such as `bin/Debug/net10.0/MyGame.exe --bake-check`, or move
+the file out of the content root before building.
 
 ## Planned
 

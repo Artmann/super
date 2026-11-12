@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Rendition;
@@ -215,6 +216,96 @@ internal sealed unsafe class GameWindow : IDisposable
         host.Capture.Screenshot(path);
         Show(host, time);
         return _scene.ValidationErrors;
+    }
+
+    /// <summary>
+    /// Plays the given number of ticks, then bakes the frame's baked space and saves it in <paramref name="folder"/>, the
+    /// first content root, as <c>lighting/&lt;name&gt;.lightbake</c>. Prints what the bake found. Returns the validation
+    /// message count.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The frame names no baked space.</exception>
+    public int Bake<TGame>(GameHost<TGame> host, long ticks, BakeQuality quality, string folder)
+        where TGame : class, IGame
+    {
+        float time = PlayAndDraw(host, ticks);
+        if (host.View.BakedSpace is not { } space)
+        {
+            throw new InvalidOperationException("--bake found no baked space in the frame. Name one with view.BakedLighting.");
+        }
+
+        // The space doesn't choose a texel density, so it's baked at the default one, which is what a frame checks
+        // its bake against.
+        _glfw.GetFramebufferSize(_window, out int width, out int height);
+        ApplyGraphics(host.Graphics);
+        byte[] bake = _scene.Bake(host.View, host.Content, width, height, time, new BakeSettings(quality: quality));
+
+        string file = BakeFiles.Space(space.Name);
+        string path = Path.GetFullPath(Path.Combine(folder, file));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, bake);
+        Console.Write(DescribeBake(path, bake.Length, LightBakeFile.Read(bake).Report));
+        return _scene.ValidationErrors;
+    }
+
+    /// <summary>
+    /// Plays the given number of ticks, draws the frame and checks its baked space's bake in <paramref name="folder"/>,
+    /// printing whether it is missing, stale, with what changed, or fresh. Returns the number of missing or stale bakes.
+    /// </summary>
+    public int BakeCheck<TGame>(GameHost<TGame> host, long ticks, string folder)
+        where TGame : class, IGame
+    {
+        PlayAndDraw(host, ticks);
+        if (host.View.BakedSpace is not { } space || _scene.LastBakeFrame?.Space is not { } inputs)
+        {
+            Console.WriteLine("The frame names no baked space, so there is no bake to check.");
+            return 0;
+        }
+
+        string file = BakeFiles.Space(space.Name);
+        string path = Path.GetFullPath(Path.Combine(folder, file));
+        if (!File.Exists(path))
+        {
+            Console.WriteLine($"{path}: missing");
+            return 1;
+        }
+
+        var changes = inputs.Changes(LightBakeFile.ReadInputs(File.ReadAllBytes(path)));
+        if (changes.Count > 0)
+        {
+            Console.WriteLine($"{path}: stale, its {string.Join(", ", changes)} changed");
+            return 1;
+        }
+
+        Console.WriteLine($"{path}: fresh");
+        return 0;
+    }
+
+    /// <summary>What <see cref="Bake"/> prints about a bake it saved.</summary>
+    internal static string DescribeBake(string path, long bytes, LightBakeReport report)
+    {
+        string lights = report.LightsWithoutChannel.Count == 0
+            ? "none"
+            : string.Join(", ", report.LightsWithoutChannel.Select(key => key.ToString(CultureInfo.InvariantCulture)));
+        return string.Create(CultureInfo.InvariantCulture,
+            $"""
+            {path}: {bytes / 1024.0 / 1024.0:0.0} MB
+              time: {report.Time.TotalSeconds:0.0} s
+              samples: {report.Samples} a texel
+              invalid texels: {report.InvalidTexelShare * 100f:0.00}%
+              Mixed lights without a shadow mask channel: {lights}
+
+            """);
+    }
+
+    /// <summary>Plays the given number of ticks, then draws and renders the frame there. Returns the frame's time.</summary>
+    private float PlayAndDraw<TGame>(GameHost<TGame> host, long ticks)
+        where TGame : class, IGame
+    {
+        PlayTo(host, ticks);
+        Draw(host, 1f);
+        float time = (float)host.Time.TotalSeconds;
+        Settle(host, time, 1);
+        return time;
     }
 
     /// <summary>Plays the given number of ticks, then saves a video. Returns the validation message count.</summary>

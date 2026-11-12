@@ -489,6 +489,8 @@ the `.lightbake` file's bytes. It takes the same view and draws as `Render`, wai
 and draws nothing. A view without a space throws "Bake needs a baked space in the frame; call
 view.BakedLighting first." A space with more than 4,096 probes, which only a hand-made
 `FrameView.BakedSpace` can have, throws with its name and count. Chunks aren't baked yet.
+A game doesn't need to call it itself: [`--bake`](command-line.md#baking-lighting) bakes the
+frame's space and saves it, and `--bake-check` says whether the saved bake is fresh.
 
 The lightmap covers the static draws the space owns, apart from ones that sway in the wind or
 are see-through, at `TexelsPerMetre`. Each texel holds the light reaching it from every
