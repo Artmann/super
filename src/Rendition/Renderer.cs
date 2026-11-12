@@ -1118,6 +1118,156 @@ public sealed unsafe class Renderer : IDisposable
         return true;
     }
 
+    // How long one submit of the path tracer may run, below Windows' two-second GPU timeout with room to spare.
+    private static readonly TimeSpan BakeBatchBudget = TimeSpan.FromMilliseconds(80);
+
+    private Baker? _baker;
+
+    /// <summary>
+    /// Path traces the view's baked space into a lightmap and returns it as a <c>.lightbake</c> file's bytes, made from
+    /// the frame's inputs so a frame drawn like this one finds it fresh. Every static draw in the frame blocks and
+    /// bounces light; those the space owns, without wind and not transparent, get a lightmap rectangle. Emissive
+    /// surfaces, the sky and Baked lights are baked in full; a Mixed light only after its first bounce, since its direct
+    /// light stays real-time, and it gets a shadow mask channel. A Realtime light or one that is moving is left out.
+    /// Waits for the GPU, taking seconds at <see cref="BakeQuality.Final"/>. See "Baked lighting" in docs/rendering.md.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The view names no baked space, or the GPU can't trace rays.</exception>
+    public byte[] Bake(in FrameView view, ReadOnlySpan<DrawItem> draws, BakeSettings settings)
+    {
+        if (view.BakedSpace is not { } space)
+        {
+            throw new InvalidOperationException("Bake needs a baked space in the frame; call view.BakedLighting first.");
+        }
+
+        long started = Stopwatch.GetTimestamp();
+        BakeIds.CheckStaticDraws(draws);
+        BakeFiles.CheckChunks(view.BakedChunks);
+        _api.DeviceWaitIdle(_context.Device).Check();
+        _uploads.Flush();
+        BakeSky(view);
+
+        // A resolver of its own, so the frame's resolver keeps what the last frame drew. It still tells the tracker
+        // where each light is, so a light that moved between frames is known to be moving.
+        var inputs = new BakeResolver(NoBakes.Instance)
+            .Resolve(view, draws, _boundsOf ??= BoundsOf, EnvironmentHash, settings, _animatedLights).Space!.Value;
+
+        var chunks = view.BakedChunks;
+        var owned = new List<DrawItem>();
+        foreach (ref readonly var draw in draws)
+        {
+            if (draw.BakeId != 0
+                && BakeAreas.OwnerOfDraw(BakeAreas.Transform(BoundsOf(draw.Detail), draw.Transform), space, chunks) == BakeAreas.Space)
+            {
+                owned.Add(draw);
+            }
+        }
+
+        var layout = LightmapLayout.Build(CollectionsMarshal.AsSpan(owned), AreaOf, settings,
+            material => _resources.GetWind(material) == 0f
+                && (_resources.GetFlags(material) & MaterialFlags.Transparent) == 0);
+
+        _baker ??= new Baker(_context, this);
+        var baker = _baker;
+        var all = draws.ToArray();
+        _context.SubmitAndWait(cmd => baker.SetUpTexels(cmd, layout, all));
+
+        // The lights the bake takes: Mixed and Baked ones that hold still, a local light only in the space's box.
+        var suns = view.Lights;
+        var locals = view.LocalLights;
+        var lights = new List<GpuBakeLight>();
+        var sunIndex = new int[suns.Length];
+        var localIndex = new int[locals.Length];
+        var sunsForMask = suns.ToArray();
+        var localsForMask = locals.ToArray();
+        for (int i = 0; i < suns.Length; i++)
+        {
+            sunIndex[i] = -1;
+            if (suns[i].Mode != LightMode.Realtime && !_animatedLights.IsAnimated(new LightKey(true, i)))
+            {
+                sunIndex[i] = lights.Count;
+                lights.Add(GpuBakeLight.Sun(suns[i], view.Shadows.LightAngle));
+            }
+            else
+            {
+                sunsForMask[i].Mode = LightMode.Realtime;
+            }
+        }
+
+        for (int i = 0; i < locals.Length; i++)
+        {
+            localIndex[i] = -1;
+            if (locals[i].Mode != LightMode.Realtime && !_animatedLights.IsAnimated(new LightKey(false, locals[i].Key))
+                && BakeAreas.OwnerOfLight(locals[i].Position, space, chunks) == BakeAreas.Space)
+            {
+                localIndex[i] = lights.Count;
+                lights.Add(GpuBakeLight.Local(locals[i]));
+            }
+            else
+            {
+                localsForMask[i].Mode = LightMode.Realtime;
+            }
+        }
+
+        // Each mask channel measures one Mixed light; the sun's channel 0 is implied, so only local lights are listed.
+        var sunChannels = new int[suns.Length];
+        var localChannels = new int[locals.Length];
+        var unassigned = new List<int>();
+        ShadowMaskChannels.Assign(space, sunsForMask, localsForMask, sunChannels, localChannels, unassigned);
+        var maskLights = new uint[ShadowMaskChannels.Count];
+        Array.Fill(maskLights, Baker.NoMaskLight);
+        var channels = new List<(int LightKey, int Channel)>();
+        for (int i = 0; i < suns.Length; i++)
+        {
+            if (sunChannels[i] >= 0)
+            {
+                maskLights[sunChannels[i]] = (uint)sunIndex[i];
+            }
+        }
+
+        for (int i = 0; i < locals.Length; i++)
+        {
+            if (localChannels[i] >= 0)
+            {
+                maskLights[localChannels[i]] = (uint)localIndex[i];
+                channels.Add((locals[i].Key, localChannels[i]));
+            }
+        }
+
+        int passes = settings.Quality == BakeQuality.Preview ? 64 : 1024;
+        var traced = baker.Trace(layout, CollectionsMarshal.AsSpan(lights), maskLights, passes,
+            view.EnvironmentIntensity, _environment.Sky, _environment.Sampler, BakeBatchBudget);
+
+        var irradiance = new List<LightBakePage>();
+        var direction = new List<LightBakePage>();
+        var mask = new List<LightBakePage>();
+        long covered = 0;
+        long invalid = 0;
+        foreach (var page in traced)
+        {
+            var encoded = Baker.Encode(page);
+            irradiance.Add(encoded.Irradiance);
+            direction.Add(encoded.Direction);
+            mask.Add(encoded.Mask);
+            for (int t = 0; t < page.Covered.Length; t++)
+            {
+                if (page.Covered[t])
+                {
+                    covered++;
+                    if (!page.Valid[t])
+                    {
+                        invalid++;
+                    }
+                }
+            }
+        }
+
+        var report = new LightBakeReport(
+            unassigned.ToArray(), covered == 0 ? 0f : (float)invalid / covered, passes, Stopwatch.GetElapsedTime(started));
+        var file = new LightBakeFile(inputs, settings.Quality, layout.Draws, irradiance, direction, mask,
+            null, null, null, channels, report);
+        return file.ToBytes();
+    }
+
     private static ulong HashEnvironment(in EnvironmentDescription environment)
     {
         var hasher = new StableHasher().Add(environment.Ceiling).Add(environment.Horizon).Add(environment.Floor);
@@ -2449,6 +2599,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         _traceDebugPass?.Dispose();
+        _baker?.Dispose();
         _tracing?.Dispose();
         _gpuTimer.Dispose();
         _overlayPass.Dispose();
