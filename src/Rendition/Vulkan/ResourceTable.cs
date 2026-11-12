@@ -243,6 +243,12 @@ internal sealed unsafe class ResourceTable : IDisposable
     }
 
     /// <summary>
+    /// Whether <see cref="AddTexture"/> has a slot to give now. Ask before handing over a texture that must not be
+    /// freed at once, since a full table frees the texture it refuses.
+    /// </summary>
+    public bool HasTextureRoom => _freeTextures.Count > 0 || _textures.Count < MaxTextures;
+
+    /// <summary>
     /// Takes a slot for a texture and points it at the image. The slot is free in every
     /// frame in flight, which is what lets the set be written while bound.
     /// </summary>

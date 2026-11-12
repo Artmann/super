@@ -3387,7 +3387,8 @@ fresh."). It answers not fresh for that file, so the frame is resolved again and
 Baked lights come back. The set is cleared when `Bakes` is another object or its `Reloads`
 moves. Anything else thrown while the pages are made, such as a full texture table or running
 out of device memory, destroys the pages made so far through the same deferred path and is
-rethrown, since it isn't the file's fault. Chunks are loaded by the pool below.
+rethrown, since it isn't the file's fault. Chunks are loaded by the pool below, which drops a
+chunk bake the full table refuses rather than throw.
 
 ### Chunk bakes on the GPU
 
@@ -3415,13 +3416,31 @@ per page. Then it lets go of every entry no chunk named this frame: a page alrea
 resource table is marked dying and its slot added to the frame's `_destroyed` list, and a page
 still going up is disposed through the same list, so nothing is freed before the frames that
 used it have finished on the GPU. Then it uploads: it plans one band of rows per page, in order,
-until `ChunkUploadBudget` (8 MB) is spent, always at least one `GpuTexture.RowUnit` (4 rows for
-block-compressed pages) so a page bigger than the budget still moves, copies the bands into one
-host-visible staging buffer that the frame's `_destroyed` list frees, and records each with
-`GpuTexture.RecordRows`, which readies the image on a page's first band and hands it to shaders
-on its last. A finished page goes into the resource table with clamped edges. When a bake's last
+until `UploadBudget` is spent (`ChunkUploadBudget`, 8 MB, unless a test sets less), always at
+least one `GpuTexture.RowUnit` (4 rows for block-compressed pages) so a page bigger than the
+budget still moves, copies the bands into one host-visible staging buffer that the frame's
+`_destroyed` list frees, and records each with `GpuTexture.RecordRows`, which readies the image
+on a page's first band and hands it to shaders on its last. A frame with no band makes no
+staging buffer. A finished page goes into the resource table with clamped edges. When a bake's last
 page is in, its rects become `GpuLightmapRect`s with its irradiance and direction slots, a mask
 of -1 (fully lit) until the mask is wired up, and the bake's bytes are let go.
+
+Before a page's last band is recorded, the pool asks `ResourceTable.HasTextureRoom`. A full
+table would free the texture it refuses at once, while this frame's and older frames' copies may
+still be writing it, so the band isn't recorded. The bake is refused instead: at the end of
+`Record` it is let go the deferred way, pages already in the table included, removed, and
+reported through `ChunkUnreadable` ("the material table has no room for its sun transfer page,
+since the renderer holds at most 1024 textures."). The chunk is then lit live until a reload,
+and nothing escapes `Render`.
+
+The pool counts frames by calls to `Record`, and lets a bake go when `Record` runs with no `Use`
+of it since the last one. That holds because the renderer draws one view a frame: each `Render`
+presents one image and calls `Record` once, and reflection and light probe captures neither
+resolve bakes nor call `Use` or `Record`. Super never draws two views in one frame. Camera
+transitions show a held picture of the outgoing shot, not a second view, and there is no split
+screen. A renderer that drew two views a frame, each with its own `Record`, would let go of the
+first view's chunks on the second view's `Record` and read them again on the next frame, so it
+would need to count presented frames instead.
 
 A chunk's rects are never merged with the space's or another chunk's. Copies of one chunk name
 can hold different bakes, one per set of inputs, whose rects share bake ids, so a merged

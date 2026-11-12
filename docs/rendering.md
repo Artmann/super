@@ -595,7 +595,9 @@ no bake.
 A fresh chunk's bake is read and checked off the render thread, then goes up to the GPU at most
 8 MB a frame (`ChunkBakePool.ChunkUploadBudget`), so a big page can take a few frames. Until all
 its pages are there the chunk is pending: it is drawn live, its `Baked` lights included, so it
-never shows half a bake. Copies of a chunk that share a file share its bake. A bake that no
+never shows half a bake. A chunk bake that finds the renderer's 1024 texture slots all taken is
+reported once to the error output and its chunk lit live until the content reloads. The pool
+counts frames by `Render` calls, which is right while each frame draws one view, as Super does. Copies of a chunk that share a file share its bake. A bake that no
 chunk in the frame names is let go at the end of that frame and read again when one comes back,
 and a content reload drops every chunk bake and reads them again.
 

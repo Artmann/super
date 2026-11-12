@@ -18,7 +18,6 @@ internal sealed unsafe class ChunkBakePool : IDisposable
 
     private readonly VulkanContext _context;
     private readonly ResourceTable _resources;
-    private readonly long _uploadBudget;
     private readonly Action<string, string> _unreadable;
 
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
@@ -26,16 +25,28 @@ internal sealed unsafe class ChunkBakePool : IDisposable
     private readonly List<Entry> _uploading = [];
     private readonly List<Band> _bands = [];
     private readonly List<string> _unused = [];
+    private readonly List<(Entry Entry, string Reason)> _refused = [];
+
+    // Counts calls to Record, which the renderer makes once a presented frame. A bake is let go when Record runs
+    // without a Use since the one before, so this holds only while every frame draws one view: two views drawn in one
+    // frame, each with its own Record, would let go of the first view's chunks on the second and read them again on
+    // the next frame. Super draws one view a frame, so it never does. See "Chunk bakes on the GPU" in docs/design.md.
     private int _frame;
 
-    /// <param name="unreadable">Told, on the render thread, of each file that couldn't be read or checked, and why.</param>
+    /// <param name="unreadable">Told, on the render thread, of each file that couldn't be read, checked or put on the GPU, and why.</param>
     public ChunkBakePool(VulkanContext context, ResourceTable resources, long uploadBudget, Action<string, string> unreadable)
     {
         _context = context;
         _resources = resources;
-        _uploadBudget = uploadBudget;
+        UploadBudget = uploadBudget;
         _unreadable = unreadable;
     }
+
+    /// <summary>
+    /// The most bytes of pages copied in one frame, <see cref="ChunkUploadBudget"/> unless a test sets a smaller one to
+    /// watch a bake go up over several frames.
+    /// </summary>
+    internal long UploadBudget { get; set; }
 
     /// <summary>The bakes with every page on the GPU.</summary>
     public int Resident { get; private set; }
@@ -76,12 +87,9 @@ internal sealed unsafe class ChunkBakePool : IDisposable
         public readonly int Role = role;
         public int RowsDone;
         public int Slot = -1;
-
-        // Set when the material table freed the texture while refusing it.
-        public bool Freed;
     }
 
-    private readonly record struct Band(Page Page, int FirstRow, int Rows, int Bytes);
+    private readonly record struct Band(Entry Entry, Page Page, int FirstRow, int Rows, int Bytes);
 
     // The roles of a chunk's pages: its five transfer pages, then its plain irradiance, direction and mask.
     private const int Irradiance = 5;
@@ -163,6 +171,17 @@ internal sealed unsafe class ChunkBakePool : IDisposable
 
         _unused.Clear();
         Upload(cmd, others);
+
+        // A bake whose page the material table had no room for is dropped, the copies already recorded included, and
+        // lit live until the store reloads, as an unreadable one is.
+        foreach (var (entry, reason) in _refused)
+        {
+            Release(entry, textures, others);
+            _entries.Remove(entry.File);
+            _unreadable(entry.File, reason);
+        }
+
+        _refused.Clear();
         _frame++;
     }
 
@@ -184,7 +203,7 @@ internal sealed unsafe class ChunkBakePool : IDisposable
         {
             foreach (var page in entry.Pages)
             {
-                if (page.Slot < 0 && !page.Freed)
+                if (page.Slot < 0)
                 {
                     page.Texture.Dispose();
                 }
@@ -343,7 +362,9 @@ internal sealed unsafe class ChunkBakePool : IDisposable
     }
 
     // Copies a band of each waiting page, oldest bake first, up to the budget, and at least one row so even a page
-    // wider than the budget moves. A page whose last band goes up joins the material table.
+    // wider than the budget moves. A page whose last band goes up joins the material table. When the table is full, the
+    // band isn't recorded and the page's bake is refused, for Record to drop: the table would free a refused texture at
+    // once, while this frame's and older frames' copies may still be writing it.
     private void Upload(CommandBuffer cmd, List<IDisposable> others)
     {
         if (_uploading.Count == 0)
@@ -364,7 +385,7 @@ internal sealed unsafe class ChunkBakePool : IDisposable
                 }
 
                 int unit = texture.RowUnit;
-                long units = (_uploadBudget - total) / texture.RowsSize(unit);
+                long units = (UploadBudget - total) / texture.RowsSize(unit);
                 if (units < 1 && total > 0)
                 {
                     break;
@@ -372,53 +393,53 @@ internal sealed unsafe class ChunkBakePool : IDisposable
 
                 int rows = (int)Math.Min(Math.Max(units, 1) * unit, texture.Height - from);
                 int bytes = texture.RowsSize(from + rows) - texture.RowsSize(from);
-                _bands.Add(new Band(page, from, rows, bytes));
+                _bands.Add(new Band(entry, page, from, rows, bytes));
                 total += bytes;
             }
 
-            if (total >= _uploadBudget)
+            if (total >= UploadBudget)
             {
                 break;
             }
         }
 
-        var staging = GpuBuffer.CreateHostVisible(_context, (ulong)total, BufferUsageFlags.TransferSrcBit);
-        others.Add(staging);
-        ulong offset = 0;
-        try
+        if (total > 0)
         {
+            var staging = GpuBuffer.CreateHostVisible(_context, (ulong)total, BufferUsageFlags.TransferSrcBit);
+            others.Add(staging);
+            ulong offset = 0;
             foreach (var band in _bands)
             {
                 var page = band.Page;
-                int start = page.Texture.RowsSize(band.FirstRow);
-                page.Source!.Pixels.AsSpan(start, band.Bytes).CopyTo(new Span<byte>((byte*)staging.Mapped + offset, band.Bytes));
                 bool first = band.FirstRow == 0;
                 bool last = band.FirstRow + band.Rows == page.Texture.Height;
+                if (IsRefused(band.Entry))
+                {
+                    continue;
+                }
+
+                if (last && !_resources.HasTextureRoom)
+                {
+                    _refused.Add((band.Entry, $"the material table has no room for its {RoleName(page.Role)} page, " +
+                        $"since the renderer holds at most {ResourceTable.MaxTextures} textures."));
+                    continue;
+                }
+
+                int start = page.Texture.RowsSize(band.FirstRow);
+                page.Source!.Pixels.AsSpan(start, band.Bytes).CopyTo(new Span<byte>((byte*)staging.Mapped + offset, band.Bytes));
                 page.Texture.RecordRows(cmd, staging, offset, band.FirstRow, band.Rows, first, last);
                 page.RowsDone = band.FirstRow + band.Rows;
                 if (last)
                 {
-                    try
-                    {
-                        page.Slot = _resources.AddTexture(page.Texture, TextureEdges.Clamp).Index;
-                    }
-                    catch
-                    {
-                        // A full table frees the texture itself, so neither Release nor Dispose may free it again.
-                        page.Freed = true;
-                        throw;
-                    }
-
+                    page.Slot = _resources.AddTexture(page.Texture, TextureEdges.Clamp).Index;
                     page.Source = null;
                 }
 
                 offset += (ulong)band.Bytes;
             }
         }
-        finally
-        {
-            _bands.Clear();
-        }
+
+        _bands.Clear();
         for (int i = _uploading.Count - 1; i >= 0; i--)
         {
             var entry = _uploading[i];
@@ -429,6 +450,31 @@ internal sealed unsafe class ChunkBakePool : IDisposable
             }
         }
     }
+
+    private bool IsRefused(Entry entry)
+    {
+        foreach (var (refused, _) in _refused)
+        {
+            if (ReferenceEquals(refused, entry))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string RoleName(int role) => role switch
+    {
+        0 => "sky red transfer",
+        1 => "sky green transfer",
+        2 => "sky blue transfer",
+        3 => "sun transfer",
+        4 => "sun tint transfer",
+        Irradiance => "irradiance",
+        Direction => "direction",
+        _ => "mask",
+    };
 
     // Every page is up: the rectangles point at the plain pages, or at none when the chunk has no plain light.
     private void Finish(Entry entry)
@@ -488,7 +534,7 @@ internal sealed unsafe class ChunkBakePool : IDisposable
                 _resources.MarkTextureDying(page.Slot);
                 textures.Add(page.Slot);
             }
-            else if (!page.Freed)
+            else
             {
                 others.Add(page.Texture);
             }

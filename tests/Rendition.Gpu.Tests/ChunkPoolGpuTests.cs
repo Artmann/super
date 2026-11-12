@@ -358,6 +358,156 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
+    [Fact]
+    public void Chunk_bake_with_no_room_in_the_material_table_is_dropped_and_lit_live()
+    {
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        var store = new HeldStore();
+        var fillers = new List<TextureHandle>();
+        var tiny = TextureData.FromPixels(1, 1, TextureKind.Linear, [0, 0, 0, 255]);
+        var error = Console.Error;
+        var log = new StringWriter();
+        try
+        {
+            var wall = Wall(quad, First);
+            LocalLight[] lamps = [Lamp(First, 7471)];
+            store.Hold(Bake(wall, First, lamps));
+            store.Release();
+            byte[] live = Capture(View(First, lamps, []), wall);
+
+            // Fill every free slot, then free three, so the chunk's three sky pages fit and its sun page doesn't.
+            Action fill = () =>
+            {
+                while (true)
+                {
+                    fillers.Add(gpu.Renderer.CreateTexture(tiny));
+                }
+            };
+            var full = Assert.Throws<InvalidOperationException>(fill);
+            Assert.Equal("The renderer holds at most 1024 textures.", full.Message);
+            for (int i = 0; i < 3; i++)
+            {
+                gpu.Renderer.DestroyTexture(fillers[^1]);
+                fillers.RemoveAt(fillers.Count - 1);
+            }
+
+            for (int i = 0; i < 4; i++)
+            {
+                gpu.Renderer.Render(View(First, lamps, []), [wall]);
+            }
+
+            Console.SetError(log);
+            gpu.Renderer.Bakes = store;
+            var view = View(First, lamps, [Chunk(First)]);
+            int frames = 0;
+            do
+            {
+                gpu.Renderer.Render(view, [wall]);
+                frames++;
+            }
+            while (gpu.Renderer.LastBakeFrame!.ChunkPending(0) && frames < MostFrames);
+
+            Assert.True(frames < MostFrames, $"The chunk was still pending after {MostFrames} frames.");
+            Assert.Equal(
+                [$"The bake {store.LastFile} can't be read, so its area is lit live: the material table has no room for " +
+                    "its sun transfer page, since the renderer holds at most 1024 textures."],
+                log.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries));
+            byte[] refused = Capture(view, wall);
+            Assert.Equal([false], gpu.Renderer.LastBakeFrame!.ChunkFresh);
+            Assert.False(gpu.Renderer.LastBakeFrame.ChunkPending(0));
+            Assert.Empty(gpu.Renderer.ChunkBakes.Entries);
+            Assert.Equal(0, gpu.Renderer.ChunkBakes.Resident);
+            Assert.Equal(1, store.Loads);
+            Assert.Equal(live, refused);
+
+            // The three pages that went in have gone back: exactly three textures fit again.
+            for (int i = 0; i < 3; i++)
+            {
+                fillers.Add(gpu.Renderer.CreateTexture(tiny));
+            }
+
+            var stillFull = Assert.Throws<InvalidOperationException>(() => fillers.Add(gpu.Renderer.CreateTexture(tiny)));
+            Assert.Equal("The renderer holds at most 1024 textures.", stillFull.Message);
+        }
+        finally
+        {
+            Console.SetError(error);
+            foreach (var filler in fillers)
+            {
+                gpu.Renderer.DestroyTexture(filler);
+            }
+
+            store.Release();
+            LetGo(quad);
+            // Let the frames in flight finish so the fillers' slots are free for the tests after this one.
+            for (int i = 0; i < 4; i++)
+            {
+                gpu.RenderOneFrame();
+            }
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void Chunk_bake_bigger_than_the_upload_budget_goes_up_over_several_frames()
+    {
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        var store = new HeldStore();
+        try
+        {
+            var wall = Wall(quad, First);
+            LocalLight[] lamps = [Lamp(First, 7481)];
+            var bake = Bake(wall, First, lamps);
+            store.Hold(bake);
+            store.Release();
+            LightBakePage[] pages =
+            [
+                bake.Transfer!.SkyRed, bake.Transfer.SkyGreen, bake.Transfer.SkyBlue, bake.Transfer.Sun,
+                bake.Transfer.SunTint, .. bake.Irradiance ?? [], .. bake.Direction ?? [], .. bake.Mask,
+            ];
+            long bytes = pages.Sum(page => (long)page.Pixels.Length);
+            // A quarter of the bake a frame, still many of its widest rows.
+            long budget = bytes / 4;
+            Assert.True(budget >= 16L * pages.Max(page => page.Pixels.Length / page.Height),
+                $"The bake's {bytes} bytes are too few rows for a budget of {budget}.");
+            gpu.Renderer.ChunkBakes.UploadBudget = budget;
+            gpu.Renderer.Bakes = store;
+            var view = View(First, lamps, [Chunk(First)]);
+
+            var done = new List<long>();
+            for (int frame = 0; frame < MostFrames; frame++)
+            {
+                gpu.Renderer.Render(view, [wall]);
+                var entry = gpu.Renderer.ChunkBakes.Entries.Single();
+                long now = entry.Pages.Sum(page => (long)page.Texture.RowsSize(page.RowsDone));
+                Assert.True(entry.IsResident == (now == bytes),
+                    $"The bake is {(entry.IsResident ? "resident" : "not resident")} with {now} of its {bytes} bytes up.");
+                done.Add(now);
+                if (entry.IsResident)
+                {
+                    break;
+                }
+            }
+
+            Assert.Equal(bytes, done[^1]);
+            var steps = done.Select((now, i) => now - (i == 0 ? 0 : done[i - 1])).ToArray();
+            Assert.All(steps, step => Assert.True(step <= budget, $"A frame copied {step} bytes, over the budget of {budget}."));
+            int framesCopying = steps.Count(step => step > 0);
+            Assert.True(framesCopying >= 4, $"The bake's {bytes} bytes went up in {framesCopying} frames, at {budget} a frame.");
+        }
+        finally
+        {
+            gpu.Renderer.ChunkBakes.UploadBudget = ChunkBakePool.ChunkUploadBudget;
+            store.Release();
+            LetGo(quad);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
     // Two captures that should draw the same light agree to within a step in every byte.
     private static void AssertWithinOneStep(byte[] expected, byte[] actual, string expectedName, string actualName)
     {
@@ -491,10 +641,14 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
         public bool IsFresh(string file, BakeInputs inputs) =>
             file.StartsWith("lighting/pooled/", StringComparison.Ordinal) && _bake is { } bake && bake.Inputs == inputs;
 
+        // The file last loaded.
+        public string? LastFile { get; private set; }
+
         public LightBakeFile? Load(string file)
         {
             Interlocked.Increment(ref _loads);
             Volatile.Write(ref _loadThread, Environment.CurrentManagedThreadId);
+            LastFile = file;
             if (!_gate.Wait(TimeSpan.FromSeconds(5)))
             {
                 throw new IOException("The test held the load and never let it go.");
