@@ -11,7 +11,7 @@ so it argues from the code as it stands then rather than from guesses about earl
 | 3 | Live probes | 2 | 1 for the traced path only | 2, 4 | To plan after 1 lands |
 | 4 | Bake API without a bake | 4 | nothing | 2, 3 | To plan |
 | 5 | Baked spaces: baker, runtime, Gallery | 5, 6, 10 (Gallery) | 1, 2, 4 | 3 | To plan after 1, 2 and 4 land |
-| 6 | Baked chunks and Hamlet | 7, 10 (Hamlet) | 5 | | To plan after 5 |
+| 6 | Baked chunks and Hamlet | 7, 10 (Hamlet) | 5 | | Planned: `2026-11-12-baked-chunks.md` |
 | 7 | Bakes without a build step | 8, 9 | 6 | | To plan after 6 |
 | 8 | Crypt and Courtyard shots | 10 (rest) | 5 for the Crypt, 6 for nothing | 7 | Folded into 5 and 7 |
 
