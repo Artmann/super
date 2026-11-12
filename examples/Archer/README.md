@@ -5,8 +5,8 @@ and leaps onto a boulder, shoots another in slow motion, dives off and puts two 
 in a third. The whole thing is one [cutscene](../../docs/cutscenes.md): `Film.cs` is
 the storyboard, and the game only moves her, the arrows and the dummies. R plays it again.
 
-The look is a forest clearing in golden-hour light: a low warm sun from the side, a cool
-fill from the sky, a dark wall of firs around a bright meadow, and a gentle grade.
+The look is a forest clearing in golden-hour light: a low warm sun from the side, a soft
+warm fill, a blue sky overhead, a dark wall of firs around a bright meadow, and a gentle grade.
 
 ```
 dotnet run -c Release --project examples/Archer
