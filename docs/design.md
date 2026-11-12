@@ -1596,8 +1596,8 @@ of the slots it handed to new probes so they read as uncaptured instead of as th
 left. When `FrameView.LightProbes` changes it sets or clears the scheduler's fixed grid and
 clears layer 4 the same way. `ProbeLightingKey` hashes the suns' directions, colours and shadow
 flags, the environment (a version bumped by `SetEnvironment`), its intensity, the sky's
-turbidity, whether the sun's shadow is on, and the sun-shadow, light-shadow, plain-materials
-and wear-and-dirt switches. When it changes, `EverythingChanged` marks every probe dirty.
+turbidity, whether the sun's shadow is on, and the sun-shadow, light-shadow and plain-materials
+switches. Not wear and dirt, which neither path draws into a probe. When it changes, `EverythingChanged` marks every probe dirty.
 Geometry and the camera are not in it.
 `FollowProbeLights` compares the frame's point and spot lights with last frame's by `Key`: a
 light that appeared, moved, turned, changed colour or range, or went away calls `LightChanged`

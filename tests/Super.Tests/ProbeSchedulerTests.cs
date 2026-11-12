@@ -9,6 +9,20 @@ public class ProbeSchedulerTests
     private static readonly Vector3 Forward = new(0f, 0f, -1f);
 
     [Fact]
+    public void The_probes_lighting_key_changes_with_the_materials_switch_but_not_wear_and_dirt()
+    {
+        var view = new FrameView
+        {
+            Lights = [new DirectionalLight { Direction = Vector3.UnitY, Radiance = new Vector3(3f), CastsShadow = true }],
+            EnvironmentIntensity = 1f,
+        };
+        int before = Renderer.ProbeLightingKey(view, environmentVersion: 1, RenderEffects.None);
+
+        Assert.NotEqual(before, Renderer.ProbeLightingKey(view, environmentVersion: 1, RenderEffects.Materials));
+        Assert.Equal(before, Renderer.ProbeLightingKey(view, environmentVersion: 1, RenderEffects.WearAndDirt));
+    }
+
+    [Fact]
     public void The_budgets_are_8_16_and_32_raster_probes_and_256_512_and_1024_traced()
     {
         Assert.Equal(new ProbeBudget(8, 256), ProbeBudget.For(ProbeQuality.Low));

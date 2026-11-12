@@ -1297,9 +1297,9 @@ public sealed unsafe class Renderer : IDisposable
     /// Sums up the light that reaches every light probe at once: the suns, the environment and its
     /// intensity, and the switches that change what colour a surface sends on. When it changes, every
     /// probe is updated again. Point and spot lights are followed one by one instead, as each reaches
-    /// only the probes near it.
+    /// only the probes near it. <see cref="RenderEffects.WearAndDirt"/> isn't in it, as neither the capture nor the trace draws wear or dirt.
     /// </summary>
-    private static int ProbeLightingKey(in FrameView view, int environmentVersion, RenderEffects off)
+    internal static int ProbeLightingKey(in FrameView view, int environmentVersion, RenderEffects off)
     {
         var hash = new HashCode();
         int count = Math.Min(view.Lights.Length, FrameUniforms.MaxLights);
@@ -1316,7 +1316,7 @@ public sealed unsafe class Renderer : IDisposable
         hash.Add(view.EnvironmentIntensity);
         hash.Add(view.Sky.Turbidity);
         hash.Add(view.Shadows.Radius > 0f);
-        hash.Add(off & (RenderEffects.SunShadows | RenderEffects.Materials | RenderEffects.WearAndDirt | RenderEffects.LightShadows));
+        hash.Add(off & (RenderEffects.SunShadows | RenderEffects.Materials | RenderEffects.LightShadows));
         return hash.ToHashCode();
     }
 

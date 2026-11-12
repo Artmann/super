@@ -362,8 +362,8 @@ drawn after about a thousand frames in a light scene (nearer four thousand in Co
 After that the oldest probes are redone in turn, so objects that move or appear show up in the
 bounce within about 2,000 frames at `High`. A point or spot light that moves, turns, changes
 colour or is switched off marks the probes in its range for an update, and a change to the sun,
-the sky or the `Materials`, `WearAndDirt`, `SunShadows` or `LightShadows` switches marks them
-all; until it is redone, a probe keeps its old light, so a change fades in rather than flashing.
+the sky or the `Materials`, `SunShadows` or `LightShadows` switches marks them all (probes
+don't draw wear and dirt, so `WearAndDirt` leaves them be); until it is redone, a probe keeps its old light, so a change fades in rather than flashing.
 As the camera moves, the boxes slide with it a row at a time: probes it keeps stay as they were,
 and the new row starts dark and is drawn next.
 
