@@ -3296,8 +3296,15 @@ in; two lights sharing a key are told apart by index, which is the one case wher
 
 A page is width, height (`int`s), its `LightBakePageFormat` (a byte: 0 `Rgba16f`, 1 `Rgba8`,
 2 `Bc6h`, 3 `Bc7`), the raw pixel length, the compressed length (`int`s), then the pixels
-Brotli-compressed. The cooker rewrites pages as BC6H or BC7 into the same container through the
-format byte.
+Brotli-compressed. `LightBakeCooker` (`src/Super.Cook/Cookers/LightBakeCooker.cs`) rewrites pages as
+BC6H or BC7 into the same container through the format byte: `Rgba16f` irradiance to `Bc6h`,
+`Rgba8` direction and mask to `Bc7`, with the header untouched so `ReadInputs` gives the same
+hashes. Probe atlases and pages with a side that isn't a multiple of 4 are kept. `Bc7Encoder`
+does BC7. BC6H goes through BCnEncoder.Net at `Balanced` quality, and `Bc6hEncoder` first writes
+all-zero 4x4 blocks as a black block without encoding them, then packs the rest into one strip
+to encode in parallel. Channels are floored at 0.0001 because that encoder writes exact zeros
+beside small values as 65504 at the Fast and Balanced qualities. The cooker's version folds in
+`Bc7Encoder.Version`. `TextureFormat.Bc6h` maps to `BC6HUfloatBlock`.
 
 A wrong magic or version throws `InvalidDataException` naming the part and giving the value found
 and the value expected. Bytes that end early, or a count or length that is more than the bytes left,

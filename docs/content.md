@@ -241,6 +241,7 @@ Every file is an asset, chosen by its extension:
 | `.png` `.jpg` `.jpeg` `.tga` | texture | Block-compressed with every mip: BC7, sRGB unless set linear, or BC5 for a normal map. With `compressTextures` off, RGBA pixels whose mips are made when it loads |
 | `.wav` `.ogg` `.mp3` | sound | The file itself, once it decodes |
 | `.glb` `.gltf` `.fbx` `.obj` | model | `.rmodel`, through `Super.Cook.Models` |
+| `.lightbake` | baked lighting | The same file with its pages block-compressed: BC6H irradiance, BC7 direction and mask; see [cooking a bake](#cooking-a-bake) |
 | `.material.cs` | material | A [material graph](materials.md), compiled and run into `#color`, `#normal`, `#surface` and `#height` textures and a `#material` data part |
 
 The longest matching extension wins, so `bricks.material.cs` is a material graph, not
@@ -427,8 +428,25 @@ one file for each version of its contents, named by the 16 hex digits of their h
 `lighting/house-garden/00000000000000ab.lightbake`. `BakeFiles.Space` and `BakeFiles.Chunk`
 give these names. `Renderer.Bake` makes a space's bytes, and
 [`--bake`](command-line.md#baking-lighting) writes them to this folder, but nothing reads the
-files yet. `.lightbake` has no cooker yet either, so a cook of a root holding one fails with
-`has no cooker`; keep the folder empty for now except to try a bake.
+files yet.
+
+### Cooking a bake
+
+A `.lightbake` file is cooked like any other asset, into the same container with smaller pages.
+The irradiance pages become BC6H (unsigned half-float RGB, 1 byte a texel) and the direction and
+mask pages become BC7, so a bake takes about a third of the space and of the video memory. The
+probe atlases stay RGBA16F, since a probe's light is blended between texels, which a block would
+smear. A page whose width or height isn't a multiple of 4 is left as the baker wrote it, and so
+is a page that is already compressed, so cooking a bake twice changes nothing.
+
+The header, with the hashes the bake is checked against, is written as it was read, so a cooked
+bake is as fresh or as stale as the one it came from. A file that isn't a light bake this version
+can read fails the cook with a message naming it.
+
+BC6H drops alpha and has no negative numbers, so irradiance below 0.0001 is stored as 0.0001,
+which is black to the eye. On the Gallery's bake the cooked irradiance is within about 1.3% of
+the light on average. The cook of that bake took about four seconds. A cooked page of BC6H can't
+be turned into RGBA8 pixels, which `CookedTexture.DecodePixels` says by throwing.
 
 ### What makes a bake stale
 

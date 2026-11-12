@@ -22,6 +22,13 @@ public enum TextureFormat
 
     /// <summary>Blocks of 4x4 pixels in 8 bytes, with red only. For height maps.</summary>
     Bc4,
+
+    /// <summary>
+    /// Blocks of 4x4 pixels in 16 bytes, with red, green and blue as unsigned half floats, so light brighter than 1
+    /// keeps its brightness. For baked lightmaps. Only the GPU reads it: <see cref="TextureKind"/> doesn't apply, as
+    /// it is always linear.
+    /// </summary>
+    Bc6h,
 }
 
 /// <summary>A texture with a full mip chain, largest level first, in RGBA8 unless <see cref="Format"/> says otherwise.</summary>

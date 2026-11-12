@@ -111,6 +111,11 @@ internal sealed record CookedTexture(int Width, int Height, TextureKind Kind, bo
             return Mips[0];
         }
 
+        if (Format == TextureFormat.Bc6h)
+        {
+            throw new NotSupportedException("A BC6H texture holds light brighter than RGBA8 can show, so it can't be decoded to RGBA8 pixels.");
+        }
+
         var colors = new BcDecoder().DecodeRaw(Mips[0], Width, Height, Format switch
         {
             TextureFormat.Bc7 => CompressionFormat.Bc7,

@@ -449,10 +449,11 @@ A frame with no baked space has nothing to check and exits with 0. Both need the
 source, where the build writes `content.dev.json` to say where the content is; a published game
 exits with 1 and says so.
 
-`.lightbake` has no cooker yet, so once a bake is saved, building the game fails with
-`lighting/gallery.lightbake has no cooker`. Until it has one, run `--bake-check` from the
-program the bake was made with, such as `bin/Debug/net10.0/MyGame.exe --bake-check`, or move
-the file out of the content root before building.
+A saved bake is cooked with the rest of the content: the build rewrites its irradiance pages as
+BC6H and its direction and mask pages as BC7, which takes the Gallery's 13.3 MB down to about
+4.7 MB in about four seconds. See [Baked lighting](content.md#baked-lighting). `--bake-check`
+reads the file in the content root, so run it before the build, or from the program the bake
+was made with, such as `bin/Debug/net10.0/MyGame.exe --bake-check`.
 
 ## Planned
 
