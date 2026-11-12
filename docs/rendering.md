@@ -334,7 +334,7 @@ wall tints the floor beside it, and the inside of a closed room stays dark howev
 sky is. The probes see the sun, the sky, point and spot lights (inside their cones), glowing
 surfaces and the light already bounced, so light bounces again with every update.
 
-![The Courtyard's window wall, barrel and wheel lit by a box of probes captured once at load on the left, and by the live probes round the camera on the right, where the shaded wall right of the window and the barrel pick up a little more warm light off the sunlit brick](media/probes-courtyard.webp)
+![The Courtyard's brick wall right of the window, lit by a box of probes captured once at load on the left and by the live probes round the camera on the right. The two nearly match: the live probes leave the wall a shade darker](media/probes-courtyard.webp)
 
 Where a probe sees nothing it sees the same sky that lights the scene without probes, so in a
 scene with no [`view.Sky`](#the-sky) it sees the soft studio light rather than the plain
