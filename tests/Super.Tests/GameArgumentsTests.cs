@@ -354,6 +354,15 @@ public class GameArgumentsTests
         Assert.Equal($"{args[0]} can't run with {args[1]}.", error.Message);
     }
 
+    [Theory]
+    [InlineData(null, 60, 120)]
+    [InlineData(null, 30, 60)]
+    [InlineData(5L, 60, 5)]
+    public void Bake_plays_two_seconds_unless_ticks_are_given(long? ticks, int ticksPerSecond, long played)
+    {
+        Assert.Equal(played, Game.BakeTicks(ticks, ticksPerSecond));
+    }
+
     [Fact]
     public void Bake_quality_without_bake_throws()
     {

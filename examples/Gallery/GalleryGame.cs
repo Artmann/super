@@ -61,8 +61,6 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
     private const int LampLightKey = 100;
     private const int LanternKey = 110;
     private const int CandleKey = 120;
-    private const int CandlesALight = 3;
-    private const int CandleLights = 3;
     private const int WhaleProbeKey = 1;
     private const int ColourProbeKey = 2;
     private const int LampProbeKey = 3;
@@ -159,6 +157,15 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
 
         _position = _tour.At(0f).Position;
         _previousPosition = _position;
+        UseLighting(_lighting);
+    }
+
+    /// <summary>Switches the graphics settings to <paramref name="lighting"/>.</summary>
+    private void UseLighting(Lighting lighting)
+    {
+        _lighting = lighting;
+        graphics.BakedLighting = lighting == Lighting.Baked;
+        graphics.LightProbes = lighting != Lighting.Direct;
     }
 
     public void Update(GameTime time)
@@ -168,19 +175,16 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
 
         if (input.Pressed(Key.D1))
         {
-            _lighting = Lighting.Live;
+            UseLighting(Lighting.Live);
         }
         else if (input.Pressed(Key.D2))
         {
-            _lighting = Lighting.Baked;
+            UseLighting(Lighting.Baked);
         }
         else if (input.Pressed(Key.D3))
         {
-            _lighting = Lighting.Direct;
+            UseLighting(Lighting.Direct);
         }
-
-        graphics.BakedLighting = _lighting == Lighting.Baked;
-        graphics.LightProbes = _lighting != Lighting.Direct;
 
         if (input.Pressed(Key.F))
         {
@@ -321,9 +325,9 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
         for (int i = 0; i < Lamps.Length; i++)
         {
             var disc = Lamps[i];
-            // Lamps 1 and 2 are baked, so their soft shadows cost nothing. Lamp 3 stays mixed with
-            // real-time shadows, so the rolling sphere still shades under it.
-            var mode = i < 2 ? LightMode.Baked : LightMode.Mixed;
+            // Lamp 3 is baked, so its soft shadows cost nothing. Lamps 1 and 2 stay mixed with real-time
+            // shadows, so the rolling sphere still shades the floor under them.
+            var mode = i == 2 ? LightMode.Baked : LightMode.Mixed;
             view.PointLight(LampLightKey + i, disc - new Vector3(0f, 0.15f, 0f), new Vector3(2.2f, 1.6f, 0.95f), range: 5.5f, radius: 0.35f, mode: mode);
         }
 
@@ -355,21 +359,16 @@ public sealed class GalleryGame(Content content, Input input, Graphics graphics)
         view.PointLight(LanternKey, wick + new Vector3(0f, 0.05f, 0f), new Vector3(1.8f, 1.05f, 0.4f) * lanternFlicker, range: 9f, radius: 0.04f, mode: LightMode.Mixed);
         DrawFlame(view, FlameKey, wick);
 
-        // A row of candles on the altar. Every third one, the first, middle and last, carries a light for its
-        // neighbours too, flickering on its own, with no shadow tiles. Their shadows come from the bake's mask, which
-        // has three channels for point lights whose ranges overlap, so the row has three lights, not seven.
+        // A row of candles on the altar, each flickering on its own, with no real-time shadows. They overlap each
+        // other, so only the first three find a channel in the bake's shadow mask, which shades the building from them;
+        // the other four have no shadows at all.
         for (int i = 0; i < _candles.Count; i++)
         {
             var (foot, height) = _candles[i];
             view.Model(DynamicKey + 40 + i, _wax, Matrix4x4.CreateScale(0.045f, height, 0.045f) * Matrix4x4.CreateTranslation(foot + new Vector3(0f, height / 2f, 0f)));
             var tip = foot + new Vector3(0f, height + 0.012f, 0f);
-            if (i % CandlesALight == 0)
-            {
-                float flicker = 1f + 0.15f * MathF.Sin(_seconds * 13f + i * 1.7f) + 0.08f * MathF.Sin(_seconds * 29f + i);
-                var color = new Vector3(0.4f, 0.19f, 0.055f) * (_candles.Count / (float)CandleLights) * flicker;
-                view.PointLight(CandleKey + i / CandlesALight, tip + new Vector3(0f, 0.03f, 0f), color, range: 3f, shadows: false, mode: LightMode.Mixed);
-            }
-
+            float flicker = 1f + 0.15f * MathF.Sin(_seconds * 13f + i * 1.7f) + 0.08f * MathF.Sin(_seconds * 29f + i);
+            view.PointLight(CandleKey + i, tip + new Vector3(0f, 0.03f, 0f), new Vector3(0.4f, 0.19f, 0.055f) * flicker, range: 3f, shadows: false, mode: LightMode.Mixed);
             DrawFlame(view, FlameKey + (i + 1) * 1000, tip);
         }
     }

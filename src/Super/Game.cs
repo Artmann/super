@@ -111,7 +111,7 @@ public static class Game
         {
             // Two seconds by default, all of them drawn, so a light that sways or flickers is seen moving and left out
             // of the bake, as it is in play. After one tick it would have been drawn only where it stood then.
-            long bakeTicks = arguments.Ticks ?? BakeTicks(options.TicksPerSecond);
+            long bakeTicks = BakeTicks(arguments.Ticks, options.TicksPerSecond);
             if (!arguments.Bake)
             {
                 // The check reads the cooked bake, the one the game draws with, so it works in a published game too.
@@ -150,11 +150,11 @@ public static class Game
     }
 
     /// <summary>
-    /// The ticks <c>--bake</c> and <c>--bake-check</c> play without <c>--ticks</c>: two seconds, more than the second a
-    /// moving light needs to hold still before it returns to the bake, so the frame sees every light that moves at
-    /// least once a second as moving.
+    /// The ticks <c>--bake</c> and <c>--bake-check</c> play: <paramref name="ticks"/> when <c>--ticks</c> gives it,
+    /// otherwise two seconds, more than the second a moving light needs to hold still before it returns to the bake,
+    /// so the frame sees every light that moves at least once a second as moving.
     /// </summary>
-    private static long BakeTicks(int ticksPerSecond) => 2L * ticksPerSecond;
+    internal static long BakeTicks(long? ticks, int ticksPerSecond) => ticks ?? 2L * ticksPerSecond;
 
     private static InputScript? FindScript<TGame>(GameHost<TGame> host, string? name)
         where TGame : class, IGame

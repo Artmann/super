@@ -57,14 +57,15 @@ Each light has the mode that suits it:
 | Light | Mode | Shadows |
 | --- | --- | --- |
 | Sun through the skylight | Mixed | Real-time cascades; the bake's mask past the last |
-| Lamp room, lamps 1 and 2 | Baked | None live |
-| Lamp room, lamp 3 | Mixed | Real-time |
+| Lamp room, lamps 1 and 2 | Mixed | Real-time, so the sphere shades the floor; the bake's mask for the building |
+| Lamp room, lamp 3 | Baked | Soft, baked; the rolling sphere casts none from it |
 | Chapel lantern (swings) | Mixed | Real-time. It moves, so it is never baked; made Baked it is logged as moving |
-| Chapel candles (flicker) | Mixed | No shadow tiles; the mask only |
+| Chapel candles (flicker) | Mixed | No shadow tiles. The first three have the bake's mask; the other four have no shadows |
 
-Seven candles stand on the altar, but only three of them, the first, middle and last, carry a
-light, each 7/3 as bright so the row gives the same light. The bake's shadow mask has four channels, the sun takes one, and
-lights whose ranges overlap can't share one, so a fourth candle light would have no shadow.
+The bake's shadow mask has four channels, and the sun takes one. Lights whose ranges don't
+overlap can share a channel, so the chapel's candles reuse the lamps' channels. The seven candles
+sit close together and overlap each other, so only the first three find a channel. The bake
+reports the other four, and they light the altar with no shadows at all.
 
 ### Rebaking
 
@@ -75,12 +76,12 @@ dotnet run -c Release --project examples/Gallery -- --bake
 dotnet run -c Release --project examples/Gallery -- --bake-check
 ```
 
-`--bake` writes `content/lighting/gallery.lightbake` and prints a report; the last bake took
-16 seconds, traced 1,024 samples a texel, found 5.74% of texels inside walls and gave every
-Mixed light a shadow mask channel. `--bake-check` builds first, so it reads the new bake, and
-prints `fresh`. A stale bake isn't drawn: the Gallery is lit live, as with key 1, and the log
-says what changed. `--bake-quality preview` bakes in about the same time on a fast GPU but
-looks blotchy.
+`--bake` writes `content/lighting/gallery.lightbake` and prints a report. The last bake took
+16 seconds, traced 1,024 samples a texel and found 5.74% of texels inside walls. It listed
+candles 123 to 126 as Mixed lights without a shadow mask channel. `--bake-check` builds first,
+so it reads the new bake, and prints `fresh`. A stale bake isn't drawn: the Gallery is lit
+live, as with key 1, and the log says what changed. `--bake-quality preview` traced 64
+samples a texel in 13 seconds and looks blotchy.
 
 The glow pieces (`Shaders/glow.frag`) are static too: their surface shader is hashed into the
 bake's identity from `shaders/glow.frag.spv` beside the program.

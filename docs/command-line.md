@@ -421,11 +421,11 @@ how long the bake took, the samples each texel got, the share of texels no ray f
 face for, and the keys of `Mixed` lights that found no shadow mask channel:
 
 ```
-C:\Code\MyGame\content\lighting\gallery.lightbake: 11.2 MB
-  time: 16.4 s
+C:\Code\MyGame\content\lighting\gallery.lightbake: 11.3 MB
+  time: 16.3 s
   samples: 1024 a texel
   invalid texels: 5.74%
-  Mixed lights without a shadow mask channel: none
+  Mixed lights without a shadow mask channel: 123, 124, 125, 126
 0 validation messages
 ```
 
@@ -443,7 +443,8 @@ space is baked at the texel density it was named with, `view.BakedLighting`'s
 `texelsPerMetre`, which is what a frame checks its bake against. A frame with no baked space throws "--bake found no baked space in the frame.
 Name one with view.BakedLighting." Only the space is baked; chunks aren't yet.
 
-`--bake-check` plays the same way, draws the frame, and compares what its baked space would be
+`--bake-check` plays the same way, two seconds' worth unless `--ticks` says otherwise, so the
+lights it sees moving are the ones `--bake` left out. It draws the frame and compares what its baked space would be
 baked from with the header of the bake in the cooked content, the one the game draws with. It
 prints one line and exits with 0 when the bake is fresh, or 1 when it is missing or stale,
 naming what changed out of `draws`, `lights`, `environment` and `settings`:
@@ -459,7 +460,7 @@ game exits with 1 and says so. `--bake-check` works in a published game too, so 
 be checked as shipped.
 
 A saved bake is cooked with the rest of the content: the build rewrites its irradiance pages as
-BC6H and its direction and mask pages as BC7, which takes the Gallery's 11.2 MB down to about
+BC6H and its direction and mask pages as BC7, which takes the Gallery's 11.3 MB down to
 4.5 MB. See [Baked lighting](content.md#baked-lighting). Since
 `--bake-check` reads the cooked bake, build after `--bake` before checking; `dotnet run` does.
 
