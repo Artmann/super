@@ -36,6 +36,10 @@ layout(location = 4) out vec2 outUv2;
 // and w, for surface.glsl's motion vectors. See Passes/Motion.cs.
 layout(location = 5) out vec3 outClipNow;
 layout(location = 6) out vec3 outClipBefore;
+// Where the vertex is on its lightmap page, and the page's irradiance, direction and shadow mask textures, -1 for a
+// copy with no lightmap. The second uv itself goes on unchanged, for the masks. See writeSurface in surface.glsl.
+layout(location = 7) out vec2 outLightmapUv;
+layout(location = 8) flat out ivec3 outLightmap;
 
 // Where the vertex stood in the world last frame: placed by last frame's matrix, skin, swim and wind. A copy with no
 // last frame stands where it is now, so it moves with the camera alone.
@@ -63,6 +67,9 @@ void main() {
     outTangent = vec4(model * inTangent.xyz, inTangent.w);
     outUv = inUv;
     outUv2 = inUv2;
+    LightmapRect lightmap = lightmapRect();
+    outLightmapUv = inUv2 * lightmap.scaleOffset.xy + lightmap.scaleOffset.zw;
+    outLightmap = lightmap.textures.xyz;
     vec3 posed = (skinned * vec4(inPosition, 1.0)).xyz;
     vec3 swum = swim(posed, draw.swimAmplitude, draw.swimBodyLength, draw.swimPhase);
     vec4 position = vec4(windSwayPlaced((placed * vec4(swum, 1.0)).xyz, placed, posed, draw.windBase, draw.windSway), 1.0);

@@ -322,7 +322,7 @@ public sealed class BakeResolver
     }
 
     // The file names are worked out once for each distinct key, since building one allocates a string.
-    private string SpaceFile(string name)
+    internal string SpaceFile(string name)
     {
         if (!_spaceFiles.TryGetValue(name, out var file))
         {

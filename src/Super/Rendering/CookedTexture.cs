@@ -81,7 +81,8 @@ internal sealed record CookedTexture(int Width, int Height, TextureKind Kind, bo
         int height = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(12));
         var format = (TextureFormat)BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(21));
         int levels = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(25));
-        if (width < 1 || height < 1 || !Enum.IsDefined(format)
+        // Half floats are only for a lightmap straight from the baker; a cook never writes them.
+        if (width < 1 || height < 1 || !Enum.IsDefined(format) || format == TextureFormat.Rgba16f
             || levels != (format == TextureFormat.Rgba8 ? 1 : LevelCount(width, height))
             || Length(format, width, height, levels) != bytes.Length - HeaderSize)
         {
@@ -157,9 +158,7 @@ internal sealed record CookedTexture(int Width, int Height, TextureKind Kind, bo
         long length = 0;
         for (int level = 0; level < levels; level++)
         {
-            long w = Math.Max(width >> level, 1);
-            long h = Math.Max(height >> level, 1);
-            length += format == TextureFormat.Rgba8 ? w * h * 4 : (w + 3) / 4 * ((h + 3) / 4) * (format == TextureFormat.Bc4 ? 8 : 16);
+            length += TextureData.LevelSize(format, Math.Max(width >> level, 1), Math.Max(height >> level, 1));
         }
 
         return length;

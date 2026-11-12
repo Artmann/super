@@ -118,6 +118,18 @@ public sealed class LightBakeStoreTests
     }
 
     [Fact]
+    public void Each_forget_counts_a_reload()
+    {
+        var store = new LightBakeStore(Files((Crypt, Bake(Saved))), TextWriter.Null);
+        Assert.Equal(0, store.Reloads);
+
+        store.Forget();
+        store.Forget();
+
+        Assert.Equal(2, store.Reloads);
+    }
+
+    [Fact]
     public void Saved_gives_the_header_or_null_for_a_missing_file()
     {
         var store = new LightBakeStore(Files((Crypt, Bake(Saved))), TextWriter.Null);

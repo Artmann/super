@@ -406,6 +406,9 @@ Reflections don't change; probes give only the soft, diffuse light. See-through,
 swimming things don't show in the probes or shade them from the sun, as they would spoil them or
 move on their own. Without tracing, glass still shades the probes from a lamp that lights the view.
 
+A surface in a [baked space](#with-a-fresh-bake) whose bake is fresh takes its soft light from its
+lightmap instead, which is finer than any probe grid.
+
 `Graphics.LightProbes` turns all of this off and frees the probes' memory, about 170 MB at
 `High`. Switching it back on starts every probe again. `Graphics.ProbeQuality` trades the
 probes' reach and speed for memory and GPU time; see [graphics settings](#graphics-settings).
@@ -436,8 +439,9 @@ foreach (var house in village.Houses)
 ```
 
 A frame can name the parts of the world whose lighting is baked. [`Renderer.Bake`](#making-a-bake)
-bakes a space, and the game finds the bake in its content and checks it against the frame. The
-bake's light isn't drawn yet, so until a space is baked, naming it changes nothing on screen.
+bakes a space, and the game finds the bake in its content and checks it against the frame. Once
+the bake is fresh, its surfaces are lit from their lightmap; until a space is baked, naming it
+changes nothing on screen.
 
 `BakedLighting` names a space: one fixed place, baked as it stands, sun included. Its box also
 holds baked probes `probeSpacing` metres apart, at most 4,096 of them, counted the same way as
@@ -490,11 +494,27 @@ A file that can't be read, because it is damaged or because opening it fails, as
 cook is replacing it, is reported once the same way, with the reason, and lit live. When the
 content reloads, every bake is read again and each stale one is reported again.
 
-The bake's light isn't drawn yet. A fresh bake still takes its lights out of the live lighting,
-so a space whose bake is fresh is darker than it should be, without its `Baked` lights, until
-the lightmap is drawn. A frame with no bake, or only stale ones, looks exactly as it would
-without its baked areas, to the byte, and a frame that names none does no bake work at all.
+A frame with no bake, or only stale ones, looks exactly as it would without its baked areas, to
+the byte, and a frame that names none does no bake work at all.
 [`Graphics.BakedLighting`](#graphics-settings) off treats every bake as missing.
+
+### With a fresh bake
+
+When the space's bake is fresh, the renderer reads the whole file once, puts its pages on the
+GPU and keeps them until another bake is loaded or the content reloads, even through frames
+that don't name the space. Every draw the bake holds then takes its soft light from its lightmap: the light that
+reached it from the sky, the sun and the bake's lights, bounced around the space, with no leaks
+through walls. That replaces the sky and the [light probes](#bounced-light) for those surfaces.
+The lightmap also notes where most of that light came from, so a normal map still shows its
+bumps under baked light. Live lights, `Mixed` ones included, and reflections are drawn over
+it as usual. Ambient occlusion still darkens
+the corners, at half strength, since the bake already holds most of the shade there.
+
+A draw the bake doesn't hold, such as something moved in after the bake or a moving
+character, is lit as before, from the probes or the sky. A file whose header is fresh but whose
+pages can't be read is reported once to the error output and its area lit live, as if it had
+no bake. Only the space is drawn from its bake so far; a fresh chunk's lights are left to its
+bake but its lightmap isn't drawn yet, so a fresh chunk is darker than it should be.
 
 For Rendition alone, `Renderer.Bakes` is where the renderer asks. It starts as
 `NoBakes.Instance`, which has no bakes. A `LightBakeStore` reads bakes through a function that

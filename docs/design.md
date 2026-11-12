@@ -894,7 +894,7 @@ rendering. Game-facing features belong in Super, which has the audio (see
 ShadowPass    scene geometry   -> depth from the key light (1024, 2048 or 4096 square, up to 4 cascades)
               scene geometry   -> point and spot light shadows, tiles of one 4096 x 4096 atlas
 cluster.comp  compute          -> the point and spot lights reaching each of 16 x 9 x 24 clusters
-GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, motion, depth
+GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, motion, baked light, shadow mask, depth
 DecalPass     decal boxes      -> colour, normal and roughness laid over the G-buffer, reading a copy of its normals
 AoPass        fullscreen       -> GTAO from depth and normals: bent normal (view space, octahedral) and visibility, RGBA8
 AoBlurPass    fullscreen       -> the same with the grain averaged away
@@ -948,6 +948,8 @@ G-buffer layout:
 | 1 | `R16G16B16A16_SFLOAT` | octahedral normal (xy), roughness, AO |
 | 2 | `R16G16B16A16_SFLOAT` | emissive colour, clearcoat (or minus the translucency, for foliage, or 2 plus the material index, for subsurface) |
 | 3 | `R16G16_SFLOAT` | motion since last frame, in scene pixels; see "Motion vectors" |
+| 4 | `R16G16B16A16_SFLOAT` | baked diffuse light over pi, turned by the normal, and 1 in alpha for a lightmapped pixel; cleared to 0. See "Drawing a bake" |
+| 5 | `R8G8B8A8_UNORM` | the baked shadow mask, a channel per Mixed light; cleared to 1, and not read yet |
 | depth | `D32_SFLOAT` | reversed-Z, position is reconstructed from it |
 
 ### Motion vectors
@@ -3242,8 +3244,9 @@ When something was dropped, `Render` draws a copy of the frame view whose `Light
 pass doesn't resolve again. `BakeFreshness.Without` copies the kept lights into an array the
 renderer keeps, grown only when a frame has more lights, and returns the frame's own span
 untouched when nothing is dropped. With no fresh bake nothing is dropped, so frames look
-exactly as they would without baked areas, to the byte (`NoBakeGpuTests`). Lightmaps aren't
-drawn yet, so a dropped light's place is empty for now.
+exactly as they would without baked areas, to the byte (`NoBakeGpuTests`). A fresh space's
+lightmaps take a dropped light's place; see "Drawing a bake". A fresh chunk's aren't drawn yet,
+so its dropped lights' place is empty for now.
 
 ### The bake store
 
@@ -3268,6 +3271,9 @@ allocates nothing, the stale path included, which `LightBakeStoreTests` checks w
 calls it in `Prepare` when `Content.Files` is a different object or `Content.Reloads` has moved
 since the last frame; `Content.Reload` counts up right after it refreshes the files. `Load`
 reads a whole file with `LightBakeFile.Read` and keeps nothing; it is for drawing a fresh bake.
+`Forget` also counts up `Reloads`, so the renderer reads the bake it holds again. Both are on
+`IBakeStore` with defaults (`Load` gives null, `Reloads` stays 0), so a store that only answers
+`IsFresh` still works and its areas count as baked with live soft light.
 `GameWindow.BakeCheck` asks the same store's `Saved` and prints what `Changes` names, so
 `--bake-check` judges the bake the game would draw with.
 
@@ -3292,6 +3298,49 @@ The sky is worked out once, from the original view: the second pass skips `BakeS
 `WriteUniforms` reads the `SkySun` that `BakeSky` stored rather than `SkyModel.Sun` of the view
 it draws. So a dropped Baked sun keeps lighting the sky and keeps its disc, and the sky isn't
 baked again without it each frame (`BakedSunGpuTests`).
+
+### Drawing a bake
+
+When a frame's space is fresh, `Renderer.ResolveBakes` makes sure its bake is on the GPU
+(`LoadSpaceBake`). The loaded bake is keyed by its file, its combined inputs, the store and the
+store's `Reloads`, so a frame that matches reads nothing. Otherwise the old pages are destroyed,
+`IBakeStore.Load` reads the file, and `CheckPages` checks that the page counts agree, that each
+page's bytes fit its size and format (`TextureData.LevelSize`) and that every draw's page
+exists. Each page becomes a one-level linear texture with clamped edges, three a page
+(irradiance, direction, mask, a missing mask as -1), and each draw's `LightmapRect` becomes a
+`GpuLightmapRect` keyed by bake id: the rect's scale and offset and the three texture indices.
+`Rgba16f` irradiance from an uncooked bake goes up as `TextureFormat.Rgba16f`
+(`R16G16B16A16_SFLOAT`, eight bytes a pixel), a format only these pages use; `CookedTexture`
+rejects it, since a cook never writes it. The bake stays loaded through frames that don't draw
+it, so turning `BakedLighting` back on reads nothing.
+
+A file that throws `InvalidDataException`, `IOException` or `UnauthorizedAccessException` while
+it is loaded or checked is logged once to `Console.Error` and added to the unreadable set of
+`ReadableBakes`, the wrapper the resolver asks instead of `Renderer.Bakes`. It answers not fresh
+for that file, so the frame is resolved again and the space's Baked lights come back. The set
+is cleared when `Bakes` is another object or its `Reloads` moves. Only the space is loaded;
+chunks are not yet.
+
+While the G-buffer pass records, `InstanceBuffer.Lightmaps` holds the loaded rects, and `Add`
+writes each copy's `GpuLightmapRect` into a buffer at set 0 binding 10, 32 bytes a copy, beside
+the instance matrices: the draw's `BakeId` looked up, or all -1 for a copy with no bake id or
+none in the bake. Reflection and light probe captures draw the G-buffer the same way, so they see
+the baked light the camera does; the shadow passes see no rects.
+`gbuffer.vert` reads it by `gl_InstanceIndex` and passes on the lightmap uv, `Uv2` times the
+scale plus the offset, at location 7 and the three texture indices, flat, at location 8.
+`writeBaked` in `surface.glsl` samples the pages at level 0 and writes G-buffer target 4:
+irradiance over pi, turned by `(n·d + 1) / (v·d + 1)`, where `n` is the shaded normal, `v` the
+vertex normal and `d` the direction page unpacked to -1..1, so a normal map still shows under
+baked light and an even sky (`d` near 0) leaves it unchanged. Alpha is 1. Target 5 gets the mask
+page, or 1. A copy without a lightmap, and a ghost, writes 0 and a mask of 1.
+
+`lighting.frag` reads target 4 at set 1 binding 14 and target 5 at binding 15. A pixel with
+alpha above 0.5 takes `baked.rgb` times its diffuse colour in place of the soft light from the
+sky or probes, keeps its translucency, and its diffuse occlusion is the material's AO times
+`mix(1, screen AO, 0.5)` (`LIGHTMAP_OCCLUSION`), since the bake already holds the shade;
+specular occlusion is unchanged. The mask isn't read yet. `ReflectionLightingHash` adds the
+loaded bake's inputs while lightmaps are drawn, so the probes are captured again when the bake
+changes. With no bake, every pixel's alpha is 0 and the frame is the same to the byte.
 
 ### Shadow mask channels
 

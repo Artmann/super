@@ -25,6 +25,14 @@ layout(set = 1, binding = 7) uniform sampler2D emissiveClearcoatTexture;
 layout(set = 1, binding = 8) uniform sampler2D ambientOcclusionTexture;
 layout(set = 1, binding = 9) uniform sampler2D historyTexture;
 layout(set = 1, binding = 10) uniform samplerCubeArray probeTexture;
+// The G-buffer's baked light and shadow mask; see writeBaked in surface.glsl. Alpha 1 in the baked light marks a pixel
+// with a lightmap, whose soft light comes from it instead of the probes or the sky.
+layout(set = 1, binding = 13) uniform sampler2D bakedTexture;
+layout(set = 1, binding = 14) uniform sampler2D shadowMaskTexture;
+
+// How much of the screen's occlusion a lightmapped pixel's soft light still takes. The bake already saw the creases it
+// could resolve, so taking all of it would darken them twice; the screen still adds the contact it is too coarse for.
+const float LIGHTMAP_OCCLUSION = 0.5;
 
 layout(std430, set = 2, binding = 1) readonly buffer Materials {
     Material materials[];
@@ -530,8 +538,13 @@ void main() {
     reflectedLight = mix(reflectedLight, traced.rgb, traced.a);
     vec3 environmentSpecular = reflectedLight * (f0 * brdf.x + brdf.y) * multiscatter;
     // Soft light already carries the environment's intensity; the reflections don't yet.
-    vec3 diffuseColor = baseColor * (1.0 - metallic) * multiBounceOcclusion(ao, baseColor);
-    vec3 environmentDiffuse = softLight(position, bentNormal, v) * diffuseColor;
+    // A lightmapped pixel's soft light is baked, with the environment's intensity in it, and the screen's occlusion
+    // weighs on it only by LIGHTMAP_OCCLUSION. Its reflections are occluded as any other pixel's.
+    vec4 baked = texture(bakedTexture, inUv);
+    bool lightmapped = baked.a > 0.5;
+    float diffuseAo = lightmapped ? min(normalRoughnessAo.w, 1.0) * mix(1.0, screenAo, LIGHTMAP_OCCLUSION) : ao;
+    vec3 diffuseColor = baseColor * (1.0 - metallic) * multiBounceOcclusion(diffuseAo, baseColor);
+    vec3 environmentDiffuse = (lightmapped ? baked.rgb : softLight(position, bentNormal, v)) * diffuseColor;
     if (translucency > 0.0) {
         environmentDiffuse += softLight(position, -n, v) * diffuseColor * translucency * transmissionTint;
     }

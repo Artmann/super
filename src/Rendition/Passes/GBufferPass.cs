@@ -43,7 +43,11 @@ internal sealed unsafe class GBufferPass : IDisposable
             FragmentShader = "gbuffer.frag",
             FragmentCode = code,
             Layout = _layout,
-            ColorFormats = [GBuffer.BaseColorFormat, GBuffer.NormalFormat, GBuffer.EmissiveFormat, GBuffer.MotionFormat],
+            ColorFormats =
+            [
+                GBuffer.BaseColorFormat, GBuffer.NormalFormat, GBuffer.EmissiveFormat, GBuffer.MotionFormat,
+                GBuffer.BakedFormat, GBuffer.MaskFormat,
+            ],
             DepthFormat = GBuffer.DepthFormat,
             VertexBindings = SceneDraws.VertexBindings,
             VertexAttributes = SceneDraws.VertexAttributes,
@@ -65,11 +69,13 @@ internal sealed unsafe class GBufferPass : IDisposable
     {
         var api = _context.Api;
 
-        var colorAttachments = stackalloc RenderingAttachmentInfo[4];
+        var colorAttachments = stackalloc RenderingAttachmentInfo[6];
         colorAttachments[0] = ColorAttachment(targets.BaseColor.View);
         colorAttachments[1] = ColorAttachment(targets.Normal.View);
         colorAttachments[2] = ColorAttachment(targets.Emissive.View);
         colorAttachments[3] = ColorAttachment(targets.Motion.View); // Cleared to no motion, which the sky keeps.
+        colorAttachments[4] = ColorAttachment(targets.Baked.View); // Cleared to not lightmapped.
+        colorAttachments[5] = ColorAttachment(targets.Mask.View, 1f); // Cleared to fully lit.
         var depthAttachment = new RenderingAttachmentInfo
         {
             SType = StructureType.RenderingAttachmentInfo,
@@ -84,7 +90,7 @@ internal sealed unsafe class GBufferPass : IDisposable
             SType = StructureType.RenderingInfo,
             RenderArea = new Rect2D(default, targets.Extent),
             LayerCount = 1,
-            ColorAttachmentCount = 4,
+            ColorAttachmentCount = 6,
             PColorAttachments = colorAttachments,
             PDepthAttachment = &depthAttachment,
         };
@@ -111,12 +117,13 @@ internal sealed unsafe class GBufferPass : IDisposable
         _context.Api.DestroyPipelineLayout(_context.Device, _layout, null);
     }
 
-    private static RenderingAttachmentInfo ColorAttachment(ImageView view) => new()
+    private static RenderingAttachmentInfo ColorAttachment(ImageView view, float clear = 0f) => new()
     {
         SType = StructureType.RenderingAttachmentInfo,
         ImageView = view,
         ImageLayout = ImageLayout.ColorAttachmentOptimal,
         LoadOp = AttachmentLoadOp.Clear,
         StoreOp = AttachmentStoreOp.Store,
+        ClearValue = new ClearValue(new ClearColorValue(clear, clear, clear, clear)),
     };
 }

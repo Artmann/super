@@ -8,6 +8,21 @@ public interface IBakeStore
     /// from exactly <paramref name="inputs"/>.
     /// </summary>
     bool IsFresh(string file, BakeInputs inputs);
+
+    /// <summary>
+    /// Reads the whole of <paramref name="file"/>, for the renderer to draw its lightmaps once
+    /// <see cref="IsFresh"/> has said it is fresh, or null when the store has no lightmaps to give. Then the area
+    /// still counts as baked, but its surfaces take their soft light live.
+    /// </summary>
+    /// <exception cref="InvalidDataException">The file is damaged. The renderer then lights its area live.</exception>
+    /// <exception cref="IOException">The read failed. The renderer then lights its area live.</exception>
+    LightBakeFile? Load(string file) => null;
+
+    /// <summary>
+    /// Goes up each time the store's files may have changed, such as after the content reloads, so the renderer reads
+    /// a bake it holds again even when its inputs are the same.
+    /// </summary>
+    int Reloads => 0;
 }
 
 /// <summary>A store with no bakes in it, so every area is lit live and every light is real-time.</summary>

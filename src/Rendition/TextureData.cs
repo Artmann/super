@@ -29,6 +29,12 @@ public enum TextureFormat
     /// it is always linear.
     /// </summary>
     Bc6h,
+
+    /// <summary>
+    /// Eight bytes a pixel: red, green, blue and alpha as half floats, uncompressed. For a lightmap straight from the
+    /// baker, before it is cooked to <see cref="Bc6h"/>. Like that, it is always linear, and cooked textures never use it.
+    /// </summary>
+    Rgba16f,
 }
 
 /// <summary>A texture with a full mip chain, largest level first, in RGBA8 unless <see cref="Format"/> says otherwise.</summary>
@@ -112,6 +118,7 @@ public sealed class TextureData
         return format switch
         {
             TextureFormat.Rgba8 => width * height * 4,
+            TextureFormat.Rgba16f => width * height * 8,
             TextureFormat.Bc4 => blocks * 8,
             _ => blocks * 16,
         };

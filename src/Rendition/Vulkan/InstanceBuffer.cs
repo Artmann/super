@@ -6,10 +6,33 @@ using Buffer = Silk.NET.Vulkan.Buffer;
 namespace Rendition.Vulkan;
 
 /// <summary>
+/// Where one copy reads its baked light, as gbuffer.vert reads it from set 0, binding 10: its lightmap rectangle, which
+/// moves the second uv onto the page, and the bindless indices of the page's irradiance, direction and shadow mask
+/// textures. Must match LightmapRect in Shaders/instances.glsl.
+/// </summary>
+internal struct GpuLightmapRect
+{
+    /// <summary>xy scale and zw offset from the second uv to 0 to 1 on the page.</summary>
+    public Vector4 ScaleOffset;
+    public int Irradiance;
+    public int Direction;
+
+    /// <summary>The shadow mask's texture, or -1 when the bake has none, which reads as fully lit.</summary>
+    public int Mask;
+
+    /// <summary>The page's number in the bake, or -1 for a copy with no lightmap.</summary>
+    public int Page;
+
+    /// <summary>A copy with no lightmap: it is lit live, as if no bake were loaded.</summary>
+    public static GpuLightmapRect None => new() { Irradiance = -1, Direction = -1, Mask = -1, Page = -1 };
+}
+
+/// <summary>
 /// One frame's model matrices, one for each copy drawn, which the scene's vertex shaders
 /// read by <c>gl_InstanceIndex</c> (set 0, binding 2, in Shaders/instances.glsl), and beside
-/// them where each copy stood last frame, for motion vectors (binding 9). It grows to fit,
-/// but only before a frame is recorded, since the frame's descriptor set points at it.
+/// them where each copy stood last frame, for motion vectors (binding 9), and where it reads its
+/// baked light (binding 10). It grows to fit, but only before a frame is recorded, since the
+/// frame's descriptor set points at it.
 /// </summary>
 internal sealed unsafe class InstanceBuffer : IDisposable
 {
@@ -18,11 +41,12 @@ internal sealed unsafe class InstanceBuffer : IDisposable
     private readonly VulkanContext _context;
     private GpuBuffer _buffer;
     private GpuBuffer _previous;
+    private GpuBuffer _lightmaps;
 
     public InstanceBuffer(VulkanContext context)
     {
         _context = context;
-        (_buffer, _previous) = Create(context, StartingCapacity);
+        (_buffer, _previous, _lightmaps) = Create(context, StartingCapacity);
         Capacity = StartingCapacity;
     }
 
@@ -35,6 +59,11 @@ internal sealed unsafe class InstanceBuffer : IDisposable
 
     public ulong PreviousSize => _previous.Size;
 
+    /// <summary>Where each copy reads its baked light, as <see cref="GpuLightmapRect"/>s.</summary>
+    public Buffer LightmapHandle => _lightmaps.Handle;
+
+    public ulong LightmapSize => _lightmaps.Size;
+
     public int Capacity { get; private set; }
 
     /// <summary>How many matrices this frame has written so far.</summary>
@@ -45,6 +74,12 @@ internal sealed unsafe class InstanceBuffer : IDisposable
     /// otherwise, which gives every copy no last frame.
     /// </summary>
     public MotionHistory? History { get; set; }
+
+    /// <summary>
+    /// The loaded bake's lightmap rectangles, by <see cref="DrawItem.BakeId"/>. Set while the G-buffer pass records,
+    /// a reflection capture's included; null otherwise, and a copy it doesn't hold gets <see cref="GpuLightmapRect.None"/>.
+    /// </summary>
+    public IReadOnlyDictionary<ulong, GpuLightmapRect>? Lightmaps { get; set; }
 
     /// <summary>
     /// Empties the buffer for a frame that writes at most <paramref name="count"/> matrices.
@@ -62,12 +97,13 @@ internal sealed unsafe class InstanceBuffer : IDisposable
         int capacity = Math.Max(count, Capacity * 2);
         _buffer.Dispose();
         _previous.Dispose();
-        (_buffer, _previous) = Create(_context, capacity);
+        _lightmaps.Dispose();
+        (_buffer, _previous, _lightmaps) = Create(_context, capacity);
         Capacity = capacity;
         return true;
     }
 
-    /// <summary>Writes the next copy's matrix, and where it stood last frame, and returns its index.</summary>
+    /// <summary>Writes the next copy's matrix, where it stood last frame and its lightmap, and returns its index.</summary>
     public int Add(in DrawItem draw)
     {
         if (Count >= Capacity)
@@ -77,6 +113,10 @@ internal sealed unsafe class InstanceBuffer : IDisposable
 
         ((Matrix4x4*)_buffer.Mapped)[Count] = draw.Transform;
         ((PreviousInstance*)_previous.Mapped)[Count] = History is { } history ? history.Previous(draw) : PreviousInstance.None(draw);
+        ((GpuLightmapRect*)_lightmaps.Mapped)[Count] =
+            draw.BakeId != 0 && Lightmaps is { } lightmaps && lightmaps.TryGetValue(draw.BakeId, out var rect)
+                ? rect
+                : GpuLightmapRect.None;
         return Count++;
     }
 
@@ -84,9 +124,11 @@ internal sealed unsafe class InstanceBuffer : IDisposable
     {
         _buffer.Dispose();
         _previous.Dispose();
+        _lightmaps.Dispose();
     }
 
-    private static (GpuBuffer Models, GpuBuffer Previous) Create(VulkanContext context, int capacity) => (
+    private static (GpuBuffer Models, GpuBuffer Previous, GpuBuffer Lightmaps) Create(VulkanContext context, int capacity) => (
         GpuBuffer.CreateHostVisible(context, (ulong)(capacity * sizeof(Matrix4x4)), BufferUsageFlags.StorageBufferBit),
-        GpuBuffer.CreateHostVisible(context, (ulong)(capacity * sizeof(PreviousInstance)), BufferUsageFlags.StorageBufferBit));
+        GpuBuffer.CreateHostVisible(context, (ulong)(capacity * sizeof(PreviousInstance)), BufferUsageFlags.StorageBufferBit),
+        GpuBuffer.CreateHostVisible(context, (ulong)(capacity * sizeof(GpuLightmapRect)), BufferUsageFlags.StorageBufferBit));
 }

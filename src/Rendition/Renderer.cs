@@ -469,7 +469,7 @@ public sealed unsafe class Renderer : IDisposable
         _api.CreateSampler(_context.Device, &shadowSamplerInfo, null, out _shadowSampler).Check();
 
         _frameSetLayout = CreateFrameSetLayout();
-        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 13, ShaderStageFlags.FragmentBit);
+        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 15, ShaderStageFlags.FragmentBit);
         _threeTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 3, ShaderStageFlags.FragmentBit);
         _fourTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 4, ShaderStageFlags.FragmentBit);
         _twoTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 2, ShaderStageFlags.FragmentBit);
@@ -478,8 +478,8 @@ public sealed unsafe class Renderer : IDisposable
         var poolSizes = stackalloc DescriptorPoolSize[]
         {
             new(DescriptorType.UniformBuffer, FramesInFlight),
-            new(DescriptorType.StorageBuffer, 6 * FramesInFlight),
-            new(DescriptorType.CombinedImageSampler, 32 + 3 * FramesInFlight),
+            new(DescriptorType.StorageBuffer, 7 * FramesInFlight),
+            new(DescriptorType.CombinedImageSampler, 34 + 3 * FramesInFlight),
         };
         var poolInfo = new DescriptorPoolCreateInfo
         {
@@ -1102,6 +1102,162 @@ public sealed unsafe class Renderer : IDisposable
     private LocalLight[] _bakeKeptLights = [];
     private bool _drawingWithoutBakedLights;
 
+    // Bakes is asked through this, so a bake that can't be read counts as missing until the store reloads.
+    private readonly ReadableBakes _readableBakes = new();
+
+    // The space bake whose lightmaps are on the GPU, kept while it isn't drawn so turning it back on reads nothing.
+    private LoadedBake _loadedBake;
+
+    // The loaded bake's rectangles while this frame draws it, or null when it draws no lightmaps.
+    private IReadOnlyDictionary<ulong, GpuLightmapRect>? _activeLightmaps;
+
+    /// <summary>The bake whose lightmaps are uploaded, and which file, inputs and store reload it came from.</summary>
+    private record struct LoadedBake(
+        string? File, ulong Inputs, IBakeStore? Store, int Reloads, Dictionary<ulong, GpuLightmapRect>? Rects, List<TextureHandle> Pages);
+
+    /// <summary>A store's bakes, less those found unreadable, which count as missing.</summary>
+    private sealed class ReadableBakes : IBakeStore
+    {
+        public IBakeStore Inner = NoBakes.Instance;
+        public int Reloads;
+        public readonly HashSet<string> Unreadable = [];
+
+        public bool IsFresh(string file, BakeInputs inputs) => !Unreadable.Contains(file) && Inner.IsFresh(file, inputs);
+
+        public LightBakeFile? Load(string file) => Inner.Load(file);
+
+        int IBakeStore.Reloads => Reloads;
+    }
+
+    /// <summary>
+    /// Makes sure the space's fresh bake has its lightmaps on the GPU, reading it when it isn't the one already loaded.
+    /// False, logged once, when it can't be read; then the file counts as missing until the store reloads.
+    /// </summary>
+    private bool LoadSpaceBake(string space, BakeInputs inputs)
+    {
+        string file = _bakeResolver.SpaceFile(space);
+        var store = _readableBakes.Inner;
+        ulong combined = inputs.Combined;
+        if (_loadedBake.File == file && _loadedBake.Inputs == combined && ReferenceEquals(_loadedBake.Store, store)
+            && _loadedBake.Reloads == store.Reloads)
+        {
+            return true;
+        }
+
+        UnloadBake();
+        LightBakeFile? bake;
+        try
+        {
+            bake = store.Load(file);
+            if (bake is not null)
+            {
+                CheckPages(bake);
+            }
+        }
+        catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException)
+        {
+            Console.Error.WriteLine($"The bake {file} can't be read, so its area is lit live: {e.Message}");
+            _readableBakes.Unreadable.Add(file);
+            return false;
+        }
+
+        // A store with no lightmaps to give still has the area baked; its surfaces take their soft light live.
+        var pages = _loadedBake.Pages ?? [];
+        Dictionary<ulong, GpuLightmapRect>? rects = null;
+        if (bake is not null)
+        {
+            rects = [];
+            int count = bake.Irradiance.Count;
+            for (int page = 0; page < count; page++)
+            {
+                pages.Add(CreateTexture(PageTexture(bake.Irradiance[page]), TextureEdges.Clamp));
+                pages.Add(CreateTexture(PageTexture(bake.Direction[page]), TextureEdges.Clamp));
+                pages.Add(page < bake.Mask.Count ? CreateTexture(PageTexture(bake.Mask[page]), TextureEdges.Clamp) : new TextureHandle(-1));
+            }
+
+            foreach (var (bakeId, rect) in bake.Draws)
+            {
+                rects[bakeId] = new GpuLightmapRect
+                {
+                    ScaleOffset = new Vector4(rect.Scale, rect.Offset.X, rect.Offset.Y),
+                    Irradiance = pages[rect.Page * 3].Index,
+                    Direction = pages[rect.Page * 3 + 1].Index,
+                    Mask = pages[rect.Page * 3 + 2].Index,
+                    Page = rect.Page,
+                };
+            }
+        }
+
+        _loadedBake = new LoadedBake(file, combined, store, store.Reloads, rects, pages);
+        return true;
+    }
+
+    /// <summary>Lets the loaded bake's pages go, once the frames drawing them are done.</summary>
+    private void UnloadBake()
+    {
+        if (_loadedBake.Pages is { } pages)
+        {
+            foreach (var page in pages)
+            {
+                if (page.Index >= 0)
+                {
+                    DestroyTexture(page);
+                }
+            }
+
+            pages.Clear();
+        }
+
+        _loadedBake = _loadedBake with { File = null, Inputs = 0, Store = null, Rects = null };
+    }
+
+    /// <summary>Throws when a bake's pages don't fit together, as a damaged file's might not.</summary>
+    private static void CheckPages(LightBakeFile bake)
+    {
+        if (bake.Direction.Count != bake.Irradiance.Count || bake.Mask.Count > bake.Irradiance.Count)
+        {
+            throw new InvalidDataException(
+                $"The bake has {bake.Irradiance.Count} irradiance pages but {bake.Direction.Count} direction and {bake.Mask.Count} mask pages.");
+        }
+
+        foreach (var page in bake.Irradiance.Concat(bake.Direction).Concat(bake.Mask))
+        {
+            if (page.Width < 1 || page.Height < 1
+                || page.Pixels.Length != TextureData.LevelSize(PageFormat(page.Format), page.Width, page.Height))
+            {
+                throw new InvalidDataException($"A {page.Width}x{page.Height} {page.Format} page holds {page.Pixels.Length} bytes.");
+            }
+        }
+
+        foreach (var (bakeId, rect) in bake.Draws)
+        {
+            if (rect.Page < 0 || rect.Page >= bake.Irradiance.Count)
+            {
+                throw new InvalidDataException(
+                    $"Draw 0x{bakeId:X16} is on page {rect.Page}, but the bake has {bake.Irradiance.Count} pages.");
+            }
+        }
+    }
+
+    private static TextureFormat PageFormat(LightBakePageFormat format) => format switch
+    {
+        LightBakePageFormat.Rgba16f => TextureFormat.Rgba16f,
+        LightBakePageFormat.Rgba8 => TextureFormat.Rgba8,
+        LightBakePageFormat.Bc6h => TextureFormat.Bc6h,
+        LightBakePageFormat.Bc7 => TextureFormat.Bc7,
+        _ => throw new InvalidDataException($"A page has the unknown format {(int)format}."),
+    };
+
+    // Linear, so RGBA8 and BC7 pages are read as they were written rather than as sRGB colour.
+    private static TextureData PageTexture(LightBakePage page) => new()
+    {
+        Width = page.Width,
+        Height = page.Height,
+        Kind = TextureKind.Linear,
+        Format = PageFormat(page.Format),
+        Mips = [page.Pixels],
+    };
+
     /// <summary>
     /// Works out the frame's baked areas, and is true when a fresh bake takes some lights over: then
     /// <paramref name="lit"/> is the frame without them. A frame with no baked area is left alone, unhashed.
@@ -1112,12 +1268,28 @@ public sealed unsafe class Renderer : IDisposable
         if (view.BakedSpace is null && view.BakedChunks.IsEmpty)
         {
             LastBakeFrame = null;
+            _activeLightmaps = null;
             return false;
         }
 
+        // A bake that couldn't be read is tried again only once the store is another or its files may have changed.
+        if (!ReferenceEquals(_readableBakes.Inner, Bakes) || _readableBakes.Reloads != Bakes.Reloads)
+        {
+            _readableBakes.Inner = Bakes;
+            _readableBakes.Reloads = Bakes.Reloads;
+            _readableBakes.Unreadable.Clear();
+        }
+
         // With baked lighting off, every bake counts as missing, so the frame is drawn as if nothing were baked.
-        _bakeResolver.Store = view.Off.HasFlag(RenderEffects.BakedLighting) ? NoBakes.Instance : Bakes;
+        _bakeResolver.Store = view.Off.HasFlag(RenderEffects.BakedLighting) ? NoBakes.Instance : _readableBakes;
         var bakes = _bakeResolver.Resolve(view, draws, _boundsOf ??= BoundsOf, EnvironmentHash, _animatedLights);
+        if (bakes.SpaceFresh && !LoadSpaceBake(view.BakedSpace!.Value.Name, bakes.Space!.Value))
+        {
+            // Its file is now unreadable, so the space is worked out again as unbaked: its Baked lights come back.
+            bakes = _bakeResolver.Resolve(view, draws, _boundsOf, EnvironmentHash, _animatedLights);
+        }
+
+        _activeLightmaps = bakes.SpaceFresh && _loadedBake.Rects is { Count: > 0 } rects ? rects : null;
         LastBakeFrame = bakes;
         if (bakes.DroppedSuns.Count == 0 && bakes.DroppedLocalLights.Count == 0)
         {
@@ -1458,7 +1630,7 @@ public sealed unsafe class Renderer : IDisposable
     /// A number that changes whenever something that lights a reflection probe's picture changes,
     /// so capture the probes again when it does. It covers the suns, the sky and background, the sun
     /// shadow's softness and cascades, the ambient occlusion settings, the light probes and whether
-    /// they have settled at least once since they were made, and the switches for sun shadows,
+    /// they have settled at least once since they were made, the lightmaps loaded, and the switches for sun shadows,
     /// materials and ambient occlusion. Moving things or the camera doesn't change it. Point and spot
     /// lights aren't in it, because captures leave them out, and nor are the contact shadow and light
     /// shadow switches, which only touch what captures leave out.
@@ -1468,7 +1640,9 @@ public sealed unsafe class Renderer : IDisposable
         // Light probes fill in over many frames, and reflections captured before they first settle look wrong. Only the
         // first settle counts: the live ProbesSettled turns false on every cell the camera crosses, and recapturing
         // every reflection probe then would wait for the GPU twice a cell.
-        return HashCode.Combine(ReflectionLightingHash(view, _environmentVersion), _lightProbesInUse, _probesSettledOnce);
+        // A capture draws the lightmaps, so a bake loaded, dropped or swapped for another changes what it sees.
+        ulong lightmaps = _activeLightmaps is null ? 0 : _loadedBake.Inputs;
+        return HashCode.Combine(ReflectionLightingHash(view, _environmentVersion), _lightProbesInUse, _probesSettledOnce, lightmaps);
     }
 
     /// <summary>
@@ -3026,13 +3200,20 @@ public sealed unsafe class Renderer : IDisposable
             ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, SampledStage, SampledAccess, ColorStage, ColorWrite);
         _api.Transition(cmd, targets.Motion.Image, ImageAspectFlags.ColorBit,
             ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, SampledStage, SampledAccess, ColorStage, ColorWrite);
+        _api.Transition(cmd, targets.Baked.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, SampledStage, SampledAccess, ColorStage, ColorWrite);
+        _api.Transition(cmd, targets.Mask.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal, SampledStage, SampledAccess, ColorStage, ColorWrite);
         _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
             ImageLayout.Undefined, ImageLayout.DepthAttachmentOptimal, DepthStages, AccessFlags2.DepthStencilAttachmentReadBit, DepthStages,
             DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
 
+        // Reflection captures draw the lightmaps too, so they see the baked light the camera does.
         instances.History = motion;
+        instances.Lightmaps = _activeLightmaps;
         _gBufferPass.Record(cmd, targets, frameSet, draws, _meshes, _details, instances);
         instances.History = null;
+        instances.Lightmaps = null;
         bool decalsDrawn = RecordDecals(cmd, targets, frameSet);
 
         _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
@@ -3042,6 +3223,10 @@ public sealed unsafe class Renderer : IDisposable
         _api.Transition(cmd, targets.Emissive.Image, ImageAspectFlags.ColorBit,
             ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, ColorStage, ColorWrite, SampledStage, SampledAccess);
         _api.Transition(cmd, targets.Motion.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, ColorStage, ColorWrite, SampledStage, SampledAccess);
+        _api.Transition(cmd, targets.Baked.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, ColorStage, ColorWrite, SampledStage, SampledAccess);
+        _api.Transition(cmd, targets.Mask.Image, ImageAspectFlags.ColorBit,
             ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, ColorStage, ColorWrite, SampledStage, SampledAccess);
         if (!decalsDrawn)
         {
@@ -3743,12 +3928,14 @@ public sealed unsafe class Renderer : IDisposable
     {
         var info = new DescriptorBufferInfo(frame.Instances.Handle, 0, frame.Instances.Size);
         var previousInfo = new DescriptorBufferInfo(frame.Instances.PreviousHandle, 0, frame.Instances.PreviousSize);
+        var lightmapInfo = new DescriptorBufferInfo(frame.Instances.LightmapHandle, 0, frame.Instances.LightmapSize);
         var writes = stackalloc WriteDescriptorSet[]
         {
             StorageWrite(frame.Set, 2, &info),
             StorageWrite(frame.Set, 9, &previousInfo),
+            StorageWrite(frame.Set, 10, &lightmapInfo),
         };
-        _api.UpdateDescriptorSets(_context.Device, 2, writes, 0, null);
+        _api.UpdateDescriptorSets(_context.Device, 3, writes, 0, null);
     }
 
     /// <summary>
@@ -3771,8 +3958,8 @@ public sealed unsafe class Renderer : IDisposable
     /// read them. Bindings 3 to 5 hold the point and spot lights, their shadow tiles and
     /// the cluster lists, and 6 and 7 the shadow atlas, as Shaders/light_data.glsl and
     /// local_shadows.glsl read them, 8 the volumetric fog's summed volume, as
-    /// volumetric.glsl reads it, and 9 where each copy stood last frame, as instances.glsl
-    /// reads it for motion vectors.
+    /// volumetric.glsl reads it, 9 where each copy stood last frame, as instances.glsl
+    /// reads it for motion vectors, and 10 where each copy reads its baked light.
     /// </summary>
     private DescriptorSetLayout CreateFrameSetLayout()
     {
@@ -3789,11 +3976,12 @@ public sealed unsafe class Renderer : IDisposable
             new(7, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
             new(8, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
             new(9, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit),
+            new(10, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit),
         };
         var info = new DescriptorSetLayoutCreateInfo
         {
             SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 10,
+            BindingCount = 11,
             PBindings = bindings,
         };
         _api.CreateDescriptorSetLayout(_context.Device, &info, null, out var layout).Check();
@@ -3861,6 +4049,8 @@ public sealed unsafe class Renderer : IDisposable
             new(_environment.Sampler, _probes.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_linearSampler, _lightProbes.IrradianceView, ImageLayout.General),
             new(_linearSampler, _lightProbes.DepthView, ImageLayout.General),
+            new(_sampler, _gBuffer.Baked.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_sampler, _gBuffer.Mask.View, ImageLayout.ShaderReadOnlyOptimal),
         ]);
 
         // Glass and particles read depth while it's also attached for glass to test against.

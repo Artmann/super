@@ -192,6 +192,7 @@ internal sealed unsafe class GpuTexture : IDisposable
         TextureFormat.Bc5 => Format.BC5UnormBlock,
         TextureFormat.Bc4 => Format.BC4UnormBlock,
         TextureFormat.Bc6h => Format.BC6HUfloatBlock,
+        TextureFormat.Rgba16f => Format.R16G16B16A16Sfloat,
         _ => kind == TextureKind.Color ? Format.R8G8B8A8Srgb : Format.R8G8B8A8Unorm,
     };
 

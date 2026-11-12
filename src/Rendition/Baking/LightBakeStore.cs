@@ -89,11 +89,18 @@ public sealed class LightBakeStore : IBakeStore
     /// <exception cref="IOException">The read failed; whatever the read function throws passes through.</exception>
     public LightBakeFile? Load(string file) => _read(file) is { } bytes ? LightBakeFile.Read(bytes) : null;
 
-    /// <summary>Drops every header read and every stale file logged, so the next question reads the files again. Call it after the content reloads.</summary>
+    /// <summary>How many times <see cref="Forget"/> has been called, so the renderer reads the bakes it holds again.</summary>
+    public int Reloads { get; private set; }
+
+    /// <summary>
+    /// Drops every header read and every stale file logged, so the next question reads the files again, and the
+    /// renderer reads the bakes it draws again too. Call it after the content reloads.
+    /// </summary>
     public void Forget()
     {
         _headers.Clear();
         _logged.Clear();
+        Reloads++;
     }
 
     // "draws", "draws and lights", "draws, lights and environment".

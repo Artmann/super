@@ -29,3 +29,17 @@ layout(std430, set = 0, binding = 9) readonly buffer PreviousInstances {
 PreviousInstance previousInstance() {
     return previousInstances.copies[gl_InstanceIndex];
 }
+
+// Where each copy reads its baked light, beside its matrix above. Must match GpuLightmapRect in Vulkan/InstanceBuffer.cs.
+struct LightmapRect {
+    vec4 scaleOffset; // xy scale and zw offset from the second uv to 0 to 1 on the page
+    ivec4 textures;   // bindless irradiance, direction and shadow mask, then the page; -1 for no lightmap
+};
+
+layout(std430, set = 0, binding = 10) readonly buffer LightmapRects {
+    LightmapRect rects[];
+} lightmapRects;
+
+LightmapRect lightmapRect() {
+    return lightmapRects.rects[gl_InstanceIndex];
+}

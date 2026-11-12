@@ -12,11 +12,15 @@ layout(location = 3) in vec3 inPosition;
 layout(location = 4) in vec2 inUv2;
 layout(location = 5) in vec3 inClipNow;    // clip x, y and w, without the anti-aliasing shift; see gbuffer.vert
 layout(location = 6) in vec3 inClipBefore; // the same, last frame
+layout(location = 7) in vec2 inLightmapUv; // where the pixel is on its lightmap page; see gbuffer.vert
+layout(location = 8) flat in ivec3 inLightmap; // the page's irradiance, direction and mask textures, -1 for none
 
 layout(location = 0) out vec4 outBaseColorMetallic;
 layout(location = 1) out vec4 outNormalRoughnessAo;
 layout(location = 2) out vec4 outEmissiveClearcoat;
 layout(location = 3) out vec2 outMotion;   // see Passes/Motion.cs
+layout(location = 4) out vec4 outBaked;    // baked diffuse light over pi, alpha 1 when lightmapped; see writeBaked
+layout(location = 5) out vec4 outShadowMask; // the baked shadow mask, 1 where nothing is masked
 
 // The motion of a point that was behind last frame's camera: far off any picture, near the most a 16-bit float holds.
 const float MOTION_OFF_PICTURE = -60000.0;
@@ -381,6 +385,32 @@ float foliageChannel(Material material) {
     return -max(material.transmission, FOLIAGE_MARK);
 }
 
+// Writes the baked light a copy with a lightmap gets, turned to the normal it is lit with, and its shadow mask. The
+// irradiance page holds light with pi in, so dividing by pi gives what a white surface sends back, as the lighting
+// wants. The direction page holds the way the light mostly came from, d, as d * 0.5 + 0.5, with |d| how much of it came
+// that way. The baker gathered the light over the mesh's own normal, so the light is turned by the share the normal map
+// faces d against the share that normal does: a surface that faces the light gets more, one that faces away less, and
+// under an even sky, where d is near nothing, it is unchanged. Irradiance alpha is never read, since BC6H drops it.
+// A copy with no lightmap, and a ghost, writes no light, which the lighting reads as lit live, and a mask of 1.
+const float LIGHTMAP_PI = 3.14159265359;
+
+void writeBaked(vec3 normal) {
+    if (inLightmap.x < 0) {
+        outBaked = vec4(0.0);
+        outShadowMask = vec4(1.0);
+        return;
+    }
+
+    // The pages have one level each, so they are read at it.
+    vec3 irradiance = textureLod(textures[nonuniformEXT(inLightmap.x)], inLightmapUv, 0.0).rgb;
+    // The direction page is RGBA8 or BC7, which keep blue, unlike a cooked normal map, so all three axes are read.
+    vec3 d = 2.0 * textureLod(textures[nonuniformEXT(inLightmap.y)], inLightmapUv, 0.0).xyz - 1.0;
+    vec3 vertexNormal = surfaceFrame()[2];
+    float turned = (dot(normal, d) * 0.5 + 0.5) / max(1e-4, dot(vertexNormal, d) * 0.5 + 0.5);
+    outBaked = vec4(irradiance / LIGHTMAP_PI * turned, 1.0);
+    outShadowMask = inLightmap.z < 0 ? vec4(1.0) : textureLod(textures[nonuniformEXT(inLightmap.z)], inLightmapUv, 0.0);
+}
+
 // Applies the draw's tint, so every surface shader gets it. Foliage has no clearcoat, so
 // its translucency travels in the same channel as a negative number, and a subsurface
 // material puts its index there, plus SUBSURFACE_MARK, so the lighting and blur find it.
@@ -399,6 +429,8 @@ void writeSurface(Surface surface) {
         outBaseColorMetallic = vec4(color, 0.0);
         outNormalRoughnessAo = vec4(octahedralEncode(surface.normal), 0.7, 1.0);
         outEmissiveClearcoat = vec4(color * GHOST_GLOW, 0.0);
+        outBaked = vec4(0.0);
+        outShadowMask = vec4(1.0);
         return;
     }
 
@@ -422,6 +454,7 @@ void writeSurface(Surface surface) {
         outBaseColorMetallic = vec4(plain.baseColor, plain.metallic);
         outNormalRoughnessAo = vec4(octahedralEncode(plain.normal), plain.roughness, waterSide());
         outEmissiveClearcoat = vec4(surface.emissive, foliage ? foliageChannel(material) : 0.0);
+        writeBaked(plain.normal);
         return;
     }
 
@@ -432,4 +465,5 @@ void writeSurface(Surface surface) {
     outBaseColorMetallic = vec4(surface.baseColor * draw.tint.rgb, surface.metallic);
     outNormalRoughnessAo = vec4(octahedralEncode(surface.normal), surface.roughness, waterSide());
     outEmissiveClearcoat = vec4(surface.emissive, channel);
+    writeBaked(surface.normal);
 }
