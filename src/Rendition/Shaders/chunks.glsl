@@ -12,15 +12,18 @@ struct ChunkData {
     mat3x4 intoChunk;
     vec4 min;          // xyz: the chunk's box in its own space
     vec4 max;
-    ivec4 maskSlots;   // the chunk's shadow mask pages, -1 for none (not drawn yet)
+    ivec4 maskSlots;   // for each of the frame's four mask slots, the channel of the bake's mask that holds it, or -1
     ivec4 transfer;    // bindless slots of the sky's red, green and blue transfer pages, then the sun's
-    ivec4 tint;        // x: the bindless slot of the sun transfer's tint page
+    ivec4 pages;       // x: the bindless slot of the sun transfer's tint page; y: the shadow mask page's, or -1
 };
 
 layout(std430, set = 0, binding = 11) readonly buffer Chunks {
     // The frame's Mixed and Baked suns summed as deltas, each its radiance times the basis towards it: coefficient k's
     // red, green and blue in sun[k].rgb. In world space.
     vec4 sun[4];
+    // For each of the frame's four mask slots, the channel of the space bake's mask that holds it: the slot itself, or
+    // -1 where a chunk's light took it. Written every frame, chunks or none.
+    ivec4 spaceSlots;
     ChunkData chunks[MAX_CHUNKS];
 } chunkData;
 

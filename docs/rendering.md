@@ -256,6 +256,17 @@ sun takes one when it is Mixed, and Mixed point and spot lights whose ranges ove
 different channels, so a space has at most four Mixed lights reaching the same place. A light
 that finds none left keeps its real-time shadows only.
 
+A frame shares four mask slots between all the bakes it draws: the space's and every placed
+baked chunk's. The space's lights keep their channels, with the sun first. Each chunk's
+Mixed lights then take the slots left, so lights from different bakes whose ranges overlap,
+or two copies of one chunk standing side by side, get different slots and each surface reads
+its own bake's shadow. Lights far apart share a slot, but the space's hold theirs everywhere.
+A chunk light that finds every slot held, by the space or by lights its range overlaps, keeps
+only its real-time shadow that frame, and its key is in `Renderer.LastBakeFrame.UnslottedLights`.
+A surface whose bake has nothing in a slot,
+such as a neighbouring chunk's floor lit by a lamp from next door, is shadowed in that slot by
+the real-time shadow alone.
+
 While the bake is drawn, a Mixed light on a lightmapped surface is shadowed by its channel. A
 light with a real-time shadow takes the darker of the two, so something that moves still casts
 its shadow, and the baked one covers what the shadow map doesn't: past the sun's last
@@ -660,8 +671,9 @@ frame that named no baked area. Otherwise its `Space` and `Chunks` hold the inpu
 area, `SpaceFresh` and `ChunkFresh` say which bakes were found (a chunk's only once all its
 pages are on the GPU), `ChunkPending(i)` says a chunk's fresh bake is still on its way, `ModeOf(key)` gives the mode
 each light was drawn with: the light's own mode, or `Realtime` when it is moving or no fresh
-bake holds it, and `DroppedLocalLights`
-and `DroppedSuns` list the lights left to a bake, by their place in the frame's lists.
+bake holds it, `DroppedLocalLights`
+and `DroppedSuns` list the lights left to a bake, by their place in the frame's lists, and
+`UnslottedLights` lists the keys of Mixed lights that found no shadow mask slot.
 
 ## Reflections
 

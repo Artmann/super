@@ -67,6 +67,7 @@ public sealed class BakeFrame
     private readonly List<int> _chunkDraws = [];
     private readonly List<int> _droppedLocalLights = [];
     private readonly List<int> _droppedSuns = [];
+    private readonly List<int> _unslottedLights = [];
 
     internal BakeFrame()
     {
@@ -108,6 +109,16 @@ public sealed class BakeFrame
     public IReadOnlyList<int> DroppedSuns => _droppedSuns;
 
     /// <summary>
+    /// The <see cref="LocalLight.Key"/>, ascending, of each Mixed chunk light with a channel in its chunk's bake that
+    /// found none of the frame's four shadow mask slots free: overlapping lights and the space's held them all. Such
+    /// a light keeps its real-time shadow only. Filled by the renderer as it draws the frame, and empty for a frame
+    /// resolved without one. See "Shadow mask channels" in docs/design.md.
+    /// </summary>
+    public IReadOnlyList<int> UnslottedLights => _unslottedLights;
+
+    internal List<int> Unslotted => _unslottedLights;
+
+    /// <summary>
     /// The file chunk <paramref name="chunk"/>'s bake is in, <see cref="BakeFiles.Chunk"/> of its name and
     /// <c>Chunks[chunk].Combined</c>. The resolver keeps the names, so asking allocates nothing once a frame has
     /// seen them.
@@ -132,6 +143,7 @@ public sealed class BakeFrame
         _modes.Clear();
         _droppedLocalLights.Clear();
         _droppedSuns.Clear();
+        _unslottedLights.Clear();
     }
 
     internal void SetSpace(BakeInputs inputs, bool fresh)

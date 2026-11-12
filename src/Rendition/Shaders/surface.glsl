@@ -421,7 +421,7 @@ vec3 chunkLight(int c, out vec3 towards) {
     vec4 skyG = textureLod(textures[nonuniformEXT(chunk.transfer.y)], inLightmapUv, 0.0);
     vec4 skyB = textureLod(textures[nonuniformEXT(chunk.transfer.z)], inLightmapUv, 0.0);
     vec4 sun = textureLod(textures[nonuniformEXT(chunk.transfer.w)], inLightmapUv, 0.0);
-    vec3 tint = textureLod(textures[nonuniformEXT(chunk.tint.x)], inLightmapUv, 0.0).rgb;
+    vec3 tint = textureLod(textures[nonuniformEXT(chunk.pages.x)], inLightmapUv, 0.0).rgb;
 
     // The sky's sets per colour, and its luminance's, each coefficient's colours in one vec4 of the buffer.
     mat4 sky = mat4(skySh.coefficients[0], skySh.coefficients[1], skySh.coefficients[2], skySh.coefficients[3]);
@@ -440,6 +440,19 @@ vec3 chunkLight(int c, out vec3 towards) {
     vec4 transfer = skyR * LIGHTMAP_LUMINANCE.r + skyG * LIGHTMAP_LUMINANCE.g + skyB * LIGHTMAP_LUMINANCE.b;
     towards = vec3(transfer.w * lightL.w, transfer.y * lightL.y, transfer.z * lightL.z);
     return max(light, vec3(0.0));
+}
+
+// The frame's four mask slots from one bake's mask page: slot s is the page's channel table[s], or 1, the bake saying
+// nothing, where the table has -1. A light's shadow there is then its real-time one alone. With no page every slot is 1.
+// See "Shadow mask channels" in docs/design.md.
+vec4 frameMaskSlots(int page, ivec4 table) {
+    vec4 mask = page < 0 ? vec4(1.0) : textureLod(textures[nonuniformEXT(page)], inLightmapUv, 0.0);
+    vec4 slots;
+    for (int s = 0; s < 4; s++) {
+        slots[s] = table[s] < 0 ? 1.0 : mask[table[s]];
+    }
+
+    return slots;
 }
 
 void writeBaked(vec3 normal) {
@@ -472,7 +485,9 @@ void writeBaked(vec3 normal) {
     vec3 vertexNormal = surfaceFrame()[2];
     float turned = (dot(normal, d) * 0.5 + 0.5) / max(LIGHTMAP_LEAST_SHARE, dot(vertexNormal, d) * 0.5 + 0.5);
     outBaked = vec4(irradiance / LIGHTMAP_PI * turned, 1.0);
-    outShadowMask = inLightmap.z < 0 ? vec4(1.0) : textureLod(textures[nonuniformEXT(inLightmap.z)], inLightmapUv, 0.0);
+    outShadowMask = chunk >= 0
+        ? frameMaskSlots(chunkData.chunks[chunk].pages.y, chunkData.chunks[chunk].maskSlots)
+        : frameMaskSlots(inLightmap.z, chunkData.spaceSlots);
 }
 
 // Applies the draw's tint, so every surface shader gets it. Foliage has no clearcoat, so

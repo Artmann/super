@@ -31,6 +31,8 @@ public sealed class BakeResolver
     private ulong[] _localHashes = [];
     private (LightKey Key, ulong Hash, bool Spot)[] _tracked = [];
     private int[] _lightOwners = [];
+    private ulong[] _lightChunkHashes = [];
+    private int _lightCount;
     private int[] _owners = [];
     private int _ownerCount;
     private List<ulong>[] _chunkIds = [];
@@ -92,6 +94,7 @@ public sealed class BakeResolver
         if (space is null && chunks.IsEmpty)
         {
             _ownerCount = 0;
+            _lightCount = 0;
             return BakeFrame.None;
         }
 
@@ -141,14 +144,18 @@ public sealed class BakeResolver
 
         // Which area owns each light that can join a bake: BakeAreas.None for a Realtime or moving one.
         Grow(ref _lightOwners, locals.Length);
+        Grow(ref _lightChunkHashes, locals.Length);
+        _lightCount = locals.Length;
         for (int i = 0; i < locals.Length; i++)
         {
             _lightOwners[i] = InBake(locals[i].Mode, new LightKey(false, locals[i].Key), animated)
                 ? BakeAreas.OwnerOfLight(locals[i].Position, space, chunks)
                 : BakeAreas.None;
+            _lightChunkHashes[i] = 0;
             if (_lightOwners[i] >= 0)
             {
-                _chunkLights[_lightOwners[i]].Add(BakeInputHash.Light(locals[i], chunks[_lightOwners[i]].Transform));
+                _lightChunkHashes[i] = BakeInputHash.Light(locals[i], chunks[_lightOwners[i]].Transform);
+                _chunkLights[_lightOwners[i]].Add(_lightChunkHashes[i]);
             }
         }
 
@@ -237,6 +244,18 @@ public sealed class BakeResolver
     /// Empty after a frame that names no area.
     /// </summary>
     public ReadOnlySpan<int> Owners => _owners.AsSpan(0, _ownerCount);
+
+    /// <summary>
+    /// For each local light of the last <see cref="Resolve"/>, the area that owns it: <see cref="BakeAreas.Space"/>,
+    /// a chunk's index, or <see cref="BakeAreas.None"/> for a Realtime or moving light or one outside every area.
+    /// </summary>
+    internal ReadOnlySpan<int> LightOwners => _lightOwners.AsSpan(0, _lightCount);
+
+    /// <summary>
+    /// For each local light of the last <see cref="Resolve"/> that a chunk owns, its <see cref="BakeInputHash.Light"/>
+    /// in that chunk's space, as the chunk's bake lists its mask channels; 0 for any other light.
+    /// </summary>
+    internal ReadOnlySpan<ulong> LightChunkHashes => _lightChunkHashes.AsSpan(0, _lightCount);
 
     // A model's parts are filed together, under the area that owns the whole model, the same call Super made when it
     // gave their ids, so a model straddling two areas is never split between them. The parts need not come one after

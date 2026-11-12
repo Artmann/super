@@ -67,13 +67,17 @@ public sealed unsafe class Renderer : IDisposable
         public Vector4 IntoZ;
         public Vector4 Min;
         public Vector4 Max;
+        // For each of the frame's four mask slots, the bake's channel that holds it, or -1 when none does.
         public int Mask0, Mask1, Mask2, Mask3;
         public int SkyRed, SkyGreen, SkyBlue, Sun;
-        public int Tint, Pad0, Pad1, Pad2;
+        public int Tint, MaskPage, Pad1, Pad2;
     }
 
     // The suns' four coefficients ahead of the chunks in each frame's chunk buffer.
     private const int SunShBytes = 4 * 16;
+
+    // Then the space's table from the frame's mask slots to its bake's channels, four ints, and then the chunks.
+    private const int ChunkHeaderBytes = SunShBytes + 4 * sizeof(int);
 
     private readonly VulkanContext _context;
     private bool _disableVsync;
@@ -1178,11 +1182,24 @@ public sealed unsafe class Renderer : IDisposable
     private ulong _chunkLightmapsHash;
     private Func<string, BakeInputs, bool>? _chunkResident;
 
-    // While this frame draws the loaded bake: the index, among the suns drawn, of the Mixed sun whose shadow is in the
-    // mask's channel 0, or -1; and the mask channel of each Mixed local light that has one, by key. The mask's unused
-    // channels hold 0, so a light missing here must never read it.
+    // While this frame draws a bake: the index, among the suns drawn, of the space's Mixed sun whose shadow is in the
+    // frame's mask slot 0, or -1; and the frame's mask slot of each Mixed local light that has one, by key. A space
+    // mask's unused channels hold 0, so a light missing here must never read it. See MaskSlots.
     private int _maskSun = -1;
     private readonly Dictionary<int, int> _maskChannels = [];
+
+    // The space bake's channel for each of the frame's four mask slots: itself, or -1 where a chunk light took the
+    // slot, so that light reads 1 on the space's surfaces. Written at the head of the chunk buffer every frame.
+    private readonly int[] _spaceSlots = [0, 1, 2, 3];
+
+    // MaskSlots.Assign's scratch, grown when a frame has more lights, and which chunk and channel each chunk light is.
+    private (int Key, int SpaceChannel)[] _slotSpaceLights = [];
+    private (int Key, Vector3 Position, float Range)[] _slotChunkLights = [];
+    private (int Chunk, int Channel)[] _slotChunkOf = [];
+    private int[] _slots = [];
+
+    // The pool entry of each chunk this frame relights, or null.
+    private readonly ChunkBakePool.Entry?[] _relitEntries = new ChunkBakePool.Entry?[BakeFiles.MaxChunks];
 
     // The loaded bake's probes while this frame lights the baked space with them, or null when it doesn't.
     private BakedProbes? _activeBakedProbes;
@@ -1466,6 +1483,11 @@ public sealed unsafe class Renderer : IDisposable
         lit = default;
         _maskSun = -1;
         _maskChannels.Clear();
+        for (int s = 0; s < _spaceSlots.Length; s++)
+        {
+            _spaceSlots[s] = s;
+        }
+
         if (view.BakedSpace is null && view.BakedChunks.IsEmpty)
         {
             LastBakeFrame = null;
@@ -1505,9 +1527,9 @@ public sealed unsafe class Renderer : IDisposable
         _activeLightmaps = WithChunkLightmaps(spaceRects);
         FindRelitChunks(view, draws.Length, bakes);
         _activeBakedProbes = bakes.SpaceFresh ? _loadedBake.Probes : null;
-        if (spaceRects is not null)
+        if (spaceRects is not null || _relightChunks)
         {
-            FindMaskChannels(view, bakes);
+            FindMaskSlots(view, bakes, spaceRects is not null);
         }
 
         LastBakeFrame = bakes;
@@ -1565,10 +1587,9 @@ public sealed unsafe class Renderer : IDisposable
             return;
         }
 
-        Span<bool> relit = stackalloc bool[chunks.Length];
         for (int c = 0; c < chunks.Length; c++)
         {
-            relit[c] = false;
+            _relitEntries[c] = null;
             // A chunk not relit keeps last frame's _chunkData, which is harmless: its draws get chunk -1, so no shader reads it.
             if (!bakes.ChunkFresh[c] || _chunkPool.Use(bakes.ChunkFile(c), store) is not { IsResident: true } entry
                 || entry.Transfer[0] < 0)
@@ -1576,7 +1597,7 @@ public sealed unsafe class Renderer : IDisposable
                 continue;
             }
 
-            relit[c] = true;
+            _relitEntries[c] = entry;
             _relightChunks = true;
             var m = chunks[c].Transform;
             var t = m.Translation;
@@ -1589,10 +1610,11 @@ public sealed unsafe class Renderer : IDisposable
                 IntoZ = new Vector4(m.M31, m.M32, m.M33, -(t.X * m.M31 + t.Y * m.M32 + t.Z * m.M33)),
                 Min = new Vector4(chunks[c].Min, 0f),
                 Max = new Vector4(chunks[c].Max, 0f),
-                // Task 9 fills the chunk's shadow masks.
+                // No slot reads the mask until FindMaskSlots gives the chunk's lights theirs.
                 Mask0 = -1, Mask1 = -1, Mask2 = -1, Mask3 = -1,
                 SkyRed = transfer[0], SkyGreen = transfer[1], SkyBlue = transfer[2], Sun = transfer[3],
                 Tint = transfer[4],
+                MaskPage = entry.MaskPage,
             };
         }
 
@@ -1611,7 +1633,7 @@ public sealed unsafe class Renderer : IDisposable
         for (int d = 0; d < drawCount; d++)
         {
             int owner = d < owners.Length ? owners[d] : BakeAreas.None;
-            _drawChunks[d] = owner >= 0 && relit[owner] ? owner : -1;
+            _drawChunks[d] = owner >= 0 && _relitEntries[owner] is not null ? owner : -1;
         }
 
         // Every sun a bake's bounce can follow, as deltas: each one's radiance times the basis towards it.
@@ -1693,42 +1715,126 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>
-    /// Works out which of the frame's Mixed lights the drawn bake's shadow mask measures. The first Mixed sun takes
-    /// channel 0, as <see cref="ShadowMaskChannels.Assign"/> gave it at bake time, and the bake lists the local lights'
-    /// channels by key. A light only counts while it is still Mixed in the bake, so one turned Realtime never reads it.
+    /// Gives each of the frame's Mixed lights with a channel in its own bake one of the frame's four mask slots, with
+    /// <see cref="MaskSlots.Assign"/>. The space's first Mixed sun keeps slot 0, as
+    /// <see cref="ShadowMaskChannels.Assign"/> gave it at bake time, and the space's local lights keep their channels.
+    /// Each relit chunk's Mixed lights, found in its bake by their chunk-space hash, take the slots left, and the
+    /// chunk's table says which of its channels each slot is. A light only counts while it is still Mixed in its bake,
+    /// so one turned Realtime never reads it. See "Shadow mask channels" in docs/design.md.
     /// </summary>
-    private void FindMaskChannels(in FrameView view, BakeFrame bakes)
+    private void FindMaskSlots(in FrameView view, BakeFrame bakes, bool spaceDrawn)
     {
-        for (int i = 0; i < view.Lights.Length; i++)
+        int spaceCount = 0;
+        int chunkCount = 0;
+        var locals = view.LocalLights;
+        if (_slotSpaceLights.Length < locals.Length)
         {
-            if (bakes.ModeOf(new LightKey(true, i)) == LightMode.Mixed)
+            _slotSpaceLights = new (int, int)[locals.Length];
+            _slotChunkLights = new (int, Vector3, float)[locals.Length];
+            _slotChunkOf = new (int, int)[locals.Length];
+            _slots = new int[2 * locals.Length];
+        }
+
+        if (spaceDrawn)
+        {
+            for (int i = 0; i < view.Lights.Length; i++)
             {
-                // The suns drawn leave out the Baked ones, so this one's index moves down past those before it.
-                int dropped = 0;
-                foreach (int sun in bakes.DroppedSuns)
+                if (bakes.ModeOf(new LightKey(true, i)) == LightMode.Mixed)
                 {
-                    if (sun < i)
+                    // The suns drawn leave out the Baked ones, so this one's index moves down past those before it.
+                    int dropped = 0;
+                    foreach (int sun in bakes.DroppedSuns)
                     {
-                        dropped++;
+                        if (sun < i)
+                        {
+                            dropped++;
+                        }
+                    }
+
+                    _maskSun = i - dropped;
+                    break;
+                }
+            }
+
+            if (_loadedBake.Channels is { } channels)
+            {
+                foreach (var (key, channel) in channels)
+                {
+                    if (spaceCount < _slotSpaceLights.Length && bakes.ModeOf(new LightKey(false, key)) == LightMode.Mixed)
+                    {
+                        _slotSpaceLights[spaceCount++] = (key, channel);
                     }
                 }
-
-                _maskSun = i - dropped;
-                break;
             }
         }
 
-        if (_loadedBake.Channels is not { } channels)
+        if (_relightChunks)
         {
-            return;
-        }
-
-        foreach (var (key, channel) in channels)
-        {
-            if (bakes.ModeOf(new LightKey(false, key)) == LightMode.Mixed)
+            var owners = _bakeResolver.LightOwners;
+            var hashes = _bakeResolver.LightChunkHashes;
+            for (int i = 0; i < owners.Length && i < locals.Length; i++)
             {
-                _maskChannels[key] = channel;
+                int c = owners[i];
+                if (c < 0 || _relitEntries[c] is not { } entry
+                    || bakes.ModeOf(new LightKey(false, locals[i].Key)) != LightMode.Mixed)
+                {
+                    continue;
+                }
+
+                foreach (var (hash, channel) in entry.Channels)
+                {
+                    if (hash == hashes[i])
+                    {
+                        _slotChunkLights[chunkCount] = (locals[i].Key, locals[i].Position, locals[i].Range);
+                        _slotChunkOf[chunkCount] = (c, channel);
+                        chunkCount++;
+                        break;
+                    }
+                }
             }
+        }
+
+        var slots = _slots.AsSpan(0, spaceCount + chunkCount);
+        MaskSlots.Assign(_maskSun >= 0 ? 0 : -1, _slotSpaceLights.AsSpan(0, spaceCount),
+            _slotChunkLights.AsSpan(0, chunkCount), slots, bakes.Unslotted);
+
+        for (int i = 0; i < spaceCount; i++)
+        {
+            _maskChannels[_slotSpaceLights[i].Key] = slots[i];
+        }
+
+        for (int i = 0; i < chunkCount; i++)
+        {
+            int slot = slots[spaceCount + i];
+            if (slot < 0)
+            {
+                continue;
+            }
+
+            var (c, channel) = _slotChunkOf[i];
+            _maskChannels[_slotChunkLights[i].Key] = slot;
+            SetMaskSlot(ref _chunkData[c], slot, channel);
+            _spaceSlots[slot] = -1;
+        }
+    }
+
+    // Says that the frame's mask slot is the chunk bake's channel.
+    private static void SetMaskSlot(ref GpuChunk chunk, int slot, int channel)
+    {
+        switch (slot)
+        {
+            case 0:
+                chunk.Mask0 = channel;
+                break;
+            case 1:
+                chunk.Mask1 = channel;
+                break;
+            case 2:
+                chunk.Mask2 = channel;
+                break;
+            default:
+                chunk.Mask3 = channel;
+                break;
         }
     }
 
@@ -3163,10 +3269,12 @@ public sealed unsafe class Renderer : IDisposable
         var (cameraCount, shadowCount) = SelectDraws(view, viewProjection, draws, castsShadow);
         int tileDrawCount = SelectTileDraws(draws);
         ResetInstances(frame, cameraCount + shadowCount + tileDrawCount + probeInstances);
+        // The space's slots go every frame, so a frame drawing only the space reads its mask as it always has.
+        _spaceSlots.AsSpan().CopyTo(new Span<int>((byte*)frame.Chunks.Mapped + SunShBytes, _spaceSlots.Length));
         if (_relightChunks)
         {
             _sunSh.AsSpan().CopyTo(new Span<Vector4>(frame.Chunks.Mapped, _sunSh.Length));
-            _chunkData.AsSpan(0, _chunkCount).CopyTo(new Span<GpuChunk>((byte*)frame.Chunks.Mapped + SunShBytes, _chunkCount));
+            _chunkData.AsSpan(0, _chunkCount).CopyTo(new Span<GpuChunk>((byte*)frame.Chunks.Mapped + ChunkHeaderBytes, _chunkCount));
         }
 
         _api.ResetCommandPool(_context.Device, frame.CommandPool, 0).Check();
@@ -4490,7 +4598,7 @@ public sealed unsafe class Renderer : IDisposable
         frame.Clusters = new GpuBuffer(
             _context, LocalLights.ClusterBytes, BufferUsageFlags.StorageBufferBit, MemoryPropertyFlags.DeviceLocalBit);
         frame.Chunks = GpuBuffer.CreateHostVisible(
-            _context, (ulong)(SunShBytes + BakeFiles.MaxChunks * sizeof(GpuChunk)), BufferUsageFlags.StorageBufferBit);
+            _context, (ulong)(ChunkHeaderBytes + BakeFiles.MaxChunks * sizeof(GpuChunk)), BufferUsageFlags.StorageBufferBit);
         frame.Set = AllocateSet(_frameSetLayout);
 
         var chunksInfo = new DescriptorBufferInfo(frame.Chunks.Handle, 0, frame.Chunks.Size);

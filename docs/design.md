@@ -3478,12 +3478,14 @@ Transparent surfaces and particles don't read probes at all, so they are unchang
 
 The mask shadows Mixed lights. `LoadSpaceBake` keeps the file's `Channels` as a key-to-channel
 dictionary in `LoadedBake`. While `_activeLightmaps` is set (the space fresh, `BakedLighting`
-on, rects loaded) `FindMaskChannels` works out the frame's: the first sun that
+on, rects loaded) or a chunk is relit, `FindMaskSlots` works out the frame's slots (see
+[Shadow mask channels](#shadow-mask-channels) for how chunks share them). For the space, the first sun that
 `BakeFrame.ModeOf` calls Mixed takes channel 0, the same rule `ShadowMaskChannels.Assign`
 followed at bake time over the suns the bake held (Mixed and not moving), so nothing more is
 stored for it. Its index is moved down past the Baked suns before it, since the frame drawn
 leaves those out. A local light takes its listed channel while `ModeOf` still calls it Mixed.
-Every other frame clears both. The sun's channel goes in `GpuLight.Radiance.w` and a local
+Every other frame clears both. Each of these is a frame slot, which for the space is its
+channel. The sun's slot goes in `GpuLight.Radiance.w` and a local
 light's in `GpuLocalLight.Fade.w` (`LocalLights.Prepare`'s `maskChannels`), packed beside the shadow flag as `castsShadow + 2 * (channel + 1)`, so -1 for none packs as 0 and `localMaskChannel` in `light_data.glsl` unpacks it.
 Two Mixed suns that swap places in the frame keep the bake fresh, because the sun hashes are
 sorted, so the new first sun reads the other's channel. Storing the sun's hash beside channel 0
@@ -3524,6 +3526,34 @@ positions. Every placed copy of a chunk gives its lights other keys but the same
 light gets the same channel in every copy, which the one chunk bake relies on. A light left
 without a channel has its `Key` added to `unassigned` in ascending order, and two lights with
 one hash (the same light twice) are told apart by index.
+
+Those are bake channels, one set of four per bake. A frame draws the space's bake and any
+number of chunk bakes, and the lighting pass reads one mask per pixel, so it works in four
+frame slots instead. `MaskSlots.Assign` (`src/Rendition/Baking/MaskSlots.cs`) hands them out
+each frame, from `Renderer.FindMaskSlots`, without allocating. The space keeps its channels as
+its slots: the Mixed sun, when drawn, holds slot 0 and each Mixed local light in the file's
+`Channels` its channel, and those slots count as held everywhere, since the space's lights
+carry no position there. Then every Mixed local light owned by a relit chunk
+(`BakeResolver.LightOwners`) whose chunk-space hash (`BakeResolver.LightChunkHashes`) is in its
+bake's `ChunkChannels` (kept on the pool's `ChunkBakePool.Entry.Channels`) takes a slot
+greedily, smallest `Key` first: the lowest one neither the space nor an earlier chunk light
+whose world range overlaps it holds. So two copies of one chunk side by side, whose lights are
+both channel 0 in the one bake, take two slots, and lights far apart share one. A light left
+with none keeps its real-time shadow only and its key goes in `BakeFrame.UnslottedLights`
+(ascending).
+
+A light's channel in the lighting pass (`GpuLocalLight.Fade.w`, `_maskChannels`) is its frame
+slot. Each bake's surfaces translate when they write the G-buffer: `writeBaked` writes
+`outShadowMask[s]` from the bake's channel `table[s]`, or 1 where the table is -1
+(`frameMaskSlots` in `surface.glsl`). A chunk's table is `ChunkData.maskSlots` (`GpuChunk.Mask0`
+to `Mask3`) and its mask page `ChunkData.pages.y`. The space's table is `spaceSlots` in the
+chunk buffer's header: the identity, with -1 in each slot a chunk light took, so a space
+surface never reads its own channel for another bake's light. The 1 matters: a surface that
+a neighbouring chunk's lamp reaches has nothing for that lamp in its own bake, and 1 leaves it
+the lamp's real-time shadow (`ShadowMaskGpuTests`). With no chunk relit, the slots are the
+space's channels and `spaceSlots` is the identity, so a space-only frame writes the same mask
+as before. A chunk's copy in a reflection or light probe capture has chunk -1 and its rect's
+mask -1, so it reads no page and writes 1 in every slot.
 
 ### The .lightbake file
 
@@ -3620,7 +3650,9 @@ probes are traced after, in `Bake`.
 
 A chunk's job holds only the static draws `BakeResolver.ChunkIds` files under it, the same ones its inputs hash, each
 moved by `BakeAreas.Relative` into the chunk's space, so a chunk's bake is the same wherever it stands and nothing
-outside it blocks or bounces its light. Its layout is `LightmapLayout.BuildSingle`: draws share rectangles as in
+outside it blocks or bounces its light. The draws are picked by id alone, and copies of a chunk share ids, so a frame
+that places the chunk twice bakes both copies' draws into the one bake, each moved by the baked copy's transform: bake a chunk
+from a frame that places it once. Its layout is `LightmapLayout.BuildSingle`: draws share rectangles as in
 `Build`, and the rectangles go on one page with `Single`. The baker works on 2048-texel pages, so the page is baked at
 the top left of one (`LightmapLayout.OnFullPage`) and every page the file stores is cut to the layout's `PageSide`
 after encoding (`Baker.Crop`). Its lights are its own local `Baked` and `Mixed` lights that hold still, the ones
@@ -3669,18 +3701,21 @@ mean of its 4 x 4 texels, and each tap is weighted by its block's exact solid an
 everywhere gives `C0 = 4 pi Y0 L` to well within 1%. It is recorded before the G-buffer pass, after the sky cube is
 updated, only on frames that draw a relit chunk, so a sky change shows the very next frame.
 
-The frame's chunks are at set 0 binding 11 (`chunks.glsl`): first the suns, then a `ChunkData` per placed chunk, up to 256 (`BakeFiles.MaxChunks`), 128 bytes each and matching `GpuChunk`
-in `Renderer.cs`:
+The frame's chunks are at set 0 binding 11 (`chunks.glsl`): first an 80-byte header (`ChunkHeaderBytes`) of the suns
+and the space's mask table, then a `ChunkData` per placed chunk, up to 256 (`BakeFiles.MaxChunks`), 128 bytes each and
+matching `GpuChunk` in `Renderer.cs`:
 
 - `sun[4]`: every `Mixed` and `Baked` sun summed as deltas, each its radiance times `Y` towards it, in world space.
   A sun that moves is still counted, so a chunk's bounce follows a moving sun.
+- `spaceSlots`, in the header: for each frame mask slot, the space bake's channel that holds it, or -1 where a chunk's
+  light took it. Written every frame, chunks or none (see [Shadow mask channels](#shadow-mask-channels)).
 - `intoChunk`, a `mat3x4`: from the world into the chunk's space, the transpose of the rigid transform's 3x3 with
   `-dot(t, row)` in w, so `vec4(world, 1) * intoChunk` is the point and `vec4(direction, 0) * intoChunk` the direction.
 - `min` and `max`, the chunk's box in its own space.
-- `maskSlots`, the chunk's shadow mask channels for the frame's lights. They are all -1 for now; the mask is wired up
-  next.
-- `transfer`, the bindless slots of the sky's red, green and blue transfer pages and the sun's, and `tint.x` the sun
-  tint's. These go beyond the plan's struct, since a chunk's transfer pages are read through it, not through the
+- `maskSlots`: for each frame mask slot, the channel of the chunk bake's mask that holds it, or -1 where none of this
+  copy's lights holds the slot.
+- `transfer`, the bindless slots of the sky's red, green and blue transfer pages and the sun's, and `pages`: `x` the
+  sun tint page's slot and `y` the shadow mask page's, or -1. These go beyond the plan's struct, since a chunk's transfer pages are read through it, not through the
   copy's `GpuLightmapRect`.
 
 `Renderer.FindRelitChunks` fills these after the resolver runs. A chunk is relit when its bake is fresh, resident in
@@ -3690,7 +3725,8 @@ among the frame's draws, and `InstanceBuffer.Add` writes the chunk into `GpuLigh
 lightmap. Only the camera's G-buffer pass sets it; reflection and light probe captures draw a chunk with its plain
 light only. `gbuffer.vert` passes the chunk in w of the flat `ivec4` at location 8 rather than as an `int` of its own,
 since `transparent.frag` shares the vertex shader and a lone unread `int` output draws a validation warning. The
-chunk-space position goes out at location 9 for the mask.
+chunk-space position goes out at location 9. Nothing reads it yet: the mask is read at the copy's lightmap UV, which
+is already the chunk's.
 
 `writeBaked` adds `chunkLight`. Each colour's sky set is turned into the chunk's space by `intoChunkSh`, whose vector
 part (`C3`, `C1`, `C2`) turns as (x, y, z) does, and dotted with that colour's transfer, times the environment's

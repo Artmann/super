@@ -61,6 +61,12 @@ internal sealed unsafe class ChunkBakePool : IDisposable
 
         /// <summary>The material table slots of the sky red, green, blue, sun and sun tint transfer pages, in that order, once resident.</summary>
         public int[] Transfer { get; } = [-1, -1, -1, -1, -1];
+
+        /// <summary>The material table slot of the chunk's shadow mask page once resident, or -1 when it has none.</summary>
+        public int MaskPage { get; internal set; } = -1;
+
+        /// <summary>The bake's mask channel for each of its Mixed lights, by chunk-space light hash, once resident.</summary>
+        public (ulong LightHash, int Channel)[] Channels { get; internal set; } = [];
     }
 
     internal sealed class Page(LightBakePage source, GpuTexture texture, int role)
@@ -443,6 +449,10 @@ internal sealed unsafe class ChunkBakePool : IDisposable
             {
                 direction = page.Slot;
             }
+            else if (page.Role == Mask)
+            {
+                entry.MaskPage = page.Slot;
+            }
         }
 
         var rects = new Dictionary<ulong, GpuLightmapRect>();
@@ -453,13 +463,15 @@ internal sealed unsafe class ChunkBakePool : IDisposable
                 ScaleOffset = new Vector4(rect.Scale, rect.Offset.X, rect.Offset.Y),
                 Irradiance = irradiance,
                 Direction = direction,
-                // The chunk's shadow mask isn't drawn yet, so its Mixed lights read it as fully lit.
+                // The chunk's mask is read through its GpuChunk instead, whose table turns the frame's slots into the
+                // bake's channels. A view with no chunk data, such as a reflection capture, reads it as fully lit.
                 Mask = -1,
                 Page = 0,
             };
         }
 
         entry.Rects = rects;
+        entry.Channels = [.. entry.Bake.ChunkChannels];
         entry.Bake = null;
         entry.IsResident = true;
         Resident++;
