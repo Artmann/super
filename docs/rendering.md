@@ -234,8 +234,8 @@ camera sees, and each part of the screen only works through the lights that reac
 a frame can have hundreds of small lights. 256 can reach any one spot on the screen,
 and more than that are dropped there. The `Crypt` example has four torches, five
 candelabras, a lantern, a beam from a grate and 126 candles, about 150 lights. The
-`Hamlet` example has about 200 at night: 56 lamps with shadows and 144 lit windows
-without.
+`Hamlet` example has about 200 at night: lamps and forge fires with shadows, and lit
+windows without.
 
 Point and spot lights light models, glass and [particles](views.md#particles). Glass and
 particles get no shadows from them. They aren't seen in reflection probes. In
@@ -470,6 +470,9 @@ changes nothing on screen.
 The [Gallery](../examples/Gallery/README.md#baked-lighting) is the example to look at: it ships
 with a bake, keys 1, 2 and 3 switch between live lighting, the bake and direct light only, and
 its README says which light has which [mode](#light-modes) and why, and how to bake it again.
+For chunks, look at the [Hamlet](../examples/Hamlet/README.md#baked-lighting): every building is
+a chunk named for its kind, so its 40 buildings share seven bakes, and the same keys switch
+its lighting.
 
 ![The Gallery from above, before and after baking: the bake darkens the doorway and the deep window, and shades under the colonnade](media/gallery-baked-before-after.webp)
 

@@ -4,16 +4,14 @@ using Super;
 namespace Hamlet;
 
 /// <summary>
-/// One building in the village: a kind's plan under one placement transform, and the
-/// colours and lamp timing it was given. The plan never changes per building, so the
+/// One building in the village: a kind's plan under one placement transform, and the lamp
+/// timing it was given. The plan, colours and all, never changes per building, so the
 /// placement is all that moves it into the world.
 /// </summary>
 internal sealed record Building(
     int Index,
     BuildingPlan Plan,
     Matrix4x4 Placement,
-    Vector3 RoofColor,
-    Vector3 AccentColor,
     float Phase,
     float Dusk)
 {
@@ -47,20 +45,37 @@ internal sealed record Building(
 }
 
 /// <summary>
-/// The kinds of building, each built once. Cottages come in one plan per furniture layout,
-/// built the first time a village asks for it.
+/// The kinds of building, each built once with its own colours. Cottages come in one plan
+/// per furniture layout. All of them are built up front, as their meshes are made static
+/// with lightmap UVs, which takes long enough that building one when R asks for a new
+/// village would hitch.
 /// </summary>
 internal sealed class Kinds(Content content, Palette palette)
 {
-    private readonly BuildingPlan?[] _cottages = new BuildingPlan?[CottageLayout.All.Length];
+    // The well and the tower are small across, so their bakes blend into the live light over less.
+    private const float NarrowEdgeBlend = 0.4f;
 
-    public BuildingPlan Cottage(int layout) => _cottages[layout] ??= Hamlet.Cottage.Build(content, palette, CottageLayout.All[layout]);
+    private readonly BuildingPlan[] _cottages =
+    [
+        .. CottageLayout.All.Select((layout, i) =>
+            Coloured(Hamlet.Cottage.Build(content, palette, layout), i) with { Layout = layout }),
+    ];
 
-    public BuildingPlan Workshop { get; } = Hamlet.Workshop.Build(content, palette);
+    public BuildingPlan Cottage(int layout) => _cottages[layout];
 
-    public BuildingPlan Tower { get; } = Hamlet.Tower.Build(content, palette);
+    public BuildingPlan Workshop { get; } = Coloured(Hamlet.Workshop.Build(content, palette), CottageLayout.All.Length);
 
-    public BuildingPlan Well { get; } = Hamlet.Well.Build(content, palette);
+    public BuildingPlan Tower { get; } =
+        Coloured(Hamlet.Tower.Build(content, palette), CottageLayout.All.Length + 1) with { EdgeBlend = NarrowEdgeBlend };
+
+    public BuildingPlan Well { get; } =
+        Coloured(Hamlet.Well.Build(content, palette), CottageLayout.All.Length + 2) with { EdgeBlend = NarrowEdgeBlend };
+
+    private static BuildingPlan Coloured(BuildingPlan plan, int variant)
+    {
+        var (roof, accent) = Palette.Colours(variant);
+        return plan with { RoofColor = roof, AccentColor = accent };
+    }
 }
 
 /// <summary>
@@ -251,12 +266,15 @@ internal sealed class Village
         var middle = Vector3.Transform(plan.Middle, placement);
         float level = Hill(middle.X, middle.Z);
         placement.M42 = level;
+
+        // Buildings once took a random roof and strong colour. Each kind has its own colours now, so every copy
+        // shares one bake, but the picks are still drawn so each seed's lamp timings and layout stay as they were.
+        _ = random.Pick(Palette.Roofs);
+        _ = random.Pick(Palette.Accents);
         var building = new Building(
             _buildings.Count,
             plan,
             placement,
-            random.Pick(Palette.Roofs),
-            random.Pick(Palette.Accents),
             random.Between(0f, 100f),
             random.Between(-0.07f, 0.06f));
         Matrix4x4.Invert(placement, out var inverse);
@@ -280,6 +298,12 @@ internal sealed class Village
             {
                 return false;
             }
+
+            // Each building's box is its baked chunk, and a part or lamp in two boxes goes to the first one's bake.
+            if (Overlap(plan, placement, other.Plan, other.Placement))
+            {
+                return false;
+            }
         }
 
         Matrix4x4.Invert(placement, out var inverse);
@@ -294,6 +318,62 @@ internal sealed class Village
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Whether two buildings' boxes overlap across the ground. Two rectangles are apart when
+    /// some side of one has the whole of the other beyond it, so each one's two axes are tried.
+    /// </summary>
+    private static bool Overlap(BuildingPlan a, Matrix4x4 placementA, BuildingPlan b, Matrix4x4 placementB)
+    {
+        Span<Vector2> cornersA = stackalloc Vector2[4];
+        Span<Vector2> cornersB = stackalloc Vector2[4];
+        Corners(a, placementA, cornersA);
+        Corners(b, placementB, cornersB);
+        Span<Vector2> axes =
+        [
+            new(placementA.M11, placementA.M13),
+            new(placementA.M31, placementA.M33),
+            new(placementB.M11, placementB.M13),
+            new(placementB.M31, placementB.M33),
+        ];
+        foreach (var axis in axes)
+        {
+            var (minA, maxA) = Project(cornersA, axis);
+            var (minB, maxB) = Project(cornersB, axis);
+            if (maxA <= minB || maxB <= minA)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>The four corners of a building's box across the ground, in the world.</summary>
+    private static void Corners(BuildingPlan plan, Matrix4x4 placement, Span<Vector2> corners)
+    {
+        for (int i = 0; i < 4; i++)
+        {
+            var local = new Vector3((i & 1) == 0 ? plan.Min.X : plan.Max.X, 0f, (i & 2) == 0 ? plan.Min.Z : plan.Max.Z);
+            var world = Vector3.Transform(local, placement);
+            corners[i] = new Vector2(world.X, world.Z);
+        }
+    }
+
+    /// <summary>How far along <paramref name="axis"/> the corners reach, least and most.</summary>
+    private static (float Min, float Max) Project(ReadOnlySpan<Vector2> corners, Vector2 axis)
+    {
+        float min = float.MaxValue;
+        float max = float.MinValue;
+        foreach (var corner in corners)
+        {
+            float along = Vector2.Dot(corner, axis);
+            min = MathF.Min(min, along);
+            max = MathF.Max(max, along);
+        }
+
+        return (min, max);
     }
 
     /// <summary>Points every metre along every path, flat on the ground plane.</summary>

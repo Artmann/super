@@ -1,4 +1,5 @@
 using System.Numerics;
+using Rendition;
 using Super;
 
 namespace Hamlet;
@@ -23,11 +24,24 @@ internal enum PartTint
 }
 
 /// <summary>One mesh of a building, with one material.</summary>
-internal readonly record struct Part(ModelRef Model, PartTint Tint);
+internal readonly record struct Part(ModelRef Model, PartTint Tint)
+{
+    /// <summary>
+    /// Whether the part glows brighter and dimmer through the day: the bulbs and the coals.
+    /// Those stay out of the building's bake, and the rest is drawn static into it.
+    /// </summary>
+    public bool Glows => Glowing(Tint);
+
+    /// <summary>Whether a part with <paramref name="tint"/> glows.</summary>
+    public static bool Glowing(PartTint tint) => tint is PartTint.Lamps or PartTint.Fire;
+}
 
 /// <summary>
 /// A lamp in a building's own space. Lamps are spot lights: they cost a sixth of a point
-/// light's shadow. A fire burns all day; the rest come on at dusk.
+/// light's shadow. A fire burns all day; the rest come on at dusk. <see cref="Mode"/> says
+/// whether the building's bake holds the lamp's bounced light: a lamp that comes and goes
+/// at dusk is <see cref="LightMode.Realtime"/>, as a bake can't hold light that isn't
+/// always there.
 /// </summary>
 internal readonly record struct Lamp(
     Vector3 Position,
@@ -36,7 +50,8 @@ internal readonly record struct Lamp(
     float Range,
     float InnerAngle,
     float OuterAngle,
-    bool Fire = false);
+    bool Fire = false,
+    LightMode Mode = LightMode.Realtime);
 
 /// <summary>
 /// A window in a building's own space: the middle of its opening on the outside face of the
@@ -47,8 +62,9 @@ internal readonly record struct Window(Vector3 Middle, Vector3 Outward, Vector2 
 /// <summary>
 /// One kind of building, built once and placed many times. Everything is in the building's
 /// own space: the floor is at height zero, the door faces +z, and <see cref="Min"/> and
-/// <see cref="Max"/> box all of it. That box under one placement transform is the piece a
-/// later bake would treat as a unit.
+/// <see cref="Max"/> box all of it. That box under one placement transform is a baked
+/// chunk: every building drawn from one plan has the same contents in the same colours, so
+/// all of them share one bake.
 /// </summary>
 internal sealed record BuildingPlan(
     string Name,
@@ -60,6 +76,18 @@ internal sealed record BuildingPlan(
     Vector3 Door,
     Vector3 Inside)
 {
+    /// <summary>A cottage's furniture layout, or null for the other kinds.</summary>
+    public CottageLayout? Layout { get; init; }
+
+    /// <summary>The colour of the roof parts, one of <see cref="Palette.Roofs"/>.</summary>
+    public Vector3 RoofColor { get; init; } = Vector3.One;
+
+    /// <summary>The colour of the strong parts, one of <see cref="Palette.Accents"/>.</summary>
+    public Vector3 AccentColor { get; init; } = Vector3.One;
+
+    /// <summary>How far the chunk's bake blends into the live light in from its sides, in metres.</summary>
+    public float EdgeBlend { get; init; } = 0.5f;
+
     /// <summary>The middle of the box on the ground, in the building's own space.</summary>
     public Vector3 Middle => new((Min.X + Max.X) * 0.5f, 0f, (Min.Z + Max.Z) * 0.5f);
 
@@ -167,7 +195,10 @@ internal sealed class PlanBuilder(Palette palette)
     public static Matrix4x4 Facing(Vector3 middle, Vector3 outward) =>
         Matrix4x4.CreateRotationY(MathF.Atan2(outward.X, outward.Z)) * Matrix4x4.CreateTranslation(middle);
 
-    /// <summary>Uploads the meshes and gathers everything into a plan.</summary>
+    /// <summary>
+    /// Uploads the meshes and gathers everything into a plan. Every part but the glowing
+    /// ones is drawn static into the building's bake, so it's made static, with lightmap UVs.
+    /// </summary>
     public BuildingPlan Build(Content content, string name, Vector3 min, Vector3 max, Vector3 door, Vector3 inside)
     {
         var parts = new List<Part>();
@@ -175,7 +206,7 @@ internal sealed class PlanBuilder(Palette palette)
         {
             if (!mesh.IsEmpty)
             {
-                parts.Add(new Part(content.Mesh(mesh.Build(surface)), tint));
+                parts.Add(new Part(content.Mesh(mesh.Build(surface), isStatic: !Part.Glowing(tint)), tint));
             }
         }
 

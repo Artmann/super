@@ -37,6 +37,16 @@ internal sealed class Palette
         new(0.04f, 0.4f, 0.32f),
     ];
 
+    /// <summary>
+    /// The roof and strong colours of one variant of building: each cottage layout, then the
+    /// workshop, the tower and the well. A variant always takes the same pair, so every copy
+    /// of it draws the same and shares one bake. Variant n takes roof n and strong colour
+    /// n + 1 round the lists, and from the fifth on the strong colour steps one further, so
+    /// no two of the first nine pairs match.
+    /// </summary>
+    public static (Vector3 Roof, Vector3 Accent) Colours(int variant) =>
+        (Roofs[variant % Roofs.Length], Accents[(variant + 1 + variant / Roofs.Length) % Accents.Length]);
+
     public Palette(Content content)
     {
         var glow = content.Shader("glow");
@@ -63,10 +73,10 @@ internal sealed class Palette
     /// <summary>Foundations, paving, the well and the forge.</summary>
     public Surface Stone { get; } = new() { Color = new Vector3(0.5f, 0.49f, 0.47f), Roughness = 0.95f, WorldVariation = true };
 
-    /// <summary>Roofs, tinted per building from <see cref="Roofs"/>.</summary>
+    /// <summary>Roofs, tinted per kind from <see cref="Roofs"/>.</summary>
     public Surface Roof { get; } = new() { Color = Vector3.One, Roughness = 0.85f };
 
-    /// <summary>The strong colours, tinted per building from <see cref="Accents"/>.</summary>
+    /// <summary>The strong colours, tinted per kind from <see cref="Accents"/>.</summary>
     public Surface Accent { get; } = new() { Color = Vector3.One, Roughness = 0.7f };
 
     /// <summary>Iron: the anvil and the lamps' frames.</summary>

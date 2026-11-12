@@ -1,4 +1,5 @@
 using System.Numerics;
+using Rendition;
 using Super;
 
 namespace Hamlet;
@@ -79,8 +80,17 @@ internal static class Workshop
         b.Accent.Span(new Vector3(right + 0.1f, FloorTop + 0.05f, outerZ), new Vector3(right + 1.5f, 2.7f, outerZ + 0.07f), Matrix4x4.Identity);
 
         b.HangingLamp(new Vector3(-0.6f, 2.7f, 0.2f), WallTop - 0.2f, new Vector3(4.6f, 2.8f, 1.3f), 8f);
-        // The forge's glow, thrown out across the room towards the doorway.
-        b.Lamp(new Lamp(forge + new Vector3(0f, 1.1f, 0.2f), Vector3.Normalize(new Vector3(-0.45f, -0.35f, 1f)), new Vector3(5f, 1.6f, 0.35f), 9f, 0.5f, 1.3f, Fire: true));
+        // The forge's glow, thrown out across the room towards the doorway. It burns all day, so it is mixed:
+        // the bake holds its glow bounced round the room, and its direct light and shadows stay live.
+        b.Lamp(new Lamp(
+            forge + new Vector3(0f, 1.1f, 0.2f),
+            Vector3.Normalize(new Vector3(-0.45f, -0.35f, 1f)),
+            new Vector3(5f, 1.6f, 0.35f),
+            9f,
+            0.5f,
+            1.3f,
+            Fire: true,
+            Mode: LightMode.Mixed));
 
         return b.Build(
             content,

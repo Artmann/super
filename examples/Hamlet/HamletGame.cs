@@ -1,23 +1,53 @@
 using System.Numerics;
+using Rendition;
 using Super;
+using Super.Ui;
 
 namespace Hamlet;
 
 /// <summary>
-/// A village on a hill through a two-minute day, lit only by today's real-time lights: the
-/// sun and the moon, a lamp or two in every building, a forge's fire, and the glow from
-/// lit windows. At dusk the lamps come on one by one and flicker. The camera circles the
-/// village, then walks into a cottage to see the window light by day and the lamp by night.
-/// R makes a new village from the next seed.
+/// A village on a hill through a two-minute day: the sun and the moon, a lamp or two in
+/// every building, a forge's fire, and the glow from lit windows. At dusk the lamps come on
+/// one by one and flicker. Every building is a baked chunk, so the light bounced round its
+/// rooms is baked once per kind and shared by every copy. The camera circles the village,
+/// then walks into a cottage to see the window light by day and the lamp by night. R makes
+/// a new village from the next seed, and 1, 2 and 3 switch between live lighting, the
+/// bakes and direct light only.
 /// </summary>
-public sealed class HamletGame(GameRandom random, Input input, Content content) : IGame
+public sealed class HamletGame(GameRandom random, Input input, Content content, Graphics graphics) : IGame
 {
-    private const int BuildingKey = 1_000;
+    /// <summary>The lighting modes that keys 1, 2 and 3 switch between.</summary>
+    public enum Lighting
+    {
+        /// <summary>Key 1: every light live and bounced light from the live probes, as if nothing were baked.</summary>
+        Live,
+
+        /// <summary>Key 2: the chunks' bakes where they are fresh.</summary>
+        Baked,
+
+        /// <summary>Key 3: direct light only, with no bake and no bounced light.</summary>
+        Direct,
+    }
+
+    /// <summary>The lightmap density of every building's bake.</summary>
+    internal const int TexelsPerMetre = 10;
+
+    private static readonly Color Muted = new(0.8f, 0.82f, 0.86f);
+    private static readonly Color Panel = new(0.06f, 0.07f, 0.09f, 0.72f);
+
+    /// <summary>
+    /// The first building's first draw key. Building i's parts are drawn under the keys from
+    /// <c>BuildingKey + i * KeysPerBuilding</c>, one for each of its plan's parts in order.
+    /// </summary>
+    internal const int BuildingKey = 1_000;
+
+    /// <summary>How many draw keys each building has.</summary>
+    internal const int KeysPerBuilding = 64;
+
     private const int GroundKey = 100;
     private const int CartKey = 90;
     private const int LightKey = 100_000;
     private const int CartLightKey = 99_000;
-    private const int KeysPerBuilding = 64;
     private const int PaneKeys = 32;
 
     private Palette _palette = null!;
@@ -31,6 +61,10 @@ public sealed class HamletGame(GameRandom random, Input input, Content content) 
     private int _villages;
     private float _previousSeconds;
     private float _seconds;
+    private Lighting _lighting = Lighting.Baked;
+
+    /// <summary>The village now shown.</summary>
+    internal Village Village => _village;
 
     public void Load()
     {
@@ -39,10 +73,32 @@ public sealed class HamletGame(GameRandom random, Input input, Content content) 
         _cart = new Cart(content, _palette);
         _pane = content.Mesh(Shapes.Quad(Vector2.One, _palette.Pane));
         Build(random.Seed);
+        UseLighting(_lighting);
+    }
+
+    /// <summary>Switches the graphics settings to <paramref name="lighting"/>.</summary>
+    private void UseLighting(Lighting lighting)
+    {
+        _lighting = lighting;
+        graphics.BakedLighting = lighting == Lighting.Baked;
+        graphics.LightProbes = lighting != Lighting.Direct;
     }
 
     public void Update(GameTime time)
     {
+        if (input.Pressed(Key.D1))
+        {
+            UseLighting(Lighting.Live);
+        }
+        else if (input.Pressed(Key.D2))
+        {
+            UseLighting(Lighting.Baked);
+        }
+        else if (input.Pressed(Key.D3))
+        {
+            UseLighting(Lighting.Direct);
+        }
+
         if (input.Pressed(Key.R))
         {
             _villages++;
@@ -80,11 +136,14 @@ public sealed class HamletGame(GameRandom random, Input input, Content content) 
         }
 
         float elevation = DayCycle.Elevation(seconds);
-        foreach (var building in _village.Buildings)
+        var buildings = _village.Buildings;
+        for (int i = 0; i < buildings.Count; i++)
         {
-            DrawBuilding(view, building, seconds, elevation, inside: pose.Indoors > 0.5f && building == _tour.Cottage);
+            var building = buildings[i];
+            DrawBuilding(view, building, seconds, elevation, inside: pose.Indoors > 0.5f && building.Index == _tour.Cottage.Index);
         }
 
+        // The cart moves, so it stays out of the bakes and is lit by the probes like the rest of what moves.
         var cart = Cart.Placement(_village, seconds);
         _cart.Draw(view, CartKey, cart, seconds, _cartColor);
         float cartLamp = 1f - DayCycle.Smooth(-0.06f, 0.02f, elevation);
@@ -92,7 +151,34 @@ public sealed class HamletGame(GameRandom random, Input input, Content content) 
         {
             var lantern = Vector3.Transform(Cart.Lantern, cart);
             float flicker = Flicker(seconds, 7f);
-            view.SpotLight(CartLightKey, lantern, -Vector3.UnitY, Palette.Lamplight * 3f * cartLamp * flicker, 8f, 0.6f, 1.35f);
+            view.SpotLight(
+                CartLightKey, lantern, -Vector3.UnitY, Palette.Lamplight * 3f * cartLamp * flicker, 8f, 0.6f, 1.35f, mode: LightMode.Realtime);
+        }
+    }
+
+    /// <summary>The lighting modes in the bottom-left corner, with the current one in bold.</summary>
+    public UiView? Ui
+    {
+        get
+        {
+            var modes = new VStack(HorizontalAlignment.Leading, 4f);
+            foreach (var (lighting, key, name) in new[]
+            {
+                (Lighting.Live, 1, "Live lighting"),
+                (Lighting.Baked, 2, "Baked lighting"),
+                (Lighting.Direct, 3, "Direct light only"),
+            })
+            {
+                var text = new Text($"{key}  {name}");
+                modes.Add(lighting == _lighting ? text.Bold() : text.Foreground(Muted));
+            }
+
+            return modes
+                .Padding(12f)
+                .Background(Panel)
+                .CornerRadius(8f)
+                .Padding(20f)
+                .Frame(maxWidth: UiExtensions.Infinity, maxHeight: UiExtensions.Infinity, alignment: Alignment.BottomLeading);
         }
     }
 
@@ -100,13 +186,15 @@ public sealed class HamletGame(GameRandom random, Input input, Content content) 
     {
         _village = Village.Generate(seed, _kinds);
         _ground = new Ground(content, _village);
-        _tour = new CameraTour(_village);        _cartColor = Palette.Accents[(seed % Palette.Accents.Length + Palette.Accents.Length) % Palette.Accents.Length];
+        _tour = new CameraTour(_village);
+        _cartColor = Palette.Accents[(seed % Palette.Accents.Length + Palette.Accents.Length) % Palette.Accents.Length];
     }
 
     /// <summary>
-    /// Draws a building, its lamps and its lit windows. <paramref name="inside"/> is true when
-    /// the camera stands in it: the glowing panes are left out then, as a pane is seen from
-    /// both sides and would hide the night outside.
+    /// Draws a building as a baked chunk, with its lamps and its lit windows. Its box is its
+    /// plan's, placed where the village put it, so every copy of a plan shares one bake.
+    /// <paramref name="inside"/> is true when the camera stands in it: the glowing panes are
+    /// left out then, as a pane is seen from both sides and would hide the night outside.
     /// </summary>
     private void DrawBuilding(View view, Building building, float seconds, float elevation, bool inside)
     {
@@ -116,19 +204,21 @@ public sealed class HamletGame(GameRandom random, Input input, Content content) 
         float flicker = Flicker(seconds, building.Phase);
         float fire = 1f + 0.18f * MathF.Sin(seconds * 9f + building.Phase) + 0.1f * MathF.Sin(seconds * 21f + building.Phase * 1.3f);
         var plan = building.Plan;
+        view.BakedChunk(plan.Name, building.Placement, plan.Min, plan.Max, TexelsPerMetre, plan.EdgeBlend);
 
         for (int p = 0; p < plan.Parts.Length; p++)
         {
             var part = plan.Parts[p];
             Vector3? tint = part.Tint switch
             {
-                PartTint.Roof => building.RoofColor,
-                PartTint.Accent => building.AccentColor,
+                PartTint.Roof => plan.RoofColor,
+                PartTint.Accent => plan.AccentColor,
                 PartTint.Lamps => new Vector3(1f + level * flicker),
                 PartTint.Fire => new Vector3(1f + fire),
                 _ => null,
             };
-            view.Model(key + p, part.Model, building.Placement, tint);
+
+            view.Model(key + p, part.Model, building.Placement, tint, isStatic: !part.Glows);
         }
 
         for (int j = 0; j < plan.Lamps.Length; j++)
@@ -144,7 +234,8 @@ public sealed class HamletGame(GameRandom random, Input input, Content content) 
                     lamp.Color * strength,
                     lamp.Range,
                     lamp.InnerAngle,
-                    lamp.OuterAngle);
+                    lamp.OuterAngle,
+                    mode: lamp.Mode);
             }
         }
 
@@ -174,7 +265,8 @@ public sealed class HamletGame(GameRandom random, Input input, Content content) 
                 0.5f,
                 1.2f,
                 shadows: false,
-                volumetric: 0.3f);
+                volumetric: 0.3f,
+                mode: LightMode.Realtime);
         }
     }
 
