@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
 
 namespace Rendition.Vulkan;
@@ -23,7 +24,8 @@ public enum TraceFlags : byte
 }
 
 /// <summary>One placed mesh in the scene rays are traced through, with every part of it the frame draws.</summary>
-public readonly record struct TraceInstance(Matrix4x4 Transform, MeshHandle Mesh, TracePart[] Parts, TraceFlags Flags);
+public readonly record struct TraceInstance(
+    Matrix4x4 Transform, MeshHandle Mesh, ReadOnlyMemory<TracePart> Parts, TraceFlags Flags);
 
 /// <summary>
 /// One entry of a top-level structure's geometry table: a part of a mesh. A hit's entry is its instance's custom index
@@ -31,46 +33,110 @@ public readonly record struct TraceInstance(Matrix4x4 Transform, MeshHandle Mesh
 /// </summary>
 public readonly record struct TraceGeometry(MeshHandle Mesh, TracePart Part);
 
-/// <summary>Chooses what in a frame's draws rays can hit. See "Ray tracing" in docs/design.md.</summary>
-internal static unsafe class TraceScene
+/// <summary>
+/// Chooses what in a frame's draws rays can hit. One is kept for the renderer's life and reuses its buffers, so a
+/// frame that collects no more than the frames before it allocates nothing. See "Ray tracing" in docs/design.md.
+/// </summary>
+internal sealed unsafe class TraceScene(Func<MaterialHandle, TraceFlags> flagsOf)
 {
+    /// <summary>An instance being gathered: what it is, and where its parts go in the shared part array.</summary>
+    private struct Placed
+    {
+        public MeshHandle Mesh;
+        public Matrix4x4 Transform;
+        public TraceFlags Flags;
+        public int Start;
+        public int Count;
+        public int Filled;
+    }
+
+    private readonly Dictionary<(MeshHandle, Matrix4x4), int> _order = [];
+    private readonly List<Placed> _placed = [];
+    private readonly List<TraceInstance> _instances = [];
+
+    // Per draw, the instance it belongs to, or -1 when it's left out.
+    private int[] _instanceOf = [];
+
+    // Every instance's parts, one run per instance, which the instances' memories point into.
+    private TracePart[] _parts = [];
+
     /// <summary>
     /// One instance per distinct mesh and transform, in the order they're first drawn, with the parts in draw order.
     /// Ghosts are previews, not things; skinned and swimming draws move away from the shape their structure was built
-    /// from; so all three are left out, along with draws of no triangles.
+    /// from; so all three are left out, along with draws of no triangles. The list and the parts it points into are
+    /// reused, so they're valid until the next call.
     /// </summary>
-    public static List<TraceInstance> Collect(ReadOnlySpan<DrawItem> draws, Func<MaterialHandle, TraceFlags> flagsOf)
+    public IReadOnlyList<TraceInstance> Collect(ReadOnlySpan<DrawItem> draws)
     {
-        var order = new Dictionary<(MeshHandle, Matrix4x4), int>();
-        var parts = new List<List<TracePart>>();
-        var placed = new List<(MeshHandle Mesh, Matrix4x4 Transform, TraceFlags Flags)>();
-        foreach (ref readonly var draw in draws)
+        _order.Clear();
+        _placed.Clear();
+        _instances.Clear();
+        if (_instanceOf.Length < draws.Length)
         {
+            Array.Resize(ref _instanceOf, Math.Max(draws.Length, _instanceOf.Length * 2));
+        }
+
+        // First pass: which instance each draw belongs to, and how many parts each instance has.
+        int partCount = 0;
+        for (int d = 0; d < draws.Length; d++)
+        {
+            ref readonly var draw = ref draws[d];
             if (draw.Ghost is not null || draw.Bones.Count != 0 || draw.Swim.Amplitude != 0f || draw.IndexCount == 0)
             {
+                _instanceOf[d] = -1;
                 continue;
             }
 
             var key = (draw.Mesh, draw.Transform);
-            if (!order.TryGetValue(key, out int index))
+            if (!_order.TryGetValue(key, out int index))
             {
-                index = placed.Count;
-                order[key] = index;
-                placed.Add((draw.Mesh, draw.Transform, TraceFlags.None));
-                parts.Add([]);
+                index = _placed.Count;
+                _order[key] = index;
+                _placed.Add(new Placed { Mesh = draw.Mesh, Transform = draw.Transform });
             }
 
-            parts[index].Add(new TracePart(draw.FirstIndex, draw.IndexCount, draw.Material));
-            placed[index] = placed[index] with { Flags = placed[index].Flags | flagsOf(draw.Material) };
+            ref var placed = ref CollectionsMarshal.AsSpan(_placed)[index];
+            placed.Count++;
+            placed.Flags |= flagsOf(draw.Material);
+            _instanceOf[d] = index;
+            partCount++;
         }
 
-        var instances = new List<TraceInstance>(placed.Count);
-        for (int i = 0; i < placed.Count; i++)
+        if (_parts.Length < partCount)
         {
-            instances.Add(new TraceInstance(placed[i].Transform, placed[i].Mesh, [.. parts[i]], placed[i].Flags));
+            _parts = new TracePart[Math.Max(partCount, _parts.Length * 2)];
         }
 
-        return instances;
+        var all = CollectionsMarshal.AsSpan(_placed);
+        int start = 0;
+        foreach (ref var placed in all)
+        {
+            placed.Start = start;
+            start += placed.Count;
+        }
+
+        // Second pass: each draw's part into its instance's run, in draw order.
+        for (int d = 0; d < draws.Length; d++)
+        {
+            int index = _instanceOf[d];
+            if (index < 0)
+            {
+                continue;
+            }
+
+            ref readonly var draw = ref draws[d];
+            ref var placed = ref all[index];
+            int at = placed.Start + placed.Filled++;
+            _parts[at] = new TracePart(draw.FirstIndex, draw.IndexCount, draw.Material);
+        }
+
+        foreach (ref readonly var placed in all)
+        {
+            _instances.Add(new TraceInstance(
+                placed.Transform, placed.Mesh, _parts.AsMemory(placed.Start, placed.Count), placed.Flags));
+        }
+
+        return _instances;
     }
 
     /// <summary>

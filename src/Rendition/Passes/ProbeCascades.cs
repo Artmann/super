@@ -13,7 +13,8 @@ internal readonly record struct ProbeCascadeLayout(float Spacing, int CountX, in
 
 /// <summary>
 /// What a <see cref="ProbeCascades.Move"/> changed: for every cascade, which probes now sit in
-/// slots that held a probe from the other side of the box, and so must be captured again.
+/// slots that held a probe from the other side of the box, and so must be captured again. Its arrays and
+/// lists belong to the cascades and are reused, so a result is only valid until the next Move.
 /// </summary>
 internal readonly record struct ScrollResult
 {
@@ -22,13 +23,16 @@ internal readonly record struct ScrollResult
     private readonly Int3[] _origins;
     private readonly ProbeCascadeLayout[] _layouts;
     private readonly bool[] _teleported;
+    private readonly List<int>[] _newSlots;
 
-    internal ScrollResult(ProbeCascadeLayout[] layouts, Int3[] origins, Slab[] slabs, bool[] teleported)
+    internal ScrollResult(
+        ProbeCascadeLayout[] layouts, Int3[] origins, Slab[] slabs, bool[] teleported, List<int>[] newSlots)
     {
         _layouts = layouts;
         _origins = origins;
         Slabs = slabs;
         _teleported = teleported;
+        _newSlots = newSlots;
     }
 
     /// <summary>
@@ -37,7 +41,10 @@ internal readonly record struct ScrollResult
     /// </summary>
     public bool Teleported(int cascade) => _teleported[cascade];
 
-    /// <summary>The slots of the probes that are new in this cascade, in no particular order.</summary>
+    /// <summary>
+    /// The slots of the probes that are new in this cascade, in no particular order. The list is the cascade's
+    /// own, refilled by each call, so read it before the next Move.
+    /// </summary>
     public IReadOnlyList<int> NewSlots(int cascade)
     {
         if (_layouts == null)
@@ -53,7 +60,8 @@ internal readonly record struct ScrollResult
             return Array.Empty<int>();
         }
 
-        var slots = new List<int>();
+        var slots = _newSlots[cascade];
+        slots.Clear();
         var layout = _layouts[cascade];
         var origin = _origins[cascade];
 
@@ -101,12 +109,20 @@ internal sealed class ProbeCascades
     // What Move returns when no cascade moved: no slabs, nothing teleported. Made once.
     private ScrollResult? _stayed;
 
+    // What Move fills in when some cascade moved, reused by every such move, so crossing a cell allocates nothing
+    // once the lists have grown to the largest slice.
+    private readonly ScrollResult.Slab[] _slabs = new ScrollResult.Slab[Count * 3];
+    private readonly bool[] _teleported = new bool[Count];
+    private readonly Int3[] _movedOrigins = new Int3[Count];
+    private readonly List<int>[] _newSlots = new List<int>[Count];
+
     public ProbeCascades(ProbeQuality quality)
     {
         _layouts = Layouts(quality);
         for (int c = 0; c < Count; c++)
         {
             _origins[c] = SnappedOrigin(_layouts[c], Vector3.Zero);
+            _newSlots[c] = [];
         }
     }
 
@@ -146,13 +162,14 @@ internal sealed class ProbeCascades
         // Most frames the camera stays in its cells, and that result is always the same.
         if (_moved && Unmoved(camera))
         {
-            _stayed ??= new ScrollResult(_layouts, new Int3[Count], new ScrollResult.Slab[Count * 3], new bool[Count]);
+            _stayed ??= new ScrollResult(
+                _layouts, new Int3[Count], new ScrollResult.Slab[Count * 3], new bool[Count], _newSlots);
             return _stayed.Value;
         }
 
-        var slabs = new ScrollResult.Slab[Count * 3];
-        var teleported = new bool[Count];
-        var origins = new Int3[Count];
+        var slabs = _slabs;
+        var teleported = _teleported;
+        var origins = _movedOrigins;
 
         for (int c = 0; c < Count; c++)
         {
@@ -179,7 +196,7 @@ internal sealed class ProbeCascades
         }
 
         _moved = true;
-        return new ScrollResult(_layouts, origins, slabs, teleported);
+        return new ScrollResult(_layouts, origins, slabs, teleported, _newSlots);
     }
 
     /// <summary>

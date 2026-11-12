@@ -79,10 +79,11 @@ public sealed class TopLevelTests(GpuFixture gpu)
         });
         Assert.NotEqual(first.Address, second.Address);
 
-        // Once the frames that might read them are done, they're built into again rather than made anew.
+        // Once the frames that might read them are done, they're built into again rather than made anew. Light probes
+        // trace their updates, and a frame that traces would rent the freed structures itself, so they are off here.
         for (int i = 0; i < 3; i++)
         {
-            gpu.RenderOneFrame();
+            gpu.RenderOneFrame(off: RenderEffects.LightProbes);
         }
 
         int made = tracing.TopLevelStructuresMade;

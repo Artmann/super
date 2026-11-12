@@ -14,6 +14,12 @@ internal readonly record struct ProbeBudget(int Raster, int Traced)
             _ => new ProbeBudget(32, 1024)
         };
     }
+
+    /// <summary>
+    /// How many clean probes the traced path refreshes a frame once the probes near the camera are settled: a quarter
+    /// of its budget. Refreshing the full budget cost up to about 1 ms of GPU time a frame in a settled scene.
+    /// </summary>
+    public int TracedRefresh => Traced / 4;
 }
 
 /// <summary>A probe: its cascade (0 to 3, or 4 for the fixed grid) and its slot in that cascade.</summary>
@@ -33,7 +39,8 @@ internal readonly record struct ProbeId(int Cascade, int Slot);
 /// frame (a flickering lantern) can't stop new probes from ever being captured. In the dirty and
 /// never-captured tiers nearer probes go first, and so do finer cascades and probes in front of the
 /// camera. In the last tier the oldest goes first, whatever its place, which bounds the time between
-/// two updates of any probe to about (probes / budget) frames; distance only breaks ties.
+/// two updates of any probe to about (probes / budget) frames, or (probes / refreshBudget) once settled; distance
+/// only breaks ties.
 ///
 /// <see cref="Next"/> is one pass over every probe that keeps the best <c>budget</c> in a small
 /// binary heap, so it costs O(probes + budget log budget) with no sort of all probes. Once its
@@ -227,10 +234,13 @@ internal sealed class ProbeScheduler
     /// Advances the frame and returns the probes to update in it, best first: never more than
     /// <paramref name="budget"/>, none twice. Call <see cref="Updated"/> with the batch once its probes
     /// are captured, in the same frame and before the next change to the lighting. The list is the
-    /// scheduler's own and the next call refills it, so copy it to keep it.
+    /// scheduler's own and the next call refills it, so copy it to keep it. Once <see cref="Settled"/>, at most
+    /// <paramref name="refreshBudget"/> of the batch are clean probes refreshed for their age, so a settled scene
+    /// costs less than one still filling in.
     /// </summary>
-    public IReadOnlyList<ProbeId> Next(int budget, Vector3 camera, Vector3 forward)
+    public IReadOnlyList<ProbeId> Next(int budget, Vector3 camera, Vector3 forward, int refreshBudget = int.MaxValue)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(refreshBudget);
         Frame++;
         _batch.Clear();
         if (budget <= 0)
@@ -304,6 +314,18 @@ internal sealed class ProbeScheduler
 
         int nearTaken = Math.Min(nearSize, budget - Math.Min(waiting, budget / 4));
         int restTaken = Math.Min(size, budget - nearTaken);
+
+        // Clean probes sort last in the rest. Once the fine groups are settled, only refreshBudget of them are taken.
+        if (Settled && refreshBudget < restTaken)
+        {
+            int unsettled = 0;
+            while (unsettled < rest.Length && rest[unsettled].Tier != Clean)
+            {
+                unsettled++;
+            }
+
+            restTaken = Math.Min(restTaken, unsettled + refreshBudget);
+        }
         foreach (var candidate in near[..nearTaken])
         {
             _batch.Add(new ProbeId(candidate.Group, candidate.Slot));

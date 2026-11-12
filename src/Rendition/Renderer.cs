@@ -93,6 +93,7 @@ public sealed unsafe class Renderer : IDisposable
     private readonly UploadQueue _uploads;
     private readonly ResourceTable _resources;
     private readonly RayTracing? _tracing;
+    private readonly TraceScene? _traceScene;
     private readonly TraceDebugPass? _traceDebugPass;
 
     // Whether this frame shows the trace debug view, which leaves out what would change its colours.
@@ -500,6 +501,7 @@ public sealed unsafe class Renderer : IDisposable
             _tracing = new RayTracing(_context, _resources, MeshFor, _uploads.IsPending,
                 releaseAfterSubmitted: structure => Destroying().Others.Add(structure),
                 releaseAfterRecorded: used => _destroyed[_frameIndex].Others.Add(used));
+            _traceScene = new TraceScene(TraceFlagsOf);
         }
 
         _traceDebugPass = _tracing is null ? null : new TraceDebugPass(_context, FramesInFlight, _frameSetLayout, _resources.Layout);
@@ -1452,7 +1454,9 @@ public sealed unsafe class Renderer : IDisposable
         if (!ProbeUpdatesPaused)
         {
             // The scheduler refills its list on every call, and the triangle budget below may cut this frame's copy short.
-            var next = scheduler.Next(budget, camera, forward);
+            // Once the near probes are settled, the traced path refreshes only a quarter of its budget a frame.
+            int refresh = traced ? ProbeBudget.For(_probeQuality).TracedRefresh : budget;
+            var next = scheduler.Next(budget, camera, forward, refresh);
             for (int i = 0; i < next.Count; i++)
             {
                 _probeBatch.Add(next[i]);
@@ -2167,7 +2171,7 @@ public sealed unsafe class Renderer : IDisposable
         {
             // After the uploads, so a mesh made this frame is traced this frame. From here until the submit below,
             // nothing may destroy or change a material: see RayTracing.TopLevel.
-            traced = _tracing!.TopLevel(cmd, TraceScene.Collect(draws, TraceFlagsOf));
+            traced = _tracing!.TopLevel(cmd, _traceScene!.Collect(draws));
         }
 
         int overlayQuads = _overlayAtlas is null ? 0 : _overlayPass.Upload(_frameIndex, view.Overlay);

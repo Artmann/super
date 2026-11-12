@@ -32,9 +32,9 @@ public class TraceSceneTests
             new() { Mesh = Rock, FirstIndex = 30, IndexCount = 12, Material = Leaves, Transform = at },
         ];
 
-        var instance = Assert.Single(TraceScene.Collect(draws, Flags));
+        var instance = Assert.Single(new TraceScene(Flags).Collect(draws));
 
-        Assert.Equal([new TracePart(0, 30, Stone), new TracePart(30, 12, Leaves)], instance.Parts);
+        Assert.Equal([new TracePart(0, 30, Stone), new TracePart(30, 12, Leaves)], instance.Parts.ToArray());
         Assert.Equal(TraceFlags.Cutout, instance.Flags);
         Assert.Equal(Rock, instance.Mesh);
         Assert.Equal(at, instance.Transform);
@@ -53,13 +53,15 @@ public class TraceSceneTests
             new() { Mesh = Tree, FirstIndex = 9, IndexCount = 3, Material = Glass, Transform = here },
         ];
 
-        var instances = TraceScene.Collect(draws, Flags);
+        var instances = new TraceScene(Flags).Collect(draws);
 
         Assert.Equal(3, instances.Count);
         Assert.Equal((Rock, here), (instances[0].Mesh, instances[0].Transform));
         Assert.Equal((Tree, here), (instances[1].Mesh, instances[1].Transform));
         Assert.Equal((Rock, there), (instances[2].Mesh, instances[2].Transform));
-        Assert.Equal([new TracePart(0, 9, Leaves), new TracePart(9, 3, Glass)], instances[1].Parts);
+        Assert.Equal([new TracePart(0, 6, Stone)], instances[0].Parts.ToArray());
+        Assert.Equal([new TracePart(0, 9, Leaves), new TracePart(9, 3, Glass)], instances[1].Parts.ToArray());
+        Assert.Equal([new TracePart(0, 6, Stone)], instances[2].Parts.ToArray());
         Assert.Equal(TraceFlags.Cutout | TraceFlags.SeeThrough, instances[1].Flags);
         Assert.Equal(TraceFlags.None, instances[0].Flags);
     }
@@ -74,7 +76,7 @@ public class TraceSceneTests
             new() { Mesh = Rock, IndexCount = 3, Material = Stone, Transform = Matrix4x4.Identity, Swim = new SwimMotion(0.1f, 1f, 0f) },
         ];
 
-        Assert.Empty(TraceScene.Collect(draws, Flags));
+        Assert.Empty(new TraceScene(Flags).Collect(draws));
     }
 
     [Fact]
@@ -82,7 +84,62 @@ public class TraceSceneTests
     {
         DrawItem[] draws = [new() { Mesh = Rock, IndexCount = 0, Material = Stone, Transform = Matrix4x4.Identity }];
 
-        Assert.Empty(TraceScene.Collect(draws, Flags));
+        Assert.Empty(new TraceScene(Flags).Collect(draws));
+    }
+
+    [Fact]
+    public void A_second_collect_forgets_the_first_frames_draws()
+    {
+        var scene = new TraceScene(Flags);
+        scene.Collect(
+        [
+            new() { Mesh = Rock, IndexCount = 6, Material = Stone, Transform = Matrix4x4.Identity },
+            new() { Mesh = Tree, IndexCount = 9, Material = Glass, Transform = Matrix4x4.Identity },
+        ]);
+
+        var instance = Assert.Single(scene.Collect(
+            [new() { Mesh = Tree, FirstIndex = 3, IndexCount = 3, Material = Leaves, Transform = Matrix4x4.Identity }]));
+
+        Assert.Equal(Tree, instance.Mesh);
+        Assert.Equal([new TracePart(3, 3, Leaves)], instance.Parts.ToArray());
+        Assert.Equal(TraceFlags.Cutout, instance.Flags);
+    }
+
+    [Fact]
+    public void Collecting_the_same_frame_again_allocates_nothing()
+    {
+        var scene = new TraceScene(Flags);
+        var draws = new DrawItem[60];
+        for (int i = 0; i < draws.Length; i++)
+        {
+            // Twenty placements of two meshes, the rock in two parts, and every tenth draw a ghost left out.
+            draws[i] = new DrawItem
+            {
+                Mesh = i % 3 == 2 ? Tree : Rock,
+                FirstIndex = (uint)(i % 3) * 6,
+                IndexCount = 6,
+                Material = i % 3 == 2 ? Leaves : Stone,
+                Transform = Matrix4x4.CreateTranslation(i / 3, 0, 0),
+                Ghost = i % 10 == 9 ? new Ghost(Vector3.One) : null,
+            };
+        }
+
+        int count = 0;
+        for (int frame = 0; frame < 3; frame++)
+        {
+            count = scene.Collect(draws).Count;
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int frame = 0; frame < 100; frame++)
+        {
+            count = scene.Collect(draws).Count;
+        }
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0L, allocated);
+        Assert.True(count >= 30, $"only {count} instances were collected");
     }
 
     [Fact]
@@ -118,9 +175,9 @@ public class TraceSceneTests
     {
         TraceInstance[] instances =
         [
-            new(Matrix4x4.Identity, Rock, [new(0, 30, Stone), new(30, 12, Leaves)], TraceFlags.Cutout),
-            new(Matrix4x4.CreateTranslation(1, 0, 0), Tree, [new(0, 9, Glass)], TraceFlags.SeeThrough),
-            new(Matrix4x4.CreateTranslation(2, 0, 0), Rock, [new(0, 6, Stone)], TraceFlags.None),
+            new(Matrix4x4.Identity, Rock, new TracePart[] { new(0, 30, Stone), new(30, 12, Leaves) }, TraceFlags.Cutout),
+            new(Matrix4x4.CreateTranslation(1, 0, 0), Tree, new TracePart[] { new(0, 9, Glass) }, TraceFlags.SeeThrough),
+            new(Matrix4x4.CreateTranslation(2, 0, 0), Rock, new TracePart[] { new(0, 6, Stone) }, TraceFlags.None),
         ];
         ulong[] bottomLevels = [0x1000, 0x2000, 0x3000];
         var packed = new AccelerationStructureInstanceKHR[3];
@@ -146,9 +203,9 @@ public class TraceSceneTests
     {
         TraceInstance[] instances =
         [
-            new(Matrix4x4.Identity, Rock, [new(0, 6, Stone)], TraceFlags.None),
-            new(Matrix4x4.Identity, Rock, [new(0, 6, Leaves)], TraceFlags.Cutout),
-            new(Matrix4x4.Identity, Tree, [new(0, 6, Glass)], TraceFlags.SeeThrough),
+            new(Matrix4x4.Identity, Rock, new TracePart[] { new(0, 6, Stone) }, TraceFlags.None),
+            new(Matrix4x4.Identity, Rock, new TracePart[] { new(0, 6, Leaves) }, TraceFlags.Cutout),
+            new(Matrix4x4.Identity, Tree, new TracePart[] { new(0, 6, Glass) }, TraceFlags.SeeThrough),
         ];
         var packed = new AccelerationStructureInstanceKHR[3];
 

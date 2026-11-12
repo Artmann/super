@@ -68,6 +68,9 @@ internal sealed unsafe class RayTracing : IDisposable
 
     // The parts of the build being made, before they're copied into its geometry table. Reused by every build.
     private readonly List<TraceGeometry> _packed = [];
+
+    // The bottom-level structure of each instance of the build being made. Reused by every build.
+    private ulong[] _bottomLevelAddresses = [];
     private int _topLevelBuilds;
     private int _topLevelStructuresMade;
     private int _bottomLevelsReleased;
@@ -151,10 +154,15 @@ internal sealed unsafe class RayTracing : IDisposable
     /// </summary>
     public TopLevelStructure TopLevel(CommandBuffer cmd, IReadOnlyList<TraceInstance> instances)
     {
-        var bottomLevels = new ulong[instances.Count];
+        if (_bottomLevelAddresses.Length < instances.Count)
+        {
+            Array.Resize(ref _bottomLevelAddresses, Math.Max(instances.Count, _bottomLevelAddresses.Length * 2));
+        }
+
+        var bottomLevels = _bottomLevelAddresses.AsSpan(0, instances.Count);
         for (int i = 0; i < instances.Count; i++)
         {
-            bottomLevels[i] = BottomLevel(cmd, instances[i].Mesh, instances[i].Parts);
+            bottomLevels[i] = BottomLevel(cmd, instances[i].Mesh, instances[i].Parts.Span);
         }
 
         var target = Rent(instances.Count);
@@ -203,7 +211,8 @@ internal sealed unsafe class RayTracing : IDisposable
         _api.CmdBuildAccelerationStructures(cmd, 1, &info, &rangePointer);
         WaitForBuild(cmd);
 
-        _releaseAfterRecorded(new Recycle(this, target));
+        target.Recycler ??= new Recycle(this, target);
+        _releaseAfterRecorded(target.Recycler);
         _topLevelBuilds++;
         return new TopLevelStructure(target.Handle, target.Address, target.GeometryTable!, _packed.Count);
     }
@@ -260,7 +269,7 @@ internal sealed unsafe class RayTracing : IDisposable
                 InstanceShaderBindingTableRecordOffset = 0,
                 AccelerationStructureReference = bottomLevels[i],
             };
-            foreach (var part in instance.Parts)
+            foreach (var part in instance.Parts.Span)
             {
                 geometries.Add(new TraceGeometry(instance.Mesh, part));
             }
@@ -618,6 +627,9 @@ internal sealed unsafe class RayTracing : IDisposable
         public readonly ulong ScratchSize;
         public readonly GpuBuffer Instances;
         public readonly AccelerationStructureKHR Handle;
+
+        /// <summary>Hands this target back to the pool. Made the first time the target goes out, then reused.</summary>
+        public IDisposable? Recycler;
 
         /// <summary>The geometry table, made by the first <see cref="Table"/> call and grown by later ones.</summary>
         public GpuBuffer? GeometryTable { get; private set; }

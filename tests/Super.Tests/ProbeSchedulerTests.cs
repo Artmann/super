@@ -499,6 +499,80 @@ public class ProbeSchedulerTests
         }
     }
 
+    [Fact]
+    public void Once_settled_only_the_refresh_budget_of_clean_probes_is_handed_out()
+    {
+        var cascades = new ProbeCascades(ProbeQuality.Low);
+        var scheduler = new ProbeScheduler(cascades, 0);
+        var camera = new Vector3(0.25f, 1.1f, 0.25f);
+        scheduler.Scrolled(cascades.Move(camera));
+
+        // Before anything is captured the whole budget goes, refresh budget or not.
+        var first = scheduler.Next(256, camera, Forward, refreshBudget: 64);
+        Assert.Equal(256, first.Count);
+        scheduler.Updated(first);
+        CaptureEverything(scheduler, camera);
+        Assert.True(scheduler.Settled);
+
+        var settled = scheduler.Next(256, camera, Forward, refreshBudget: 64);
+        Assert.Equal(64, settled.Count);
+        scheduler.Updated(settled);
+
+        // A light near the camera dirties about 130 probes. Until they're done, the whole budget goes again.
+        scheduler.LightChanged(camera, 1.5f);
+        Assert.False(scheduler.Settled);
+        var relit = scheduler.Next(256, camera, Forward, refreshBudget: 64);
+        int near = relit.Count(id => Vector3.Distance(cascades.Position(id.Cascade, id.Slot), camera) <= 1.5f);
+        Assert.Equal(256, relit.Count);
+        Assert.InRange(near, 100, 200);
+    }
+
+    [Fact]
+    public void A_frame_whose_camera_crosses_cells_allocates_nothing_once_warm()
+    {
+        var cascades = new ProbeCascades(ProbeQuality.High);
+        var scheduler = new ProbeScheduler(cascades, 0);
+        int budget = ProbeBudget.For(ProbeQuality.High).Traced;
+        var here = new Vector3(0.25f, 1.1f, 0.25f);
+        var there = here + new Vector3(4f, 0f, 4f);
+        int newSlots = 0;
+
+        // Warm up: the first move makes every probe new, and the next ones grow the lists of new slots to the
+        // size of these crossings.
+        for (int frame = 0; frame < 10; frame++)
+        {
+            RunFrame(frame);
+        }
+
+        newSlots = 0;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int frame = 0; frame < 40; frame++)
+        {
+            RunFrame(frame);
+        }
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0L, allocated);
+        // Every frame moved every cascade by a cell or more along x and z, so every frame had new probes.
+        Assert.True(newSlots >= 40 * ProbeCascades.Count, $"only {newSlots} new slots in 40 crossings");
+
+        void RunFrame(int frame)
+        {
+            var camera = frame % 2 == 0 ? there : here;
+            var scroll = cascades.Move(camera);
+            for (int c = 0; c < ProbeCascades.Count; c++)
+            {
+                newSlots += scroll.NewSlots(c).Count;
+            }
+
+            scheduler.Scrolled(scroll);
+            // No asserts in here: xUnit's own asserts allocate.
+            var batch = scheduler.Next(budget, camera, Forward);
+            scheduler.Updated(batch);
+        }
+    }
+
     private static ProbeId[] Probes(int cascade, int count)
     {
         return Enumerable.Range(0, count).Select(slot => new ProbeId(cascade, slot)).ToArray();

@@ -467,6 +467,41 @@ public sealed class LiveProbeTests(GpuFixture shared)
     }
 
     [Fact]
+    public void A_settled_traced_frame_allocates_no_more_than_one_with_probes_off()
+    {
+        const int Frames = 60;
+        using var probes = Open(traced: true);
+        var gpu = probes.Gpu;
+        var scene = probes.Scene(gpu => ProbeScenes.RedWall(gpu, lightIsSpot: false));
+        Settle(gpu, scene);
+
+        long withProbes = Allocated(RenderEffects.None);
+        long without = Allocated(RenderEffects.LightProbes);
+
+        Assert.True(withProbes <= without, $"{Frames} frames allocated {withProbes} bytes with probes, {without} without.");
+        Assert.Equal(0, probes.NewValidationErrors);
+
+        long Allocated(RenderEffects off)
+        {
+            var view = View(scene, Vector3.Zero);
+            view.Off = off;
+            // Warm up, so lists that grow to the frame's size have grown, and the top-level structure is built.
+            for (int frame = 0; frame < 20; frame++)
+            {
+                gpu.Renderer.Render(view, scene.Draws);
+            }
+
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int frame = 0; frame < Frames; frame++)
+            {
+                gpu.Renderer.Render(view, scene.Draws);
+            }
+
+            return GC.GetAllocatedBytesForCurrentThread() - before;
+        }
+    }
+
+    [Fact]
     public void The_probe_view_draws_a_red_tinted_sphere_beside_the_red_wall()
     {
         using var gpu = new GpuFixture(disableRayTracing: true);

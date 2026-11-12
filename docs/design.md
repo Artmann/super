@@ -1635,17 +1635,42 @@ never-captured probes, then the other dirty probes, then clean probes in order o
 since their last update. Among dirty and never-captured probes the nearer probe goes first, finer
 cascades win at equal distance (squared distance is scaled by `(1 + cascade / 2)²`) and probes in
 front of the camera count as nearer (×0.75). Among clean probes the oldest goes first and
-distance only breaks ties, so no probe waits longer than about probes ÷ budget frames. Ties end in
-the lowest cascade and slot, so the same calls always give the same batches. `Frame` counts the
+distance only breaks ties, so no probe waits longer than about probes ÷ budget frames, or
+probes ÷ `refreshBudget` once settled. Ties end in the lowest cascade and slot, so the same calls
+always give the same batches. `Frame` counts the
 calls to `Next`, and ages are in frames, never seconds. The pass over all probes keeps the best
 `budget` in a binary heap rather than sorting, so a frame at High (65,536 probes) costs one scan.
 `Settled` means cascades 0 and 1 and the fixed grid are all captured and clean. It reads a count of
 probes that aren't clean, kept per cascade as probes change state, so reading it every frame scans
-nothing. Once warm, a frame whose camera stays in its cells allocates nothing on the probe path, which
-a test checks: `Next` sorts its heap in place by `IComparable` (a sort given a comparer would make a
-delegate) and refills one list it hands back each call, `Move` hands back one cached `ScrollResult`,
-and the renderer copies the batch into a list of its own and cuts it there. The ProbeBudget
-is 8 raster and 256 traced probes a frame at Low, 16 and 512 at Medium, and 32 and 1,024 at High.
+nothing.
+
+Once warm, the probe path allocates nothing on the CPU, whether or not the camera crosses a cell.
+`Next` sorts its heap in place by `IComparable` (a sort given a comparer would make a delegate) and
+refills one list it hands back each call. `Move` hands back one cached `ScrollResult` when no
+cascade moved, and on a crossing refills arrays and per-cascade slot lists the cascades own, which
+`NewSlots` hands back. The renderer copies the batch into a list of its own and cuts it there. On
+the traced path, `TraceScene.Collect` reuses one instance list and one part array for the frame's
+top-level structure, and `RayTracing.TopLevel` reuses its array of bottom-level addresses and the
+one recycler each top-level target hands to the frame's release list. Three tests measure
+`GC.GetAllocatedBytesForCurrentThread` around these calls and expect 0 bytes: one runs scheduler
+frames with a light changing every frame, one alternates the camera across cells of every cascade
+(`Move`, `NewSlots`, `Scrolled`, `Next` and `Updated`), and one collects the same 60 draws 100
+times. A GPU test renders a settled traced red-wall scene for 60 frames with the probes on and
+again with them off, and expects no more bytes with them on (both are 73,920 bytes: the rest of
+`Render` still allocates about 1.2 KB a frame). `Rendition.Sample --check` measures the whole
+sample over 900 frames: 676,800 bytes, the same as before the probes were live.
+
+The ProbeBudget is 8 raster and 256 traced probes a frame at Low, 16 and 512 at Medium, and 32
+and 1,024 at High. The traced path refreshes clean probes for their age at only a quarter of its
+budget (`TracedRefresh`: 64, 128 and 256) once `Settled` is true, which `Next` takes as
+`refreshBudget`. Never-captured and dirty probes still get the whole budget. Refreshing the whole
+budget kept the probe pass busy in a settled scene: at High and 1280 × 720, `--profile` measured
+0.97 ms of GPU time a frame in Rooms and 0.62 ms in Bricks, and with the quarter it measures 0.27
+and 0.22 ms. At 256 refreshes a frame a probe at High is refreshed about every 260 frames. Scenes
+whose near probes never settle keep the whole budget: Crypt's flickering torches dirty probes
+every frame (0.90 ms), and Gallery's camera tour keeps bringing in new ones (0.42 ms). On the
+CPU, `Next` scans every probe each frame whatever the budget, which `--profile` puts at about 1 ms
+a frame at High in Rooms and Bricks.
 
 `ProbeDebugPass` draws `DebugView.Probes`. Only a frame's `RecordScene` runs it (never a
 reflection probe's capture), after the transparent pass and only while `_lightProbesInUse`, so with
@@ -2965,8 +2990,11 @@ rebuilds it.
 
 ### What rays can hit, and the top-level structure
 
-`TraceScene.Collect(draws, flagsOf)` turns a frame's draws into `TraceInstance`s: one per distinct
-mesh and transform, in the order they are first drawn, with that placement's parts in draw order.
+`TraceScene.Collect(draws)` turns a frame's draws into `TraceInstance`s: one per distinct mesh and
+transform, in the order they are first drawn, with that placement's parts in draw order. The
+renderer keeps one `TraceScene`, made with its material flags, and each call reuses its instance
+list and part array, so the result is valid until the next call; an instance's `Parts` is a slice
+of that array.
 It leaves out ghosts (previews, not things), skinned draws and swimming draws (their structure is
 the bind pose, which they move away from), and draws with no indices. An instance's `TraceFlags`
 are the union of its parts': `Cutout` when a material has cut-outs, `SeeThrough` when it is
