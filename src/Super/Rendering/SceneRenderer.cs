@@ -150,6 +150,16 @@ internal sealed class SceneRenderer : IDisposable
         set => _renderer.Upscaler = value;
     }
 
+    /// <summary>How many light probes follow the camera and are updated a frame. A change starts every probe again on the next frame.</summary>
+    public ProbeQuality ProbeQuality
+    {
+        get => _renderer.ProbeQuality;
+        set => _renderer.ProbeQuality = value;
+    }
+
+    /// <summary>Whether the light probes near the camera are all up to date. See <see cref="Renderer.ProbesSettled"/>.</summary>
+    public bool ProbesSettled => _renderer.ProbesSettled;
+
     /// <summary>The effects left out of every frame from now on.</summary>
     public RenderEffects Off { get; set; }
 

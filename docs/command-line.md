@@ -14,7 +14,7 @@ dotnet run -c Release --project MyColony -- --script tooltip --ticks 40 --screen
 | --- | --- |
 | `--seed N` | Seeds [`GameRandom`](random.md). The same seed plays the same game |
 | `--ticks N` | Plays this many ticks first, as fast as the machine can. Needs `--screenshot`, `--record` or `--profile` |
-| `--screenshot file.png` | Saves the picture at that moment, then exits |
+| `--screenshot file.png` | Saves the picture at that moment, then exits. It first waits for the light probes near the camera to settle, up to 2,048 frames. See [Screenshots](#screenshots) |
 | `--record file.mp4 --seconds S` | Saves that many seconds of video, then exits |
 | `--fps N` | Frames per second for `--record`, 60 by default |
 | `--size WxH` | The picture size, such as `1920x1080`, or `1080x1920` for a vertical video. The game's window size by default |
@@ -40,6 +40,13 @@ stops the game with a message saying what's wrong, such as
 so it needs a GPU. Pictures come straight from the renderer, so other windows can't end up
 in them, and the same seed and ticks give the same picture, down to the byte, for a game
 built with [`Super.targets`](#in-the-build).
+
+Before it saves, `--screenshot` renders on, at that moment, until the
+[light probes](rendering.md#bounced-light) near the camera have all been drawn, up to 2,048
+frames, so the bounced light is as it will be rather than still filling in. It prints how many
+frames that took, or that the probes were still filling in at 2,048, which a big scene such as
+Courtyard can reach at `ProbeQuality.High`. With `Graphics.LightProbes` off it doesn't wait.
+`--record` doesn't wait for the probes.
 
 When a [test invariant](testing.md#invariants) fails, its message gives the options that
 take you back to that tick.

@@ -70,7 +70,8 @@ next frame follows, so it can back an options menu.
 | `LightShadows` | Point and spot lights shine through walls |
 | `AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. `view.AmbientOcclusion` only changes [how far and how dark](#ambient-occlusion) |
 | `MultiscatterSpecular` | Rough surfaces lose the light that bounces between their tiny facets, so rough metals such as worn iron come out darker than they should, by up to half at full roughness. It costs almost nothing, so leave it on unless you're comparing |
-| `LightProbes` | No [bounced light](#bounced-light): shade takes its soft light from the sky alone, even inside a `view.LightProbes` box. No probes are drawn, and their memory, about 170 MB at `High`, is freed until it is switched back on, when every probe starts again |
+| `LightProbes` | No [bounced light](#bounced-light): shade takes its soft light from the sky alone, even inside a `view.LightProbes` box. No probes are drawn, and their memory, about 170 MB at `ProbeQuality.High`, is freed until it is switched back on, when every probe starts again. `Graphics.Fastest()` turns it off |
+| `ProbeQuality` | How many [light probes](#bounced-light) follow the camera and how many are redrawn a frame. `High`, the default and the best look, keeps 32 × 16 × 32 probes in each of the four boxes and redraws 32 a frame, for about 170 MB. `Medium` keeps 24 × 12 × 24 and redraws 16, for about 73 MB. `Low` keeps 16 × 8 × 16 and redraws 8, for about 43 MB, so the boxes reach half as far, the bounce fills in more slowly at the start and is slower to follow lights that move. Anything else is refused. A change starts every probe again on the next frame, which waits for the GPU once. `Graphics.Fastest()` sets `Low`, so turning the probes back on stays cheap |
 | `Reflections` | Shiny surfaces, water and glass reflect only the sky: not what's on screen, and no [reflection probes](#reflections) are photographed |
 | `AntiAliasing` | Edges show their pixels, and moving things stay sharp |
 | `Bloom` | No glow round bright things. `PostSettings.Bloom` only changes how much there is |
@@ -332,7 +333,7 @@ surfaces and the light already bounced, so light bounces again with every update
 
 The probes sit in four nested boxes centred on the camera, 0.5, 1, 2 and 4 metres apart, so
 detail is finest close by and the far boxes still reach a long way. They are updated a few a
-frame (8, 16 or 32 by `Renderer.ProbeQuality`: `Low`, `Medium` or `High`, the default, and
+frame (8, 16 or 32 by [`Graphics.ProbeQuality`](#graphics-settings): `Low`, `Medium` or `High`, the default, and
 fewer in a dense scene: a frame draws at most 8 million triangles round its probes, which is
 about 9 probes in Courtyard), so there is no pause while loading: the scene starts lit by the
 sky and fills in over the first frames, nearest probes first. At `High` the near probes have
@@ -364,7 +365,10 @@ Reflections don't change; probes give only the soft, diffuse light. See-through,
 swimming things don't show in the probes, as they would spoil them or move on their own.
 
 `Graphics.LightProbes` turns all of this off and frees the probes' memory, about 170 MB at
-`High`. Switching it back on starts every probe again.
+`High`. Switching it back on starts every probe again. `Graphics.ProbeQuality` trades the
+probes' reach and speed for memory and GPU time; see [graphics settings](#graphics-settings).
+A [screenshot](command-line.md#screenshots) waits for the probes near the camera to be drawn,
+up to 2,048 frames, so it shows the bounce as it will be rather than still filling in.
 
 ## Baked lighting
 

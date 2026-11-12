@@ -14,6 +14,12 @@ internal sealed unsafe class GameWindow : IDisposable
     /// <summary>Anti-aliasing builds up over several frames, so a screenshot waits for it to settle.</summary>
     private const int ScreenshotSettleFrames = 48;
 
+    /// <summary>
+    /// The most frames a screenshot waits, after <see cref="ScreenshotSettleFrames"/>, for the light probes near
+    /// the camera to all be drawn. They're drawn a few a frame, so a busy scene may still be filling in at the cap.
+    /// </summary>
+    private const int ScreenshotProbeFrames = 2048;
+
     private const int ScreenshotPlayedTicks = 120;
 
     private const int RecordingSettleFrames = 16;
@@ -204,6 +210,7 @@ internal sealed unsafe class GameWindow : IDisposable
         Draw(host, 1f);
         float time = (float)host.Time.TotalSeconds;
         Settle(host, time, ScreenshotSettleFrames);
+        SettleProbes(host, time);
 
         host.Capture.Screenshot(path);
         Show(host, time);
@@ -352,6 +359,55 @@ internal sealed unsafe class GameWindow : IDisposable
         }
     }
 
+    /// <summary>
+    /// Renders on until the light probes near the camera are all drawn, up to <see cref="ScreenshotProbeFrames"/>
+    /// frames, so a screenshot shows the bounced light as it will be rather than still filling in. With the probes
+    /// off there is nothing to wait for. Says how long it waited, as a slow scene can make a shot take a while.
+    /// </summary>
+    private void SettleProbes<TGame>(GameHost<TGame> host, float time)
+        where TGame : class, IGame
+    {
+        if (!host.Graphics.LightProbes)
+        {
+            return;
+        }
+
+        _glfw.GetFramebufferSize(_window, out int width, out int height);
+        int frames = ExtraSettleFrames(
+            () => _scene.ProbesSettled,
+            () =>
+            {
+                ApplyGraphics(host.Graphics);
+                _scene.Render(host.View, host.Content, width, height, time);
+            },
+            ScreenshotProbeFrames);
+
+        if (frames == ScreenshotProbeFrames && !_scene.ProbesSettled)
+        {
+            Console.WriteLine($"The light probes were still filling in after {frames} more frames; the shot shows them as they are.");
+        }
+        else if (frames > 0)
+        {
+            Console.WriteLine($"Waited {frames} more frames for the light probes to settle.");
+        }
+    }
+
+    /// <summary>
+    /// Renders frames until <paramref name="settled"/> says there's nothing left to wait for, or <paramref name="cap"/>
+    /// frames have been rendered, and returns how many were. None are rendered if it's settled already.
+    /// </summary>
+    internal static int ExtraSettleFrames(Func<bool> settled, Action renderFrame, int cap)
+    {
+        int frames = 0;
+        while (frames < cap && !settled())
+        {
+            renderFrame();
+            frames++;
+        }
+
+        return frames;
+    }
+
     /// <summary>Runs the game's Draw with the interface laid out for the window as it is now.</summary>
     private void Draw<TGame>(GameHost<TGame> host, float blend)
         where TGame : class, IGame
@@ -384,16 +440,18 @@ internal sealed unsafe class GameWindow : IDisposable
     /// <summary>Hands the game's graphics settings, as they are now, to the renderer for the next frame.</summary>
     private void ApplyGraphics(Graphics graphics)
     {
-        (_scene.Off, _scene.Vsync, _scene.ShadowResolution, _scene.RenderScale, _scene.Upscaler) = RendererSettings(graphics, _hidden);
+        (_scene.Off, _scene.Vsync, _scene.ShadowResolution, _scene.RenderScale, _scene.Upscaler, _scene.ProbeQuality) =
+            RendererSettings(graphics, _hidden);
     }
 
     /// <summary>
     /// What the renderer is told from the game's graphics settings: the effects left out, whether to wait
-    /// for the display, which a hidden window always does, the sun's shadow map size, the render scale and the upscaler.
+    /// for the display, which a hidden window always does, the sun's shadow map size, the render scale, the upscaler
+    /// and the light probes' quality.
     /// </summary>
-    internal static (RenderEffects Off, bool Vsync, int ShadowResolution, float RenderScale, Upscaler Upscaler) RendererSettings(
-        Graphics graphics, bool hidden) =>
-        (graphics.Off, hidden || graphics.Vsync, graphics.ShadowResolution, graphics.RenderScale, graphics.Upscaler);
+    internal static (RenderEffects Off, bool Vsync, int ShadowResolution, float RenderScale, Upscaler Upscaler, ProbeQuality ProbeQuality)
+        RendererSettings(Graphics graphics, bool hidden) =>
+        (graphics.Off, hidden || graphics.Vsync, graphics.ShadowResolution, graphics.RenderScale, graphics.Upscaler, graphics.ProbeQuality);
 
     /// <summary>Feeds the window's events into the game's input. Only the interactive loop does this.</summary>
     private void ListenForInput(Input input)

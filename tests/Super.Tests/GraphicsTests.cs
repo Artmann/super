@@ -27,6 +27,36 @@ public class GraphicsTests
         Assert.Equal(0, graphics.MaxFramesPerSecond);
         Assert.Equal(2048, graphics.ShadowResolution);
         Assert.Equal(1f, graphics.RenderScale);
+        Assert.Equal(ProbeQuality.High, graphics.ProbeQuality);
+    }
+
+    [Fact]
+    public void An_undefined_probe_quality_is_refused()
+    {
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => new Graphics { ProbeQuality = (ProbeQuality)7 });
+
+        Assert.StartsWith("Probe quality can be Low, Medium or High.", error.Message);
+        Assert.Equal("value", error.ParamName);
+    }
+
+    [Fact]
+    public void Fastest_sets_probe_quality_to_low_and_light_probes_off()
+    {
+        var graphics = Graphics.Fastest();
+
+        Assert.Equal(ProbeQuality.Low, graphics.ProbeQuality);
+        Assert.True(graphics.Off.HasFlag(RenderEffects.LightProbes));
+    }
+
+    [Fact]
+    public void A_changed_probe_quality_reaches_the_renderer_next_frame()
+    {
+        var given = new Graphics();
+        using var host = new GameHost<Settings>(1, 30, null, graphics: given);
+
+        host.Game.Graphics.ProbeQuality = ProbeQuality.Medium;
+
+        Assert.Equal(ProbeQuality.Medium, GameWindow.RendererSettings(host.Graphics, hidden: false).ProbeQuality);
     }
 
     [Theory]

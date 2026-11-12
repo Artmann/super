@@ -591,9 +591,9 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>
     /// Whether every probe near the camera, in the two finest cascades and the fixed grid, has been
-    /// updated since its light last changed. False while the probes are off.
+    /// updated since its light last changed. False while the probes are off. Screenshots wait for it.
     /// </summary>
-    internal bool ProbesSettled => _probeScheduler?.Settled ?? false;
+    public bool ProbesSettled => _probeScheduler?.Settled ?? false;
 
     /// <summary>For tests: while true, no probe is updated, so what a test writes into the atlases stays.</summary>
     internal bool ProbeUpdatesPaused { get; set; }

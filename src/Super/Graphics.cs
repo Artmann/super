@@ -85,6 +85,21 @@ public sealed class Graphics
     /// </summary>
     public bool LightProbes { get; set; } = true;
 
+    /// <summary>
+    /// How many light probes follow the camera, and how many are updated a frame, when <see cref="LightProbes"/> is on.
+    /// <see cref="Rendition.ProbeQuality.High"/>, the default, keeps the most and updates 32 a frame, for about 170 MB;
+    /// <see cref="Rendition.ProbeQuality.Medium"/> updates 16 for about 73 MB, and <see cref="Rendition.ProbeQuality.Low"/>
+    /// updates 8 for about 43 MB, so the bounce fills in and follows changes more slowly. A change while the game runs
+    /// starts every probe again on the next frame, which waits for the GPU once. <see cref="Fastest"/> sets Low.
+    /// </summary>
+    public ProbeQuality ProbeQuality
+    {
+        get;
+        set => field = Enum.IsDefined(value)
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), value, "Probe quality can be Low, Medium or High.");
+    } = ProbeQuality.High;
+
     /// <summary>Point and spot light shadows. Off, those lights are blocked only by nearby surfaces, as the sun is without its shadows.</summary>
     public bool LightShadows { get; set; } = true;
 
@@ -173,7 +188,8 @@ public sealed class Graphics
 
     /// <summary>
     /// Every effect off and vsync off: the fastest the engine draws, and a start for a game that
-    /// must run on modest hardware. Turn back on only what it needs.
+    /// must run on modest hardware. Turn back on only what it needs. The light probes are at
+    /// <see cref="Rendition.ProbeQuality.Low"/>, so turning them back on keeps them cheap.
     /// </summary>
     public static Graphics Fastest() => new()
     {
@@ -182,6 +198,7 @@ public sealed class Graphics
         SunShadows = false,
         ContactShadows = false,
         LightProbes = false,
+        ProbeQuality = ProbeQuality.Low,
         LightShadows = false,
         AmbientOcclusion = false,
         MultiscatterSpecular = false,

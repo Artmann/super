@@ -232,6 +232,66 @@ public sealed class LiveProbeTests
         Assert.Equal(0, gpu.ValidationErrors);
     }
 
+    [Fact]
+    public void Moving_the_light_changes_the_probe_and_no_frame_goes_over_budget()
+    {
+        const int MoveFrames = 100;
+        const int AfterFrames = 300;
+        const int LowFrom = (MoveFrames + AfterFrames) / 2;
+
+        using var gpu = new GpuFixture(disableRayTracing: true);
+        var scene = ProbeScenes.RedWall(gpu, lightIsSpot: false);
+        Settle(gpu, scene);
+
+        // Settled counts only the two finest cascades, and a never-captured probe goes before a dirty one wherever it
+        // is, so the coarse cascades are filled first: otherwise they would hold back the probes the light dirties.
+        var layouts = ProbeCascades.Layouts(ProbeQuality.High);
+        int coarse = (layouts[2].Total + layouts[3].Total) / ProbeBudget.For(ProbeQuality.High).Raster;
+        for (int frame = 0; frame < coarse; frame++)
+        {
+            Render(gpu, scene, Vector3.Zero);
+        }
+
+        var point = new Vector3(0.7f, 0.3f, 1.5f);
+        var before = gpu.Renderer.SampleProbeIrradiance([(point, Vector3.UnitX)])[0];
+        var start = scene.Lights[0].Position;
+
+        // The light slides 2 m towards +z, nearer the point, over 100 frames. Half way through the 400 frames the
+        // quality drops to Low, which makes the probes' storage again, and from that frame on a frame may update only
+        // Low's count. The new storage captures every probe afresh, so the probe is also read just before the drop,
+        // where only the light's move can have changed it. An update blends only part of the way to the new light, and
+        // the probe has had about one by then, so that check asks for less.
+        var budgets = new List<(int Frame, int Updated, int Budget)>();
+        var beforeLow = Vector3.Zero;
+        for (int frame = 1; frame <= MoveFrames + AfterFrames; frame++)
+        {
+            if (frame <= MoveFrames)
+            {
+                scene.Lights[0].Position = start + new Vector3(0f, 0f, 2f * frame / MoveFrames);
+            }
+
+            if (frame == LowFrom)
+            {
+                beforeLow = gpu.Renderer.SampleProbeIrradiance([(point, Vector3.UnitX)])[0];
+                gpu.Renderer.ProbeQuality = ProbeQuality.Low;
+            }
+
+            Render(gpu, scene, Vector3.Zero);
+            var quality = frame >= LowFrom ? ProbeQuality.Low : ProbeQuality.High;
+            budgets.Add((frame, gpu.Renderer.ProbeUpdatesLastFrame, ProbeBudget.For(quality).Raster));
+        }
+
+        var after = gpu.Renderer.SampleProbeIrradiance([(point, Vector3.UnitX)])[0];
+
+        Assert.All(budgets, entry => Assert.True(
+            entry.Updated <= entry.Budget, $"Frame {entry.Frame} updated {entry.Updated} probes, over its budget of {entry.Budget}."));
+        Assert.Contains(budgets, entry => entry.Frame < LowFrom && entry.Updated > ProbeBudget.For(ProbeQuality.Low).Raster);
+        Assert.True(before.X > 0.01f, $"Before the move the probes read {before}.");
+        Assert.True(beforeLow.X >= 1.2f * before.X,$"Before the move the probes read {before}, before the drop to Low {beforeLow}.");
+        Assert.True(after.X >= 1.5f * before.X, $"Before the move the probes read {before}, after it {after}.");
+        Assert.Equal(0, gpu.ValidationErrors);
+    }
+
     // Renders the scene on a renderer of its own until it settles, and samples it there.
     private static Vector3 Settled(Func<GpuFixture, ProbeScene> make, Vector3 point, Vector3 normal)
     {

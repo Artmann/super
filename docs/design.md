@@ -1422,7 +1422,7 @@ fixed-grid probes: 64 × 64 tiles at `ProbeQuality.Low`, 84 × 83 at `Medium` an
 `High`. `ProbeVolume.AtlasBytes` gives the memory for both atlases and all five layers: about
 43 MB at Low, 73 MB at Medium and 172 MB at High, against 8.6 MB for the single fixed-grid atlas
 before. `EnsureStorage(quality)` makes them on the first frame with the probes on, and again,
-cleared, after `Renderer.ProbeQuality` (High by default) changes; `Release()` frees them when
+cleared, after `Renderer.ProbeQuality` (High by default, set from `Graphics.ProbeQuality`) changes; `Release()` frees them when
 `RenderEffects.LightProbes` is switched off. Each of the three waits for the device once, in
 `ManageProbeStorage` before the frame's fence. With the switch off nothing else is allocated
 and nothing is recorded, and switching it back on starts every probe uncaptured.
@@ -1530,8 +1530,14 @@ at the triangle budget. Updates are counted in frames, never seconds.
 
 `RecordProbeUpdate` runs after the shadow tile atlas: the invalidations, the probes' sun map
 when it is due, the captures, the fold and the blend, then `Updated` tells the scheduler which
-probes are clean. `ProbeUpdatesLastFrame` says how many were updated, and `ProbesSettled` is the
-scheduler's `Settled`. A dirty probe keeps its old light in use until it is redone, so a change
+probes are clean. `ProbeUpdatesLastFrame` says how many were updated, and `ProbesSettled`, which
+is public, is the scheduler's `Settled`. Super's `GameWindow.Screenshot` renders on after its 48
+settle frames until `ProbesSettled`, at most `ScreenshotProbeFrames` (2,048) more, through
+`ExtraSettleFrames`, and prints how many it took or that it hit the cap; with `Graphics.LightProbes`
+off it doesn't wait. Recordings don't wait. `Settled` counts only cascades 0 and 1, and the
+scheduler hands out every never-captured probe before any dirty one, wherever it is, so while
+the coarse cascades are still filling in, probes dirtied by a light near the camera wait for
+them. A dirty probe keeps its old light in use until it is redone, so a change
 fades in over the frames it takes to reach every probe rather than flashing. Without
 `shaderStorageImageExtendedFormats`, needed to write RG16F from compute, or without multiview,
 the probes are off.
@@ -3069,7 +3075,10 @@ and `ReadyToTrace`, are checked by review and by the GPU tests, not by the valid
   sun they take a while to settle: about a thousand frames for the two finest cascades at High.
   Moving things don't mark probes dirty; the oldest probes are redone in turn, so a moved object's
   bounce catches up within about probes ÷ budget frames. A sun that turns every frame keeps every
-  probe dirty. Nothing is traced yet; every update is rasterized.
+  probe dirty. Never-captured probes go before dirty ones wherever they are, so until the coarse
+  cascades have all been drawn once, a light moving near the camera waits for them. Courtyard
+  takes longer than a screenshot's 2,048-frame wait to settle at High, so its shots can still be
+  filling in. Nothing is traced yet; every update is rasterized.
 - Volumetric fog is a froxel grid of one cell per 8×8 scene pixels, so light bleeds a
   cell across silhouettes, a shaft narrower than a cell blurs, and its history smears a
   moving light or a fast camera for a few frames. Past `VolumetricDistance` the fog is the
