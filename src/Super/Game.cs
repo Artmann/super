@@ -128,7 +128,14 @@ public static class Game
                 return;
             }
 
-            int problems = window.Bake(host, bakeTicks, arguments.BakeQuality, dev.Roots[0], out int failed);
+            int problems = 0;
+            int failed = 0;
+            if (!TryBake(() => problems = window.Bake(host, bakeTicks, arguments.BakeQuality, dev.Roots[0], out failed), Console.Error))
+            {
+                Environment.ExitCode = 1;
+                return;
+            }
+
             Console.WriteLine($"{problems} validation messages");
             Environment.ExitCode = problems == 0 && failed == 0 ? 0 : 1;
             return;
@@ -155,6 +162,25 @@ public static class Game
     /// so the frame sees every light that moves at least once a second as moving.
     /// </summary>
     internal static long BakeTicks(long? ticks, int ticksPerSecond) => ticks ?? 2L * ticksPerSecond;
+
+    /// <summary>
+    /// Runs a <c>--bake</c>. An <see cref="InvalidOperationException"/> is what a bake that can't be made throws (no
+    /// baked space, an area with nothing to bake, draws that don't fit the pages), so its message goes to
+    /// <paramref name="error"/> as one line, as the other command-line errors do, and this returns false.
+    /// </summary>
+    internal static bool TryBake(Action bake, TextWriter error)
+    {
+        try
+        {
+            bake();
+            return true;
+        }
+        catch (InvalidOperationException exception)
+        {
+            error.WriteLine(exception.Message);
+            return false;
+        }
+    }
 
     private static InputScript? FindScript<TGame>(GameHost<TGame> host, string? name)
         where TGame : class, IGame

@@ -364,6 +364,38 @@ public class GameArgumentsTests
     }
 
     [Fact]
+    public void A_bake_that_cannot_be_made_prints_its_message_on_one_line_instead_of_throwing()
+    {
+        var error = new StringWriter();
+
+        bool made = Game.TryBake(() => throw new InvalidOperationException("--bake found nothing."), error);
+
+        Assert.False(made);
+        Assert.Equal("--bake found nothing." + Environment.NewLine, error.ToString());
+    }
+
+    [Fact]
+    public void A_bake_that_is_made_prints_nothing()
+    {
+        var error = new StringWriter();
+        int ran = 0;
+
+        bool made = Game.TryBake(() => ran++, error);
+
+        Assert.True(made);
+        Assert.Equal(1, ran);
+        Assert.Equal("", error.ToString());
+    }
+
+    [Fact]
+    public void A_bake_that_fails_another_way_is_not_hidden()
+    {
+        var error = Assert.Throws<IOException>(() => Game.TryBake(() => throw new IOException("disk full"), new StringWriter()));
+
+        Assert.Equal("disk full", error.Message);
+    }
+
+    [Fact]
     public void Bake_quality_without_bake_throws()
     {
         var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--bake-quality", "preview"]));

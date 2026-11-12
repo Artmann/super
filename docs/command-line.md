@@ -443,9 +443,13 @@ It exits with 1 when there were validation messages. `--bake-quality preview` tr
 samples a texel, which took 13 seconds on the Gallery; `final`, the default, traces 1,024,
 which took 16 seconds there. The
 space and each chunk are baked at the texel density they were named with, `texelsPerMetre`,
-which is what a frame checks its bake against. A frame with neither a baked space nor a chunk
-throws "--bake found no baked space or chunk in the frame. Name one with view.BakedLighting or
-view.BakedChunk." A chunk that owns no static draws has nothing to bake: `--bake` prints
+which is what a frame checks its bake against. A bake that can't be made prints one line to the
+error output and exits with 1, with no stack trace, like the other command-line errors. That
+covers a frame with neither a baked space nor a chunk ("--bake found no baked space or chunk in
+the frame. Name one with view.BakedLighting or view.BakedChunk."), and a space or chunk whose
+static draws don't fit its lightmap pages: a space has 8 pages of 2048 texels and a chunk one,
+so the line says how many draws were left out and to use fewer texels a metre or a smaller
+space. Nothing is saved from such a bake. A chunk that owns no static draws has nothing to bake: `--bake` prints
 `lighting/<name>/<hash>.lightbake: no static draws, nothing to bake`, carries on with the other
 files, and exits with 1 at the end. `--bake-check` lists such a chunk as missing.
 
