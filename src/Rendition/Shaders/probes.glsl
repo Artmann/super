@@ -51,6 +51,37 @@ bool probeInside(int probe, int layer) {
     return texelFetch(probeDepthAtlas, ivec3(corner, layer), 0).g < 0.0;
 }
 
+// The same for a bake's atlas, which has one layer.
+bool probeInside(sampler2D depthAtlas, int probe) {
+    int width = textureSize(depthAtlas, 0).x;
+    return texelFetch(depthAtlas, probeTileCorner(probe, PROBE_DEPTH_TEXELS + 2, width), 0).g < 0.0;
+}
+
+// A probe behind the surface lights it least, though never quite not at all, so a point with
+// probes on one side only still gets some.
+float probeFacing(vec3 probePosition, vec3 p, vec3 n) {
+    vec3 towards = probePosition - p;
+    if (length(towards) <= 1e-5) {
+        return 1.0;
+    }
+
+    float wrap = (dot(normalize(towards), n) + 1.0) * 0.5;
+    return wrap * wrap;
+}
+
+// The probe saw something nearer than the point in its direction, at the mean and mean square
+// distances in moments: the point is likely behind it, so the probe counts for little.
+float probeVisible(vec2 moments, float distanceToProbe) {
+    if (distanceToProbe <= moments.x) {
+        return 1.0;
+    }
+
+    float variance = abs(moments.y - moments.x * moments.x);
+    float beyond = distanceToProbe - moments.x;
+    float chebyshev = variance / (variance + beyond * beyond);
+    return chebyshev * chebyshev * chebyshev;
+}
+
 // The weighted light of the eight probes of one layer round a point, and the weights' total in w.
 // The probes sit at first + cell * spacing for cells 0 to counts - 1. In the fixed grid probe
 // x + counts.x * (y + counts.y * z) is in slot of the same number; a cascade's cell, counted from
@@ -92,32 +123,15 @@ vec4 probeSum(vec3 p, vec3 n, vec3 v, vec3 first, float spacing, ivec3 counts, i
             continue;
         }
 
-        // A probe behind the surface lights it least, though never quite not at all, so a
-        // point with probes on one side only still gets some.
-        vec3 towards = probePosition - p;
-        float facing = 1.0;
-        if (length(towards) > 1e-5) {
-            float wrap = (dot(normalize(towards), n) + 1.0) * 0.5;
-            facing = wrap * wrap;
-        }
-
-        // The probe saw something nearer than the point in its direction: the point is likely
-        // behind it, so the probe counts for little.
         vec3 fromProbe = biased - probePosition;
         float distanceToProbe = length(fromProbe);
         float visible = 1.0;
         if (distanceToProbe > 1e-5) {
             vec2 depthUv = probeTileUv(probe, fromProbe / distanceToProbe, PROBE_DEPTH_TEXELS, depthSize);
-            vec2 moments = texture(probeDepthAtlas, vec3(depthUv, float(layer))).rg;
-            if (distanceToProbe > moments.x) {
-                float variance = abs(moments.y - moments.x * moments.x);
-                float beyond = distanceToProbe - moments.x;
-                float chebyshev = variance / (variance + beyond * beyond);
-                visible = chebyshev * chebyshev * chebyshev;
-            }
+            visible = probeVisible(texture(probeDepthAtlas, vec3(depthUv, float(layer))).rg, distanceToProbe);
         }
 
-        float weight = trilinear * facing * visible;
+        float weight = trilinear * probeFacing(probePosition, p, n) * visible;
         vec2 irradianceUv = probeTileUv(probe, n, PROBE_IRRADIANCE_TEXELS, irradianceSize);
         vec3 irradiance = texture(probeIrradianceAtlas, vec3(irradianceUv, float(layer))).rgb;
         sum += irradiance * weight;
@@ -125,6 +139,53 @@ vec4 probeSum(vec3 p, vec3 n, vec3 v, vec3 first, float spacing, ivec3 counts, i
     }
 
     return vec4(sum, total);
+}
+
+// A bake's probes' light at a point, the same blend of the eight round it as probeSum, or -1 where
+// none of them can see it. A bake lays its tiles out as the live atlases do, in one layer, from
+// first, spacing metres apart, counts along each axis, and every probe in it was captured. Read at
+// level 0 explicitly, since a bake's atlases sit in the material table, whose sampler filters
+// anisotropically, and derivatives jump wherever neighbouring pixels read different tiles.
+vec3 bakedProbeIrradiance(sampler2D irradianceAtlas, sampler2D depthAtlas, vec3 first, float spacing, ivec3 counts,
+    vec3 p, vec3 n, vec3 v) {
+    vec3 biased = p + spacing * 0.2 * (0.75 * n + 0.25 * v);
+    ivec3 base = clamp(ivec3(floor((biased - first) / spacing)), ivec3(0), counts - 2);
+
+    ivec2 irradianceSize = textureSize(irradianceAtlas, 0);
+    ivec2 depthSize = textureSize(depthAtlas, 0);
+    vec3 sum = vec3(0.0);
+    float total = 0.0;
+    for (int corner = 0; corner < 8; corner++) {
+        ivec3 cell = base + ivec3(corner & 1, (corner >> 1) & 1, (corner >> 2) & 1);
+        vec3 probePosition = first + vec3(cell) * spacing;
+
+        vec3 offset = abs(biased - probePosition) / spacing;
+        vec3 along = max(1.0 - offset, 0.0);
+        float trilinear = along.x * along.y * along.z;
+        if (trilinear <= 0.0) {
+            continue;
+        }
+
+        int probe = cell.x + counts.x * (cell.y + counts.y * cell.z);
+        if (probeInside(depthAtlas, probe)) {
+            continue;
+        }
+
+        vec3 fromProbe = biased - probePosition;
+        float distanceToProbe = length(fromProbe);
+        float visible = 1.0;
+        if (distanceToProbe > 1e-5) {
+            vec2 depthUv = probeTileUv(probe, fromProbe / distanceToProbe, PROBE_DEPTH_TEXELS, depthSize);
+            visible = probeVisible(textureLod(depthAtlas, depthUv, 0.0).rg, distanceToProbe);
+        }
+
+        float weight = trilinear * probeFacing(probePosition, p, n) * visible;
+        vec2 irradianceUv = probeTileUv(probe, n, PROBE_IRRADIANCE_TEXELS, irradianceSize);
+        sum += textureLod(irradianceAtlas, irradianceUv, 0.0).rgb * weight;
+        total += weight;
+    }
+
+    return total < PROBE_MIN_WEIGHT ? vec3(-1.0) : sum / total;
 }
 
 // How deep a point is inside a cascade, in cells from the edge of the part that holds it, or below

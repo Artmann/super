@@ -1,5 +1,6 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_nonuniform_qualifier : require
 #include "common.glsl"
 #include "brdf.glsl"
 #include "sampling.glsl"
@@ -51,6 +52,9 @@ float maskedVisibility(bool lightmapped, vec4 shadowMask, float channel, bool sh
 layout(std430, set = 2, binding = 1) readonly buffer Materials {
     Material materials[];
 };
+// The material table's textures, which hold the drawn bake's probe atlases as they hold its lightmaps. The lighting set
+// is written once for every frame in flight, so a bake loaded or let go can't swap textures in it.
+layout(set = 2, binding = 0) uniform sampler2D textures[];
 
 layout(location = 0) out vec4 outColor;
 
@@ -104,9 +108,28 @@ float specularOcclusion(float nDotV, float ao, float roughness) {
     return clamp(pow(nDotV + ao, exp2(-16.0 * roughness - 1.0)) - 1.0 + ao, 0.0, 1.0);
 }
 
-// The soft light reaching a point from around a direction, in the lit image's units: from the
-// light probes where the frame uses them and they see the point, otherwise from the sky.
+// Whether a point is inside the baked space's box while the frame draws its fresh bake's probes.
+bool insideBakedProbes(vec3 position) {
+    return frame.bakedProbeCounts.w > 0.5 && all(greaterThanEqual(position, frame.bakedSpaceMin.xyz))
+        && all(lessThanEqual(position, frame.bakedSpaceMax.xyz));
+}
+
+// The soft light reaching a point from around a direction, in the lit image's units. In order:
+// inside a fresh baked space, the bake's probes, which hold its Baked lights the live frame leaves
+// out; then, there and everywhere else, the live light probes, as probeIrradiance orders them:
+// the view's fixed grid, then the cascades round the camera; then the sky. Each falls through to
+// the next where none of its probes can see the point. Lightmapped pixels take theirs from the
+// lightmap instead, so this lights dynamic objects and surfaces without a lightmap.
 vec3 softLight(vec3 position, vec3 direction, vec3 v) {
+    if (insideBakedProbes(position)) {
+        vec3 fromBake = bakedProbeIrradiance(textures[int(frame.bakedSpaceMin.w + 0.5)],
+            textures[int(frame.bakedSpaceMax.w + 0.5)], frame.bakedProbeMin.xyz, frame.bakedProbeMin.w,
+            ivec3(frame.bakedProbeCounts.xyz + 0.5), position, direction, v);
+        if (fromBake.x >= 0.0) {
+            return fromBake;
+        }
+    }
+
     if (frame.lightProbeCounts.w > 0.5 || frame.probeCascadeCounts.w > 0.5) {
         vec3 fromProbes = probeIrradiance(position, direction, v);
         if (fromProbes.x >= 0.0) {

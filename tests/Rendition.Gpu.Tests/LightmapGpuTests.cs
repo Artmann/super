@@ -276,6 +276,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
     [Theory]
     [InlineData("damaged")]
     [InlineData("page out of range")]
+    [InlineData("probe atlas too short")]
     public void An_unreadable_bake_is_lit_live_said_once_and_read_again_after_a_reload(string fault)
     {
         int errors = gpu.ValidationErrors;
@@ -298,12 +299,21 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
                 load = () => throw new InvalidDataException("The bake is cut off.");
                 reason = "The bake is cut off.";
             }
-            else
+            else if (fault == "page out of range")
             {
                 var bake = Bake(plane);
                 var misplaced = bake with { Draws = [(plane.BakeId, bake.Draws[0].Rect with { Page = 5 })] };
                 load = () => misplaced;
                 reason = $"Draw 0x{plane.BakeId:X16} is on page 5, but the bake has {bake.Irradiance.Count} pages.";
+            }
+            else
+            {
+                // The room's probes run 13 x 11 x 13 = 1859, which take ceil(1859 / 64) = 30 rows of 64 tiles, each
+                // 8 + 2 texels tall: 300. An atlas of one row can't hold them.
+                var bake = Bake(plane);
+                var cut = bake with { ProbeIrradiance = new LightBakePage(640, 10, LightBakePageFormat.Rgba16f, new byte[640 * 10 * 8]) };
+                load = () => cut;
+                reason = "The bake's 640x10 probe irradiance atlas should be 640 wide and at least 300 tall.";
             }
 
             byte[] live = Capture(plane, sky: 0f, lights: lamp);

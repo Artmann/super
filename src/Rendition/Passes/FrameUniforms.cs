@@ -166,6 +166,18 @@ internal struct FrameUniforms
     /// <summary>xyz: the way the wind blows times its strength, zero in a calm; w: its gustiness. See <see cref="Passes.Wind.Pack(WindSettings?, RenderEffects)"/>.</summary>
     public Vector4 Wind;
 
+    /// <summary>xyz: the drawn bake's first light probe; w: their spacing in metres.</summary>
+    public Vector4 BakedProbeMin;
+
+    /// <summary>xyz: how many of the bake's probes run along each axis; w: 1 while they light the baked space, 0 for none.</summary>
+    public Vector4 BakedProbeCounts;
+
+    /// <summary>xyz: the near corner of the baked space's box, inside which its probes are read; w: the bake's irradiance atlas's slot in the material table.</summary>
+    public Vector4 BakedSpaceMin;
+
+    /// <summary>xyz: the box's far corner; w: the bake's depth atlas's slot in the material table.</summary>
+    public Vector4 BakedSpaceMax;
+
     public int LightCount;
     public float Time;
     public int FrameNumber;

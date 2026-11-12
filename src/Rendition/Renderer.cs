@@ -1117,13 +1117,19 @@ public sealed unsafe class Renderer : IDisposable
     private int _maskSun = -1;
     private readonly Dictionary<int, int> _maskChannels = [];
 
+    // The loaded bake's probes while this frame lights the baked space with them, or null when it doesn't.
+    private BakedProbes? _activeBakedProbes;
+
     /// <summary>
     /// The bake whose lightmaps are uploaded, and which file, inputs and store reload it came from. Channels is each
-    /// listed local light's shadow mask channel, by key.
+    /// listed local light's shadow mask channel, by key. Probes is its light probes, whose atlases are among Pages.
     /// </summary>
     private record struct LoadedBake(
         string? File, ulong Inputs, IBakeStore? Store, int Reloads, Dictionary<ulong, GpuLightmapRect>? Rects, List<TextureHandle> Pages,
-        Dictionary<int, int>? Channels);
+        Dictionary<int, int>? Channels, BakedProbes? Probes);
+
+    /// <summary>A bake's light probes: their grid, and the material table slots of their irradiance and depth atlases.</summary>
+    private sealed record BakedProbes(ProbeVolumeSettings Settings, int Irradiance, int Depth);
 
     /// <summary>A store's bakes, less those found unreadable, which count as missing.</summary>
     private sealed class ReadableBakes : IBakeStore
@@ -1175,6 +1181,7 @@ public sealed unsafe class Renderer : IDisposable
         var pages = _loadedBake.Pages ?? [];
         Dictionary<ulong, GpuLightmapRect>? rects = null;
         Dictionary<int, int>? channels = null;
+        BakedProbes? probes = null;
         if (bake is not null)
         {
             rects = [];
@@ -1203,9 +1210,19 @@ public sealed unsafe class Renderer : IDisposable
                     Page = rect.Page,
                 };
             }
+
+            // Its probe atlases go in the material table too, and so live and die with the lightmaps.
+            if (bake is { ProbeIrradiance: { } probeIrradiance, ProbeDepth: { } probeDepth, Probes: { } probeSettings })
+            {
+                var irradianceAtlas = CreateTexture(PageTexture(probeIrradiance), TextureEdges.Clamp);
+                var depthAtlas = CreateTexture(PageTexture(probeDepth), TextureEdges.Clamp);
+                pages.Add(irradianceAtlas);
+                pages.Add(depthAtlas);
+                probes = new BakedProbes(probeSettings, irradianceAtlas.Index, depthAtlas.Index);
+            }
         }
 
-        _loadedBake = new LoadedBake(file, combined, store, store.Reloads, rects, pages, channels);
+        _loadedBake = new LoadedBake(file, combined, store, store.Reloads, rects, pages, channels, probes);
         return true;
     }
 
@@ -1225,7 +1242,7 @@ public sealed unsafe class Renderer : IDisposable
             pages.Clear();
         }
 
-        _loadedBake = _loadedBake with { File = null, Inputs = 0, Store = null, Rects = null, Channels = null };
+        _loadedBake = _loadedBake with { File = null, Inputs = 0, Store = null, Rects = null, Channels = null, Probes = null };
     }
 
     /// <summary>Throws when a bake's pages don't fit together, as a damaged file's might not.</summary>
@@ -1237,7 +1254,8 @@ public sealed unsafe class Renderer : IDisposable
                 $"The bake has {bake.Irradiance.Count} irradiance pages but {bake.Direction.Count} direction and {bake.Mask.Count} mask pages.");
         }
 
-        foreach (var page in bake.Irradiance.Concat(bake.Direction).Concat(bake.Mask))
+        var probePages = CheckProbes(bake);
+        foreach (var page in bake.Irradiance.Concat(bake.Direction).Concat(bake.Mask).Concat(probePages))
         {
             if (page.Width < 1 || page.Height < 1
                 || page.Pixels.Length != TextureData.LevelSize(PageFormat(page.Format), page.Width, page.Height))
@@ -1253,6 +1271,51 @@ public sealed unsafe class Renderer : IDisposable
                 throw new InvalidDataException(
                     $"Draw 0x{bakeId:X16} is on page {rect.Page}, but the bake has {bake.Irradiance.Count} pages.");
             }
+        }
+    }
+
+    /// <summary>
+    /// Throws when a bake's light probes don't fit together: their atlases and grid come all or none, the grid holds at
+    /// most <see cref="BakeFiles.MaxSpaceProbes"/>, and each atlas is as wide as the live volume's and tall enough for
+    /// every probe's tile, so probes.glsl reads them as it reads the live ones. Gives the atlases, to check as pages.
+    /// </summary>
+    private static LightBakePage[] CheckProbes(LightBakeFile bake)
+    {
+        if (bake is { ProbeIrradiance: null, ProbeDepth: null, Probes: null })
+        {
+            return [];
+        }
+
+        if (bake is not { ProbeIrradiance: { } irradiance, ProbeDepth: { } depth, Probes: { } settings })
+        {
+            throw new InvalidDataException(
+                "The bake has some of its light probes' irradiance atlas, depth atlas and grid, but not all three.");
+        }
+
+        if (!float.IsFinite(settings.Spacing) || settings.Spacing <= 0f || !float.IsFinite(settings.Min.X + settings.Min.Y + settings.Min.Z)
+            || !float.IsFinite(settings.Max.X + settings.Max.Y + settings.Max.Z))
+        {
+            throw new InvalidDataException($"The bake's light probes are {settings.Spacing} m apart in {settings.Min} to {settings.Max}.");
+        }
+
+        long total = ProbeGrid.Total(settings);
+        if (total > BakeFiles.MaxSpaceProbes)
+        {
+            throw new InvalidDataException($"The bake has {total} light probes, more than the {BakeFiles.MaxSpaceProbes} a space may have.");
+        }
+
+        int rows = (int)((total + BakedProbeAtlas.Columns - 1) / BakedProbeAtlas.Columns);
+        CheckAtlas(irradiance, "irradiance", BakedProbeAtlas.IrradianceAtlasSize, rows * (ProbeVolume.IrradianceTexels + 2));
+        CheckAtlas(depth, "depth", BakedProbeAtlas.DepthAtlasSize, rows * (ProbeVolume.DepthTexels + 2));
+        return [irradiance, depth];
+    }
+
+    private static void CheckAtlas(LightBakePage atlas, string name, int width, int minimumHeight)
+    {
+        if (atlas.Width != width || atlas.Height < minimumHeight)
+        {
+            throw new InvalidDataException(
+                $"The bake's {atlas.Width}x{atlas.Height} probe {name} atlas should be {width} wide and at least {minimumHeight} tall.");
         }
     }
 
@@ -1288,6 +1351,7 @@ public sealed unsafe class Renderer : IDisposable
         {
             LastBakeFrame = null;
             _activeLightmaps = null;
+            _activeBakedProbes = null;
             return false;
         }
 
@@ -1309,6 +1373,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         _activeLightmaps = bakes.SpaceFresh && _loadedBake.Rects is { Count: > 0 } rects ? rects : null;
+        _activeBakedProbes = bakes.SpaceFresh ? _loadedBake.Probes : null;
         if (_activeLightmaps is not null)
         {
             FindMaskChannels(view, bakes);
@@ -1704,8 +1769,9 @@ public sealed unsafe class Renderer : IDisposable
         // Light probes fill in over many frames, and reflections captured before they first settle look wrong. Only the
         // first settle counts: the live ProbesSettled turns false on every cell the camera crosses, and recapturing
         // every reflection probe then would wait for the GPU twice a cell.
-        // A capture draws the lightmaps, so a bake loaded, dropped or swapped for another changes what it sees.
-        ulong lightmaps = _activeLightmaps is null ? 0 : _loadedBake.Inputs;
+        // A capture draws the lightmaps and the bake's probes, so a bake loaded, dropped or swapped for another changes
+        // what it sees.
+        ulong lightmaps = _activeLightmaps is null && _activeBakedProbes is null ? 0 : _loadedBake.Inputs;
         return HashCode.Combine(ReflectionLightingHash(view, _environmentVersion), _lightProbesInUse, _probesSettledOnce, lightmaps);
     }
 
@@ -3584,6 +3650,23 @@ public sealed unsafe class Renderer : IDisposable
         var cascadeLayout = _probeCascades.Layout(0);
         uniforms->ProbeCascadeCounts = new Vector4(
             cascadeLayout.CountX, cascadeLayout.CountY, cascadeLayout.CountZ, readCascades ? 1f : 0f);
+
+        // Inside the baked space's box, a fresh bake's probes give the soft light: its grid is the space's box.
+        if (_activeBakedProbes is { } baked)
+        {
+            var (x, y, z) = ProbeGrid.Counts(baked.Settings);
+            uniforms->BakedProbeMin = new Vector4(baked.Settings.Min, baked.Settings.Spacing);
+            uniforms->BakedProbeCounts = new Vector4(x, y, z, 1f);
+            uniforms->BakedSpaceMin = new Vector4(baked.Settings.Min, baked.Irradiance);
+            uniforms->BakedSpaceMax = new Vector4(baked.Settings.Max, baked.Depth);
+        }
+        else
+        {
+            uniforms->BakedProbeMin = Vector4.Zero;
+            uniforms->BakedProbeCounts = Vector4.Zero;
+            uniforms->BakedSpaceMin = Vector4.Zero;
+            uniforms->BakedSpaceMax = Vector4.Zero;
+        }
 
         uniforms->CameraPosition = new Vector4(view.CameraPosition, 1f);
         uniforms->BackgroundRadiance = new Vector4(view.BackgroundRadiance, view.EnvironmentIntensity);

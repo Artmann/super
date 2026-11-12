@@ -416,7 +416,9 @@ swimming things don't show in the probes or shade them from the sun, as they wou
 move on their own. Without tracing, glass still shades the probes from a lamp that lights the view.
 
 A surface in a [baked space](#with-a-fresh-bake) whose bake is fresh takes its soft light from its
-lightmap instead, which is finer than any probe grid.
+lightmap instead, which is finer than any probe grid. Anything else inside the space, such as a
+character walking through it, reads the bake's own probes first. Where none of them can see it, it
+falls back to the box of probes, then to the probes round the camera, and last to the sky.
 
 `Graphics.LightProbes` turns all of this off and frees the probes' memory, about 170 MB at
 `High`. Switching it back on starts every probe again. `Graphics.ProbeQuality` trades the
@@ -520,7 +522,12 @@ it as usual. Ambient occlusion still darkens
 the corners, at half strength, since the bake already holds most of the shade there.
 
 A draw the bake doesn't hold, such as something moved in after the bake or a moving
-character, is lit as before, from the probes or the sky. A file whose header is fresh but whose
+character, takes its soft light from the bake's probes while it is inside the space's box. They
+hold the same light as the lightmap, `Baked` lights included, so a character walking through a
+room lit only by `Baked` lamps is lit by them too, though they are no longer drawn live. Outside
+the box, or where none of the bake's probes sees the point, it is lit as before, from the
+[light probes](#bounced-light) or the sky. Transparent surfaces and particles never read light
+probes, so they are lit from the sky in a baked space as anywhere else. A file whose header is fresh but whose
 pages can't be read is reported once to the error output and its area lit live, as if it had
 no bake. Only the space is drawn from its bake so far; a fresh chunk's lights are left to its
 bake but its lightmap isn't drawn yet, so a fresh chunk is darker than it should be.

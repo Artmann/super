@@ -2103,6 +2103,13 @@ lightmap's passes: 4 at `Preview`, 64 at `Final`. Passes are batched by the same
 the lightmap's. Random numbers come from the probe, the texel, the quarter and the pass, so the
 same scene bakes the same probes.
 
+At runtime `softLight` in `lighting.frag` looks for soft light in this order. A point inside a
+baked space whose bake is loaded reads the bake's probes (`bakedProbeIrradiance`). Where no baked
+probe sees it, for example where every nearby one is inside a wall, it falls back to the
+`view.LightProbes` box (layer 4 of the live atlases), then to the live cascades round the camera,
+and last to the environment. A surface with a lightmap never gets here: its soft light is the
+lightmap's.
+
 ## Paint and glass
 
 Clearcoat adds a second, very smooth reflection on top of the surface, like the
@@ -3307,7 +3314,11 @@ When a frame's space is fresh, `Renderer.ResolveBakes` makes sure its bake is on
 store's `Reloads`, so a frame that matches reads nothing. Otherwise the old pages are destroyed,
 `IBakeStore.Load` reads the file, and `CheckPages` checks that the page counts agree, that each
 page's bytes fit its size and format (`TextureData.LevelSize`) and that every draw's page
-exists. Each page becomes a one-level linear texture with clamped edges, three a page
+exists. `CheckProbes` checks the probes: the two atlases and the grid come all or none, the
+grid's spacing and corners are finite and the spacing above 0, it holds at most
+`BakeFiles.MaxSpaceProbes`, and each atlas is as wide as the live volume's
+(`ProbeVolume.IrradianceAtlasSize`, `DepthAtlasSize`) and tall enough for a row of tiles per 64
+probes, so `probes.glsl` reads it as it reads the live one. Each page becomes a one-level linear texture with clamped edges, three a page
 (irradiance, direction, mask, a missing mask as -1), and each draw's `LightmapRect` becomes a
 `GpuLightmapRect` keyed by bake id: the rect's scale and offset and the three texture indices.
 `Rgba16f` irradiance from an uncooked bake goes up as `TextureFormat.Rgba16f`
@@ -3343,8 +3354,31 @@ alpha above 0.5 takes `baked.rgb` times its diffuse colour in place of the soft 
 sky or probes, keeps its translucency, and its diffuse occlusion is the material's AO times
 `mix(1, screen AO, 0.5)` (`LIGHTMAP_OCCLUSION`), since the bake already holds the shade;
 specular occlusion is unchanged. `ReflectionLightingHash` adds the
-loaded bake's inputs while lightmaps are drawn, so the probes are captured again when the bake
-changes. With no bake, every pixel's alpha is 0 and the frame is the same to the byte.
+loaded bake's inputs while lightmaps or the bake's probes are drawn, so the probes are captured
+again when the bake changes. With no bake, every pixel's alpha is 0 and the frame is the same to the byte.
+
+The bake's probes light what has no lightmap. `LoadSpaceBake` puts the two probe atlases in the
+material table beside the pages, as one-level linear textures with clamped edges, and adds them
+to `Pages`, so they are destroyed with them; `LoadedBake.Probes` keeps the grid and the two
+texture indices. `ResolveBakes` sets `_activeBakedProbes` while the space is fresh, which also
+means `BakedLighting` is on, and clears it otherwise. The frame uniforms then carry the grid in
+`bakedProbeMin` and `bakedProbeCounts` (w is 1 while they are drawn), and the box in
+`bakedSpaceMin` and `bakedSpaceMax`, whose w components hold the irradiance and depth atlases'
+indices. They are all 0 with no fresh bake. The bake's atlases are read through the material
+table (set 2 binding 0, which the lighting pass binds for the materials) rather than new lighting
+set bindings, because the lighting set is written once for every frame in flight, and a bake
+loaded or dropped would have to rewrite it while a frame still reads it.
+
+`probes.glsl`'s `probeIrradianceIn` takes the atlases, first probe, spacing and counts, and
+`probeIrradiance` calls it with the live volume's. Both read at level 0 with `textureLod`: the
+material table's sampler filters anisotropically, and neighbouring pixels can read different
+tiles, so derivatives would pick a wrong level. The live atlases have one level and a sampler with
+no anisotropy, so the live lookup reads what `texture` did. In `lighting.frag`, `softLight`
+first reads the bake's probes when the unbiased point is inside the space's box
+(`insideBakedProbes`), then the live probes when the bake's give -1, then the sky. The box test
+matters: the lookup clamps to the grid, so a point within a spacing past the last probe still
+weighs it (`BakedProbeGpuTests`). The live probes' own plan may change this order when it lands.
+Transparent surfaces and particles don't read probes at all, so they are unchanged.
 
 The mask shadows Mixed lights. `LoadSpaceBake` keeps the file's `Channels` as a key-to-channel
 dictionary in `LoadedBake`. While `_activeLightmaps` is set (the space fresh, `BakedLighting`
