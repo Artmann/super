@@ -3,10 +3,12 @@ using System.Numerics;
 namespace Rendition.Gpu.Tests;
 
 /// <summary>
-/// A scene for the live light probe tests: its draws, its point and spot lights and the radiance of its sky. There is
-/// no sun, and the environment's intensity is 0, so the sky reaches the probes only where they see nothing.
+/// A scene for the live light probe tests: its draws, its point and spot lights and the radiance of its sky, and for a
+/// few its suns and the water the camera is under. The environment's intensity is 0, so the sky reaches the probes
+/// only where they see nothing.
 /// </summary>
-internal sealed record ProbeScene(DrawItem[] Draws, LocalLight[] Lights, Vector3 Sky);
+internal sealed record ProbeScene(
+    DrawItem[] Draws, LocalLight[] Lights, Vector3 Sky, DirectionalLight[]? Suns = null, UnderwaterSettings Water = default);
 
 /// <summary>
 /// Scenes made of flat quads from <see cref="TestMeshes.Quad"/>, for the live light probe tests. No surface lies on a
@@ -141,6 +143,24 @@ internal static class ProbeScenes
         None,
         Solid,
         Glass,
+    }
+
+    /// <summary>
+    /// A white floor 8 m square just below y = 0, lit by a sun straight overhead that casts no shadow, under a black
+    /// sky. With <paramref name="underwater"/>, the floor lies 5 m under a surface whose water swallows red far faster
+    /// than blue.
+    /// </summary>
+    public static ProbeScene SunlitFloor(GpuFixture gpu, bool underwater)
+    {
+        var quad = Quad(gpu);
+        var white = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.8f, 0.8f, 1f), Roughness = 1f });
+        var floor = Face(quad, white, new Vector3(0f, -0.05f, 0f), Vector3.UnitY, -Vector3.UnitZ, 8f, 8f);
+        var sun = new DirectionalLight { Direction = Vector3.UnitY, Radiance = new Vector3(3f) };
+        var water = underwater
+            ? new UnderwaterSettings { Absorption = new Vector3(0.45f, 0.07f, 0.04f), SurfaceHeight = 5f }
+            : default;
+
+        return new ProbeScene([floor], [], Vector3.Zero, [sun], water);
     }
 
     /// <summary>A closed white box from -1.1 to 1.1 on every axis, its six faces facing in, under a sky of radiance 4.</summary>

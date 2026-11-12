@@ -175,6 +175,23 @@ public sealed class LiveProbeTests(GpuFixture shared)
         Assert.Equal(0, probes.NewValidationErrors);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Under_water_the_sunlit_floor_bounces_less_red_than_blue(bool traced)
+    {
+        // Facing down, each reads the floor under it, lit only by the sun.
+        var point = new Vector3(0.2f, 0.3f, 0.2f);
+        var (dry, _) = Settled(traced, gpu => ProbeScenes.SunlitFloor(gpu, underwater: false), point, -Vector3.UnitY);
+        var (wet, _) = Settled(traced, gpu => ProbeScenes.SunlitFloor(gpu, underwater: true), point, -Vector3.UnitY);
+
+        // 5 m of this water keeps about 10% of the red and 80% of the blue.
+        Assert.True(dry.X > 0.01f, $"In air the probes read {dry}.");
+        Assert.True(MathF.Abs(dry.X - dry.Z) <= 0.05f * dry.X, $"In air the white floor gave {dry}.");
+        Assert.True(wet.Z > 0.5f * dry.Z, $"In air the probes read {dry}, under water {wet}.");
+        Assert.True(wet.X < 0.25f * wet.Z, $"In air the probes read {dry}, under water {wet}.");
+    }
+
     [Fact]
     public void Traced_and_rasterized_probes_agree_on_a_simple_room()
     {
@@ -571,7 +588,9 @@ public sealed class LiveProbeTests(GpuFixture shared)
             Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 4f, 1f, 0.1f),
             CameraPosition = camera,
             LocalLights = scene.Lights,
+            Lights = scene.Suns ?? [],
             BackgroundRadiance = scene.Sky,
+            Water = scene.Water,
         };
     }
 

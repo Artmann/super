@@ -1445,7 +1445,10 @@ second and later bounces over successive updates. The shadow-casting sun's visib
 one, so the update is recorded after the tile atlas; a light without a tile is unblocked. Alpha
 holds the distance to the probe. Every draw is two-sided, and a back face writes black at a
 negative distance; where nothing is drawn the clear colour marks the sky. No reflections, coat,
-fog, occlusion or transparency are drawn, as probes keep only soft diffuse light.
+fog, occlusion or transparency are drawn, as probes keep only soft diffuse light. Under water a
+sun's light is dimmed by `waterAbsorbed` over its way down from the surface, as in the lighting
+pass, from `water_absorption.glsl`, which a compute shader can include where `water.glsl` can't;
+the moving caustics are left out, since a probe takes many frames to fill in.
 
 `ProbeCapturePass.Prepare` picks each probe's draws on the CPU: a draw whose bounds are more than
 16 spacings of the probe's cascade away is left out, and so are ghosts, skinned and swimming

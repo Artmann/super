@@ -13,6 +13,7 @@
 #include "brdf.glsl"
 #include "light_data.glsl"
 #include "probes.glsl"
+#include "water_absorption.glsl"
 #include "sky.glsl"
 #include "trace.glsl"
 #include "probe_fold.glsl"

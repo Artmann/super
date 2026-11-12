@@ -11,6 +11,7 @@
 #include "light_data.glsl"
 #include "local_shadows.glsl"
 #include "probes.glsl"
+#include "water_absorption.glsl"
 #include "material_data.glsl"
 
 // Shades what a light probe sees: the light each surface sends towards it, from probe_light.glsl,
