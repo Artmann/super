@@ -144,6 +144,44 @@ public sealed class LightBakeStoreTests
             line);
     }
 
+    [Theory]
+    [InlineData(typeof(IOException))]
+    [InlineData(typeof(FileNotFoundException))]
+    [InlineData(typeof(UnauthorizedAccessException))]
+    public void A_file_that_fails_to_read_is_not_fresh_says_why_once_and_is_tried_again_after_forget(Type failure)
+    {
+        var log = new StringWriter();
+        int reads = 0;
+        bool failing = true;
+        byte[] bake = Bake(Saved);
+        var store = new LightBakeStore(
+            name =>
+            {
+                reads++;
+                if (failing)
+                {
+                    throw (Exception)Activator.CreateInstance(failure, "The file is in use.")!;
+                }
+
+                return name == Crypt ? bake : null;
+            },
+            log);
+
+        Assert.False(store.IsFresh(Crypt, Saved));
+        Assert.False(store.IsFresh(Crypt, Saved));
+
+        Assert.Equal(1, reads);
+        Assert.Equal(
+            $"The bake lighting/crypt.lightbake can't be read, so its area is lit live: The file is in use.{Environment.NewLine}",
+            log.ToString());
+
+        // Once the content reloads, the file is read again and found.
+        failing = false;
+        store.Forget();
+        Assert.True(store.IsFresh(Crypt, Saved));
+        Assert.Equal(2, reads);
+    }
+
     [Fact]
     public void Load_reads_the_whole_file()
     {

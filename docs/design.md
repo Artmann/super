@@ -3252,8 +3252,12 @@ uses. It reads files through a `Func<string, byte[]?>`, so Rendition doesn't kno
 lives; `SceneRenderer` gives it `Content.Files.Read` for names whose kind is `ContentKind.Data`,
 so it sees the cooked bakes, and logs to `Console.Error`. `Saved(file)` reads a file's header
 with `LightBakeFile.ReadInputs` the first time it is asked about and keeps the result in a
-`Dictionary<string, BakeInputs?>`, null for a missing file or one whose header throws
-`InvalidDataException`, which is logged once with its message. `IsFresh` compares the kept
+`Dictionary<string, BakeInputs?>`, null for a missing file or one that can't be read: a header
+that throws `InvalidDataException`, or a read that throws `IOException` or
+`UnauthorizedAccessException`, such as while a cook replaces the file. That is logged once with
+its message and kept until `Forget`, so the file is tried again after the content reloads rather
+than every frame. The read gives the whole file for its header, once per file. The store isn't
+thread-safe; the render thread is its only caller. `IsFresh` compares the kept
 inputs with the frame's by value. When they differ it logs once per file, kept in a
 `HashSet<string>`, joining `BakeInputs.Changes` into "draws, lights and environment". A missing
 file isn't logged. So once every area's file has been asked about, a frame reads nothing and

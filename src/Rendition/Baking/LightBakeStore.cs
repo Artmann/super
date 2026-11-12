@@ -3,8 +3,9 @@ namespace Rendition;
 /// <summary>
 /// The bakes in a game's content, read through a function so the renderer needn't know where content lives. Each
 /// file's header is read the first time it is asked about and kept until <see cref="Forget"/>, so asking every frame
-/// reads nothing and, once each file has been asked about, allocates nothing. See "Baked lighting" in
-/// docs/rendering.md.
+/// reads nothing and, once each file has been asked about, allocates nothing. A file that can't be read, whether
+/// damaged or failing to open, is lit live and logged once. It isn't thread-safe: use it from the render thread only.
+/// See "Baked lighting" in docs/rendering.md.
 /// </summary>
 public sealed class LightBakeStore : IBakeStore
 {
@@ -63,17 +64,20 @@ public sealed class LightBakeStore : IBakeStore
             return known;
         }
 
+        // The read gives the whole file, though only the header is wanted. That happens once per file, until Forget.
         BakeInputs? saved = null;
-        if (_read(file) is { } bytes)
+        try
         {
-            try
+            if (_read(file) is { } bytes)
             {
                 saved = LightBakeFile.ReadInputs(bytes);
             }
-            catch (InvalidDataException e)
-            {
-                _log.WriteLine($"The bake {file} can't be read, so its area is lit live: {e.Message}");
-            }
+        }
+        catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException)
+        {
+            // Kept as unreadable until Forget, so it is logged once and tried again after the content reloads, by
+            // when a cook that was replacing the file has finished.
+            _log.WriteLine($"The bake {file} can't be read, so its area is lit live: {e.Message}");
         }
 
         _headers[file] = saved;
@@ -82,6 +86,7 @@ public sealed class LightBakeStore : IBakeStore
 
     /// <summary>Reads the whole of <paramref name="file"/>, or null when it is missing. Not kept.</summary>
     /// <exception cref="InvalidDataException">The file is damaged.</exception>
+    /// <exception cref="IOException">The read failed; whatever the read function throws passes through.</exception>
     public LightBakeFile? Load(string file) => _read(file) is { } bytes ? LightBakeFile.Read(bytes) : null;
 
     /// <summary>Drops every header read and every stale file logged, so the next question reads the files again. Call it after the content reloads.</summary>

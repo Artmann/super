@@ -486,7 +486,8 @@ meets it, naming what changed:
 The bake lighting/crypt.lightbake is stale, since its draws and lights changed, so its area is lit live until it is baked again.
 ```
 
-A file that can't be read is reported once the same way, with the reason, and lit live. When the
+A file that can't be read, because it is damaged or because opening it fails, as it can while a
+cook is replacing it, is reported once the same way, with the reason, and lit live. When the
 content reloads, every bake is read again and each stale one is reported again.
 
 The bake's light isn't drawn yet. A fresh bake still takes its lights out of the live lighting,

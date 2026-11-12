@@ -79,7 +79,7 @@ public sealed class BakeResolverTests
         // The bigger frames come first, so the resolver has more to forget when the smaller ones follow.
         var first = Scenario(Courtyard, [Room, FarRoom], twoSuns, lights, interleaved, new EveryBakeFresh());
         saved.Save("lighting/courtyard.lightbake", BakeFreshness.Resolve(
-            first.Frame, first.Draws, TwoParts, 42,new AnimatedLights(TextWriter.Null), NoBakes.Instance).Space!.Value);
+            first.Frame, first.Draws, TwoParts, 42, new AnimatedLights(TextWriter.Null), NoBakes.Instance).Space!.Value);
         var scenarios = new[]
         {
             first,
@@ -98,10 +98,10 @@ public sealed class BakeResolverTests
         {
             var scenario = scenarios[s];
             var expected = BakeFreshness.Resolve(
-                scenario.Frame, scenario.Draws, TwoParts, 42,new AnimatedLights(TextWriter.Null), scenario.Store);
+                scenario.Frame, scenario.Draws, TwoParts, 42, new AnimatedLights(TextWriter.Null), scenario.Store);
             resolver.Store = scenario.Store;
             var actual = resolver.Resolve(
-                scenario.Frame, scenario.Draws, TwoParts, 42,new AnimatedLights(TextWriter.Null));
+                scenario.Frame, scenario.Draws, TwoParts, 42, new AnimatedLights(TextWriter.Null));
 
             string where = $"scenario {s}";
             Assert.True(expected.SpaceFresh == actual.SpaceFresh, where);
@@ -121,7 +121,7 @@ public sealed class BakeResolverTests
 
         // The scenarios must not all come to the same thing, or the comparison would prove little.
         Assert.NotEmpty(BakeFreshness.Resolve(
-            first.Frame, first.Draws, TwoParts, 42,new AnimatedLights(TextWriter.Null), first.Store).DroppedLocalLights);
+            first.Frame, first.Draws, TwoParts, 42, new AnimatedLights(TextWriter.Null), first.Store).DroppedLocalLights);
     }
 
     [Fact]
@@ -131,10 +131,10 @@ public sealed class BakeResolverTests
         var animated = new AnimatedLights(TextWriter.Null);
         var busy = new FrameView { BakedSpace = Courtyard, Lights = [Sun(LightMode.Baked)], LocalLights = [Point(1, InCourtyard, LightMode.Baked)] };
 
-        var withAreas = resolver.Resolve(busy, [], TwoParts, 42,animated);
+        var withAreas = resolver.Resolve(busy, [], TwoParts, 42, animated);
         Assert.Equal([0], withAreas.DroppedLocalLights);
 
-        var empty = resolver.Resolve(default, [], TwoParts, 42,animated);
+        var empty = resolver.Resolve(default, [], TwoParts, 42, animated);
 
         Assert.Null(empty.Space);
         Assert.Empty(empty.DroppedLocalLights);
