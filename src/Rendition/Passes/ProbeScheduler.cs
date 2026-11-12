@@ -76,6 +76,12 @@ internal sealed class ProbeScheduler
 
     private bool _scrolled;
 
+    // Where the fixed grid's probes are, so LightChanged can find the cells a light covers. A spacing of 0 means
+    // SetFixedGrid hasn't been called.
+    private Vector3 _gridMin;
+    private Int3 _gridCount;
+    private float _gridSpacing;
+
     // The best dirty probes of the fine groups, and the best of all the rest, each kept to the budget.
     private Candidate[] _nearHeap = Array.Empty<Candidate>();
     private Candidate[] _heap = Array.Empty<Candidate>();
@@ -127,6 +133,9 @@ internal sealed class ProbeScheduler
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(countZ);
 
         AllocateGroup(FixedGrid, checked(countX * countY * countZ));
+        _gridMin = min;
+        _gridCount = new Int3(countX, countY, countZ);
+        _gridSpacing = spacing;
         var positions = _position[FixedGrid]!;
         for (int z = 0; z < countZ; z++)
         {
@@ -141,7 +150,11 @@ internal sealed class ProbeScheduler
     }
 
     /// <summary>Takes away the fixed grid, for a view that no longer has one.</summary>
-    public void ClearFixedGrid() => AllocateGroup(FixedGrid, 0);
+    public void ClearFixedGrid()
+    {
+        AllocateGroup(FixedGrid, 0);
+        _gridSpacing = 0f;
+    }
 
     /// <summary>
     /// Call with every <see cref="ProbeCascades.Move"/> result. Probes in new slots are now other
@@ -184,28 +197,86 @@ internal sealed class ProbeScheduler
         _scrolled = true;
     }
 
-    /// <summary>A light moved, appeared or went out: captured probes within range of its centre are dirty.</summary>
+    /// <summary>
+    /// A light moved, appeared or went out: captured probes within range of its centre are dirty. Only the cells the
+    /// light's sphere overlaps are looked at, in each cascade's box and in the fixed grid, so a small light costs a few
+    /// probes, not a pass over all of them.
+    /// </summary>
     public void LightChanged(Vector3 center, float range)
     {
-        float limit = range * range;
-        for (int group = 0; group <= FixedGrid; group++)
+        if (!(range >= 0f))
         {
-            var state = _state[group];
-            if (state == null)
+            return;
+        }
+
+        for (int c = 0; c < ProbeCascades.Count; c++)
+        {
+            if (_state[c] == null)
             {
                 continue;
             }
 
-            var position = _position[group]!;
-            for (int slot = 0; slot < state.Length; slot++)
+            var layout = _cascades.Layout(c);
+            var origin = _cascades.Origin(c);
+            var x = Overlap(center.X, range, 0f, layout.Spacing, origin.X, layout.CountX);
+            var y = Overlap(center.Y, range, 0f, layout.Spacing, origin.Y, layout.CountY);
+            var z = Overlap(center.Z, range, 0f, layout.Spacing, origin.Z, layout.CountZ);
+            for (int cz = z.First; cz <= z.Last; cz++)
             {
-                if (state[slot] == Clean && Vector3.DistanceSquared(position[slot], center) <= limit)
+                for (int cy = y.First; cy <= y.Last; cy++)
                 {
-                    state[slot] = Dirty;
-                    _pending[group]++;
+                    for (int cx = x.First; cx <= x.Last; cx++)
+                    {
+                        MarkIfInRange(c, ProbeCascades.Wrap(new Int3(cx, cy, cz), layout), center, range);
+                    }
                 }
             }
         }
+
+        if (_gridSpacing > 0f)
+        {
+            var x = Overlap(center.X, range, _gridMin.X, _gridSpacing, 0, _gridCount.X);
+            var y = Overlap(center.Y, range, _gridMin.Y, _gridSpacing, 0, _gridCount.Y);
+            var z = Overlap(center.Z, range, _gridMin.Z, _gridSpacing, 0, _gridCount.Z);
+            for (int gz = z.First; gz <= z.Last; gz++)
+            {
+                for (int gy = y.First; gy <= y.Last; gy++)
+                {
+                    for (int gx = x.First; gx <= x.Last; gx++)
+                    {
+                        MarkIfInRange(FixedGrid, gx + _gridCount.X * (gy + _gridCount.Y * gz), center, range);
+                    }
+                }
+            }
+        }
+        else
+        {
+            // A grid whose positions were never set has every probe at the origin, so check each one.
+            var state = _state[FixedGrid]!;
+            for (int slot = 0; slot < state.Length; slot++)
+            {
+                MarkIfInRange(FixedGrid, slot, center, range);
+            }
+        }
+    }
+
+    private void MarkIfInRange(int group, int slot, Vector3 center, float range)
+    {
+        var state = _state[group]!;
+        if (state[slot] == Clean && Vector3.DistanceSquared(_position[group]![slot], center) <= range * range)
+        {
+            state[slot] = Dirty;
+            _pending[group]++;
+        }
+    }
+
+    // The indices first..last, within [start, start + count), whose positions offset + index * spacing are within range
+    // of center along one axis. Empty (first > last) when none are.
+    private static (int First, int Last) Overlap(float center, float range, float offset, float spacing, int start, int count)
+    {
+        float low = Math.Clamp(MathF.Ceiling((center - range - offset) / spacing), start, start + count);
+        float high = Math.Clamp(MathF.Floor((center + range - offset) / spacing), start - 1, start + count - 1);
+        return ((int)low, (int)high);
     }
 
     /// <summary>The sun, sky or environment changed: every captured probe is dirty, but its value stays in use.</summary>
@@ -382,6 +453,12 @@ internal sealed class ProbeScheduler
     public bool Captured(ProbeId id)
     {
         return Exists(id) && _state[id.Cascade]![id.Slot] != NeverCaptured;
+    }
+
+    /// <summary>True when the probe has been captured but the lighting changed since, so it waits to be updated.</summary>
+    internal bool IsDirty(ProbeId id)
+    {
+        return Exists(id) && _state[id.Cascade]![id.Slot] == Dirty;
     }
 
     private bool Exists(ProbeId id)

@@ -1642,7 +1642,13 @@ calls to `Next`, and ages are in frames, never seconds. The pass over all probes
 `budget` in a binary heap rather than sorting, so a frame at High (65,536 probes) costs one scan.
 `Settled` means cascades 0 and 1 and the fixed grid are all captured and clean. It reads a count of
 probes that aren't clean, kept per cascade as probes change state, so reading it every frame scans
-nothing.
+nothing. `LightChanged` doesn't scan every probe either: per axis it works out the cells of each
+cascade's box, and of the fixed grid, that the light's sphere overlaps, and checks only those
+probes' distance. A light in range of a few cells costs a few probes, and a light outside a box
+costs nothing there. Scanning every probe for every changed light took 80% of Crypt's CPU samples
+at High, where each flickering torch calls it twice a frame, for its old light and its new one:
+its CPU was busy 15.6 ms a frame, and with the cells only it is busy 3.0 ms. A grid whose
+positions were never set falls back to checking each of its probes.
 
 Once warm, the probe path allocates nothing on the CPU, whether or not the camera crosses a cell.
 `Next` sorts its heap in place by `IComparable` (a sort given a comparer would make a delegate) and

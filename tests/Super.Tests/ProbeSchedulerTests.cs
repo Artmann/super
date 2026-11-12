@@ -196,6 +196,54 @@ public class ProbeSchedulerTests
         Assert.All(firstOnes, id => Assert.Contains(id, expected));
     }
 
+    [Theory]
+    [InlineData(38f, 5f, -54f, 3f)] // Near the camera: every cascade and the fixed grid.
+    [InlineData(31f, 0.5f, -59f, 2.5f)] // At the fixed grid's corner, part of the sphere outside it.
+    [InlineData(60f, 5f, -54f, 4f)] // Far: outside every box but the coarsest.
+    [InlineData(37.3f, 4.2f, -55.1f, 0f)] // A range of 0 covers no probe unless one sits on the centre.
+    public void A_light_dirties_exactly_the_captured_probes_within_its_range(float x, float y, float z, float range)
+    {
+        // The camera moves off the origin first, so the boxes wrap and a cell's slot isn't its index in the box.
+        var cascades = new ProbeCascades(ProbeQuality.Low);
+        var scheduler = new ProbeScheduler(cascades, 0);
+        scheduler.Scrolled(cascades.Move(Vector3.Zero));
+        var camera = new Vector3(37.3f, 4.2f, -55.1f);
+        scheduler.Scrolled(cascades.Move(camera));
+        var gridMin = new Vector3(30f, 0f, -60f);
+        scheduler.SetFixedGrid(gridMin, 10, 4, 10, 1.5f);
+        scheduler.Updated(AllProbes(scheduler.FixedGridProbes).ToArray());
+
+        var center = new Vector3(x, y, z);
+        scheduler.LightChanged(center, range);
+
+        var expected = new HashSet<ProbeId>();
+        var layouts = ProbeCascades.Layouts(ProbeQuality.Low);
+        for (int c = 0; c < layouts.Length; c++)
+        {
+            for (int slot = 0; slot < layouts[c].Total; slot++)
+            {
+                if (Vector3.Distance(cascades.Position(c, slot), center) <= range)
+                {
+                    expected.Add(new ProbeId(c, slot));
+                }
+            }
+        }
+
+        for (int slot = 0; slot < scheduler.FixedGridProbes; slot++)
+        {
+            var position = gridMin + new Vector3(slot % 10, slot / 10 % 4, slot / 40) * 1.5f;
+            if (Vector3.Distance(position, center) <= range)
+            {
+                expected.Add(new ProbeId(ProbeScheduler.FixedGrid, slot));
+            }
+        }
+
+        var dirty = AllProbes(scheduler.FixedGridProbes).Where(scheduler.IsDirty).ToHashSet();
+        Assert.True(range == 0f || expected.Count > 0, "the light should cover some probes");
+        Assert.True(expected.SetEquals(dirty),
+            $"{expected.Except(dirty).Count()} probes in range stayed clean and {dirty.Except(expected).Count()} out of range went dirty");
+    }
+
     [Fact]
     public void A_sun_or_sky_change_keeps_every_probe_captured()
     {
