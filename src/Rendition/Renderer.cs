@@ -1863,8 +1863,8 @@ public sealed unsafe class Renderer : IDisposable
     /// Waits for the GPU, taking seconds at <see cref="BakeQuality.Final"/>. See "Baked lighting" in docs/rendering.md.
     /// </summary>
     /// <exception cref="InvalidOperationException">
-    /// The view names no baked space, the space holds more than <see cref="BakeFiles.MaxSpaceProbes"/> probes, or the GPU
-    /// can't trace rays.
+    /// The view names no baked space, the space holds more than <see cref="BakeFiles.MaxSpaceProbes"/> probes, some of its
+    /// draws don't fit in <see cref="LightmapLayout.MaxPages"/> pages, or the GPU can't trace rays.
     /// </exception>
     /// <exception cref="ArgumentException">
     /// <paramref name="settings"/> asks for another texel density than the space's
@@ -1917,6 +1917,11 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         var layout = LightmapLayout.Build(CollectionsMarshal.AsSpan(owned), AreaOf, settings, GetsLightmap);
+        if (layout.Left.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"{layout.Left.Count.ToString(CultureInfo.InvariantCulture)} of the {owned.Count.ToString(CultureInfo.InvariantCulture)} static draws in the baked space \"{space.Name}\" don't fit in {LightmapLayout.MaxPages.ToString(CultureInfo.InvariantCulture)} lightmap pages of {LightmapLayout.PageSize.ToString(CultureInfo.InvariantCulture)} texels, so they would get no baked light. Use fewer than {settings.TexelsPerMetre.ToString(CultureInfo.InvariantCulture)} texels a metre, or bake a smaller space.");
+        }
 
         // The lights the bake takes: Mixed and Baked ones that hold still, a local light only in the space's box.
         var suns = view.Lights;
@@ -2011,7 +2016,9 @@ public sealed unsafe class Renderer : IDisposable
     /// <exception cref="ArgumentException">
     /// <paramref name="settings"/> asks for another texel density than the chunk's <see cref="BakedChunk.TexelsPerMetre"/>.
     /// </exception>
-    /// <exception cref="InvalidOperationException">The chunk owns no static draws, or the GPU can't trace rays.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The chunk owns no static draws, some of its draws don't fit in its one page, or the GPU can't trace rays.
+    /// </exception>
     public byte[] BakeChunk(in FrameView view, ReadOnlySpan<DrawItem> draws, int chunk, BakeSettings settings)
     {
         var chunks = view.BakedChunks;
@@ -2066,6 +2073,11 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         var layout = LightmapLayout.BuildSingle(CollectionsMarshal.AsSpan(owned), AreaOf, baked.TexelsPerMetre, GetsLightmap);
+        if (layout.Left.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"{layout.Left.Count.ToString(CultureInfo.InvariantCulture)} of the {owned.Count.ToString(CultureInfo.InvariantCulture)} static draws in the baked chunk \"{baked.Name}\" don't fit in one lightmap page of {LightmapLayout.PageSize.ToString(CultureInfo.InvariantCulture)} texels, so they would get no baked light. Use fewer than {baked.TexelsPerMetre.ToString(CultureInfo.InvariantCulture)} texels a metre, or make the chunk smaller.");
+        }
 
         // The chunk's own lights, Mixed and Baked ones that hold still, moved into its space. Every other light is
         // Realtime as far as the mask channels go, so only these get one.

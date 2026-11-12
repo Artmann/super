@@ -1908,7 +1908,12 @@ live. A layout from `Single` has one page (page 0), or none when it is given no 
 `LightmapLayout.BuildSingle` takes draws, the area callback and `getsLightmap` as `Build` does, groups them by the same
 key and measures each group the same way, then hands the groups to `Single` as charts and gives every draw of a group
 its chart's rectangle. A group's chart is named by its first draw's bake id, and every draw of a group that doesn't fit
-is in `Left`.
+is in `Left`. `Renderer.Bake` and `Renderer.BakeChunk` read `Left` once the layout is built, and throw
+`InvalidOperationException` when it holds anything, giving how many draws did not fit and suggesting fewer texels a
+metre or a smaller area. Without it those draws would have no rectangle, lose their Baked lights' direct light, and
+the bake would still report success. `Single` can leave charts out (a chunk of more squares than one 2048 page holds),
+so the chunk path needs the check too. `--bake` prints the message as one line and exits with 1
+(`Game.TryBake`).
 
 ## Texel setup
 
