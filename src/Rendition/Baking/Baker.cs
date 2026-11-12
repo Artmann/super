@@ -47,6 +47,12 @@ internal sealed unsafe class Baker : IDisposable
     /// <summary>Rings of dilation after the filter, each filling empty texels beside full ones.</summary>
     internal const int DilationRings = 8;
 
+    /// <summary>A chunk's transfer sums: the sky's for red, green and blue, the sun's, and the sun's colour.</summary>
+    internal const int TransferSums = 5;
+
+    /// <summary>The floats of transfer each texel of <see cref="TracedPage.Transfer"/> holds, four a sum.</summary>
+    internal const int TransferFloats = TransferSums * 4;
+
     private const uint GroupSize = 8;
     private const Format PositionFormat = Format.R32G32B32A32Sfloat;
     private const Format SumFormat = Format.R32G32B32A32Sfloat;
@@ -151,7 +157,8 @@ internal sealed unsafe class Baker : IDisposable
         _resolvePipeline = PipelineFactory.CreateCompute(context, "bake_resolve.comp", _resolveLayout);
 
         // Trace: the scene and geometry table, the page's position, geometric normal and validity read, the lights, the
-        // three sums read and written, and the sky. Set 1 is the resource table again. One set, rewritten for each page.
+        // three sums read and written, the sky, and a chunk's five transfer sums. Set 1 is the resource table again. One
+        // set, rewritten for each page.
         var traceBindings = stackalloc DescriptorSetLayoutBinding[]
         {
             new(0, DescriptorType.AccelerationStructureKhr, 1, ShaderStageFlags.ComputeBit),
@@ -164,13 +171,18 @@ internal sealed unsafe class Baker : IDisposable
             new(7, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
             new(8, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
             new(9, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
+            new(10, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
+            new(11, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
+            new(12, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
+            new(13, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
+            new(14, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
         };
-        _traceSetLayout = CreateSetLayout(traceBindings, 10);
+        _traceSetLayout = CreateSetLayout(traceBindings, 15);
         var tracePoolSizes = stackalloc DescriptorPoolSize[]
         {
             new(DescriptorType.AccelerationStructureKhr, 1),
             new(DescriptorType.StorageBuffer, 2),
-            new(DescriptorType.StorageImage, 6),
+            new(DescriptorType.StorageImage, 6 + TransferSums),
             new(DescriptorType.CombinedImageSampler, 1),
         };
         var tracePoolInfo = new DescriptorPoolCreateInfo
@@ -441,9 +453,13 @@ internal sealed unsafe class Baker : IDisposable
     /// </param>
     /// <param name="skyIntensity">What the sky is scaled by; 0 leaves it out.</param>
     /// <param name="sky">The sky to light by, a cube sampled by world direction, in the shader-read layout.</param>
+    /// <param name="transfer">
+    /// Whether this is a chunk, whose paths also sum its sky and sun transfer into <see cref="TracedPage.Transfer"/>.
+    /// See "Chunk transfer" in docs/design.md.
+    /// </param>
     public TracedPage[] Trace(
         LightmapLayout layout, ReadOnlySpan<GpuBakeLight> lights, int passes,
-        float skyIntensity, ImageView sky, Sampler skySampler, TimeSpan batchBudget)
+        float skyIntensity, ImageView sky, Sampler skySampler, TimeSpan batchBudget, bool transfer = false)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(passes, 1);
 
@@ -457,6 +473,7 @@ internal sealed unsafe class Baker : IDisposable
             LightCount = (uint)lights.Length,
             Lift = TraceLift,
             SkyIntensity = skyIntensity,
+            Chunk = transfer ? 1u : 0u,
         };
 
         var traced = new TracedPage[layout.Pages];
@@ -473,28 +490,48 @@ internal sealed unsafe class Baker : IDisposable
             using var irradiance = new RenderTarget(_context, SumFormat, extent, usage, ImageAspectFlags.ColorBit);
             using var direction = new RenderTarget(_context, SumFormat, extent, usage, ImageAspectFlags.ColorBit);
             using var mask = new RenderTarget(_context, SumFormat, extent, usage, ImageAspectFlags.ColorBit);
-            RenderTarget[] sums = [irradiance, direction, mask];
 
-            _context.Api.ResetDescriptorPool(_context.Device, _tracePool, 0).Check();
-            var set = AllocateSet(_traceSetLayout, _tracePool);
-            WriteTraceSet(set, _pages[page], lightBuffer, sums, sky, skySampler);
-
-            _context.SubmitAndWait(cmd => ClearSums(cmd, sums));
-            for (int pass = 0; pass < passes;)
+            // A space binds 1 x 1 transfer sums that the shader never writes.
+            var transferExtent = transfer ? extent : new Extent2D(1, 1);
+            var sums = new RenderTarget[3 + TransferSums];
+            sums[0] = irradiance;
+            sums[1] = direction;
+            sums[2] = mask;
+            for (int i = 0; i < TransferSums; i++)
             {
-                int count = Math.Min(batch, passes - pass);
-                int first = pass;
-                long started = System.Diagnostics.Stopwatch.GetTimestamp();
-                _context.SubmitAndWait(cmd => RecordPasses(cmd, set, constants, first, count, width, height));
-                var took = System.Diagnostics.Stopwatch.GetElapsedTime(started);
-                pass += count;
-
-                // As many passes as fit the budget at the rate this batch ran, never more than double at once.
-                double perPass = Math.Max(took.TotalMilliseconds / count, 1e-3);
-                batch = Math.Clamp((int)(batchBudget.TotalMilliseconds / perPass), 1, Math.Max(count * 2, 1));
+                sums[3 + i] = new RenderTarget(_context, SumFormat, transferExtent, usage, ImageAspectFlags.ColorBit);
             }
 
-            traced[page] = ReadSums(page, sums, x, y, width, height, passes);
+            try
+            {
+                _context.Api.ResetDescriptorPool(_context.Device, _tracePool, 0).Check();
+                var set = AllocateSet(_traceSetLayout, _tracePool);
+                WriteTraceSet(set, _pages[page], lightBuffer, sums, sky, skySampler);
+
+                _context.SubmitAndWait(cmd => ClearSums(cmd, sums));
+                for (int pass = 0; pass < passes;)
+                {
+                    int count = Math.Min(batch, passes - pass);
+                    int first = pass;
+                    long started = System.Diagnostics.Stopwatch.GetTimestamp();
+                    _context.SubmitAndWait(cmd => RecordPasses(cmd, set, constants, first, count, width, height));
+                    var took = System.Diagnostics.Stopwatch.GetElapsedTime(started);
+                    pass += count;
+
+                    // As many passes as fit the budget at the rate this batch ran, never more than double at once.
+                    double perPass = Math.Max(took.TotalMilliseconds / count, 1e-3);
+                    batch = Math.Clamp((int)(batchBudget.TotalMilliseconds / perPass), 1, Math.Max(count * 2, 1));
+                }
+
+                traced[page] = ReadSums(page, sums, x, y, width, height, passes, transfer);
+            }
+            finally
+            {
+                for (int i = 0; i < TransferSums; i++)
+                {
+                    sums[3 + i].Dispose();
+                }
+            }
         }
 
         return traced;
@@ -881,14 +918,15 @@ internal sealed unsafe class Baker : IDisposable
     }
 
     /// <summary>Reads a page's sums and validity back and divides the sums by the passes.</summary>
-    private TracedPage ReadSums(int page, RenderTarget[] sums, int x, int y, int width, int height, int passes)
+    private TracedPage ReadSums(int page, RenderTarget[] sums, int x, int y, int width, int height, int passes, bool transfer)
     {
         ulong count = (ulong)width * (ulong)height;
         ulong bytes = count * 16;
-        using var buffer = GpuBuffer.CreateHostVisible(_context, bytes * 3, BufferUsageFlags.TransferDstBit);
+        int read = transfer ? 3 + TransferSums : 3;
+        using var buffer = GpuBuffer.CreateHostVisible(_context, bytes * (ulong)read, BufferUsageFlags.TransferDstBit);
         _context.SubmitAndWait(cmd =>
         {
-            for (int i = 0; i < 3; i++)
+            for (int i = 0; i < read; i++)
             {
                 Copy(cmd, sums[i], buffer, bytes * (ulong)i, 0, 0, width, height);
             }
@@ -923,7 +961,29 @@ internal sealed unsafe class Baker : IDisposable
             valid[i] = texels[i * TexelFloats + 10] > 0.5f;
         }
 
-        return new TracedPage(page, x, y, width, height, irradiance, direction, mask, covered, valid, valid);
+        float[]? transferMeans = null;
+        if (transfer)
+        {
+            // Interleaved a texel at a time, each sum's four floats in turn, as TracedPage.Transfer holds them.
+            transferMeans = new float[count * TransferFloats];
+            var sumFloats = new ReadOnlySpan<float>(buffer.Mapped, (int)(count * 4) * read);
+            for (int t = 0; t < (int)count; t++)
+            {
+                for (int s = 0; s < TransferSums; s++)
+                {
+                    int from = (3 + s) * (int)count * 4 + t * 4;
+                    for (int c = 0; c < 4; c++)
+                    {
+                        transferMeans[t * TransferFloats + s * 4 + c] = sumFloats[from + c] * scale;
+                    }
+                }
+            }
+        }
+
+        return new TracedPage(page, x, y, width, height, irradiance, direction, mask, covered, valid, valid)
+        {
+            Transfer = transferMeans,
+        };
     }
 
     /// <summary>
@@ -947,6 +1007,189 @@ internal sealed unsafe class Baker : IDisposable
                 nameof(traced), traced.Page, $"There are {_pages.Count} pages set up, so page {traced.Page} doesn't exist.");
         }
 
+        var (irradiance, direction, mask) = RunFilter(traced, traced.Irradiance, traced.Direction, traced.Mask, true, smooth);
+        int count = traced.Width * traced.Height;
+        var filled = new bool[count];
+        for (int i = 0; i < count; i++)
+        {
+            filled[i] = irradiance[i * 4 + 3] > 0.5f;
+        }
+
+        return traced with { Irradiance = irradiance, Direction = direction, Mask = mask, Filled = filled };
+    }
+
+    /// <summary>
+    /// Dilates a chunk's traced transfer as <see cref="FilterAndDilate"/> dilates its light, with the same
+    /// <see cref="DilationRings"/> rings, so gutters and invalid texels take their neighbours' transfer. It isn't
+    /// smoothed: values that aren't finite become 0 and ones past the half-float range its limit, and nothing more.
+    /// Run after <see cref="Trace"/> with transfer on. Waits for the GPU.
+    /// </summary>
+    /// <returns>
+    /// The page with its transfer dilated and <see cref="TracedPage.Filled"/> marking the texels that hold transfer.
+    /// </returns>
+    internal TracedPage DilateTransfer(TracedPage traced)
+    {
+        if (traced.Transfer is not { } transfer)
+        {
+            throw new ArgumentException("The page was traced without its transfer.", nameof(traced));
+        }
+
+        // The dilation averages ten floats a texel, irradiance rgb, direction xyz and mask xyzw, so the twenty floats of
+        // transfer go in two runs. Irradiance w marks the texels that hold a value.
+        const int perRun = 10;
+        int count = traced.Width * traced.Height;
+        var result = new float[count * TransferFloats];
+        var filled = new bool[count];
+        for (int run = 0; run < TransferFloats / perRun; run++)
+        {
+            var irradiance = new float[count * 4];
+            var direction = new float[count * 4];
+            var mask = new float[count * 4];
+            for (int t = 0; t < count; t++)
+            {
+                if (!traced.Valid[t])
+                {
+                    continue;
+                }
+
+                int from = t * TransferFloats + run * perRun;
+                for (int c = 0; c < 3; c++)
+                {
+                    irradiance[t * 4 + c] = Finite(transfer[from + c]);
+                    direction[t * 4 + c] = Finite(transfer[from + 3 + c]);
+                }
+
+                irradiance[t * 4 + 3] = 1f;
+                for (int c = 0; c < 4; c++)
+                {
+                    mask[t * 4 + c] = Finite(transfer[from + 6 + c]);
+                }
+            }
+
+            var (a, b, m) = RunFilter(traced, irradiance, direction, mask, false, false);
+            for (int t = 0; t < count; t++)
+            {
+                filled[t] = a[t * 4 + 3] > 0.5f;
+                int to = t * TransferFloats + run * perRun;
+                for (int c = 0; c < 3; c++)
+                {
+                    result[to + c] = a[t * 4 + c];
+                    result[to + 3 + c] = b[t * 4 + c];
+                }
+
+                for (int c = 0; c < 4; c++)
+                {
+                    result[to + 6 + c] = m[t * 4 + c];
+                }
+            }
+        }
+
+        return traced with { Transfer = result, Filled = filled };
+    }
+
+    /// <summary>
+    /// A chunk's dilated transfer as the <c>.lightbake</c> file stores it, on a page of <paramref name="side"/> texels
+    /// cut from the top left of the baker's page: the sky's coefficients for red, green and blue and the sun's in
+    /// RGBA16F, and the sun's tint in RGBA8. The tint is the sun transfer's colour divided by its largest channel, and
+    /// the sun's coefficients are scaled to match, so tint times sun gives each colour's transfer. A texel that isn't
+    /// <see cref="TracedPage.Filled"/> holds no transfer and a white tint. Run <see cref="DilateTransfer"/> first.
+    /// </summary>
+    internal static LightBakeTransfer EncodeTransfer(TracedPage traced, int side)
+    {
+        if (traced.Transfer is not { } transfer)
+        {
+            throw new ArgumentException("The page was traced without its transfer.", nameof(traced));
+        }
+
+        var sh = new byte[4][];
+        for (int s = 0; s < 4; s++)
+        {
+            sh[s] = new byte[side * side * 8];
+        }
+
+        var tint = new byte[side * side * 4];
+        Array.Fill(tint, (byte)255);
+        for (int row = 0; row < traced.Height; row++)
+        {
+            for (int column = 0; column < traced.Width; column++)
+            {
+                int x = traced.X + column;
+                int y = traced.Y + row;
+                int here = row * traced.Width + column;
+                if (x >= side || y >= side || !traced.Filled[here])
+                {
+                    continue;
+                }
+
+                int at = y * side + x;
+                int from = here * TransferFloats;
+                for (int s = 0; s < 3; s++)
+                {
+                    var halves = MemoryMarshal.Cast<byte, Half>(sh[s].AsSpan());
+                    for (int c = 0; c < 4; c++)
+                    {
+                        halves[at * 4 + c] = (Half)Finite(transfer[from + s * 4 + c]);
+                    }
+                }
+
+                // The sun was summed by luminance, its colour apart: rescale so the brightest tint channel is 1.
+                float r = MathF.Max(Finite(transfer[from + 16]), 0f);
+                float g = MathF.Max(Finite(transfer[from + 17]), 0f);
+                float b = MathF.Max(Finite(transfer[from + 18]), 0f);
+                float largest = MathF.Max(r, MathF.Max(g, b));
+                float luminance = Luminance(r, g, b);
+                float scale = largest > 0f && luminance > 0f ? largest / luminance : 0f;
+                var sun = MemoryMarshal.Cast<byte, Half>(sh[3].AsSpan());
+                for (int c = 0; c < 4; c++)
+                {
+                    sun[at * 4 + c] = (Half)Finite(transfer[from + 12 + c] * scale);
+                }
+
+                if (largest > 0f)
+                {
+                    tint[at * 4 + 0] = Unorm(r / largest);
+                    tint[at * 4 + 1] = Unorm(g / largest);
+                    tint[at * 4 + 2] = Unorm(b / largest);
+                }
+            }
+        }
+
+        return new LightBakeTransfer(
+            new LightBakePage(side, side, LightBakePageFormat.Rgba16f, sh[0]),
+            new LightBakePage(side, side, LightBakePageFormat.Rgba16f, sh[1]),
+            new LightBakePage(side, side, LightBakePageFormat.Rgba16f, sh[2]),
+            new LightBakePage(side, side, LightBakePageFormat.Rgba16f, sh[3]),
+            new LightBakePage(side, side, LightBakePageFormat.Rgba8, tint));
+    }
+
+    /// <summary>The top left <paramref name="side"/> texels square of a page, for a chunk's page baked in that corner.</summary>
+    internal static LightBakePage Crop(LightBakePage page, int side)
+    {
+        if (side == page.Width && side == page.Height)
+        {
+            return page;
+        }
+
+        int texel = page.Format == LightBakePageFormat.Rgba16f ? 8 : 4;
+        var pixels = new byte[side * side * texel];
+        for (int row = 0; row < side; row++)
+        {
+            Array.Copy(page.Pixels, row * page.Width * texel, pixels, row * side * texel, side * texel);
+        }
+
+        return new LightBakePage(side, side, page.Format, pixels);
+    }
+
+    // Not a number becomes 0, and anything past a half's range its limit, so a half float can hold it.
+    private static float Finite(float value) => float.IsNaN(value) ? 0f : Math.Clamp(value, -65504f, 65504f);
+
+    /// <summary>
+    /// Runs the filter shaders over a page's region: with <paramref name="prepare"/>, the prepare stage first; with
+    /// <paramref name="smooth"/>, the à-trous passes; then the dilation rings. Returns the three images read back.
+    /// </summary>
+    private (float[] Irradiance, float[] Direction, float[] Mask) RunFilter(
+        TracedPage traced, float[] irradianceIn, float[] directionIn, float[] maskIn, bool prepare, bool smooth)
+    {
         var api = _context.Api;
         int width = traced.Width;
         int height = traced.Height;
@@ -967,9 +1210,9 @@ internal sealed unsafe class Baker : IDisposable
             using var staging = GpuBuffer.CreateHostVisible(
                 _context, bytes * 3, BufferUsageFlags.TransferSrcBit | BufferUsageFlags.TransferDstBit);
             var floats = new Span<float>(staging.Mapped, count * 12);
-            traced.Irradiance.AsSpan(0, count * 4).CopyTo(floats);
-            traced.Direction.AsSpan(0, count * 4).CopyTo(floats[(count * 4)..]);
-            traced.Mask.AsSpan(0, count * 4).CopyTo(floats[(count * 8)..]);
+            irradianceIn.AsSpan(0, count * 4).CopyTo(floats);
+            directionIn.AsSpan(0, count * 4).CopyTo(floats[(count * 4)..]);
+            maskIn.AsSpan(0, count * 4).CopyTo(floats[(count * 8)..]);
 
             api.ResetDescriptorPool(_context.Device, _filterPool, 0).Check();
             var forward = AllocateSet(_filterSetLayout, _filterPool);
@@ -979,7 +1222,7 @@ internal sealed unsafe class Baker : IDisposable
             WriteFilterSet(backward, targets, b, a);
             var constants = new FilterConstants { X = traced.X, Y = traced.Y, Width = width, Height = height };
 
-            // Upload into a, then prepare into b.
+            // Upload into a, then prepare into b, or leave them in a with no prepare.
             _context.SubmitAndWait(cmd =>
             {
                 for (int i = 0; i < 3; i++)
@@ -1005,11 +1248,14 @@ internal sealed unsafe class Baker : IDisposable
                         PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit);
                 }
 
-                RecordFilterPass(cmd, _filterPipeline, forward, constants with { Stage = 0 });
+                if (prepare)
+                {
+                    RecordFilterPass(cmd, _filterPipeline, forward, constants with { Stage = 0 });
+                }
             });
 
             // Each pass reads one copy and writes the other; after the prepare the values are in b.
-            bool inB = true;
+            bool inB = prepare;
             _context.SubmitAndWait(cmd =>
             {
                 if (smooth)
@@ -1037,16 +1283,10 @@ internal sealed unsafe class Baker : IDisposable
                 }
             });
 
-            var irradiance = floats[..(count * 4)].ToArray();
-            var direction = floats.Slice(count * 4, count * 4).ToArray();
-            var mask = floats.Slice(count * 8, count * 4).ToArray();
-            var filled = new bool[count];
-            for (int i = 0; i < count; i++)
-            {
-                filled[i] = irradiance[i * 4 + 3] > 0.5f;
-            }
-
-            return traced with { Irradiance = irradiance, Direction = direction, Mask = mask, Filled = filled };
+            return (
+                floats[..(count * 4)].ToArray(),
+                floats.Slice(count * 4, count * 4).ToArray(),
+                floats.Slice(count * 8, count * 4).ToArray());
         }
         finally
         {
@@ -1478,8 +1718,13 @@ internal sealed unsafe class Baker : IDisposable
             new(default, sums[1].View, ImageLayout.General),
             new(default, sums[2].View, ImageLayout.General),
             new(skySampler, sky, ImageLayout.ShaderReadOnlyOptimal),
+            new(default, sums[3].View, ImageLayout.General),
+            new(default, sums[4].View, ImageLayout.General),
+            new(default, sums[5].View, ImageLayout.General),
+            new(default, sums[6].View, ImageLayout.General),
+            new(default, sums[7].View, ImageLayout.General),
         };
-        var writes = stackalloc WriteDescriptorSet[10];
+        var writes = stackalloc WriteDescriptorSet[15];
         writes[0] = new WriteDescriptorSet
         {
             SType = StructureType.WriteDescriptorSet,
@@ -1490,9 +1735,9 @@ internal sealed unsafe class Baker : IDisposable
             DescriptorType = DescriptorType.AccelerationStructureKhr,
         };
 
-        // Bindings 1 and 5 are buffers, 2 to 4 and 6 to 8 storage images, and 9 the sky.
-        ReadOnlySpan<int> imageOf = [-1, -1, 0, 1, 2, -1, 3, 4, 5, 6];
-        for (uint binding = 1; binding < 10; binding++)
+        // Bindings 1 and 5 are buffers, 2 to 4 and 6 to 8 storage images, 9 the sky, and 10 to 14 the transfer sums.
+        ReadOnlySpan<int> imageOf = [-1, -1, 0, 1, 2, -1, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+        for (uint binding = 1; binding < 15; binding++)
         {
             bool buffer = binding is 1 or 5;
             writes[binding] = new WriteDescriptorSet
@@ -1508,7 +1753,7 @@ internal sealed unsafe class Baker : IDisposable
             };
         }
 
-        _context.Api.UpdateDescriptorSets(_context.Device, 10, writes, 0, null);
+        _context.Api.UpdateDescriptorSets(_context.Device, 15, writes, 0, null);
     }
 
     private void WriteProbeSet(
@@ -1735,6 +1980,7 @@ internal sealed unsafe class Baker : IDisposable
         public uint LightCount;
         public float Lift;
         public float SkyIntensity;
+        public uint Chunk;
     }
 
     // Must match the push constants in bake_probes.comp.
@@ -1839,4 +2085,11 @@ internal struct GpuBakeLight
 /// </summary>
 internal sealed record TracedPage(
     int Page, int X, int Y, int Width, int Height, float[] Irradiance, float[] Direction, float[] Mask, bool[] Covered,
-    bool[] Valid, bool[] Filled);
+    bool[] Valid, bool[] Filled)
+{
+    /// <summary>
+    /// Only for a chunk: the means of its transfer, <see cref="Baker.TransferFloats"/> floats a texel. The sky's four
+    /// coefficients for red, green and blue, the sun's four, then the sun's colour in rgb with w unused.
+    /// </summary>
+    public float[]? Transfer { get; init; }
+}

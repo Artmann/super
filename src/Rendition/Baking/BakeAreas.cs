@@ -134,6 +134,28 @@ public static class BakeAreas
             dx * chunk.M31 + dy * chunk.M32 + dz * chunk.M33);
     }
 
+    /// <summary>
+    /// <paramref name="world"/> as seen from a rigid chunk: world times the chunk's inverse, row by row through
+    /// <see cref="IntoChunk"/>. Worked in doubles, so a chunk far from the origin gives the same numbers as one at it.
+    /// A chunk's bake ids and its bake both take its draws by this rule.
+    /// </summary>
+    public static Matrix4x4 Relative(in Matrix4x4 world, in Matrix4x4 chunk)
+    {
+        var result = default(Matrix4x4);
+        for (int row = 0; row < 4; row++)
+        {
+            // A row with a 1 in its last column is a point, and takes off the chunk's translation; a direction doesn't.
+            double w = world[row, 3];
+            var (x, y, z) = IntoChunk(chunk, world[row, 0], world[row, 1], world[row, 2], w);
+            result[row, 0] = (float)x;
+            result[row, 1] = (float)y;
+            result[row, 2] = (float)z;
+            result[row, 3] = (float)w;
+        }
+
+        return result;
+    }
+
     private static bool ChunkHolds(in BakedChunk chunk, Vector3 position)
     {
         var (x, y, z) = IntoChunk(chunk.Transform, position.X, position.Y, position.Z, 1.0);

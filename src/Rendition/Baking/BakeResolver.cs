@@ -206,6 +206,12 @@ public sealed class BakeResolver
         return result;
     }
 
+    /// <summary>
+    /// The bake ids of the static draws chunk <paramref name="chunk"/> owned in the last <see cref="Resolve"/>, filed
+    /// as its inputs were, so a chunk's bake takes exactly the draws its inputs name.
+    /// </summary>
+    internal IReadOnlyList<ulong> ChunkIds(int chunk) => _chunkIds[chunk];
+
     // A model's parts are filed together, under the area that owns the whole model, the same call Super made when it
     // gave their ids, so a model straddling two areas is never split between them. The parts need not come one after
     // another: they are sorted by (instance, transform, draw order) first.

@@ -1551,14 +1551,7 @@ public sealed unsafe class Renderer : IDisposable
             }
         }
 
-        var layout = LightmapLayout.Build(CollectionsMarshal.AsSpan(owned), AreaOf, settings,
-            material => _resources.GetWind(material) == 0f
-                && (_resources.GetFlags(material) & MaterialFlags.Transparent) == 0);
-
-        _baker ??= new Baker(_context, this);
-        var baker = _baker;
-        var all = draws.ToArray();
-        _context.SubmitAndWait(cmd => baker.SetUpTexels(cmd, layout, all));
+        var layout = LightmapLayout.Build(CollectionsMarshal.AsSpan(owned), AreaOf, settings, GetsLightmap);
 
         // The lights the bake takes: Mixed and Baked ones that hold still, a local light only in the space's box.
         var suns = view.Lights;
@@ -1623,22 +1616,199 @@ public sealed unsafe class Renderer : IDisposable
             }
         }
 
-        int passes = settings.Quality == BakeQuality.Preview ? 64 : 1024;
-        var traced = baker.Trace(layout, bakeLights, passes,
+        var area = BakeArea(new AreaJob(draws.ToArray(), bakeLights.ToArray(), false, layout, view.EnvironmentIntensity, true),
+            settings);
+
+        // A probe face texel sees one direction, not a cosine-weighted hemisphere, and the fold averages a thousand of
+        // them into each tile texel, so a sixteenth of the passes gives as quiet a result.
+        int probePasses = Math.Max(1, area.Passes / 16);
+        var probes = _baker!.TraceProbes(probeSettings, CollectionsMarshal.AsSpan(lights), probePasses,
             view.EnvironmentIntensity, _environment.Sky, _environment.Sampler, BakeBatchBudget);
+
+        var report = new LightBakeReport(unassigned.ToArray(), area.InvalidShare, area.Passes, Stopwatch.GetElapsedTime(started));
+        var file = new LightBakeFile(inputs, settings.Quality, layout.Draws, area.Irradiance, area.Direction, area.Mask,
+            probes.Irradiance, probes.Depth, probeSettings, channels, report);
+        return file.ToBytes();
+    }
+
+    /// <summary>
+    /// Path traces chunk <paramref name="chunk"/> of the frame in its own space and returns its <c>.lightbake</c> bytes,
+    /// made from the frame's inputs so a frame placing the chunk like this, or anywhere else, finds it fresh. Only the
+    /// static draws the chunk owns are in it, moved into the chunk's space as <see cref="BakeAreas.Relative"/> moves
+    /// them, so they alone block and bounce light; those without wind and not transparent share one lightmap page,
+    /// <see cref="LightmapLayout.BuildSingle"/>. Its plain light holds its own Baked lights in full, its Mixed lights
+    /// after their first bounce, and glowing surfaces, but no sky and no sun; it is only stored when there is such a
+    /// light or surface. Its transfer holds how the sky and a sun from any direction light it, so the game can light a
+    /// placed copy by its own sky and sun. A chunk has no probes. Waits for the GPU. See "Baked lighting" in
+    /// docs/rendering.md and "Chunk transfer" in docs/design.md.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">The frame has no chunk <paramref name="chunk"/>.</exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="settings"/> asks for another texel density than the chunk's <see cref="BakedChunk.TexelsPerMetre"/>.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">The chunk owns no static draws, or the GPU can't trace rays.</exception>
+    public byte[] BakeChunk(in FrameView view, ReadOnlySpan<DrawItem> draws, int chunk, BakeSettings settings)
+    {
+        var chunks = view.BakedChunks;
+        if (chunk < 0 || chunk >= chunks.Length)
+        {
+            throw new ArgumentOutOfRangeException(nameof(chunk), chunk, string.Create(CultureInfo.InvariantCulture,
+                $"The frame has {chunks.Length} baked {(chunks.Length == 1 ? "chunk" : "chunks")}, so chunk {chunk} doesn't exist."));
+        }
+
+        var baked = chunks[chunk];
+        if (settings.TexelsPerMetre != baked.TexelsPerMetre)
+        {
+            throw new ArgumentException(
+                $"The baked chunk \"{baked.Name}\" is lit at {baked.TexelsPerMetre.ToString(CultureInfo.InvariantCulture)} texels a metre, so it can't be baked at {settings.TexelsPerMetre.ToString(CultureInfo.InvariantCulture)}: no frame would find that bake fresh.",
+                nameof(settings));
+        }
+
+        long started = Stopwatch.GetTimestamp();
+        BakeIds.CheckStaticDraws(draws);
+        BakeFiles.CheckChunks(chunks);
+
+        // The same resolver the space's bake uses, so the chunk takes exactly the draws its inputs name.
+        var resolver = new BakeResolver(NoBakes.Instance);
+        var inputs = resolver.Resolve(view, draws, _boundsOf ??= BoundsOf, EnvironmentHash, _animatedLights)
+            .ChunkInputs[chunk];
+        var ids = new HashSet<ulong>(resolver.ChunkIds(chunk));
+        if (ids.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"The baked chunk \"{baked.Name}\" owns no static draws, so there is nothing to bake. A static draw belongs to the chunk whose box holds its centre, unless the baked space's box touches it.");
+        }
+
+        _api.DeviceWaitIdle(_context.Device).Check();
+        _uploads.Flush();
+        BakeSky(view);
+
+        // The chunk's draws, in its own space. The rest of the world neither blocks nor bounces its light.
+        var owned = new List<DrawItem>();
+        bool glows = false;
+        foreach (ref readonly var draw in draws)
+        {
+            if (draw.BakeId != 0 && ids.Contains(draw.BakeId))
+            {
+                var moved = draw;
+                moved.Transform = BakeAreas.Relative(draw.Transform, baked.Transform);
+                owned.Add(moved);
+                glows |= _resources.Glows(draw.Material);
+            }
+        }
+
+        var layout = LightmapLayout.BuildSingle(CollectionsMarshal.AsSpan(owned), AreaOf, baked.TexelsPerMetre, GetsLightmap);
+
+        // The chunk's own lights, Mixed and Baked ones that hold still, moved into its space. Every other light is
+        // Realtime as far as the mask channels go, so only these get one.
+        var locals = view.LocalLights;
+        var forMask = locals.ToArray();
+        var lightOf = new int[locals.Length];
+        var lights = new List<GpuBakeLight>();
+        for (int i = 0; i < locals.Length; i++)
+        {
+            lightOf[i] = -1;
+            if (locals[i].Mode != LightMode.Realtime && !_animatedLights.IsAnimated(new LightKey(false, locals[i].Key))
+                && BakeAreas.OwnerOfLight(locals[i].Position, view.BakedSpace, chunks) == chunk)
+            {
+                var light = locals[i];
+                var (px, py, pz) = BakeAreas.IntoChunk(baked.Transform, light.Position.X, light.Position.Y, light.Position.Z, 1.0);
+                var (dx, dy, dz) = BakeAreas.IntoChunk(baked.Transform, light.Direction.X, light.Direction.Y, light.Direction.Z, 0.0);
+                light.Position = new Vector3((float)px, (float)py, (float)pz);
+                light.Direction = new Vector3((float)dx, (float)dy, (float)dz);
+                lightOf[i] = lights.Count;
+                lights.Add(GpuBakeLight.Local(light));
+            }
+            else
+            {
+                forMask[i].Mode = LightMode.Realtime;
+            }
+        }
+
+        var maskChannels = new int[locals.Length];
+        var unassigned = new List<int>();
+        ShadowMaskChannels.AssignChunk(baked, forMask, maskChannels, unassigned);
+        var bakeLights = lights.ToArray();
+        var chunkChannels = new List<(ulong LightHash, int Channel)>();
+        for (int i = 0; i < locals.Length; i++)
+        {
+            if (maskChannels[i] >= 0 && lightOf[i] >= 0)
+            {
+                bakeLights[lightOf[i]].MaskChannel = maskChannels[i];
+                chunkChannels.Add((BakeInputHash.Light(locals[i], baked.Transform), maskChannels[i]));
+            }
+        }
+
+        // No sky and no sun in the plain light: the transfer carries them, for whatever sky the chunk is placed under.
+        bool plainLight = lights.Count > 0 || glows;
+        var area = BakeArea(new AreaJob(owned.ToArray(), bakeLights, true, layout, 0f, plainLight), settings);
+
+        var report = new LightBakeReport(unassigned.ToArray(), area.InvalidShare, area.Passes, Stopwatch.GetElapsedTime(started));
+        var file = new LightBakeFile(inputs, settings.Quality, layout.Draws, area.Irradiance, area.Direction, area.Mask,
+            null, null, null, [], report)
+        {
+            Transfer = area.Transfer,
+            ChunkChannels = chunkChannels,
+        };
+        return file.ToBytes();
+    }
+
+    // Whether a material may have a lightmap: not one that sways in the wind or is see-through.
+    private bool GetsLightmap(MaterialHandle material) =>
+        _resources.GetWind(material) == 0f && (_resources.GetFlags(material) & MaterialFlags.Transparent) == 0;
+
+    /// <summary>
+    /// One area to bake, a space or a chunk, everything in the area's own space.
+    /// </summary>
+    /// <param name="Draws">Every draw that blocks and bounces light; the baker builds its top level from them.</param>
+    /// <param name="Lights">The lights of the bake, each Mixed one with the mask channel it was assigned.</param>
+    /// <param name="IsChunk">Whether the paths also sum the sky and sun transfer, on a page of the layout's own side.</param>
+    /// <param name="Layout">Where each draw sits: from <see cref="LightmapLayout.Build"/> for a space, <see cref="LightmapLayout.BuildSingle"/> for a chunk.</param>
+    /// <param name="SkyIntensity">What the sky in the plain light is scaled by; 0 leaves it out.</param>
+    /// <param name="PlainLight">Whether the irradiance and direction pages are kept.</param>
+    private sealed record AreaJob(
+        DrawItem[] Draws, GpuBakeLight[] Lights, bool IsChunk, LightmapLayout Layout, float SkyIntensity, bool PlainLight);
+
+    /// <summary>What <see cref="BakeArea"/> made: the pages as the file stores them, and what the report needs.</summary>
+    private sealed record AreaBake(
+        List<LightBakePage>? Irradiance, List<LightBakePage>? Direction, List<LightBakePage> Mask,
+        LightBakeTransfer? Transfer, float InvalidShare, int Passes);
+
+    /// <summary>
+    /// Sets up the job's texels, path traces them, then filters, dilates and encodes each page. A chunk's single page
+    /// is baked at the top left of the baker's full page and cut to its own side.
+    /// </summary>
+    private AreaBake BakeArea(AreaJob job, BakeSettings settings)
+    {
+        _baker ??= new Baker(_context, this);
+        var baker = _baker;
+        var pages = job.IsChunk ? job.Layout.OnFullPage() : job.Layout;
+        int side = job.Layout.PageSide;
+        var draws = job.Draws;
+        _context.SubmitAndWait(cmd => baker.SetUpTexels(cmd, pages, draws));
+
+        int passes = settings.Quality == BakeQuality.Preview ? 64 : 1024;
+        var traced = baker.Trace(pages, job.Lights, passes,
+            job.SkyIntensity, _environment.Sky, _environment.Sampler, BakeBatchBudget, job.IsChunk);
 
         var irradiance = new List<LightBakePage>();
         var direction = new List<LightBakePage>();
         var mask = new List<LightBakePage>();
+        LightBakeTransfer? transfer = null;
         long covered = 0;
         long invalid = 0;
         foreach (var raw in traced)
         {
             var page = baker.FilterAndDilate(raw, settings.Filter);
             var encoded = Baker.Encode(page);
-            irradiance.Add(encoded.Irradiance);
-            direction.Add(encoded.Direction);
-            mask.Add(encoded.Mask);
+            irradiance.Add(Baker.Crop(encoded.Irradiance, side));
+            direction.Add(Baker.Crop(encoded.Direction, side));
+            mask.Add(Baker.Crop(encoded.Mask, side));
+            if (job.IsChunk)
+            {
+                transfer = Baker.EncodeTransfer(baker.DilateTransfer(raw), side);
+            }
+
             for (int t = 0; t < page.Covered.Length; t++)
             {
                 if (page.Covered[t])
@@ -1652,17 +1822,16 @@ public sealed unsafe class Renderer : IDisposable
             }
         }
 
-        // A probe face texel sees one direction, not a cosine-weighted hemisphere, and the fold averages a thousand of
-        // them into each tile texel, so a sixteenth of the passes gives as quiet a result.
-        int probePasses = Math.Max(1, passes / 16);
-        var probes = baker.TraceProbes(probeSettings, CollectionsMarshal.AsSpan(lights), probePasses,
-            view.EnvironmentIntensity, _environment.Sky, _environment.Sampler, BakeBatchBudget);
+        // A chunk with nothing that can hold a lightmap still has its transfer, holding none.
+        if (job.IsChunk && transfer is null)
+        {
+            var empty = new TracedPage(0, 0, 0, 0, 0, [], [], [], [], [], []) { Transfer = [] };
+            transfer = Baker.EncodeTransfer(empty, side);
+        }
 
-        var report = new LightBakeReport(
-            unassigned.ToArray(), covered == 0 ? 0f : (float)invalid / covered, passes, Stopwatch.GetElapsedTime(started));
-        var file = new LightBakeFile(inputs, settings.Quality, layout.Draws, irradiance, direction, mask,
-            probes.Irradiance, probes.Depth, probeSettings, channels, report);
-        return file.ToBytes();
+        return new AreaBake(
+            job.PlainLight ? irradiance : null, job.PlainLight ? direction : null, mask, transfer,
+            covered == 0 ? 0f : (float)invalid / covered, passes);
     }
 
     private static ulong HashEnvironment(in EnvironmentDescription environment)

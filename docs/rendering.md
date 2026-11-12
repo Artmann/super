@@ -565,9 +565,33 @@ and draws nothing. A view without a space throws "Bake needs a baked space in th
 view.BakedLighting first." A space with more than 4,096 probes, which only a hand-made
 `FrameView.BakedSpace` can have, throws with its name and count. The settings' `TexelsPerMetre`
 must be the space's, since no frame would find a bake at another density fresh; one that differs
-throws with both. Chunks aren't baked yet.
+throws with both.
 A game doesn't need to call it itself: [`--bake`](command-line.md#baking-lighting) bakes the
 frame's space and saves it, and `--bake-check` says whether the saved bake is fresh.
+
+```csharp
+byte[] bake = renderer.BakeChunk(view, draws, chunk: 0, new BakeSettings(texelsPerMetre: 20));
+```
+
+`Renderer.BakeChunk` bakes one of the frame's `BakedChunks` in its own space, so one bake
+serves every copy of the chunk wherever it stands and however it is turned. Only the static
+draws the chunk owns are in it, so the rest of the world neither shades nor lights it. Its
+lightmap is one square page, from 64 to 2048 texels a side, as small as holds its draws. It
+holds:
+
+- The sky's light, as how much of the sky each texel sees from each direction (its transfer),
+  so a placed copy is lit by whatever sky it stands under, through openings and after
+  bouncing.
+- The sun's bounced light, the same way, for a sun from any direction. The sun's direct light
+  stays live.
+- A plain lightmap of the chunk's own `Baked` and `Mixed` lights and glowing surfaces, by the
+  same rules as a space but with no sky and no sun. A chunk with none of these has no plain
+  lightmap. Its `Mixed` lights get shadow mask channels of their own.
+
+A chunk has no probes. `BakeChunk` throws `ArgumentOutOfRangeException` for a chunk the frame
+doesn't have, `ArgumentException` when the settings' `TexelsPerMetre` isn't the chunk's, and
+`InvalidOperationException` when the chunk owns no static draws. Frames don't draw chunk bakes
+yet, and `--bake` bakes only the space.
 
 The lightmap covers the static draws the space owns, apart from ones that sway in the wind or
 are see-through, at the space's texel density. Each texel holds the light reaching it from every

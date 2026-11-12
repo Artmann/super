@@ -83,6 +83,7 @@ internal sealed unsafe class ResourceTable : IDisposable
     private readonly int[] _materialShaders = new int[MaxMaterials];
     private readonly bool[] _materialCutouts = new bool[MaxMaterials];
     private readonly float[] _materialWind = new float[MaxMaterials];
+    private readonly bool[] _materialGlows = new bool[MaxMaterials];
     private readonly bool[] _materialSubsurface = new bool[MaxMaterials];
     private readonly int[] _materialTextures = new int[MaxMaterials * TexturesPerMaterial];
     private readonly List<GpuTexture?> _textures = [];
@@ -217,6 +218,9 @@ internal sealed unsafe class ResourceTable : IDisposable
 
     /// <summary>How far the material sways in the wind, as a share of its strength: 0 for not at all.</summary>
     public float GetWind(MaterialHandle material) => _materialWind[material.Index];
+
+    /// <summary>Whether the material gives light of its own: some channel of its emissive colour is above 0.</summary>
+    public bool Glows(MaterialHandle material) => _materialGlows[material.Index];
 
     /// <summary><see cref="GetWind"/> as a lookup that passes and culling hold on to, made once.</summary>
     public Func<MaterialHandle, float> SwayOf { get; }
@@ -510,6 +514,7 @@ internal sealed unsafe class ResourceTable : IDisposable
         _materialShaders[index] = material.Shader?.Index ?? 0;
         _materialCutouts[index] = material.AlphaCutoff > 0f;
         _materialWind[index] = Sway(material);
+        _materialGlows[index] = material.Emissive.X > 0f || material.Emissive.Y > 0f || material.Emissive.Z > 0f;
         _materialSubsurface[index] = material.Subsurface.IsOn;
 
         var owned = _materialTextures.AsSpan(index * TexturesPerMaterial, TexturesPerMaterial);

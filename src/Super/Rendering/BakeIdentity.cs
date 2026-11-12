@@ -52,26 +52,10 @@ internal static class BakeIdentity
     }
 
     /// <summary>
-    /// <paramref name="world"/> as seen from a rigid chunk: world times the chunk's inverse, row by row through
-    /// <see cref="BakeAreas.IntoChunk"/>. Worked in doubles, so a chunk far from the origin gives the same numbers as one
-    /// at it.
+    /// <paramref name="world"/> as seen from a rigid chunk: <see cref="BakeAreas.Relative"/>, the rule the chunk's bake
+    /// moves its draws by too.
     /// </summary>
-    public static Matrix4x4 Relative(in Matrix4x4 world, in Matrix4x4 chunk)
-    {
-        var result = default(Matrix4x4);
-        for (int row = 0; row < 4; row++)
-        {
-            // A row with a 1 in its last column is a point, and takes off the chunk's translation; a direction doesn't.
-            double w = world[row, 3];
-            var (x, y, z) = BakeAreas.IntoChunk(chunk, world[row, 0], world[row, 1], world[row, 2], w);
-            result[row, 0] = (float)x;
-            result[row, 1] = (float)y;
-            result[row, 2] = (float)z;
-            result[row, 3] = (float)w;
-        }
-
-        return result;
-    }
+    public static Matrix4x4 Relative(in Matrix4x4 world, in Matrix4x4 chunk) => BakeAreas.Relative(world, chunk);
 
     /// <summary>
     /// Sets the bake id of each shown part of a static draw. <paramref name="partBounds"/> holds every part of the model,

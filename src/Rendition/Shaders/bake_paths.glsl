@@ -1,7 +1,7 @@
 // The baker's paths, shared by bake_trace.comp (lightmap texels) and bake_probes.comp (light probes). Include it after
 // trace.glsl and bake_lights.glsl, with these declared first: the top-level structure `scene`, the `lights` buffer of
-// BakeLight, the `sky` cube, and a push constant block `trace` holding lightCount, lift and skyIntensity. See "The path
-// tracer" in docs/design.md.
+// BakeLight, the `sky` cube, and a push constant block `trace` holding lightCount, lift and skyIntensity. Define
+// BAKE_TRANSFER, with a `chunk` in `trace`, to sum a chunk's transfer too. See "The path tracer" in docs/design.md.
 
 const float PI = 3.14159265;
 const uint MAX_BOUNCES = 4u;
@@ -230,6 +230,47 @@ vec3 emitted(TraceHit hit) {
 // What firstSeen holds when a path meets nothing.
 const float NOTHING_SEEN = 60000.0;
 
+#ifdef BAKE_TRANSFER
+// A chunk's transfer from one path, summed by pathFrom when trace.chunk is set; bake_trace.comp defines BAKE_TRANSFER
+// and declares trace.chunk. Each vec4 is the L1 spherical harmonic coefficients in ShL1's order: constant, then y, z, x.
+// The sky's are per colour. The sun's are one set by luminance, and sunTint is their colour. See "Chunk transfer" in
+// docs/design.md.
+vec4 skyTransfer[3];
+vec4 sunTransfer;
+vec3 sunTint;
+
+void resetTransfer() {
+    skyTransfer[0] = vec4(0.0);
+    skyTransfer[1] = vec4(0.0);
+    skyTransfer[2] = vec4(0.0);
+    sunTransfer = vec4(0.0);
+    sunTint = vec3(0.0);
+}
+
+// The L1 basis in direction d, as ShL1.Direction in Baking/ShL1.cs.
+vec4 shBasis(vec3 d) {
+    return vec4(0.282094792, 0.488602512 * d.y, 0.488602512 * d.z, 0.488602512 * d.x);
+}
+
+// Next-event estimation for a sun from any direction, at a path vertex p with normal n that throughput reaches: one
+// ray in a uniformly drawn direction w, which, if it escapes, adds throughput cos 4 pi Y(w). Throughput already holds
+// the vertex's albedo and is in irradiance, so this is pi times the brief's throughput albedo / pi cos 4 pi Y.
+void sunBounce(vec3 p, vec3 n, vec3 throughput) {
+    float z = 1.0 - 2.0 * random01();
+    float phi = BAKE_TWO_PI * random01();
+    float r = sqrt(max(0.0, 1.0 - z * z));
+    vec3 w = vec3(r * cos(phi), r * sin(phi), z);
+    float c = dot(n, w);
+    if (c <= 0.0) {
+        return;
+    }
+
+    vec3 reaching = throughput * (c * 4.0 * PI * transmission(p + n * trace.lift, w, BAKE_SUN_DISTANCE));
+    sunTransfer += luminance(reaching) * shBasis(w);
+    sunTint += reaching;
+}
+#endif
+
 // A path from at along direction that bounces up to four times. Returns the light it brings back as pi times the
 // radiance arriving along direction, so a cosine-weighted direction carries irradiance. firstSeen is how far the first
 // solid surface is, negative when the path met its back, and NOTHING_SEEN when it met nothing.
@@ -244,6 +285,16 @@ vec3 pathFrom(vec3 at, vec3 direction, out float firstSeen) {
         throughput *= passed;
         if (!found) {
             pathLight += throughput * PI * textureLod(sky, direction, 0.0).rgb * trace.skyIntensity;
+#ifdef BAKE_TRANSFER
+            // An escaped path's share of the sky from direction, in the chunk's own space: pi times the mean of
+            // throughput Y, since the first direction was drawn by the cosine.
+            if (trace.chunk != 0u) {
+                vec4 y = PI * shBasis(direction);
+                skyTransfer[0] += throughput.r * y;
+                skyTransfer[1] += throughput.g * y;
+                skyTransfer[2] += throughput.b * y;
+            }
+#endif
             break;
         }
 
@@ -274,6 +325,12 @@ vec3 pathFrom(vec3 at, vec3 direction, out float firstSeen) {
 
         vec4 unused = vec4(0.0);
         pathLight += throughput * directLight(hit.position, hit.normal, false, unused);
+#ifdef BAKE_TRANSFER
+        // The sun's bounce from every vertex the path reaches; the texel's own view of the sun is the runtime's.
+        if (trace.chunk != 0u) {
+            sunBounce(hit.position, hit.normal, throughput);
+        }
+#endif
         at = hit.position + hit.normal * trace.lift;
         direction = cosineDirection(hit.normal);
     }

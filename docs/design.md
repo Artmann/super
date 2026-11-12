@@ -1902,6 +1902,11 @@ first, is added if everything still packs, since there is no next page to take i
 the rest, which are lit
 live. A layout from `Single` has one page (page 0), or none when it is given no charts.
 
+`LightmapLayout.BuildSingle` takes draws, the area callback and `getsLightmap` as `Build` does, groups them by the same
+key and measures each group the same way, then hands the groups to `Single` as charts and gives every draw of a group
+its chart's rectangle. A group's chart is named by its first draw's bake id, and every draw of a group that doesn't fit
+is in `Left`.
+
 ## Texel setup
 
 `Baker` (`src/Rendition/Baking/Baker.cs`) is the GPU baker, and texel setup is its first
@@ -2009,7 +2014,8 @@ it.
 
 Passes go to the GPU in batches. The first is one pass; after each, the baker times it and
 sizes the next to fit `Renderer.BakeBatchBudget` (80 ms) at that rate, at most double the last,
-so no submit holds the GPU long enough to trip a device timeout. `Renderer.Bake` takes the
+so no submit holds the GPU long enough to trip a device timeout. A chunk's trace also sums its sky and sun transfer;
+see "Baking a chunk" under "Chunk transfer". `Renderer.Bake` takes the
 lights' modes from `BakeResolver`, so the bake and the frame agree on which lights are moving,
 and builds the top-level structure with `SetUpTexels`. That structure goes on the frame slot's
 destroyed list like any other, and is released only by a later `Render`; `Bake` waits for every
@@ -3552,6 +3558,47 @@ does, with `Vector3.TransformNormal` (System.Numerics uses row vectors), so a di
 turned function's value there is the original's value at `d`. A quarter turn about y sends +x to -z. It uses the upper
 3x3 of a rigid transform and throws `ArgumentException` for anything `BakeFiles.IsRigid` rejects, since a scale would
 scale the coefficients without turning them.
+
+### Baking a chunk
+
+`Renderer.BakeChunk` and `Renderer.Bake` share `BakeArea`, which takes an `AreaJob`: the draws and lights in the
+area's own space, whether it is a chunk, its layout, the sky's intensity and whether the plain light is kept. The
+lights carry their mask channels. `BakeArea` sets up the texels, which builds the baker's top-level structure from the
+job's draws, traces, then filters, dilates and encodes each page. A space's job is its frame as it stands; the space's
+probes are traced after, in `Bake`.
+
+A chunk's job holds only the static draws `BakeResolver.ChunkIds` files under it, the same ones its inputs hash, each
+moved by `BakeAreas.Relative` into the chunk's space, so a chunk's bake is the same wherever it stands and nothing
+outside it blocks or bounces its light. Its layout is `LightmapLayout.BuildSingle`: draws share rectangles as in
+`Build`, and the rectangles go on one page with `Single`. The baker works on 2048-texel pages, so the page is baked at
+the top left of one (`LightmapLayout.OnFullPage`) and every page the file stores is cut to the layout's `PageSide`
+after encoding (`Baker.Crop`). Its lights are its own local `Baked` and `Mixed` lights that hold still, the ones
+`BakeAreas.OwnerOfLight` gives the chunk, with position and direction moved by `BakeAreas.IntoChunk`. Mask channels
+come from `ShadowMaskChannels.AssignChunk`, with every other light counted as `Realtime`, and are listed in
+`ChunkChannels` by `BakeInputHash.Light` under the chunk's transform. A chunk has no sun channel. The plain light has
+no sky (`skyIntensity` 0) and no suns, and its irradiance and direction pages are kept only when the chunk has a light
+or a glowing static surface (`ResourceTable.Glows`, any emissive channel above 0). There are no probes.
+
+With `Trace`'s `transfer` on, `bake_trace.comp` sets `chunk` in its push constants and `bake_paths.glsl`, compiled
+with `BAKE_TRANSFER` there and without it for the probes, sums the transfer into five more `rgba32f` sums alongside the
+plain light. A space binds 1 x 1 images there that are never written, and its random numbers are drawn exactly as
+before, so a space's bake doesn't change. The rules, in the chunk's space:
+
+- Sky. A path that misses everything adds `throughput * Y(w)` to the red, green and blue coefficients, where `w` is the
+  direction it left in, at any bounce including the first. The first direction is drawn by the cosine, so the stored
+  value is `pi` times the mean, and a lone plane under a unit sky has `Dot` with `Uniform(1)` of `pi` (C0 = `pi Y0`).
+- Sun. At each surface the path reaches after leaving the texel, one ray goes out in a direction `w_s` drawn uniformly
+  over the sphere, as next-event estimation for a sun from `w_s`. If it reaches `BAKE_SUN_DISTANCE` it adds
+  `throughput * albedo / pi * max(0, n . w_s) * 4 pi * Y(w_s)`, times `pi` as the sky is. The sum is by luminance, one
+  set of coefficients for all colours, and the light's colour is summed apart. The texel's own view of the sun is
+  left out, since the sun's direct light stays live, so a lone plane has no sun transfer.
+
+The two extra random numbers are drawn at every surface the path reaches, whether the ray goes or not. The transfer
+is dilated as the plain light is, with `bake_dilate.comp`'s rings run twice over ten floats at a time
+(`Baker.DilateTransfer`), but isn't smoothed: a NaN becomes 0 and anything past a half's range is clamped to it first. `Baker.EncodeTransfer` then writes the sky's and sun's coefficients in RGBA16F and the sun's colour in
+RGBA8 as `SunTint`, divided by its largest channel. The sun's coefficients are scaled by that channel over the
+colour's luminance, so `SunTint * Sun` is each colour's transfer. A texel no rectangle or dilation reaches holds no
+transfer and a white tint.
 
 ## Ray tracing
 

@@ -79,42 +79,7 @@ public sealed class LightmapLayout
         Func<MaterialHandle, bool> getsLightmap)
     {
         var layout = new LightmapLayout();
-        var groupOf = new Dictionary<(ulong Instance, Matrix4x4 Transform, MaterialHandle Material), int>();
-        var groups = new List<Group>();
-        var drawGroup = new List<(ulong BakeId, int Group)>();
-        var seen = new HashSet<ulong>();
-
-        foreach (ref readonly var draw in draws)
-        {
-            if (draw.BakeId == 0 || !seen.Add(draw.BakeId) || !getsLightmap(draw.Material))
-            {
-                continue;
-            }
-
-            var key = (BakeIds.Instance(draw.BakeId), draw.Transform, draw.Material);
-            float area = meshArea(draw.Mesh, draw.FirstIndex, draw.IndexCount)
-                * (float)Math.Pow(Math.Abs(Determinant(draw.Transform)), 2.0 / 3.0);
-            if (!groupOf.TryGetValue(key, out int index))
-            {
-                index = groups.Count;
-                groupOf[key] = index;
-                groups.Add(new Group { Area = area, Mesh = draw.Mesh });
-            }
-            else
-            {
-                // A rectangle holds one 0 to 1 of one mesh's second UVs. Two meshes in it would write over each other.
-                if (groups[index].Mesh != draw.Mesh)
-                {
-                    throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
-                        $"Draws of instance 0x{key.Item1:X16} use two different meshes with the same material and transform, so they would share one lightmap rectangle. Each mesh's second UVs fill their own 0 to 1, so give them different materials."));
-                }
-
-                // Parts of one mesh with one material are one unwrap, so the rectangle covers all their triangles.
-                groups[index].Area += area;
-            }
-
-            drawGroup.Add((draw.BakeId, index));
-        }
+        var (groups, drawGroup) = GroupDraws(draws, meshArea, getsLightmap);
 
         foreach (var group in groups)
         {
@@ -242,6 +207,60 @@ public sealed class LightmapLayout
     }
 
     /// <summary>
+    /// Lays out a chunk's static draws on one page with <see cref="Single"/>: draws share rectangles exactly as in
+    /// <see cref="Build"/>, and each shared rectangle is one chart. A draw whose chart doesn't fit even at
+    /// <see cref="PageSize"/> is in <see cref="Left"/>.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Two different meshes share an instance, transform and material.</exception>
+    public static LightmapLayout BuildSingle(
+        ReadOnlySpan<DrawItem> draws, Func<MeshHandle, uint, uint, float> meshArea, int texelsPerMetre,
+        Func<MaterialHandle, bool> getsLightmap)
+    {
+        var (groups, drawGroup) = GroupDraws(draws, meshArea, getsLightmap);
+        var charts = new LightmapChart[groups.Count];
+        for (int i = 0; i < charts.Length; i++)
+        {
+            charts[i] = new LightmapChart(groups[i].FirstId, groups[i].Area);
+        }
+
+        var single = Single(charts, texelsPerMetre);
+        var layout = new LightmapLayout { PageSide = single.PageSide, Pages = single.Pages };
+        foreach (var (bakeId, index) in drawGroup)
+        {
+            if (single.TryGet(groups[index].FirstId, out var rect))
+            {
+                layout._draws.Add((bakeId, rect));
+                layout._byId[bakeId] = rect;
+            }
+            else
+            {
+                layout._left.Add(bakeId);
+            }
+        }
+
+        return layout;
+    }
+
+    /// <summary>
+    /// This one-page layout drawn at the top left of a <see cref="PageSize"/> page: every rectangle at the same texels,
+    /// but as a share of <see cref="PageSize"/>. The baker works on pages of <see cref="PageSize"/>, so a smaller page
+    /// is baked in that corner and cut out after. Sides are powers of two, so the shares stay exact.
+    /// </summary>
+    internal LightmapLayout OnFullPage()
+    {
+        float scale = (float)PageSide / PageSize;
+        var layout = new LightmapLayout { Pages = Pages };
+        foreach (var (bakeId, rect) in _draws)
+        {
+            var moved = rect with { Scale = rect.Scale * scale, Offset = rect.Offset * scale };
+            layout._draws.Add((bakeId, moved));
+            layout._byId[bakeId] = moved;
+        }
+
+        return layout;
+    }
+
+    /// <summary>
     /// The running total of a mesh's triangle areas, in the mesh's own units, so a transform's scale is not in it:
     /// entry <c>t</c> is the area of the first <c>t</c> triangles, and there is one more entry than triangles.
     /// <see cref="RangeArea"/> reads a range from it.
@@ -272,6 +291,50 @@ public sealed class LightmapLayout
         int from = (int)Math.Min(firstIndex / 3, (uint)last);
         int to = (int)Math.Min(((ulong)firstIndex + indexCount) / 3, (ulong)last);
         return to > from ? cumulative[to] - cumulative[from] : 0f;
+    }
+
+    // The draws that get a lightmap, grouped into the rectangles they share: one instance, in one place, with one material.
+    private static (List<Group> Groups, List<(ulong BakeId, int Group)> DrawGroup) GroupDraws(
+        ReadOnlySpan<DrawItem> draws, Func<MeshHandle, uint, uint, float> meshArea, Func<MaterialHandle, bool> getsLightmap)
+    {
+        var groupOf = new Dictionary<(ulong Instance, Matrix4x4 Transform, MaterialHandle Material), int>();
+        var groups = new List<Group>();
+        var drawGroup = new List<(ulong BakeId, int Group)>();
+        var seen = new HashSet<ulong>();
+
+        foreach (ref readonly var draw in draws)
+        {
+            if (draw.BakeId == 0 || !seen.Add(draw.BakeId) || !getsLightmap(draw.Material))
+            {
+                continue;
+            }
+
+            var key = (BakeIds.Instance(draw.BakeId), draw.Transform, draw.Material);
+            float area = meshArea(draw.Mesh, draw.FirstIndex, draw.IndexCount)
+                * (float)Math.Pow(Math.Abs(Determinant(draw.Transform)), 2.0 / 3.0);
+            if (!groupOf.TryGetValue(key, out int index))
+            {
+                index = groups.Count;
+                groupOf[key] = index;
+                groups.Add(new Group { Area = area, Mesh = draw.Mesh, FirstId = draw.BakeId });
+            }
+            else
+            {
+                // A rectangle holds one 0 to 1 of one mesh's second UVs. Two meshes in it would write over each other.
+                if (groups[index].Mesh != draw.Mesh)
+                {
+                    throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
+                        $"Draws of instance 0x{key.Item1:X16} use two different meshes with the same material and transform, so they would share one lightmap rectangle. Each mesh's second UVs fill their own 0 to 1, so give them different materials."));
+                }
+
+                // Parts of one mesh with one material are one unwrap, so the rectangle covers all their triangles.
+                groups[index].Area += area;
+            }
+
+            drawGroup.Add((draw.BakeId, index));
+        }
+
+        return (groups, drawGroup);
     }
 
     // The most groups, from the front of the order, that fit one page together. The packer takes all or nothing, so this
@@ -341,6 +404,7 @@ public sealed class LightmapLayout
     {
         public float Area;
         public MeshHandle Mesh;
+        public ulong FirstId;
         public int Side;
         public bool Placed;
         public LightmapRect Rect;

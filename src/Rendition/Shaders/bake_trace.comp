@@ -8,8 +8,8 @@
 
 // The baker's path tracer: one pass sends one path from every valid texel of a region of a lightmap page and adds what
 // it brings back to float32 sums. The plain light with its squared luminance, its direction and the shadow mask are
-// summed separately; the baker divides by the passes when it reads them back. See "The path tracer" in docs/design.md
-// and Baking/Baker.cs.
+// summed separately; the baker divides by the passes when it reads them back. A chunk's paths also sum its sky and sun
+// transfer. See "The path tracer" and "Chunk transfer" in docs/design.md and Baking/Baker.cs.
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -24,6 +24,13 @@ layout(set = 0, binding = 6, rgba32f) uniform image2D irradianceSum; // rgb: irr
 layout(set = 0, binding = 7, rgba32f) uniform image2D directionSum;  // xyz: directions by luminance; w: the luminance.
 layout(set = 0, binding = 8, rgba32f) uniform image2D maskSum;       // Each channel's share of its light seen.
 layout(set = 0, binding = 9) uniform samplerCube sky;
+// A chunk's transfer, summed only when trace.chunk is set; a space binds 1 x 1 images that are never written. Each
+// holds the four L1 spherical harmonic coefficients: the sky's for red, green and blue, then the sun's by luminance.
+layout(set = 0, binding = 10, rgba32f) uniform image2D skyRedSum;
+layout(set = 0, binding = 11, rgba32f) uniform image2D skyGreenSum;
+layout(set = 0, binding = 12, rgba32f) uniform image2D skyBlueSum;
+layout(set = 0, binding = 13, rgba32f) uniform image2D sunSum;
+layout(set = 0, binding = 14, rgba32f) uniform image2D sunTintSum; // rgb: the sun transfer's colour; w unused.
 
 // Must match TraceConstants in Baking/Baker.cs.
 layout(push_constant) uniform Trace {
@@ -33,8 +40,10 @@ layout(push_constant) uniform Trace {
     uint lightCount;
     float lift;         // How far along the normal rays start, so they don't hit their own surface.
     float skyIntensity; // The environment's intensity; 0 leaves the sky out.
+    uint chunk;         // 1 for a chunk, whose paths also sum the sky and sun transfer; 0 for a space.
 } trace;
 
+#define BAKE_TRANSFER
 #include "bake_paths.glsl"
 
 void main() {
@@ -76,7 +85,16 @@ void main() {
     vec3 irradiance = directLight(p, n, true, towards);
     vec3 firstDirection = cosineDirection(n);
     float unusedSeen;
+    resetTransfer();
     vec3 pathLight = pathFrom(origin, firstDirection, unusedSeen);
+    if (trace.chunk != 0u) {
+        imageStore(skyRedSum, local, imageLoad(skyRedSum, local) + skyTransfer[0]);
+        imageStore(skyGreenSum, local, imageLoad(skyGreenSum, local) + skyTransfer[1]);
+        imageStore(skyBlueSum, local, imageLoad(skyBlueSum, local) + skyTransfer[2]);
+        imageStore(sunSum, local, imageLoad(sunSum, local) + sunTransfer);
+        imageStore(sunTintSum, local, imageLoad(sunTintSum, local) + vec4(sunTint, 0.0));
+    }
+
     irradiance += pathLight;
     towards += vec4(firstDirection, 1.0) * luminance(pathLight);
 
