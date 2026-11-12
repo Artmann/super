@@ -156,8 +156,6 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         // Ambient occlusion over 0.8 m, so the corners and the foot of each wall darken where
         // little of the sky reaches.
         view.AmbientOcclusion(0.8f, 1f);
-        // Light probes over the yard, a metre apart, so the sunlit brick warms the shade round it.
-        view.LightProbes(new(-2f, -0.5f, -9f), new(9f, 5f, 6f), 1f);
         // A reflection probe at head height in the middle of the yard, so the window and the
         // puddle mirror the wall, the deck and the house rather than only the sky.
         view.ReflectionProbe(YardProbeKey, position: new(3.5f, 1.6f, -1.5f), boxMin: new(-3f, -1f, -10f), boxMax: new(10f, 6f, 7f));

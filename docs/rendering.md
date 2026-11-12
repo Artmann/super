@@ -334,6 +334,13 @@ wall tints the floor beside it, and the inside of a closed room stays dark howev
 sky is. The probes see the sun, the sky, point and spot lights (inside their cones), glowing
 surfaces and the light already bounced, so light bounces again with every update.
 
+![The Courtyard's window wall, barrel and wheel lit by a box of probes captured once at load on the left, and by the live probes round the camera on the right, where the shaded wall right of the window and the barrel pick up a little more warm light off the sunlit brick](media/probes-courtyard.webp)
+
+A scene with no [`view.Sky`](#the-sky) has nothing for the probes to see where they look at
+open sky, so those directions take the plain background colour, which is darker than the light
+the renderer gives shade without probes. Such a scene comes out darker in the shade with
+probes than without them; give it a sky to light it from all round.
+
 The probes sit in four nested boxes centred on the camera, 0.5, 1, 2 and 4 metres apart, so
 detail is finest close by and the far boxes still reach a long way. On a GPU that can
 [trace rays](#ray-tracing), each update sends 128 rays out from the probe, and 256, 512 or 1,024
@@ -358,6 +365,8 @@ all; until it is redone, a probe keeps its old light, so a change fades in rathe
 As the camera moves, the boxes slide with it a row at a time: probes it keeps stay as they were,
 and the new row starts dark and is drawn next.
 
+![The same corner of the Courtyard with its probes drawn by rasterising on the left and by tracing rays on the right, at the same tick: the two come out nearly the same, the traced wall a touch warmer in the shade](media/probes-courtyard-paths.webp)
+
 ```csharp
 view.LightProbes(min: new(-1f, 0f, -4f), max: new(1f, 2.5f, 4f), spacing: 0.25f);
 ```
@@ -367,7 +376,9 @@ detail than the camera's probes give, such as a narrow corridor at 0.25 metres. 
 and up to a spacing round it, its probes win over the camera's. The box may hold at most 4,096
 probes, so 1 metre spacing covers about 15 by 15 by 15 metres; a bigger box throws when it is
 set. `spacing` must be more than zero, and `max` above `min` on every axis. A new box starts
-its probes again.
+its probes again. Gallery keeps one over the whole building: in its rooms the camera's probes
+alone left the walls and floors blotchy in a screenshot, and the box's probes, 1.65 metres
+apart, light them smoothly.
 
 Each probe also notes how far away the surfaces it sees are, so a point behind a wall from a
 probe gets nothing from it, and light doesn't leak into a room from the probes outside. Traced

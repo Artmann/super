@@ -213,6 +213,8 @@ public sealed class GalleryGame(Content content, Input input) : IGame
         view.AmbientOcclusion(0.8f, 1f);
 
         // One box of probes over the whole gallery. At most 4,096 fit, so they're 1.65 m apart.
+        // It's kept on top of the probes that follow the camera: without it the rooms' walls and
+        // floors came out blotchy, and the building greyer from the overview.
         view.LightProbes(new Vector3(-11.8f, -0.4f, -56.6f), new Vector3(7.8f, 8.6f, 10.6f), 1.65f);
 
         // The four reflection probes a frame can have, in the rooms with something shiny.

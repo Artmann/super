@@ -82,8 +82,10 @@ bright round the sun's disc, so the shade is cooler than the sunlight. It is at 
 read in it, while the sun keeps it a clear step darker than the light, as on a real clear
 day. See [The sky](../../docs/rendering.md#the-sky).
 
-Light probes a metre apart fill the yard, so light bounced off the sunlit brick and
-flagstones warms the shade round it. See [Bounced light](../../docs/rendering.md#bounced-light).
+The light probes that follow the camera fill the yard, so light bounced off the sunlit brick
+and flagstones warms the shade round it. The courtyard needs no box of probes of its own:
+with one a metre apart the shot looked the same. See
+[Bounced light](../../docs/rendering.md#bounced-light).
 Ambient occlusion over 0.8 m at full strength darkens the corners and the foot of each wall.
 A reflection probe at head height in the middle of the yard lets the window and the puddle
 mirror the wall, the deck and the house rather than only the sky. Water stands 4.5 cm below
@@ -233,7 +235,7 @@ stain quads are gone: `WallStains` lays the damp, the drip and the rust as decal
 | File | What's in it |
 | --- | --- |
 | `Program.cs` | Starts the courtyard, or the lineup with `--lineup` and the leaves with `--leaves` |
-| `CourtyardGame.cs` | The courtyard model, the camera, the sun and its shadows, the sky and its fog, the light probes, the reflection probe, the puddle level, the wind, the lantern and the room's light, and the finish. It loads the hand-placed decal list, lays it with the wall's stains and the gravel, and turns the materials, fog, volumetric fog, auto exposure and decals off and on with M, F, V, E and D |
+| `CourtyardGame.cs` | The courtyard model, the camera, the sun and its shadows, the sky and its fog, the reflection probe, the puddle level, the wind, the lantern and the room's light, and the finish. It loads the hand-placed decal list, lays it with the wall's stains and the gravel, and turns the materials, fog, volumetric fog, auto exposure and decals off and on with M, F, V, E and D |
 | `WallStains.cs` | Where the grime decals lie on the wall: the damp along its foot, the dirty water under the sill and the rust under the anchor plates |
 | `GravelSpills.cs` | Where the gravel decals lie: spills along both edges of both arms of the path and round the barrel's foot, kept off the middle of the path, the puddle and the wall |
 | `DecalCatalog.cs` | `DecalList` and `PlacedDecal`, the shape of a hand-placed decal list, and how a decal's position, size, facing and turn make its box |
