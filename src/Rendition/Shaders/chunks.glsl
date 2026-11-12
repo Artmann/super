@@ -21,7 +21,7 @@ layout(std430, set = 0, binding = 11) readonly buffer Chunks {
     // The frame's Mixed and Baked suns summed as deltas, each its radiance times the basis towards it: coefficient k's
     // red, green and blue in sun[k].rgb. In world space.
     vec4 sun[4];
-    ChunkData chunks[];
+    ChunkData chunks[MAX_CHUNKS];
 } chunkData;
 
 // The sky cube projected by sky_sh.comp: coefficient k's red, green and blue in rgb and its luminance in a, unscaled by

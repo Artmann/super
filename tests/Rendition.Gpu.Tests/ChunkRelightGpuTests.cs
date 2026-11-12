@@ -68,12 +68,13 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
 
             AssertShaded(expected, "mirrored chunk");
             float error = MeanDifference(chunk, expected);
-            Assert.True(error <= 6f,
-                $"Turned {degrees} degrees, the chunk's floor is {error:F2} steps from the mirrored bake's on average, more than 6.");
+            // 2.50 at 90 degrees and 2.72 at 180 turned right; 5.34 at 90 degrees turned the wrong way.
+            Assert.True(error <= 4f,
+                $"Turned {degrees} degrees, the chunk's floor is {error:F2} steps from the mirrored bake's on average, more than 4.");
 
             // The wall's shade is most of the floor's pattern and is in the bake whichever way the sky is turned, so a
-            // sky turned the wrong way moves the mean only a little: 5.34 at 90 degrees, against 2.50 turned right. It
-            // shows more in which way the floor's light leans, 4.2 apart turned wrong against 1.2 to 1.4 turned right.
+            // sky turned the wrong way moves the mean only a little. It shows more in which way the floor's light
+            // leans, 4.2 apart turned wrong against 1.2 to 1.4 turned right.
             var lean = Lean(chunk);
             var expectedLean = Lean(expected);
             Assert.True(Vector2.Distance(lean, expectedLean) <= 3f,
@@ -287,6 +288,42 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void Sky_projection_of_a_sky_bright_towards_plus_x_fills_the_x_band()
+    {
+        int errors = gpu.ValidationErrors;
+        var east = ProjectClearSky(new Vector3(0.6f, 0.8f, 0f));
+        var west = ProjectClearSky(new Vector3(-0.6f, 0.8f, 0f));
+
+        // A clear sky is brightest around its sun, so with the sun towards +x the x band (C3) is positive. The sky is
+        // also brighter above than below, so C1 isn't 0 here; mirroring the sun to -x cancels it. Mirroring x maps the
+        // cube's cells onto each other exactly, so C0, C1 and C2 stay the same and C3 changes sign. A sun with no z
+        // leaves the sky the same at +z and -z, so C2 is 0. Each is held to 1% of C3 for the cube's own sampling.
+        for (int channel = 0; channel < 3; channel++)
+        {
+            float x = east[3][channel];
+            float bound = 0.01f * x;
+            float c0 = east[0][channel];
+            Assert.True(x > 0.05f * c0, $"Channel {channel} of C3 is {x} with the sun towards +x and C0 {c0}, not a twentieth of it.");
+            Assert.True(MathF.Abs(x + west[3][channel]) <= bound,
+                $"Channel {channel} of C3 is {x} with the sun towards +x and {west[3][channel]} towards -x, not opposite.");
+            Assert.True(MathF.Abs(east[1][channel] - west[1][channel]) <= bound,
+                $"Channel {channel} of C1 is {east[1][channel]} with the sun towards +x and {west[1][channel]} towards -x, so the x band leaked into y.");
+            Assert.True(MathF.Abs(east[2][channel]) <= bound,
+                $"Channel {channel} of C2 is {east[2][channel]} with the sun towards +x, not 0 within {bound}.");
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    // The sky's L1 set under a clear sky whose sun is towards the direction given.
+    private Vector4[] ProjectClearSky(Vector3 towards)
+    {
+        DirectionalLight[] sun = [new() { Mode = LightMode.Realtime, Direction = Vector3.Normalize(towards) }];
+        gpu.Renderer.Render(View(sun, new AnalyticSky { Turbidity = 3f }, 1f), []);
+        return gpu.Renderer.ProjectSky();
     }
 
     private static DirectionalLight Sun(Vector3 towards) => new()

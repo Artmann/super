@@ -1569,6 +1569,7 @@ public sealed unsafe class Renderer : IDisposable
         for (int c = 0; c < chunks.Length; c++)
         {
             relit[c] = false;
+            // A chunk not relit keeps last frame's _chunkData, which is harmless: its draws get chunk -1, so no shader reads it.
             if (!bakes.ChunkFresh[c] || _chunkPool.Use(bakes.ChunkFile(c), store) is not { IsResident: true } entry
                 || entry.Transfer[0] < 0)
             {
