@@ -1478,11 +1478,12 @@ nothing the fold puts in the environment times its intensity (the clear sky abov
 when there is one), never the sun's disc, since the sun reaches surfaces directly. It does so
 even when the view shows a plain background there instead. Without probes, `softLight` lights
 a surface from the environment's irradiance cube times that intensity, so a probe in the open
-has to see the same environment to read the same. It used to see the background radiance, so
-a scene with no sky, such as Super's, whose background is a dark grey 0.15 against a studio
-environment of 0.25 at the floor to 0.6 overhead at intensity 0.8, came out darker in the shade with probes than
-without; the background now only colours the pixels where nothing is drawn. The maths lives in
-`probe_fold.glsl`, which has no bindings of its own, so a traced capture can fold the same way.
+has to see the same environment to read the same. It used to see the background radiance, and
+in Super a scene with no sky has a dark grey background of 0.15 but a studio environment of
+0.25 at the floor to 0.6 overhead at intensity 0.8, so its shade came out darker with probes
+than without. The background now only colours the pixels where nothing is drawn. The maths
+lives in `probe_fold.glsl`, which has no bindings of its own, so a traced capture can fold the
+same way.
 
 The fold doesn't write the atlases. It writes a slot of the staging buffer
 (`ProbeVolume.StagingTiles`, one bordered tile pair of 4,192 bytes per slot, as many slots as the
@@ -1570,8 +1571,9 @@ of the slots it handed to new probes so they read as uncaptured instead of as th
 left. When `FrameView.LightProbes` changes it sets or clears the scheduler's fixed grid and
 clears layer 4 the same way. `ProbeLightingKey` hashes the suns' directions, colours and shadow
 flags, the environment (a version bumped by `SetEnvironment`), its intensity, the sky's
-turbidity, whether the sun's shadow is on, and the sun-shadow, light-shadow, plain-materials and wear-and-dirt switches; when it
-changes, `EverythingChanged` marks every probe dirty. Geometry and the camera are not in it.
+turbidity, whether the sun's shadow is on, and the sun-shadow, light-shadow, plain-materials
+and wear-and-dirt switches. When it changes, `EverythingChanged` marks every probe dirty.
+Geometry and the camera are not in it.
 `FollowProbeLights` compares the frame's point and spot lights with last frame's by `Key`: a
 light that appeared, moved, turned, changed colour or range, or went away calls `LightChanged`
 for where it was and where it is. Then `Next` picks the batch: where the GPU traces,
