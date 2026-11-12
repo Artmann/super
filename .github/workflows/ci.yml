@@ -96,7 +96,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.SUPER_CACHE }}
-          key: super-cook-${{ runner.os }}-${{ steps.cook-key.outputs.month }}-${{ steps.cook-key.outputs.sdk }}-${{ hashFiles('Directory.Build.props', 'src/**', 'tools/**', 'examples/*/content/**', 'assets/**') }}
+          key: super-cook-${{ runner.os }}-${{ steps.cook-key.outputs.month }}-${{ steps.cook-key.outputs.sdk }}-${{ hashFiles('Directory.Build.props', 'src/**', 'tools/**', 'examples/*/content/**', 'assets/**') }}-probe
           restore-keys: |
             super-cook-${{ runner.os }}-${{ steps.cook-key.outputs.month }}-
 
