@@ -111,8 +111,16 @@ public static class BakeFiles
         float smaller = MathF.Min(max.X - min.X, max.Z - min.Z);
         if (edgeBlend > smaller * 0.5f)
         {
-            throw new ArgumentOutOfRangeException(paramName, edgeBlend, string.Create(CultureInfo.InvariantCulture,
-                $"The baked chunk \"{name}\"'s edge blend of {edgeBlend} metres is more than half its box's smaller side across x and z, {smaller} metres."));
+            string message = string.Create(CultureInfo.InvariantCulture,
+                $"The baked chunk \"{name}\"'s edge blend of {edgeBlend} metres is more than half its box's smaller side across x and z, {smaller} metres.");
+            if (edgeBlend == BakedChunk.DefaultEdgeBlend)
+            {
+                // The likeliest way here is a small chunk that never asked for a band, so say where the value came from.
+                message += string.Create(CultureInfo.InvariantCulture,
+                    $" {edgeBlend} metres is the default; pass edgeBlend: 0 for a hard edge, or a smaller edge blend.");
+            }
+
+            throw new ArgumentOutOfRangeException(paramName, edgeBlend, message);
         }
     }
 

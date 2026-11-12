@@ -301,6 +301,31 @@ public class BakedAreaViewTests
     }
 
     [Fact]
+    public void Default_edge_blend_on_a_small_chunk_throws_and_says_how_to_turn_it_off()
+    {
+        var original = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = new CultureInfo("sv-SE");
+        try
+        {
+            var view = new View();
+            // 0.8 metres across z, so at most 0.4 metres of band fit, and the default is 0.5.
+            var error = Assert.Throws<ArgumentOutOfRangeException>(
+                () => view.BakedChunk("crate", Matrix4x4.Identity, new Vector3(-1f, 0f, -0.4f), new Vector3(1f, 1f, 0.4f)));
+
+            Assert.StartsWith(
+                "The baked chunk \"crate\"'s edge blend of 0.5 metres is more than half its box's smaller side across x and z, 0.8 metres. "
+                + "0.5 metres is the default; pass edgeBlend: 0 for a hard edge, or a smaller edge blend.",
+                error.Message);
+            Assert.Equal("edgeBlend", error.ParamName);
+            Assert.Empty(view.BakedChunks);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
+    }
+
+    [Fact]
     public void Negative_edge_blend_throws()
     {
         var view = new View();

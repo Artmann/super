@@ -3289,8 +3289,8 @@ pass doesn't resolve again. `BakeFreshness.Without` copies the kept lights into 
 renderer keeps, grown only when a frame has more lights, and returns the frame's own span
 untouched when nothing is dropped. With no fresh bake nothing is dropped, so frames look
 exactly as they would without baked areas, to the byte (`NoBakeGpuTests`). A fresh space's
-lightmaps take a dropped light's place; see "Drawing a bake". A fresh chunk's aren't drawn yet,
-so its dropped lights' place is empty for now.
+lightmaps take a dropped light's place; see "Drawing a bake". So do a relit chunk's, once its
+pages are resident in the pool; see "Chunk bakes on the GPU" and "Relighting a chunk".
 
 ### The bake store
 
@@ -3764,7 +3764,8 @@ sides; the top and bottom have none, since floors and roofs don't meet the world
 and `smoothstep(0, EdgeBlend, distance)`; `EdgeBlend` 0 gives 1 everywhere. `writeBaked` puts it in `outBaked.a`,
 leaving the rgb unweighted. A space's lightmap and every pixel of a chunk with no relight write exactly 1, and a pixel
 with no lightmap 0. `lighting.frag` treats `a > 0` as lightmapped. At 1 it takes the baked rule alone, with the same
-code as before the band, so space-lightmapped and unlightmapped pixels are drawn bit for bit as without it. In between
+code as before the band, so a space-lightmapped pixel is drawn bit for bit as without it; so is an unlightmapped one,
+unless it is inside a space's probe band, below, whose blend changes its soft light. In between
 it takes `mix(softLight, baked.rgb, a)` for the diffuse light, mixes the live ambient occlusion with the lightmap's by
 `a`, and `maskedVisibility` moves the mask's visibility towards the live shadow's by the same weight: a shadowed
 light takes `min(mix(1, mask, a), live)`, an unshadowed one `mix(live, mask, a)`. The weight is per pixel, so a light
@@ -3779,10 +3780,14 @@ bake's probes are returned alone. `frame.bakedProbeCounts.w` is 1 for the band, 
 for a hard box, which only `Renderer.BakedProbeBand`, an internal test hook, asks for. The space's lightmap has no
 band, as the space's static surfaces end inside its box.
 
-Measured in `EdgeBandGpuTests`: a floor running out of a chunk's alley into the open steps by at most 4 of 255
-between neighbouring pixels with the band and 27 without; a quad moving out of a space's box in 10 cm steps changes
-by at most 4 with the band and 32 at the face without. Both bands are smoothstep over a fixed distance, so the step
-grows with the difference between the two lights: a darker bake against a brighter live light shows a steeper band.
+Both bands are a smoothstep over a fixed width W, whose steepest slope is 1.5 / W, so across a gap D between the two
+lights a step s changes the picture by at most about 1.5 * D * s / W: a darker bake against a brighter live light, or a
+narrower band, shows a steeper one. `EdgeBandGpuTests` measures D from the two plateaus and holds each band to that,
+plus 2 for rounding and the bake's own noise. A floor running out of a chunk's alley into the open, a gap of 89 of
+255, steps by 5 between neighbouring pixels with the band (bound 6) and 85 without; a quad moving out of a space's box
+in 10 cm steps, a gap of 59, changes by 5 with the band (bound 7) and 58 at the face without. The bake's own light
+near the edge adds to the band's slope: walls that end at a chunk's side let its bake see the sky open up there, and
+its floor brightens over the last few tenths of a metre on top of the band.
 
 ## Ray tracing
 

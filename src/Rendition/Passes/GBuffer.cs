@@ -44,7 +44,8 @@ internal sealed class GBuffer : IDisposable
 
     /// <summary>
     /// The soft diffuse light a lightmap gives each pixel, already turned by its normal, in the irradiance map's units,
-    /// with alpha 1 where the pixel is lightmapped. Cleared to zero, which the lighting reads as not lightmapped.
+    /// with alpha how much the lightmap counts: 1 where the pixel is lightmapped, less in a chunk's edge band, where the
+    /// lighting blends it with the live light. Cleared to zero, which the lighting reads as not lightmapped.
     /// </summary>
     public readonly RenderTarget Baked;
 

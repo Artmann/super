@@ -35,11 +35,14 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
         try
         {
             // Two dark walls 2 metres tall make an alley 0.4 metres wide along the chunk's floor, at z = -1 facing +z and
-            // at z = -0.6 facing -z, and end at the chunk's +x side. The bake knows they hide most of the sky from the
-            // alley's floor; the live light beyond the side doesn't, so the dynamic floor that carries on past x = 2 is
-            // lit by the whole sky.
+            // at z = -0.6 facing -z. The bake knows they hide most of the sky from the alley's floor; the live light
+            // beyond the side doesn't, so the dynamic floor that carries on past x = 2 is lit by the whole sky. The
+            // walls run on 2 metres past the chunk's +x side, so the bake's alley floor stays flat up to the side.
+            // Walls that ended at the side let the bake see the sky open up there, and its own floor climbed from
+            // about 38 to 81 over the last 0.3 metres; the band's slope added to that climb, which is why an earlier
+            // version of this test read 4 where the band alone predicts about 1.
             gpu.Renderer.SetEnvironment(EvenSky(0.5f));
-            var wallSize = Matrix4x4.CreateScale(4f, 2f, 1f);
+            var wallSize = Matrix4x4.CreateScale(8f, 2f, 1f);
             var south = Draw(quad, wallSize * Matrix4x4.CreateTranslation(0f, 1f, -1f), dark, 2);
             var north = Draw(quad, wallSize * Matrix4x4.CreateRotationY(MathF.PI) * Matrix4x4.CreateTranslation(0f, 1f, -0.6f), dark, 3);
             DrawItem[] chunkDraws = [Draw(quad, ChunkFloor, gpu.Matte, 1), south, north];
@@ -59,14 +62,29 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
             gpu.Renderer.Bakes = new Store(LightBakeFile.Read(gpu.Renderer.BakeChunk(banded, chunkDraws, 0, Settings())));
             Assert.True(RenderUntilFresh(banded, draws) <= MostFrames, $"The chunk's bake wasn't resident after {MostFrames} frames.");
 
-            int bandStep = WorstStep(Capture(banded, draws), Size / 2);
+            var bandFrame = Capture(banded, draws);
+            int bandStep = WorstStep(bandFrame, Size / 2);
             // The band isn't in the bake's hash, so the same bake is fresh without it.
-            int hardStep = WorstStep(Capture(hard, draws), Size / 2);
+            var hardFrame = Capture(hard, draws);
+            int hardStep = WorstStep(hardFrame, Size / 2);
             Assert.True(gpu.Renderer.LastBakeFrame!.ChunkFresh[0], "The chunk's bake isn't fresh without its band.");
 
-            // 4 measured with the band; 27 without it.
-            Assert.True(hardStep > 12, $"With no band the floor steps by {hardStep} at most, too little for the test to fail.");
-            Assert.True(bandStep <= 4, $"With the band the floor steps by {bandStep} between neighbouring pixels, more than 4.");
+            // The gap between the two lights, from their plateaus: the alley's floor from x = 1 to 1.4, before the band
+            // starts at x = 1.5, against the open floor from x = 2.5 to 3.5. A pixel is 2 * 4 * tan(22.5°) / 256 =
+            // 0.01294 metres of floor, so those are columns 51 to 82 and 167 to 244.
+            float gap = Gap(RowMean(hardFrame, 51, 82), RowMean(hardFrame, 167, 244));
+            // Smoothstep's steepest slope is 1.5 / W, so across a gap D a band W wide steps by at most 1.5 * D * s / W
+            // between pixels s apart, plus 2 for rounding to 8 bits and the bake's own noise from texel to texel. By
+            // hand, with D about 89: 1.5 * 89 * 0.01294 / 0.5 = 3.5, so 4 + 2 = 6.
+            const float PixelWidth = 0.01294f;
+            int bound = (int)MathF.Ceiling(1.5f * gap * PixelWidth / BakedChunk.DefaultEdgeBlend) + 2;
+
+            // Measured: the gap 89.1, so a bound of 6; 5 with the band, 85 without it.
+            Assert.True(hardStep >= 0.8f * gap,
+                $"With no band the floor steps by {hardStep} at most, less than 0.8 of the gap of {gap:F1}, so the scene has no real step.");
+            Assert.True(bandStep <= bound,
+                $"With the band the floor steps by {bandStep} between neighbouring pixels, more than {bound} for a gap of {gap:F1}.");
+            Assert.True(bandStep <= gap / 4f, $"With the band the floor steps by {bandStep}, more than a quarter of the gap of {gap:F1}.");
         }
         finally
         {
@@ -100,7 +118,8 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
             const int BandFrom = 180;
             const int BandTo = 229;
             float centre = ColumnMean(frame, CentreColumn);
-            Assert.True(centre > 40f, $"The floor's centre reads {centre}, too dark to compare.");            for (int x = BandFrom; x <= BandTo; x++)
+            Assert.True(centre > 40f, $"The floor's centre reads {centre}, too dark to compare.");
+            for (int x = BandFrom; x <= BandTo; x++)
             {
                 float here = ColumnMean(frame, x);
                 Assert.True(MathF.Abs(here - centre) <= 3f,
@@ -126,17 +145,18 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
         {
             // The space's probes saw a red wall lit by a Baked sun, with no sky, so inside the box a dynamic quad is red.
             // The frame has no sun and a dim grey sky, so outside the box the quad is grey. Probes 2 metres apart band
-            // the light from x = 2 to the box's face at x = 4.
+            // the light from x = 2 to the box's face at x = 4. The wall, 16 metres wide, runs 4 metres past each face, so
+            // the bake's probes see as much of it at the face as in the middle and the red stays flat up to the face.
             var room = new BakedSpace("edge-band-room", new Vector3(-4f), new Vector3(4f), 2f, 4);
             var wall = new DrawItem
             {
                 Mesh = quad,
                 IndexCount = 6,
                 Material = red,
-                Transform = Matrix4x4.CreateScale(8f) * Matrix4x4.CreateRotationY(MathF.PI) * Matrix4x4.CreateTranslation(0f, 0f, 3.5f),
+                Transform = Matrix4x4.CreateScale(16f, 8f, 1f) * Matrix4x4.CreateRotationY(MathF.PI) * Matrix4x4.CreateTranslation(0f, 0f, 3.5f),
                 BakeId = BakeIds.Of(1ul << 12, 0),
             };
-            DirectionalLight[] sun = [new() { Mode = LightMode.Baked, Direction = -Vector3.UnitZ, Radiance = new Vector3(0.5f) }];
+            DirectionalLight[] sun = [new() { Mode = LightMode.Baked, Direction = -Vector3.UnitZ, Radiance = new Vector3(1f) }];
             Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
             gpu.Renderer.Render(SideView(Vector3.UnitZ * 3f, room, [], sky: 0f), [wall]);
             var bake = LightBakeFile.Read(gpu.Renderer.Bake(
@@ -144,14 +164,26 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
             gpu.Renderer.Bakes = new Loaded(bake);
             gpu.Renderer.SetEnvironment(EvenSky(0.1f));
 
-            int banded = WorstJump(quad, wall, room, out var bandedAt);
-            gpu.Renderer.BakedProbeBand = false;
-            int hard = WorstJump(quad, wall, room, out var hardAt);
-
-            // 4 measured with the band, at x = 3.1 as the sky's grey fades in; 32 without it, at the box's face.
+            int banded = WorstJump(quad, wall, room, out var bandedAt, out var inside, out var outside);
             Assert.True(gpu.Renderer.LastBakeFrame!.SpaceFresh, "The bake isn't drawn, so the test shows nothing.");
-            Assert.True(hard > 12, $"With a hard box the quad's centre jumps by {hard} at most, at x = {hardAt:F1}, too little for the test to fail.");
-            Assert.True(banded <= 4, $"The quad's centre changes by {banded} in one 10 cm step, at x = {bandedAt:F1}, more than 4.");
+            gpu.Renderer.BakedProbeBand = false;
+            int hard = WorstJump(quad, wall, room, out var hardAt, out _, out _);
+
+            // The gap between the two lights, from their plateaus: the quad deep inside the box, at x = 1.5, before the
+            // band starts at x = 2, against far outside it, at x = 5.
+            float gap = Gap(inside, outside);
+            // Smoothstep's steepest slope is 1.5 / W, so across a gap D a band W wide changes by at most 1.5 * D * s / W
+            // in a step s, plus 2 for rounding to 8 bits and the bake's probes' own slope. By hand, with D about 59 (red
+            // 91 inside against 32 outside): 1.5 * 59 * 0.1 / 2 = 4.4, so 5 + 2 = 7.
+            const float StepLength = 0.1f;
+            int bound = (int)MathF.Ceiling(1.5f * gap * StepLength / room.ProbeSpacing) + 2;
+
+            // Measured: the gap 59, so a bound of 7; 5 with the band, at x = 2.8; 58 without it, at the box's face.
+            Assert.True(hard >= 0.8f * gap,
+                $"With a hard box the quad's centre jumps by {hard} at most, at x = {hardAt:F1}, less than 0.8 of the gap of {gap:F1}, so the scene has no real jump.");
+            Assert.True(banded <= bound,
+                $"The quad's centre changes by {banded} in one 10 cm step, at x = {bandedAt:F1}, more than {bound} for a gap of {gap:F1}.");
+            Assert.True(banded <= gap / 4f, $"The quad's centre changes by {banded} in one step, more than a quarter of the gap of {gap:F1}.");
         }
         finally
         {
@@ -166,11 +198,14 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
     }
 
     // The most a half-metre grey quad's centre changes, in any colour, between two of its places 10 cm apart, as it moves
-    // from x = 1.5 to x = 5 with the camera 1.5 metres in front of it; and where the change ended.
-    private int WorstJump(MeshHandle quad, DrawItem wall, BakedSpace room, out float at)
+    // from x = 1.5 to x = 5 with the camera 1.5 metres in front of it; where the change ended; and the centre at the first
+    // place and at the last.
+    private int WorstJump(MeshHandle quad, DrawItem wall, BakedSpace room, out float at, out Vector3 first, out Vector3 last)
     {
         int worst = 0;
         at = 0f;
+        first = Vector3.Zero;
+        last = Vector3.Zero;
         Vector3? before = null;
         for (int step = 15; step <= 50; step++)
         {
@@ -183,9 +218,13 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
                 Transform = Matrix4x4.CreateScale(0.5f) * Matrix4x4.CreateTranslation(x, 0f, 0f),
             };
             var centre = Centre(Capture(SideView(new Vector3(x, 0f, 1.5f), room, [], sky: 1f), [wall, dynamic]));
-            if (before is { } last)
+            if (before is not { } previous)
             {
-                var change = Vector3.Abs(centre - last);
+                first = centre;
+            }
+            else
+            {
+                var change = Vector3.Abs(centre - previous);
                 int most = (int)MathF.Max(change.X, MathF.Max(change.Y, change.Z));
                 if (most > worst)
                 {
@@ -195,6 +234,7 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
             }
 
             before = centre;
+            last = centre;
         }
 
         return worst;
@@ -229,6 +269,26 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
         }
 
         return sum / (32 * 3);
+    }
+
+    // The mean colour of row Size / 2 from column from to column to, both included.
+    private static Vector3 RowMean(byte[] frame, int from, int to)
+    {
+        var sum = Vector3.Zero;
+        for (int x = from; x <= to; x++)
+        {
+            int at = ((Size / 2) * Size + x) * 4;
+            sum += new Vector3(frame[at], frame[at + 1], frame[at + 2]);
+        }
+
+        return sum / (to - from + 1);
+    }
+
+    // The largest difference in any colour between two colours.
+    private static float Gap(Vector3 a, Vector3 b)
+    {
+        var difference = Vector3.Abs(a - b);
+        return MathF.Max(difference.X, MathF.Max(difference.Y, difference.Z));
     }
 
     private static Vector3 Centre(byte[] frame)

@@ -499,7 +499,9 @@ metre by default, blends them: over that many metres in from each of the chunk's
 beyond it gets, with its ambient occlusion and shadow mask. At the side itself the chunk is lit
 like the world next to it, and from `edgeBlend` in it is lit by its bake alone. `edgeBlend: 0`
 gives a hard edge. It may be at most half the box's smaller side across x and z, so the bands of
-opposite sides never overlap; more than that, a negative value or NaN throws with the value.
+opposite sides never overlap; more than that, a negative value or NaN throws with the value. A
+chunk narrower than a metre is too small for the default, so give it `edgeBlend: 0` or a smaller
+blend.
 The band is drawn each frame, not baked, so changing it needs no new bake.
 
 A name is one or more letters, digits, `-` or `_`, since it names a file; a slash, a dot or a
@@ -562,7 +564,10 @@ room lit only by `Baked` lamps is lit by them too, though they are no longer dra
 the box, or where none of the bake's probes sees the point, it is lit as before, from the
 [light probes](#bounced-light) or the sky. Over one `probeSpacing` in from each of the box's six
 faces, the bake's probes blend into that live light, so something crossing the box's edge fades
-from one light to the other over that distance rather than changing at once. The space's own
+from one light to the other over that distance rather than changing at once. The band falls off
+at the box's floor and top as well as its sides, so a box whose floor sits at the ground's level
+lights things standing on that ground partly live; set the box's floor a spacing or more below
+the ground to keep them in the bake's light. The space's own
 lightmap has no such band, since the space's static surfaces end inside its box.
 Transparent surfaces and particles never read light
 probes, so they are lit from the sky in a baked space as anywhere else. A file whose header is
@@ -586,7 +591,8 @@ sky changes. The frame after the sky or a sun changes, every copy shows it. Its 
 follows every `Mixed` and `Baked` sun, moving ones included. The sky's light is kept to its
 broad shape, so a sky much brighter at the horizon than overhead lights an open floor a little
 too brightly, about 8 steps in 255 against a space baked under that sky. Reflection captures
-draw a chunk with its plain light only. A chunk has no shadow mask yet.
+draw a chunk with its plain light only. A chunk's own `Mixed` lights are shadowed through its
+bake's shadow mask, in the frame's shared [mask slots](#light-modes), as a space's are.
 
 For Rendition alone, `Renderer.Bakes` is where the renderer asks. It starts as
 `NoBakes.Instance`, which has no bakes. A `LightBakeStore` reads bakes through a function that
