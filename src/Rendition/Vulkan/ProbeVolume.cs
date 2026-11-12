@@ -333,6 +333,21 @@ internal sealed unsafe class ProbeVolume : IDisposable
     }
 
     /// <summary>
+    /// Copies the first <paramref name="slots"/> staging slots, as the folds recorded before it wrote them, into
+    /// <paramref name="buffer"/>, <see cref="StagedTileBytes"/> each. The baker folds its traced faces this way and
+    /// writes the tiles into its own atlases.
+    /// </summary>
+    public void RecordStagingReadBack(CommandBuffer cmd, GpuBuffer buffer, int slots)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(slots);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(slots, StagingSlots);
+        Barrier(cmd, PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
+            PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit);
+        var region = new BufferCopy(0, 0, (ulong)slots * StagedTileBytes);
+        _context.Api.CmdCopyBuffer(cmd, _staging.Handle, buffer.Handle, 1, &region);
+    }
+
+    /// <summary>
     /// Makes uncaptured every probe of one atlas layer whose cell lies in a slab: cell x in
     /// [start.X, start.X + count.X), or the same along y or z. The cells of the layer's box run from
     /// <paramref name="origin"/> for <paramref name="countX"/> by countY by countZ, and wrap to their
@@ -451,7 +466,6 @@ internal sealed unsafe class ProbeVolume : IDisposable
             AccessFlags2.ShaderSampledReadBit | AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit);
         CascadesWritten = false;
     }
-
     public void Dispose()
     {
         var api = _context.Api;
@@ -499,7 +513,8 @@ internal sealed unsafe class ProbeVolume : IDisposable
         CreateAtlases();
 
         uint layers = (uint)(FaceSlots * 6);
-        (_facesColor, _facesColorMemory) = CreateFacesImage(FacesFormat, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.SampledBit, layers);
+        (_facesColor, _facesColorMemory) = CreateFacesImage(
+            FacesFormat, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.SampledBit | ImageUsageFlags.TransferDstBit, layers);
         (_facesDepth, _facesDepthMemory) = CreateFacesImage(GBuffer.DepthFormat, ImageUsageFlags.DepthStencilAttachmentBit, layers);
         _facesArray = CreateFacesView(_facesColor, FacesFormat, ImageAspectFlags.ColorBit, 0, layers);
         _slotColorViews = new ImageView[FaceSlots];
@@ -535,6 +550,7 @@ internal sealed unsafe class ProbeVolume : IDisposable
         DepthView = depthView;
 
         _staging = new GpuBuffer(_context, (ulong)StagingSlots * StagedTileBytes,
+            BufferUsageFlags.TransferSrcBit |
             BufferUsageFlags.StorageBufferBit | BufferUsageFlags.TransferDstBit, MemoryPropertyFlags.DeviceLocalBit);
         _ids = new GpuBuffer(_context, (ulong)StagingSlots * 8,
             BufferUsageFlags.StorageBufferBit | BufferUsageFlags.TransferDstBit, MemoryPropertyFlags.DeviceLocalBit);
@@ -671,7 +687,7 @@ internal sealed unsafe class ProbeVolume : IDisposable
     private (Image Image, GpuAllocation Memory, ImageView View) CreateAtlas(uint width, uint height, Format format)
     {
         var api = _context.Api;
-        var usage = ImageUsageFlags.SampledBit | ImageUsageFlags.TransferDstBit;
+        var usage = ImageUsageFlags.SampledBit | ImageUsageFlags.TransferDstBit | ImageUsageFlags.TransferSrcBit;
         if (Supported)
         {
             usage |= ImageUsageFlags.StorageBit;

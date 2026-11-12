@@ -41,6 +41,9 @@ internal sealed unsafe class Baker : IDisposable
     /// <summary>What a mask channel holds when no light has it: fully lit, so the runtime never darkens by it.</summary>
     internal const uint NoMaskLight = uint.MaxValue;
 
+    /// <summary>Probes traced side by side in one pass, each a row of its six faces.</summary>
+    internal const int ProbesPerBatch = 64;
+
     private const uint GroupSize = 8;
     private const Format PositionFormat = Format.R32G32B32A32Sfloat;
     private const Format SumFormat = Format.R32G32B32A32Sfloat;
@@ -65,6 +68,10 @@ internal sealed unsafe class Baker : IDisposable
     private readonly DescriptorPool _tracePool;
     private readonly PipelineLayout _traceLayout;
     private readonly Pipeline _tracePipeline;
+    private readonly DescriptorSetLayout _probeSetLayout;
+    private readonly DescriptorPool _probePool;
+    private readonly PipelineLayout _probeLayout;
+    private readonly Pipeline _probePipeline;
     private TopLevelStructure _scene;
     private Pipeline _texelPipeline;
     private bool _texelPipelineConservative;
@@ -168,6 +175,38 @@ internal sealed unsafe class Baker : IDisposable
         _traceLayout = CreatePipelineLayout(
             [_traceSetLayout, renderer.Resources.Layout], ShaderStageFlags.ComputeBit, (uint)sizeof(TraceConstants));
         _tracePipeline = PipelineFactory.CreateCompute(context, "bake_trace.comp", _traceLayout);
+
+        // Probes: the scene and geometry table, the lights, the probes' positions, the sum read and written, the faces
+        // written, and the sky. Set 1 is the resource table. One set, written once a bake.
+        var probeBindings = stackalloc DescriptorSetLayoutBinding[]
+        {
+            new(0, DescriptorType.AccelerationStructureKhr, 1, ShaderStageFlags.ComputeBit),
+            new(1, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
+            new(2, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
+            new(3, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
+            new(4, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
+            new(5, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
+            new(6, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
+        };
+        _probeSetLayout = CreateSetLayout(probeBindings, 7);
+        var probePoolSizes = stackalloc DescriptorPoolSize[]
+        {
+            new(DescriptorType.AccelerationStructureKhr, 1),
+            new(DescriptorType.StorageBuffer, 3),
+            new(DescriptorType.StorageImage, 2),
+            new(DescriptorType.CombinedImageSampler, 1),
+        };
+        var probePoolInfo = new DescriptorPoolCreateInfo
+        {
+            SType = StructureType.DescriptorPoolCreateInfo,
+            MaxSets = 1,
+            PoolSizeCount = 4,
+            PPoolSizes = probePoolSizes,
+        };
+        api.CreateDescriptorPool(context.Device, &probePoolInfo, null, out _probePool).Check();
+        _probeLayout = CreatePipelineLayout(
+            [_probeSetLayout, renderer.Resources.Layout], ShaderStageFlags.ComputeBit, (uint)sizeof(ProbeTraceConstants));
+        _probePipeline = PipelineFactory.CreateCompute(context, "bake_probes.comp", _probeLayout);
 
         var samplerInfo = new SamplerCreateInfo
         {
@@ -436,6 +475,237 @@ internal sealed unsafe class Baker : IDisposable
     }
 
     /// <summary>
+    /// Path traces the light probes of <paramref name="probes"/> with the scene and lights of the last
+    /// <see cref="SetUpTexels"/>, and returns their atlases as the <c>.lightbake</c> file stores them. Each pass sends a
+    /// path through each quarter of every texel of each probe's six <see cref="ProbeVolume.FaceSize"/> faces; the faces are then folded
+    /// by <see cref="ProbeVolume.RecordFold"/>, the live probes' own fold, and the tiles written in <see cref="BakedProbeAtlas"/>'s
+    /// layout. A Mixed light's direct light at the probe is left out, as it is at a texel. Passes go in batches
+    /// that fit <paramref name="batchBudget"/>. Waits for the GPU.
+    /// </summary>
+    /// <returns>The irradiance atlas in RGBA16F and the depth atlas's two moments in RGBA16F, blue and alpha 0.</returns>
+    public (LightBakePage Irradiance, LightBakePage Depth) TraceProbes(
+        in ProbeVolumeSettings probes, ReadOnlySpan<GpuBakeLight> lights, int passes, float skyIntensity, ImageView sky,
+        Sampler skySampler, TimeSpan batchBudget)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(passes, 1);
+        long total = ProbeGrid.Total(probes);
+        if (total > ProbeGrid.MaxProbes)
+        {
+            throw new ArgumentException(
+                $"The probes number {total}, more than the {ProbeGrid.MaxProbes} the atlases hold.", nameof(probes));
+        }
+
+        int count = (int)total;
+        ulong lightBytes = (ulong)Math.Max(lights.Length, 1) * (ulong)sizeof(GpuBakeLight);
+        using var lightBuffer = GpuBuffer.CreateHostVisible(_context, lightBytes, BufferUsageFlags.StorageBufferBit);
+        lights.CopyTo(new Span<GpuBakeLight>(lightBuffer.Mapped, lights.Length));
+        using var positionBuffer = GpuBuffer.CreateHostVisible(
+            _context, (ulong)count * (ulong)sizeof(Vector4), BufferUsageFlags.StorageBufferBit);
+        var positions = new Span<Vector4>(positionBuffer.Mapped, count);
+        for (int i = 0; i < count; i++)
+        {
+            positions[i] = new Vector4(ProbeGrid.Position(probes, i), 1f);
+        }
+
+        // A volume of its own at the lowest quality, for its faces, its fold and its staging slots; its atlases stay
+        // unused, since a bake keeps the fixed layout of BakedProbeAtlas, and the frame's own probes are left alone.
+        using var volume = new ProbeVolume(_context, skySampler, sky);
+        if (!volume.Supported)
+        {
+            throw new InvalidOperationException("Baking light probes needs the storage image formats and multiview the live probes fold with.");
+        }
+
+        volume.EnsureStorage(ProbeQuality.Low);
+        int slots = Math.Min(volume.FaceSlots, volume.StagingSlots);
+        const int face = (int)ProbeVolume.FaceSize;
+        var extent = new Extent2D(6 * face, (uint)(face * ProbesPerBatch));
+        const ImageUsageFlags usage = ImageUsageFlags.StorageBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit;
+        using var sum = new RenderTarget(_context, SumFormat, extent, usage, ImageAspectFlags.ColorBit);
+        using var faces = new RenderTarget(_context, GBuffer.HdrFormat, extent, usage, ImageAspectFlags.ColorBit);
+        using var readBack = GpuBuffer.CreateHostVisible(
+            _context, (ulong)slots * ProbeVolume.StagedTileBytes, BufferUsageFlags.TransferDstBit);
+
+        _context.Api.ResetDescriptorPool(_context.Device, _probePool, 0).Check();
+        var set = AllocateSet(_probeSetLayout, _probePool);
+        WriteProbeSet(set, lightBuffer, positionBuffer, sum, faces, sky, skySampler);
+
+        const int irradianceSide = BakedProbeAtlas.IrradianceAtlasSize;
+        const int depthSide = BakedProbeAtlas.DepthAtlasSize;
+        var irradiance = new byte[irradianceSide * irradianceSide * 8];
+        var depth = new byte[depthSide * depthSide * 8];
+        float spacing = probes.Spacing;
+        var constants = new ProbeTraceConstants
+        {
+            ProbeCount = (uint)count,
+            Passes = (uint)passes,
+            LightCount = (uint)lights.Length,
+            Lift = TraceLift,
+            SkyIntensity = skyIntensity,
+            MaxDistance = spacing * 2f,
+        };
+        int batch = 1;
+        for (int first = 0; first < count; first += ProbesPerBatch)
+        {
+            constants.FirstProbe = (uint)first;
+            _context.SubmitAndWait(cmd => ClearSums(cmd, [sum, faces]));
+            for (int pass = 0; pass < passes;)
+            {
+                int passCount = Math.Min(batch, passes - pass);
+                int firstPass = pass;
+                long started = System.Diagnostics.Stopwatch.GetTimestamp();
+                _context.SubmitAndWait(cmd => RecordProbePasses(cmd, set, constants, firstPass, passCount, extent));
+                var took = System.Diagnostics.Stopwatch.GetElapsedTime(started);
+                pass += passCount;
+
+                double perPass = Math.Max(took.TotalMilliseconds / passCount, 1e-3);
+                batch = Math.Clamp((int)(batchBudget.TotalMilliseconds / perPass), 1, Math.Max(passCount * 2, 1));
+            }
+
+            // The live fold, a few probes at a time, as many as the volume has slots for. The traced distances are
+            // already clamped short of the fold's sky mark, so it keeps the sky the paths brought back.
+            int inBatch = Math.Min(ProbesPerBatch, count - first);
+            for (int row = 0; row < inBatch; row += slots)
+            {
+                int inGroup = Math.Min(slots, inBatch - row);
+                int firstRow = row;
+                _context.SubmitAndWait(cmd =>
+                {
+                    RecordCopyFaces(cmd, faces, firstRow, inGroup, volume);
+                    volume.BeginFolds(cmd);
+                    for (int slot = 0; slot < inGroup; slot++)
+                    {
+                        volume.RecordFold(cmd, slot, spacing, skyIntensity, Vector4.Zero);
+                    }
+
+                    volume.RecordStagingReadBack(cmd, readBack, inGroup);
+                });
+                for (int slot = 0; slot < inGroup; slot++)
+                {
+                    var tile = new ReadOnlySpan<float>(
+                        (byte*)readBack.Mapped + (long)slot * ProbeVolume.StagedTileBytes, ProbeVolume.StagedTileBytes / sizeof(float));
+                    WriteTile(tile, first + firstRow + slot, irradiance, depth);
+                }
+            }
+        }
+
+        return (
+            new LightBakePage(irradianceSide, irradianceSide, LightBakePageFormat.Rgba16f, irradiance),
+            new LightBakePage(depthSide, depthSide, LightBakePageFormat.Rgba16f, depth));
+    }
+
+    /// <summary>
+    /// Writes one probe's staged tiles, as <see cref="ProbeVolume.RecordFold"/> left them in float32, into the bake's
+    /// pages at the probe's tile: irradiance in RGBA16F with alpha 1, the depth's two moments in RGBA16F with blue and
+    /// alpha 0, since the file has no two-channel format.
+    /// </summary>
+    internal static void WriteTile(ReadOnlySpan<float> staged, int probe, Span<byte> irradiance, Span<byte> depth)
+    {
+        const int irradianceTile = ProbeVolume.IrradianceTexels + 2;
+        const int depthTile = ProbeVolume.DepthTexels + 2;
+        int column = probe % BakedProbeAtlas.Columns;
+        int row = probe / BakedProbeAtlas.Columns;
+        var irradianceHalves = MemoryMarshal.Cast<byte, Half>(irradiance);
+        var depthHalves = MemoryMarshal.Cast<byte, Half>(depth);
+        for (int y = 0; y < irradianceTile; y++)
+        {
+            for (int x = 0; x < irradianceTile; x++)
+            {
+                int from = (x + y * irradianceTile) * 4;
+                int to = ((column * irradianceTile + x) + (row * irradianceTile + y) * BakedProbeAtlas.IrradianceAtlasSize) * 4;
+                irradianceHalves[to + 0] = (Half)staged[from + 0];
+                irradianceHalves[to + 1] = (Half)staged[from + 1];
+                irradianceHalves[to + 2] = (Half)staged[from + 2];
+                irradianceHalves[to + 3] = (Half)1f;
+            }
+        }
+
+        int depthStart = irradianceTile * irradianceTile * 4;
+        for (int y = 0; y < depthTile; y++)
+        {
+            for (int x = 0; x < depthTile; x++)
+            {
+                int from = depthStart + (x + y * depthTile) * 2;
+                int to = ((column * depthTile + x) + (row * depthTile + y) * BakedProbeAtlas.DepthAtlasSize) * 4;
+                depthHalves[to + 0] = (Half)staged[from + 0];
+                depthHalves[to + 1] = (Half)staged[from + 1];
+                depthHalves[to + 2] = Half.Zero;
+                depthHalves[to + 3] = Half.Zero;
+            }
+        }
+    }
+
+    /// <summary>Records <paramref name="count"/> probe passes from <paramref name="first"/>, each waiting for the last's sum.</summary>
+    private void RecordProbePasses(CommandBuffer cmd, DescriptorSet set, ProbeTraceConstants constants, int first, int count, Extent2D extent)
+    {
+        var api = _context.Api;
+        _tracing.ReadyToTrace(cmd);
+        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _probePipeline);
+        var sets = stackalloc DescriptorSet[] { set, _renderer.Resources.Set };
+        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _probeLayout, 0, 2, sets, 0, null);
+        var barrier = new MemoryBarrier2
+        {
+            SType = StructureType.MemoryBarrier2,
+            SrcStageMask = PipelineStageFlags2.ComputeShaderBit,
+            SrcAccessMask = AccessFlags2.ShaderStorageWriteBit,
+            DstStageMask = PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.CopyBit,
+            DstAccessMask = AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit | AccessFlags2.TransferReadBit,
+        };
+        var dependency = new DependencyInfo
+        {
+            SType = StructureType.DependencyInfo,
+            MemoryBarrierCount = 1,
+            PMemoryBarriers = &barrier,
+        };
+        uint groupsX = (extent.Width + GroupSize - 1) / GroupSize;
+        uint groupsY = (extent.Height + GroupSize - 1) / GroupSize;
+        for (int pass = first; pass < first + count; pass++)
+        {
+            constants.Pass = (uint)pass;
+            api.CmdPushConstants(cmd, _probeLayout, ShaderStageFlags.ComputeBit, 0, (uint)sizeof(ProbeTraceConstants), &constants);
+            api.CmdDispatch(cmd, groupsX, groupsY, 1);
+            api.CmdPipelineBarrier2(cmd, &dependency);
+        }
+    }
+
+    /// <summary>
+    /// Copies the six faces of <paramref name="count"/> of the batch's probe rows from <paramref name="firstRow"/> into
+    /// the volume's faces, one slot each, ready for the fold.
+    /// </summary>
+    private void RecordCopyFaces(CommandBuffer cmd, RenderTarget faces, int firstRow, int count, ProbeVolume volume)
+    {
+        var api = _context.Api;
+        uint layers = (uint)(count * 6);
+        api.Transition(cmd, volume.FacesImage, ImageAspectFlags.ColorBit,
+            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferDstOptimal,
+            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit,
+            PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit,
+            layerCount: layers);
+        const uint size = ProbeVolume.FaceSize;
+        var regions = stackalloc ImageCopy[6];
+        for (int slot = 0; slot < count; slot++)
+        {
+            for (int f = 0; f < 6; f++)
+            {
+                regions[f] = new ImageCopy
+                {
+                    SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
+                    SrcOffset = new Offset3D(f * (int)size, (firstRow + slot) * (int)size, 0),
+                    DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, (uint)(slot * 6 + f), 1),
+                    Extent = new Extent3D(size, size, 1),
+                };
+            }
+
+            api.CmdCopyImage(cmd, faces.Image, ImageLayout.General, volume.FacesImage, ImageLayout.TransferDstOptimal, 6, regions);
+        }
+
+        api.Transition(cmd, volume.FacesImage, ImageAspectFlags.ColorBit,
+            ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
+            PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit,
+            PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderSampledReadBit,
+            layerCount: layers);
+    }
+
+    /// <summary>
     /// A page's traced light as the <c>.lightbake</c> file stores it, 2048 texels square: irradiance in RGBA16F, the
     /// direction it mostly comes from in RGBA8 (<c>d * 0.5 + 0.5</c>, alpha <c>|d|</c>) and the shadow mask in RGBA8.
     /// A texel that isn't valid holds no light, no direction and a mask of 1, for the filter to fill later.
@@ -634,6 +904,10 @@ internal sealed unsafe class Baker : IDisposable
         api.DestroyPipelineLayout(_context.Device, _traceLayout, null);
         api.DestroyDescriptorPool(_context.Device, _tracePool, null);
         api.DestroyDescriptorSetLayout(_context.Device, _traceSetLayout, null);
+        api.DestroyPipeline(_context.Device, _probePipeline, null);
+        api.DestroyPipelineLayout(_context.Device, _probeLayout, null);
+        api.DestroyDescriptorPool(_context.Device, _probePool, null);
+        api.DestroyDescriptorSetLayout(_context.Device, _probeSetLayout, null);
         api.DestroyPipelineLayout(_context.Device, _texelLayout, null);
         api.DestroyPipelineLayout(_context.Device, _validityLayout, null);
         api.DestroyPipelineLayout(_context.Device, _resolveLayout, null);
@@ -1001,6 +1275,60 @@ internal sealed unsafe class Baker : IDisposable
         _context.Api.UpdateDescriptorSets(_context.Device, 10, writes, 0, null);
     }
 
+    private void WriteProbeSet(
+        DescriptorSet set, GpuBuffer lights, GpuBuffer positions, RenderTarget sum, RenderTarget faces, ImageView sky,
+        Sampler skySampler)
+    {
+        var handle = _scene.Handle;
+        var structureInfo = new WriteDescriptorSetAccelerationStructureKHR
+        {
+            SType = StructureType.WriteDescriptorSetAccelerationStructureKhr,
+            AccelerationStructureCount = 1,
+            PAccelerationStructures = &handle,
+        };
+        var buffers = stackalloc DescriptorBufferInfo[]
+        {
+            new(_scene.GeometryTable.Handle, 0, Vk.WholeSize),
+            new(lights.Handle, 0, Vk.WholeSize),
+            new(positions.Handle, 0, Vk.WholeSize),
+        };
+        var images = stackalloc DescriptorImageInfo[]
+        {
+            new(default, sum.View, ImageLayout.General),
+            new(default, faces.View, ImageLayout.General),
+            new(skySampler, sky, ImageLayout.ShaderReadOnlyOptimal),
+        };
+        var writes = stackalloc WriteDescriptorSet[7];
+        writes[0] = new WriteDescriptorSet
+        {
+            SType = StructureType.WriteDescriptorSet,
+            PNext = &structureInfo,
+            DstSet = set,
+            DstBinding = 0,
+            DescriptorCount = 1,
+            DescriptorType = DescriptorType.AccelerationStructureKhr,
+        };
+
+        // Bindings 1 to 3 are buffers, 4 and 5 storage images, and 6 the sky.
+        for (uint binding = 1; binding < 7; binding++)
+        {
+            bool buffer = binding <= 3;
+            writes[binding] = new WriteDescriptorSet
+            {
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = set,
+                DstBinding = binding,
+                DescriptorCount = 1,
+                DescriptorType = buffer ? DescriptorType.StorageBuffer
+                    : binding == 6 ? DescriptorType.CombinedImageSampler : DescriptorType.StorageImage,
+                PBufferInfo = buffer ? &buffers[binding - 1] : null,
+                PImageInfo = buffer ? null : &images[binding - 4],
+            };
+        }
+
+        _context.Api.UpdateDescriptorSets(_context.Device, 7, writes, 0, null);
+    }
+
     private void WriteResolveSet(DescriptorSet set, TileTargets tile, PageTargets targets)
     {
         var images = stackalloc DescriptorImageInfo[6];
@@ -1174,6 +1502,20 @@ internal sealed unsafe class Baker : IDisposable
         public uint MaskLight1;
         public uint MaskLight2;
         public uint MaskLight3;
+    }
+
+    // Must match the push constants in bake_probes.comp.
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ProbeTraceConstants
+    {
+        public uint FirstProbe;
+        public uint ProbeCount;
+        public uint Pass;
+        public uint Passes;
+        public uint LightCount;
+        public float Lift;
+        public float SkyIntensity;
+        public float MaxDistance;
     }
 
     // Must match the push constants in bake_resolve.comp.

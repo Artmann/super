@@ -1129,14 +1129,27 @@ public sealed unsafe class Renderer : IDisposable
     /// bounces light; those the space owns, without wind and not transparent, get a lightmap rectangle. Emissive
     /// surfaces, the sky and Baked lights are baked in full; a Mixed light only after its first bounce, since its direct
     /// light stays real-time, and it gets a shadow mask channel. A Realtime light or one that is moving is left out.
+    /// The space's light probes are baked too, by the same rules, into tiles laid out as the live probes' are.
     /// Waits for the GPU, taking seconds at <see cref="BakeQuality.Final"/>. See "Baked lighting" in docs/rendering.md.
     /// </summary>
-    /// <exception cref="InvalidOperationException">The view names no baked space, or the GPU can't trace rays.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The view names no baked space, the space holds more than <see cref="BakeFiles.MaxSpaceProbes"/> probes, or the GPU
+    /// can't trace rays.
+    /// </exception>
     public byte[] Bake(in FrameView view, ReadOnlySpan<DrawItem> draws, BakeSettings settings)
     {
         if (view.BakedSpace is not { } space)
         {
             throw new InvalidOperationException("Bake needs a baked space in the frame; call view.BakedLighting first.");
+        }
+
+        // The space's probes, laid out as the live probes are, so the runtime copies their tiles straight in.
+        var probeSettings = new ProbeVolumeSettings(space.Min, space.Max, space.ProbeSpacing);
+        long probeCount = ProbeGrid.Total(probeSettings);
+        if (probeCount > BakeFiles.MaxSpaceProbes)
+        {
+            throw new InvalidOperationException(
+                $"The baked space \"{space.Name}\" holds {probeCount.ToString(CultureInfo.InvariantCulture)} probes, but a bake holds at most {BakeFiles.MaxSpaceProbes.ToString(CultureInfo.InvariantCulture)}.");
         }
 
         long started = Stopwatch.GetTimestamp();
@@ -1261,10 +1274,16 @@ public sealed unsafe class Renderer : IDisposable
             }
         }
 
+        // A probe face texel sees one direction, not a cosine-weighted hemisphere, and the fold averages a thousand of
+        // them into each tile texel, so a sixteenth of the passes gives as quiet a result.
+        int probePasses = Math.Max(1, passes / 16);
+        var probes = baker.TraceProbes(probeSettings, CollectionsMarshal.AsSpan(lights), probePasses,
+            view.EnvironmentIntensity, _environment.Sky, _environment.Sampler, BakeBatchBudget);
+
         var report = new LightBakeReport(
             unassigned.ToArray(), covered == 0 ? 0f : (float)invalid / covered, passes, Stopwatch.GetElapsedTime(started));
         var file = new LightBakeFile(inputs, settings.Quality, layout.Draws, irradiance, direction, mask,
-            null, null, null, channels, report);
+            probes.Irradiance, probes.Depth, probeSettings, channels, report);
         return file.ToBytes();
     }
 

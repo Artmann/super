@@ -33,10 +33,10 @@ bool bakeIsMixed(BakeLight light) {
     return light.fadeKind.z > 0.5;
 }
 
-// Picks a point on the light, from two random numbers, as seen from position p with normal n. Returns the light it
-// gives p unshadowed, as irradiance: the light's radiance, its dimming with distance and the cosine at p. l is the unit
+// Picks a point on the light, from two random numbers, as seen from position p. Returns the light it gives p
+// unshadowed, as irradiance on a surface facing it: the light's radiance and its dimming with distance. l is the unit
 // vector towards the point picked and distance how far it is. Zero when the light can't reach p.
-vec3 bakeSampleLight(BakeLight light, vec3 p, vec3 n, vec2 u, out vec3 l, out float distance) {
+vec3 bakeLightReaching(BakeLight light, vec3 p, vec2 u, out vec3 l, out float distance) {
     if (bakeIsSun(light)) {
         // Even over the cone's solid angle.
         float cosMax = light.radianceRadius.w;
@@ -48,7 +48,7 @@ vec3 bakeSampleLight(BakeLight light, vec3 p, vec3 n, vec2 u, out vec3 l, out fl
         bakeAcross(axis, t, b);
         l = normalize(axis * cosTheta + (t * cos(phi) + b * sin(phi)) * sinTheta);
         distance = BAKE_SUN_DISTANCE;
-        return light.radianceRadius.rgb * max(dot(n, l), 0.0);
+        return light.radianceRadius.rgb;
     }
 
     vec3 toLight = light.positionRange.xyz - p;
@@ -87,5 +87,10 @@ vec3 bakeSampleLight(BakeLight light, vec3 p, vec3 n, vec2 u, out vec3 l, out fl
     vec3 towards = onLight - p;
     distance = length(towards);
     l = towards / max(distance, 1e-6);
-    return light.radianceRadius.rgb * reaching * max(dot(n, l), 0.0);
+    return light.radianceRadius.rgb * reaching;
+}
+
+// As bakeLightReaching, on a surface at p with normal n: times the cosine at p.
+vec3 bakeSampleLight(BakeLight light, vec3 p, vec3 n, vec2 u, out vec3 l, out float distance) {
+    return bakeLightReaching(light, p, u, l, distance) * max(dot(n, l), 0.0);
 }

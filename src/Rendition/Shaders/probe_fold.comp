@@ -3,6 +3,7 @@
 #include "sampling.glsl"
 #include "sky.glsl"
 #include "probe_fold.glsl"
+#include "cube_faces.glsl"
 
 // Folds one light probe's six rasterized faces into its two tiles, in one slot of the staging
 // buffer. probe_blend.comp then blends them into the atlases. The sums are in probe_fold.glsl.
@@ -38,28 +39,15 @@ const int SAMPLES = 6 * FACE_SIZE * FACE_SIZE;
 shared vec4 samples[SAMPLES];
 shared uint backFaces;
 
-// The same faces as reflection_probe.comp.
-vec3 cubeDirection(int face, vec2 uv) {
-    switch (face) {
-        case 0: return vec3(1.0, -uv.y, -uv.x);
-        case 1: return vec3(-1.0, -uv.y, uv.x);
-        case 2: return vec3(uv.x, 1.0, uv.y);
-        case 3: return vec3(uv.x, -1.0, -uv.y);
-        case 4: return vec3(uv.x, -uv.y, 1.0);
-        default: return vec3(-uv.x, -uv.y, -1.0);
-    }
-}
-
 // The world direction a sample looks along, and the share of the sphere it covers.
 vec3 sampleDirection(int index, out float solidAngle) {
     int face = index / (FACE_SIZE * FACE_SIZE);
     int texel = index % (FACE_SIZE * FACE_SIZE);
     vec2 uv = (vec2(texel % FACE_SIZE, texel / FACE_SIZE) + 0.5) / float(FACE_SIZE) * 2.0 - 1.0;
-    vec3 c = cubeDirection(face, uv);
+    vec3 c = cubeWorldDirection(face, uv);
     float lengthSquared = dot(c, c);
     solidAngle = 1.0 / (lengthSquared * sqrt(lengthSquared));
-    // A cube map is mirrored compared with the camera that drew it, so z swaps back.
-    return vec3(c.x, c.y, -c.z) * inversesqrt(lengthSquared);
+    return c * inversesqrt(lengthSquared);
 }
 
 // What the probe sees where nothing was drawn: the environment, without the sun's disc, as the

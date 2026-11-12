@@ -1,0 +1,123 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#define TRACE_GEOMETRY_SET 0
+#define TRACE_GEOMETRY_BINDING 1
+#define TRACE_RESOURCE_SET 1
+#include "trace.glsl"
+#include "bake_lights.glsl"
+#include "cube_faces.glsl"
+
+// The baker's light probes: one pass sends four paths through every texel of each probe's six 16 x 16 faces, the faces a
+// live update draws, one through the centre of each quarter, and adds the radiance they bring back to a float32 sum. The
+// last pass writes the mean with the distance to the first surface in alpha, negative on a back face, as a live capture
+// writes its faces, so ProbeVolume.RecordFold folds them into tiles as it does the live probes'. A batch of probes sits
+// in a column, each probe's faces side by side in a row 16 texels high. See "Baking probes" in docs/design.md and
+// Baking/Baker.cs.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform accelerationStructureEXT scene;
+layout(std430, set = 0, binding = 2) readonly buffer Lights {
+    BakeLight lights[];
+};
+layout(std430, set = 0, binding = 3) readonly buffer Probes {
+    vec4 probePositions[]; // xyz, from ProbeGrid.Position, for every probe of the space.
+};
+layout(set = 0, binding = 4, rgba32f) uniform image2D radianceSum; // rgb: radiance; a: the first surface's distance.
+layout(set = 0, binding = 5, rgba16f) uniform writeonly image2D faces;
+layout(set = 0, binding = 6) uniform samplerCube sky;
+
+// Must match ProbeTraceConstants in Baking/Baker.cs.
+layout(push_constant) uniform Trace {
+    uint firstProbe;    // The batch's first probe.
+    uint probeCount;    // Every probe of the space.
+    uint pass;          // Which pass this is, which seeds its random numbers.
+    uint passes;        // How many there are; the last writes the faces.
+    uint lightCount;
+    float lift;         // How far along the normal bounces start, so they don't hit their own surface.
+    float skyIntensity; // The environment's intensity; 0 leaves the sky out.
+    float maxDistance;  // The furthest distance the fold keeps: two probe spacings.
+} trace;
+
+#include "bake_paths.glsl"
+
+const int FACE_SIZE = 16; // Must match ProbeVolume.FaceSize and probe_fold.comp.
+const int SUBPATHS = 4;   // Paths per texel per pass, one through each quarter.
+
+// The most a face's half floats hold.
+const float MAX_RADIANCE = 65000.0;
+
+void main() {
+    ivec2 at = ivec2(gl_GlobalInvocationID.xy);
+    uint probe = trace.firstProbe + uint(at.y / FACE_SIZE);
+    if (at.x >= 6 * FACE_SIZE || probe >= trace.probeCount) {
+        return;
+    }
+
+    int face = at.x / FACE_SIZE;
+    ivec2 texel = ivec2(at.x % FACE_SIZE, at.y % FACE_SIZE);
+    vec3 p = probePositions[probe].xyz;
+
+    // Through the same four points every pass, so the first surfaces are the same each time; the bounces after them
+    // differ. The distance is their mean, each clamped as the fold clamps it, so a path that met nothing never reads
+    // as the sky the fold puts where a live capture drew nothing: the sky is already in the traced light. The texel saw
+    // a back face when most of its paths did, as the live fold counts back faces texel by texel.
+    vec3 radiance = vec3(0.0);
+    float distanceSum = 0.0;
+    int behind = 0;
+    for (int k = 0; k < SUBPATHS; k++) {
+        vec2 quarter = vec2(float(k & 1), float(k >> 1)) * 0.5 + 0.25;
+        vec2 subUv = (vec2(texel) + quarter) / float(FACE_SIZE) * 2.0 - 1.0;
+        vec3 subDirection = normalize(cubeWorldDirection(face, subUv));
+        randomState = pcg(uint(at.x) + pcg(uint(texel.y) + pcg(probe + pcg(trace.pass * uint(SUBPATHS) + uint(k)))));
+        float subSeen;
+        radiance += pathFrom(p, subDirection, subSeen) / PI;
+        distanceSum += min(abs(subSeen), trace.maxDistance);
+        if (subSeen < 0.0) {
+            behind++;
+        }
+    }
+
+    radiance /= float(SUBPATHS);
+    float seen = distanceSum / float(SUBPATHS) * (behind * 2 > SUBPATHS ? -1.0 : 1.0);
+
+    vec2 uv = (vec2(texel) + 0.5) / float(FACE_SIZE) * 2.0 - 1.0;
+    vec3 c = cubeWorldDirection(face, uv);
+    float lengthSquared = dot(c, c);
+    // The share of the sphere the texel covers.
+    float solidAngle = 4.0 / float(FACE_SIZE * FACE_SIZE) / (lengthSquared * sqrt(lengthSquared));
+
+    // The lights straight at the probe. A light is a point or a small disc, which no texel's centre sees, so each pass
+    // picks one point on each light, the same in every texel of the probe, and the texel it falls in adds its light
+    // spread over the texel. A Mixed light is left out, since the runtime draws its direct light.
+    for (uint i = 0u; i < trace.lightCount; i++) {
+        BakeLight light = lights[i];
+        if (bakeIsMixed(light)) {
+            continue;
+        }
+
+        uint h = pcg(i + pcg(probe + pcg(trace.pass + 0x9E3779B9u)));
+        uint h2 = pcg(h);
+        vec2 u = vec2(float(h >> 8), float(h2 >> 8)) / 16777216.0;
+        vec3 l;
+        float distance;
+        vec3 reaching = bakeLightReaching(light, p, u, l, distance);
+        if (luminance(reaching) <= 0.0) {
+            continue;
+        }
+
+        vec2 lightUv;
+        int lightFace = cubeFaceOf(l, lightUv);
+        ivec2 lightTexel = clamp(ivec2((lightUv * 0.5 + 0.5) * float(FACE_SIZE)), ivec2(0), ivec2(FACE_SIZE - 1));
+        if (lightFace == face && lightTexel == texel) {
+            radiance += reaching * transmission(p, l, distance) / solidAngle;
+        }
+    }
+
+    vec4 sum = imageLoad(radianceSum, at) + vec4(radiance, 0.0);
+    sum.a = seen;
+    imageStore(radianceSum, at, sum);
+    if (trace.pass + 1u == trace.passes) {
+        imageStore(faces, at, vec4(min(sum.rgb / float(trace.passes), vec3(MAX_RADIANCE)), seen));
+    }
+}
