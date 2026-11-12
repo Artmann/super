@@ -234,6 +234,21 @@ public sealed class BakeProbeGpuTests(GpuFixture gpu)
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
+    [Fact]
+    public void A_space_with_more_probes_than_a_bake_holds_is_refused()
+    {
+        int errors = gpu.ValidationErrors;
+
+        // 17 x 17 x 15 = 4335 probes a metre apart, more than the 4096 a bake holds. The record is built by hand, past
+        // the check View.BakedLighting makes.
+        var space = new BakedSpace("too-big", Vector3.Zero, new Vector3(16f, 14f, 16f), 1f);
+
+        var error = Assert.Throws<InvalidOperationException>(() => BakeEmpty(space));
+
+        Assert.Equal("The baked space \"too-big\" holds 4335 probes, but a bake holds at most 4096.", error.Message);
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
     private static LocalLight Lamp(LightMode mode, int key) => new()
     {
         Mode = mode,
@@ -251,6 +266,13 @@ public sealed class BakeProbeGpuTests(GpuFixture gpu)
         view.EnvironmentIntensity = sky;
         view.LocalLights = lights;
         return LightBakeFile.Read(gpu.Renderer.Bake(view, draws, settings));
+    }
+
+    private byte[] BakeEmpty(BakedSpace space)
+    {
+        var view = gpu.View(DebugView.None);
+        view.BakedSpace = space;
+        return gpu.Renderer.Bake(view, [], new BakeSettings(20, BakeQuality.Preview));
     }
 
     private MeshHandle CreateQuad()
