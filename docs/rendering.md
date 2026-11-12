@@ -379,6 +379,17 @@ probes' reach and speed for memory and GPU time; see [graphics settings](#graphi
 A [screenshot](command-line.md#screenshots) waits for the probes near the camera to be drawn,
 up to 2,048 frames, so it shows the bounce as it will be rather than still filling in.
 
+`--debug-view probes` shows the probes themselves, over the lit scene. Every probe of the finest
+box and of your `view.LightProbes` box is a small sphere, and each point of a sphere shows the
+light that probe gives a white surface facing the same way, so a probe beside a red wall is red
+on the wall's side. The spheres are 0.15 of their probes' spacing in radius, 7.5 cm in the
+finest box, so they read clearly from a few metres away while neighbours stay well apart and
+leave the scene visible between them. A probe not drawn yet is a grey wireframe, and a probe
+left out for being inside a wall isn't shown. Where your box covers the finest box, only your
+box's probes are shown, as only they light that space. It works with or without tracing, and
+shows no spheres while `Graphics.LightProbes` is off. From code, set `FrameView.DebugView` to
+`DebugView.Probes`. See [the command line](command-line.md).
+
 ## Baked lighting
 
 ```csharp

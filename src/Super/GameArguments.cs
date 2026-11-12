@@ -190,7 +190,8 @@ internal sealed record GameArguments(
         return text switch
         {
             "trace" => Rendition.DebugView.Trace,
-            _ => throw new ArgumentException($"--debug-view doesn't know '{text}'. It knows: trace."),
+            "probes" => Rendition.DebugView.Probes,
+            _ => throw new ArgumentException($"--debug-view doesn't know '{text}'. It knows: trace, probes."),
         };
     }
 

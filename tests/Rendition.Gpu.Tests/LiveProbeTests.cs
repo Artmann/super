@@ -382,6 +382,66 @@ public sealed class LiveProbeTests(GpuFixture shared)
         Assert.Equal(0, probes.NewValidationErrors);
     }
 
+    [Fact]
+    public void The_probe_view_draws_a_red_tinted_sphere_beside_the_red_wall()
+    {
+        using var gpu = new GpuFixture(disableRayTracing: true);
+        var scene = ProbeScenes.RedWall(gpu, lightIsSpot: false);
+        Settle(gpu, scene);
+
+        // From 3 m back the probe at (0.5, 0.5, 0) has only black sky behind it, so without a sphere the pixel is black.
+        // The point 5 cm to its +x is on its sphere, 7.5 cm in radius, where the surface faces the red wall at x = 1.1.
+        // No probe is updated, so the sphere shows what settled.
+        gpu.Renderer.ProbeUpdatesPaused = true;
+        byte[] pixels = Capture(gpu, scene, DebugView.Probes, RenderEffects.AntiAliasing);
+        var (r, g, b) = PixelAt(pixels, new Vector3(0.55f, 0.5f, 0f));
+
+        Assert.True(r > 20, $"The sphere's +x side is ({r}, {g}, {b}).");
+        Assert.True(r > 2 * g && r > 2 * b, $"The sphere's +x side is ({r}, {g}, {b}).");
+        Assert.Equal(0, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void With_light_probes_off_the_probe_view_draws_no_spheres_and_makes_no_storage()
+    {
+        using var gpu = new GpuFixture(disableRayTracing: true);
+        var scene = ProbeScenes.RedWall(gpu, lightIsSpot: false);
+
+        byte[] pixels = Capture(gpu, scene, DebugView.Probes, RenderEffects.AntiAliasing | RenderEffects.LightProbes);
+        var (r, g, b) = PixelAt(pixels, new Vector3(0.55f, 0.5f, 0f));
+
+        Assert.Equal((0, 0, 0), (r, g, b));
+        Assert.False(gpu.Renderer.ProbeStorageAllocated);
+        Assert.Equal(0, gpu.ValidationErrors);
+    }
+
+    // The probe view's camera: 3 m back from the origin and looking at it.
+    private static readonly Vector3 ProbeViewCamera = new(0f, 0f, 3f);
+
+    private static byte[] Capture(GpuFixture gpu, ProbeScene scene, DebugView debugView, RenderEffects off)
+    {
+        var view = View(scene, ProbeViewCamera);
+        view.View = Matrix4x4.CreateLookAt(ProbeViewCamera, Vector3.Zero, Vector3.UnitY);
+        view.DebugView = debugView;
+        view.Off = off;
+        byte[] pixels = gpu.Renderer.Capture(view, scene.Draws, out int width, out int height);
+        Assert.Equal((Size, Size), (width, height));
+        return pixels;
+    }
+
+    // The colour of the pixel a point lands on, seen from the probe view's camera.
+    private static (int R, int G, int B) PixelAt(byte[] pixels, Vector3 point)
+    {
+        var viewProjection = Matrix4x4.CreateLookAt(ProbeViewCamera, Vector3.Zero, Vector3.UnitY)
+            * Projection.PerspectiveInfiniteReversedZ(MathF.PI / 4f, 1f, 0.1f);
+        var clip = Vector4.Transform(new Vector4(point, 1f), viewProjection);
+        int x = (int)((clip.X / clip.W * 0.5f + 0.5f) * Size);
+        // The projection already turns y down, as Vulkan's framebuffer runs.
+        int y = (int)((clip.Y / clip.W * 0.5f + 0.5f) * Size);
+        int at = (y * Size + x) * 4;
+        return (pixels[at], pixels[at + 1], pixels[at + 2]);
+    }
+
     private static int Budget(ProbeQuality quality, bool traced) =>
         traced ? ProbeBudget.For(quality).Traced : ProbeBudget.For(quality).Raster;
 

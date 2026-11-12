@@ -1610,6 +1610,22 @@ calls to `Next`, and ages are in frames, never seconds. The pass over all probes
 `Settled` means cascades 0 and 1 and the fixed grid are all captured and clean. The ProbeBudget
 is 8 raster and 256 traced probes a frame at Low, 16 and 512 at Medium, and 32 and 1,024 at High.
 
+`ProbeDebugPass` draws `DebugView.Probes`. Only a frame's `RecordScene` runs it (never a
+reflection probe's capture), after the transparent pass and only while `_lightProbesInUse`, so with
+the probes off it records nothing and no atlases are made. It needs no buffers: probe_debug.vert
+builds a 12 × 8 UV sphere (576 vertices) from `gl_VertexIndex` and finds its probe from
+`gl_InstanceIndex`. The first instances are cascade 0's cells, placed and slotted with the same
+origin and wrap maths as probes.glsl; the rest are the fixed grid's probes, layer 4. A cascade
+probe inside the fixed grid's box is moved behind the near plane, since the grid's probes light
+that space. The radius is 0.15 × spacing. probe_debug.frag reads the atlases through the lighting
+set (bindings 11 and 12), so it works on either update path. It shows the texel of the probe's
+own irradiance tile for the sphere's normal, not `probeIrradiance` at its centre, so each sphere
+is what that one probe holds, unblended with its neighbours or coarser cascades. An uncaptured
+probe (`probeCaptured` is 0) is drawn as a screen-space-thin grey wireframe of 8 longitudes and 6
+latitudes, and an inside probe (`probeInside`) is discarded. Depth goes from read-only to
+attachment for the draw and back, so the spheres hide each other and the scene behind them.
+The view leaves tone mapping and every effect on; unlike the trace view it sets no debug bit.
+
 ## Lightmap UVs
 
 `LightmapUnwrap.Unwrap` gives a mesh a second UV set (`Vertex.Uv2`) for baked lighting, and

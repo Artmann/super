@@ -97,6 +97,10 @@ public sealed unsafe class Renderer : IDisposable
 
     // Whether this frame shows the trace debug view, which leaves out what would change its colours.
     private bool _traceView;
+    private readonly ProbeDebugPass _probeDebugPass;
+
+    // Whether this frame shows the probe debug view: the lit scene with a sphere at every light probe.
+    private bool _probeView;
     private readonly EnvironmentMap _environment;
     private readonly ReflectionProbes _probes;
 
@@ -544,6 +548,7 @@ public sealed unsafe class Renderer : IDisposable
         _particlePass = new ParticlePass(_context, _frameSetLayout, FramesInFlight);
         _decalPass = new DecalPass(_context, _frameSetLayout, _resources, FramesInFlight);
         _transparentPass = new TransparentPass(_context, _frameSetLayout, _resources, _environment, _probes);
+        _probeDebugPass = new ProbeDebugPass(_context, _frameSetLayout, _lightingSetLayout);
         _exposureMeter = new ExposureMeter(_context, _sampler);
         _fsrPass = new FsrPass(_context, _sampler, _frameSetLayout, _exposureMeter.SetLayout);
         _depthOfFieldPass = new DepthOfFieldPass(_context, _sampler, _linearSampler, _frameSetLayout);
@@ -601,6 +606,9 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>How many light probes the last frame updated: none while they're off, or settled and unchanged.</summary>
     internal int ProbeUpdatesLastFrame { get; private set; }
+
+    /// <summary>For tests: whether the light probes' atlases exist, which they don't while the probes are off.</summary>
+    internal bool ProbeStorageAllocated => _lightProbes.Allocated;
 
     /// <summary>
     /// Whether every probe near the camera, in the two finest cascades and the fixed grid, has been
@@ -1969,6 +1977,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         _traceView = traceView;
+        _probeView = view.DebugView == DebugView.Probes;
 
         // The trace debug view shows colours as they are, so nothing that blends, blurs or brightens them runs.
         var viewOff = _traceView ? view.Off | TraceViewOff : view.Off;
@@ -2413,6 +2422,7 @@ public sealed unsafe class Renderer : IDisposable
         _bloomPass.Dispose();
         _taaPass.Dispose();
         _transparentPass.Dispose();
+        _probeDebugPass.Dispose();
         _particlePass.Dispose();
         _decalPass.Dispose();
         _lightingPass.Dispose();
@@ -2489,7 +2499,8 @@ public sealed unsafe class Renderer : IDisposable
             _heldNumber = _transitionHold;
         }
 
-        RecordScene(cmd, frameSet, draws, [], shadowsSelected: true, _transparentView, _particleCount, _motion, traced, sceneDraws, updateProbes: true);
+        RecordScene(cmd, frameSet, draws, [], shadowsSelected: true, _transparentView, _particleCount, _motion, traced, sceneDraws, updateProbes: true,
+            probeView: _probeView);
 
         // Anti-aliasing blends in the last frame, and reflections read it, so it's kept for
         // the next while either wants it. Without anti-aliasing the lit image is the frame.
@@ -2690,7 +2701,8 @@ public sealed unsafe class Renderer : IDisposable
         MotionHistory? motion = null,
         TopLevelStructure? traced = null,
         ReadOnlySpan<DrawItem> probeDraws = default,
-        bool updateProbes = false)
+        bool updateProbes = false,
+        bool probeView = false)
     {
         var targets = _gBuffer;
         var instances = _frames[_frameIndex].Instances;
@@ -2883,6 +2895,20 @@ public sealed unsafe class Renderer : IDisposable
             AccessFlags2.DepthStencilAttachmentReadBit | SampledAccess);
         _transparentPass.Record(cmd, targets, frameSet, draws, _meshes, _details, instances, view,
             _particlePass, _frameIndex, particleCount, _particleCamera, _windReach);
+
+        // The probe debug view draws its spheres over everything, glass included. With the probes off there are none,
+        // and no atlases to read.
+        if (probeView && _lightProbesInUse)
+        {
+            uint spheres = (uint)_probeCascades.Layout(0).Total;
+            if (_probeGrid is { } grid)
+            {
+                var (x, y, z) = ProbeGrid.Counts(grid);
+                spheres += (uint)(x * y * z);
+            }
+
+            _probeDebugPass.Record(cmd, targets, frameSet, _lightingSet, spheres);
+        }
 
         _api.EndColorTarget(cmd, targets.Hdr.Image);
         _gpuTimer.Mark(cmd);

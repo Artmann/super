@@ -866,6 +866,13 @@ public enum DebugView
     /// ungraded; sky blue where it hits nothing. Shows what rays see, which may differ from what's drawn.
     /// </summary>
     Trace,
+
+    /// <summary>
+    /// The lit scene with a small sphere at every light probe of the finest cascade and of the fixed grid, shaded with
+    /// the light the probe holds for each direction its surface faces. A probe not captured yet is a grey wireframe,
+    /// and a probe inside a wall isn't drawn. Needs no ray tracing, and shows nothing while the probes are off.
+    /// </summary>
+    Probes,
 }
 
 /// <summary>
@@ -897,6 +904,7 @@ public ref struct FrameView
     /// <summary>
     /// Shows something other than the lit scene, to look inside the renderer. <see cref="DebugView.Trace"/> needs a
     /// GPU that can trace (<see cref="Renderer.CanTrace"/>), and <see cref="Renderer.Render"/> throws without one.
+    /// <see cref="DebugView.Probes"/> works on any GPU.
     /// </summary>
     public DebugView DebugView;
 

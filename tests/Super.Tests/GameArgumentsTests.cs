@@ -74,10 +74,22 @@ public class GameArgumentsTests
     }
 
     [Fact]
-    public void Names_the_views_it_knows_when_given_another()
+    public void Debug_view_probes_is_accepted()
     {
-        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--debug-view", "normals"]));
-        Assert.Equal("--debug-view doesn't know 'normals'. It knows: trace.", error.Message);
+        Assert.Equal(Rendition.DebugView.Probes, GameArguments.Parse(["--debug-view", "probes"]).DebugView);
+    }
+
+    [Fact]
+    public void An_unknown_debug_view_names_both_choices()
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--debug-view", "nope"]));
+        Assert.Equal("--debug-view doesn't know 'nope'. It knows: trace, probes.", error.Message);
+    }
+
+    [Fact]
+    public void The_probe_view_needs_no_tracing()
+    {
+        Assert.Null(GameArguments.DebugViewError(Rendition.DebugView.Probes, canTrace: false, "turned off with --no-trace"));
     }
 
     [Fact]
