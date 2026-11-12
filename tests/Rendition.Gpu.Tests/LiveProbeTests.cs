@@ -328,16 +328,9 @@ public sealed class LiveProbeTests(GpuFixture shared)
         using var probes = Open(traced);
         var gpu = probes.Gpu;
         var scene = probes.Scene(gpu => ProbeScenes.RedWall(gpu, lightIsSpot: false));
+        // Settled counts only the two finest cascades, so the coarse ones are still filling in when the light moves; the
+        // probes it dirties near the camera go before them.
         Settle(gpu, scene);
-
-        // Settled counts only the two finest cascades, and a never-captured probe goes before a dirty one wherever it
-        // is, so the coarse cascades are filled first: otherwise they would hold back the probes the light dirties.
-        var layouts = ProbeCascades.Layouts(ProbeQuality.High);
-        int coarse = (layouts[2].Total + layouts[3].Total) / Budget(ProbeQuality.High, traced);
-        for (int frame = 0; frame < coarse; frame++)
-        {
-            Render(gpu, scene, Vector3.Zero);
-        }
 
         var point = new Vector3(0.7f, 0.3f, 1.5f);
         var before = gpu.Renderer.SampleProbeIrradiance([(point, Vector3.UnitX)])[0];

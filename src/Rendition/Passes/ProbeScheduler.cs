@@ -26,8 +26,12 @@ internal readonly record struct ProbeId(int Cascade, int Slot);
 ///
 /// Every probe is in one of three states: never captured, dirty (captured, but the lighting changed
 /// since) or clean. A dirty probe keeps its old value in use until it is updated. A frame hands out
-/// never-captured probes first, then dirty ones, then the probes that were updated longest ago.
-/// In the first two tiers nearer probes go first, and so do finer cascades and probes in front of the
+/// dirty probes in cascades 0 and 1 and the fixed grid first, so a light changing near the camera
+/// shows at once even while the coarse cascades are still filling in. Then come never-captured
+/// probes, then the other dirty ones, then the probes that were updated longest ago. While any
+/// probe is never captured, a quarter of the budget is kept for them, so a light that changes every
+/// frame (a flickering lantern) can't stop new probes from ever being captured. In the dirty and
+/// never-captured tiers nearer probes go first, and so do finer cascades and probes in front of the
 /// camera. In the last tier the oldest goes first, whatever its place, which bounds the time between
 /// two updates of any probe to about (probes / budget) frames; distance only breaks ties.
 ///
@@ -64,6 +68,9 @@ internal sealed class ProbeScheduler
     private readonly int[] _pending = new int[FixedGrid + 1];
 
     private bool _scrolled;
+
+    // The best dirty probes of the fine groups, and the best of all the rest, each kept to the budget.
+    private Candidate[] _nearHeap = Array.Empty<Candidate>();
     private Candidate[] _heap = Array.Empty<Candidate>();
     private readonly List<ProbeId> _batch = [];
 
@@ -234,9 +241,10 @@ internal sealed class ProbeScheduler
         if (_heap.Length < budget)
         {
             _heap = new Candidate[budget];
+            _nearHeap = new Candidate[budget];
         }
 
-        var heap = _heap;
+        int nearSize = 0;
         int size = 0;
         bool facing = forward != Vector3.Zero;
 
@@ -251,6 +259,7 @@ internal sealed class ProbeScheduler
             var updated = _updated[group]!;
             var position = _position[group]!;
             float scale = CascadeScale[group];
+            bool fine = group <= 1 || group == FixedGrid;
 
             for (int slot = 0; slot < state.Length; slot++)
             {
@@ -268,30 +277,60 @@ internal sealed class ProbeScheduler
                     group,
                     slot);
 
-                if (size < budget)
+                if (fine && state[slot] == Dirty)
                 {
-                    heap[size] = candidate;
-                    SiftUp(heap, size);
-                    size++;
+                    Offer(_nearHeap, ref nearSize, budget, candidate);
                 }
-                else if (candidate.Before(heap[0]))
+                else
                 {
-                    heap[0] = candidate;
-                    SiftDown(heap, size);
+                    Offer(_heap, ref size, budget, candidate);
                 }
             }
         }
 
-        // The heap is rebuilt every call, so it can be sorted in place. The order is total, so any sort gives the
+        // The heaps are rebuilt every call, so they can be sorted in place. The order is total, so any sort gives the
         // same result.
-        var chosen = heap.AsSpan(0, size);
-        chosen.Sort();
-        foreach (var candidate in chosen)
+        var near = _nearHeap.AsSpan(0, nearSize);
+        var rest = _heap.AsSpan(0, size);
+        near.Sort();
+        rest.Sort();
+
+        // Never-captured probes sort first in the rest; up to a quarter of the budget is theirs whatever is dirty.
+        int waiting = 0;
+        while (waiting < rest.Length && rest[waiting].Tier == NeverCaptured)
+        {
+            waiting++;
+        }
+
+        int nearTaken = Math.Min(nearSize, budget - Math.Min(waiting, budget / 4));
+        int restTaken = Math.Min(size, budget - nearTaken);
+        foreach (var candidate in near[..nearTaken])
+        {
+            _batch.Add(new ProbeId(candidate.Group, candidate.Slot));
+        }
+
+        foreach (var candidate in rest[..restTaken])
         {
             _batch.Add(new ProbeId(candidate.Group, candidate.Slot));
         }
 
         return _batch;
+    }
+
+    // Keeps the best `budget` candidates offered so far in a heap whose root is the worst of them.
+    private static void Offer(Candidate[] heap, ref int size, int budget, in Candidate candidate)
+    {
+        if (size < budget)
+        {
+            heap[size] = candidate;
+            SiftUp(heap, size);
+            size++;
+        }
+        else if (candidate.Before(heap[0]))
+        {
+            heap[0] = candidate;
+            SiftDown(heap, size);
+        }
     }
 
     /// <summary>The batch has been captured: its probes are clean, and as old as this frame.</summary>

@@ -1569,10 +1569,11 @@ settle frames until `ProbesSettled`, at most `ScreenshotProbeFrames` (2,048) mor
 off it doesn't wait. The wait renders like the other settle frames, with vsync, which a hidden
 window can make slow: a Gallery frame waited about 250 ms to present against about 21 ms of GPU
 work. Turning vsync off for the wait made Gallery's shot about three times faster but Courtyard's
-about four times slower, so it stays on. Recordings don't wait. `Settled` counts only cascades 0 and 1, and the
-scheduler hands out every never-captured probe before any dirty one, wherever it is, so while
-the coarse cascades are still filling in, probes dirtied by a light near the camera wait for
-them. A dirty probe keeps its old light in use until it is redone, so a change
+about four times slower, so it stays on. Recordings don't wait. `Settled` counts only cascades 0 and 1 and the fixed grid.
+Dirty probes in those go before never-captured probes in the coarse cascades, so a light moved
+near the camera is picked up within a few frames even while cascades 2 and 3 are still filling
+in. A quarter of each batch stays kept for never-captured probes while any are left, so a light
+that changes every frame, like a flickering lantern, can't keep the coarse cascades empty. A dirty probe keeps its old light in use until it is redone, so a change
 fades in over the frames it takes to reach every probe rather than flashing. Without
 `shaderStorageImageExtendedFormats`, needed to write RG16F from compute, or without multiview,
 the probes are off.
@@ -1599,8 +1600,10 @@ given with `SetFixedGrid`. Each probe is never captured, dirty or clean. `Scroll
 `ScrollResult`'s new slots never captured, `LightChanged(center, range)` makes the clean probes in
 range dirty, and `EverythingChanged` (sun, sky or environment) makes all of them dirty; a dirty
 probe keeps its old value in use until it is updated. `Next(budget, camera, forward)` returns at
-most `budget` distinct probes: never captured first, then dirty, then clean probes in order of the
-frames since their last update. In the first two tiers the nearer probe goes first, finer
+most `budget` distinct probes. Dirty probes in cascades 0 and 1 and the fixed grid come first,
+less a quarter of the budget kept for never-captured probes while any are left. Then come
+never-captured probes, then the other dirty probes, then clean probes in order of the frames
+since their last update. Among dirty and never-captured probes the nearer probe goes first, finer
 cascades win at equal distance (squared distance is scaled by `(1 + cascade / 2)²`) and probes in
 front of the camera count as nearer (×0.75). Among clean probes the oldest goes first and
 distance only breaks ties, so no probe waits longer than about probes ÷ budget frames. Ties end in

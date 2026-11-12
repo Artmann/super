@@ -400,6 +400,64 @@ public class ProbeSchedulerTests
     }
 
     [Fact]
+    public void A_light_changing_near_the_camera_goes_before_the_coarse_cascades_fill_in()
+    {
+        var cascades = new ProbeCascades(ProbeQuality.Low);
+        var scheduler = new ProbeScheduler(cascades, 0);
+        var camera = new Vector3(0.25f, 1.1f, 0.25f);
+        scheduler.Scrolled(cascades.Move(camera));
+        var layouts = ProbeCascades.Layouts(ProbeQuality.Low);
+        scheduler.Updated(Probes(0, layouts[0].Total));
+        scheduler.Updated(Probes(1, layouts[1].Total));
+        Assert.False(scheduler.Captured(new ProbeId(2, 0)));
+        Assert.False(scheduler.Captured(new ProbeId(3, 0)));
+
+        scheduler.LightChanged(camera, 2f);
+        var batch = scheduler.Next(32, camera, Forward);
+
+        // 32 probes, of which a quarter (8) stay kept for the never-captured ones.
+        Assert.Equal(32, batch.Count);
+        Assert.All(batch.Take(24), id =>
+        {
+            Assert.InRange(id.Cascade, 0, 1);
+            Assert.InRange(Vector3.Distance(cascades.Position(id.Cascade, id.Slot), camera), 0f, 2f);
+        });
+        Assert.All(batch.Skip(24), id =>
+        {
+            Assert.InRange(id.Cascade, 2, 3);
+            Assert.False(scheduler.Captured(id));
+        });
+    }
+
+    [Fact]
+    public void A_light_changing_every_frame_still_lets_the_coarse_cascades_fill_in()
+    {
+        var cascades = new ProbeCascades(ProbeQuality.Low);
+        var scheduler = new ProbeScheduler(cascades, 0);
+        var camera = new Vector3(0.25f, 1.1f, 0.25f);
+        scheduler.Scrolled(cascades.Move(camera));
+        var layouts = ProbeCascades.Layouts(ProbeQuality.Low);
+        scheduler.Updated(Probes(0, layouts[0].Total));
+        scheduler.Updated(Probes(1, layouts[1].Total));
+
+        // A flickering lantern 6 m wide keeps far more fine probes dirty than a frame can update. The coarse
+        // cascades hold 2 x 2048 probes and get 8 of every 32, so 512 frames fill them.
+        for (int frame = 0; frame < 520; frame++)
+        {
+            scheduler.LightChanged(camera, 6f);
+            scheduler.Updated(scheduler.Next(32, camera, Forward));
+        }
+
+        for (int c = 2; c <= 3; c++)
+        {
+            for (int slot = 0; slot < layouts[c].Total; slot++)
+            {
+                Assert.True(scheduler.Captured(new ProbeId(c, slot)), $"cascade {c} slot {slot} was never captured");
+            }
+        }
+    }
+
+    [Fact]
     public void A_frame_with_a_still_camera_allocates_nothing()
     {
         var cascades = new ProbeCascades(ProbeQuality.High);
