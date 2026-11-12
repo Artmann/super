@@ -71,3 +71,7 @@ For a live figure while playing, show [`GameStats`](interfaces.md#showing-how-th
 in a panel, and run with `--no-vsync` to see the frame rate the machine can reach.
 To see what an effect costs, turn it off in [`Graphics`](rendering.md#graphics-settings) and
 profile again: its pass drops to nothing in the GPU list.
+
+"Light probes" in the GPU list is the time spent updating the
+[bounced light](rendering.md#bounced-light)'s probes: traced on a GPU that can, drawn otherwise.
+Lower `Graphics.ProbeQuality` to update fewer a frame, or turn `Graphics.LightProbes` off.

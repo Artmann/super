@@ -158,7 +158,8 @@ public sealed class TopLevelTests(GpuFixture gpu)
         var mesh = gpu.Renderer.CreateMesh(vertices, indices);
         DrawItem[] draws = [new() { Mesh = mesh, IndexCount = 6, Material = gpu.Matte, Transform = Matrix4x4.Identity }];
 
-        gpu.RenderOneFrame(draws);
+        // Light probes trace their updates where the GPU can, so they are switched off to leave a frame with nothing to trace.
+        gpu.RenderOneFrame(draws, off: RenderEffects.LightProbes);
 
         Assert.Equal(before, tracing.BottomLevelCount);
         Assert.Equal(builds, tracing.TopLevelBuilds);

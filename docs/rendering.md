@@ -150,8 +150,9 @@ every frame.
 On a GPU that supports ray queries (`VK_KHR_ray_query` with `VK_KHR_acceleration_structure`,
 `VK_KHR_deferred_host_operations` and `bufferDeviceAddress`) the renderer turns them on when it
 makes the device, and `Renderer.CanTrace` is true. Some players have a GPU that
-can't, so nothing requires it: those players get the same game without tracing. Nothing draws
-with rays yet, so this changes no picture except the debug view below.
+can't, so nothing requires it: those players get the same game without tracing. So far rays
+update the [light probes](#bounced-light), many more a frame than drawing them can, and draw the
+debug view below; nothing else uses them.
 
 `--no-trace` makes the device without ray queries even on a GPU that has them, so you can see
 what a player without them gets. It works in the window and with `--screenshot`, `--record`
@@ -332,14 +333,22 @@ sky is. The probes see the sun, the sky, point and spot lights (inside their con
 surfaces and the light already bounced, so light bounces again with every update.
 
 The probes sit in four nested boxes centred on the camera, 0.5, 1, 2 and 4 metres apart, so
-detail is finest close by and the far boxes still reach a long way. They are updated a few a
-frame (8, 16 or 32 by [`Graphics.ProbeQuality`](#graphics-settings): `Low`, `Medium` or `High`, the default, and
-fewer in a dense scene: a frame draws at most 8 million triangles round its probes, which is
-about 9 probes in Courtyard), so there is no pause while loading: the scene starts lit by the
-sky and fills in over the first frames, nearest probes first. At `High` the near probes have
-all been drawn after about a thousand frames in a light scene (nearer four thousand in
-Courtyard). After that the oldest probes are redone in turn, so objects that move or appear
-show up in the bounce within about 2,000 frames at `High`. A point or spot light that moves, turns, changes
+detail is finest close by and the far boxes still reach a long way. On a GPU that can
+[trace rays](#ray-tracing), each update sends 128 rays out from the probe, and 256, 512 or 1,024
+probes are updated a frame by [`Graphics.ProbeQuality`](#graphics-settings): `Low`, `Medium` or
+`High`, the default. Nothing turns this on; it is used whenever the GPU can. Each traced update
+moves a probe a quarter of the way to what its rays saw, so a little noise averages away and a
+change fades in over a few updates. At `High` the near probes are all traced within the first
+few dozen frames, and every probe is redone about once a second at 60 fps.
+
+Without tracing, each update draws the scene round the probe six times instead, so far fewer
+fit in a frame: 8, 16 or 32 by `ProbeQuality`, and fewer in a dense scene, since a frame draws
+at most 8 million triangles round its probes, which is about 9 probes in Courtyard. Either
+way there is no pause while loading: the scene starts lit by the sky and fills in over the
+first frames, nearest probes first. Drawn this way at `High`, the near probes have all been
+drawn after about a thousand frames in a light scene (nearer four thousand in Courtyard).
+After that the oldest probes are redone in turn, so objects that move or appear show up in the
+bounce within about 2,000 frames at `High`. A point or spot light that moves, turns, changes
 colour or is switched off marks the probes in its range for an update, and a change to the sun,
 the sky or the `Materials`, `WearAndDirt`, `SunShadows` or `LightShadows` switches marks them
 all; until it is redone, a probe keeps its old light, so a change fades in rather than flashing.

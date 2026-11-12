@@ -91,22 +91,51 @@ bool traceSolid(uint material, vec2 uv) {
     return opacity >= m.alphaCutoff;
 }
 
+// Whether the candidate a ray query has just met stops the ray: solid at its uv, and, when skipSeeThrough, not a
+// see-through material such as glass or water. Opaque parts never get here; glass and cut-out parts always do, as
+// RayTracing.GeometryFlagsFor builds them non-opaque.
+bool traceCandidateStops(rayQueryEXT query, bool skipSeeThrough) {
+    uint entry = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false))
+        + uint(rayQueryGetIntersectionGeometryIndexEXT(query, false));
+    TraceGeometry geometry = traceGeometries[entry];
+    if (skipSeeThrough && (traceMaterials[nonuniformEXT(geometry.material)].flags & MATERIAL_TRANSPARENT) != 0u) {
+        return false;
+    }
+
+    vec2 uv = traceInterpolatedUv(geometry, uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false)),
+        rayQueryGetIntersectionBarycentricsEXT(query, false));
+    return traceSolid(geometry.material, uv);
+}
+
+// Whether nothing blocks a ray within maxDistance: a shadow ray. It stops at the first blocker it finds rather than the
+// closest, and passes through cut-outs as traceClosest does. With skipSeeThrough, glass and water block nothing.
+bool traceVisible(accelerationStructureEXT scene, vec3 origin, vec3 direction, float maxDistance, bool skipSeeThrough) {
+    rayQueryEXT query;
+    rayQueryInitializeEXT(query, scene, gl_RayFlagsTerminateOnFirstHitEXT, 0xFFu, origin, 0.0, direction, maxDistance);
+    while (rayQueryProceedEXT(query)) {
+        if (rayQueryGetIntersectionTypeEXT(query, false) == gl_RayQueryCandidateIntersectionTriangleEXT
+            && traceCandidateStops(query, skipSeeThrough)) {
+            rayQueryConfirmIntersectionEXT(query);
+        }
+    }
+
+    return rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT;
+}
+
+bool traceVisible(accelerationStructureEXT scene, vec3 origin, vec3 direction, float maxDistance) {
+    return traceVisible(scene, origin, direction, maxDistance, false);
+}
+
 // Traces a ray to the closest surface it hits within maxDistance. Opaque parts are hit outright; the rest are checked
-// against their material's cut-out first, so a ray passes through the holes in leaves and fences.
-bool traceClosest(accelerationStructureEXT scene, vec3 origin, vec3 direction, float maxDistance, out TraceHit hit) {
+// against their material's cut-out first, so a ray passes through the holes in leaves and fences. With skipSeeThrough
+// it passes through glass and water too.
+bool traceClosest(
+    accelerationStructureEXT scene, vec3 origin, vec3 direction, float maxDistance, bool skipSeeThrough, out TraceHit hit) {
     rayQueryEXT query;
     rayQueryInitializeEXT(query, scene, gl_RayFlagsNoneEXT, 0xFFu, origin, 0.0, direction, maxDistance);
     while (rayQueryProceedEXT(query)) {
-        if (rayQueryGetIntersectionTypeEXT(query, false) != gl_RayQueryCandidateIntersectionTriangleEXT) {
-            continue;
-        }
-
-        uint entry = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false))
-            + uint(rayQueryGetIntersectionGeometryIndexEXT(query, false));
-        TraceGeometry geometry = traceGeometries[entry];
-        vec2 uv = traceInterpolatedUv(geometry, uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false)),
-            rayQueryGetIntersectionBarycentricsEXT(query, false));
-        if (traceSolid(geometry.material, uv)) {
+        if (rayQueryGetIntersectionTypeEXT(query, false) == gl_RayQueryCandidateIntersectionTriangleEXT
+            && traceCandidateStops(query, skipSeeThrough)) {
             rayQueryConfirmIntersectionEXT(query);
         }
     }
@@ -137,6 +166,10 @@ bool traceClosest(accelerationStructureEXT scene, vec3 origin, vec3 direction, f
     hit.material = geometry.material;
     hit.frontFace = rayQueryGetIntersectionFrontFaceEXT(query, true);
     return true;
+}
+
+bool traceClosest(accelerationStructureEXT scene, vec3 origin, vec3 direction, float maxDistance, out TraceHit hit) {
+    return traceClosest(scene, origin, direction, maxDistance, false, hit);
 }
 
 // The surface's own colour where the ray landed: the material's base colour by its base colour texture. No surface

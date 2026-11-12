@@ -85,10 +85,14 @@ public sealed unsafe class GpuFixture : IDisposable
 
     /// <summary>
     /// Renders one frame of the draws given, or of nothing, which also runs every copy waiting to ride a frame, such as
-    /// a new mesh's.
+    /// a new mesh's. The effects in <paramref name="off"/> are switched off for the frame.
     /// </summary>
-    public void RenderOneFrame(DrawItem[]? draws = null, DebugView debugView = DebugView.None) =>
-        Renderer.Render(View(debugView), draws ?? []);
+    public void RenderOneFrame(DrawItem[]? draws = null, DebugView debugView = DebugView.None, RenderEffects off = RenderEffects.None)
+    {
+        var view = View(debugView);
+        view.Off = off;
+        Renderer.Render(view, draws ?? []);
+    }
 
     /// <summary>Renders one frame of nothing, as <see cref="RenderOneFrame"/> does, naming a baked space and chunks.</summary>
     public void RenderOneFrame(BakedSpace? bakedSpace, BakedChunk[] bakedChunks)

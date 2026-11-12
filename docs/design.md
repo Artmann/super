@@ -1405,8 +1405,8 @@ rebinding the targets clears them and a transition's held outgoing shot would be
 
 ## Light probes
 
-Light probes give bounced diffuse light, in the way of DDGI (Majercik et al., 2019) but
-updated by rasterising rather than tracing. The renderer keeps four cascades of probes round
+Light probes give bounced diffuse light, in the way of DDGI (Majercik et al., 2019), updated
+by tracing rays where the GPU can and by rasterising where it can't. The renderer keeps four cascades of probes round
 the camera (`ProbeCascades`, below) with no setup, and `FrameView.LightProbes` can add a box
 and a spacing of its own, a fixed grid that `ProbeGrid` lays out, x fastest, and that wins where
 it reaches. `ProbeVolume` owns two
@@ -1481,8 +1481,38 @@ i into probe `ids[i]` with `probe_blend.comp`, one workgroup per probe. A probe 
 takes the new tile whole; one that was moves towards it by alpha, so its light settles over a few
 updates instead of flickering. The inside mark in the depth tile's first texel is never blended:
 when the old or the new tile has it, the new texel is copied. Rasterised updates blend with
-alpha 0.5 (`Renderer.RasterBlend`), and traced updates will use 0.25. All of this is recorded
-into the frame's command buffer with barriers and no waits.
+alpha 0.5 (`Renderer.RasterBlend`), and traced updates with 0.25 (`Renderer.TracedBlend`). All of
+this is recorded into the frame's command buffer with barriers and no waits.
+
+Where the GPU can trace (`Renderer.Tracing` is set), `ProbeTracePass` replaces the capture, the
+sun map and the fold. `probe_trace.comp` runs one workgroup of 128 invocations per probe of the
+batch, one ray each. The directions are a spherical Fibonacci set turned by a random rotation
+(Shoemake's) seeded by hashing the scheduler's `Frame` with the probe's cascade and slot, so each
+update of a probe looks along new directions and the blend averages them. A ray starts at the
+probe and reaches 10⁴ m, so it finds whatever it faces. A miss gives the same sky the fold puts
+in, at a distance of twice the spacing. A hit on the back of a one-sided surface gives black at
+minus the distance and counts towards the inside mark, as a rasterised back face does. Any other
+hit is shaded with `probeRadiance`, the same `probe_light.glsl` the capture uses, with its
+visibility from shadow rays (`traceVisible`) instead of shadow maps: one towards the shadow-casting
+sun, and one towards each point or spot light that has a shadow tile this frame, stopping 2 cm
+short of it. Every shadow ray starts 5 cm off the surface. Then the workgroup sums its 128 samples
+into the probe's two tiles in its staging slot, with the same cosine and cos⁵⁰ weights as
+`probe_fold.comp`, distances clamped to twice the spacing, and `RecordBlend` blends them in.
+
+Glass, water and anything else `Transparent` is skipped by every probe ray, shadow rays
+included, though the top-level structure keeps it, so the trace debug view still shows it.
+The rasterised capture leaves see-through draws out, so both paths agree; a pane that stopped
+rays would shut the light out of a glasshouse, and one tinted by its colour would paint the
+whole room. Cut-outs are still tested, so light passes through the holes in leaves.
+
+A traced batch is `ProbeBudget.Traced` probes (256, 512 or 1,024 by `ProbeQuality`), with no
+triangle budget, since a ray's cost hardly depends on the scene's size. The pass's descriptor
+sets are written once the probes' storage exists; the probes buffer holds the batch's positions,
+spacings and ids, one per frame in flight. Its time shows as the "Light probes" pass in the GPU
+timer, after "Shadows"; a rasterised update is timed there too. Traced probes settle within a few
+dozen frames, long before the light bounced between walls has built up: each update adds one
+more bounce, a quarter of the way, so a white room reaches its full bounce only after some
+hundred updates of each probe.
 
 Depth is stored because irradiance alone leaks. A probe on the far side of a wall sees
 bright sky, and blending it in would light the room. Each of the eight probes round a point
@@ -1524,9 +1554,10 @@ on, and the sun-shadow, light-shadow, plain-materials and wear-and-dirt switches
 changes, `EverythingChanged` marks every probe dirty. Geometry and the camera are not in it.
 `FollowProbeLights` compares the frame's point and spot lights with last frame's by `Key`: a
 light that appeared, moved, turned, changed colour or range, or went away calls `LightChanged`
-for where it was and where it is. Then `Next` picks the batch, `ProbeBudget.Raster` probes (8,
-16 or 32 by `ProbeQuality`), and `ProbeCapturePass.Prepare` culls their draws and cuts the batch
-at the triangle budget. Updates are counted in frames, never seconds.
+for where it was and where it is. Then `Next` picks the batch: where the GPU traces,
+`ProbeBudget.Traced` probes and nothing more; otherwise `ProbeBudget.Raster` probes (8, 16 or 32
+by `ProbeQuality`), and `ProbeCapturePass.Prepare` culls their draws and cuts the batch at the
+triangle budget. Updates are counted in frames, never seconds.
 
 `RecordProbeUpdate` runs after the shadow tile atlas: the invalidations, the probes' sun map
 when it is due, the captures, the fold and the blend, then `Updated` tells the scheduler which
@@ -2912,8 +2943,10 @@ does, so a mesh made this frame is traced this frame; nothing is skipped. Nothin
 material or change whether it is opaque to rays between a `TopLevel` call and the frame's submit,
 because `ForgetMaterial` frees into the slot of the frame submitted before. Nothing in `Render` does.
 
-The renderer builds a top-level structure only when something traces. For now that is the trace
-debug view (`FrameView.DebugView = DebugView.Trace`), so a normal frame costs nothing extra.
+The renderer builds a top-level structure only when something traces: the trace debug view
+(`FrameView.DebugView = DebugView.Trace`), or a frame with light probes to update on a GPU that
+can trace. It is built once in that frame and shared by both, before the GPU timer's first mark,
+so its build counts in no pass's time. A frame with neither builds nothing.
 
 ### The geometry table
 
@@ -2937,6 +2970,10 @@ texture bytes a hit reads are made visible by their own upload barriers (see abo
 shader defines `TRACE_GEOMETRY_SET` and `TRACE_GEOMETRY_BINDING` (where the geometry table is
 bound) and `TRACE_RESOURCE_SET` (the resource table: textures at binding 0, materials at 1). The
 resource table's bindings are visible to compute shaders for this.
+
+`traceVisible(scene, origin, direction, maxDistance)` is a shadow ray: it ends at the first
+confirmed hit and says whether there was none. Both it and `traceClosest` take an optional
+`skipSeeThrough`, which passes through every `Transparent` material, as the light probes need.
 
 `traceClosest(scene, origin, direction, maxDistance, out hit)` runs a ray query. Opaque geometry
 is hit outright. A non-opaque candidate looks up its table entry, reads its three indices at

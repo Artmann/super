@@ -3,43 +3,54 @@ using System.Numerics;
 namespace Rendition.Gpu.Tests;
 
 /// <summary>
-/// The light probes as they update a few a frame, rasterized: each test makes a renderer of its own without ray
-/// queries, renders a scene from <see cref="ProbeScenes"/> until the probes round the camera have all been captured,
-/// and reads them back through the real lookup in probes.glsl.
+/// The light probes as they update a few a frame: each test renders a scene from <see cref="ProbeScenes"/> until the
+/// probes round the camera have all been updated, and reads them back through the real lookup in probes.glsl. A test
+/// of the rasterized path makes a renderer of its own without ray queries; a test of the traced path uses the shared
+/// renderer, with its probes made anew.
 /// </summary>
 [Collection(GpuCollection.Name)]
 [Trait("Speed", "Slow")]
 [Trait("Needs", "GPU")]
-public sealed class LiveProbeTests
+public sealed class LiveProbeTests(GpuFixture shared)
 {
     private const int Size = 256;
 
-    // Cascades 0 and 1 hold 32 by 16 by 32 probes each at High, and 32 are updated a frame, so they settle in about
+    // Cascades 0 and 1 hold 32 by 16 by 32 probes each at High, and 32 are rasterized a frame, so they settle in about
     // 1,024 frames.
     private const int MaxFrames = 2000;
 
-    [Fact]
-    public void A_red_wall_beside_a_probe_tints_it_red_rasterized()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_red_wall_beside_a_probe_tints_it_red(bool traced)
     {
-        var red = Settled(gpu => ProbeScenes.RedWall(gpu, lightIsSpot: false), new Vector3(0.7f, 0.3f, 0f), Vector3.UnitX);
-        var white = Settled(
-            gpu => ProbeScenes.RedWall(gpu, lightIsSpot: false, wallIsWhite: true), new Vector3(0.7f, 0.3f, 0f), Vector3.UnitX);
+        var (red, mostUpdated) = Settled(
+            traced, gpu => ProbeScenes.RedWall(gpu, lightIsSpot: false), new Vector3(0.7f, 0.3f, 0f), Vector3.UnitX);
+        var (white, _) = Settled(
+            traced, gpu => ProbeScenes.RedWall(gpu, lightIsSpot: false, wallIsWhite: true), new Vector3(0.7f, 0.3f, 0f), Vector3.UnitX);
 
         Assert.True(red.X > 0.01f, $"The red wall gave {red}.");
         Assert.True(red.X > 2f * red.Y && red.X > 2f * red.Z, $"The red wall gave {red}.");
         Assert.True(white.X > 0.01f && white.X < 1.2f * white.Y, $"The white wall gave {white}.");
+        if (traced)
+        {
+            // Only the traced path updates more probes a frame than rasterizing can.
+            Assert.True(mostUpdated > ProbeBudget.For(ProbeQuality.High).Raster, $"At most {mostUpdated} probes were updated in a frame.");
+        }
     }
 
-    [Fact]
-    public void A_spot_light_lights_the_probe_only_inside_its_cone_rasterized()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_spot_light_lights_the_probe_only_inside_its_cone(bool traced)
     {
-        using var gpu = new GpuFixture(disableRayTracing: true);
-        var scene = ProbeScenes.RedWall(gpu, lightIsSpot: true);
-        Settle(gpu, scene);
+        using var probes = Open(traced);
+        var scene = probes.Scene(gpu => ProbeScenes.RedWall(gpu, lightIsSpot: true));
+        Settle(probes.Gpu, scene);
 
         // Facing down, each reads the floor under it. The spot's 30° cone reaches 0.9 m from the origin on the floor,
         // so (0, 0, -1.5), 45° off its axis, is outside it; a point light would light it a third as brightly.
-        var samples = gpu.Renderer.SampleProbeIrradiance(
+        var samples = probes.Gpu.Renderer.SampleProbeIrradiance(
         [
             (new Vector3(0f, 0.3f, 0f), -Vector3.UnitY),
             (new Vector3(0f, 0.3f, -1.5f), -Vector3.UnitY),
@@ -48,17 +59,19 @@ public sealed class LiveProbeTests
         Assert.True(samples[0].X > 0.01f, $"Inside the cone the probes read {samples[0]}.");
         Assert.True(samples[1].X >= 0f, $"Outside the cone the probes read {samples[1]}.");
         Assert.True(samples[0].X >= 10f * samples[1].X, $"Inside the cone {samples[0]}, outside it {samples[1]}.");
-        Assert.Equal(0, gpu.ValidationErrors);
+        Assert.Equal(0, probes.NewValidationErrors);
     }
 
-    [Fact]
-    public void A_closed_box_reads_black_under_a_bright_sky_rasterized()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_closed_box_reads_black_under_a_bright_sky(bool traced)
     {
-        using var gpu = new GpuFixture(disableRayTracing: true);
-        var scene = ProbeScenes.ClosedBox(gpu);
-        Settle(gpu, scene);
+        using var probes = Open(traced);
+        var scene = probes.Scene(ProbeScenes.ClosedBox);
+        Settle(probes.Gpu, scene);
 
-        var samples = gpu.Renderer.SampleProbeIrradiance(
+        var samples = probes.Gpu.Renderer.SampleProbeIrradiance(
         [
             (new Vector3(0.2f, 0.2f, 0.2f), Vector3.UnitY),
             (new Vector3(3f, 0.5f, 0f), Vector3.UnitX),
@@ -69,14 +82,17 @@ public sealed class LiveProbeTests
         Assert.True(inside.X >= 0f && inside.Y >= 0f && inside.Z >= 0f, $"Inside the box the probes read {inside}.");
         Assert.True(inside.X < 0.01f && inside.Y < 0.01f && inside.Z < 0.01f, $"Inside the box the probes read {inside}.");
         Assert.True(samples[1].X > 1f, $"Outside the box the probes read {samples[1]}.");
-        Assert.Equal(0, gpu.ValidationErrors);
+        Assert.Equal(0, probes.NewValidationErrors);
     }
 
-    [Fact]
-    public void A_probe_inside_a_solid_box_is_left_out_rasterized()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_probe_inside_a_solid_box_is_left_out(bool traced)
     {
-        using var gpu = new GpuFixture(disableRayTracing: true);
-        var scene = ProbeScenes.SolidBox(gpu);
+        using var probes = Open(traced);
+        var gpu = probes.Gpu;
+        var scene = probes.Scene(ProbeScenes.SolidBox);
         Settle(gpu, scene);
 
         // Every probe inside the box sees only the backs of its faces, so none of them counts. What is left is either
@@ -88,15 +104,25 @@ public sealed class LiveProbeTests
         var inside = gpu.Renderer.SampleProbeIrradiance([(new Vector3(0.2f, 0.2f, 0.2f), Vector3.UnitY)])[0];
 
         Assert.True(inside == new Vector3(-1f) || inside.X > 1f, $"Inside the solid box the probes read {inside}.");
-        Assert.Equal(0, gpu.ValidationErrors);
+        Assert.Equal(0, probes.NewValidationErrors);
     }
 
-    [Fact]
-    public void A_white_room_lit_by_one_light_settles_and_does_not_grow_rasterized()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_white_room_lit_by_one_light_settles_and_does_not_grow(bool traced)
     {
-        using var gpu = new GpuFixture(disableRayTracing: true);
-        var scene = ProbeScenes.WhiteRoom(gpu);
+        using var probes = Open(traced);
+        var gpu = probes.Gpu;
+        var scene = probes.Scene(ProbeScenes.WhiteRoom);
         Settle(gpu, scene);
+        if (traced)
+        {
+            // Traced probes settle in a few dozen frames, before any bounce has built up, and a traced update adds only a
+            // quarter of what changed, so the bounce goes on growing for thousands of frames. It is let finish first, so
+            // the readings below can tell a probe that keeps growing from one still filling in.
+            Bounce(gpu, scene, traced);
+        }
 
         var centre = new Vector3(0.2f, 1.3f, 0.2f);
         var readings = new List<float>();
@@ -110,12 +136,70 @@ public sealed class LiveProbeTests
             Render(gpu, scene, Vector3.Zero);
         }
 
+        // 128 rays a probe are noisier than six rasterized faces, so the traced readings may wander a little more.
+        float tolerance = traced ? 0.05f : 0.02f;
         Assert.True(readings[0] > 0.01f, $"The room's centre read {readings[0]}.");
         float last = readings[^1];
         float before = readings[^2];
-        Assert.True(MathF.Abs(last - before) <= 0.02f * before, $"The readings were {string.Join(", ", readings)}.");
+        Assert.True(MathF.Abs(last - before) <= tolerance * before, $"The readings were {string.Join(", ", readings)}.");
         Assert.All(readings, reading => Assert.True(reading <= 2f * readings[0], $"The readings were {string.Join(", ", readings)}."));
-        Assert.Equal(0, gpu.ValidationErrors);
+        Assert.Equal(0, probes.NewValidationErrors);
+    }
+
+    [Fact]
+    public void Traced_and_rasterized_probes_agree_on_a_simple_room()
+    {
+        (Vector3 Point, Vector3 Normal)[] points =
+        [
+            (new Vector3(0.2f, 1.3f, 0.2f), Vector3.UnitY),
+            (new Vector3(0.2f, 1.3f, 0.2f), -Vector3.UnitY),
+            (new Vector3(0.7f, 1.3f, 0.2f), Vector3.UnitX),
+            (new Vector3(-0.7f, 1.3f, -0.7f), -Vector3.UnitZ),
+            // Below the plane of probes at y = 3, which sit 5 cm under the ceiling: as close as a rasterized face's
+            // near plane, so they see through it there and the paths can't agree.
+            (new Vector3(0.2f, 2.2f, 0.2f), Vector3.UnitY),
+        ];
+
+        var rasterized = Converged(traced: false, points);
+        var traced = Converged(traced: true, points);
+
+        string report = string.Join("; ", points.Select((p, i) =>
+            $"at {p.Point} facing {p.Normal} rasterized {Luminance(rasterized[i])}, traced {Luminance(traced[i])}"));
+        for (int i = 0; i < points.Length; i++)
+        {
+            float r = Luminance(rasterized[i]);
+            float t = Luminance(traced[i]);
+            Assert.True(r > 0.01f, $"The rasterized probes read too little: {report}.");
+            Assert.True(MathF.Abs(t - r) <= 0.15f * r, $"The two paths differ by more than 15%: {report}.");
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_glass_pane_does_not_block_or_tint_the_probes(bool traced)
+    {
+        var point = new Vector3(0.7f, 0.3f, 0f);
+        var (open, _) = Settled(traced, gpu => ProbeScenes.RedWall(gpu, lightIsSpot: false), point, Vector3.UnitX);
+        var (glazed, _) = Settled(traced, ProbeScenes.RedWallBehindGlass, point, Vector3.UnitX);
+
+        // The traced probes start again with the same rays, so the two match but for the pane.
+        Assert.True(open.X > 0.01f, $"Without the pane the probes read {open}.");
+        Assert.True(Vector3.Distance(open, glazed) <= 0.05f * open.Length(), $"Without the pane the probes read {open}, with it {glazed}.");
+    }
+
+    [Fact]
+    public void Traced_shadow_rays_are_stopped_by_a_solid_pane_and_not_by_glass()
+    {
+        // Facing down, under the pane: the floor there is in the pane's shadow, and the rays see only the floor.
+        var point = new Vector3(0.2f, 0.3f, 0.2f);
+        var (open, _) = Settled(true, gpu => ProbeScenes.ShadedFloor(gpu, ProbeScenes.Pane.None), point, -Vector3.UnitY);
+        var (solid, _) = Settled(true, gpu => ProbeScenes.ShadedFloor(gpu, ProbeScenes.Pane.Solid), point, -Vector3.UnitY);
+        var (glass, _) = Settled(true, gpu => ProbeScenes.ShadedFloor(gpu, ProbeScenes.Pane.Glass), point, -Vector3.UnitY);
+
+        Assert.True(open.X > 0.01f, $"Without the pane the probes read {open}.");
+        Assert.True(solid.X < 0.5f * open.X, $"Without the pane the probes read {open}, under a solid one {solid}.");
+        Assert.True(Vector3.Distance(open, glass) <= 0.05f * open.Length(), $"Without the pane the probes read {open}, under glass {glass}.");
     }
 
     [Fact]
@@ -232,21 +316,24 @@ public sealed class LiveProbeTests
         Assert.Equal(0, gpu.ValidationErrors);
     }
 
-    [Fact]
-    public void Moving_the_light_changes_the_probe_and_no_frame_goes_over_budget()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Moving_the_light_changes_the_probe_and_no_frame_goes_over_budget(bool traced)
     {
         const int MoveFrames = 100;
         const int AfterFrames = 300;
         const int LowFrom = (MoveFrames + AfterFrames) / 2;
 
-        using var gpu = new GpuFixture(disableRayTracing: true);
-        var scene = ProbeScenes.RedWall(gpu, lightIsSpot: false);
+        using var probes = Open(traced);
+        var gpu = probes.Gpu;
+        var scene = probes.Scene(gpu => ProbeScenes.RedWall(gpu, lightIsSpot: false));
         Settle(gpu, scene);
 
         // Settled counts only the two finest cascades, and a never-captured probe goes before a dirty one wherever it
         // is, so the coarse cascades are filled first: otherwise they would hold back the probes the light dirties.
         var layouts = ProbeCascades.Layouts(ProbeQuality.High);
-        int coarse = (layouts[2].Total + layouts[3].Total) / ProbeBudget.For(ProbeQuality.High).Raster;
+        int coarse = (layouts[2].Total + layouts[3].Total) / Budget(ProbeQuality.High, traced);
         for (int frame = 0; frame < coarse; frame++)
         {
             Render(gpu, scene, Vector3.Zero);
@@ -278,46 +365,100 @@ public sealed class LiveProbeTests
 
             Render(gpu, scene, Vector3.Zero);
             var quality = frame >= LowFrom ? ProbeQuality.Low : ProbeQuality.High;
-            budgets.Add((frame, gpu.Renderer.ProbeUpdatesLastFrame, ProbeBudget.For(quality).Raster));
+            budgets.Add((frame, gpu.Renderer.ProbeUpdatesLastFrame, Budget(quality, traced)));
         }
 
         var after = gpu.Renderer.SampleProbeIrradiance([(point, Vector3.UnitX)])[0];
 
         Assert.All(budgets, entry => Assert.True(
             entry.Updated <= entry.Budget, $"Frame {entry.Frame} updated {entry.Updated} probes, over its budget of {entry.Budget}."));
-        Assert.Contains(budgets, entry => entry.Frame < LowFrom && entry.Updated > ProbeBudget.For(ProbeQuality.Low).Raster);
+        Assert.Contains(budgets, entry => entry.Frame < LowFrom && entry.Updated > Budget(ProbeQuality.Low, traced));
         Assert.True(before.X > 0.01f, $"Before the move the probes read {before}.");
         // This is the check that proves LightChanged works: the drop to Low recaptures every probe, so the last check
         // would pass without it. 1.2x is tuned to about one blend update, as hysteresis keeps a probe from jumping all
         // the way to the moved light's value at once.
         Assert.True(beforeLow.X >= 1.2f * before.X, $"Before the move the probes read {before}, before the drop to Low {beforeLow}.");
         Assert.True(after.X >= 1.5f * before.X, $"Before the move the probes read {before}, after it {after}.");
-        Assert.Equal(0, gpu.ValidationErrors);
+        Assert.Equal(0, probes.NewValidationErrors);
     }
 
-    // Renders the scene on a renderer of its own until it settles, and samples it there.
-    private static Vector3 Settled(Func<GpuFixture, ProbeScene> make, Vector3 point, Vector3 normal)
+    private static int Budget(ProbeQuality quality, bool traced) =>
+        traced ? ProbeBudget.For(quality).Traced : ProbeBudget.For(quality).Raster;
+
+    private static float Luminance(Vector3 rgb) => 0.2126f * rgb.X + 0.7152f * rgb.Y + 0.0722f * rgb.Z;
+
+    /// <summary>
+    /// A renderer for one path with its probes made anew: the shared one, which traces, or one of its own without ray
+    /// queries.
+    /// </summary>
+    private ProbeRenderer Open(bool traced)
     {
-        using var gpu = new GpuFixture(disableRayTracing: true);
-        var scene = make(gpu);
+        if (!traced)
+        {
+            return new ProbeRenderer(new GpuFixture(disableRayTracing: true), owned: true);
+        }
+
+        Assert.True(shared.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        shared.Renderer.ResetProbesForTest();
+        return new ProbeRenderer(shared, owned: false);
+    }
+
+    // Renders the scene on a renderer for the path until it settles, and samples it there. Also returns the most probes
+    // any one frame updated.
+    private (Vector3 Sample, int MostUpdated) Settled(bool traced, Func<GpuFixture, ProbeScene> make, Vector3 point, Vector3 normal)
+    {
+        using var probes = Open(traced);
+        var scene = probes.Scene(make);
+        int mostUpdated = Settle(probes.Gpu, scene);
+        var sample = probes.Gpu.Renderer.SampleProbeIrradiance([(point, normal)])[0];
+        Assert.Equal(0, probes.NewValidationErrors);
+        return (sample, mostUpdated);
+    }
+
+    // The white room, with its probes updated again and again until the light bounced between its walls stops growing,
+    // sampled at each point.
+    private Vector3[] Converged(bool traced, (Vector3 Point, Vector3 Normal)[] points)
+    {
+        using var probes = Open(traced);
+        var gpu = probes.Gpu;
+        var scene = probes.Scene(ProbeScenes.WhiteRoom);
         Settle(gpu, scene);
-        var sample = gpu.Renderer.SampleProbeIrradiance([(point, normal)])[0];
-        Assert.Equal(0, gpu.ValidationErrors);
-        return sample;
+        Bounce(gpu, scene, traced);
+        var samples = gpu.Renderer.SampleProbeIrradiance(points);
+        Assert.Equal(0, probes.NewValidationErrors);
+        return samples;
     }
 
-    private static void Settle(GpuFixture gpu, ProbeScene scene)
+    // Updates the white room's probes again and again, until the light bounced between its walls has stopped growing.
+    // Each update adds one more bounce, part of the way: in this room about three quarters of the light comes back, so
+    // what is left to add shrinks by 1 - alpha / 4 an update. That is 0.875 rasterized, where alpha is 0.5, and 0.9375
+    // traced, where it is 0.25, so 35 and 80 rounds each leave under 1%.
+    private static void Bounce(GpuFixture gpu, ProbeScene scene, bool traced)
     {
+        int rounds = traced ? 80 : 35;
+        for (int round = 0; round < rounds; round++)
+        {
+            gpu.Renderer.MarkProbesDirtyForTest(new Vector3(0f, 1.5f, 0f), 2.8f);
+            Settle(gpu, scene);
+        }
+    }
+
+    // Renders until the probes settle, and returns the most probes any one frame updated.
+    private static int Settle(GpuFixture gpu, ProbeScene scene)
+    {
+        int mostUpdated = 0;
         for (int frame = 0; frame < MaxFrames; frame++)
         {
             Render(gpu, scene, Vector3.Zero);
+            mostUpdated = Math.Max(mostUpdated, gpu.Renderer.ProbeUpdatesLastFrame);
             if (gpu.Renderer.ProbesSettled)
             {
-                return;
+                return mostUpdated;
             }
         }
 
         Assert.Fail($"The probes had not settled after {MaxFrames} frames.");
+        return mostUpdated;
     }
 
     private static void Render(GpuFixture gpu, ProbeScene scene, Vector3 camera)
@@ -351,6 +492,52 @@ public sealed class LiveProbeTests
         {
             var at = new Int3(cell.X + (corner & 1), cell.Y + ((corner >> 1) & 1), cell.Z + ((corner >> 2) & 1));
             gpu.Renderer.WriteProbeTileForTest(new ProbeId(0, cascades.Slot(0, at)), irradiance);
+        }
+    }
+
+    /// <summary>
+    /// A renderer lent to one test: its own, disposed after, or the shared one, which gets back its scenes' meshes and
+    /// materials, High probes and fresh probe storage, so the tests after it start as they would have.
+    /// </summary>
+    private sealed class ProbeRenderer(GpuFixture gpu, bool owned) : IDisposable
+    {
+        private readonly int _errorsAtStart = gpu.ValidationErrors;
+        private readonly List<ProbeScene> _scenes = [];
+
+        public GpuFixture Gpu => gpu;
+
+        /// <summary>The validation messages since the renderer was lent.</summary>
+        public int NewValidationErrors => gpu.ValidationErrors - _errorsAtStart;
+
+        public ProbeScene Scene(Func<GpuFixture, ProbeScene> make)
+        {
+            var scene = make(gpu);
+            _scenes.Add(scene);
+            return scene;
+        }
+
+        public void Dispose()
+        {
+            if (owned)
+            {
+                gpu.Dispose();
+                return;
+            }
+
+            var renderer = gpu.Renderer;
+            foreach (var mesh in _scenes.SelectMany(scene => scene.Draws).Select(draw => draw.Mesh).Distinct())
+            {
+                renderer.DestroyMesh(mesh);
+            }
+
+            foreach (var material in _scenes.SelectMany(scene => scene.Draws).Select(draw => draw.Material).Distinct())
+            {
+                renderer.DestroyMaterial(material);
+            }
+
+            renderer.ProbeQuality = ProbeQuality.High;
+            renderer.ProbeUpdatesPaused = false;
+            renderer.ResetProbesForTest();
         }
     }
 }

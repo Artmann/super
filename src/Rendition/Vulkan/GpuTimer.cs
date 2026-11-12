@@ -13,7 +13,7 @@ internal sealed unsafe class GpuTimer : IDisposable
 
     private static readonly string[] PassNames =
     [
-        "Shadows", "Light clusters", "Volumetric fog", "G-buffer", "Ambient occlusion", "AO blur", "Lighting", "Subsurface", "Glass and particles",
+        "Shadows", "Light probes", "Light clusters", "Volumetric fog", "G-buffer", "Ambient occlusion", "AO blur", "Lighting", "Subsurface", "Glass and particles",
         "Anti-aliasing", "Depth of field", "Bloom", "Tonemap", "Finish", "Overlay",
     ];
 

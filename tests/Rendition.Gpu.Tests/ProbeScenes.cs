@@ -51,6 +51,66 @@ internal static class ProbeScenes
         return new ProbeScene(draws, [light], Vector3.Zero);
     }
 
+    /// <summary>
+    /// <see cref="RedWall"/> with its point light, and a blue glass pane as big as the wall at x = 0.9, between the wall
+    /// and the probes at x = 0.5, facing them. Probes leave glass out, so they should read as if it weren't there.
+    /// </summary>
+    public static ProbeScene RedWallBehindGlass(GpuFixture gpu)
+    {
+        var scene = RedWall(gpu, lightIsSpot: false);
+        var glass = gpu.Renderer.CreateMaterial(new Material
+        {
+            BaseColor = new Vector4(0.1f, 0.2f, 0.9f, 0.6f),
+            Roughness = 0.1f,
+            Flags = MaterialFlags.Transparent,
+        });
+        var pane = Face(scene.Draws[0].Mesh, glass, new Vector3(0.9f, 1.5f, 0f), -Vector3.UnitX, Vector3.UnitY, 4f, 3f);
+        return scene with { Draws = [.. scene.Draws, pane] };
+    }
+
+    /// <summary>
+    /// A white floor 8 m square just below y = 0 and a point light at (0, 1.5, 0) that casts shadows, with a pane
+    /// 1.2 m square at y = 0.9 between them: none, white and solid, or blue glass. The sky is black.
+    /// </summary>
+    public static ProbeScene ShadedFloor(GpuFixture gpu, Pane pane)
+    {
+        var quad = Quad(gpu);
+        var white = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.8f, 0.8f, 1f), Roughness = 1f });
+        var draws = new List<DrawItem> { Face(quad, white, new Vector3(0f, -0.05f, 0f), Vector3.UnitY, -Vector3.UnitZ, 8f, 8f) };
+        if (pane != Pane.None)
+        {
+            // Two-sided, so the probes below see its underside rather than taking themselves to be inside something.
+            var material = gpu.Renderer.CreateMaterial(pane == Pane.Solid
+                ? new Material { BaseColor = new Vector4(0.8f, 0.8f, 0.8f, 1f), Roughness = 1f, Flags = MaterialFlags.TwoSided }
+                : new Material
+                {
+                    BaseColor = new Vector4(0.1f, 0.2f, 0.9f, 0.6f),
+                    Roughness = 0.1f,
+                    Flags = MaterialFlags.Transparent | MaterialFlags.TwoSided,
+                });
+            draws.Add(Face(quad, material, new Vector3(0.05f, 0.9f, 0.05f), Vector3.UnitY, -Vector3.UnitZ, 1.2f, 1.2f));
+        }
+
+        var light = new LocalLight
+        {
+            Key = 1,
+            Position = new Vector3(0f, 1.5f, 0f),
+            Radiance = new Vector3(5f),
+            Range = 6f,
+            CastsShadow = true,
+        };
+
+        return new ProbeScene([.. draws], [light], Vector3.Zero);
+    }
+
+    /// <summary>What lies between the light and the floor in <see cref="ShadedFloor"/>.</summary>
+    public enum Pane
+    {
+        None,
+        Solid,
+        Glass,
+    }
+
     /// <summary>A closed white box from -1.1 to 1.1 on every axis, its six faces facing in, under a sky of radiance 4.</summary>
     public static ProbeScene ClosedBox(GpuFixture gpu) => Box(gpu, facingIn: true);
 
