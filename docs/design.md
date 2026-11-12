@@ -3335,9 +3335,9 @@ store's `Reloads`, so a frame that matches reads nothing. Otherwise the old page
 page's bytes fit its size and format (`TextureData.LevelSize`) and that every draw's page
 exists. `CheckProbes` checks the probes: the two atlases and the grid come all or none, the
 grid's spacing and corners are finite and the spacing above 0, it holds at most
-`BakeFiles.MaxSpaceProbes`, and each atlas is as wide as the live volume's
-(`ProbeVolume.IrradianceAtlasSize`, `DepthAtlasSize`) and tall enough for a row of tiles per 64
-probes, so `probes.glsl` reads it as it reads the live one. Each page becomes a one-level linear texture with clamped edges, three a page
+`BakeFiles.MaxSpaceProbes`, and each atlas is as wide as the bake's 64 columns of tiles
+(`BakedProbeAtlas.IrradianceAtlasSize`, `DepthAtlasSize`) and tall enough for a row of tiles per 64
+probes, so `bakedProbeIrradiance` in `probes.glsl` finds every probe's tile. Each page becomes a one-level linear texture with clamped edges, three a page
 (irradiance, direction, mask, a missing mask as -1), and each draw's `LightmapRect` becomes a
 `GpuLightmapRect` keyed by bake id: the rect's scale and offset and the three texture indices.
 `Rgba16f` irradiance from an uncooked bake goes up as `TextureFormat.Rgba16f`
@@ -3371,7 +3371,7 @@ texel is unchanged by it; a `d` behind `v`, which a gutter texel or a smooth-sha
 would otherwise divide by nearly 0, and with it the light is turned up at most twice. Alpha is 1. Target 5 gets the mask
 page, or 1. A copy without a lightmap, and a ghost, writes 0 and a mask of 1.
 
-`lighting.frag` reads target 4 at set 1 binding 14 and target 5 at binding 15. A pixel with
+`lighting.frag` reads target 4 at set 1 binding 13 and target 5 at binding 14. A pixel with
 alpha above 0.5 takes `baked.rgb` times its diffuse colour in place of the soft light from the
 sky or probes, keeps its translucency, and its diffuse occlusion is the material's AO times
 `mix(1, screen AO, 0.5)` (`LIGHTMAP_OCCLUSION`), since the bake already holds the shade;
@@ -3391,16 +3391,19 @@ table (set 2 binding 0, which the lighting pass binds for the materials) rather 
 set bindings, because the lighting set is written once for every frame in flight, and a bake
 loaded or dropped would have to rewrite it while a frame still reads it.
 
-`probes.glsl`'s `probeIrradianceIn` takes the atlases, first probe, spacing and counts, and
-`probeIrradiance` calls it with the live volume's. Both read at level 0 with `textureLod`: the
-material table's sampler filters anisotropically, and neighbouring pixels can read different
-tiles, so derivatives would pick a wrong level. The live atlases have one level and a sampler with
-no anisotropy, so the live lookup reads what `texture` did. In `lighting.frag`, `softLight`
-first reads the bake's probes when the unbiased point is inside the space's box
-(`insideBakedProbes`), then the live probes when the bake's give -1, then the sky. The box test
-matters: the lookup clamps to the grid, so a point within a spacing past the last probe still
-weighs it (`BakedProbeGpuTests`). Nothing blends the two at the box's faces, so there is a hard
-seam there between the bake's probe light and the live probes'. The live probes' own plan may change this order when it lands.
+`probes.glsl`'s `bakedProbeIrradiance` reads a bake's atlases with the same weights as the live
+`probeSum` (facing, visibility from the depth moments, trilinear, and no probe inside a wall), but
+from 2D textures laid out in `BakedProbeAtlas.Columns` (64) columns rather than the live atlas
+layers. It reads at level 0 with `textureLod`: the material table's sampler filters
+anisotropically, and neighbouring pixels can read different tiles, so derivatives would pick a
+wrong level. In `lighting.frag`, `softLight` first reads the bake's probes when the unbiased point
+is inside the space's box (`insideBakedProbes`). Where they give -1, because no probe of the bake
+sees the point, it falls through to `probeIrradiance`, which tries the view's fixed grid
+(`View.LightProbes(...)`) and then the camera's cascades, and then to the sky. The box test matters:
+the lookup clamps to the grid, so a point within a spacing past the last probe still weighs it
+(`BakedProbeGpuTests`, which also checks the fall through to live probes inside the box). Nothing
+blends the two at the box's faces, so there is a hard seam there between the bake's probe light
+and the live probes'.
 Transparent surfaces and particles don't read probes at all, so they are unchanged.
 
 The mask shadows Mixed lights. `LoadSpaceBake` keeps the file's `Channels` as a key-to-channel
@@ -3482,7 +3485,7 @@ negative width or height, a raw length that differs, or pixels that inflate to m
 length throw `InvalidDataException`, and the buffer is only allocated after the length checks.
 So is a page larger than any bake makes, naming its size and the limit: a lightmap page over
 `LightmapLayout.PageSize` (2048) a side, a probe irradiance atlas over
-`ProbeVolume.IrradianceAtlasSize` (640) or a depth atlas over `DepthAtlasSize` (1152), the sizes
+`BakedProbeAtlas.IrradianceAtlasSize` (640) or a depth atlas over `DepthAtlasSize` (1152), the sizes
 that hold `BakeFiles.MaxSpaceProbes`. That bounds the buffer at 32 MB, so a damaged size can't
 take the game down with an out-of-memory error, which nothing catches.
 `ReadInputs` copies only the 41 header bytes.

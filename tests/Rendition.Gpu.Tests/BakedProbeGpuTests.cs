@@ -7,8 +7,8 @@ namespace Rendition.Gpu.Tests;
 /// A space's baked probes on what has no lightmap. A red wall, static and lit by a Baked sun, is baked with the space;
 /// then the sun is gone, so only the bake still knows the wall's red light. A dynamic quad, which no bake covers, takes
 /// it from the bake's probes inside the space's box, from the live probes where none of the bake's sees it, and
-/// from the live lighting outside the box. Every effect is off but
-/// the baked lighting, so nothing carried from frame to frame makes two captures differ.
+/// from the live lighting outside the box. Every effect is off but the baked lighting and the live probes, and the
+/// live probes are traced and so a little noisy, so frames lit by them are compared within a few levels.
 /// </summary>
 [Collection(GpuCollection.Name)]
 [Trait("Speed", "Slow")]

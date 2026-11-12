@@ -142,7 +142,7 @@ vec4 probeSum(vec3 p, vec3 n, vec3 v, vec3 first, float spacing, ivec3 counts, i
 }
 
 // A bake's probes' light at a point, the same blend of the eight round it as probeSum, or -1 where
-// none of them can see it. A bake lays its tiles out as the live atlases do, in one layer, from
+// none of them can see it. A bake lays its tiles out in BakedProbeAtlas.Columns columns of one layer, from
 // first, spacing metres apart, counts along each axis, and every probe in it was captured. Read at
 // level 0 explicitly, since a bake's atlases sit in the material table, whose sampler filters
 // anisotropically, and derivatives jump wherever neighbouring pixels read different tiles.
