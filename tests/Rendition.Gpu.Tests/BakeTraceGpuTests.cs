@@ -93,7 +93,9 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
             draws.Add(StaticDraw(quad, Floor(height: 5f), gpu.Matte, 20));
             var all = draws.ToArray();
 
-            var file = Bake(all, [], sky: 1f, new BakeSettings(8, BakeQuality.Preview));
+            // Unfiltered, since this checks the tracer: the filter would carry the sky's light from the faces' rims, which
+            // overlap out past the box, about 8 texels inwards, and at 8 texels a metre that is a metre.
+            var file = Bake(all, [], sky: 1f, new BakeSettings(8, BakeQuality.Preview, filter: false));
 
             // No ray from inside reaches the sky and nothing in the box gives light, so the floor is black.
             var inside = Irradiance(file, all[0], 0.5f, 0.5f);
@@ -178,7 +180,9 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
         {
             var draws = LampUnderCeiling(quad, black);
 
-            var file = Bake(draws, [Lamp(LightMode.Mixed, 1104)], sky: 0f, new BakeSettings(8, BakeQuality.Final));
+            // Unfiltered, since this checks the tracer against a hand-worked value, and the filter spreads the bounce's
+            // peak over about a metre at 8 texels a metre.
+            var file = Bake(draws, [Lamp(LightMode.Mixed, 1104)], sky: 0f, new BakeSettings(8, BakeQuality.Final, filter: false));
 
             // The floor is black, so all its light comes off the ceiling. Straight above the lamp, with I = 10 at h = 1
             // below the ceiling, the ceiling gets E(r) = I h / (h^2 + r^2)^1.5 and gives back 0.5 E / pi. The floor,

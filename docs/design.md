@@ -2009,17 +2009,24 @@ mean direction, no longer than 1. A texel that isn't valid is emptied. From here
 1 on a texel that holds light and 0 on one that doesn't.
 
 Then, when `BakeSettings.Filter` is on (the default), come 4 passes of an edge-aware à-trous
-filter with steps of 1, 2, 4 and 8 texels, which reach 30 texels out with only
-25 taps a pass. Each tap's weight is the 5-tap B-spline (3/8, 1/4, 1/16 out from the middle)
-on both axes, times three edge terms: a Gaussian on the world distance between the two texels
-with a sigma of one texel; a Gaussian on how far the tap sits off this texel's plane, with a
-sigma of half a texel, so steps and creases stop it; and the cosine between their geometric
-normals to the 32nd power. A texel's world size is the distance to its neighbours of the same
-rectangle, so the terms work at any density. Only taps that hold light and were drawn for the
-same rectangle count, which keeps one chart's light out of another even where conservative
-drawing has pushed both into the gutter between them. The weights only depend on geometry, so a
-flat lightmap comes out flat. The irradiance and direction are filtered; the shadow mask isn't,
-since its noise is only inside penumbrae and blurring it would soften every shadow's edge.
+filter with steps of 1, 2, 4 and 8 texels, which reach 30 texels out with only 25 taps a pass.
+Each tap's weight is the 5-tap B-spline (3/8, 1/4, 1/16 out from the middle) on both axes,
+times three edge terms. The first is a Gaussian on the world distance between the two texels
+whose sigma is two of the pass's steps (2, 4, 8 and 16 texels), so each pass reaches its own
+taps, keeping its outer ones at exp(-0.5) on a flat chart, but drops a tap that lies much
+further away in the world than on the page, such as across a seam inside one rectangle. The
+second is a Gaussian on how far the tap sits off this texel's plane, with a sigma of half a
+texel, so steps stop it. The third is the cosine between their geometric normals to the 32nd
+power, so creases stop it. A texel's world size is the distance to its neighbours of the same
+rectangle, so the terms work at any density. Together the passes spread a texel's light over
+roughly 8 texels either way, about 40 cm at the default 20 texels a metre. Only taps that hold
+light and were drawn for the same rectangle count, which keeps one chart's light out of another
+even where conservative drawing has pushed both into the gutter between them. The weights only
+depend on geometry, so a flat lightmap comes out flat, and nothing stops the filter at a change
+in the light itself: a `Baked` light's shadow edge softens by as much, and light on the rim of a
+face that reaches out past a wall is carried in under it. The irradiance and direction are
+filtered; the shadow mask isn't, since its noise is only inside penumbrae and blurring it would
+soften every shadow's edge.
 
 `bake_dilate.comp` then runs 8 rings, filtering or not. In each, a texel that holds no light and
 has neighbours that do takes the mean of their irradiance, direction and mask, and holds light

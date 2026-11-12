@@ -4,9 +4,9 @@
 // 0, or the half-float limit when it is infinite or too big for the file, so one bad path can't spread; the direction
 // sum becomes its mean direction; a texel that isn't valid is emptied. Irradiance w then marks a texel that holds light.
 // Later stages are the passes of an edge-aware à-trous filter on the irradiance and direction: each texel takes a 5 x 5
-// B-spline of texels `stage` apart, weighted by how close they lie to it in the world, how far they sit off its plane
-// and how alike their normals are, and only from valid texels drawn for the same rectangle. The mask passes through
-// unfiltered. See "Filtering and dilation" in docs/design.md and Baking/Baker.cs.
+// B-spline of texels `stage` apart, weighted by how close they lie to it in the world for that step, how far they sit
+// off its plane and how alike their normals are, and only from valid texels drawn for the same rectangle. The mask passes
+// through unfiltered. See "Filtering and dilation" in docs/design.md and Baking/Baker.cs.
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -31,8 +31,10 @@ layout(push_constant) uniform Region {
 
 // The biggest half float: what the file's irradiance holds at most.
 const float HALF_MAX = 65504.0;
-// How far apart in the world two texels may lie and still blend, in texels, as a Gaussian's sigma.
-const float POSITION_SIGMA = 1.0;
+// How far apart in the world two texels may lie and still blend, in steps of the pass (so `stage` texels each), as a
+// Gaussian's sigma. It grows with the step so every pass reaches its taps; 2 keeps the B-spline's outer taps at
+// exp(-0.5) on a flat chart, and cuts taps whose world distance is far more than their page distance.
+const float POSITION_SIGMA = 2.0;
 // How far a texel may sit off this one's plane, in texels, as a Gaussian's sigma: steps and creases stop the filter.
 const float PLANE_SIGMA = 0.5;
 // The power the cosine between normals is raised to: 32 halves the weight at about 12 degrees.
@@ -114,8 +116,9 @@ void smoothPass(ivec2 local, ivec2 page) {
         return;
     }
 
-    float positionScale = 1.0 / (2.0 * POSITION_SIGMA * POSITION_SIGMA * texel * texel);
-    float planeScale = 1.0 / (PLANE_SIGMA * PLANE_SIGMA * texel * texel);
+    float reach = POSITION_SIGMA * float(region.stage) * texel;
+    float positionScale = 1.0 / (2.0 * reach * reach);
+    float planeScale = 1.0 / (2.0 * PLANE_SIGMA * PLANE_SIGMA * texel * texel);
     vec3 irradianceSum = vec3(0.0);
     vec3 directionSum = vec3(0.0);
     float total = 0.0;

@@ -520,8 +520,10 @@ of texels found inside walls, and the lights that didn't get a mask channel.
 
 Before the lightmap is written, an edge-aware filter smooths out the path tracer's noise. It
 follows the surfaces, so it doesn't blur light across a crease or a step, and it never mixes
-two charts, so light from one wall doesn't leak onto the floor beside it in the lightmap. The
-shadow mask isn't smoothed, so shadow edges stay sharp. Then the edges of each chart are grown
+two charts, so light from one wall doesn't leak onto the floor beside it in the lightmap. It
+spreads light over about 8 texels either way (40 cm at 20 texels a metre), so a `Baked`
+light's shadow edges soften by that much. The shadow mask isn't smoothed, so the shadows of
+`Mixed` lights stay sharp. Then the edges of each chart are grown
 by up to 8 texels, which fills texels inside walls from their neighbours and gives bilinear
 filtering and mips something right to read at a chart's edge. A path that came out as not a
 number or past a half float's range is cleared first, so one bad sample can't spoil a patch.

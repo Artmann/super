@@ -108,6 +108,139 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
+    [Fact]
+    public void Filtering_smooths_blotches_several_texels_wide()
+    {
+        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        try
+        {
+            // A 4 metre square, 80 x 80 texels, lit in a checkerboard of 8 x 8 texel blocks, 0 and 2. Steps of 1 and 2
+            // texels barely reach past a block, so only the passes with steps of 4 and 8 can even it out.
+            var draws = new[] { StaticDraw(quad, Matrix4x4.CreateScale(4f), 10) };
+            using var baker = new Baker(gpu.Context, gpu.Renderer);
+            var layout = SetUp(baker, draws);
+            Assert.True(layout.TryGet(draws[0].BakeId, out var rect), "The quad has no rectangle.");
+            var (x0, y0, side) = Texels(rect);
+            Assert.Equal(80, side);
+            const int Block = 8;
+            var traced = Synthetic(baker, layout, rect.Page, (_, at) =>
+            {
+                int blocks = (at.X - x0 + side) / Block + (at.Y - y0 + side) / Block;
+                return new Light(new Vector3(blocks % 2 == 0 ? 0f : 2f), new Vector4(0f, 0f, 1f, 1f), 1f);
+            });
+
+            var filtered = baker.FilterAndDilate(traced, smooth: true);
+
+            // Over the middle 40 x 40 texels the checkerboard's variance is 1; filtered, the light is close to its
+            // mean of 1 everywhere.
+            var values = new List<float>();
+            for (int y = y0 + 20; y < y0 + 60; y++)
+            {
+                for (int x = x0 + 20; x < x0 + 60; x++)
+                {
+                    values.Add(filtered.Irradiance[((y - traced.Y) * traced.Width + x - traced.X) * 4]);
+                }
+            }
+
+            float mean = values.Average();
+            float variance = values.Sum(v => (v - mean) * (v - mean)) / values.Count;
+            Assert.True(MathF.Abs(mean - 1f) <= 0.05f, $"The filtered mean is {mean}, not 1.");
+            Assert.True(variance <= 0.05f, $"The filtered variance is {variance}, not at most 0.05 of the blocks' 1.");
+        }
+        finally
+        {
+            gpu.Renderer.DestroyMesh(quad);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void Filtering_does_not_blend_across_a_crease()
+    {
+        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        int errors = gpu.ValidationErrors;
+        var tangent = new Vector4(1f, 0f, 0f, 1f);
+
+        // One mesh folded into an L: a floor 2 x 1 metres facing up and a wall 2 x 1 metres facing it, meeting along
+        // the x axis. Its second UVs lay both out in one rectangle, the wall's half beside the floor's, so they are
+        // neighbours on the page across the fold.
+        Vertex[] vertices =
+        [
+            new(new Vector3(-1f, 0f, 0f), Vector3.UnitY, tangent, Vector2.Zero) { Uv2 = new Vector2(0f, 0.5f) },
+            new(new Vector3(1f, 0f, 0f), Vector3.UnitY, tangent, Vector2.Zero) { Uv2 = new Vector2(1f, 0.5f) },
+            new(new Vector3(1f, 0f, 1f), Vector3.UnitY, tangent, Vector2.Zero) { Uv2 = new Vector2(1f, 1f) },
+            new(new Vector3(-1f, 0f, 1f), Vector3.UnitY, tangent, Vector2.Zero) { Uv2 = new Vector2(0f, 1f) },
+            new(new Vector3(-1f, 0f, 0f), Vector3.UnitZ, tangent, Vector2.Zero) { Uv2 = new Vector2(0f, 0.5f) },
+            new(new Vector3(1f, 0f, 0f), Vector3.UnitZ, tangent, Vector2.Zero) { Uv2 = new Vector2(1f, 0.5f) },
+            new(new Vector3(1f, 1f, 0f), Vector3.UnitZ, tangent, Vector2.Zero) { Uv2 = new Vector2(1f, 0f) },
+            new(new Vector3(-1f, 1f, 0f), Vector3.UnitZ, tangent, Vector2.Zero) { Uv2 = new Vector2(0f, 0f) },
+        ];
+        var fold = gpu.Renderer.CreateMesh(vertices, [0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]);
+        gpu.RenderOneFrame(); // Uploads the mesh.
+        try
+        {
+            var draw = StaticDraw(fold, Matrix4x4.Identity, 11) with { IndexCount = 12 };
+            using var baker = new Baker(gpu.Context, gpu.Renderer);
+            var layout = SetUp(baker, [draw]);
+            Assert.True(layout.TryGet(draw.BakeId, out var rect), "The fold has no rectangle.");
+            var traced = Synthetic(baker, layout, rect.Page, (_, _) => Light.Dark);
+
+            // The wall holds 1 and the floor 0, told apart by each texel's geometric normal.
+            float[] texels = baker.ReadTexels(rect.Page, traced.X, traced.Y, traced.Width, traced.Height);
+            bool OnWall(int i) => texels[i * Baker.TexelFloats + 6] > texels[i * Baker.TexelFloats + 5];
+            for (int i = 0; i < traced.Covered.Length; i++)
+            {
+                if (traced.Covered[i] && OnWall(i))
+                {
+                    for (int c = 0; c < 3; c++)
+                    {
+                        traced.Irradiance[i * 4 + c] = 1f;
+                    }
+                }
+            }
+
+            var filtered = baker.FilterAndDilate(traced, smooth: true);
+
+            // Every valid texel keeps its own face's light: the floor's texels beside the fold are on the same chart
+            // and close in the world, but off the wall's plane and turned away from it.
+            int wall = 0;
+            int floor = 0;
+            for (int i = 0; i < traced.Covered.Length; i++)
+            {
+                if (!traced.Valid[i])
+                {
+                    continue;
+                }
+
+                float expected = OnWall(i) ? 1f : 0f;
+                if (OnWall(i))
+                {
+                    wall++;
+                }
+                else
+                {
+                    floor++;
+                }
+
+                float light = filtered.Irradiance[i * 4];
+                Assert.True(MathF.Abs(light - expected) <= 1e-3f,
+                    $"Texel ({i % traced.Width}, {i / traced.Width}) on the {(OnWall(i) ? "wall" : "floor")} holds {light}, not {expected}.");
+            }
+
+            // Each face is 2 x 1 metres; its rectangle's side follows the fold's area, so check both faces were seen.
+            Assert.True(wall >= 100 && floor >= 100, $"Only {wall} wall and {floor} floor texels are valid.");
+        }
+        finally
+        {
+            gpu.Renderer.DestroyMesh(fold);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
