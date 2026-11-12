@@ -162,6 +162,73 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
+    [Fact]
+    public void Dilation_does_not_fill_across_charts()
+    {
+        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        var (boxVertices, boxIndices) = TestMeshes.Cube();
+        var box = gpu.Renderer.CreateMesh(boxVertices, boxIndices);
+        gpu.RenderOneFrame(); // Uploads the box.
+        try
+        {
+            // The same two quads, and a thin closed box across the seam from x -0.3 to 0.3, y -0.2 to 0.2 and z -0.01
+            // to 0.01, so the texels of both quads near the seam lie inside a wall and are invalid. The box isn't
+            // static, so it gets no rectangle, but rays still hit it.
+            var lit = StaticDraw(quad, Matrix4x4.CreateTranslation(-0.5f, 0f, 0f), 8);
+            var dark = StaticDraw(quad, Matrix4x4.CreateTranslation(0.5f, 0f, 0f), 9);
+            var wall = new DrawItem
+            {
+                Mesh = box, IndexCount = 36, Material = gpu.Matte,
+                Transform = Matrix4x4.CreateScale(0.6f, 0.4f, 0.02f),
+            };
+            using var baker = new Baker(gpu.Context, gpu.Renderer);
+            Assert.True(baker.Conservative,
+                "This test needs conservative rasterization, which spills each quad into the gutter so the two touch.");
+            var layout = SetUp(baker, [lit, dark, wall]);
+            Assert.True(layout.TryGet(lit.BakeId, out var litRect), "The lit quad has no rectangle.");
+            Assert.True(layout.TryGet(dark.BakeId, out var darkRect), "The dark quad has no rectangle.");
+            float darkChart = ChartOf(baker, darkRect);
+            var traced = Synthetic(baker, layout, litRect.Page,
+                (chart, _) => chart == darkChart ? Light.Dark : new Light(Vector3.One, new Vector4(0f, 1f, 0f, 1f), 1f));
+
+            // Unsmoothed, so only dilation can move light.
+            var filtered = baker.FilterAndDilate(traced, smooth: false);
+
+            // The dark quad's invalid texels are filled from its own valid ones, all black, never from the lit quad's
+            // texels beside them on the page.
+            float[] texels = baker.ReadTexels(litRect.Page, traced.X, traced.Y, traced.Width, traced.Height);
+            int invalid = 0;
+            for (int i = 0; i < traced.Covered.Length; i++)
+            {
+                if (texels[i * Baker.TexelFloats + 3] != darkChart)
+                {
+                    continue;
+                }
+
+                if (!traced.Valid[i])
+                {
+                    invalid++;
+                    Assert.True(filtered.Filled[i], $"Invalid texel ({i % traced.Width}, {i / traced.Width}) of the dark quad isn't filled.");
+                }
+
+                var light = Rgb(filtered.Irradiance, i);
+                Assert.True(light == Vector3.Zero,
+                    $"Texel ({i % traced.Width}, {i / traced.Width}) of the dark quad holds {light}, not black.");
+            }
+
+            Assert.True(invalid > 0, "None of the dark quad's texels lie inside the box, so this test shows nothing.");
+        }
+        finally
+        {
+            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.DestroyMesh(box);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
