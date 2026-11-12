@@ -458,6 +458,10 @@ The [Gallery](../examples/Gallery/README.md#baked-lighting) is the example to lo
 with a bake, keys 1, 2 and 3 switch between live lighting, the bake and direct light only, and
 its README says which light has which [mode](#light-modes) and why, and how to bake it again.
 
+![The Gallery from above, before and after baking: the bake darkens the doorway and the deep window, and shades under the colonnade](media/gallery-baked-before-after.webp)
+
+![The colour room before and after baking: softer contact shade under the bust's plinth, and the walls' colour bleeds onto the floor much as before](media/gallery-colour-room-baked.webp)
+
 `BakedLighting` names a space: one fixed place, baked as it stands, sun included. Its box also
 holds baked probes `probeSpacing` metres apart, at most 4,096 of them, counted the same way as
 [light probes](#bounced-light), so 1 metre spacing covers about 15 by 15 by 15 metres. A frame

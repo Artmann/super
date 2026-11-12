@@ -44,6 +44,10 @@ building's boxes, cylinders and spheres are drawn static (`isStatic: true`), so 
 lightmap UVs; the statues, the rolling sphere, the lantern and the candles stay dynamic. Its
 bake is `content/lighting/gallery.lightbake`, made at the final quality.
 
+![The Gallery from above, before and after baking](../../docs/media/gallery-baked-before-after.webp)
+
+![The colour room before and after baking](../../docs/media/gallery-colour-room-baked.webp)
+
 The current lighting shows in the bottom-left corner. The keys switch between:
 
 | Key | Lighting | What's on |
