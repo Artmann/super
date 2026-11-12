@@ -93,9 +93,9 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
             draws.Add(StaticDraw(quad, Floor(height: 5f), gpu.Matte, 20));
             var all = draws.ToArray();
 
-            // Unfiltered, since this checks the tracer: the filter would carry the sky's light from the faces' rims, which
-            // overlap out past the box, about 8 texels inwards, and at 8 texels a metre that is a metre.
-            var file = Bake(all, [], sky: 1f, new BakeSettings(8, BakeQuality.Preview, filter: false));
+            // Filtered, as a bake is by default: the faces' rims overlap out past the box and see the sky, but the
+            // filter stops where the light changes by more than the noise, so it doesn't carry that light inwards.
+            var file = Bake(all, [], sky: 1f, new BakeSettings(8, BakeQuality.Preview));
 
             // No ray from inside reaches the sky and nothing in the box gives light, so the floor is black.
             var inside = Irradiance(file, all[0], 0.5f, 0.5f);
@@ -180,9 +180,7 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
         {
             var draws = LampUnderCeiling(quad, black);
 
-            // Unfiltered, since this checks the tracer against a hand-worked value, and the filter spreads the bounce's
-            // peak over about a metre at 8 texels a metre.
-            var file = Bake(draws, [Lamp(LightMode.Mixed, 1104)], sky: 0f, new BakeSettings(8, BakeQuality.Final, filter: false));
+            var file = Bake(draws, [Lamp(LightMode.Mixed, 1104)], sky: 0f, new BakeSettings(8, BakeQuality.Final));
 
             // The floor is black, so all its light comes off the ceiling. Straight above the lamp, with I = 10 at h = 1
             // below the ceiling, the ceiling gets E(r) = I h / (h^2 + r^2)^1.5 and gives back 0.5 E / pi. The floor,
@@ -224,6 +222,74 @@ public sealed class BakeTraceGpuTests(GpuFixture gpu)
             var floor = draws[0];
             float direct = Irradiance(baked, floor, LampU, LampV).X - Irradiance(mixed, floor, LampU, LampV).X;
             AssertWithin(10f * 2f / 0.01f * (MathF.Sqrt(1.01f) - 1f), direct, 0.01f, "direct light of the Baked lamp");
+        }
+        finally
+        {
+            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.DestroyMaterial(black);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void Filtering_keeps_a_shadow_edge_sharp()
+    {
+        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        var black = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0f, 0f, 0f, 1f), Roughness = 0.8f });
+        try
+        {
+            // A floor 4 metres square at 20 texels a metre, so column i of 80 has its centre at x = (i + 0.5) / 20 - 2,
+            // under a Baked lamp of radius 0.02 at (0, 1, 0). A black plate halfway up covers x < 0; it isn't static,
+            // so it only blocks rays. The line from a floor point at x to the lamp crosses the plate's height at x / 2,
+            // so the shadow's edge is at x = 0, blurred by the lamp's size over 0.04 metres: columns 39 and 40.
+            // With no sky and everything else black, the floor has only the lamp's direct light.
+            var floor = StaticDraw(quad, Floor(size: 4f), gpu.Matte, 70);
+            var plate = new DrawItem
+            {
+                Mesh = quad, IndexCount = 6, Material = black,
+                Transform = Matrix4x4.CreateScale(4f) * Matrix4x4.CreateRotationX(MathF.PI / 2f) * Matrix4x4.CreateTranslation(-2f, 0.5f, 0f),
+            };
+            var lamp = new LocalLight
+            {
+                Mode = LightMode.Baked, Key = 1109, Position = new Vector3(0f, 1f, 0f), Radiance = new Vector3(10f),
+                Range = 100f, Radius = 0.02f,
+            };
+
+            // The same seed both times, so the only difference is the filter.
+            var raw = Bake([floor, plate], [lamp], sky: 0f, new BakeSettings(20, BakeQuality.Final, filter: false));
+            var smooth = Bake([floor, plate], [lamp], sky: 0f, new BakeSettings(20, BakeQuality.Final, filter: true));
+
+            var rect = RectOf(smooth, floor);
+            var (x0, y0, size) = Texels(rect);
+            Assert.Equal(80, size);
+            for (int v = 10; v < 70; v++)
+            {
+                // Next to the edge, at column 42, the lamp gives I h / d^3 = 10 / d^3: about 9.5 in the middle row,
+                // where d is 1.008, and 1.75 at rows 10 and 69, where the floor point is 1.475 metres off in z.
+                float lit = IrradianceAt(raw, rect.Page, x0 + 42, y0 + v).X;
+                Assert.True(lit > 1.5f, $"The lit floor at row {v} reads {lit}, so the lamp didn't light it.");
+
+                // In the shadow, up to two texels from the edge, no point of the lamp is seen, so the floor stays dark.
+                for (int u = 0; u <= 37; u++)
+                {
+                    float shadowed = IrradianceAt(raw, rect.Page, x0 + u, y0 + v).X;
+                    Assert.True(shadowed <= 1e-3f, $"The unfiltered shadow at ({u}, {v}) reads {shadowed}, not black.");
+                    float filtered = IrradianceAt(smooth, rect.Page, x0 + u, y0 + v).X;
+                    Assert.True(filtered <= 0.01f * lit,
+                        $"The filtered shadow at ({u}, {v}) reads {filtered}, more than 1% of the lit {lit} beside it.");
+                }
+
+                // On the lit side, two texels from the edge on, the filter leaves the light as traced.
+                for (int u = 42; u < 80; u++)
+                {
+                    float traced = IrradianceAt(raw, rect.Page, x0 + u, y0 + v).X;
+                    float filtered = IrradianceAt(smooth, rect.Page, x0 + u, y0 + v).X;
+                    AssertWithin(traced, filtered, 0.05f, $"filtered light at ({u}, {v})");
+                }
+            }
         }
         finally
         {

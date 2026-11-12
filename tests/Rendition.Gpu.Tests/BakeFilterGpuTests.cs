@@ -117,7 +117,9 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
         try
         {
             // A 4 metre square, 80 x 80 texels, lit in a checkerboard of 8 x 8 texel blocks, 0 and 2. Steps of 1 and 2
-            // texels barely reach past a block, so only the passes with steps of 4 and 8 can even it out.
+            // texels barely reach past a block, so only the passes with steps of 4 and 8 can even it out. Each texel is
+            // as noisy as a variance of 10000 says, a standard deviation of 100, so the blocks' steps of 2 are noise the
+            // luminance term lets the filter smooth.
             var draws = new[] { StaticDraw(quad, Matrix4x4.CreateScale(4f), 10) };
             using var baker = new Baker(gpu.Context, gpu.Renderer);
             var layout = SetUp(baker, draws);
@@ -128,7 +130,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
             var traced = Synthetic(baker, layout, rect.Page, (_, at) =>
             {
                 int blocks = (at.X - x0 + side) / Block + (at.Y - y0 + side) / Block;
-                return new Light(new Vector3(blocks % 2 == 0 ? 0f : 2f), new Vector4(0f, 0f, 1f, 1f), 1f);
+                return new Light(new Vector3(blocks % 2 == 0 ? 0f : 2f), new Vector4(0f, 0f, 1f, 1f), 1f, Variance: 1e4f);
             });
 
             var filtered = baker.FilterAndDilate(traced, smooth: true);
@@ -524,8 +526,11 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
-    /// <summary>The light made up for one texel: irradiance, the direction sum and its weight, and every mask channel.</summary>
-    private readonly record struct Light(Vector3 Irradiance, Vector4 Direction, float Mask)
+    /// <summary>
+    /// The light made up for one texel: irradiance, the direction sum and its weight, every mask channel, and the
+    /// variance of the irradiance's mean luminance, which tells the filter how noisy the texel is.
+    /// </summary>
+    private readonly record struct Light(Vector3 Irradiance, Vector4 Direction, float Mask, float Variance = 0f)
     {
         public static Light Dark => new(Vector3.Zero, Vector4.Zero, 0f);
     }
@@ -558,6 +563,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
             irradiance[i * 4 + 0] = made.Irradiance.X;
             irradiance[i * 4 + 1] = made.Irradiance.Y;
             irradiance[i * 4 + 2] = made.Irradiance.Z;
+            irradiance[i * 4 + 3] = made.Variance;
             direction[i * 4 + 0] = made.Direction.X;
             direction[i * 4 + 1] = made.Direction.Y;
             direction[i * 4 + 2] = made.Direction.Z;

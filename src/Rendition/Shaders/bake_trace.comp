@@ -7,8 +7,9 @@
 #include "bake_lights.glsl"
 
 // The baker's path tracer: one pass sends one path from every valid texel of a region of a lightmap page and adds what
-// it brings back to float32 sums. The plain light, its direction and the shadow mask are summed separately; the baker
-// divides by the passes when it reads them back. See "The path tracer" in docs/design.md and Baking/Baker.cs.
+// it brings back to float32 sums. The plain light with its squared luminance, its direction and the shadow mask are
+// summed separately; the baker divides by the passes when it reads them back. See "The path tracer" in docs/design.md
+// and Baking/Baker.cs.
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -19,7 +20,7 @@ layout(set = 0, binding = 4, r8) uniform readonly image2D validity;
 layout(std430, set = 0, binding = 5) readonly buffer Lights {
     BakeLight lights[];
 };
-layout(set = 0, binding = 6, rgba32f) uniform image2D irradianceSum; // rgb: irradiance.
+layout(set = 0, binding = 6, rgba32f) uniform image2D irradianceSum; // rgb: irradiance; w: its luminance squared.
 layout(set = 0, binding = 7, rgba32f) uniform image2D directionSum;  // xyz: directions by luminance; w: the luminance.
 layout(set = 0, binding = 8, rgba32f) uniform image2D maskSum;       // Each channel's share of its light seen.
 layout(set = 0, binding = 9) uniform samplerCube sky;
@@ -81,7 +82,9 @@ void main() {
     irradiance += pathLight;
     towards += vec4(firstDirection, 1.0) * luminance(pathLight);
 
-    imageStore(irradianceSum, local, imageLoad(irradianceSum, local) + vec4(irradiance, 0.0));
+    // The squared luminance gives the filter each texel's noise: its variance is E[l^2] - E[l]^2.
+    float l = luminance(irradiance);
+    imageStore(irradianceSum, local, imageLoad(irradianceSum, local) + vec4(irradiance, l * l));
     imageStore(directionSum, local, imageLoad(directionSum, local) + vec4(towards.xyz, towards.w));
     imageStore(maskSum, local, imageLoad(maskSum, local) + mask);
 }

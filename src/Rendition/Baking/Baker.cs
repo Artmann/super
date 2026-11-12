@@ -805,6 +805,9 @@ internal sealed unsafe class Baker : IDisposable
             new LightBakePage(side, side, LightBakePageFormat.Rgba8, mask));
     }
 
+    // The same weights as luminance() in bake_paths.glsl.
+    private static float Luminance(float r, float g, float b) => 0.2126f * r + 0.7152f * g + 0.0722f * b;
+
     private static byte Unorm(float value) => (byte)MathF.Round(Math.Clamp(value, 0f, 1f) * 255f);
 
     /// <summary>The texels a page's rectangles cover, with <see cref="TraceMargin"/> round them, clamped to the page.</summary>
@@ -910,6 +913,14 @@ internal sealed unsafe class Baker : IDisposable
             mask[i] = floats[(int)count * 8 + i] * scale;
         }
 
+        // Irradiance w held the mean squared luminance; it becomes the variance of the mean luminance, which tells the
+        // filter how much of the difference between two texels is noise.
+        for (int i = 0; i < (int)count; i++)
+        {
+            float mean = Luminance(irradiance[i * 4], irradiance[i * 4 + 1], irradiance[i * 4 + 2]);
+            irradiance[i * 4 + 3] = MathF.Max(irradiance[i * 4 + 3] - mean * mean, 0f) * scale;
+        }
+
         float[] texels = ReadTexels(page, x, y, width, height);
         var valid = new bool[count];
         var covered = new bool[count];
@@ -926,7 +937,8 @@ internal sealed unsafe class Baker : IDisposable
     /// Cleans up a traced page before it is encoded, with the page's texels from the last <see cref="SetUpTexels"/>.
     /// Values that aren't finite become 0, and ones past the half-float range its limit. With <paramref name="smooth"/>,
     /// <see cref="FilterPasses"/> passes of an edge-aware à-trous filter then smooth the irradiance and direction; the
-    /// shadow mask is left sharp. Last, <see cref="DilationRings"/> rings of dilation fill the gutters and invalid
+    /// shadow mask is left sharp. The filter stops at steps, creases and changes in light larger than the traced
+    /// noise explains, using the variance in irradiance w, so converged shadow edges stay sharp. Last, <see cref="DilationRings"/> rings of dilation fill the gutters and invalid
     /// texels from their neighbours. No texel ever takes light from a texel drawn for another rectangle, apart from
     /// gutter texels nothing covers. Waits for the GPU.
     /// </summary>
@@ -1823,8 +1835,10 @@ internal struct GpuBakeLight
 /// <summary>
 /// What <see cref="Baker.Trace"/> found for one page, over the region (<see cref="X"/>, <see cref="Y"/>,
 /// <see cref="Width"/>, <see cref="Height"/>) its rectangles cover. Each array runs row by row over the region. The
-/// irradiance and mask are means over the passes, four floats a texel; the direction is the luminance-weighted sum of
-/// directions in xyz and the weight in w. <see cref="Filled"/> marks the texels that hold light: the valid ones as traced,
+/// irradiance and mask are means over the passes, four floats a texel, with the variance of the irradiance's mean
+/// luminance in irradiance w; the direction is the luminance-weighted sum of directions in xyz and the weight in w.
+/// After <see cref="Baker.FilterAndDilate"/> irradiance w is 1 where a texel holds light and the direction is a mean
+/// direction with w 1. <see cref="Filled"/> marks the texels that hold light: the valid ones as traced,
 /// and also the ones dilation filled after <see cref="Baker.FilterAndDilate"/>.
 /// </summary>
 internal sealed record TracedPage(

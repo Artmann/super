@@ -1939,9 +1939,11 @@ invalid too. The validity shader binds its own set 0 and the resource table as s
 shader. The path itself, from its first direction to its last bounce, is `pathFrom` in
 `bake_paths.glsl`, which the probes' shader shares (see "Baking probes"). One pass sends one
 path from every valid texel of a page's region (the bounding box of its rectangles) and adds
-what it brings back to three `rgba32f` sums: irradiance, direction and shadow mask. Sums are
-float32 so 1024 passes add up without losing the small ones. The baker reads them back and
-divides by the passes; `Baker.FilterAndDilate` cleans the page up (see "Filtering and
+what it brings back to three `rgba32f` sums: irradiance, direction and shadow mask. The
+irradiance sum's w adds the square of each pass's luminance. Sums are float32 so 1024 passes
+add up without losing the small ones. The baker reads them back and divides by the passes, and
+turns irradiance w into the variance of the mean luminance, `(E[l²] - E[l]²) / passes`, which
+tells the filter how noisy each texel is; `Baker.FilterAndDilate` cleans the page up (see "Filtering and
 dilation") and `Baker.Encode` then writes it as the file stores it. Every texel's random
 numbers come from a hash of its place and the pass, so a bake of the same scene with the same
 settings gives the same file.
@@ -2006,32 +2008,44 @@ three outputs.
 number becomes 0, and one past a half float's ±65,504 (infinite ones too) is clamped to it, so
 one bad path can't spread through the filter or overflow the file. The direction sum becomes its
 mean direction, no longer than 1. A texel that isn't valid is emptied. From here irradiance w is
-1 on a texel that holds light and 0 on one that doesn't.
+1 on a texel that holds light and 0 on one that doesn't, and direction w carries the variance
+of the texel's mean luminance through the passes.
 
 Then, when `BakeSettings.Filter` is on (the default), come 4 passes of an edge-aware à-trous
 filter with steps of 1, 2, 4 and 8 texels, which reach 30 texels out with only 25 taps a pass.
 Each tap's weight is the 5-tap B-spline (3/8, 1/4, 1/16 out from the middle) on both axes,
-times three edge terms. The first is a Gaussian on the world distance between the two texels
+times four edge terms. The first is a Gaussian on the world distance between the two texels
 whose sigma is two of the pass's steps (2, 4, 8 and 16 texels), so each pass reaches its own
 taps, keeping its outer ones at exp(-0.5) on a flat chart, but drops a tap that lies much
 further away in the world than on the page, such as across a seam inside one rectangle. The
 second is a Gaussian on how far the tap sits off this texel's plane, with a sigma of half a
 texel, so steps stop it. The third is the cosine between their geometric normals to the 32nd
-power, so creases stop it. A texel's world size is the distance to its neighbours of the same
-rectangle, so the terms work at any density. Together the passes spread a texel's light over
+power, so creases stop it. The fourth stops it at a change in the light, as SVGF does:
+`exp(-|l_p - l_q| / (4 sqrt(var_p) + 1e-6))`, where l is luminance and var_p is the variance
+of this texel's mean luminance, averaged over its 3 x 3 neighbours of the same rectangle so one
+texel whose few paths happened to agree doesn't stop the filter alone. A difference within a
+few standard deviations of the noise blends; one past that doesn't. The 1e-6 only keeps the
+term defined, so a texel with no noise, such as one in a `Baked` light's full shadow or under
+it in full view, takes nothing from a neighbour whose light differs at all. The variance is
+filtered with the squared weights, `Σw² var / (Σw)²`, so each pass sees the noise left after
+the last. A texel's world size is the distance to its neighbours of the same rectangle, so the
+terms work at any density. Where the light is noisy the passes spread a texel's light over
 roughly 8 texels either way, about 40 cm at the default 20 texels a metre. Only taps that hold
 light and were drawn for the same rectangle count, which keeps one chart's light out of another
-even where conservative drawing has pushed both into the gutter between them. The weights only
-depend on geometry, so a flat lightmap comes out flat, and nothing stops the filter at a change
-in the light itself: a `Baked` light's shadow edge softens by as much, and light on the rim of a
-face that reaches out past a wall is carried in under it. The irradiance and direction are
-filtered; the shadow mask isn't, since its noise is only inside penumbrae and blurring it would
-soften every shadow's edge.
+even where conservative drawing has pushed both into the gutter between them.
+
+So the filter blurs noise and keeps edges: a flat lightmap comes out flat, a `Baked` light's
+converged shadow edge stays within a texel or two of where it was traced, and the sky seen on
+the rim of a face that reaches out past a wall isn't carried in under it. What still blurs is
+light that changes by less than its own noise: a penumbra that is noisy itself, as at
+`Preview`, can soften a little, and a gentle gradient under heavy noise flattens. Blotches wider
+than the filter's reach stay. The irradiance and direction are filtered; the shadow mask isn't,
+since its noise is only inside penumbrae and blurring it would soften every shadow's edge.
 
 `bake_dilate.comp` then runs 8 rings, filtering or not. In each, a texel that holds no light and
 has neighbours that do takes the mean of their irradiance, direction and mask, and holds light
 from then on. A covered texel only takes neighbours drawn for its own rectangle; a gutter texel
-nothing covers takes any. Eight rings fill invalid texels up to eight deep and every gutter,
+nothing covers takes any. Every texel leaves with direction w set to 1, dropping the variance. Eight rings fill invalid texels up to eight deep and every gutter,
 which is only two texels wide, as `MaskBaker` dilates its masks, so bilinear
 filtering and mips at an edge read the chart. `TracedPage.Filled` marks every texel that holds
 light, and `Encode` writes those.

@@ -2,10 +2,12 @@
 
 // The baker's filter over one page's traced region. Stage 0 prepares the traced means: a value that isn't finite becomes
 // 0, or the half-float limit when it is infinite or too big for the file, so one bad path can't spread; the direction
-// sum becomes its mean direction; a texel that isn't valid is emptied. Irradiance w then marks a texel that holds light.
+// sum becomes its mean direction; a texel that isn't valid is emptied. Irradiance w then marks a texel that holds light,
+// and direction w carries the variance of its mean luminance from pass to pass.
 // Later stages are the passes of an edge-aware à-trous filter on the irradiance and direction: each texel takes a 5 x 5
 // B-spline of texels `stage` apart, weighted by how close they lie to it in the world for that step, how far they sit
-// off its plane and how alike their normals are, and only from valid texels drawn for the same rectangle. The mask passes
+// off its plane, how alike their normals are and how far their luminance differs given its noise, and only from valid
+// texels drawn for the same rectangle. The variance is filtered with the squared weights, as SVGF does. The mask passes
 // through unfiltered. See "Filtering and dilation" in docs/design.md and Baking/Baker.cs.
 
 layout(local_size_x = 8, local_size_y = 8) in;
@@ -39,12 +41,22 @@ const float POSITION_SIGMA = 2.0;
 const float PLANE_SIGMA = 0.5;
 // The power the cosine between normals is raised to: 32 halves the weight at about 12 degrees.
 const float NORMAL_POWER = 32.0;
+// How far apart two texels' luminances may lie and still blend, in standard deviations of this texel's mean: the
+// luminance term is exp(-|l_p - l_q| / (LUMINANCE_SIGMA * sqrt(var_p) + LUMINANCE_EPSILON)), as in SVGF.
+const float LUMINANCE_SIGMA = 4.0;
+// Keeps the luminance term defined where a texel has no noise. It is tiny, so a converged texel takes nothing from a
+// neighbour whose light differs at all: a difference of 0.001 already weighs exp(-1000).
+const float LUMINANCE_EPSILON = 1e-6;
 // The B-spline's taps from the middle out: 3/8, 1/4, 1/16.
 const float KERNEL[3] = float[](0.375, 0.25, 0.0625);
 
 vec4 finite(vec4 v) {
     bvec4 bad = isnan(v);
     return mix(clamp(v, vec4(-HALF_MAX), vec4(HALF_MAX)), vec4(0.0), bad);
+}
+
+float luminance(vec3 c) {
+    return dot(c, vec3(0.2126, 0.7152, 0.0722)); // As in bake_paths.glsl.
 }
 
 void prepare(ivec2 local, ivec2 page) {
@@ -56,15 +68,15 @@ void prepare(ivec2 local, ivec2 page) {
         return;
     }
 
-    vec3 irradiance = finite(imageLoad(irradianceIn, local)).rgb;
+    vec4 traced = finite(imageLoad(irradianceIn, local)); // w: the variance of the mean luminance.
     vec4 sum = finite(imageLoad(directionIn, local));
     vec3 d = sum.w > 1e-8 ? sum.xyz / sum.w : vec3(0.0);
     float length2 = dot(d, d);
     d = length2 > 1.0 ? d * inversesqrt(length2) : d; // A mean of unit directions is never longer than 1.
     vec4 mask = clamp(finite(imageLoad(maskIn, local)), 0.0, 1.0);
 
-    imageStore(irradianceOut, local, vec4(irradiance, 1.0));
-    imageStore(directionOut, local, vec4(d, 1.0));
+    imageStore(irradianceOut, local, vec4(traced.rgb, 1.0));
+    imageStore(directionOut, local, vec4(d, max(traced.w, 0.0)));
     imageStore(maskOut, local, mask);
 }
 
@@ -96,6 +108,32 @@ float texelSize(ivec2 page, vec3 p, float chart) {
     return axes > 0.0 ? total / axes : 0.0;
 }
 
+// The variance of this texel's mean luminance, blurred over the 3 x 3 texels round it that hold light and belong to
+// its rectangle, as SVGF does, so one texel whose few paths happened to agree doesn't stop the filter on its own.
+float localVariance(ivec2 local, float chart) {
+    const float GAUSS[2] = float[](0.25, 0.125);
+    float sum = 0.0;
+    float total = 0.0;
+    for (int dy = -1; dy <= 1; dy++) {
+        for (int dx = -1; dx <= 1; dx++) {
+            ivec2 q = local + ivec2(dx, dy);
+            if (!inRegion(q) || imageLoad(irradianceIn, q).w < 0.5) {
+                continue;
+            }
+
+            if (imageLoad(positions, region.origin + q).w != chart) {
+                continue;
+            }
+
+            float weight = GAUSS[abs(dx)] * GAUSS[abs(dy)];
+            sum += weight * imageLoad(directionIn, q).w;
+            total += weight;
+        }
+    }
+
+    return sum / total; // The texel itself always counts.
+}
+
 void smoothPass(ivec2 local, ivec2 page) {
     vec4 irradiance = imageLoad(irradianceIn, local);
     vec4 direction = imageLoad(directionIn, local);
@@ -119,8 +157,11 @@ void smoothPass(ivec2 local, ivec2 page) {
     float reach = POSITION_SIGMA * float(region.stage) * texel;
     float positionScale = 1.0 / (2.0 * reach * reach);
     float planeScale = 1.0 / (2.0 * PLANE_SIGMA * PLANE_SIGMA * texel * texel);
+    float l = luminance(irradiance.rgb);
+    float luminanceScale = 1.0 / (LUMINANCE_SIGMA * sqrt(localVariance(local, chart)) + LUMINANCE_EPSILON);
     vec3 irradianceSum = vec3(0.0);
     vec3 directionSum = vec3(0.0);
+    float varianceSum = 0.0;
     float total = 0.0;
     for (int dy = -2; dy <= 2; dy++) {
         for (int dx = -2; dx <= 2; dx++) {
@@ -142,17 +183,22 @@ void smoothPass(ivec2 local, ivec2 page) {
             vec3 offset = qPosition.xyz - position.xyz;
             float plane = dot(offset, n);
             vec3 qn = normalize(imageLoad(geometricNormals, region.origin + q).xyz);
+            vec4 qDirection = imageLoad(directionIn, q);
             float weight = KERNEL[abs(dx)] * KERNEL[abs(dy)]
-                * exp(-dot(offset, offset) * positionScale - plane * plane * planeScale)
+                * exp(-dot(offset, offset) * positionScale - plane * plane * planeScale
+                    - abs(l - luminance(qIrradiance.rgb)) * luminanceScale)
                 * pow(max(dot(n, qn), 0.0), NORMAL_POWER);
             irradianceSum += weight * qIrradiance.rgb;
-            directionSum += weight * imageLoad(directionIn, q).xyz;
+            directionSum += weight * qDirection.xyz;
+            varianceSum += weight * weight * qDirection.w;
             total += weight;
         }
     }
 
+    // The texel itself always counts, with the middle tap's weight, so total is never 0. The variance of a weighted
+    // mean takes the squared weights.
     imageStore(irradianceOut, local, vec4(irradianceSum / total, 1.0));
-    imageStore(directionOut, local, vec4(directionSum / total, 1.0));
+    imageStore(directionOut, local, vec4(directionSum / total, varianceSum / (total * total)));
 }
 
 void main() {

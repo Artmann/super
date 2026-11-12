@@ -3,7 +3,8 @@
 // One ring of the baker's dilation over a page's traced region. A texel that holds light (irradiance w above a half)
 // keeps it. An empty one beside texels that hold light takes their mean irradiance, direction and mask, and holds
 // light from then on, so eight rings fill gutters and invalid texels eight texels deep. A covered texel takes only
-// texels drawn for its own rectangle, so a chart never takes another's light; a texel nothing covers takes any. See
+// texels drawn for its own rectangle, so a chart never takes another's light; a texel nothing covers takes any. Every
+// texel leaves with direction w set to 1, dropping the variance the filter carried there. See
 // "Filtering and dilation" in docs/design.md and Baking/Baker.cs.
 
 layout(local_size_x = 8, local_size_y = 8) in;
@@ -69,7 +70,8 @@ void main() {
         }
     }
 
+    // Direction w carried the filter's variance; from here on it is the 1 the file's encoder divides by.
     imageStore(irradianceOut, local, irradiance);
-    imageStore(directionOut, local, direction);
+    imageStore(directionOut, local, vec4(direction.xyz, 1.0));
     imageStore(maskOut, local, mask);
 }
