@@ -1,11 +1,13 @@
 using System.Numerics;
+using Rendition.Vulkan;
 
 namespace Rendition.Gpu.Tests;
 
 /// <summary>
 /// A space's baked probes on what has no lightmap. A red wall, static and lit by a Baked sun, is baked with the space;
 /// then the sun is gone, so only the bake still knows the wall's red light. A dynamic quad, which no bake covers, takes
-/// it from the bake's probes inside the space's box, and from the live lighting outside it. Every effect is off but
+/// it from the bake's probes inside the space's box, from the live probes where none of the bake's sees it, and
+/// from the live lighting outside the box. Every effect is off but
 /// the baked lighting, so nothing carried from frame to frame makes two captures differ.
 /// </summary>
 [Collection(GpuCollection.Name)]
@@ -168,6 +170,78 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void In_the_space_where_no_baked_probe_sees_live_probes_are_used()
+    {
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        var red = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.8f, 0.05f, 0.05f, 1f), Roughness = 1f });
+        var green = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.05f, 0.8f, 0.05f, 1f), Roughness = 1f });
+        try
+        {
+            var bake = Bake(Wall(quad, red));
+            var walledIn = EveryProbeInside(bake);
+
+            // A grey quad at the centre of the space, with a 4 metre green wall behind the camera, dynamic, which fills
+            // much of what the live probes see towards +z. The baked red wall is left out of the frame, as above.
+            var dynamic = Dynamic(quad, Matrix4x4.CreateScale(0.5f));
+            var greenWall = Dynamic(quad, Matrix4x4.CreateScale(4f) * Matrix4x4.CreateRotationY(MathF.PI)
+                * Matrix4x4.CreateTranslation(0f, 0f, 2.5f)) with { Material = green };
+            DrawItem[] draws = [dynamic, greenWall];
+            var camera = new Vector3(0f, 0f, 1.5f);
+            // 3 x 3 x 3 live probes round the quad, all inside the baked space.
+            var probes = new ProbeVolumeSettings(new Vector3(-1f, -1f, -1f), new Vector3(1f, 1f, 1f), 1f);
+            const RenderEffects off = OnlyBaked & ~RenderEffects.LightProbes & ~RenderEffects.Materials;
+            gpu.Renderer.SetEnvironment(EvenSky());
+
+            var skyOnly = Centre(Capture(draws, camera, sky: 1f, off));
+            byte[] live = Capture(draws, camera, sky: 1f, off, probes);
+            gpu.Renderer.Bakes = new Loaded(bake);
+            var fromBake = Centre(Capture(draws, camera, sky: 1f, off, probes));
+            gpu.Renderer.Bakes = new Loaded(walledIn);
+            byte[] fellBack = Capture(draws, camera, sky: 1f, off, probes);
+
+            // With its probes able to see, the bake wins over the live probes: the quad takes the red wall's light,
+            // not the green. With every baked probe inside a wall, none of them sees the quad, so the live probes
+            // light it as with no bake at all.
+            var fromProbes = Centre(live);
+            Assert.True(gpu.Renderer.LastBakeFrame!.SpaceFresh, "The bake isn't drawn, so the test shows nothing.");
+            Assert.True(fromProbes.Y > 20f && fromProbes.Y > fromProbes.X + 10f,
+                $"The quad lit by the live probes reads {fromProbes}, not green.");
+            Assert.True(fromBake.X > fromBake.Y, $"The quad over a bake that sees reads {fromBake}, not the bake's red.");
+            AssertAlike(live, fellBack);
+        }
+        finally
+        {
+            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.SetEnvironment(DefaultEnvironment());
+            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.DestroyMaterial(red);
+            gpu.Renderer.DestroyMaterial(green);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    // The same bake with every probe marked inside a wall, as the fold marks one: the second moment of the first texel
+    // of its depth tile negative. probes.glsl leaves such a probe out.
+    private static LightBakeFile EveryProbeInside(LightBakeFile bake)
+    {
+        var depth = bake.ProbeDepth!;
+        var pixels = (byte[])depth.Pixels.Clone();
+        var halves = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, Half>(pixels.AsSpan());
+        const int tile = ProbeVolume.DepthTexels + 2;
+        long count = ProbeGrid.Total(bake.Probes!.Value);
+        for (int probe = 0; probe < count; probe++)
+        {
+            int x = probe % BakedProbeAtlas.Columns * tile;
+            int y = probe / BakedProbeAtlas.Columns * tile;
+            halves[(x + y * depth.Width) * 4 + 1] = (Half)(-1f);
+        }
+
+        return bake with { ProbeDepth = depth with { Pixels = pixels } };
     }
 
     // An 8 metre red wall at z = 3.5, inside the space, turned to face -z. Static, so the bake covers it.
