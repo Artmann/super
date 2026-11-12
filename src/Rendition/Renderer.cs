@@ -130,7 +130,7 @@ public sealed unsafe class Renderer : IDisposable
 
     // Which probes to update next, made with the atlases, and this frame's batch of them.
     private ProbeScheduler? _probeScheduler;
-    private IReadOnlyList<ProbeId> _probeBatch = [];
+    private readonly List<ProbeId> _probeBatch = [];
     private readonly List<Vector3> _probeBatchPositions = [];
     private readonly List<float> _probeBatchSpacings = [];
 
@@ -664,7 +664,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         _probeScheduler = null;
-        _probeBatch = [];
+        _probeBatch.Clear();
         _probeInvalidations.Clear();
         _probesSettledOnce = false;
         ProbeUpdatesLastFrame = 0;
@@ -1331,7 +1331,7 @@ public sealed unsafe class Renderer : IDisposable
             }
 
             _probeScheduler = null;
-            _probeBatch = [];
+            _probeBatch.Clear();
             _probesSettledOnce = false;
             _probeInvalidations.Clear();
             _lightProbesInUse = false;
@@ -1357,7 +1357,7 @@ public sealed unsafe class Renderer : IDisposable
         _probeScheduler = new ProbeScheduler(_probeCascades, 0);
         _probesSettledOnce = false;
         _probeSun ??= new ProbeSunShadow(_context);
-        _probeBatch = [];
+        _probeBatch.Clear();
         _probeGrid = null;
         _probeLightingKey = 0;
         _probeLights.Clear();
@@ -1382,7 +1382,7 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     private int PlanProbes(in FrameView view, ReadOnlySpan<DrawItem> draws)
     {
-        _probeBatch = [];
+        _probeBatch.Clear();
         _probeBatchPositions.Clear();
         _probeBatchSpacings.Clear();
         if (_probeScheduler is not { } scheduler)
@@ -1449,7 +1449,12 @@ public sealed unsafe class Renderer : IDisposable
             : Math.Min(ProbeBudget.For(_probeQuality).Raster, Math.Min(_lightProbes.FaceSlots, _lightProbes.StagingSlots));
         if (!ProbeUpdatesPaused)
         {
-            _probeBatch = scheduler.Next(budget, camera, forward);
+            // The scheduler refills its list on every call, and the triangle budget below may cut this frame's copy short.
+            var next = scheduler.Next(budget, camera, forward);
+            for (int i = 0; i < next.Count; i++)
+            {
+                _probeBatch.Add(next[i]);
+            }
         }
 
         if (_probeBatch.Count == 0)
@@ -1508,7 +1513,7 @@ public sealed unsafe class Renderer : IDisposable
         // Probes past the frame's triangle budget stay as they are in the scheduler, so a later frame picks them.
         if (taken < _probeBatch.Count)
         {
-            _probeBatch = _probeBatch.Take(taken).ToArray();
+            _probeBatch.RemoveRange(taken, _probeBatch.Count - taken);
         }
 
         return captured + (_probeSun.Redraw ? draws.Length : 0);

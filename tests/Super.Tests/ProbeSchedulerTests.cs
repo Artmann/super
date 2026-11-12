@@ -399,6 +399,48 @@ public class ProbeSchedulerTests
         }
     }
 
+    [Fact]
+    public void A_frame_with_a_still_camera_allocates_nothing()
+    {
+        var cascades = new ProbeCascades(ProbeQuality.High);
+        var scheduler = new ProbeScheduler(cascades, 27);
+        scheduler.SetFixedGrid(new Vector3(-1f, 0f, -1f), 3, 3, 3, 1f);
+        var camera = new Vector3(0.25f, 1.1f, 0.25f);
+        int budget = ProbeBudget.For(ProbeQuality.High).Raster;
+        bool settled = false;
+        int smallest = int.MaxValue;
+
+        // Warm up: the first frames grow the scheduler's buffers and make the cascades' still result.
+        for (int frame = 0; frame < 10; frame++)
+        {
+            RunFrame();
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int frame = 0; frame < 200; frame++)
+        {
+            RunFrame();
+        }
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0L, allocated);
+        Assert.Equal(210, scheduler.Frame);
+        Assert.Equal(budget, smallest);
+        Assert.False(settled, "a light changing every frame keeps the probes near it dirty");
+
+        void RunFrame()
+        {
+            scheduler.Scrolled(cascades.Move(camera));
+            scheduler.LightChanged(camera, 2f);
+            // No asserts in here: xUnit's own asserts allocate.
+            var batch = scheduler.Next(budget, camera, Forward);
+            smallest = Math.Min(smallest, batch.Count);
+            scheduler.Updated(batch);
+            settled |= scheduler.Settled;
+        }
+    }
+
     private static ProbeId[] Probes(int cascade, int count)
     {
         return Enumerable.Range(0, count).Select(slot => new ProbeId(cascade, slot)).ToArray();

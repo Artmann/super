@@ -32,8 +32,10 @@ internal readonly record struct ProbeId(int Cascade, int Slot);
 /// two updates of any probe to about (probes / budget) frames; distance only breaks ties.
 ///
 /// <see cref="Next"/> is one pass over every probe that keeps the best <c>budget</c> in a small
-/// binary heap, so it costs O(probes + budget log budget) with no sort of all probes and no
-/// allocation beyond the returned batch.
+/// binary heap, so it costs O(probes + budget log budget) with no sort of all probes. Once its
+/// buffers have grown to the budget, nothing on the per-frame path allocates: <see cref="Next"/>
+/// hands back the same list each call, and <see cref="Settled"/> reads counts kept as probes change
+/// state rather than scanning them.
 /// </summary>
 internal sealed class ProbeScheduler
 {
@@ -58,8 +60,12 @@ internal sealed class ProbeScheduler
     private readonly long[]?[] _updated = new long[]?[FixedGrid + 1];
     private readonly Vector3[]?[] _position = new Vector3[]?[FixedGrid + 1];
 
+    // Per group, how many probes are not clean (never captured or dirty), so Settled needn't scan.
+    private readonly int[] _pending = new int[FixedGrid + 1];
+
     private bool _scrolled;
     private Candidate[] _heap = Array.Empty<Candidate>();
+    private readonly List<ProbeId> _batch = [];
 
     public ProbeScheduler(ProbeCascades cascades, int fixedGridProbes)
     {
@@ -90,7 +96,7 @@ internal sealed class ProbeScheduler
                 return false;
             }
 
-            return AllClean(0) && AllClean(1) && AllClean(FixedGrid);
+            return _pending[0] == 0 && _pending[1] == 0 && _pending[FixedGrid] == 0;
         }
     }
 
@@ -147,8 +153,14 @@ internal sealed class ProbeScheduler
             var state = _state[c]!;
             var updated = _updated[c]!;
             var position = _position[c]!;
-            foreach (var slot in slots)
+            for (int i = 0; i < slots.Count; i++)
             {
+                int slot = slots[i];
+                if (state[slot] == Clean)
+                {
+                    _pending[c]++;
+                }
+
                 state[slot] = NeverCaptured;
                 updated[slot] = 0;
                 position[slot] = _cascades.Position(c, slot);
@@ -176,6 +188,7 @@ internal sealed class ProbeScheduler
                 if (state[slot] == Clean && Vector3.DistanceSquared(position[slot], center) <= limit)
                 {
                     state[slot] = Dirty;
+                    _pending[group]++;
                 }
             }
         }
@@ -197,6 +210,7 @@ internal sealed class ProbeScheduler
                 if (state[slot] == Clean)
                 {
                     state[slot] = Dirty;
+                    _pending[group]++;
                 }
             }
         }
@@ -205,14 +219,16 @@ internal sealed class ProbeScheduler
     /// <summary>
     /// Advances the frame and returns the probes to update in it, best first: never more than
     /// <paramref name="budget"/>, none twice. Call <see cref="Updated"/> with the batch once its probes
-    /// are captured, in the same frame and before the next change to the lighting.
+    /// are captured, in the same frame and before the next change to the lighting. The list is the
+    /// scheduler's own and the next call refills it, so copy it to keep it.
     /// </summary>
     public IReadOnlyList<ProbeId> Next(int budget, Vector3 camera, Vector3 forward)
     {
         Frame++;
+        _batch.Clear();
         if (budget <= 0)
         {
-            return Array.Empty<ProbeId>();
+            return _batch;
         }
 
         if (_heap.Length < budget)
@@ -266,30 +282,37 @@ internal sealed class ProbeScheduler
             }
         }
 
-        var chosen = new Candidate[size];
-        Array.Copy(heap, chosen, size);
-        Array.Sort(chosen, (a, b) => a.Before(b) ? -1 : b.Before(a) ? 1 : 0);
-
-        var batch = new ProbeId[size];
-        for (int i = 0; i < size; i++)
+        // The heap is rebuilt every call, so it can be sorted in place. The order is total, so any sort gives the
+        // same result.
+        var chosen = heap.AsSpan(0, size);
+        chosen.Sort();
+        foreach (var candidate in chosen)
         {
-            batch[i] = new ProbeId(chosen[i].Group, chosen[i].Slot);
+            _batch.Add(new ProbeId(candidate.Group, candidate.Slot));
         }
 
-        return batch;
+        return _batch;
     }
 
     /// <summary>The batch has been captured: its probes are clean, and as old as this frame.</summary>
     public void Updated(IReadOnlyList<ProbeId> batch)
     {
-        foreach (var id in batch)
+        ArgumentNullException.ThrowIfNull(batch);
+        for (int i = 0; i < batch.Count; i++)
         {
+            var id = batch[i];
             if (!Exists(id))
             {
                 throw new ArgumentOutOfRangeException(nameof(batch), id, "There is no such probe.");
             }
 
-            _state[id.Cascade]![id.Slot] = Clean;
+            var state = _state[id.Cascade]!;
+            if (state[id.Slot] != Clean)
+            {
+                _pending[id.Cascade]--;
+            }
+
+            state[id.Slot] = Clean;
             _updated[id.Cascade]![id.Slot] = Frame;
         }
     }
@@ -311,30 +334,13 @@ internal sealed class ProbeScheduler
         return state != null && id.Slot >= 0 && id.Slot < state.Length;
     }
 
-    private bool AllClean(int group)
-    {
-        var state = _state[group];
-        if (state == null)
-        {
-            return false;
-        }
-
-        foreach (var value in state)
-        {
-            if (value != Clean)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
     private void AllocateGroup(int group, int count)
     {
+        // Every new probe starts never captured.
         _state[group] = new byte[count];
         _updated[group] = new long[count];
         _position[group] = new Vector3[count];
+        _pending[group] = count;
     }
 
     // The heap's root is the worst probe kept so far, so a new probe is compared with the root only.
@@ -382,7 +388,7 @@ internal sealed class ProbeScheduler
         }
     }
 
-    private readonly struct Candidate(byte tier, long age, float distance, int group, int slot)
+    private readonly struct Candidate(byte tier, long age, float distance, int group, int slot) : IComparable<Candidate>
     {
         public readonly byte Tier = tier;
         public readonly long Age = age;
@@ -415,6 +421,17 @@ internal sealed class ProbeScheduler
             }
 
             return Slot < other.Slot;
+        }
+
+        // Sorting by IComparable needs no comparer, so it makes no delegate; a sort given a comparer would.
+        public int CompareTo(Candidate other)
+        {
+            if (Before(other))
+            {
+                return -1;
+            }
+
+            return other.Before(this) ? 1 : 0;
         }
     }
 }

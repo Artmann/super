@@ -1607,7 +1607,12 @@ distance only breaks ties, so no probe waits longer than about probes ÷ budget 
 the lowest cascade and slot, so the same calls always give the same batches. `Frame` counts the
 calls to `Next`, and ages are in frames, never seconds. The pass over all probes keeps the best
 `budget` in a binary heap rather than sorting, so a frame at High (65,536 probes) costs one scan.
-`Settled` means cascades 0 and 1 and the fixed grid are all captured and clean. The ProbeBudget
+`Settled` means cascades 0 and 1 and the fixed grid are all captured and clean. It reads a count of
+probes that aren't clean, kept per cascade as probes change state, so reading it every frame scans
+nothing. Once warm, a frame whose camera stays in its cells allocates nothing on the probe path, which
+a test checks: `Next` sorts its heap in place by `IComparable` (a sort given a comparer would make a
+delegate) and refills one list it hands back each call, `Move` hands back one cached `ScrollResult`,
+and the renderer copies the batch into a list of its own and cuts it there. The ProbeBudget
 is 8 raster and 256 traced probes a frame at Low, 16 and 512 at Medium, and 32 and 1,024 at High.
 
 `ProbeDebugPass` draws `DebugView.Probes`. Only a frame's `RecordScene` runs it (never a

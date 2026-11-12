@@ -40,17 +40,22 @@ internal readonly record struct ScrollResult
     /// <summary>The slots of the probes that are new in this cascade, in no particular order.</summary>
     public IReadOnlyList<int> NewSlots(int cascade)
     {
-        var slots = new List<int>();
         if (_layouts == null)
         {
-            return slots;
+            return Array.Empty<int>();
         }
 
-        var layout = _layouts[cascade];
-        var origin = _origins[cascade];
         var x = Slabs[cascade * 3];
         var y = Slabs[cascade * 3 + 1];
         var z = Slabs[cascade * 3 + 2];
+        if (x.Count == 0 && y.Count == 0 && z.Count == 0)
+        {
+            return Array.Empty<int>();
+        }
+
+        var slots = new List<int>();
+        var layout = _layouts[cascade];
+        var origin = _origins[cascade];
 
         for (int k = 0; k < layout.CountZ; k++)
         {
@@ -92,6 +97,9 @@ internal sealed class ProbeCascades
     private readonly ProbeCascadeLayout[] _layouts;
     private readonly Int3[] _origins = new Int3[Count];
     private bool _moved;
+
+    // What Move returns when no cascade moved: no slabs, nothing teleported. Made once.
+    private ScrollResult? _stayed;
 
     public ProbeCascades(ProbeQuality quality)
     {
@@ -135,6 +143,13 @@ internal sealed class ProbeCascades
     /// </summary>
     public ScrollResult Move(Vector3 camera)
     {
+        // Most frames the camera stays in its cells, and that result is always the same.
+        if (_moved && Unmoved(camera))
+        {
+            _stayed ??= new ScrollResult(_layouts, new Int3[Count], new ScrollResult.Slab[Count * 3], new bool[Count]);
+            return _stayed.Value;
+        }
+
         var slabs = new ScrollResult.Slab[Count * 3];
         var teleported = new bool[Count];
         var origins = new Int3[Count];
@@ -211,6 +226,19 @@ internal sealed class ProbeCascades
         }
 
         return -1;
+    }
+
+    private bool Unmoved(Vector3 camera)
+    {
+        for (int c = 0; c < Count; c++)
+        {
+            if (SnappedOrigin(_layouts[c], camera) != _origins[c])
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     internal static int Wrap(Int3 cell, ProbeCascadeLayout layout)
