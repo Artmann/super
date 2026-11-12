@@ -3490,6 +3490,28 @@ that hold `BakeFiles.MaxSpaceProbes`. That bounds the buffer at 32 MB, so a dama
 take the game down with an out-of-memory error, which nothing catches.
 `ReadInputs` copies only the 41 header bytes.
 
+## Chunk transfer
+
+A baked chunk stores how light from outside reaches its surfaces as L1 spherical harmonics (SH): four numbers per
+colour. `ShL1` (`src/Rendition/Baking/ShL1.cs`) is the one place that defines them, with CPU tests that don't need the
+GPU. The shaders mirror this file.
+
+The basis is `Y0 = 1 / (2 sqrt(pi)) = 0.282094792` for the constant band, and `Y1 = sqrt(3) / (2 sqrt(pi)) = 0.488602512`
+times a unit direction's component for the linear band. The slot order is (y, z, x): `C0` is the constant, `C1` goes
+with y, `C2` with z and `C3` with x. A function's value in a direction is `C0 Y0 + Y1 (C1 y + C2 z + C3 x)`.
+
+`Direction(d, L)` projects a delta of radiance `L` from `d`, and `Uniform(L)` projects a sky of the same radiance
+everywhere, which is only `C0 = 4 pi Y0 L`. `Dot(a, b)` sums `a * b` over the four slots, which is the integral of the
+product of the two functions. The transfer already holds the cosine, so its `Dot` with the sky's projection is the
+irradiance, with no further weighting: a cosine lobe about +y has transfer (pi Y0, 2/3 pi Y1, 0, 0), and its `Dot` with
+`Uniform(1)` is `pi`, the irradiance of a unit sky over a plane.
+
+`Rotate(rotation)` turns a chunk's transfer by the chunk's transform. (`C3`, `C1`, `C2`) turn as the vector (x, y, z)
+does, with `Vector3.TransformNormal` (System.Numerics uses row vectors), so a direction `d` moves to `d R` and the
+turned function's value there is the original's value at `d`. A quarter turn about y sends +x to -z. It uses the upper
+3x3 of a rigid transform and throws `ArgumentException` for anything `BakeFiles.IsRigid` rejects, since a scale would
+scale the coefficients without turning them.
+
 ## Ray tracing
 
 Device setup is in `VulkanContext.CreateDevice` (see above): ray queries are on only where nothing is
