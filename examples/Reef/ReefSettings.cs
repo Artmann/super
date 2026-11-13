@@ -31,6 +31,12 @@ internal class ReefSettings
     /// <summary>Loads a model named above. Tests draw built-in shapes, so they don't need the licensed models.</summary>
     public virtual ModelRef Model(Content content, string name) => content.Model(name);
 
+    /// <summary>The seabed's sand, a material graph. Tests use a plain surface, so they don't need the cook.</summary>
+    public virtual Surface Sand(Content content) => content.Surface("materials/sand.material.cs") with { WorldVariation = true };
+
+    /// <summary>The boulders' rock, a material graph, plain in tests like <see cref="Sand"/>.</summary>
+    public virtual Surface Rock(Content content) => content.Surface("materials/reef-rock.material.cs") with { WorldVariation = true };
+
     /// <summary>Fish stay within this distance of the centre, sideways.</summary>
     public float Radius => 55f;
 

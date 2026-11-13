@@ -187,5 +187,9 @@ public class BoidsTests
 
         // Built-in shapes stand in for the licensed models, which a fresh clone doesn't have.
         public override ModelRef Model(Content content, string name) => name == Coral || name == SoftCoral ? ModelRef.Cylinder : ModelRef.Capsule;
+
+        public override Surface Sand(Content content) => new();
+
+        public override Surface Rock(Content content) => new();
     }
 }

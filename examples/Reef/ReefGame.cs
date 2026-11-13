@@ -14,6 +14,7 @@ internal sealed class ReefGame(World world, ReefSettings settings, GameRandom ra
     private const float CameraOrbitSeconds = 240f;
     private const float CameraDistance = 52f;
     private const float CameraHeight = 9f;
+    private const int BoulderShapes = 4;
 
     private static readonly UnderwaterSettings Water = new()
     {
@@ -39,9 +40,9 @@ internal sealed class ReefGame(World world, ReefSettings settings, GameRandom ra
     {
         var species = settings.Species;
         _fishModels = species.Select(kind => settings.Model(content, kind.Model)).ToArray();
-        _seabed = content.Mesh(Seabed.CreateMesh(random.Stream("sand")));
+        _seabed = content.Mesh(Seabed.CreateMesh(settings.Sand(content)));
 
-        SpawnCoral(random.Stream("coral"));
+        SpawnCoral(random.Stream("coral"), random.Stream("rocks"));
         int schools = SpawnFish(random.Stream("fish"));
         _boids = new Boids(world, settings, random.Stream("schools"), schools);
     }
@@ -102,14 +103,30 @@ internal sealed class ReefGame(World world, ReefSettings settings, GameRandom ra
         return firstSchool;
     }
 
-    private void SpawnCoral(RandomStream stream)
+    private void SpawnCoral(RandomStream stream, RandomStream rockStream)
     {
         var coral = settings.Model(content, settings.Coral);
         var softCoral = settings.Model(content, settings.SoftCoral);
+        var rock = settings.Rock(content);
+        var boulders = new ModelRef[BoulderShapes];
+        for (int i = 0; i < boulders.Length; i++)
+        {
+            boulders[i] = content.Mesh(Boulders.Create(rock, rockStream));
+        }
+
         for (int cluster = 0; cluster < settings.CoralClusters; cluster++)
         {
             var center = stream.InsideCircle(settings.Radius * 1.3f);
             AddScenery(softCoral, center, stream.Between(0.8f, 1.4f), stream);
+
+            // The coral grows on old reef rock: a few boulders round the cluster, half sunk in the sand.
+            int rocks = rockStream.Between(2, 5);
+            for (int i = 0; i < rocks; i++)
+            {
+                float size = rockStream.Between(1.5f, 4.5f);
+                var scale = new Vector3(size * rockStream.Between(0.8f, 1.3f), size * rockStream.Between(0.4f, 0.75f), size);
+                AddScenery(boulders[rockStream.Between(0, BoulderShapes - 1)], center + rockStream.InsideCircle(8f), scale, scale.Y * 0.2f, rockStream);
+            }
 
             int pieces = stream.Between(5, 11);
             for (int i = 0; i < pieces; i++)
@@ -119,12 +136,15 @@ internal sealed class ReefGame(World world, ReefSettings settings, GameRandom ra
         }
     }
 
-    private void AddScenery(ModelRef model, Vector2 spot, float scale, RandomStream stream)
+    private void AddScenery(ModelRef model, Vector2 spot, float scale, RandomStream stream) =>
+        AddScenery(model, spot, new Vector3(scale), 0.15f, stream);
+
+    private void AddScenery(ModelRef model, Vector2 spot, Vector3 scale, float sink, RandomStream stream)
     {
         var transform = new Transform(
-            new Vector3(spot.X, Seabed.Height(spot.X, spot.Y) - 0.15f, spot.Y),
+            new Vector3(spot.X, Seabed.Height(spot.X, spot.Y) - sink, spot.Y),
             Quaternion.CreateFromAxisAngle(Vector3.UnitY, stream.Angle()),
-            new Vector3(scale));
+            scale);
         var entity = world.Create();
         world.Add(entity, transform);
         world.Add(entity, new Model(model));
