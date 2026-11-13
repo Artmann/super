@@ -3423,7 +3423,7 @@ Otherwise it runs in this order:
    (step 7). Until then they are listed in `FadingLocalLights` or `FadingSuns` with the area's
    fade. A fresh chunk never frees the space's lights, and the space's freshness never frees a
    chunk's.
-7. Each area's fade comes from `BakeResolver.Arrive`, which keeps an `Arrival` per file name:
+7. Each area's fade comes from `BakeArrivals.Arrive`, which keeps an `Arrival` per file name:
    whether the area was drawn live last frame, and when its bake arrived. The first frame that
    names a file gives 1 when it is fresh, so a level load or a screenshot never fades. A file that
    was live (not fresh, and not a chunk whose fresh bake is still pending in the pool) and is
@@ -3501,8 +3501,13 @@ it made would never be fresh.
 
 The work is done by a `BakeResolver` (`src/Rendition/Baking/BakeResolver.cs`), which the
 renderer keeps one of; `BakeFreshness.Resolve` makes a new one for a single call and is for
-tests and tools. The resolver keeps every array, list and dictionary it needs and only grows
-them, keeps the `BakeFrame` it fills, and caches each file name by (name, hash) so
+tests and tools. The resolver hands its parts of the work to helpers it keeps in
+`src/Rendition/Baking`: `BakeLightOwners` hashes the lights, gives each an owner and hands the
+lights of fresh bakes over (steps 1, 2, 4 and 6), `ModelOwners` files the static draws a model at
+a time (step 3), `SpaceDraws` gathers the space's draws and placed chunks, `BakeFileNames` caches
+the file names and `BakeArrivals` keeps the fades (step 7). Together they keep every array, list
+and dictionary they need and only grow them (`ReusedArrays`), the resolver keeps the
+`BakeFrame` it fills, and each file name is cached by (name, hash) so
 `BakeFiles.Chunk` and `BakeFiles.Space` run once for each distinct key (the cache is cleared
 if it passes 1024 names). The model sort uses one cached `Comparison<int>`: sorting with an
 `IComparer` makes a delegate on every call, and a struct comparer is boxed. So a steady frame

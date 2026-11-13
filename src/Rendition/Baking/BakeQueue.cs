@@ -56,64 +56,10 @@ internal sealed class BakeQueue
     /// </summary>
     public BakeWant? Update(ReadOnlySpan<BakeWant> wants, Vector3 camera, out bool cancelRunning, out BakeQuality quality)
     {
-        cancelRunning = false;
         quality = _qualities[0];
-        _areas.Clear();
-        _byFile.Clear();
-        foreach (ref readonly var want in wants)
-        {
-            if (_byFile.TryGetValue(want.File, out int index))
-            {
-                if (Vector3.DistanceSquared(want.Centre, camera) < Vector3.DistanceSquared(_areas[index].Centre, camera))
-                {
-                    _areas[index] = want;
-                }
-            }
-            else
-            {
-                _byFile.Add(want.File, _areas.Count);
-                _areas.Add(want);
-            }
-        }
-
-        if (_running is { } running && _byFile.TryGetValue(running.File, out int named)
-            && _areas[named].Inputs != running.Inputs)
-        {
-            cancelRunning = true;
-            _running = null;
-        }
-
-        int best = -1;
-        int bestQuality = int.MaxValue;
-        float bestDistance = float.MaxValue;
-        int waiting = 0;
-        for (int i = 0; i < _areas.Count; i++)
-        {
-            var area = _areas[i];
-            if (_running is { } current && string.Equals(current.File, area.File, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            int next = NextQuality(area.File, area.Inputs);
-            if (next < 0)
-            {
-                continue;
-            }
-
-            waiting++;
-            float distance = Vector3.DistanceSquared(area.Centre, camera);
-            if (next < bestQuality
-                || (next == bestQuality && distance < bestDistance)
-                || (next == bestQuality && distance == bestDistance
-                    && string.CompareOrdinal(area.File, _areas[best].File) < 0))
-            {
-                best = i;
-                bestQuality = next;
-                bestDistance = distance;
-            }
-        }
-
+        KeepNearest(wants, camera);
+        cancelRunning = CancelStaleRunning();
+        int best = PickNext(camera, out int bestQuality, out int waiting);
         if (_running is not null || best < 0)
         {
             Waiting = waiting;
@@ -125,6 +71,89 @@ internal sealed class BakeQueue
         _running = (start.File, start.Inputs);
         quality = _qualities[bestQuality];
         return start;
+    }
+
+    // Fills _areas with one want per file: the copy nearest the camera.
+    private void KeepNearest(ReadOnlySpan<BakeWant> wants, Vector3 camera)
+    {
+        _areas.Clear();
+        _byFile.Clear();
+        foreach (ref readonly var want in wants)
+        {
+            if (!_byFile.TryGetValue(want.File, out int index))
+            {
+                _byFile.Add(want.File, _areas.Count);
+                _areas.Add(want);
+            }
+            else if (Vector3.DistanceSquared(want.Centre, camera) < Vector3.DistanceSquared(_areas[index].Centre, camera))
+            {
+                _areas[index] = want;
+            }
+        }
+    }
+
+    // Forgets the running bake when this frame names its file with other inputs, so its bake would be stale.
+    private bool CancelStaleRunning()
+    {
+        if (_running is { } running && _byFile.TryGetValue(running.File, out int named)
+            && _areas[named].Inputs != running.Inputs)
+        {
+            _running = null;
+            return true;
+        }
+
+        return false;
+    }
+
+    // The index in _areas of the area to start next, or -1 when none waits: the lowest next quality, then the nearest
+    // to the camera, then the first file name. Counts the areas that wait, besides the running one.
+    private int PickNext(Vector3 camera, out int bestQuality, out int waiting)
+    {
+        int best = -1;
+        Candidate bestCandidate = default;
+        waiting = 0;
+        for (int i = 0; i < _areas.Count; i++)
+        {
+            var area = _areas[i];
+            int next = IsRunning(area.File) ? -1 : NextQuality(area.File, area.Inputs);
+            if (next < 0)
+            {
+                continue;
+            }
+
+            waiting++;
+            var candidate = new Candidate(next, Vector3.DistanceSquared(area.Centre, camera), area.File);
+            if (best < 0 || candidate.GoesBefore(bestCandidate))
+            {
+                best = i;
+                bestCandidate = candidate;
+            }
+        }
+
+        bestQuality = best < 0 ? int.MaxValue : bestCandidate.Quality;
+        return best;
+    }
+
+    private bool IsRunning(string file) =>
+        _running is { } running && string.Equals(running.File, file, StringComparison.Ordinal);
+
+    // An area that waits, by what orders it: its next quality's index, its squared distance to the camera, its file.
+    private readonly record struct Candidate(int Quality, float Distance, string File)
+    {
+        public bool GoesBefore(Candidate other)
+        {
+            if (Quality != other.Quality)
+            {
+                return Quality < other.Quality;
+            }
+
+            if (Distance != other.Distance)
+            {
+                return Distance < other.Distance;
+            }
+
+            return string.CompareOrdinal(File, other.File) < 0;
+        }
     }
 
     /// <summary>
