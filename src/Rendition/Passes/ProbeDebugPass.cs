@@ -28,14 +28,7 @@ internal sealed unsafe class ProbeDebugPass : IDisposable
     public ProbeDebugPass(VulkanContext context, DescriptorSetLayout frameSetLayout, DescriptorSetLayout lightingSetLayout)
     {
         _context = context;
-        var setLayouts = stackalloc DescriptorSetLayout[] { frameSetLayout, lightingSetLayout };
-        var layoutInfo = new PipelineLayoutCreateInfo
-        {
-            SType = StructureType.PipelineLayoutCreateInfo,
-            SetLayoutCount = 2,
-            PSetLayouts = setLayouts,
-        };
-        context.Api.CreatePipelineLayout(context.Device, &layoutInfo, null, out _layout).Check();
+        _layout = context.CreatePipelineLayout([frameSetLayout, lightingSetLayout]);
 
         // Opaque, so the spheres hide each other and anything behind them.
         var description = new PipelineDescription

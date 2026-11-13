@@ -25,65 +25,24 @@ internal sealed unsafe class TraceDebugPass : IDisposable
     public TraceDebugPass(VulkanContext context, int framesInFlight, DescriptorSetLayout frameSetLayout, DescriptorSetLayout resourceLayout)
     {
         _context = context;
-        var api = context.Api;
 
         // The scene's top-level structure, the geometry table its instances index, and the target written.
-        var bindings = stackalloc DescriptorSetLayoutBinding[]
-        {
+        _setLayout = context.CreateSetLayout(
+        [
             new(0, DescriptorType.AccelerationStructureKhr, 1, ShaderStageFlags.ComputeBit),
             new(1, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
             new(2, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
-        };
-        var layoutInfo = new DescriptorSetLayoutCreateInfo
-        {
-            SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 3,
-            PBindings = bindings,
-        };
-        api.CreateDescriptorSetLayout(context.Device, &layoutInfo, null, out _setLayout).Check();
-
-        var poolSizes = stackalloc DescriptorPoolSize[]
-        {
-            new(DescriptorType.AccelerationStructureKhr, (uint)framesInFlight),
-            new(DescriptorType.StorageBuffer, (uint)framesInFlight),
-            new(DescriptorType.StorageImage, (uint)framesInFlight),
-        };
-        var poolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = (uint)framesInFlight,
-            PoolSizeCount = 3,
-            PPoolSizes = poolSizes,
-        };
-        api.CreateDescriptorPool(context.Device, &poolInfo, null, out _pool).Check();
+        ]);
+        _pool = context.CreateDescriptorPool(
+            (uint)framesInFlight,
+            new DescriptorPoolSize(DescriptorType.AccelerationStructureKhr, (uint)framesInFlight),
+            new DescriptorPoolSize(DescriptorType.StorageBuffer, (uint)framesInFlight),
+            new DescriptorPoolSize(DescriptorType.StorageImage, (uint)framesInFlight));
 
         _sets = new DescriptorSet[framesInFlight];
-        var setLayouts = stackalloc DescriptorSetLayout[framesInFlight];
-        for (int i = 0; i < framesInFlight; i++)
-        {
-            setLayouts[i] = _setLayout;
-        }
+        context.AllocateSets(_pool, _setLayout, _sets);
 
-        var allocInfo = new DescriptorSetAllocateInfo
-        {
-            SType = StructureType.DescriptorSetAllocateInfo,
-            DescriptorPool = _pool,
-            DescriptorSetCount = (uint)framesInFlight,
-            PSetLayouts = setLayouts,
-        };
-        fixed (DescriptorSet* sets = _sets)
-        {
-            api.AllocateDescriptorSets(context.Device, &allocInfo, sets).Check();
-        }
-
-        var pipelineSetLayouts = stackalloc DescriptorSetLayout[] { frameSetLayout, _setLayout, resourceLayout };
-        var pipelineLayoutInfo = new PipelineLayoutCreateInfo
-        {
-            SType = StructureType.PipelineLayoutCreateInfo,
-            SetLayoutCount = 3,
-            PSetLayouts = pipelineSetLayouts,
-        };
-        api.CreatePipelineLayout(context.Device, &pipelineLayoutInfo, null, out _pipelineLayout).Check();
+        _pipelineLayout = context.CreatePipelineLayout([frameSetLayout, _setLayout, resourceLayout]);
         _pipeline = PipelineFactory.CreateCompute(context, "trace_debug.comp", _pipelineLayout);
     }
 

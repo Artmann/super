@@ -139,58 +139,25 @@ internal sealed unsafe class ProbeVolume : IDisposable
         };
         api.CreateSampler(context.Device, &samplerInfo, null, out _facesSampler).Check();
 
-        var bindings = stackalloc DescriptorSetLayoutBinding[]
-        {
+        _setLayout = context.CreateSetLayout(
+        [
             new(0, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
             new(1, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
             new(2, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
             new(3, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
             new(4, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
             new(5, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
-        };
-        var layoutInfo = new DescriptorSetLayoutCreateInfo
-        {
-            SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 6,
-            PBindings = bindings,
-        };
-        api.CreateDescriptorSetLayout(context.Device, &layoutInfo, null, out _setLayout).Check();
+        ]);
+        _pool = context.CreateDescriptorPool(
+            1,
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 2),
+            new DescriptorPoolSize(DescriptorType.StorageBuffer, 2),
+            new DescriptorPoolSize(DescriptorType.StorageImage, 2));
+        _set = context.AllocateSet(_pool, _setLayout);
 
-        var poolSizes = stackalloc DescriptorPoolSize[]
-        {
-            new(DescriptorType.CombinedImageSampler, 2),
-            new(DescriptorType.StorageBuffer, 2),
-            new(DescriptorType.StorageImage, 2),
-        };
-        var poolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = 1,
-            PoolSizeCount = 3,
-            PPoolSizes = poolSizes,
-        };
-        api.CreateDescriptorPool(context.Device, &poolInfo, null, out _pool).Check();
-
-        var setLayout = _setLayout;
-        var allocInfo = new DescriptorSetAllocateInfo
-        {
-            SType = StructureType.DescriptorSetAllocateInfo,
-            DescriptorPool = _pool,
-            DescriptorSetCount = 1,
-            PSetLayouts = &setLayout,
-        };
-        api.AllocateDescriptorSets(context.Device, &allocInfo, out _set).Check();
-
-        var pushRange = new PushConstantRange(ShaderStageFlags.ComputeBit, 0, PushBytes);
-        var pipelineLayoutInfo = new PipelineLayoutCreateInfo
-        {
-            SType = StructureType.PipelineLayoutCreateInfo,
-            SetLayoutCount = 1,
-            PSetLayouts = &setLayout,
-            PushConstantRangeCount = 1,
-            PPushConstantRanges = &pushRange,
-        };
-        api.CreatePipelineLayout(context.Device, &pipelineLayoutInfo, null, out _pipelineLayout).Check();
+        _pipelineLayout = context.CreatePipelineLayout(
+            [_setLayout],
+            new PushConstantRange(ShaderStageFlags.ComputeBit, 0, PushBytes));
 
         if (Supported)
         {
@@ -244,18 +211,6 @@ internal sealed unsafe class ProbeVolume : IDisposable
     /// surfaces skip the cascades.
     /// </summary>
     public bool CascadesWritten { get; private set; }
-
-    /// <summary>
-    /// The bytes the atlases of a quality take: five layers of tiles, each layer with room for a
-    /// cascade's probes or the fixed grid's <see cref="ProbeGrid.MaxProbes"/>, whichever is more.
-    /// </summary>
-    public static long AtlasBytes(ProbeQuality quality)
-    {
-        var (columns, rows) = Grid(quality);
-        long irradiance = (long)columns * (IrradianceTexels + 2) * rows * (IrradianceTexels + 2) * 8;
-        long depth = (long)columns * (DepthTexels + 2) * rows * (DepthTexels + 2) * 4;
-        return (irradiance + depth) * Layers;
-    }
 
     /// <summary>
     /// Makes the atlases, faces and staging for a quality, if they aren't already, with every probe

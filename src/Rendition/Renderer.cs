@@ -526,20 +526,11 @@ public sealed unsafe class Renderer : IDisposable
         _twoTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 2, ShaderStageFlags.FragmentBit);
         _oneTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit);
 
-        var poolSizes = stackalloc DescriptorPoolSize[]
-        {
-            new(DescriptorType.UniformBuffer, FramesInFlight),
-            new(DescriptorType.StorageBuffer, 9 * FramesInFlight),
-            new(DescriptorType.CombinedImageSampler, 34 + 3 * FramesInFlight),
-        };
-        var poolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = FramesInFlight + 9,
-            PoolSizeCount = 3,
-            PPoolSizes = poolSizes,
-        };
-        _api.CreateDescriptorPool(_context.Device, &poolInfo, null, out _descriptorPool).Check();
+        _descriptorPool = _context.CreateDescriptorPool(
+            FramesInFlight + 9,
+            new DescriptorPoolSize(DescriptorType.UniformBuffer, FramesInFlight),
+            new DescriptorPoolSize(DescriptorType.StorageBuffer, 9 * FramesInFlight),
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 34 + 3 * FramesInFlight));
 
         for (int i = 0; i < FramesInFlight; i++)
         {
@@ -565,14 +556,7 @@ public sealed unsafe class Renderer : IDisposable
             WriteAtlasDescriptors(frame);
         }
 
-        var clusterSetLayout = _frameSetLayout;
-        var clusterLayoutInfo = new PipelineLayoutCreateInfo
-        {
-            SType = StructureType.PipelineLayoutCreateInfo,
-            SetLayoutCount = 1,
-            PSetLayouts = &clusterSetLayout,
-        };
-        _api.CreatePipelineLayout(_context.Device, &clusterLayoutInfo, null, out _clusterLayout).Check();
+        _clusterLayout = _context.CreatePipelineLayout([_frameSetLayout]);
         _clusterPipeline = PipelineFactory.CreateCompute(_context, "cluster.comp", _clusterLayout);
 
         _environment = new EnvironmentMap(_context);
@@ -800,58 +784,25 @@ public sealed unsafe class Renderer : IDisposable
             points[i * 2 + 1] = new Vector4(samples[i].Normal, 0f);
         }
 
-        var bindings = stackalloc DescriptorSetLayoutBinding[]
-        {
+        var setLayout = _context.CreateSetLayout(
+        [
             new(0, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
             new(1, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
             new(11, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
             new(12, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
-        };
-        var layoutInfo = new DescriptorSetLayoutCreateInfo
-        {
-            SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 4,
-            PBindings = bindings,
-        };
-        _api.CreateDescriptorSetLayout(device, &layoutInfo, null, out var setLayout).Check();
-
-        var poolSizes = stackalloc DescriptorPoolSize[]
-        {
-            new(DescriptorType.StorageBuffer, 2),
-            new(DescriptorType.CombinedImageSampler, 2),
-        };
-        var poolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = 1,
-            PoolSizeCount = 2,
-            PPoolSizes = poolSizes,
-        };
-        _api.CreateDescriptorPool(device, &poolInfo, null, out var pool).Check();
-
-        var layouts = stackalloc DescriptorSetLayout[] { _frameSetLayout, setLayout };
-        var pushRange = new PushConstantRange(ShaderStageFlags.ComputeBit, 0, sizeof(int));
-        var pipelineLayoutInfo = new PipelineLayoutCreateInfo
-        {
-            SType = StructureType.PipelineLayoutCreateInfo,
-            SetLayoutCount = 2,
-            PSetLayouts = layouts,
-            PushConstantRangeCount = 1,
-            PPushConstantRanges = &pushRange,
-        };
-        _api.CreatePipelineLayout(device, &pipelineLayoutInfo, null, out var pipelineLayout).Check();
+        ]);
+        var pool = _context.CreateDescriptorPool(
+            1,
+            new DescriptorPoolSize(DescriptorType.StorageBuffer, 2),
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 2));
+        var pipelineLayout = _context.CreatePipelineLayout(
+            [_frameSetLayout, setLayout],
+            new PushConstantRange(ShaderStageFlags.ComputeBit, 0, sizeof(int)));
         var pipeline = PipelineFactory.CreateCompute(_context, "probe_sample.comp", pipelineLayout);
 
         try
         {
-            var allocInfo = new DescriptorSetAllocateInfo
-            {
-                SType = StructureType.DescriptorSetAllocateInfo,
-                DescriptorPool = pool,
-                DescriptorSetCount = 1,
-                PSetLayouts = &setLayout,
-            };
-            _api.AllocateDescriptorSets(device, &allocInfo, out var set).Check();
+            var set = _context.AllocateSet(pool, setLayout);
 
             var inputInfo = new DescriptorBufferInfo(input.Handle, 0, Vk.WholeSize);
             var outputInfo = new DescriptorBufferInfo(output.Handle, 0, Vk.WholeSize);
@@ -5458,46 +5409,21 @@ public sealed unsafe class Renderer : IDisposable
             new(11, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit),
             new(12, DescriptorType.StorageBuffer, 1, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit),
         };
-        var info = new DescriptorSetLayoutCreateInfo
-        {
-            SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 13,
-            PBindings = bindings,
-        };
-        _api.CreateDescriptorSetLayout(_context.Device, &info, null, out var layout).Check();
-        return layout;
+        return _context.CreateSetLayout(new ReadOnlySpan<DescriptorSetLayoutBinding>(bindings, 13));
     }
 
     private DescriptorSetLayout CreateSetLayout(DescriptorType type, int bindingCount, ShaderStageFlags stages)
     {
-        var bindings = stackalloc DescriptorSetLayoutBinding[bindingCount];
+        Span<DescriptorSetLayoutBinding> bindings = stackalloc DescriptorSetLayoutBinding[bindingCount];
         for (int i = 0; i < bindingCount; i++)
         {
             bindings[i] = new DescriptorSetLayoutBinding((uint)i, type, 1, stages);
         }
 
-        var info = new DescriptorSetLayoutCreateInfo
-        {
-            SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = (uint)bindingCount,
-            PBindings = bindings,
-        };
-        _api.CreateDescriptorSetLayout(_context.Device, &info, null, out var layout).Check();
-        return layout;
+        return _context.CreateSetLayout(bindings);
     }
 
-    private DescriptorSet AllocateSet(DescriptorSetLayout layout)
-    {
-        var info = new DescriptorSetAllocateInfo
-        {
-            SType = StructureType.DescriptorSetAllocateInfo,
-            DescriptorPool = _descriptorPool,
-            DescriptorSetCount = 1,
-            PSetLayouts = &layout,
-        };
-        _api.AllocateDescriptorSets(_context.Device, &info, out var set).Check();
-        return set;
-    }
+    private DescriptorSet AllocateSet(DescriptorSetLayout layout) => _context.AllocateSet(_descriptorPool, layout);
 
     /// <summary>Points the fullscreen passes at the current render targets.</summary>
     private void WriteTargetDescriptors()

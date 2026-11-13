@@ -54,57 +54,21 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
         _sampler = linearSampler;
         var api = context.Api;
 
-        var bindings = stackalloc DescriptorSetLayoutBinding[]
-        {
+        _setLayout = context.CreateSetLayout(
+        [
             new(0, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
             new(1, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
             new(2, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
             new(3, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
             new(4, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
-        };
-        var layoutInfo = new DescriptorSetLayoutCreateInfo
-        {
-            SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 5,
-            PBindings = bindings,
-        };
-        api.CreateDescriptorSetLayout(context.Device, &layoutInfo, null, out _setLayout).Check();
+        ]);
+        _pool = context.CreateDescriptorPool(
+            2,
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 6),
+            new DescriptorPoolSize(DescriptorType.StorageImage, 4));
+        context.AllocateSets(_pool, _setLayout, _sets);
 
-        var poolSizes = stackalloc DescriptorPoolSize[]
-        {
-            new(DescriptorType.CombinedImageSampler, 6),
-            new(DescriptorType.StorageImage, 4),
-        };
-        var poolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = 2,
-            PoolSizeCount = 2,
-            PPoolSizes = poolSizes,
-        };
-        api.CreateDescriptorPool(context.Device, &poolInfo, null, out _pool).Check();
-
-        var layouts = stackalloc DescriptorSetLayout[] { _setLayout, _setLayout };
-        var allocInfo = new DescriptorSetAllocateInfo
-        {
-            SType = StructureType.DescriptorSetAllocateInfo,
-            DescriptorPool = _pool,
-            DescriptorSetCount = 2,
-            PSetLayouts = layouts,
-        };
-        fixed (DescriptorSet* sets = _sets)
-        {
-            api.AllocateDescriptorSets(context.Device, &allocInfo, sets).Check();
-        }
-
-        var setLayouts = stackalloc DescriptorSetLayout[] { frameSetLayout, _setLayout };
-        var pipelineLayoutInfo = new PipelineLayoutCreateInfo
-        {
-            SType = StructureType.PipelineLayoutCreateInfo,
-            SetLayoutCount = 2,
-            PSetLayouts = setLayouts,
-        };
-        api.CreatePipelineLayout(context.Device, &pipelineLayoutInfo, null, out _pipelineLayout).Check();
+        _pipelineLayout = context.CreatePipelineLayout([frameSetLayout, _setLayout]);
         _inject = PipelineFactory.CreateCompute(context, "volumetric_inject.comp", _pipelineLayout);
         _integrate = PipelineFactory.CreateCompute(context, "volumetric_integrate.comp", _pipelineLayout);
 

@@ -69,80 +69,31 @@ internal sealed unsafe class ProbeTracePass : IDisposable
         var api = context.Api;
 
         // Set 2: the atlases, for the bounce; the staging slots written; the sky, for the rays that hit nothing.
-        var probeBindings = stackalloc DescriptorSetLayoutBinding[]
-        {
+        _probeLayout = context.CreateSetLayout(
+        [
             new(IrradianceBinding, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
             new(DepthBinding, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
             new(StagingBinding, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
             new(SkyBinding, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
-        };
-        var probeLayoutInfo = new DescriptorSetLayoutCreateInfo
-        {
-            SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 4,
-            PBindings = probeBindings,
-        };
-        api.CreateDescriptorSetLayout(context.Device, &probeLayoutInfo, null, out _probeLayout).Check();
+        ]);
 
         // Set 3: the frame's top-level structure, the geometry table its instances index, and the batch's probes.
-        var sceneBindings = stackalloc DescriptorSetLayoutBinding[]
-        {
+        _sceneLayout = context.CreateSetLayout(
+        [
             new(0, DescriptorType.AccelerationStructureKhr, 1, ShaderStageFlags.ComputeBit),
             new(1, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
             new(2, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
-        };
-        var sceneLayoutInfo = new DescriptorSetLayoutCreateInfo
-        {
-            SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 3,
-            PBindings = sceneBindings,
-        };
-        api.CreateDescriptorSetLayout(context.Device, &sceneLayoutInfo, null, out _sceneLayout).Check();
+        ]);
 
-        uint sets = (uint)framesInFlight + 1;
-        var poolSizes = stackalloc DescriptorPoolSize[]
-        {
-            new(DescriptorType.CombinedImageSampler, 3),
-            new(DescriptorType.StorageBuffer, 1 + 2 * (uint)framesInFlight),
-            new(DescriptorType.AccelerationStructureKhr, (uint)framesInFlight),
-        };
-        var poolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = sets,
-            PoolSizeCount = 3,
-            PPoolSizes = poolSizes,
-        };
-        api.CreateDescriptorPool(context.Device, &poolInfo, null, out _pool).Check();
+        _pool = context.CreateDescriptorPool(
+            (uint)framesInFlight + 1,
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 3),
+            new DescriptorPoolSize(DescriptorType.StorageBuffer, 1 + 2 * (uint)framesInFlight),
+            new DescriptorPoolSize(DescriptorType.AccelerationStructureKhr, (uint)framesInFlight));
 
-        var probeLayout = _probeLayout;
-        var probeAlloc = new DescriptorSetAllocateInfo
-        {
-            SType = StructureType.DescriptorSetAllocateInfo,
-            DescriptorPool = _pool,
-            DescriptorSetCount = 1,
-            PSetLayouts = &probeLayout,
-        };
-        api.AllocateDescriptorSets(context.Device, &probeAlloc, out _probeSet).Check();
-
+        _probeSet = context.AllocateSet(_pool, _probeLayout);
         _sceneSets = new DescriptorSet[framesInFlight];
-        var sceneLayouts = stackalloc DescriptorSetLayout[framesInFlight];
-        for (int i = 0; i < framesInFlight; i++)
-        {
-            sceneLayouts[i] = _sceneLayout;
-        }
-
-        var sceneAlloc = new DescriptorSetAllocateInfo
-        {
-            SType = StructureType.DescriptorSetAllocateInfo,
-            DescriptorPool = _pool,
-            DescriptorSetCount = (uint)framesInFlight,
-            PSetLayouts = sceneLayouts,
-        };
-        fixed (DescriptorSet* allocated = _sceneSets)
-        {
-            api.AllocateDescriptorSets(context.Device, &sceneAlloc, allocated).Check();
-        }
+        context.AllocateSets(_pool, _sceneLayout, _sceneSets);
 
         _probes = new GpuBuffer[framesInFlight];
         for (int i = 0; i < framesInFlight; i++)
@@ -151,17 +102,9 @@ internal sealed unsafe class ProbeTracePass : IDisposable
                 context, (ulong)(capacity * sizeof(GpuTracedProbe)), BufferUsageFlags.StorageBufferBit);
         }
 
-        var pipelineSetLayouts = stackalloc DescriptorSetLayout[] { frameSetLayout, resources.Layout, _probeLayout, _sceneLayout };
-        var pushRange = new PushConstantRange(ShaderStageFlags.ComputeBit, 0, (uint)sizeof(TraceConstants));
-        var pipelineLayoutInfo = new PipelineLayoutCreateInfo
-        {
-            SType = StructureType.PipelineLayoutCreateInfo,
-            SetLayoutCount = 4,
-            PSetLayouts = pipelineSetLayouts,
-            PushConstantRangeCount = 1,
-            PPushConstantRanges = &pushRange,
-        };
-        api.CreatePipelineLayout(context.Device, &pipelineLayoutInfo, null, out _pipelineLayout).Check();
+        _pipelineLayout = context.CreatePipelineLayout(
+            [frameSetLayout, resources.Layout, _probeLayout, _sceneLayout],
+            new PushConstantRange(ShaderStageFlags.ComputeBit, 0, (uint)sizeof(TraceConstants)));
         _pipeline = PipelineFactory.CreateCompute(context, "probe_trace.comp", _pipelineLayout);
     }
 

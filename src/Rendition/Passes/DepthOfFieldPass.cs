@@ -91,32 +91,16 @@ internal sealed unsafe class DepthOfFieldPass : IDisposable
         _context = context;
         _pointSampler = pointSampler;
         _linearSampler = linearSampler;
-        var api = context.Api;
 
-        var bindings = stackalloc DescriptorSetLayoutBinding[]
-        {
+        _setLayout = context.CreateSetLayout(
+        [
             new(0, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
             new(1, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
             new(2, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
-        };
-        var layoutInfo = new DescriptorSetLayoutCreateInfo
-        {
-            SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 3,
-            PBindings = bindings,
-        };
-        api.CreateDescriptorSetLayout(context.Device, &layoutInfo, null, out _setLayout).Check();
+        ]);
 
         const int setCount = 3;
-        var poolSize = new DescriptorPoolSize(DescriptorType.CombinedImageSampler, setCount * 3);
-        var poolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = setCount,
-            PoolSizeCount = 1,
-            PPoolSizes = &poolSize,
-        };
-        api.CreateDescriptorPool(context.Device, &poolInfo, null, out _pool).Check();
+        _pool = context.CreateDescriptorPool(setCount, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, setCount * 3));
 
         _cocSet = Allocate();
         _blurSet = Allocate();
@@ -231,19 +215,7 @@ internal sealed unsafe class DepthOfFieldPass : IDisposable
         _context.Api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);
     }
 
-    private DescriptorSet Allocate()
-    {
-        var setLayout = _setLayout;
-        var allocInfo = new DescriptorSetAllocateInfo
-        {
-            SType = StructureType.DescriptorSetAllocateInfo,
-            DescriptorPool = _pool,
-            DescriptorSetCount = 1,
-            PSetLayouts = &setLayout,
-        };
-        _context.Api.AllocateDescriptorSets(_context.Device, &allocInfo, out var set).Check();
-        return set;
-    }
+    private DescriptorSet Allocate() => _context.AllocateSet(_pool, _setLayout);
 
     private RenderTarget CreateTarget() =>
         new(_context, GBuffer.HdrFormat, _half, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);

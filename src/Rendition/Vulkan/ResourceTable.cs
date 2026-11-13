@@ -165,29 +165,11 @@ internal sealed unsafe class ResourceTable : IDisposable
         };
         api.CreateDescriptorSetLayout(context.Device, &layoutInfo, null, out Layout).Check();
 
-        var poolSizes = stackalloc DescriptorPoolSize[]
-        {
-            new(DescriptorType.CombinedImageSampler, MaxTextures + MaxTextureArrays),
-            new(DescriptorType.StorageBuffer, 1),
-        };
-        var poolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = 1,
-            PoolSizeCount = 2,
-            PPoolSizes = poolSizes,
-        };
-        api.CreateDescriptorPool(context.Device, &poolInfo, null, out _pool).Check();
-
-        var layout = Layout;
-        var allocInfo = new DescriptorSetAllocateInfo
-        {
-            SType = StructureType.DescriptorSetAllocateInfo,
-            DescriptorPool = _pool,
-            DescriptorSetCount = 1,
-            PSetLayouts = &layout,
-        };
-        api.AllocateDescriptorSets(context.Device, &allocInfo, out Set).Check();
+        _pool = context.CreateDescriptorPool(
+            1,
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, MaxTextures + MaxTextureArrays),
+            new DescriptorPoolSize(DescriptorType.StorageBuffer, 1));
+        Set = context.AllocateSet(_pool, Layout);
 
         ulong materialsSize = (ulong)(MaxMaterials * sizeof(GpuMaterial));
         _materials = GpuBuffer.CreateHostVisible(context, materialsSize, BufferUsageFlags.StorageBufferBit);
