@@ -3807,6 +3807,13 @@ for it is read from disk, synchronously, on the thread that asks, which can be t
 It is one file read per chunk, once. Moving it off the render thread would need a read-ahead, which
 isn't built.
 
+Known limit: the trim doesn't tell the bake store what it deleted. A chunk whose header the store read
+before its file was trimmed fails when its bake is next loaded, counts as unreadable, and, since the bake
+queue remembers it finished, may not be baked again in that session, so it can stay lit live until the game restarts. It takes a world whose chunk
+bakes pass the capacity. Telling the store would need a callback from the trim that forgets the
+header without letting go of a bake that is already on the GPU, which `LightBakeStore.Forget(file)`
+does today.
+
 ### Baking on arrival
 
 Super turns the renderer's [background bake](#baking-in-the-background) on in play only. `Game.StartWindowsGameLoop`
@@ -3826,7 +3833,10 @@ first root as the space folder; published, chunks only at Preview, 2 ms, and no 
 the last bake's task on the thread pool, so files are kept in the order they finished and a Final never loses to a
 Preview finished before it. It reads the file's header first, to log the bake's time and so a file that doesn't read
 back is never kept. A space's file (`done.File` equals `BakeFiles.Space(done.Name)`) is written into the space folder
-through a `{name}.{guid}.tmp` file and a move; the watch cook then cooks it and the content reload reads it again. A
+through a `{name}.{guid}.tmp` file and a move; the watch cook then cooks it and the content reload reads it again.
+That reload calls `LightBakeStore.Forget()`, which lets go of every chunk bake too, so in a scene with both a space and
+chunks the chunks are lit live for a moment and their headers are read again on the render thread; no example has
+both yet. Forgetting only the space's file would need the reload to say which files changed, which it doesn't. A
 chunk's goes to `BakeCache.Write`, and its name goes to `WrittenBakes.Written`, a `ConcurrentQueue` that
 `SceneRenderer.Prepare` drains on the render thread with `WrittenBakes.ForgetIn` into `LightBakeStore.Forget(file)`, so the store reads the new file, from the cache's memory, on the next
 frame. Every exception is caught and logged as one line, since nothing else would hear of it, and the area stays lit
