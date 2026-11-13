@@ -2,10 +2,10 @@ namespace Rendition;
 
 /// <summary>
 /// The bakes in a game's content, read through a function so the renderer needn't know where content lives. Each
-/// file's header is read the first time it is asked about and kept until <see cref="Forget"/>, so asking every frame
+/// file's header is read the first time it is asked about and kept until <see cref="Forget()"/>, so asking every frame
 /// reads nothing and, once each file has been asked about, allocates nothing. A file that can't be read, whether
 /// damaged or failing to open, is lit live and logged once. Its header cache isn't thread-safe, so ask
-/// <see cref="IsFresh"/>, <see cref="Saved"/>, <see cref="SavedQuality"/> and <see cref="Forget"/> from the render thread only. <see cref="Load"/>
+/// <see cref="IsFresh"/>, <see cref="Saved"/>, <see cref="SavedQuality"/> and <see cref="Forget()"/> from the render thread only. <see cref="Load"/>
 /// keeps nothing, so it may be called from another thread as long as the read function can be.
 /// See "Baked lighting" in docs/rendering.md.
 /// </summary>
@@ -19,6 +19,9 @@ public sealed class LightBakeStore : IBakeStore
 
     // The stale files already logged, so each is logged once until the content reloads.
     private readonly HashSet<string> _logged = [];
+
+    // The files given to Forget(string) that the renderer hasn't let go of yet.
+    private readonly HashSet<string> _forgotten = [];
 
     /// <param name="read">Gives a file's bytes, or null when there is no such file.</param>
     /// <param name="log">Where a stale or damaged bake is reported, once per file.</param>
@@ -102,7 +105,7 @@ public sealed class LightBakeStore : IBakeStore
     /// <exception cref="IOException">The read failed; whatever the read function throws passes through.</exception>
     public LightBakeFile? Load(string file) => _read(file) is { } bytes ? LightBakeFile.Read(bytes) : null;
 
-    /// <summary>How many times <see cref="Forget"/> has been called, so the renderer reads the bakes it holds again.</summary>
+    /// <summary>How many times <see cref="Forget()"/> has been called, so the renderer reads the bakes it holds again.</summary>
     public int Reloads { get; private set; }
 
     /// <summary>
@@ -114,6 +117,44 @@ public sealed class LightBakeStore : IBakeStore
         _headers.Clear();
         _logged.Clear();
         Reloads++;
+    }
+
+    /// <summary>
+    /// Drops one file's header and its stale or unreadable report, so the next question reads it again. Unlike
+    /// <see cref="Forget()"/> it doesn't raise <see cref="Reloads"/>, which would make the renderer let go of every
+    /// chunk bake on the GPU and read them all again. Instead the file is remembered for <see cref="TakeForgotten"/>,
+    /// so the renderer lets go of only this file's bake, and stops counting it unreadable, in its next frame, without
+    /// reading a file or waiting for the GPU there. Call it from the render thread only, as <see cref="Forget()"/>;
+    /// a bake written by another thread is forgotten from the render thread once it is done.
+    /// </summary>
+    public void Forget(string file)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+        _headers.Remove(file);
+        _logged.Remove(file);
+        lock (_forgotten)
+        {
+            _forgotten.Add(file);
+        }
+    }
+
+    /// <summary>
+    /// The files given to <see cref="Forget(string)"/> since the last call, each once, or none. The renderer calls it
+    /// each frame, so nothing is allocated while nothing was forgotten.
+    /// </summary>
+    public IReadOnlyCollection<string> TakeForgotten()
+    {
+        lock (_forgotten)
+        {
+            if (_forgotten.Count == 0)
+            {
+                return [];
+            }
+
+            string[] taken = [.. _forgotten];
+            _forgotten.Clear();
+            return taken;
+        }
     }
 
     // "draws", "draws and lights", "draws, lights and environment".

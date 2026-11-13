@@ -196,6 +196,19 @@ internal sealed unsafe class ChunkBakePool : IDisposable
         _entries.Clear();
     }
 
+    /// <summary>
+    /// Lets go of one file's bake the same deferred way, as when its file was written over: it is read again the next
+    /// time a copy names it. Nothing else is touched. A bake being read is dropped, so its result is ignored. Reads no
+    /// file and waits for nothing.
+    /// </summary>
+    public void Forget(string file, List<int> textures, List<IDisposable> others)
+    {
+        if (_entries.Remove(file, out var entry))
+        {
+            Release(entry, textures, others);
+        }
+    }
+
     /// <summary>Frees the pages that never reached the material table, which frees the rest itself. Call once the GPU is idle.</summary>
     public void Dispose()
     {

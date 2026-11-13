@@ -41,6 +41,14 @@ public interface IBakeStore
     /// a bake it holds again even when its inputs are the same.
     /// </summary>
     int Reloads => 0;
+
+    /// <summary>
+    /// The files whose bake changed since the last call, each given once, such as a chunk bake written over a damaged
+    /// one. The renderer, each frame, lets go of only these files' bakes and stops counting them unreadable, so they
+    /// are read again, without the other chunk bakes going and being uploaded again as a change of
+    /// <see cref="Reloads"/> would. It must neither read a file nor allocate while nothing changed.
+    /// </summary>
+    IReadOnlyCollection<string> TakeForgotten() => [];
 }
 
 /// <summary>A store with no bakes in it, so every area is lit live and every light is real-time.</summary>

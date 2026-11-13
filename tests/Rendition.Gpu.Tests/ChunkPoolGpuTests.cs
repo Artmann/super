@@ -359,6 +359,53 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
     }
 
     [Fact]
+    public void Forgetting_one_chunk_file_reads_only_that_bake_again()
+    {
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        var store = new TwoBakeStore();
+        try
+        {
+            var first = Wall(quad, First);
+            var second = Wall(quad, Second);
+            LocalLight[] lamps =
+            [
+                Lamp(First, 7491),
+                Lamp(Second, 7492) with { Position = Vector3.Transform(new Vector3(-0.5f, -0.4f, 0.8f), Second) },
+            ];
+            store.Add(Bake(first, First, [lamps[0]]), release: true);
+            store.Add(Bake(second, Second, [lamps[1]]), release: true);
+            gpu.Renderer.Bakes = store;
+            BakedChunk[] chunks = [Chunk(First), Chunk(Second)];
+            var view = View(First, lamps, chunks);
+            Assert.True(RenderUntilFresh(view, first, second) <= MostFrames, $"The chunks' bakes weren't resident after {MostFrames} frames.");
+            Assert.Equal(2, gpu.Renderer.ChunkBakes.Resident);
+            string firstFile = store.FileOf(0);
+            string secondFile = store.FileOf(1);
+            Assert.NotEqual(firstFile, secondFile);
+
+            store.Forget(secondFile);
+            gpu.Renderer.Render(view, [first, second]);
+
+            // Only the forgotten file went: the other stays up and fresh, and the forgotten one is read again.
+            var frame = gpu.Renderer.LastBakeFrame!;
+            Assert.True(frame.ChunkFresh[0], "The chunk that wasn't forgotten isn't fresh.");
+            Assert.True(frame.ChunkPending(1), "The forgotten chunk's old bake was kept.");
+            Assert.True(RenderUntilFresh(view, first, second) <= MostFrames, $"The forgotten chunk's bake wasn't resident again after {MostFrames} frames.");
+            Assert.Equal(2, gpu.Renderer.ChunkBakes.Resident);
+            Assert.Equal(1, store.LoadsOf(firstFile));
+            Assert.Equal(2, store.LoadsOf(secondFile));
+        }
+        finally
+        {
+            store.ReleaseAll();
+            LetGo(quad);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
     public void Chunk_bake_with_no_room_in_the_material_table_is_dropped_and_lit_live()
     {
         int errors = gpu.ValidationErrors;
@@ -668,7 +715,45 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
         private readonly Dictionary<string, int> _files = [];
         private readonly Lock _lock = new();
 
+        private readonly Dictionary<string, int> _loadsOf = [];
+        private readonly List<string> _forgotten = [];
+
         public int Reloads => 0;
+
+        /// <summary>The file the frame asked about for the bake added <paramref name="index"/>th.</summary>
+        public string FileOf(int index)
+        {
+            lock (_lock)
+            {
+                return _files.Single(file => file.Value == index).Key;
+            }
+        }
+
+        public int LoadsOf(string file)
+        {
+            lock (_lock)
+            {
+                return _loadsOf.GetValueOrDefault(file);
+            }
+        }
+
+        public void Forget(string file)
+        {
+            lock (_lock)
+            {
+                _forgotten.Add(file);
+            }
+        }
+
+        public IReadOnlyCollection<string> TakeForgotten()
+        {
+            lock (_lock)
+            {
+                string[] taken = [.. _forgotten];
+                _forgotten.Clear();
+                return taken;
+            }
+        }
 
         public void Add(LightBakeFile bake, bool release) => _bakes.Add((bake, new ManualResetEventSlim(release)));
 
@@ -707,6 +792,7 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             lock (_lock)
             {
                 found = _files[file];
+                _loadsOf[file] = _loadsOf.GetValueOrDefault(file) + 1;
             }
 
             var (bake, gate) = _bakes[found];

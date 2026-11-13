@@ -233,9 +233,18 @@ internal sealed class SceneRenderer : IDisposable
     /// <summary>The bakes in the content last drawn with, which the renderer checks each frame's baked areas against.</summary>
     internal LightBakeStore Bakes { get; }
 
-    // A bake is cooked as data under its own name, so anything else of that name isn't one.
+    /// <summary>
+    /// The chunk bakes made on this machine, read when the cooked content has no bake of that name. Null, the default,
+    /// reads cooked content only. Read and written where the bake files are, never in a frame's own work.
+    /// </summary>
+    internal BakeCache? BakeCache { get; set; }
+
+    // A bake is cooked as data under its own name, so anything else of that name isn't one. Failing that, the cache
+    // of bakes made on this machine may have it.
     private byte[]? ReadBake(string name) =>
-        _files is { } files && files.KindOf(name) == ContentKind.Data ? files.Read(name) : null;
+        _files is { } files && files.KindOf(name) == ContentKind.Data
+            ? files.Read(name)
+            : BakeCache?.Read(name);
 
     /// <summary>The reflection probes to keep: the view's, or none while reflections are off.</summary>
     internal static ReadOnlySpan<ReflectionProbeRequest> WantedReflectionProbes(View view, RenderEffects off) =>

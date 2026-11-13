@@ -113,7 +113,7 @@ public sealed class UserData
         return string.Join(' ', kept.Split(' ', StringSplitOptions.RemoveEmptyEntries)).Trim('.', ' ');
     }
 
-    private static void CheckId(string gameId)
+    internal static void CheckId(string gameId)
     {
         if (string.IsNullOrWhiteSpace(gameId) || gameId.Trim('.').Length == 0)
         {
@@ -127,12 +127,12 @@ public sealed class UserData
         }
     }
 
-    private static string Needed(Func<string, string?> environment, string name) =>
+    internal static string Needed(Func<string, string?> environment, string name) =>
         environment(name) is { Length: > 0 } value
             ? value
             : throw new InvalidOperationException($"{name} isn't set, so there's no user folder to keep user data in. Pass --user-data to choose one.");
 
-    private static string Join(string root, char separator, string rest) => root.TrimEnd(separator) + separator + rest;
+    internal static string Join(string root, char separator, string rest) => root.TrimEnd(separator) + separator + rest;
 
     private string PathFor(Type type)
     {

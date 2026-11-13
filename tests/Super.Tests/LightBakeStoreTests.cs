@@ -269,6 +269,53 @@ public sealed class LightBakeStoreTests
         Assert.False(found);
     }
 
+    [Fact]
+    public void Forgetting_one_file_keeps_the_others()
+    {
+        const string Hall = "lighting/hall.lightbake";
+        var reads = new Dictionary<string, int>();
+        var files = new Dictionary<string, byte[]> { [Crypt] = Bake(Saved), [Hall] = Bake(Saved) };
+        var log = new StringWriter();
+        var store = new LightBakeStore(name =>
+        {
+            reads[name] = reads.GetValueOrDefault(name) + 1;
+            return files.GetValueOrDefault(name);
+        }, log);
+        var changed = Saved with { Lights = 23UL };
+        Assert.False(store.IsFresh(Crypt, changed));
+        Assert.False(store.IsFresh(Hall, changed));
+        int reloads = store.Reloads;
+
+        files[Crypt] = Bake(changed);
+        store.Forget(Crypt);
+
+        Assert.True(store.IsFresh(Crypt, changed));
+        Assert.False(store.IsFresh(Hall, changed));
+        Assert.Equal(2, reads[Crypt]);
+        Assert.Equal(1, reads[Hall]);
+        Assert.Equal(reloads, store.Reloads);
+
+        // Hall's stale report was kept, so it isn't logged again; Crypt's was dropped.
+        Assert.False(store.IsFresh(Crypt, Saved with { Lights = 24UL }));
+        string[] lines = log.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(3, lines.Length);
+        Assert.Contains(lines, line => line.StartsWith("The bake lighting/hall.lightbake is stale"));
+    }
+
+    [Fact]
+    public void Forgotten_files_are_handed_over_once_for_the_renderer_to_let_go_of()
+    {
+        var store = new LightBakeStore(Files(), TextWriter.Null);
+        Assert.Empty(store.TakeForgotten());
+
+        store.Forget(Crypt);
+        store.Forget("lighting/hall.lightbake");
+        store.Forget(Crypt);
+
+        Assert.Equal(["lighting/crypt.lightbake", "lighting/hall.lightbake"], store.TakeForgotten().Order());
+        Assert.Empty(store.TakeForgotten());
+    }
+
     private static Func<string, byte[]?> Files(params (string Name, byte[] Bytes)[] files)
     {
         var byName = files.ToDictionary(file => file.Name, file => file.Bytes);

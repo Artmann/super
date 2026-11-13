@@ -435,6 +435,14 @@ and kept, and when the content [reloads while the game runs](#change-it-while-th
 every bake is read again, so a bake made with `--bake` shows up once it is cooked. A bake that is missing, stale or damaged leaves its area lit live; see
 [Without a bake](rendering.md#without-a-bake) for what is reported.
 
+A chunk's bake made on the machine playing the game, rather than cooked in the build, is kept in a
+cache in the game's local app data (`Bakes` under the game's folder there), not in the content. It
+holds `.lightbake` files under the same names as above, and the game reads one of those only when the
+cooked content has none of that name. The cache is capped at 512 MB, and the bakes read least recently
+are deleted first. Deleting the folder is always safe: those chunks are lit live until they are baked
+again. A cached file that turns out to be damaged is reported once and its area is lit live until it is
+written again. See [The bake cache](design.md#the-bake-cache).
+
 ### Cooking a bake
 
 A `.lightbake` file is cooked like any other asset, into the same container with smaller pages.

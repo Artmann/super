@@ -3460,8 +3460,8 @@ allocates nothing, the stale path included, which `LightBakeStoreTests` checks w
 calls it in `Prepare` when `Content.Files` is a different object or `Content.Reloads` has moved
 since the last frame; `Content.Reload` counts up right after it refreshes the files. `Load`
 reads a whole file with `LightBakeFile.Read` and keeps nothing; it is for drawing a fresh bake.
-`Forget` also counts up `Reloads`, so the renderer reads the bake it holds again. Both are on
-`IBakeStore` with defaults (`Load` gives null, `Reloads` stays 0, and `SavedQuality` gives null,
+`Forget` also counts up `Reloads`, so the renderer reads the bake it holds again. `Forget(file)` drops one file's header and its stale report instead, and does not count `Reloads` up, since that would make the renderer let go of every chunk bake on the GPU and upload them all again. It records the file for `IBakeStore.TakeForgotten`, which the renderer drains in `ResolveBakes`: it takes that file off its unreadable set and calls `ChunkBakePool.Forget`, which lets go of just that entry the way eviction does (its textures retire after the frames using them, and a read still in flight is ignored). That reads no file and waits for nothing, so the other chunk bakes stay resident. `Load`, `Reloads` and `TakeForgotten` are on
+`IBakeStore` with defaults (`Load` gives null, `Reloads` stays 0, `TakeForgotten` gives none, and `SavedQuality` gives null,
 so a background bake counts a fresh area as done), so a store that only answers
 `IsFresh` still works and its areas count as baked with live soft light. A store with a `Load` of
 its own, `LightBakeStore` among them, has no such excuse: when its `Load` gives null for a file
@@ -3587,7 +3587,7 @@ chunk isn't relit, being pending, stale or unowned, gets chunk -1 and finds noth
 space's rects, so it is lit live. A frame with no chunk draws exactly as before. A hash of the
 named files goes into `ReflectionLightingHash`, so reflection probes are taken again when a chunk
 bake arrives or goes. A change of store or `Reloads` calls `ChunkBakePool.Clear`, which lets go
-of every entry the same deferred way. The sky and sun transfer pages are read as described in
+of every entry the same deferred way, while a file the store forgot by itself (`TakeForgotten`) goes through `ChunkBakePool.Forget`, which lets go of that entry alone. The sky and sun transfer pages are read as described in
 [Relighting a chunk](#relighting-a-chunk).
 
 While the G-buffer pass records, `InstanceBuffer.Lightmaps` holds the loaded rects, and `Add`
@@ -3729,6 +3729,26 @@ the lamp's real-time shadow (`ShadowMaskGpuTests`). With no chunk relit, the slo
 space's channels and `spaceSlots` is the identity, so a space-only frame writes the same mask
 as before. A chunk's copy in a reflection or light probe capture has no rect at all, so it is
 lit live and writes 1 in every slot.
+
+### The bake cache
+
+`BakeCache` (`src/Super/Rendering/BakeCache.cs`) keeps the chunk bakes made on this machine, which a
+player's machine can't get from cooked content. Files go in `BakeCache.FolderFor(gameId)`, in the
+game's local app data and not the roaming folder (`LOCALAPPDATA\{id}\Bakes` on Windows,
+`~/Library/Caches/{id}/Bakes` on macOS, `$XDG_CACHE_HOME/{id}/bakes` or `~/.cache/{id}/bakes` on
+Linux), under the same names as the content's bakes, which hold the input hash. `SceneRenderer.BakeCache`
+is null by default, and `ReadBake` asks it only for a name the cooked content doesn't have as data,
+so a cooked bake always wins. A bake is read where `ReadBake` already runs, never in `Render`.
+
+A file's last-write time is when it was last used: `Read` and `Write` set it from a `TimeProvider`, so
+tests drive it with a `FakeTimeProvider`. `Write` puts the bytes in a `.tmp` file next to the target
+and moves it over the target, so a reader never sees half a bake and a crash leaves the old one (the
+`.tmp` files are left out of the size and of reads). Then it deletes the files used longest ago, by
+time and then by name, until the total is at most the capacity, which is 512 MB unless the constructor
+is given another. A file larger than the capacity isn't kept, and the one of that name is deleted. One
+lock covers each call, since writes come from the thread pool and reads from the render thread. The
+cache never raises `Reloads`: a bake written over a damaged one calls `LightBakeStore.Forget(file)`
+(see [The bake store](#the-bake-store)).
 
 ### The .lightbake file
 

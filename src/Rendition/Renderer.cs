@@ -1601,6 +1601,14 @@ public sealed unsafe class Renderer : IDisposable
             _chunkPool.Clear(destroying.Textures, destroying.Others);
         }
 
+        // Files the store forgot one at a time are read again, and only those: the other chunk bakes stay up.
+        foreach (string file in Bakes.TakeForgotten())
+        {
+            _readableBakes.Unreadable.Remove(file);
+            var destroying = Destroying();
+            _chunkPool.Forget(file, destroying.Textures, destroying.Others);
+        }
+
         // With baked lighting off, every bake counts as missing, so the frame is drawn as if nothing were baked.
         _bakeResolver.Store = view.Off.HasFlag(RenderEffects.BakedLighting) ? NoBakes.Instance : _readableBakes;
         _bakeResolver.ChunkResident = _chunkResident ??= ChunkResident;
