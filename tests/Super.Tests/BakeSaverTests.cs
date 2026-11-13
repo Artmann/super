@@ -50,6 +50,8 @@ public sealed class BakeSaverTests : IDisposable
         saver.Done(new BakeDone(file, "cottage", default, BakeQuality.Final, bytes));
 
         Assert.True(Poll(() => !_written.IsEmpty), "the cache write was never reported");
+        // The log line comes after the report, on the pool thread, so wait for the save to finish before reading it.
+        Assert.True(saver.Wait(TimeSpan.FromSeconds(5)));
         Assert.Equal([file], _written);
         Assert.Equal(bytes, cache.Read(file));
         Assert.False(Directory.Exists(Path.Combine(_folder, "content")));

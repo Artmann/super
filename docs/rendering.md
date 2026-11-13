@@ -789,8 +789,9 @@ baked as the game runs and nobody has to run `--bake` first. Where each bake goe
   is for: run it before shipping.
 
 Each bake kept prints one line, such as
-`Baked gallery (Preview) in 29.5 s: C:\Code\MyGame\content\lighting\gallery.lightbake`, and one that can't be written
-prints why, once, and the area stays lit live. While an area bakes, a line in the bottom-left corner over the game's
+`Baked gallery (Preview) in 29.5 s: C:\Code\MyGame\content\lighting\gallery.lightbake`. A bake that can't be written
+prints one line saying why, once for each area and quality, and that area stays lit live and isn't baked again until
+the game runs again. While an area bakes, a line in the bottom-left corner over the game's
 interface says `Baking cottage, 42%`, with `(3 more)` when other areas wait, or `Waiting to bake 2 areas` before one
 starts. It goes when nothing is left. The game's own interface keeps its state as the line comes and goes.
 
