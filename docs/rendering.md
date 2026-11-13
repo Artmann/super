@@ -601,6 +601,21 @@ counts frames by `Render` calls, which is right while each frame draws one view,
 chunk in the frame names is let go at the end of that frame and read again when one comes back,
 and a content reload drops every chunk bake and reads them again.
 
+A bake that arrives while its area is on screen fades in rather than popping. That happens when
+the area was drawn live last frame, its bake missing or stale, and its file is fresh now, as when
+a [background bake](#baking-in-the-background) saves it or a stale bake is replaced. Its lightmaps and probes then blend in over
+`Renderer.BakeFadeSeconds` of game time (`FrameView.Time`), half a second by default, along a
+smoothstep. While they do, the area's `Baked` lights stay in the frame, dimmed by as much as the
+bake has come in, so the area never goes darker than either end, and `BakeFrame.ModeOf` already
+says `Baked` for them. `BakeFrame.SpaceFade` and `BakeFrame.ChunkFade` say how far each area has
+come. A bake that is fresh on the first frame that names its area shows at once, so loading a
+level, a screenshot and a reload of an unchanged bake never fade, and nor does a chunk whose bake
+was already saved but is still on its way to the GPU. An area left out of a frame is forgotten,
+so the next frame that names it counts as its first. Game time that goes back ends a fade at
+once. Turning [`Graphics.BakedLighting`](#graphics-settings) back on counts as every bake on screen
+arriving, so they fade in too. `BakeFadeSeconds` of 0 shows every bake at once; it must be from 0 to 10, or it throws
+`ArgumentOutOfRangeException` with the value.
+
 A chunk's bake holds how the sky and the sun reach each of its surfaces, not the light itself,
 so every copy is lit by the frame's sky and suns as it stands. The same house can face north in
 one place and south in another, at noon or at dusk, and each copy gets the light from its own
@@ -718,7 +733,8 @@ area, `SpaceFresh` and `ChunkFresh` say which bakes were found (a chunk's only o
 pages are on the GPU), `ChunkPending(i)` says a chunk's fresh bake is still on its way, `ModeOf(key)` gives the mode
 each light was drawn with: the light's own mode, or `Realtime` when it is moving or no fresh
 bake holds it, `DroppedLocalLights`
-and `DroppedSuns` list the lights left to a bake, by their place in the frame's lists, and
+and `DroppedSuns` list the lights left to a bake that has faded all the way in, by their place in the frame's lists,
+`SpaceFade` and `ChunkFade(i)` say how far each bake has faded in, and
 `UnslottedLights` lists the keys of Mixed lights that found no shadow mask slot.
 
 ### Baking in the background
@@ -741,7 +757,7 @@ The renderer doesn't save anything. It hands each finished file to `Done`, on th
 `Render`, with where it goes (`done.File`, the same path `--bake` writes), the area's name, the inputs it was made from
 and its quality. Writing a file there would hold up the frame, so hand the bytes to another thread, as above. `Done`
 must not throw, since an exception passes out of `Render`. Once the store reads the file the area is fresh and drawn
-from its bake. A bake whose area changes while it runs is started over, and one finished from the same inputs and
+from its bake, which [fades in](#with-a-fresh-bake) over `Renderer.BakeFadeSeconds` if the area is on screen. A bake whose area changes while it runs is started over, and one finished from the same inputs and
 quality is never baked again, so a file the store hasn't read yet doesn't loop. An area whose saved bake is fresh but
 at a quality before the last one asked for, such as a Preview saved before the game restarted, still gets the
 qualities after it. `LightBakeStore` reads the quality from the file's header; a store of your own tells it with

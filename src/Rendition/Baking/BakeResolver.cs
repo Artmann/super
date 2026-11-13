@@ -27,6 +27,11 @@ public sealed class BakeResolver
     private readonly Dictionary<string, string> _spaceFiles = [];
     private readonly Dictionary<(string Name, ulong Hash), string> _chunkFiles = [];
 
+    // Each file the frames have gone on naming, by whether it was last drawn live and when its bake arrived. A file
+    // left out of a frame is forgotten, so the next frame that names it is its first.
+    private readonly Dictionary<string, Arrival> _arrivals = new(StringComparer.Ordinal);
+    private int _resolves;
+
     private ulong[] _sunHashes = [];
     private ulong[] _localHashes = [];
     private (LightKey Key, ulong Hash, bool Spot)[] _tracked = [];
@@ -70,6 +75,19 @@ public sealed class BakeResolver
     internal Func<string, BakeInputs, bool>? ChunkResident { get; set; }
 
     /// <summary>
+    /// How long, in seconds of <see cref="FrameView.Time"/>, a bake that arrives while its area is drawn live takes to
+    /// fade in: <see cref="BakeFrame.SpaceFade"/> and <see cref="BakeFrame.ChunkFade"/> rise over it. 0, the default,
+    /// shows every bake at once. The renderer checks the range and sets it from <see cref="Renderer.BakeFadeSeconds"/>.
+    /// </summary>
+    internal float FadeSeconds { get; set; }
+
+    /// <summary>
+    /// Forgets which areas were drawn live, as a frame that names no area does, so the next frame that names one is its
+    /// first and a bake fresh then shows at once. The renderer calls it for a frame it doesn't resolve.
+    /// </summary>
+    internal void ForgetArrivals() => _arrivals.Clear();
+
+    /// <summary>
     /// Hashes each of the frame's baked areas, asks <see cref="Store"/> whether its bake is fresh, and decides how each
     /// light is used. Every Mixed or Baked light is first given to <paramref name="animated"/> with its world-space
     /// hash, and one that is moving is left out of its area's inputs and stays real-time. Realtime lights are never
@@ -95,8 +113,11 @@ public sealed class BakeResolver
         {
             _ownerCount = 0;
             _lightCount = 0;
+            _arrivals.Clear();
             return BakeFrame.None;
         }
+
+        _resolves++;
 
         Grow(ref _owners, draws.Length);
         _ownerCount = draws.Length;
@@ -182,7 +203,9 @@ public sealed class BakeResolver
             // A bake fresh in the store only counts once it is on the GPU; until then the chunk is pending.
             bool stored = IsFresh(file, inputs, animated);
             bool resident = stored && (ChunkResident is not { } isResident || isResident(file, inputs));
-            result.AddChunk(inputs, resident, stored && !resident, file, _chunkIds[c].Count);
+            result.AddChunk(
+                inputs, resident, stored && !resident, file, _chunkIds[c].Count,
+                Arrive(file, resident, stored && !resident, frame.Time));
         }
 
         if (space is { } baked)
@@ -198,10 +221,12 @@ public sealed class BakeResolver
             }
 
             var spaceInputs = SpaceInputs(baked, draws, staticCount, locals, suns, animated, environment);
-            result.SetSpace(spaceInputs, IsFresh(SpaceFile(baked.Name), spaceInputs, animated));
+            string spaceFile = SpaceFile(baked.Name);
+            bool spaceFresh = IsFresh(spaceFile, spaceInputs, animated);
+            result.SetSpace(spaceInputs, spaceFresh, Arrive(spaceFile, spaceFresh, false, frame.Time));
         }
 
-        // A light over a fresh bake keeps its mode, and a Baked one is left to the bake.
+        // A light over a fresh bake keeps its mode, and a Baked one is left to the bake, or dimmed while it fades in.
         for (int i = 0; i < suns.Length; i++)
         {
             var key = new LightKey(true, i);
@@ -210,7 +235,7 @@ public sealed class BakeResolver
                 result.SetMode(key, suns[i].Mode);
                 if (suns[i].Mode == LightMode.Baked)
                 {
-                    result.DropSun(i);
+                    result.DropSun(i, result.SpaceFade);
                 }
             }
         }
@@ -224,12 +249,79 @@ public sealed class BakeResolver
                 result.SetMode(new LightKey(false, locals[i].Key), locals[i].Mode);
                 if (locals[i].Mode == LightMode.Baked)
                 {
-                    result.DropLocalLight(i);
+                    result.DropLocalLight(i, owner == BakeAreas.Space ? result.SpaceFade : result.ChunkFade(owner));
                 }
             }
         }
 
+        // Files this frame didn't name are forgotten. Removing while enumerating is allowed for a Dictionary.
+        foreach (var (file, arrival) in _arrivals)
+        {
+            if (arrival.Frame != _resolves)
+            {
+                _arrivals.Remove(file);
+            }
+        }
+
         return result;
+    }
+
+    // How far the bake in file has faded in this frame, from 0 to 1. A file drawn live, its bake missing or stale,
+    // remembers that; its bake arrives on the first frame it is fresh after that, and fades in over FadeSeconds from
+    // then. A bake fresh on the first frame that names its file never fades, nor does one while it is pending, which
+    // is drawn live but is already saved, as when a level loads. Time going back counts as the fade done. Asking twice
+    // in a frame, as two placed copies of a chunk do, gives the same answer.
+    private float Arrive(string file, bool fresh, bool pending, float time)
+    {
+        ref var arrival = ref CollectionsMarshal.GetValueRefOrAddDefault(_arrivals, file, out bool known);
+        arrival.Frame = _resolves;
+        if (!known)
+        {
+            arrival.Live = !fresh && !pending;
+            return fresh ? 1f : 0f;
+        }
+
+        if (pending)
+        {
+            return 0f;
+        }
+
+        if (!fresh)
+        {
+            arrival.Live = true;
+            arrival.Fading = false;
+            return 0f;
+        }
+
+        if (arrival.Live)
+        {
+            arrival.Live = false;
+            arrival.Fading = true;
+            arrival.At = time;
+        }
+
+        if (!arrival.Fading)
+        {
+            return 1f;
+        }
+
+        float since = time - arrival.At;
+        if (FadeSeconds <= 0f || since < 0f || since >= FadeSeconds)
+        {
+            arrival.Fading = false;
+            return 1f;
+        }
+
+        float t = since / FadeSeconds;
+        return t * t * (3f - 2f * t);
+    }
+
+    private struct Arrival
+    {
+        public int Frame;
+        public bool Live;
+        public bool Fading;
+        public float At;
     }
 
     /// <summary>

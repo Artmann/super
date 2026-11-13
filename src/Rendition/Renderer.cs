@@ -66,7 +66,8 @@ public sealed unsafe class Renderer : IDisposable
         public Vector4 IntoX;
         public Vector4 IntoY;
         public Vector4 IntoZ;
-        // The box in the chunk's space, with its edge blend in Min's w.
+        // The box in the chunk's space, with its edge blend in Min's w and how far its bake has faded in, from 0 to 1, in
+        // Max's w.
         public Vector4 Min;
         public Vector4 Max;
         // For each of the frame's four mask slots, the bake's channel that holds it, or -1 when none does.
@@ -1188,17 +1189,50 @@ public sealed unsafe class Renderer : IDisposable
     } = NoBakes.Instance;
 
     /// <summary>
+    /// How long a bake that arrives while its area is on screen takes to fade in, in seconds of
+    /// <see cref="FrameView.Time"/>. 0 shows it at once. A bake already there on the first frame that names its area
+    /// always shows at once. From 0 to 10. See "With a fresh bake" in docs/rendering.md.
+    /// </summary>
+    public float BakeFadeSeconds
+    {
+        get => _bakeResolver.FadeSeconds;
+        set => _bakeResolver.FadeSeconds = value is >= 0f and <= MaxBakeFadeSeconds
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), string.Create(
+                CultureInfo.InvariantCulture, $"BakeFadeSeconds must be from 0 to {MaxBakeFadeSeconds}, not {value}."));
+    }
+
+    /// <summary>The longest <see cref="BakeFadeSeconds"/> can be.</summary>
+    public const float MaxBakeFadeSeconds = 10f;
+
+    /// <summary>
     /// What the last frame's baked areas came to, or null when it named no baked space or chunk. See "Baked lighting"
     /// in docs/rendering.md.
     /// </summary>
     public BakeFrame? LastBakeFrame { get; private set; }
 
     private readonly AnimatedLights _animatedLights = new(Console.Error);
-    private readonly BakeResolver _bakeResolver = new(NoBakes.Instance);
+    private readonly BakeResolver _bakeResolver = new(NoBakes.Instance) { FadeSeconds = 0.5f };
     private Func<DetailHandle, BakeSphere>? _boundsOf;
     private DirectionalLight[] _bakeKeptSuns = [];
     private LocalLight[] _bakeKeptLights = [];
     private bool _drawingWithoutBakedLights;
+
+    // How far the frame's space bake has faded in, for the frame uniforms: 1 unless one is fading in.
+    private float _spaceFade = 1f;
+
+    // A Baked light while its bake fades in, its radiance scaled by what the bake doesn't give yet.
+    private static readonly Func<DirectionalLight, float, DirectionalLight> DimSun = static (sun, left) =>
+    {
+        sun.Radiance *= left;
+        return sun;
+    };
+
+    private static readonly Func<LocalLight, float, LocalLight> DimLocalLight = static (light, left) =>
+    {
+        light.Radiance *= left;
+        return light;
+    };
 
     // Bakes is asked through this, so a bake that can't be read counts as missing until the store reloads.
     private readonly ReadableBakes _readableBakes = new();
@@ -1545,6 +1579,9 @@ public sealed unsafe class Renderer : IDisposable
             _chunkLightmapsHash = 0;
             _activeBakedProbes = null;
             _relightChunks = false;
+            _spaceFade = 1f;
+            // The next frame that names an area is its first, so a bake fresh then shows at once.
+            _bakeResolver.ForgetArrivals();
             return false;
         }
 
@@ -1583,14 +1620,19 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         LastBakeFrame = bakes;
-        if (bakes.DroppedSuns.Count == 0 && bakes.DroppedLocalLights.Count == 0)
+        _spaceFade = spaceRects is not null || _activeBakedProbes is not null ? bakes.SpaceFade : 1f;
+        if (bakes.DroppedSuns.Count == 0 && bakes.DroppedLocalLights.Count == 0
+            && bakes.FadingSuns.Count == 0 && bakes.FadingLocalLights.Count == 0)
         {
             return false;
         }
 
+        // A Baked light whose bake is still fading in stays, dimmed as the bake comes, so the two always add up.
         lit = view;
-        lit.Lights = BakeFreshness.Without(view.Lights, bakes.DroppedSuns, ref _bakeKeptSuns);
-        lit.LocalLights = BakeFreshness.Without(view.LocalLights, bakes.DroppedLocalLights, ref _bakeKeptLights);
+        lit.Lights = BakeFreshness.Without(
+            view.Lights, bakes.DroppedSuns, bakes.FadingSuns, DimSun, ref _bakeKeptSuns);
+        lit.LocalLights = BakeFreshness.Without(
+            view.LocalLights, bakes.DroppedLocalLights, bakes.FadingLocalLights, DimLocalLight, ref _bakeKeptLights);
         return true;
     }
 
@@ -1661,7 +1703,7 @@ public sealed unsafe class Renderer : IDisposable
                 IntoY = new Vector4(m.M21, m.M22, m.M23, -(t.X * m.M21 + t.Y * m.M22 + t.Z * m.M23)),
                 IntoZ = new Vector4(m.M31, m.M32, m.M33, -(t.X * m.M31 + t.Y * m.M32 + t.Z * m.M33)),
                 Min = new Vector4(chunks[c].Min, chunks[c].EdgeBlend),
-                Max = new Vector4(chunks[c].Max, 0f),
+                Max = new Vector4(chunks[c].Max, bakes.ChunkFade(c)),
                 // No slot reads the mask until FindMaskSlots gives the chunk's lights theirs.
                 Mask0 = -1, Mask1 = -1, Mask2 = -1, Mask3 = -1,
                 SkyRed = transfer[0], SkyGreen = transfer[1], SkyBlue = transfer[2], Sun = transfer[3],
@@ -4873,6 +4915,9 @@ public sealed unsafe class Renderer : IDisposable
             uniforms->BakedSpaceMin = Vector4.Zero;
             uniforms->BakedSpaceMax = Vector4.Zero;
         }
+
+        // How far the space's bake has faded in, which weighs its lightmaps and probes against the live light.
+        uniforms->BakedFade = new Vector4(_spaceFade, 0f, 0f, 0f);
 
         uniforms->CameraPosition = new Vector4(view.CameraPosition, 1f);
         uniforms->BackgroundRadiance = new Vector4(view.BackgroundRadiance, view.EnvironmentIntensity);

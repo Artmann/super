@@ -3397,14 +3397,31 @@ Otherwise it runs in this order:
    when the view has `RenderEffects.BakedLighting` in `Off`.
 6. A light whose area is fresh keeps its mode in `BakeFrame.ModeOf`, and every other light
    reads as Realtime. A fresh area's Baked lights are listed in `DroppedLocalLights` or
-   `DroppedSuns`, by their index in the frame's lists. A fresh chunk never frees the space's
-   lights, and the space's freshness never frees a chunk's.
+   `DroppedSuns`, by their index in the frame's lists, once its bake has faded all the way in
+   (step 7). Until then they are listed in `FadingLocalLights` or `FadingSuns` with the area's
+   fade. A fresh chunk never frees the space's lights, and the space's freshness never frees a
+   chunk's.
+7. Each area's fade comes from `BakeResolver.Arrive`, which keeps an `Arrival` per file name:
+   whether the area was drawn live last frame, and when its bake arrived. The first frame that
+   names a file gives 1 when it is fresh, so a level load or a screenshot never fades. A file that
+   was live (not fresh, and not a chunk whose fresh bake is still pending in the pool) and is
+   fresh now starts a fade at `FrameView.Time`, which runs `smoothstep(0, FadeSeconds, Time - At)`
+   and ends at 1. A pending chunk gives 0 without counting as live, so a saved bake that only has
+   to reach the GPU shows at once. Time that goes back, or `FadeSeconds` of 0, ends the fade. A
+   file no frame named is pruned at the end of `Resolve`, so the next frame that names it is its
+   first again, and a frame with no area clears them all (`ForgetArrivals`). `BakeFrame.SpaceFade`
+   and `ChunkFade(i)` give the result, 0 for a stale area. `Renderer.BakeFadeSeconds` sets
+   `FadeSeconds`, 0.5 by default, and the GPU fixture sets it to 0 so other tests see a bake at
+   once.
 
 When something was dropped, `Render` draws a copy of the frame view whose `Lights` and
 `LocalLights` leave those lights out, by calling itself once more with a flag set so the second
 pass doesn't resolve again. `BakeFreshness.Without` copies the kept lights into an array the
 renderer keeps, grown only when a frame has more lights, and returns the frame's own span
-untouched when nothing is dropped. With no fresh bake nothing is dropped, so frames look
+untouched when nothing is dropped. Its overload with a fading list and a `dim` function also
+keeps each fading light, with `Radiance` scaled by 1 − fade, so the live light hands over to
+the bake as it comes in and the area never goes darker than either end. Probes and reflections
+captured on such a frame see the scaled light too. With no fresh bake nothing is dropped, so frames look
 exactly as they would without baked areas, to the byte (`NoBakeGpuTests`). A fresh space's
 lightmaps take a dropped light's place; see "Drawing a bake". So do a relit chunk's, once its
 pages are resident in the pool; see "Chunk bakes on the GPU" and "Relighting a chunk".
@@ -3600,7 +3617,10 @@ texture indices. `ResolveBakes` sets `_activeBakedProbes` while the space is fre
 means `BakedLighting` is on, and clears it otherwise. The frame uniforms then carry the grid in
 `bakedProbeMin` and `bakedProbeCounts` (w is 1 while they are drawn), and the box in
 `bakedSpaceMin` and `bakedSpaceMax`, whose w components hold the irradiance and depth atlases'
-indices. They are all 0 with no fresh bake. The bake's atlases are read through the material
+indices. They are all 0 with no fresh bake. `bakedFade.x` holds the space's fade from
+`BakeFrame.SpaceFade` while its lightmaps or probes are drawn, and 1 otherwise; `bakedProbeWeight`
+multiplies by it, and so does the alpha `writeBaked` gives a space's lightmapped pixel, so a
+space's bake fades in as a whole (see "Each frame's bakes"). The bake's atlases are read through the material
 table (set 2 binding 0, which the lighting pass binds for the materials) rather than new lighting
 set bindings, because the lighting set is written once for every frame in flight, and a bake
 loaded or dropped would have to rewrite it while a frame still reads it.
@@ -3860,7 +3880,7 @@ matching `GpuChunk` in `Renderer.cs`:
 - `intoChunk`, a `mat3x4`: from the world into the chunk's space, the transpose of the rigid transform's 3x3 with
   `-dot(t, row)` in w, so `vec4(world, 1) * intoChunk` is the point and `vec4(direction, 0) * intoChunk` the direction.
 - `min` and `max`, the chunk's box in its own space. `min.w` is the chunk's `EdgeBlend` in metres (see
-  [Edge bands](#edge-bands)).
+  [Edge bands](#edge-bands)), and `max.w` how far its bake has faded in, from 0 to 1.
 - `maskSlots`: for each frame mask slot, the channel of the chunk bake's mask that holds it, or -1 where none of this
   copy's lights holds the slot.
 - `transfer`, the bindless slots of the sky's red, green and blue transfer pages and the sun's, and `pages`: `x` the
@@ -3919,7 +3939,7 @@ A chunk's band runs `EdgeBlend` metres (0.5 by default, `BakedChunk.DefaultEdgeB
 sides; the top and bottom have none, since floors and roofs don't meet the world there. `surface.glsl`'s
 `chunkEdgeWeight` takes the pixel's chunk-space position (location 9), the distance to the nearest of the four sides,
 and `smoothstep(0, EdgeBlend, distance)`; `EdgeBlend` 0 gives 1 everywhere. `writeBaked` puts it in `outBaked.a`,
-leaving the rgb unweighted. A space's lightmap and every pixel of a chunk with no relight write exactly 1, and a pixel
+leaving the rgb unweighted. A space's lightmap and every pixel of a chunk with no relight write exactly 1 once their bake has faded in, and a pixel
 with no lightmap 0. `lighting.frag` treats `a > 0` as lightmapped. At 1 it takes the baked rule alone, with the same
 code as before the band, so a space-lightmapped pixel is drawn bit for bit as without it; so is an unlightmapped one,
 unless it is inside a space's probe band, below, whose blend changes its soft light. In between
@@ -3927,6 +3947,9 @@ it takes `mix(softLight, baked.rgb, a)` for the diffuse light, mixes the live am
 `a`, and `maskedVisibility` moves the mask's visibility towards the live shadow's by the same weight: a shadowed
 light takes `min(mix(1, mask, a), live)`, an unshadowed one `mix(live, mask, a)`. The weight is per pixel, so a light
 is counted once across the band, never by both sides (`EdgeBandGpuTests.Edge_band_keeps_a_light_counted_once`).
+A bake fading in uses the same blend: `writeBaked` multiplies a chunk pixel's weight by the chunk's fade, which
+`FindRelitChunks` puts in `ChunkData.max.w` from `BakeFrame.ChunkFade`, and a space's lightmapped pixel writes
+`frame.bakedFade.x` instead of 1. So a fade at 1 draws bit for bit as before, and one at 0 as live.
 `BakeFiles.CheckEdgeBlend` throws for a negative or NaN blend, or one over half the box's smaller side across x and
 z, where opposite bands would overlap.
 
@@ -3934,7 +3957,8 @@ A space's probe band runs one `probeSpacing` in from all six faces of its box. `
 the three axes' `smoothstep(0, spacing, distance in from the nearer face)`, and `softLight` returns
 `mix(liveSoftLight, bakedProbeIrradiance, weight)`; where the bake's probes give -1 the weight is 0, and at 1 the
 bake's probes are returned alone. `frame.bakedProbeCounts.w` is 1 for the band, 0 with no fresh space bake, and 2
-for a hard box, which only `Renderer.BakedProbeBand`, an internal test hook, asks for. The space's lightmap has no
+for a hard box, which only `Renderer.BakedProbeBand`, an internal test hook, asks for. Either way the weight is then
+multiplied by `frame.bakedFade.x`, the space's fade. The space's lightmap has no
 band, as the space's static surfaces end inside its box.
 
 Both bands are a smoothstep over a fixed width W, whose steepest slope is 1.5 / W, so across a gap D between the two

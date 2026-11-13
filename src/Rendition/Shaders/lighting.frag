@@ -118,7 +118,8 @@ float specularOcclusion(float nDotV, float ao, float roughness) {
 // How much a point takes the baked space's probes over the live light, while the frame draws its fresh bake's probes: 1
 // deep inside the box, falling to 0 at its faces over one probe spacing in from each, the product of each axis's
 // smoothstep, and 0 outside the box or with no bake. A moving thing that crosses the box then blends from one light into
-// the other with no jump. With the band off for a test (w 2), 1 anywhere in the box.
+// the other with no jump. With the band off for a test (w 2), 1 anywhere in the box. Either way it is scaled by how far
+// the bake has faded in (frame.bakedFade.x), so a bake that arrives on screen fades in instead of popping.
 float bakedProbeWeight(vec3 position) {
     if (frame.bakedProbeCounts.w < 0.5) {
         return 0.0;
@@ -130,11 +131,11 @@ float bakedProbeWeight(vec3 position) {
     }
 
     if (frame.bakedProbeCounts.w > 1.5) {
-        return 1.0;
+        return frame.bakedFade.x;
     }
 
     vec3 band = smoothstep(vec3(0.0), vec3(frame.bakedProbeMin.w), inside);
-    return band.x * band.y * band.z;
+    return band.x * band.y * band.z * frame.bakedFade.x;
 }
 
 // The soft light from the live frame: the live light probes, as probeIrradiance orders them, the view's fixed grid,

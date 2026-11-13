@@ -410,8 +410,10 @@ float foliageChannel(Material material) {
 // plain light has no irradiance or direction page, and its d is the transfer's own lean towards the sky that lights it.
 // See "Chunk transfer" in docs/design.md.
 //
-// Alpha is how much of the pixel the bake lights: exactly 1 for a space's lightmap, and chunkEdgeWeight for a chunk's,
-// which falls to 0 at its sides. The light itself is never weighted; the lighting blends it with the live light.
+// Alpha is how much of the pixel the bake lights: for a space's lightmap, how far its bake has faded in
+// (frame.bakedFade.x), which is 1 once it is all there; for a chunk's, chunkEdgeWeight, which falls to 0 at its sides,
+// times how far the chunk's bake has faded in (its max.w). The light itself is never weighted; the lighting blends it
+// with the live light, so a bake that arrives on screen fades in instead of popping.
 const float LIGHTMAP_PI = 3.14159265359;
 const float LIGHTMAP_LEAST_SHARE = 0.5;
 const vec3 LIGHTMAP_LUMINANCE = vec3(0.2126, 0.7152, 0.0722);
@@ -512,7 +514,8 @@ void writeBaked(vec3 normal) {
     }
 
     float turned = (dot(normal, d) * 0.5 + 0.5) / max(LIGHTMAP_LEAST_SHARE, dot(vertexNormal, d) * 0.5 + 0.5);
-    outBaked = vec4(irradiance / LIGHTMAP_PI * turned, chunk >= 0 ? chunkEdgeWeight(chunk) : 1.0);
+    outBaked = vec4(irradiance / LIGHTMAP_PI * turned,
+        chunk >= 0 ? chunkEdgeWeight(chunk) * chunkData.chunks[chunk].max.w : frame.bakedFade.x);
     outShadowMask = chunk >= 0
         ? frameMaskSlots(chunkData.chunks[chunk].pages.y, chunkData.chunks[chunk].maskSlots)
         : frameMaskSlots(inLightmap.z, chunkData.spaceSlots);

@@ -178,6 +178,9 @@ internal struct FrameUniforms
     /// <summary>xyz: the box's far corner; w: the bake's depth atlas's slot in the material table.</summary>
     public Vector4 BakedSpaceMax;
 
+    /// <summary>x: how far the baked space's bake has faded in, from 0 to 1, which scales its lightmaps' and probes' weight; 1 when none is fading in.</summary>
+    public Vector4 BakedFade;
+
     public int LightCount;
     public float Time;
     public int FrameNumber;

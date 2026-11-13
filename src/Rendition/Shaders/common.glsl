@@ -51,6 +51,7 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 bakedProbeCounts;   // xyz: the bake's probes along each axis; w: 1 while they light the baked space, banded at its faces, 2 cut off hard (tests only), 0 when not
     vec4 bakedSpaceMin;      // xyz: the baked space's box, where its probes are read; w: the irradiance atlas's slot in the material table
     vec4 bakedSpaceMax;      // xyz: the box's far corner; w: the depth atlas's slot
+    vec4 bakedFade;          // x: how far the baked space's bake has faded in, from 0 to 1, for its lightmaps and probes; 1 when none is fading
     int lightCount;
     float time;              // Seconds, as set by the game.
     int frameNumber;

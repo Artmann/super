@@ -74,6 +74,9 @@ public sealed class BakeFrame
     private readonly List<int> _chunkDraws = [];
     private readonly List<int> _droppedLocalLights = [];
     private readonly List<int> _droppedSuns = [];
+    private readonly List<float> _chunkFade = [];
+    private readonly List<(int Index, float Fade)> _fadingLocalLights = [];
+    private readonly List<(int Index, float Fade)> _fadingSuns = [];
     private readonly List<int> _unslottedLights = [];
 
     internal BakeFrame()
@@ -104,15 +107,42 @@ public sealed class BakeFrame
     public bool ChunkPending(int chunk) => _chunkPending[chunk];
 
     /// <summary>
+    /// How far the space's bake has faded in, from 0 to 1: 1 once it is all there, and 0 for a space that isn't
+    /// <see cref="SpaceFresh"/> or that names no space. A bake that arrives while its space is drawn live, such as one
+    /// saved by a background bake, fades in over <see cref="Renderer.BakeFadeSeconds"/>; one fresh on the first frame
+    /// that names the space is 1 at once.
+    /// </summary>
+    public float SpaceFade { get; private set; }
+
+    /// <summary>
+    /// How far chunk <paramref name="chunk"/>'s bake has faded in, from 0 to 1, as <see cref="SpaceFade"/> is for the
+    /// space: 0 for a chunk that isn't <see cref="ChunkFresh"/>.
+    /// </summary>
+    public float ChunkFade(int chunk) => _chunkFade[chunk];
+
+    // The Baked lights over a fresh bake that is still fading in, with how far it has faded: the frame keeps them,
+    // their radiance scaled by 1 minus that, instead of dropping them, so the area never goes darker than either end.
+    internal IReadOnlyList<(int Index, float Fade)> FadingLocalLights => _fadingLocalLights;
+
+    internal IReadOnlyList<(int Index, float Fade)> FadingSuns => _fadingSuns;
+
+    /// <summary>
     /// How the light is used this frame: its own mode when the area that owns it has a fresh bake and it isn't
     /// moving, and <see cref="LightMode.Realtime"/> otherwise, as for a light this frame doesn't have.
     /// </summary>
     public LightMode ModeOf(LightKey key) => _modes.TryGetValue(key, out var mode) ? mode : LightMode.Realtime;
 
-    /// <summary>The indices, ascending, of the frame's point and spot lights that are Baked and over a fresh bake.</summary>
+    /// <summary>
+    /// The indices, ascending, of the frame's point and spot lights that are Baked and over a fresh bake that has
+    /// faded all the way in. One whose bake is still fading in stays in the frame, dimmed, though its
+    /// <see cref="ModeOf"/> is already Baked.
+    /// </summary>
     public IReadOnlyList<int> DroppedLocalLights => _droppedLocalLights;
 
-    /// <summary>The indices, ascending, of the frame's suns that are Baked and over a fresh space bake.</summary>
+    /// <summary>
+    /// The indices, ascending, of the frame's suns that are Baked and over a fresh space bake that has faded all the
+    /// way in.
+    /// </summary>
     public IReadOnlyList<int> DroppedSuns => _droppedSuns;
 
     /// <summary>
@@ -142,37 +172,64 @@ public sealed class BakeFrame
     {
         Space = null;
         SpaceFresh = false;
+        SpaceFade = 0f;
         _chunks.Clear();
         _chunkFresh.Clear();
         _chunkPending.Clear();
         _chunkFiles.Clear();
         _chunkDraws.Clear();
+        _chunkFade.Clear();
         _modes.Clear();
         _droppedLocalLights.Clear();
         _droppedSuns.Clear();
+        _fadingLocalLights.Clear();
+        _fadingSuns.Clear();
         _unslottedLights.Clear();
     }
 
-    internal void SetSpace(BakeInputs inputs, bool fresh)
+    internal void SetSpace(BakeInputs inputs, bool fresh, float fade)
     {
         Space = inputs;
         SpaceFresh = fresh;
+        SpaceFade = fresh ? fade : 0f;
     }
 
-    internal void AddChunk(BakeInputs inputs, bool fresh, bool pending, string file, int staticDraws)
+    internal void AddChunk(BakeInputs inputs, bool fresh, bool pending, string file, int staticDraws, float fade)
     {
         _chunks.Add(inputs);
         _chunkFresh.Add(fresh);
         _chunkPending.Add(pending);
         _chunkFiles.Add(file);
         _chunkDraws.Add(staticDraws);
+        _chunkFade.Add(fresh ? fade : 0f);
     }
 
     internal void SetMode(LightKey key, LightMode mode) => _modes[key] = mode;
 
-    internal void DropLocalLight(int index) => _droppedLocalLights.Add(index);
+    // A Baked light over a fresh bake: dropped once the bake is all there, kept dimmed while it fades in.
+    internal void DropLocalLight(int index, float fade)
+    {
+        if (fade >= 1f)
+        {
+            _droppedLocalLights.Add(index);
+        }
+        else
+        {
+            _fadingLocalLights.Add((index, fade));
+        }
+    }
 
-    internal void DropSun(int index) => _droppedSuns.Add(index);
+    internal void DropSun(int index, float fade)
+    {
+        if (fade >= 1f)
+        {
+            _droppedSuns.Add(index);
+        }
+        else
+        {
+            _fadingSuns.Add((index, fade));
+        }
+    }
 }
 
 /// <summary>
@@ -223,6 +280,49 @@ public static class BakeFreshness
             }
 
             buffer[kept++] = items[i];
+        }
+
+        return buffer.AsSpan(0, kept);
+    }
+
+    /// <summary>
+    /// <paramref name="items"/> without the ones at <paramref name="dropped"/>, as the other overload, and with each one
+    /// at <paramref name="fading"/> (ascending indices) given to <paramref name="dim"/> with 1 minus its fade, so a Baked
+    /// light whose bake is fading in gives way to it as it comes. With nothing fading it is the other overload.
+    /// </summary>
+    internal static ReadOnlySpan<T> Without<T>(
+        ReadOnlySpan<T> items, IReadOnlyList<int> dropped, IReadOnlyList<(int Index, float Fade)> fading,
+        Func<T, float, T> dim, ref T[] buffer)
+    {
+        if (fading.Count == 0)
+        {
+            return Without(items, dropped, ref buffer);
+        }
+
+        if (buffer.Length < items.Length)
+        {
+            buffer = new T[items.Length];
+        }
+
+        int kept = 0;
+        int nextDropped = 0;
+        int nextFading = 0;
+        for (int i = 0; i < items.Length; i++)
+        {
+            if (nextDropped < dropped.Count && dropped[nextDropped] == i)
+            {
+                nextDropped++;
+                continue;
+            }
+
+            var item = items[i];
+            if (nextFading < fading.Count && fading[nextFading].Index == i)
+            {
+                item = dim(item, 1f - fading[nextFading].Fade);
+                nextFading++;
+            }
+
+            buffer[kept++] = item;
         }
 
         return buffer.AsSpan(0, kept);

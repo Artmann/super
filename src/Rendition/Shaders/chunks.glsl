@@ -11,7 +11,7 @@ struct ChunkData {
     // vec4(direction, 0) * intoChunk a direction. A chunk only turns and moves, so this is a rotation and a move.
     mat3x4 intoChunk;
     vec4 min;          // xyz: the chunk's box in its own space; w: its edge blend in metres, 0 for a hard edge
-    vec4 max;
+    vec4 max;          // xyz: the box's far corner; w: how far the chunk's bake has faded in, from 0 to 1
     ivec4 maskSlots;   // for each of the frame's four mask slots, the channel of the bake's mask that holds it, or -1
     ivec4 transfer;    // bindless slots of the sky's red, green and blue transfer pages, then the sun's
     ivec4 pages;       // x: the bindless slot of the sun transfer's tint page; y: the shadow mask page's, or -1
