@@ -427,7 +427,9 @@ gets `lighting/crypt.lightbake`. A chunk named with `view.BakedChunk("house-gard
 one file for each version of its contents, named by the 16 hex digits of their hash, such as
 `lighting/house-garden/00000000000000ab.lightbake`. `BakeFiles.Space` and `BakeFiles.Chunk`
 give these names. `Renderer.Bake` makes a space's bytes, and
-[`--bake`](command-line.md#baking-lighting) writes them to this folder.
+[`--bake`](command-line.md#baking-lighting) writes them to this folder. A game played from source also writes a
+space's bake here by itself when it is missing or stale; see
+[Baking without a build step](rendering.md#baking-without-a-build-step).
 
 The game reads its bakes from the cooked content, like any other asset, so a bake shows up
 after the build that cooks it. Each file's header is read the first time a frame asks for it
@@ -435,8 +437,8 @@ and kept, and when the content [reloads while the game runs](#change-it-while-th
 every bake is read again, so a bake made with `--bake` shows up once it is cooked. A bake that is missing, stale or damaged leaves its area lit live; see
 [Without a bake](rendering.md#without-a-bake) for what is reported.
 
-A chunk's bake made on the machine playing the game, rather than cooked in the build, is kept in a
-cache in the game's local app data (`Bakes` under the game's folder there), not in the content. It
+A chunk's bake made on the machine playing the game, rather than cooked in the build, as the game
+[bakes while it runs](rendering.md#baking-without-a-build-step), is kept in a cache in the game's local app data (`Bakes` under the game's folder there), not in the content. It
 holds `.lightbake` files under the same names as above, and the game reads one of those only when the
 cooked content has none of that name. The cache is capped at 512 MB, and the bakes read least recently
 are deleted first. Deleting the folder is always safe: those chunks are lit live until they are baked

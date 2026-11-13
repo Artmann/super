@@ -68,6 +68,9 @@ internal sealed class SceneRenderer : IDisposable
         _renderer = new Renderer(options);
         Bakes = new LightBakeStore(ReadBake, Console.Error);
         _renderer.Bakes = Bakes;
+
+        // Shots, recordings and profiles show each bake whole from the first frame; play in a window fades them in.
+        _renderer.BakeFadeSeconds = 0f;
         // White, so a draw's color comes out exactly as asked. CubeColor greys the rest.
         _defaultMaterial = _renderer.CreateMaterial(CreateMaterial(Vector3.One));
         _items = new ContentLoader<Loaded>(
@@ -189,6 +192,7 @@ internal sealed class SceneRenderer : IDisposable
         var frame = CreateFrame(view, width, height, time);
         CaptureReflectionProbes(view, frame, _draws.AsSpan(0, count));
         _renderer.Render(frame, _draws.AsSpan(0, count));
+        SayWhyNotBaking(view);
     }
 
     public byte[] Capture(View view, Content content, int width, int height, float time, out int capturedWidth, out int capturedHeight)
@@ -238,6 +242,92 @@ internal sealed class SceneRenderer : IDisposable
     /// reads cooked content only. Read and written where the bake files are, never in a frame's own work.
     /// </summary>
     internal BakeCache? BakeCache { get; set; }
+
+    /// <summary>
+    /// How long a bake that arrives on screen takes to fade in. 0, from the start, so shots, recordings and profiles
+    /// show each bake whole; play in a window sets it. See <see cref="Renderer.BakeFadeSeconds"/>.
+    /// </summary>
+    public float BakeFadeSeconds
+    {
+        get => _renderer.BakeFadeSeconds;
+        set => _renderer.BakeFadeSeconds = value;
+    }
+
+    /// <summary>What the renderer bakes by itself. See <see cref="Renderer.AutoBake"/>.</summary>
+    internal AutoBake? AutoBake => _renderer.AutoBake;
+
+    /// <summary>How the background bake is getting on. See <see cref="Renderer.BakeProgress"/>.</summary>
+    public BakeProgress? BakeProgress => _renderer.BakeProgress;
+
+    /// <summary>
+    /// Bakes what <paramref name="plan"/> says in the background, or nothing when it is null. A space's bake is written
+    /// into the plan's folder and a chunk's into <see cref="BakeCache"/>; see <see cref="BakeSaver"/>. Setting it stops
+    /// the bake that runs and waits for the GPU the first time, so call it between frames.
+    /// </summary>
+    internal void BakeOnArrival(AutoBakePlan? plan)
+    {
+        if (plan is null)
+        {
+            _renderer.AutoBake = null;
+            return;
+        }
+
+        // One saver while the folder and cache stay, so bakes are kept in the order they finished across changes.
+        if (_saver is null || _saver.SpaceFolder != plan.SpaceFolder || _saver.Cache != BakeCache)
+        {
+            _saver?.Wait(TimeSpan.FromSeconds(10));
+            _saver = new BakeSaver(plan.SpaceFolder, BakeCache, _written.Enqueue, Console.Out, Console.Error);
+        }
+
+        _renderer.AutoBake = new AutoBake(plan.Budget, plan.Spaces, plan.Qualities, _saver.Done);
+    }
+
+    /// <summary>
+    /// Set when the game would bake from source but the GPU can't trace, so the first area that wants a bake says once,
+    /// on the error stream, why it isn't baked.
+    /// </summary>
+    internal bool SaysWhyNotBaking { get; set; }
+
+    // The chunk files written to the cache on the thread pool, for the render thread to forget the bakes it holds.
+    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _written = new();
+    private BakeSaver? _saver;
+    private bool _saidWhyNotBaking;
+
+    // Says, once, why the first area the last frame wanted a bake for isn't baked.
+    private void SayWhyNotBaking(View view)
+    {
+        if (!SaysWhyNotBaking || _saidWhyNotBaking || Off.HasFlag(RenderEffects.BakedLighting)
+            || LastBakeFrame is not { } bakes)
+        {
+            return;
+        }
+
+        string? wanted = null;
+        if (view.BakedSpace is { } space && bakes.Space is not null && !bakes.SpaceFresh)
+        {
+            wanted = space.Name;
+        }
+        else
+        {
+            var chunks = view.PlacedBakedChunks;
+            for (int i = 0; i < bakes.Chunks.Count && i < chunks.Length; i++)
+            {
+                if (!bakes.ChunkFresh[i] && !bakes.ChunkPending(i))
+                {
+                    wanted = chunks[i].Name;
+                    break;
+                }
+            }
+        }
+
+        if (wanted is null)
+        {
+            return;
+        }
+
+        _saidWhyNotBaking = true;
+        Console.Error.WriteLine($"Not baking {wanted}: {NoTraceReason}");
+    }
 
     // A bake is cooked as data under its own name, so anything else of that name isn't one. Failing that, the cache
     // of bakes made on this machine may have it.
@@ -323,7 +413,13 @@ internal sealed class SceneRenderer : IDisposable
         return costs;
     }
 
-    public void Dispose() => _renderer.Dispose();
+    public void Dispose()
+    {
+        _renderer.Dispose();
+
+        // A bake still being written would leave a temp file in the sources if the process ended under it.
+        _saver?.Wait(TimeSpan.FromSeconds(10));
+    }
 
     private static Material CreateMaterial(Vector3 color) => new()
     {
@@ -482,6 +578,12 @@ internal sealed class SceneRenderer : IDisposable
         {
             Bakes.Forget();
             _filesReloads = content.Reloads;
+        }
+
+        // A chunk baked in the background is in the cache now, so the bake held for its file is read again.
+        while (_written.TryDequeue(out string? file))
+        {
+            Bakes.Forget(file);
         }
 
         // Set before anything new starts preparing, since models are read through it on background threads.

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Rendition;
 
 namespace Super;
@@ -193,6 +194,29 @@ public sealed class Graphics
     /// <see cref="Fastest"/> leaves it on.
     /// </summary>
     public bool BakedLighting { get; set; } = true;
+
+    /// <summary>
+    /// Bakes missing lighting as it appears, where the GPU can trace. From source: spaces and chunks, Preview then
+    /// Final. Published: chunks only, Preview. Only play in a window bakes this way; screenshots, recordings, profiles
+    /// and <c>--bake</c> never do. See "Baking without a build step" in docs/rendering.md.
+    /// </summary>
+    public bool BakeOnArrival { get; set; } = true;
+
+    /// <summary>
+    /// GPU milliseconds a frame for background bakes, from 0.5 to 33. Null: 4 from source, 2 in a published game. More
+    /// finishes a bake sooner and costs frame rate while it runs.
+    /// </summary>
+    public float? BakeBudget
+    {
+        get;
+        set => field = value is null or (>= MinBakeBudget and <= MaxBakeBudget)
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), string.Create(CultureInfo.InvariantCulture,
+                $"BakeBudget must be from {MinBakeBudget} to {MaxBakeBudget} milliseconds, not {value}. Use null for the default."));
+    }
+
+    private const float MinBakeBudget = 0.5f;
+    private const float MaxBakeBudget = 33f;
 
     /// <summary>
     /// What the frame shows: the lit scene, the default, or a look inside the renderer such as

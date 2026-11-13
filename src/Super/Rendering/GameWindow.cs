@@ -142,6 +142,12 @@ internal sealed unsafe class GameWindow : IDisposable
         host.Content.Streaming = true;
         host.Content.GoLive();
 
+        // Only here is missing lighting baked as it appears, and only here does a bake that arrives fade in.
+        _scene.BakeFadeSeconds = PlayBakeFadeSeconds;
+        _bakesOnArrival = true;
+        host.ShowsBakes = true;
+        ApplyAutoBake(host);
+
         var limiter = new FrameLimiter(TimeProvider.System);
         IDisposable? fineSleep = null;
         try
@@ -186,8 +192,57 @@ internal sealed unsafe class GameWindow : IDisposable
         }
 
         ApplyMouseCapture(host.Input);
+        host.BakeProgress = _scene.BakeProgress;
         Draw(host, clock.Blend);
+        ApplyAutoBake(host);
         Show(host, (float)played);
+    }
+
+    /// <summary>How long a bake that arrives on screen fades in during play.</summary>
+    internal const float PlayBakeFadeSeconds = 0.5f;
+
+    /// <summary>
+    /// The chunk bakes made on this machine, which play reads and writes. Set before <see cref="Run"/>; other runs read
+    /// only cooked bakes.
+    /// </summary>
+    internal BakeCache? BakeCache
+    {
+        set => _scene.BakeCache = value;
+    }
+
+    private bool _bakesOnArrival;
+    private (bool On, float? Budget)? _autoBakeApplied;
+
+    private static DevSettings? DevOf<TGame>(GameHost<TGame> host)
+        where TGame : class, IGame =>
+        host.Content.Files is CookedFolder { Dev: { Roots.Length: > 0 } dev } ? dev : null;
+
+    /// <summary>
+    /// Hands the renderer what to bake by itself, from <see cref="Graphics.BakeOnArrival"/> and
+    /// <see cref="Graphics.BakeBudget"/>, the first time and whenever either changes. Unchanged, the renderer keeps the
+    /// same <see cref="Rendition.AutoBake"/>, since a new one would start its queue again. Called between frames, as
+    /// setting it waits for the GPU the first time.
+    /// </summary>
+    private void ApplyAutoBake<TGame>(GameHost<TGame> host)
+        where TGame : class, IGame
+    {
+        if (!_bakesOnArrival)
+        {
+            return;
+        }
+
+        var wanted = (host.Graphics.BakeOnArrival, host.Graphics.BakeBudget);
+        if (_autoBakeApplied == wanted)
+        {
+            return;
+        }
+
+        _autoBakeApplied = wanted;
+        var dev = DevOf(host);
+        _scene.BakeOnArrival(AutoBakePolicy.For(dev, CanTrace, host.Graphics));
+
+        // From source, a GPU that can't trace says once why the lighting stays live; a player isn't told.
+        _scene.SaysWhyNotBaking = host.Graphics.BakeOnArrival && !CanTrace && dev is not null;
     }
 
     /// <summary>

@@ -122,6 +122,12 @@ internal sealed class GameHost<TGame> : IDisposable
     /// <summary>How the game is drawn. Changes show from the next frame.</summary>
     public Graphics Graphics { get; }
 
+    /// <summary>Whether the interface shows what bakes in the background, over the game's own. Only play does.</summary>
+    internal bool ShowsBakes { get; set; }
+
+    /// <summary>How the background bake is getting on, as the renderer last said, or null when nothing bakes.</summary>
+    internal Rendition.BakeProgress? BakeProgress { get; set; }
+
     public View View { get; } = new();
 
     public UiTree Ui { get; } = new();
@@ -301,8 +307,15 @@ internal sealed class GameHost<TGame> : IDisposable
         _changes.Open = true;
     }
 
-    /// <summary>While stopped by Update, the world is still drawn, with the error in place of the game's interface.</summary>
-    private UiView? Interface() => Stopped is { } error ? StoppedPanel.For(error) : ((IGame)Game).Ui;
+    /// <summary>
+    /// While stopped by Update, the world is still drawn, with the error in place of the game's interface. In play, the
+    /// line saying what bakes in the background goes over either.
+    /// </summary>
+    private UiView? Interface()
+    {
+        var ui = Stopped is { } error ? StoppedPanel.For(error) : ((IGame)Game).Ui;
+        return ShowsBakes ? BakeOverlay.Over(ui, BakeProgress) : ui;
+    }
 
     /// <summary>A frame without any of the game's code, for when Draw or Ui is what broke.</summary>
     private void DrawStopped(float blend)

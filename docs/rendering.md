@@ -83,6 +83,8 @@ next frame follows, so it can back an options menu.
 | `Puddles` | Every surface is dry, whatever level `view.Puddles` sets: no water and no damp band. It saves a few noise lookups on each wet pixel. See [puddles](#puddles) |
 | `Wind` | Grass, leaves and anything else flagged for the [wind](#wind) stand still, whatever `view.Wind` sets, and so do their shadows |
 | `BakedLighting` | Every bake is ignored, so each [baked area](#baked-lighting) is lit live, as if it had never been baked: lights its bake holds are drawn again. It shows what a bake changes. A bake costs less than the live light it stands in for, so `Graphics.Fastest()` leaves it on |
+| `BakeOnArrival` | Areas with no bake, or a stale one, stay lit live instead of [baking as the game runs](#baking-without-a-build-step), and a running bake stops |
+| `BakeBudget` | Not a switch: the GPU milliseconds a [background bake](#baking-without-a-build-step) may take a frame, from 0.5 to 33. Null, the default, gives 4 from source and 2 in a published game |
 | `Materials` | Every surface is the same light grey, matte clay, shaped only by its mesh, so you can judge the lighting and the models without textures in the way. Glows still glow, cut-outs still cut, glass stays see-through and puddles still wet the clay. `--no-materials` turns it off too |
 | `WearAndDirt` | Models' materials show only their own colour and shine, without the pale worn edges and dark hollows their [baked masks](#wear-and-dirt) lay on, and the masks aren't read |
 
@@ -772,6 +774,43 @@ time of the last slice. Set `AutoBake` outside a frame, since the first
 one prepares baking, which waits for the GPU. On a GPU that can't trace rays it does nothing, and a GPU that traces but
 can't bake says so once and bakes nothing. A whole `Bake` or `BakeChunk` stops the running background bake, which
 starts again on a later frame, and so does destroying a mesh, material or texture it uses. Null, the default, bakes nothing.
+
+### Baking without a build step
+
+A Super game sets `AutoBake` itself while it is played, so a baked space or chunk with no bake, or a stale one, is
+baked as the game runs and nobody has to run `--bake` first. Where each bake goes depends on how the game runs:
+
+- From source (`dotnet run`, with `content.dev.json` naming the content roots), spaces and chunks are both baked, first
+  at `Preview` and then at `Final`. A space's bake is written into the first content root as
+  `lighting/<name>.lightbake`, the file `--bake` writes, so the watch cook picks it up, the game reloads it, and it is
+  there to commit. A chunk's goes to the bake cache below.
+- Published, only chunks are baked, at `Preview` only, into the bake cache. A published game can't write its content,
+  so a space whose bake is missing or stale stays lit live. That is what [`--bake-check`](command-line.md#baking-lighting)
+  is for: run it before shipping.
+
+Each bake kept prints one line, such as
+`Baked gallery (Preview) in 29.5 s: C:\Code\MyGame\content\lighting\gallery.lightbake`, and one that can't be written
+prints why, once, and the area stays lit live. While an area bakes, a line in the bottom-left corner over the game's
+interface says `Baking cottage, 42%`, with `(3 more)` when other areas wait, or `Waiting to bake 2 areas` before one
+starts. It goes when nothing is left. The game's own interface keeps its state as the line comes and goes.
+
+`Graphics.BakeOnArrival`, on by default, switches this off; turning it off stops a running bake. `Graphics.BakeBudget`
+is the GPU time a slice may take a frame, in milliseconds: null, the default, gives 4 from source and 2 published,
+and anything from 0.5 to 33 sets it. Anything else is refused, saying the range. A change shows from the next frame, and starts a running bake over.
+
+The chunk bakes made on the player's machine go in a cache in the game's local app data, not the roaming folder:
+`%LOCALAPPDATA%\<id>\Bakes` on Windows, `~/Library/Caches/<id>/Bakes` on macOS and `$XDG_CACHE_HOME/<id>/bakes` or
+`~/.cache/<id>/bakes` on Linux, where `<id>` is `GameOptions.Id` or the one made from the title. It is capped at
+512 MB, deleting the bakes used longest ago first, and a cooked bake of the same name always wins. Deleting the folder
+is safe: those chunks are baked again. So a chunk layout seen once is baked once, and loads lit the next time the game
+runs.
+
+A new bake [fades in](#with-a-fresh-bake) over half a second in play. Screenshots, recordings, profiles, `--bake` and
+`--bake-check` never bake by themselves, don't read the cache and show each bake whole, so they draw only cooked
+bakes, the same on every machine.
+
+On a GPU that can't trace rays nothing bakes. A game run from source then says once why, the first time a frame has an
+area left unbaked, such as `Not baking gallery: no VK_KHR_ray_query`. A published game says nothing.
 
 ## Reflections
 

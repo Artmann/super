@@ -3414,7 +3414,9 @@ Otherwise it runs in this order:
    one resolver, so a game that draws an extra view naming no area every frame, between frames
    that do, never sees a bake fade. `BakeFrame.SpaceFade` and `ChunkFade(i)` give the result, 0
    for a stale area. `Renderer.BakeFadeSeconds` sets `FadeSeconds`, 0.5 by default; a resolver
-   made on its own, as `BakeFreshness.Resolve` makes, starts at 0 and never fades.
+   made on its own, as `BakeFreshness.Resolve` makes, starts at 0 and never fades. Super's
+   `SceneRenderer` sets it to 0 when it is made, so a screenshot, recording, profile or bake never
+   catches a bake half faded in, and `GameWindow.Run` sets 0.5 for play.
 
 When something was dropped, `Render` draws a copy of the frame view whose `Lights` and
 `LocalLights` leave those lights out, by calling itself once more with a flag set so the second
@@ -3778,6 +3780,38 @@ Known limit: a bake cached in an earlier session isn't in memory, so the first t
 for it is read from disk, synchronously, on the thread that asks, which can be the render thread.
 It is one file read per chunk, once. Moving it off the render thread would need a read-ahead, which
 isn't built.
+
+### Baking on arrival
+
+Super turns the renderer's [background bake](#baking-in-the-background) on in play only. `Game.StartWindowsGameLoop`
+makes the `BakeCache` just before `GameWindow.Run`, from the game's id, and hands it to `SceneRenderer.BakeCache`
+through `GameWindow.BakeCache`, so the other runs neither bake nor read the cache. `Run` turns baking on after the
+game goes live, and `ApplyAutoBake`, called again before each frame is shown, works out the plan only when
+`Graphics.BakeOnArrival` or `Graphics.BakeBudget` changed, since setting `Renderer.AutoBake` restarts the running bake.
+`AutoBakePolicy.For` (`src/Super/Rendering/AutoBakePolicy.cs`) makes the plan: null when the switch is off or the GPU
+can't trace; from source, where `CookedFolder.Dev` has roots, spaces and chunks at Preview then Final, 4 ms, with the
+first root as the space folder; published, chunks only at Preview, 2 ms, and no space folder.
+`SceneRenderer.BakeOnArrival` sets `Renderer.AutoBake` with `BakeSaver.Done` as its `Done`.
+
+`BakeSaver` (`src/Super/Rendering/BakeSaver.cs`) gets each finished file on the render thread and chains its work onto
+the last bake's task on the thread pool, so files are kept in the order they finished and a Final never loses to a
+Preview finished before it. It reads the file's header first, to log the bake's time and so a file that doesn't read
+back is never kept. A space's file (`done.File` equals `BakeFiles.Space(done.Name)`) is written into the space folder
+through a `{name}.{guid}.tmp` file and a move; the watch cook then cooks it and the content reload reads it again. A
+chunk's goes to `BakeCache.Write`, and its name goes onto a `ConcurrentQueue` that `SceneRenderer.Prepare` drains on the
+render thread into `LightBakeStore.Forget`, so the store reads the new file, from the cache's memory, on the next
+frame. Every exception is caught and logged as one line, since nothing else would hear of it, and the area stays lit
+live. `SceneRenderer.Dispose` waits up to 10 seconds for the saver after the renderer has gone, so a bake that finished
+just before the window closed is still kept. A new saver is made only when the space folder or the cache changes,
+after waiting for the old one.
+
+`GameWindow.PlayFrame` hands `Renderer.BakeProgress` to `GameHost.BakeProgress` before `Draw`, and in play
+(`GameHost.ShowsBakes`) `GameHost.Interface` puts the game's interface in a `ZStack` with `BakeOverlay`'s line. The
+game's view is always the first child, and the line's place is null when nothing bakes, so the root's type never
+changes and the game's interface keeps its state as the line comes and goes.
+
+Where the GPU can't trace, `SceneRenderer.SaysWhyNotBaking` is set from source, and after `Render` the first frame
+with a space that isn't fresh, or a chunk that is neither fresh nor pending, logs `Not baking {name}: {reason}` once.
 
 ### The .lightbake file
 

@@ -62,6 +62,9 @@ internal sealed class BakeCache
     /// <summary>Runs after a write's temp file is complete and before it is moved in, outside every lock. For tests.</summary>
     internal Action? BeforeMove { get; set; }
 
+    /// <summary>Where the files go, as a full path.</summary>
+    public string Folder => _folder;
+
     /// <summary>The bytes of bakes kept now.</summary>
     public long Size => Files().Sum(file => file.Length);
 

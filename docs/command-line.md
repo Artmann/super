@@ -475,6 +475,11 @@ BC6H and its direction and mask pages as BC7, which takes the Gallery's 11.3 MB 
 4.5 MB. See [Baked lighting](content.md#baked-lighting). Since
 `--bake-check` reads the cooked bake, build after `--bake` before checking; `dotnet run` does.
 
+Played without these options, the game [bakes missing lighting by itself](rendering.md#baking-without-a-build-step)
+as it runs, so `--bake` is for baking a scene in one go, at one quality, without playing it. `--screenshot`,
+`--record`, `--profile`, `--bake` and `--bake-check` never bake in the background and don't read the bakes cached on
+this machine, so they draw only cooked bakes and give the same picture everywhere.
+
 ## Planned
 
 `--headless` and `--json`, for a run with no GPU that prints a result a script can read,

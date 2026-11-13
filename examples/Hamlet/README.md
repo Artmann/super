@@ -45,6 +45,11 @@ are lit by the probes.
 The bakes are in `content/lighting/<kind>/<hash>.lightbake`, made from seed 1: one well,
 one workshop, one tower and the four cottage layouts seed 1 uses (seven bakes, with seed 1), about 8 MB in all.
 
+Another seed can have cottage layouts seed 1 doesn't. The game
+[bakes them as it runs](../../docs/rendering.md#baking-without-a-build-step), nearest first, each lit live until its
+bake fades in, with a line in the bottom-left corner counting it down, and keeps them in the bake cache in
+`%LOCALAPPDATA%\Hamlet\Bakes`. So pressing `R` bakes the new layouts once, and a village seen before loads lit.
+
 The current lighting shows in the bottom-left corner. The keys switch between:
 
 | Key | Lighting | What's on |

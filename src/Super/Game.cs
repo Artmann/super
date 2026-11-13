@@ -33,7 +33,8 @@ public static class Game
         bool hidden = arguments.ScreenshotPath is not null || arguments.RecordPath is not null || arguments.ProfilePath is not null || baking;
 
         // Worked out even when unused, so a bad id fails in a screenshot run as well as in play.
-        string playerFolder = UserData.FolderFor(options.Id ?? UserData.IdFromTitle(options.Title));
+        string gameId = options.Id ?? UserData.IdFromTitle(options.Title);
+        string playerFolder = UserData.FolderFor(gameId);
 
         // Runs without a window get a throwaway folder, so they never change the player's settings.
         string? userDataFolder = arguments.UserDataFolder ?? (hidden ? null : playerFolder);
@@ -153,6 +154,10 @@ public static class Game
         // Only live play gets here, so only it plays through the speakers. Without a device it runs silently, with the
         // game loop still moving the audio on a tick at a time.
         host.Audio.UseDevice(Console.Error);
+
+        // Only live play bakes missing lighting by itself and reads the chunk bakes it made before, so a screenshot,
+        // recording, profile or bake draws only what was cooked, the same on every machine.
+        window.BakeCache = new BakeCache(BakeCache.FolderFor(gameId), TimeProvider.System);
         window.Run(host, options.TicksPerSecond);
     }
 

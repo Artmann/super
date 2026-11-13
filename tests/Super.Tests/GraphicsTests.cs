@@ -343,4 +343,41 @@ public class GraphicsTests
         Assert.Same(given, host.Graphics);
         Assert.Equal(RenderEffects.Bloom, host.Graphics.Off);
     }
+
+    [Theory]
+    [InlineData(0.4f, "0.4")]
+    [InlineData(34f, "34")]
+    [InlineData(float.NaN, "NaN")]
+    public void Bake_budget_out_of_range_throws(float budget, string shown)
+    {
+        var original = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("sv-SE");
+        try
+        {
+            var graphics = new Graphics { BakeBudget = 3f };
+
+            var error = Assert.Throws<ArgumentOutOfRangeException>(() => graphics.BakeBudget = budget);
+
+            Assert.Equal(
+                $"BakeBudget must be from 0.5 to 33 milliseconds, not {shown}. Use null for the default. (Parameter 'value')",
+                error.Message);
+            Assert.Equal(3f, graphics.BakeBudget);
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = original;
+        }
+    }
+
+    [Theory]
+    [InlineData(0.5f)]
+    [InlineData(33f)]
+    public void Bake_budget_takes_the_ends_of_its_range_and_null(float budget)
+    {
+        var graphics = new Graphics { BakeBudget = budget };
+        Assert.Equal(budget, graphics.BakeBudget);
+
+        graphics.BakeBudget = null;
+        Assert.Null(graphics.BakeBudget);
+    }
 }
