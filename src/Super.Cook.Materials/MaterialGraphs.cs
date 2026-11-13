@@ -125,8 +125,7 @@ public static class MaterialGraphs
     }
 
     /// <summary>
-    /// Runs the source itself, a graph or a variant, as <see cref="RunSource"/> does, or takes the run another source made of
-    /// the same file at the same size. An error in the source's own graph has its line.
+    /// Runs the source itself, a graph or a variant, or takes the run another source made of the same file at the same size. An error in the source's own graph has its line.
     /// </summary>
     internal static SharedGraphRuns.Run? RunSourceShared(CookInput input, int size, CookOutput output)
     {
@@ -365,12 +364,6 @@ public static class MaterialGraphs
         {
             return null;
         }
-    }
-
-    /// <summary>Runs the source itself, a graph or a variant. An error in the source's own graph has its line.</summary>
-    internal static MaterialImages? RunSource(CookInput input, int size, CookOutput output)
-    {
-        return Run(input, null, input.Bytes, size, (message, line) => output.Error(message, line));
     }
 
     /// <param name="path">The file's path from the source's folder, or null for the source itself.</param>
