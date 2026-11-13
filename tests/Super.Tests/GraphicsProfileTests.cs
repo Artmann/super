@@ -102,9 +102,9 @@ public class GraphicsProfileTests
     }
 
     [Fact]
-    public void A_profile_with_a_base_starts_from_that_preset()
+    public void A_profile_that_extends_a_preset_starts_from_it()
     {
-        var read = Graphics.FromJson("""{ "Base": "Low", "Reflections": true, "ShadowCascades": 3 }""");
+        var read = Graphics.FromJson("""{ "Extends": "Low", "Reflections": true, "ShadowCascades": 3 }""");
 
         // Low's own values, by hand: three quarters scale, 1024 shadows, half detail, ambient occlusion off.
         Assert.Equal(0.75f, read.RenderScale);
@@ -122,17 +122,17 @@ public class GraphicsProfileTests
     [InlineData("medium", GraphicsQuality.Medium)]
     [InlineData("High", GraphicsQuality.High)]
     [InlineData("ULTRA", GraphicsQuality.Ultra)]
-    public void A_base_alone_gives_the_preset_it_names(string name, GraphicsQuality quality)
+    public void A_profile_that_only_extends_a_preset_is_that_preset(string name, GraphicsQuality quality)
     {
-        var read = Graphics.FromJson($$"""{ "Base": "{{name}}" }""");
+        var read = Graphics.FromJson($$"""{ "Extends": "{{name}}" }""");
 
         Assert.All(Settings(), property => Assert.Equal(property.GetValue(Graphics.For(quality)), property.GetValue(read)));
     }
 
     [Fact]
-    public void A_profile_can_start_from_fastest()
+    public void A_profile_can_extend_fastest()
     {
-        var read = Graphics.FromJson("""{ "Base": "Fastest", "Bloom": true }""");
+        var read = Graphics.FromJson("""{ "Extends": "Fastest", "Bloom": true }""");
 
         Assert.False(read.Vsync);
         Assert.False(read.Fog);
@@ -145,26 +145,26 @@ public class GraphicsProfileTests
     [InlineData("2", "2")]
     [InlineData("\"2\"", "\"2\"")]
     [InlineData("null", "null")]
-    public void A_base_that_is_not_a_preset_is_refused(string value, string shown)
+    public void A_profile_that_extends_something_other_than_a_preset_is_refused(string value, string shown)
     {
-        var error = Assert.Throws<InvalidDataException>(() => Graphics.FromJson($$"""{ "Base": {{value}} }""", "low.json"));
+        var error = Assert.Throws<InvalidDataException>(() => Graphics.FromJson($$"""{ "Extends": {{value}} }""", "low.json"));
 
-        Assert.Equal($"low.json has a Base of {shown}, but it can be Low, Medium, High, Ultra or Fastest.", error.Message);
+        Assert.Equal($"low.json extends {shown}, but a profile can extend Low, Medium, High, Ultra or Fastest.", error.Message);
     }
 
     [Fact]
-    public void A_profile_with_a_base_still_refuses_names_it_does_not_know()
+    public void A_profile_that_extends_a_preset_still_refuses_names_it_does_not_know()
     {
-        var error = Assert.Throws<InvalidDataException>(() => Graphics.FromJson("""{ "Base": "Low", "Blooom": false }""", "low.json"));
+        var error = Assert.Throws<InvalidDataException>(() => Graphics.FromJson("""{ "Extends": "Low", "Blooom": false }""", "low.json"));
 
         Assert.StartsWith("low.json isn't a graphics profile: ", error.Message);
         Assert.Contains("Blooom", error.Message);
     }
 
     [Fact]
-    public void A_profile_with_a_base_still_refuses_values_out_of_range()
+    public void A_profile_that_extends_a_preset_still_refuses_values_out_of_range()
     {
-        var error = Assert.Throws<InvalidDataException>(() => Graphics.FromJson("""{ "Base": "Low", "ShadowCascades": 6 }""", "low.json"));
+        var error = Assert.Throws<InvalidDataException>(() => Graphics.FromJson("""{ "Extends": "Low", "ShadowCascades": 6 }""", "low.json"));
 
         Assert.StartsWith("low.json has a setting out of range: The sun can draw from 1 to 4 shadow cascades.", error.Message);
     }

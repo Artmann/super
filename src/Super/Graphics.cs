@@ -378,9 +378,9 @@ public sealed class Graphics
 
     /// <summary>
     /// Reads a JSON profile that <see cref="Save"/> wrote or a person wrote by hand. A setting it leaves out keeps
-    /// its default, so a profile can hold only what it changes. <c>"Base"</c> names a preset to start from instead of the
+    /// its default, so a profile can hold only what it changes. <c>"Extends"</c> names a preset to start from instead of the
     /// defaults: <c>Low</c>, <c>Medium</c>, <c>High</c>, <c>Ultra</c> or <c>Fastest</c>, so
-    /// <c>{ "Base": "Low", "Reflections": true }</c> is Low with reflections. A name it doesn't know, or a value a
+    /// <c>{ "Extends": "Low", "Reflections": true }</c> is Low with reflections. A name it doesn't know, or a value a
     /// setting refuses, throws <see cref="InvalidDataException"/> naming the file.
     /// </summary>
     public static Graphics Load(string path) => FromJson(File.ReadAllText(path), path);
