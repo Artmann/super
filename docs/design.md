@@ -3769,7 +3769,10 @@ lit live and writes 1 in every slot.
 player's machine can't get from cooked content. Files go in `BakeCache.FolderFor(gameId)`, in the
 game's local app data and not the roaming folder (`LOCALAPPDATA\{id}\Bakes` on Windows,
 `~/Library/Caches/{id}/Bakes` on macOS, `$XDG_CACHE_HOME/{id}/bakes` or `~/.cache/{id}/bakes` on
-Linux), under the same names as the content's bakes, which hold the input hash. `SceneRenderer.BakeCache`
+Linux), under the same names as the content's bakes, which hold the input hash. `BakeCache.PlayFolder` picks
+the folder for live play: `Bakes` inside `--user-data` when it is given, otherwise `FolderFor`, and none, with one
+line saying why, when `FolderFor` finds no folder in the environment. `Game.Run` looks up the player's user-data folder
+only when it uses it, so `--user-data` runs where the environment names none. `SceneRenderer.BakeCache`
 is null by default, and `ReadBake` asks it only for a name the cooked content doesn't have as data,
 so a cooked bake always wins. A bake is read where `ReadBake` already runs, which can be on the
 render thread (see the known limit below).

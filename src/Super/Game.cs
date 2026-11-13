@@ -32,12 +32,13 @@ public static class Game
         bool baking = arguments.Bake || arguments.BakeCheck;
         bool hidden = arguments.ScreenshotPath is not null || arguments.RecordPath is not null || arguments.ProfilePath is not null || baking;
 
-        // Worked out even when unused, so a bad id fails in a screenshot run as well as in play.
+        // Checked even when unused, so a bad id fails in a screenshot run as well as in play.
         string gameId = options.Id ?? UserData.IdFromTitle(options.Title);
-        string playerFolder = UserData.FolderFor(gameId);
+        UserData.CheckId(gameId);
 
-        // Runs without a window get a throwaway folder, so they never change the player's settings.
-        string? userDataFolder = arguments.UserDataFolder ?? (hidden ? null : playerFolder);
+        // Runs without a window get a throwaway folder, so they never change the player's settings. The player's folder
+        // is only looked up when it is used, so --user-data runs where the environment names no folder.
+        string? userDataFolder = arguments.UserDataFolder ?? (hidden ? null : UserData.FolderFor(gameId));
 
         // Only live play sounds different each time. Screenshots, recordings and profiles keep the fixed audio seed.
         int? audioSeed = hidden ? null : Random.Shared.Next();
@@ -157,7 +158,12 @@ public static class Game
 
         // Only live play bakes missing lighting by itself and reads the chunk bakes it made before, so a screenshot,
         // recording, profile or bake draws only what was cooked, the same on every machine.
-        window.BakeCache = new BakeCache(BakeCache.FolderFor(gameId), TimeProvider.System);
+        // Under --user-data when it is given; none, and a line saying so, when the environment names no folder.
+        if (BakeCache.PlayFolder(gameId, arguments.UserDataFolder, BakeCache.ThisPlatform, Environment.GetEnvironmentVariable, Console.Out) is { } bakes)
+        {
+            window.BakeCache = new BakeCache(bakes, TimeProvider.System);
+        }
+
         window.Run(host, options.TicksPerSecond);
     }
 

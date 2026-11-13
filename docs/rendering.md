@@ -818,7 +818,9 @@ and anything from 0.5 to 33 sets it. Anything else is refused, saying the range.
 
 The chunk bakes made on the player's machine go in a cache in the game's local app data, not the roaming folder:
 `%LOCALAPPDATA%\<id>\Bakes` on Windows, `~/Library/Caches/<id>/Bakes` on macOS and `$XDG_CACHE_HOME/<id>/bakes` or
-`~/.cache/<id>/bakes` on Linux, where `<id>` is `GameOptions.Id` or the one made from the title. It is capped at
+`~/.cache/<id>/bakes` on Linux, where `<id>` is `GameOptions.Id` or the one made from the title. With
+[`--user-data`](command-line.md) it is the `Bakes` folder inside that folder instead, so nothing goes to the player's
+profile. Where the environment names no such folder, the game says so in one line and plays without a cache. It is capped at
 512 MB, deleting the bakes used longest ago first, and a cooked bake of the same name always wins. Deleting the folder
 is safe: those chunks are baked again. So a chunk layout seen once is baked once, and loads lit the next time the game
 runs.

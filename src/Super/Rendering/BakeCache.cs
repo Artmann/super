@@ -82,14 +82,39 @@ internal sealed class BakeCache
         };
     }
 
-    /// <summary>The usual folder for a game's bakes on this machine.</summary>
-    public static string FolderFor(string gameId)
+    /// <summary>
+    /// Where live play keeps its bakes: <c>Bakes</c> inside <paramref name="userDataFolder"/> when <c>--user-data</c>
+    /// gives one, so nothing goes to the player's profile, and otherwise <see cref="FolderFor(string, UserDataPlatform, Func{string, string?})"/>.
+    /// Null, with the reason written to <paramref name="log"/>, when the environment names no folder, so the game plays
+    /// without a cache instead of stopping.
+    /// </summary>
+    internal static string? PlayFolder(
+        string gameId, string? userDataFolder, UserDataPlatform platform, Func<string, string?> environment, TextWriter log)
     {
-        var platform = OperatingSystem.IsWindows() ? UserDataPlatform.Windows
-            : OperatingSystem.IsMacOS() ? UserDataPlatform.MacOS
-            : UserDataPlatform.Linux;
-        return FolderFor(gameId, platform, Environment.GetEnvironmentVariable);
+        if (userDataFolder is not null)
+        {
+            return Path.Combine(userDataFolder, "Bakes");
+        }
+
+        try
+        {
+            return FolderFor(gameId, platform, environment);
+        }
+        catch (InvalidOperationException e)
+        {
+            log.WriteLine($"Chunk bakes made while playing won't be kept: {e.Message}");
+            return null;
+        }
     }
+
+    /// <summary>The platform this runs on, for <see cref="FolderFor(string, UserDataPlatform, Func{string, string?})"/>.</summary>
+    internal static UserDataPlatform ThisPlatform =>
+        OperatingSystem.IsWindows() ? UserDataPlatform.Windows
+        : OperatingSystem.IsMacOS() ? UserDataPlatform.MacOS
+        : UserDataPlatform.Linux;
+
+    /// <summary>The usual folder for a game's bakes on this machine.</summary>
+    public static string FolderFor(string gameId) => FolderFor(gameId, ThisPlatform, Environment.GetEnvironmentVariable);
 
     /// <summary>
     /// The bytes of <paramref name="file"/>, or null when it isn't kept. Marks it used now. A bake written a moment ago

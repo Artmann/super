@@ -369,6 +369,42 @@ public sealed class BakeCacheTests : IDisposable
     }
 
     [Fact]
+    public void Play_without_a_local_app_data_keeps_no_bakes_and_says_why()
+    {
+        var log = new StringWriter();
+
+        string? folder = BakeCache.PlayFolder("reef", null, UserDataPlatform.Windows, Env(("APPDATA", @"C:\x")), log);
+
+        Assert.Null(folder);
+        Assert.Equal(
+            "Chunk bakes made while playing won't be kept: LOCALAPPDATA isn't set, so there's no user folder to keep user data in. Pass --user-data to choose one."
+            + Environment.NewLine,
+            log.ToString());
+    }
+
+    [Fact]
+    public void Play_with_user_data_keeps_bakes_inside_it_and_not_in_the_profile()
+    {
+        var log = new StringWriter();
+        string userData = Path.Combine(_folder, "player");
+
+        string? folder = BakeCache.PlayFolder(
+            "reef", userData, UserDataPlatform.Windows, Env(("LOCALAPPDATA", @"C:\Users\ada\AppData\Local")), log);
+
+        Assert.Equal(Path.Combine(userData, "Bakes"), folder);
+        Assert.Equal("", log.ToString());
+    }
+
+    [Fact]
+    public void Play_without_user_data_keeps_bakes_in_the_local_app_data()
+    {
+        string? folder = BakeCache.PlayFolder(
+            "reef", null, UserDataPlatform.Windows, Env(("LOCALAPPDATA", @"C:\Users\ada\AppData\Local")), new StringWriter());
+
+        Assert.Equal(@"C:\Users\ada\AppData\Local\reef\Bakes", folder);
+    }
+
+    [Fact]
     public void Damaged_cached_bake_is_baked_again()
     {
         var cache = new BakeCache(_folder, _time, capacity: 1_000_000);
