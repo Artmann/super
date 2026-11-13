@@ -484,6 +484,9 @@ changes nothing on screen.
 The [Gallery](../examples/Gallery/README.md#baked-lighting) is the example to look at: it ships
 with a bake, keys 1, 2 and 3 switch between live lighting, the bake and direct light only, and
 its README says which light has which [mode](#light-modes) and why, and how to bake it again.
+The [Crypt](../examples/Crypt/README.md#baked-lighting) (fire lights that stay `Mixed`) and the
+[Courtyard](../examples/Courtyard/README.md#baked-lighting) (a sun and a lamp through glass) are
+baked spaces too.
 For chunks, look at the [Hamlet](../examples/Hamlet/README.md#baked-lighting): every building is
 a chunk named for its kind, so with seed 1 its 40 buildings share seven bakes, and the same keys
 switch its lighting.

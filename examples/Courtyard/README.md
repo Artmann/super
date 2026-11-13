@@ -168,6 +168,37 @@ presses E for a screenshot at the fixed exposure:
 dotnet run -c Release --project examples/Courtyard -- --script fixed --screenshot shots/courtyard-fixed.png --validate --seed 1 --ticks 60 --size 1600x900
 ```
 
+## Baked lighting
+
+The yard is a baked space named `courtyard`, a box 31 m by 10.5 m by 31 m round the whole model with
+probes 1.6 m apart. The model never moves, so it is drawn static (`isStatic: true`) and its light is
+baked into `content/lighting/courtyard.lightbake`, 6.4 MB at the default 20 texels a metre. The
+decals, grass and the rest of the yard's detail stay live.
+
+The lights are all `Mixed`, so the bake adds the light that bounces and soft shade, and the live
+lights keep their crisp shadows:
+
+| Light | Mode | Shadows |
+| --- | --- | --- |
+| The sun | Mixed | Real-time cascades near the camera, and the bake's mask past the last |
+| Wall lantern | Mixed | No shadow tiles, and the bake's mask |
+| Lamp in the room | Mixed | Real-time, and the bake's mask. Its light reaches the yard through the window glass |
+
+Every light found a mask channel, so the bake lists none without one.
+
+### Rebaking
+
+Bake again after changing the model, a light, the sky or the light modes:
+
+```
+dotnet run -c Release --project examples/Courtyard -- --bake
+dotnet run -c Release --project examples/Courtyard -- --bake-check
+```
+
+The last bake took 7.5 seconds, traced 1,024 samples a texel, found 11.85% of texels invalid and
+printed 0 validation messages. The share falls as the density rises, to 7.2% at 40 texels a metre,
+but the file then grows to 15.4 MB. `--bake-check` prints `fresh` and exits 0.
+
 ## The lineup
 
 `--lineup` shows the graphs one by one instead: a row for each, with a sphere, a cube and

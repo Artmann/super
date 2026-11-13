@@ -39,3 +39,41 @@ ffmpeg -i floor-rough.jpg -vf "format=gray,geq=r=0:g='p(X,Y)':b=0:a=255,format=r
 linear data.
 
 See [CREDITS.md](../../CREDITS.md) for who made what.
+
+## Baked lighting
+
+The hall is a baked space named `crypt`, in a box a little larger than the walls and the vault, with
+probes 0.8 m apart. Everything that stands still is drawn static (`isStatic: true`): the floor, walls,
+vault, pillars, altar, statue, chest, barrels, candelabras, the loose candles and the torches' sticks.
+The shapes made in code are made static too, so they get lightmap UVs. The lantern and its chain swing,
+so they stay dynamic, and the probes light them as they move. The bake is
+`content/lighting/crypt.lightbake`, 4.1 MB at the default 20 texels a metre.
+
+The fire stays real-time and flickers, so each flame is a `Mixed` light:
+
+| Light | Mode | Shadows |
+| --- | --- | --- |
+| The four torches | Mixed | Real-time shadow tiles, and the bake's mask for the rest of the hall |
+| Grate beam | Mixed | Real-time shadow tiles. It found no mask channel |
+| Altar glow and the altar's candelabra flames | Mixed | The glow has real-time tiles. The 15 flames have none, and no mask channel |
+| Loose candles | Mixed | No shadow tiles and no mask channel, so they light the floor with no shadows, as before |
+| Lantern spot and flame (swing) | Mixed | Real-time. They move, so the bake leaves them out and logs it |
+
+The bake's shadow mask has four channels, and the four torches take them. Every other `Mixed`
+light found none, and the bake lists them: 143 lights, the grate (340), the altar's flames and glow
+(600 to 614 and 699) and the 126 candles (1000 to 1125). They keep the real-time shadows they had
+before, or none.
+
+### Rebaking
+
+Bake again after changing the hall, a light, the sky or the light modes:
+
+```
+dotnet run -c Release --project examples/Crypt -- --bake
+dotnet run -c Release --project examples/Crypt -- --bake-check
+```
+
+The last bake took 5 seconds, traced 1,024 samples a texel, found 1.14% of texels inside walls
+and printed 0 validation messages. `--bake-check` prints `fresh` and exits 0. A bake that is stale
+isn't drawn and the hall is lit live; `--bake` needs the models and textures from
+[Getting the assets](#getting-the-assets).

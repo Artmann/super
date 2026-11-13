@@ -195,7 +195,12 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
             Bloom = 0.05f,
             FocalLength = 35f,
         });
-        view.Model(0, _courtyard, Matrix4x4.Identity);
+        // The yard is one baked space, "courtyard", over the whole model with a little to spare. The model never
+        // moves, so it is static and its light is baked: the sun, which stays Mixed so the real-time cascades still
+        // shadow what is close to the camera, and the room lamp, which shines out through the window glass. The
+        // decals stay live. See the README.
+        view.BakedLighting("courtyard", new Vector3(-16.5f, -0.5f, -18.75f), new Vector3(14.5f, 10f, 12.5f), 1.6f);
+        view.Model(0, _courtyard, Matrix4x4.Identity, isStatic: true);
 
         // The damp, the drip off the sill and the rust, laid onto the wall so the drip lies over the damp.
         for (int i = 0; i < _stains.Count; i++)

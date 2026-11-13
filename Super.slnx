@@ -37,6 +37,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Courtyard.Tests/Courtyard.Tests.csproj" />
+    <Project Path="tests/Crypt.Tests/Crypt.Tests.csproj" />
     <Project Path="tests/Crafting.Tests/Crafting.Tests.csproj" />
     <Project Path="tests/Forest.Tests/Forest.Tests.csproj" />
     <Project Path="tests/Hamlet.Tests/Hamlet.Tests.csproj" />
