@@ -469,7 +469,42 @@ public sealed class ModelMeshNamesTests : IDisposable
     /// The hips sit <paramref name="hipsHeight"/> metres up, and the inverse bind matrix undoes that,
     /// so the meshes are in their bind pose as the file has them.
     /// </summary>
-    private static void WriteSkinned(string folder, string name, string[] meshNames, float hipsHeight = 0f)
+    [Fact]
+    public void A_rig_turned_after_it_was_bound_is_stored_as_it_stands_at_rest()
+    {
+        // The triangle stands up in the xy plane where it was bound, and the hips turn it a
+        // quarter about x at rest, so as the file shows it, it lies flat, reaching along -z.
+        string src = Temp();
+        WriteSkinned(src, "fish.gltf", ["body"], hipsTurn: Quaternion.CreateFromAxisAngle(Vector3.UnitX, -MathF.PI / 2f));
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var (min, max) = Bounds(Model(store, "fish.gltf"));
+        AssertNear(new Vector3(1f, 0f, 1f), max - min);
+    }
+
+    [Fact]
+    public void A_turned_rig_at_rest_leaves_its_stored_vertices_where_they_are()
+    {
+        string src = Temp();
+        WriteSkinned(src, "fish.gltf", ["body"], hipsHeight: 2f, hipsTurn: Quaternion.CreateFromAxisAngle(Vector3.UnitX, -MathF.PI / 2f));
+
+        var (result, store) = Cook(new FolderRoot(src));
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        var model = Model(store, "fish.gltf");
+        var skeleton = model.Skeleton!;
+        var skin = new Matrix4x4[skeleton.Count];
+        skeleton.SkinMatrices(skeleton.Rest, skin);
+        int hips = JointNamed(skeleton, "hips");
+        foreach (var vertex in model.Vertices)
+        {
+            AssertNear(vertex.Position, Vector3.Transform(vertex.Position, skin[hips]));
+        }
+    }
+
+    private static void WriteSkinned(string folder, string name, string[] meshNames, float hipsHeight = 0f, Quaternion? hipsTurn = null)
     {
         var buffer = new List<byte>();
         var views = new JsonArray();
@@ -489,7 +524,13 @@ public sealed class ModelMeshNamesTests : IDisposable
             return accessors.Count - 1;
         }
 
-        var nodes = new JsonArray(new JsonObject { ["name"] = "hips", ["translation"] = new JsonArray(0f, hipsHeight, 0f) });
+        var turn = hipsTurn ?? Quaternion.Identity;
+        var nodes = new JsonArray(new JsonObject
+        {
+            ["name"] = "hips",
+            ["translation"] = new JsonArray(0f, hipsHeight, 0f),
+            ["rotation"] = new JsonArray(turn.X, turn.Y, turn.Z, turn.W),
+        });
         var meshes = new JsonArray();
         var sceneNodes = new JsonArray(0);
         for (int i = 0; i < meshNames.Length; i++)

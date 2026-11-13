@@ -717,6 +717,14 @@ for its joint `J`, so at rest it skins back to where the node tree put it. That 
 `J` is a real bone: its inverse bind is the bone's offset matrix, which comes from the bind
 pose, and the bind pose need not be the rest pose.
 
+After the vertices are read, `RigImporter.MoveToRest` takes them out of the bind space into
+the rest pose, so a draw with no pose, such as a swimming fish, isn't left lying a turn away.
+The move is `inverseBind[J] * restGlobal[J]` for the joint `J` that carries the most skin
+weight, and every inverse bind is multiplied by its inverse, so skinning lands each vertex
+where it did before. One move fits every joint whose bind matches its rest by the same turn,
+which is the usual case of an armature turned from z-up. A move that mirrors is skipped,
+since it would turn the triangles inside out.
+
 A static model is flattened by Assimp's `PreTransformVertices` by default, which merges the
 meshes that share a material into one part and gives no names. With the opt-in `keepMeshes`
 setting, a static model keeps its node tree instead, and `Placements` applies each mesh's node
