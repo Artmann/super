@@ -101,13 +101,14 @@ itself, or offers it in an options menu.
 
 | Quality | What changes from `High` |
 |---|---|
-| `Low` | Render scale 0.75, 1024 shadow maps, 2 cascades, `MeshDetail` 0.5, `ProbeQuality.Low` and a 1 ms bake budget. Off: contact shadows, light shadows, light probes, ambient occlusion, reflections, auto exposure, depth of field, decals, volumetric fog, puddles and wind |
+| `Low` | Render scale 0.75, 1024 shadow maps, 2 cascades, `MeshDetail` 0.5, `ProbeQuality.Low` and a 1 ms bake budget. Off: contact shadows, light shadows, light probes, ambient occlusion, reflections, auto exposure, depth of field, decals and volumetric fog. Puddles and wind stay on, as they cost next to nothing |
 | `Medium` | Render scale 0.85, 3 cascades, `MeshDetail` 0.75, `ProbeQuality.Medium` and a 2 ms bake budget. Off: depth of field and volumetric fog |
 | `Ultra` | 4096 shadow maps and `MeshDetail` 1.5 |
 
 In the Courtyard at 1600 by 900 on an RTX 4060 Ti, a frame takes 8.5 ms of GPU at `High`, 6.5 at
 `Medium` and 4.3 at `Low`. `Ultra` costs about the same as `High` there. `Medium` loses a little
-sharpness; `Low` also loses the puddle, the bounced light and the darkening in corners:
+sharpness; `Low` also loses the bounced light, the darkening in corners and what the puddle
+reflects from the screen, though the puddle stays and still mirrors the sky:
 
 ![The Courtyard's barrel, window and puddle at High, Medium and Low, with the GPU time of each](media/graphics-quality.webp)
 
