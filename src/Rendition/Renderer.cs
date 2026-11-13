@@ -1825,6 +1825,49 @@ public sealed unsafe class Renderer : IDisposable
     private Baker? _baker;
 
     /// <summary>
+    /// Makes what a bake needs, the baker and, unless <paramref name="probes"/> is false, the probe volume a space's
+    /// probes fold through, so <see cref="CreateSpaceJob"/> and <see cref="CreateChunkJob"/> can start a bake without
+    /// waiting for the GPU. Waits for the GPU the first time; does nothing once it has run, or when the GPU can't trace
+    /// rays. Call it outside a frame. <see cref="Bake"/> and <see cref="BakeChunk"/> call it themselves; a chunk has no
+    /// probes, so <see cref="BakeChunk"/> passes false and works on a GPU the probe fold can't run on.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The GPU can trace rays but lacks the storage image formats a bake needs, or, with <paramref name="probes"/>, what
+    /// the live probes fold with.
+    /// </exception>
+    internal void PrepareBaking(bool probes = true)
+    {
+        if (_tracing is null)
+        {
+            return;
+        }
+
+        _baker ??= new Baker(_context, this);
+        if (probes)
+        {
+            _baker.EnsureProbeVolume(_environment.Sky, _environment.Sampler);
+        }
+    }
+
+    // The baker PrepareBaking made, and its probe volume when the bake has probes. A job never makes them itself,
+    // since that waits for the GPU.
+    private (Baker Baker, ProbeVolume? Volume) PreparedBaker(string name, bool probes)
+    {
+        if (_tracing is null)
+        {
+            throw new InvalidOperationException("Baking needs a GPU that can trace rays, and this one can't.");
+        }
+
+        if (_baker is not { } baker || (probes && baker.ProbeVolume is null))
+        {
+            throw new InvalidOperationException(
+                $"The bake of \"{name}\" can't start yet: baking isn't prepared, and preparing it waits for the GPU, which a bake job never does. Call PrepareBaking first, outside a frame.");
+        }
+
+        return (baker, baker.ProbeVolume);
+    }
+
+    /// <summary>
     /// Path traces the view's baked space into a lightmap and returns it as a <c>.lightbake</c> file's bytes, made from
     /// the frame's inputs so a frame drawn like this one finds it fresh. Every static draw in the frame blocks and
     /// bounces light; those the space owns, without wind and not transparent, get a lightmap rectangle. Emissive
@@ -1850,6 +1893,7 @@ public sealed unsafe class Renderer : IDisposable
         _api.DeviceWaitIdle(_context.Device).Check();
         _uploads.Flush();
         BakeSky(view);
+        PrepareBaking();
         using var job = SpaceJob(view, draws, settings, space, probeSettings, started);
         return RunJob(job);
     }
@@ -1857,9 +1901,10 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>
     /// The bake <see cref="Bake"/> makes, as a job to step, without waiting for the GPU: it records nothing until its
     /// first step. The frame's sky and uploads are taken as they are, so call it after a frame has drawn this view.
-    /// The draws and lights are copied, so the job doesn't need the frame's spans.
+    /// The draws and lights are copied, so the job doesn't need the frame's spans. Call <see cref="PrepareBaking"/>
+    /// first.
     /// </summary>
-    /// <exception cref="InvalidOperationException">As <see cref="Bake"/>.</exception>
+    /// <exception cref="InvalidOperationException">As <see cref="Bake"/>, or baking isn't prepared.</exception>
     /// <exception cref="ArgumentException">As <see cref="Bake"/>.</exception>
     internal BakeJob CreateSpaceJob(in FrameView view, ReadOnlySpan<DrawItem> draws, BakeSettings settings)
     {
@@ -1927,7 +1972,7 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     // Resolves the space's inputs, lays out its draws and takes its lights, and makes the job that bakes them. Never
-    // waits, apart from making the baker and its probe volume the first time.
+    // waits: the baker and its probe volume come from PrepareBaking.
     private BakeJob SpaceJob(
         in FrameView view, ReadOnlySpan<DrawItem> draws, BakeSettings settings, BakedSpace space,
         ProbeVolumeSettings probeSettings, long started)
@@ -2018,13 +2063,12 @@ public sealed unsafe class Renderer : IDisposable
             }
         }
 
-        _baker ??= new Baker(_context, this);
-        var volume = _baker.EnsureProbeVolume(_environment.Sky, _environment.Sampler);
+        var (baker, volume) = PreparedBaker(space.Name, probes: true);
         var area = new AreaJob(draws.ToArray(), bakeLights.ToArray(), false, layout, view.EnvironmentIntensity, true,
             probeSettings);
         var skipped = unassigned.ToArray();
         var quality = settings.Quality;
-        return new BakeJob(_baker, _context, BakeFiles.Space(space.Name), space.Name, inputs, settings, area,
+        return new BakeJob(baker, _context, BakeFiles.Space(space.Name), space.Name, inputs, settings, area,
             _environment.Sky, _environment.Sampler, volume,
             result =>
             {
@@ -2033,7 +2077,6 @@ public sealed unsafe class Renderer : IDisposable
                     result.ProbeIrradiance, result.ProbeDepth, probeSettings, channels, report);
             });
     }
-
 
     /// <summary>
     /// Path traces chunk <paramref name="chunk"/> of the frame in its own space and returns its <c>.lightbake</c> bytes,
@@ -2063,6 +2106,7 @@ public sealed unsafe class Renderer : IDisposable
         _api.DeviceWaitIdle(_context.Device).Check();
         _uploads.Flush();
         BakeSky(view);
+        PrepareBaking(probes: false);
         using var job = ChunkJob(view, draws, chunk, settings, resolved, started);
         return RunJob(job);
     }
@@ -2070,11 +2114,12 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>
     /// The bake <see cref="BakeChunk"/> makes, as a job to step, without waiting for the GPU: it records nothing until
     /// its first step. The frame's sky and uploads are taken as they are, so call it after a frame has drawn this view.
-    /// The draws and lights are copied, so the job doesn't need the frame's spans.
+    /// The draws and lights are copied, so the job doesn't need the frame's spans. Call <see cref="PrepareBaking"/>
+    /// first.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">As <see cref="BakeChunk"/>.</exception>
     /// <exception cref="ArgumentException">As <see cref="BakeChunk"/>.</exception>
-    /// <exception cref="InvalidOperationException">As <see cref="BakeChunk"/>.</exception>
+    /// <exception cref="InvalidOperationException">As <see cref="BakeChunk"/>, or baking isn't prepared.</exception>
     internal BakeJob CreateChunkJob(in FrameView view, ReadOnlySpan<DrawItem> draws, int chunk, BakeSettings settings)
     {
         CheckChunk(view, chunk, settings);
@@ -2123,7 +2168,7 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     // Moves the chunk's draws and lights into its space, lays them out on its page, and makes the job that bakes them.
-    // Never waits, apart from making the baker the first time.
+    // Never waits: the baker comes from PrepareBaking.
     private BakeJob ChunkJob(
         in FrameView view, ReadOnlySpan<DrawItem> draws, int chunk, BakeSettings settings,
         (BakeInputs Inputs, BakeResolver Resolver, HashSet<ulong> Ids) resolved, long started)
@@ -2198,11 +2243,11 @@ public sealed unsafe class Renderer : IDisposable
 
         // No sky and no sun in the plain light: the transfer carries them, for whatever sky the chunk is placed under.
         bool plainLight = lights.Count > 0 || glows;
-        _baker ??= new Baker(_context, this);
+        var (baker, _) = PreparedBaker(baked.Name, probes: false);
         var area = new AreaJob(owned.ToArray(), bakeLights, true, layout, 0f, plainLight, null);
         var skipped = unassigned.ToArray();
         var quality = settings.Quality;
-        return new BakeJob(_baker, _context, BakeFiles.Chunk(baked.Name, inputs.Combined), baked.Name, inputs, settings,
+        return new BakeJob(baker, _context, BakeFiles.Chunk(baked.Name, inputs.Combined), baked.Name, inputs, settings,
             area, _environment.Sky, _environment.Sampler, null,
             result =>
             {

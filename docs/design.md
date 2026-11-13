@@ -2086,8 +2086,11 @@ a value that isn't a number or is below 0 into 0 and holds one past 65,504 there
 added up by the filter, or a page that skipped it, never reaches the file as infinity, which
 `writeBaked` would carry into the HDR target for bloom to spread.
 
-Each page takes three submits: upload and prepare, the filter and dilation passes, and the
-readback. Probes aren't filtered; each is one point with its own many rays, with no neighbours
+A page's filter is one step of its `BakeJob`: the step that reads the page's sums back fills the
+`FilterRun`'s staging, records the upload, the filter and dilation passes and the copy back in
+the same command buffer, and returns `AwaitGpu`. The next step reads the filtered light from the
+staging. A chunk then runs each transfer run through the same `FilterRun` the same way, one step
+and one readback a run. Probes aren't filtered; each is one point with its own many rays, with no neighbours
 in a texture to borrow from.
 
 ## Baking probes
@@ -2122,7 +2125,7 @@ here as it is at a lightmap texel, since the frame draws it live; its light stil
 a bounce through `pathFrom`. `Baked` lights, emission and the sky count in full.
 
 The fold is the live one. The baker keeps a `ProbeVolume` of its own at `ProbeQuality.Low`, made by
-the first space bake (`Baker.EnsureProbeVolume`), and
+`Renderer.PrepareBaking` (`Baker.EnsureProbeVolume`), and
 for each group of up to `FaceSlots` (8) probes copies their faces into `FacesImage`, one slot each,
 calls `ProbeVolume.RecordFold` per slot, and `RecordStagingReadBack` copies the staging slots to a
 host buffer. So the tiles, borders, depth moments and inside marks come from `probe_fold.comp`
@@ -2149,9 +2152,12 @@ lightmap's.
 A bake runs as a `BakeJob` (`src/Rendition/Baking/BakeJob.cs`): a series of steps, each recording a slice of the work
 into a command buffer the caller submits. `Renderer.CreateSpaceJob` and `Renderer.CreateChunkJob` make one. They do
 every check `Bake` and `BakeChunk` do, resolve the inputs, lay out the draws and take the lights, and copy the draws and
-lights into the job, but record nothing and never wait for the GPU. The one exception is the first bake of a run, which
-makes the `Baker` and its probe volume. `Bake` and `BakeChunk` still wait for the GPU, flush uploads and bake the sky,
-then make the same job and step it to the end, one `SubmitAndWait` a step. A background bake can instead run a few
+lights into the job, but record nothing and never wait for the GPU. Making the `Baker` and its probe volume does wait,
+so `Renderer.PrepareBaking` makes them, once, outside a frame; a `Create*Job` before it throws rather than wait. The
+probe volume is the same size for every space, since a bake folds its probes a few at a time through its slots, so the
+one `PrepareBaking` makes serves every bake. A chunk has no probes, so `PrepareBaking(probes: false)` makes only the
+`Baker`, and a chunk still bakes on a GPU the probe fold can't run on. `Bake` and `BakeChunk` still wait for the GPU,
+flush uploads, bake the sky and call `PrepareBaking`, then make the same job and step it to the end, one `SubmitAndWait` a step. A background bake can instead run a few
 steps a frame.
 
 `Step(cmd, passes)` returns `Continue`, `AwaitGpu` or `Done`, and traces at most `passes` passes. The steps, in order:

@@ -481,10 +481,14 @@ internal sealed unsafe class Baker : IDisposable
         }
     }
 
+    /// <summary>The probe volume <see cref="EnsureProbeVolume"/> made, or null before it has run.</summary>
+    internal ProbeVolume? ProbeVolume => _probeVolume;
+
     /// <summary>
     /// The baker's probe volume, made the first time at the lowest quality, for its faces, its fold and its staging
     /// slots. Its atlases stay unused, since a bake keeps the fixed layout of <see cref="BakedProbeAtlas"/>, and the
-    /// frame's own probes are left alone. Waits for the GPU the first time only.
+    /// frame's own probes are left alone. Its size is the same for every space, since a bake folds its probes a few at
+    /// a time through the volume's slots, so one made once serves every bake. Waits for the GPU the first time only.
     /// </summary>
     /// <exception cref="InvalidOperationException">The GPU lacks what the live probes fold with.</exception>
     internal ProbeVolume EnsureProbeVolume(ImageView sky, Sampler skySampler)

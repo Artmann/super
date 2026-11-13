@@ -175,7 +175,15 @@ internal sealed unsafe class BakeJob : IDisposable
         ulong lightBytes = (ulong)Math.Max(lights.Length, 1) * (ulong)sizeof(GpuBakeLight);
         _lights = GpuBuffer.CreateHostVisible(_context, lightBytes, BufferUsageFlags.StorageBufferBit);
         lights.CopyTo(new Span<GpuBakeLight>(_lights.Mapped, lights.Length));
-        _pool = baker.CreateJobPool(_pages.Pages);
+        try
+        {
+            _pool = baker.CreateJobPool(_pages.Pages);
+        }
+        catch
+        {
+            _lights.Dispose();
+            throw;
+        }
     }
 
     /// <summary>Where the file goes: <see cref="BakeFiles.Space"/> of the name, or the chunk's own file.</summary>
@@ -202,6 +210,8 @@ internal sealed unsafe class BakeJob : IDisposable
 
     /// <summary>
     /// Whether the next step reads what the last one copied back, so the GPU must be done with the last step first.
+    /// It must name every stage that reads mapped memory the GPU wrote, and each such stage must follow a step that
+    /// returned <see cref="BakeStepResult.AwaitGpu"/>; a stage left out here could read a readback before it lands.
     /// </summary>
     internal bool ReadsBack => _stage is Stage.ReadSums or Stage.ReadFilter or Stage.ReadTransfer or Stage.ReadFold;
 
