@@ -12,7 +12,10 @@ internal sealed class BakeCache
     /// <summary>The most bytes kept, 512 MB.</summary>
     public const long DefaultCapacity = 512L * 1024 * 1024;
 
-    // How many freshly written bakes are also held in memory, until each is read once.
+    /// <summary>The most bytes of freshly written bakes held in memory, 64 MB.</summary>
+    public const long DefaultHeldCapacity = 64L * 1024 * 1024;
+
+    // How many freshly written bakes are also held in memory, until each is read once, within the held capacity.
     private const int HeldInMemory = 4;
 
     private const string Unfinished = ".tmp";
@@ -34,19 +37,23 @@ internal sealed class BakeCache
     private readonly string _folder;
     private readonly TimeProvider _time;
     private readonly long _capacity;
+    private readonly long _heldCapacity;
     private bool _swept;
 
     /// <param name="folder">Where the files go. Made on the first write.</param>
     /// <param name="time">Says when a file was used.</param>
     /// <param name="capacity">The most bytes of bakes kept; the least recently used go first.</param>
-    public BakeCache(string folder, TimeProvider time, long capacity = DefaultCapacity)
+    /// <param name="heldCapacity">The most bytes of freshly written bakes also held in memory; the oldest go first.</param>
+    public BakeCache(string folder, TimeProvider time, long capacity = DefaultCapacity, long heldCapacity = DefaultHeldCapacity)
     {
         ArgumentException.ThrowIfNullOrEmpty(folder);
         ArgumentNullException.ThrowIfNull(time);
         ArgumentOutOfRangeException.ThrowIfNegative(capacity);
+        ArgumentOutOfRangeException.ThrowIfNegative(heldCapacity);
         _folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder));
         _time = time;
         _capacity = capacity;
+        _heldCapacity = heldCapacity;
     }
 
     /// <summary>Runs after a read's file is read and before its use time is set. For tests.</summary>
@@ -109,8 +116,9 @@ internal sealed class BakeCache
             read = new byte[stream.Length];
             stream.ReadExactly(read);
         }
-        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
+            // Gone, locked by another handle, or not a file: it isn't kept, so the chunk is baked again.
             return null;
         }
 
@@ -167,10 +175,15 @@ internal sealed class BakeCache
         {
             _held.RemoveAll(entry => entry.File == file);
             _usedFromMemory.Remove(file);
-            _held.Add((file, bytes));
-            if (_held.Count > HeldInMemory)
+            if (bytes.LongLength <= _heldCapacity)
             {
-                _held.RemoveAt(0);
+                _held.Add((file, bytes));
+                long heldBytes = _held.Sum(entry => entry.Bytes.LongLength);
+                while (_held.Count > HeldInMemory || heldBytes > _heldCapacity)
+                {
+                    heldBytes -= _held[0].Bytes.LongLength;
+                    _held.RemoveAt(0);
+                }
             }
         }
 

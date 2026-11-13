@@ -3758,8 +3758,11 @@ moved in outside the lock. Trimming runs under a second lock that only writes ta
 outside the map's lock. A read opens the file with `FileShare.Delete`, so a move can replace it
 meanwhile. The last four bakes written are also held in memory until each is read once, so the
 re-read after `Forget(file)` touches no disk; a read from memory is written onto the file's use time
-by the next trim. A problem setting a use time never fails a read or a write. The first write of a
-session sweeps `.tmp` files over an hour old, left by a crash.
+by the next trim. The held bakes are also bounded by bytes, 64 MB unless the constructor is given
+another: the oldest go first, and a bake larger than the bound is kept on disk only. A problem
+setting a use time never fails a read or a write. A file that can't be opened or read (locked by
+another handle, a folder in its place, no access) counts as not kept, so the chunk is baked again.
+The first write of a session sweeps `.tmp` files over an hour old, left by a crash.
 
 Known limit: a bake cached in an earlier session isn't in memory, so the first time its name is asked
 for it is read from disk, synchronously, on the thread that asks, which can be the render thread.

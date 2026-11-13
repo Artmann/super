@@ -136,6 +136,62 @@ public sealed class BakeCacheTests : IDisposable
     }
 
     [Fact]
+    public void Held_bakes_never_pass_their_byte_bound_and_the_oldest_goes_first()
+    {
+        var cache = new BakeCache(_folder, _time, capacity: 1000, heldCapacity: 10);
+        cache.Write("a.lightbake", [1, 1, 1, 1]);
+        cache.Write("b.lightbake", [2, 2, 2, 2]);
+        // 12 bytes held would pass the bound of 10, so a, the oldest, is let go of.
+        cache.Write("c.lightbake", [3, 3, 3, 3]);
+        foreach (string file in Directory.GetFiles(_folder))
+        {
+            File.Delete(file);
+        }
+
+        Assert.Null(cache.Read("a.lightbake"));
+        Assert.Equal([2, 2, 2, 2], cache.Read("b.lightbake"));
+        Assert.Equal([3, 3, 3, 3], cache.Read("c.lightbake"));
+    }
+
+    [Fact]
+    public void A_bake_larger_than_the_held_bound_is_kept_on_disk_but_not_in_memory()
+    {
+        var cache = new BakeCache(_folder, _time, capacity: 1000, heldCapacity: 10);
+        cache.Write("small.lightbake", [1, 2]);
+        cache.Write("large.lightbake", new byte[11]);
+
+        Assert.Equal(11, new FileInfo(Path.Combine(_folder, "large.lightbake")).Length);
+        File.Delete(Path.Combine(_folder, "large.lightbake"));
+        File.Delete(Path.Combine(_folder, "small.lightbake"));
+        Assert.Null(cache.Read("large.lightbake"));
+        // The large one didn't push out what was held before it.
+        Assert.Equal([1, 2], cache.Read("small.lightbake"));
+    }
+
+    [Fact]
+    public void A_bake_that_cant_be_opened_counts_as_not_kept()
+    {
+        var cache = new BakeCache(_folder, _time, capacity: 1000);
+        // A folder where the file should be can't be opened as one, as a file pending deletion on Windows can't.
+        Directory.CreateDirectory(Path.Combine(_folder, "lighting", "denied.lightbake"));
+
+        Assert.Null(cache.Read("lighting/denied.lightbake"));
+    }
+
+    [Fact]
+    public void A_bake_another_handle_holds_shut_counts_as_not_kept()
+    {
+        var cache = new BakeCache(_folder, _time, capacity: 1000);
+        cache.Write("locked.lightbake", [1, 2, 3]);
+        Assert.Equal([1, 2, 3], cache.Read("locked.lightbake"));
+
+        using var locked = new FileStream(
+            Path.Combine(_folder, "locked.lightbake"), FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+
+        Assert.Null(cache.Read("locked.lightbake"));
+    }
+
+    [Fact]
     public async Task Reading_finishes_while_a_write_is_stuck_before_its_move()
     {
         var cache = new BakeCache(_folder, _time, capacity: 100);
