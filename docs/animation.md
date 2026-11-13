@@ -38,6 +38,12 @@ are matched to the model's joints by name, so they must be from the same rig:
 Without a `name`, a clip is named after its file. Download Mixamo clips "without skin"
 to keep them small; the character itself comes from one file "with skin".
 
+A model drawn with no pose, such as a fish that only swims (see `Swim` in
+[the ECS](ecs.md)), stands as the file shows it at rest, not as it was bound. Many
+files bind the skin a turn away from the rest pose, such as an armature turned up from z-up,
+and the cooker moves the vertices to the rest pose so such a model doesn't lie on its side.
+Played clips look the same either way.
+
 A mesh without bones, such as a sword or a head, follows its container node: the parent of
 the node that holds the mesh, such as a hand or a neck. That container is a joint of its own,
 so it plays the clips that move it, and a container with no clip moving it stays at rest with

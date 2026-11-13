@@ -127,6 +127,49 @@ internal sealed unsafe class RigImporter
 
     public int JointCount => _names.Length;
 
+    /// <summary>
+    /// Moves every vertex from the bind space into where the file shows the model at rest, and the
+    /// inverse binds with them, so skinning lands each vertex where it did before and a draw with no
+    /// pose, such as a swimming fish, stands as the file shows it. A file's bind is often a turn away
+    /// from its rest, such as an armature turned up from z-up, and without this an unposed draw lies on
+    /// its side or its nose. One move fits every joint whose bind matches its rest; it's taken from the
+    /// joint that carries the most weight over the skinned vertices. A move that mirrors the model is left out, since it would
+    /// turn the triangles inside out.
+    /// </summary>
+    public void MoveToRest(Span<Vertex> vertices)
+    {
+        var carried = new long[JointCount];
+        foreach (var vertex in vertices)
+        {
+            for (int i = 0; i < 4; i++)
+            {
+                carried[(vertex.Joints >> (i * 8)) & 0xFF] += (vertex.Weights >> (i * 8)) & 0xFF;
+            }
+        }
+
+        int heaviest = Array.IndexOf(carried, carried.Max());
+        var toRest = _inverseBind[heaviest] * _restGlobal[heaviest];
+        if (toRest.GetDeterminant() <= 0f || !Matrix4x4.Invert(toRest, out var fromRest) || toRest.IsIdentity)
+        {
+            return;
+        }
+
+        // Normals keep pointing off the surface when the move stretches it, so they use the inverse transpose.
+        var normals = Matrix4x4.Transpose(fromRest);
+        foreach (ref var vertex in vertices)
+        {
+            vertex.Position = Vector3.Transform(vertex.Position, toRest);
+            vertex.Normal = Vector3.Normalize(Vector3.TransformNormal(vertex.Normal, normals));
+            var tangent = Vector3.TransformNormal(new Vector3(vertex.Tangent.X, vertex.Tangent.Y, vertex.Tangent.Z), toRest);
+            vertex.Tangent = new Vector4(Vector3.Normalize(tangent), vertex.Tangent.W);
+        }
+
+        for (int i = 0; i < _inverseBind.Length; i++)
+        {
+            _inverseBind[i] = fromRest * _inverseBind[i];
+        }
+    }
+
     public static bool HasBones(Scene* scene)
     {
         for (uint m = 0; m < scene->MNumMeshes; m++)

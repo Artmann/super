@@ -2435,7 +2435,7 @@
       "kind": "long-method",
       "name": "Super.Cook.Models.ModelCooker.CookOne",
       "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 319
+      "metric": 320
     },
     {
       "kind": "long-method",
@@ -3527,7 +3527,7 @@
       "kind": "large-file",
       "name": "src/Super.Cook.Models/ModelCooker.cs",
       "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 1799
+      "metric": 1800
     },
     {
       "kind": "large-file",
@@ -3863,7 +3863,7 @@
       "kind": "large-type",
       "name": "Super.Cook.Models.RigImporter",
       "file": "src/Super.Cook.Models/RigImporter.cs",
-      "metric": 28
+      "metric": 29
     },
     {
       "kind": "large-type",
