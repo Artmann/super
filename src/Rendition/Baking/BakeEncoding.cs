@@ -131,7 +131,7 @@ internal static class BakeEncoding
     /// The page with what a filter run of its light read back: its irradiance, direction and mask, and
     /// <see cref="TracedPage.Filled"/> marking the texels that hold light.
     /// </summary>
-    internal static TracedPage Filtered(TracedPage traced, Baker.FilterRun run)
+    internal static TracedPage Filtered(TracedPage traced, FilterRun run)
     {
         var (irradiance, direction, mask) = run.Read();
         int count = traced.Width * traced.Height;
@@ -148,7 +148,7 @@ internal static class BakeEncoding
     /// What one run of a chunk's transfer dilation uploads: ten of each valid texel's transfer floats, made finite, in
     /// the filter's irradiance rgb, direction xyz and mask xyzw, with irradiance w marking the texels that hold a value.
     /// The transfer isn't smoothed, so run the filter without prepare or smoothing; <see cref="ReadTransferRun"/> takes
-    /// its result. Dilated with the same <see cref="Baker.DilationRings"/> rings as the light, gutters and invalid
+    /// its result. Dilated with the same <see cref="BakeFilter.DilationRings"/> rings as the light, gutters and invalid
     /// texels take their neighbours' transfer. See "Chunk transfer" in docs/design.md.
     /// </summary>
     /// <exception cref="ArgumentException">The page was traced without its transfer.</exception>
@@ -191,7 +191,7 @@ internal static class BakeEncoding
     /// Puts what run <paramref name="run"/> of the transfer dilation read back into <paramref name="transfer"/>, laid
     /// out as <see cref="TracedPage.Transfer"/>, and marks in <paramref name="filled"/> the texels that hold transfer.
     /// </summary>
-    internal static void ReadTransferRun(Baker.FilterRun filter, int run, float[] transfer, bool[] filled)
+    internal static void ReadTransferRun(FilterRun filter, int run, float[] transfer, bool[] filled)
     {
         var (a, b, m) = filter.Read();
         int count = filter.Width * filter.Height;

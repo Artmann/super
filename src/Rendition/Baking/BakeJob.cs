@@ -113,7 +113,7 @@ internal sealed unsafe class BakeJob : IDisposable
     private int _pass;
     private GpuBuffer? _sumsBuffer;
     private TracedPage? _raw;
-    private Baker.FilterRun? _run;
+    private FilterRun? _run;
     private float[]? _transfer;
     private bool[]? _transferFilled;
     private int _transferRun;
@@ -510,7 +510,7 @@ internal sealed unsafe class BakeJob : IDisposable
             {
                 FreeSums();
                 _raw = raw;
-                _baker.RecordFilter(next, run, true, _filter);
+                _baker.Filtering.Record(next, run, true, _filter);
                 _stage = Stage.ReadFilter;
                 return BakeStepResult.AwaitGpu;
             });
@@ -552,7 +552,7 @@ internal sealed unsafe class BakeJob : IDisposable
                 _transfer = transfer;
                 _transferFilled = filled;
                 _transferRun = 0;
-                _baker.RecordFilter(next, run, false, false);
+                _baker.Filtering.Record(next, run, false, false);
                 _stage = Stage.ReadTransfer;
                 return BakeStepResult.AwaitGpu;
             });
@@ -582,7 +582,7 @@ internal sealed unsafe class BakeJob : IDisposable
                 _transferRun = index + 1;
                 if (more)
                 {
-                    _baker.RecordFilter(next, run, false, false);
+                    _baker.Filtering.Record(next, run, false, false);
                     _stage = Stage.ReadTransfer;
                     return BakeStepResult.AwaitGpu;
                 }

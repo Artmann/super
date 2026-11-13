@@ -1559,7 +1559,7 @@
       "kind": "long-method",
       "name": "Rendition.Baker.Baker",
       "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 122
+      "metric": 110
     },
     {
       "kind": "long-method",
@@ -1584,12 +1584,6 @@
       "name": "Rendition.Baker.ReadTexels/5",
       "file": "src/Rendition/Baking/Baker.cs",
       "metric": 69
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Baker.RecordFilter",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 62
     },
     {
       "kind": "long-method",
@@ -3009,12 +3003,6 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Rendition.Baker.FilterRun.FilterRun",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
       "name": "Rendition.Baker.ReadSumsBack",
       "file": "src/Rendition/Baking/Baker.cs",
       "metric": 8
@@ -3521,7 +3509,7 @@
       "kind": "large-file",
       "name": "src/Rendition/Baking/Baker.cs",
       "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 1792
+      "metric": 1539
     },
     {
       "kind": "large-file",
@@ -3641,7 +3629,7 @@
       "kind": "large-type",
       "name": "Rendition.Baker",
       "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 83
+      "metric": 76
     },
     {
       "kind": "large-type",
@@ -4097,6 +4085,7 @@
         "Rendition.BakeEncoding",
         "Rendition.BakeFileNames",
         "Rendition.BakeFiles",
+        "Rendition.BakeFilter",
         "Rendition.BakeFreshness",
         "Rendition.BakeJob",
         "Rendition.BakeLightOwners",
@@ -4108,6 +4097,7 @@
         "Rendition.ChunkBakePool",
         "Rendition.ChunkPageUploader",
         "Rendition.DrawSelection",
+        "Rendition.FilterRun",
         "Rendition.FrameView",
         "Rendition.IBakeStore",
         "Rendition.LightBakeFile",

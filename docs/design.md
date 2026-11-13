@@ -2034,7 +2034,8 @@ stays alive for the whole trace even if frames are drawn between steps.
 ## Filtering and dilation
 
 The filter runs on each traced page before `Encode`, on the GPU, over the same
-region the tracer covered. A job records it with `Baker.RecordFilter` into a `FilterRun` from
+region the tracer covered. `BakeFilter` (`src/Rendition/Baking/BakeFilter.cs`) owns its pipelines; a job records it with
+`BakeFilter.Record` into a `FilterRun` from
 `Baker.CreateFilter`; `Baker.FilterAndDilate` runs it and waits, for tests. It uploads the region's means into three `rgba32f` images, works
 between two copies of them, and reads the result back. Two shaders do the work, and they share
 one descriptor set: the page's position, geometric normal and validity, the three inputs and the
@@ -2177,7 +2178,7 @@ in order:
    a host-visible buffer (`Baker.RecordSumsReadBack`) and returns `AwaitGpu`.
 3. The next step frees the sum targets, creates the filter run (`Baker.CreateFilter`) and returns `AwaitCpu` while the
    thread pool reads that buffer (`Baker.ReadSumsBack`) and fills the filter's upload. The step that finds it done
-   records the filter (`Baker.RecordFilter`) and returns `AwaitGpu`.
+   records the filter (`BakeFilter.Record`) and returns `AwaitGpu`.
 4. The step after that reads the filtered page on the thread pool, and keeps it. A chunk's page then runs both halves
    of its transfer through the same filter run, each read back and the next filled on the thread pool
    (`BakeEncoding.TransferRun`, `BakeEncoding.ReadTransferRun`).
