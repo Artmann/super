@@ -7,6 +7,10 @@ namespace Super.Tests;
 
 public sealed class BakeSaverTests : IDisposable
 {
+    // How long to wait for the thread pool to keep a bake. Only an upper bound: a busy CI runner can starve the pool
+    // for seconds, and a passing test never waits this long.
+    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(30);
+
     private readonly string _folder = Path.Combine(Path.GetTempPath(), "bake-saver-tests-" + Guid.NewGuid().ToString("N"));
     private readonly StringWriter _log = new();
     private readonly StringWriter _errors = new();
@@ -31,7 +35,7 @@ public sealed class BakeSaverTests : IDisposable
 
         string path = Path.Combine(root, "lighting", "house-garden.lightbake");
         Assert.True(Poll(() => File.Exists(path)), "the space's bake was never written");
-        Assert.True(saver.Wait(TimeSpan.FromSeconds(5)));
+        Assert.True(saver.Wait(Patience), $"the bakes weren't kept within {Patience.TotalSeconds} s");
         Assert.Equal(bytes, File.ReadAllBytes(path));
         Assert.Equal([path], Directory.GetFiles(Path.Combine(root, "lighting")));
         Assert.Equal($"Baked house-garden (Preview) in 12.3 s: {path}{Environment.NewLine}", _log.ToString());
@@ -51,7 +55,7 @@ public sealed class BakeSaverTests : IDisposable
 
         Assert.True(Poll(() => !_written.IsEmpty), "the cache write was never reported");
         // The log line comes after the report, on the pool thread, so wait for the save to finish before reading it.
-        Assert.True(saver.Wait(TimeSpan.FromSeconds(5)));
+        Assert.True(saver.Wait(Patience), $"the bakes weren't kept within {Patience.TotalSeconds} s");
         Assert.Equal([file], _written);
         Assert.Equal(bytes, cache.Read(file));
         Assert.False(Directory.Exists(Path.Combine(_folder, "content")));
@@ -72,7 +76,7 @@ public sealed class BakeSaverTests : IDisposable
         saver.Done(new BakeDone("lighting/house-garden.lightbake", "house-garden", default, BakeQuality.Preview, Bake(1)));
         saver.Done(new BakeDone("lighting/cottage/00000000000000ab.lightbake", "cottage", default, BakeQuality.Preview, Bake(1)));
 
-        Assert.True(saver.Wait(TimeSpan.FromSeconds(5)));
+        Assert.True(saver.Wait(Patience), $"the bakes weren't kept within {Patience.TotalSeconds} s");
         string[] errors = _errors.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
         Assert.Single(errors);
         Assert.StartsWith("Couldn't keep the bake of house-garden: ", errors[0]);
@@ -90,7 +94,7 @@ public sealed class BakeSaverTests : IDisposable
         saver.Done(new BakeDone("lighting/hall.lightbake", "hall", default, BakeQuality.Preview, preview));
         saver.Done(new BakeDone("lighting/hall.lightbake", "hall", default, BakeQuality.Final, final));
 
-        Assert.True(saver.Wait(TimeSpan.FromSeconds(5)));
+        Assert.True(saver.Wait(Patience), $"the bakes weren't kept within {Patience.TotalSeconds} s");
         Assert.Equal(final, File.ReadAllBytes(Path.Combine(root, "lighting", "hall.lightbake")));
         string[] lines = _log.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
         Assert.Equal(2, lines.Length);
@@ -101,7 +105,7 @@ public sealed class BakeSaverTests : IDisposable
     private static bool Poll(Func<bool> done)
     {
         var clock = Stopwatch.StartNew();
-        while (clock.Elapsed < TimeSpan.FromSeconds(5))
+        while (clock.Elapsed < Patience)
         {
             if (done())
             {
