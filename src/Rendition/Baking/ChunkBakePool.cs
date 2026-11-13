@@ -27,7 +27,7 @@ internal sealed unsafe class ChunkBakePool : IDisposable
     private readonly List<string> _swapped = [];
     private readonly ConcurrentQueue<(Entry Entry, LightBakeFile? Bake, string? Failure)> _loaded = new();
     private readonly List<Entry> _uploading = [];
-    private readonly List<Band> _bands = [];
+    private readonly ChunkPageUploader _uploader;
     private readonly List<string> _unused = [];
     private readonly List<(Entry Entry, string Reason)> _refused = [];
 
@@ -42,7 +42,7 @@ internal sealed unsafe class ChunkBakePool : IDisposable
     {
         _context = context;
         _resources = resources;
-        UploadBudget = uploadBudget;
+        _uploader = new ChunkPageUploader(context, resources, uploadBudget);
         _unreadable = unreadable;
     }
 
@@ -50,7 +50,11 @@ internal sealed unsafe class ChunkBakePool : IDisposable
     /// The most bytes of pages copied in one frame, <see cref="ChunkUploadBudget"/> unless a test sets a smaller one to
     /// watch a bake go up over several frames.
     /// </summary>
-    internal long UploadBudget { get; set; }
+    internal long UploadBudget
+    {
+        get => _uploader.Budget;
+        set => _uploader.Budget = value;
+    }
 
     /// <summary>The bakes with every page on the GPU.</summary>
     public int Resident { get; private set; }
@@ -96,12 +100,10 @@ internal sealed unsafe class ChunkBakePool : IDisposable
         public int Slot = -1;
     }
 
-    private readonly record struct Band(Entry Entry, Page Page, int FirstRow, int Rows, int Bytes);
-
     // The roles of a chunk's pages: its five transfer pages, then its plain irradiance, direction and mask.
-    private const int Irradiance = 5;
-    private const int Direction = 6;
-    private const int Mask = 7;
+    internal const int Irradiance = 5;
+    internal const int Direction = 6;
+    internal const int Mask = 7;
 
     /// <summary>
     /// Marks <paramref name="file"/>'s bake as named this frame, and gives it when every page is on the GPU. The first
@@ -139,7 +141,7 @@ internal sealed unsafe class ChunkBakePool : IDisposable
             {
                 var bake = store.Load(file)
                     ?? throw new InvalidDataException("The file is gone, though its header was read as fresh.");
-                CheckPages(bake, file);
+                ChunkBakeCheck.CheckPages(bake, file);
                 loaded.Enqueue((entry, bake, null));
             }
             catch (Exception e)
@@ -176,6 +178,17 @@ internal sealed unsafe class ChunkBakePool : IDisposable
     /// </summary>
     public void Record(CommandBuffer cmd, List<int> textures, List<IDisposable> others)
     {
+        StartLoaded(textures, others);
+        ReleaseUnused(textures, others);
+        Upload(cmd, others);
+        DropRefused(textures, others);
+        SwapReplacements(textures, others);
+        _frame++;
+    }
+
+    // Starts uploading each bake read since the last frame, and drops and reports each that failed.
+    private void StartLoaded(List<int> textures, List<IDisposable> others)
+    {
         while (_loaded.TryDequeue(out var done))
         {
             var entry = done.Entry;
@@ -195,7 +208,11 @@ internal sealed unsafe class ChunkBakePool : IDisposable
 
             Start(entry, bake);
         }
+    }
 
+    // Lets go of the bakes no copy named this frame, and of their replacements.
+    private void ReleaseUnused(List<int> textures, List<IDisposable> others)
+    {
         foreach (var (file, entry) in _entries)
         {
             if (entry.LastUsed != _frame)
@@ -215,10 +232,12 @@ internal sealed unsafe class ChunkBakePool : IDisposable
         }
 
         _unused.Clear();
-        Upload(cmd, others);
+    }
 
-        // A bake whose page the material table had no room for is dropped, the copies already recorded included, and
-        // lit live until the store reloads, as an unreadable one is.
+    // A bake whose page the material table had no room for is dropped, the copies already recorded included, and lit
+    // live until the store reloads, as an unreadable one is.
+    private void DropRefused(List<int> textures, List<IDisposable> others)
+    {
         foreach (var (entry, reason) in _refused)
         {
             Drop(entry, textures, others);
@@ -226,9 +245,12 @@ internal sealed unsafe class ChunkBakePool : IDisposable
         }
 
         _refused.Clear();
+    }
 
-        // A replacement with every page up takes the old bake's place, which goes once the frames drawing it are done,
-        // so the chunk never draws live light between the two.
+    // A replacement with every page up takes the old bake's place, which goes once the frames drawing it are done, so
+    // the chunk never draws live light between the two.
+    private void SwapReplacements(List<int> textures, List<IDisposable> others)
+    {
         foreach (var (file, replacement) in _replacing)
         {
             if (replacement.IsResident)
@@ -250,7 +272,6 @@ internal sealed unsafe class ChunkBakePool : IDisposable
         }
 
         _swapped.Clear();
-        _frame++;
     }
 
     /// <summary>Lets every bake go, as after the content reloads, from a frame that has already been submitted.</summary>
@@ -317,152 +338,61 @@ internal sealed unsafe class ChunkBakePool : IDisposable
         _uploading.Clear();
     }
 
-    /// <summary>
-    /// Throws when a chunk's bake can't be drawn as its pages say: it must have its sky and sun transfer, each transfer
-    /// page in the format the shader reads it as and all the size of the sky red page, at most one plain page of each
-    /// kind that size, pages whose bytes fit their size, and every draw on its one page.
-    /// </summary>
-    /// <exception cref="InvalidDataException">The bake is damaged or wrongly made.</exception>
-    internal static void CheckPages(LightBakeFile bake, string file)
-    {
-        if (bake.Transfer is not { } transfer)
-        {
-            throw new InvalidDataException($"The chunk bake {file} has no sky and sun transfer, which every chunk's bake needs.");
-        }
-
-        (LightBakePage Page, string Name, LightBakePageFormat Format)[] transferPages =
-        [
-            (transfer.SkyRed, "sky red", LightBakePageFormat.Rgba16f),
-            (transfer.SkyGreen, "sky green", LightBakePageFormat.Rgba16f),
-            (transfer.SkyBlue, "sky blue", LightBakePageFormat.Rgba16f),
-            (transfer.Sun, "sun", LightBakePageFormat.Rgba16f),
-            (transfer.SunTint, "sun tint", LightBakePageFormat.Rgba8),
-        ];
-        foreach (var (page, name, format) in transferPages)
-        {
-            if (page.Format != format)
-            {
-                throw new InvalidDataException($"The chunk bake {file}'s {name} transfer page is {page.Format}, but it must be {format}.");
-            }
-        }
-
-        var size = transfer.SkyRed;
-        if (size.Width < 1 || size.Height < 1)
-        {
-            throw new InvalidDataException($"The chunk bake {file}'s sky red transfer page is {size.Width}x{size.Height}, which holds no texels.");
-        }
-
-        foreach (var (page, name, _) in transferPages)
-        {
-            if (page.Width != size.Width || page.Height != size.Height)
-            {
-                throw new InvalidDataException(
-                    $"The chunk bake {file}'s {name} transfer page is {page.Width}x{page.Height}, but its sky red page is {size.Width}x{size.Height}.");
-            }
-        }
-
-        int irradiance = bake.Irradiance?.Count ?? 0;
-        int direction = bake.Direction?.Count ?? 0;
-        if (direction != irradiance)
-        {
-            throw new InvalidDataException(
-                $"The chunk bake {file} has {irradiance} irradiance pages but {direction} direction pages.");
-        }
-
-        // A chunk lit only by the sky and suns has no plain light, so no irradiance page, but the baker still writes
-        // its mask page.
-        if (irradiance > 1 || bake.Mask.Count > 1)
-        {
-            throw new InvalidDataException(
-                $"The chunk bake {file} has {irradiance} irradiance and {bake.Mask.Count} mask pages, but a chunk's bake has at most one of each.");
-        }
-
-        var plainPages = new List<(LightBakePage Page, string Name)>();
-        if (irradiance == 1)
-        {
-            plainPages.Add((bake.Irradiance![0], "irradiance"));
-            plainPages.Add((bake.Direction![0], "direction"));
-        }
-
-        if (bake.Mask.Count == 1)
-        {
-            plainPages.Add((bake.Mask[0], "mask"));
-        }
-
-        foreach (var (page, name) in plainPages)
-        {
-            if (page.Width != size.Width || page.Height != size.Height)
-            {
-                throw new InvalidDataException(
-                    $"The chunk bake {file}'s {name} page is {page.Width}x{page.Height}, but its sky red page is {size.Width}x{size.Height}.");
-            }
-        }
-
-        foreach (var (page, name) in plainPages.Concat(transferPages.Select(p => (p.Page, p.Name + " transfer"))))
-        {
-            int needed = TextureData.LevelSize(Renderer.PageFormat(page.Format), page.Width, page.Height);
-            if (page.Pixels.Length != needed)
-            {
-                throw new InvalidDataException(
-                    $"The chunk bake {file}'s {page.Width}x{page.Height} {page.Format} {name} page holds {page.Pixels.Length} bytes, but it needs {needed}.");
-            }
-        }
-
-        foreach (var (bakeId, rect) in bake.Draws)
-        {
-            if (rect.Page != 0)
-            {
-                throw new InvalidDataException(
-                    $"The chunk bake {file} puts draw 0x{bakeId:X16} on page {rect.Page}, but a chunk's bake has one page.");
-            }
-        }
-    }
-
     // Makes the images for a bake just read, for Upload to fill.
     private void Start(Entry entry, LightBakeFile bake)
     {
-        var transfer = bake.Transfer!;
         try
         {
-            AddPage(entry, transfer.SkyRed, 0);
-            AddPage(entry, transfer.SkyGreen, 1);
-            AddPage(entry, transfer.SkyBlue, 2);
-            AddPage(entry, transfer.Sun, 3);
-            AddPage(entry, transfer.SunTint, 4);
-            if (bake.Irradiance is { Count: 1 } irradiance)
-            {
-                AddPage(entry, irradiance[0], Irradiance);
-                AddPage(entry, bake.Direction![0], Direction);
-            }
-
-            if (bake.Mask.Count == 1)
-            {
-                AddPage(entry, bake.Mask[0], Mask);
-            }
+            AddPages(entry, bake);
         }
         catch
         {
-            // Such as running out of device memory part way: nothing of it is on the GPU yet.
-            foreach (var page in entry.Pages)
-            {
-                page.Texture.Dispose();
-            }
-
-            entry.Pages.Clear();
-            if (IsReplacement(entry))
-            {
-                _replacing.Remove(entry.File);
-            }
-            else
-            {
-                _entries.Remove(entry.File);
-            }
-
+            Abandon(entry);
             throw;
         }
 
         entry.Bake = bake;
         _uploading.Add(entry);
+    }
+
+    private void AddPages(Entry entry, LightBakeFile bake)
+    {
+        var transfer = bake.Transfer!;
+        AddPage(entry, transfer.SkyRed, 0);
+        AddPage(entry, transfer.SkyGreen, 1);
+        AddPage(entry, transfer.SkyBlue, 2);
+        AddPage(entry, transfer.Sun, 3);
+        AddPage(entry, transfer.SunTint, 4);
+        if (bake.Irradiance is { Count: 1 } irradiance)
+        {
+            AddPage(entry, irradiance[0], Irradiance);
+            AddPage(entry, bake.Direction![0], Direction);
+        }
+
+        if (bake.Mask.Count == 1)
+        {
+            AddPage(entry, bake.Mask[0], Mask);
+        }
+    }
+
+    // Lets go of a bake whose images couldn't all be made, such as by running out of device memory part way: nothing
+    // of it is on the GPU yet.
+    private void Abandon(Entry entry)
+    {
+        foreach (var page in entry.Pages)
+        {
+            page.Texture.Dispose();
+        }
+
+        entry.Pages.Clear();
+        if (IsReplacement(entry))
+        {
+            _replacing.Remove(entry.File);
+        }
+        else
+        {
+            _entries.Remove(entry.File);
+        }
     }
 
     private void AddPage(Entry entry, LightBakePage source, int role)
@@ -472,10 +402,7 @@ internal sealed unsafe class ChunkBakePool : IDisposable
         entry.Pages.Add(new Page(source, texture, role));
     }
 
-    // Copies a band of each waiting page, oldest bake first, up to the budget, and at least one row so even a page
-    // wider than the budget moves. A page whose last band goes up joins the material table. When the table is full, the
-    // band isn't recorded and the page's bake is refused, for Record to drop: the table would free a refused texture at
-    // once, while this frame's and older frames' copies may still be writing it.
+    // Records this frame's share of the waiting pages, then finishes each bake whose pages are all up.
     private void Upload(CommandBuffer cmd, List<IDisposable> others)
     {
         if (_uploading.Count == 0)
@@ -483,74 +410,7 @@ internal sealed unsafe class ChunkBakePool : IDisposable
             return;
         }
 
-        long total = 0;
-        foreach (var entry in _uploading)
-        {
-            foreach (var page in entry.Pages)
-            {
-                var texture = page.Texture;
-                int from = page.RowsDone;
-                if (from == texture.Height)
-                {
-                    continue;
-                }
-
-                int unit = texture.RowUnit;
-                long units = (UploadBudget - total) / texture.RowsSize(unit);
-                if (units < 1 && total > 0)
-                {
-                    break;
-                }
-
-                int rows = (int)Math.Min(Math.Max(units, 1) * unit, texture.Height - from);
-                int bytes = texture.RowsSize(from + rows) - texture.RowsSize(from);
-                _bands.Add(new Band(entry, page, from, rows, bytes));
-                total += bytes;
-            }
-
-            if (total >= UploadBudget)
-            {
-                break;
-            }
-        }
-
-        if (total > 0)
-        {
-            var staging = GpuBuffer.CreateHostVisible(_context, (ulong)total, BufferUsageFlags.TransferSrcBit);
-            others.Add(staging);
-            ulong offset = 0;
-            foreach (var band in _bands)
-            {
-                var page = band.Page;
-                bool first = band.FirstRow == 0;
-                bool last = band.FirstRow + band.Rows == page.Texture.Height;
-                if (IsRefused(band.Entry))
-                {
-                    continue;
-                }
-
-                if (last && !_resources.HasTextureRoom)
-                {
-                    _refused.Add((band.Entry, $"the material table has no room for its {RoleName(page.Role)} page, " +
-                        $"since the renderer holds at most {ResourceTable.MaxTextures} textures."));
-                    continue;
-                }
-
-                int start = page.Texture.RowsSize(band.FirstRow);
-                page.Source!.Pixels.AsSpan(start, band.Bytes).CopyTo(new Span<byte>((byte*)staging.Mapped + offset, band.Bytes));
-                page.Texture.RecordRows(cmd, staging, offset, band.FirstRow, band.Rows, first, last);
-                page.RowsDone = band.FirstRow + band.Rows;
-                if (last)
-                {
-                    page.Slot = _resources.AddTexture(page.Texture, TextureEdges.Clamp).Index;
-                    page.Source = null;
-                }
-
-                offset += (ulong)band.Bytes;
-            }
-        }
-
-        _bands.Clear();
+        _uploader.Record(cmd, _uploading, _refused, others);
         for (int i = _uploading.Count - 1; i >= 0; i--)
         {
             var entry = _uploading[i];
@@ -562,33 +422,19 @@ internal sealed unsafe class ChunkBakePool : IDisposable
         }
     }
 
-    private bool IsRefused(Entry entry)
-    {
-        foreach (var (refused, _) in _refused)
-        {
-            if (ReferenceEquals(refused, entry))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static string RoleName(int role) => role switch
-    {
-        0 => "sky red transfer",
-        1 => "sky green transfer",
-        2 => "sky blue transfer",
-        3 => "sun transfer",
-        4 => "sun tint transfer",
-        Irradiance => "irradiance",
-        Direction => "direction",
-        _ => "mask",
-    };
-
     // Every page is up: the rectangles point at the plain pages, or at none when the chunk has no plain light.
     private void Finish(Entry entry)
+    {
+        var (irradiance, direction) = TakeSlots(entry);
+        entry.Rects = Rects(entry.Bake!, irradiance, direction);
+        entry.Channels = [.. entry.Bake!.ChunkChannels];
+        entry.Bake = null;
+        entry.IsResident = true;
+        Resident++;
+    }
+
+    // Sets the entry's transfer and mask slots, and gives the slots of its plain irradiance and direction pages, or -1.
+    private static (int Irradiance, int Direction) TakeSlots(Entry entry)
     {
         int irradiance = -1;
         int direction = -1;
@@ -612,8 +458,13 @@ internal sealed unsafe class ChunkBakePool : IDisposable
             }
         }
 
+        return (irradiance, direction);
+    }
+
+    private static Dictionary<ulong, GpuLightmapRect> Rects(LightBakeFile bake, int irradiance, int direction)
+    {
         var rects = new Dictionary<ulong, GpuLightmapRect>();
-        foreach (var (bakeId, rect) in entry.Bake!.Draws)
+        foreach (var (bakeId, rect) in bake.Draws)
         {
             rects[bakeId] = new GpuLightmapRect
             {
@@ -627,11 +478,7 @@ internal sealed unsafe class ChunkBakePool : IDisposable
             };
         }
 
-        entry.Rects = rects;
-        entry.Channels = [.. entry.Bake.ChunkChannels];
-        entry.Bake = null;
-        entry.IsResident = true;
-        Resident++;
+        return rects;
     }
 
     // Lets a bake's pages go: those in the material table once the frames drawing them are done, the rest with the

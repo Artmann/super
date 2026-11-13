@@ -40,18 +40,18 @@ public sealed class ChunkBakePageTests
     };
 
     private static string Refusal(LightBakeFile bake) =>
-        Assert.Throws<InvalidDataException>(() => ChunkBakePool.CheckPages(bake, File)).Message;
+        Assert.Throws<InvalidDataException>(() => ChunkBakeCheck.CheckPages(bake, File)).Message;
 
     [Fact]
     public void Chunk_with_only_its_transfer_passes()
     {
-        ChunkBakePool.CheckPages(Chunk(plainLight: false), File);
+        ChunkBakeCheck.CheckPages(Chunk(plainLight: false), File);
     }
 
     [Fact]
     public void Chunk_with_plain_light_passes()
     {
-        ChunkBakePool.CheckPages(Chunk(plainLight: true), File);
+        ChunkBakeCheck.CheckPages(Chunk(plainLight: true), File);
     }
 
     [Fact]
