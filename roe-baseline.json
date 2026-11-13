@@ -233,7 +233,7 @@
       "kind": "high-complexity",
       "name": "Rendition.Renderer.RecordScene",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 18
+      "metric": 17
     },
     {
       "kind": "high-complexity",
@@ -947,7 +947,7 @@
       "kind": "high-cognitive-complexity",
       "name": "Rendition.Renderer.RecordScene",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 24
+      "metric": 22
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1949,7 +1949,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.RecordScene",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 232
+      "metric": 211
     },
     {
       "kind": "long-method",
@@ -1961,7 +1961,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 148
+      "metric": 149
     },
     {
       "kind": "long-method",
@@ -2003,7 +2003,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteTargetDescriptors",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 84
+      "metric": 89
     },
     {
       "kind": "long-method",
@@ -3503,7 +3503,7 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5583
+      "metric": 5606
     },
     {
       "kind": "large-file",
@@ -3665,7 +3665,7 @@
       "kind": "large-type",
       "name": "Rendition.Passes.GBuffer",
       "file": "src/Rendition/Passes/GBuffer.cs",
-      "metric": 23
+      "metric": 24
     },
     {
       "kind": "large-type",
@@ -3695,7 +3695,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 371
+      "metric": 374
     },
     {
       "kind": "large-type",

@@ -905,7 +905,7 @@ cluster.comp  compute          -> the point and spot lights reaching each of 16 
 GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, motion, baked light, shadow mask, depth
 DecalPass     decal boxes      -> colour, normal and roughness laid over the G-buffer, reading a copy of its normals
 AoPass        fullscreen       -> GTAO from depth and normals: bent normal (view space, octahedral) and visibility, RGBA8
-AoBlurPass    fullscreen       -> the same with the grain averaged away
+AoBlurPass    fullscreen x 2   -> the same with the grain averaged away, across and then down
 LightingPass  fullscreen       -> HDR colour (Cook-Torrance GGX PBR, traced reflections, probes), subsurface diffuse apart
 SssBlurPass   fullscreen x 2   -> subsurface diffuse spread across, then down and added to HDR colour
 TransparentPass  glass and particles -> blended over HDR colour together, back to front;
@@ -2915,6 +2915,14 @@ pass writes both to an RGBA8 target: the bent normal in view space, octahedral, 
 y, and the visibility in z. `ao_blur.frag` averages them without crossing depth edges.
 It decodes each tap's bent normal and sums the directions, since averaging the octahedral
 form itself gives a wrong direction where it folds, and averages the visibility as it is.
+The blur runs twice, 7 pixels across into `GBuffer.AoAcross` and then 7 down into
+`AoBlurred`, with the step pushed as a constant. That reads 14 pixels where the square it
+replaced read 49, and took the blur from about 0.4 to 0.12 ms at 1080p. A pixel with
+nothing drawn in it is written as fully visible without reading any taps. The overhead
+occlusion, which reads the sun's first cascade to see what stands over a point, takes 8
+taps over its disc. It took 16 until each was measured at about 0.07 ms in the Courtyard,
+since taps scattered over a 4096 map rarely share a cache line; halving them changed the
+picture by less than one part in a thousand.
 `strength` mixes the visibility towards 1.
 
 Lighting reads the environment's irradiance along the bent normal, mixed towards the
