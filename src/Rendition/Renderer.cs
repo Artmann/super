@@ -1686,10 +1686,10 @@ public sealed unsafe class Renderer : IDisposable
         return hash == 0 ? 1 : hash;
     }
 
-    // A chunk bake the pool couldn't read or check: reported once, and missing until the store reloads.
-    private void ChunkUnreadable(string file, string message)
+    // A chunk bake the pool couldn't read, check or put on the GPU: reported once, and missing until the store reloads.
+    private void ChunkUnreadable(string file, string problem, string message)
     {
-        Console.Error.WriteLine($"The bake {file} can't be read, so its area is lit live: {message}");
+        Console.Error.WriteLine($"The bake {file} {problem}, so its area is lit live: {message}");
         _readableBakes.Unreadable.Add(file);
     }
 

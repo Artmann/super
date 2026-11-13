@@ -18,7 +18,7 @@ internal sealed unsafe class ChunkBakePool : IDisposable
 
     private readonly VulkanContext _context;
     private readonly ResourceTable _resources;
-    private readonly Action<string, string> _unreadable;
+    private readonly Action<string, string, string> _unreadable;
 
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
     private readonly ConcurrentQueue<(Entry Entry, LightBakeFile? Bake, string? Failure)> _loaded = new();
@@ -33,8 +33,8 @@ internal sealed unsafe class ChunkBakePool : IDisposable
     // the next frame. Super draws one view a frame, so it never does. See "Chunk bakes on the GPU" in docs/design.md.
     private int _frame;
 
-    /// <param name="unreadable">Told, on the render thread, of each file that couldn't be read, checked or put on the GPU, and why.</param>
-    public ChunkBakePool(VulkanContext context, ResourceTable resources, long uploadBudget, Action<string, string> unreadable)
+    /// <param name="unreadable">Told, on the render thread, of each file that couldn't be read, checked or put on the GPU: the file, what went wrong ("can't be read" or "can't go on the GPU") and why.</param>
+    public ChunkBakePool(VulkanContext context, ResourceTable resources, long uploadBudget, Action<string, string, string> unreadable)
     {
         _context = context;
         _resources = resources;
@@ -148,7 +148,7 @@ internal sealed unsafe class ChunkBakePool : IDisposable
             if (done.Bake is not { } bake)
             {
                 _entries.Remove(entry.File);
-                _unreadable(entry.File, done.Failure!);
+                _unreadable(entry.File, "can't be read", done.Failure!);
                 continue;
             }
 
@@ -178,7 +178,7 @@ internal sealed unsafe class ChunkBakePool : IDisposable
         {
             Release(entry, textures, others);
             _entries.Remove(entry.File);
-            _unreadable(entry.File, reason);
+            _unreadable(entry.File, "can't go on the GPU", reason);
         }
 
         _refused.Clear();

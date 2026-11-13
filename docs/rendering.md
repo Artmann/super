@@ -611,8 +611,9 @@ follows every `Mixed` and `Baked` sun, moving ones included. The sky's light is 
 broad shape, so a sky much brighter at the horizon than overhead lights an open floor a little
 too brightly, about 8 steps in 255 against a space baked under that sky. Each copy draws only its
 own bake, so a pending copy is lit live even while another copy of the same chunk with another
-bake is resident. Reflection captures don't draw chunk bakes: they light a chunk's surfaces as if
-it had none. A chunk's own `Mixed` lights are shadowed through its
+bake is resident. Reflection captures don't draw chunk bakes: they light a chunk's surfaces live,
+but without the chunk's `Baked` lights, which a fresh chunk takes out of the frame, so a chunk
+with `Baked` lamps shows them missing in reflections. A chunk's own `Mixed` lights are shadowed through its
 bake's shadow mask, in the frame's shared [mask slots](#light-modes), as a space's are.
 
 For Rendition alone, `Renderer.Bakes` is where the renderer asks. It starts as

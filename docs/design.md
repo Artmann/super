@@ -3429,8 +3429,9 @@ Before a page's last band is recorded, the pool asks `ResourceTable.HasTextureRo
 table would free the texture it refuses at once, while this frame's and older frames' copies may
 still be writing it, so the band isn't recorded. The bake is refused instead: at the end of
 `Record` it is let go the deferred way, pages already in the table included, removed, and
-reported through `ChunkUnreadable` ("the material table has no room for its sun transfer page,
-since the renderer holds at most 1024 textures."). The chunk is then lit live until a reload,
+reported through `ChunkUnreadable` ("The bake … can't go on the GPU, so its area is lit live: the
+material table has no room for its sun transfer page, since the renderer holds at most 1024
+textures."). The chunk is then lit live until a reload,
 and nothing escapes `Render`.
 
 The pool counts frames by calls to `Record`, and lets a bake go when `Record` runs with no `Use`
@@ -3460,7 +3461,8 @@ writes each copy's `GpuLightmapRect` into a buffer at set 0 binding 10, 48 bytes
 the instance matrices: the draw's `BakeId` looked up, or all -1 for a copy with no bake id or
 none in the bake. Reflection and light probe captures draw the G-buffer the same way, so they see
 the space's baked light the camera does. They set no `Chunks`, so they draw a chunk's surfaces
-lit live; the shadow passes see no rects.
+lit live, though without the `Baked` lights a fresh resident chunk takes out of the frame's
+light list; the shadow passes see no rects.
 `gbuffer.vert` reads it by `gl_InstanceIndex` and passes on the lightmap uv, `Uv2` times the
 scale plus the offset, at location 7 and the three texture indices, flat, at location 8, with
 the copy's chunk in w.

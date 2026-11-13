@@ -410,7 +410,7 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
 
             Assert.True(frames < MostFrames, $"The chunk was still pending after {MostFrames} frames.");
             Assert.Equal(
-                [$"The bake {store.LastFile} can't be read, so its area is lit live: the material table has no room for " +
+                [$"The bake {store.LastFile} can't go on the GPU, so its area is lit live: the material table has no room for " +
                     "its sun transfer page, since the renderer holds at most 1024 textures."],
                 log.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries));
             byte[] refused = Capture(view, wall);
