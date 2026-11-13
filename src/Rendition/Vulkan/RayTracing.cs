@@ -163,7 +163,9 @@ internal sealed unsafe class RayTracing : IDisposable
     /// does, but the structure isn't reused when the frame is: it is held until <paramref name="release"/> is disposed,
     /// so work in later command buffers, such as a bake's steps, can read it. Dispose the release only once the GPU is
     /// done with every command buffer that reads the structure. The scratch buffer is still shared, so the build itself
-    /// belongs to <paramref name="cmd"/> as any other build does.
+    /// belongs to <paramref name="cmd"/> as any other build does. Only the top level is held: <see cref="Forget"/> and
+    /// <see cref="ForgetMaterial"/> still free the bottom levels it points at, so whoever holds it must stop reading it
+    /// before either runs, as the renderer stops its background bake.
     /// </summary>
     public TopLevelStructure TopLevel(CommandBuffer cmd, IReadOnlyList<TraceInstance> instances, out IDisposable release)
     {

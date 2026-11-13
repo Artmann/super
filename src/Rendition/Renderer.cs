@@ -966,11 +966,8 @@ public sealed unsafe class Renderer : IDisposable
         _uploads.Cancel(live.Indices);
         Destroying().Meshes.Add(live);
 
-        // A background bake still tracing it would read freed buffers, so it stops and starts again from the scene.
-        if (_bakeJob is { } job && _bakeFinishing is null && job.Uses(mesh))
-        {
-            StopBakeJob();
-        }
+        // A background bake still tracing it would read freed buffers.
+        StopBakeThatReads(job => job.Uses(mesh));
 
         // Its structures read its buffers, and its handle may go to another mesh, so they go with it.
         _tracing?.Forget(mesh);
@@ -1050,11 +1047,8 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>Marks a live texture as gone, drops any copy still waiting for it, and queues its release.</summary>
     private void QueueTextureDestroy(int slot)
     {
-        // A background bake whose materials read it would trace a freed image, so it stops and starts again.
-        if (_bakeJob is { } job && _bakeFinishing is null && BakeReadsTexture(job, slot))
-        {
-            StopBakeJob();
-        }
+        // A background bake whose materials read it would trace a freed image.
+        StopBakeThatReads(job => BakeReadsTexture(job, slot));
 
         _uploads.Cancel(_resources.MarkTextureDying(slot));
         Destroying().Textures.Add(slot);
@@ -1084,11 +1078,25 @@ public sealed unsafe class Renderer : IDisposable
 
     private void QueueMaterialDestroy(int slot)
     {
-        // The slot may go to a material with a different opaque flag, so no structure may keep using it.
-        _tracing?.ForgetMaterial(new MaterialHandle(slot));
+        // The slot may go to a material with a different opaque flag, so no structure may keep using it, and a
+        // background bake tracing those structures can't go on.
+        var material = new MaterialHandle(slot);
+        StopBakeThatReads(job => job.Uses(material));
+        _tracing?.ForgetMaterial(material);
         _resources.MarkMaterialDying(slot);
         Destroying().Materials.Add(slot);
-        if (_bakeJob is { } job && _bakeFinishing is null && job.Uses(new MaterialHandle(slot)))
+    }
+
+    /// <summary>
+    /// Stops the running background bake when <paramref name="reads"/> says it reads something about to be freed or
+    /// rebuilt: a mesh, a texture, or a material whose structures go. Its held top level still points at them, so it
+    /// would trace freed memory. The queue starts the area again from the scene. A bake whose steps are all done, and
+    /// whose file is being made, reads nothing on the GPU any more, so it is left to finish. Every path that destroys
+    /// or rebuilds what a bake traces calls this before it lets go.
+    /// </summary>
+    private void StopBakeThatReads(Func<BakeJob, bool> reads)
+    {
+        if (_bakeJob is { } job && _bakeFinishing is null && reads(job))
         {
             StopBakeJob();
         }
@@ -3528,6 +3536,8 @@ public sealed unsafe class Renderer : IDisposable
             && RayTracing.GeometryFlagsFor(_resources.HasCutouts(handle), _resources.GetFlags(handle)) != opaqueBefore)
         {
             // Structures bake each part's opaque flag in, so ones drawn in this material are rebuilt when next traced.
+            // A background bake's held top level still points at the old ones, so it stops first.
+            StopBakeThatReads(job => job.Uses(handle));
             _tracing!.ForgetMaterial(handle);
         }
     }

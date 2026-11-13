@@ -103,6 +103,99 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
     }
 
     [Fact]
+    public void Material_turned_see_through_mid_bake_stops_the_bake_and_bakes_it_again()
+    {
+        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad(gpu);
+        var wall = gpu.Renderer.CreateMaterial(new Material { BaseColor = new Vector4(0.5f, 0.5f, 0.5f, 1f), Roughness = 0.8f });
+        var dones = new List<BakeDone>();
+        try
+        {
+            var room = Room(gpu, quad, wall);
+            var view = RoomView(gpu, room);
+            int jobs = gpu.Renderer.LiveBakeJobs;
+            gpu.Renderer.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], dones.Add);
+
+            int traced = RenderUntil(view, room, () => gpu.Renderer.BakeProgress is { Fraction: > 0f } || dones.Count > 0);
+            Assert.True(gpu.Renderer.BakeProgress is { Fraction: > 0f and < 1f },
+                $"The background bake hadn't started tracing after {traced} frames, or had already finished.");
+            float before = gpu.Renderer.BakeProgress!.Value.Fraction;
+
+            // Cut out everywhere, so rays pass through the back wall. Its structures lose the opaque flag, so the ones
+            // the running bake traces are freed and built again.
+            gpu.Renderer.UpdateMaterial(wall, new Material
+            {
+                BaseColor = new Vector4(0.5f, 0.5f, 0.5f, 0f), Roughness = 0.8f, AlphaCutoff = 0.5f,
+            });
+            RenderUntil(view, room, () => true, first: traced);
+            Assert.True(gpu.Renderer.BakeProgress is not { } after || after.Fraction < before,
+                $"The background bake went on from {before} after its wall's structures were freed.");
+
+            int frames = RenderUntil(view, room, () => dones.Count > 0, first: traced + 1);
+            Assert.True(dones.Count > 0, $"No background bake was done in the {frames} frames after the wall changed.");
+
+            // The bake that finished traced the wall as it is now.
+            gpu.Renderer.AutoBake = null;
+            var whole = gpu.Renderer.Bake(view, room, new BakeSettings(4, BakeQuality.Preview));
+            Assert.Equal(Normal(whole), Normal(dones[^1].Bytes));
+
+            RenderUntil(view, room, () => false, first: traced + 1 + frames, frames: 4);
+            Assert.Equal(jobs, gpu.Renderer.LiveBakeJobs);
+        }
+        finally
+        {
+            gpu.Renderer.AutoBake = null;
+            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.DestroyMaterial(wall);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void Texture_destroyed_mid_bake_stops_the_bake()
+    {
+        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad(gpu);
+        var texture = gpu.Renderer.CreateTexture(TextureData.FromPixels(1, 1, TextureKind.Color, [128, 128, 128, 255]));
+        var plain = new Material { BaseColor = Vector4.One, Roughness = 0.8f };
+        var wall = gpu.Renderer.CreateMaterial(plain with { BaseColorTexture = texture });
+        try
+        {
+            var room = Room(gpu, quad, wall);
+            var view = RoomView(gpu, room);
+            int jobs = gpu.Renderer.LiveBakeJobs;
+            gpu.Renderer.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], _ => { });
+
+            int traced = RenderUntil(view, room, () => gpu.Renderer.BakeProgress is { Fraction: > 0f });
+            Assert.True(gpu.Renderer.BakeProgress is { Fraction: > 0f and < 1f },
+                $"The background bake hadn't started tracing after {traced} frames, or had already finished.");
+            float before = gpu.Renderer.BakeProgress!.Value.Fraction;
+
+            // The wall stops naming the texture as it goes, as a game must, so only the bake still reads it.
+            gpu.Renderer.DestroyTexture(texture);
+            gpu.Renderer.UpdateMaterial(wall, plain);
+            RenderUntil(view, room, () => true, first: traced);
+            Assert.True(gpu.Renderer.BakeProgress is not { } after || after.Fraction < before,
+                $"The background bake went on from {before} after a texture it reads was destroyed.");
+
+            gpu.Renderer.AutoBake = null;
+            RenderUntil(view, room, () => false, first: traced + 1, frames: 4);
+            Assert.Equal(jobs, gpu.Renderer.LiveBakeJobs);
+        }
+        finally
+        {
+            gpu.Renderer.AutoBake = null;
+            gpu.Renderer.DestroyMesh(quad);
+            gpu.Renderer.DestroyMaterial(wall);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
     public void Background_bake_never_waits_for_the_gpu()
     {
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
@@ -318,11 +411,15 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         return (file with { Report = file.Report with { Time = TimeSpan.Zero } }).ToBytes();
     }
 
-    // A box room open at the top and front: a 4 metre floor and three walls 2 metres high.
-    private static DrawItem[] Room(GpuFixture g, MeshHandle quad) =>
+    // A box room open at the top and front: a 4 metre floor and three walls 2 metres high, the back wall in
+    // backWall's material when given, the rest matte.
+    private static DrawItem[] Room(GpuFixture g, MeshHandle quad, MaterialHandle? backWall = null) =>
     [
         Draw(g, quad, Matrix4x4.CreateScale(2f) * Matrix4x4.CreateRotationX(-MathF.PI / 2f), 1),
-        Draw(g, quad, Matrix4x4.CreateScale(2f, 1f, 1f) * Matrix4x4.CreateTranslation(0f, 1f, -2f), 2),
+        Draw(g, quad, Matrix4x4.CreateScale(2f, 1f, 1f) * Matrix4x4.CreateTranslation(0f, 1f, -2f), 2) with
+        {
+            Material = backWall ?? g.Matte,
+        },
         Draw(g, quad, Matrix4x4.CreateScale(2f, 1f, 1f) * Matrix4x4.CreateRotationY(MathF.PI / 2f) * Matrix4x4.CreateTranslation(-2f, 1f, 0f), 3),
         Draw(g, quad, Matrix4x4.CreateScale(2f, 1f, 1f) * Matrix4x4.CreateRotationY(-MathF.PI / 2f) * Matrix4x4.CreateTranslation(2f, 1f, 0f), 4),
     ];

@@ -2242,9 +2242,14 @@ the running one meanwhile, holding the baker's pages, so no other job sets up. A
 the frame's bakes. Nothing catches an exception from `Done`, so it passes out of `Render`.
 
 A stopped job may have steps in frames still in flight, so it is disposed with the destroyed resources of the last
-submitted frame's slot. A job that never stepped holds nothing the GPU reads and goes at once. `DestroyMesh`,
-destroying a material and destroying a texture stop the running job when its draws use them, a texture through the
-materials of its draws. `Bake`, `BakeChunk` and `Dispose` wait for the GPU,
+submitted frame's slot. A job that never stepped holds nothing the GPU reads and goes at once. The job's held top-level
+structure points at bottom-level structures it doesn't own, so anything that frees one of those, or what they read,
+must stop it first. Every such path goes through `StopBakeThatReads`: `DestroyMesh`, destroying a material or a
+texture, and `UpdateMaterial` when the change makes `ForgetMaterial` drop the material's structures. Each stops the
+running job when its draws use the mesh or material, a texture through the materials of its draws, and the queue starts
+the area again from the scene. A job whose file is being made reads nothing on the GPU, so it is left to finish.
+`AutoBakeGpuTests` turns a wall see-through and destroys a texture mid-bake and checks the job starts over.
+`Bake`, `BakeChunk` and `Dispose` wait for the GPU,
 then drop every background bake, waiting for any file being made, since the whole bake needs the baker's pages.
 
 Measured on the development desktop's GPU at a 4 ms budget: the test's room, a 4 metre floor and three walls, at 180
@@ -4110,7 +4115,8 @@ Each part's opaque flag is baked into the structure when it is built. So `Update
 `Transparent`, and destroying a material always does, because material handles are slot numbers
 and the slot may come back as a material with a different flag. `ForgetMaterial` drops every
 structure with a part in that material and releases it the same way as `Forget`; the next trace
-rebuilds it.
+rebuilds it. A background bake holds its top-level structure over many frames, so both paths stop
+it first when it traces that material (see "Background bakes").
 
 ### What rays can hit, and the top-level structure
 
