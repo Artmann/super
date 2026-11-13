@@ -752,10 +752,17 @@ and `DroppedSuns` list the lights left to a bake that has faded all the way in, 
 ### Baking in the background
 
 ```csharp
+// Done runs inside Render, so each write goes to another thread instead of holding up the frame. The writes are
+// chained, one after another in the order the bakes finished, so a Final is never overwritten by an earlier Preview.
+Task writes = Task.CompletedTask;
 renderer.AutoBake = new AutoBake(
     BudgetMilliseconds: 4f, Spaces: true, Qualities: [BakeQuality.Preview, BakeQuality.Final],
-    // Done runs inside Render, so the write goes to another thread instead of holding up the frame.
-    Done: done => Task.Run(() => File.WriteAllBytes(Path.Combine("content", done.File), done.Bytes)));
+    Done: done => writes = writes.ContinueWith(_ =>
+    {
+        string path = Path.Combine("content", done.File);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, done.Bytes);
+    }, TaskScheduler.Default));
 ```
 
 With `Renderer.AutoBake` set, the renderer bakes by itself each space and chunk a frame names whose bake is missing or
@@ -769,7 +776,8 @@ bakes only chunks.
 
 The renderer doesn't save anything. It hands each finished file to `Done`, on the render thread, inside a later
 `Render`, with where it goes (`done.File`, the same path `--bake` writes), the area's name, the inputs it was made from
-and its quality. Writing a file there would hold up the frame, so hand the bytes to another thread, as above. `Done`
+and its quality. Writing a file there would hold up the frame, so hand the bytes to another thread, as above, and keep the writes in
+order: two writes started side by side can land in either order. A Super game does this for you (below). `Done`
 must not throw, since an exception passes out of `Render`. Once the store reads the file the area is fresh and drawn
 from its bake, which [fades in](#with-a-fresh-bake) over `Renderer.BakeFadeSeconds` if the area is on screen. A bake whose area changes while it runs is started over, and one finished from the same inputs and
 quality is never baked again, so a file the store hasn't read yet doesn't loop. An area whose saved bake is fresh but
