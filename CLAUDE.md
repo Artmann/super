@@ -9,6 +9,20 @@ A new option, changed behaviour or new limit goes in the user guide (such as
 `rendering.md` or `views.md`), and engine internals go in `design.md`. Before
 committing, search `docs/` for the names you touched so no old description is left.
 
+## Code health
+
+[Roe](https://github.com/Artmann/roe) checks the code for dead code, duplicates and
+complexity. Run `dotnet tool restore` once, then `dotnet roe` before committing. CI fails
+on any dead code and on health findings that `roe-baseline.json` doesn't already record.
+
+- Delete dead code. When Roe is wrong because something is used from outside the
+  code, such as a file the cooker compiles, say so in `roe.json`.
+- When you fix a health finding, or one moves, rewrite the baseline with
+  `dotnet roe health --write-baseline roe-baseline.json`. Don't rewrite it to hide a
+  new finding.
+- Duplicates don't fail CI yet. Don't add new ones: Vulkan descriptor setup goes
+  through `Descriptors` in `src/Rendition/Vulkan`.
+
 ## Seeing the game
 
 To see a game, use `--screenshot` or `--record` from `docs/command-line.md`, or `GameCapture`
