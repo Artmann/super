@@ -60,6 +60,13 @@ public sealed class Input
     /// </summary>
     public bool HideCursor { get; set; }
 
+    /// <summary>
+    /// A picture the system draws as the cursor in place of its arrow, or null for the arrow. The system moves
+    /// it with the mouse itself, between frames, so it never lags behind the hand the way a pointer drawn in
+    /// the interface does on a slow frame. <see cref="HideCursor"/> and <see cref="CaptureMouse"/> still hide it.
+    /// </summary>
+    public CursorLook? Cursor { get; set; }
+
     /// <summary>Where the cursor is, in the same pixels the interface lays itself out in.</summary>
     public Vector2 MousePosition { get => Read(field); private set; }
 
@@ -381,3 +388,9 @@ public sealed class Input
         }
     }
 }
+
+/// <summary>
+/// What <see cref="Input.Cursor"/> shows: an <see cref="Image"/> drawn <see cref="Size"/> interface units
+/// square, with the mouse at <see cref="Hotspot"/>, in the image's own pixels from its top left.
+/// </summary>
+public sealed record CursorLook(Ui.GameImage Image, float Size, System.Numerics.Vector2 Hotspot);
