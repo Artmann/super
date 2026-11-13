@@ -605,13 +605,13 @@
       "kind": "high-complexity",
       "name": "Super.Game.StartWindowsGameLoop",
       "file": "src/Super/Game.cs",
-      "metric": 30
+      "metric": 27
     },
     {
       "kind": "high-complexity",
       "name": "Super.GameArguments.Parse",
       "file": "src/Super/GameArguments.cs",
-      "metric": 59
+      "metric": 60
     },
     {
       "kind": "high-complexity",
@@ -1199,7 +1199,7 @@
       "kind": "high-cognitive-complexity",
       "name": "Super.Game.StartWindowsGameLoop",
       "file": "src/Super/Game.cs",
-      "metric": 37
+      "metric": 34
     },
     {
       "kind": "high-cognitive-complexity",
@@ -2567,19 +2567,19 @@
       "kind": "long-method",
       "name": "Super.Game.StartWindowsGameLoop",
       "file": "src/Super/Game.cs",
-      "metric": 156
+      "metric": 146
     },
     {
       "kind": "long-method",
       "name": "Super.GameArguments.Parse",
       "file": "src/Super/GameArguments.cs",
-      "metric": 174
+      "metric": 179
     },
     {
       "kind": "long-method",
       "name": "Super.GameHost.GameHost",
       "file": "src/Super/GameHost.cs",
-      "metric": 49
+      "metric": 51
     },
     {
       "kind": "long-method",
@@ -3521,13 +3521,13 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5537
+      "metric": 5573
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
-      "metric": 1409
+      "metric": 1434
     },
     {
       "kind": "large-file",
@@ -3557,13 +3557,13 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/GameWindow.cs",
       "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 773
+      "metric": 779
     },
     {
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1121
+      "metric": 1138
     },
     {
       "kind": "large-file",
@@ -3713,7 +3713,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 366
+      "metric": 369
     },
     {
       "kind": "large-type",
@@ -3779,7 +3779,7 @@
       "kind": "large-type",
       "name": "Rendition.Vulkan.VulkanContext",
       "file": "src/Rendition/Vulkan/VulkanContext.cs",
-      "metric": 37
+      "metric": 38
     },
     {
       "kind": "large-type",
@@ -3899,19 +3899,19 @@
       "kind": "large-type",
       "name": "Super.GameHost",
       "file": "src/Super/GameHost.cs",
-      "metric": 43
+      "metric": 44
     },
     {
       "kind": "large-type",
       "name": "Super.GameWindow",
       "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 48
+      "metric": 49
     },
     {
       "kind": "large-type",
       "name": "Super.Graphics",
       "file": "src/Super/Graphics.cs",
-      "metric": 30
+      "metric": 40
     },
     {
       "kind": "large-type",
@@ -3965,7 +3965,7 @@
       "kind": "large-type",
       "name": "Super.SceneRenderer",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 100
+      "metric": 103
     },
     {
       "kind": "large-type",

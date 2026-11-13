@@ -326,6 +326,9 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>Why <see cref="CanTrace"/> is false, such as "no VK_KHR_ray_query", or null when it is true.</summary>
     public string? NoTraceReason => _context.NoTraceReason;
 
+    /// <summary>The GPU this renderer draws with: its name, kind and memory.</summary>
+    public GpuInfo Gpu => _context.Gpu;
+
     /// <summary>
     /// Waits for the display before showing each frame, so the picture never tears, and the
     /// frame rate stops at the display's. Turned off, frames are shown as soon as they're done.
@@ -354,6 +357,39 @@ public sealed unsafe class Renderer : IDisposable
         get => _shadowResolution;
         set => _shadowResolution = ShadowPass.CheckResolution(value);
     }
+
+    /// <summary>
+    /// The most of the sun's cascades drawn, from 1 to <see cref="ShadowPass.MaxCascades"/>, whatever
+    /// <see cref="ShadowSettings.Cascades"/> asks for. Each cascade left out saves drawing the scene once more,
+    /// and the sun's shadows end where the last cascade drawn ends. Takes effect on the next frame.
+    /// </summary>
+    public int MaxShadowCascades
+    {
+        get;
+        set => field = value is >= 1 and <= ShadowPass.MaxCascades
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), value, $"The sun can draw from 1 to {ShadowPass.MaxCascades} cascades.");
+    } = ShadowPass.MaxCascades;
+
+    /// <summary>The smallest <see cref="MeshDetailScale"/>: models switch to their simpler versions at twice the distance.</summary>
+    public const float MinMeshDetail = 0.5f;
+
+    /// <summary>The largest <see cref="MeshDetailScale"/>: models keep their finer versions to twice the distance.</summary>
+    public const float MaxMeshDetail = 2f;
+
+    /// <summary>
+    /// How long models keep their finer versions as they move away, from 0.5 to 2. 1 switches when a simpler version
+    /// would stray by a pixel on screen. At 0.5 they may stray by two, so they switch sooner and fewer triangles are
+    /// drawn; at 2 by half a pixel. The sun's shadows follow in step. Takes effect on the next frame.
+    /// </summary>
+    public float MeshDetailScale
+    {
+        get;
+        set => field = value is >= MinMeshDetail and <= MaxMeshDetail
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), value,
+                string.Create(CultureInfo.InvariantCulture, $"Mesh detail can be from {MinMeshDetail} to {MaxMeshDetail}."));
+    } = 1f;
 
     /// <summary>The smallest <see cref="RenderScale"/>: a quarter of the window's pixels.</summary>
     public const float MinRenderScale = 0.5f;
@@ -4020,7 +4056,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         var (pixelsAtOneUnit, pixelsPerUnit) = Projection.PixelScale(view.Projection, (int)_gBuffer.Extent.Height);
-        var camera = new DetailView(viewProjection, view.CameraPosition, pixelsAtOneUnit, pixelsPerUnit, CameraDetailError);
+        var camera = new DetailView(viewProjection, view.CameraPosition, pixelsAtOneUnit, pixelsPerUnit, CameraDetailError / MeshDetailScale);
         int cameraCount;
         if (_relightChunks)
         {
@@ -4049,7 +4085,7 @@ public sealed unsafe class Renderer : IDisposable
             {
                 float texelsPerUnit = _shadowPass.Resolution / (2f * ShadowPass.CascadeRadius(view.Shadows, cascade));
                 var shadow = new DetailView(
-                    _shadowMatrices[cascade], view.CameraPosition, 0f, texelsPerUnit, ShadowDetailError);
+                    _shadowMatrices[cascade], view.CameraPosition, 0f, texelsPerUnit, ShadowDetailError / MeshDetailScale);
                 _shadowCounts[cascade] = DrawSelection.Select(shadow, draws, _details, _shadowDraws[cascade], _windReach);
                 shadowCount += _shadowCounts[cascade];
             }
@@ -4124,7 +4160,7 @@ public sealed unsafe class Renderer : IDisposable
             }
 
             ref readonly var view = ref tiles[tile];
-            var shadow = new DetailView(view.Matrix, view.Eye, view.PixelsAtOneUnit, 0f, ShadowDetailError, far: true);
+            var shadow = new DetailView(view.Matrix, view.Eye, view.PixelsAtOneUnit, 0f, ShadowDetailError / MeshDetailScale, far: true);
             int count = DrawSelection.Select(shadow, draws, _details, _tileDraws.AsSpan(total), _windReach);
             _tileRanges[tile] = (total, count);
             total += count;
@@ -4974,7 +5010,7 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->LightCount = count;
         uniforms->Time = view.Time;
         uniforms->PreviousTime = historyValid ? _previousTime : view.Time;
-        _shadowCascades = ShadowPass.CascadeCount(view.Shadows);
+        _shadowCascades = Math.Min(ShadowPass.CascadeCount(view.Shadows), MaxShadowCascades);
         uniforms->ShadowCascades = _shadowCascades;
         bool castsShadow = false;
         uniforms->ShadowDepthScales = Vector4.One;

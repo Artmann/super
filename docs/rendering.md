@@ -54,8 +54,8 @@ Game.StartWindowsGameLoop<MyGame>(new GameOptions
 });
 ```
 
-`Graphics.Fastest()` turns every effect and vsync off (but keeps the materials and the baked lighting), a start to turn back on only what
-the game needs. Ask for `Graphics` in a constructor to change it while the game runs; the
+`Graphics.Fastest()` turns every effect and vsync off (but keeps the materials and the baked lighting) and sets `MeshDetail` to 0.5, a start to turn back on only what
+the game needs. For settings a player picks from, see [quality presets and profiles](#quality-presets-and-profiles). Ask for `Graphics` in a constructor to change it while the game runs; the
 next frame follows, so it can back an options menu.
 
 | Setting | Off, or set |
@@ -64,6 +64,8 @@ next frame follows, so it can back an options menu.
 | `MaxFramesPerSecond` | The most frames drawn a second. 0, the default, is no limit. It saves power, and with vsync off it holds a steady rate |
 | `SunShadows` | Nothing is drawn into the sun's shadow maps, often the biggest saving. Ambient occlusion still darkens nooks |
 | `ShadowResolution` | How many texels across each of the sun's shadow maps is: 1024, 2048 (the default) or 4096. Each step up sharpens shadow edges for four times the memory. A change rebuilds the maps before the next frame, which waits for the GPU once |
+| `ShadowCascades` | How many of the sun's shadow maps are drawn, from 1 to 4, the default. Each map covers three times the ground of the one before, and each draws the scene again, so fewer save GPU time. The sun casts no shadow past the last map drawn, so with 2 its shadows reach about a ninth as far as with 4. A view that asks for fewer in `view.Shadows` keeps its number |
+| `MeshDetail` | How soon models switch to their simpler versions with distance, from 0.5 to 2. 1, the default, switches where the change is under a pixel. At 0.5 they switch twice as soon, which draws fewer triangles for a little blockiness far away, and at 2 half as soon. The sun's shadow maps follow it too |
 | `RenderScale` | How large the scene is drawn against the window, from 0.5 to 2 each way. 1, the default, draws it at the window's size with nothing resized. At 2 the scene has four times the pixels and is shrunk to fit, which smooths grass blades, railings and other thin things, for about four times the lighting and effects work. At 0.5 it has a quarter of the pixels and is stretched, which is much faster and softer. Below 1, meshes also switch to their simpler versions sooner, since they cover fewer scene pixels. A scene larger than the GPU can draw is shrunk to fit, keeping its shape. The interface, screenshots and recordings stay at the window's size. Anything else is refused. `--render-scale` sets it too. A change rebuilds the scene's targets before the next frame, which waits for the GPU once and restarts anti-aliasing |
 | `Upscaler` | What smooths edges when `AntiAliasing` is on: `Upscaler.Taa`, the default, or `Upscaler.Fsr`, which hands the frame to AMD FSR to rebuild at the window's size. See [upscaling](#upscaling). `--upscaler fsr` sets it too, and `Graphics.Fastest()` uses TAA |
 | `ContactShadows` | No thin dark line where things meet the ground in sunlight, only what the shadow maps show. `view.Shadows`' `contact` only changes [how far they look](#shadows) |
@@ -91,6 +93,65 @@ next frame follows, so it can back an options menu.
 `Graphics.Fastest()` leaves `RenderScale` at 1 too, since a smaller picture is a change the
 player can see, not only a saving. A game for slow GPUs on big screens sets it to 0.75 or 0.5
 itself, or offers it in an options menu.
+
+### Quality presets and profiles
+
+`Graphics.For` gives a ready-made set of settings for `GraphicsQuality.Low`, `Medium`, `High` or
+`Ultra`. `High` is the same as `new Graphics()`, every effect at its best. The others change:
+
+| Quality | What changes from `High` |
+|---|---|
+| `Low` | Render scale 0.75, 1024 shadow maps, 2 cascades, `MeshDetail` 0.5, `ProbeQuality.Low` and a 1 ms bake budget. Off: contact shadows, light shadows, light probes, ambient occlusion, reflections, auto exposure, depth of field, decals, volumetric fog, puddles and wind |
+| `Medium` | Render scale 0.85, 3 cascades, `MeshDetail` 0.75, `ProbeQuality.Medium` and a 2 ms bake budget. Off: depth of field and volumetric fog |
+| `Ultra` | 4096 shadow maps and `MeshDetail` 1.5 |
+
+In the Courtyard at 1600 by 900 on an RTX 4060 Ti, a frame takes 8.5 ms of GPU at `High`, 6.5 at
+`Medium` and 4.3 at `Low`. `Ultra` costs about the same as `High` there. `Medium` loses a little
+sharpness; `Low` also loses the puddle, the bounced light and the darkening in corners:
+
+![The Courtyard's barrel, window and puddle at High, Medium and Low, with the GPU time of each](media/graphics-quality.webp)
+
+Every preset keeps vsync on and no frame limit, since those are the player's choice rather than a
+quality. `graphics.Apply(profile)` switches a running game to another set of settings: it copies
+every setting but `DebugView`, and the next frame follows. An options menu can do this:
+
+```csharp
+internal sealed class Options(Graphics graphics, Gpu gpu, UserData userData)
+{
+    public void Pick(GraphicsQuality quality)
+    {
+        graphics.Apply(Graphics.For(quality));
+        graphics.Save(Path.Combine(userData.Folder, "graphics.json"));
+    }
+
+    public GraphicsQuality FirstChoice => gpu.RecommendedQuality;
+}
+```
+
+`Gpu` is a service that says which GPU the game draws with: its `Name`, `Kind` (`Discrete`,
+`Integrated`, `Virtual` or `Unknown`), `MemoryBytes` and `CanTrace`. The window fills it in once it
+has made its device, so it is known from the first `Update`, not in `Load`, and stays `Unknown` in
+tests without a window. `Graphics.Recommend(gpu.Info)`, or `gpu.RecommendedQuality`, guesses a
+quality from it: `Low` for a GPU built into the processor or a virtual one, and for a card of its
+own `Low` under 3 GB, `Medium` under 6 GB, `High` under 12 GB and `Ultra` from there. An unknown GPU
+gets `High`. It is a first guess for a player who hasn't chosen, not a measurement.
+
+`graphics.Save(path)` writes every setting but `DebugView` to a JSON profile, and
+`Graphics.Load(path)` reads one back. Choices are written by name, such as `"Upscaler": "Fsr"`. A
+profile written by hand can hold only what it changes, and the rest keep their defaults:
+
+```json
+{ "VolumetricFog": false, "ShadowCascades": 2, "BakeOnArrival": false }
+```
+
+A name the profile doesn't know, or a value a setting refuses, stops the load with an
+`InvalidDataException` naming the file. `--graphics` picks a preset or profile from the
+[command line](command-line.md): `low`, `medium`, `high`, `ultra`, `fastest`, `auto` for the
+recommended quality, or a path ending in `.json`.
+
+A background bake costs up to `BakeBudget` milliseconds a frame while it runs, 4 from source by
+default, which shows on a slow GPU right after arriving somewhere new. `Low` and `Medium` give it
+less, and `BakeOnArrival = false` stops it.
 
 ### The debug view from a game
 

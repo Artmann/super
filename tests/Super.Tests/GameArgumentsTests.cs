@@ -402,4 +402,96 @@ public class GameArgumentsTests
 
         Assert.Equal("--bake-quality needs --bake.", error.Message);
     }
+
+    [Theory]
+    [InlineData("low")]
+    [InlineData("medium")]
+    [InlineData("high")]
+    [InlineData("ultra")]
+    [InlineData("fastest")]
+    [InlineData("auto")]
+    [InlineData("profiles/mine.json")]
+    public void Reads_a_graphics_profile(string name)
+    {
+        Assert.Equal(name, GameArguments.Parse(["--graphics", name]).GraphicsProfile);
+    }
+
+    [Fact]
+    public void A_graphics_profile_it_does_not_know_is_refused()
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--graphics", "potato"]));
+
+        Assert.Equal("--graphics needs low, medium, high, ultra, fastest, auto or a profile ending in .json, not 'potato'.", error.Message);
+    }
+
+    [Fact]
+    public void Flags_win_over_the_graphics_profile()
+    {
+        var graphics = new Graphics();
+        var arguments = GameArguments.Parse(["--graphics", "low", "--render-scale", "1", "--no-vsync"]);
+
+        Game.ApplyGraphicsArguments(graphics, arguments, gpu: null);
+
+        Assert.Equal(1024, graphics.ShadowResolution);
+        Assert.False(graphics.Reflections);
+        Assert.Equal(1f, graphics.RenderScale);
+        Assert.False(graphics.Vsync);
+    }
+
+    [Fact]
+    public void Auto_graphics_waits_for_the_gpu()
+    {
+        var graphics = new Graphics();
+        var arguments = GameArguments.Parse(["--graphics", "auto", "--no-materials"]);
+
+        Game.ApplyGraphicsArguments(graphics, arguments, gpu: null);
+
+        Assert.Equal(2048, graphics.ShadowResolution);
+        Assert.True(graphics.Reflections);
+        Assert.False(graphics.Materials);
+    }
+
+    [Fact]
+    public void Auto_graphics_picks_low_for_a_gpu_built_into_the_processor()
+    {
+        var graphics = new Graphics();
+        var arguments = GameArguments.Parse(["--graphics", "auto"]);
+
+        Game.ApplyGraphicsArguments(graphics, arguments, new GpuInfo("Laptop GPU", GpuKind.Integrated, 1L << 30, false));
+
+        Assert.Equal(0.75f, graphics.RenderScale);
+        Assert.Equal(1024, graphics.ShadowResolution);
+        Assert.False(graphics.Reflections);
+    }
+
+    [Fact]
+    public void A_graphics_profile_file_is_read()
+    {
+        string folder = Directory.CreateTempSubdirectory("super-arguments-").FullName;
+        try
+        {
+            string path = Path.Combine(folder, "mine.json");
+            File.WriteAllText(path, """{ "Bloom": false, "ShadowCascades": 1 }""");
+            var graphics = new Graphics();
+
+            Game.ApplyGraphicsArguments(graphics, GameArguments.Parse(["--graphics", path]), gpu: null);
+
+            Assert.False(graphics.Bloom);
+            Assert.Equal(1, graphics.ShadowCascades);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void A_missing_graphics_profile_file_is_named()
+    {
+        var arguments = GameArguments.Parse(["--graphics", "nowhere/mine.json"]);
+
+        var error = Assert.Throws<ArgumentException>(() => Game.ApplyGraphicsArguments(new Graphics(), arguments, gpu: null));
+
+        Assert.Equal("--graphics can't find the profile 'nowhere/mine.json'.", error.Message);
+    }
 }

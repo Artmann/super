@@ -142,6 +142,20 @@ internal sealed class SceneRenderer : IDisposable
         set => _renderer.ShadowResolution = value;
     }
 
+    /// <summary>The most of the sun's cascades drawn. See <see cref="Renderer.MaxShadowCascades"/>.</summary>
+    public int MaxShadowCascades
+    {
+        get => _renderer.MaxShadowCascades;
+        set => _renderer.MaxShadowCascades = value;
+    }
+
+    /// <summary>How long models keep their finer versions as they move away. See <see cref="Renderer.MeshDetailScale"/>.</summary>
+    public float MeshDetail
+    {
+        get => _renderer.MeshDetailScale;
+        set => _renderer.MeshDetailScale = value;
+    }
+
     /// <summary>How large the scene is drawn against the window. A change rebuilds the targets before the next frame.</summary>
     public float RenderScale
     {
@@ -177,6 +191,9 @@ internal sealed class SceneRenderer : IDisposable
 
     /// <summary>Why <see cref="CanTrace"/> is false, or null when it is true.</summary>
     public string? NoTraceReason => _renderer.NoTraceReason;
+
+    /// <summary>The GPU the scene is drawn with. See <see cref="Renderer.Gpu"/>.</summary>
+    public GpuInfo Gpu => _renderer.Gpu;
 
     public ReadOnlySpan<GpuPassTime> GpuTimes => _renderer.GpuTimes;
 

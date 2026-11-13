@@ -994,7 +994,8 @@ and up to four simpler versions, made while loading. Vertices that share a grid 
 face the same way merge into one of them, so a simpler version is only another index
 range, with no new vertices. Each frame, the camera and the shadow map each skip what
 they can't see and pick the simplest version that strays by at most 1 pixel on screen
-or 2 texels in the shadow map. `DrawItem`s written by hand have neither, and always draw
+or 2 texels in the shadow map. `Renderer.MeshDetailScale` (`Graphics.MeshDetail`) divides
+both limits, so at 0.5 a version may stray twice as far. `DrawItem`s written by hand have neither, and always draw
 in full.
 
 Model files often link only colour and normal maps. Each model's
@@ -1052,6 +1053,8 @@ how far away the blocker is, then widens its sampling to match, by the sun's siz
 which area the shadow map covers through `FrameView.Shadows`. A smaller area gives
 sharper shadows, so the sample fits it to the model. A wide outdoor scene asks for up
 to four cascades, each a ball three times the radius of the one before.
+`Renderer.MaxShadowCascades` (`Graphics.ShadowCascades`) caps how many are drawn, keeping the
+nearest, so a lower setting gives up the far shadows and keeps the near ones as sharp.
 
 `Renderer.FitCascades` lays the balls along the view. `ShadowPass.Spread` reads how far a
 frustum corner leaves the view axis per metre of depth, and `ShadowPass.FitSlice` finds the

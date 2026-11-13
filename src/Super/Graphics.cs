@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Rendition;
 
 namespace Super;
@@ -49,6 +51,35 @@ public sealed class Graphics
             ? value
             : throw new ArgumentOutOfRangeException(nameof(value), value, "Shadow maps can be 1024, 2048 or 4096 texels across.");
     } = 2048;
+
+    /// <summary>
+    /// The most of the sun's shadow cascades drawn, from 1 to 4, whatever <see cref="View.Shadows"/> asks for. Each
+    /// cascade covers ground further out than the last and costs drawing the scene once more, so fewer are faster,
+    /// and the sun's shadows end sooner.
+    /// </summary>
+    public int ShadowCascades
+    {
+        get;
+        set => field = value is >= 1 and <= MaxShadowCascades
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), value, "The sun can draw from 1 to 4 shadow cascades.");
+    } = MaxShadowCascades;
+
+    private const int MaxShadowCascades = 4;
+
+    /// <summary>
+    /// How long models keep their finer versions as they move away, from 0.5 to 2. At 1 a model switches to a simpler
+    /// version once that would stray by a pixel on screen. At 0.5 it may stray by two pixels, so it switches
+    /// sooner and fewer triangles are drawn; at 2 it keeps the finer one longer. Shadows follow in step.
+    /// </summary>
+    public float MeshDetail
+    {
+        get;
+        set => field = value is >= Renderer.MinMeshDetail and <= Renderer.MaxMeshDetail
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), value, string.Create(CultureInfo.InvariantCulture,
+                $"Mesh detail can be from {Renderer.MinMeshDetail} to {Renderer.MaxMeshDetail}."));
+    } = 1f;
 
     /// <summary>
     /// How large the scene is drawn against the window, from 0.5 to 2 each way; 1 draws it at the window's
@@ -225,17 +256,169 @@ public sealed class Graphics
     /// names a view, this is ignored. <see cref="Rendition.DebugView.Trace"/> needs a GPU that can trace rays; where
     /// the GPU can't, it is ignored and the lit scene is shown, as a game can't know what a player's GPU has.
     /// </summary>
+    [JsonIgnore]
     public DebugView DebugView { get; set; } = DebugView.None;
+
+    /// <summary>
+    /// A ready-made set of settings for a <see cref="GraphicsQuality"/>. <see cref="GraphicsQuality.High"/> is the same
+    /// as <c>new Graphics()</c>. Every preset keeps vsync on and no frame limit, as those are the player's choice, not
+    /// a quality. Hand one to <see cref="Apply"/> to switch a running game to it.
+    /// </summary>
+    public static Graphics For(GraphicsQuality quality) => quality switch
+    {
+        GraphicsQuality.Low => new Graphics
+        {
+            RenderScale = 0.75f,
+            ShadowResolution = 1024,
+            ShadowCascades = 2,
+            MeshDetail = 0.5f,
+            ContactShadows = false,
+            LightShadows = false,
+            LightProbes = false,
+            ProbeQuality = ProbeQuality.Low,
+            AmbientOcclusion = false,
+            Reflections = false,
+            AutoExposure = false,
+            DepthOfField = false,
+            Decals = false,
+            VolumetricFog = false,
+            Puddles = false,
+            Wind = false,
+            BakeBudget = 1f,
+        },
+        GraphicsQuality.Medium => new Graphics
+        {
+            RenderScale = 0.85f,
+            ShadowCascades = 3,
+            MeshDetail = 0.75f,
+            ProbeQuality = ProbeQuality.Medium,
+            DepthOfField = false,
+            VolumetricFog = false,
+            BakeBudget = 2f,
+        },
+        GraphicsQuality.High => new Graphics(),
+        GraphicsQuality.Ultra => new Graphics
+        {
+            ShadowResolution = 4096,
+            MeshDetail = 1.5f,
+        },
+        _ => throw new ArgumentOutOfRangeException(nameof(quality), quality, "Graphics quality can be Low, Medium, High or Ultra."),
+    };
+
+    /// <summary>
+    /// The quality to start a player on for their GPU, a guess from its kind and memory. Built into the processor or
+    /// virtual: Low. A card of its own: Low under 3 GB, Medium under 6 GB, High under 12 GB and Ultra from there. An
+    /// unknown GPU gets High, the default.
+    /// </summary>
+    public static GraphicsQuality Recommend(GpuInfo gpu) => gpu.Kind switch
+    {
+        GpuKind.Integrated or GpuKind.Virtual => GraphicsQuality.Low,
+        GpuKind.Discrete => gpu.MemoryBytes switch
+        {
+            < 3 * Gigabyte => GraphicsQuality.Low,
+            < 6 * Gigabyte => GraphicsQuality.Medium,
+            < 12 * Gigabyte => GraphicsQuality.High,
+            _ => GraphicsQuality.Ultra,
+        },
+        _ => GraphicsQuality.High,
+    };
+
+    private const long Gigabyte = 1L << 30;
+
+    /// <summary>
+    /// Takes every setting from <paramref name="profile"/> but <see cref="DebugView"/>, so a game can switch the
+    /// <see cref="Graphics"/> it was handed to a preset or a saved profile while it runs:
+    /// <c>graphics.Apply(Graphics.For(GraphicsQuality.Low))</c>. The next frame follows.
+    /// </summary>
+    public void Apply(Graphics profile)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        Vsync = profile.Vsync;
+        MaxFramesPerSecond = profile.MaxFramesPerSecond;
+        SunShadows = profile.SunShadows;
+        ShadowResolution = profile.ShadowResolution;
+        ShadowCascades = profile.ShadowCascades;
+        MeshDetail = profile.MeshDetail;
+        RenderScale = profile.RenderScale;
+        Upscaler = profile.Upscaler;
+        ContactShadows = profile.ContactShadows;
+        LightProbes = profile.LightProbes;
+        ProbeQuality = profile.ProbeQuality;
+        LightShadows = profile.LightShadows;
+        AmbientOcclusion = profile.AmbientOcclusion;
+        MultiscatterSpecular = profile.MultiscatterSpecular;
+        Reflections = profile.Reflections;
+        AntiAliasing = profile.AntiAliasing;
+        Bloom = profile.Bloom;
+        Fog = profile.Fog;
+        AutoExposure = profile.AutoExposure;
+        DepthOfField = profile.DepthOfField;
+        Decals = profile.Decals;
+        VolumetricFog = profile.VolumetricFog;
+        Materials = profile.Materials;
+        WearAndDirt = profile.WearAndDirt;
+        Puddles = profile.Puddles;
+        Wind = profile.Wind;
+        BakedLighting = profile.BakedLighting;
+        BakeOnArrival = profile.BakeOnArrival;
+        BakeBudget = profile.BakeBudget;
+    }
+
+    private static readonly JsonSerializerOptions ProfileJson = new()
+    {
+        WriteIndented = true,
+        Converters = { new JsonStringEnumConverter() },
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+    };
+
+    /// <summary>
+    /// Writes every setting but <see cref="DebugView"/> to a JSON profile at <paramref name="path"/>, which
+    /// <see cref="Load"/> and <c>--graphics</c> read back. Edit it by hand to make a profile of your own.
+    /// </summary>
+    public void Save(string path)
+    {
+        File.WriteAllText(path, ToJson());
+    }
+
+    /// <summary>The settings as a JSON profile, as <see cref="Save"/> writes it.</summary>
+    public string ToJson() => JsonSerializer.Serialize(this, ProfileJson);
+
+    /// <summary>
+    /// Reads a JSON profile that <see cref="Save"/> wrote or a person wrote by hand. A setting it leaves out keeps
+    /// its default, so a profile can hold only what it changes. A name it doesn't know, or a value a setting refuses,
+    /// throws <see cref="InvalidDataException"/> naming the file.
+    /// </summary>
+    public static Graphics Load(string path) => FromJson(File.ReadAllText(path), path);
+
+    /// <summary>Reads a JSON profile from text. See <see cref="Load"/>; <paramref name="source"/> names it in errors.</summary>
+    public static Graphics FromJson(string json, string source = "the graphics profile")
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<Graphics>(json, ProfileJson)
+                ?? throw new InvalidDataException($"{source} is empty. A graphics profile is a JSON object such as {{ \"Bloom\": false }}.");
+        }
+        catch (JsonException error)
+        {
+            throw new InvalidDataException($"{source} isn't a graphics profile: {error.Message}", error);
+        }
+        catch (ArgumentOutOfRangeException error)
+        {
+            throw new InvalidDataException($"{source} has a setting out of range: {error.Message}", error);
+        }
+    }
 
     /// <summary>
     /// Every effect off but the materials and the baked lighting, and vsync off: the fastest the engine draws, and a
     /// start for a game that must run on modest hardware. Turn back on only what it needs. The light probes are at
-    /// <see cref="Rendition.ProbeQuality.Low"/>, so turning them back on keeps them cheap.
+    /// <see cref="Rendition.ProbeQuality.Low"/>, so turning them back on keeps them cheap, and models switch to their
+    /// simpler versions at the lowest <see cref="MeshDetail"/>.
     /// </summary>
     public static Graphics Fastest() => new()
     {
         Vsync = false,
         Upscaler = Upscaler.Taa,
+        MeshDetail = 0.5f,
         SunShadows = false,
         ContactShadows = false,
         LightProbes = false,

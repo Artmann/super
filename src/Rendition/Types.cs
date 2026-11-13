@@ -1406,3 +1406,28 @@ public enum ProbeQuality
     /// <summary>Four cascades of 32 × 16 × 32 probes.</summary>
     High
 }
+
+/// <summary>What kind of GPU draws the game, as the driver says.</summary>
+public enum GpuKind
+{
+    /// <summary>Not known yet, or a kind the driver didn't name.</summary>
+    Unknown,
+
+    /// <summary>A graphics card of its own, with its own memory: the fastest kind.</summary>
+    Discrete,
+
+    /// <summary>Built into the processor, sharing the computer's memory, as in most laptops.</summary>
+    Integrated,
+
+    /// <summary>A virtual machine's GPU, or the processor drawing in software: the slowest kind.</summary>
+    Virtual,
+}
+
+/// <summary>The GPU the renderer draws with.</summary>
+/// <param name="Name">The name the driver gives it, such as "NVIDIA GeForce RTX 4060 Ti".</param>
+/// <param name="Kind">Whether it's a card of its own, built into the processor or virtual.</param>
+/// <param name="MemoryBytes">
+/// The size of its largest memory heap of its own. On an integrated GPU this is a share of the computer's memory.
+/// </param>
+/// <param name="CanTrace">Whether it traces rays. See <see cref="Renderer.CanTrace"/>.</param>
+public readonly record struct GpuInfo(string Name, GpuKind Kind, long MemoryBytes, bool CanTrace);
