@@ -493,9 +493,9 @@ switch its lighting.
 
 ![Part of the Hamlet at dusk, lit live (left) and with baked chunks (right): the well shows its paving slabs and the cottages get softer contact shade, while the village looks much the same overall](media/hamlet-baked-before-after.webp)
 
-![The Crypt lit live (left) and with its bake (right): the bounced firelight is softer and the corners and vault are a little darker, and the hall looks much the same overall](media/crypt-baked-before-after.webp)
+![The Crypt by the right torch, lit live (left) and with its bake (right): the wall and pillar beside the torch are a little dimmer in the bake, and the two look nearly the same otherwise](media/crypt-baked-before-after.webp)
 
-![The Courtyard lit live (left) and with its bake (right): the bake adds soft shade in the corners and under the ivy and the crates, and the yard looks much the same overall](media/courtyard-baked-before-after.webp)
+![The Courtyard window, barrel and wall, lit live (left) and with its bake (right): the window glass and the shade on the bricks differ slightly, and the two look nearly the same otherwise. The ivy differs because the plants sway](media/courtyard-baked-before-after.webp)
 
 ![The Gallery from above, before and after baking: the bake darkens the doorway and the deep window, and shades under the colonnade](media/gallery-baked-before-after.webp)
 
