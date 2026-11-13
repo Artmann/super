@@ -2255,7 +2255,7 @@ the frame's bakes. Nothing catches an exception from `Done`, so it passes out of
 
 A stopped job may have steps in frames still in flight, so it is disposed with the destroyed resources of the last
 submitted frame's slot. A job that never stepped holds nothing the GPU reads and goes at once. A job whose work on the
-thread pool still runs when its slot comes round is parked instead, and the first frame after that work ends disposes
+thread pool still runs when its slot comes round is parked instead, and the first frame that draws baked lights after that work ends disposes
 it, so `Render` never waits for it; `DropBackgroundBakes` waits. The job's held top-level
 structure points at bottom-level structures it doesn't own, so anything that frees one of those, or what they read,
 must stop it first. Every such path goes through `StopBakeThatReads`: `DestroyMesh`, destroying a material or a
