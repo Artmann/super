@@ -52,6 +52,8 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 bakedSpaceMin;      // xyz: the baked space's box, where its probes are read; w: the irradiance atlas's slot in the material table
     vec4 bakedSpaceMax;      // xyz: the box's far corner; w: the depth atlas's slot
     vec4 bakedFade;          // x: how far the baked space's bake has faded in, from 0 to 1, for its lightmaps and probes; 1 when none is fading
+    vec4 flatIrradiance;     // rgb: the irradiance cube's average, the soft light with Graphics.EnvironmentLight off
+    vec4 flatReflection;     // rgb: the reflection cube's average at its roughest level, its reflections with it off
     int lightCount;
     float time;              // Seconds, as set by the game.
     int frameNumber;
@@ -106,25 +108,16 @@ bool isOff(int effect) {
     return (frame.off & effect) != 0;
 }
 
-// A cube's average, from the middles of its six faces at its coarsest level. For the irradiance cube that is the sky's
-// average light: each face's middle already gathers the half of the sky it faces.
-vec3 flatSky(samplerCube cube) {
-    float lod = float(textureQueryLevels(cube) - 1);
-    return (textureLod(cube, vec3(1.0, 0.0, 0.0), lod).rgb + textureLod(cube, vec3(-1.0, 0.0, 0.0), lod).rgb
-        + textureLod(cube, vec3(0.0, 1.0, 0.0), lod).rgb + textureLod(cube, vec3(0.0, -1.0, 0.0), lod).rgb
-        + textureLod(cube, vec3(0.0, 0.0, 1.0), lod).rgb + textureLod(cube, vec3(0.0, 0.0, -1.0), lod).rgb) / 6.0;
-}
-
 // The sky's soft light round a direction, from the irradiance cube; with Graphics.EnvironmentLight off, the same flat
-// colour from every side.
+// colour from every side, frame.flatIrradiance, which EnvironmentMap works out once per bake.
 vec3 skyIrradiance(samplerCube irradiance, vec3 direction) {
-    return isOff(OFF_ENVIRONMENT_LIGHT) ? flatSky(irradiance) : texture(irradiance, direction).rgb;
+    return isOff(OFF_ENVIRONMENT_LIGHT) ? frame.flatIrradiance.rgb : texture(irradiance, direction).rgb;
 }
 
 // The sky seen in a direction by a reflection blurred to lod, from the studio's reflection cube; with
-// Graphics.EnvironmentLight off, the same flat colour every way.
+// Graphics.EnvironmentLight off, the same flat colour every way, frame.flatReflection.
 vec3 skyReflection(samplerCube studio, vec3 direction, float lod) {
-    return isOff(OFF_ENVIRONMENT_LIGHT) ? flatSky(studio) : textureLod(studio, direction, lod).rgb;
+    return isOff(OFF_ENVIRONMENT_LIGHT) ? frame.flatReflection.rgb : textureLod(studio, direction, lod).rgb;
 }
 
 // How far into the haze a point is: from the camera, or across the ground from the view's haze origin.

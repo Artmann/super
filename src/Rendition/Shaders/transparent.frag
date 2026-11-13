@@ -99,11 +99,17 @@ void main() {
     bool specularOn = !isOff(OFF_SPECULAR);
     vec3 f0 = specularOn ? vec3(0.04) : vec3(0.0);
 
-    vec2 brdf = environmentBrdf(roughness, nDotV);
-    vec3 multiscatter = isOff(OFF_MULTISCATTER_SPECULAR) ? vec3(1.0) : multiscatterCompensation(f0, nDotV, roughness);
-    // Glass reflects the yard or room round it where a reflection probe sees it, as lit surfaces do.
-    vec3 reflectedLight = probeReflection(probeTexture, reflectionTexture, inPosition, reflect(-v, n), roughness * REFLECTION_LODS);
-    vec3 specular = specularOn ? reflectedLight * (f0 * brdf.x + brdf.y) * frame.backgroundRadiance.a * multiscatter : vec3(0.0);
+    vec3 multiscatter = vec3(1.0);
+    vec3 specular = vec3(0.0);
+    if (specularOn) {
+        vec2 brdf = environmentBrdf(roughness, nDotV);
+        if (!isOff(OFF_MULTISCATTER_SPECULAR)) {
+            multiscatter = multiscatterCompensation(f0, nDotV, roughness);
+        }
+        // Glass reflects the yard or room round it where a reflection probe sees it, as lit surfaces do.
+        vec3 reflectedLight = probeReflection(probeTexture, reflectionTexture, inPosition, reflect(-v, n), roughness * REFLECTION_LODS);
+        specular = reflectedLight * (f0 * brdf.x + brdf.y) * frame.backgroundRadiance.a * multiscatter;
+    }
     vec3 diffuse = skyIrradiance(irradianceTexture, n) * frame.backgroundRadiance.a;
 
     for (int i = 0; i < frame.lightCount; i++) {

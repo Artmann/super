@@ -2009,7 +2009,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 167
+      "metric": 169
     },
     {
       "kind": "long-method",
@@ -3207,12 +3207,6 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Rendition.Vulkan.EnvironmentMap.Barrier",
-      "file": "src/Rendition/Vulkan/EnvironmentMap.cs",
-      "metric": 10
-    },
-    {
-      "kind": "too-many-parameters",
       "name": "Rendition.Vulkan.GpuAllocation.GpuAllocation",
       "file": "src/Rendition/Vulkan/GpuMemory.cs",
       "metric": 6
@@ -3509,7 +3503,7 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5581
+      "metric": 5583
     },
     {
       "kind": "large-file",
@@ -3665,7 +3659,7 @@
       "kind": "large-type",
       "name": "Rendition.Passes.FrameUniforms",
       "file": "src/Rendition/Passes/FrameUniforms.cs",
-      "metric": 56
+      "metric": 58
     },
     {
       "kind": "large-type",
