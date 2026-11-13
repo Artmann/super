@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Super\Super.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Hamlet.Tests" />
+  </ItemGroup>
+
+  <!-- The glow shader for bulbs, lit windows and the forge's coals. -->
+  <Import Project="..\..\src\Shaders.targets" />
+
+  <!-- Only the chunks' bakes, in content/lighting. Everything else is built in code. -->
+  <Import Project="..\..\src\Super.Build\Super.targets" />
+  <ItemGroup>
+    <SuperContent Include="content" />
+  </ItemGroup>
+
+</Project>

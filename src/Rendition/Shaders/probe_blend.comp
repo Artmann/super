@@ -1,0 +1,111 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "sampling.glsl"
+#include "probe_fold.glsl"
+
+// Blends a batch of freshly folded tiles from the staging buffer into the probes' atlases, one
+// workgroup per probe. Entry i of the batch is staging slot i, and goes to the probe ids[i] names:
+// its layer (cascades 0 to 3, or 4 for the fixed grid) and its slot in that layer. A probe that has
+// never been captured (irradiance alpha 0) takes the new tile whole; one that has moves towards it
+// by blend.alpha, so a probe's light settles over a few updates instead of flickering. With
+// blend.snap above 0, a probe whose mean light changed by a big share moves further: all the way at
+// blend.snap or more, so a lamp turned on or bounce still building up fills in within a few updates,
+// while the small changes of noise still move only blend.alpha. A change no bigger than three standard errors of the
+// update's own noise, which a traced update measures, never snaps. See "Light probes" in docs/design.md.
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(std430, set = 0, binding = 1) readonly buffer StagingTiles {
+    StagedTile tiles[];
+};
+
+layout(std430, set = 0, binding = 2) readonly buffer BatchIds {
+    ivec2 ids[]; // x: layer; y: slot
+};
+
+layout(rgba16f, set = 0, binding = 3) uniform image2DArray irradianceAtlas;
+layout(rg16f, set = 0, binding = 4) uniform image2DArray depthAtlas;
+
+// Must match BlendConstants in Vulkan/ProbeVolume.cs.
+layout(push_constant) uniform Blend {
+    float alpha;
+    int count;
+    float snap;
+} blend;
+
+shared float share;
+
+// How many standard errors of an update's own noise its change must exceed to snap. Texel 0's alpha in the staged tile
+// is that standard error as a share of the mean; rasterized updates leave it 0.
+const float NOISE_ERRORS = 3.0;
+
+// How far a captured probe moves towards its new tile. The change is measured on the whole tile's
+// mean, which averages the noise of single texels away, as a share of the brighter of the two.
+float blendShare(ivec2 irradianceTile, int layer, int entry) {
+    if (blend.snap <= 0.0) {
+        return blend.alpha;
+    }
+
+    vec3 oldSum = vec3(0.0);
+    vec3 freshSum = vec3(0.0);
+    for (int t = 0; t < IRRADIANCE_SIDE * IRRADIANCE_SIDE; t++) {
+        ivec3 texel = ivec3(irradianceTile + ivec2(t % IRRADIANCE_SIDE, t / IRRADIANCE_SIDE), layer);
+        oldSum += imageLoad(irradianceAtlas, texel).rgb;
+        freshSum += tiles[entry].irradiance[t].rgb;
+    }
+
+    float oldLight = oldSum.r + oldSum.g + oldSum.b;
+    float freshLight = freshSum.r + freshSum.g + freshSum.b;
+    float change = abs(freshLight - oldLight) / max(max(oldLight, freshLight), 1e-6);
+
+    // A change the update's own noise could make is no change: a small bright light seen by a few of the rays moves the
+    // mean by far more than the snap from one update to the next. Only a change of over three standard errors snaps.
+    float noise = tiles[entry].irradiance[0].a;
+    if (change <= NOISE_ERRORS * noise) {
+        return blend.alpha;
+    }
+
+    return clamp(change / blend.snap, blend.alpha, 1.0);
+}
+
+void main() {
+    int entry = int(gl_WorkGroupID.x);
+    if (entry >= blend.count) {
+        return;
+    }
+
+    int local = int(gl_LocalInvocationIndex);
+    int layer = ids[entry].x;
+    int slot = ids[entry].y;
+
+    int irradianceColumns = imageSize(irradianceAtlas).x / IRRADIANCE_SIDE;
+    ivec2 irradianceTile = ivec2(slot % irradianceColumns, slot / irradianceColumns) * IRRADIANCE_SIDE;
+    int depthColumns = imageSize(depthAtlas).x / DEPTH_SIDE;
+    ivec2 depthTile = ivec2(slot % depthColumns, slot / depthColumns) * DEPTH_SIDE;
+
+    if (local == 0) {
+        bool captured = imageLoad(irradianceAtlas, ivec3(irradianceTile + 1, layer)).a > 0.5;
+        share = captured ? blendShare(irradianceTile, layer, entry) : 1.0;
+    }
+
+    barrier();
+    float a = share;
+
+    if (local < IRRADIANCE_SIDE * IRRADIANCE_SIDE) {
+        ivec3 texel = ivec3(irradianceTile + ivec2(local % IRRADIANCE_SIDE, local / IRRADIANCE_SIDE), layer);
+        vec3 old = imageLoad(irradianceAtlas, texel).rgb;
+        vec3 fresh = tiles[entry].irradiance[local].rgb;
+        imageStore(irradianceAtlas, texel, vec4(mix(old, fresh, a), 1.0));
+    }
+
+    for (int b = local; b < DEPTH_SIDE * DEPTH_SIDE; b += 256) {
+        ivec3 texel = ivec3(depthTile + ivec2(b % DEPTH_SIDE, b / DEPTH_SIDE), layer);
+        vec2 old = imageLoad(depthAtlas, texel).rg;
+        vec2 fresh = tiles[entry].depth[b];
+
+        // The first corner may carry the inside mark, -1, which must never be blended: the new
+        // tile's corner says whether the probe is inside now.
+        bool marked = b == 0 && (fresh.y < 0.0 || old.y < 0.0);
+        imageStore(depthAtlas, texel, vec4(marked ? fresh : mix(old, fresh, a), 0.0, 0.0));
+    }
+}

@@ -24,7 +24,8 @@ internal sealed unsafe class RenderTarget : IDisposable
     public readonly ImageAspectFlags Aspect;
 
     public RenderTarget(
-        VulkanContext context, Format format, Extent2D extent, ImageUsageFlags usage, ImageAspectFlags aspect, uint layers = 1, uint mips = 1)
+        VulkanContext context, Format format, Extent2D extent, ImageUsageFlags usage, ImageAspectFlags aspect, uint layers = 1, uint mips = 1,
+        SampleCountFlags samples = SampleCountFlags.Count1Bit)
     {
         _context = context;
         Format = format;
@@ -40,7 +41,7 @@ internal sealed unsafe class RenderTarget : IDisposable
             Extent = new Extent3D(extent.Width, extent.Height, 1),
             MipLevels = mips,
             ArrayLayers = layers,
-            Samples = SampleCountFlags.Count1Bit,
+            Samples = samples,
             Tiling = ImageTiling.Optimal,
             Usage = usage | ImageUsageFlags.SampledBit,
             SharingMode = SharingMode.Exclusive,

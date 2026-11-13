@@ -213,6 +213,17 @@ public sealed class TextureCookerTests
     }
 
     [Fact]
+    public void A_half_float_texture_is_not_a_cooked_texture()
+    {
+        // A whole 2x1 chain at 8 bytes a pixel: 16 bytes, then 8. Only a lightmap from the baker is half float.
+        var half = new CookedTexture(2, 1, TextureKind.Linear, false, TextureFormat.Rgba16f, [new byte[16], new byte[8]]);
+
+        var exception = Assert.Throws<ContentException>(() => CookedTexture.Read(half.Write(), "light.png"));
+
+        Assert.Equal("light.png is not a current cooked texture. Cook again.", exception.Message);
+    }
+
+    [Fact]
     public void The_crafting_icons_cook_to_their_exact_pixels()
     {
         string content = CraftingContent();

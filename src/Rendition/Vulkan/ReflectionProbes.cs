@@ -290,7 +290,7 @@ internal sealed unsafe class ReflectionProbes : IDisposable
 
 /// <summary>
 /// The six faces of one capture, copied out of the image the scene was drawn to. Reflection
-/// probes blur it into their mips; the light probe volume folds it into its atlases.
+/// probes blur it into their mips.
 /// </summary>
 internal sealed unsafe class CaptureCube : IDisposable
 {

@@ -54,16 +54,19 @@ component on its entity instead. See [Audio](audio.md).
 | --- | --- |
 | `view.Camera(position, lookAt, fieldOfView)` | A fixed camera. See [Cameras](cameras.md) for the rest |
 | `view.Camera(camera)` | A `Camera` value the game keeps |
-| `view.Sun(direction, color, shadows)` | A directional light. `color` is linear and can go past 1. The first sun casts shadows unless `shadows: true` picks another |
-| `view.PointLight(key, position, color, range, shadows, radius, volumetric)` | A light shining every way, like a candle or a torch. See [Point and spot lights](rendering.md#point-and-spot-lights) |
-| `view.SpotLight(key, position, direction, color, range, innerAngle, outerAngle, shadows, radius, volumetric)` | A light shining in a cone, like a lantern's beam |
+| `view.Sun(direction, color, shadows, mode)` | A directional light. `color` is linear and can go past 1. The first sun casts shadows unless `shadows: true` picks another. See [Light modes](rendering.md#light-modes) |
+| `view.PointLight(key, position, color, range, shadows, radius, volumetric, mode)` | A light shining every way, like a candle or a torch. See [Point and spot lights](rendering.md#point-and-spot-lights) |
+| `view.SpotLight(key, position, direction, color, range, innerAngle, outerAngle, shadows, radius, volumetric, mode)` | A light shining in a cone, like a lantern's beam |
 | `view.Model(key, model, transform, color)` | A model. `color`, if given, tints it and keeps its textures. `ModelRef.Cube`, `Sphere`, `Capsule`, `Cylinder`, `Cone`, `Plane`, `Quad` and `Torus` are [built in](rendering.md#built-in-shapes) |
 | `view.Model(key, model, transform, meshes)` | Only the meshes a `MeshMask` shows, such as a body without its helmet. See [Showing some meshes](#showing-some-meshes) |
+| `view.Model(key, model, transform, color, isStatic: true)` | A model that never moves, whose lighting will be baked. See [Static draws](#static-draws) |
 | `view.Decal(key, box, material, blend)` | Grime, damp or a stain projected onto whatever is inside a box. Up to 256 a frame. See [Decals](#decals) |
 | `view.Ghost(key, model, transform, color, opacity)` | A model in one colour that glows a little, as a [preview of where something will go](rendering.md#ghosts) |
 | `view.Shadows(radius, cascades, sunSize, contact)` | How far shadows reach, how soft they are, and how far contact shadows look where things meet the ground. See [Rendering](rendering.md#shadows) |
 | `view.AmbientOcclusion(radius, strength)` | How far corners and creases reach out to darken the soft light, and how dark. See [Rendering](rendering.md#ambient-occlusion) |
-| `view.LightProbes(min, max, spacing)` | A box of light probes that gives what's inside light bounced off the walls and ground. See [Rendering](rendering.md#bounced-light) |
+| `view.LightProbes(min, max, spacing)` | A box of light probes of your own, finer than the ones the renderer keeps round the camera, whose probes win inside it. `--debug-view probes` shows its probes and those of the finest box round the camera, not the coarser ones. See [Rendering](rendering.md#bounced-light) |
+| `view.BakedLighting(name, min, max, probeSpacing, texelsPerMetre)` | Names the one place this frame whose lighting is baked, with lightmaps of `texelsPerMetre` texels a metre (20 unless given). `--bake` bakes it, and once its bake is fresh its surfaces are lit from their lightmap, and anything moving inside it from the bake's probes before the live ones. See [Baked lighting](rendering.md#baked-lighting) |
+| `view.BakedChunk(name, transform, min, max, texelsPerMetre, edgeBlend)` | Places a piece of the world that is baked once and reused wherever it stands, each copy relit by the frame's sky and suns. Up to 256 a frame. `edgeBlend`, 0.5 metres by default, blends the chunk's light into the live light over that far in from its four sides; 0 gives a hard edge. See [Baked lighting](rendering.md#baked-lighting) |
 | `view.ReflectionProbe(key, position, boxMin, boxMax, blend)` | A photograph of the scene from one spot, which shiny surfaces and glass in its box reflect. Up to 4 a frame. See [Rendering](rendering.md#reflections) |
 | `view.Water(settings)` | Puts the camera underwater. See [Rendering](rendering.md#water) |
 | `view.Puddles(level, band)` | Lets water stand below `level` on materials that ask for puddles, damp for `band` metres above. See [Rendering](rendering.md#puddles) |
@@ -227,6 +230,38 @@ game draws with it without allocating.
 - A ghost takes a mask too, as `view.Ghost(key, model, transform, meshes, color, opacity)`.
 - `run.Drawn` entries carry the mask as `Meshes`, or null for a draw that shows every
   mesh. See [Testing](testing.md).
+
+## Static draws
+
+A model that never moves, such as a wall, a rock or a house, can be drawn static. Its
+lighting will be baked, so give it `isStatic: true`:
+
+```csharp
+view.Model(WallKey, wall, transform, isStatic: true);
+view.Model(KnightKey, statue, transform, color, statueMeshes, isStatic: true);
+```
+
+Until its space is baked, a static draw looks the same as any other; once the bake is fresh, it
+takes its soft light from its lightmap. What finds it there is a bake id for each of its parts: a name made from the model, its tint and where it stands, the same
+on every run and every machine, whatever order the draws come in. Draw it in the same place
+next frame and it keeps its ids. Move it by a millimetre and they change, so its bake would
+be made again; a move under a tenth of a millimetre doesn't count. A static draw inside a
+[baked chunk](rendering.md#baked-lighting) is placed relative to the chunk, so every copy of
+the chunk gives its draws the same ids wherever it stands.
+
+A static draw is held where it stands by its bake, so it can't swim or take a pose. Drawing
+one with a swim whose amplitude isn't zero, or with a pose or an animator, throws `ArgumentException`
+naming the model's key. A static model can have at most 4,095 parts; one with more throws
+when it is drawn, naming the model.
+
+Built-in shapes and cooked models can be drawn static as they are. A mesh made in code must
+be made static too, with `content.Mesh(mesh, isStatic: true)`, which gives it lightmap UVs
+before it's uploaded (see [Content](content.md#code-meshes-drawn-static)). Drawing a mesh made
+without it static throws `InvalidOperationException` on the next render:
+
+```
+Model 3 is a mesh made in code and drawn static, but it wasn't made static, so it has no lightmap UVs. Pass isStatic: true to Content.Mesh.
+```
 
 ## Particles
 
@@ -437,7 +472,7 @@ Decals have some limits:
   roughness and opacity. Its detail textures, height map and world variation are ignored.
 - On strongly bumped surfaces, the fade by angle follows the bumps, so near the limit it
   fades in specks.
-- Probes see decals, but moving or adding one doesn't photograph them again.
+- Reflection probes see decals, but moving or adding one doesn't photograph them again. Light probes don't see them, so a decal doesn't tint bounced light.
 
 ## Planned
 

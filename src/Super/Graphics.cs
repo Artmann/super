@@ -1,3 +1,4 @@
+using System.Globalization;
 using Rendition;
 
 namespace Super;
@@ -84,6 +85,21 @@ public sealed class Graphics
     /// into the probes and every surface takes its soft light from the sky, as with no probes at all.
     /// </summary>
     public bool LightProbes { get; set; } = true;
+
+    /// <summary>
+    /// How many light probes follow the camera, and how many are updated a frame, when <see cref="LightProbes"/> is on.
+    /// <see cref="Rendition.ProbeQuality.High"/>, the default, keeps the most and updates 32 a frame, for about 170 MB;
+    /// <see cref="Rendition.ProbeQuality.Medium"/> updates 16 for about 73 MB, and <see cref="Rendition.ProbeQuality.Low"/>
+    /// updates 8 for about 43 MB, so the bounce fills in and follows changes more slowly. A change while the game runs
+    /// starts every probe again on the next frame, which waits for the GPU once. <see cref="Fastest"/> sets Low.
+    /// </summary>
+    public ProbeQuality ProbeQuality
+    {
+        get;
+        set => field = Enum.IsDefined(value)
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), value, "Probe quality can be Low, Medium or High.");
+    } = ProbeQuality.High;
 
     /// <summary>Point and spot light shadows. Off, those lights are blocked only by nearby surfaces, as the sun is without its shadows.</summary>
     public bool LightShadows { get; set; } = true;
@@ -172,8 +188,49 @@ public sealed class Graphics
     public bool Wind { get; set; } = true;
 
     /// <summary>
-    /// Every effect off and vsync off: the fastest the engine draws, and a start for a game that
-    /// must run on modest hardware. Turn back on only what it needs.
+    /// Light read from the bakes made with <c>--bake</c> for the areas set with <see cref="View.BakedLighting"/> and
+    /// <see cref="View.BakedChunk"/>. Off, every bake is ignored and each area is lit live, as if it had never been
+    /// baked, which shows what the bake changes. A bake costs less than the live light it stands in for, so
+    /// <see cref="Fastest"/> leaves it on.
+    /// </summary>
+    public bool BakedLighting { get; set; } = true;
+
+    /// <summary>
+    /// Bakes missing lighting as it appears, where the GPU can trace. From source: spaces and chunks, Preview then
+    /// Final. Published: chunks only, Preview. Only play in a window bakes this way; screenshots, recordings, profiles
+    /// and <c>--bake</c> never do. See "Baking without a build step" in docs/rendering.md.
+    /// </summary>
+    public bool BakeOnArrival { get; set; } = true;
+
+    /// <summary>
+    /// GPU milliseconds a frame for background bakes, from 0.5 to 33. Null: 4 from source, 2 in a published game. More
+    /// finishes a bake sooner and costs frame rate while it runs.
+    /// </summary>
+    public float? BakeBudget
+    {
+        get;
+        set => field = value is null or (>= MinBakeBudget and <= MaxBakeBudget)
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), string.Create(CultureInfo.InvariantCulture,
+                $"BakeBudget must be from {MinBakeBudget} to {MaxBakeBudget} milliseconds, not {value}. Use null for the default."));
+    }
+
+    private const float MinBakeBudget = 0.5f;
+    private const float MaxBakeBudget = 33f;
+
+    /// <summary>
+    /// What the frame shows: the lit scene, the default, or a look inside the renderer such as
+    /// <see cref="Rendition.DebugView.Probes"/>, which a game can switch on with a key. It is not an effect and costs
+    /// nothing while <see cref="Rendition.DebugView.None"/>. <c>--debug-view</c> on the command line wins: while it
+    /// names a view, this is ignored. <see cref="Rendition.DebugView.Trace"/> needs a GPU that can trace rays; where
+    /// the GPU can't, it is ignored and the lit scene is shown, as a game can't know what a player's GPU has.
+    /// </summary>
+    public DebugView DebugView { get; set; } = DebugView.None;
+
+    /// <summary>
+    /// Every effect off but the materials and the baked lighting, and vsync off: the fastest the engine draws, and a
+    /// start for a game that must run on modest hardware. Turn back on only what it needs. The light probes are at
+    /// <see cref="Rendition.ProbeQuality.Low"/>, so turning them back on keeps them cheap.
     /// </summary>
     public static Graphics Fastest() => new()
     {
@@ -182,6 +239,7 @@ public sealed class Graphics
         SunShadows = false,
         ContactShadows = false,
         LightProbes = false,
+        ProbeQuality = ProbeQuality.Low,
         LightShadows = false,
         AmbientOcclusion = false,
         MultiscatterSpecular = false,
@@ -216,6 +274,7 @@ public sealed class Graphics
         | (VolumetricFog ? 0 : RenderEffects.VolumetricFog)
         | (Puddles ? 0 : RenderEffects.Puddles)
         | (Wind ? 0 : RenderEffects.Wind)
+        | (BakedLighting ? 0 : RenderEffects.BakedLighting)
         | (Materials ? 0 : RenderEffects.Materials)
         | (WearAndDirt ? 0 : RenderEffects.WearAndDirt);
 }

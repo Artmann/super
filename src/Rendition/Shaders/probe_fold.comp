@@ -1,93 +1,61 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
 #include "sampling.glsl"
+#include "sky.glsl"
+#include "probe_fold.glsl"
+#include "cube_faces.glsl"
 
-// Folds one light probe's six captured faces into its two tiles. The irradiance tile holds,
-// for each direction a surface could face, the light reaching it: radiance averaged over the
-// half of the sphere in front, weighted by the cosine, as the studio's irradiance map is. The
-// depth tile holds the mean and the mean square of the distance seen around each direction,
-// which probes.glsl uses to tell whether a point is hidden from the probe. Both are octahedral
-// maps with a one-texel border copied from across each edge, so filtering wraps round.
+// Folds one light probe's six rasterized faces into its two tiles, in one slot of the staging
+// buffer. probe_blend.comp then blends them into the atlases. The sums are in probe_fold.glsl.
 // See "Light probes" in docs/design.md.
 
 layout(local_size_x = 16, local_size_y = 16) in;
 
-// Alpha holds each pixel's distance from the probe, negative where it saw the back of a surface.
+// Six layers per slot, one per face. Alpha holds each pixel's distance from the probe, negative
+// where it saw the back of a surface, and SKY_MARK where nothing was drawn.
 layout(set = 0, binding = 0) uniform sampler2DArray faces;
-layout(rgba16f, set = 0, binding = 1) uniform writeonly image2D irradianceAtlas;
-layout(rg16f, set = 0, binding = 2) uniform writeonly image2D depthAtlas;
+
+layout(std430, set = 0, binding = 1) writeonly buffer StagingTiles {
+    StagedTile tiles[];
+};
+
+// The sharp sky, for the directions where the probe saw nothing.
+layout(set = 0, binding = 5) uniform samplerCube sky;
 
 // Must match FoldConstants in Vulkan/ProbeVolume.cs.
 layout(push_constant) uniform Fold {
-    int probe;
+    int slot;
     float maxDistance;
+    float environmentIntensity; // the frame's, as lighting.frag scales the environment by
+    float unused;
+    vec4 skySun;        // the frame's skySun: xyz towards the clear sky's sun, w its turbidity, 0 for the environment's bands
 } fold;
 
-// Must match ProbeVolume.cs.
-const int FACE_SIZE = 32;
-const int COLUMNS = 64;
-const int IRRADIANCE_TEXELS = 8;
-const int DEPTH_TEXELS = 16;
-
-// Each face is averaged down to this many texels across first, so every texel of a tile
-// can look at every sample.
-const int REDUCED = 16;
-const int SAMPLES = 6 * REDUCED * REDUCED;
-
-// How tightly the depth gathers round its direction. High, so a wall's edge stays sharp.
-const float DEPTH_SHARPNESS = 50.0;
+// Must match ProbeVolume.cs and probe_capture.frag's clear.
+const int FACE_SIZE = 16;
+const float SKY_MARK = 1e4;
+const int SAMPLES = 6 * FACE_SIZE * FACE_SIZE;
 
 shared vec4 samples[SAMPLES];
 shared uint backFaces;
 
-// The same faces as reflection_probe.comp.
-vec3 cubeDirection(int face, vec2 uv) {
-    switch (face) {
-        case 0: return vec3(1.0, -uv.y, -uv.x);
-        case 1: return vec3(-1.0, -uv.y, uv.x);
-        case 2: return vec3(uv.x, 1.0, uv.y);
-        case 3: return vec3(uv.x, -1.0, -uv.y);
-        case 4: return vec3(uv.x, -uv.y, 1.0);
-        default: return vec3(-uv.x, -uv.y, -1.0);
-    }
-}
-
-// The world direction a reduced sample looks along, and the share of the sphere it covers.
+// The world direction a sample looks along, and the share of the sphere it covers.
 vec3 sampleDirection(int index, out float solidAngle) {
-    int face = index / (REDUCED * REDUCED);
-    int texel = index % (REDUCED * REDUCED);
-    vec2 uv = (vec2(texel % REDUCED, texel / REDUCED) + 0.5) / float(REDUCED) * 2.0 - 1.0;
-    vec3 c = cubeDirection(face, uv);
+    int face = index / (FACE_SIZE * FACE_SIZE);
+    int texel = index % (FACE_SIZE * FACE_SIZE);
+    vec2 uv = (vec2(texel % FACE_SIZE, texel / FACE_SIZE) + 0.5) / float(FACE_SIZE) * 2.0 - 1.0;
+    vec3 c = cubeWorldDirection(face, uv);
     float lengthSquared = dot(c, c);
     solidAngle = 1.0 / (lengthSquared * sqrt(lengthSquared));
-    // A cube map is mirrored compared with the camera that drew it, so z swaps back.
-    return vec3(c.x, c.y, -c.z) * inversesqrt(lengthSquared);
+    return c * inversesqrt(lengthSquared);
 }
 
-// The texel inside an n by n tile that a texel of the bordered tile shows. A border texel
-// shows its neighbour across the octahedral map's edge, which is mirrored; a corner shows the
-// opposite corner.
-ivec2 interiorOf(ivec2 b, int n) {
-    bool sideX = b.x == 0 || b.x == n + 1;
-    bool sideY = b.y == 0 || b.y == n + 1;
-    if (sideX && sideY) {
-        return ivec2(b.x == 0 ? n - 1 : 0, b.y == 0 ? n - 1 : 0);
-    }
-
-    if (sideY) {
-        return ivec2(n - b.x, b.y == 0 ? 0 : n - 1);
-    }
-
-    if (sideX) {
-        return ivec2(b.x == 0 ? 0 : n - 1, n - b.y);
-    }
-
-    return b - 1;
-}
-
-vec3 texelDirection(ivec2 bordered, int n) {
-    vec2 e = (vec2(interiorOf(bordered, n)) + 0.5) / float(n) * 2.0 - 1.0;
-    return octahedralDecode(e);
+// What the probe sees where nothing was drawn: the environment, without the sun's disc, as the
+// sun's light reaches surfaces directly. It is the environment even when the view shows a plain
+// background there, as that is what lighting.frag lights a surface with where no probe can tell, so
+// a probe in the open reads the same as no probe at all.
+vec3 skyRadianceAlong(vec3 direction) {
+    return skyBehind(sky, direction, fold.skySun) * fold.environmentIntensity;
 }
 
 void main() {
@@ -100,69 +68,55 @@ void main() {
 
     uint seenBehind = 0u;
     for (int s = local; s < SAMPLES; s += 256) {
-        int face = s / (REDUCED * REDUCED);
-        int texel = s % (REDUCED * REDUCED);
-        ivec2 corner = ivec2(texel % REDUCED, texel / REDUCED) * 2;
-        vec4 sum = vec4(0.0);
-        for (int i = 0; i < 4; i++) {
-            vec4 seen = texelFetch(faces, ivec3(corner + ivec2(i & 1, i >> 1), face), 0);
-            if (seen.a < 0.0) {
-                seenBehind++;
-            }
-
-            sum += vec4(seen.rgb, min(abs(seen.a), fold.maxDistance));
+        int face = s / (FACE_SIZE * FACE_SIZE);
+        int texel = s % (FACE_SIZE * FACE_SIZE);
+        vec4 seen = texelFetch(faces, ivec3(texel % FACE_SIZE, texel / FACE_SIZE, fold.slot * 6 + face), 0);
+        if (seen.a >= SKY_MARK * 0.5) {
+            float solidAngle;
+            seen = vec4(skyRadianceAlong(sampleDirection(s, solidAngle)), fold.maxDistance);
+        } else if (seen.a < 0.0) {
+            seenBehind++;
         }
 
-        samples[s] = sum * 0.25;
+        samples[s] = vec4(seen.rgb, min(abs(seen.a), fold.maxDistance));
     }
 
     atomicAdd(backFaces, seenBehind);
     barrier();
 
-    ivec2 tile = ivec2(fold.probe % COLUMNS, fold.probe / COLUMNS);
-
-    int irradianceSide = IRRADIANCE_TEXELS + 2;
-    if (local < irradianceSide * irradianceSide) {
-        ivec2 bordered = ivec2(local % irradianceSide, local / irradianceSide);
+    if (local < IRRADIANCE_SIDE * IRRADIANCE_SIDE) {
+        ivec2 bordered = ivec2(local % IRRADIANCE_SIDE, local / IRRADIANCE_SIDE);
         vec3 direction = texelDirection(bordered, IRRADIANCE_TEXELS);
         vec3 sum = vec3(0.0);
         float total = 0.0;
         for (int s = 0; s < SAMPLES; s++) {
             float solidAngle;
             vec3 d = sampleDirection(s, solidAngle);
-            float weight = max(dot(direction, d), 0.0) * solidAngle;
+            float weight = irradianceWeight(direction, d, solidAngle);
             sum += samples[s].rgb * weight;
             total += weight;
         }
 
-        imageStore(irradianceAtlas, tile * irradianceSide + bordered, vec4(sum / max(total, 1e-6), 1.0));
+        // Texel 0's alpha is how noisy the update is, which only a traced update measures (see probe_trace.comp).
+        tiles[fold.slot].irradiance[local] = vec4(sum / max(total, 1e-6), 0.0);
     }
 
-    // Inside a wall or under the floor a probe sees mostly the backs of surfaces, and its light
-    // would leak through. Its depth tile's first corner says so, and probes.glsl skips it.
-    bool inside = backFaces * 2u > uint(6 * FACE_SIZE * FACE_SIZE);
+    bool inside = probeSawInside(backFaces, uint(SAMPLES));
 
-    int depthSide = DEPTH_TEXELS + 2;
-    for (int b = local; b < depthSide * depthSide; b += 256) {
-        ivec2 bordered = ivec2(b % depthSide, b / depthSide);
+    for (int b = local; b < DEPTH_SIDE * DEPTH_SIDE; b += 256) {
+        ivec2 bordered = ivec2(b % DEPTH_SIDE, b / DEPTH_SIDE);
         vec3 direction = texelDirection(bordered, DEPTH_TEXELS);
         vec2 sum = vec2(0.0);
         float total = 0.0;
         for (int s = 0; s < SAMPLES; s++) {
             float solidAngle;
             vec3 d = sampleDirection(s, solidAngle);
-            float facing = max(dot(direction, d), 0.0);
-            float weight = pow(facing, DEPTH_SHARPNESS) * solidAngle;
+            float weight = depthWeight(direction, d, solidAngle);
             float seen = samples[s].a;
             sum += vec2(seen, seen * seen) * weight;
             total += weight;
         }
 
-        vec2 moments = sum / max(total, 1e-6);
-        if (inside && b == 0) {
-            moments.y = -1.0;
-        }
-
-        imageStore(depthAtlas, tile * depthSide + bordered, vec4(moments, 0.0, 0.0));
+        tiles[fold.slot].depth[b] = markInside(sum / max(total, 1e-6), b, inside);
     }
 }

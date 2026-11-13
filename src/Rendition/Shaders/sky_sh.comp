@@ -1,0 +1,75 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "cube_faces.glsl"
+
+// Projects the sky cube the light probes read past the scene onto L1 spherical harmonics, per colour, for chunks.glsl.
+// One group of 256: each thread takes one cell of a 16 x 16 grid on every face, the sky's 16² mip, and reads it as
+// four bilinear taps, each the mean of a 2 x 2 block of the 64² texels, so each cell is the mean of its 4 x 4 texels.
+// Each tap is weighted by the exact solid angle of its block, so a sky of the same radiance everywhere gives C0 =
+// 4 pi Y0 L. See "Chunk transfer" in docs/design.md and SkySh in Passes/SkySh.cs.
+
+layout(local_size_x = 256) in;
+
+layout(set = 0, binding = 0) uniform samplerCube sky;
+
+// Coefficient k's red, green and blue in rgb, its luminance in a, in ShL1's order: constant, then y, z, x. Unscaled by
+// the environment's intensity.
+layout(std430, set = 0, binding = 1) writeonly buffer Projected {
+    vec4 coefficients[4];
+} projected;
+
+const int CELLS = 16;
+const int TAPS = 2; // per cell, along each side
+const vec3 LUMINANCE = vec3(0.2126, 0.7152, 0.0722);
+
+shared vec4 partial[256][4];
+
+// The solid angle of a face from its centre to (x, y), at distance 1, in uv from -1 to 1.
+float cornerAngle(float x, float y) {
+    return atan(x * y, sqrt(x * x + y * y + 1.0));
+}
+
+float blockAngle(vec2 lo, vec2 hi) {
+    return cornerAngle(hi.x, hi.y) - cornerAngle(lo.x, hi.y) - cornerAngle(hi.x, lo.y) + cornerAngle(lo.x, lo.y);
+}
+
+void main() {
+    uint thread = gl_LocalInvocationIndex;
+    ivec2 cell = ivec2(int(thread) % CELLS, int(thread) / CELLS);
+    vec4 sum[4] = vec4[4](vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0));
+    const float tapSize = 2.0 / float(CELLS * TAPS);
+    for (int face = 0; face < 6; face++) {
+        for (int ty = 0; ty < TAPS; ty++) {
+            for (int tx = 0; tx < TAPS; tx++) {
+                vec2 lo = vec2(-1.0) + vec2(cell * TAPS + ivec2(tx, ty)) * tapSize;
+                vec2 hi = lo + vec2(tapSize);
+                vec3 direction = normalize(cubeDirection(face, (lo + hi) * 0.5));
+                vec3 radiance = textureLod(sky, direction, 0.0).rgb * blockAngle(lo, hi);
+                vec4 colour = vec4(radiance, dot(radiance, LUMINANCE));
+                sum[0] += 0.282094792 * colour;
+                sum[1] += 0.488602512 * direction.y * colour;
+                sum[2] += 0.488602512 * direction.z * colour;
+                sum[3] += 0.488602512 * direction.x * colour;
+            }
+        }
+    }
+
+    for (int k = 0; k < 4; k++) {
+        partial[thread][k] = sum[k];
+    }
+
+    barrier();
+    for (uint span = 128u; span > 0u; span >>= 1u) {
+        if (thread < span) {
+            for (int k = 0; k < 4; k++) {
+                partial[thread][k] += partial[thread + span][k];
+            }
+        }
+
+        barrier();
+    }
+
+    if (thread < 4u) {
+        projected.coefficients[thread] = partial[0][thread];
+    }
+}

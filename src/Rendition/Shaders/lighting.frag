@@ -1,5 +1,6 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_nonuniform_qualifier : require
 #include "common.glsl"
 #include "brdf.glsl"
 #include "sampling.glsl"
@@ -25,12 +26,42 @@ layout(set = 1, binding = 7) uniform sampler2D emissiveClearcoatTexture;
 layout(set = 1, binding = 8) uniform sampler2D ambientOcclusionTexture;
 layout(set = 1, binding = 9) uniform sampler2D historyTexture;
 layout(set = 1, binding = 10) uniform samplerCubeArray probeTexture;
-// The studio without its panels, as the irradiance sees it. Light probe captures use it.
-layout(set = 1, binding = 13) uniform samplerCube skyTexture;
+// The G-buffer's baked light and shadow mask; see writeBaked in surface.glsl. Alpha above 0 in the baked light marks a
+// pixel with a lightmap, whose soft light comes from it instead of the probes or the sky; alpha below 1 is a chunk's edge
+// band, which blends the two.
+layout(set = 1, binding = 13) uniform sampler2D bakedTexture;
+layout(set = 1, binding = 14) uniform sampler2D shadowMaskTexture;
+
+// How much of the screen's occlusion a lightmapped pixel's soft light still takes. The bake already saw the creases it
+// could resolve, so taking all of it would darken them twice; the screen still adds the contact it is too coarse for.
+const float LIGHTMAP_OCCLUSION = 0.5;
+
+// A Mixed light's visibility on a lightmapped pixel, which the bake's shadow mask also measured in one channel. With a
+// real-time shadow too it takes the darker of the two, so a moving thing's shadow still falls and the mask covers what
+// the shadow map can't, such as past the sun's last cascade, where shadowVisibility gives 1. A light without a shadow
+// map takes the mask alone. A light without a channel (-1), or a pixel without a lightmap, keeps what it had: the
+// mask's unused channels hold 0, so they must never be read. In a chunk's edge band, where the baked weight is between
+// 0 and 1, the mask moves towards 1, the real-time shadow alone, by the weight, and a light without a shadow map moves
+// from the mask to what it had, so both meet the live light at the band's edge.
+float maskedVisibility(float bakedWeight, vec4 shadowMask, float channel, bool shadowed, float visibility) {
+    if (bakedWeight <= 0.0 || channel < 0.0) {
+        return visibility;
+    }
+
+    float mask = shadowMask[int(channel + 0.5)];
+    if (bakedWeight < 1.0) {
+        return shadowed ? min(mix(1.0, mask, bakedWeight), visibility) : mix(visibility, mask, bakedWeight);
+    }
+
+    return shadowed ? min(mask, visibility) : mask;
+}
 
 layout(std430, set = 2, binding = 1) readonly buffer Materials {
     Material materials[];
 };
+// The material table's textures, which hold the drawn bake's probe atlases as they hold its lightmaps. The lighting set
+// is written once for every frame in flight, so a bake loaded or let go can't swap textures in it.
+layout(set = 2, binding = 0) uniform sampler2D textures[];
 
 layout(location = 0) out vec4 outColor;
 
@@ -84,31 +115,63 @@ float specularOcclusion(float nDotV, float ao, float roughness) {
     return clamp(pow(nDotV + ao, exp2(-16.0 * roughness - 1.0)) - 1.0 + ao, 0.0, 1.0);
 }
 
-// Whether a point is inside the light probes' box, where they, not the sky, give soft light.
-bool insideProbes(vec3 position) {
-    vec3 first = frame.lightProbeMin.xyz;
-    vec3 last = first + (frame.lightProbeCounts.xyz - 1.0) * frame.lightProbeMin.w;
-    return frame.lightProbeCounts.x > 0.5 && all(greaterThanEqual(position, first)) && all(lessThanEqual(position, last));
+// How much a point takes the baked space's probes over the live light, while the frame draws its fresh bake's probes: 1
+// deep inside the box, falling to 0 at its faces over one probe spacing in from each, the product of each axis's
+// smoothstep, and 0 outside the box or with no bake. A moving thing that crosses the box then blends from one light into
+// the other with no jump. With the band off for a test (w 2), 1 anywhere in the box. Either way it is scaled by how far
+// the bake has faded in (frame.bakedFade.x), so a bake that arrives on screen fades in instead of popping.
+float bakedProbeWeight(vec3 position) {
+    if (frame.bakedProbeCounts.w < 0.5) {
+        return 0.0;
+    }
+
+    vec3 inside = min(position - frame.bakedSpaceMin.xyz, frame.bakedSpaceMax.xyz - position);
+    if (any(lessThan(inside, vec3(0.0)))) {
+        return 0.0;
+    }
+
+    if (frame.bakedProbeCounts.w > 1.5) {
+        return frame.bakedFade.x;
+    }
+
+    vec3 band = smoothstep(vec3(0.0), vec3(frame.bakedProbeMin.w), inside);
+    return band.x * band.y * band.z * frame.bakedFade.x;
 }
 
-// The soft light reaching a point from around a direction, in the lit image's units: from the
-// light probes where the frame uses them and they see the point, otherwise from the sky.
-// While light probes capture, inside their box there is no sky light: in the first round only
-// the sun and what the probe sees directly count, and in the second the first round's probes
-// give the rest. So nothing in a closed room glows with light that can't get in.
-vec3 softLight(vec3 position, vec3 direction, vec3 v) {
-    if (frame.lightProbeCounts.w > 0.5) {
+// The soft light from the live frame: the live light probes, as probeIrradiance orders them, the view's fixed grid,
+// then the cascades round the camera; then the sky, where none of the probes can see the point.
+vec3 liveSoftLight(vec3 position, vec3 direction, vec3 v) {
+    if (frame.lightProbeCounts.w > 0.5 || frame.probeCascadeCounts.w > 0.5) {
         vec3 fromProbes = probeIrradiance(position, direction, v);
         if (fromProbes.x >= 0.0) {
             return fromProbes;
         }
     }
 
-    if (frame.probeCapture == 1 && insideProbes(position)) {
-        return vec3(0.0);
+    return texture(irradianceTexture, direction).rgb * frame.backgroundRadiance.a;
+}
+
+// The soft light reaching a point from around a direction, in the lit image's units. Inside a fresh baked space, the
+// bake's probes, which hold its Baked lights the live frame leaves out, blended by bakedProbeWeight with the live soft
+// light, which alone lights everywhere else; where none of the bake's probes sees the point, the live light alone.
+// Lightmapped pixels take theirs from the lightmap instead, or in a chunk's edge band blend the two, so this lights
+// dynamic objects and surfaces without a lightmap.
+vec3 softLight(vec3 position, vec3 direction, vec3 v) {
+    float weight = bakedProbeWeight(position);
+    vec3 fromBake = vec3(0.0);
+    if (weight > 0.0) {
+        fromBake = bakedProbeIrradiance(textures[int(frame.bakedSpaceMin.w + 0.5)],
+            textures[int(frame.bakedSpaceMax.w + 0.5)], frame.bakedProbeMin.xyz, frame.bakedProbeMin.w,
+            ivec3(frame.bakedProbeCounts.xyz + 0.5), position, direction, v);
+        if (fromBake.x < 0.0) {
+            weight = 0.0;
+        } else if (weight >= 1.0) {
+            return fromBake;
+        }
     }
 
-    return texture(irradianceTexture, direction).rgb * frame.backgroundRadiance.a;
+    vec3 live = liveSoftLight(position, direction, v);
+    return weight > 0.0 ? mix(live, fromBake, weight) : live;
 }
 
 // What a surface is made of and how it's seen, for lighting it one light at a time.
@@ -423,18 +486,8 @@ void main() {
 
     outScatter = vec4(0.0);
 
-    // A light probe's capture keeps each pixel's distance in alpha, for probe_fold.comp.
-    bool capturing = frame.probeCapture == 1;
-
     // Reversed-Z: a depth of 0 is the far plane, so nothing was drawn here.
     if (depth == 0.0) {
-        if (capturing) {
-            vec4 ahead = frame.inverseViewProjection * vec4(inUv * 2.0 - 1.0, 1.0, 1.0);
-            vec3 direction = normalize(ahead.xyz / ahead.w - frame.cameraPosition.xyz);
-            outColor = vec4(textureLod(skyTexture, direction, 0.0).rgb * frame.backgroundRadiance.a, NOTHING_DRAWN_DISTANCE);
-            return;
-        }
-
         if (isUnderwater()) {
             vec4 ahead = frame.inverseViewProjection * vec4(inUv * 2.0 - 1.0, 1.0, 1.0);
             vec3 direction = normalize(ahead.xyz / ahead.w - frame.cameraPosition.xyz);
@@ -519,14 +572,6 @@ void main() {
         position = onWaterSurface(clip, position);
     }
 
-    // Only light probe captures draw the backs of one-sided surfaces, which surface.glsl
-    // marks with a negative occlusion. They give no light, and the negative distance tells
-    // the probe it is inside something.
-    if (normalRoughnessAo.w < 0.0) {
-        outColor = vec4(0.0, 0.0, 0.0, -length(position - frame.cameraPosition.xyz));
-        return;
-    }
-
     vec3 v = normalize(frame.cameraPosition.xyz - position);
     float nDotV = max(dot(n, v), 1e-4);
     float alpha = roughness * roughness;
@@ -541,9 +586,7 @@ void main() {
 
     vec2 brdf = environmentBrdf(roughness, nDotV);
     vec3 multiscatter = isOff(OFF_MULTISCATTER_SPECULAR) ? vec3(1.0) : multiscatterCompensation(f0, nDotV, roughness);
-    // A light probe keeps diffuse light only. A reflection of the sky would also shine on
-    // walls the sky can't reach, which is the leak the probes are there to stop.
-    vec3 reflectedLight = capturing ? vec3(0.0) : sampleReflection(position, reflect(-v, n), roughness * REFLECTION_LODS);
+    vec3 reflectedLight = sampleReflection(position, reflect(-v, n), roughness * REFLECTION_LODS);
 
     // Coated surfaces are traced for their mirror-like coat, which then serves both layers.
     float traceStrength = isOff(OFF_REFLECTIONS) ? 0.0
@@ -566,8 +609,30 @@ void main() {
     reflectedLight = mix(reflectedLight, traced.rgb, traced.a);
     vec3 environmentSpecular = reflectedLight * (f0 * brdf.x + brdf.y) * multiscatter;
     // Soft light already carries the environment's intensity; the reflections don't yet.
-    vec3 diffuseColor = baseColor * (1.0 - metallic) * multiBounceOcclusion(ao, baseColor);
-    vec3 environmentDiffuse = softLight(position, bentNormal, v) * diffuseColor;
+    // A lightmapped pixel's soft light is baked, with the environment's intensity in it, and the screen's occlusion
+    // weighs on it only by LIGHTMAP_OCCLUSION. Its reflections are occluded as any other pixel's. In a chunk's edge band
+    // the baked alpha is less than 1, and the pixel moves by it from the baked rule to the live one: its soft light, its
+    // occlusion and, in maskedVisibility, its shadow mask. Alpha 1 takes the baked rule alone and 0 the live one alone,
+    // so a space's lightmap and an unlightmapped pixel are drawn exactly as without the band.
+    vec4 baked = texture(bakedTexture, inUv);
+    float bakedWeight = baked.a;
+    bool lightmapped = bakedWeight > 0.0;
+    vec4 shadowMask = lightmapped ? textureLod(shadowMaskTexture, inUv, 0.0) : vec4(1.0);
+    float diffuseAo = ao;
+    vec3 softDiffuse;
+    if (lightmapped) {
+        diffuseAo = min(normalRoughnessAo.w, 1.0) * mix(1.0, screenAo, LIGHTMAP_OCCLUSION);
+        softDiffuse = baked.rgb;
+        if (bakedWeight < 1.0) {
+            diffuseAo = mix(ao, diffuseAo, bakedWeight);
+            softDiffuse = mix(softLight(position, bentNormal, v), baked.rgb, bakedWeight);
+        }
+    } else {
+        softDiffuse = softLight(position, bentNormal, v);
+    }
+
+    vec3 diffuseColor = baseColor * (1.0 - metallic) * multiBounceOcclusion(diffuseAo, baseColor);
+    vec3 environmentDiffuse = softDiffuse * diffuseColor;
     if (translucency > 0.0) {
         environmentDiffuse += softLight(position, -n, v) * diffuseColor * translucency * transmissionTint;
     }
@@ -584,7 +649,7 @@ void main() {
 
     // The coat reflects first and what it lets through lights the layers below.
     vec3 coatFresnel = fresnelSchlick(nDotV, CLEARCOAT_F0) * clearcoat;
-    if (clearcoat > 0.0 && !capturing) {
+    if (clearcoat > 0.0) {
         vec3 coatReflection = sampleReflection(position, reflect(-v, n), CLEARCOAT_ROUGHNESS * REFLECTION_LODS);
         coatReflection *= specularOcclusion(nDotV, ao, CLEARCOAT_ROUGHNESS);
         coatReflection = mix(coatReflection, traced.rgb, traced.a);
@@ -611,6 +676,7 @@ void main() {
         float visibility = frame.lights[i].direction.w > 0.5
             ? shadowVisibility(position, lightSide, l) * (foliage ? 1.0 : contactShadow(position, lightSide, l))
             : screenAo;
+        visibility = maskedVisibility(bakedWeight, shadowMask, frame.lights[i].radiance.w, frame.lights[i].direction.w > 0.5, visibility);
         vec3 reaching = sunlightReaching(position, l, i) * visibility;
         if (subsurface) {
             scattered += diffuseLit * reaching;
@@ -639,7 +705,9 @@ void main() {
         }
 
         vec3 lightSide = dot(n, l) >= 0.0 ? n : -n;
-        float visibility = light.radianceShadow.w >= 0.0 ? localShadow(light, position, lightSide, l) : screenAo;
+        bool shadowed = light.radianceShadow.w >= 0.0;
+        float visibility = shadowed ? localShadow(light, position, lightSide, l) : screenAo;
+        visibility = maskedVisibility(bakedWeight, shadowMask, localMaskChannel(light), shadowed, visibility);
         vec3 arriving = light.radianceShadow.rgb * reaching * visibility;
         if (subsurface) {
             scattered += diffuseLit * arriving;
@@ -647,12 +715,6 @@ void main() {
         } else {
             color += (diffuseLit + specularLit) * arriving;
         }
-    }
-
-    // A probe has no blur to spread subsurface light, so it keeps it where it fell.
-    if (capturing) {
-        outColor = vec4(color + scattered, length(position - frame.cameraPosition.xyz));
-        return;
     }
 
     // Water tints everything on its way to the camera, which the blur can't redo, so

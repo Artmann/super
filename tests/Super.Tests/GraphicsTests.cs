@@ -27,6 +27,84 @@ public class GraphicsTests
         Assert.Equal(0, graphics.MaxFramesPerSecond);
         Assert.Equal(2048, graphics.ShadowResolution);
         Assert.Equal(1f, graphics.RenderScale);
+        Assert.Equal(ProbeQuality.High, graphics.ProbeQuality);
+    }
+
+    [Fact]
+    public void An_undefined_probe_quality_is_refused()
+    {
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => new Graphics { ProbeQuality = (ProbeQuality)7 });
+
+        Assert.StartsWith("Probe quality can be Low, Medium or High.", error.Message);
+        Assert.Equal("value", error.ParamName);
+    }
+
+    [Fact]
+    public void Fastest_sets_probe_quality_to_low_and_light_probes_off()
+    {
+        var graphics = Graphics.Fastest();
+
+        Assert.Equal(ProbeQuality.Low, graphics.ProbeQuality);
+        Assert.True(graphics.Off.HasFlag(RenderEffects.LightProbes));
+    }
+
+    [Fact]
+    public void A_changed_probe_quality_reaches_the_renderer_next_frame()
+    {
+        var given = new Graphics();
+        using var host = new GameHost<Settings>(1, 30, null, graphics: given);
+
+        host.Game.Graphics.ProbeQuality = ProbeQuality.Medium;
+
+        Assert.Equal(ProbeQuality.Medium, GameWindow.RendererSettings(host.Graphics, hidden: false).ProbeQuality);
+    }
+
+    [Fact]
+    public void A_debug_view_the_game_sets_reaches_the_renderer_next_frame()
+    {
+        using var host = new GameHost<Settings>(1, 30, null, graphics: new Graphics());
+        Assert.Equal(DebugView.None, GameWindow.RendererSettings(host.Graphics, hidden: false).DebugView);
+
+        host.Game.Graphics.DebugView = DebugView.Probes;
+
+        Assert.Equal(DebugView.Probes, GameWindow.RendererSettings(host.Graphics, hidden: false).DebugView);
+    }
+
+    [Theory]
+    [InlineData(DebugView.Probes, DebugView.Trace, DebugView.Trace)]
+    [InlineData(DebugView.Trace, DebugView.Probes, DebugView.Probes)]
+    [InlineData(DebugView.Probes, DebugView.None, DebugView.Probes)]
+    [InlineData(DebugView.None, DebugView.Probes, DebugView.Probes)]
+    [InlineData(DebugView.None, DebugView.None, DebugView.None)]
+    public void The_command_line_debug_view_wins_over_the_games(DebugView game, DebugView commandLine, DebugView expected)
+    {
+        var graphics = new Graphics { DebugView = game };
+
+        Assert.Equal(expected, GameWindow.RendererSettings(graphics, hidden: false, commandLineDebugView: commandLine).DebugView);
+    }
+
+    [Fact]
+    public void A_trace_view_the_game_sets_is_ignored_on_a_gpu_that_cannot_trace()
+    {
+        var graphics = new Graphics { DebugView = DebugView.Trace };
+
+        Assert.Equal(DebugView.None, GameWindow.RendererSettings(graphics, hidden: false, canTrace: false).DebugView);
+        Assert.Equal(DebugView.Trace, GameWindow.RendererSettings(graphics, hidden: false, canTrace: true).DebugView);
+    }
+
+    [Theory]
+    [InlineData(false, false, true, true)]
+    [InlineData(false, false, false, false)]
+    [InlineData(true, false, false, true)]
+    [InlineData(true, false, true, true)]
+    [InlineData(true, true, true, false)]
+    [InlineData(true, true, false, false)]
+    public void A_hidden_window_waits_for_the_display_except_while_a_shot_settles_its_probes(
+        bool hidden, bool settlingProbes, bool vsync, bool expected)
+    {
+        var graphics = new Graphics { Vsync = vsync };
+
+        Assert.Equal(expected, GameWindow.RendererSettings(graphics, hidden, settlingProbes).Vsync);
     }
 
     [Theory]
@@ -174,6 +252,7 @@ public class GraphicsTests
     [InlineData(nameof(Graphics.VolumetricFog), RenderEffects.VolumetricFog)]
     [InlineData(nameof(Graphics.Puddles), RenderEffects.Puddles)]
     [InlineData(nameof(Graphics.Wind), RenderEffects.Wind)]
+    [InlineData(nameof(Graphics.BakedLighting), RenderEffects.BakedLighting)]
     public void Each_switch_turned_off_leaves_out_only_its_own_effect(string setting, RenderEffects effect)
     {
         var graphics = new Graphics();
@@ -183,7 +262,21 @@ public class GraphicsTests
     }
 
     [Fact]
-    public void Fastest_leaves_out_every_effect_but_keeps_the_materials_and_turns_vsync_off()
+    public void Baked_lighting_is_on_by_default_and_off_maps_to_the_effect()
+    {
+        var graphics = new Graphics();
+        Assert.True(graphics.BakedLighting);
+        Assert.False(graphics.Off.HasFlag(RenderEffects.BakedLighting));
+
+        graphics.BakedLighting = false;
+
+        Assert.Equal(RenderEffects.BakedLighting, graphics.Off);
+        Assert.True(RenderEffects.All.HasFlag(RenderEffects.BakedLighting));
+    }
+
+    // A bake is cheaper than lighting live, so the fastest settings keep it.
+    [Fact]
+    public void Fastest_leaves_out_every_effect_but_keeps_the_materials_and_baked_lighting_and_turns_vsync_off()
     {
         var graphics = Graphics.Fastest();
 
@@ -195,6 +288,7 @@ public class GraphicsTests
             | RenderEffects.Puddles | RenderEffects.Wind,
             graphics.Off);
         Assert.True(graphics.Materials);
+        Assert.True(graphics.BakedLighting);
         Assert.False(graphics.Vsync);
 
         // Dropping the resolution would be a change the game can see, so it stays the game's choice.
@@ -248,5 +342,42 @@ public class GraphicsTests
 
         Assert.Same(given, host.Graphics);
         Assert.Equal(RenderEffects.Bloom, host.Graphics.Off);
+    }
+
+    [Theory]
+    [InlineData(0.4f, "0.4")]
+    [InlineData(34f, "34")]
+    [InlineData(float.NaN, "NaN")]
+    public void Bake_budget_out_of_range_throws(float budget, string shown)
+    {
+        var original = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("sv-SE");
+        try
+        {
+            var graphics = new Graphics { BakeBudget = 3f };
+
+            var error = Assert.Throws<ArgumentOutOfRangeException>(() => graphics.BakeBudget = budget);
+
+            Assert.Equal(
+                $"BakeBudget must be from 0.5 to 33 milliseconds, not {shown}. Use null for the default. (Parameter 'value')",
+                error.Message);
+            Assert.Equal(3f, graphics.BakeBudget);
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = original;
+        }
+    }
+
+    [Theory]
+    [InlineData(0.5f)]
+    [InlineData(33f)]
+    public void Bake_budget_takes_the_ends_of_its_range_and_null(float budget)
+    {
+        var graphics = new Graphics { BakeBudget = budget };
+        Assert.Equal(budget, graphics.BakeBudget);
+
+        graphics.BakeBudget = null;
+        Assert.Null(graphics.BakeBudget);
     }
 }

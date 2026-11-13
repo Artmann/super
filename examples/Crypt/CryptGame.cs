@@ -20,7 +20,7 @@ public sealed class CryptGame(Content content) : IGame
     private const int AltarKey = 300;
     private const int StatueKey = 310;
     private const int ChestKey = 320;
-    private const int LanternKey = 330;
+    public const int LanternKey = 330;
     private const int GrateKey = 340;
     private const int BarrelKey = 400;
     private const int CandelabraKey = 500;
@@ -28,10 +28,10 @@ public sealed class CryptGame(Content content) : IGame
     private const int CandleKey = 1000;
     private const int FlameKey = 100_000;
 
-    private const float HallWidth = 9f;
-    private const float HallFront = 4f;
-    private const float HallBack = -9.5f;
-    private const float HallHeight = 5f;
+    public const float HallWidth = 9f;
+    public const float HallFront = 4f;
+    public const float HallBack = -9.5f;
+    public const float HallHeight = 5f;
 
     /// <summary>
     /// A candle's flame: small glowing puffs packed close so they read as one teardrop, warm
@@ -119,15 +119,15 @@ public sealed class CryptGame(Content content) : IGame
         var wall = Stone("wall");
         var blocks = Stone("blocks");
 
-        _floor = content.Mesh(Shapes.Plane(new Vector2(HallWidth, HallFront - HallBack), surface: floor, uvPerMetre: 0.4f));
-        _sideWall = content.Mesh(Shapes.Box(new Vector3(0.6f, HallHeight, HallFront - HallBack), wall, uvPerMetre: 0.35f));
-        _endWall = content.Mesh(Shapes.Box(new Vector3(HallWidth + 1.2f, HallHeight, 0.6f), wall, uvPerMetre: 0.35f));
-        _ceiling = content.Mesh(Shapes.Box(new Vector3(HallWidth + 1.2f, 0.4f, HallFront - HallBack + 1.2f), blocks, uvPerMetre: 0.5f));
-        _pillar = content.Mesh(Shapes.Cylinder(0.34f, 0.38f, HallHeight - 0.6f, 24, blocks, uvPerMetre: 0.6f));
-        _pillarFoot = content.Mesh(Shapes.Box(new Vector3(1f, 0.3f, 1f), blocks, uvPerMetre: 0.6f));
-        _step = content.Mesh(Shapes.Box(new Vector3(4.2f, 0.18f, 2.6f), floor, uvPerMetre: 0.4f));
-        _altar = content.Mesh(Shapes.Box(new Vector3(2.6f, AltarTop - 0.18f, 1f), blocks, uvPerMetre: 0.6f));
-        _plinth = content.Mesh(Shapes.Box(new Vector3(1.8f, 0.7f, 1.4f), blocks, uvPerMetre: 0.6f));
+        _floor = content.Mesh(Shapes.Plane(new Vector2(HallWidth, HallFront - HallBack), surface: floor, uvPerMetre: 0.4f), isStatic: true);
+        _sideWall = content.Mesh(Shapes.Box(new Vector3(0.6f, HallHeight, HallFront - HallBack), wall, uvPerMetre: 0.35f), isStatic: true);
+        _endWall = content.Mesh(Shapes.Box(new Vector3(HallWidth + 1.2f, HallHeight, 0.6f), wall, uvPerMetre: 0.35f), isStatic: true);
+        _ceiling = content.Mesh(Shapes.Box(new Vector3(HallWidth + 1.2f, 0.4f, HallFront - HallBack + 1.2f), blocks, uvPerMetre: 0.5f), isStatic: true);
+        _pillar = content.Mesh(Shapes.Cylinder(0.34f, 0.38f, HallHeight - 0.6f, 24, blocks, uvPerMetre: 0.6f), isStatic: true);
+        _pillarFoot = content.Mesh(Shapes.Box(new Vector3(1f, 0.3f, 1f), blocks, uvPerMetre: 0.6f), isStatic: true);
+        _step = content.Mesh(Shapes.Box(new Vector3(4.2f, 0.18f, 2.6f), floor, uvPerMetre: 0.4f), isStatic: true);
+        _altar = content.Mesh(Shapes.Box(new Vector3(2.6f, AltarTop - 0.18f, 1f), blocks, uvPerMetre: 0.6f), isStatic: true);
+        _plinth = content.Mesh(Shapes.Box(new Vector3(1.8f, 0.7f, 1.4f), blocks, uvPerMetre: 0.6f), isStatic: true);
 
         _statue = content.Model("props/gothic_statue/gothic_statue_1k.gltf");
         _chest = content.Model("props/treasure_chest/treasure_chest_1k.gltf");
@@ -222,6 +222,12 @@ public sealed class CryptGame(Content content) : IGame
             Gain = new Vector3(0.04f, 0.015f, -0.03f),
         });
 
+        // The hall is one baked space, "crypt". Its box holds the walls and the vault with a little to spare, and its
+        // probes light the lantern as it swings. Everything that stands still is drawn isStatic, so its light is
+        // baked. The torches, the altar flames and the candles stay Mixed, so they keep their real-time flicker, and
+        // the lantern and its chain move, so they are never baked. See the README.
+        view.BakedLighting("crypt", new Vector3(-5.2f, -0.2f, -10.2f), new Vector3(5.2f, 5.5f, 4.7f), 0.8f);
+
         DrawHall(view);
         DrawTorches(view);
         DrawAltar(view);
@@ -236,12 +242,12 @@ public sealed class CryptGame(Content content) : IGame
     private void DrawHall(View view)
     {
         float middleZ = (HallFront + HallBack) / 2f;
-        view.Model(FloorKey, _floor, Matrix4x4.CreateTranslation(0f, 0f, middleZ));
-        view.Model(WallKey, _sideWall, Matrix4x4.CreateTranslation(-HallWidth / 2f - 0.3f, HallHeight / 2f, middleZ));
-        view.Model(WallKey + 1, _sideWall, Matrix4x4.CreateTranslation(HallWidth / 2f + 0.3f, HallHeight / 2f, middleZ));
-        view.Model(WallKey + 2, _endWall, Matrix4x4.CreateTranslation(0f, HallHeight / 2f, HallBack - 0.3f));
-        view.Model(WallKey + 3, _endWall, Matrix4x4.CreateTranslation(0f, HallHeight / 2f, HallFront + 0.3f));
-        view.Model(WallKey + 4, _ceiling, Matrix4x4.CreateTranslation(0f, HallHeight + 0.2f, middleZ));
+        view.Model(FloorKey, _floor, Matrix4x4.CreateTranslation(0f, 0f, middleZ), isStatic: true);
+        view.Model(WallKey, _sideWall, Matrix4x4.CreateTranslation(-HallWidth / 2f - 0.3f, HallHeight / 2f, middleZ), isStatic: true);
+        view.Model(WallKey + 1, _sideWall, Matrix4x4.CreateTranslation(HallWidth / 2f + 0.3f, HallHeight / 2f, middleZ), isStatic: true);
+        view.Model(WallKey + 2, _endWall, Matrix4x4.CreateTranslation(0f, HallHeight / 2f, HallBack - 0.3f), isStatic: true);
+        view.Model(WallKey + 3, _endWall, Matrix4x4.CreateTranslation(0f, HallHeight / 2f, HallFront + 0.3f), isStatic: true);
+        view.Model(WallKey + 4, _ceiling, Matrix4x4.CreateTranslation(0f, HallHeight + 0.2f, middleZ), isStatic: true);
 
         int key = PillarKey;
         foreach (float z in PillarRows)
@@ -249,9 +255,9 @@ public sealed class CryptGame(Content content) : IGame
             foreach (float side in new[] { -1f, 1f })
             {
                 var foot = new Vector3(side * PillarX, 0f, z);
-                view.Model(key++, _pillarFoot, Matrix4x4.CreateTranslation(foot + new Vector3(0f, 0.15f, 0f)));
-                view.Model(key++, _pillar, Matrix4x4.CreateTranslation(foot + new Vector3(0f, 0.3f + ((HallHeight - 0.6f) / 2f), 0f)));
-                view.Model(key++, _pillarFoot, Matrix4x4.CreateTranslation(foot + new Vector3(0f, HallHeight - 0.15f, 0f)));
+                view.Model(key++, _pillarFoot, Matrix4x4.CreateTranslation(foot + new Vector3(0f, 0.15f, 0f)), isStatic: true);
+                view.Model(key++, _pillar, Matrix4x4.CreateTranslation(foot + new Vector3(0f, 0.3f + ((HallHeight - 0.6f) / 2f), 0f)), isStatic: true);
+                view.Model(key++, _pillarFoot, Matrix4x4.CreateTranslation(foot + new Vector3(0f, HallHeight - 0.15f, 0f)), isStatic: true);
             }
         }
 
@@ -263,7 +269,7 @@ public sealed class CryptGame(Content content) : IGame
         };
         for (int i = 0; i < barrels.Length; i++)
         {
-            view.Model(BarrelKey + i, _barrel, Matrix4x4.CreateRotationY(barrels[i].Turn) * Matrix4x4.CreateTranslation(barrels[i].At));
+            view.Model(BarrelKey + i, _barrel, Matrix4x4.CreateRotationY(barrels[i].Turn) * Matrix4x4.CreateTranslation(barrels[i].At), isStatic: true);
         }
     }
 
@@ -277,8 +283,8 @@ public sealed class CryptGame(Content content) : IGame
                 // A torch leaning out from the pillar's side towards the aisle.
                 var bracket = new Vector3(side * (PillarX - 0.42f), 2.3f, z);
                 var lean = Matrix4x4.CreateRotationZ(side * 0.35f);
-                view.Model(TorchKey + (i * 2), ModelRef.Cylinder, Matrix4x4.CreateScale(0.06f, 0.55f, 0.06f) * lean * Matrix4x4.CreateTranslation(bracket), new Vector3(0.12f, 0.07f, 0.04f));
-                view.Model(TorchKey + (i * 2) + 1, ModelRef.Cylinder, Matrix4x4.CreateScale(0.1f, 0.1f, 0.1f) * lean * Matrix4x4.CreateTranslation(bracket + Vector3.Transform(new Vector3(0f, 0.27f, 0f), lean)), new Vector3(0.05f, 0.04f, 0.035f));
+                view.Model(TorchKey + (i * 2), ModelRef.Cylinder, Matrix4x4.CreateScale(0.06f, 0.55f, 0.06f) * lean * Matrix4x4.CreateTranslation(bracket), new Vector3(0.12f, 0.07f, 0.04f), isStatic: true);
+                view.Model(TorchKey + (i * 2) + 1, ModelRef.Cylinder, Matrix4x4.CreateScale(0.1f, 0.1f, 0.1f) * lean * Matrix4x4.CreateTranslation(bracket + Vector3.Transform(new Vector3(0f, 0.27f, 0f), lean)), new Vector3(0.05f, 0.04f, 0.035f), isStatic: true);
                 var fire = bracket + Vector3.Transform(new Vector3(0f, 0.34f, 0f), lean);
                 float flicker = 1f + (0.1f * MathF.Sin(_seconds * 11f + i * 2f)) + (0.07f * MathF.Sin(_seconds * 23f + i));
                 // The flame is a hand from the stone, so a radius a little bigger than the fire keeps
@@ -293,17 +299,17 @@ public sealed class CryptGame(Content content) : IGame
 
     private void DrawAltar(View view)
     {
-        view.Model(AltarKey, _step, Matrix4x4.CreateTranslation(0f, 0.09f, AltarZ + 0.1f));
-        view.Model(AltarKey + 1, _altar, Matrix4x4.CreateTranslation(0f, 0.18f + ((AltarTop - 0.18f) / 2f), AltarZ));
-        view.Model(AltarKey + 2, _plinth, Matrix4x4.CreateTranslation(0f, 0.35f, HallBack + 0.75f));
-        view.Model(StatueKey, _statue, Matrix4x4.CreateScale(1.2f) * Matrix4x4.CreateTranslation(0f, 0.7f, HallBack + 1.25f));
+        view.Model(AltarKey, _step, Matrix4x4.CreateTranslation(0f, 0.09f, AltarZ + 0.1f), isStatic: true);
+        view.Model(AltarKey + 1, _altar, Matrix4x4.CreateTranslation(0f, 0.18f + ((AltarTop - 0.18f) / 2f), AltarZ), isStatic: true);
+        view.Model(AltarKey + 2, _plinth, Matrix4x4.CreateTranslation(0f, 0.35f, HallBack + 0.75f), isStatic: true);
+        view.Model(StatueKey, _statue, Matrix4x4.CreateScale(1.2f) * Matrix4x4.CreateTranslation(0f, 0.7f, HallBack + 1.25f), isStatic: true);
 
         int flame = 0;
         for (int c = 0; c < _candelabras.Count; c++)
         {
             var (model, at, turn, wicks) = _candelabras[c];
             var place = Matrix4x4.CreateRotationY(turn) * Matrix4x4.CreateTranslation(at);
-            view.Model(CandelabraKey + c, model, place);
+            view.Model(CandelabraKey + c, model, place, isStatic: true);
             foreach (var wick in wicks)
             {
                 var tip = Vector3.Transform(wick, place);
@@ -325,7 +331,7 @@ public sealed class CryptGame(Content content) : IGame
         for (int i = 0; i < _candles.Count; i++)
         {
             var (foot, height, width) = _candles[i];
-            view.Model(CandleKey + i, ModelRef.Cylinder, Matrix4x4.CreateScale(width, height, width) * Matrix4x4.CreateTranslation(foot + new Vector3(0f, height * 0.5f, 0f)), wax);
+            view.Model(CandleKey + i, ModelRef.Cylinder, Matrix4x4.CreateScale(width, height, width) * Matrix4x4.CreateTranslation(foot + new Vector3(0f, height * 0.5f, 0f)), wax, isStatic: true);
             var wick = foot + new Vector3(0f, height + 0.012f, 0f);
             float flicker = 1f + (0.15f * MathF.Sin(_seconds * 13f + i));
             view.PointLight(CandleKey + i, wick + new Vector3(0f, 0.03f, 0f), new Vector3(0.16f, 0.075f, 0.022f) * flicker, range: 1.6f, shadows: false);
@@ -335,7 +341,7 @@ public sealed class CryptGame(Content content) : IGame
 
     private void DrawChestAndLantern(View view)
     {
-        view.Model(ChestKey, _chest, Matrix4x4.CreateRotationY(-0.35f) * Matrix4x4.CreateTranslation(ChestAt));
+        view.Model(ChestKey, _chest, Matrix4x4.CreateRotationY(-0.35f) * Matrix4x4.CreateTranslation(ChestAt), isStatic: true);
 
         // The lantern hangs on a chain from the vault, swinging a little.
         float swing = 0.04f * MathF.Sin(_seconds * 1.3f);

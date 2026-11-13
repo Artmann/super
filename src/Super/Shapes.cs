@@ -424,16 +424,32 @@ public static partial class Shapes
     /// </summary>
     private readonly record struct ProfilePoint(float Radius, float Y, Vector2 Normal, float Distance);
 
+    /// <summary>
+    /// One piece of a shape in the lightmap: its vertices from <paramref name="Start"/> on,
+    /// where each lies on the flat chart in metres, and how wide and tall the chart is.
+    /// </summary>
+    private sealed record Chart(int Start, Vector2[] Layout, Vector2 Extent);
+
     private sealed class ShapeBuilder
     {
         private readonly List<Vertex> _vertices = [];
         private readonly List<uint> _indices = [];
+        private readonly List<Chart> _charts = [];
 
-        public GeneratedMesh Build(Surface? surface) => new([.. _vertices], [.. _indices], surface ?? new Surface());
+        /// <summary>
+        /// The mesh, with every piece's lightmap chart packed on one page and its vertices'
+        /// <see cref="Vertex.Uv2"/> set from it.
+        /// </summary>
+        public GeneratedMesh Build(Surface? surface)
+        {
+            LayOutLightmap();
+            return new([.. _vertices], [.. _indices], surface ?? new Surface());
+        }
 
         /// <summary>
         /// A grid of vertices, row by row from the top. Rows run down the texture and
         /// columns across it. A triangle whose corners meet, such as at a pole, is left out.
+        /// The grid is one lightmap chart, laid out by its columns and rows.
         /// </summary>
         public void Grid(int columns, int rows, Func<int, int, Vertex> vertexAt)
         {
@@ -445,6 +461,8 @@ public static partial class Shapes
                     _vertices.Add(vertexAt(column, row));
                 }
             }
+
+            AddGridChart((int)start, columns, rows);
 
             uint stride = (uint)columns + 1;
             for (int row = 0; row < rows; row++)
@@ -501,6 +519,16 @@ public static partial class Shapes
                 _vertices.Add(new Vertex(position, normal, tangent, uvCentre + new Vector2(position.X, position.Z * flip) * uvScale));
             }
 
+            // The disc's chart is the disc itself, seen from the side it faces.
+            var layout = new Vector2[segments + 1];
+            for (int i = 0; i <= segments; i++)
+            {
+                var position = _vertices[(int)centre + i].Position;
+                layout[i] = new Vector2(position.X + radius, position.Z * flip + radius);
+            }
+
+            _charts.Add(new Chart((int)centre, layout, new Vector2(2f * radius)));
+
             for (int i = 0; i < segments; i++)
             {
                 uint here = centre + 1 + (uint)i;
@@ -516,6 +544,161 @@ public static partial class Shapes
                     Triangle(centre, next, here);
                 }
             }
+        }
+
+        /// <summary>
+        /// Lays a grid out flat in metres by its columns and rows: each column is as wide as
+        /// its widest row makes it, and each row as tall as its tallest column, so the chart
+        /// is never squeezed smaller than the surface, only stretched where it narrows, such
+        /// as towards a sphere's poles.
+        /// </summary>
+        private void AddGridChart(int start, int columns, int rows)
+        {
+            int stride = columns + 1;
+            var xs = new float[columns + 1];
+            for (int column = 0; column < columns; column++)
+            {
+                float widest = 0f;
+                for (int row = 0; row <= rows; row++)
+                {
+                    int at = start + row * stride + column;
+                    widest = MathF.Max(widest, Vector3.Distance(_vertices[at].Position, _vertices[at + 1].Position));
+                }
+
+                xs[column + 1] = xs[column] + widest;
+            }
+
+            var ys = new float[rows + 1];
+            for (int row = 0; row < rows; row++)
+            {
+                float tallest = 0f;
+                for (int column = 0; column <= columns; column++)
+                {
+                    int at = start + row * stride + column;
+                    tallest = MathF.Max(tallest, Vector3.Distance(_vertices[at].Position, _vertices[at + stride].Position));
+                }
+
+                ys[row + 1] = ys[row] + tallest;
+            }
+
+            var layout = new Vector2[(rows + 1) * stride];
+            for (int row = 0; row <= rows; row++)
+            {
+                // A row that's all one point, such as a pole or a cone's tip, is one point in
+                // the chart too, so the triangles round it join along their edges.
+                var first = _vertices[start + row * stride].Position;
+                bool point = true;
+                for (int column = 1; column <= columns && point; column++)
+                {
+                    point = _vertices[start + row * stride + column].Position == first;
+                }
+
+                for (int column = 0; column <= columns; column++)
+                {
+                    float x = point ? xs[columns] * 0.5f : xs[column];
+                    layout[row * stride + column] = new Vector2(x, ys[row]);
+                }
+            }
+
+            _charts.Add(new Chart(start, layout, new Vector2(xs[columns], ys[rows])));
+        }
+
+        /// <summary>
+        /// Packs every chart on one lightmap page at the same texels per metre, as many as
+        /// fit, with <see cref="LightmapUnwrap.Gutter"/> texels between them, and sets the
+        /// vertices' <see cref="Vertex.Uv2"/>. The page is
+        /// <see cref="LightmapUnwrap.ReferenceSize"/> texels square, or twice or four times
+        /// that when the charts don't fit even at their smallest.
+        /// </summary>
+        private void LayOutLightmap()
+        {
+            if (_charts.Count == 0)
+            {
+                return;
+            }
+
+            float longest = 0f;
+            double area = 0.0;
+            foreach (var chart in _charts)
+            {
+                longest = MathF.Max(longest, MathF.Max(chart.Extent.X, chart.Extent.Y));
+                area += (double)chart.Extent.X * chart.Extent.Y;
+            }
+
+            var rectangles = new (int Width, int Height)[_charts.Count];
+            var places = new (int X, int Y)[_charts.Count];
+            for (int size = LightmapUnwrap.ReferenceSize; size <= LightmapUnwrap.LargestSize; size *= 2)
+            {
+                // A chart's rectangle is its extent in texels rounded up plus one, so the longest
+                // fits the page when it's no more than size - 1 texels long; a little less keeps
+                // rounding from pushing it over.
+                double most = longest > 0f ? (size - 1.5) / longest : 1.0;
+                double fits = most;
+                if (!Fits(most, size))
+                {
+                    double least = most * 1e-6;
+                    if (!Fits(least, size))
+                    {
+                        continue;
+                    }
+
+                    // The largest scale that fits, between one that fits and one that doesn't, to a
+                    // thousandth, far below a texel. Each rectangle is larger than its chart, so at the
+                    // scale where the charts alone would cover the page they can't fit, which starts
+                    // the search close.
+                    double fails = area > 0.0 ? Math.Min(most, Math.Sqrt((double)size * size / area)) : most;
+                    fits = least;
+                    while (fails / fits >= 1.001)
+                    {
+                        double middle = (fits + fails) * 0.5;
+                        if (Fits(middle, size))
+                        {
+                            fits = middle;
+                        }
+                        else
+                        {
+                            fails = middle;
+                        }
+                    }
+
+                    // Packs again at the scale kept, since the last try may have been one that failed,
+                    // so rectangles and places below are this scale's.
+                    Fits(fits, size);
+                }
+
+                for (int i = 0; i < _charts.Count; i++)
+                {
+                    var chart = _charts[i];
+                    double left = places[i].X + (rectangles[i].Width - chart.Extent.X * fits) * 0.5;
+                    double top = places[i].Y + (rectangles[i].Height - chart.Extent.Y * fits) * 0.5;
+                    for (int k = 0; k < chart.Layout.Length; k++)
+                    {
+                        double u = (left + chart.Layout[k].X * fits) / size;
+                        double v = (top + chart.Layout[k].Y * fits) / size;
+                        _vertices[chart.Start + k] = _vertices[chart.Start + k] with { Uv2 = new Vector2((float)u, (float)v) };
+                    }
+                }
+
+                return;
+            }
+
+            throw new InvalidOperationException(
+                $"The shape's {_charts.Count} lightmap charts don't fit a {LightmapUnwrap.LargestSize}-texel page with a {LightmapUnwrap.Gutter}-texel gutter, even at their smallest.");
+
+            // Sizes each chart's rectangle at this many texels per metre, its extent rounded up
+            // plus one, so at least one texel a side, and packs them; whether they all fit.
+            bool Fits(double texelsPerMetre, int size)
+            {
+                for (int i = 0; i < _charts.Count; i++)
+                {
+                    var extent = _charts[i].Extent;
+                    rectangles[i] = (Side(extent.X * texelsPerMetre), Side(extent.Y * texelsPerMetre));
+                }
+
+                return SkylinePacker.TryPack(rectangles, size, size, LightmapUnwrap.Gutter, places);
+            }
+
+            static int Side(double texels) => (int)Math.Ceiling(texels) + 1;
         }
 
         private static (float Sin, float Cos) Around(int step, int steps) => SinCos(2f * MathF.PI * step / steps);

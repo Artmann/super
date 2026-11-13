@@ -239,6 +239,33 @@ public class ModelsTests
     }
 
     [Fact]
+    public void Static_entities_draw_static()
+    {
+        var still = Spawn(Transform.At(new Vector3(1f, 0f, 0f)));
+        _world.Add(still, new Static());
+        Spawn(Transform.At(new Vector3(2f, 0f, 0f)));
+
+        var drawn = Draw(0f).ToArray();
+
+        Assert.Equal(2, drawn.Length);
+        Assert.True(drawn.Single(draw => draw.Key == still.Id).Static);
+        Assert.False(drawn.Single(draw => draw.Key != still.Id).Static);
+    }
+
+    [Fact]
+    public void Static_entity_that_swims_is_explained()
+    {
+        var fish = Spawn(Transform.Identity);
+        _world.Add(fish, new Static());
+        _world.Add(fish, new Swim(0.1f, 1f, 0f));
+
+        var error = Assert.Throws<ArgumentException>(() => { Draw(0f); });
+
+        Assert.Contains($"Model {fish.Id} is static", error.Message);
+        Assert.Contains("swim", error.Message);
+    }
+
+    [Fact]
     public void Keys_stay_stable_as_entities_come_and_go()
     {
         var first = Spawn(Transform.Identity);

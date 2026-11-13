@@ -82,8 +82,10 @@ bright round the sun's disc, so the shade is cooler than the sunlight. It is at 
 read in it, while the sun keeps it a clear step darker than the light, as on a real clear
 day. See [The sky](../../docs/rendering.md#the-sky).
 
-Light probes a metre apart fill the yard, so light bounced off the sunlit brick and
-flagstones warms the shade round it. See [Bounced light](../../docs/rendering.md#bounced-light).
+The light probes that follow the camera fill the yard, so light bounced off the sunlit brick
+and flagstones warms the shade round it. The courtyard needs no box of probes of its own:
+with one a metre apart the shot looked the same. See
+[Bounced light](../../docs/rendering.md#bounced-light).
 Ambient occlusion over 0.8 m at full strength darkens the corners and the foot of each wall.
 A reflection probe at head height in the middle of the yard lets the window and the puddle
 mirror the wall, the deck and the house rather than only the sky. Water stands 4.5 cm below
@@ -166,6 +168,66 @@ presses E for a screenshot at the fixed exposure:
 dotnet run -c Release --project examples/Courtyard -- --script fixed --screenshot shots/courtyard-fixed.png --validate --seed 1 --ticks 60 --size 1600x900
 ```
 
+## Baked lighting
+
+The yard is a baked space named `courtyard`, a box 31 m by 10.5 m by 31 m round the whole model with
+probes 1.6 m apart. The model never moves, so it is drawn static (`isStatic: true`) and its light is
+baked into `content/lighting/courtyard.lightbake`, 6.4 MB at the default 20 texels a metre. The grass,
+ivy and leaves are part of the model, so they are lightmapped with the rest. Only the decals (the
+damp, the drip and the rust) stay live.
+
+![The Courtyard window, barrel and wall, lit live (left) and with its bake (right): the window glass and the shade on the bricks differ slightly, and the two look nearly the same otherwise. The ivy differs because the plants sway](../../docs/media/courtyard-baked-before-after.webp)
+
+The two look nearly the same. What the bake gains is cost, because the bounce is no longer traced
+every frame. The plants sway, so their shapes differ between the halves whatever the lighting.
+
+The lights are all `Mixed`, so the bake adds the light that bounces and soft shade, and the live
+lights keep their crisp shadows. A `Baked` light would give up those sharp shadows, and a
+`Realtime` one would give up the bounce:
+
+| Light | Mode | Why | Shadows |
+| --- | --- | --- | --- |
+| The sun | Mixed | It is the main light, so its shadows stay crisp near the camera | Real-time cascades near the camera, and the bake's mask past the last |
+| Wall lantern | Mixed | It adds bounce and soft shade to the wall it hangs on | No shadow tiles, and the bake's mask |
+| Lamp in the room | Mixed | It lights the room and, through the window, the yard | Real-time, and the bake's mask. Its light reaches the yard through the window glass |
+
+Every light found a mask channel, so the bake lists none without one.
+
+### Invalid texels
+
+The bake found 11.85% of texels invalid. A texel is invalid when more than half of its short test
+rays hit the back of a face, which means it sits inside something. Those texels are filled from their
+neighbours, so no seam shows.
+
+The grass, ivy and leaves are not the cause: with them hidden the share was 11.89%. It comes from the
+stone and the ground. By material the invalid shares were 18.7% on the plinth, 18.3% on the dry-stone
+wall, 12.6% on the ground (the biggest bake, so the most texels), 7.1% on the brick details, 6.6% on
+the deck and 4.2% on the flagstones. That fits piled and overlapping solids, such as stones set into
+the wall and boards laid over the ground, whose buried faces are never lit. No single setup mistake
+turned up, and the faces were not confirmed one by one, so this is the likely cause and not a proven
+one. Raising the density to 40 texels a metre cuts the share to 7.2%, at 15.4 MB.
+
+### Glass
+
+The baker does not stop light at transparent materials. A shadow or bounce ray passes through a
+surface marked transparent and loses a share of its light equal to that surface's opacity, and only
+solid opaque surfaces stop it. `cy_glass` and `cy_lamp_glass` are transparent, so the sun and the room
+lamp reach through them, dimmed by the glass graph's opacity (grime and cracks, from 0.05 up to 0.8).
+The validity test treats the glass like any other surface.
+
+### Rebaking
+
+Bake again after changing the model, a light, the sky or the light modes:
+
+```
+dotnet run -c Release --project examples/Courtyard -- --bake
+dotnet run -c Release --project examples/Courtyard -- --bake-check
+```
+
+The last bake took 7.5 seconds, traced 1,024 samples a texel, found 11.85% of texels invalid and
+printed 0 validation messages. The share falls as the density rises, to 7.2% at 40 texels a metre,
+but the file then grows to 15.4 MB. `--bake-check` prints `fresh` and exits 0.
+
 ## The lineup
 
 `--lineup` shows the graphs one by one instead: a row for each, with a sphere, a cube and
@@ -233,7 +295,7 @@ stain quads are gone: `WallStains` lays the damp, the drip and the rust as decal
 | File | What's in it |
 | --- | --- |
 | `Program.cs` | Starts the courtyard, or the lineup with `--lineup` and the leaves with `--leaves` |
-| `CourtyardGame.cs` | The courtyard model, the camera, the sun and its shadows, the sky and its fog, the light probes, the reflection probe, the puddle level, the wind, the lantern and the room's light, and the finish. It loads the hand-placed decal list, lays it with the wall's stains and the gravel, and turns the materials, fog, volumetric fog, auto exposure and decals off and on with M, F, V, E and D |
+| `CourtyardGame.cs` | The courtyard model, the camera, the sun and its shadows, the sky and its fog, the reflection probe, the puddle level, the wind, the lantern and the room's light, and the finish. It loads the hand-placed decal list, lays it with the wall's stains and the gravel, and turns the materials, fog, volumetric fog, auto exposure and decals off and on with M, F, V, E and D |
 | `WallStains.cs` | Where the grime decals lie on the wall: the damp along its foot, the dirty water under the sill and the rust under the anchor plates |
 | `GravelSpills.cs` | Where the gravel decals lie: spills along both edges of both arms of the path and round the barrel's foot, kept off the middle of the path, the puddle and the wall |
 | `DecalCatalog.cs` | `DecalList` and `PlacedDecal`, the shape of a hand-placed decal list, and how a decal's position, size, facing and turn make its box |

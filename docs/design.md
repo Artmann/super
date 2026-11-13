@@ -390,6 +390,12 @@ false, since otherwise the SDK writes the git commit into every assembly and its
 commit would miss the whole cache. `CookCache`
 keeps what a cook made under that key, in `~/.super/cache` or the folder in `SUPER_CACHE`, and
 restores it into the store when the key matches, checking the objects' hashes first.
+A record keeps the cooker's warnings, so a hit prints them again and a source that
+needs fixing keeps saying so. It doesn't keep notes (`CookOutput.Note`, which come out as
+`CookResult.Notes`, not `Problems`): a note says what the cooker did, such as making a
+second UV set a model lacked, so only the cook that did it prints it. A note is printed as
+`<file>: note: <message>`, with no `error` or `warning` in it, so MSBuild shows it as a
+message and it isn't counted as a warning.
 Deleting it is always safe. A cooker reads the files beside its source only through
 `CookInput.Read` and `Find`, which check names against the root's listing ordinally, so a
 name that differs only in case fails with a message naming the file that is there, even
@@ -481,7 +487,7 @@ stores each at `steps/<step>/<hh>/<sha256 of key>` in the cook cache, with the S
 bytes after them, so a damaged or cut-short entry is a miss. It writes a temp file and moves
 it into place, like the rest of the cache, so workers and builds can share it; a failed write
 is ignored. Without a cache folder, as with `--no-cache`, both do nothing. The key must name
-everything the result depends on, its code's version included. Three steps use it:
+everything the result depends on, its code's version included. Four steps use it:
 
 - `MaterialGraphs.RunPacked` keys a graph run by `MaterialGraphs.Version`, the size, the graph's
   name from the root, and the SHA-256 of the graph or variant and of the graph a variant points
@@ -497,6 +503,9 @@ everything the result depends on, its code's version included. Three steps use i
   for several times the time. A body that doesn't decompress to exactly the right length is
   a miss. The same key also shares runs inside the process, with or without a cache folder
   (see below).
+- The model cooker keys an unwrap for [lightmap UVs](#lightmap-uvs) by the SHA-256 of one
+  material's positions, normals and indices, with the `Rendition` and model cooker builds
+  and the largest page it may try.
 - The model cooker keys a mask bake by the SHA-256 of the model's positions and second UVs and
   of the material's triangles, which part each is in, and the other triangles it traces against, with the
   `Super.Cook.Models` build and the mask size.
@@ -885,7 +894,7 @@ rendering. Game-facing features belong in Super, which has the audio (see
 ShadowPass    scene geometry   -> depth from the key light (1024, 2048 or 4096 square, up to 4 cascades)
               scene geometry   -> point and spot light shadows, tiles of one 4096 x 4096 atlas
 cluster.comp  compute          -> the point and spot lights reaching each of 16 x 9 x 24 clusters
-GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, motion, depth
+GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, motion, baked light, shadow mask, depth
 DecalPass     decal boxes      -> colour, normal and roughness laid over the G-buffer, reading a copy of its normals
 AoPass        fullscreen       -> GTAO from depth and normals: bent normal (view space, octahedral) and visibility, RGBA8
 AoBlurPass    fullscreen       -> the same with the grain averaged away
@@ -939,6 +948,8 @@ G-buffer layout:
 | 1 | `R16G16B16A16_SFLOAT` | octahedral normal (xy), roughness, AO |
 | 2 | `R16G16B16A16_SFLOAT` | emissive colour, clearcoat (or minus the translucency, for foliage, or 2 plus the material index, for subsurface) |
 | 3 | `R16G16_SFLOAT` | motion since last frame, in scene pixels; see "Motion vectors" |
+| 4 | `R16G16B16A16_SFLOAT` | baked diffuse light over pi, turned by the normal, and in alpha how much the lightmap counts: 1 for a lightmapped pixel, less in a chunk's edge band; cleared to 0. See "Drawing a bake" and "Edge bands" |
+| 5 | `R8G8B8A8_UNORM` | the baked shadow mask, a channel per Mixed light; cleared to 1, read by the lighting for Mixed lights on lightmapped pixels |
 | depth | `D32_SFLOAT` | reversed-Z, position is reconstructed from it |
 
 ### Motion vectors
@@ -1104,8 +1115,9 @@ cluster tests every light's sphere against a sphere round the cluster's box, and
 cone too, and writes up to 256 indices, 16 bits each. The lighting pass,
 glass and particles read only their pixel's cluster. Each light is a 64-byte
 `GpuLocalLight`: position and range, radiance and its first shadow tile, direction and
-the cosine of the outer angle (-2 for a point light), and the fade's scale and the
-light's radius. A light reaches a point as `(1 + r²) / (d² + r²)` times its windowed
+the cosine of the outer angle (-2 for a point light), and the fade's scale, the
+light's radius, its volumetric strength, and in one float whether it casts a shadow, tile or not,
+and its [shadow mask](#drawing-a-bake) channel (-1 for none). A light reaches a point as `(1 + r²) / (d² + r²)` times its windowed
 falloff: plain inverse square far away, 1 at a metre whatever the radius, and no more
 than about `1 / r²` close up, so a torch on a wall lights the room without blowing the
 wall out.
@@ -1144,7 +1156,9 @@ in place of the resolved one. Those descriptor sets can't change while a frame i
 flight, so the switch waits for the device to go idle once and rewrites them. Traced
 reflections still need last frame's picture, so the HDR image is copied to history instead
 of the resolved one. With reflections off too, nothing is copied and history counts as
-stale. Vsync switches by remaking the swapchain on the next frame.
+stale. Vsync switches by remaking the swapchain on the next frame, after waiting for the device
+to go idle once. The scene's targets are kept when the window's size didn't change, so the
+anti-aliasing history carries on and the picture is the same as it would have been with no switch.
 
 `RenderEffects.Materials` skips no pass. It's read where surfaces are written: `writeSurface()`
 in `surface.glsl` writes `PLAIN_COLOR` and `PLAIN_ROUGHNESS` from `common.glsl`, no metal, full
@@ -1157,7 +1171,8 @@ Ghosts are left as they are, since they're already a flat colour.
 `RenderEffects.WearAndDirt` skips no pass either. `applyLayers()` returns before reading the
 mask texture, so the surface keeps its own colour and roughness. It is bit 10, after
 `LightProbes` and `MultiscatterSpecular`. It changes the colours a probe photographs, so it
-is in `LightingHash`, and flipping it captures the probes again.
+is in `ReflectionLightingHash` and the light probes' lighting key, and flipping it updates the
+probes again.
 
 The frame limit lives in Super's window loop, not the renderer (`FrameLimiter`). Each frame
 gets a slot one period after the last, so a long frame is made up by a shorter wait. A frame
@@ -1244,7 +1259,9 @@ The frame uniforms carry `skySun` (towards the sun, and the turbidity) and `sunD
 what it last baked each frame and, on a change, waits for the GPU and runs
 `EnvironmentMap.Rebake` with the same bands, so moving the sun under a clear sky rebakes
 every frame. That doesn't bump the environment version: the lighting hashes that decide
-when probes recapture already cover the turbidity, the lights and `LightAngle`.
+when probes recapture already cover the turbidity, the lights and `LightAngle`. The uniforms
+take `skySun` and `sunDisc` from that baked `SkySun`, not from the view being drawn, so a
+frame drawn again without a baked sun keeps the sky's sun (see "Each frame's bakes").
 
 ### Height fog
 
@@ -1267,11 +1284,11 @@ scene was lit; particles add it before their premultiply. The fog's colour is
 background itself gets none.
 
 The frame uniforms carry `fog` (density, height, falloff, sun scatter). `Fog.Pack` zeroes
-it with `RenderEffects.Fog` off, under water and while a probe is captured, and a density of 0 makes
-every shader skip the fog. Light probes and reflection probes therefore capture clear air:
-fog belongs to the view that looks through it, not to the light in the scene. That is why
-the fog is in neither `LightingHash` nor `ReflectionLightingHash`, and changing it
-recaptures nothing.
+it with `RenderEffects.Fog` off, under water and while a reflection probe is captured, and a density
+of 0 makes every shader skip the fog. Light probe updates never apply fog (`probe_capture.frag`
+has none). Light probes and reflection probes therefore capture clear air: fog belongs to the
+view that looks through it, not to the light in the scene. That is why the fog is in neither
+the light probes' lighting key nor `ReflectionLightingHash`, and changing it recaptures nothing.
 
 Two limits follow from where the fog is drawn. Screen-space reflections read the previous
 finished frame, which is already fogged, so a reflected surface gets its fog once on the way
@@ -1365,12 +1382,17 @@ pass binds the probe cube array at set 2, binding 4. Glass sees no screen-space 
 
 `RecaptureReflectionProbe` draws a probe again into its own slot, and
 `ClearReflectionProbes` forgets them all, since a slot in the middle can't be dropped.
-`Renderer.ReflectionLightingHash` combines `LightingHash` (see below) with the occlusion
-settings and the `AmbientOcclusion` switch, and with whether the light probes are in use and
-have finished both rounds, so a probe captured while they fill in is redone once they settle;
-a probe can be captured two or three times at the start. `LightingHash` also takes the
-`SunShadows`, `Materials`, `MultiscatterSpecular` and `WearAndDirt` switches, since each changes what a
-probe photographs. Point and spot lights and the
+`Renderer.ReflectionLightingHash` hashes the suns' directions and colours, the environment (a
+version bumped by `SetEnvironment`), its intensity, the clear sky, the background, the sun
+shadow's softness and cascades, the light probe box, the occlusion settings, and whether the
+light probes are in use and have settled at least once since their storage was made, so a probe
+captured while they fill in is redone once they first settle; a probe can be captured two or
+three times at the start. The live `ProbesSettled` isn't used, because it turns false whenever
+the camera crosses a cell of the two finest cascades or a light changes, and recapturing then
+would wait for the GPU every few steps. It also takes the
+`SunShadows`, `Materials`, `MultiscatterSpecular`, `WearAndDirt` and `AmbientOcclusion` switches,
+since each changes what a probe photographs, and the bakes drawn and whether one is still fading
+in (see "Each frame's bakes"). Point and spot lights and the
 `ContactShadows` and `LightShadows` switches aren't in it, since captures draw neither
 local lights nor contact shadows. Super places probes with `view.ReflectionProbe`:
 `SceneRenderer`, before each frame's `Render`, asks `ReflectionProbeSchedule.ShouldCapture`
@@ -1382,38 +1404,172 @@ wants no probes, so it clears them and glass falls back to the studio cube.
 
 A capture frames the sun's shadow maps on what it captures, not on the camera:
 `Renderer.CaptureShadows` centres them on the probe's box with half its diagonal as the
-radius (light probes use the volume's box). That is why the view's shadow centre and radius
-are out of the hashes, and moving the camera captures nothing. Captures draw into a small
-G-buffer kept for reflection probes (`_reflectionProbeTargets`, like `_lightProbeTargets`),
+radius. That is why the view's shadow centre and radius are out of the hash, and moving the
+camera captures nothing. Captures draw into a small G-buffer kept for reflection probes
+(`_reflectionProbeTargets`),
 set the renderer's switches from the view first, since `Render` hasn't applied this frame's
 yet, and put back the switches and the held-transition, LDR and history flags after, because
 rebinding the targets clears them and a transition's held outgoing shot would be lost.
 
 ## Light probes
 
-A light probe volume gives bounced diffuse light, in the way of DDGI (Majercik et al.,
-2019) but captured by rasterising rather than tracing. `FrameView.LightProbes` sets a box
-and a spacing; `ProbeGrid` lays the probes out, x fastest, and `ProbeVolume` owns two
-atlases of octahedral tiles, 64 tiles across. The irradiance atlas (RGBA16F) has an 8×8 tile
-per probe and the depth atlas (RG16F) a 16×16 one, each with a one-texel border copied from
-across the octahedral map's edges, so bilinear filtering wraps round. Both stay in the
-`General` layout, written by compute and read by the lighting pass, and start black.
+Light probes give bounced diffuse light, in the way of DDGI (Majercik et al., 2019), updated
+by tracing rays where the GPU can and by rasterising where it can't. The renderer keeps four cascades of probes round
+the camera (`ProbeCascades`, below) with no setup, and `FrameView.LightProbes` can add a box
+and a spacing of its own, a fixed grid that `ProbeGrid` lays out, x fastest, and that wins where
+it reaches. `ProbeVolume` owns two
+atlases of octahedral tiles. The irradiance atlas (RGBA16F) has an 8×8 tile per probe and the
+depth atlas (RG16F) a 16×16 one, each with a one-texel border copied from across the
+octahedral map's edges, so bilinear filtering wraps round. Both stay in the `General` layout,
+written by compute and read by the lighting pass, and start black.
 
-A capture draws the probe's six faces at 32² into the same small cube `CaptureCube` that
-reflection probes use, through the normal scene passes. The frame's `probeCapture` flag
-changes what `lighting.frag` writes: diffuse light only, with no reflections, coat or point
-and spot lights, and the distance to the surface in alpha. The G-buffer is drawn with every
-material two-sided, and a back face writes -1 into the normal target's occlusion channel, so
-lighting writes a negative distance for it. Where nothing was drawn the capture reads
-`EnvironmentMap.Sky`, a 64² cube baked with the same content as the irradiance cube: no
-panels, since the direct lights already give their diffuse light, and no sun disc for the
-same reason. Reading the reflection cube would count that light twice. Screen-space occlusion, reflections, subsurface
-blur and the transparent pass are skipped, as the faces are too small for them and blending
-would spoil the alpha. `probe_fold.comp` then reduces each face 2×2 into shared memory and
-writes both tiles in one dispatch: irradiance is the cosine-weighted mean of the radiance
+Each atlas is a 2D array of five layers: layers 0 to 3 hold the four `ProbeCascades` cascades,
+finest first, and layer 4 holds the fixed grid. A probe's slot is its tile in its layer, row by
+row. A layer is as many tiles square as fit the larger of a cascade (counts x × y × z) and 4,096
+fixed-grid probes: 64 × 64 tiles at `ProbeQuality.Low`, 84 × 83 at `Medium` and 128 × 128 at
+`High`. `ProbeVolume.AtlasBytes` gives the memory for both atlases and all five layers: about
+43 MB at Low, 73 MB at Medium and 172 MB at High, against 8.6 MB for the single fixed-grid atlas
+before. `EnsureStorage(quality)` makes them on the first frame with the probes on, and again,
+cleared, after `Renderer.ProbeQuality` (High by default, set from `Graphics.ProbeQuality`) changes; `Release()` frees them when
+`RenderEffects.LightProbes` is switched off. Each of the three waits for the device once, in
+`ManageProbeStorage` before the frame's fence. With the switch off nothing else is allocated
+and nothing is recorded, and switching it back on starts every probe uncaptured.
+
+A probe's irradiance alpha is its valid flag: 1 once it has been captured, 0 while it is still
+cleared. The lookup multiplies each probe's trilinear weight by it, so a probe never captured
+counts for nothing rather than for black, and `ProbeGrid.Weight` takes the same `captured`.
+
+An update draws a probe's six faces at 16² with `ProbeCapturePass`, into the probe's slot of
+`ProbeVolume.FacesImage`, in one `CmdBeginRendering` per probe with view mask `0x3F`: multiview
+draws all six faces at once, `gl_ViewIndex` picking the face. Each face is a 90° reversed-Z
+projection with no far plane and a near plane of 1 mm (`CAPTURE_NEAR`), so a probe a few
+centimetres from a wall still sees the wall rather than through it; the depth is 32-bit float,
+which keeps the same relative precision whatever the near plane. It is forward shading in one pass,
+`probe_capture.vert` and `probe_capture.frag`, with no G-buffer. Each surface sends on the light
+`probeRadiance` in `probe_light.glsl` gives it: `albedo * (direct / π + bounce) + emissive`, where
+direct is the suns plus every point and spot light of the frame in range (cone included), and
+bounce is `probeIrradiance` at the surface, the light the probes already hold, which gives the
+second and later bounces over successive updates. The shadow-casting sun's visibility comes from
+`ProbeSunShadow`, and a local light's from its own tile in the frame's shadow atlas when it has
+one, so the update is recorded after the tile atlas; a light without a tile is unblocked. Alpha
+holds the distance to the probe. Every draw is two-sided, and a back face writes black at a
+negative distance; where nothing is drawn the clear colour marks the sky. No reflections, coat,
+fog, occlusion or transparency are drawn, as probes keep only soft diffuse light. Under water a
+sun's light is dimmed by `waterAbsorbed` over its way down from the surface, as in the lighting
+pass, from `water_absorption.glsl`, which a compute shader can include where `water.glsl` can't;
+the moving caustics are left out, since a probe takes many frames to fill in.
+
+`ProbeCapturePass.Prepare` picks each probe's draws on the CPU: a draw whose bounds are more than
+16 spacings of the probe's cascade away is left out, and so are ghosts, skinned and swimming
+draws, empty draws and anything see-through, since they move on their own or would spoil the
+alpha. Wind is drawn at rest. A draw with no bounds (no `Detail`) is never culled. The instances
+go into the frame's instance buffer, which is sized for them first. It takes the batch's probes in
+order until their draws reach `MaxTrianglesPerFrame` (8 million, counted once per probe, not per
+face; the first probe is always taken), and the renderer cuts the batch there, so the rest stay
+as they were in the scheduler for a later frame. Thirty-two probes round Courtyard's 830,000
+triangles lost the device without it.
+
+`ProbeSunShadow` is one parallel 2048² map of the shadow-casting sun, centred on the camera and
+wide enough for the coarsest cascade, since the frame's own cascades are fitted to the view and
+miss probes behind the camera. It is drawn through the shadow pass's pipelines only when the
+sun turns, when the camera has moved an eighth of its width, or every 240 frames, so moved
+things show up; each costs one shadow draw in that frame, the same work as the main shadow pass.
+Like the capture it leaves out ghosts and skinned and swimming draws, as `TraceScene.Collect`
+does, and draws what sways in the wind at rest (`still` on `ShadowPass.RecordInto`), so a probe
+updated long ago never keeps the shadow of a pose that has gone. It leaves out see-through draws
+too (`ProbeSunShadow.Casts`), as traced shadow rays pass glass, so neither path's probes see a
+pane's shadow from the sun.
+
+`probe_fold.comp` then reduces each face 2×2 into shared memory and
+works out both tiles in one dispatch: irradiance is the cosine-weighted mean of the radiance
 over the hemisphere, the same E/π as the environment's irradiance cube, and depth is the
 mean and the mean square of the distance around each direction, gathered with a cos⁵⁰ lobe
-so a wall's edge stays sharp. Distances are clamped to twice the spacing.
+so a wall's edge stays sharp. Distances are clamped to twice the spacing. Where the probe saw
+nothing the fold puts in the environment times its intensity (the clear sky above the horizon
+when there is one), never the sun's disc, since the sun reaches surfaces directly. It does so
+even when the view shows a plain background there instead. Without probes, `softLight` lights
+a surface from the environment's irradiance cube times that intensity, so a probe in the open
+has to see the same environment to read the same. It used to see the background radiance, and
+in Super a scene with no sky has a dark grey background of 0.15 but a studio environment of
+0.25 at the floor to 0.6 overhead at intensity 0.8, so its shade came out darker with probes
+than without. The background now only colours the pixels where nothing is drawn. The maths
+lives in `probe_fold.glsl`, which has no bindings of its own, so a traced capture can fold the
+same way. The direction each cube face texel looks in comes from `cube_faces.glsl`
+(`cubeDirection`, `cubeWorldDirection`), which the bake's probes share; see "Baking probes".
+
+The fold doesn't write the atlases. It writes a slot of the staging buffer
+(`ProbeVolume.StagingTiles`, one bordered tile pair of 4,192 bytes per slot, as many slots as the
+traced budget: about 4.3 MB at High), and `RecordBlend(cmd, ids, alpha, snap)` then moves staging slot
+i into probe `ids[i]` with `probe_blend.comp`, one workgroup per probe. A probe not yet captured
+takes the new tile whole; one that was moves towards it by alpha, so its light settles over a few
+updates instead of flickering. The inside mark in the depth tile's first texel is never blended:
+when the old or the new tile has it, the new texel is copied. Rasterised updates blend with
+alpha 0.5 (`Renderer.RasterBlend`), and traced updates with 0.25 (`Renderer.TracedBlend`). Traced
+updates also pass `snap`, 0.05 (`Renderer.TracedSnap`): the blend compares the mean of the whole new
+tile with the mean of the old one, and a probe whose light changed by a share s of the brighter
+of the two moves `clamp(s / snap, alpha, 1)` of the way, so a change of 5% or more is taken whole
+and smaller ones, such as noise, still move a quarter. This is DDGI's lowered hysteresis for big
+changes, measured on the tile's mean because single texels of 128 rays are too noisy to tell a
+change from noise. In the white room test it gets 80% of the bounce in about 10 refreshes instead
+of about 40, and the readings after convergence flicker no more than before; a snap of 0.025 made a
+dim probe flicker about half as much again. Rasterised updates don't snap, as they weren't
+measured.
+
+A change only snaps when it is bigger than the update's own noise could make it. Where a small
+bright thing is seen by only a few rays, those few rays move the tile's mean by far more than 5%
+from one update to the next. In a dark room lit only by an emissive square covering about 3% of
+the probe's sphere (about four of its 128 rays), the probe wandered by 10.7% (standard deviation
+over mean, 20 updates after convergence) against 0.1% in the white room. So `probe_trace.comp`
+measures each update's noise: it splits the rays into eight groups of 16 (ray i in group i mod 8,
+each still spread over the sphere), and the spread of the groups' mean luminance gives the standard
+error of the mean of all 128, as a share of it. It passes this in the staged tile's texel 0 alpha,
+which the blend never writes to the atlas. Treating the rays as independent would overstate the
+noise many times over in a smoothly lit room, because the spiral spreads them far more evenly than
+chance, and would stop the white room from snapping at all. The blend takes `alpha` whenever the
+change is no more than three standard errors (`NOISE_ERRORS`), and the ramp above otherwise.
+Rasterised captures leave the noise at 0. With this, the emitter's probe wanders by 2.8% and the
+white room's by 0.2%. The white room gets 79% of its bounce in 12 refreshes, where it got 85%
+before (the test asks for 70%). A change made by a small light turning on is noisy in the same way,
+so it fills in at a quarter an update rather than snapping. The test
+`A_traced_probe_lit_by_a_small_bright_emitter_holds_as_steady_as_one_in_a_lit_room` measures both
+rooms and fails without the check. All of this is recorded into the frame's command buffer with
+barriers and no waits.
+
+Where the GPU can trace (`Renderer.Tracing` is set), `ProbeTracePass` replaces the capture, the
+sun map and the fold. `probe_trace.comp` runs one workgroup of 128 invocations per probe of the
+batch, one ray each. The directions are a spherical Fibonacci set turned by a random rotation
+(Shoemake's) seeded by hashing the scheduler's `Frame` with the probe's cascade and slot, so each
+update of a probe looks along new directions and the blend averages them. A ray starts at the
+probe and reaches 10⁴ m, so it finds whatever it faces. A miss gives the same sky the fold puts
+in, at a distance of twice the spacing. A hit on the back of a one-sided surface gives black at
+minus the distance and counts towards the inside mark, as a rasterised back face does. Any other
+hit is shaded with `probeRadiance`, the same `probe_light.glsl` the capture uses, with its
+visibility from shadow rays (`traceVisible`) instead of shadow maps: one towards the shadow-casting
+sun, and one towards each point or spot light in range that casts shadows, stopping 2 cm short
+of it. A light needs no shadow tile for this, so one out of view, or left out of a full atlas,
+still doesn't light the probes through a wall; `GpuLocalLight.Fade.w` marks the lights that cast
+shadows, since a light without a tile has -1 for its tile either way. The rasterized capture
+can only read tiles, so there such a light still shines through walls (see the limitations). Every shadow ray starts 5 cm off the surface. Then the workgroup sums its 128 samples
+into the probe's two tiles in its staging slot, with the same cosine and cos⁵⁰ weights as
+`probe_fold.comp`, distances clamped to twice the spacing, and `RecordBlend` blends them in.
+
+Glass, water and anything else `Transparent` is skipped by every probe ray, shadow rays
+included, though the top-level structure keeps it, so the trace debug view still shows it.
+The rasterised capture and its sun map leave see-through draws out, so for what the probes see
+and for the sun's shadow both paths agree; a pane that stopped rays would shut the light out of
+a glasshouse, and one tinted by its colour would paint the whole room. They differ in one place:
+the rasterised capture reads a local light's shadow from that light's tile in the frame's atlas,
+which it shares with the main view, where glass casts a shadow, so there a pane still shades the
+probes from a point or spot light, while the traced probes' shadow rays pass it. Cut-outs are still tested, so light passes through the holes in leaves.
+
+A traced batch is `ProbeBudget.Traced` probes (256, 512 or 1,024 by `ProbeQuality`), with no
+triangle budget, since a ray's cost hardly depends on the scene's size. The pass's descriptor
+sets are written once the probes' storage exists; the probes buffer holds the batch's positions,
+spacings and ids, one per frame in flight. Its time shows as the "Light probes" pass in the GPU
+timer, after "Shadows"; a rasterised update is timed there too. Traced probes settle within a few
+dozen frames, long before the light bounced between walls has built up: each update adds one
+more bounce, so a white room has 80% of its bounce after about 10 updates of each probe and 95%
+after about 30, as the last few percent change too little to snap.
 
 Depth is stored because irradiance alone leaks. A probe on the far side of a wall sees
 bright sky, and blending it in would light the room. Each of the eight probes round a point
@@ -1425,30 +1581,698 @@ weight falls as the variance allows (cubed, to cut it harder). The point is firs
 viewer, so a probe's view of the surface itself doesn't shadow it. `ProbeGrid.Weight` does
 the same sums in C# for the tests. A probe that saw more than half back faces sits inside
 something; the fold writes -1 into its depth tile's first border texel and the lookup
-skips it. When the total weight is under 0.001 the lookup gives up and lighting uses the
-sky, which also covers points outside the box.
+skips it.
+
+`probeIrradiance` in `probes.glsl` tries the layers in order. First the fixed grid: wherever
+its eight probes give a total weight of at least 0.001, which is inside the box and up to a
+spacing round it, the grid answers. Then the finest cascade that holds the point by the
+`Finest` rule, whose origins and spacings come from the frame's `probeCascadeOrigin[4]` and
+whose counts come from `probeCascadeCounts` (w is 1 once a cascade layer has been written). Over
+the cascade's outermost held cell the answer fades into the next coarser cascade, so the edge
+between them doesn't show. When the cascade's probes round the point give a total under 0.001,
+because they aren't captured yet or can't see the point, the next coarser cascade is asked
+instead. When nothing answers the lookup returns -1, and `softLight` uses the sky.
 
 The lookup uses the bent normal from ambient occlusion, and replaces only the sky's
 diffuse light; specular still comes from screen-space reflections, reflection probes and
 the sky. Soft light is now worked out in absolute units in `softLight()`: the sky cube times
 the environment intensity, or the probe value as captured.
 
-`ProbeSchedule` runs the captures in `Renderer.Render`, before the frame: up to 64 probes a
-frame, each face submitted and waited on, so capture frames hitch. Round 1 lights the probes
-by the sun and sky alone, with the sky cut off inside the box where no probe can answer
-yet; round 2 captures them again reading round 1's probes, which adds a second bounce. A
-probe is used once round 1 has finished. Capture cascades are centred on the volume's box
-(`CaptureShadows`) rather than fitted to a view, so the sun's maps are drawn for the first
-face of a batch and kept for the rest. `Renderer.LightingHash` hashes the suns' directions and
-colours, the environment (a version bumped by `SetEnvironment`), its intensity, the
-background, whether the sun's shadow is on and its cascades and light angle, the sun-shadow,
-plain-materials, multiscatter and wear-and-dirt switches and the volume. The view's shadow centre and radius follow the
-camera, so they are left out, and moving the camera doesn't restart the probes. When it changes, the schedule restarts at round 1 over the old
-probes in place, without a second atlas: probes not yet redone stay old, and those redone
-have one bounce until round 2, so for a few frames old and new mix. When the box changes
-the old probes are thrown away and the sky is used until round 1 is done. Geometry isn't in the
-hash. Without `shaderStorageImageExtendedFormats`, needed to write RG16F from compute, the
-volume is off.
+The probes update a few a frame inside `Renderer.Render`, with no waits. `ManageProbeStorage`
+runs before the frame's fence, as above. `PlanProbes` runs before the frame's uniforms are
+written. It moves the cascades to the camera and hands the `ScrollResult` to the scheduler, and
+queues a `probe_invalidate.comp` dispatch for each cascade that scrolled, which clears the tiles
+of the slots it handed to new probes so they read as uncaptured instead of as the probes that
+left. When `FrameView.LightProbes` changes it sets or clears the scheduler's fixed grid and
+clears layer 4 the same way. `ProbeLightingKey` hashes the suns' directions, colours and shadow
+flags, the environment (a version bumped by `SetEnvironment`), its intensity, the sky's
+turbidity, whether the sun's shadow is on, and the sun-shadow, light-shadow and plain-materials
+switches. Not wear and dirt, which neither path draws into a probe. When it changes, `EverythingChanged` marks every probe dirty.
+Geometry and the camera are not in it.
+`FollowProbeLights` compares the frame's point and spot lights with last frame's by `Key`: a
+light that appeared, moved, turned, changed colour or range, or went away calls `LightChanged`
+for where it was and where it is. Then `Next` picks the batch: where the GPU traces,
+`ProbeBudget.Traced` probes and nothing more; otherwise `ProbeBudget.Raster` probes (8, 16 or 32
+by `ProbeQuality`), and `ProbeCapturePass.Prepare` culls their draws and cuts the batch at the
+triangle budget. Updates are counted in frames, never seconds.
+
+`RecordProbeUpdate` runs after the shadow tile atlas: the invalidations, the probes' sun map
+when it is due, the captures, the fold and the blend, then `Updated` tells the scheduler which
+probes are clean. `ProbeUpdatesLastFrame` says how many were updated, and `ProbesSettled`, which
+is public, is the scheduler's `Settled`, false while the probes are switched off and true on a
+GPU that can't run them. Super's `GameWindow.Screenshot` renders on after its 48
+settle frames until `ProbesSettled`, at most `ScreenshotProbeFrames` (2,048) more, through
+`ExtraSettleFrames`, and prints how many it took or that it hit the cap; with `Graphics.LightProbes`
+off it doesn't wait. The wait renders without vsync, through `RendererSettings(…, settlingProbes: true)`,
+because nobody sees those frames and the count of frames, not the time, decides what the shot shows.
+The 48 frames before it and the shot itself keep vsync, so a shot switches twice, which costs two
+device waits outside the game's own frames. At 1280×720 on the development machine, Gallery with
+`--no-trace` waits 1,534 frames, which took 20.5 s at about 13 ms a frame with vsync and now takes
+8.9 s at about 5 ms, for a bit-identical shot. Courtyard with `--no-trace` hits the 2,048-frame cap
+either way at about 16.6 ms a frame, as its GPU work is the limit, so it isn't faster. An earlier
+attempt made Courtyard about four times slower because it set vsync off after `ApplyGraphics` had
+set it on, so the setting flipped twice each frame and each flip remade the swapchain and the
+targets, waiting for the device every frame. Setting it once a frame avoids that. The 250 ms
+presents to a hidden window measured then didn't come back. Recordings don't wait. `Settled` counts only cascades 0 and 1 and the fixed grid.
+Dirty probes in those go before never-captured probes in the coarse cascades, so a light moved
+near the camera is picked up within a few frames even while cascades 2 and 3 are still filling
+in. A quarter of each batch, rounded down, stays kept for never-captured probes in any cascade
+or the fixed grid while any are left, so a light that changes every frame, like a flickering
+lantern, can't keep the coarse cascades empty. Under a budget of 4 that quarter is 0 and nothing
+is kept; the shipped budgets are 8 or more. A dirty probe keeps its old light in use until it is redone, so a change
+fades in over the frames it takes to reach every probe rather than flashing. Without
+`shaderStorageImageExtendedFormats`, needed to write RG16F from compute, or without multiview,
+the probes are off.
+
+`ProbeCascades` is the layout of the live probes round the camera. The renderer moves its own
+copy to the camera each frame and passes the origins to the shaders. It keeps four cascades at
+0.5, 1, 2 and 4 m spacing. Each is a
+box of cells, 32 × 16 × 32 at `ProbeQuality.High`, 24 × 12 × 24 at `Medium` and 16 × 8 × 16 at
+`Low`. A cell's index is `floor(position / spacing)`, and a probe sits at the cell index times
+the spacing, so probes keep their world positions however the box moves. `Move` snaps each
+cascade so the camera's cell is the one at index count / 2 from the origin; the camera therefore
+has to cross a whole spacing before that cascade moves. Slots are toroidal: a cell's slot is its
+index modulo the box size on each axis, taken positive, with x fastest. A move of n cells along
+one axis replaces only the n slices that fell off the far side, and those are the slots
+`ScrollResult.NewSlots` lists, to be captured again. A move of a whole box width or more along
+any axis, and the first move, makes the whole cascade new (`Teleported`). `Finest(p)` picks the
+first cascade where, on every axis, `(Origin + 1) * spacing <= p < (Origin + count - 1) * spacing`,
+so the lookup's eight probes are always inside the box; -1 means none holds the point. The shader
+repeats this rule and the slot maths.
+
+`ProbeScheduler` picks which probes a frame updates.
+A probe is `ProbeId(cascade, slot)`, where cascade 4 is the fixed grid; the grid's positions are
+given with `SetFixedGrid`. Each probe is never captured, dirty or clean. `Scrolled` makes the
+`ScrollResult`'s new slots never captured, `LightChanged(center, range)` makes the clean probes in
+range dirty, and `EverythingChanged` (sun, sky or environment) makes all of them dirty; a dirty
+probe keeps its old value in use until it is updated. `Next(budget, camera, forward)` returns at
+most `budget` distinct probes. Dirty probes in cascades 0 and 1 and the fixed grid come first,
+less `Math.Min(waiting, budget / 4)` kept for never-captured probes, where `waiting` counts the
+never-captured probes of any group that made the list. Then come
+never-captured probes, then the other dirty probes, then clean probes in order of the frames
+since their last update. Among dirty and never-captured probes the nearer probe goes first, finer
+cascades win at equal distance (squared distance is scaled by `(1 + cascade / 2)²`) and probes in
+front of the camera count as nearer (×0.75). Among clean probes the oldest goes first and
+distance only breaks ties, so no probe waits longer than about probes ÷ budget frames, or
+probes ÷ `refreshBudget` once settled and past the bounce window below. Ties end in the lowest cascade and slot, so the same calls
+always give the same batches. `Frame` counts the
+calls to `Next`, and ages are in frames, never seconds. The pass over all probes keeps the best
+`budget` in a binary heap rather than sorting, so a frame at High (65,536 probes) costs one scan.
+`Settled` means cascades 0 and 1 and the fixed grid are all captured and clean. It reads a count of
+probes that aren't clean, kept per cascade as probes change state, so reading it every frame scans
+nothing. `LightChanged` doesn't scan every probe either: per axis it works out the cells of each
+cascade's box, and of the fixed grid, that the light's sphere overlaps, and checks only those
+probes' distance. A light in range of a few cells costs a few probes, and a light outside a box
+costs nothing there. Scanning every probe for every changed light took 80% of Crypt's CPU samples
+at High, where each flickering torch calls it twice a frame, for its old light and its new one:
+its CPU was busy 15.6 ms a frame, and with the cells only it is busy 3.0 ms. A grid whose
+positions were never set falls back to checking each of its probes.
+
+Once warm, the probe path allocates nothing on the CPU, whether or not the camera crosses a cell.
+`Next` sorts its heap in place by `IComparable` (a sort given a comparer would make a delegate) and
+refills one list it hands back each call. `Move` hands back one cached `ScrollResult` when no
+cascade moved, and on a crossing refills arrays and per-cascade slot lists the cascades own, which
+`NewSlots` hands back. The renderer copies the batch into a list of its own and cuts it there. On
+the traced path, `TraceScene.Collect` reuses one instance list and one part array for the frame's
+top-level structure, and `RayTracing.TopLevel` reuses its array of bottom-level addresses and the
+one recycler each top-level target hands to the frame's release list. Three tests measure
+`GC.GetAllocatedBytesForCurrentThread` around these calls and expect 0 bytes: one runs scheduler
+frames with a light changing every frame, one alternates the camera across cells of every cascade
+(`Move`, `NewSlots`, `Scrolled`, `Next` and `Updated`), and one collects the same 60 draws 100
+times. A GPU test renders a settled traced red-wall scene for 60 frames with the probes on and
+again with them off, and expects no more bytes with them on (both are 73,920 bytes: the rest of
+`Render` still allocates about 1.2 KB a frame in that scene). `Rendition.Sample --check` measures
+a different scene, the sample's own, over 900 frames after a 240-frame warm-up: 676,800 bytes
+(752 B a frame), the same at the commit that made the probe path allocation-free and today
+(three runs of each). The two figures are not parts of one total. Neither is zero yet, so
+`--check` still exits 1.
+
+The ProbeBudget is 8 raster and 256 traced probes a frame at Low, 16 and 512 at Medium, and 32
+and 1,024 at High. The traced path refreshes clean probes for their age at only a quarter of its
+budget (`TracedRefresh`: 64, 128 and 256), which `Next` takes as `refreshBudget`, but only once
+`Settled` is true and the bounce has had time to build. Each refresh adds one more bounce, so
+`Next` counts the clean refreshes it hands out since the last frame that had a never-captured or
+dirty probe in any group, and keeps the whole budget until that count reaches
+`BounceRefreshes` (12) refreshes of every probe: 768 frames at High, about 13 seconds at 60 fps.
+A light change, a scroll that brings in new probes or a new grid starts the count again. It is a
+count of refreshes, not a GPU reading, so it is the same on every run. Never-captured and dirty
+probes always get the whole budget. Refreshing the whole
+budget kept the probe pass busy in a settled scene: at High and 1280 × 720, `--profile` measured
+0.97 ms of GPU time a frame in Rooms and 0.62 ms in Bricks, and with the quarter it measures 0.27
+and 0.22 ms once the window has passed. At 256 refreshes a frame a probe at High is refreshed
+every 256 frames, against every 64 at the whole budget. In the white test room, traced at High,
+the near probes settle in 37 frames, and the bounce reaches half its full reading after about
+220 frames, 80% after about 740, 90% after about 3,900 and 95% after more than 6,000. Holding
+the whole budget for good would reach 90% after about 1,600 and 95% after about 2,600, and
+dropping to the quarter at once took about 540 frames for half and 2,100 for 80%. Scenes
+whose near probes never settle keep the whole budget: Crypt's flickering torches dirty probes
+every frame (0.90 ms), and Gallery's camera tour keeps bringing in new ones (0.42 ms). On the
+CPU, `Next` scans every probe each frame whatever the budget, which `--profile` puts at about 1 ms
+a frame at High in Rooms and Bricks.
+
+`ProbeDebugPass` draws `DebugView.Probes`. Only a frame's `RecordScene` runs it (never a
+reflection probe's capture), after the transparent pass and only while `_lightProbesInUse`, so with
+the probes off it records nothing and no atlases are made. It needs no buffers: probe_debug.vert
+builds a 12 × 8 UV sphere (576 vertices) from `gl_VertexIndex` and finds its probe from
+`gl_InstanceIndex`. The first instances are cascade 0's cells, placed and slotted with the same
+origin and wrap maths as probes.glsl; the rest are the fixed grid's probes, layer 4. Cascades 1
+to 3 aren't drawn. A cascade
+probe inside the fixed grid's box is moved behind the near plane, since the grid's probes light
+that space. The radius is 0.15 × spacing. probe_debug.frag reads the atlases through the lighting
+set (bindings 11 and 12), so it works on either update path. It shows the texel of the probe's
+own irradiance tile for the sphere's normal, not `probeIrradiance` at its centre, so each sphere
+is what that one probe holds, unblended with its neighbours or coarser cascades. An uncaptured
+probe (`probeCaptured` is 0) is drawn as a screen-space-thin grey wireframe of 8 longitudes and 6
+latitudes, and an inside probe (`probeInside`) is discarded. Depth goes from read-only to
+attachment for the draw and back, so the spheres hide each other and the scene behind them.
+The view leaves tone mapping and every effect on; unlike the trace view it sets no debug bit.
+
+## Lightmap UVs
+
+`LightmapUnwrap.Unwrap` gives a mesh a second UV set (`Vertex.Uv2`) for baked lighting, and
+`LightmapUnwrap.Problem` checks such a set and names the first thing wrong with it, or
+returns null. Both keep the triangles and their order; `Unwrap` only splits a vertex where
+two charts meet.
+
+Charts are found without looking at the first UVs, so a texture seam doesn't cut one.
+Corners are welded by exact position, and two triangles join across an edge only when the
+vertex normals on both sides agree, so hard edges always cut. A chart grows breadth-first
+from the lowest free triangle while each new triangle stays within 60 degrees of the
+chart's running area-weighted mean normal. A finished chart then drops every triangle more
+than 75 degrees from its final mean normal, since a big face grown late can pull the mean
+round until an early small face is nearly edge-on and its density collapses, and keeps only
+the part still joined to its first triangle. It is laid flat on the mean normal's plane. If
+any two of its triangles overlap there, as on a ramp that turns over itself or where a
+triangle folds back, it is cut back to the part grown before the later of the two. Dropped
+and cut triangles grow charts of their own first. Triangles with no area join a
+neighbour's chart, breadth-first so a run of them all finds one, or get a chart of their
+own one texel wide.
+
+Each flat chart is turned to its smallest bounding rectangle and scaled by its own
+`sqrt(world area / flat area)`, so a chart tilted from its plane gets the same density as a
+flat one. One scale for the whole mesh, in texels per metre at the page size `Unwrap` is
+given (the 512-texel `ReferenceSize` unless the caller names another), starts where the
+charts' areas, each with its rectangle margin and gutter added, would just fill the page.
+It grows or shrinks by a tenth until it crosses between fitting and not fitting in
+`SkylinePacker` with a two-texel `Gutter`, then halves the gap six times and keeps the
+largest scale that fit. `ChartRectangle` gives each chart's rectangle: its width in texels
+rounded up plus one, with the chart centred, so every texel it touches, counted
+conservatively, lies inside its rectangle and the gutter `Problem` checks is the one the
+packer kept.
+
+Once packed, two triangles of one chart can still touch the same texel while lying far
+apart on the surface, when a chart curls round so its arms come within a texel of each
+other. Their lighting would bleed across. For each such pair `Unwrap` takes the point of
+each triangle nearest the texel's centre, and if those are more than four texels apart on
+the surface, measured by the triangles' own stretch, it cuts the chart back to before the
+later triangle, as for an overlap, regrows the rest and packs again.
+
+`Problem` finds charts as triangles joined by edges whose corners match in both position
+and UV. It checks, in order, that every corner is inside 0 to 1, that no texel at 512, or
+the size it's given, is touched by two charts, that no two triangles of one chart overlap
+by more than a hundredth of a texel, that no two triangles of one chart share a texel
+while lying far apart by the rule above, that at least two empty texels lie between
+different charts, and that texel density, per chart, varies less than four times across
+the mesh. The overlap inside a chart is measured by area rather than by touched texels,
+because neighbours in a fan share texels along their edges.
+
+The model cooker runs this step once a model's vertices and indices are complete, scaled and
+centred, and before masks bake, so masks and lighting read the same set. It works per mask
+group, the parts of one material, which is what `MaskBaker` bakes one mask for. Each group
+has its own 0 to 1, and two groups may overlap each other there, so the lightmap gives each
+group its own rectangle. A group keeps the file's second UV set when every one of its meshes
+has one and `Problem` passes it for that group alone. Otherwise only that group is unwrapped:
+at 512, and at 1024 and then 2048 when its charts don't fit, with the two-texel gutter at
+that size. If they don't fit at 2048 either, the model's cook stops with `Unwrap`'s message
+and the material's name. The cooked model doesn't record the size a group was unwrapped at.
+A group unwrapped above 512 has a gutter of under two texels in a 512 rectangle, like any
+group whose lightmap rectangle is smaller than the size its set was made for, so the
+lightmap layout's dilation must cover that.
+
+The cooker notes which groups got new ones, with `CookOutput.Note`, since the user did
+nothing wrong; a note isn't a warning and isn't kept in the cook cache. A model of one material, or one whose every
+material had none, gets one line, `made a second UV set for lighting: ` and the reason: `the
+file has none`, how many of its meshes have none when only some do, or `Problem`'s sentence.
+Meshes are counted after flattening, which can join a material's meshes that have the same
+attributes, so the count can be lower than the file's. Otherwise the materials that had
+none share a line, `made a second UV set for lighting: materials a, b and c have none`, and
+each of the rest gets `material a: made a second UV set for lighting: ` and its reason. The
+note is only for an unwrap that ran. One recalled from the step cache says nothing, and
+neither does a cook whose whole model comes from the record cache.
+
+The step cache keeps each group's unwrap under the `lightmap-uv` step, keyed by the SHA-256
+of the group's vertices' positions and normals and its indices, which is all `Unwrap` reads,
+with the `Rendition` and model cooker builds, which define `Unwrap` and the kept bytes, and
+the largest page size it may try. The kept bytes are, for each of the group's new vertices,
+the group's old vertex it copies and its new second UVs, then the group's new indices, so a
+recall rebuilds the split vertices without unwrapping. Groups kept as they were hold on to
+their vertices in order, and the unwrapped groups' vertices follow. Every group of a cooked
+model therefore passes `Problem` on its own, at 512 or at the larger size it was unwrapped
+at.
+
+Generated meshes are one group each. `Shapes` don't unwrap: they know their pieces, so
+`ShapeBuilder` makes each `Grid` (a box face, a revolved side, an extrusion strip) and each
+`Disc` cap one chart. A grid keeps its columns and rows, each column as wide in metres as its
+widest row and each row as tall as its tallest column, so a chart is only ever stretched
+where the surface narrows, never squeezed, and two triangles that share a texel are always
+neighbours. A row that is all one point, a pole or a cone's tip, becomes one point in the
+chart, so the fan round it is joined by edges and `Problem` sees one chart rather than a
+ring of single triangles touching at a texel. A cap is laid out by its own x and z. `Build`
+packs the charts' rectangles, sized by `ChartRectangle`'s rule (extent rounded up plus one,
+chart centred), with `SkylinePacker` and a two-texel gutter at one texels-per-metre for the
+whole shape: the most that lets the longest side fit, or else the largest that fits. That one
+is found by bisection, starting between a scale that fits and the one at which the charts'
+summed area fills the page, which no packing can beat, and stopping when the two are within
+0.1%, which takes about a dozen packs rather than 40. It tries 512, then 1024, then 2048
+(`LightmapUnwrap.LargestSize`, the one limit the cooker, shapes and `WithLightmapUvs`
+share). Extrusions along a spline go through the same `ShapeBuilder`, so they need no unwrap
+either. `Flat` and `Bend` keep the `Uv2` they're given, so a tightly bent mesh can fail
+`Problem`. A `Heightfield` chunk's `Uv2` is its grid position over its quads, so the one
+chart fills 0 to 1. `GeneratedMesh.WithLightmapUvs` returns the mesh when `Problem` passes
+its set at 512, the only size it checks, as the cooker does, since the layout counts on 512;
+otherwise it unwraps at 512, then 1024 and 2048 when the charts don't fit. A set laid out
+for 1024 that fails at 512 is replaced.
+
+## Lightmap layout
+
+`LightmapLayout.Build` (`src/Rendition/Lightmaps/LightmapLayout.cs`) gives each static draw a
+square on a lightmap page. It is pure, needs no GPU, and returns a `LightmapRect` (page, scale,
+offset) for each bake id, so a bake and the frames that read it agree on where a draw's light
+is. Later steps rasterize into these squares, keep them in the `.lightbake` file and sample them.
+
+A draw takes part when its `BakeId` is non-zero and `getsLightmap`, which `Build` requires,
+says its material may have one. `DrawItem` doesn't say whether its material sways in the wind
+or is see-through; the material does, so the caller decides, and a draw it refuses gets no
+rectangle and is not in `Left`. Draws are keyed by (`BakeIds.Instance`, transform, material):
+parts of one instance, in one place, with one material share a rectangle, since each
+material's `Uv2` fills its own 0 to 1. The parts are draws of one mesh with different index
+ranges, so one key always means one mesh: two different meshes under one key would write over
+each other's texels, and `Build` throws `InvalidOperationException`, naming the instance.
+
+The side is `sqrt(area) * TexelsPerMetre` rounded and clamped to 8 to 1024 texels. The area
+is the sum, over the draws that share a rectangle, of the area of the triangles in each
+draw's index range (`FirstIndex`, `IndexCount`), in the mesh's own units, times
+`|det(M)|^(2/3)`, with `M` the transform's upper 3 by 3: the determinant is how much volume
+scales, so its two thirds power is how much area scales for a uniform scale (a 2x scale gives
+4x). A non-uniform scale is approximated by its geometric mean. So a wall of 10 square
+metres and a trim of 0.5 of one mesh get sides of 63 and 14 at 20 texels a metre, not 65
+each, because a material's `Uv2` is unwrapped from only that material's triangles. The area
+comes from the `meshArea` callback, `(mesh, firstIndex, indexCount)`. `Renderer.CreateMesh`
+keeps a running total of each mesh's triangle areas (`LightmapLayout.CumulativeAreas`, four
+bytes a triangle), and `Renderer.AreaOf` reads a range from it with `LightmapLayout.RangeArea`
+as the difference of two entries, so a range past the end counts only what the mesh has.
+
+Pages are 2048 texels square and there are at most 8. Squares are sorted by side, largest
+first (ties by their first draw's order), and each page takes as many from the front as
+`SkylinePacker.TryPack` fits with a `LightmapUnwrap.Gutter` of 2: all of them if they fit,
+else a bisection on how many. The rest go to the next page. A 1024 side plus its gutter leaves
+room for only one on a page. Draws whose squares are not placed after 8 pages are named in
+`Left`, in draw order. `Scale` is the side over 2048 and `Offset` the corner over 2048, so
+the draw's 0 to 1 covers the square itself and the gutter lies outside it. The bisection
+assumes a smaller prefix fits whenever a bigger one does, which the skyline mostly keeps; when
+it doesn't, a page is left a little emptier. Nothing fills one page's gaps with smaller
+squares from later ones.
+
+A chunk's lightmap is one page of its own size, from `LightmapLayout.Single`. It takes
+`LightmapChart`s (a bake id and an area in square metres) and the density, and gives each the
+same square as `Build` would (`sqrt(area) * texelsPerMetre`, clamped to 8 to 1024). It then
+tries `SkylinePacker.TryPack` on a page of 64, 128, 256 and so on up to 2048, and keeps the
+first side that holds every square with the gutter. Two squares of 127 and their gutters make
+258 across, so three of them fit 256; make one 128 and the page is 512. `PageSide` says which
+side was chosen (2048 for `Build`), and `Scale` and `Offset` are relative to it. A chart that
+is not placed even at 2048 is named in `Left`, in the order given. The largest squares that fit
+together are kept first, by the same bisection `Build` uses, and then each remaining square, largest
+first, is added if everything still packs, since there is no next page to take it. The baker reports
+the rest, which are lit
+live. A layout from `Single` has one page (page 0), or none when it is given no charts.
+
+`LightmapLayout.BuildSingle` takes draws, the area callback and `getsLightmap` as `Build` does, groups them by the same
+key and measures each group the same way, then hands the groups to `Single` as charts and gives every draw of a group
+its chart's rectangle. A group's chart is named by its first draw's bake id, and every draw of a group that doesn't fit
+is in `Left`. `Renderer.Bake` and `Renderer.BakeChunk` read `Left` once the layout is built, and throw
+`InvalidOperationException` when it holds anything, giving how many draws did not fit and suggesting fewer texels a
+metre or a smaller area. Without it those draws would have no rectangle, lose their Baked lights' direct light, and
+the bake would still report success. `Single` can leave charts out (a chunk of more squares than one 2048 page holds),
+so the chunk path needs the check too. `--bake` prints the message as one line and exits with 1
+(`Game.TryBake`).
+
+## Texel setup
+
+`Baker` (`src/Rendition/Baking/Baker.cs`) is the GPU baker, and texel setup is its first
+stage. `SetUpTexels(cmd, layout, draws)` records it: for every texel of every page in a
+`LightmapLayout`, it finds the world position, geometric normal and shading normal of the
+surface under it, and whether the texel is valid. [The path tracer](#the-path-tracer) traces light from these. The
+baker owns its images, pipelines and descriptor sets; none of the frame's bindings change.
+
+Each page has four 2048 square images: position (`rgba32f`, w is the number of the rectangle
+covering the texel, from 1, and 0 where nothing does), geometric normal and shading normal
+(`rgba16f`), and validity (`r8`, 1 for a covered texel outside walls). They are made the first
+time a layout needs that many pages and kept, and `SetUpTexels` leaves them in the general layout for compute shaders and
+copies. `ReadTexels` copies a region back for tests, 11 floats a texel.
+
+`bake_texels.vert` draws each static draw with a rectangle into its page, using its second UV
+set, `Vertex.Uv2` (vertex attribute 6, the same set the wear and dirt masks read), as the
+position: `Uv2 * Scale + Offset` is 0 to 1 on the page, and twice that minus one is clip
+space. The draw's transform, rectangle and the rectangle's number are push constants, so the
+pipeline has no descriptor sets. `bake_texels.frag` writes the world position, with the
+rectangle's number in w, and the normal blended from the vertices, both moved by the transform
+as `gbuffer.vert` moves them. The geometric normal comes from how the position changes from texel to texel, turned to the side the vertex normals face,
+since second UVs may be mirrored. Nothing is culled.
+
+A triangle thinner than a texel can miss every texel's centre and leave its texels empty, so
+coverage must count any part of a texel. Where the device has
+`VK_EXT_conservative_rasterization` (`VulkanContext.ConservativeRasterization`), the pipeline
+overestimates: every texel a triangle touches is drawn, its attributes taken at the texel's
+centre, extended along the triangle's plane. A draw's own rectangle therefore spreads one texel
+into its gutter, which is what the gutter is for. Those texels hold their own rectangle's number,
+so the filter keeps them with their chart. Elsewhere the page is drawn in 512 square
+tiles into 8x multisampled targets (or the most samples below 8 the device has), with the
+viewport still spanning the page so a rectangle lands on the same texels from any tile, and
+`bake_resolve.comp` copies each tile into the page. The positions and normals are `centroid`,
+so every covered sample of a texel holds a point on its triangle; the resolve takes the first
+covered sample, and with the standard sample positions the lower samples lie nearer the centre.
+Tiles no rectangle reaches stay cleared. `Baker.ForceMultisample` takes this path on any device,
+so the GPU tests run both.
+
+`bake_validity.comp` then marks texels inside walls. From each covered texel, 1 mm along its
+geometric normal, it sends 16 rays of 5 cm over the hemisphere, spread by a Fibonacci spiral
+even in the cosine and turned by a hash of the texel. It traces them with `trace.glsl` through
+the same acceleration structures the frame uses: `SetUpTexels` builds a top-level structure from
+all the draws with `TraceScene.Collect` and `Renderer.TraceFlagsOf`, so walls that aren't baked
+still count. A ray that hits the back of a one-sided surface means the texel is enclosed; when
+more than half do (`Baker.InvalidShare`), the texel is invalid. A texel nothing covers is
+invalid too. The validity shader binds its own set 0 and the resource table as set 1.
+
+## The path tracer
+
+Tracing is the baker's second stage, run as steps of a `BakeJob` (see "Baking as a job"), and `bake_trace.comp` with `bake_lights.glsl` is its
+shader. The path itself, from its first direction to its last bounce, is `pathFrom` in
+`bake_paths.glsl`, which the probes' shader shares (see "Baking probes"). One pass sends one
+path from every valid texel of a page's region (the bounding box of its rectangles) and adds
+what it brings back to three `rgba32f` sums: irradiance, direction and shadow mask. The
+irradiance sum's w adds the square of each pass's luminance. Sums are float32 so 1024 passes
+add up without losing the small ones. The baker reads them back and divides by the passes, and
+turns irradiance w into the variance of the mean luminance, `(E[l²] - E[l]²) / passes`, which
+tells the filter how noisy each texel is; the filter cleans the page up (see "Filtering and
+dilation") and `Baker.Encode` then writes it as the file stores it. Every texel's random
+numbers come from a hash of its place and the pass, so a bake of the same scene with the same
+settings gives the same file.
+
+Each pass first adds the light reaching the texel straight from the lights. Then a path starts
+1 mm (`Baker.TraceLift`) along the texel's geometric normal and goes out cosine-weighted,
+through the same acceleration structures and material tables as the frame (`trace.glsl`). At
+each surface it meets, the path adds the surface's emission, takes the surface's diffuse colour
+into its throughput, adds the light reaching that surface from the lights, and bounces. It
+makes at most 4 bounces (`MAX_BOUNCES`), and from the second on Russian roulette may end it,
+weighting the survivors up. Hitting the back of a one-sided surface ends it in the dark, since
+that is inside something. A path that misses everything adds the sky cube, times π and
+`skyIntensity`, as the sky lights a surface under it; with `skyIntensity` 0 the sky is left
+out.
+
+Lights are sampled at every surface (next-event estimation) over their area, so their shadows
+come out soft: a point light over the disc of its sphere facing the point, a spot over its disc
+across its axis, a sun over a cone `ShadowSettings.LightAngle` across. A local light dims with
+distance and range as `localLightReaching` has it at runtime, measured to its centre. With up
+to 16 lights (`ALL_LIGHTS_UP_TO`) every light is sampled; above that, 8 candidates
+(`CANDIDATES`) are picked at random and one is kept by resampled importance sampling, weighted
+by how much it would give unshadowed. The direct light of a `Mixed` light is skipped at the
+texel itself, since the frame draws it live; its light reaches the texel after a bounce. Its
+random numbers are drawn all the same, so the paths that follow don't depend on light modes. A
+`Baked` light is counted at every surface.
+
+A shadow ray treats a surface whose material is see-through as a pane: it walks up to 8
+(`MAX_LAYERS`) of them and weakens the light by 1 minus each one's opacity, without tinting it,
+as the frame's shadows do. Anything opaque stops it. Each extra layer costs another query.
+
+The direction sum adds the direction of each light sampled at the texel and the path's first
+direction, each weighted by the luminance it brought, with the luminances in w. Dividing one by
+the other gives the mean direction, whose length says how much the light leans one way; the
+filter does this before it smooths. It is stored as `d * 0.5 + 0.5` in RGBA8 with `|d|` in
+alpha. A texel that isn't valid gets nothing from the tracer and is filled by dilation; one
+that dilation doesn't reach holds no light, direction (0, 0, 0) and a mask of 1.
+
+The shadow mask comes from shadow rays alone. Each `Mixed` light with a channel from
+`ShadowMaskChannels.Assign` carries it in its own bake light (`fadeKind.w`, -1 for none), and
+every pass sends one ray from the texel to a random point on each such light that reaches it,
+adding what gets through to that light's channel: 1 when nothing is in the way and the panes'
+transmission when only panes are. A texel beyond the light's range or outside a spot's cone
+gets 0. Several local lights share a channel when their ranges don't overlap, so at most one of
+them reaches a texel, and each is measured where it shines. The mean is the share of the light
+the texel sees. A channel with no light holds 0 on valid texels and 1 elsewhere; nothing reads
+it.
+
+Passes go to the GPU in batches. The first is one pass; after each, `Bake` times it and
+sizes the next to fit `Renderer.BakeBatchBudget` (80 ms) at that rate, at most double the last,
+so no submit holds the GPU long enough to trip a device timeout. A chunk's trace also sums its sky and sun transfer;
+see "Baking a chunk" under "Chunk transfer". `Renderer.Bake` takes the
+lights' modes from `BakeResolver`, so the bake and the frame agree on which lights are moving.
+The job builds and holds its own top-level structure, released only when the job is disposed, so it
+stays alive for the whole trace even if frames are drawn between steps.
+
+## Filtering and dilation
+
+The filter runs on each traced page before `Encode`, on the GPU, over the same
+region the tracer covered. A job records it with `Baker.RecordFilter` into a `FilterRun` from
+`Baker.CreateFilter`; `Baker.FilterAndDilate` runs it and waits, for tests. It uploads the region's means into three `rgba32f` images, works
+between two copies of them, and reads the result back. Two shaders do the work, and they share
+one descriptor set: the page's position, geometric normal and validity, the three inputs and the
+three outputs.
+
+`bake_filter.comp` runs first with `stage` 0, which prepares the values. A value that isn't a
+number becomes 0, and one past a half float's ±65,504 (infinite ones too) is clamped to it, so
+one bad path can't spread through the filter or overflow the file. The direction sum becomes its
+mean direction, no longer than 1. A texel that isn't valid is emptied. From here irradiance w is
+1 on a texel that holds light and 0 on one that doesn't, and direction w carries the variance
+of the texel's mean luminance through the passes.
+
+Then, when `BakeSettings.Filter` is on (the default), come 4 passes of an edge-aware à-trous
+filter with steps of 1, 2, 4 and 8 texels, which reach 30 texels out with only 25 taps a pass.
+Each tap's weight is the 5-tap B-spline (3/8, 1/4, 1/16 out from the middle) on both axes,
+times four edge terms. The first is a Gaussian on the world distance between the two texels
+whose sigma is two of the pass's steps (2, 4, 8 and 16 texels), so each pass reaches its own
+taps, keeping its outer ones at exp(-0.5) on a flat chart, but drops a tap that lies much
+further away in the world than on the page, such as across a seam inside one rectangle. The
+second is a Gaussian on how far the tap sits off this texel's plane, with a sigma of half a
+texel, so steps stop it. The third is the cosine between their geometric normals to the 32nd
+power, so creases stop it. The fourth stops it at a change in the light, as SVGF does:
+`exp(-|l_p - l_q| / (4 sqrt(var_p) + 1e-6))`, where l is luminance and var_p is the variance
+of this texel's mean luminance, averaged over its 3 x 3 neighbours of the same rectangle so one
+texel whose few paths happened to agree doesn't stop the filter alone. A difference within a
+few standard deviations of the noise blends; one past that doesn't. The 1e-6 only keeps the
+term defined, so a texel with no noise, such as one in a `Baked` light's full shadow or under
+it in full view, takes nothing from a neighbour whose light differs at all. The variance is
+filtered with the squared weights, `Σw² var / (Σw)²`, so each pass sees the noise left after
+the last. A texel's world size is the distance to its neighbours of the same rectangle, so the
+terms work at any density. Where the light is noisy the passes spread a texel's light over
+roughly 8 texels either way, about 40 cm at the default 20 texels a metre. Only taps that hold
+light and were drawn for the same rectangle count, which keeps one chart's light out of another
+even where conservative drawing has pushed both into the gutter between them.
+
+So the filter blurs noise and keeps edges: a flat lightmap comes out flat, a `Baked` light's
+converged shadow edge stays within a texel or two of where it was traced, and the sky seen on
+the rim of a face that reaches out past a wall isn't carried in under it. What still blurs is
+light that changes by less than its own noise: a penumbra that is noisy itself, as at
+`Preview`, can soften a little, and a gentle gradient under heavy noise flattens. Blotches wider
+than the filter's reach stay. The irradiance and direction are filtered; the shadow mask isn't,
+since its noise is only inside penumbrae and blurring it would soften every shadow's edge.
+
+`bake_dilate.comp` then runs 8 rings, filtering or not. In each, a texel that holds no light and
+has neighbours that do takes the mean of their irradiance, direction and mask, and holds light
+from then on. A covered texel only takes neighbours drawn for its own rectangle; a gutter texel
+nothing covers takes any. Every texel leaves with direction w set to 1, dropping the variance. Eight rings fill invalid texels up to eight deep and every gutter,
+which is only two texels wide, as `MaskBaker` dilates its masks, so bilinear
+filtering and mips at an edge read the chart. `TracedPage.Filled` marks every texel that holds
+light, and `Encode` writes those. It casts irradiance to half floats through `Light`, which turns
+a value that isn't a number or is below 0 into 0 and holds one past 65,504 there, so the light
+added up by the filter, or a page that skipped it, never reaches the file as infinity, which
+`writeBaked` would carry into the HDR target for bloom to spread.
+
+A page's filter runs inside its `BakeJob`: the step that reads the page's sums back reads them and
+fills the `FilterRun`'s staging on the thread pool, and the first step after that work is done records
+the upload, the filter and dilation passes and the copy back, and returns `AwaitGpu`. The next step
+reads the filtered light from the staging, on the thread pool too. A chunk then runs each transfer
+run through the same `FilterRun` the same way, one readback a run. Probes aren't filtered; each is one point with its own many rays, with no neighbours
+in a texture to borrow from.
+
+## Baking probes
+
+A space's `BakeJob` bakes its light probes after the lightmap, with the same scene and
+lights, into the file's probe pages. The settings are the space's own box and `ProbeSpacing`
+(`BakedSpace` from `view.BakedLighting`), so `ProbeGrid` lays the baked probes out exactly as it
+would live probes in that box, at most `BakeFiles.MaxSpaceProbes` (4,096); `Renderer.Bake`
+refuses a space with more before it starts. The tiles are the live probes' own, but the pages
+keep a fixed layout of their own, `BakedProbeAtlas`: one 2D page each, 64 tiles across, probe i at
+column i % 64 and row i / 64. The live atlases are five layers sized by `ProbeQuality`, so a bake
+can't share their layout, and `probes.glsl` reads both.
+
+`bake_probes.comp` traces what a live capture draws: each probe's six 16² cube faces. Probes go
+in batches of 64 (`Baker.ProbesPerBatch`), each a row of six faces in a 96 × 1024 `rgba32f` sum.
+One pass sends four paths through every face texel, one through the centre of each quarter, with
+`pathFrom` from `bake_paths.glsl`, so they meet the same first surfaces each pass and the bounces
+after them differ. The texel keeps radiance, the paths' mean light divided by π, and the mean
+distance to their first surfaces, negative when most of them saw a back face, as a live capture
+writes its alpha. Each distance is clamped to twice the spacing first, as the fold clamps it, so a
+path that met nothing never reaches the fold's sky mark: it already added the sky itself, and the
+fold mustn't add it again. The last pass writes the mean, clamped to 65,000 to fit half floats,
+to an `rgba16f` copy of the faces. Four paths a texel at 16² send as many paths as one at 32²,
+which the baker drew before the live probes' faces shrank to 16².
+
+A light is too small for a texel's paths to find, so its direct light is splatted. Each
+pass picks one point on every light that isn't `Mixed` (`bakeLightReaching` in
+`bake_lights.glsl`, the light reaching a point before any cosine), finds the face texel that
+looks at it (`cubeFaceOf` in `cube_faces.glsl`), and that texel adds the light, shadowed by
+`transmission`, divided by the solid angle it covers. A `Mixed` light's direct light is left out
+here as it is at a lightmap texel, since the frame draws it live; its light still arrives after
+a bounce through `pathFrom`. `Baked` lights, emission and the sky count in full.
+
+The fold is the live one. The baker keeps a `ProbeVolume` of its own at `ProbeQuality.Low`, made by
+`Renderer.PrepareBaking` (`Baker.EnsureProbeVolume`), and
+for each group of up to `FaceSlots` (8) probes copies their faces into `FacesImage`, one slot each,
+calls `ProbeVolume.RecordFold` per slot, and `RecordStagingReadBack` copies the staging slots to a
+host buffer. So the tiles, borders, depth moments and inside marks come from `probe_fold.comp`
+itself, not a copy of it. `Baker.WriteTile` writes each probe's float32 tiles into the pages as
+`Rgba16f`: irradiance (640²) with alpha 1, and depth (1152²) widened from two channels with blue and
+alpha 0, since the file has no two-channel format. Tiles past the last probe stay black. The
+volume's own atlases are never written.
+
+A probe face texel sees one direction rather than a cosine-weighted hemisphere, and the fold
+averages about a thousand of them into each tile texel, so probes take a sixteenth of the
+lightmap's passes: 4 at `Preview`, 64 at `Final`. Passes are batched by the same 80 ms budget as
+the lightmap's. Random numbers come from the probe, the texel, the quarter and the pass, so the
+same scene bakes the same probes.
+
+At runtime `softLight` in `lighting.frag` looks for soft light in this order. A point inside a
+baked space whose bake is loaded reads the bake's probes (`bakedProbeIrradiance`). Where no baked
+probe sees it, for example where every nearby one is inside a wall, it falls back to the
+`view.LightProbes` box (layer 4 of the live atlases), then to the live cascades round the camera,
+and last to the environment. A surface with a lightmap never gets here: its soft light is the
+lightmap's.
+
+## Baking as a job
+
+A bake runs as a `BakeJob` (`src/Rendition/Baking/BakeJob.cs`): a series of steps, each recording a slice of the work
+into a command buffer the caller submits. `Renderer.CreateSpaceJob` and `Renderer.CreateChunkJob` make one. They do
+every check `Bake` and `BakeChunk` do, resolve the inputs, lay out the draws and take the lights, and copy the draws and
+lights into the job, but record nothing and never wait for the GPU. Making the `Baker` and its probe volume does wait,
+so `Renderer.PrepareBaking` makes them, once, outside a frame; a `Create*Job` before it throws rather than wait. The
+probe volume is the same size for every space, since a bake folds its probes a few at a time through its slots, so the
+one `PrepareBaking` makes serves every bake. A chunk has no probes, so `PrepareBaking(probes: false)` makes only the
+`Baker`, and a chunk still bakes on a GPU the probe fold can't run on. `Bake` and `BakeChunk` still wait for the GPU,
+flush uploads, bake the sky and call `PrepareBaking`, then make the same job and step it to the end, one `SubmitAndWait` a step. A background bake can instead run a few
+steps a frame.
+
+`Step(cmd, passes)` returns `Continue`, `AwaitGpu`, `AwaitCpu` or `Done`, and traces at most `passes` passes.
+`AwaitCpu` means the step started work on the thread pool: turning a readback into arrays and filling the next upload,
+tens of megabytes for a large page. Later steps return `AwaitCpu` and record nothing until that work is done; the first
+step that finds it done records what follows on the caller's thread and rethrows the work's exception, if any.
+`CpuBusy` says whether the work still runs, and `WaitForCpu` waits for it, which `Bake` and `BakeChunk` do. The steps,
+in order:
+
+1. Texel setup. The job takes the baker's pages (`Baker.ClaimPages`), builds a top-level structure from its draws and
+   records texel setup against it (`Baker.BuildScene`, `Baker.RecordTexels`).
+2. For each page, its paths a slice of passes at a time. The first slice makes the region's sums, writes the page's
+   trace set and clears the sums. The step that traces the last pass also copies the sums, positions and validity into
+   a host-visible buffer (`Baker.RecordSumsReadBack`) and returns `AwaitGpu`.
+3. The next step frees the sum targets, creates the filter run (`Baker.CreateFilter`) and returns `AwaitCpu` while the
+   thread pool reads that buffer (`Baker.ReadSumsBack`) and fills the filter's upload. The step that finds it done
+   records the filter (`Baker.RecordFilter`) and returns `AwaitGpu`.
+4. The step after that reads the filtered page on the thread pool, and keeps it. A chunk's page then runs both halves
+   of its transfer through the same filter run, each read back and the next filled on the thread pool
+   (`Baker.TransferRun`, `Baker.ReadTransferRun`).
+5. For a space, its probes, 64 at a time: a slice of the batch's passes at a time, cleared first. Then a step for each
+   group of up to `FaceSlots` probes folds them and copies their tiles back, and returns `AwaitGpu`. The step after it
+   writes those tiles into the atlases.
+6. `Done` once nothing is left.
+
+`ReadsBack` says whether the next step reads what the last one copied, so the caller must wait for that submit first.
+
+`Finish` encodes and crops the pages, encodes a chunk's transfer, and makes the file's bytes. It needs no GPU, so a
+background bake can call it off the render thread. `Progress` goes from 0 to 1 by the texel and probe paths traced,
+and only reaches 1 at `Done`.
+
+The file is the same however the passes are sliced, so a job stepped one pass at a time matches `Bake` byte for byte
+(`BakeJobGpuTests`). Each pass's random numbers come from its own number (`Pass` in the push constants), not from where
+a submit started. The sums add up across submits in the same order. The steps hand over through the same readbacks the
+waiting baker used, and the filter, fold and encoding are unchanged.
+
+The job owns its descriptor pool (`Baker.CreateJobPool`, with room for all of its sets), its lights buffer, its sums, its
+filter run, its probe targets and its readback buffers. Its top-level structure is held through
+`RayTracing.TopLevel(cmd, instances, out release)`, so a `Render` between steps doesn't recycle it. The baker's pages,
+probe volume and the top-level build's scratch are shared, so one job runs at a time. A second job's setup throws
+`InvalidOperationException` until the first is disposed. Dispose a job only once the GPU is done with its last step.
+`Dispose` waits for the job's work on the thread pool, since that work reads the job's mapped buffers.
+`Bake` and `BakeChunk` size each step by `Renderer.BakeBatchBudget`: one pass first, then as many as fit 80 ms at the
+last step's rate, at most double, starting over at one after a step that traced nothing.
+
+## Background bakes
+
+With `Renderer.AutoBake` set, the renderer bakes the areas a frame names whose bake is missing or stale by itself, one
+`BakeJob` at a time, a step a frame inside the frame's own command buffer. Nothing waits for the GPU: the frames
+(`AutoBakeGpuTests`) never move `VulkanContext.SubmitAndWaitCount`.
+
+Setting `AutoBake` stops the running job and calls `PrepareBaking(probes: Spaces)`, which may wait the first time, so it
+is set outside a frame. A device that can't trace skips both, and every frame then does nothing new. A device that
+traces but can't bake (`PrepareBaking` throws) reports it once to the console and bakes nothing until `AutoBake` is set
+again.
+
+Each frame, after `ResolveBakes`, `UpdateBackgroundBake` lists the frame's wants and hands them to a `BakeQueue`
+(`src/Rendition/Baking/BakeQueue.cs`). Nothing is wanted before `AnimatedLights.Settled`, since a light that moves may
+not have been seen moving yet. The space is wanted when `AutoBake.Spaces` is set and the store has no fresh bake of its
+inputs (`IsFreshQuietly`, so a frame doesn't log). A chunk is wanted the same way unless its fresh bake is
+`ChunkPending` or it owns no static draws. `BakeQueue.Wants` decides both. A fresh area is still wanted when
+`IBakeStore.SavedQuality` says its file was baked at a quality before the last in `AutoBake.Qualities`: the saved
+quality and every one before it count as finished, so the next to start is the one after it, and a Preview saved before
+the game restarted still gets its Final. A store that can't tell the quality (the default answers null) leaves a fresh
+area wanted only while this queue has finished some of its qualities but not all (`BakeQueue.Unfinished`). The queue
+keeps one want per file, the copy nearest the camera. It picks the area whose next quality comes first in
+`AutoBake.Qualities`, then the nearest by its box's middle, then by file name. It remembers each finished file, inputs
+and quality, failures too, and never starts one again, so a saved file the store hasn't read yet doesn't loop. A
+running job whose file a frame names with other inputs is stopped (`BakeQueue.Named`, asked of every named area, wanted
+or not, so an old bake never overwrites a file that is already fresh), and changing the scene again starts its bake
+over. The queue has already forgotten that job, and may start the next in the same frame, so the renderer retires it
+without telling the queue it stopped. A job whose area the frame doesn't name carries on. `BakeProgress` is null when
+no job runs and no area waits; while areas wait and none runs yet it has an empty name. The queue reuses its lists, so a frame with no wants allocates
+nothing.
+
+`RecordBakeSlice` runs after the chunk uploads are recorded and before the frame's top-level build. It records one
+step between two timestamps of a `GpuTimer` of its own ("Background bake"), read back by `MeasureBakeSlice` once the
+slot's fence has passed. A trace step's passes start at one and become `clamp(budget / msPerPass, 1, 2 × last)` from
+each measurement. The measurement comes two frames late, so the passes double about every other frame. A step that
+traces nothing (setup, readbacks, filters, folds) starts the count over at one, and an epoch number stops a slice
+measured from before then from resizing the next stage. A step that returns `AwaitGpu` holds the job until as many more
+frames as there are frames in flight have been submitted, since by then the fence of the frame that carried the step
+has passed and its readback has landed. A step that returns `AwaitCpu` leaves the job to the thread pool, and each
+frame's step until that work is done records nothing and takes microseconds. `Renderer.BakeStepCpuMilliseconds` is how
+long the last step took on the render thread: at 180 texels a metre the readback steps take one or two milliseconds,
+where turning the readbacks into arrays on the render thread took over 500 ms in one frame
+(`AutoBakeGpuTests` checks every step of such a bake stays within the budget). Until a job's setup step has run, the baker's pages may still be held by the
+last job's file being made, so the slice waits for them.
+
+At `Done` the job's `Finish` runs on the thread pool, since encoding the pages takes longer than a frame. The job stays
+the running one meanwhile, holding the baker's pages, so no other job sets up. A later `Render` takes the bytes from a
+`ConcurrentQueue`, disposes the job, tells the queue, and calls `AutoBake.Done` on the render thread before it resolves
+the frame's bakes. Nothing catches an exception from `Done`, so it passes out of `Render`.
+
+A stopped job may have steps in frames still in flight, so it is disposed with the destroyed resources of the last
+submitted frame's slot. A job that never stepped holds nothing the GPU reads and goes at once. A job whose work on the
+thread pool still runs when its slot comes round is parked instead, and the first frame that draws baked lights after that work ends disposes
+it, so `Render` never waits for it; `DropBackgroundBakes` waits. The job's held top-level
+structure points at bottom-level structures it doesn't own, so anything that frees one of those, or what they read,
+must stop it first. Every such path goes through `StopBakeThatReads`: `DestroyMesh`, destroying a material or a
+texture, and `UpdateMaterial` when the change makes `ForgetMaterial` drop the material's structures. Each stops the
+running job when its draws use the mesh or material, a texture through the materials of its draws, and the queue starts
+the area again from the scene. A job whose file is being made reads nothing on the GPU, so it is left to finish.
+`AutoBakeGpuTests` turns a wall see-through and destroys a texture mid-bake and checks the job starts over.
+`Bake`, `BakeChunk` and `Dispose` wait for the GPU,
+then drop every background bake, waiting for any file being made, since the whole bake needs the baker's pages.
+
+Measured on the development desktop's GPU at a 4 ms budget: the test's room, a 4 metre floor and three walls, at 180
+texels a metre (about 1.3 million texels) traces about a quarter of a millisecond a pass, so a trace slice settles
+near 16 passes. Its filter takes about 4 ms in one step and each probe fold about 0.6 ms. Those steps aren't split, so
+a page of more than about two million texels can take a frame past the budget. The readback arrays are new on each
+page, tens of megabytes on the large object heap for a large page. They are made on the thread pool, but a garbage
+collection they set off can still pause the render thread; pooling them is left for later. At 4 texels a metre a whole Preview
+bake of that room takes about 100 frames, most of them the probes' folds and their readbacks.
 
 ## Paint and glass
 
@@ -1568,10 +2392,11 @@ hands over no decals and the renderer packs none, so the copy and the pass are b
 skipped. With `RenderEffects.Materials` off, `decal.frag` discards every pixel, so the
 plain clay stays plain.
 
-Reflection and light probe captures draw decals too: `CaptureFaces` uploads them after its
-idle wait, and `RecordScene` runs the pass for every face. They are left out of the
-lighting hash, so moving or adding one never photographs a probe again. A probe photographed
-before a decal appeared shows the wall without it until something else changes the hash.
+Reflection probe captures draw decals too: `CaptureFaces` uploads them after its idle wait, and
+`RecordScene` runs the pass for every face. They are left out of the lighting hash, so moving or
+adding one never photographs a probe again. A probe photographed before a decal appeared shows
+the wall without it until something else changes the hash. Light probe updates don't draw
+decals, so a decal doesn't tint the bounced light.
 
 What it doesn't do yet:
 
@@ -1699,12 +2524,14 @@ shader reads as 1. `DetailScale` defaults to the main graph's `Width` over the d
 
 `MaskBaker` in `Super.Cook.Models` bakes a material's wear and dirt masks while its model
 cooks. The cooker gathers every triangle of the material, across all its meshes, into one
-`MeshData`, laid out by the second UV set (`Vertex.Uv2`, from `TEXCOORD_1`), and bakes it into
+`MeshData`, laid out by the second UV set (`Vertex.Uv2`: the file's `TEXCOORD_1` when it's
+fit for a lightmap, or one the cooker [unwrapped](#lightmap-uvs)), and bakes it into
 one 1024-pixel RGBA texture, compressed as BC7. The first UV set can't hold masks, because
 graph materials tile it in metres and many places share a texel.
 
 Before baking, `MaskBaker.Problem` rasterizes the UV set and stops the cook at the first
-texel two triangles cover, or a UV outside 0 to 1. The check counts only texels well inside
+texel two triangles cover, or a UV outside 0 to 1. A set that passed the lightmap check
+passes this too, so it is a guard rather than a message a user sees. The check counts only texels well inside
 a triangle, so neighbours that share an edge don't count as overlapping. The bake then
 rasterizes again, and for each covered texel works out the point on the mesh and its face
 normal, and traces rays against a `Bvh`, a median-split bounding volume hierarchy over the
@@ -2239,6 +3066,17 @@ by its KHR name whenever the GPU offers dedicated allocations, and calls it with
 checking, so the device turns on `VK_KHR_get_memory_requirements2` where it exists; without
 it, making the context crashes.
 
+`CreateDevice` also turns on ray queries when `RayTracingSupport.Missing` finds nothing
+missing: the three extensions in `RayTracingSupport.Extensions`, and the `bufferDeviceAddress`,
+`accelerationStructure` and `rayQuery` features, checked on the same `GetPhysicalDeviceFeatures2`
+chain as the others. The last two feature structs belong to their extensions, so
+`RayTracingSupport.CanAskForFeatures` puts them on the chain only where the GPU lists both
+`VK_KHR_acceleration_structure` and `VK_KHR_ray_query`; elsewhere the query is the one it was
+before tracing and they read as false. `VulkanContext.CanTrace` says whether they are on and
+`NoTraceReason` says what was missing, such as `no VK_KHR_ray_query`, or `turned off with --no-trace` for
+`RendererOptions.DisableRayTracing`. When anything is missing the device is made exactly as
+it was before, so a GPU without ray queries loses nothing.
+
 AMD's prebuilt shaders declare FSR's luma history storage image as Rgba8, though FSR makes
 that image RGBA16F. The validation layer reports it on every FSR dispatch, and it is a real
 bug in AMD's shader, not a harmless message: Vulkan says a storage image's declared format
@@ -2314,6 +3152,1139 @@ unloadable, and `View.Model` refuses a negative index with no shape behind it.
 Device memory is sub-allocated from 64 MB blocks in `GpuMemory`, one set of pools
 per memory type, kept apart for buffers and images and for host-visible memory.
 Anything larger than a block gets its own allocation.
+
+Where `VulkanContext.CanTrace` is true, every device memory allocation, block or dedicated,
+carries `MemoryAllocateFlagsInfo` with `DeviceAddressBit`, so any buffer made later can have a
+device address. A `GpuBuffer` made with `ShaderDeviceAddressBit` reads its address once after
+binding and keeps it in `Address`; it is 0 for any other buffer. `GpuBuffer.TraceInput` gives the
+usage flags a buffer needs to feed an acceleration structure build (its own address, and being a
+read-only build input), and `CreateMesh` adds them to the vertex and index buffers. On a device
+that can't trace, `TraceInput` is empty and nothing is chained onto the allocation, so those
+buffers are created exactly as before.
+
+`tests/Rendition.Gpu.Tests` runs the renderer on a real GPU. `GpuFixture` opens a hidden 256 by 256
+window the way `GameWindow` does and makes one `Renderer` with validation on, which every test
+shares; the tests run one at a time and carry `[Trait("Speed", "Slow")]` and
+`[Trait("Needs", "GPU")]`. CI runs on machines without a GPU, so it filters them out with
+`--filter "Needs!=GPU"`; run them locally before merging rendering work. A test that needs tracing fails with a message saying so on a GPU that
+can't trace, rather than passing without checking anything. `GpuFixture.Matte` is a plain opaque
+material for tests to draw or trace with, and `RenderOneFrame` renders one frame, empty or of the draws given,
+which also runs every queued upload; `CaptureOneFrame` does the same through `Capture` and returns the pixels. A test can make a fixture of its own, such as one whose device can't
+trace; GLFW is only terminated when the last fixture goes, since that closes every window.
+
+## Bake ids
+
+A bake stores light per static draw, so each one needs a name that is the same in every run,
+on every machine, whatever order the draws come in. `DrawItem.BakeId` is that name. Zero means
+the draw isn't static, so every existing draw stays out of any bake. Only a `ModelDraw` with
+`Static` set, from `view.Model(..., isStatic: true)` or the `Static` component, gets one.
+The check below and the [freshness check](#each-frames-bakes) read it.
+
+`StableHasher` (`src/Rendition/Baking/StableHasher.cs`) makes the hashes. It feeds
+little-endian bytes to XxHash64 with seed 0, from the `System.IO.Hashing` package. `HashCode`
+and `string.GetHashCode` are seeded per process, so they can't be used for anything kept
+between runs. A float is divided by `StableHasher.Step`, a tenth of a millimetre, rounded to
+the nearest whole number in double precision, and that number is hashed. Floats are never
+hashed as text, so culture can't change a hash. Rounding makes negative zero hash as zero,
+and values a hair apart, such as a transform read back from a file, hash the same. Two values
+just either side of a rounding boundary still hash differently; that is accepted, since it
+only costs a rebake. Values past about ±9e14 saturate, and every NaN hashes alike.
+Nothing marks a value's type or where it ends, so a caller must feed the same sequence of
+values for each kind of thing it hashes. A `Vector3` is its three floats and a `Matrix4x4` its sixteen, row by
+row. A string is its UTF-8 length and then its bytes, so `"ab"` then `"c"` differs from `"a"`
+then `"bc"`. Bytes, such as pixels, are their length and then themselves, unrounded. `Reset`
+starts a hasher again from nothing, so a frame hashes every static draw with one hasher.
+
+`BakeIds.Of(instanceHash, part)` (`src/Rendition/Baking/BakeIds.cs`) turns an instance's hash
+and a part number into an id. It sets bit 63, so an id is never zero, and puts the part in
+the low 12 bits. `BakeIds.Instance` clears those bits, giving the same value for every part of
+one instance, and `BakeIds.Part` reads them back. A part runs from 0 to `BakeIds.MaxParts`,
+4095, and `Of` throws `ArgumentOutOfRangeException` past that.
+
+A static draw is held where it stands by its bake, so it can't move on its own. `Render`, and
+`Capture` through it, throw `ArgumentException` for a draw with a bake id and bones, or one
+with a bake id and a swim of nonzero amplitude, naming the draw and its id. The check runs
+next to the decal check, before the frame waits on its fence or records anything, so the
+renderer is left ready for the next frame. `Capture` clears its read-back buffer in a
+`finally`, so a frame that throws doesn't leave the next one copying into a freed buffer. It reads one field per draw when no draw is static.
+
+## Who owns a draw
+
+A frame's baked areas are its `BakedSpace` and its `BakedChunks`. `BakeAreas`
+(`src/Rendition/Baking/BakeAreas.cs`) decides which one owns a static draw or a light, and
+returns `BakeAreas.Space` (-1), a chunk's index in the frame, or `BakeAreas.None` (-2). It is
+pure and allocates nothing, since it runs once per static draw and once per light each frame.
+A static model uses `OwnerOfModel`, and `BakeResolver` gives each Mixed or Baked
+light an owner with `OwnerOfLight`.
+
+`OwnerOfDraw` takes the draw's sphere in world space. The space owns the draw if the sphere
+touches its box at all: the centre is clamped into the box and the draw counts when that point
+is within the radius. The space is asked first, so a draw in both the space and a chunk belongs
+to the space. Otherwise the first chunk whose box holds the sphere's centre owns it, so a draw
+that only reaches into a chunk isn't in it, and one in two overlapping chunks belongs to the
+earlier one. `OwnerOfLight` is the same with a point: the space if its box holds the light's
+position, else the first chunk holding it. Box faces count as inside.
+
+`OwnerOfModel` takes every shown part's sphere in world space, in part order, and is
+`OwnerOfDraw` of their `Union`, so a whole model always goes to one area even when its parts
+straddle a chunk's edge. It is the one rule for a model's owner: Super gives the bake ids by it
+and `BakeResolver` files those ids by it, both from the same spheres in the same
+order, so they always agree.
+
+A chunk's box is in its own space, so the point is moved into chunk space first with
+`BakeAreas.IntoChunk`. The transform is rigid (`BakeFiles.IsRigid`), so its inverse is the
+translation taken off and then the transpose of the rotation: each chunk-space coordinate is
+the dot product of the offset with one of the transform's first three rows. This is done in
+doubles, so a chunk hundreds of metres from the origin keeps its edges to well under a
+millimetre. `IntoChunk` is the one inverse every bake uses: for the owner checks, a chunk's
+bake ids and its lights' hashes.
+
+A draw's sphere comes from `Renderer.BoundsOf(detail)`, the sphere `MeshDetail` found around
+the part in the model's units; a part without detail is the point at its origin, radius 0.
+`BakeAreas.Transform` moves it into the world: the centre goes through the transform and the
+radius grows by its largest axis scale, the same as culling does. `BakeAreas.Union` grows one
+sphere to hold several, such as every part of a model. Each step keeps the bigger sphere when
+it already holds the other, or else spans from the far side of one to the far side of the
+other, so the result holds every part but isn't always the tightest sphere.
+
+## A static draw's ids
+
+`SceneRenderer.PrepareDraws` copies a model's shown parts into the frame's draws, and
+`SceneRenderer.Dress` then sets each copy's transform, tint and the rest. For a static draw it
+also calls `BakeIdentity.Assign` (`src/Super/Rendering/BakeIdentity.cs`). `Dress` is static
+and takes the part spheres as an argument, so tests run it without a GPU; the renderer reads
+the spheres from `Renderer.BoundsOf` into a buffer it keeps.
+
+`Assign` moves the sphere of each shown part into the world and asks `OwnerOfModel` which
+baked area owns the model. When a chunk owns it, the draw's transform is made relative to the
+chunk: each row goes through `BakeAreas.IntoChunk`, the translation row as a point and the
+others as directions. So every placed copy of a
+chunk gives its draws the same numbers to well under the hash's tenth of a millimetre, even
+hundreds of metres out. A draw in the space or in no area keeps its world transform.
+
+The instance hash is the model's identity, then, for a draw a chunk owns, the chunk's name, then
+1 and the tint or 0 for none, then that transform. The renderer finds a copy's lightmap by its id
+alone, so without the name the same door at the same spot in a cottage and a barn would share an
+id and the barn would read the cottage's page. A draw in the space or in no area adds no name, so
+its id is as it was. Each shown part's id is `BakeIds.Of(instance, part)`, where `part` is the part's
+number in the whole model, not among the shown ones, so a mask doesn't renumber the parts it
+keeps. The model's identity already fixes every part's mesh and material, so the part number
+is all a part adds. A static model of more than `BakeIds.MaxParts` parts throws when drawn.
+`View.Model` throws for a static draw with a swim or a pose, so the renderer's own check
+below never sees one from a view.
+
+`Content.IdentityOf(model)` hashes what the model is, once, on its first static draw, and keeps
+it until the model is unloaded or the content reloads. It starts with a kind:
+
+- 0, a built-in shape: its name, such as `cube` or `sphere`.
+- 1, a cooked model: `IContentFiles.HashOf(name)`, the SHA-256 of its cooked bytes.
+  `CookedFolder` gives the hash the manifest already keeps, without reading the file; other
+  `IContentFiles` hash `Read(name)`. The model is read once more (`ModelData.Read`, with its
+  by-hash textures left undecoded) for what it names rather than holds: each material shader's
+  name, the SHA-256 of its SPIR-V, and each shader texture's name and `HashOf`. A texture the
+  model keeps by hash is already in the model file's bytes.
+- 2, a mesh made in code: its vertices with every field, its indices, whether it simplifies,
+  its own texture's pixels, every surface field, each texture (a cooked one by `HashOf`, a
+  generated one by its size, pixels, kind and normal-map flag), the shader's name and the
+  SHA-256 of its SPIR-V, parameters, shader textures and array layers.
+
+A shader's SPIR-V comes from `Content.ShaderBytes`, which is `SceneRenderer.LoadShader` (the
+`shaders` folder beside the program) unless a test swaps it, so editing a shader changes the
+ids of every static draw that uses it. A game that draws nothing static never hashes a model.
+
+A mesh made in code gets its lightmap UVs once, in `Content.Mesh(mesh, isStatic: true)`, through
+`GeneratedMesh.WithLightmapUvs`, before it's added. The stored mesh is then both what the window
+uploads and what `IdentityOf` hashes, so the identity covers the second UVs and the same
+`GeneratedMesh` made with and without the flag hashes differently when the unwrap changed it.
+Unwrapping on the first static draw instead would upload the mesh again mid-game and change its
+identity under its bake. `Content` keeps the indices of code meshes made without the flag in a
+set, dropped from it when one is unloaded, and `SceneRenderer.Dress` throws for a static draw of
+one, after its `Static` check, so a dynamic draw costs nothing more. Built-in shapes and cooked
+models always have lightmap UVs, so they are never in the set.
+
+## Is the bake fresh?
+
+A bake is kept with the hash of what it was made from, so a frame can tell whether it still
+fits. `BakeInputHash` (`src/Rendition/Baking/BakeInputHash.cs`) makes a `BakeInputs`
+(`src/Rendition/Baking/BakeInputs.cs`) of four hashes, and `BakeInputs.Combined` hashes those
+four in order. `BakeInputs.Changes(before)` names the parts that differ, always in the order
+`draws`, `lights`, `environment`, `settings`, so a stale bake can say why. Each frame with a
+baked area calls these through `BakeResolver` (see [each frame's bakes](#each-frames-bakes)).
+
+`Draws` is the count of the area's static draws and then their `BakeId`s in ascending order.
+For a space it then holds the count and, in ascending order, a `BakeInputHash.PlacedChunk`
+hash for each chunk that owns static draws: the chunk's transform, rounded like every float,
+and that chunk's own `Draws`. The ids of a chunk's draws are relative to the chunk, so without
+this, moving a chunk, or swapping where two chunks stand, would leave the space's hash as it
+was though its light now falls differently.
+`Lights` is the count and the light hashes in ascending order, and for a space then 1 and the
+sun's hash, or 0 when it has no sun. Sorting makes the hash the same whatever order the draws
+and lights come in. It sorts a copy, on the stack for up to 256 values and in an array from
+`ArrayPool<ulong>.Shared` past that, so the caller's spans are untouched and a warm frame
+allocates nothing. Hashing uses one `StableHasher` per thread.
+
+`BakeInputHash.Light(light, area)` hashes a Mixed or Baked light; Realtime lights are never
+part of a bake, so they are never passed in. `area` is where the light's baked area stands:
+the identity for a space, the chunk's own transform for a chunk. The light is taken into the
+area with `BakeAreas.IntoChunk`, in doubles, so every placed copy of a chunk gives the same hash
+even hundreds of metres out. The hash holds the mode, the position, the range, the radius (one
+that is 0 or less, or not a finite number, counted as `LocalLight.DefaultRadius`, as
+`LocalLights.RadiusOf` draws it), whether it casts a
+shadow, and for a spot 1, its direction and both angles, or 0 for a point light, whose
+direction is unused. Its radiance goes in only for a Baked light, since a Mixed light's direct
+light stays live and a change of colour doesn't need a new bake. `Key` only follows a shadow
+from frame to frame and `Volumetric` only lights the fog, so neither goes in.
+`BakeInputHash.Sun(sun)` is the same for a `DirectionalLight`: its mode, direction and whether
+it casts a shadow, and its radiance when Baked.
+
+`Environment` is `Renderer.EnvironmentHash` for a space and zero for a chunk, whose sky and sun
+are applied live. `EnvironmentHash` hashes the bands and panels from the last `SetEnvironment`,
+kept as a hash when it's called, then the clear sky's turbidity as drawn (0 when off) and the
+`EnvironmentIntensity` of the last frame. It follows what they hold, not the version count the
+light probes use, so setting the same environment again gives the same hash.
+
+`Settings` is 0 for a space or 1 for a chunk, the area's own `TexelsPerMetre` (from
+`BakedSpace.TexelsPerMetre` or `BakedChunk.TexelsPerMetre`, so two areas in one frame can differ) and
+`BakeInputHash.BakerVersion`, then for a space its probe spacing, and the area's box. `Quality`
+is not hashed: it decides how long a bake runs, not what it shows, so a Preview bake counts
+as fresh (the file header records which quality made it). A bigger
+box means a different bake, so it counts as a setting. A chunk's box is in its own space and
+its name is in the bake's path, not its inputs, so neither where a chunk stands nor what it's
+called changes its hash. Raising `BakerVersion` makes every saved bake stale.
+
+### Animated lights
+
+`AnimatedLights` (`src/Rendition/Baking/AnimatedLights.cs`) is fed each frame the key and bake
+hash of every Mixed or Baked light, plus the frame's game time. A `LightKey` is a flag for sun
+and a number, which is `LocalLight.Key` or the sun's index, so a sun and a point light with
+the same number are apart. It keeps a small class per key (last hash, when it last changed,
+whether it was logged) in a `Dictionary`, and drops any key not seen this frame. A key seen
+for the first time is not animated. A hash that differs from the last frame's marks the key
+animated and restarts its timer, and it clears when `time - changedAt >= SettleSeconds`. A key
+seen twice in one frame is pinned animated with its timer restarted. A clock that goes back
+clears everything, logged flags included. The renderer keeps one, logging to `Console.Error`,
+and feeds it from `BakeResolver` on each frame that names a baked area.
+
+`Settled` turns true once the frame time is `SettleSeconds` past the first frame the tracker saw,
+or past the frame where the clock went back. Until then a light that moves may not have been
+seen moving yet: on a game's first frame the swinging lantern is still in the bake's inputs, and
+only the second frame shows it moving. The resolver asks the store quietly until then, so a bake
+made from `--bake`'s two seconds of play isn't reported stale on frame 1.
+
+A steady frame allocates nothing: the dictionary and a scratch list for dropped keys are
+reused. It allocates only when a key first appears or a light is logged. The log needs a light's
+kind, which `LightKey` doesn't carry, so there is an `Update` overload taking a third tuple
+item, `Spot`, and the plain one calls every local light a point light.
+
+### Each frame's bakes
+
+`BakeResolver.Resolve` (`src/Rendition/Baking/BakeResolver.cs`) decides, once a frame, which
+bakes are fresh and which lights they take over. `Renderer.Render` calls it after the bake id
+and chunk checks and after `BakeSky`, since `EnvironmentHash` reads the sky and intensity
+`BakeSky` sets. `Capture` goes through `Render`, so it does the same. A frame that names no
+space and no chunks returns the shared `BakeFrame.None` at once, before hashing, asking the
+store or feeding the tracker, so a game without baked areas does no work and allocates
+nothing. The renderer then sets `LastBakeFrame` to null.
+
+Otherwise it runs in this order:
+
+1. Each Mixed or Baked light gets its world-space hash, `Light(light, Matrix4x4.Identity)` or
+   `Sun(sun)`, and all of them go to `AnimatedLights.Update` with the frame's time, before any
+   area is hashed. Realtime lights are skipped: they are never in a bake, so they are neither
+   tracked nor hashed.
+2. Each local light that is Mixed or Baked and not animated is given an owner with
+   `BakeAreas.OwnerOfLight`: the space, a chunk, or none. One owned by a chunk is hashed again
+   with `Light(light, chunk.Transform)`, so every copy of the chunk gives the same hash. An
+   animated light is in no area's hash and stays live.
+3. Each static draw (nonzero `BakeId`) counts in the space, whatever owns it, since every
+   static draw blocks and bounces the space's light. When there are chunks, the draws are
+   taken a model at a time: the static draws are sorted by (`BakeIds.Instance`, transform, draw
+   order), so a model's parts form a run even when other models' draws came between them.
+   Each part's bounds are moved into the world with `BakeAreas.Transform` and
+   `BakeAreas.OwnerOfModel` picks the model's owner, exactly as `BakeIdentity.Assign` did, so
+   every part's id goes to the area that gave it. The transform check keeps two copies of a
+   chunk apart, since their draws share an instance hash. Only a chunk's own draws go in that
+   chunk's hash, and a draw the space owns is never in a chunk's. One pass over the draws and
+   one over the lights fill a list per chunk, so the work is the number of draws, not draws
+   times chunks. The chunks are hashed before the space, so the space can add each owning
+   chunk's `PlacedChunk` hash.
+4. The space's suns are every sun in the bake. No sun gives a null sun hash, one gives its own
+   hash, and several give one hash of their count and their sorted hashes. Suns never belong to
+   a chunk.
+5. `IBakeStore.IsFresh(file, inputs)` is asked about each area, or `IsFreshQuietly` while
+   `AnimatedLights.Settled` is false, which gives the same answer without reporting a stale bake,
+   with `BakeFiles.Space(name)` or
+   `BakeFiles.Chunk(name, inputs.Combined)`. The store is `Renderer.Bakes`, `NoBakes.Instance`
+   by default, which answers false for everything, or `NoBakes.Instance` whatever `Bakes` is
+   when the view has `RenderEffects.BakedLighting` in `Off`.
+6. A light whose area is fresh keeps its mode in `BakeFrame.ModeOf`, and every other light
+   reads as Realtime. A fresh area's Baked lights are listed in `DroppedLocalLights` or
+   `DroppedSuns`, by their index in the frame's lists, once its bake has faded all the way in
+   (step 7). Until then they are listed in `FadingLocalLights` or `FadingSuns` with the area's
+   fade. A fresh chunk never frees the space's lights, and the space's freshness never frees a
+   chunk's.
+7. Each area's fade comes from `BakeResolver.Arrive`, which keeps an `Arrival` per file name:
+   whether the area was drawn live last frame, and when its bake arrived. The first frame that
+   names a file gives 1 when it is fresh, so a level load or a screenshot never fades. A file that
+   was live (not fresh, and not a chunk whose fresh bake is still pending in the pool) and is
+   fresh now starts a fade at `FrameView.Time`, which runs `smoothstep(0, FadeSeconds, Time - At)`
+   and ends at 1. A pending chunk gives 0 without counting as live, so a saved bake that only has
+   to reach the GPU shows at once. Time that goes back, or `FadeSeconds` of 0, ends the fade. A
+   file no frame named is pruned at the end of `Resolve`, so the next frame that names it is its
+   first again, and a frame with no area clears them all (`ForgetArrivals`). The renderer keeps
+   one resolver, so a game that draws an extra view naming no area every frame, between frames
+   that do, never sees a bake fade. `BakeFrame.SpaceFade` and `ChunkFade(i)` give the result, 0
+   for a stale area. `Renderer.BakeFadeSeconds` sets `FadeSeconds`, 0.5 by default; a resolver
+   made on its own, as `BakeFreshness.Resolve` makes, starts at 0 and never fades. Super's
+   `SceneRenderer` sets it to 0 when it is made, so a screenshot, recording, profile or bake never
+   catches a bake half faded in, and `GameWindow.Run` sets 0.5 for play.
+
+When something was dropped, `Render` draws a copy of the frame view whose `Lights` and
+`LocalLights` leave those lights out, by calling itself once more with a flag set so the second
+pass doesn't resolve again. `BakeFreshness.Without` copies the kept lights into an array the
+renderer keeps, grown only when a frame has more lights, and returns the frame's own span
+untouched when nothing is dropped. Its overload with a fading list and a `dim` function also
+keeps each fading light, with `Radiance` scaled by 1 − fade, so the live light hands over to
+the bake as it comes in and the area never goes darker than either end. Light probes see the
+scaled light too, but they never freeze: each change of a light's radiance marks the probes in
+its range dirty, and settled probes keep being refreshed. A reflection capture made mid-fade
+would keep the half-faded picture, so `ReflectionLightingHash` holds whether any bake drawn is
+still fading. It changes once more when the fade ends, and the capture after it matches one made
+when the level loads with the bake saved (`BakeFadeGpuTests`). With no fresh bake nothing is
+dropped, so frames look exactly as they would without baked areas, to the byte
+(`NoBakeGpuTests`). A fresh space's
+lightmaps take a dropped light's place; see "Drawing a bake". So do a relit chunk's, once its
+pages are resident in the pool; see "Chunk bakes on the GPU" and "Relighting a chunk".
+
+### The bake store
+
+`LightBakeStore` (`src/Rendition/Baking/LightBakeStore.cs`) is the `IBakeStore` a Super game
+uses. It reads files through a `Func<string, byte[]?>`, so Rendition doesn't know where content
+lives; `SceneRenderer` gives it `Content.Files.Read` for names whose kind is `ContentKind.Data`,
+so it sees the cooked bakes, and logs to `Console.Error`. `Saved(file)` and `SavedQuality(file)`
+read a file's header with `LightBakeFile.ReadInputsAndQuality` the first time either is asked about
+and keep its inputs and quality in a `Dictionary`, null for a missing file or one that can't be read: a header
+that throws `InvalidDataException`, or a read that throws `IOException` or
+`UnauthorizedAccessException`, such as while a cook replaces the file. That is logged once with
+its message and kept until `Forget`, so the file is tried again after the content reloads rather
+than every frame. The read gives the whole file for its header, once per file. The store's
+header cache isn't thread-safe, so `IsFresh`, `Saved`, `SavedQuality` and `Forget` are called from the render
+thread only; `Load` keeps nothing and only calls the read function, so the chunk pool calls it
+from a worker thread while the render thread goes on (`CookedFolder.Read` is `File.ReadAllBytes`
+on a volatile manifest, safe to call alongside). `IsFresh` compares the kept
+inputs with the frame's by value. When they differ it logs once per file, kept in a
+`HashSet<string>`, joining `BakeInputs.Changes` into "draws, lights and environment". A missing
+file isn't logged. `IsFreshQuietly` makes the same comparison and logs nothing, so it doesn't use
+up a file's one report either. So once every area's file has been asked about, a frame reads nothing and
+allocates nothing, the stale path included, which `LightBakeStoreTests` checks with
+`GC.GetAllocatedBytesForCurrentThread`.
+
+`Forget` clears both, so the next frame reads the headers again and logs again. `SceneRenderer`
+calls it in `Prepare` when `Content.Files` is a different object or `Content.Reloads` has moved
+since the last frame; `Content.Reload` counts up right after it refreshes the files. `Load`
+reads a whole file with `LightBakeFile.Read` and keeps nothing; it is for drawing a fresh bake.
+`Forget` also counts up `Reloads`, so the renderer reads the bake it holds again. `Forget(file)` drops one file's header and its stale report instead, and does not count `Reloads` up, since that would make the renderer let go of every chunk bake on the GPU and upload them all again. It records the file for `IBakeStore.TakeForgotten`, which the renderer drains in `ResolveBakes`: it takes that file off its unreadable set and calls `ChunkBakePool.Forget`, which touches just that entry (see [Chunk bakes on the GPU](#chunk-bakes-on-the-gpu)). That reads no file and waits for nothing, so the other chunk bakes stay resident. `Load`, `Reloads` and `TakeForgotten` are on
+`IBakeStore` with defaults (`Load` gives null, `Reloads` stays 0, `TakeForgotten` gives none, and `SavedQuality` gives null,
+so a background bake counts a fresh area as done), so a store that only answers
+`IsFresh` still works and its areas count as baked with live soft light. A store with a `Load` of
+its own, `LightBakeStore` among them, has no such excuse: when its `Load` gives null for a file
+it called fresh, the file went after its header was read, such as when it is removed without a
+reload calling `Forget`, and the renderer treats it as unreadable (see "Drawing a bake").
+`Renderer.GivesLightmaps` tells the two apart from the store type's interface map, once a type.
+`GameWindow.BakeCheck` asks the same store's `Saved` and prints what `Changes` names, so
+`--bake-check` judges the bake the game would draw with.
+
+Each area's texel density is on the area (`BakedSpace.TexelsPerMetre`, `BakedChunk.TexelsPerMetre`),
+not passed to the resolver, since it is part of what the scene asks for, like probe spacing.
+`Renderer.Bake` throws when its `BakeSettings.TexelsPerMetre` isn't the space's, since the bake
+it made would never be fresh.
+
+The work is done by a `BakeResolver` (`src/Rendition/Baking/BakeResolver.cs`), which the
+renderer keeps one of; `BakeFreshness.Resolve` makes a new one for a single call and is for
+tests and tools. The resolver keeps every array, list and dictionary it needs and only grows
+them, keeps the `BakeFrame` it fills, and caches each file name by (name, hash) so
+`BakeFiles.Chunk` and `BakeFiles.Space` run once for each distinct key (the cache is cleared
+if it passes 1024 names). The model sort uses one cached `Comparison<int>`: sorting with an
+`IComparer` makes a delegate on every call, and a struct comparer is boxed. So a steady frame
+allocates nothing, which `BakeResolverTests` checks with chunks, static draws and dropped
+lights. Because the frame is reused, **the `BakeFrame` a call returns is valid only until the
+next call** (`LastBakeFrame` included): keep what you need from it, not the frame. The only
+other garbage is from a store that allocates in `IsFresh`, which is the store's own. The
+resolver expects the chunks to have passed `BakeFiles.IsRigid`, which `Render` checks first.
+The sky is worked out once, from the original view: the second pass skips `BakeSky`, and
+`WriteUniforms` reads the `SkySun` that `BakeSky` stored rather than `SkyModel.Sun` of the view
+it draws. So a dropped Baked sun keeps lighting the sky and keeps its disc, and the sky isn't
+baked again without it each frame (`BakedSunGpuTests`).
+
+### Drawing a bake
+
+When a frame's space is fresh, `Renderer.ResolveBakes` makes sure its bake is on the GPU
+(`LoadSpaceBake`). The loaded bake is keyed by its file, its combined inputs, the store and the
+store's `Reloads`, so a frame that matches reads nothing. Otherwise the old pages are destroyed,
+`IBakeStore.Load` reads the file, and `CheckPages` checks that the page counts agree, that each
+page's bytes fit its size and format (`TextureData.LevelSize`) and that every draw's page
+exists. `CheckProbes` checks the probes: the two atlases and the grid come all or none, the
+grid's spacing and corners are finite and the spacing above 0, it holds at most
+`BakeFiles.MaxSpaceProbes`, and each atlas is as wide as the bake's 64 columns of tiles
+(`BakedProbeAtlas.IrradianceAtlasSize`, `DepthAtlasSize`) and tall enough for a row of tiles per 64
+probes, so `bakedProbeIrradiance` in `probes.glsl` finds every probe's tile. Each page becomes a one-level linear texture with clamped edges, three a page
+(irradiance, direction, mask, a missing mask as -1), and each draw's `LightmapRect` becomes a
+`GpuLightmapRect` keyed by bake id: the rect's scale and offset and the three texture indices. The instance buffer
+adds the copy's relit chunk, or -1 (see [Relighting a chunk](#relighting-a-chunk)).
+`Rgba16f` irradiance from an uncooked bake goes up as `TextureFormat.Rgba16f`
+(`R16G16B16A16_SFLOAT`, eight bytes a pixel), a format only these pages use; `CookedTexture`
+rejects it, since a cook never writes it. The bake stays loaded through frames that don't draw
+it, so turning `BakedLighting` back on reads nothing.
+
+A file that throws `InvalidDataException`, `IOException` or `UnauthorizedAccessException` while
+it is loaded or checked is logged once to `Console.Error` and added to the unreadable set of
+`ReadableBakes`, the wrapper the resolver asks instead of `Renderer.Bakes`. So is a file whose
+store has its own `Load` but gives null for it ("The file is gone, though its header was read as
+fresh."). It answers not fresh for that file, so the frame is resolved again and the space's
+Baked lights come back. The set is cleared when `Bakes` is another object or its `Reloads`
+moves. Anything else thrown while the pages are made, such as a full texture table or running
+out of device memory, destroys the pages made so far through the same deferred path and is
+rethrown, since it isn't the file's fault. Chunks are loaded by the pool below, which drops a
+chunk bake the full table refuses rather than throw.
+
+### Chunk bakes on the GPU
+
+A chunk's bake goes through `ChunkBakePool` (`src/Rendition/Baking/ChunkBakePool.cs`), which
+the renderer keeps one of. The resolver asks it through `BakeResolver.ChunkResident`, a hook
+called only for a chunk whose file is stored and fresh. When the store has no `Load` of its own
+(`GivesLightmaps`) the hook answers true at once, as before. Otherwise `Renderer.ChunkResident`
+calls `ChunkBakePool.Use(file, store)`, which marks the file used this frame and answers whether
+its pages are all on the GPU. A file asked about for the first time gets an entry and a
+`Task.Run` that calls `IBakeStore.Load` and `ChunkBakePool.CheckPages`, which checks the five
+transfer pages (sky red, green and blue and sun as `Rgba16f`, sun tint as `Rgba8`, all one size,
+at least 1x1), at most one irradiance page and one mask page, as many direction pages as
+irradiance ones, each plain page's size,
+each page's bytes against `TextureData.LevelSize`, and that every rect is on page 0. Its result,
+the bake or the exception's message, comes back through a `ConcurrentQueue`. A chunk that isn't
+resident is added to the frame with `BakeFreshness.AddChunk(..., pending: true)`: it counts in
+`ChunkPending`, not `ChunkFresh`, and its Baked lights stay live, so a frame never draws half a
+bake. `Render` never waits on the worker.
+
+`ChunkBakePool.Record` runs once a frame right after the upload queue records, on the frame's
+command buffer. It takes what the workers finished: a failure removes the entry and goes to
+`Renderer.ChunkUnreadable`, which logs it like a space's and adds the file to the unreadable set,
+so the chunk is lit live until a reload. A loaded bake gets one empty one-level linear texture
+per page. Then it lets go of every entry no chunk named this frame: a page already in the
+resource table is marked dying and its slot added to the frame's `_destroyed` list, and a page
+still going up is disposed through the same list, so nothing is freed before the frames that
+used it have finished on the GPU. Then it uploads: it plans one band of rows per page, in order,
+until `UploadBudget` is spent (`ChunkUploadBudget`, 8 MB, unless a test sets less), always at
+least one `GpuTexture.RowUnit` (4 rows for block-compressed pages) so a page bigger than the
+budget still moves, copies the bands into one host-visible staging buffer that the frame's
+`_destroyed` list frees, and records each with `GpuTexture.RecordRows`, which readies the image
+on a page's first band and hands it to shaders on its last. A frame with no band makes no
+staging buffer. A finished page goes into the resource table with clamped edges. When a bake's last
+page is in, its rects become `GpuLightmapRect`s with its irradiance and direction slots, a mask
+of -1 (fully lit) until the mask is wired up, and the bake's bytes are let go.
+
+Before a page's last band is recorded, the pool asks `ResourceTable.HasTextureRoom`. A full
+table would free the texture it refuses at once, while this frame's and older frames' copies may
+still be writing it, so the band isn't recorded. The bake is refused instead: at the end of
+`Record` it is let go the deferred way, pages already in the table included, removed, and
+reported through `ChunkUnreadable` ("The bake … can't go on the GPU, so its area is lit live: the
+material table has no room for its sun transfer page, since the renderer holds at most 1024
+textures."). The chunk is then lit live until a reload,
+and nothing escapes `Render`.
+
+The pool counts frames by calls to `Record`, and lets a bake go when `Record` runs with no `Use`
+of it since the last one. That holds because the renderer draws one view a frame: each `Render`
+presents one image and calls `Record` once, and reflection and light probe captures neither
+resolve bakes nor call `Use` or `Record`. Super never draws two views in one frame. Camera
+transitions show a held picture of the outgoing shot, not a second view, and there is no split
+screen. A renderer that drew two views a frame, each with its own `Record`, would let go of the
+first view's chunks on the second view's `Record` and read them again on the next frame, so it
+would need to count presented frames instead.
+
+A chunk's rects are never merged with the space's or another chunk's. Copies of one chunk name
+can hold different bakes, one per set of inputs, whose rects share bake ids, so a merged
+dictionary would hand a pending copy a resident copy's rect. `InstanceBuffer.Lightmaps` holds
+the space's rects alone, and `InstanceBuffer.ChunkLightmaps` holds each relit chunk's entry rects
+by chunk index (`Renderer._chunkLightmaps`, filled in `FindRelitChunks`). `Add` looks a copy up
+in its own chunk's rects when `Chunks` gives it one, and in the space's otherwise. A copy whose
+chunk isn't relit, being pending, stale or unowned, gets chunk -1 and finds nothing among the
+space's rects, so it is lit live. A frame with no chunk draws exactly as before. A hash of the
+named files goes into `ReflectionLightingHash`, so reflection probes are taken again when a chunk
+bake arrives or goes. A change of store or `Reloads` calls `ChunkBakePool.Clear`, which lets go
+of every entry the same deferred way, while a file the store forgot by itself (`TakeForgotten`) goes
+through `ChunkBakePool.Forget`, which touches that entry alone. A forgotten entry that isn't resident
+yet is let go the way eviction does (its textures retire after the frames using them, and its read's
+result is ignored). A resident one is only marked stale and keeps drawing: the next `Use` starts a
+replacement read into a second map, `_replacing`, and the replacement goes up like any new bake. At
+the end of the `Record` where its last page goes up, it takes the old entry's place and the old one
+is released, so a bake written over, such as a Final over a Preview, never flickers to live light.
+A replacement that can't be read or put on the GPU is dropped with the old one, and the chunk is lit
+live as any unreadable chunk is. Forgetting again while a replacement is read drops that
+replacement, and a frame that names neither lets both go. `Pending` counts replacements too. The
+sky and sun transfer pages are read as described in
+[Relighting a chunk](#relighting-a-chunk).
+
+While the G-buffer pass records, `InstanceBuffer.Lightmaps` holds the loaded rects, and `Add`
+writes each copy's `GpuLightmapRect` into a buffer at set 0 binding 10, 48 bytes a copy, beside
+the instance matrices: the draw's `BakeId` looked up, or all -1 for a copy with no bake id or
+none in the bake. Reflection and light probe captures draw the G-buffer the same way, so they see
+the space's baked light the camera does. They set no `Chunks`, so they draw a chunk's surfaces
+lit live, though without the `Baked` lights a fresh resident chunk takes out of the frame's
+light list; the shadow passes see no rects.
+`gbuffer.vert` reads it by `gl_InstanceIndex` and passes on the lightmap uv, `Uv2` times the
+scale plus the offset, at location 7 and the three texture indices, flat, at location 8, with
+the copy's chunk in w.
+`writeBaked` in `surface.glsl` samples the pages at level 0 and writes G-buffer target 4:
+irradiance over pi, turned by `(n·d * 0.5 + 0.5) / max(0.5, v·d * 0.5 + 0.5)`, where `n` is the
+shaded normal, `v` the vertex normal and `d` the direction page unpacked to -1..1, so a normal map
+still shows under baked light and an even sky (`d` near 0) leaves it unchanged. The floor,
+`LIGHTMAP_LEAST_SHARE`, is the share a `d` the baker made in front of `v` always has, so such a
+texel is unchanged by it; a `d` behind `v`, which a gutter texel or a smooth-shaded edge can give,
+would otherwise divide by nearly 0, and with it the light is turned up at most twice. Alpha is 1. Target 5 gets the mask
+page, or 1. A copy without a lightmap, and a ghost, writes 0 and a mask of 1.
+
+`lighting.frag` reads target 4 at set 1 binding 13 and target 5 at binding 14. A pixel with
+alpha above 0.5 takes `baked.rgb` times its diffuse colour in place of the soft light from the
+sky or probes, keeps its translucency, and its diffuse occlusion is the material's AO times
+`mix(1, screen AO, 0.5)` (`LIGHTMAP_OCCLUSION`), since the bake already holds the shade;
+specular occlusion is unchanged. `ReflectionLightingHash` adds the
+loaded bake's inputs while lightmaps or the bake's probes are drawn, so the probes are captured
+again when the bake changes. With no bake, every pixel's alpha is 0 and the frame is the same to the byte.
+
+The bake's probes light what has no lightmap. `LoadSpaceBake` puts the two probe atlases in the
+material table beside the pages, as one-level linear textures with clamped edges, and adds them
+to `Pages`, so they are destroyed with them; `LoadedBake.Probes` keeps the grid and the two
+texture indices. `ResolveBakes` sets `_activeBakedProbes` while the space is fresh, which also
+means `BakedLighting` is on, and clears it otherwise. The frame uniforms then carry the grid in
+`bakedProbeMin` and `bakedProbeCounts` (w is 1 while they are drawn), and the box in
+`bakedSpaceMin` and `bakedSpaceMax`, whose w components hold the irradiance and depth atlases'
+indices. They are all 0 with no fresh bake. `bakedFade.x` holds the space's fade from
+`BakeFrame.SpaceFade` while its lightmaps or probes are drawn, and 1 otherwise; `bakedProbeWeight`
+multiplies by it, and so does the alpha `writeBaked` gives a space's lightmapped pixel, so a
+space's bake fades in as a whole (see "Each frame's bakes"). The bake's atlases are read through the material
+table (set 2 binding 0, which the lighting pass binds for the materials) rather than new lighting
+set bindings, because the lighting set is written once for every frame in flight, and a bake
+loaded or dropped would have to rewrite it while a frame still reads it.
+
+`probes.glsl`'s `bakedProbeIrradiance` reads a bake's atlases with the same weights as the live
+`probeSum` (facing, visibility from the depth moments, trilinear, and no probe inside a wall), but
+from 2D textures laid out in `BakedProbeAtlas.Columns` (64) columns rather than the live atlas
+layers. It reads at level 0 with `textureLod`: the material table's sampler filters
+anisotropically, and neighbouring pixels can read different tiles, so derivatives would pick a
+wrong level. In `lighting.frag`, `softLight` first reads the bake's probes when the unbiased point
+is inside the space's box (`bakedProbeWeight` above 0). Where they give -1, because no probe of the
+bake sees the point, it falls through to `liveSoftLight`: `probeIrradiance`, which tries the view's
+fixed grid (`View.LightProbes(...)`) and then the camera's cascades, and then the sky. The box test
+matters: the lookup clamps to the grid, so a point within a spacing past the last probe still
+weighs it (`BakedProbeGpuTests`, which also checks the fall through to live probes inside the
+box). Near the box's faces the two are blended; see [Edge bands](#edge-bands).
+Transparent surfaces and particles don't read probes at all, so they are unchanged.
+
+The mask shadows Mixed lights. `LoadSpaceBake` keeps the file's `Channels` as a key-to-channel
+dictionary in `LoadedBake`. While `_activeLightmaps` is set (the space fresh, `BakedLighting`
+on, rects loaded) or a chunk is relit, `FindMaskSlots` works out the frame's slots (see
+[Shadow mask channels](#shadow-mask-channels) for how chunks share them). For the space, the first sun that
+`BakeFrame.ModeOf` calls Mixed takes channel 0, the same rule `ShadowMaskChannels.Assign`
+followed at bake time over the suns the bake held (Mixed and not moving), so nothing more is
+stored for it. Its index is moved down past the Baked suns before it, since the frame drawn
+leaves those out. A local light takes its listed channel while `ModeOf` still calls it Mixed.
+Every other frame clears both. Each of these is a frame slot, which for the space is its
+channel. The sun's slot goes in `GpuLight.Radiance.w` and a local
+light's in `GpuLocalLight.Fade.w` (`LocalLights.Prepare`'s `maskChannels`), packed beside the shadow flag as `castsShadow + 2 * (channel + 1)`, so -1 for none packs as 0 and `localMaskChannel` in `light_data.glsl` unpacks it.
+Two Mixed suns that swap places in the frame keep the bake fresh, because the sun hashes are
+sorted, so the new first sun reads the other's channel. Storing the sun's hash beside channel 0
+would close that, at the cost of a file version.
+
+`lighting.frag` samples the mask once per pixel, only when it is lightmapped, and
+`maskedVisibility` changes a light's visibility only when the pixel is lightmapped and the light
+has a channel. The mask's unused channels hold 0, so the -1 is what keeps a light without one
+from going dark. A light with a shadow map takes `min(mask, real-time)`. Past the last cascade
+`shadowVisibility` gives 1, so there the mask alone shadows the sun, and a moving object's
+real-time shadow still falls inside the cascades. A light with no shadow map or no tile takes
+the mask in place of the screen AO it would use. A pixel without a lightmap writes a mask of 1
+and keeps what it had (`ShadowMaskGpuTests`).
+
+### Shadow mask channels
+
+`ShadowMaskChannels.Assign` (`src/Rendition/Baking/ShadowMaskChannels.cs`) says which of a
+space's four mask channels each Mixed light writes. It puts -1 in every slot first, which means
+no channel. The first Mixed sun takes channel 0, and any other sun gets none. A local light is
+a member when it is Mixed and `BakeAreas.OwnerOfLight` says the space holds its position, the
+same rule that puts it in the space's hash, so a light the bake doesn't hold has no mask. This
+covers lights that cast shadows and lights with no shadow tile alike, since a light with no
+tile is shadowed by the mask alone. Members are sorted by (`Key`, index in the frame) and
+coloured greedily: each takes the lowest channel, from 1 when a sun has 0, that no earlier
+member with an overlapping range has taken. Two ranges overlap when the distance between the
+lights is less than the sum of their ranges. A member with no channel left is skipped by the
+lights after it, and its `Key` is added to `unassigned` (cleared first, in ascending order) for
+the bake report. Keys make the result the same whatever order the frame lists the lights
+in; two lights sharing a key are told apart by index, which is the one case where order shows.
+
+`ShadowMaskChannels.AssignChunk` does the same for a chunk, with three differences. A chunk has
+no sun channel, so the first Mixed light takes channel 0. A light belongs to the chunk when it
+is Mixed and its position, taken into the chunk's own space with `BakeAreas.IntoChunk`, is
+inside the chunk's box (edges count), since a chunk's box is not the world's. And the colouring
+runs in chunk space: members are sorted by (`BakeInputHash.Light` with the chunk's transform,
+index in the frame) and not by `Key`, and overlap is measured between their chunk-space
+positions. Every placed copy of a chunk gives its lights other keys but the same hash, so each
+light gets the same channel in every copy, which the one chunk bake relies on. A light left
+without a channel has its `Key` added to `unassigned` in ascending order, and two lights with
+one hash (the same light twice) are told apart by index.
+
+Those are bake channels, one set of four per bake. A frame draws the space's bake and any
+number of chunk bakes, and the lighting pass reads one mask per pixel, so it works in four
+frame slots instead. `MaskSlots.Assign` (`src/Rendition/Baking/MaskSlots.cs`) hands them out
+each frame, from `Renderer.FindMaskSlots`, without allocating. The space keeps its channels as
+its slots: the Mixed sun, when drawn, holds slot 0 and each Mixed local light in the file's
+`Channels` its channel, and those slots count as held everywhere, since the space's lights
+carry no position there. Then every Mixed local light owned by a relit chunk
+(`BakeResolver.LightOwners`) whose chunk-space hash (`BakeResolver.LightChunkHashes`) is in its
+bake's `ChunkChannels` (kept on the pool's `ChunkBakePool.Entry.Channels`) takes a slot
+greedily, smallest `Key` first: the lowest one neither the space, nor an earlier light of the
+same placed chunk, nor an earlier chunk light whose world range overlaps it holds. The chunk's
+index rides in the `chunkLights` tuple for that. One placed chunk has one table, which can name
+only one of its channels per slot, so its lights never share a slot however far apart, and the
+chunk bake gives channels in chunk-space hash order while the frame goes by key, so the
+overlap test alone could pair them. So two copies of one chunk side by side, whose lights are
+both channel 0 in the one bake, take two slots, and lights far apart, from different placed
+chunks, share one. A light left
+with none keeps its real-time shadow only and its key goes in `BakeFrame.UnslottedLights`
+(ascending).
+
+A light's channel in the lighting pass (`GpuLocalLight.Fade.w`, `_maskChannels`) is its frame
+slot. Each bake's surfaces translate when they write the G-buffer: `writeBaked` writes
+`outShadowMask[s]` from the bake's channel `table[s]`, or 1 where the table is -1
+(`frameMaskSlots` in `surface.glsl`). A chunk's table is `ChunkData.maskSlots` (`GpuChunk.Mask0`
+to `Mask3`) and its mask page `ChunkData.pages.y`. The space's table is `spaceSlots` in the
+chunk buffer's header: the identity, with -1 in each slot a chunk light took, so a space
+surface never reads its own channel for another bake's light. The 1 matters: a surface that
+a neighbouring chunk's lamp reaches has nothing for that lamp in its own bake, and 1 leaves it
+the lamp's real-time shadow (`ShadowMaskGpuTests`). With no chunk relit, the slots are the
+space's channels and `spaceSlots` is the identity, so a space-only frame writes the same mask
+as before. A chunk's copy in a reflection or light probe capture has no rect at all, so it is
+lit live and writes 1 in every slot.
+
+### The bake cache
+
+`BakeCache` (`src/Super/Rendering/BakeCache.cs`) keeps the chunk bakes made on this machine, which a
+player's machine can't get from cooked content. Files go in `BakeCache.FolderFor(gameId)`, in the
+game's local app data and not the roaming folder (`LOCALAPPDATA\{id}\Bakes` on Windows,
+`~/Library/Caches/{id}/Bakes` on macOS, `$XDG_CACHE_HOME/{id}/bakes` or `~/.cache/{id}/bakes` on
+Linux), under the same names as the content's bakes, which hold the input hash. `BakeCache.PlayFolder` picks
+the folder for live play: `Bakes` inside `--user-data` when it is given, otherwise `FolderFor`, and none, with one
+line saying why, when `FolderFor` finds no folder in the environment. `Game.Run` looks up the player's user-data folder
+only when it uses it, so `--user-data` runs where the environment names none. `SceneRenderer.BakeCache`
+is null by default, and `ReadBake` asks it only for a name the cooked content doesn't have as data,
+so a cooked bake always wins. A bake is read where `ReadBake` already runs, which can be on the
+render thread (see the known limit below).
+
+A file's last-write time is when it was last used: `Read` and `Write` set it from a `TimeProvider`, so
+tests drive it with a `FakeTimeProvider`. `Write` puts the bytes in a `.tmp` file next to the target
+and moves it over the target, so a reader never sees half a bake and a crash leaves the old one (the
+`.tmp` files are left out of the size and of reads). Then it deletes the files used longest ago, by
+time and then by name, until the total is at most the capacity, which is 512 MB unless the constructor
+is given another. The file just written is never deleted, even on a tie, and a delete that fails
+(the file is in use) is left for a later write. A file larger than the capacity isn't kept, and the
+one of that name is deleted, or left for a later write when a reader holds it open. Names are keyed
+with forward slashes, so `lighting\a.lightbake` and `lighting/a.lightbake` are the same bake. The cache never raises `Reloads`: a bake written over a damaged one calls
+`LightBakeStore.Forget(file)` (see [The bake store](#the-bake-store)).
+
+Writes come from the thread pool and reads from the render thread, so a read never waits for file
+work in another thread. One lock guards a small map in memory and is never held across file I/O. A
+write goes to a temp file of its own name (`{name}.{guid}.tmp`), so two writes never share one, and is
+moved in outside the lock. Trimming runs under a second lock that only writes take, and deletes
+outside the map's lock. A read opens the file with `FileShare.Delete`, so a move can replace it
+meanwhile. The last four bakes written are also held in memory until each is read once, so the
+re-read after `Forget(file)` touches no disk; a read from memory is written onto the file's use time
+by the next trim. The held bakes are also bounded by bytes, 64 MB unless the constructor is given
+another: the oldest go first, and a bake larger than the bound is kept on disk only. A problem
+setting a use time never fails a read or a write. A file that can't be opened or read (locked by
+another handle, a folder in its place, no access) counts as not kept, so the chunk is baked again.
+The first write of a session sweeps `.tmp` files last written over an hour before the `TimeProvider`'s
+now, left by a crash. It goes by the last-write time, since not every file system keeps a creation time.
+
+Known limit: a bake cached in an earlier session isn't in memory, so the first time its name is asked
+for it is read from disk, synchronously, on the thread that asks, which can be the render thread.
+It is one file read per chunk, once. Moving it off the render thread would need a read-ahead, which
+isn't built.
+
+Known limit: the trim doesn't tell the bake store what it deleted. A chunk whose header the store read
+before its file was trimmed fails when its bake is next loaded, counts as unreadable, and, since the bake
+queue remembers it finished, may not be baked again in that session, so it can stay lit live until the game restarts. It takes a world whose chunk
+bakes pass the capacity. Telling the store would need a callback from the trim that forgets the
+header without letting go of a bake that is already on the GPU, which `LightBakeStore.Forget(file)`
+does today.
+
+### Baking on arrival
+
+Super turns the renderer's [background bake](#baking-in-the-background) on in play only. `Game.StartWindowsGameLoop`
+makes the `BakeCache` just before `GameWindow.Run`, from the game's id, and hands it to `SceneRenderer.BakeCache`
+through `GameWindow.BakeCache`, so the other runs neither bake nor read the cache. `Run` turns baking on after the
+game goes live by calling `AutoBakeSwitch.TurnOn` (`src/Super/Rendering/AutoBakeSwitch.cs`), and `ApplyAutoBake`,
+called again before each frame is shown, works out the plan only when `AutoBakeSwitch.Changed` says
+`Graphics.BakeOnArrival` or `Graphics.BakeBudget` changed, since setting `Renderer.AutoBake` restarts the running bake.
+Every other run leaves the switch off. The switch is tested on its own; that only `Run` turns it on, and that
+`SceneRenderer` starts `Renderer.BakeFadeSeconds` at 0 while `Run` sets 0.5, need a window and aren't tested.
+`AutoBakePolicy.For` (`src/Super/Rendering/AutoBakePolicy.cs`) makes the plan: null when the switch is off or the GPU
+can't trace; from source, where `CookedFolder.Dev` has roots, spaces and chunks at Preview then Final, 4 ms, with the
+first root as the space folder; published, chunks only at Preview, 2 ms, and no space folder.
+`SceneRenderer.BakeOnArrival` sets `Renderer.AutoBake` with `BakeSaver.Done` as its `Done`.
+
+`BakeSaver` (`src/Super/Rendering/BakeSaver.cs`) gets each finished file on the render thread and chains its work onto
+the last bake's task on the thread pool, so files are kept in the order they finished and a Final never loses to a
+Preview finished before it. It reads the file's header first, to log the bake's time and so a file that doesn't read
+back is never kept. A space's file (`done.File` equals `BakeFiles.Space(done.Name)`) is written into the space folder
+through a `{name}.{guid}.tmp` file and a move; the watch cook then cooks it and the content reload reads it again.
+That reload calls `LightBakeStore.Forget()`, which lets go of every chunk bake too, so in a scene with both a space and
+chunks the chunks are lit live for a moment and their headers are read again on the render thread; no example has
+both yet. Forgetting only the space's file would need the reload to say which files changed, which it doesn't. A
+chunk's goes to `BakeCache.Write`, and its name goes to `WrittenBakes.Written`, a `ConcurrentQueue` that
+`SceneRenderer.Prepare` drains on the render thread with `WrittenBakes.ForgetIn` into `LightBakeStore.Forget(file)`, so the store reads the new file, from the cache's memory, on the next
+frame. Every exception is caught and logged as one line, since nothing else would hear of it, and the area stays lit
+live. `SceneRenderer.Dispose` waits up to 10 seconds for the saver after the renderer has gone, so a bake that finished
+just before the window closed is still kept. A new saver is made only when the space folder or the cache changes,
+after waiting for the old one.
+
+`GameWindow.PlayFrame` hands `Renderer.BakeProgress` to `GameHost.BakeProgress` before `Draw`, and in play
+(`GameHost.ShowsBakes`) `GameHost.Interface` puts the game's interface in a `ZStack` with `BakeOverlay`'s line. The
+game's view is always the first child, and the line's place is null when nothing bakes, so the root's type never
+changes and the game's interface keeps its state as the line comes and goes.
+
+Where the GPU can't trace, `SceneRenderer.SaysWhyNotBaking` is set from source, and after `Render` the first frame
+with a space that isn't fresh, or a chunk that is neither fresh nor pending, logs `Not baking {name}: {reason}` once.
+`NotBakingNotice` (`src/Super/Rendering/NotBakingNotice.cs`) makes that decision from the frame's `BakeFrame`, and
+says nothing while baked lighting is switched off.
+
+### The .lightbake file
+
+`LightBakeFile` (`src/Rendition/Baking/LightBakeFile.cs`) is a baked space or chunk on disk.
+`ToBytes` writes it and `Read` reads it, all little-endian. Light keys are `int`, as
+`LocalLight.Key` is. The layout, in order:
+
+- Header, 41 bytes, never compressed: magic `0x4B41424C` ("LBAK") as a `uint`, version (2) as an
+  `int`, the four `BakeInputs` hashes (draws, lights, environment, settings) as `ulong`s, and the
+  `BakeQuality` as a byte. Quality sits here and not in the hashes because a bake made at another
+  quality is not stale. `ReadInputs` reads only this, so a freshness check never inflates a page.
+- Draws: a count, then for each the `ulong` bake id and its `LightmapRect` (page `int`, scale x and
+  y, offset x and y as `float`s).
+- A flags byte: 1 probe irradiance, 2 probe depth, 4 probe settings, 8 transfer, 16 plain light.
+  In version 1 it sat after the mask pages and every file had a plain light.
+- If 16 is set, the irradiance pages and then the direction pages, each a count and then the pages. A
+  chunk with no Baked or Mixed light and no glowing surface has no plain light, so it stores neither
+  and `Irradiance` and `Direction` read as null. Most Hamlet cottages are like that. A space always
+  has them, and `Renderer.LoadSpaceBake` rejects one without, naming the file.
+- Mask pages: a count, then the pages.
+- The probe atlases (flags 1 and 2) and then the probe settings (flag 4), when set. The probe
+  settings are `Min` xyz, `Max` xyz and `Spacing`, all `float`s.
+- If 8 is set, the transfer: five pages, `SkyRed`, `SkyGreen`, `SkyBlue` and `Sun` as `Rgba16f`
+  holding the four L1 coefficients of [Chunk transfer](#chunk-transfer) in RGBA, and `SunTint` as
+  `Rgba8`. The tint is the sun's colour per texel divided by its largest channel, and `Sun` holds
+  that channel's share, so one set of coefficients serves all three colours. Only a chunk has it.
+- Channels: a count, then (light key, channel) as two `int`s each, for a space.
+- Chunk channels (version 2): a count, then (light hash `ulong`, channel `int`). A chunk keys its
+  mask channels by the light's chunk-space hash, `BakeInputHash.Light(light, chunkTransform)`,
+  because every copy of a chunk gives its lights different keys and the hash is the same for all.
+- The report: a count and the keys of the Mixed lights that found no channel, the invalid texel
+  share (`float`), the samples (`int`) and the time as `long` ticks.
+
+A page is width, height (`int`s), its `LightBakePageFormat` (a byte: 0 `Rgba16f`, 1 `Rgba8`,
+2 `Bc6h`, 3 `Bc7`), the raw pixel length, the compressed length (`int`s), then the pixels
+Brotli-compressed. `LightBakeCooker` (`src/Super.Cook/Cookers/LightBakeCooker.cs`) rewrites pages as
+BC6H or BC7 into the same container through the format byte: `Rgba16f` irradiance to `Bc6h`,
+`Rgba8` direction and mask to `Bc7`, with the header untouched so `ReadInputs` gives the same
+hashes. Probe atlases, transfer pages and pages with a side that isn't a multiple of 4 are kept
+(signed BC6H could carry the transfer pages later; it is not done). `Bc7Encoder`
+does BC7. BC6H goes through BCnEncoder.Net at `Balanced` quality, and `Bc6hEncoder` first writes
+all-zero 4x4 blocks as a black block without encoding them, then packs the rest into one strip
+to encode in parallel. Channels are floored at 0.0001 because that encoder writes exact zeros
+beside small values as 65504 at the Fast and Balanced qualities. The cooker's version folds in
+`Bc7Encoder.Version` and `Bc6hEncoder.Version`. `TextureFormat.Bc6h` maps to `BC6HUfloatBlock`.
+
+A wrong magic throws `InvalidDataException` giving the value found and the value expected. `Read`
+takes versions 1 and 2, so a space's committed version 1 bake still reads, with `Transfer` null
+and no chunk channels; any other version throws naming the version found and the two it reads.
+`BakeInputHash.BakerVersion` stays 2, since a space's bake is made from the same inputs, so that
+bake stays fresh. Bytes that end early, or a count or length that is more than the bytes left,
+throw `InvalidDataException` too ("cut off"), so a damaged count can't ask for gigabytes.
+
+A page's raw length must equal what its size and format take: width x height x 8 bytes for
+`Rgba16f`, x 4 for `Rgba8`, and ceil(width / 4) x ceil(height / 4) x 16 for `Bc6h` and `Bc7`. A
+negative width or height, a raw length that differs, or pixels that inflate to more than the raw
+length throw `InvalidDataException`, and the buffer is only allocated after the length checks.
+So is a page larger than any bake makes, naming its size and the limit: a lightmap page over
+`LightmapLayout.PageSize` (2048) a side, a probe irradiance atlas over
+`BakedProbeAtlas.IrradianceAtlasSize` (640) or a depth atlas over `DepthAtlasSize` (1152), the sizes
+that hold `BakeFiles.MaxSpaceProbes`. That bounds the buffer at 32 MB, so a damaged size can't
+take the game down with an out-of-memory error, which nothing catches.
+`ReadInputs` copies only the 41 header bytes.
+
+## Chunk transfer
+
+A baked chunk stores how light from outside reaches its surfaces as L1 spherical harmonics (SH): four numbers per
+colour. `ShL1` (`src/Rendition/Baking/ShL1.cs`) is the one place that defines them, with CPU tests that don't need the
+GPU. The shaders mirror this file.
+
+The basis is `Y0 = 1 / (2 sqrt(pi)) = 0.282094792` for the constant band, and `Y1 = sqrt(3) / (2 sqrt(pi)) = 0.488602512`
+times a unit direction's component for the linear band. The slot order is (y, z, x): `C0` is the constant, `C1` goes
+with y, `C2` with z and `C3` with x. A function's value in a direction is `C0 Y0 + Y1 (C1 y + C2 z + C3 x)`.
+
+`Direction(d, L)` projects a delta of radiance `L` from `d`, and `Uniform(L)` projects a sky of the same radiance
+everywhere, which is only `C0 = 4 pi Y0 L`. `Dot(a, b)` sums `a * b` over the four slots, which is the integral of the
+product of the two functions. The transfer already holds the cosine, so its `Dot` with the sky's projection is the
+irradiance, with no further weighting: a cosine lobe about +y has transfer (pi Y0, 2/3 pi Y1, 0, 0), and its `Dot` with
+`Uniform(1)` is `pi`, the irradiance of a unit sky over a plane.
+
+`Rotate(rotation)` turns a chunk's transfer by the chunk's transform. (`C3`, `C1`, `C2`) turn as the vector (x, y, z)
+does, with `Vector3.TransformNormal` (System.Numerics uses row vectors), so a direction `d` moves to `d R` and the
+turned function's value there is the original's value at `d`. A quarter turn about y sends +x to -z. It uses the upper
+3x3 of a rigid transform and throws `ArgumentException` for anything `BakeFiles.IsRigid` rejects, since a scale would
+scale the coefficients without turning them.
+
+### Baking a chunk
+
+`Renderer.BakeChunk` and `Renderer.Bake` both run a `BakeJob` (see "Baking as a job"), made from an `AreaJob`: the
+draws and lights in the area's own space, whether it is a chunk, its layout, the sky's intensity, whether the plain
+light is kept, and a space's probes. The lights carry their mask channels. The job sets up the texels, which builds
+its top-level structure from the area's draws, traces, then filters and dilates each page, and `Finish` encodes them.
+A space's job is its frame as it stands, and traces the space's probes after the pages.
+
+A chunk's job holds only the static draws `BakeResolver.ChunkIds` files under it, the same ones its inputs hash, each
+moved by `BakeAreas.Relative` into the chunk's space, so a chunk's bake is the same wherever it stands and nothing
+outside it blocks or bounces its light. Copies of a chunk share ids, so a draw is taken only when
+`BakeResolver.Owners` also gives it to the chosen copy: a frame that places the chunk many times bakes the same file
+from any one of them (`BakeChunkGpuTests`). Its layout is `LightmapLayout.BuildSingle`: draws share rectangles as in
+`Build`, and the rectangles go on one page with `Single`. The baker works on 2048-texel pages, so the page is baked at
+the top left of one (`LightmapLayout.OnFullPage`) and every page the file stores is cut to the layout's `PageSide`
+after encoding (`Baker.Crop`). Its lights are its own local `Baked` and `Mixed` lights that hold still, the ones
+`BakeAreas.OwnerOfLight` gives the chunk, with position and direction moved by `BakeAreas.IntoChunk`. Mask channels
+come from `ShadowMaskChannels.AssignChunk`, with every other light counted as `Realtime`, and are listed in
+`ChunkChannels` by `BakeInputHash.Light` under the chunk's transform. A chunk has no sun channel. The plain light has
+no sky (`skyIntensity` 0) and no suns, and its irradiance and direction pages are kept only when the chunk has a light
+or a glowing static surface (`ResourceTable.Glows`, any emissive channel above 0). That counts a surface with no
+lightmap of its own, such as a swaying one: it is still traced, so its glow still lights the chunk's other surfaces.
+There are no probes.
+
+For a chunk, `bake_trace.comp` sets `chunk` in its push constants and `bake_paths.glsl`, compiled
+with `BAKE_TRANSFER` there and without it for the probes, sums the transfer into five more `rgba32f` sums alongside the
+plain light. A space binds 1 x 1 images there that are never written, and its random numbers are drawn exactly as
+before, so a space's bake doesn't change. The rules, in the chunk's space:
+
+- Sky. A path that misses everything adds `throughput * Y(w)` to the red, green and blue coefficients, where `w` is the
+  direction it left in, at any bounce including the first. The first direction is drawn by the cosine, so the stored
+  value is `pi` times the mean, and a lone plane under a unit sky has `Dot` with `Uniform(1)` of `pi` (C0 = `pi Y0`).
+- Sun. At each surface the path reaches after leaving the texel, one ray goes out in a direction `w_s` drawn uniformly
+  over the sphere, as next-event estimation for a sun from `w_s`. If it reaches `BAKE_SUN_DISTANCE` it adds
+  `throughput * albedo / pi * max(0, n . w_s) * 4 pi * Y(w_s)`, times `pi` as the sky is. The sum is by luminance, one
+  set of coefficients for all colours, and the light's colour is summed apart. The texel's own view of the sun is
+  left out, since the sun's direct light stays live, so a lone plane has no sun transfer.
+
+The two extra random numbers are drawn at every surface the path reaches, whether the ray goes or not.
+
+The transfer is dilated as the plain light is, with `bake_dilate.comp`'s rings run twice over ten floats at a time
+through the page's own filter run (`Baker.TransferRun` uploads each half, `Baker.ReadTransferRun` takes it back). First a NaN becomes 0 and anything past a half's range is clamped to it. The transfer isn't
+smoothed, so at Preview, 64 paths a texel, its bounce is grainy where the plain light would be smooth.
+`Baker.EncodeTransfer` then writes the sky's and sun's coefficients in RGBA16F and the sun's colour in RGBA8 as
+`SunTint`, divided by its largest channel. The sun's coefficients are scaled by that channel over the
+colour's luminance, so `SunTint * Sun` is each colour's transfer. A texel no rectangle or dilation reaches holds no
+transfer and a white tint.
+
+### Relighting a chunk
+
+Every copy of a chunk reads the one bake, and the frame's sky and suns are turned into each copy's space, so the same
+house can face north or south, at noon or at dusk, from one bake.
+
+The sky is projected by `SkySh` (`src/Rendition/Passes/SkySh.cs`) and `sky_sh.comp`, one group of 256 threads, into a
+64-byte buffer at set 0 binding 12: four `vec4`s, coefficient k's red, green and blue and its luminance, unscaled by the
+environment's intensity. It reads the 64² sky cube as its 16² mip would be, without one: each thread takes one cell of
+a 16 x 16 grid on every face and reads it as four bilinear taps at the centres of 2 x 2 texel blocks, so a cell is the
+mean of its 4 x 4 texels, and each tap is weighted by its block's exact solid angle. A sky of the same radiance
+everywhere gives `C0 = 4 pi Y0 L` to well within 1%. It is recorded before the G-buffer pass, after the sky cube is
+updated, only on frames that draw a relit chunk, so a sky change shows the very next frame.
+
+The frame's chunks are at set 0 binding 11 (`chunks.glsl`): first an 80-byte header (`ChunkHeaderBytes`) of the suns
+and the space's mask table, then a `ChunkData` per placed chunk, up to 256 (`BakeFiles.MaxChunks`), 128 bytes each and
+matching `GpuChunk` in `Renderer.cs`:
+
+- `sun[4]`: every `Mixed` and `Baked` sun summed as deltas, each its radiance times `Y` towards it, in world space.
+  A sun that moves is still counted, so a chunk's bounce follows a moving sun.
+- `spaceSlots`, in the header: for each frame mask slot, the space bake's channel that holds it, or -1 where a chunk's
+  light took it. Written every frame, chunks or none (see [Shadow mask channels](#shadow-mask-channels)).
+- `intoChunk`, a `mat3x4`: from the world into the chunk's space, the transpose of the rigid transform's 3x3 with
+  `-dot(t, row)` in w, so `vec4(world, 1) * intoChunk` is the point and `vec4(direction, 0) * intoChunk` the direction.
+- `min` and `max`, the chunk's box in its own space. `min.w` is the chunk's `EdgeBlend` in metres (see
+  [Edge bands](#edge-bands)), and `max.w` how far its bake has faded in, from 0 to 1.
+- `maskSlots`: for each frame mask slot, the channel of the chunk bake's mask that holds it, or -1 where none of this
+  copy's lights holds the slot.
+- `transfer`, the bindless slots of the sky's red, green and blue transfer pages and the sun's, and `pages`: `x` the
+  sun tint page's slot and `y` the shadow mask page's, or -1. These go beyond the plan's struct, since a chunk's transfer pages are read through it, not through the
+  copy's `GpuLightmapRect`.
+
+`Renderer.FindRelitChunks` fills these after the resolver runs. A chunk is relit when its bake is fresh, resident in
+the pool and has transfer pages. `BakeResolver.Owners` gives each draw's owning chunk, from the same filing as its
+ids, and a draw owned by a relit chunk gets that chunk's index. `DrawSelection.Select` reports each kept draw's index
+among the frame's draws, and `InstanceBuffer.Add` writes the chunk into `GpuLightmapRect.Chunk` for a copy that has a
+lightmap, looked up in that chunk's own rects. Only the camera's G-buffer pass sets it; reflection and light probe
+captures draw a chunk's surfaces lit live. `gbuffer.vert` passes the chunk in w of the flat `ivec4` at location 8 rather than as an `int` of its own,
+since `transparent.frag` shares the vertex shader and a lone unread `int` output draws a validation warning. The
+chunk-space position goes out at location 9, for the [edge band](#edge-bands); the mask is read at the copy's lightmap UV, which
+is already the chunk's.
+
+`writeBaked` adds `chunkLight`. Each colour's sky set is turned into the chunk's space by `intoChunkSh`, whose vector
+part (`C3`, `C1`, `C2`) turns as (x, y, z) does, and dotted with that colour's transfer, times the environment's
+intensity. The summed suns are turned the same way and dotted with the sun page, times the tint. The plain page's
+light, if any, is added to that. With no plain page, `d` is the luminance transfer's vector part weighted by the
+turned sky's, and either way it is turned back to the world by `outOfChunkDirection`, the transpose.
+
+That `d` can point behind the surface. The transfer's vector part leans the way its paths escaped, not the way their
+light came in: light that bounced off a ceiling and left through a window below it leans down, and a sky brighter
+below the horizon leans down too. A `d` behind the surface takes `turned`, `(n·d / 2 + 1/2) / max(1/2, v·d / 2 + 1/2)`,
+towards 0 and turns the light off, which showed in the Hamlet as crisp holes in a blanket's light where the live blue
+sky's reflection was all that was left. A space bake's `d` comes from the first, cosine-sampled bounce and is always in
+front. So with no plain page, the part of `d` behind the vertex normal is taken off, `d -= min(d·v, 0) v`, which leaves
+`turned` at 1 without a normal map and still lets a normal map shade by the part along the surface.
+`ChunkRelightGpuTests.Chunk_floor_under_a_sky_brighter_below_is_lit_like_a_space_bake` lights an open floor under a
+sky brighter below: its chunk read 0 against the space's 84 before, and reads 76.6, 7.52 steps away, after.
+
+Multiplying the two vectors axis by axis doesn't give the product's own lean either, which would be `t0 l + l0 t`,
+and doesn't turn with the chunk. It only picks the way a normal map shades, so it is kept for now.
+
+`ChunkBakePool.CheckPages` takes a chunk lit only by the sky and suns: it has a mask page but no irradiance or
+direction page, which it used to refuse.
+
+L1 keeps only the sky's broad shape. It is exact for an even sky, but a sky much brighter at the horizon than
+overhead is smeared over the zenith, so an open floor reads too bright. Under a clear `AnalyticSky` at turbidity 3, a
+chunk's floor is 8.03 steps of 255 on average from a space baked under the same sky; under an even sky it is about 1.
+`ChunkRelightGpuTests.Chunk_stays_near_a_space_bake` holds it to 9. Turning is checked apart, against a chunk baked
+with its wall where the turn puts it, which is L1 too: 2.5 to 2.7 steps, held to 6.
+
+`glow.frag` and any other custom surface shader includes `surface.glsl`, and a static model's identity hashes its
+shaders' compiled bytes, so any change to `surface.glsl` changes those models' bake ids and makes a space bake that
+draws them stale until it is baked again.
+
+### Edge bands
+
+A chunk's bake sees only the chunk, and a space's probes only the space, so each meets the live light at its edge with
+a step. Both are blended into the live light near the edge instead, each frame, so neither is in a bake's hash: a
+chunk's `EdgeBlend` can change and its bake stays fresh.
+
+A chunk's band runs `EdgeBlend` metres (0.5 by default, `BakedChunk.DefaultEdgeBlend`) in from its box's ±x and ±z
+sides; the top and bottom have none, since floors and roofs don't meet the world there. `surface.glsl`'s
+`chunkEdgeWeight` takes the pixel's chunk-space position (location 9), the distance to the nearest of the four sides,
+and `smoothstep(0, EdgeBlend, distance)`; `EdgeBlend` 0 gives 1 everywhere. `writeBaked` puts it in `outBaked.a`,
+leaving the rgb unweighted. A space's lightmap and every pixel of a chunk with no relight write exactly 1 once their bake has faded in, and a pixel
+with no lightmap 0. `lighting.frag` treats `a > 0` as lightmapped. At 1 it takes the baked rule alone, with the same
+code as before the band, so a space-lightmapped pixel is drawn bit for bit as without it; so is an unlightmapped one,
+unless it is inside a space's probe band, below, whose blend changes its soft light. In between
+it takes `mix(softLight, baked.rgb, a)` for the diffuse light, mixes the live ambient occlusion with the lightmap's by
+`a`, and `maskedVisibility` moves the mask's visibility towards the live shadow's by the same weight: a shadowed
+light takes `min(mix(1, mask, a), live)`, an unshadowed one `mix(live, mask, a)`. The weight is per pixel, so a light
+is counted once across the band, never by both sides (`EdgeBandGpuTests.Edge_band_keeps_a_light_counted_once`).
+A bake fading in uses the same blend: `writeBaked` multiplies a chunk pixel's weight by the chunk's fade, which
+`FindRelitChunks` puts in `ChunkData.max.w` from `BakeFrame.ChunkFade`, and a space's lightmapped pixel writes
+`frame.bakedFade.x` instead of 1. So a fade at 1 draws bit for bit as before, and one at 0 as live.
+`BakeFiles.CheckEdgeBlend` throws for a negative or NaN blend, or one over half the box's smaller side across x and
+z, where opposite bands would overlap.
+
+A space's probe band runs one `probeSpacing` in from all six faces of its box. `bakedProbeWeight` is the product of
+the three axes' `smoothstep(0, spacing, distance in from the nearer face)`, and `softLight` returns
+`mix(liveSoftLight, bakedProbeIrradiance, weight)`; where the bake's probes give -1 the weight is 0, and at 1 the
+bake's probes are returned alone. `frame.bakedProbeCounts.w` is 1 for the band, 0 with no fresh space bake, and 2
+for a hard box, which only `Renderer.BakedProbeBand`, an internal test hook, asks for. Either way the weight is then
+multiplied by `frame.bakedFade.x`, the space's fade. The space's lightmap has no
+band, as the space's static surfaces end inside its box.
+
+Both bands are a smoothstep over a fixed width W, whose steepest slope is 1.5 / W, so across a gap D between the two
+lights a step s changes the picture by at most about 1.5 * D * s / W: a darker bake against a brighter live light, or a
+narrower band, shows a steeper one. `EdgeBandGpuTests` measures D from the two plateaus and holds each band to that,
+plus 2 for rounding and the bake's own noise. A floor running out of a chunk's alley into the open, a gap of 89 of
+255, steps by 5 between neighbouring pixels with the band (bound 6) and 85 without; a quad moving out of a space's box
+in 10 cm steps, a gap of 59, changes by 5 with the band (bound 7) and 58 at the face without. The bake's own light
+near the edge adds to the band's slope: walls that end at a chunk's side let its bake see the sky open up there, and
+its floor brightens over the last few tenths of a metre on top of the band.
+
+## Ray tracing
+
+Device setup is in `VulkanContext.CreateDevice` (see above): ray queries are on only where nothing is
+missing, `Renderer.CanTrace` says so, and `Renderer.NoTraceReason` says what was missing. Super
+prints nothing at start about it: the reason is only shown when something that needs tracing is
+asked for, which today is `--debug-view trace`, whose start-up error carries it. Nothing else
+needs it, so a GPU that can't trace plays as before.
+
+`Renderer.Tracing` is a `RayTracing`, made only where `VulkanContext.CanTrace` is true; it is
+null everywhere else, and nothing below runs. It loads `KhrAccelerationStructure` from the device
+once and reads `minAccelerationStructureScratchOffsetAlignment` from the device's properties.
+
+Bottom-level structures are built the first time something traces a mesh.
+`BottomLevel(cmd, mesh, parts)` returns the structure's device address. The first call for a mesh
+and a part list records the build into `cmd`; after that the same address comes back and nothing is
+recorded. The key is the mesh and its `TracePart` list together, because the same mesh can be drawn
+with different index ranges. Each part becomes one triangle geometry over the mesh's own vertex and
+index buffers: `R32G32B32Sfloat` positions at `Vertex.Position` with a stride of `sizeof(Vertex)`,
+`Uint32` indices, and the part's first index as the range's byte offset. A geometry is `Opaque`,
+so rays skip the any-hit check, unless its material has cut-outs or is `Transparent`. Builds use
+`PreferFastTrace` and are not compacted yet.
+
+Every build shares one scratch buffer, which grows when a build needs more. Its address is rounded
+up to the device's scratch alignment, so the buffer is made that much bigger. An outgrown scratch
+buffer is retired into the destroy slot of the frame being recorded, because the command buffer
+being recorded may still use it. A barrier follows each build, from the build's writes to
+acceleration structure reads and writes at the build stage. That covers the next build reusing the
+scratch buffer and the top-level build that reads the structure.
+
+A mesh's bytes arrive through `UploadQueue`. Where the device can trace, the upload barrier also
+covers the acceleration structure build stage, so a build later in the same command buffer reads
+the uploaded bytes, not what was in the buffer before. It also covers storage reads in the stages
+that trace (`RayTracing.TraceStages`, compute for now), because a hit fetches its triangle's
+indices and vertices through the buffers' addresses. A texture's upload likewise ends its layout
+transition with those stages among the sampled readers, so a mesh or texture created this frame can
+be traced this frame. Where the device can't trace, both barriers name only the raster stages. `BottomLevel` throws if the mesh's vertex
+or index copy is still waiting in the queue (`UploadQueue.IsPending`), rather than caching a
+structure built from empty memory. Inside `Render` that never happens, because the frame's uploads
+are the first thing recorded. A caller that builds in its own `SubmitAndWait` straight after
+`CreateMesh` has to render a frame or flush uploads first.
+
+`DestroyMesh` calls `Forget`, which drops the mesh's structures at once, since its handle may be
+handed to another mesh. The structures and their buffers are added to the same destroy slot as the
+mesh's own buffers, so they are released once no frame in flight can read them.
+
+Each part's opaque flag is baked into the structure when it is built. So `UpdateMaterial` calls
+`ForgetMaterial` when a change makes the material start or stop having cut-outs or being
+`Transparent`, and destroying a material always does, because material handles are slot numbers
+and the slot may come back as a material with a different flag. `ForgetMaterial` drops every
+structure with a part in that material and releases it the same way as `Forget`; the next trace
+rebuilds it. A background bake holds its top-level structure over many frames, so both paths stop
+it first when it traces that material (see "Background bakes").
+
+### What rays can hit, and the top-level structure
+
+`TraceScene.Collect(draws)` turns a frame's draws into `TraceInstance`s: one per distinct mesh and
+transform, in the order they are first drawn, with that placement's parts in draw order. The
+renderer keeps one `TraceScene`, made with its material flags, and each call reuses its instance
+list and part array, so the result is valid until the next call; an instance's `Parts` is a slice
+of that array.
+It leaves out ghosts (previews, not things), skinned draws and swimming draws (their structure is
+the bind pose, which they move away from), and draws with no indices. An instance's `TraceFlags`
+are the union of its parts': `Cutout` when a material has cut-outs, `SeeThrough` when it is
+`Transparent`.
+
+`TraceScene.ToVulkan` turns a transform into Vulkan's 3×4. System.Numerics multiplies row vectors
+with the translation in `M41..M43`, while Vulkan's matrix is row-major and acts on column vectors,
+so it is the transpose: row r of the result is column r of the transform.
+
+`TopLevel(cmd, instances)` builds each instance's bottom-level structure if it isn't built yet, then
+records a build of the whole top-level structure, rebuilt from scratch every call with
+`PreferFastTrace` and no refitting. `RayTracing.Pack` writes the instances: an instance's custom
+index is where its first part sits in the geometry table, which lists every instance's parts in
+order, so a hit's entry is `gl_InstanceCustomIndexEXT + gl_GeometryIndexEXT`. The mask is `0xFF`,
+with bit `0x02` clear on see-through instances so later features can skip them with a cull mask.
+The custom index has 24 bits, so a frame can trace at most 16,777,216 parts; more throws.
+
+Each call takes a top-level structure, its host-visible instance buffer and its geometry table from
+a pool, sized for a power of two of instances, at least 16. They go back to the pool through the
+destroy slot of the frame being recorded, so a frame in flight never has its structure or instances
+rewritten, however many builds a frame makes. When no free one is big enough, the free ones are
+freed and a bigger one is made. The build uses the shared scratch buffer and is followed by the
+same barrier as a bottom-level build.
+
+The build has to come after the frame's uploads, which `BottomLevel` insists on. Inside `Render` it
+does, so a mesh made this frame is traced this frame; nothing is skipped. Nothing may destroy a
+material or change whether it is opaque to rays between a `TopLevel` call and the frame's submit,
+because `ForgetMaterial` frees into the slot of the frame submitted before. Nothing in `Render` does.
+
+The renderer builds a top-level structure only when something traces: the trace debug view
+(`FrameView.DebugView = DebugView.Trace`), or a frame with light probes to update on a GPU that
+can trace. It is built once in that frame and shared by both, before the GPU timer's first mark,
+so its build counts in no pass's time. A frame with neither builds nothing.
+
+### The geometry table
+
+`TopLevel` fills the geometry table in the same call that builds the structure, so the two always
+describe the same scene. The table is a host-visible storage buffer of `GpuTraceGeometry`, one
+entry per part, 32 bytes each in std430: the mesh's vertex buffer address, its index buffer
+address (both `ulong`), the part's first index, its material's slot, and its draw's `Tint` (white
+when it has none) as three half floats in two words, which `traceTint` unpacks with
+`unpackHalf2x16`. `TraceScene.Collect` keeps each part's tint beside it in `TraceInstance.Tints`;
+tints stay out of `TracePart`, which keys the cached bottom-level structures, so a tint that
+changes never rebuilds one. Shaders read the addresses
+as `uvec2` through `GL_EXT_buffer_reference_uvec2`, so they need no 64-bit integers.
+`TopLevelStructure` carries the table and its entry count; `ReadGeometries()` reads it back for
+tests. The table grows with the structure it belongs to and goes back to the pool with it.
+`TraceGeometryLayoutTests` pins the layout and `Vertex`'s offsets against what the shader reads.
+
+A build ends with a barrier for the next build, at the build stage. Before a shader reads a
+structure, `RayTracing.ReadyToTrace(cmd)` records one more, from the build's writes to
+acceleration structure reads in the tracing stages. It covers only the structures; the mesh and
+texture bytes a hit reads are made visible by their own upload barriers (see above).
+
+### Tracing from shaders: trace.glsl
+
+`Shaders/trace.glsl` is what any shader that traces includes, after `common.glsl`. The including
+shader defines `TRACE_GEOMETRY_SET` and `TRACE_GEOMETRY_BINDING` (where the geometry table is
+bound) and `TRACE_RESOURCE_SET` (the resource table: textures at binding 0, materials at 1). The
+resource table's bindings are visible to compute shaders for this.
+
+`traceVisible(scene, origin, direction, maxDistance)` is a shadow ray: it ends at the first
+confirmed hit and says whether there was none. Both it and `traceClosest` take an optional
+`skipSeeThrough`, which passes through every `Transparent` material, as the light probes need.
+
+`traceClosest(scene, origin, direction, maxDistance, out hit)` runs a ray query. Opaque geometry
+is hit outright. A non-opaque candidate looks up its table entry, reads its three indices at
+`firstIndex + 3 × primitive` and their vertices' UVs through the buffer addresses, and is
+confirmed only when it passes the same cut-out test as the shadow pass: base colour alpha times
+the base colour and surface textures' alpha against `alphaCutoff`, sampled at mip 0. So a ray
+passes through the holes in leaves and fences. `TraceHit` holds the world position, the
+interpolated normal (taken to world space by the world-to-object matrix and turned to face the
+ray), the UV, the material, the draw's tint and whether the ray hit the front face.
+`hitAlbedo(hit)` is the base colour factor times the base colour texture times the tint, as
+probe_capture.frag colours a rasterized probe's faces, with no surface shader, variation, wear,
+dirt or puddles. Later features include this file instead of copying it.
+
+### The trace debug view
+
+`FrameView.DebugView = DebugView.Trace` shows what the acceleration structures hold. `Render`
+collects the draws, builds the top-level structure after the uploads, and `TraceDebugPass` runs
+`trace_debug.comp` in place of the lighting, subsurface and transparent passes. It sends one ray
+per pixel from the near plane, through `inverseViewProjection`, and writes the hit's albedo, or
+`(0.25, 0.35, 0.55)` for a miss, into `Hdr` as a storage image. `Hdr` has storage use only where
+the device can trace. The pass keeps one descriptor set per frame in flight and leaves `Hdr` ready
+to sample and `Depth` read-only, as the passes it replaces would.
+
+The colours reach the screen unchanged. The view turns off anti-aliasing (and so FSR), bloom,
+depth of field and auto exposure, and sets bit 30 of `frame.off` (`OFF_DEBUG_VIEW`, not a
+`RenderEffects` bit), under which `tonemap.frag` writes the clamped linear colour with no
+exposure, grade or curve, and `finish.frag` skips sharpening, the vignette and grain, keeping
+only the dither. Asking for it where the device can't trace throws an `InvalidOperationException`
+that names `NoTraceReason`. Puddles and surface shaders aren't geometry, so the view doesn't show
+them. Super sets it from `--debug-view trace` through `SceneRenderer.DebugView`. Before anything
+plays, `Game` asks `GameArguments.DebugViewError` whether the view can be shown; where `CanTrace`
+is false it prints its own sentence to stderr, `--debug-view trace needs a GPU that can trace
+rays, and this one can't (reason).` with `NoTraceReason` as the reason, and exits with code 1, so
+the renderer's exception is never reached.
+
+A game can set the view too, with `Graphics.DebugView`. `GameWindow.RendererSettings` picks what
+`ApplyGraphics` gives `SceneRenderer.DebugView` each frame: the command line's view when it named
+one (kept in `GameWindow.DebugView`), else the game's, except that a game's Trace is turned to None
+where `CanTrace` is false. That is ignored rather than refused, because the renderer would throw
+and a game can't know its player's GPU.
+
+### What a hit skips, and what is known to be rough
+
+A hit is the geometry the structures hold, not everything drawn, and it is deliberately cheap:
+
+- Skinned and swimming draws and ghosts aren't in the structures, since their built shape isn't where
+  they are drawn. Skinned characters are missing from the view.
+- Wind-swayed parts are traced at rest, because the structures are built from the mesh as stored.
+- A hit's colour is the base colour factor times the base colour texture times the draw's tint
+  only: no surface shader, variation, wear, dirt, puddles or lighting. Anything whose colour comes from a surface shader
+  shows its plain factor instead. Draws with the default white material, such as the Crypt's candles,
+  show white.
+- Textures are sampled at mip 0, since a ray has no derivatives, so fine textures such as burlap
+  alias into noise in the view.
+- Glass and other `Transparent` geometry is hit as if solid; rays aren't tinted by it yet.
+- The structures are rebuilt from scratch every frame that traces, with no refitting or compaction.
+
+On synchronisation: the upload barriers add the tracing stages (`RayTracing.TraceStages`) only on
+devices that can trace. Synchronisation validation doesn't fire on SDK 1.4.363, so those barriers,
+and `ReadyToTrace`, are checked by review and by the GPU tests, not by the validation layer.
 
 ## Known simplifications to revisit
 
@@ -2399,12 +4370,36 @@ Anything larger than a block gets its own allocation.
 - Reflection probes are captured again only when they move or the lighting changes, not when
   things or the camera move, and a scene gets at most four. Removing one recaptures the rest.
   They don't see point and spot lights.
-- Light probes are captured again only when the lighting or the box changes, not when
-  things move, and a sun that moves every frame keeps them capturing. Each capture frame
-  waits for the GPU face by face, so it hitches. They see the sun and the sky but not point
-  and spot lights, so bounced light follows neither a moving lamp nor a moving object.
-  Probes that update a few at a time while the game runs, as DDGI does, would be the next
-  step.
+- Where the GPU traces, light probes update 256, 512 or 1,024 a frame, so the two finest
+  cascades settle within a few dozen frames at High and every probe is redone every 64 frames
+  for the first 12 refreshes after a change, then every 256. Each update adds one more bounce,
+  so in the white test room the light bounced between walls gets to half in about 4 seconds at
+  60 fps and to 80% in about 12, inside that window. The rest comes in at the quarter budget,
+  and changes within the noise move a probe only a quarter of the way, so 90% takes about a
+  minute and the last few percent close to two: a lamp turned on in a white room is mostly lit
+  within seconds and keeps brightening slightly for a minute or two.
+- Where it doesn't, light probes are rasterized a few a frame (8, 16 or 32), so after a load, a
+  teleport or a change of sun they take a while to settle: about a thousand frames for the two
+  finest cascades at High. Courtyard takes longer than a screenshot's 2,048-frame wait to settle
+  at High, so its shots can still be filling in. A rasterized capture takes a point or spot
+  light's shadow from its shadow tile, and only lights that reach the view get tiles, so a lamp
+  out of view, or left out of a full atlas, lights the probes through walls. In a test room a
+  light behind a closed wall reached 92% of the floor's open-room reading. Giving every shadow
+  caster near the frame's probes a tile would draw up to six more shadow faces a light a frame,
+  and leaving those lights out of the probes would drop their bounce whenever the camera looks
+  away, which is worse in an open scene, so the leak stays on GPUs that can't trace.
+- On either path, moving things don't mark probes dirty; the oldest probes are redone in turn, so
+  a moved object's bounce catches up within about probes ÷ budget frames. A sun that turns every
+  frame keeps every probe dirty, and so does a light that changes every frame, like a flickering
+  lantern, for the probes in its range. Dirty probes go nearest first, ahead of clean ones, so
+  while such a light flickers near the camera, dirty probes further off and the clean probes'
+  refreshes wait for it.
+- The traced and rasterized probes agree only where a rasterized capture gets the same light. In
+  the test's white room lit by one point light they read within 1% of each other, at 80 traced
+  rounds and at 400, and the test allows 5%. Where a light's shadow tile is missing they part, as
+  the rasterized capture then lights through walls (above). The capture's near plane is 1 mm;
+  at 5 cm the room's outer probes, which sit 5 cm from the walls, floor and ceiling, saw through
+  them into the black sky, and the rasterized readings were 10 to 15% lower.
 - Volumetric fog is a froxel grid of one cell per 8×8 scene pixels, so light bleeds a
   cell across silhouettes, a shaft narrower than a cell blurs, and its history smears a
   moving light or a fast camera for a few frames. Past `VolumetricDistance` the fog is the
@@ -2416,8 +4411,8 @@ Anything larger than a block gets its own allocation.
   is wet at its mesh's height, since there is no height map to sink it.
 - Wear and dirt masks are baked once, when the model cooks, from its own meshes: a crate
   moved against a wall in the game doesn't gather dirt where it now stands, and a graph
-  can't read the masks. They need a second UV set with no overlaps, and transparent
-  materials ignore them.
+  can't read the masks. They share each material's lightmap UV set, and transparent materials
+  ignore them.
 - Keeping alpha coverage in the mips scales only alpha, so a far cut-out keeps its
   outline but its colour is the plain filtered average, and it is done only for materials
   with an `alphaCutoff`.

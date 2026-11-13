@@ -1,0 +1,106 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#define TRACE_GEOMETRY_SET 0
+#define TRACE_GEOMETRY_BINDING 1
+#define TRACE_RESOURCE_SET 1
+#include "trace.glsl"
+#include "bake_lights.glsl"
+
+// The baker's path tracer: one pass sends one path from every valid texel of a region of a lightmap page and adds what
+// it brings back to float32 sums. The plain light with its squared luminance, its direction and the shadow mask are
+// summed separately; the baker divides by the passes when it reads them back. A chunk's paths also sum its sky and sun
+// transfer. See "The path tracer" and "Chunk transfer" in docs/design.md and Baking/Baker.cs.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform accelerationStructureEXT scene;
+layout(set = 0, binding = 2, rgba32f) uniform readonly image2D positions;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D geometricNormals;
+layout(set = 0, binding = 4, r8) uniform readonly image2D validity;
+layout(std430, set = 0, binding = 5) readonly buffer Lights {
+    BakeLight lights[];
+};
+layout(set = 0, binding = 6, rgba32f) uniform image2D irradianceSum; // rgb: irradiance; w: its luminance squared.
+layout(set = 0, binding = 7, rgba32f) uniform image2D directionSum;  // xyz: directions by luminance; w: the luminance.
+layout(set = 0, binding = 8, rgba32f) uniform image2D maskSum;       // Each channel's share of its light seen.
+layout(set = 0, binding = 9) uniform samplerCube sky;
+// A chunk's transfer, summed only when trace.chunk is set; a space binds 1 x 1 images that are never written. Each
+// holds the four L1 spherical harmonic coefficients: the sky's for red, green and blue, then the sun's by luminance.
+layout(set = 0, binding = 10, rgba32f) uniform image2D skyRedSum;
+layout(set = 0, binding = 11, rgba32f) uniform image2D skyGreenSum;
+layout(set = 0, binding = 12, rgba32f) uniform image2D skyBlueSum;
+layout(set = 0, binding = 13, rgba32f) uniform image2D sunSum;
+layout(set = 0, binding = 14, rgba32f) uniform image2D sunTintSum; // rgb: the sun transfer's colour; w unused.
+
+// Must match TraceConstants in Baking/Baker.cs.
+layout(push_constant) uniform Trace {
+    ivec2 origin;       // The region's first texel on the page; the sums cover the region alone.
+    ivec2 size;
+    uint pass;          // Which pass this is, which seeds its random numbers.
+    uint lightCount;
+    float lift;         // How far along the normal rays start, so they don't hit their own surface.
+    float skyIntensity; // The environment's intensity; 0 leaves the sky out.
+    uint chunk;         // 1 for a chunk, whose paths also sum the sky and sun transfer; 0 for a space.
+} trace;
+
+#define BAKE_TRANSFER
+#include "bake_paths.glsl"
+
+void main() {
+    ivec2 local = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(local, trace.size))) {
+        return;
+    }
+
+    ivec2 texel = trace.origin + local;
+    if (imageLoad(validity, texel).r < 0.5) {
+        return;
+    }
+
+    randomState = pcg(uint(texel.x) + pcg(uint(texel.y) + pcg(trace.pass)));
+    vec3 p = imageLoad(positions, texel).xyz;
+    vec3 n = normalize(imageLoad(geometricNormals, texel).xyz);
+    vec3 origin = p + n * trace.lift;
+
+    // The shadow mask: one shadow ray to a point on each light with a channel that reaches p. Lights that share a
+    // channel never overlap, so at most one of them reaches p and writes it.
+    vec4 mask = vec4(0.0);
+    for (uint i = 0u; i < trace.lightCount; i++) {
+        float channel = lights[i].fadeKind.w;
+        if (channel < 0.0) {
+            continue;
+        }
+
+        vec3 l;
+        float distance;
+        bakeSampleLight(lights[i], p, n, vec2(random01(), random01()), l, distance);
+        if (distance > 0.0) {
+            mask[int(channel + 0.5)] = transmission(origin, l, distance);
+        }
+    }
+
+    // Light straight from the lights, then a path that bounces up to four times, its light all arriving from the first
+    // direction it took. Throughput is in irradiance: a cosine-weighted direction carries pi times the radiance seen.
+    vec4 towards = vec4(0.0);
+    vec3 irradiance = directLight(p, n, true, towards);
+    vec3 firstDirection = cosineDirection(n);
+    float unusedSeen;
+    resetTransfer();
+    vec3 pathLight = pathFrom(origin, firstDirection, unusedSeen);
+    if (trace.chunk != 0u) {
+        imageStore(skyRedSum, local, imageLoad(skyRedSum, local) + skyTransfer[0]);
+        imageStore(skyGreenSum, local, imageLoad(skyGreenSum, local) + skyTransfer[1]);
+        imageStore(skyBlueSum, local, imageLoad(skyBlueSum, local) + skyTransfer[2]);
+        imageStore(sunSum, local, imageLoad(sunSum, local) + sunTransfer);
+        imageStore(sunTintSum, local, imageLoad(sunTintSum, local) + vec4(sunTint, 0.0));
+    }
+
+    irradiance += pathLight;
+    towards += vec4(firstDirection, 1.0) * luminance(pathLight);
+
+    // The squared luminance gives the filter each texel's noise: its variance is E[l^2] - E[l]^2.
+    float l = luminance(irradiance);
+    imageStore(irradianceSum, local, imageLoad(irradianceSum, local) + vec4(irradiance, l * l));
+    imageStore(directionSum, local, imageLoad(directionSum, local) + vec4(towards.xyz, towards.w));
+    imageStore(maskSum, local, imageLoad(maskSum, local) + mask);
+}

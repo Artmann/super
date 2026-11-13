@@ -127,4 +127,50 @@ public sealed record GeneratedMesh(Vertex[] Vertices, uint[] Indices, Surface Su
 
     /// <summary>A colour texture that lives and dies with this mesh, from the old constructor.</summary>
     internal GeneratedTexture? OwnedTexture { get; init; }
+
+    /// <summary>
+    /// This mesh when its <see cref="Vertex.Uv2"/> already passes <see cref="LightmapUnwrap.Problem"/> at
+    /// <see cref="LightmapUnwrap.ReferenceSize"/>, as the model cooker checks a file's set, otherwise a copy unwrapped by
+    /// <see cref="LightmapUnwrap.Unwrap"/>, with vertices split where its charts meet. The unwrap's page is
+    /// <see cref="LightmapUnwrap.ReferenceSize"/> texels square, or twice that up to
+    /// <see cref="LightmapUnwrap.LargestSize"/> when the charts don't fit. A set made for a larger page only, such as one
+    /// whose gutters are two texels at 1024 but one at 512, is replaced.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The charts don't fit even the largest page.</exception>
+    public GeneratedMesh WithLightmapUvs()
+    {
+        if (Indices.Length == 0)
+        {
+            return this;
+        }
+
+        var positions = new Vector3[Vertices.Length];
+        var uvs = new Vector2[Vertices.Length];
+        for (int i = 0; i < Vertices.Length; i++)
+        {
+            positions[i] = Vertices[i].Position;
+            uvs[i] = Vertices[i].Uv2;
+        }
+
+        if (LightmapUnwrap.Problem(positions, uvs, Indices) is null)
+        {
+            return this;
+        }
+
+        string? failure = null;
+        for (int size = LightmapUnwrap.ReferenceSize; size <= LightmapUnwrap.LargestSize; size *= 2)
+        {
+            try
+            {
+                var (vertices, indices) = LightmapUnwrap.Unwrap(Vertices, Indices, size);
+                return this with { Vertices = vertices, Indices = indices };
+            }
+            catch (InvalidOperationException exception)
+            {
+                failure = exception.Message;
+            }
+        }
+
+        throw new InvalidOperationException(failure);
+    }
 }

@@ -4,6 +4,7 @@
 #include "skinning.glsl"
 #include "instances.glsl"
 #include "wind.glsl"
+#include "chunks.glsl"
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;
@@ -36,6 +37,14 @@ layout(location = 4) out vec2 outUv2;
 // and w, for surface.glsl's motion vectors. See Passes/Motion.cs.
 layout(location = 5) out vec3 outClipNow;
 layout(location = 6) out vec3 outClipBefore;
+// Where the vertex is on its lightmap page, and the page's irradiance, direction and shadow mask textures, -1 for a
+// copy with no lightmap, and in w the placed chunk the copy belongs to, in chunks.glsl, or -1 for none. The chunk rides
+// in the same ivec4 because a lone int output that a shader such as transparent.frag doesn't read draws a validation
+// warning. The second uv itself goes on unchanged, for the masks. See writeSurface in surface.glsl.
+layout(location = 7) out vec2 outLightmapUv;
+layout(location = 8) flat out ivec4 outLightmap;
+// Where the vertex is in its chunk's own space, for its relighting in writeBaked.
+layout(location = 9) out vec3 outChunkPosition;
 
 // Where the vertex stood in the world last frame: placed by last frame's matrix, skin, swim and wind. A copy with no
 // last frame stands where it is now, so it moves with the camera alone.
@@ -63,10 +72,15 @@ void main() {
     outTangent = vec4(model * inTangent.xyz, inTangent.w);
     outUv = inUv;
     outUv2 = inUv2;
+    LightmapRect lightmap = lightmapRect();
+    outLightmapUv = inUv2 * lightmap.scaleOffset.xy + lightmap.scaleOffset.zw;
+    int chunk = lightmap.chunk.x;
+    outLightmap = ivec4(lightmap.textures.xyz, chunk);
     vec3 posed = (skinned * vec4(inPosition, 1.0)).xyz;
     vec3 swum = swim(posed, draw.swimAmplitude, draw.swimBodyLength, draw.swimPhase);
     vec4 position = vec4(windSwayPlaced((placed * vec4(swum, 1.0)).xyz, placed, posed, draw.windBase, draw.windSway), 1.0);
     outPosition = position.xyz;
+    outChunkPosition = chunk >= 0 ? position * chunkData.chunks[chunk].intoChunk : vec3(0.0);
     gl_Position = frame.viewProjection * position;
 
     // The shift moves clip x and y by itself times w; see Renderer.WriteUniforms.

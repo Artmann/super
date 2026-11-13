@@ -267,13 +267,22 @@ internal sealed unsafe class ShadowPass : IDisposable
     public static float DepthScale(float radius, float reach) => 2f * radius / (MathF.Max(reach, radius) + radius);
 
     /// <summary>Draws one cascade into its layer of the map.</summary>
-    public void Record(CommandBuffer cmd, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, List<Mesh?> meshes, List<PartDetail> details, InstanceBuffer instances, int cascade)
+    public void Record(CommandBuffer cmd, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, List<Mesh?> meshes, List<PartDetail> details, InstanceBuffer instances, int cascade) =>
+        RecordInto(cmd, frameSet, draws, meshes, details, instances, Target.LayerViews[cascade], Extent, cascade);
+
+    /// <summary>
+    /// Draws the casters into any depth view, already in the depth attachment layout, through the
+    /// matrix <paramref name="cascade"/> picks in shadow.vert: -1 for the light probes' sun map.
+    /// </summary>
+    public void RecordInto(
+        CommandBuffer cmd, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, List<Mesh?> meshes, List<PartDetail> details,
+        InstanceBuffer instances, ImageView view, Extent2D extent, int cascade, bool still = false)
     {
         var api = _context.Api;
         var depthAttachment = new RenderingAttachmentInfo
         {
             SType = StructureType.RenderingAttachmentInfo,
-            ImageView = Target.LayerViews[cascade],
+            ImageView = view,
             ImageLayout = ImageLayout.DepthAttachmentOptimal,
             LoadOp = AttachmentLoadOp.Clear,
             StoreOp = AttachmentStoreOp.Store,
@@ -282,17 +291,17 @@ internal sealed unsafe class ShadowPass : IDisposable
         var rendering = new RenderingInfo
         {
             SType = StructureType.RenderingInfo,
-            RenderArea = new Rect2D(default, Extent),
+            RenderArea = new Rect2D(default, extent),
             LayerCount = 1,
             PDepthAttachment = &depthAttachment,
         };
 
         api.CmdBeginRendering(cmd, &rendering);
-        api.SetFullViewport(cmd, Extent);
+        api.SetFullViewport(cmd, extent);
 
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set };
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
-        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, details, instances, ScenePass.Shadow, solid: _solid, cascade: cascade);
+        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, details, instances, ScenePass.Shadow, solid: _solid, cascade: cascade, still: still);
 
         api.CmdEndRendering(cmd);
     }

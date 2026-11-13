@@ -1,0 +1,216 @@
+#version 460
+
+// The baker's filter over one page's traced region. Stage 0 prepares the traced means: a value that isn't finite becomes
+// 0, or the half-float limit when it is infinite or too big for the file, so one bad path can't spread; the direction
+// sum becomes its mean direction; a texel that isn't valid is emptied. Irradiance w then marks a texel that holds light,
+// and direction w carries the variance of its mean luminance from pass to pass.
+// Later stages are the passes of an edge-aware à-trous filter on the irradiance and direction: each texel takes a 5 x 5
+// B-spline of texels `stage` apart, weighted by how close they lie to it in the world for that step, how far they sit
+// off its plane, how alike their normals are and how far their luminance differs given its noise, and only from valid
+// texels drawn for the same rectangle. The variance is filtered with the squared weights, as SVGF does. The mask passes
+// through unfiltered. See "Filtering and dilation" in docs/design.md and Baking/Baker.cs.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+// The page's texel setup, read at page coordinates. Position w is the texel's rectangle number, 0 where uncovered.
+layout(set = 0, binding = 0, rgba32f) uniform readonly image2D positions;
+layout(set = 0, binding = 1, rgba16f) uniform readonly image2D geometricNormals;
+layout(set = 0, binding = 2, r8) uniform readonly image2D validity;
+// The region's values, read and written at region coordinates.
+layout(set = 0, binding = 3, rgba32f) uniform readonly image2D irradianceIn;
+layout(set = 0, binding = 4, rgba32f) uniform readonly image2D directionIn;
+layout(set = 0, binding = 5, rgba32f) uniform readonly image2D maskIn;
+layout(set = 0, binding = 6, rgba32f) uniform writeonly image2D irradianceOut;
+layout(set = 0, binding = 7, rgba32f) uniform writeonly image2D directionOut;
+layout(set = 0, binding = 8, rgba32f) uniform writeonly image2D maskOut;
+
+// Must match FilterConstants in Baking/Baker.cs.
+layout(push_constant) uniform Region {
+    ivec2 origin; // The region's corner on the page, in texels.
+    ivec2 size;
+    int stage;    // 0 prepares; above that, the à-trous step in texels.
+} region;
+
+// The biggest half float: what the file's irradiance holds at most.
+const float HALF_MAX = 65504.0;
+// How far apart in the world two texels may lie and still blend, in steps of the pass (so `stage` texels each), as a
+// Gaussian's sigma. It grows with the step so every pass reaches its taps; 2 keeps the B-spline's outer taps at
+// exp(-0.5) on a flat chart, and cuts taps whose world distance is far more than their page distance.
+const float POSITION_SIGMA = 2.0;
+// How far a texel may sit off this one's plane, in texels, as a Gaussian's sigma: steps and creases stop the filter.
+const float PLANE_SIGMA = 0.5;
+// The power the cosine between normals is raised to: 32 halves the weight at about 12 degrees.
+const float NORMAL_POWER = 32.0;
+// How far apart two texels' luminances may lie and still blend, in standard deviations of this texel's mean: the
+// luminance term is exp(-|l_p - l_q| / (LUMINANCE_SIGMA * sqrt(var_p) + LUMINANCE_EPSILON)), as in SVGF.
+const float LUMINANCE_SIGMA = 4.0;
+// Keeps the luminance term defined where a texel has no noise. It is tiny, so a converged texel takes nothing from a
+// neighbour whose light differs at all: a difference of 0.001 already weighs exp(-1000).
+const float LUMINANCE_EPSILON = 1e-6;
+// The B-spline's taps from the middle out: 3/8, 1/4, 1/16.
+const float KERNEL[3] = float[](0.375, 0.25, 0.0625);
+
+vec4 finite(vec4 v) {
+    bvec4 bad = isnan(v);
+    return mix(clamp(v, vec4(-HALF_MAX), vec4(HALF_MAX)), vec4(0.0), bad);
+}
+
+float luminance(vec3 c) {
+    return dot(c, vec3(0.2126, 0.7152, 0.0722)); // As in bake_paths.glsl.
+}
+
+void prepare(ivec2 local, ivec2 page) {
+    bool valid = imageLoad(validity, page).r > 0.5;
+    if (!valid) {
+        imageStore(irradianceOut, local, vec4(0.0));
+        imageStore(directionOut, local, vec4(0.0));
+        imageStore(maskOut, local, vec4(0.0));
+        return;
+    }
+
+    vec4 traced = finite(imageLoad(irradianceIn, local)); // w: the variance of the mean luminance.
+    vec4 sum = finite(imageLoad(directionIn, local));
+    vec3 d = sum.w > 1e-8 ? sum.xyz / sum.w : vec3(0.0);
+    float length2 = dot(d, d);
+    d = length2 > 1.0 ? d * inversesqrt(length2) : d; // A mean of unit directions is never longer than 1.
+    vec4 mask = clamp(finite(imageLoad(maskIn, local)), 0.0, 1.0);
+
+    imageStore(irradianceOut, local, vec4(traced.rgb, 1.0));
+    imageStore(directionOut, local, vec4(d, max(traced.w, 0.0)));
+    imageStore(maskOut, local, mask);
+}
+
+bool inRegion(ivec2 local) {
+    return all(greaterThanEqual(local, ivec2(0))) && all(lessThan(local, region.size));
+}
+
+// The world size of a texel here: the mean distance to the next covered texel of the same rectangle on each axis.
+float texelSize(ivec2 page, vec3 p, float chart) {
+    float total = 0.0;
+    float axes = 0.0;
+    ivec2 pageSize = imageSize(positions);
+    for (int axis = 0; axis < 2; axis++) {
+        for (int side = -1; side <= 1; side += 2) {
+            ivec2 q = page + (axis == 0 ? ivec2(side, 0) : ivec2(0, side));
+            if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, pageSize))) {
+                continue;
+            }
+
+            vec4 neighbour = imageLoad(positions, q);
+            if (neighbour.w == chart) {
+                total += distance(neighbour.xyz, p);
+                axes += 1.0;
+                break;
+            }
+        }
+    }
+
+    return axes > 0.0 ? total / axes : 0.0;
+}
+
+// The variance of this texel's mean luminance, blurred over the 3 x 3 texels round it that hold light and belong to
+// its rectangle, as SVGF does, so one texel whose few paths happened to agree doesn't stop the filter on its own.
+float localVariance(ivec2 local, float chart) {
+    const float GAUSS[2] = float[](0.25, 0.125);
+    float sum = 0.0;
+    float total = 0.0;
+    for (int dy = -1; dy <= 1; dy++) {
+        for (int dx = -1; dx <= 1; dx++) {
+            ivec2 q = local + ivec2(dx, dy);
+            if (!inRegion(q) || imageLoad(irradianceIn, q).w < 0.5) {
+                continue;
+            }
+
+            if (imageLoad(positions, region.origin + q).w != chart) {
+                continue;
+            }
+
+            float weight = GAUSS[abs(dx)] * GAUSS[abs(dy)];
+            sum += weight * imageLoad(directionIn, q).w;
+            total += weight;
+        }
+    }
+
+    return sum / total; // The texel itself always counts.
+}
+
+void smoothPass(ivec2 local, ivec2 page) {
+    vec4 irradiance = imageLoad(irradianceIn, local);
+    vec4 direction = imageLoad(directionIn, local);
+    imageStore(maskOut, local, imageLoad(maskIn, local));
+    if (irradiance.w < 0.5) {
+        imageStore(irradianceOut, local, irradiance);
+        imageStore(directionOut, local, direction);
+        return;
+    }
+
+    vec4 position = imageLoad(positions, page);
+    float chart = position.w;
+    vec3 n = normalize(imageLoad(geometricNormals, page).xyz);
+    float texel = texelSize(page, position.xyz, chart);
+    if (texel <= 0.0) {
+        imageStore(irradianceOut, local, irradiance);
+        imageStore(directionOut, local, direction);
+        return;
+    }
+
+    float reach = POSITION_SIGMA * float(region.stage) * texel;
+    float positionScale = 1.0 / (2.0 * reach * reach);
+    float planeScale = 1.0 / (2.0 * PLANE_SIGMA * PLANE_SIGMA * texel * texel);
+    float l = luminance(irradiance.rgb);
+    float luminanceScale = 1.0 / (LUMINANCE_SIGMA * sqrt(localVariance(local, chart)) + LUMINANCE_EPSILON);
+    vec3 irradianceSum = vec3(0.0);
+    vec3 directionSum = vec3(0.0);
+    float varianceSum = 0.0;
+    float total = 0.0;
+    for (int dy = -2; dy <= 2; dy++) {
+        for (int dx = -2; dx <= 2; dx++) {
+            ivec2 q = local + ivec2(dx, dy) * region.stage;
+            if (!inRegion(q)) {
+                continue;
+            }
+
+            vec4 qIrradiance = imageLoad(irradianceIn, q);
+            if (qIrradiance.w < 0.5) {
+                continue; // Not valid, so it holds no light.
+            }
+
+            vec4 qPosition = imageLoad(positions, region.origin + q);
+            if (qPosition.w != chart) {
+                continue; // Another rectangle's texel: never blend across them.
+            }
+
+            vec3 offset = qPosition.xyz - position.xyz;
+            float plane = dot(offset, n);
+            vec3 qn = normalize(imageLoad(geometricNormals, region.origin + q).xyz);
+            vec4 qDirection = imageLoad(directionIn, q);
+            float weight = KERNEL[abs(dx)] * KERNEL[abs(dy)]
+                * exp(-dot(offset, offset) * positionScale - plane * plane * planeScale
+                    - abs(l - luminance(qIrradiance.rgb)) * luminanceScale)
+                * pow(max(dot(n, qn), 0.0), NORMAL_POWER);
+            irradianceSum += weight * qIrradiance.rgb;
+            directionSum += weight * qDirection.xyz;
+            varianceSum += weight * weight * qDirection.w;
+            total += weight;
+        }
+    }
+
+    // The texel itself always counts, with the middle tap's weight, so total is never 0. The variance of a weighted
+    // mean takes the squared weights.
+    imageStore(irradianceOut, local, vec4(irradianceSum / total, 1.0));
+    imageStore(directionOut, local, vec4(directionSum / total, varianceSum / (total * total)));
+}
+
+void main() {
+    ivec2 local = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(local, region.size))) {
+        return;
+    }
+
+    ivec2 page = region.origin + local;
+    if (region.stage == 0) {
+        prepare(local, page);
+    } else {
+        smoothPass(local, page);
+    }
+}

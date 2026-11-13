@@ -212,6 +212,7 @@ internal static unsafe class SceneDraws
     /// without cut-out holes, and that aren't glass, use <paramref name="solid"/> when it's
     /// given. Each copy's matrix goes into <paramref name="instances"/>. Materials that sway in the wind
     /// sway from the lowest point of their part, which <paramref name="details"/> holds.
+    /// With <paramref name="still"/> nothing sways, for views that must not follow the wind.
     /// </summary>
     public static void Record(
         Vk api,
@@ -226,7 +227,7 @@ internal static unsafe class SceneDraws
         ScenePass pass,
         PipelineVariants? solid = null,
         int cascade = 0,
-        bool allTwoSided = false)
+        bool still = false)
     {
         int[] pooled = ArrayPool<int>.Shared.Rent(draws.Length);
         int count = 0;
@@ -242,10 +243,12 @@ internal static unsafe class SceneDraws
         var batches = _batches ??= [];
         Batch(draws, order, keepOrder: pass == ScenePass.Transparent, batches);
 
-        var bound = new Bound { AllTwoSided = allTwoSided };
+        var bound = new Bound();
         foreach (var batch in batches)
         {
-            var constants = Constants(draws[order[batch.First]], cascade, resources.SwayOf, details);
+            var constants = still
+                ? Constants(draws[order[batch.First]], cascade)
+                : Constants(draws[order[batch.First]], cascade, resources.SwayOf, details);
             Draw(api, cmd, layout, pipelines, resources, draws, order.Slice(batch.First, batch.Count), meshes, instances, constants, solid, ref bound);
         }
 
@@ -257,9 +260,6 @@ internal static unsafe class SceneDraws
     {
         public Pipeline Pipeline;
         public int Mesh = -1;
-
-        /// <summary>Draws back faces too, whatever the material says, so a light probe can see it is behind a surface.</summary>
-        public bool AllTwoSided;
     }
 
     /// <summary>
@@ -286,7 +286,7 @@ internal static unsafe class SceneDraws
         var variants = solid is { } solidVariants && !needsFragments
             ? solidVariants
             : pipelines[pipelines.Count > 1 ? resources.GetShader(draw.Material) : 0];
-        var pipeline = (flags & MaterialFlags.TwoSided) != 0 || bound.AllTwoSided ? variants.TwoSided : variants.Culled;
+        var pipeline = (flags & MaterialFlags.TwoSided) != 0 ? variants.TwoSided : variants.Culled;
         if (pipeline.Handle != bound.Pipeline.Handle)
         {
             api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, pipeline);
@@ -306,7 +306,7 @@ internal static unsafe class SceneDraws
         int firstInstance = instances.Count;
         foreach (int index in copies)
         {
-            instances.Add(draws[index]);
+            instances.Add(draws[index], index);
         }
 
         api.CmdPushConstants(cmd, layout, PushStages, 0, (uint)sizeof(DrawConstants), &constants);

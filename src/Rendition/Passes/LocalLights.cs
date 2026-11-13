@@ -79,7 +79,9 @@ internal sealed class LocalLights
     /// Picks the lights the view needs and their shadow tiles, and writes them out for the
     /// shaders. <paramref name="gpuLights"/> needs room for every light and
     /// <paramref name="gpuTiles"/> for <see cref="MaxTiles"/>. With <paramref name="shadows"/>
-    /// false no light gets a tile, as if none cast a shadow.
+    /// false no light gets a tile, as if none cast a shadow. <paramref name="maskChannels"/> gives,
+    /// by <see cref="LocalLight.Key"/>, the baked shadow mask's channel of each light that has one;
+    /// the rest get -1, so the lighting never reads the mask for them.
     /// </summary>
     public void Prepare(
         ReadOnlySpan<LocalLight> lights,
@@ -88,7 +90,8 @@ internal sealed class LocalLights
         int screenHeight,
         Span<GpuLocalLight> gpuLights,
         Span<GpuShadowTile> gpuTiles,
-        bool shadows = true)
+        bool shadows = true,
+        IReadOnlyDictionary<int, int>? maskChannels = null)
     {
         if (lights.Length > LocalLight.MaxPerFrame)
         {
@@ -148,18 +151,51 @@ internal sealed class LocalLights
         for (int k = 0; k < kept; k++)
         {
             ref readonly var light = ref lights[_kept[k]];
-            float cosOuter = MathF.Cos(light.OuterAngle);
-            float cosInner = MathF.Cos(MathF.Min(light.InnerAngle, light.OuterAngle));
-            gpuLights[k] = new GpuLocalLight
-            {
-                PositionRange = new Vector4(light.Position, light.Range),
-                RadianceShadow = new Vector4(light.Radiance, _sizes[k] > 0 ? _sizeKeys[k] : -1f),
-                DirectionCone = light.IsSpot
-                    ? new Vector4(Vector3.Normalize(light.Direction), cosOuter)
-                    : new Vector4(0f, 0f, 0f, -2f),
-                Fade = new Vector4(1f / MathF.Max(cosInner - cosOuter, 1e-4f), RadiusOf(light), light.Volumetric, 0f),
-            };
+            gpuLights[k] = ToGpu(light, _sizes[k] > 0 ? _sizeKeys[k] : -1f, shadows && light.CastsShadow, maskChannels);
         }
+
+        // Light probes behind the camera still see the lights the view misses, so those follow, with no shadow tile.
+        // Traced probe updates still trace their shadows, so they are marked as casting one.
+        int all = kept;
+        for (int i = 0; i < lights.Length; i++)
+        {
+            ref readonly var light = ref lights[i];
+            if (light.Range > 0f && !frustum.CanSee(light.Position, light.Range))
+            {
+                gpuLights[all++] = ToGpu(light, -1f, shadows && light.CastsShadow, maskChannels);
+            }
+        }
+
+        ProbeLightCount = all;
+    }
+
+    /// <summary>
+    /// How many lights the GPU list holds: the <see cref="LightCount"/> that reach the view, then every other light
+    /// with a range, which only light probe updates read.
+    /// </summary>
+    public int ProbeLightCount { get; private set; }
+
+    private static GpuLocalLight ToGpu(
+        in LocalLight light, float shadow, bool castsShadow, IReadOnlyDictionary<int, int>? maskChannels)
+    {
+        float cosOuter = MathF.Cos(light.OuterAngle);
+        float cosInner = MathF.Cos(MathF.Min(light.InnerAngle, light.OuterAngle));
+        int maskChannel = -1;
+        if (maskChannels is not null && maskChannels.TryGetValue(light.Key, out int channel))
+        {
+            maskChannel = channel;
+        }
+
+        return new GpuLocalLight
+        {
+            PositionRange = new Vector4(light.Position, light.Range),
+            RadianceShadow = new Vector4(light.Radiance, shadow),
+            DirectionCone = light.IsSpot
+                ? new Vector4(Vector3.Normalize(light.Direction), cosOuter)
+                : new Vector4(0f, 0f, 0f, -2f),
+            Fade = new Vector4(1f / MathF.Max(cosInner - cosOuter, 1e-4f), RadiusOf(light), light.Volumetric,
+                GpuLocalLight.ShadowFlags(castsShadow, maskChannel)),
+        };
     }
 
     /// <summary>

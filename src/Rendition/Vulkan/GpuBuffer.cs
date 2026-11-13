@@ -15,6 +15,21 @@ internal sealed unsafe class GpuBuffer : IDisposable
     /// <summary>CPU-visible address, or null for device-local buffers.</summary>
     public readonly void* Mapped;
 
+    /// <summary>
+    /// The address a shader or an acceleration structure build reads the buffer by, or 0 when the buffer was made
+    /// without <see cref="BufferUsageFlags.ShaderDeviceAddressBit"/> or the device can't trace.
+    /// </summary>
+    public readonly ulong Address;
+
+    /// <summary>
+    /// The usage flags a buffer needs to be read by an acceleration structure build: its own address, and being
+    /// allowed as a build input. None where the device can't trace, so those buffers are made exactly as before.
+    /// </summary>
+    public static BufferUsageFlags TraceInput(VulkanContext context) =>
+        context.CanTrace
+            ? BufferUsageFlags.ShaderDeviceAddressBit | BufferUsageFlags.AccelerationStructureBuildInputReadOnlyBitKhr
+            : 0;
+
     public GpuBuffer(VulkanContext context, ulong size, BufferUsageFlags usage, MemoryPropertyFlags properties)
     {
         _context = context;
@@ -34,6 +49,12 @@ internal sealed unsafe class GpuBuffer : IDisposable
         _allocation = context.Memory.AllocateBuffer(requirements, properties);
         api.BindBufferMemory(context.Device, Handle, _allocation.Memory, _allocation.Offset).Check();
         Mapped = _allocation.Mapped;
+
+        if (context.CanTrace && (usage & BufferUsageFlags.ShaderDeviceAddressBit) != 0)
+        {
+            var addressInfo = new BufferDeviceAddressInfo { SType = StructureType.BufferDeviceAddressInfo, Buffer = Handle };
+            Address = api.GetBufferDeviceAddress(context.Device, &addressInfo);
+        }
     }
 
     public static GpuBuffer CreateHostVisible(VulkanContext context, ulong size, BufferUsageFlags usage) =>

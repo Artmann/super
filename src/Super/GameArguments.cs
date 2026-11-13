@@ -23,7 +23,12 @@ internal sealed record GameArguments(
     float? UiScale = null,
     bool NoMaterials = false,
     float? RenderScale = null,
-    Rendition.Upscaler? Upscaler = null)
+    Rendition.Upscaler? Upscaler = null,
+    bool NoTrace = false,
+    Rendition.DebugView DebugView = Rendition.DebugView.None,
+    bool Bake = false,
+    bool BakeCheck = false,
+    Rendition.BakeQuality BakeQuality = Rendition.BakeQuality.Final)
 {
     public const int DefaultFramesPerSecond = 60;
 
@@ -43,11 +48,16 @@ internal sealed record GameArguments(
         int? frames = null;
         bool noVsync = false;
         bool noMaterials = false;
+        bool noTrace = false;
         string? scriptName = null;
         string? userDataFolder = null;
         float? uiScale = null;
         float? renderScale = null;
         Rendition.Upscaler? upscaler = null;
+        var debugView = Rendition.DebugView.None;
+        bool bake = false;
+        bool bakeCheck = false;
+        Rendition.BakeQuality? bakeQuality = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -95,11 +105,26 @@ internal sealed record GameArguments(
                 case "--upscaler":
                     upscaler = UpscalerName(args, ++i);
                     break;
+                case "--debug-view":
+                    debugView = DebugViewName(args, ++i);
+                    break;
                 case "--no-vsync":
                     noVsync = true;
                     break;
                 case "--no-materials":
                     noMaterials = true;
+                    break;
+                case "--no-trace":
+                    noTrace = true;
+                    break;
+                case "--bake":
+                    bake = true;
+                    break;
+                case "--bake-check":
+                    bakeCheck = true;
+                    break;
+                case "--bake-quality":
+                    bakeQuality = BakeQualityName(args, ++i);
                     break;
             }
         }
@@ -109,9 +134,34 @@ internal sealed record GameArguments(
             throw new ArgumentException("--ticks can't be negative.");
         }
 
-        if (ticks is not null && screenshotPath is null && recordPath is null && profilePath is null)
+        // A bake is a run of its own: it neither saves a picture nor plays in a window.
+        foreach (var (asked, name) in new[] { (bake, "--bake"), (bakeCheck, "--bake-check") })
         {
-            throw new ArgumentException("--ticks needs --screenshot, --record or --profile, because those are the only runs without a window so far.");
+            if (!asked)
+            {
+                continue;
+            }
+
+            string? other = screenshotPath is not null ? "--screenshot"
+                : recordPath is not null ? "--record"
+                : profilePath is not null ? "--profile"
+                : name == "--bake" && bakeCheck ? "--bake-check"
+                : noVsync ? "--no-vsync"
+                : null;
+            if (other is not null)
+            {
+                throw new ArgumentException($"{name} can't run with {other}.");
+            }
+        }
+
+        if (bakeQuality is not null && !bake)
+        {
+            throw new ArgumentException("--bake-quality needs --bake.");
+        }
+
+        if (ticks is not null && screenshotPath is null && recordPath is null && profilePath is null && !bake && !bakeCheck)
+        {
+            throw new ArgumentException("--ticks needs --screenshot, --record, --profile, --bake or --bake-check, because those are the only runs without a window so far.");
         }
 
         if ((screenshotPath is not null ? 1 : 0) + (recordPath is not null ? 1 : 0) + (profilePath is not null ? 1 : 0) > 1)
@@ -157,7 +207,43 @@ internal sealed record GameArguments(
 
         return new GameArguments(
             seed, ticks, screenshotPath, recordPath, seconds, framesPerSecond, width, height, profilePath, frames ?? DefaultProfileFrames, noVsync, scriptName, userDataFolder, uiScale, noMaterials,
-            renderScale, upscaler);
+            renderScale, upscaler, noTrace, debugView, bake, bakeCheck, bakeQuality ?? Rendition.BakeQuality.Final);
+    }
+
+    private static Rendition.BakeQuality BakeQualityName(ReadOnlySpan<string> args, int index)
+    {
+        string text = Value(args, index, "--bake-quality");
+        return text switch
+        {
+            "preview" => Rendition.BakeQuality.Preview,
+            "final" => Rendition.BakeQuality.Final,
+            _ => throw new ArgumentException($"--bake-quality needs preview or final, not '{text}'."),
+        };
+    }
+
+    /// <summary>
+    /// The start-up error for a debug view the GPU can't show, or null when it can. The trace view needs a GPU that
+    /// can trace rays, and the error carries why this one can't, such as "turned off with --no-trace".
+    /// </summary>
+    internal static string? DebugViewError(Rendition.DebugView view, bool canTrace, string? noTraceReason)
+    {
+        if (view == Rendition.DebugView.Trace && !canTrace)
+        {
+            return $"--debug-view trace needs a GPU that can trace rays, and this one can't ({noTraceReason}).";
+        }
+
+        return null;
+    }
+
+    private static Rendition.DebugView DebugViewName(ReadOnlySpan<string> args, int index)
+    {
+        string text = Value(args, index, "--debug-view");
+        return text switch
+        {
+            "trace" => Rendition.DebugView.Trace,
+            "probes" => Rendition.DebugView.Probes,
+            _ => throw new ArgumentException($"--debug-view doesn't know '{text}'. It knows: trace, probes."),
+        };
     }
 
     private static float PositiveScale(ReadOnlySpan<string> args, int index)

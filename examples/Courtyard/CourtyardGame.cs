@@ -156,8 +156,6 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
         // Ambient occlusion over 0.8 m, so the corners and the foot of each wall darken where
         // little of the sky reaches.
         view.AmbientOcclusion(0.8f, 1f);
-        // Light probes over the yard, a metre apart, so the sunlit brick warms the shade round it.
-        view.LightProbes(new(-2f, -0.5f, -9f), new(9f, 5f, 6f), 1f);
         // A reflection probe at head height in the middle of the yard, so the window and the
         // puddle mirror the wall, the deck and the house rather than only the sky.
         view.ReflectionProbe(YardProbeKey, position: new(3.5f, 1.6f, -1.5f), boxMin: new(-3f, -1f, -10f), boxMax: new(10f, 6f, 7f));
@@ -197,7 +195,13 @@ public sealed class CourtyardGame(Content content, Input input, Graphics graphic
             Bloom = 0.05f,
             FocalLength = 35f,
         });
-        view.Model(0, _courtyard, Matrix4x4.Identity);
+        // The yard is one baked space, "courtyard", over the whole model with a little to spare. The model never
+        // moves, so it is static and its light is baked: the sun, which stays Mixed so the real-time cascades still
+        // shadow what is close to the camera, and the room lamp, which shines out through the window glass. The
+        // decals (the damp, the drip and the rust) stay live. The grass, ivy and leaves are part of the model and are
+        // lightmapped with the rest. See the README.
+        view.BakedLighting("courtyard", new Vector3(-16.5f, -0.5f, -18.75f), new Vector3(14.5f, 10f, 12.5f), 1.6f);
+        view.Model(0, _courtyard, Matrix4x4.Identity, isStatic: true);
 
         // The damp, the drip off the sill and the rust, laid onto the wall so the drip lies over the damp.
         for (int i = 0; i < _stains.Count; i++)

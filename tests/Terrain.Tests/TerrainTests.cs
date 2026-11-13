@@ -1,5 +1,7 @@
 using System.Numerics;
+using Rendition;
 using Super;
+using Super.Terrain;
 using Super.Testing;
 using Terrain;
 
@@ -101,4 +103,35 @@ public class TerrainTests
         float gap = Vector3.Distance(run.Game.Road.Cart + new Vector3(0f, 1f, 0f), run.Camera.Target);
         Assert.True(gap < 0.5f, $"The camera looks {gap} m away from the cart.");
     }
+
+    [Fact]
+    public void A_ground_chunk_spans_its_lightmap_from_corner_to_corner()
+    {
+        using var run = HeadlessGame.Create<TerrainGame>(seed: 7);
+        run.Ticks(1);
+        var field = new Heightfield(run.Game.GroundHeight, TerrainGame.Spacing);
+
+        var chunk = field.Chunk(1, -2, TerrainGame.ChunkQuads, new Surface(), 0.25f);
+
+        int side = TerrainGame.ChunkQuads + 1;
+        Assert.Equal(Vector2.Zero, chunk.Vertices[0].Uv2);
+        Assert.Equal(new Vector2(1f, 0f), chunk.Vertices[side - 1].Uv2);
+        Assert.Equal(Vector2.One, chunk.Vertices[side * side - 1].Uv2);
+        Assert.Null(Problem(chunk));
+    }
+
+    [Fact]
+    public void The_road_has_a_valid_lightmap_set()
+    {
+        using var run = HeadlessGame.Create<TerrainGame>(seed: 7);
+        run.Ticks(1);
+        Vector2[] embankment = [new(3.8f, -1.6f), new(3f, 0f), new(-3f, 0f), new(-3.8f, -1.6f)];
+
+        var road = Shapes.Extrude(run.Game.Road.Path, embankment, step: 1f);
+
+        Assert.Null(Problem(road));
+    }
+
+    private static string? Problem(GeneratedMesh mesh) =>
+        LightmapUnwrap.Problem(mesh.Vertices.Select(v => v.Position).ToArray(), mesh.Vertices.Select(v => v.Uv2).ToArray(), mesh.Indices);
 }

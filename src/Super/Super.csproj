@@ -35,6 +35,8 @@
     <InternalsVisibleTo Include="Super.Cook" />
     <InternalsVisibleTo Include="Super.Cook.Tests" />
     <InternalsVisibleTo Include="Super.Cook.Materials" />
+    <InternalsVisibleTo Include="Courtyard.Tests" />
+    <InternalsVisibleTo Include="Crypt.Tests" />
   </ItemGroup>
 
 </Project>

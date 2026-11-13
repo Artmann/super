@@ -31,6 +31,30 @@ internal static class Glb
         return (positions, uvs);
     }
 
+    /// <summary>The box round every position in every mesh of a binary glTF file, as its accessors declare it.</summary>
+    public static (Vector3 Min, Vector3 Max) Bounds(string path)
+    {
+        var bytes = File.ReadAllBytes(path);
+        int jsonLength = BitConverter.ToInt32(bytes, 12);
+        var json = JsonNode.Parse(bytes.AsSpan(20, jsonLength))!;
+
+        var min = new Vector3(float.MaxValue);
+        var max = new Vector3(float.MinValue);
+        foreach (var mesh in json["meshes"]!.AsArray())
+        {
+            foreach (var primitive in mesh!["primitives"]!.AsArray())
+            {
+                var accessor = json["accessors"]![(int)primitive!["attributes"]!["POSITION"]!]!;
+                var low = accessor["min"]!.AsArray().Select(value => (float)value!).ToArray();
+                var high = accessor["max"]!.AsArray().Select(value => (float)value!).ToArray();
+                min = Vector3.Min(min, new Vector3(low[0], low[1], low[2]));
+                max = Vector3.Max(max, new Vector3(high[0], high[1], high[2]));
+            }
+        }
+
+        return (min, max);
+    }
+
     private static float[] Floats(JsonNode json, byte[] bytes, int binStart, int index, int width)
     {
         var accessor = json["accessors"]![index]!;

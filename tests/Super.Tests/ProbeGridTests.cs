@@ -126,6 +126,17 @@ public class ProbeGridTests
     }
 
     [Fact]
+    public void A_probe_not_yet_captured_gets_no_weight()
+    {
+        // The same probe as above, which would get 0.95 once captured.
+        float weight = ProbeGrid.Weight(
+            point: Vector3.Zero, normal: Vector3.UnitY, probe: new Vector3(0f, 0.05f, 0f),
+            meanDepth: 10f, meanSquares: 100f, distance: 0.05f, captured: false);
+
+        Assert.Equal(0f, weight);
+    }
+
+    [Fact]
     public void A_probe_half_a_cell_away_on_each_axis_gets_an_eighth()
     {
         float weight = ProbeGrid.Weight(
@@ -147,74 +158,5 @@ public class ProbeGridTests
 
         Assert.True(throughWall < 0.1f, $"Through the wall the weight was {throughWall}.");
         Assert.True(nearer > 0.9f, $"In front of the wall the weight was {nearer}.");
-    }
-
-    // 2 by 2 by 2 probes, so 8 in all.
-    private static readonly ProbeVolumeSettings SmallBox = new(Vector3.Zero, Vector3.One, 1f);
-
-    [Fact]
-    public void A_new_box_captures_in_batches_through_two_rounds_and_is_ready_after_the_first()
-    {
-        var schedule = new ProbeSchedule();
-        schedule.Update(SmallBox, lighting: 1);
-
-        Assert.Equal((0, 5), schedule.Batch(5));
-        schedule.Captured(5);
-        Assert.False(schedule.Ready);
-        Assert.Equal((5, 3), schedule.Batch(5));
-        schedule.Captured(3);
-
-        Assert.True(schedule.Ready);
-        Assert.True(schedule.CapturesBounce);
-        Assert.Equal((0, 5), schedule.Batch(5));
-        schedule.Captured(5);
-        schedule.Captured(3);
-
-        Assert.False(schedule.CapturesBounce);
-        Assert.Equal((0, 0), schedule.Batch(5));
-    }
-
-    [Fact]
-    public void Changed_lighting_starts_round_one_again_but_keeps_the_old_probes_in_use()
-    {
-        var schedule = new ProbeSchedule();
-        schedule.Update(SmallBox, lighting: 1);
-        schedule.Captured(8);
-        schedule.Captured(8);
-
-        schedule.Update(SmallBox, lighting: 2);
-
-        Assert.Equal(1, schedule.Round);
-        Assert.Equal((0, 8), schedule.Batch(64));
-        Assert.True(schedule.Ready);
-    }
-
-    [Fact]
-    public void A_moved_box_is_not_ready_until_round_one_is_captured_again()
-    {
-        var schedule = new ProbeSchedule();
-        schedule.Update(SmallBox, lighting: 1);
-        schedule.Captured(8);
-        schedule.Captured(8);
-
-        schedule.Update(SmallBox with { Min = -Vector3.One }, lighting: 1);
-
-        // Now 3 by 3 by 3 probes.
-        Assert.False(schedule.Ready);
-        Assert.Equal(1, schedule.Round);
-        Assert.Equal((0, 27), schedule.Batch(64));
-    }
-
-    [Fact]
-    public void The_same_box_and_lighting_do_not_start_again()
-    {
-        var schedule = new ProbeSchedule();
-        schedule.Update(SmallBox, lighting: 1);
-        schedule.Captured(8);
-        schedule.Captured(8);
-
-        schedule.Update(SmallBox, lighting: 1);
-
-        Assert.Equal((0, 0), schedule.Batch(64));
     }
 }

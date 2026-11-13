@@ -60,6 +60,66 @@ public class GameArgumentsTests
     }
 
     [Fact]
+    public void Reads_no_trace()
+    {
+        Assert.True(GameArguments.Parse(["--no-trace"]).NoTrace);
+        Assert.False(GameArguments.Parse([]).NoTrace);
+    }
+
+    [Fact]
+    public void Reads_the_trace_debug_view()
+    {
+        Assert.Equal(Rendition.DebugView.Trace, GameArguments.Parse(["--debug-view", "trace"]).DebugView);
+        Assert.Equal(Rendition.DebugView.None, GameArguments.Parse([]).DebugView);
+    }
+
+    [Fact]
+    public void Debug_view_probes_is_accepted()
+    {
+        Assert.Equal(Rendition.DebugView.Probes, GameArguments.Parse(["--debug-view", "probes"]).DebugView);
+    }
+
+    [Fact]
+    public void An_unknown_debug_view_names_both_choices()
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--debug-view", "nope"]));
+        Assert.Equal("--debug-view doesn't know 'nope'. It knows: trace, probes.", error.Message);
+    }
+
+    [Fact]
+    public void The_probe_view_needs_no_tracing()
+    {
+        Assert.Null(GameArguments.DebugViewError(Rendition.DebugView.Probes, canTrace: false, "turned off with --no-trace"));
+    }
+
+    [Fact]
+    public void Needs_a_name_after_debug_view()
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--debug-view"]));
+        Assert.Equal("--debug-view needs a value.", error.Message);
+    }
+
+    [Fact]
+    public void The_trace_view_on_a_GPU_that_cant_trace_names_the_reason()
+    {
+        Assert.Equal(
+            "--debug-view trace needs a GPU that can trace rays, and this one can't (turned off with --no-trace).",
+            GameArguments.DebugViewError(Rendition.DebugView.Trace, canTrace: false, "turned off with --no-trace"));
+    }
+
+    [Fact]
+    public void The_trace_view_on_a_GPU_that_can_trace_is_no_error()
+    {
+        Assert.Null(GameArguments.DebugViewError(Rendition.DebugView.Trace, canTrace: true, null));
+    }
+
+    [Fact]
+    public void No_debug_view_is_no_error_even_without_tracing()
+    {
+        Assert.Null(GameArguments.DebugViewError(Rendition.DebugView.None, canTrace: false, "no VK_KHR_ray_query"));
+    }
+
+    [Fact]
     public void Reads_no_vsync()
     {
         Assert.True(GameArguments.Parse(["--no-vsync"]).NoVsync);
@@ -232,5 +292,114 @@ public class GameArgumentsTests
         var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--ui-scale", scale]));
 
         Assert.Equal($"--ui-scale needs a number above zero, such as 2 or 1.5, not '{scale}'.", error.Message);
+    }
+
+    [Fact]
+    public void Bake_is_parsed()
+    {
+        var arguments = GameArguments.Parse(["--bake", "--ticks", "30", "--seed", "1"]);
+
+        Assert.True(arguments.Bake);
+        Assert.False(arguments.BakeCheck);
+        Assert.Equal(30, arguments.Ticks);
+        Assert.Equal(1, arguments.Seed);
+        Assert.Equal(BakeQuality.Final, arguments.BakeQuality);
+        Assert.False(GameArguments.Parse([]).Bake);
+    }
+
+    [Fact]
+    public void Bake_check_is_parsed_with_ticks()
+    {
+        var arguments = GameArguments.Parse(["--bake-check", "--ticks", "30"]);
+
+        Assert.True(arguments.BakeCheck);
+        Assert.False(arguments.Bake);
+        Assert.Equal(30, arguments.Ticks);
+        Assert.False(GameArguments.Parse([]).BakeCheck);
+    }
+
+    [Theory]
+    [InlineData("preview", BakeQuality.Preview)]
+    [InlineData("final", BakeQuality.Final)]
+    public void Bake_quality_reads_preview_and_final(string name, BakeQuality expected)
+    {
+        Assert.Equal(expected, GameArguments.Parse(["--bake", "--bake-quality", name]).BakeQuality);
+    }
+
+    [Fact]
+    public void An_unknown_bake_quality_throws()
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--bake", "--bake-quality", "draft"]));
+
+        Assert.Equal("--bake-quality needs preview or final, not 'draft'.", error.Message);
+    }
+
+    [Fact]
+    public void Bake_with_screenshot_throws()
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--bake", "--screenshot", "day.png"]));
+
+        Assert.Equal("--bake can't run with --screenshot.", error.Message);
+    }
+
+    [Theory]
+    [InlineData("--bake", "--record", "clip.mp4", "--seconds", "1")]
+    [InlineData("--bake", "--profile", "reef.txt")]
+    [InlineData("--bake", "--bake-check")]
+    [InlineData("--bake-check", "--screenshot", "day.png")]
+    public void Bake_or_bake_check_with_another_run_names_both(params string[] args)
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(args));
+
+        Assert.Equal($"{args[0]} can't run with {args[1]}.", error.Message);
+    }
+
+    [Theory]
+    [InlineData(null, 60, 120)]
+    [InlineData(null, 30, 60)]
+    [InlineData(5L, 60, 5)]
+    public void Bake_plays_two_seconds_unless_ticks_are_given(long? ticks, int ticksPerSecond, long played)
+    {
+        Assert.Equal(played, Game.BakeTicks(ticks, ticksPerSecond));
+    }
+
+    [Fact]
+    public void A_bake_that_cannot_be_made_prints_its_message_on_one_line_instead_of_throwing()
+    {
+        var error = new StringWriter();
+
+        bool made = Game.TryBake(() => throw new InvalidOperationException("--bake found nothing."), error);
+
+        Assert.False(made);
+        Assert.Equal("--bake found nothing." + Environment.NewLine, error.ToString());
+    }
+
+    [Fact]
+    public void A_bake_that_is_made_prints_nothing()
+    {
+        var error = new StringWriter();
+        int ran = 0;
+
+        bool made = Game.TryBake(() => ran++, error);
+
+        Assert.True(made);
+        Assert.Equal(1, ran);
+        Assert.Equal("", error.ToString());
+    }
+
+    [Fact]
+    public void A_bake_that_fails_another_way_is_not_hidden()
+    {
+        var error = Assert.Throws<IOException>(() => Game.TryBake(() => throw new IOException("disk full"), new StringWriter()));
+
+        Assert.Equal("disk full", error.Message);
+    }
+
+    [Fact]
+    public void Bake_quality_without_bake_throws()
+    {
+        var error = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--bake-quality", "preview"]));
+
+        Assert.Equal("--bake-quality needs --bake.", error.Message);
     }
 }

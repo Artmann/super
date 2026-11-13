@@ -5,23 +5,24 @@ namespace Rendition.Vulkan;
 /// <summary>
 /// Times each render pass on the GPU. The GPU writes a timestamp after each pass, and the
 /// results are read once that frame has finished, a frame or two later. Marks must come
-/// in the order of <see cref="PassNames"/>.
+/// in the order of the timer's pass names.
 /// </summary>
 internal sealed unsafe class GpuTimer : IDisposable
 {
     private const double NanosecondsPerMillisecond = 1_000_000.0;
 
-    private static readonly string[] PassNames =
+    private static readonly string[] FramePasses =
     [
-        "Shadows", "Light clusters", "Volumetric fog", "G-buffer", "Ambient occlusion", "AO blur", "Lighting", "Subsurface", "Glass and particles",
+        "Shadows", "Light probes", "Light clusters", "Volumetric fog", "G-buffer", "Ambient occlusion", "AO blur", "Lighting", "Subsurface", "Glass and particles",
         "Anti-aliasing", "Depth of field", "Bloom", "Tonemap", "Finish", "Overlay",
     ];
 
+    private readonly string[] _passNames;
     private readonly VulkanContext _context;
     private readonly QueryPool[] _pools;
     private readonly bool[] _written;
-    private readonly ulong[] _stamps = new ulong[PassNames.Length + 1];
-    private readonly GpuPassTime[] _times = new GpuPassTime[PassNames.Length];
+    private readonly ulong[] _stamps;
+    private readonly GpuPassTime[] _times;
     private readonly double _nanosecondsPerStamp;
     private uint _nextMark;
     private int _frame;
@@ -29,7 +30,16 @@ internal sealed unsafe class GpuTimer : IDisposable
     private bool _collected;
 
     public GpuTimer(VulkanContext context, int framesInFlight)
+        : this(context, framesInFlight, FramePasses)
     {
+    }
+
+    /// <summary>Times passes of its own, such as the slice of a background bake.</summary>
+    public GpuTimer(VulkanContext context, int framesInFlight, string[] passNames)
+    {
+        _passNames = passNames;
+        _stamps = new ulong[passNames.Length + 1];
+        _times = new GpuPassTime[passNames.Length];
         _context = context;
         _pools = new QueryPool[framesInFlight];
         _written = new bool[framesInFlight];
@@ -75,13 +85,18 @@ internal sealed unsafe class GpuTimer : IDisposable
 
     public void End() => _active = false;
 
-    /// <summary>Reads a frame's results. Its fence must have been waited on.</summary>
-    public void Collect(int frame)
+    /// <summary>
+    /// Reads a frame's results, once. Its fence must have been waited on. False when nothing was timed in that slot
+    /// since it was last read.
+    /// </summary>
+    public bool Collect(int frame)
     {
         if (!_written[frame])
         {
-            return;
+            return false;
         }
+
+        _written[frame] = false;
 
         fixed (ulong* stamps = _stamps)
         {
@@ -93,10 +108,11 @@ internal sealed unsafe class GpuTimer : IDisposable
         for (int i = 0; i < _times.Length; i++)
         {
             double stamps = _stamps[i + 1] - _stamps[i];
-            _times[i] = new GpuPassTime(PassNames[i], stamps * _nanosecondsPerStamp / NanosecondsPerMillisecond);
+            _times[i] = new GpuPassTime(_passNames[i], stamps * _nanosecondsPerStamp / NanosecondsPerMillisecond);
         }
 
         _collected = true;
+        return true;
     }
 
     public void Dispose()

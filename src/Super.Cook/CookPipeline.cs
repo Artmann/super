@@ -68,6 +68,9 @@ public sealed record CookResult(IReadOnlyList<CookProblem> Problems, int Cooked,
 {
     public bool Succeeded => !Problems.Any(p => p.IsError);
 
+    /// <summary>What the cookers did that isn't a mistake, in source order. Only sources cooked this time have them, never ones from the cache.</summary>
+    public IReadOnlyList<CookNote> Notes { get; init; } = [];
+
     /// <summary>Where the time went.</summary>
     public CookReport Report { get; init; } = CookReport.Empty;
 }
@@ -86,6 +89,8 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
     private sealed class Done
     {
         public List<CookProblem> Problems { get; } = [];
+
+        public List<CookNote> Notes { get; } = [];
 
         public List<(string? Part, ManifestEntry Entry)> Assets { get; } = [];
 
@@ -204,12 +209,14 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
 
         // The source each name came from, so a name made twice can name both.
         var madeBy = new Dictionary<string, SourceFile>(StringComparer.Ordinal);
+        var notes = new List<CookNote>();
         int cooked = 0;
         int fromCache = 0;
         for (int i = 0; i < jobs.Count; i++)
         {
             var file = jobs[i].File;
             problems.AddRange(done[i].Problems);
+            notes.AddRange(done[i].Notes);
             objects.UnionWith(done[i].Objects);
             foreach (var (part, entry) in done[i].Assets)
             {
@@ -245,7 +252,7 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
         EndStep("write manifest");
 
         var report = new CookReport(Stopwatch.GetElapsedTime(started), steps, [.. done.Select(d => d.Report!)], workers, false) { Trim = trim };
-        return new CookResult(problems, cooked, fromCache) { Report = report };
+        return new CookResult(problems, cooked, fromCache) { Report = report, Notes = notes };
     }
 
     /// <summary>Takes one source from the cache, or cooks it and puts it in the cache. Runs on a worker thread.</summary>
@@ -346,6 +353,12 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
         foreach (var (message, line, isError) in output.Problems)
         {
             done.Problems.Add(new CookProblem(file.Describe(), line, message, isError));
+        }
+
+        // Notes aren't saved with the cache entry below, so a cache hit stays quiet.
+        foreach (string note in output.Notes)
+        {
+            done.Notes.Add(new CookNote(file.Describe(), note));
         }
 
         if (output.Problems.Any(problem => problem.IsError))

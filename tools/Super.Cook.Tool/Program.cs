@@ -365,6 +365,12 @@ public static class Program
             return false;
         }
 
+        // Notes first, so the warnings and errors sit next to the totals. A note has no "warning" in it, so MSBuild shows it as a message.
+        foreach (var note in result.Notes)
+        {
+            Console.WriteLine(note.ToString());
+        }
+
         foreach (var problem in result.Problems)
         {
             Console.WriteLine(problem.ToString());

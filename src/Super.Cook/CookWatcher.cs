@@ -106,6 +106,11 @@ public sealed class CookWatcher : IDisposable
             try
             {
                 var result = _pipeline.Cook(_roots, _store);
+                foreach (var note in result.Notes)
+                {
+                    _log.WriteLine(note.ToString());
+                }
+
                 foreach (var problem in result.Problems)
                 {
                     _log.WriteLine(problem.ToString());

@@ -36,6 +36,21 @@ internal sealed unsafe class VulkanContext : IDisposable
     /// <summary>Whether compute shaders can write two-channel images such as rg16f, which the light probes' depth atlas prefers.</summary>
     public bool StorageImageExtendedFormats { get; private set; }
 
+    /// <summary>Whether one draw can render to six layers at once, which the light probes' cube captures need.</summary>
+    public bool Multiview { get; private set; }
+
+    /// <summary>Whether the device was made with ray queries on: the three extensions and the features they need.</summary>
+    public bool CanTrace { get; private set; }
+
+    /// <summary>Why <see cref="CanTrace"/> is false, such as "no VK_KHR_ray_query", or null when it is true.</summary>
+    public string? NoTraceReason { get; private set; }
+
+    /// <summary>
+    /// Whether the device was made with VK_EXT_conservative_rasterization, so a pipeline can count a pixel as covered
+    /// when any part of a triangle touches it. The baker's texel setup uses it; see "Texel setup" in docs/design.md.
+    /// </summary>
+    public bool ConservativeRasterization { get; private set; }
+
     /// <summary>Owns every byte of device memory. Set once the device exists.</summary>
     public readonly GpuMemory Memory;
 
@@ -74,7 +89,7 @@ internal sealed unsafe class VulkanContext : IDisposable
 
         Surface = new SurfaceKHR(options.CreateSurface(Instance.Handle));
         (PhysicalDevice, QueueFamily) = PickPhysicalDevice();
-        Device = CreateDevice();
+        Device = CreateDevice(options.DisableRayTracing);
         Api.GetDeviceQueue(Device, QueueFamily, 0, out Queue);
 
         if (!Api.TryGetDeviceExtension(Instance, Device, out SwapchainApi!))
@@ -106,9 +121,13 @@ internal sealed unsafe class VulkanContext : IDisposable
         throw new InvalidOperationException($"No GPU memory type supports {required}.");
     }
 
+    /// <summary>How many times <see cref="SubmitAndWait"/> has run, so tests can check a frame never waits.</summary>
+    internal int SubmitAndWaitCount { get; private set; }
+
     /// <summary>Records and runs one-off GPU work, then waits for it. Not for use during a frame.</summary>
     public void SubmitAndWait(Action<CommandBuffer> record)
     {
+        SubmitAndWaitCount++;
         var allocInfo = new CommandBufferAllocateInfo
         {
             SType = StructureType.CommandBufferAllocateInfo,
@@ -273,7 +292,7 @@ internal sealed unsafe class VulkanContext : IDisposable
         }
     }
 
-    private Device CreateDevice()
+    private Device CreateDevice(bool disableRayTracing)
     {
         float priority = 1f;
         var queueInfo = new DeviceQueueCreateInfo
@@ -290,11 +309,31 @@ internal sealed unsafe class VulkanContext : IDisposable
         // FSR picks its shaders by what the GPU supports, not by what the device turned on: 16-bit maths where
         // the GPU has it, and a fixed subgroup size where it can choose one. So those are turned on wherever
         // they're supported, or FSR's pipelines would use features the device doesn't have.
+        var deviceExtensions = DeviceExtensionNames();
+        var supportedRayQuery = new PhysicalDeviceRayQueryFeaturesKHR { SType = StructureType.PhysicalDeviceRayQueryFeaturesKhr };
+        var supportedAccelerationStructure = new PhysicalDeviceAccelerationStructureFeaturesKHR
+        {
+            SType = StructureType.PhysicalDeviceAccelerationStructureFeaturesKhr,
+            PNext = &supportedRayQuery,
+        };
         var supported13 = new PhysicalDeviceVulkan13Features { SType = StructureType.PhysicalDeviceVulkan13Features };
+
+        // The ray tracing feature structs belong to their extensions, so they're only asked about where the GPU
+        // lists them. Elsewhere the query is the one it was before tracing, and the features stay false.
+        if (RayTracingSupport.CanAskForFeatures(deviceExtensions))
+        {
+            supported13.PNext = &supportedAccelerationStructure;
+        }
+
         var supported12 = new PhysicalDeviceVulkan12Features { SType = StructureType.PhysicalDeviceVulkan12Features, PNext = &supported13 };
         var supported11 = new PhysicalDeviceVulkan11Features { SType = StructureType.PhysicalDeviceVulkan11Features, PNext = &supported12 };
         var supportedAll = new PhysicalDeviceFeatures2 { SType = StructureType.PhysicalDeviceFeatures2, PNext = &supported11 };
         Api.GetPhysicalDeviceFeatures2(PhysicalDevice, &supportedAll);
+
+        var multiviewProperties = new PhysicalDeviceMultiviewProperties { SType = StructureType.PhysicalDeviceMultiviewProperties };
+        var properties2 = new PhysicalDeviceProperties2 { SType = StructureType.PhysicalDeviceProperties2, PNext = &multiviewProperties };
+        Api.GetPhysicalDeviceProperties2(PhysicalDevice, &properties2);
+        Multiview = supported11.Multiview && multiviewProperties.MaxMultiviewViewCount >= 6;
 
         var features = new PhysicalDeviceFeatures
         {
@@ -312,6 +351,7 @@ internal sealed unsafe class VulkanContext : IDisposable
             SType = StructureType.PhysicalDeviceVulkan11Features,
             StorageBuffer16BitAccess = supported11.StorageBuffer16BitAccess,
             UniformAndStorageBuffer16BitAccess = supported11.UniformAndStorageBuffer16BitAccess,
+            Multiview = Multiview,
         };
         var features12 = new PhysicalDeviceVulkan12Features
         {
@@ -334,12 +374,40 @@ internal sealed unsafe class VulkanContext : IDisposable
             SubgroupSizeControl = supported13.SubgroupSizeControl,
             ComputeFullSubgroups = supported13.ComputeFullSubgroups,
         };
+
         // FSR looks up vkGetBufferMemoryRequirements2KHR by its extension name, which the driver only hands out
         // when the extension is on, even though Vulkan 1.1 has the function under its core name.
         var extensions = new List<string> { KhrSwapchain.ExtensionName };
-        if (HasDeviceExtension(MemoryRequirements2Extension))
+        if (deviceExtensions.Contains(MemoryRequirements2Extension))
         {
             extensions.Add(MemoryRequirements2Extension);
+        }
+
+        // It has no features to turn on, only a pipeline state, so nothing that doesn't ask for it changes.
+        ConservativeRasterization = deviceExtensions.Contains(ConservativeRasterizationExtension);
+        if (ConservativeRasterization)
+        {
+            extensions.Add(ConservativeRasterizationExtension);
+        }
+
+        // Ray queries let a shader ask what a ray hits. Without all of them the device is made exactly as before,
+        // and nothing that asks CanTrace traces.
+        NoTraceReason = RayTracingSupport.Missing(
+            deviceExtensions, supported12.BufferDeviceAddress, supportedAccelerationStructure.AccelerationStructure,
+            supportedRayQuery.RayQuery, disableRayTracing);
+        CanTrace = NoTraceReason is null;
+        var rayQuery = new PhysicalDeviceRayQueryFeaturesKHR { SType = StructureType.PhysicalDeviceRayQueryFeaturesKhr, RayQuery = true };
+        var accelerationStructure = new PhysicalDeviceAccelerationStructureFeaturesKHR
+        {
+            SType = StructureType.PhysicalDeviceAccelerationStructureFeaturesKhr,
+            PNext = &rayQuery,
+            AccelerationStructure = true,
+        };
+        if (CanTrace)
+        {
+            extensions.AddRange(RayTracingSupport.Extensions);
+            features12.BufferDeviceAddress = true;
+            features11.PNext = &accelerationStructure;
         }
 
         nint extensionNames = SilkMarshal.StringArrayToPtr(extensions);
@@ -360,8 +428,9 @@ internal sealed unsafe class VulkanContext : IDisposable
     }
 
     private const string MemoryRequirements2Extension = "VK_KHR_get_memory_requirements2";
+    private const string ConservativeRasterizationExtension = "VK_EXT_conservative_rasterization";
 
-    private bool HasDeviceExtension(string name)
+    private HashSet<string> DeviceExtensionNames()
     {
         uint count = 0;
         Api.EnumerateDeviceExtensionProperties(PhysicalDevice, (byte*)null, &count, null).Check();
@@ -371,15 +440,13 @@ internal sealed unsafe class VulkanContext : IDisposable
             Api.EnumerateDeviceExtensionProperties(PhysicalDevice, (byte*)null, &count, first).Check();
         }
 
+        var names = new HashSet<string>();
         foreach (var property in properties)
         {
-            if (SilkMarshal.PtrToString((nint)property.ExtensionName) == name)
-            {
-                return true;
-            }
+            names.Add(SilkMarshal.PtrToString((nint)property.ExtensionName)!);
         }
 
-        return false;
+        return names;
     }
 
     private uint OnDebugMessage(

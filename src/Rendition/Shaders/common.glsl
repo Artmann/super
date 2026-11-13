@@ -1,6 +1,6 @@
 struct Light {
     vec4 direction; // xyz: unit vector pointing towards the light; w: 1 if it casts the shadow
-    vec4 radiance;  // rgb: colour multiplied by intensity
+    vec4 radiance;  // rgb: colour multiplied by intensity; w: shadow mask channel, or -1 for none
 };
 
 struct ReflectionProbe {
@@ -37,6 +37,8 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 occlusion;          // x: how far ambient occlusion looks, in metres; y: its strength, 0 to 1
     vec4 lightProbeMin;      // xyz: the first light probe; w: the probes' spacing in metres
     vec4 lightProbeCounts;   // xyz: probes along each axis; w: 1 when the soft light comes from them
+    vec4 probeCascadeOrigin[4]; // Per cascade, finest first. xyz: the cell of its minimum corner; w: its spacing in metres
+    vec4 probeCascadeCounts; // xyz: probes along each axis of every cascade; w: 1 when the cascades may be read
     vec4 skySun;             // xyz: towards the clear sky's sun; w: its turbidity, 0 for the environment's bands
     vec4 sunDisc;            // rgb: how bright the sun's disc is, 0 for none; a: the cosine of its angular radius
     vec4 fog;                // x: density at the fog's height, 0 for none; y: that height; z: falloff per metre; w: sun scatter
@@ -45,6 +47,11 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 volumetric;         // x: how far the volumetric fog reaches, 0 for none; y: where its first slice ends; z: anisotropy; w: 1 when last frame's volume can be used
     vec4 puddles;            // x: puddleLevel, the water's height in metres; y: puddleBand, the damp band above it; z: 1 when there is water
     vec4 wind;               // xyz: the way the wind blows times its strength, all zero in a calm; w: its gustiness. See wind.glsl.
+    vec4 bakedProbeMin;      // xyz: the drawn bake's first light probe; w: their spacing in metres
+    vec4 bakedProbeCounts;   // xyz: the bake's probes along each axis; w: 1 while they light the baked space, banded at its faces, 2 cut off hard (tests only), 0 when not
+    vec4 bakedSpaceMin;      // xyz: the baked space's box, where its probes are read; w: the irradiance atlas's slot in the material table
+    vec4 bakedSpaceMax;      // xyz: the box's far corner; w: the depth atlas's slot
+    vec4 bakedFade;          // x: how far the baked space's bake has faded in, from 0 to 1, for its lightmaps and probes; 1 when none is fading
     int lightCount;
     float time;              // Seconds, as set by the game.
     int frameNumber;
@@ -55,10 +62,11 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     int localLightCount;     // Point and spot lights in light_data.glsl's lights.
     int off;                 // The RenderEffects left out of this frame: see the OFF_ bits below.
     float mipBias;           // Added to the mip level of material textures: below 0 while anti-aliasing shifts the view.
-    int probeCapture;        // 1 while drawing a light probe's faces: alpha holds the distance, negative behind a surface.
+    int probeLightCount;     // Local lights probe updates read: localLightCount in view, then the rest of the frame's.
     float previousTime;      // Last frame's time, for motion vectors; the same as time when there's no last frame.
     Light lights[8];
     ReflectionProbe probes[4];
+    mat4 probeSunMatrix;         // World to the light probes' own sun shadow map, over the largest cascade.
 } frame;
 
 // Bits of frame.off. Must match RenderEffects in Types.cs.
@@ -73,8 +81,11 @@ const int OFF_DEPTH_OF_FIELD = 1 << 13;
 const int OFF_VOLUMETRIC_FOG = 1 << 15;
 const int OFF_PUDDLES = 1 << 16;
 const int OFF_WIND = 1 << 17;
+// Not a RenderEffects bit: set by the renderer while a debug view shows (DebugViewBit in Renderer.cs). Tonemapping
+// and the finish pass then hand colours through as they are.
+const int OFF_DEBUG_VIEW = 1 << 30;
 
-// The normal target's alpha holds the side a surface faces, 1 or -1. Puddle water writes
+// The normal target's alpha holds 1 for a surface. Puddle water writes
 // WATER_SIDE instead, so the lighting knows to shade it at the water's surface, not on the
 // ground under it, which is all the depth buffer holds.
 const float WATER_SIDE = 2.0;

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Rendition;
@@ -13,6 +14,12 @@ internal sealed unsafe class GameWindow : IDisposable
 {
     /// <summary>Anti-aliasing builds up over several frames, so a screenshot waits for it to settle.</summary>
     private const int ScreenshotSettleFrames = 48;
+
+    /// <summary>
+    /// The most frames a screenshot waits, after <see cref="ScreenshotSettleFrames"/>, for the light probes near
+    /// the camera to all be drawn. They're drawn a few a frame, so a busy scene may still be filling in at the cap.
+    /// </summary>
+    private const int ScreenshotProbeFrames = 2048;
 
     private const int ScreenshotPlayedTicks = 120;
 
@@ -44,7 +51,8 @@ internal sealed unsafe class GameWindow : IDisposable
 
     public GameWindow(
         string title, int windowWidth, int windowHeight, bool hidden, bool validate, bool disableVsync, int shadowResolution,
-        float renderScale = 1f, Upscaler upscaler = Upscaler.Taa, bool maximized = false, bool borderless = false)
+        float renderScale = 1f, Upscaler upscaler = Upscaler.Taa, bool maximized = false, bool borderless = false,
+        bool disableRayTracing = false)
     {
         _hidden = hidden;
         _glfw = Glfw.GetApi();
@@ -92,6 +100,7 @@ internal sealed unsafe class GameWindow : IDisposable
             Height = height,
             EnableValidation = validate,
             DisableVsync = disableVsync && !hidden,
+            DisableRayTracing = disableRayTracing,
             ShadowResolution = shadowResolution,
             RenderScale = renderScale,
             Upscaler = upscaler,
@@ -132,6 +141,12 @@ internal sealed unsafe class GameWindow : IDisposable
         // Only here can a player see a loading screen, and only here may real time decide its length.
         host.Content.Streaming = true;
         host.Content.GoLive();
+
+        // Only here is missing lighting baked as it appears, and only here does a bake that arrives fade in.
+        _scene.BakeFadeSeconds = PlayBakeFadeSeconds;
+        _autoBake.TurnOn();
+        host.ShowsBakes = true;
+        ApplyAutoBake(host);
 
         var limiter = new FrameLimiter(TimeProvider.System);
         IDisposable? fineSleep = null;
@@ -177,9 +192,72 @@ internal sealed unsafe class GameWindow : IDisposable
         }
 
         ApplyMouseCapture(host.Input);
+        host.BakeProgress = _scene.BakeProgress;
         Draw(host, clock.Blend);
+        ApplyAutoBake(host);
         Show(host, (float)played);
     }
+
+    /// <summary>How long a bake that arrives on screen fades in during play.</summary>
+    internal const float PlayBakeFadeSeconds = 0.5f;
+
+    /// <summary>
+    /// The chunk bakes made on this machine, which play reads and writes. Set before <see cref="Run"/>; other runs read
+    /// only cooked bakes.
+    /// </summary>
+    internal BakeCache? BakeCache
+    {
+        set => _scene.BakeCache = value;
+    }
+
+    private readonly AutoBakeSwitch _autoBake = new();
+
+    private static DevSettings? DevOf<TGame>(GameHost<TGame> host)
+        where TGame : class, IGame =>
+        host.Content.Files is CookedFolder { Dev: { Roots.Length: > 0 } dev } ? dev : null;
+
+    /// <summary>
+    /// Hands the renderer what to bake by itself, from <see cref="Graphics.BakeOnArrival"/> and
+    /// <see cref="Graphics.BakeBudget"/>, the first time and whenever either changes. Unchanged, the renderer keeps the
+    /// same <see cref="Rendition.AutoBake"/>, since a new one would start its queue again. Called between frames, as
+    /// setting it waits for the GPU the first time.
+    /// </summary>
+    private void ApplyAutoBake<TGame>(GameHost<TGame> host)
+        where TGame : class, IGame
+    {
+        if (!_autoBake.Changed(host.Graphics))
+        {
+            return;
+        }
+
+        var dev = DevOf(host);
+        _scene.BakeOnArrival(AutoBakePolicy.For(dev, CanTrace, host.Graphics));
+
+        // From source, a GPU that can't trace says once why the lighting stays live; a player isn't told.
+        _scene.SaysWhyNotBaking = host.Graphics.BakeOnArrival && !CanTrace && dev is not null;
+    }
+
+    /// <summary>
+    /// What every frame shows when <c>--debug-view</c> asked for a view, or <see cref="Rendition.DebugView.None"/>
+    /// when it didn't, and then the game's <see cref="Graphics.DebugView"/> decides. See <see cref="SceneRenderer.DebugView"/>.
+    /// </summary>
+    public Rendition.DebugView DebugView
+    {
+        get => _commandLineDebugView;
+        set
+        {
+            _commandLineDebugView = value;
+            _scene.DebugView = value;
+        }
+    }
+
+    private Rendition.DebugView _commandLineDebugView;
+
+    /// <summary>Whether the GPU can trace rays.</summary>
+    public bool CanTrace => _scene.CanTrace;
+
+    /// <summary>Why <see cref="CanTrace"/> is false, or null when it is true.</summary>
+    public string? NoTraceReason => _scene.NoTraceReason;
 
     /// <summary>Plays the given number of ticks and saves the picture. Returns the validation message count.</summary>
     public int Screenshot<TGame>(GameHost<TGame> host, long ticks, string path)
@@ -189,10 +267,111 @@ internal sealed unsafe class GameWindow : IDisposable
         Draw(host, 1f);
         float time = (float)host.Time.TotalSeconds;
         Settle(host, time, ScreenshotSettleFrames);
+        SettleProbes(host, time);
 
         host.Capture.Screenshot(path);
         Show(host, time);
         return _scene.ValidationErrors;
+    }
+
+    /// <summary>
+    /// Plays the given number of ticks, then bakes the frame's baked space, if it names one, and each distinct chunk file
+    /// it draws, and saves them in <paramref name="folder"/>, the first content root, as
+    /// <c>lighting/&lt;name&gt;.lightbake</c> and <c>lighting/&lt;name&gt;/&lt;hash&gt;.lightbake</c>. Chunks with the
+    /// same contents share a file, which is baked once. Prints what each bake found. A chunk that owns no static draws is
+    /// reported and skipped, and counted in <paramref name="failed"/>. Returns the validation message count.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The frame names no baked space and no chunk.</exception>
+    public int Bake<TGame>(GameHost<TGame> host, long ticks, BakeQuality quality, string folder, out int failed)
+        where TGame : class, IGame
+    {
+        float time = PlayAndDraw(host, ticks);
+        var chunks = host.View.BakedChunks;
+        var frame = _scene.LastBakeFrame;
+        var targets = BakeCommand.Targets(
+            host.View.BakedSpace is { } named ? BakeFiles.Space(named.Name) : null,
+            chunks.Count,
+            chunk => frame!.ChunkFile(chunk));
+
+        _glfw.GetFramebufferSize(_window, out int width, out int height);
+        ApplyGraphics(host.Graphics);
+        failed = BakeCommand.Bake(
+            targets,
+            target => target.Chunk == BakeTarget.Space || frame!.ChunkStaticDraws(target.Chunk) > 0,
+            target =>
+            {
+                // Each is baked at its area's own texel density, which is what a frame checks its bake against.
+                byte[] bake = target.Chunk == BakeTarget.Space
+                    ? _scene.Bake(host.View, host.Content, width, height, time,
+                        new BakeSettings(host.View.BakedSpace!.Value.TexelsPerMetre, quality))
+                    : _scene.BakeChunk(host.View, host.Content, width, height, time, target.Chunk,
+                        new BakeSettings(chunks[target.Chunk].TexelsPerMetre, quality));
+
+                string path = Path.GetFullPath(Path.Combine(folder, target.File));
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                File.WriteAllBytes(path, bake);
+                Console.Write(DescribeBake(path, bake.Length, LightBakeFile.Read(bake).Report));
+            },
+            Console.Out);
+
+        return _scene.ValidationErrors;
+    }
+
+    /// <summary>
+    /// Plays the given number of ticks, draws the frame and checks the bake of its baked space and of each distinct
+    /// chunk file in the cooked content, the one the frame was drawn with, printing a line for each: missing, stale
+    /// with what changed, or fresh. Returns the number of missing or stale bakes.
+    /// </summary>
+    public int BakeCheck<TGame>(GameHost<TGame> host, long ticks)
+        where TGame : class, IGame
+    {
+        PlayAndDraw(host, ticks);
+        var frame = _scene.LastBakeFrame;
+        if (frame is null)
+        {
+            return BakeCommand.Check([], _ => null, Console.Out);
+        }
+
+        var targets = BakeCommand.Targets(
+            frame.Space is not null && host.View.BakedSpace is { } space ? BakeFiles.Space(space.Name) : null,
+            frame.Chunks.Count,
+            chunk => frame.ChunkFile(chunk));
+        return BakeCommand.Check(
+            targets,
+            target =>
+            {
+                var inputs = target.Chunk == BakeTarget.Space ? frame.Space!.Value : frame.Chunks[target.Chunk];
+                return _scene.Bakes.Saved(target.File) is { } saved ? inputs.Changes(saved) : null;
+            },
+            Console.Out);
+    }
+
+    /// <summary>What <see cref="Bake"/> prints about a bake it saved.</summary>
+    internal static string DescribeBake(string path, long bytes, LightBakeReport report)
+    {
+        string lights = report.LightsWithoutChannel.Count == 0
+            ? "none"
+            : string.Join(", ", report.LightsWithoutChannel.Select(key => key.ToString(CultureInfo.InvariantCulture)));
+        return string.Create(CultureInfo.InvariantCulture,
+            $"""
+            {path}: {bytes / 1024.0 / 1024.0:0.0} MB
+              time: {report.Time.TotalSeconds:0.0} s
+              samples: {report.Samples} a texel
+              invalid texels: {report.InvalidTexelShare * 100f:0.00}%
+              Mixed lights without a shadow mask channel: {lights}
+
+            """);
+    }
+
+    /// <summary>Plays the given number of ticks, then draws and renders the frame there. Returns the frame's time.</summary>
+    private float PlayAndDraw<TGame>(GameHost<TGame> host, long ticks)
+        where TGame : class, IGame
+    {
+        PlayTo(host, ticks);
+        Draw(host, 1f);
+        float time = (float)host.Time.TotalSeconds;
+        Settle(host, time, 1);
+        return time;
     }
 
     /// <summary>Plays the given number of ticks, then saves a video. Returns the validation message count.</summary>
@@ -337,6 +516,57 @@ internal sealed unsafe class GameWindow : IDisposable
         }
     }
 
+    /// <summary>
+    /// Renders on until the light probes near the camera are all drawn, up to <see cref="ScreenshotProbeFrames"/>
+    /// frames, so a screenshot shows the bounced light as it will be rather than still filling in. With the probes
+    /// off there is nothing to wait for. Says how long it waited, as a slow scene can make a shot take a while.
+    /// These frames don't wait for the display, as nobody sees them; the count of frames, not the time, decides
+    /// what the shot shows, so it's the same either way.
+    /// </summary>
+    private void SettleProbes<TGame>(GameHost<TGame> host, float time)
+        where TGame : class, IGame
+    {
+        if (!host.Graphics.LightProbes)
+        {
+            return;
+        }
+
+        _glfw.GetFramebufferSize(_window, out int width, out int height);
+        int frames = ExtraSettleFrames(
+            () => _scene.ProbesSettled,
+            () =>
+            {
+                ApplyGraphics(host.Graphics, settlingProbes: true);
+                _scene.Render(host.View, host.Content, width, height, time);
+            },
+            ScreenshotProbeFrames);
+
+        if (frames == ScreenshotProbeFrames && !_scene.ProbesSettled)
+        {
+            Console.WriteLine($"The light probes were still filling in after {frames} more frames; the shot shows them as they are.");
+        }
+        else if (frames > 0)
+        {
+            Console.WriteLine($"Waited {frames} more frames for the light probes to settle.");
+        }
+    }
+
+    /// <summary>
+    /// Renders frames until <paramref name="settled"/> says there's nothing left to wait for, or <paramref name="cap"/>
+    /// frames have been rendered, and returns how many were. None are rendered if it's settled already.
+    /// </summary>
+    internal static int ExtraSettleFrames(Func<bool> settled, Action renderFrame, int cap)
+    {
+        int frames = 0;
+        while (frames < cap && !settled())
+        {
+            renderFrame();
+            frames++;
+        }
+
+        return frames;
+    }
+
     /// <summary>Runs the game's Draw with the interface laid out for the window as it is now.</summary>
     private void Draw<TGame>(GameHost<TGame> host, float blend)
         where TGame : class, IGame
@@ -367,18 +597,34 @@ internal sealed unsafe class GameWindow : IDisposable
     }
 
     /// <summary>Hands the game's graphics settings, as they are now, to the renderer for the next frame.</summary>
-    private void ApplyGraphics(Graphics graphics)
+    private void ApplyGraphics(Graphics graphics, bool settlingProbes = false)
     {
-        (_scene.Off, _scene.Vsync, _scene.ShadowResolution, _scene.RenderScale, _scene.Upscaler) = RendererSettings(graphics, _hidden);
+        (_scene.Off, _scene.Vsync, _scene.ShadowResolution, _scene.RenderScale, _scene.Upscaler, _scene.ProbeQuality,
+            _scene.DebugView) = RendererSettings(graphics, _hidden, settlingProbes, _commandLineDebugView, CanTrace);
     }
 
     /// <summary>
     /// What the renderer is told from the game's graphics settings: the effects left out, whether to wait
-    /// for the display, which a hidden window always does, the sun's shadow map size, the render scale and the upscaler.
+    /// for the display, the sun's shadow map size, the render scale, the upscaler, the light probes' quality and the debug view.
+    /// A hidden window always waits for the display, except while a screenshot waits for the light probes to
+    /// settle, where waiting would only slow the shot down. The debug view is the command line's when it named one,
+    /// else the game's <see cref="Graphics.DebugView"/>, except that a game's Trace view is dropped to None on a
+    /// GPU that can't trace (<paramref name="canTrace"/>), where the renderer would throw.
     /// </summary>
-    internal static (RenderEffects Off, bool Vsync, int ShadowResolution, float RenderScale, Upscaler Upscaler) RendererSettings(
-        Graphics graphics, bool hidden) =>
-        (graphics.Off, hidden || graphics.Vsync, graphics.ShadowResolution, graphics.RenderScale, graphics.Upscaler);
+    internal static (RenderEffects Off, bool Vsync, int ShadowResolution, float RenderScale, Upscaler Upscaler, ProbeQuality ProbeQuality,
+        Rendition.DebugView DebugView) RendererSettings(
+            Graphics graphics, bool hidden, bool settlingProbes = false, Rendition.DebugView commandLineDebugView = Rendition.DebugView.None,
+            bool canTrace = true)
+    {
+        var debugView = commandLineDebugView;
+        if (debugView == Rendition.DebugView.None && (graphics.DebugView != Rendition.DebugView.Trace || canTrace))
+        {
+            debugView = graphics.DebugView;
+        }
+
+        return (graphics.Off, hidden ? !settlingProbes : graphics.Vsync, graphics.ShadowResolution, graphics.RenderScale,
+            graphics.Upscaler, graphics.ProbeQuality, debugView);
+    }
 
     /// <summary>Feeds the window's events into the game's input. Only the interactive loop does this.</summary>
     private void ListenForInput(Input input)

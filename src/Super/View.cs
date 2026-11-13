@@ -12,7 +12,8 @@ namespace Super;
 /// A model to draw. It only exists until the next frame describes the world again. A
 /// pose skins a rigged model; PoseAhead is how many seconds past the last tick the
 /// display is, so clips keep moving between ticks. A ghost draws it in one colour. Meshes,
-/// when set, shows only the masked meshes of the model; null shows them all.
+/// when set, shows only the masked meshes of the model; null shows them all. Static marks a
+/// draw that never moves, so baked lighting can hold it; its parts get bake ids.
 /// </summary>
 public readonly record struct ModelDraw(
     int Key,
@@ -23,13 +24,14 @@ public readonly record struct ModelDraw(
     AnimationPose? Pose = null,
     float PoseAhead = 0f,
     Ghost? Ghost = null,
-    MeshMask? Meshes = null);
+    MeshMask? Meshes = null,
+    bool Static = false);
 
 /// <summary>
 /// A light as far away as the sun, shining the same way everywhere. One sun casts the
 /// shadows: the one marked with <see cref="CastsShadows"/>, or else the first.
 /// </summary>
-public readonly record struct SunLight(Vector3 Direction, Vector3 Color, bool CastsShadows = false);
+public readonly record struct SunLight(Vector3 Direction, Vector3 Color, bool CastsShadows = false, LightMode Mode = LightMode.Mixed);
 
 /// <summary>
 /// A reflection probe placed with <see cref="View.ReflectionProbe"/>: where it photographs the scene
@@ -86,6 +88,7 @@ public sealed class View
     private readonly List<LocalLight> _lights = [];
     private readonly List<ReflectionProbeRequest> _reflectionProbes = [];
     private readonly List<DecalRequest> _decals = [];
+    private readonly List<BakedChunk> _bakedChunks = [];
     private readonly HashSet<int> _decalKeys = [];
     private readonly ViewMemory _memory = new();
     private long _frame;
@@ -109,6 +112,12 @@ public sealed class View
     internal float ShadowContact { get; private set; } = ShadowSettings.DefaultContactLength;
     internal OcclusionSettings Occlusion { get; private set; } = new();
     internal ProbeVolumeSettings? LightProbeVolume { get; private set; }
+    internal BakedSpace? BakedSpace { get; private set; }
+
+    /// <summary>The baked chunks placed so far this frame, in the order they were placed.</summary>
+    internal IReadOnlyList<BakedChunk> BakedChunks => _bakedChunks;
+
+    internal ReadOnlySpan<BakedChunk> PlacedBakedChunks => CollectionsMarshal.AsSpan(_bakedChunks);
     internal UiTree? Ui { get; set; }
 
     /// <summary>How the screen moves between pictures this frame. Set by <see cref="Transitions"/>.</summary>
@@ -145,10 +154,13 @@ public sealed class View
     /// <summary>
     /// Adds a sun. The direction points from the ground towards it, and needn't be one
     /// unit long. Colors above 1 are brighter. One sun casts the shadows: the one added
-    /// with <paramref name="shadows"/> set, or else the first. Marking two throws.
+    /// with <paramref name="shadows"/> set, or else the first. Marking two throws. The mode says how
+    /// a bake treats it; see "Light modes" in docs/rendering.md.
     /// </summary>
-    public void Sun(Vector3 direction, Vector3 color, bool shadows = false)
+    public void Sun(Vector3 direction, Vector3 color, bool shadows = false, LightMode mode = LightMode.Mixed)
     {
+        CheckMode(mode);
+
         if (shadows)
         {
             foreach (var sun in _suns)
@@ -161,7 +173,7 @@ public sealed class View
             }
         }
 
-        _suns.Add(new SunLight(Vector3.Normalize(direction), color, shadows));
+        _suns.Add(new SunLight(Vector3.Normalize(direction), color, shadows, mode));
     }
 
     /// <summary>
@@ -183,9 +195,10 @@ public sealed class View
         float range,
         bool shadows = true,
         float radius = LocalLight.DefaultRadius,
-        float volumetric = 1f)
+        float volumetric = 1f,
+        LightMode mode = LightMode.Mixed)
     {
-        CheckLight(position, color, range, radius, volumetric);
+        CheckLight(position, color, range, radius, volumetric, mode);
         _lights.Add(new LocalLight
         {
             Key = key,
@@ -195,6 +208,7 @@ public sealed class View
             Radius = radius,
             CastsShadow = shadows,
             Volumetric = volumetric,
+            Mode = mode,
         });
     }
 
@@ -214,9 +228,10 @@ public sealed class View
         float outerAngle,
         bool shadows = true,
         float radius = LocalLight.DefaultRadius,
-        float volumetric = 1f)
+        float volumetric = 1f,
+        LightMode mode = LightMode.Mixed)
     {
-        CheckLight(position, color, range, radius, volumetric);
+        CheckLight(position, color, range, radius, volumetric, mode);
         if (!(direction.LengthSquared() > 1e-12f) || !float.IsFinite(direction.LengthSquared()))
         {
             throw new ArgumentException($"A spot light needs a direction to shine in, not {direction}.", nameof(direction));
@@ -246,11 +261,26 @@ public sealed class View
             OuterAngle = outerAngle,
             CastsShadow = shadows,
             Volumetric = volumetric,
+            Mode = mode,
         });
     }
 
-    private void CheckLight(Vector3 position, Vector3 color, float range, float radius, float volumetric)
+    private static void CheckMode(LightMode mode)
     {
+        // Not Enum.IsDefined: a game checks this every frame for every light, and that allocates.
+        if (mode < LightMode.Mixed || mode > LightMode.Baked)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(mode),
+                (int)mode,
+                $"A light's mode must be Mixed, Realtime or Baked, but it was {(int)mode}.");
+        }
+    }
+
+    private void CheckLight(Vector3 position, Vector3 color, float range, float radius, float volumetric, LightMode mode)
+    {
+        CheckMode(mode);
+
         if (_lights.Count >= LocalLight.MaxPerFrame)
         {
             throw new InvalidOperationException(
@@ -289,10 +319,15 @@ public sealed class View
     /// Draws a model. The key names it across frames, so use a stable ID from your game.
     /// A color tints the model, as red, green and blue from 0 to 1. It multiplies the
     /// model's own colors and keeps its textures, and costs nothing extra, so every copy
-    /// of a model can have its own. The cube is white under a color.
+    /// of a model can have its own. The cube is white under a color. A static draw never moves,
+    /// so baked lighting can hold it; see "Static draws" in docs/views.md.
     /// </summary>
-    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color = null) =>
-        Model(key, model, transform, color, default);
+    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color = null, bool isStatic = false) =>
+        Model(key, model, transform, color, default, null, null, isStatic);
+
+    /// <summary>Draws some meshes of a model, or all of them when the mask is null, perhaps static.</summary>
+    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, MeshMask? meshes, bool isStatic = false) =>
+        Model(key, model, transform, color, default, null, meshes, isStatic);
 
     /// <summary>
     /// Draws a model that bends as it swims. Its head must face +z. Like a color, this
@@ -359,10 +394,25 @@ public sealed class View
 
     /// <summary>
     /// The full draw: a color, a swimming motion, a pose and the meshes to show, any of which
-    /// may be left out. Throws if the mask was made for another model.
+    /// may be left out. Throws if the mask was made for another model, or if a static draw
+    /// swims or has a pose, since a bake holds it where it stands.
     /// </summary>
-    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim, AnimationPose? pose, MeshMask? meshes)
+    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim, AnimationPose? pose, MeshMask? meshes, bool isStatic = false)
     {
+        if (isStatic && swim.Amplitude != 0f)
+        {
+            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture,
+                $"Model {key} is static, so it can't swim, but its swim has amplitude {swim.Amplitude}. Draw it without isStatic, or without the swim."),
+                nameof(swim));
+        }
+
+        if (isStatic && pose is not null)
+        {
+            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture,
+                $"Model {key} is static, so it can't move in a pose. Draw it without isStatic, or without the pose."),
+                nameof(pose));
+        }
+
         if (model.Index < -Shapes.BuiltInNames.Length)
         {
             throw new ArgumentException($"Model {model.Index} is not a built-in shape. Use ModelRef.Sphere and the others, or a model from Content.", nameof(model));
@@ -378,7 +428,7 @@ public sealed class View
             throw new ArgumentException($"The mesh mask was made for model {mask.Model}, not model {model.Index}. Make it with Content.Meshes for this model.", nameof(meshes));
         }
 
-        _models.Add(new ModelDraw(key, model, transform, color, swim, pose, pose is null ? 0f : Blend * _tickSeconds * _timeScale, null, meshes));
+        _models.Add(new ModelDraw(key, model, transform, color, swim, pose, pose is null ? 0f : Blend * _tickSeconds * _timeScale, null, meshes, isStatic));
     }
 
     /// <summary>
@@ -718,6 +768,99 @@ public sealed class View
     }
 
     /// <summary>
+    /// Names the one fixed place this frame whose lighting is baked as it stands, sun included: the box from
+    /// <paramref name="min"/> to <paramref name="max"/>, holding baked probes <paramref name="probeSpacing"/> metres
+    /// apart, at most <see cref="BakeFiles.MaxSpaceProbes"/>, with lightmaps of <paramref name="texelsPerMetre"/>
+    /// texels for each metre of surface. Its bake is <c>lighting/&lt;name&gt;.lightbake</c>, made with
+    /// <c>--bake</c>, and a bake made at another density is stale. A second space in one frame throws. While the bake
+    /// is fresh, its lightmaps light the draws it holds in place of its <c>Baked</c> lights, which are no longer drawn
+    /// live, its shadow mask shadows its <c>Mixed</c> lights, and its probes light other draws inside the box. A
+    /// missing, stale or unreadable bake leaves the space lit live. See docs/rendering.md.
+    /// </summary>
+    public void BakedLighting(
+        string name, Vector3 min, Vector3 max, float probeSpacing,
+        int texelsPerMetre = BakeSettings.DefaultTexelsPerMetre)
+    {
+        BakeFiles.CheckName(name);
+        if (BakedSpace is { } named)
+        {
+            throw new InvalidOperationException(
+                $"The baked space \"{named.Name}\" was already named this frame, so \"{name}\" can't be. A frame has at most one baked space.");
+        }
+
+        CheckTexelsPerMetre("baked space", texelsPerMetre);
+
+        if (!(float.IsFinite(probeSpacing) && probeSpacing > 0f))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(probeSpacing), probeSpacing, "The baked space's probe spacing must be more than 0 metres.");
+        }
+
+        CheckBakedBox("baked space", min, max);
+        long total = ProbeGrid.Total(new ProbeVolumeSettings(min, max, probeSpacing));
+        if (total > BakeFiles.MaxSpaceProbes)
+        {
+            throw new ArgumentException(
+                $"The baked space \"{name}\" holds {total.ToString(CultureInfo.InvariantCulture)} probes at this spacing, but at most {BakeFiles.MaxSpaceProbes.ToString(CultureInfo.InvariantCulture)} fit. Space them further apart or make the box smaller.",
+                nameof(probeSpacing));
+        }
+
+        BakedSpace = new BakedSpace(name, min, max, probeSpacing, texelsPerMetre);
+    }
+
+    /// <summary>
+    /// Places a piece of the world that is baked once in its own space: <paramref name="transform"/> places it and
+    /// may only turn and move it, and <paramref name="min"/> to <paramref name="max"/> is its box in its own space.
+    /// Its lightmaps have <paramref name="texelsPerMetre"/> texels for each metre of surface. The same name may be
+    /// placed many times, and every copy with the same contents shares one bake. At most
+    /// <see cref="BakeFiles.MaxChunks"/> a frame. With no fresh bake the chunk is lit live. The bake's light blends into
+    /// the live light over <paramref name="edgeBlend"/> metres in from the box's four sides, its own ±x and ±z, so it
+    /// meets what stands beside it without a step: 0 for a hard edge, and at most half the box's smaller side across x
+    /// and z. See docs/rendering.md.
+    /// </summary>
+    public void BakedChunk(
+        string name, Matrix4x4 transform, Vector3 min, Vector3 max,
+        int texelsPerMetre = BakeSettings.DefaultTexelsPerMetre, float edgeBlend = global::Rendition.BakedChunk.DefaultEdgeBlend)
+    {
+        BakeFiles.CheckName(name);
+        if (_bakedChunks.Count == BakeFiles.MaxChunks)
+        {
+            throw new InvalidOperationException(
+                $"At most {BakeFiles.MaxChunks.ToString(CultureInfo.InvariantCulture)} baked chunks fit in a frame.");
+        }
+
+        BakeFiles.CheckChunkTransform(_bakedChunks.Count, name, transform, nameof(transform));
+        CheckBakedBox("baked chunk", min, max);
+        CheckTexelsPerMetre("baked chunk", texelsPerMetre);
+        BakeFiles.CheckEdgeBlend(name, edgeBlend, min, max, nameof(edgeBlend));
+        _bakedChunks.Add(new BakedChunk(name, transform, min, max, texelsPerMetre, edgeBlend));
+    }
+
+    private static void CheckTexelsPerMetre(string what, int texelsPerMetre)
+    {
+        if (texelsPerMetre < BakeSettings.MinTexelsPerMetre || texelsPerMetre > BakeSettings.MaxTexelsPerMetre)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(texelsPerMetre), texelsPerMetre,
+                $"The {what}'s lightmap density must be {BakeSettings.MinTexelsPerMetre.ToString(CultureInfo.InvariantCulture)} to {BakeSettings.MaxTexelsPerMetre.ToString(CultureInfo.InvariantCulture)} texels a metre, not {texelsPerMetre.ToString(CultureInfo.InvariantCulture)}.");
+        }
+    }
+
+    private static void CheckBakedBox(string what, Vector3 min, Vector3 max)
+    {
+        for (int axis = 0; axis < 3; axis++)
+        {
+            if (!(float.IsFinite(min[axis]) && float.IsFinite(max[axis]) && max[axis] > min[axis]))
+            {
+                string name = axis == 0 ? "x" : axis == 1 ? "y" : "z";
+                throw new ArgumentException(
+                    $"The {what}'s box must reach further along {name} than it starts, but it runs from {min[axis].ToString(CultureInfo.InvariantCulture)} to {max[axis].ToString(CultureInfo.InvariantCulture)}.",
+                    nameof(max));
+            }
+        }
+    }
+
+    /// <summary>
     /// Places a reflection probe: a photograph of the scene in every direction from
     /// <paramref name="position"/>, which shiny surfaces and glass inside the box from
     /// <paramref name="boxMin"/> to <paramref name="boxMax"/> reflect in place of the sky. The box
@@ -925,6 +1068,8 @@ public sealed class View
         ShadowContact = ShadowSettings.DefaultContactLength;
         Occlusion = new OcclusionSettings();
         LightProbeVolume = null;
+        BakedSpace = null;
+        _bakedChunks.Clear();
         _reflectionProbes.Clear();
         _decals.Clear();
         _decalKeys.Clear();

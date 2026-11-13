@@ -209,7 +209,6 @@ public class ThinLensTests
         blurred.Post = new PostSettings { FocusDistance = 3f, Aperture = 1.4f, FocalLength = 85f };
         blurred.Off = RenderEffects.DepthOfField;
 
-        Assert.Equal(Renderer.LightingHash(sharp, 1), Renderer.LightingHash(blurred, 1));
         Assert.Equal(Renderer.ReflectionLightingHash(sharp, 1), Renderer.ReflectionLightingHash(blurred, 1));
     }
 }

@@ -14,6 +14,8 @@ internal sealed class GBuffer : IDisposable
     public const Format AoFormat = Format.R8G8B8A8Unorm;
     public const Format LdrFormat = Format.R8G8B8A8Srgb;
     public const Format MotionFormat = Format.R16G16Sfloat;
+    public const Format BakedFormat = Format.R16G16B16A16Sfloat;
+    public const Format MaskFormat = Format.R8G8B8A8Unorm;
 
     /// <summary>Mip levels of <see cref="SceneColor"/>, each half the last, for frosted glass to blur by.</summary>
     public const uint SceneColorMips = 7;
@@ -39,6 +41,16 @@ internal sealed class GBuffer : IDisposable
     /// zero where nothing was drawn. See <see cref="Motion"/>.
     /// </summary>
     public readonly RenderTarget Motion;
+
+    /// <summary>
+    /// The soft diffuse light a lightmap gives each pixel, already turned by its normal, in the irradiance map's units,
+    /// with alpha how much the lightmap counts: 1 where the pixel is lightmapped, less in a chunk's edge band, where the
+    /// lighting blends it with the live light. Cleared to zero, which the lighting reads as not lightmapped.
+    /// </summary>
+    public readonly RenderTarget Baked;
+
+    /// <summary>Each pixel's baked shadow mask, one channel a Mixed light. Cleared to 1, fully lit.</summary>
+    public readonly RenderTarget Mask;
 
     public readonly RenderTarget Depth;
     public readonly RenderTarget Hdr;
@@ -72,8 +84,13 @@ internal sealed class GBuffer : IDisposable
         NormalCopy = new RenderTarget(context, NormalFormat, extent, ImageUsageFlags.TransferDstBit, ImageAspectFlags.ColorBit);
         Emissive = new RenderTarget(context, EmissiveFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         Motion = new RenderTarget(context, MotionFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
+        Baked = new RenderTarget(context, BakedFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
+        Mask = new RenderTarget(context, MaskFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         Depth = new RenderTarget(context, DepthFormat, extent, ImageUsageFlags.DepthStencilAttachmentBit, ImageAspectFlags.DepthBit);
-        Hdr = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
+        // Where the device can trace, the trace debug view writes it from a compute shader instead of lighting it.
+        Hdr = new RenderTarget(context, HdrFormat, extent,
+            ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit | (context.CanTrace ? ImageUsageFlags.StorageBit : 0),
+            ImageAspectFlags.ColorBit);
         Resolved = new RenderTarget(
             context, HdrFormat, Display, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.StorageBit,
             ImageAspectFlags.ColorBit);
@@ -100,6 +117,8 @@ internal sealed class GBuffer : IDisposable
         NormalCopy.Dispose();
         Emissive.Dispose();
         Motion.Dispose();
+        Baked.Dispose();
+        Mask.Dispose();
         Depth.Dispose();
         Hdr.Dispose();
         Resolved.Dispose();

@@ -13,8 +13,8 @@ dotnet run -c Release --project MyColony -- --script tooltip --ticks 40 --screen
 | Option | What it does |
 | --- | --- |
 | `--seed N` | Seeds [`GameRandom`](random.md). The same seed plays the same game |
-| `--ticks N` | Plays this many ticks first, as fast as the machine can. Needs `--screenshot`, `--record` or `--profile` |
-| `--screenshot file.png` | Saves the picture at that moment, then exits |
+| `--ticks N` | Plays this many ticks first, as fast as the machine can. Needs `--screenshot`, `--record`, `--profile`, `--bake` or `--bake-check` |
+| `--screenshot file.png` | Saves the picture at that moment, then exits. It first waits for the light probes near the camera to settle, up to 2,048 frames. Without tracing (`--no-trace`, or a GPU that can't trace), a dense scene such as Courtyard can reach that cap first, and then the shot shows the probes still filling in and the console says so. See [Screenshots](#screenshots) |
 | `--record file.mp4 --seconds S` | Saves that many seconds of video, then exits |
 | `--fps N` | Frames per second for `--record`, 60 by default |
 | `--size WxH` | The picture size, such as `1920x1080`, or `1080x1920` for a vertical video. The game's window size by default |
@@ -26,9 +26,16 @@ dotnet run -c Release --project MyColony -- --script tooltip --ticks 40 --screen
 | `--upscaler taa\|fsr` | Picks what smooths edges and, below a render scale of 1, rebuilds the picture at the window's size: the engine's TAA or AMD FSR. Same as [`Graphics.Upscaler`](rendering.md#upscaling); the game's own setting by default, which is TAA. Anything else is refused |
 | `--no-vsync` | Plays in the window without waiting for the display |
 | `--no-materials` | Draws every surface as plain grey clay, to judge the lighting. Works in the window and with `--screenshot`, `--record` and `--profile`. Same as [`Graphics.Materials`](rendering.md#graphics-settings) set to false |
-| `--user-data folder` | Keeps [user data](user-data.md) in this folder. Without it, the window uses the player's folder and runs without a window use a throwaway one |
+| `--no-trace` | Makes the GPU's device without ray queries, even if it has them, to see what a player whose GPU can't trace gets. Works in the window and with `--screenshot`, `--record` and `--profile`. Without rays the light probes are drawn a few a frame instead of traced, so the bounced light fills in and follows changes more slowly, and `--debug-view trace` can't run. Nothing is printed at start; why tracing is off is only said when something asks for it, as `--debug-view trace` does. See [ray tracing](rendering.md#ray-tracing) |
+| `--debug-view trace` | Shows what a ray from the camera hits in the ray tracing layer, as each surface's base colour with no lighting, and sky blue where it hits nothing, to check that rays see the scene you see. Leaves out skinned and swimming draws and ghosts, and rays pass through the holes in cut-outs. Works in the window and with `--screenshot` and `--record`. With `--profile` it runs too, so the profile times the trace view, not the lit scene. Needs a GPU that can trace, so with `--no-trace`, or on a GPU that can't, the game exits at once with `--debug-view trace needs a GPU that can trace rays, and this one can't (reason).` Any other name than `trace` or `probes` is refused. See [the debug view](rendering.md#ray-tracing) |
+| `--debug-view probes` | Draws the [light probes](rendering.md#bounced-light) of the finest box round the camera and of your own `view.LightProbes` box over the lit scene as small spheres (the coarser boxes aren't drawn), each shaded with the light its probe holds for every direction, so you can see where the bounce comes from. A probe not drawn yet is a grey wireframe, and one inside a wall isn't shown. Needs no tracing, so it works with `--no-trace` too. Shows no spheres while `Graphics.LightProbes` is off. Works in the window and with `--screenshot`, `--record` and `--profile`. A game can switch a debug view on itself with `Graphics.DebugView`; this option wins over it. See [the debug view from a game](rendering.md#the-debug-view-from-a-game) |
+| `--user-data folder` | Keeps [user data](user-data.md) in this folder, and the [chunk bakes made while playing](rendering.md#baking-without-a-build-step) in its `Bakes` folder. Without it, the window uses the player's folder and the local app data's bake cache, and runs without a window use a throwaway one |
+| `--bake` | Bakes the frame's [baked space](rendering.md#baked-lighting) and each [baked chunk](rendering.md#baked-lighting) it draws into the first content root, then exits. See [Baking lighting](#baking-lighting) |
+| `--bake-check` | Exits with 1 when the frame's baked space or any chunk it draws has no bake or a stale one, saying what changed |
+| `--bake-quality preview\|final` | How long `--bake` traces: `preview` for a quick look, `final` for the one to keep. `final` by default. Needs `--bake` |
 
-`--screenshot`, `--record` and `--profile` can't run together. A mistake in the options
+`--screenshot`, `--record` and `--profile` can't run together, and `--bake` and `--bake-check`
+run with none of them, nor with each other. A mistake in the options
 stops the game with a message saying what's wrong, such as
 `--record needs --seconds.`
 
@@ -38,6 +45,15 @@ stops the game with a message saying what's wrong, such as
 so it needs a GPU. Pictures come straight from the renderer, so other windows can't end up
 in them, and the same seed and ticks give the same picture, down to the byte, for a game
 built with [`Super.targets`](#in-the-build).
+
+Before it saves, `--screenshot` renders on, at that moment, until the
+[light probes](rendering.md#bounced-light) near the camera have all been drawn, up to 2,048
+frames, so the bounced light is as it will be rather than still filling in. It prints how many
+frames that took, or that the probes were still filling in at 2,048, which a big scene such as
+Courtyard can reach at `ProbeQuality.High`. With `Graphics.LightProbes` off, or on a GPU that
+can't run the probes, it doesn't wait. Those extra frames don't wait for the display, so the
+wait is as quick as the GPU can draw them: Gallery with `--no-trace` takes about 13 seconds in
+all. `--record` doesn't wait for the probes.
 
 When a [test invariant](testing.md#invariants) fails, its message gives the options that
 take you back to that tick.
@@ -175,6 +191,12 @@ when there is one:
 C:\game\content\items\axe.json(3): error SUPER001: 'o' is an invalid start of a property name.
 ```
 
+A cooker can also leave a note, which says what it did rather than what's wrong, such as
+making a [second UV set for lighting](rendering.md) a model lacked. Notes print before the
+problems as `<file>: note: <message>`. They aren't warnings, so MSBuild shows them as plain
+messages, and they print only on the cook that did the work, not when the source comes from
+the cache. Watch mode prints them the same way.
+
 The last line counts what happened and how long it took, such as `Cooked 2, from cache 56, 0 errors, in 0.4 s.` The exit
 code is 0 when it cooked and 1 on any error. A failed cook leaves the content folder as
 it was, so the last good content stays. A mistake in the options prints what's wrong and
@@ -198,6 +220,7 @@ under a minute rather than many. Each kind of step has its own key:
 | Step | Kept by |
 |---|---|
 | `graph-run` | The graph's code, a variant's values, the size, the cook's version, and the hash of every image the graph read |
+| `lightmap-uv` | One material's positions, normals and indices in the model, the unwrapper's and the model cooker's builds and the largest page it may try |
 | `mask` | The model's positions and second UVs, the material's triangles and which part each is in, the other triangles the bake traces against, the mask size and the mask baker's build |
 | `compressed-texture` | The hash of the pixels of every mip level, the size and format, and the encoder's version. A cut-out's mips depend on its `alphaCutoff`, so changing the cutoff misses |
 
@@ -382,6 +405,80 @@ round a sum differently, and when it happens depends on the clock, so with it on
 `--seed` and `--ticks` gave a slightly different picture from run to run. On the Courtyard
 the game starts as fast without it, and a frame costs the CPU no more. To turn it back on, set
 `<TieredCompilation>true</TieredCompilation>` in the game's project.
+
+## Baking lighting
+
+```
+dotnet run --project MyGame -- --bake --bake-quality preview
+dotnet run --project MyGame -- --bake-check
+```
+
+`--bake` plays `--ticks` ticks, then bakes the frame's [baked space](rendering.md#baked-lighting) with
+[`Renderer.Bake`](rendering.md#making-a-bake) and saves it in the game's first content root as
+`lighting/<name>.lightbake`, replacing what was there. It then bakes each baked chunk the frame
+draws with `Renderer.BakeChunk` and saves it as `lighting/<name>/<hash>.lightbake`. Chunks with
+the same contents share one file however many copies stand in the frame, so each file is baked
+once, in order of first appearance, after the space. Like `--screenshot` it runs without a
+window and under validation, and `--seed` and `--script` work as usual. For each file it prints the path,
+how long the bake took, the samples each texel got, the share of texels no ray found a front
+face for, and the keys of `Mixed` lights that found no shadow mask channel:
+
+```
+C:\Code\MyGame\content\lighting\gallery.lightbake: 11.3 MB
+  time: 16.3 s
+  samples: 1024 a texel
+  invalid texels: 5.74%
+  Mixed lights without a shadow mask channel: 123, 124, 125, 126
+0 validation messages
+```
+
+Without `--ticks` it plays two seconds' worth, drawing each frame, so a light that sways or
+flickers has been seen to [move](rendering.md#moving-lights) and is left out of the bake, as it
+is in play. After a single tick every light would look still, a swinging lantern would be
+baked in, and the bake would go stale as soon as the game saw the lantern move. A light that
+only starts moving later is still baked in, so pick `--ticks` where every light that will move
+already does.
+
+It exits with 1 when there were validation messages. `--bake-quality preview` traces 64
+samples a texel, which took 13 seconds on the Gallery; `final`, the default, traces 1,024,
+which took 16 seconds there. The
+space and each chunk are baked at the texel density they were named with, `texelsPerMetre`,
+which is what a frame checks its bake against. A bake that can't be made prints one line to the
+error output and exits with 1, with no stack trace, like the other command-line errors. That
+covers a frame with neither a baked space nor a chunk ("--bake found no baked space or chunk in
+the frame. Name one with view.BakedLighting or view.BakedChunk."), and a space or chunk whose
+static draws don't fit its lightmap pages: a space has 8 pages of 2048 texels and a chunk one,
+so the line says how many draws were left out and to use fewer texels a metre or a smaller
+space. Nothing is saved from such a bake. A chunk that owns no static draws has nothing to bake: `--bake` prints
+`lighting/<name>/<hash>.lightbake: no static draws, nothing to bake`, carries on with the other
+files, and exits with 1 at the end. `--bake-check` lists such a chunk as missing.
+
+`--bake-check` plays the same way, two seconds' worth unless `--ticks` says otherwise, so the
+lights it sees moving are the ones `--bake` left out. It draws the frame and compares what its baked space would be
+baked from, and each distinct chunk file, with the header of the bake in the cooked content, the
+one the game draws with. It prints one line for each file and exits with 0 when every bake is
+fresh, or 1 when any is missing or stale, naming what changed out of `draws`, `lights`,
+`environment` and `settings`:
+
+```
+lighting/gallery.lightbake: stale, its lights changed
+```
+
+A frame with no baked space and no chunk has nothing to check and exits with 0. A bake that can't be read
+counts as missing, and the reason goes to the error output. `--bake` needs the game run from
+source, where the build writes `content.dev.json` to say where the content is, and a published
+game exits with 1 and says so. `--bake-check` works in a published game too, so a release can
+be checked as shipped.
+
+A saved bake is cooked with the rest of the content: the build rewrites its irradiance pages as
+BC6H and its direction and mask pages as BC7, which takes the Gallery's 11.3 MB down to
+4.5 MB. See [Baked lighting](content.md#baked-lighting). Since
+`--bake-check` reads the cooked bake, build after `--bake` before checking; `dotnet run` does.
+
+Played without these options, the game [bakes missing lighting by itself](rendering.md#baking-without-a-build-step)
+as it runs, so `--bake` is for baking a scene in one go, at one quality, without playing it. `--screenshot`,
+`--record`, `--profile`, `--bake` and `--bake-check` never bake in the background and don't read the bakes cached on
+this machine, so they draw only cooked bakes and give the same picture everywhere.
 
 ## Planned
 

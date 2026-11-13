@@ -353,39 +353,21 @@ public sealed class MaskBakerTests : IDisposable
     }
 
     [Fact]
-    public void A_mesh_without_a_second_uv_set_has_zeros_there()
+    public void Overlapping_second_uvs_are_replaced_before_the_masks_bake()
     {
-        string src = Folder("""{ "match": "bark", "roughness": 0.5 }""", uvs2: null);
+        // Two triangles share the same second UVs. Their first corner, (0.1, 0.1), is 51.2 texels into the 512-texel
+        // page each way, so texel (51, 51) is the first both touch.
+        string src = Folder(WearAndDirt, uvs2: [0.1f, 0.1f, 0.9f, 0.1f, 0.1f, 0.9f], nodes: ["a", "b"]);
 
         var (result, store) = Cook(src);
 
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
+        Assert.Empty(result.Problems);
+        Assert.Equal(
+            ["made a second UV set for lighting: Triangles 0 and 1 overlap at texel (51, 51)."],
+            result.Notes.Select(note => note.Message));
         var model = ModelData.Read(new MemoryStream(ModelCookers.StandAlone(store, store.Manifest.Assets["models/a.gltf"].Hash, "models/a.gltf")), "models/a.gltf");
-        Assert.All(model.Vertices, v => Assert.Equal(Vector2.Zero, v.Uv2));
-        Assert.Null(model.MaskOf(0));
-    }
-
-    [Fact]
-    public void Overlapping_UVs_fail_the_cook_naming_the_material()
-    {
-        // Two triangles share the same second UVs.
-        string src = Folder(WearAndDirt, uvs2: [0.1f, 0.1f, 0.9f, 0.1f, 0.1f, 0.9f], nodes: ["a", "b"]);
-
-        string error = ErrorOf(Cook(src).Result);
-
-        Assert.Contains("material bark", error);
-        Assert.Contains("overlap", error);
-    }
-
-    [Fact]
-    public void BakeMasks_on_a_mesh_without_a_second_uv_set_fails_the_cook_naming_the_material()
-    {
-        string src = Folder(WearAndDirt, uvs2: null);
-
-        string error = ErrorOf(Cook(src).Result);
-
-        Assert.Contains("material bark", error);
-        Assert.Contains("needs a second UV set", error);
+        Assert.NotNull(model.MaskOf(model.Parts[0].Material));
     }
 
     [Fact]

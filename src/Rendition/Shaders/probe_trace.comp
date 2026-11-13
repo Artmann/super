@@ -1,0 +1,250 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+// The probes' atlases, staging and sky in set 2; the scene's top-level structure, its geometry table and the batch's
+// probes in set 3. The resource table is set 1, as for every scene draw.
+#define PROBE_ATLAS_SET 2
+#define TRACE_RESOURCE_SET 1
+#define TRACE_GEOMETRY_SET 3
+#define TRACE_GEOMETRY_BINDING 1
+
+#include "common.glsl"
+#include "sampling.glsl"
+#include "brdf.glsl"
+#include "light_data.glsl"
+#include "probes.glsl"
+#include "water_absorption.glsl"
+#include "sky.glsl"
+#include "trace.glsl"
+#include "probe_fold.glsl"
+
+// Updates light probes with rays, where the GPU can trace them: one workgroup per probe of the batch, and one ray per
+// invocation. Each ray finds what the probe sees that way and shades it with probe_light.glsl, as probe_capture.frag
+// does for a rasterized face; then the workgroup folds its 128 samples into the probe's two tiles in the staging
+// buffer, with the same sums as probe_fold.comp. probe_blend.comp blends them into the atlases. Glass and water are
+// skipped by every ray, the shadow rays too, as the rasterized capture leaves them out. See Passes/ProbeTracePass.cs
+// and "Light probes" in docs/design.md.
+
+const int RAYS = 128;
+
+layout(local_size_x = 128) in;
+
+layout(std430, set = PROBE_ATLAS_SET, binding = 13) writeonly buffer StagingTiles {
+    StagedTile tiles[];
+};
+
+// The sharp sky, for the rays that hit nothing.
+layout(set = PROBE_ATLAS_SET, binding = 14) uniform samplerCube sky;
+
+layout(set = TRACE_GEOMETRY_SET, binding = 0) uniform accelerationStructureEXT scene;
+
+// Must match GpuTracedProbe in Passes/ProbeTracePass.cs.
+struct TracedProbe {
+    vec4 positionSpacing; // xyz: where the probe is; w: its cascade's spacing
+    uvec4 id;             // x: its cascade, or 4 for the fixed grid; y: its slot
+};
+
+layout(std430, set = TRACE_GEOMETRY_SET, binding = 2) readonly buffer TracedProbes {
+    TracedProbe probes[];
+};
+
+// Must match TraceConstants in Passes/ProbeTracePass.cs.
+layout(push_constant) uniform Trace {
+    vec4 skySun;                // the frame's skySun: xyz towards the clear sky's sun, w its turbidity, 0 for the environment's bands
+    uint frame;                 // the probe scheduler's frame, which seeds the rays' rotation
+    float environmentIntensity; // the frame's, as lighting.frag scales the environment by
+} trace;
+
+// How far a shading point moves off its surface before its shadow rays start, so it doesn't shadow itself. The same
+// lift as probe_capture.frag's shadow lookups.
+const float PROBE_SHADOW_LIFT = 0.05;
+
+// Far enough for any ray: a probe sees as far as there is anything to see.
+const float RAY_REACH = 1e4;
+
+// A shadow ray to a local light stops this short of it, so the light's own fitting doesn't block it.
+const float LIGHT_GAP = 0.02;
+
+float probeSunVisibility(vec3 position, vec3 normal) {
+    for (int i = 0; i < frame.lightCount; i++) {
+        if (frame.lights[i].direction.w > 0.5) {
+            return traceVisible(scene, position + normal * PROBE_SHADOW_LIFT, frame.lights[i].direction.xyz, RAY_REACH, true)
+                ? 1.0 : 0.0;
+        }
+    }
+
+    return 1.0;
+}
+
+// Every light that casts a shadow is traced, with a shadow tile or not: one out of view or left out of the atlas
+// would otherwise light the probes through walls. probe_light.glsl only asks for lights in range.
+float probeLightVisibility(int index, vec3 position, vec3 normal) {
+    LocalLight light = localLights[index];
+    if (!localCastsShadow(light)) {
+        return 1.0;
+    }
+
+    vec3 origin = position + normal * PROBE_SHADOW_LIFT;
+    vec3 toLight = light.positionRange.xyz - origin;
+    float distanceToLight = length(toLight);
+    if (distanceToLight <= LIGHT_GAP) {
+        return 1.0;
+    }
+
+    return traceVisible(scene, origin, toLight / distanceToLight, distanceToLight - LIGHT_GAP, true) ? 1.0 : 0.0;
+}
+
+#define PROBE_SUN_VISIBILITY(p, n) probeSunVisibility(p, n)
+#define PROBE_LIGHT_VISIBILITY(i, p, n) probeLightVisibility(i, p, n)
+#include "probe_light.glsl"
+
+shared vec4 samples[RAYS];
+shared vec3 directions[RAYS];
+shared uint backFaces;
+
+// The standard error of the mean light the rays saw, as a share of that mean. The rays are split into eight groups,
+// ray i in group i mod 8, each still spread over the whole sphere; how much the groups' means differ tells how far the
+// mean of all 128 would move if the rays were turned another way. Counting each ray as independent would overstate it
+// many times over in a smoothly lit room, as the spiral spreads the rays far more evenly than chance.
+float updateNoise() {
+    const int GROUPS = 8;
+    float means[GROUPS];
+    for (int g = 0; g < GROUPS; g++) {
+        means[g] = 0.0;
+    }
+
+    for (int s = 0; s < RAYS; s++) {
+        means[s % GROUPS] += dot(samples[s].rgb, vec3(0.2126, 0.7152, 0.0722));
+    }
+
+    float mean = 0.0;
+    for (int g = 0; g < GROUPS; g++) {
+        means[g] /= float(RAYS / GROUPS);
+        mean += means[g];
+    }
+
+    mean /= float(GROUPS);
+    float variance = 0.0;
+    for (int g = 0; g < GROUPS; g++) {
+        variance += (means[g] - mean) * (means[g] - mean);
+    }
+
+    variance /= float(GROUPS - 1);
+    return sqrt(variance / float(GROUPS)) / max(mean, 1e-6);
+}
+
+uint pcgHash(uint value) {
+    uint state = value * 747796405u + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+float hashToUnit(uint value) {
+    return float(pcgHash(value) >> 8u) / 16777216.0;
+}
+
+// A rotation picked evenly from all rotations by three numbers in [0, 1): Shoemake's, "Uniform random rotations", 1992.
+mat3 randomRotation(float u1, float u2, float u3) {
+    float a = sqrt(1.0 - u1);
+    float b = sqrt(u1);
+    float t1 = 2.0 * PI * u2;
+    float t2 = 2.0 * PI * u3;
+    vec4 q = vec4(a * sin(t1), a * cos(t1), b * sin(t2), b * cos(t2));
+    float x = q.x, y = q.y, z = q.z, w = q.w;
+    return mat3(
+        1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + w * z), 2.0 * (x * z - w * y),
+        2.0 * (x * y - w * z), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z + w * x),
+        2.0 * (x * z + w * y), 2.0 * (y * z - w * x), 1.0 - 2.0 * (x * x + y * y));
+}
+
+// Point i of n spread evenly over the sphere, on a spiral of the golden angle.
+vec3 sphericalFibonacci(int i, int n) {
+    float z = 1.0 - (2.0 * float(i) + 1.0) / float(n);
+    float r = sqrt(max(1.0 - z * z, 0.0));
+    float phi = float(i) * 2.39996323;
+    return vec3(r * cos(phi), r * sin(phi), z);
+}
+
+// What the probe sees where a ray hits nothing: the environment, without the sun's disc, even when the view shows a
+// plain background there, as in probe_fold.comp.
+vec3 skyRadianceAlong(vec3 direction) {
+    return skyBehind(sky, direction, trace.skySun) * trace.environmentIntensity;
+}
+
+void main() {
+    int local = int(gl_LocalInvocationIndex);
+    uint slot = gl_WorkGroupID.x;
+    TracedProbe probe = probes[slot];
+    vec3 origin = probe.positionSpacing.xyz;
+    float maxDistance = 2.0 * probe.positionSpacing.w;
+
+    if (local == 0) {
+        backFaces = 0u;
+    }
+
+    // Every update turns the set of directions a new way, so over a few updates a probe sees between its rays.
+    uint seed = pcgHash(trace.frame ^ pcgHash(probe.id.x * 0x9E3779B9u ^ pcgHash(probe.id.y)));
+    mat3 rotation = randomRotation(hashToUnit(seed), hashToUnit(seed + 1u), hashToUnit(seed + 2u));
+    vec3 direction = normalize(rotation * sphericalFibonacci(local, RAYS));
+
+    barrier();
+
+    vec3 radiance;
+    float distanceSeen;
+    TraceHit hit;
+    if (!traceClosest(scene, origin, direction, RAY_REACH, true, hit)) {
+        radiance = skyRadianceAlong(direction);
+        distanceSeen = maxDistance;
+    } else {
+        distanceSeen = length(hit.position - origin);
+        Material material = traceMaterials[nonuniformEXT(hit.material)];
+        if (!hit.frontFace && (material.flags & MATERIAL_TWO_SIDED) == 0u) {
+            // The back of a one-sided surface: the probe is inside something.
+            radiance = vec3(0.0);
+            distanceSeen = -distanceSeen;
+            atomicAdd(backFaces, 1u);
+        } else {
+            vec3 albedo = isOff(OFF_MATERIALS) ? PLAIN_COLOR : hitAlbedo(hit) * (1.0 - material.metallic);
+            vec3 emissive = textureLod(traceTextures[nonuniformEXT(material.emissiveTexture)], hit.uv, 0.0).rgb
+                * material.emissive.rgb;
+            radiance = probeRadiance(hit.position, hit.normal, albedo, emissive);
+        }
+    }
+
+    samples[local] = vec4(radiance, min(abs(distanceSeen), maxDistance));
+    directions[local] = direction;
+    barrier();
+
+    // Every ray covers the same share of the sphere, so it drops out of the weights.
+    if (local < IRRADIANCE_SIDE * IRRADIANCE_SIDE) {
+        ivec2 bordered = ivec2(local % IRRADIANCE_SIDE, local / IRRADIANCE_SIDE);
+        vec3 texel = texelDirection(bordered, IRRADIANCE_TEXELS);
+        vec3 sum = vec3(0.0);
+        float total = 0.0;
+        for (int s = 0; s < RAYS; s++) {
+            float weight = irradianceWeight(texel, directions[s], 1.0);
+            sum += samples[s].rgb * weight;
+            total += weight;
+        }
+
+        // Texel 0's alpha carries how noisy the update is, for probe_blend.comp; the other alphas aren't read.
+        tiles[slot].irradiance[local] = vec4(sum / max(total, 1e-6), local == 0 ? updateNoise() : 0.0);
+    }
+
+    bool inside = probeSawInside(backFaces, uint(RAYS));
+
+    for (int b = local; b < DEPTH_SIDE * DEPTH_SIDE; b += RAYS) {
+        ivec2 bordered = ivec2(b % DEPTH_SIDE, b / DEPTH_SIDE);
+        vec3 texel = texelDirection(bordered, DEPTH_TEXELS);
+        vec2 sum = vec2(0.0);
+        float total = 0.0;
+        for (int s = 0; s < RAYS; s++) {
+            float weight = depthWeight(texel, directions[s], 1.0);
+            float seen = samples[s].a;
+            sum += vec2(seen, seen * seen) * weight;
+            total += weight;
+        }
+
+        tiles[slot].depth[b] = markInside(sum / max(total, 1e-6), b, inside);
+    }
+}

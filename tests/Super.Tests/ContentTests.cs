@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Security.Cryptography;
 using Rendition;
 using Super.Testing;
 
@@ -391,6 +392,97 @@ public class ContentTests
         Assert.True(content.IsReady(model));
     }
 
+    /// <summary>A two-metre square of two triangles, made by hand so its second UVs are all zero, unlike the shapes'.</summary>
+    private static GeneratedMesh Plane() => new(
+        [
+            new(new Vector3(-1f, 0f, -1f), Vector3.UnitY, new Vector4(1f, 0f, 0f, 1f), new Vector2(0f, 0f)),
+            new(new Vector3(1f, 0f, -1f), Vector3.UnitY, new Vector4(1f, 0f, 0f, 1f), new Vector2(1f, 0f)),
+            new(new Vector3(1f, 0f, 1f), Vector3.UnitY, new Vector4(1f, 0f, 0f, 1f), new Vector2(1f, 1f)),
+            new(new Vector3(-1f, 0f, 1f), Vector3.UnitY, new Vector4(1f, 0f, 0f, 1f), new Vector2(0f, 1f)),
+        ],
+        [0, 2, 1, 0, 3, 2],
+        new Surface());
+
+    /// <summary>The vertices the window would upload for a model: those of the item the content keeps for it.</summary>
+    private static Vertex[] Uploaded(Content content, ModelRef model) => ((GeneratedMesh)content.Items[model.Index - 1]).Vertices;
+
+    /// <summary>Gives the view's last draw its bake ids as the next render would, with one half-metre part.</summary>
+    private static void DressLastDraw(View view, Content content)
+    {
+        ref readonly var draw = ref view.Drawn[^1];
+        var shown = new DrawItem[1];
+        BakeSphere[] bounds = [new(Vector3.Zero, 0.5f)];
+        SceneRenderer.Dress(shown, in draw, default, bounds, content, view.BakedSpace, view.PlacedBakedChunks, new BakeIdentity.Scratch());
+    }
+
+    [Fact]
+    public void Static_code_mesh_gets_second_uvs()
+    {
+        var content = new Content(new MemoryContent());
+
+        var model = content.Mesh(Plane(), isStatic: true);
+
+        var vertices = Uploaded(content, model);
+        Assert.Contains(vertices, vertex => vertex.Uv2 != Vector2.Zero);
+        Assert.All(vertices, vertex =>
+        {
+            Assert.InRange(vertex.Uv2.X, 0f, 1f);
+            Assert.InRange(vertex.Uv2.Y, 0f, 1f);
+        });
+    }
+
+    [Fact]
+    public void Dynamic_code_mesh_keeps_its_uvs()
+    {
+        var content = new Content(new MemoryContent());
+        var mesh = Plane();
+
+        var model = content.Mesh(mesh);
+
+        Assert.Same(mesh.Vertices, Uploaded(content, model));
+        Assert.All(Uploaded(content, model), vertex => Assert.Equal(Vector2.Zero, vertex.Uv2));
+    }
+
+    [Fact]
+    public void Code_mesh_drawn_static_without_being_made_static_is_explained()
+    {
+        var content = new Content(new MemoryContent());
+        var model = content.Mesh(Plane());
+        var view = new View();
+        view.Begin(0f);
+        view.Model(1, model, Matrix4x4.Identity, isStatic: true);
+
+        var problem = Assert.Throws<InvalidOperationException>(() => DressLastDraw(view, content));
+
+        Assert.Equal(
+            $"Model {model.Index} is a mesh made in code and drawn static, but it wasn't made static, so it has no lightmap UVs. Pass isStatic: true to Content.Mesh.",
+            problem.Message);
+    }
+
+    [Fact]
+    public void Code_mesh_made_static_can_be_drawn_static()
+    {
+        var content = new Content(new MemoryContent());
+        var model = content.Mesh(Plane(), isStatic: true);
+        var view = new View();
+        view.Begin(0f);
+        view.Model(1, model, Matrix4x4.Identity, isStatic: true);
+
+        DressLastDraw(view, content);
+    }
+
+    [Fact]
+    public void Static_code_mesh_identity_includes_its_second_uvs()
+    {
+        var content = new Content(new MemoryContent());
+        var mesh = Plane();
+
+        var dynamic = content.Mesh(mesh);
+        var made = content.Mesh(mesh, isStatic: true);
+
+        Assert.NotEqual(content.IdentityOf(dynamic), content.IdentityOf(made));
+    }
+
     [Fact]
     public void From_pixels_builds_a_full_mip_chain_and_keeps_normals_unit_length()
     {
@@ -409,5 +501,57 @@ public class ContentTests
         Assert.Equal(2, data.Mips.Length);
         Assert.Equal(4, data.Mips[1].Length);
         Assert.InRange(data.Mips[1][2], 250, 255);
+    }
+
+    [Fact]
+    public void Cooked_hash_is_the_manifest_hash()
+    {
+        string root = Directory.CreateTempSubdirectory().FullName;
+        string cooked = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(root, "axe.json"), "{ \"id\": \"axe\", \"power\": 3 }");
+            IContentFiles files = CookedTemp.Cook(root, cooked);
+            // Objects are kept under their SHA-256, so the hash of the cooked bytes is the manifest's.
+            string expected = Convert.ToHexStringLower(SHA256.HashData(files.Read("axe.json")));
+
+            // With every object gone, only the manifest is left to answer.
+            foreach (string file in Directory.EnumerateFiles(cooked, "*", SearchOption.AllDirectories))
+            {
+                if (Path.GetFileName(file) != ContentManifest.FileName)
+                {
+                    File.Delete(file);
+                }
+            }
+
+            Assert.Throws<FileNotFoundException>(() => files.Read("axe.json"));
+            Assert.Equal(expected, files.HashOf("axe.json"));
+            var missing = Assert.Throws<FileNotFoundException>(() => files.HashOf("bow.json"));
+            Assert.Contains("bow.json isn't in the cooked content", missing.Message);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+            Directory.Delete(cooked, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Default_hash_is_the_files_sha256()
+    {
+        IContentFiles files = new AbcFiles();
+
+        // SHA-256 of "abc", from FIPS 180-2.
+        Assert.Equal("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", files.HashOf("notes.txt"));
+    }
+
+    /// <summary>Content files that only say what <see cref="IContentFiles"/> requires, so its own default hash answers.</summary>
+    private sealed class AbcFiles : IContentFiles
+    {
+        public ContentKind? KindOf(string name) => ContentKind.Data;
+
+        public IReadOnlyList<string>? List(string folder) => null;
+
+        public byte[] Read(string name) => "abc"u8.ToArray();
     }
 }

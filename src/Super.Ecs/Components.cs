@@ -49,3 +49,9 @@ public record struct Animated(Animator Value);
 /// rise steadily in Update. With <see cref="Smoothed"/>, the phase blends between ticks too.
 /// </summary>
 public record struct Swim(float Amplitude, float BodyLength, float Phase);
+
+/// <summary>
+/// Marks an entity's <see cref="Model"/> as one that never moves, so baked lighting can hold it.
+/// <see cref="ViewExtensions.Models"/> draws it static, and throws if it also swims or is animated.
+/// </summary>
+public readonly record struct Static;

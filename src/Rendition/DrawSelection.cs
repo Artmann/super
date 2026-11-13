@@ -98,16 +98,25 @@ internal static class DrawSelection
 
     /// <summary>
     /// Writes the draws to keep into <paramref name="selected"/> and returns how many there are. A draw that sways in
-    /// <paramref name="wind"/> is kept while its sway could still bring it into view.
+    /// <paramref name="wind"/> is kept while its sway could still bring it into view. When <paramref name="sources"/> is
+    /// given, each kept draw's index in <paramref name="draws"/> is written into it at the same place.
     /// </summary>
     public static int Select(
-        in DetailView view, ReadOnlySpan<DrawItem> draws, List<PartDetail> details, Span<DrawItem> selected, WindReach wind = default)
+        in DetailView view, ReadOnlySpan<DrawItem> draws, List<PartDetail> details, Span<DrawItem> selected, WindReach wind = default,
+        Span<int> sources = default)
     {
+        bool keepSources = !sources.IsEmpty;
         int count = 0;
-        foreach (ref readonly var draw in draws)
+        for (int index = 0; index < draws.Length; index++)
         {
+            ref readonly var draw = ref draws[index];
             if (draw.Detail.Index == 0)
             {
+                if (keepSources)
+                {
+                    sources[count] = index;
+                }
+
                 selected[count++] = draw;
                 continue;
             }
@@ -121,6 +130,11 @@ internal static class DrawSelection
             if (!view.CanSee(center, radius + wind.Pad(draw.Material)))
             {
                 continue;
+            }
+
+            if (keepSources)
+            {
+                sources[count] = index;
             }
 
             ref var item = ref selected[count++];
@@ -162,6 +176,23 @@ internal static class DrawSelection
         }
 
         return count;
+    }
+
+    /// <summary>
+    /// The world-space ball round one draw, or false when the draw has no bounds, as a draw made
+    /// without a part's details doesn't.
+    /// </summary>
+    public static bool TryBounds(in DrawItem draw, List<PartDetail> details, out Vector3 center, out float radius)
+    {
+        if (draw.Detail.Index == 0 || draw.Detail.Index >= details.Count)
+        {
+            center = default;
+            radius = 0f;
+            return false;
+        }
+
+        (center, radius) = Bounds(draw, details[draw.Detail.Index], Scale(draw.Transform));
+        return true;
     }
 
     private static (Vector3 Center, float Radius) Bounds(in DrawItem draw, PartDetail detail, float scale) =>

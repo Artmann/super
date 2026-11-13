@@ -51,6 +51,8 @@ public sealed class Content
     private readonly Dictionary<string, ModelRef> _models = [];
     private readonly Dictionary<string, Rig> _rigs = [];
     private readonly Dictionary<int, string[]> _meshNames = [];
+    private readonly Dictionary<int, ulong> _identities = [];
+    private readonly HashSet<int> _dynamicMeshes = [];
     private readonly Dictionary<string, GameImage> _images = [];
     private readonly List<SoundClip> _clips = [];
     private readonly Dictionary<string, SoundRef> _sounds = [];
@@ -81,8 +83,14 @@ public sealed class Content
     /// <summary>Where the cooked bytes come from. The window reads models and textures through it.</summary>
     internal IContentFiles Files => _files;
 
+    /// <summary>How many times the files have been read again by <see cref="Reload"/>, so what was read from them before can be forgotten.</summary>
+    internal int Reloads { get; private set; }
+
     /// <summary>True only in the interactive window, where loading happens over real time.</summary>
     internal bool Streaming { get; set; }
+
+    /// <summary>Reads a surface shader's SPIR-V by name, for the bake identities of models that use it. Tests swap it.</summary>
+    internal Func<string, byte[]> ShaderBytes { get; set; } = SceneRenderer.LoadShader;
 
     /// <summary>Set by tests, to keep a loading screen up for as long as they need it.</summary>
     internal bool Held { get; set; }
@@ -399,13 +407,32 @@ public sealed class Content
 
     /// <summary>
     /// Hands over a surface made by code. Anything its surface names must have been named
-    /// first, which also means it's loaded first.
+    /// first, which also means it's loaded first. A mesh that will be drawn static must be made
+    /// with <paramref name="isStatic"/>, which gives it lightmap UVs once, here, through
+    /// <see cref="GeneratedMesh.WithLightmapUvs"/>, so what's uploaded and what its bake hashes
+    /// are the same mesh. Drawing a mesh made without it static throws on the next render.
     /// </summary>
-    public ModelRef Mesh(GeneratedMesh mesh)
+    /// <exception cref="InvalidOperationException">
+    /// <paramref name="isStatic"/> is set and the mesh's charts don't fit even <see cref="LightmapUnwrap.LargestSize"/>.
+    /// </exception>
+    public ModelRef Mesh(GeneratedMesh mesh, bool isStatic = false)
     {
         RequireSurface(mesh.Surface);
-        return Add(mesh);
+        if (!isStatic)
+        {
+            var model = Add(mesh);
+            _dynamicMeshes.Add(model.Index);
+            return model;
+        }
+
+        return Add(mesh.WithLightmapUvs());
     }
+
+    /// <summary>
+    /// False only for a mesh made in code without <c>isStatic</c>, which has no lightmap UVs. Built-in shapes and
+    /// cooked models always have them.
+    /// </summary>
+    internal bool MadeStatic(ModelRef model) => !_dynamicMeshes.Contains(model.Index);
 
     /// <summary>
     /// Throws unless everything the surface names was named here first and its arrays fit, as
@@ -754,6 +781,8 @@ public sealed class Content
         try
         {
             _files.Refresh();
+            Reloads++;
+            _identities.Clear(); // A cooked file named again may hash differently now.
             Load(all, all);
         }
         catch (ContentException mistake)
@@ -879,9 +908,26 @@ public sealed class Content
         return new ModelRef(_items.Count);
     }
 
+    /// <summary>
+    /// What a model is, as a stable hash for the bake ids of its static draws. Worked out the first time a static
+    /// draw asks, since hashing a big mesh made in code takes a while, and kept until the model is unloaded.
+    /// </summary>
+    internal ulong IdentityOf(ModelRef model)
+    {
+        if (!_identities.TryGetValue(model.Index, out ulong identity))
+        {
+            identity = BakeIdentity.Model(model, _items, _files, ShaderBytes);
+            _identities[model.Index] = identity;
+        }
+
+        return identity;
+    }
+
     /// <summary>Forgets an item's data and tells the window to free what it made of it.</summary>
     private void MarkUnloaded(int index)
     {
+        _identities.Remove(index);
+        _dynamicMeshes.Remove(index);
         _unloaded.Add(index);
         _pendingUnloads.Add(index);
         _items[index - 1] = UnloadedItem.Instance;

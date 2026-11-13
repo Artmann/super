@@ -34,6 +34,18 @@ internal ref struct PipelineDescription
 
     /// <summary>Which faces to leave out, in place of the usual choice.</summary>
     public CullModeFlags? CullMode;
+
+    /// <summary>Which layers one draw renders to at once, through multiview, with 0 for a single one.</summary>
+    public uint ViewMask;
+
+    /// <summary>Samples a pixel of the targets has. Left unset, one.</summary>
+    public SampleCountFlags Samples;
+
+    /// <summary>
+    /// Counts a pixel as covered when any part of a triangle touches it, by VK_EXT_conservative_rasterization's
+    /// overestimation. Only where <see cref="VulkanContext.ConservativeRasterization"/> is true.
+    /// </summary>
+    public bool Conservative;
 }
 
 internal static unsafe class PipelineFactory
@@ -92,10 +104,25 @@ internal static unsafe class PipelineFactory
             FrontFace = FrontFace.CounterClockwise,
             LineWidth = 1f,
         };
+        var conservative = new PipelineRasterizationConservativeStateCreateInfoEXT
+        {
+            SType = StructureType.PipelineRasterizationConservativeStateCreateInfoExt,
+            ConservativeRasterizationMode = ConservativeRasterizationModeEXT.OverestimateExt,
+        };
+        if (description.Conservative)
+        {
+            if (!context.ConservativeRasterization)
+            {
+                throw new InvalidOperationException("Conservative rasterization needs VK_EXT_conservative_rasterization, which this device lacks.");
+            }
+
+            rasterizer.PNext = &conservative;
+        }
+
         var multisample = new PipelineMultisampleStateCreateInfo
         {
             SType = StructureType.PipelineMultisampleStateCreateInfo,
-            RasterizationSamples = SampleCountFlags.Count1Bit,
+            RasterizationSamples = description.Samples == 0 ? SampleCountFlags.Count1Bit : description.Samples,
         };
         var depthStencil = new PipelineDepthStencilStateCreateInfo
         {
@@ -159,6 +186,7 @@ internal static unsafe class PipelineFactory
             var rendering = new PipelineRenderingCreateInfo
             {
                 SType = StructureType.PipelineRenderingCreateInfo,
+                ViewMask = description.ViewMask,
                 ColorAttachmentCount = (uint)colorCount,
                 PColorAttachmentFormats = colorFormats,
                 DepthAttachmentFormat = description.DepthFormat,

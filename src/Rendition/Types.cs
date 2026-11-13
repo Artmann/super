@@ -23,7 +23,9 @@ public struct Vertex(Vector3 position, Vector3 normal, Vector4 tangent, Vector2 
 
     /// <summary>
     /// A second set of UVs, in which no two triangles share texels, for textures baked from the mesh's own shape such
-    /// as <see cref="Material.MaskTexture"/>. Zero when the mesh has none.
+    /// as <see cref="Material.MaskTexture"/> and lightmaps. Every cooked model has one, and so does every built-in shape,
+    /// ribbon, tube, extrusion and terrain chunk. A bent mesh keeps the set of the mesh it bent, and any other mesh built
+    /// in code has zeros unless it sets them or calls <c>WithLightmapUvs</c>.
     /// </summary>
     public Vector2 Uv2;
 
@@ -352,13 +354,39 @@ public struct DrawItem
     /// under anti-aliasing. See "Motion vectors" in docs/rendering.md.
     /// </summary>
     public int? Key;
+
+    /// <summary>
+    /// Marks this draw as static scenery that a bake may cover, with an id made by <see cref="BakeIds.Of"/> that stays the
+    /// same from run to run. Zero, the default, means not static. A static draw can't have <see cref="Bones"/> or
+    /// <see cref="Swim"/>. The renderer hashes it into each baked area's inputs. See "Bake ids" in docs/design.md.
+    /// </summary>
+    public ulong BakeId;
 }
 
 /// <summary>A run of a frame's bone matrices. A count of zero means no skinning.</summary>
 public readonly record struct BoneRange(int First, int Count);
 
+/// <summary>
+/// How a light is used once a space has a bake. Mixed is the default, so a light that names no mode
+/// behaves as it always did. Until a bake is fresh, every light is drawn live whatever its mode.
+/// </summary>
+public enum LightMode
+{
+    /// <summary>Lit live, and also part of any bake.</summary>
+    Mixed = 0,
+
+    /// <summary>Lit live only, never part of a bake.</summary>
+    Realtime = 1,
+
+    /// <summary>Part of a bake only, so a bake that covers it replaces the live light.</summary>
+    Baked = 2,
+}
+
 public struct DirectionalLight
 {
+    /// <summary>How a bake treats this light. Defaults to <see cref="LightMode.Mixed"/>.</summary>
+    public LightMode Mode;
+
     /// <summary>Unit vector pointing from the surface towards the light.</summary>
     public Vector3 Direction;
     public Vector3 Radiance;
@@ -376,6 +404,9 @@ public struct LocalLight
 {
     /// <summary>The most one frame can have. The renderer throws past this.</summary>
     public const int MaxPerFrame = 1024;
+
+    /// <summary>How a bake treats this light. Defaults to <see cref="LightMode.Mixed"/>.</summary>
+    public LightMode Mode;
 
     /// <summary>
     /// Picks out a light from one frame to the next, so its shadow keeps its sharpness as it
@@ -824,6 +855,51 @@ public readonly record struct FogSettings(float Density = 0f, float Height = 0f,
     public float VolumetricDistance { get; init; } = DefaultVolumetricDistance;
 }
 
+/// <summary>What a frame shows: the lit scene, or a look inside the renderer.</summary>
+public enum DebugView
+{
+    /// <summary>The lit scene.</summary>
+    None,
+
+    /// <summary>
+    /// What a ray from the camera hits in the acceleration structures, as the surface's base colour, unlit and
+    /// ungraded; sky blue where it hits nothing. Shows what rays see, which may differ from what's drawn.
+    /// </summary>
+    Trace,
+
+    /// <summary>
+    /// The lit scene with a small sphere at every light probe of the finest cascade and of the fixed grid, shaded with
+    /// the light the probe holds for each direction its surface faces. A probe not captured yet is a grey wireframe,
+    /// and a probe inside a wall isn't drawn. Needs no ray tracing, and shows nothing while the probes are off.
+    /// </summary>
+    Probes,
+}
+
+/// <summary>
+/// One fixed place in the world whose lighting is baked as it stands, sun included: a box, the spacing of the baked
+/// probes it holds, and the lightmap texels for each metre of surface, 1 to
+/// <see cref="BakeSettings.MaxTexelsPerMetre"/>. Its bake is <see cref="BakeFiles.Space"/>, and a bake made at another
+/// density is stale.
+/// </summary>
+public readonly record struct BakedSpace(
+    string Name, Vector3 Min, Vector3 Max, float ProbeSpacing, int TexelsPerMetre = BakeSettings.DefaultTexelsPerMetre);
+
+/// <summary>
+/// A piece of the world baked once in its own space and placed with <see cref="Transform"/>, which may only turn and
+/// move it. <see cref="Min"/> and <see cref="Max"/> are its box in its own space, and <see cref="TexelsPerMetre"/> its
+/// lightmap density, as for a <see cref="BakedSpace"/>. Its bakes are <see cref="BakeFiles.Chunk"/>.
+/// <see cref="EdgeBlend"/> is how many metres in from the box's four sides, its own ±x and ±z, the bake's light blends
+/// into the live light, so the chunk meets what stands beside it without a step: 0 to half the box's smaller side across
+/// x and z, and 0 for a hard edge. It changes how the bake is drawn, not what it holds, so it isn't in the bake's hash.
+/// </summary>
+public readonly record struct BakedChunk(
+    string Name, Matrix4x4 Transform, Vector3 Min, Vector3 Max, int TexelsPerMetre = BakeSettings.DefaultTexelsPerMetre,
+    float EdgeBlend = BakedChunk.DefaultEdgeBlend)
+{
+    /// <summary>The metres of band a chunk gets unless it asks for another.</summary>
+    public const float DefaultEdgeBlend = 0.5f;
+}
+
 /// <summary>Everything the renderer needs to know about one frame except the draws.</summary>
 public ref struct FrameView
 {
@@ -836,6 +912,13 @@ public ref struct FrameView
     public Matrix4x4 View;
     public Matrix4x4 Projection;
     public Vector3 CameraPosition;
+
+    /// <summary>
+    /// Shows something other than the lit scene, to look inside the renderer. <see cref="DebugView.Trace"/> needs a
+    /// GPU that can trace (<see cref="Renderer.CanTrace"/>), and <see cref="Renderer.Render"/> throws without one.
+    /// <see cref="DebugView.Probes"/> works on any GPU.
+    /// </summary>
+    public DebugView DebugView;
 
     /// <summary>Seconds. Reaches shaders as frame.time, for animated surfaces.</summary>
     public float Time;
@@ -862,6 +945,19 @@ public ref struct FrameView
     /// or none. At most <see cref="ProbeGrid.MaxProbes"/>. See docs/rendering.md.
     /// </summary>
     public ProbeVolumeSettings? LightProbes;
+
+    /// <summary>
+    /// The one fixed place this frame whose lighting is baked, or none. Each frame it is checked for a fresh bake; see
+    /// <see cref="Renderer.LastBakeFrame"/> and docs/rendering.md.
+    /// </summary>
+    public BakedSpace? BakedSpace;
+
+    /// <summary>
+    /// The pieces of the world, each baked once in its own space, placed this frame. At most
+    /// <see cref="BakeFiles.MaxChunks"/>, each moved only by rotation and translation; otherwise
+    /// <see cref="Renderer.Render"/> throws. Each is checked for a fresh bake every frame. See docs/rendering.md.
+    /// </summary>
+    public ReadOnlySpan<BakedChunk> BakedChunks;
 
     /// <summary>Scales the light and reflections from the environment.</summary>
     public float EnvironmentIntensity;
@@ -1032,8 +1128,16 @@ public enum RenderEffects
     /// </summary>
     Wind = 1 << 17,
 
+    /// <summary>
+    /// Light read from the <c>.lightbake</c> files in <see cref="Renderer.Bakes"/> for the
+    /// <see cref="FrameView.BakedSpace"/> and <see cref="FrameView.BakedChunks"/>. Without it every bake counts as
+    /// missing, so each area is lit live, as if it had never been baked.
+    /// </summary>
+    BakedLighting = 1 << 18,
+
     All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
-        | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind,
+        | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind
+        | BakedLighting,
 }
 
 /// <summary>
@@ -1210,6 +1314,12 @@ public sealed class RendererOptions
     /// </summary>
     public bool DisableVsync { get; init; }
 
+    /// <summary>
+    /// Makes the device without ray queries even where the GPU has them, so <see cref="Renderer.CanTrace"/> is false.
+    /// For seeing what a player whose GPU can't trace gets.
+    /// </summary>
+    public bool DisableRayTracing { get; init; }
+
     /// <summary>How many texels across each of the sun's cascade maps starts: 1024, 2048 or 4096. See <see cref="Renderer.ShadowResolution"/>.</summary>
     public int ShadowResolution { get; init; } = 2048;
 
@@ -1282,4 +1392,17 @@ public struct Subsurface
 
         return null;
     }
+}
+
+/// <summary>How many light probes follow the camera, and so how much ground they cover and how much they cost.</summary>
+public enum ProbeQuality
+{
+    /// <summary>Four cascades of 16 × 8 × 16 probes.</summary>
+    Low,
+
+    /// <summary>Four cascades of 24 × 12 × 24 probes.</summary>
+    Medium,
+
+    /// <summary>Four cascades of 32 × 16 × 32 probes.</summary>
+    High
 }

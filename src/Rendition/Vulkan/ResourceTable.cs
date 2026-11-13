@@ -16,6 +16,9 @@ internal sealed unsafe class ResourceTable : IDisposable
     public const uint MaxTextureArrays = 256;
     public const int MaxMaterials = 1024;
 
+    /// <summary>Fragment shaders draw with the table; compute shaders that trace rays read it for what they hit.</summary>
+    private const ShaderStageFlags Stages = ShaderStageFlags.FragmentBit | ShaderStageFlags.ComputeBit;
+
     /// <summary>Must match the Material struct in Shaders/material.glsl, laid out as std430.</summary>
     [StructLayout(LayoutKind.Sequential)]
     internal struct GpuMaterial
@@ -80,6 +83,7 @@ internal sealed unsafe class ResourceTable : IDisposable
     private readonly int[] _materialShaders = new int[MaxMaterials];
     private readonly bool[] _materialCutouts = new bool[MaxMaterials];
     private readonly float[] _materialWind = new float[MaxMaterials];
+    private readonly bool[] _materialGlows = new bool[MaxMaterials];
     private readonly bool[] _materialSubsurface = new bool[MaxMaterials];
     private readonly int[] _materialTextures = new int[MaxMaterials * TexturesPerMaterial];
     private readonly List<GpuTexture?> _textures = [];
@@ -136,9 +140,9 @@ internal sealed unsafe class ResourceTable : IDisposable
 
         var bindings = stackalloc DescriptorSetLayoutBinding[]
         {
-            new(0, DescriptorType.CombinedImageSampler, MaxTextures, ShaderStageFlags.FragmentBit),
-            new(1, DescriptorType.StorageBuffer, 1, ShaderStageFlags.FragmentBit),
-            new(2, DescriptorType.CombinedImageSampler, MaxTextureArrays, ShaderStageFlags.FragmentBit),
+            new(0, DescriptorType.CombinedImageSampler, MaxTextures, Stages),
+            new(1, DescriptorType.StorageBuffer, 1, Stages),
+            new(2, DescriptorType.CombinedImageSampler, MaxTextureArrays, Stages),
         };
 
         // Most of the texture arrays stay empty, which Vulkan only allows when told so, and
@@ -215,6 +219,9 @@ internal sealed unsafe class ResourceTable : IDisposable
     /// <summary>How far the material sways in the wind, as a share of its strength: 0 for not at all.</summary>
     public float GetWind(MaterialHandle material) => _materialWind[material.Index];
 
+    /// <summary>Whether the material gives light of its own: some channel of its emissive colour is above 0.</summary>
+    public bool Glows(MaterialHandle material) => _materialGlows[material.Index];
+
     /// <summary><see cref="GetWind"/> as a lookup that passes and culling hold on to, made once.</summary>
     public Func<MaterialHandle, float> SwayOf { get; }
 
@@ -234,6 +241,12 @@ internal sealed unsafe class ResourceTable : IDisposable
             return false;
         }
     }
+
+    /// <summary>
+    /// Whether <see cref="AddTexture"/> has a slot to give now. Ask before handing over a texture that must not be
+    /// freed at once, since a full table frees the texture it refuses.
+    /// </summary>
+    public bool HasTextureRoom => _freeTextures.Count > 0 || _textures.Count < MaxTextures;
 
     /// <summary>
     /// Takes a slot for a texture and points it at the image. The slot is free in every
@@ -300,6 +313,11 @@ internal sealed unsafe class ResourceTable : IDisposable
     public bool IsLive(TextureHandle texture) =>
         texture.Index >= 0 && texture.Index < _textures.Count && _textures[texture.Index] is not null
         && !_textureDying[texture.Index];
+
+    /// <summary>Whether a handle names a texture that has been destroyed but still waits for the frames reading it.</summary>
+    public bool IsDying(TextureHandle texture) =>
+        texture.Index >= 0 && texture.Index < _textures.Count && _textures[texture.Index] is not null
+        && _textureDying[texture.Index];
 
     /// <summary>Whether a handle names a material that hasn't been destroyed.</summary>
     public bool IsLive(MaterialHandle material) =>
@@ -507,6 +525,7 @@ internal sealed unsafe class ResourceTable : IDisposable
         _materialShaders[index] = material.Shader?.Index ?? 0;
         _materialCutouts[index] = material.AlphaCutoff > 0f;
         _materialWind[index] = Sway(material);
+        _materialGlows[index] = material.Emissive.X > 0f || material.Emissive.Y > 0f || material.Emissive.Z > 0f;
         _materialSubsurface[index] = material.Subsurface.IsOn;
 
         var owned = _materialTextures.AsSpan(index * TexturesPerMaterial, TexturesPerMaterial);

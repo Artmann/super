@@ -4,6 +4,7 @@
 #include "common.glsl"
 #include "material.glsl"
 #include "sampling.glsl"
+#include "chunks.glsl"
 
 layout(location = 0) in vec3 inNormal;
 layout(location = 1) in vec4 inTangent;
@@ -12,11 +13,18 @@ layout(location = 3) in vec3 inPosition;
 layout(location = 4) in vec2 inUv2;
 layout(location = 5) in vec3 inClipNow;    // clip x, y and w, without the anti-aliasing shift; see gbuffer.vert
 layout(location = 6) in vec3 inClipBefore; // the same, last frame
+layout(location = 7) in vec2 inLightmapUv; // where the pixel is on its lightmap page; see gbuffer.vert
+// The page's irradiance, direction and mask textures, -1 for none, and in w the copy's placed chunk in chunks.glsl, -1
+// for none.
+layout(location = 8) flat in ivec4 inLightmap;
+layout(location = 9) in vec3 inChunkPosition; // where the pixel is in that chunk's own space
 
 layout(location = 0) out vec4 outBaseColorMetallic;
 layout(location = 1) out vec4 outNormalRoughnessAo;
 layout(location = 2) out vec4 outEmissiveClearcoat;
 layout(location = 3) out vec2 outMotion;   // see Passes/Motion.cs
+layout(location = 4) out vec4 outBaked;    // baked diffuse light over pi, alpha how much the bake lights it; see writeBaked
+layout(location = 5) out vec4 outShadowMask; // the baked shadow mask, 1 where nothing is masked
 
 // The motion of a point that was behind last frame's camera: far off any picture, near the most a 16-bit float holds.
 const float MOTION_OFF_PICTURE = -60000.0;
@@ -188,9 +196,9 @@ void applyPuddles(inout Surface surface, vec3 worldPos, float height, float heig
     puddleWater = water;
 }
 
-// The side to write in the normal target's alpha: WATER_SIDE for the front of puddle water.
-float waterSide(float side) {
-    return side > 0.0 && puddleWater >= 0.5 ? WATER_SIDE : side;
+// What to write in the normal target's alpha: WATER_SIDE for the front of puddle water, 1 for the rest.
+float waterSide() {
+    return puddleWater >= 0.5 ? WATER_SIDE : 1.0;
 }
 
 // Whether this pixel's material gets wet and the frame has puddles to wet it.
@@ -381,13 +389,143 @@ float foliageChannel(Material material) {
     return -max(material.transmission, FOLIAGE_MARK);
 }
 
+// Writes the baked light a copy with a lightmap gets, turned to the normal it is lit with, and its shadow mask. The
+// irradiance page holds light with pi in, so dividing by pi gives what a white surface sends back, as the lighting
+// wants. The direction page holds the way the light mostly came from, d, as d * 0.5 + 0.5, with |d| how much of it came
+// that way. The baker gathered the light over the mesh's own normal, so the light is turned by the share the normal map
+// faces d against the share that normal does: a surface that faces the light gets more, one that faces away less, and
+// under an even sky, where d is near nothing, it is unchanged. Irradiance alpha is never read, since BC6H drops it.
+// A copy with no lightmap, and a ghost, writes no light, which the lighting reads as lit live, and a mask of 1.
+//
+// The baker gathers over the geometric normal, so d stays in its half of the sphere and the vertex normal's share is at
+// least 0.5 there. But a smooth-shaded mesh's vertex normal leans away from the geometric one, and a texel at a chart's
+// edge is filled from its neighbours, so d can point behind the vertex normal and the share fall towards 0, which would
+// turn the light up thousands of times into a bright speck, or infinity. The share is floored at 0.5, its least for a d
+// the baker could have made, so light from behind counts as light from the side: the gain is never more than 2, the
+// most a normal map can turn up light that came along the surface, and a d in front is turned exactly as before.
+//
+// A copy of a chunk (inLightmap.w at least 0) also gets the frame's sky and suns, through its bake's transfer, which is in
+// the chunk's own space: the sky's and suns' L1 sets are turned into that space and dotted with it, so every copy is
+// lit for the way it faces. Its pages' direction is in that space too, and is turned back to the world. A chunk with no
+// plain light has no irradiance or direction page, and its d is the transfer's own lean towards the sky that lights it.
+// See "Chunk transfer" in docs/design.md.
+//
+// Alpha is how much of the pixel the bake lights: for a space's lightmap, how far its bake has faded in
+// (frame.bakedFade.x), which is 1 once it is all there; for a chunk's, chunkEdgeWeight, which falls to 0 at its sides,
+// times how far the chunk's bake has faded in (its max.w). The light itself is never weighted; the lighting blends it
+// with the live light, so a bake that arrives on screen fades in instead of popping.
+const float LIGHTMAP_PI = 3.14159265359;
+const float LIGHTMAP_LEAST_SHARE = 0.5;
+const vec3 LIGHTMAP_LUMINANCE = vec3(0.2126, 0.7152, 0.0722);
+
+// The irradiance, with pi in, that the frame's sky and suns give a chunk's texel, and in towards the way its sky light
+// leans, in the chunk's own space, unnormalised.
+vec3 chunkLight(int c, out vec3 towards) {
+    ChunkData chunk = chunkData.chunks[c];
+    vec4 skyR = textureLod(textures[nonuniformEXT(chunk.transfer.x)], inLightmapUv, 0.0);
+    vec4 skyG = textureLod(textures[nonuniformEXT(chunk.transfer.y)], inLightmapUv, 0.0);
+    vec4 skyB = textureLod(textures[nonuniformEXT(chunk.transfer.z)], inLightmapUv, 0.0);
+    vec4 sun = textureLod(textures[nonuniformEXT(chunk.transfer.w)], inLightmapUv, 0.0);
+    vec3 tint = textureLod(textures[nonuniformEXT(chunk.pages.x)], inLightmapUv, 0.0).rgb;
+
+    // The sky's sets per colour, and its luminance's, each coefficient's colours in one vec4 of the buffer.
+    mat4 sky = mat4(skySh.coefficients[0], skySh.coefficients[1], skySh.coefficients[2], skySh.coefficients[3]);
+    vec4 lightR = intoChunkSh(c, vec4(sky[0].r, sky[1].r, sky[2].r, sky[3].r));
+    vec4 lightG = intoChunkSh(c, vec4(sky[0].g, sky[1].g, sky[2].g, sky[3].g));
+    vec4 lightB = intoChunkSh(c, vec4(sky[0].b, sky[1].b, sky[2].b, sky[3].b));
+    vec4 lightL = intoChunkSh(c, vec4(sky[0].a, sky[1].a, sky[2].a, sky[3].a));
+    vec3 light = vec3(dot(skyR, lightR), dot(skyG, lightG), dot(skyB, lightB)) * frame.backgroundRadiance.a;
+
+    vec4 sunR = intoChunkSh(c, vec4(chunkData.sun[0].r, chunkData.sun[1].r, chunkData.sun[2].r, chunkData.sun[3].r));
+    vec4 sunG = intoChunkSh(c, vec4(chunkData.sun[0].g, chunkData.sun[1].g, chunkData.sun[2].g, chunkData.sun[3].g));
+    vec4 sunB = intoChunkSh(c, vec4(chunkData.sun[0].b, chunkData.sun[1].b, chunkData.sun[2].b, chunkData.sun[3].b));
+    light += tint * vec3(dot(sun, sunR), dot(sun, sunG), dot(sun, sunB));
+
+    // The luminance transfer's vector part, weighted by the turned sky's, both as (x, y, z).
+    vec4 transfer = skyR * LIGHTMAP_LUMINANCE.r + skyG * LIGHTMAP_LUMINANCE.g + skyB * LIGHTMAP_LUMINANCE.b;
+    towards = vec3(transfer.w * lightL.w, transfer.y * lightL.y, transfer.z * lightL.z);
+    return max(light, vec3(0.0));
+}
+
+// The frame's four mask slots from one bake's mask page: slot s is the page's channel table[s], or 1, the bake saying
+// nothing, where the table has -1. A light's shadow there is then its real-time one alone. With no page every slot is 1.
+// See "Shadow mask channels" in docs/design.md.
+vec4 frameMaskSlots(int page, ivec4 table) {
+    vec4 mask = page < 0 ? vec4(1.0) : textureLod(textures[nonuniformEXT(page)], inLightmapUv, 0.0);
+    vec4 slots;
+    for (int s = 0; s < 4; s++) {
+        slots[s] = table[s] < 0 ? 1.0 : mask[table[s]];
+    }
+
+    return slots;
+}
+
+// How much of a chunk's pixel the bake lights, which writeBaked puts in the baked alpha for the lighting to blend by: 1
+// deeper than the chunk's edge blend (min.w) in from its four sides, its own ±x and ±z, falling to 0 at them by a
+// smoothstep of the distance to the nearest. Not the top or bottom, where a chunk's floor and roof usually sit. Two
+// chunks that touch both reach the live light at the face they share, so they meet without a step. An edge blend of 0
+// is a hard edge. See "Edge bands" in docs/design.md.
+float chunkEdgeWeight(int c) {
+    ChunkData chunk = chunkData.chunks[c];
+    float blend = chunk.min.w;
+    if (blend <= 0.0) {
+        return 1.0;
+    }
+
+    vec2 fromMin = inChunkPosition.xz - chunk.min.xz;
+    vec2 fromMax = chunk.max.xz - inChunkPosition.xz;
+    float nearest = max(min(min(fromMin.x, fromMin.y), min(fromMax.x, fromMax.y)), 0.0);
+    return smoothstep(0.0, blend, nearest);
+}
+
+void writeBaked(vec3 normal) {
+    int chunk = inLightmap.w;
+    if (inLightmap.x < 0 && chunk < 0) {
+        outBaked = vec4(0.0);
+        outShadowMask = vec4(1.0);
+        return;
+    }
+
+    // The pages have one level each, so they are read at it.
+    vec3 irradiance = vec3(0.0);
+    vec3 d = vec3(0.0);
+    if (inLightmap.x >= 0) {
+        irradiance = textureLod(textures[nonuniformEXT(inLightmap.x)], inLightmapUv, 0.0).rgb;
+        d = textureLod(textures[nonuniformEXT(inLightmap.y)], inLightmapUv, 0.0).xyz * 2.0 - 1.0;
+    }
+
+    vec3 vertexNormal = surfaceFrame()[2];
+    if (chunk >= 0) {
+        vec3 towards;
+        irradiance += chunkLight(chunk, towards);
+        if (inLightmap.x < 0) {
+            float length2 = dot(towards, towards);
+            d = length2 > 0.0 ? towards * inversesqrt(length2) : vec3(0.0);
+        }
+
+        d = outOfChunkDirection(chunk, d);
+
+        // Light only reaches a surface from in front, as a space bake's way always is, but the transfer's lean is the
+        // way its light escaped, not the way it came in, and can point behind. There it would turn the light off, so
+        // only the part along the surface is kept. See "Chunk transfer" in docs/design.md.
+        if (inLightmap.x < 0) {
+            d -= min(dot(d, vertexNormal), 0.0) * vertexNormal;
+        }
+    }
+
+    float turned = (dot(normal, d) * 0.5 + 0.5) / max(LIGHTMAP_LEAST_SHARE, dot(vertexNormal, d) * 0.5 + 0.5);
+    outBaked = vec4(irradiance / LIGHTMAP_PI * turned,
+        chunk >= 0 ? chunkEdgeWeight(chunk) * chunkData.chunks[chunk].max.w : frame.bakedFade.x);
+    outShadowMask = chunk >= 0
+        ? frameMaskSlots(chunkData.chunks[chunk].pages.y, chunkData.chunks[chunk].maskSlots)
+        : frameMaskSlots(inLightmap.z, chunkData.spaceSlots);
+}
+
 // Applies the draw's tint, so every surface shader gets it. Foliage has no clearcoat, so
 // its translucency travels in the same channel as a negative number, and a subsurface
 // material puts its index there, plus SUBSURFACE_MARK, so the lighting and blur find it.
 // A ghost keeps only the surface's shape: one matte colour that glows a little,
 // whatever the material.
-// The normal's alpha is -1 on the back of a one-sided surface. Only a light probe's capture
-// draws those, to learn which of its probes sit inside a wall; the lighting reads its size.
 // Every surface also writes its motion: in scene pixels, from where it is now back to where it was, as Motion.Pack does.
 void writeSurface(Surface surface) {
     // Behind last frame's camera there's nowhere to point, so it points far off the picture, which has no history.
@@ -395,14 +533,14 @@ void writeSurface(Surface surface) {
         ? (inClipBefore.xy / inClipBefore.z - inClipNow.xy / inClipNow.z) * 0.5 * frame.screen.xy
         : vec2(MOTION_OFF_PICTURE);
     Material material = materials[draw.material];
-    bool back = !gl_FrontFacing && (material.flags & (MATERIAL_TWO_SIDED | MATERIAL_FOLIAGE)) == 0u;
-    float side = back ? -1.0 : 1.0;
 
     if (draw.ghost.a > 0.0) {
         vec3 color = clamp(draw.ghost.rgb, 0.0, 1.0);
         outBaseColorMetallic = vec4(color, 0.0);
-        outNormalRoughnessAo = vec4(octahedralEncode(surface.normal), 0.7, side);
+        outNormalRoughnessAo = vec4(octahedralEncode(surface.normal), 0.7, 1.0);
         outEmissiveClearcoat = vec4(color * GHOST_GLOW, 0.0);
+        outBaked = vec4(0.0);
+        outShadowMask = vec4(1.0);
         return;
     }
 
@@ -424,8 +562,9 @@ void writeSurface(Surface surface) {
         }
 
         outBaseColorMetallic = vec4(plain.baseColor, plain.metallic);
-        outNormalRoughnessAo = vec4(octahedralEncode(plain.normal), plain.roughness, waterSide(side));
+        outNormalRoughnessAo = vec4(octahedralEncode(plain.normal), plain.roughness, waterSide());
         outEmissiveClearcoat = vec4(surface.emissive, foliage ? foliageChannel(material) : 0.0);
+        writeBaked(plain.normal);
         return;
     }
 
@@ -434,6 +573,7 @@ void writeSurface(Surface surface) {
         channel = SUBSURFACE_MARK + float(draw.material);
     }
     outBaseColorMetallic = vec4(surface.baseColor * draw.tint.rgb, surface.metallic);
-    outNormalRoughnessAo = vec4(octahedralEncode(surface.normal), surface.roughness, waterSide(side));
+    outNormalRoughnessAo = vec4(octahedralEncode(surface.normal), surface.roughness, waterSide());
     outEmissiveClearcoat = vec4(surface.emissive, channel);
+    writeBaked(surface.normal);
 }

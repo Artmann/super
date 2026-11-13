@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Numerics;
 using Rendition;
 using Super.Profiling;
@@ -32,10 +33,13 @@ internal sealed class SceneRenderer : IDisposable
     private readonly JointPose[] _pose = new JointPose[Skeleton.MaxJoints];
     private readonly JointPose[] _poseScratch = new JointPose[Skeleton.MaxJoints];
     private int _boneCount;
+    private BakeSphere[] _partBounds = new BakeSphere[16];
+    private readonly BakeIdentity.Scratch _bakeScratch = new();
     private Bands _bakedBands;
     private int _uploadedAtlas;
     private Content? _content;
     private IContentFiles? _files;
+    private int _filesReloads;
     private readonly ReflectionProbeSchedule _reflectionProbes = new();
 
     /// <summary>
@@ -62,6 +66,11 @@ internal sealed class SceneRenderer : IDisposable
     public SceneRenderer(RendererOptions options)
     {
         _renderer = new Renderer(options);
+        Bakes = new LightBakeStore(ReadBake, Console.Error);
+        _renderer.Bakes = Bakes;
+
+        // Shots, recordings and profiles show each bake whole from the first frame; play in a window fades them in.
+        _renderer.BakeFadeSeconds = 0f;
         // White, so a draw's color comes out exactly as asked. CubeColor greys the rest.
         _defaultMaterial = _renderer.CreateMaterial(CreateMaterial(Vector3.One));
         _items = new ContentLoader<Loaded>(
@@ -147,8 +156,27 @@ internal sealed class SceneRenderer : IDisposable
         set => _renderer.Upscaler = value;
     }
 
+    /// <summary>How many light probes follow the camera and are updated a frame. A change starts every probe again on the next frame.</summary>
+    public ProbeQuality ProbeQuality
+    {
+        get => _renderer.ProbeQuality;
+        set => _renderer.ProbeQuality = value;
+    }
+
+    /// <summary>Whether the light probes near the camera are all up to date. See <see cref="Renderer.ProbesSettled"/>.</summary>
+    public bool ProbesSettled => _renderer.ProbesSettled;
+
     /// <summary>The effects left out of every frame from now on.</summary>
     public RenderEffects Off { get; set; }
+
+    /// <summary>What every frame shows: the lit scene, or a look inside the renderer. See <see cref="Rendition.DebugView"/>.</summary>
+    public DebugView DebugView { get; set; }
+
+    /// <summary>Whether the GPU can trace rays. See <see cref="Renderer.CanTrace"/>.</summary>
+    public bool CanTrace => _renderer.CanTrace;
+
+    /// <summary>Why <see cref="CanTrace"/> is false, or null when it is true.</summary>
+    public string? NoTraceReason => _renderer.NoTraceReason;
 
     public ReadOnlySpan<GpuPassTime> GpuTimes => _renderer.GpuTimes;
 
@@ -164,6 +192,7 @@ internal sealed class SceneRenderer : IDisposable
         var frame = CreateFrame(view, width, height, time);
         CaptureReflectionProbes(view, frame, _draws.AsSpan(0, count));
         _renderer.Render(frame, _draws.AsSpan(0, count));
+        SayWhyNotBaking(view);
     }
 
     public byte[] Capture(View view, Content content, int width, int height, float time, out int capturedWidth, out int capturedHeight)
@@ -175,6 +204,109 @@ internal sealed class SceneRenderer : IDisposable
         CaptureReflectionProbes(view, frame, _draws.AsSpan(0, count));
         return _renderer.Capture(frame, _draws.AsSpan(0, count), out capturedWidth, out capturedHeight);
     }
+
+    /// <summary>
+    /// Bakes the view's baked space from the same frame <see cref="Render"/> would draw, and returns the
+    /// <c>.lightbake</c> file's bytes. See <see cref="Renderer.Bake"/>.
+    /// </summary>
+    public byte[] Bake(View view, Content content, int width, int height, float time, BakeSettings settings)
+    {
+        Prepare(content, view);
+        int count = PrepareDraws(view, content);
+        PrepareDecals(view, content);
+        var frame = CreateFrame(view, width, height, time);
+        return _renderer.Bake(frame, _draws.AsSpan(0, count), settings);
+    }
+
+    /// <summary>
+    /// Bakes chunk <paramref name="chunk"/> of the view from the same frame <see cref="Render"/> would draw, and returns
+    /// the <c>.lightbake</c> file's bytes. See <see cref="Renderer.BakeChunk"/>.
+    /// </summary>
+    public byte[] BakeChunk(View view, Content content, int width, int height, float time, int chunk, BakeSettings settings)
+    {
+        Prepare(content, view);
+        int count = PrepareDraws(view, content);
+        PrepareDecals(view, content);
+        var frame = CreateFrame(view, width, height, time);
+        return _renderer.BakeChunk(frame, _draws.AsSpan(0, count), chunk, settings);
+    }
+
+    /// <summary>What the last frame's baked areas came to. See <see cref="Renderer.LastBakeFrame"/>.</summary>
+    public BakeFrame? LastBakeFrame => _renderer.LastBakeFrame;
+
+    /// <summary>The bakes in the content last drawn with, which the renderer checks each frame's baked areas against.</summary>
+    internal LightBakeStore Bakes { get; }
+
+    /// <summary>
+    /// The chunk bakes made on this machine, read when the cooked content has no bake of that name. Null, the default,
+    /// reads cooked content only. Read and written where the bake files are, never in a frame's own work.
+    /// </summary>
+    internal BakeCache? BakeCache { get; set; }
+
+    /// <summary>
+    /// How long a bake that arrives on screen takes to fade in. 0, from the start, so shots, recordings and profiles
+    /// show each bake whole; play in a window sets it. See <see cref="Renderer.BakeFadeSeconds"/>.
+    /// </summary>
+    public float BakeFadeSeconds
+    {
+        get => _renderer.BakeFadeSeconds;
+        set => _renderer.BakeFadeSeconds = value;
+    }
+
+    /// <summary>What the renderer bakes by itself. See <see cref="Renderer.AutoBake"/>.</summary>
+    internal AutoBake? AutoBake => _renderer.AutoBake;
+
+    /// <summary>How the background bake is getting on. See <see cref="Renderer.BakeProgress"/>.</summary>
+    public BakeProgress? BakeProgress => _renderer.BakeProgress;
+
+    /// <summary>
+    /// Bakes what <paramref name="plan"/> says in the background, or nothing when it is null. A space's bake is written
+    /// into the plan's folder and a chunk's into <see cref="BakeCache"/>; see <see cref="BakeSaver"/>. Setting it stops
+    /// the bake that runs and waits for the GPU the first time, so call it between frames.
+    /// </summary>
+    internal void BakeOnArrival(AutoBakePlan? plan)
+    {
+        if (plan is null)
+        {
+            _renderer.AutoBake = null;
+            return;
+        }
+
+        // One saver while the folder and cache stay, so bakes are kept in the order they finished across changes.
+        if (_saver is null || _saver.SpaceFolder != plan.SpaceFolder || _saver.Cache != BakeCache)
+        {
+            _saver?.Wait(TimeSpan.FromSeconds(10));
+            _saver = new BakeSaver(plan.SpaceFolder, BakeCache, _written.Written, Console.Out, Console.Error);
+        }
+
+        _renderer.AutoBake = new AutoBake(plan.Budget, plan.Spaces, plan.Qualities, _saver.Done);
+    }
+
+    /// <summary>
+    /// Set when the game would bake from source but the GPU can't trace, so the first area that wants a bake says once,
+    /// on the error stream, why it isn't baked.
+    /// </summary>
+    internal bool SaysWhyNotBaking
+    {
+        get => _notBaking.On;
+        set => _notBaking.On = value;
+    }
+
+    // The chunk files written to the cache on the thread pool, for the render thread to forget the bakes it holds.
+    private readonly WrittenBakes _written = new();
+    private readonly NotBakingNotice _notBaking = new(Console.Error);
+    private BakeSaver? _saver;
+
+    // Says, once, why the first area the last frame wanted a bake for isn't baked.
+    private void SayWhyNotBaking(View view) => _notBaking.Check(
+        LastBakeFrame, view.BakedSpace, view.PlacedBakedChunks, Off.HasFlag(RenderEffects.BakedLighting), NoTraceReason);
+
+    // A bake is cooked as data under its own name, so anything else of that name isn't one. Failing that, the cache
+    // of bakes made on this machine may have it.
+    private byte[]? ReadBake(string name) =>
+        _files is { } files && files.KindOf(name) == ContentKind.Data
+            ? files.Read(name)
+            : BakeCache?.Read(name);
 
     /// <summary>The reflection probes to keep: the view's, or none while reflections are off.</summary>
     internal static ReadOnlySpan<ReflectionProbeRequest> WantedReflectionProbes(View view, RenderEffects off) =>
@@ -253,7 +385,13 @@ internal sealed class SceneRenderer : IDisposable
         return costs;
     }
 
-    public void Dispose() => _renderer.Dispose();
+    public void Dispose()
+    {
+        _renderer.Dispose();
+
+        // A bake still being written would leave a temp file in the sources if the process ended under it.
+        _saver?.Wait(TimeSpan.FromSeconds(10));
+    }
 
     private static Material CreateMaterial(Vector3 color) => new()
     {
@@ -391,7 +529,7 @@ internal sealed class SceneRenderer : IDisposable
         return new LoadedModel(parts, null, null, model.Skeleton?.Count ?? 0);
     }
 
-    private static byte[] LoadShader(string name)
+    internal static byte[] LoadShader(string name)
     {
         // Shaders.targets keeps the source extension, so Shaders/terrain.frag becomes shaders/terrain.frag.spv.
         string path = Path.Combine(AppContext.BaseDirectory, "shaders", name + ".frag.spv");
@@ -407,6 +545,16 @@ internal sealed class SceneRenderer : IDisposable
 
     private void Prepare(Content content, View view)
     {
+        // The bakes read so far came from other files, or from these before they were read again, so they're read again.
+        if (!ReferenceEquals(_files, content.Files) || _filesReloads != content.Reloads)
+        {
+            Bakes.Forget();
+            _filesReloads = content.Reloads;
+        }
+
+        // A chunk baked in the background is in the cache now, so the bake held for its file is read again.
+        _written.ForgetIn(Bakes);
+
         // Set before anything new starts preparing, since models are read through it on background threads.
         _files = content.Files;
         _items.Update(content);
@@ -690,19 +838,74 @@ internal sealed class SceneRenderer : IDisposable
 
             // Skinned once per draw, however many of its parts are shown.
             var bones = draw.Pose is { } pose ? Skin(pose, draw.PoseAhead, model, draw.Model.Index, content) : default;
-            for (int i = first; i < count; i++)
-            {
-                ref var item = ref _draws[i];
-                item.Transform = draw.Transform;
-                item.Swim = draw.Swim;
-                item.Tint = draw.Color ?? (draw.Model.IsBuiltIn ? CubeColor : null);
-                item.Bones = bones;
-                item.Ghost = draw.Ghost;
-                item.Key = draw.Key;
-            }
+            var partBounds = draw.Static ? BoundsOf(model.Parts) : default;
+            Dress(_draws.AsSpan(first, count - first), in draw, bones, partBounds, content, view.BakedSpace, view.PlacedBakedChunks, _bakeScratch);
         }
 
         return count;
+    }
+
+    /// <summary>The sphere around each of a model's parts, in the model's units, kept in a buffer reused each draw.</summary>
+    private ReadOnlySpan<BakeSphere> BoundsOf(DrawItem[] parts)
+    {
+        if (_partBounds.Length < parts.Length)
+        {
+            _partBounds = new BakeSphere[Math.Max(parts.Length, _partBounds.Length * 2)];
+        }
+
+        for (int p = 0; p < parts.Length; p++)
+        {
+            _partBounds[p] = _renderer.BoundsOf(parts[p].Detail);
+        }
+
+        return _partBounds.AsSpan(0, parts.Length);
+    }
+
+    /// <summary>
+    /// Gives the parts of one draw that <see cref="AddShown"/> copied what the draw says about them. A static draw's
+    /// parts get bake ids, from <paramref name="partBounds"/>, which holds every part of the model; others keep zero.
+    /// Throws for a static draw of a mesh made in code without <c>isStatic</c>, which has no lightmap UVs.
+    /// </summary>
+    internal static void Dress(
+        Span<DrawItem> shown,
+        in ModelDraw draw,
+        BoneRange bones,
+        ReadOnlySpan<BakeSphere> partBounds,
+        Content content,
+        BakedSpace? space,
+        ReadOnlySpan<BakedChunk> chunks,
+        BakeIdentity.Scratch scratch)
+    {
+        var tint = draw.Color ?? (draw.Model.IsBuiltIn ? CubeColor : null);
+        for (int i = 0; i < shown.Length; i++)
+        {
+            ref var item = ref shown[i];
+            item.Transform = draw.Transform;
+            item.Swim = draw.Swim;
+            item.Tint = tint;
+            item.Bones = bones;
+            item.Ghost = draw.Ghost;
+            item.Key = draw.Key;
+        }
+
+        if (!draw.Static)
+        {
+            return;
+        }
+
+        if (!content.MadeStatic(draw.Model))
+        {
+            throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
+                $"Model {draw.Model.Index} is a mesh made in code and drawn static, but it wasn't made static, so it has no lightmap UVs. Pass isStatic: true to Content.Mesh."));
+        }
+
+        if (partBounds.Length > BakeIds.MaxParts)
+        {
+            throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
+                $"Model {draw.Model.Index} ({Name(draw.Model.Index, content, "a mesh made in code")}) is drawn static with {partBounds.Length} parts, but a static model can have at most {BakeIds.MaxParts}. Draw it without isStatic, or split it."));
+        }
+
+        BakeIdentity.Assign(shown, draw.Meshes, partBounds, content.IdentityOf(draw.Model), tint, draw.Transform, space, chunks, scratch);
     }
 
     /// <summary>
@@ -845,6 +1048,7 @@ internal sealed class SceneRenderer : IDisposable
                 Direction = suns[i].Direction,
                 Radiance = suns[i].Color,
                 CastsShadow = i == shadowSun,
+                Mode = suns[i].Mode,
             };
         }
 
@@ -859,11 +1063,14 @@ internal sealed class SceneRenderer : IDisposable
             Projection = shot.Matrix(aspect),
             CameraPosition = shot.Eye,
             Time = time,
+            DebugView = DebugView,
             Lights = _lights.AsSpan(0, lightCount),
             Bones = _bones.AsSpan(0, _boneCount),
             Shadows = FrameShadows(view, aspect),
             Occlusion = view.Occlusion,
             LightProbes = view.LightProbeVolume,
+            BakedSpace = view.BakedSpace,
+            BakedChunks = view.PlacedBakedChunks,
             EnvironmentIntensity = sky is null ? 0.8f : sky.Value.Brightness > 0f ? sky.Value.Brightness : 1f,
             Sky = FrameSky(view),
             BackgroundRadiance = new Vector3(0.15f, 0.16f, 0.18f),

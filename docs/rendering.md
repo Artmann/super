@@ -24,7 +24,7 @@ What it does for every game, with no setup:
 
 And when a scene asks for it:
 
-- [Bounced light](#bounced-light) from a volume of light probes, which doesn't leak through walls
+- [Bounced light](#bounced-light) from light probes kept round the camera, lit by the sun and every lamp, which doesn't leak through walls
 - A [clear sky](#the-sky) worked out from the sun and the haze in the air, with the sun's disc in it
 - [Height fog](#fog) that glows towards the sun, and [volumetric fog](#volumetric-fog) near the camera, with shafts of sunlight and halos round lamps
 - [Auto exposure](#auto-exposure) that meters the frame and adapts like a camera
@@ -54,7 +54,7 @@ Game.StartWindowsGameLoop<MyGame>(new GameOptions
 });
 ```
 
-`Graphics.Fastest()` turns every effect and vsync off (but keeps the materials), a start to turn back on only what
+`Graphics.Fastest()` turns every effect and vsync off (but keeps the materials and the baked lighting), a start to turn back on only what
 the game needs. Ask for `Graphics` in a constructor to change it while the game runs; the
 next frame follows, so it can back an options menu.
 
@@ -70,7 +70,8 @@ next frame follows, so it can back an options menu.
 | `LightShadows` | Point and spot lights shine through walls |
 | `AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. `view.AmbientOcclusion` only changes [how far and how dark](#ambient-occlusion) |
 | `MultiscatterSpecular` | Rough surfaces lose the light that bounces between their tiny facets, so rough metals such as worn iron come out darker than they should, by up to half at full roughness. It costs almost nothing, so leave it on unless you're comparing |
-| `LightProbes` | No [bounced light](#bounced-light): shade takes its soft light from the sky alone, as if no `view.LightProbes` were set, and no probes are captured |
+| `LightProbes` | No [bounced light](#bounced-light): shade takes its soft light from the sky alone, even inside a `view.LightProbes` box. No probes are drawn, and their memory, about 170 MB at `ProbeQuality.High`, is freed until it is switched back on, when every probe starts again. `Graphics.Fastest()` turns it off |
+| `ProbeQuality` | How many [light probes](#bounced-light) follow the camera and how many are redrawn a frame. `High`, the default and the best look, keeps 32 × 16 × 32 probes in each of the four boxes and redraws 32 a frame, for about 170 MB. `Medium` keeps 24 × 12 × 24 and redraws 16, for about 73 MB. `Low` keeps 16 × 8 × 16 and redraws 8, for about 43 MB, so the boxes reach half as far, the bounce fills in more slowly at the start and is slower to follow lights that move. Anything else is refused. A change starts every probe again on the next frame, which waits for the GPU once. `Graphics.Fastest()` sets `Low`, so turning the probes back on stays cheap |
 | `Reflections` | Shiny surfaces, water and glass reflect only the sky: not what's on screen, and no [reflection probes](#reflections) are photographed |
 | `AntiAliasing` | Edges show their pixels, and moving things stay sharp |
 | `Bloom` | No glow round bright things. `PostSettings.Bloom` only changes how much there is |
@@ -81,12 +82,25 @@ next frame follows, so it can back an options menu.
 | `Decals` | No [decals](views.md#decals): surfaces show as they are, without the grime and stains `view.Decal` lays on them. It saves a copy of the normal target and a pass over the decals' pixels |
 | `Puddles` | Every surface is dry, whatever level `view.Puddles` sets: no water and no damp band. It saves a few noise lookups on each wet pixel. See [puddles](#puddles) |
 | `Wind` | Grass, leaves and anything else flagged for the [wind](#wind) stand still, whatever `view.Wind` sets, and so do their shadows |
+| `BakedLighting` | Every bake is ignored, so each [baked area](#baked-lighting) is lit live, as if it had never been baked: lights its bake holds are drawn again. It shows what a bake changes. A bake costs less than the live light it stands in for, so `Graphics.Fastest()` leaves it on |
+| `BakeOnArrival` | Areas with no bake, or a stale one, stay lit live instead of [baking as the game runs](#baking-without-a-build-step), and a running bake stops |
+| `BakeBudget` | Not a switch: the GPU milliseconds a [background bake](#baking-without-a-build-step) may take a frame, from 0.5 to 33. Null, the default, gives 4 from source and 2 in a published game |
 | `Materials` | Every surface is the same light grey, matte clay, shaped only by its mesh, so you can judge the lighting and the models without textures in the way. Glows still glow, cut-outs still cut, glass stays see-through and puddles still wet the clay. `--no-materials` turns it off too |
 | `WearAndDirt` | Models' materials show only their own colour and shine, without the pale worn edges and dark hollows their [baked masks](#wear-and-dirt) lay on, and the masks aren't read |
 
 `Graphics.Fastest()` leaves `RenderScale` at 1 too, since a smaller picture is a change the
 player can see, not only a saving. A game for slow GPUs on big screens sets it to 0.75 or 0.5
 itself, or offers it in an options menu.
+
+### The debug view from a game
+
+`Graphics.DebugView` sets what the frame shows from game code, so a key can toggle
+`DebugView.Probes` (the [Hamlet](../examples/Hamlet/README.md) does, with P). It is not an effect:
+it is `DebugView.None` by default and costs nothing then. `--debug-view` on the command line wins:
+while it names a view, `Graphics.DebugView` is ignored, and when it doesn't, the game's value is
+shown. `DebugView.Trace` needs a GPU that can trace rays. A `--debug-view trace` that can't run
+exits at once with an error, but a game's `Graphics.DebugView = Trace` on such a GPU is ignored and
+the lit scene is shown, because a game can't know what a player's GPU has.
 
 ### Upscaling
 
@@ -140,9 +154,35 @@ GPU time of a frame halves:
 ![Crypt with every effect on, 4.4 ms of GPU a frame, and with Graphics.Fastest, 2.0 ms](media/graphics-fastest.webp)
 
 Screenshots, recordings and profiles keep vsync and ignore the frame limit, so they come
-out the same on every machine, but they do follow the effect switches. Turning
+out the same on every machine, but they do follow the effect switches. The one exception is
+the frames a screenshot draws while it waits for the light probes to settle: nobody sees those,
+so they don't wait for the display, and the shot comes out the same. Turning
 `AntiAliasing` on or off waits for the GPU to finish once, so do it from a menu rather than
 every frame.
+
+### Ray tracing
+
+On a GPU that supports ray queries (`VK_KHR_ray_query` with `VK_KHR_acceleration_structure`,
+`VK_KHR_deferred_host_operations` and `bufferDeviceAddress`) the renderer turns them on when it
+makes the device, and `Renderer.CanTrace` is true. Some players have a GPU that
+can't, so nothing requires it: those players get the same game without tracing. So far rays
+update the [light probes](#bounced-light), many more a frame than drawing them can, and draw the
+debug view below; nothing else uses them.
+
+`--no-trace` makes the device without ray queries even on a GPU that has them, so you can see
+what a player without them gets. It works in the window and with `--screenshot`, `--record`
+and `--profile`.
+
+`--debug-view trace` shows what rays can see instead of the lit scene: each surface's base colour,
+unlit, and sky blue where a ray hits nothing. Use it to check that the ray tracing layer holds the
+scene you expect. Leaves in cut-out materials show holes, wind-swayed parts sit at rest, and skinned
+characters, swimming draws and ghosts are missing, because rays don't see them yet. From code, set
+`FrameView.DebugView` to `DebugView.Trace`; `Renderer.Render` throws on a GPU that can't trace, and
+`Renderer.NoTraceReason` says why. See [the command line](command-line.md).
+
+![The Courtyard lit on the left and in the trace view on the right: the same bricks, ivy, barrel, wheel and flagstones as flat base colours, with a sky-blue background where rays hit nothing](media/trace-view-courtyard.webp)
+
+![The Crypt lit by candles on the left and in the trace view on the right: the pillars, walls, altar and chest in their unlit base colours, with candles and torches showing as flat white](media/trace-view-crypt.webp)
 
 ## Lights
 
@@ -205,12 +245,49 @@ A frame can have up to 1,024 lights, and one more throws. Lights are culled to w
 camera sees, and each part of the screen only works through the lights that reach it, so
 a frame can have hundreds of small lights. 256 can reach any one spot on the screen,
 and more than that are dropped there. The `Crypt` example has four torches, five
-candelabras, a lantern, a beam from a grate and 126 candles, about 150 lights.
+candelabras, a lantern, a beam from a grate and 126 candles, about 150 lights. The
+`Hamlet` example has about 200 at night: lamps and forge fires with shadows, and lit
+windows without.
 
 Point and spot lights light models, glass and [particles](views.md#particles). Glass and
 particles get no shadows from them. They aren't seen in reflection probes. In
 [fog](#fog) they glow with a halo; `volumetric:` sets how strongly, and 0 leaves a light
 out of the fog (see [volumetric fog](#volumetric-fog)).
+
+### Light modes
+
+Every sun, point light and spot light takes a `mode:` of `LightMode.Mixed`, `Realtime` or
+`Baked`. `Mixed` is the default and changes nothing about how a light looks. The mode only
+says how a bake will treat the light: `Realtime` is never part of a bake, `Baked` is only
+part of one, and `Mixed` is both. Until a [bake](#baked-lighting) exists, every light is lit
+live whatever its mode, so every frame looks the same. A mode that isn't one of the three
+throws.
+
+A baked space keeps the shadows of its Mixed lights in a shadow mask with four channels. The
+sun takes one when it is Mixed, and Mixed point and spot lights whose ranges overlap need
+different channels, so a space has at most four Mixed lights reaching the same place. A light
+that finds none left keeps its real-time shadows only.
+
+A frame shares four mask slots between all the bakes it draws: the space's and every placed
+baked chunk's. The space's lights keep their channels, with the sun first. Each chunk's
+Mixed lights then take the slots left, so lights from different bakes whose ranges overlap,
+or two copies of one chunk standing side by side, get different slots and each surface reads
+its own bake's shadow. Lights of one placed chunk always get different slots. Lights far apart
+in different chunks share a slot, but the space's hold theirs everywhere.
+A chunk light that finds every slot held, by the space or by lights its range overlaps, keeps
+only its real-time shadow that frame, and its key is in `Renderer.LastBakeFrame.UnslottedLights`.
+A surface whose bake has nothing in a slot,
+such as a neighbouring chunk's floor lit by a lamp from next door, is shadowed in that slot by
+the real-time shadow alone.
+
+While the bake is drawn, a Mixed light on a lightmapped surface is shadowed by its channel. A
+light with a real-time shadow takes the darker of the two, so something that moves still casts
+its shadow, and the baked one covers what the shadow map doesn't: past the sun's last
+[cascade](#shadows) the mask takes over, so a sun lights a baked space with shadows however far
+it reaches. A light with no shadow map, or one that didn't get a [tile](#point-and-spot-lights),
+takes the mask alone, so a light with `shadows: false` is still shadowed by the walls the
+bake saw. A light without a channel, a surface without a lightmap, and every light while
+[`BakedLighting`](#graphics-settings) is off or the bake is stale are lit as before.
 
 ## Shadows
 
@@ -283,39 +360,477 @@ It only knows what the camera sees, plus what stands over a point in the sun's s
 
 ## Bounced light
 
+Sunlight that lands on a brick wall doesn't stop there: some of it bounces off and lights
+the ground and everything near it, tinted the colour of the brick. A lamp in a white room
+lights the whole room, not only what faces it. Without bounced light, shade gets its soft light
+from the sky alone, so a yard in shadow looks blue and flat and a room lit by a lamp is black
+wherever the lamp doesn't reach.
+
+The renderer keeps light probes round the camera for you, with no setup. Each probe records the
+light reaching it from every direction, and surfaces take their soft light from the probes
+round them instead of from the sky, so the shade under a sunlit wall takes on its warmth, a red
+wall tints the floor beside it, and the inside of a closed room stays dark however bright the
+sky is. The probes see the sun, the sky, point and spot lights (inside their cones), glowing
+surfaces and the light already bounced, so light bounces again with every update.
+
+![The Courtyard's brick wall right of the window, lit by a box of probes captured once at load on the left and by the live probes round the camera on the right. The two nearly match: the live probes leave the wall a shade darker](media/probes-courtyard.webp)
+
+Where a probe sees nothing it sees the same sky that lights the scene without probes, so in a
+scene with no [`view.Sky`](#the-sky) it sees the soft studio light rather than the plain
+background colour drawn behind the scene. Out in the open, a probe gives the light the
+scene would have had without it.
+
+The probes sit in four nested boxes centred on the camera, 0.5, 1, 2 and 4 metres apart, so
+detail is finest close by and the far boxes still reach a long way. On a GPU that can
+[trace rays](#ray-tracing), each update sends 128 rays out from the probe, and 256, 512 or 1,024
+probes are updated a frame by [`Graphics.ProbeQuality`](#graphics-settings): `Low`, `Medium` or
+`High`, the default. Nothing turns this on; it is used whenever the GPU can. Each traced update
+moves a probe a quarter of the way to what its rays saw, so a little noise averages away, but a
+big change, well above the probe's own noise, comes in whole, so a lamp turned on near the
+probe fills in within a few updates. A small change, or one at a probe lit mostly by a small,
+noisy light, still moves a quarter of the way an update. At `High` the near probes are all
+traced within the first few dozen frames, and each is then redone about every second at 60 fps
+for 12 more updates, as each update adds one more bounce of light between walls: in a white
+room the bounce is about 80% there after 12 seconds. After that only a quarter as many are
+redone a frame, to save GPU time, so every probe is redone about every four seconds and the
+last of the bounce takes a minute or two to come in. A changed light or a new probe starts the
+full count again.
+
+Without tracing, each update draws the scene round the probe six times instead, so far fewer
+fit in a frame: 8, 16 or 32 by `ProbeQuality`, and fewer in a dense scene, since a frame draws
+at most 8 million triangles round its probes, which is about 9 probes in Courtyard. Either
+way there is no pause while loading: the scene starts lit by the sky and fills in over the
+first frames, nearest probes first. Drawn this way at `High`, the near probes have all been
+drawn after about a thousand frames in a light scene (nearer four thousand in Courtyard).
+Without a `view.LightProbes` box of your own, the first seconds after a load can look blotchy,
+as neighbouring probes have been drawn different numbers of times, until each has been redone
+a few times and they even out.
+After that the oldest probes are redone in turn, so objects that move or appear show up in the
+bounce within about 2,000 frames at `High`. A point or spot light that moves, turns, changes
+colour or is switched off marks the probes in its range for an update, and a change to the sun,
+the sky or the `Materials`, `SunShadows` or `LightShadows` switches marks them all (probes
+don't draw wear and dirt, so `WearAndDirt` leaves them be); until it is redone, a probe keeps its old light, so a change fades in rather than flashing.
+As the camera moves, the boxes slide with it a row at a time: probes it keeps stay as they were,
+and the new row starts dark and is drawn next.
+
+![The same corner of the Courtyard with its probes drawn by rasterising on the left and by tracing rays on the right, at the same tick: the two come out nearly the same in colour, the traced side a shade brighter, as by tick 300 the rasterized probes are still filling in](media/probes-courtyard-paths.webp)
+
 ```csharp
-view.LightProbes(min: new(-2f, -0.5f, -9f), max: new(9f, 5f, 6f), spacing: 1f);
+view.LightProbes(min: new(-1f, 0f, -4f), max: new(1f, 2.5f, 4f), spacing: 0.25f);
 ```
 
-Sunlight that lands on a brick wall doesn't stop there: some of it bounces off and lights
-the ground and everything near it, tinted the colour of the brick. Without bounced light, shade
-gets its soft light from the sky alone, so a yard in shadow looks blue and flat. A light probe
-volume fills a box with a grid of probes, `spacing` metres apart, that each record the light
-reaching them from every direction. Surfaces inside the box take their soft light from the
-probes round them instead of from the sky, so the shade under a sunlit wall takes on its
-warmth, and the inside of a closed room stays dark however bright the sky is.
-
-Give the box a little room around what it lights, and keep the spacing near the size of the
-smallest space that should be lit differently: 1 metre suits a yard or a room, 0.5 a corridor.
-The box may hold at most 4,096 probes, so 1 metre spacing covers about 15 by 15 by 15 metres;
-a bigger box throws when it is set. `spacing` must be more than zero, and `max` above `min` on
-every axis.
+`view.LightProbes` adds a box of probes of your own on top, for a place that needs finer
+detail than the camera's probes give, such as a narrow corridor at 0.25 metres. Inside it,
+and up to a spacing round it, its probes win over the camera's. The box may hold at most 4,096
+probes, so 1 metre spacing covers about 15 by 15 by 15 metres; a bigger box throws when it is
+set. `spacing` must be more than zero, and `max` above `min` on every axis. A new box starts
+its probes again. Gallery keeps one over the whole building: in its rooms the camera's probes
+alone left the walls and floors blotchy in a screenshot, and the box's probes, 1.65 metres
+apart, light them smoothly.
 
 Each probe also notes how far away the surfaces it sees are, so a point behind a wall from a
-probe gets nothing from it, and light doesn't leak into a room from the probes outside. A
-probe that ends up inside a wall or under the ground sees mostly the backs of surfaces, and
-is left out. Outside the box, or where no probe can see a point, the soft light comes from
-the sky as before. Reflections don't change; probes give only the soft, diffuse light.
+probe gets nothing from it, and light doesn't leak into a room from the probes outside. Traced
+probes also send a shadow ray towards every point or spot light that casts shadows, so a lamp
+behind a wall doesn't light them. Without tracing, the probes take a lamp's shadow from its
+shadow map, which only lamps that light the view have, so a lamp out of view lights the probes
+through walls as if it cast no shadow. A probe that ends up inside a wall or under the ground sees mostly the backs of surfaces, and
+is left out. Where no probe can see a point yet, the soft light comes from the sky as before.
+Reflections don't change; probes give only the soft, diffuse light. See-through, skinned and
+swimming things don't show in the probes or shade them from the sun, as they would spoil them or
+move on their own. Without tracing, glass still shades the probes from a lamp that lights the view.
 
-The probes are drawn by the renderer itself, from each probe's position, with the sun and the
-sky but without point and spot lights. That happens over the first frames after the box is set,
-64 probes a frame, and then once more, now lit by the first round, so light bounces twice. A
-change to the sun's direction or colour, the sky, the sun's shadow softness or cascades or the
-`Materials` switch starts it again (the camera doesn't: the sun's shadow is framed on the box), drawing over the old probes in place, so for a few frames
-old and new probes mix and the new ones have only one bounce. A change to the box throws the
-old probes away, and the sky lights the scene until the first round is done. Moving or adding objects doesn't, so
-probes suit what stands still. Each frame that draws probes takes longer, so a sun that moves
-every frame keeps them drawing; set it once and leave it, or turn `Graphics.LightProbes` off.
+A surface in a [baked space](#with-a-fresh-bake) whose bake is fresh takes its soft light from its
+lightmap instead, which is finer than any probe grid. Anything else inside the space, such as a
+character walking through it, reads the bake's own probes first. Where none of them can see it, it
+falls back to the box of probes, then to the probes round the camera, and last to the sky.
+
+`Graphics.LightProbes` turns all of this off and frees the probes' memory, about 170 MB at
+`High`. Switching it back on starts every probe again. `Graphics.ProbeQuality` trades the
+probes' reach and speed for memory and GPU time; see [graphics settings](#graphics-settings).
+A [screenshot](command-line.md#screenshots) waits for the probes near the camera to be drawn,
+up to 2,048 frames, so it shows the bounce as it will be rather than still filling in.
+
+`--debug-view probes` shows the probes themselves, over the lit scene. Every probe of the finest
+box and of your `view.LightProbes` box is a small sphere; the three coarser boxes aren't shown.
+Each point of a sphere shows the
+light that probe gives a white surface facing the same way, so a probe beside a red wall is red
+on the wall's side. The spheres are 0.15 of their probes' spacing in radius, 7.5 cm in the
+finest box, so they read clearly from a few metres away while neighbours stay well apart and
+leave the scene visible between them. A probe not drawn yet is a grey wireframe, and a probe
+left out for being inside a wall isn't shown. Where your box covers the finest box, only your
+box's probes are shown, as only they light that space. It works with or without tracing, and
+shows no spheres while `Graphics.LightProbes` is off. From code, set `FrameView.DebugView` to
+`DebugView.Probes`. A game can switch it on while it runs, as the Hamlet does with P, by setting
+`Graphics.DebugView`; see [the debug view from a game](#the-debug-view-from-a-game). See [the
+command line](command-line.md).
+
+## Baked lighting
+
+```csharp
+view.BakedLighting("crypt", min: new(-8f, -1f, -12f), max: new(8f, 6f, 12f), probeSpacing: 1f);
+
+foreach (var house in village.Houses)
+{
+    view.BakedChunk("house-garden", house.Transform, min: new(-6f, 0f, -8f), max: new(6f, 7f, 8f),
+        edgeBlend: 0.5f);
+}
+```
+
+A frame can name the parts of the world whose lighting is baked. [`Renderer.Bake`](#making-a-bake)
+bakes a space, and the game finds the bake in its content and checks it against the frame. Once
+the bake is fresh, its surfaces are lit from their lightmap; until a space is baked, naming it
+changes nothing on screen.
+
+The [Gallery](../examples/Gallery/README.md#baked-lighting) is the example to look at: it ships
+with a bake, keys 1, 2 and 3 switch between live lighting, the bake and direct light only, and
+its README says which light has which [mode](#light-modes) and why, and how to bake it again.
+The [Crypt](../examples/Crypt/README.md#baked-lighting) (fire lights that stay `Mixed`) and the
+[Courtyard](../examples/Courtyard/README.md#baked-lighting) (a sun and a lamp through glass) are
+baked spaces too.
+For chunks, look at the [Hamlet](../examples/Hamlet/README.md#baked-lighting): every building is
+a chunk named for its kind, so with seed 1 its 40 buildings share seven bakes, and the same keys
+switch its lighting.
+
+![Part of the Hamlet at dusk, lit live (left) and with baked chunks (right): the well shows its paving slabs and the cottages get softer contact shade, while the village looks much the same overall](media/hamlet-baked-before-after.webp)
+
+![The Crypt by the right torch, lit live (left) and with its bake (right): the wall and pillar beside the torch are a little dimmer in the bake, and the two look nearly the same otherwise](media/crypt-baked-before-after.webp)
+
+![The Courtyard window, barrel and wall, lit live (left) and with its bake (right): the window glass and the shade on the bricks differ slightly, and the two look nearly the same otherwise. The ivy differs because the plants sway](media/courtyard-baked-before-after.webp)
+
+![The Gallery from above, before and after baking: the bake darkens the doorway and the deep window, and shades under the colonnade](media/gallery-baked-before-after.webp)
+
+![The colour room before and after baking: softer contact shade under the bust's plinth, and the walls' colour bleeds onto the floor much as before](media/gallery-colour-room-baked.webp)
+
+`BakedLighting` names a space: one fixed place, baked as it stands, sun included. Its box also
+holds baked probes `probeSpacing` metres apart, at most 4,096 of them, counted the same way as
+[light probes](#bounced-light), so 1 metre spacing covers about 15 by 15 by 15 metres. A frame
+has at most one space, and naming a second throws with both names. Its bake is
+`lighting/<name>.lightbake`. `texelsPerMetre`, 20 by default (5 cm texels), sets how fine its
+lightmap is, from 1 to 200; anything else throws with the value. `view.BakedChunk` takes the same
+parameter for a chunk.
+
+`BakedChunk` places a chunk: a piece of the world, such as a house, baked once in its own
+space and placed with `transform`. `min` and `max` are its box in its own space, before
+`transform`. One chunk can be placed many times in a frame, so its name may repeat, and every
+copy with the same contents will share one bake, kept in `lighting/<name>/<hash>.lightbake`
+with the 16 hex digits of a hash of its contents. A frame places at most 256 chunks. The
+transform may only turn and move the chunk: its first three rows must be unit length and
+square to each other within 0.0001, without a mirror, and its last column (0, 0, 0, 1). One
+that scales, shears or mirrors throws, since one bake serves every copy.
+
+A chunk's bake knows only the chunk, so where its floor meets the world beside it the two
+would be lit differently, and a seam would show along the chunk's side. `edgeBlend`, half a
+metre by default, blends them: over that many metres in from each of the chunk's four sides
+(its x and z faces, not the top or bottom), its lightmap fades into the live light the world
+beyond it gets, with its ambient occlusion and shadow mask. At the side itself the chunk is lit
+like the world next to it, and from `edgeBlend` in it is lit by its bake alone. `edgeBlend: 0`
+gives a hard edge. It may be at most half the box's smaller side across x and z, so the bands of
+opposite sides never overlap; more than that, a negative value or NaN throws with the value. A
+chunk narrower than a metre is too small for the default, so give it `edgeBlend: 0` or a smaller
+blend.
+The band is drawn each frame, not baked, so changing it needs no new bake.
+
+A name is one or more letters, digits, `-` or `_`, since it names a file; a slash, a dot or a
+space throws. Each box must reach further than it starts on every axis, and `probeSpacing`
+must be more than zero. Everything else throws when it's named, with the value and the limit.
+For Rendition alone, `FrameView.BakedSpace` and `FrameView.BakedChunks` carry the same, and
+`Renderer.Render` throws for more than 256 chunks or a chunk transform that isn't only a turn
+and a move. `BakeFiles` has the limits, the file names and the checks.
+
+### Without a bake
+
+Every frame that names a space or a chunk, the renderer works out what each area's bake would
+be made from and asks whether a bake of exactly that exists. A light that a fresh bake holds is
+then left to the bake: a `Baked` light is no longer drawn live, and a `Mixed` one is. A light
+in no baked area, a `Realtime` light, and a light that is [moving](#moving-lights) are always
+drawn live.
+
+An area's texel density is part of what its bake is made from, so changing the
+`texelsPerMetre` an area is named with makes its bake stale. The bake's quality (`Preview` or
+`Final`) does not: it only decides how long a bake takes, so a Preview bake is as fresh as a
+Final one.
+
+A Super game looks for each bake in its cooked content, where [`--bake`](command-line.md#baking-lighting)
+puts it, reading only the header of each file once and keeping it, so asking every frame reads
+and allocates nothing. A missing bake is quietly lit live, since most areas start unbaked. A
+stale one is lit live too, and the game writes one line to the error output the first time it
+meets it, naming what changed. It waits a second after the game starts before it says so, since
+a light that moves is only known to be moving once it has been seen to move, and until then
+it still counts in the bake's lights (see [Moving lights](#moving-lights)). The bake is still lit
+live on those frames while it doesn't match:
+
+```
+The bake lighting/crypt.lightbake is stale, since its draws and lights changed, so its area is lit live until it is baked again.
+```
+
+A file that can't be read, because it is damaged or because opening it fails, as it can while a
+cook is replacing it, is reported once the same way, with the reason, and lit live. When the
+content reloads, every bake is read again and each stale one is reported again.
+
+A frame with no bake, or only stale ones, looks exactly as it would without its baked areas, to
+the byte, and a frame that names none does no bake work at all.
+[`Graphics.BakedLighting`](#graphics-settings) off treats every bake as missing.
+
+### With a fresh bake
+
+When the space's bake is fresh, the renderer reads the whole file once, puts its pages on the
+GPU and keeps them until another bake is loaded or the content reloads, even through frames
+that don't name the space. Every draw the bake holds then takes its soft light from its lightmap: the light that
+reached it from the sky, the sun and the bake's lights, bounced around the space, with no leaks
+through walls. That replaces the sky and the [light probes](#bounced-light) for those surfaces.
+The lightmap also notes where most of that light came from, so a normal map still shows its
+bumps under baked light. Live lights, `Mixed` ones included, and reflections are drawn over
+it as usual. Ambient occlusion still darkens
+the corners, at half strength, since the bake already holds most of the shade there.
+
+A draw the bake doesn't hold, such as something moved in after the bake or a moving
+character, takes its soft light from the bake's probes while it is inside the space's box. They
+hold the same light as the lightmap, `Baked` lights included, so a character walking through a
+room lit only by `Baked` lamps is lit by them too, though they are no longer drawn live. Outside
+the box, or where none of the bake's probes sees the point, it is lit as before, from the
+[light probes](#bounced-light) or the sky. Over one `probeSpacing` in from each of the box's six
+faces, the bake's probes blend into that live light, so something crossing the box's edge fades
+from one light to the other over that distance rather than changing at once. The band falls off
+at the box's floor and top as well as its sides, so a box whose floor sits at the ground's level
+lights things standing on that ground partly live; set the box's floor a spacing or more below
+the ground to keep them in the bake's light. The space's own
+lightmap has no such band, since the space's static surfaces end inside its box.
+Transparent surfaces and particles never read light
+probes, so they are lit from the sky in a baked space as anywhere else. A file whose header is
+fresh but whose pages can't be read or are larger than any bake makes, or that is gone by the
+time they're read, is reported once to the error output and its area lit live, as if it had
+no bake.
+
+A fresh chunk's bake is read and checked off the render thread, then goes up to the GPU at most
+8 MB a frame (`ChunkBakePool.ChunkUploadBudget`), so a big page can take a few frames. Until all
+its pages are there the chunk is pending: it is drawn live, its `Baked` lights included, so it
+never shows half a bake. A chunk bake that finds the renderer's 1024 texture slots all taken is
+reported once to the error output and its chunk lit live until the content reloads. The pool
+counts frames by `Render` calls, which is right while each frame draws one view, as Super does. Copies of a chunk that share a file share its bake. A bake that no
+chunk in the frame names is let go at the end of that frame and read again when one comes back,
+and a content reload drops every chunk bake and reads them again.
+
+A bake that arrives while its area is on screen fades in rather than popping. That happens when
+the area was drawn live last frame, its bake missing or stale, and its file is fresh now, as when
+a [background bake](#baking-in-the-background) saves it or a stale bake is replaced. Its lightmaps and probes then blend in over
+`Renderer.BakeFadeSeconds` of game time (`FrameView.Time`), half a second by default, along a
+smoothstep. While they do, the area's `Baked` lights stay in the frame, dimmed by as much as the
+bake has come in, so the area never goes darker than either end, and `BakeFrame.ModeOf` already
+says `Baked` for them. `BakeFrame.SpaceFade` and `BakeFrame.ChunkFade` say how far each area has
+come. A bake that is fresh on the first frame that names its area shows at once, so loading a
+level, a screenshot and a reload of an unchanged bake never fade, and nor does a chunk whose bake
+was already saved but is still on its way to the GPU. An area left out of a frame is forgotten,
+so the next frame that names it counts as its first, and a frame that names no area at all
+forgets every area. So a game that draws an extra view with no baked areas every frame, such as
+a minimap, between the frames that name them never sees a bake fade. Reflection probes are
+captured again once a fade ends, so they hold the whole bake. Game time that goes back ends a fade at
+once. Turning [`Graphics.BakedLighting`](#graphics-settings) back on counts as every bake on screen
+arriving, so they fade in too. `BakeFadeSeconds` of 0 shows every bake at once; it must be from 0 to 10, or it throws
+`ArgumentOutOfRangeException` with the value.
+
+A chunk's bake holds how the sky and the sun reach each of its surfaces, not the light itself,
+so every copy is lit by the frame's sky and suns as it stands. The same house can face north in
+one place and south in another, at noon or at dusk, and each copy gets the light from its own
+open side and the bounce from its own sunlit walls, with no bake per copy and none again when the
+sky changes. The frame after the sky or a sun changes, every copy shows it. Its own `Baked` and
+`Mixed` lights are added on top. The sun's direct light and shadows stay live, while its bounce
+follows every `Mixed` and `Baked` sun, moving ones included. The sky's light is kept to its
+broad shape, so a sky much brighter at the horizon than overhead lights an open floor a little
+too brightly, about 8 steps in 255 against a space baked under that sky. Each copy draws only its
+own bake, so a pending copy is lit live even while another copy of the same chunk with another
+bake is resident. Reflection captures don't draw chunk bakes: they light a chunk's surfaces live,
+but without the chunk's `Baked` lights, which a fresh chunk takes out of the frame, so a chunk
+with `Baked` lamps shows them missing in reflections. A chunk's own `Mixed` lights are shadowed through its
+bake's shadow mask, in the frame's shared [mask slots](#light-modes), as a space's are.
+
+For Rendition alone, `Renderer.Bakes` is where the renderer asks. It starts as
+`NoBakes.Instance`, which has no bakes. A `LightBakeStore` reads bakes through a function that
+gives a file's bytes, or null when there is none, and reports stale and damaged ones to a
+`TextWriter`; any other `IBakeStore` can stand in for it. `LightBakeStore.Forget` drops what it
+has read, for after the files change, and `LightBakeStore.Load` reads a whole bake.
+
+### Making a bake
+
+```csharp
+byte[] bake = renderer.Bake(view, draws, new BakeSettings(quality: BakeQuality.Preview));
+File.WriteAllBytes("lighting/crypt.lightbake", bake);
+```
+
+`Renderer.Bake` path traces the frame's space into a lightmap and its light probes, and returns
+the `.lightbake` file's bytes. It takes the same view and draws as `Render`, waits for the GPU,
+and draws nothing. A view without a space throws "Bake needs a baked space in the frame; call
+view.BakedLighting first." A space with more than 4,096 probes, which only a hand-made
+`FrameView.BakedSpace` can have, throws with its name and count. The settings' `TexelsPerMetre`
+must be the space's, since no frame would find a bake at another density fresh; one that differs
+throws with both.
+A game doesn't need to call it itself: [`--bake`](command-line.md#baking-lighting) bakes the
+frame's space and each chunk it draws and saves them, and `--bake-check` says whether each saved bake is fresh.
+
+```csharp
+byte[] bake = renderer.BakeChunk(view, draws, chunk: 0, new BakeSettings(texelsPerMetre: 20));
+```
+
+`Renderer.BakeChunk` bakes one of the frame's `BakedChunks` in its own space, so one bake
+serves every copy of the chunk wherever it stands and however it is turned. Only the static
+draws the chunk owns are in it, so the rest of the world neither shades nor lights it. Its
+lightmap is one square page, from 64 to 2048 texels a side, as small as holds its draws. It
+holds:
+
+- The sky's light, as how much of the sky each texel sees from each direction (its transfer),
+  so a placed copy is lit by whatever sky it stands under, through openings and after
+  bouncing.
+- The sun's bounced light, the same way, for a sun from any direction. The sun's direct light
+  stays live.
+- A plain lightmap of the chunk's own `Baked` and `Mixed` lights and glowing surfaces, by the
+  same rules as a space but with no sky and no sun. A chunk with none of these has no plain
+  lightmap. Its `Mixed` lights get shadow mask channels of their own.
+
+The edge-aware filter below smooths a chunk's plain lightmap but not its sky and sun transfer,
+which is only grown at chart edges. A room lit only by light bounced in through its windows can
+look blotchy at `Final`'s 1024 paths: the Hamlet's cottage walls do at 10 texels a metre, and
+they come out smooth at 8192, which `BakeSettings` can't ask for yet.
+
+A chunk has no probes. `BakeChunk` throws `ArgumentOutOfRangeException` for a chunk the frame
+doesn't have, `ArgumentException` when the settings' `TexelsPerMetre` isn't the chunk's, and
+`InvalidOperationException` when the chunk owns no static draws. `--bake` bakes each chunk file the frame draws once.
+
+The lightmap covers the static draws the space owns, apart from ones that sway in the wind or
+are see-through, at the space's texel density. Each texel holds the light reaching it from every
+direction, the direction most of it comes from, and a shadow mask. What a light gives depends
+on its mode:
+
+- A `Baked` light is in the lightmap in full, both its direct light and the light it bounces.
+- A `Mixed` light gives only its bounced light, since it stays drawn live. Its direct shadow
+  goes in a shadow mask channel instead, so the live light is shadowed by what the bake saw
+  (see [light modes](#light-modes)). There are four channels: a `Mixed` sun takes the first, and local lights whose ranges
+  overlap get different ones.
+- A `Realtime` light, a light that is [moving](#moving-lights), and a local light in no
+  baked area are left out, as is the sun when it is `Realtime` or moving.
+- Emissive surfaces light their surroundings, and the sky lights them at
+  `view.EnvironmentIntensity`. Glass and other see-through surfaces let light through, dimmed
+  by their opacity but not tinted.
+
+The bake also holds the space's probes, one every `probeSpacing` metres in its box, laid out
+as [light probes](#bounced-light) are, so the bake's probes can stand in for live ones there.
+Each records the light from every direction and how far away the surfaces it sees are, by the
+same rules as the lightmap: a `Mixed` light gives a probe only its bounced light, and `Baked`
+lights, emissive surfaces and the sky count in full. A probe inside a closed room with no light
+in it reads black.
+
+A `Preview` bake sends 64 paths from each texel and a `Final` one 1024, so Preview is about
+16 times quicker and noisier. Probes take a sixteenth of that per direction, 4 and 64, since
+each probe direction already averages many. The file's report gives the time taken, the share
+of texels found inside walls, and the lights that didn't get a mask channel.
+
+Before the lightmap is written, an edge-aware filter smooths out the path tracer's noise. It
+follows the surfaces, so it doesn't blur light across a crease or a step, and it never mixes
+two charts, so light from one wall doesn't leak onto the floor beside it in the lightmap. It
+also stops where the light changes by more than the noise explains, so a `Baked` light's
+shadow edge stays sharp to within a texel or two, and the sky seen past the rim of a wall isn't
+carried in under it. Where the light is noisy it spreads it over up to about 8 texels either
+way (40 cm at 20 texels a metre). A penumbra that is itself noisy, as at `Preview`, can soften
+a little, and blotches larger than about 8 texels stay. The shadow mask isn't smoothed, so the
+shadows of `Mixed` lights stay sharp. Then the edges of each chart are grown
+by up to 8 texels, which fills texels inside walls from their neighbours and gives bilinear
+filtering and mips something right to read at a chart's edge. A path that came out as not a
+number or past a half float's range is cleared first, so one bad sample can't spoil a patch,
+and light the filter adds past that range is held at its largest value, 65,504, when written.
+`new BakeSettings(filter: false)` turns the smoothing off to show the raw trace; the edges are
+still grown and bad values still cleared. Like the quality, it doesn't make a bake stale.
+Probes aren't filtered.
+
+From code, `Renderer.LastBakeFrame` shows what the last frame decided. It is null after a
+frame that named no baked area. Otherwise its `Space` and `Chunks` hold the inputs of each
+area, `SpaceFresh` and `ChunkFresh` say which bakes were found (a chunk's only once all its
+pages are on the GPU), `ChunkPending(i)` says a chunk's fresh bake is still on its way, `ModeOf(key)` gives the mode
+each light was drawn with: the light's own mode, or `Realtime` when it is moving or no fresh
+bake holds it, `DroppedLocalLights`
+and `DroppedSuns` list the lights left to a bake that has faded all the way in, by their place in the frame's lists,
+`SpaceFade` and `ChunkFade(i)` say how far each bake has faded in, and
+`UnslottedLights` lists the keys of Mixed lights that found no shadow mask slot.
+
+### Baking in the background
+
+```csharp
+// Done runs inside Render, so each write goes to another thread instead of holding up the frame. The writes are
+// chained, one after another in the order the bakes finished, so a Final is never overwritten by an earlier Preview.
+Task writes = Task.CompletedTask;
+renderer.AutoBake = new AutoBake(
+    BudgetMilliseconds: 4f, Spaces: true, Qualities: [BakeQuality.Preview, BakeQuality.Final],
+    Done: done => writes = writes.ContinueWith(_ =>
+    {
+        string path = Path.Combine("content", done.File);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, done.Bytes);
+    }, TaskScheduler.Default));
+```
+
+With `Renderer.AutoBake` set, the renderer bakes by itself each space and chunk a frame names whose bake is missing or
+stale, a slice a frame, so the game keeps running while it bakes. It starts once the lights have held still for a
+second (see [moving lights](#moving-lights)), bakes one area at a time, nearest the camera first, and gives every area
+its first quality before any gets its next. Each slice takes about `BudgetMilliseconds` of GPU time: the trace is
+sized to it, but a step that isn't split, such as one page's filter, can go over on a very large page. Reading the
+GPU's results back into arrays runs on the thread pool, so a slice costs the render thread a millisecond or two even on
+a large page. `Spaces: false`
+bakes only chunks.
+
+The renderer doesn't save anything. It hands each finished file to `Done`, on the render thread, inside a later
+`Render`, with where it goes (`done.File`, the same path `--bake` writes), the area's name, the inputs it was made from
+and its quality. Writing a file there would hold up the frame, so hand the bytes to another thread, as above, and keep the writes in
+order: two writes started side by side can land in either order. A Super game does this for you (below). `Done`
+must not throw, since an exception passes out of `Render`. Once the store reads the file the area is fresh and drawn
+from its bake, which [fades in](#with-a-fresh-bake) over `Renderer.BakeFadeSeconds` if the area is on screen. A bake whose area changes while it runs is started over, and one finished from the same inputs and
+quality is never baked again, so a file the store hasn't read yet doesn't loop. An area whose saved bake is fresh but
+at a quality before the last one asked for, such as a Preview saved before the game restarted, still gets the
+qualities after it. `LightBakeStore` reads the quality from the file's header; a store of your own tells it with
+`IBakeStore.SavedQuality`, and one that doesn't counts a fresh area as done.
+
+`Renderer.BakeProgress` is null when nothing is baking and no area waits. Otherwise it gives the area's name (empty
+while areas wait and none has started), how much of it is done from 0 to 1, how many other areas wait, and the GPU
+time of the last slice. Set `AutoBake` outside a frame, since the first
+one prepares baking, which waits for the GPU. On a GPU that can't trace rays it does nothing, and a GPU that traces but
+can't bake says so once and bakes nothing. A whole `Bake` or `BakeChunk` stops the running background bake, which
+starts again on a later frame, and so does destroying a mesh, material or texture it uses. Null, the default, bakes nothing.
+
+### Baking without a build step
+
+A Super game sets `AutoBake` itself while it is played, so a baked space or chunk with no bake, or a stale one, is
+baked as the game runs and nobody has to run `--bake` first. Where each bake goes depends on how the game runs:
+
+- From source (`dotnet run`, with `content.dev.json` naming the content roots), spaces and chunks are both baked, first
+  at `Preview` and then at `Final`. A space's bake is written into the first content root as
+  `lighting/<name>.lightbake`, the file `--bake` writes, so the watch cook picks it up, the game reloads it, and it is
+  there to commit. A chunk's goes to the bake cache below.
+- Published, only chunks are baked, at `Preview` only, into the bake cache. A published game can't write its content,
+  so a space whose bake is missing or stale stays lit live. That is what [`--bake-check`](command-line.md#baking-lighting)
+  is for: run it before shipping.
+
+Each bake kept prints one line, such as
+`Baked gallery (Preview) in 29.5 s: C:\Code\MyGame\content\lighting\gallery.lightbake`. A bake that can't be written
+prints one line saying why, once for each area and quality, and that area stays lit live and isn't baked again until
+the game runs again. While an area bakes, a line in the bottom-left corner over the game's
+interface says `Baking cottage, 42%`, with `(3 more)` when other areas wait, or `Waiting to bake 2 areas` before one
+starts. It goes when nothing is left. The game's own interface keeps its state as the line comes and goes.
+
+`Graphics.BakeOnArrival`, on by default, switches this off; turning it off stops a running bake. `Graphics.BakeBudget`
+is the GPU time a slice may take a frame, in milliseconds: null, the default, gives 4 from source and 2 published,
+and anything from 0.5 to 33 sets it. Anything else is refused, saying the range. A change shows from the next frame, and starts a running bake over.
+
+The chunk bakes made on the player's machine go in a cache in the game's local app data, not the roaming folder:
+`%LOCALAPPDATA%\<id>\Bakes` on Windows, `~/Library/Caches/<id>/Bakes` on macOS and `$XDG_CACHE_HOME/<id>/bakes` or
+`~/.cache/<id>/bakes` on Linux, where `<id>` is `GameOptions.Id` or the one made from the title. With
+[`--user-data`](command-line.md) it is the `Bakes` folder inside that folder instead, so nothing goes to the player's
+profile. Where the environment names no such folder, the game says so in one line and plays without a cache. It is capped at
+512 MB, deleting the bakes used longest ago first, and a cooked bake of the same name always wins. Deleting the folder
+is safe: those chunks are baked again. So a chunk layout seen once is baked once, and loads lit the next time the game
+runs.
+
+A new bake [fades in](#with-a-fresh-bake) over half a second in play. Screenshots, recordings, profiles, `--bake` and
+`--bake-check` never bake by themselves, don't read the cache and show each bake whole, so they draw only cooked
+bakes, the same on every machine.
+
+On a GPU that can't trace rays nothing bakes. A game run from source then says once why, the first time a frame has an
+area left unbaked, such as `Not baking gallery: no VK_KHR_ray_query`. A published game says nothing.
 
 ## Reflections
 
@@ -337,8 +852,8 @@ photographed the first frame it's placed and again only when it moves, its box c
 lighting does: the sun's direction or colour, the sky, the shadow softness or cascades, the
 ambient occlusion settings, the `SunShadows`, `Materials` or `AmbientOcclusion` switches. Moving
 the camera doesn't, because the photograph frames the sun's shadow on the probe's own box, and
-nor does moving or adding objects, so probes suit what stands still. While the [light
-probes](#bounced-light) fill in at the start, a probe can be photographed two or three times.
+nor does moving or adding objects, so probes suit what stands still. Once the [light
+probes](#bounced-light) round the camera have first settled, each probe is photographed once more.
 Each photograph waits for the GPU and takes a moment, so a sun that moves every frame keeps
 them drawing. Point and spot lights aren't in the photograph, so a lantern's glow doesn't show in
 a reflection. A probe left out of a frame is dropped, and the rest are photographed again.
@@ -856,7 +1371,36 @@ as a separate grey image beside a colour JPEG with no alpha; name it with `alpha
 its red becomes the colour texture's opacity. A mesh without UVs whose material uses a
 texture warns, since every read lands on one texel; an untextured mesh needs no UVs. A
 texture a rule names that can't be found stops the cook; one the model file links to only
-warns. A texture path must match the file's name exactly, case included, even on Windows,
+warns.
+
+Every cooked model has a second UV set for lighting and for [wear and dirt](#wear-and-dirt),
+checked and made for each material on its own. Each material's set is in its own 0 to 1, in
+which no two places on that material's meshes share a texel, and two materials may overlap
+each other there. The cook keeps the file's own `TEXCOORD_1` for a material when every mesh
+of it has one and it fits a lightmap: inside 0 to 1, no overlaps, two empty texels at 512
+between islands, and texel density within four times from island to island. Otherwise it
+makes one for that material only and says why in a note. A note isn't a warning, since
+nothing needs fixing: it doesn't fail a build that treats warnings as errors, and MSBuild
+shows it as a plain message, such as
+`C:\game\content\props\crate.glb: note: made a second UV set for lighting: the file has none`.
+These are the forms it takes:
+
+```text
+made a second UV set for lighting: the file has none
+made a second UV set for lighting: Triangles 0 and 2 are in different charts with only 1 empty texel between them at texel (230, 51), less than the 2-texel gutter.
+made a second UV set for lighting: materials bark and moss have none
+material leaf: made a second UV set for lighting: 2 of its 5 meshes have none
+```
+
+The first two are for a model of one material, or one where no material had a set. Meshes
+are counted after the cook joins a material's meshes that share the same attributes, unless
+`keepMeshes` is on, so the count can be lower than the one in Blender. A
+material with so many separate pieces that their islands don't fit a 512 page is laid on
+1024, then 2048, and stops the cook if they don't fit that either. The made set is kept in
+the cook cache, so it's made again, and noted, only when the material's shape changes. A
+cook that takes the model from the cache prints no note.
+
+A texture path must match the file's name exactly, case included, even on Windows,
 so a model that cooks there cooks on every OS:
 
 ```json
@@ -1103,17 +1647,16 @@ model's textures can wear too. A transparent material doesn't show wear and dirt
 cook warns and ignores `bakeMasks` on one. [`Graphics.WearAndDirt`](#graphics-settings)
 turns them off everywhere.
 
-The masks are baked into the mesh's second UV set, `TEXCOORD_1`, whose islands must not
-overlap, since every texel stands for one place on the mesh. The first set stays free to
-tile, as a graph's metric UVs do. In Blender, add a second UV map, unwrap it with Smart UV
-Project and keep the first map active for rendering; the glTF exporter writes both. Give it
-an island margin of 0.004 or more, about 4 pixels of the mask, so the smaller mips of
-neighbouring islands don't blur into each other. Every mesh using the material needs it, and
-the cook stops otherwise:
+The masks are baked into the material's second UV set, the one lighting uses, where every
+texel stands for one place on the mesh. Each material has its own 0 to 1 there. The first set
+stays free to tile, as a graph's metric UVs do. The cooker keeps the file's own `TEXCOORD_1`
+for a material when it's fit for a lightmap and makes one otherwise (see [Models](#models)),
+so a model needs no second UV map for its masks. To lay out the masks yourself, add a second
+UV map in Blender, unwrap it with Smart UV Project with an island margin of 0.004 or more,
+and keep the first map active for rendering; the glTF exporter writes both. A rule that's
+wrong stops the cook:
 
 ```text
-material graph_wood: bakeMasks needs a second UV set (TEXCOORD_1) for its masks, and a mesh of this material has none. Give its meshes one whose islands don't overlap.
-material graph_wood: triangles 812 and 9301 of its second UV set overlap at texel (402, 77). Two places on the mesh can't share a texel of its masks, so give the masks a UV set whose islands don't overlap.
 material graph_wood: wear and dirt need bakeMasks, since they're laid by the masks it bakes.
 material graph_wood: dirt amount must be from 0 to 1, not 1.5.
 ```
@@ -1123,8 +1666,7 @@ spreads over many meshes gets fewer pixels for each. The Courtyard's stone, on t
 plinth and all the loose stones, is the coarsest. Every mesh of the material is baked
 together, and the rest of the model within half a metre shades it, so the deck darkens where
 the crates stand on it. Off its islands the mask reads as clean, so a mip that reaches past
-an island's edge adds neither wear nor dirt. A mesh without a second UV set gets zeros there,
-which is harmless for materials without masks. See [Mask bakes](design.md#mask-bakes) for how they're made.
+an island's edge adds neither wear nor dirt. See [Mask bakes](design.md#mask-bakes) for how they're made.
 
 ### A surface shader on a model
 
@@ -1338,6 +1880,13 @@ A surface from `content.Surface` (a material graph) tiles at its graph's width w
 follow the same rule. A `uvPerMetre` or `TileWidth` must be a finite number above zero, or
 the shape throws an `ArgumentOutOfRangeException` naming it.
 
+Every shape also has a second UV set for lighting, like a cooked model's. Each part of the
+shape, such as a face of a box, the side of a cylinder or one of its ends, gets its own
+island in 0 to 1, laid out by the part's own rows and columns and sized by its size in
+metres, so every part gets about the same texels per metre. Islands have two empty texels
+between them at 512. Ribbons, tubes and extrusions get one the same way, and `Shapes.Flat`
+keeps the set of the mesh it's given.
+
 ## Meshes made by code
 
 A mesh built in code, such as ground from a height function, is handed over with
@@ -1354,6 +1903,20 @@ var mesh = new GeneratedMesh(vertices, indices, new Surface
 
 ModelRef rock = content.Mesh(mesh);
 ```
+
+A mesh you build yourself has no second UV set for lighting unless you set each vertex's
+`Uv2`. `mesh.WithLightmapUvs()` gives it one: it returns the mesh itself when its `Uv2`
+already fits a lightmap by the same rules as a cooked model's (inside 0 to 1, no overlaps,
+two empty texels at 512 between islands, and texel density within four times from island
+to island), and otherwise a copy unwrapped into islands, with vertices split where islands
+meet. Your own set is checked at 512 only, so one laid out for a 1024 page, whose gutters
+are one texel at 512, is replaced. A mesh with so many pieces that its islands don't fit a
+512 page is laid on 1024, then 2048, and `WithLightmapUvs` throws an
+`InvalidOperationException` if they don't fit that either. Shapes, ribbons, tubes,
+extrusions and terrain chunks already have one; a bent mesh keeps the one it had.
+A mesh that will be [drawn static](views.md#static-draws) is handed over with
+`content.Mesh(mesh, isStatic: true)`, which calls `WithLightmapUvs` for you before uploading
+it. See [Code meshes drawn static](content.md#code-meshes-drawn-static).
 
 Textures come from a cooked image (PNG, JPEG or TGA), or from pixels you made. Whether a
 cooked one is a normal map or linear data is a cook setting, set by a
@@ -1463,7 +2026,9 @@ the spline, scaled by `uvPerMetre`, which is 1 unless the surface has a `TileWid
 `Bend` measures along the spline from the back of the mesh (its lowest z). Each vertex
 keeps its x and y across the spline, so the mesh keeps its length. Past the end of an
 open spline the mesh carries on straight. Only vertices move, so give the mesh plenty of
-them along z, such as a `Shapes.Plane` with many subdivisions.
+them along z, such as a `Shapes.Plane` with many subdivisions. The bent mesh keeps the
+lighting UV set of the mesh you gave it, which stretches with the bend; after a tight
+bend, call `WithLightmapUvs` on the result to get a fresh one.
 
 An outline folds over itself where the spline turns tighter than the outline is wide.
 Keep half the width narrower than the tightest turn. Only generated meshes can be bent;
@@ -1487,8 +2052,10 @@ var ground = content.Mesh(field.Chunk(chunk.X, chunk.Z, quads: 32, new Surface
 ```
 
 `field.Height(x, z)` and `field.Normal(x, z)` answer gameplay questions about the same
-ground. The [Terrain example](../examples/Terrain) loads chunks around the camera and
-unloads the ones left behind.
+ground. Each chunk's second UV set, for lighting, is its vertices' places on the chunk's
+grid, from (0, 0) at its first corner to (1, 1) at the far one. The
+[Terrain example](../examples/Terrain) loads chunks around the camera and unloads the ones
+left behind.
 
 ## Surface shaders
 
@@ -1561,3 +2128,32 @@ splat texture. More detail is in [design.md](design.md#custom-shaders).
 
 Rendition knows nothing of Super and can be used directly, with your own loop and
 window. Its [README](../src/Rendition/README.md) covers the API and the sample, and [design.md](design.md#rendition-design) explains the frame structure.
+
+## Moving lights
+
+A light that moves can't be baked, since the bake would hold it where it stood. Rendition
+watches every Mixed or Baked light and keeps one that moves out of the bake until it holds
+still. A light counts as moving from the frame its bake hash first differs from the last
+frame's, so a torch that sways, a lamp on a cart or a sun that turns with the clock all
+count. A light that stands still never changes its hash, so it stays in.
+
+A moving light returns to the bake once a full second of game time has passed since it last
+changed. If it moves again before then, the second starts over. A light seen for the first
+time, or back after a frame it was missing from, is a new light and not a moving one.
+
+Each light is logged once, the first time it moves, with a line such as "The point light 7 is
+moving, so it is kept out of the bake and lit live. It returns to the bake once it holds still
+for 1 second." Lights are told apart by their `Key`, so give each light its own: two lights
+that share a key look like one light that jumps every frame, so both are kept out. The log
+says which key they share, unless that key was already logged as moving. A sun is told apart
+by its place in the frame's list of suns. If the game clock goes back, as it does after a
+restart, every light is treated as new.
+
+Lights are only watched on frames that name a [baked area](#baked-lighting). A light that
+moves while no frame names one isn't seen to move.
+
+A bake sees only the frames drawn before it, so a light can only be left out of it once it has
+been seen to move. `--bake` draws two seconds of play before it bakes, which is enough for any
+light that moves at least once a second, such as the Gallery's swinging lantern. A light that
+holds still then and moves later is baked in, and the bake goes stale when it starts to move.
+See [Baking lighting](command-line.md#baking-lighting).

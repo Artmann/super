@@ -2,15 +2,13 @@
 // surface focuses sunlight into moving nets of light (caustics) and hazy shafts.
 // Needs common.glsl and sampling.glsl.
 
+#include "water_absorption.glsl"
+
 const float NOTHING_DRAWN_DISTANCE = 1000.0;
 const int SHAFT_STEPS = 8;
 
 // The shafts are a blurred, larger version of the pattern on the floor.
 const float SHAFT_PATTERN_SCALE = 0.3;
-
-bool isUnderwater() {
-    return frame.waterAbsorption.a > 0.5;
-}
 
 // Bright thin lines that wander over time. Returns roughly 0 to 1.
 float causticPattern(vec2 uv, float time) {
@@ -31,18 +29,10 @@ float causticPattern(vec2 uv, float time) {
     return clamp(pow(abs(lines), 8.0), 0.0, 1.5);
 }
 
-float metresToSurface(vec3 position, vec3 l) {
-    return max(frame.waterShallow.a - position.y, 0.0) / max(l.y, 0.1);
-}
-
 // Follows the light up to the surface, because that's where the pattern is made.
 float causticAt(vec3 position, vec3 l, float scale) {
     vec3 surface = position + l * metresToSurface(position, l);
     return causticPattern(surface.xz * scale, frame.time * 0.6);
-}
-
-vec3 waterAbsorbed(float metres) {
-    return exp(-frame.waterAbsorption.rgb * metres);
 }
 
 // The sunlight left at a point after coming down through the water.

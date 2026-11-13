@@ -15,8 +15,8 @@ using Silk.NET.GLFW;
 // --model <file> shows a cooked model instead of the spinning cube.
 // --yaw, --pitch, --distance and --height <number> place the camera.
 // --glow draws the cube with a custom surface shader.
-// --probes puts a light probe volume round the cube. The probes are captured once and
-// don't follow the spin, so the turning cube shows streaks; it's for checking probes.
+// --probes puts a fixed light probe volume round the cube. Its probes update a few a frame
+// and lag the spin, so the turning cube shows streaks; it's for checking probes.
 bool check = args.Contains("--check");
 string? screenshotPath = StringOption(args, "--screenshot");
 bool hidden = check || screenshotPath is not null;

@@ -139,11 +139,14 @@ internal sealed unsafe class GpuTexture : IDisposable
 
     /// <summary>
     /// Records the copy from a staging buffer made by <see cref="CreateStaging"/>, leaving
-    /// the image ready for fragment shaders to sample. Allocates nothing.
+    /// the image ready for fragment shaders to sample, and tracing shaders where the device can trace. Allocates nothing.
     /// </summary>
     public void RecordUpload(CommandBuffer cmd, GpuBuffer staging)
     {
         var api = _context.Api;
+        var readers = _context.CanTrace
+            ? PipelineStageFlags2.FragmentShaderBit | RayTracing.TraceStages
+            : PipelineStageFlags2.FragmentShaderBit;
         api.Transition(cmd, _image, ImageAspectFlags.ColorBit,
             ImageLayout.Undefined, ImageLayout.TransferDstOptimal,
             PipelineStageFlags2.None, AccessFlags2.None,
@@ -178,7 +181,54 @@ internal sealed unsafe class GpuTexture : IDisposable
         api.Transition(cmd, _image, ImageAspectFlags.ColorBit,
             ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
             PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit,
-            PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit, MipCount, 0, 0, Layers);
+            readers, AccessFlags2.ShaderSampledReadBit, MipCount, 0, 0, Layers);
+    }
+
+    /// <summary>
+    /// How many rows a band of a single-mip texture must hold, so each band but the last starts and ends on a block:
+    /// 4 for a block-compressed format, 1 otherwise.
+    /// </summary>
+    public int RowUnit => _format is TextureFormat.Rgba8 or TextureFormat.Rgba16f ? 1 : 4;
+
+    /// <summary>The bytes of the first mip's rows from the top down to <paramref name="rows"/>, a whole number of <see cref="RowUnit"/>s or the full height.</summary>
+    public int RowsSize(int rows) => TextureData.LevelSize(_format, Width, rows);
+
+    /// <summary>
+    /// Records the copy of rows <paramref name="firstRow"/> on of a single-mip, single-layer texture from
+    /// <paramref name="staging"/> at <paramref name="offset"/>, so a texture can go up a band a frame. The first band
+    /// readies the image for copying and the last leaves it for shaders to sample, as <see cref="RecordUpload"/> does;
+    /// nothing may sample it in between. A band starts on a <see cref="RowUnit"/>, and holds whole ones unless it is the last.
+    /// </summary>
+    public void RecordRows(CommandBuffer cmd, GpuBuffer staging, ulong offset, int firstRow, int rows, bool first, bool last)
+    {
+        var api = _context.Api;
+        if (first)
+        {
+            api.Transition(cmd, _image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.TransferDstOptimal,
+                PipelineStageFlags2.None, AccessFlags2.None,
+                PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit, 1, 0, 0, 1);
+        }
+
+        var region = new BufferImageCopy
+        {
+            BufferOffset = offset,
+            ImageSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
+            ImageOffset = new Offset3D(0, firstRow, 0),
+            ImageExtent = new Extent3D((uint)Width, (uint)rows, 1),
+        };
+        api.CmdCopyBufferToImage(cmd, staging.Handle, _image, ImageLayout.TransferDstOptimal, 1, &region);
+
+        if (last)
+        {
+            var readers = _context.CanTrace
+                ? PipelineStageFlags2.FragmentShaderBit | RayTracing.TraceStages
+                : PipelineStageFlags2.FragmentShaderBit;
+            api.Transition(cmd, _image, ImageAspectFlags.ColorBit,
+                ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
+                PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit,
+                readers, AccessFlags2.ShaderSampledReadBit, 1, 0, 0, 1);
+        }
     }
 
     private int MipSize(int level) => TextureData.LevelSize(_format, Math.Max(Width >> level, 1), Math.Max(Height >> level, 1));
@@ -188,6 +238,8 @@ internal sealed unsafe class GpuTexture : IDisposable
         TextureFormat.Bc7 => kind == TextureKind.Color ? Format.BC7SrgbBlock : Format.BC7UnormBlock,
         TextureFormat.Bc5 => Format.BC5UnormBlock,
         TextureFormat.Bc4 => Format.BC4UnormBlock,
+        TextureFormat.Bc6h => Format.BC6HUfloatBlock,
+        TextureFormat.Rgba16f => Format.R16G16B16A16Sfloat,
         _ => kind == TextureKind.Color ? Format.R8G8B8A8Srgb : Format.R8G8B8A8Unorm,
     };
 

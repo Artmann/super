@@ -241,6 +241,7 @@ Every file is an asset, chosen by its extension:
 | `.png` `.jpg` `.jpeg` `.tga` | texture | Block-compressed with every mip: BC7, sRGB unless set linear, or BC5 for a normal map. With `compressTextures` off, RGBA pixels whose mips are made when it loads |
 | `.wav` `.ogg` `.mp3` | sound | The file itself, once it decodes |
 | `.glb` `.gltf` `.fbx` `.obj` | model | `.rmodel`, through `Super.Cook.Models` |
+| `.lightbake` | baked lighting | The same file with its pages block-compressed: BC6H irradiance, BC7 direction and mask; see [cooking a bake](#cooking-a-bake) |
 | `.material.cs` | material | A [material graph](materials.md), compiled and run into `#color`, `#normal`, `#surface` and `#height` textures and a `#material` data part |
 
 The longest matching extension wins, so `bricks.material.cs` is a material graph, not
@@ -359,8 +360,8 @@ A model sidecar's material rule with `"bakeMasks": true` bakes curvature, occlus
 height masks from the material's meshes into a texture the model points to, stored like
 its other textures as a shared object, and its
 `wear` and `dirt` layers, each an sRGB `color`, an optional `roughness` and an `amount`
-from 0 to 1, are laid on by them. The masks go in the mesh's second UV set, so
-every mesh of the material needs one whose islands don't overlap. See
+from 0 to 1, are laid on by them. The masks go in the material's second UV set, which the
+cooker makes when the file has none or its own isn't fit for a lightmap. See
 [Wear and dirt](rendering.md#wear-and-dirt).
 
 ### Puddles on models
@@ -417,6 +418,81 @@ old.glb has no mesh names, because its file was cooked without them. A rigged mo
 
 A model file from before mesh names were kept is not a current model file, and fails with
 the message to cook it again.
+
+## Baked lighting
+
+Bakes of a frame's [baked lighting](rendering.md#baked-lighting) live in a `lighting/`
+folder in the game's first content root. A space named with `view.BakedLighting("crypt", …)`
+gets `lighting/crypt.lightbake`. A chunk named with `view.BakedChunk("house-garden", …)` gets
+one file for each version of its contents, named by the 16 hex digits of their hash, such as
+`lighting/house-garden/00000000000000ab.lightbake`. `BakeFiles.Space` and `BakeFiles.Chunk`
+give these names. `Renderer.Bake` makes a space's bytes, and
+[`--bake`](command-line.md#baking-lighting) writes them to this folder. A game played from source also writes a
+space's bake here by itself when it is missing or stale; see
+[Baking without a build step](rendering.md#baking-without-a-build-step).
+
+The game reads its bakes from the cooked content, like any other asset, so a bake shows up
+after the build that cooks it. Each file's header is read the first time a frame asks for it
+and kept, and when the content [reloads while the game runs](#change-it-while-the-game-runs)
+every bake is read again, so a bake made with `--bake` shows up once it is cooked. A bake that is missing, stale or damaged leaves its area lit live; see
+[Without a bake](rendering.md#without-a-bake) for what is reported.
+
+A chunk's bake made on the machine playing the game, rather than cooked in the build, as the game
+[bakes while it runs](rendering.md#baking-without-a-build-step), is kept in a cache in the game's local app data (`Bakes` under the game's folder there), not in the content. It
+holds `.lightbake` files under the same names as above, and the game reads one of those only when the
+cooked content has none of that name. The cache is capped at 512 MB, and the bakes read least recently
+are deleted first. Deleting the folder is always safe: those chunks are lit live until they are baked
+again. A cached file that turns out to be damaged is reported once and its area is lit live until it is
+written again. See [The bake cache](design.md#the-bake-cache).
+
+### Cooking a bake
+
+A `.lightbake` file is cooked like any other asset, into the same container with smaller pages.
+The irradiance pages become BC6H (unsigned half-float RGB, 1 byte a texel) and the direction and
+mask pages become BC7, so a bake takes about a third of the space and of the video memory. The
+probe atlases stay RGBA16F, since a probe's light is blended between texels, which a block would
+smear. A page whose width or height isn't a multiple of 4 is left as the baker wrote it, and so
+is a page that is already compressed, so cooking a bake twice changes nothing.
+
+A chunk's bake also has transfer pages: its sky's light for each colour and its sun's, four numbers
+a texel, and a tint for the sun. They are kept as they were baked, in half floats and bytes. A
+chunk with no Baked or Mixed light and no glowing surface has no irradiance or direction pages at
+all, and a cooked one keeps it that way. See [The .lightbake file](design.md#the-lightbake-file).
+
+The header, with the hashes the bake is checked against, is written as it was read, so a cooked
+bake is as fresh or as stale as the one it came from. A file that isn't a light bake this version
+can read fails the cook with a message naming it.
+
+BC6H drops alpha and has no negative numbers, so irradiance below 0.0001 is stored as 0.0001,
+which is black to the eye. On the Gallery's bake the cooked irradiance is within about 1.3% of
+the light on average. The cook of that bake took about four seconds. A cooked page of BC6H can't
+be turned into RGBA8 pixels, which `CookedTexture.DecodePixels` says by throwing.
+
+### What makes a bake stale
+
+A static draw's bake id covers what the draw is made of, so a bake goes stale when any of it is
+edited: a cooked model's file, the surface shaders its materials name (their compiled bytes)
+and the textures those shaders read, and for a mesh made in code its vertices, surface,
+textures and shader. Editing only a shader's source counts once it is compiled again.
+
+### Code meshes drawn static
+
+A mesh made in code that will be [drawn static](views.md#static-draws) is handed over with
+`isStatic: true`:
+
+```csharp
+ModelRef rock = content.Mesh(mesh, isStatic: true);
+```
+
+That gives the mesh lightmap UVs once, there, with
+[`WithLightmapUvs`](rendering.md#meshes-made-by-code), before it's uploaded. A mesh whose
+`Uv2` already fits a lightmap, such as a shape's, is kept as it is; any other is unwrapped,
+which may split its vertices, and an `InvalidOperationException` says so if its islands don't
+fit even a 2048 page. Its bake id is made from the mesh with those UVs, so the same mesh made
+with and without the flag gets different ids. Without the flag, a mesh is uploaded exactly as
+given, and drawing it static throws on the next render, telling you to pass `isStatic: true`
+to `Content.Mesh`. Built-in shapes and cooked models need no flag, since they always have
+lightmap UVs.
 
 ## Shipping
 

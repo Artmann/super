@@ -1,0 +1,77 @@
+#version 460
+
+// One ring of the baker's dilation over a page's traced region. A texel that holds light (irradiance w above a half)
+// keeps it. An empty one beside texels that hold light takes their mean irradiance, direction and mask, and holds
+// light from then on, so eight rings fill gutters and invalid texels eight texels deep. A covered texel takes only
+// texels drawn for its own rectangle, so a chart never takes another's light; a texel nothing covers takes any. Every
+// texel leaves with direction w set to 1, dropping the variance the filter carried there. See
+// "Filtering and dilation" in docs/design.md and Baking/Baker.cs.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+// The same set as bake_filter.comp; the normals and validity aren't read here.
+layout(set = 0, binding = 0, rgba32f) uniform readonly image2D positions;
+layout(set = 0, binding = 3, rgba32f) uniform readonly image2D irradianceIn;
+layout(set = 0, binding = 4, rgba32f) uniform readonly image2D directionIn;
+layout(set = 0, binding = 5, rgba32f) uniform readonly image2D maskIn;
+layout(set = 0, binding = 6, rgba32f) uniform writeonly image2D irradianceOut;
+layout(set = 0, binding = 7, rgba32f) uniform writeonly image2D directionOut;
+layout(set = 0, binding = 8, rgba32f) uniform writeonly image2D maskOut;
+
+// Must match FilterConstants in Baking/Baker.cs.
+layout(push_constant) uniform Region {
+    ivec2 origin; // The region's corner on the page, in texels.
+    ivec2 size;
+    int stage;    // Not used here.
+} region;
+
+void main() {
+    ivec2 local = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(local, region.size))) {
+        return;
+    }
+
+    vec4 irradiance = imageLoad(irradianceIn, local);
+    vec4 direction = imageLoad(directionIn, local);
+    vec4 mask = imageLoad(maskIn, local);
+    if (irradiance.w < 0.5) {
+        float chart = imageLoad(positions, region.origin + local).w;
+        vec3 irradianceSum = vec3(0.0);
+        vec3 directionSum = vec3(0.0);
+        vec4 maskSum = vec4(0.0);
+        float count = 0.0;
+        for (int dy = -1; dy <= 1; dy++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                ivec2 q = local + ivec2(dx, dy);
+                if ((dx == 0 && dy == 0) || any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, region.size))) {
+                    continue;
+                }
+
+                vec4 qIrradiance = imageLoad(irradianceIn, q);
+                if (qIrradiance.w < 0.5) {
+                    continue;
+                }
+
+                if (chart > 0.0 && imageLoad(positions, region.origin + q).w != chart) {
+                    continue;
+                }
+
+                irradianceSum += qIrradiance.rgb;
+                directionSum += imageLoad(directionIn, q).xyz;
+                maskSum += imageLoad(maskIn, q);
+                count += 1.0;
+            }
+        }
+
+        if (count > 0.0) {
+            irradiance = vec4(irradianceSum / count, 1.0);
+            direction = vec4(directionSum / count, 1.0);
+            mask = maskSum / count;
+        }
+    }
+
+    // Direction w carried the filter's variance; from here on it is the 1 the file's encoder divides by.
+    imageStore(irradianceOut, local, irradiance);
+    imageStore(directionOut, local, vec4(direction.xyz, 1.0));
+    imageStore(maskOut, local, mask);
+}

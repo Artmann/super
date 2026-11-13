@@ -1,0 +1,55 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "sampling.glsl"
+#include "probe_fold.glsl"
+
+// Forgets the probes of one cascade that the camera's move brought into its box: their slots
+// still hold the light of the cells that just left, on the far side. Clearing a tile makes the
+// probe uncaptured, so surfaces skip it until it is captured again, and the next capture is taken
+// whole. One thread per slot. See "Light probes" in docs/design.md.
+
+layout(local_size_x = 64) in;
+
+layout(rgba16f, set = 0, binding = 3) uniform writeonly image2DArray irradianceAtlas;
+
+// Must match InvalidateConstants in Vulkan/ProbeVolume.cs.
+layout(push_constant) uniform Invalidate {
+    ivec4 origin;    // xyz: the cascade's minimum cell after the move; w: its atlas layer
+    ivec4 counts;    // xyz: probes along each axis; w: all of them
+    ivec4 slabStart; // xyz: the first cell along each axis that is new
+    ivec4 slabCount; // xyz: how many cells along each axis are new, 0 for none
+} invalidate;
+
+// The cell of the box that wraps to slot index s along one axis, as ProbeCascades.CellInBox.
+int cellInBox(int origin, int s, int count) {
+    int offset = s - origin;
+    return origin + ((offset % count) + count) % count;
+}
+
+void main() {
+    int slot = int(gl_GlobalInvocationID.x);
+    if (slot >= invalidate.counts.w) {
+        return;
+    }
+
+    ivec3 counts = invalidate.counts.xyz;
+    ivec3 s = ivec3(slot % counts.x, slot / counts.x % counts.y, slot / (counts.x * counts.y));
+    ivec3 cell = ivec3(
+        cellInBox(invalidate.origin.x, s.x, counts.x),
+        cellInBox(invalidate.origin.y, s.y, counts.y),
+        cellInBox(invalidate.origin.z, s.z, counts.z));
+
+    bvec3 entered = bvec3(
+        cell.x >= invalidate.slabStart.x && cell.x < invalidate.slabStart.x + invalidate.slabCount.x,
+        cell.y >= invalidate.slabStart.y && cell.y < invalidate.slabStart.y + invalidate.slabCount.y,
+        cell.z >= invalidate.slabStart.z && cell.z < invalidate.slabStart.z + invalidate.slabCount.z);
+    if (!any(entered)) {
+        return;
+    }
+
+    int columns = imageSize(irradianceAtlas).x / IRRADIANCE_SIDE;
+    ivec2 corner = ivec2(slot % columns, slot / columns) * IRRADIANCE_SIDE;
+    for (int i = 0; i < IRRADIANCE_SIDE * IRRADIANCE_SIDE; i++) {
+        imageStore(irradianceAtlas, ivec3(corner + ivec2(i % IRRADIANCE_SIDE, i / IRRADIANCE_SIDE), invalidate.origin.w), vec4(0.0));
+    }
+}

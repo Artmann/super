@@ -9,6 +9,8 @@ internal struct GpuLight
 {
     /// <summary>xyz points towards the light; w is 1 when it casts the shadow.</summary>
     public Vector4 Direction;
+
+    /// <summary>rgb: colour times brightness; w: its channel of the baked shadow mask, or -1 for none.</summary>
     public Vector4 Radiance;
 }
 
@@ -37,6 +39,12 @@ internal struct GpuLightArray
 internal struct ShadowMatrixArray
 {
     private Matrix4x4 _first;
+}
+
+[InlineArray(ProbeCascades.Count)]
+internal struct ProbeCascadeOriginArray
+{
+    private Vector4 _first;
 }
 
 /// <summary>Per-frame shader data. Must match the Frame block in Shaders/common.glsl.</summary>
@@ -125,6 +133,12 @@ internal struct FrameUniforms
     /// <summary>xyz: how many probes run along each axis; w: 1 when surfaces take their soft light from the probes.</summary>
     public Vector4 LightProbeCounts;
 
+    /// <summary>Per cascade, finest first: xyz is the cell of its minimum corner, w its spacing in metres.</summary>
+    public ProbeCascadeOriginArray ProbeCascadeOrigins;
+
+    /// <summary>xyz: probes along each axis of every cascade; w: 1 when surfaces may read the cascades.</summary>
+    public Vector4 ProbeCascadeCounts;
+
     /// <summary>xyz: towards the clear sky's sun; w: its turbidity, 0 for the environment's bands.</summary>
     public Vector4 SkySun;
 
@@ -152,6 +166,21 @@ internal struct FrameUniforms
     /// <summary>xyz: the way the wind blows times its strength, zero in a calm; w: its gustiness. See <see cref="Passes.Wind.Pack(WindSettings?, RenderEffects)"/>.</summary>
     public Vector4 Wind;
 
+    /// <summary>xyz: the drawn bake's first light probe; w: their spacing in metres.</summary>
+    public Vector4 BakedProbeMin;
+
+    /// <summary>xyz: how many of the bake's probes run along each axis; w: 1 while they light the baked space, 0 for none.</summary>
+    public Vector4 BakedProbeCounts;
+
+    /// <summary>xyz: the near corner of the baked space's box, inside which its probes are read; w: the bake's irradiance atlas's slot in the material table.</summary>
+    public Vector4 BakedSpaceMin;
+
+    /// <summary>xyz: the box's far corner; w: the bake's depth atlas's slot in the material table.</summary>
+    public Vector4 BakedSpaceMax;
+
+    /// <summary>x: how far the baked space's bake has faded in, from 0 to 1, which scales its lightmaps' and probes' weight; 1 when none is fading in.</summary>
+    public Vector4 BakedFade;
+
     public int LightCount;
     public float Time;
     public int FrameNumber;
@@ -171,10 +200,10 @@ internal struct FrameUniforms
     public float MipBias;
 
     /// <summary>
-    /// 1 while a light probe's faces are drawn: the lighting then writes each pixel's distance
-    /// from the probe into alpha, negative for the back of a surface, for probe_fold.comp.
+    /// How many point and spot lights light probe updates: <see cref="LocalLightCount"/> that reach the view, then
+    /// the rest of the frame's lights, which the clusters leave out but a probe behind the camera still sees.
     /// </summary>
-    public int ProbeCapture;
+    public int ProbeLightCount;
 
     /// <summary>
     /// Last frame's <see cref="Time"/>, which the G-buffer pass sways last frame's grass at for motion vectors. The same
@@ -183,6 +212,9 @@ internal struct FrameUniforms
     public float PreviousTime;
     public GpuLightArray Lights;
     public GpuReflectionProbeArray Probes;
+
+    /// <summary>World to the light probes' own sun shadow map, which covers the largest cascade. See ProbeSunShadow.</summary>
+    public Matrix4x4 ProbeSunMatrix;
 }
 
 /// <summary>One point or spot light as the shaders read it. Must match LocalLight in Shaders/light_data.glsl.</summary>
@@ -198,8 +230,24 @@ internal struct GpuLocalLight
     /// <summary>xyz: which way a spot shines; w: the cosine of its outer angle, or -2 for a point light.</summary>
     public Vector4 DirectionCone;
 
-    /// <summary>x: one over the cosines between the inner and outer angles, for the spot's fade; y: its radius; z: how strongly it lights the volumetric fog.</summary>
+    /// <summary>
+    /// x: one over the cosines between the inner and outer angles, for the spot's fade; y: its radius; z: how strongly it
+    /// lights the volumetric fog; w: its shadow flags, made by <see cref="ShadowFlags"/>: 1 when it casts a shadow, with a
+    /// tile or not, plus twice one more than its channel of the baked shadow mask, so nothing there means no channel.
+    /// </summary>
     public Vector4 Fade;
+
+    /// <summary>
+    /// Packs whether a light casts a shadow and its channel of the baked shadow mask, -1 for none, into
+    /// <see cref="Fade"/>'s w. localCastsShadow and localMaskChannel in Shaders/light_data.glsl read it back.
+    /// </summary>
+    public static float ShadowFlags(bool castsShadow, int maskChannel) => (castsShadow ? 1 : 0) + 2 * (maskChannel + 1);
+
+    /// <summary>Whether the light casts a shadow, with a tile or not, as <see cref="Fade"/>'s w holds it.</summary>
+    public readonly bool CastsShadow => ((int)Fade.W & 1) != 0;
+
+    /// <summary>The light's channel of the baked shadow mask, or -1 for none, as <see cref="Fade"/>'s w holds it.</summary>
+    public readonly int MaskChannel => ((int)Fade.W >> 1) - 1;
 }
 
 /// <summary>Where one view of a light sits in the shadow atlas. Must match ShadowTile in Shaders/light_data.glsl.</summary>

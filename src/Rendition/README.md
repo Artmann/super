@@ -113,8 +113,8 @@ any managed memory or produced any validation message. It also resizes the windo
 during the warm-up.
 
 To save a picture, use `--screenshot`. The camera can be placed with `--yaw`,
-`--pitch`, `--distance` and `--height`. `--probes` puts a light probe volume round
-the cube, to check bounced light. The probes don't follow the spin, so the turning
+`--pitch`, `--distance` and `--height`. `--probes` adds a fixed light probe volume round
+the cube, to check bounced light. The probes lag the spin, so the turning
 cube shows dark streaks with it on.
 
 ```
