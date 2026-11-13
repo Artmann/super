@@ -23,7 +23,7 @@ public sealed class BakerEncodeTests
             0, 0, 0, 4, 1, irradiance, new float[16], new float[16], [true, true, true, true],
             [true, true, true, true], [true, true, true, true]);
 
-        var halves = MemoryMarshal.Cast<byte, Half>(Baker.Encode(traced).Irradiance.Pixels.AsSpan());
+        var halves = MemoryMarshal.Cast<byte, Half>(BakeEncoding.Encode(traced).Irradiance.Pixels.AsSpan());
 
         // Not a number and below zero are no light; past 65504, the largest half, is held at 65504.
         float[] expected = [0f, 0f, 65504f, 65504f];

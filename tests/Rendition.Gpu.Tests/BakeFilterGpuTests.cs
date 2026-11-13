@@ -403,7 +403,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
             }
 
             // The encoded page holds it too, out to the gutter's far corner.
-            var encoded = Baker.Encode(filtered);
+            var encoded = BakeEncoding.Encode(filtered);
             var halves = MemoryMarshal.Cast<byte, Half>(encoded.Irradiance.Pixels.AsSpan());
             int corner = ((y0 + side + gutter - 1) * LightmapLayout.PageSize + x0 + side + gutter - 1) * 4;
             Assert.Equal(0.25f, (float)halves[corner]);

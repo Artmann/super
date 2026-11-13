@@ -23,7 +23,7 @@ public sealed class BakerTransferEncodeTests
         var traced = new TracedPage(0, 0, 0, 2, 1, new float[8], new float[8], new float[8], [true, false],
             [true, false], [true, false]) { Transfer = transfer };
 
-        var encoded = Baker.EncodeTransfer(traced, 2);
+        var encoded = BakeEncoding.EncodeTransfer(traced, 2);
 
         // The tint is T over its largest channel, 0.8: 1, 0.25 and 0.125, as bytes 255, 64 (63.75) and 32 (31.875).
         var tint = encoded.SunTint.Pixels;
