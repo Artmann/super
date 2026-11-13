@@ -1221,6 +1221,10 @@ public sealed unsafe class Renderer : IDisposable
     // How far the frame's space bake has faded in, for the frame uniforms: 1 unless one is fading in.
     private float _spaceFade = 1f;
 
+    // Whether a bake this frame draws is still fading in: the space's, or a relit chunk's. Reflection captures see it.
+    private bool _bakesFading;
+    private bool _chunksFading;
+
     // A Baked light while its bake fades in, its radiance scaled by what the bake doesn't give yet.
     private static readonly Func<DirectionalLight, float, DirectionalLight> DimSun = static (sun, left) =>
     {
@@ -1580,6 +1584,7 @@ public sealed unsafe class Renderer : IDisposable
             _activeBakedProbes = null;
             _relightChunks = false;
             _spaceFade = 1f;
+            _bakesFading = false;
             // The next frame that names an area is its first, so a bake fresh then shows at once.
             _bakeResolver.ForgetArrivals();
             return false;
@@ -1621,6 +1626,7 @@ public sealed unsafe class Renderer : IDisposable
 
         LastBakeFrame = bakes;
         _spaceFade = spaceRects is not null || _activeBakedProbes is not null ? bakes.SpaceFade : 1f;
+        _bakesFading = _spaceFade < 1f || _chunksFading;
         if (bakes.DroppedSuns.Count == 0 && bakes.DroppedLocalLights.Count == 0
             && bakes.FadingSuns.Count == 0 && bakes.FadingLocalLights.Count == 0)
         {
@@ -1671,6 +1677,7 @@ public sealed unsafe class Renderer : IDisposable
     private void FindRelitChunks(in FrameView view, int drawCount, BakeFrame bakes)
     {
         _relightChunks = false;
+        _chunksFading = false;
         _chunkCount = 0;
         var chunks = view.BakedChunks;
         var store = _readableBakes.Inner;
@@ -1693,6 +1700,7 @@ public sealed unsafe class Renderer : IDisposable
             _relitEntries[c] = entry;
             _chunkLightmaps[c] = entry.Rects;
             _relightChunks = true;
+            _chunksFading |= bakes.ChunkFade(c) < 1f;
             var m = chunks[c].Transform;
             var t = m.Translation;
             var transfer = entry.Transfer;
@@ -2948,7 +2956,8 @@ public sealed unsafe class Renderer : IDisposable
     /// A number that changes whenever something that lights a reflection probe's picture changes,
     /// so capture the probes again when it does. It covers the suns, the sky and background, the sun
     /// shadow's softness and cascades, the ambient occlusion settings, the light probes and whether
-    /// they have settled at least once since they were made, the lightmaps loaded, and the switches for sun shadows,
+    /// they have settled at least once since they were made, the lightmaps loaded and whether one is still fading in
+    /// (see <see cref="BakeFadeSeconds"/>), and the switches for sun shadows,
     /// materials and ambient occlusion. Moving things or the camera doesn't change it. Point and spot
     /// lights aren't in it, because captures leave them out, and nor are the contact shadow and light
     /// shadow switches, which only touch what captures leave out.
@@ -2959,9 +2968,12 @@ public sealed unsafe class Renderer : IDisposable
         // first settle counts: the live ProbesSettled turns false on every cell the camera crosses, and recapturing
         // every reflection probe then would wait for the GPU twice a cell.
         // A capture draws the lightmaps and the bake's probes, so a bake loaded, dropped or swapped for another changes
-        // what it sees, and so does a chunk bake arriving or going.
+        // what it sees, and so does a chunk bake arriving or going. A bake that arrives on screen is still fading in
+        // then, so a capture would keep its half-faded picture; the fade ending changes the hash once more, and the
+        // capture after it sees the bake whole, as one made when the level loads with the bake saved does.
         ulong lightmaps = (_spaceLightmapsActive || _activeBakedProbes is not null ? _loadedBake.Inputs : 0) ^ _chunkLightmapsHash;
-        return HashCode.Combine(ReflectionLightingHash(view, _environmentVersion), _lightProbesInUse, _probesSettledOnce, lightmaps);
+        return HashCode.Combine(
+            ReflectionLightingHash(view, _environmentVersion), _lightProbesInUse, _probesSettledOnce, lightmaps, _bakesFading);
     }
 
     /// <summary>

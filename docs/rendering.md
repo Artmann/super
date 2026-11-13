@@ -611,7 +611,10 @@ says `Baked` for them. `BakeFrame.SpaceFade` and `BakeFrame.ChunkFade` say how f
 come. A bake that is fresh on the first frame that names its area shows at once, so loading a
 level, a screenshot and a reload of an unchanged bake never fade, and nor does a chunk whose bake
 was already saved but is still on its way to the GPU. An area left out of a frame is forgotten,
-so the next frame that names it counts as its first. Game time that goes back ends a fade at
+so the next frame that names it counts as its first, and a frame that names no area at all
+forgets every area. So a game that draws an extra view with no baked areas every frame, such as
+a minimap, between the frames that name them never sees a bake fade. Reflection probes are
+captured again once a fade ends, so they hold the whole bake. Game time that goes back ends a fade at
 once. Turning [`Graphics.BakedLighting`](#graphics-settings) back on counts as every bake on screen
 arriving, so they fade in too. `BakeFadeSeconds` of 0 shows every bake at once; it must be from 0 to 10, or it throws
 `ArgumentOutOfRangeException` with the value.

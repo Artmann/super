@@ -153,6 +153,55 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
     }
 
     [Fact]
+    public void Reflections_are_captured_again_when_a_fade_ends_as_on_a_fresh_load()
+    {
+        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        float fadeBefore = gpu.Renderer.BakeFadeSeconds;
+        var store = new Given();
+        try
+        {
+            gpu.Renderer.BakeFadeSeconds = 0.5f;
+            var room = Room(quad);
+            var view = RoomView(lit: false);
+            var bake = SkyBake(view, room);
+            gpu.Renderer.Bakes = store;
+
+            // A game captures its reflection probes again whenever this hash moves, so it must move once the fade ends:
+            // a capture taken mid-fade would otherwise keep the half-faded room until something else changed.
+            OneFrame(view, room, Start);
+            int live = gpu.Renderer.ReflectionLightingHash(view);
+            store.Bake = bake;
+            OneFrame(view, room, Start);
+            OneFrame(view, room, Start + 0.25f);
+            int fading = gpu.Renderer.ReflectionLightingHash(view);
+            OneFrame(view, room, Start + 2f);
+            int faded = gpu.Renderer.ReflectionLightingHash(view);
+
+            // The same room loaded with its bake already saved: the first frame that names it shows the bake whole.
+            var unnamed = view;
+            unnamed.BakedSpace = null;
+            gpu.Renderer.Render(unnamed, room);
+            OneFrame(view, room, Start + 3f);
+            Assert.Equal(1f, gpu.Renderer.LastBakeFrame!.SpaceFade);
+            int loaded = gpu.Renderer.ReflectionLightingHash(view);
+
+            Assert.NotEqual(live, fading);
+            Assert.NotEqual(fading, faded);
+            Assert.Equal(loaded, faded);
+        }
+        finally
+        {
+            gpu.Renderer.Bakes = NoBakes.Instance;
+            gpu.Renderer.BakeFadeSeconds = fadeBefore;
+            gpu.Renderer.DestroyMesh(quad);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
     public void Zero_fade_shows_at_once()
     {
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
@@ -234,6 +283,12 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
         return new Vector3(pixels[at], pixels[at + 1], pixels[at + 2]);
     }
 
+    private void OneFrame(FrameView view, DrawItem[] room, float time)
+    {
+        view.Time = time;
+        gpu.Renderer.Render(view, room);
+    }
+
     private LightBakeFile Bake(FrameView view, DrawItem[] room) =>
         LightBakeFile.Read(gpu.Renderer.Bake(view, room, new BakeSettings(TexelsPerMetre, BakeQuality.Preview)));
 
@@ -309,8 +364,10 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
     {
         var low = Vector3.Min(a, b);
         var high = Vector3.Max(a, b);
-        Assert.True(actual.X > low.X && actual.X < high.X,
-            $"The {what} reads {actual}, not strictly between {a} and {b}.");
+        Assert.True(
+            actual.X > low.X && actual.X < high.X && actual.Y > low.Y && actual.Y < high.Y
+            && actual.Z > low.Z && actual.Z < high.Z,
+            $"The {what} reads {actual}, not strictly between {a} and {b} in every channel.");
     }
 
     // A store with no bake until one is given, and then that bake, fresh for any inputs, as when a background bake

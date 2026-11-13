@@ -76,8 +76,10 @@ public sealed class BakeResolver
 
     /// <summary>
     /// How long, in seconds of <see cref="FrameView.Time"/>, a bake that arrives while its area is drawn live takes to
-    /// fade in: <see cref="BakeFrame.SpaceFade"/> and <see cref="BakeFrame.ChunkFade"/> rise over it. 0, the default,
-    /// shows every bake at once. The renderer checks the range and sets it from <see cref="Renderer.BakeFadeSeconds"/>.
+    /// fade in: <see cref="BakeFrame.SpaceFade"/> and <see cref="BakeFrame.ChunkFade"/> rise over it. 0 shows every bake
+    /// at once. A resolver made on its own starts at 0, so <see cref="BakeFreshness.Resolve"/> never fades; the
+    /// renderer's starts at 0.5, the default of <see cref="Renderer.BakeFadeSeconds"/>, which checks the range and sets
+    /// this.
     /// </summary>
     internal float FadeSeconds { get; set; }
 

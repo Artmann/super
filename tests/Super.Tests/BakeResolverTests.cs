@@ -270,6 +270,138 @@ public sealed class BakeResolverTests
             Space(denseCourtyard, Room).Settings);
     }
 
+    [Fact]
+    public void Stale_chunk_bake_that_is_saved_fades_in_once_it_reaches_the_GPU()
+    {
+        var store = new Switch();
+        bool resident = false;
+        var resolver = new BakeResolver(store) { FadeSeconds = 1f, ChunkResident = (_, _) => resident };
+        var animated = new AnimatedLights(TextWriter.Null);
+        DrawItem[] draws = [Static(1, InRoom)];
+        BakeFrame At(float time) => resolver.Resolve(
+            new FrameView { BakedChunks = [Room], LocalLights = [Point(1, InRoom, LightMode.Baked)], Time = time },
+            draws, TwoParts, 42, animated);
+
+        var stale = At(10f);
+        Assert.Equal(0f, stale.ChunkFade(0));
+        Assert.Empty(stale.FadingLocalLights);
+        Assert.Empty(stale.DroppedLocalLights);
+
+        // Saved, but still on its way to the GPU: drawn live, and the fade hasn't started.
+        store.Fresh = true;
+        var pending = At(11f);
+        Assert.True(pending.ChunkPending(0));
+        Assert.Equal(0f, pending.ChunkFade(0));
+        Assert.Empty(pending.FadingLocalLights);
+
+        // On the GPU at 20 s: the fade starts there, not when the bake was saved.
+        resident = true;
+        var arrived = At(20f);
+        Assert.Equal(0f, arrived.ChunkFade(0));
+        Assert.Equal((0, 0f), Assert.Single(arrived.FadingLocalLights));
+        Assert.Empty(arrived.DroppedLocalLights);
+        Assert.Equal(LightMode.Baked, arrived.ModeOf(new LightKey(false, 1)));
+
+        // Halfway, smoothstep gives a half too: 0.25 * (3 - 1).
+        var half = At(20.5f);
+        Assert.Equal(0.5f, half.ChunkFade(0), 1e-6f);
+        Assert.Equal((0, 0.5f), Assert.Single(half.FadingLocalLights));
+
+        var whole = At(21f);
+        Assert.Equal(1f, whole.ChunkFade(0));
+        Assert.Empty(whole.FadingLocalLights);
+        Assert.Equal([0], whole.DroppedLocalLights);
+    }
+
+    [Fact]
+    public void Space_bake_fading_in_is_at_the_smoothstep_of_the_time_since_it_arrived()
+    {
+        var store = new Switch();
+        var resolver = new BakeResolver(store) { FadeSeconds = 2f };
+        var animated = new AnimatedLights(TextWriter.Null);
+
+        SpaceAt(resolver, animated, 1f);
+        store.Fresh = true;
+        SpaceAt(resolver, animated, 3f);
+        var quarter = SpaceAt(resolver, animated, 3.5f);
+
+        // A quarter of the way through: 0.25² * (3 - 2 * 0.25) = 0.0625 * 2.5.
+        Assert.Equal(0.15625f, quarter.SpaceFade, 1e-6f);
+        Assert.Single(quarter.FadingSuns);
+        Assert.Equal(0.15625f, quarter.FadingSuns[0].Fade, 1e-6f);
+        Assert.Equal(0.15625f, Assert.Single(quarter.FadingLocalLights).Fade, 1e-6f);
+        Assert.Empty(quarter.DroppedSuns);
+        Assert.Empty(quarter.DroppedLocalLights);
+    }
+
+    [Fact]
+    public void Clock_that_goes_back_counts_as_the_bake_arrived()
+    {
+        var store = new Switch();
+        var resolver = new BakeResolver(store) { FadeSeconds = 1f };
+        var animated = new AnimatedLights(TextWriter.Null);
+
+        SpaceAt(resolver, animated, 5f);
+        store.Fresh = true;
+        Assert.Equal(0f, SpaceAt(resolver, animated, 5f).SpaceFade);
+        var back = SpaceAt(resolver, animated, 4.9f);
+
+        Assert.Equal(1f, back.SpaceFade);
+        Assert.Equal([0], back.DroppedLocalLights);
+        Assert.Empty(back.FadingLocalLights);
+    }
+
+    [Fact]
+    public void Area_that_leaves_the_frame_shows_its_bake_at_once_when_it_comes_back()
+    {
+        var store = new Switch();
+        var resolver = new BakeResolver(store) { FadeSeconds = 1f };
+        var animated = new AnimatedLights(TextWriter.Null);
+
+        // Drawn live, then a frame that names only the room, then the courtyard again with its bake saved.
+        SpaceAt(resolver, animated, 1f);
+        resolver.Resolve(new FrameView { BakedChunks = [Room], Time = 2f }, [], TwoParts, 42, animated);
+        store.Fresh = true;
+        var back = SpaceAt(resolver, animated, 3f);
+
+        Assert.Equal(1f, back.SpaceFade);
+        Assert.Equal([0], back.DroppedLocalLights);
+
+        // A frame that names no area at all forgets it too.
+        store.Fresh = false;
+        SpaceAt(resolver, animated, 4f);
+        resolver.Resolve(new FrameView { Time = 5f }, [], TwoParts, 42, animated);
+        store.Fresh = true;
+
+        Assert.Equal(1f, SpaceAt(resolver, animated, 6f).SpaceFade);
+    }
+
+    [Fact]
+    public void Zero_fade_seconds_shows_an_arriving_bake_at_once()
+    {
+        var store = new Switch();
+        var resolver = new BakeResolver(store) { FadeSeconds = 0f };
+        var animated = new AnimatedLights(TextWriter.Null);
+
+        SpaceAt(resolver, animated, 1f);
+        store.Fresh = true;
+        var arrived = SpaceAt(resolver, animated, 2f);
+
+        Assert.Equal(1f, arrived.SpaceFade);
+        Assert.Equal([0], arrived.DroppedLocalLights);
+        Assert.Equal([0], arrived.DroppedSuns);
+        Assert.Empty(arrived.FadingLocalLights);
+    }
+
+    // The courtyard with a Baked sun and a Baked point light in it, at the time given.
+    private static BakeFrame SpaceAt(BakeResolver resolver, AnimatedLights animated, float time) => resolver.Resolve(
+        new FrameView
+        {
+            BakedSpace = Courtyard, Lights = [Sun(LightMode.Baked)], LocalLights = [Point(1, InCourtyard, LightMode.Baked)],
+            Time = time,
+        },
+        [Static(1, InCourtyard)], TwoParts, 42, animated);
+
     private static ResolveCase Scenario(
         BakedSpace? space, BakedChunk[] chunks, DirectionalLight[] suns, LocalLight[] lights, DrawItem[] draws,
         IBakeStore store) => new(space, chunks, suns, lights, draws, store);
@@ -318,6 +450,14 @@ public sealed class BakeResolverTests
     private sealed class EveryBakeFresh : IBakeStore
     {
         public bool IsFresh(string file, BakeInputs inputs) => true;
+    }
+
+    // Every bake missing until Fresh is set, then every bake fresh, as when a background bake saves them.
+    private sealed class Switch : IBakeStore
+    {
+        public bool Fresh { get; set; }
+
+        public bool IsFresh(string file, BakeInputs inputs) => Fresh;
     }
 
     private sealed class SavedBakes : IBakeStore

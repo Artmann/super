@@ -1391,7 +1391,8 @@ three times at the start. The live `ProbesSettled` isn't used, because it turns 
 the camera crosses a cell of the two finest cascades or a light changes, and recapturing then
 would wait for the GPU every few steps. It also takes the
 `SunShadows`, `Materials`, `MultiscatterSpecular`, `WearAndDirt` and `AmbientOcclusion` switches,
-since each changes what a probe photographs. Point and spot lights and the
+since each changes what a probe photographs, and the bakes drawn and whether one is still fading
+in (see "Each frame's bakes"). Point and spot lights and the
 `ContactShadows` and `LightShadows` switches aren't in it, since captures draw neither
 local lights nor contact shadows. Super places probes with `view.ReflectionProbe`:
 `SceneRenderer`, before each frame's `Render`, asks `ReflectionProbeSchedule.ShouldCapture`
@@ -3409,10 +3410,11 @@ Otherwise it runs in this order:
    and ends at 1. A pending chunk gives 0 without counting as live, so a saved bake that only has
    to reach the GPU shows at once. Time that goes back, or `FadeSeconds` of 0, ends the fade. A
    file no frame named is pruned at the end of `Resolve`, so the next frame that names it is its
-   first again, and a frame with no area clears them all (`ForgetArrivals`). `BakeFrame.SpaceFade`
-   and `ChunkFade(i)` give the result, 0 for a stale area. `Renderer.BakeFadeSeconds` sets
-   `FadeSeconds`, 0.5 by default, and the GPU fixture sets it to 0 so other tests see a bake at
-   once.
+   first again, and a frame with no area clears them all (`ForgetArrivals`). The renderer keeps
+   one resolver, so a game that draws an extra view naming no area every frame, between frames
+   that do, never sees a bake fade. `BakeFrame.SpaceFade` and `ChunkFade(i)` give the result, 0
+   for a stale area. `Renderer.BakeFadeSeconds` sets `FadeSeconds`, 0.5 by default; a resolver
+   made on its own, as `BakeFreshness.Resolve` makes, starts at 0 and never fades.
 
 When something was dropped, `Render` draws a copy of the frame view whose `Lights` and
 `LocalLights` leave those lights out, by calling itself once more with a flag set so the second
@@ -3420,9 +3422,14 @@ pass doesn't resolve again. `BakeFreshness.Without` copies the kept lights into 
 renderer keeps, grown only when a frame has more lights, and returns the frame's own span
 untouched when nothing is dropped. Its overload with a fading list and a `dim` function also
 keeps each fading light, with `Radiance` scaled by 1 − fade, so the live light hands over to
-the bake as it comes in and the area never goes darker than either end. Probes and reflections
-captured on such a frame see the scaled light too. With no fresh bake nothing is dropped, so frames look
-exactly as they would without baked areas, to the byte (`NoBakeGpuTests`). A fresh space's
+the bake as it comes in and the area never goes darker than either end. Light probes see the
+scaled light too, but they never freeze: each change of a light's radiance marks the probes in
+its range dirty, and settled probes keep being refreshed. A reflection capture made mid-fade
+would keep the half-faded picture, so `ReflectionLightingHash` holds whether any bake drawn is
+still fading. It changes once more when the fade ends, and the capture after it matches one made
+when the level loads with the bake saved (`BakeFadeGpuTests`). With no fresh bake nothing is
+dropped, so frames look exactly as they would without baked areas, to the byte
+(`NoBakeGpuTests`). A fresh space's
 lightmaps take a dropped light's place; see "Drawing a bake". So do a relit chunk's, once its
 pages are resident in the pool; see "Chunk bakes on the GPU" and "Relighting a chunk".
 
