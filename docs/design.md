@@ -2195,6 +2195,56 @@ probe volume and the top-level build's scratch are shared, so one job runs at a 
 `Bake` and `BakeChunk` size each step by `Renderer.BakeBatchBudget`: one pass first, then as many as fit 80 ms at the
 last step's rate, at most double, starting over at one after a step that traced nothing.
 
+## Background bakes
+
+With `Renderer.AutoBake` set, the renderer bakes the areas a frame names whose bake is missing or stale by itself, one
+`BakeJob` at a time, a step a frame inside the frame's own command buffer. Nothing waits for the GPU: the frames
+(`AutoBakeGpuTests`) never move `VulkanContext.SubmitAndWaitCount`.
+
+Setting `AutoBake` stops the running job and calls `PrepareBaking(probes: Spaces)`, which may wait the first time, so it
+is set outside a frame. A device that can't trace skips both, and every frame then does nothing new. A device that
+traces but can't bake (`PrepareBaking` throws) reports it once to the console and bakes nothing until `AutoBake` is set
+again.
+
+Each frame, after `ResolveBakes`, `UpdateBackgroundBake` lists the frame's wants and hands them to a `BakeQueue`
+(`src/Rendition/Baking/BakeQueue.cs`). Nothing is wanted before `AnimatedLights.Settled`, since a light that moves may
+not have been seen moving yet. The space is wanted when `AutoBake.Spaces` is set and the store has no fresh bake of its
+inputs (`IsFreshQuietly`, so a frame doesn't log). A chunk is wanted the same way unless its fresh bake is
+`ChunkPending` or it owns no static draws. An area whose earlier qualities are finished but not its later ones is also
+wanted (`BakeQueue.Unfinished`), so a saved Preview that the store now finds fresh still gets its Final. The queue
+keeps one want per file, the copy nearest the camera. It picks the area whose next quality comes first in
+`AutoBake.Qualities`, then the nearest by its box's middle, then by file name. It remembers each finished file, inputs
+and quality, failures too, and never starts one again, so a saved file the store hasn't read yet doesn't loop. A
+running job whose file a frame names with other inputs is stopped, so changing the scene again starts its bake over. A
+job whose area the frame doesn't name carries on. The queue reuses its lists, so a frame with no wants allocates
+nothing.
+
+`RecordBakeSlice` runs after the chunk uploads are recorded and before the frame's top-level build. It records one
+step between two timestamps of a `GpuTimer` of its own ("Background bake"), read back by `MeasureBakeSlice` once the
+slot's fence has passed. A trace step's passes start at one and become `clamp(budget / msPerPass, 1, 2 × last)` from
+each measurement. The measurement comes two frames late, so the passes double about every other frame. A step that
+traces nothing (setup, readbacks, filters, folds) starts the count over at one, and an epoch number stops a slice
+measured from before then from resizing the next stage. A step that returns `AwaitGpu` holds the job until as many more
+frames as there are frames in flight have been submitted, since by then the fence of the frame that carried the step
+has passed and its readback has landed. Until a job's setup step has run, the baker's pages may still be held by the
+last job's file being made, so the slice waits for them.
+
+At `Done` the job's `Finish` runs on the thread pool, since encoding the pages takes longer than a frame. The job stays
+the running one meanwhile, holding the baker's pages, so no other job sets up. A later `Render` takes the bytes from a
+`ConcurrentQueue`, disposes the job, tells the queue, and calls `AutoBake.Done` on the render thread before it resolves
+the frame's bakes.
+
+A stopped job may have steps in frames still in flight, so it is disposed with the destroyed resources of the last
+submitted frame's slot. A job that never stepped holds nothing the GPU reads and goes at once. `DestroyMesh` and
+destroying a material stop the running job when its draws use them. `Bake`, `BakeChunk` and `Dispose` wait for the GPU,
+then drop every background bake, waiting for any file being made, since the whole bake needs the baker's pages.
+
+Measured on the development desktop's GPU at a 4 ms budget: the test's room, a 4 metre floor and three walls, at 180
+texels a metre (about 1.3 million texels) traces about a quarter of a millisecond a pass, so a trace slice settles
+near 16 passes. Its filter takes about 4 ms in one step and each probe fold about 0.6 ms. Those steps aren't split, so
+a page of more than about two million texels can take a frame past the budget. At 4 texels a metre a whole Preview
+bake of that room takes about 100 frames, most of them the probes' folds and their readbacks.
+
 ## Paint and glass
 
 Clearcoat adds a second, very smooth reflection on top of the surface, like the

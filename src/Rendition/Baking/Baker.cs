@@ -473,6 +473,9 @@ internal sealed unsafe class Baker : IDisposable
     }
 
     /// <summary>Gives the pages back, if <paramref name="owner"/> holds them.</summary>
+    /// <summary>Whether a bake holds the pages, so another can't set up yet.</summary>
+    internal bool PagesClaimed => _pagesClaimedBy is not null;
+
     internal void ReleasePages(object owner)
     {
         if (_pagesClaimedBy is { } held && ReferenceEquals(held.Owner, owner))

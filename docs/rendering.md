@@ -721,6 +721,33 @@ bake holds it, `DroppedLocalLights`
 and `DroppedSuns` list the lights left to a bake, by their place in the frame's lists, and
 `UnslottedLights` lists the keys of Mixed lights that found no shadow mask slot.
 
+### Baking in the background
+
+```csharp
+renderer.AutoBake = new AutoBake(
+    BudgetMilliseconds: 4f, Spaces: true, Qualities: [BakeQuality.Preview, BakeQuality.Final],
+    Done: done => File.WriteAllBytes(Path.Combine("content", done.File), done.Bytes));
+```
+
+With `Renderer.AutoBake` set, the renderer bakes by itself each space and chunk a frame names whose bake is missing or
+stale, a slice a frame, so the game keeps running while it bakes. It starts once the lights have held still for a
+second (see [moving lights](#moving-lights)), bakes one area at a time, nearest the camera first, and gives every area
+its first quality before any gets its next. Each slice takes about `BudgetMilliseconds` of GPU time: the trace is
+sized to it, but a step that isn't split, such as one page's filter, can go over on a very large page. `Spaces: false`
+bakes only chunks.
+
+The renderer doesn't save anything. It hands each finished file to `Done`, on the render thread, inside a later
+`Render`, with where it goes (`done.File`, the same path `--bake` writes), the area's name, the inputs it was made from
+and its quality. Once the store reads the file the area is fresh and drawn from its bake. A bake whose area changes
+while it runs is started over, and one finished from the same inputs and quality is never baked again, so a file the
+store hasn't read yet doesn't loop.
+
+`Renderer.BakeProgress` is null when nothing is baking. Otherwise it gives the area's name, how much of it is done from
+0 to 1, how many other areas wait, and the GPU time of the last slice. Set `AutoBake` outside a frame, since the first
+one prepares baking, which waits for the GPU. On a GPU that can't trace rays it does nothing, and a GPU that traces but
+can't bake says so once and bakes nothing. A whole `Bake` or `BakeChunk` stops the running background bake, which
+starts again on a later frame. Null, the default, bakes nothing.
+
 ## Reflections
 
 ```csharp

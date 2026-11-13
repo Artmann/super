@@ -215,6 +215,37 @@ internal sealed unsafe class BakeJob : IDisposable
     /// </summary>
     internal bool ReadsBack => _stage is Stage.ReadSums or Stage.ReadFilter or Stage.ReadTransfer or Stage.ReadFold;
 
+    /// <summary>Whether the first step has run, so the job holds the baker's pages.</summary>
+    internal bool Started => _claimed;
+
+    /// <summary>Whether one of the job's draws uses <paramref name="mesh"/>, so the job can't go on once it is destroyed.</summary>
+    internal bool Uses(MeshHandle mesh)
+    {
+        foreach (ref readonly var draw in _area.Draws.AsSpan())
+        {
+            if (draw.Mesh == mesh)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Whether one of the job's draws uses <paramref name="material"/>.</summary>
+    internal bool Uses(MaterialHandle material)
+    {
+        foreach (ref readonly var draw in _area.Draws.AsSpan())
+        {
+            if (draw.Material == material)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// Records the next slice of the bake into <paramref name="cmd"/>, tracing at most <paramref name="passes"/> passes.
     /// Never waits. The caller submits the command buffer; after <see cref="BakeStepResult.AwaitGpu"/> it waits for that

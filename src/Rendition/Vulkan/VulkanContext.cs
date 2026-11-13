@@ -121,9 +121,13 @@ internal sealed unsafe class VulkanContext : IDisposable
         throw new InvalidOperationException($"No GPU memory type supports {required}.");
     }
 
+    /// <summary>How many times <see cref="SubmitAndWait"/> has run, so tests can check a frame never waits.</summary>
+    internal int SubmitAndWaitCount { get; private set; }
+
     /// <summary>Records and runs one-off GPU work, then waits for it. Not for use during a frame.</summary>
     public void SubmitAndWait(Action<CommandBuffer> record)
     {
+        SubmitAndWaitCount++;
         var allocInfo = new CommandBufferAllocateInfo
         {
             SType = StructureType.CommandBufferAllocateInfo,

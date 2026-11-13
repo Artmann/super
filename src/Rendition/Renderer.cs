@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
@@ -634,6 +635,7 @@ public sealed unsafe class Renderer : IDisposable
         _finishPass = new FullscreenPass(_context, "finish.frag", _swapchain.Format, [_frameSetLayout, _twoTextureSetLayout], TransitionConstants.Size);
         _overlayPass = new OverlayPass(_context, _swapchain.Format, _oneTextureSetLayout, _resources, FramesInFlight);
         _gpuTimer = new GpuTimer(_context, FramesInFlight);
+        _bakeTimer = new GpuTimer(_context, FramesInFlight, ["Background bake"]);
     }
 
     /// <summary>
@@ -963,6 +965,12 @@ public sealed unsafe class Renderer : IDisposable
         _uploads.Cancel(live.Indices);
         Destroying().Meshes.Add(live);
 
+        // A background bake still tracing it would read freed buffers, so it stops and starts again from the scene.
+        if (_bakeJob is { } job && _bakeFinishing is null && job.Uses(mesh))
+        {
+            StopBakeJob();
+        }
+
         // Its structures read its buffers, and its handle may go to another mesh, so they go with it.
         _tracing?.Forget(mesh);
     }
@@ -1051,6 +1059,10 @@ public sealed unsafe class Renderer : IDisposable
         _tracing?.ForgetMaterial(new MaterialHandle(slot));
         _resources.MarkMaterialDying(slot);
         Destroying().Materials.Add(slot);
+        if (_bakeJob is { } job && _bakeFinishing is null && job.Uses(new MaterialHandle(slot)))
+        {
+            StopBakeJob();
+        }
     }
 
     /// <summary>The slot whose fence covers the frame most recently submitted.</summary>
@@ -1891,6 +1903,7 @@ public sealed unsafe class Renderer : IDisposable
         BakeIds.CheckStaticDraws(draws);
         BakeFiles.CheckChunks(view.BakedChunks);
         _api.DeviceWaitIdle(_context.Device).Check();
+        DropBackgroundBakes();
         _uploads.Flush();
         BakeSky(view);
         PrepareBaking();
@@ -1942,6 +1955,425 @@ public sealed unsafe class Renderer : IDisposable
             double perPass = Math.Max(Stopwatch.GetElapsedTime(stepStarted).TotalMilliseconds / count, 1e-3);
             batch = Math.Clamp((int)(BakeBatchBudget.TotalMilliseconds / perPass), 1, Math.Max(count * 2, 1));
         }
+    }
+
+    // What the renderer bakes by itself, and the queue that picks what is next. See "Background bakes" in
+    // docs/design.md.
+    private AutoBake? _autoBake;
+    private BakeQueue? _bakeQueue;
+
+    // Set when PrepareBaking refused for the AutoBake set, so frames bake nothing until another is set.
+    private bool _autoBakeUnavailable;
+
+    // This frame's wants, grown when a frame names more areas.
+    private BakeWant[] _bakeWants = new BakeWant[16];
+
+    // The running background bake: what the queue started, at which quality. Kept while its file is made on the
+    // thread pool, so no other bake sets up on the baker's pages before it lets them go.
+    private BakeJob? _bakeJob;
+    private BakeWant _bakeJobWant;
+    private BakeQuality _bakeJobQuality;
+    private FinishingBake? _bakeFinishing;
+
+    // Finishes on the thread pool, until the render thread takes their results; and those results.
+    private readonly List<FinishingBake> _bakeFinishes = [];
+    private readonly ConcurrentQueue<FinishingBake> _bakesFinished = new();
+
+    // Stopped jobs whose steps a frame in flight may still run, freed with the frame slot they were queued against.
+    private readonly HashSet<BakeJob> _retiringBakes = [];
+
+    // How many passes the next trace slice records, and which run of measurements may change it: a step that traces
+    // nothing starts the count over, and a slice measured from before then says nothing about the passes now.
+    private int _bakePasses = 1;
+    private int _bakePassEpoch;
+
+    // Frames submitted, and the count after which a step that copied results back has landed.
+    private long _framesSubmitted;
+    private long _bakeAwaitUntil;
+
+    // Each frame slot's slice: whether it was timed, its passes and its epoch.
+    private readonly GpuTimer _bakeTimer;
+    private readonly bool[] _sliceTimed = new bool[FramesInFlight];
+    private readonly int[] _slicePasses = new int[FramesInFlight];
+    private readonly int[] _sliceEpoch = new int[FramesInFlight];
+    private float _lastSliceMilliseconds;
+
+    // Areas whose bake failed, each reported once.
+    private readonly HashSet<string> _bakeFailuresLogged = new(StringComparer.Ordinal);
+
+    /// <summary>A background bake whose file is being made on the thread pool.</summary>
+    private sealed class FinishingBake(BakeJob job, BakeWant want, BakeQuality quality)
+    {
+        public readonly BakeJob Job = job;
+        public readonly BakeWant Want = want;
+        public readonly BakeQuality Quality = quality;
+        public Task? Task;
+        public byte[]? Bytes;
+        public Exception? Error;
+
+        // Set on the render thread when the bake was stopped while finishing: its file is dropped.
+        public bool Cancelled;
+    }
+
+    /// <summary>A stopped job, freed once the frame slot it was queued against is done.</summary>
+    private sealed class RetiredBake(Renderer renderer, BakeJob job) : IDisposable
+    {
+        public void Dispose()
+        {
+            renderer._retiringBakes.Remove(job);
+            job.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// What the renderer bakes by itself, in the background, a slice a frame: each area a frame names whose bake is
+    /// missing or stale, once its lights have settled. Null, the default, bakes nothing. Ignored where
+    /// <see cref="CanTrace"/> is false. Setting it stops the running bake and forgets what was baked, and prepares
+    /// baking, which waits for the GPU the first time, so set it outside a frame. Where the GPU can trace rays but
+    /// can't bake, that is reported once and nothing is baked. See "Baking in the background" in docs/rendering.md.
+    /// </summary>
+    public AutoBake? AutoBake
+    {
+        get => _autoBake;
+        set
+        {
+            StopBakeJob();
+            _autoBake = value;
+            _bakeQueue = value is null ? null : new BakeQueue(value.Qualities);
+            _autoBakeUnavailable = false;
+            if (value is null || _tracing is null)
+            {
+                return;
+            }
+
+            try
+            {
+                PrepareBaking(probes: value.Spaces);
+            }
+            catch (InvalidOperationException e)
+            {
+                _autoBakeUnavailable = true;
+                Console.Error.WriteLine($"Nothing is baked in the background: {e.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// How the background bake is getting on, or null when none runs. See <see cref="AutoBake"/>.
+    /// </summary>
+    public BakeProgress? BakeProgress => _bakeJob is { } job
+        ? new BakeProgress(job.Name, _bakeFinishing is not null ? 1f : job.Progress, _bakeQueue?.Waiting ?? 0,
+            _lastSliceMilliseconds)
+        : null;
+
+    /// <summary>How many background bake slices have been measured on the GPU, for tests.</summary>
+    internal int BakeSlicesMeasured { get; private set; }
+
+    /// <summary>The passes the next trace slice of the background bake records, for tests.</summary>
+    internal int BakeSlicePasses => _bakePasses;
+
+    /// <summary>Hands the files finished on the thread pool to <see cref="AutoBake"/>'s Done, on the render thread.</summary>
+    private void TakeFinishedBakes()
+    {
+        while (_bakesFinished.TryDequeue(out var finished))
+        {
+            _bakeFinishes.Remove(finished);
+
+            // Every step ran before the job was done, so the GPU is finished with it.
+            finished.Job.Dispose();
+            if (finished.Cancelled)
+            {
+                continue;
+            }
+
+            _bakeJob = null;
+            _bakeFinishing = null;
+            var want = finished.Want;
+            _bakeQueue?.Finished(want.File, want.Inputs, finished.Quality);
+            if (finished.Error is { } error)
+            {
+                ReportBakeFailure(want, error);
+                continue;
+            }
+
+            _autoBake?.Done(new BakeDone(want.File, want.Name, finished.Job.Inputs, finished.Quality, finished.Bytes!));
+        }
+    }
+
+    /// <summary>
+    /// Tells the queue which areas this frame names whose bake is missing or stale, stops the running bake when its
+    /// area is named with other inputs, and makes the job the queue starts. Runs once a frame, from the frame as
+    /// drawn with every light, after <see cref="ResolveBakes"/>.
+    /// </summary>
+    private void UpdateBackgroundBake(in FrameView view, ReadOnlySpan<DrawItem> draws)
+    {
+        if (_autoBake is not { } auto || _bakeQueue is not { } queue || _autoBakeUnavailable || _tracing is null)
+        {
+            return;
+        }
+
+        int count = 0;
+        if (LastBakeFrame is { } bakes && _animatedLights.Settled)
+        {
+            var store = _readableBakes.Inner;
+            if (auto.Spaces && view.BakedSpace is { } space && bakes.Space is { } spaceInputs)
+            {
+                string file = _bakeResolver.SpaceFile(space.Name);
+                if (!store.IsFreshQuietly(file, spaceInputs) || queue.Unfinished(file, spaceInputs))
+                {
+                    AddBakeWant(ref count, new BakeWant(file, space.Name, spaceInputs, -1, (space.Min + space.Max) * 0.5f));
+                }
+            }
+
+            var chunks = view.BakedChunks;
+            for (int c = 0; c < chunks.Length && c < bakes.Chunks.Count; c++)
+            {
+                if (bakes.ChunkPending(c) || bakes.ChunkStaticDraws(c) == 0)
+                {
+                    continue;
+                }
+
+                var inputs = bakes.Chunks[c];
+                string file = bakes.ChunkFile(c);
+                if (!store.IsFreshQuietly(file, inputs) || queue.Unfinished(file, inputs))
+                {
+                    var chunk = chunks[c];
+                    var centre = Vector3.Transform((chunk.Min + chunk.Max) * 0.5f, chunk.Transform);
+                    AddBakeWant(ref count, new BakeWant(file, chunk.Name, inputs, c, centre));
+                }
+            }
+        }
+
+        var start = queue.Update(_bakeWants.AsSpan(0, count), view.CameraPosition, out bool cancel, out var quality);
+        if (cancel)
+        {
+            StopBakeJob();
+        }
+
+        if (start is not { } want)
+        {
+            return;
+        }
+
+        try
+        {
+            _bakeJob = want.Chunk < 0
+                ? CreateSpaceJob(view, draws, new BakeSettings(view.BakedSpace!.Value.TexelsPerMetre, quality))
+                : CreateChunkJob(view, draws, want.Chunk, new BakeSettings(view.BakedChunks[want.Chunk].TexelsPerMetre, quality));
+            _bakeJobWant = want;
+            _bakeJobQuality = quality;
+            _bakePasses = 1;
+            _bakePassEpoch++;
+        }
+        catch (Exception e) when (e is InvalidOperationException or ArgumentException)
+        {
+            // Never started again with these inputs, so a bake that can't be made doesn't loop.
+            queue.Finished(want.File, want.Inputs, quality);
+            ReportBakeFailure(want, e);
+        }
+    }
+
+    private void AddBakeWant(ref int count, in BakeWant want)
+    {
+        if (count == _bakeWants.Length)
+        {
+            Array.Resize(ref _bakeWants, count * 2);
+        }
+
+        _bakeWants[count++] = want;
+    }
+
+    private void ReportBakeFailure(in BakeWant want, Exception error)
+    {
+        if (_bakeFailuresLogged.Add(want.File))
+        {
+            Console.Error.WriteLine($"The background bake of \"{want.Name}\" failed, so its area stays lit live: {error.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Records the running background bake's next slice into the frame's command buffer, between timestamps, with as
+    /// many trace passes as the last measured slice says fit the budget. Skips the frame while a step's readback is
+    /// still on its way, and while the last bake still holds the baker's pages.
+    /// </summary>
+    private void RecordBakeSlice(CommandBuffer cmd)
+    {
+        _sliceTimed[_frameIndex] = false;
+        if (_bakeJob is not { } job || _bakeFinishing is not null || _framesSubmitted < _bakeAwaitUntil
+            || (!job.Started && _baker!.PagesClaimed))
+        {
+            return;
+        }
+
+        bool timed = _bakeTimer.IsSupported;
+        if (timed)
+        {
+            _bakeTimer.Begin(cmd, _frameIndex);
+        }
+
+        BakeStepResult result;
+        try
+        {
+            result = job.Step(cmd, _bakePasses);
+        }
+        catch (Exception e) when (e is InvalidOperationException or ArgumentException)
+        {
+            // What the step recorded rides this frame, so the job goes with this frame's slot.
+            var want = _bakeJobWant;
+            _bakeQueue?.Finished(want.File, want.Inputs, _bakeJobQuality);
+            RetireBakeJob(job, _destroyed[_frameIndex]);
+            _bakeJob = null;
+            ReportBakeFailure(want, e);
+            return;
+        }
+        finally
+        {
+            if (timed)
+            {
+                _bakeTimer.Mark(cmd);
+                _bakeTimer.End();
+            }
+        }
+
+        int passes = job.PassesInLastStep;
+        if (passes == 0)
+        {
+            // The next stage's passes may cost something else, so they start over from one.
+            _bakePasses = 1;
+            _bakePassEpoch++;
+        }
+
+        _sliceTimed[_frameIndex] = timed;
+        _slicePasses[_frameIndex] = passes;
+        _sliceEpoch[_frameIndex] = _bakePassEpoch;
+        switch (result)
+        {
+            case BakeStepResult.AwaitGpu:
+                // This frame is the next submitted; its fence has passed once as many more frames have been.
+                _bakeAwaitUntil = _framesSubmitted + FramesInFlight;
+                break;
+            case BakeStepResult.Done:
+                StartFinishingBake(job);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Reads the slice timed in this frame slot, whose fence has passed, and sizes the next trace slice from it: as
+    /// many passes as fit the budget at the rate it ran, never more than double.
+    /// </summary>
+    private void MeasureBakeSlice()
+    {
+        if (!_sliceTimed[_frameIndex])
+        {
+            return;
+        }
+
+        _sliceTimed[_frameIndex] = false;
+        if (!_bakeTimer.Collect(_frameIndex))
+        {
+            return;
+        }
+
+        float milliseconds = (float)_bakeTimer.Times[0].Milliseconds;
+        _lastSliceMilliseconds = milliseconds;
+        BakeSlicesMeasured++;
+        int passes = _slicePasses[_frameIndex];
+        if (passes == 0 || _sliceEpoch[_frameIndex] != _bakePassEpoch || _autoBake is not { } auto)
+        {
+            return;
+        }
+
+        double perPass = Math.Max(milliseconds / passes, 1e-4);
+        _bakePasses = (int)Math.Clamp(auto.BudgetMilliseconds / perPass, 1, Math.Max(passes * 2, 1));
+    }
+
+    // Makes the finished job's file on the thread pool, since encoding the pages takes longer than a frame.
+    private void StartFinishingBake(BakeJob job)
+    {
+        var finishing = new FinishingBake(job, _bakeJobWant, _bakeJobQuality);
+        _bakeFinishing = finishing;
+        _bakeFinishes.Add(finishing);
+        finishing.Task = Task.Run(() =>
+        {
+            try
+            {
+                finishing.Bytes = job.Finish();
+            }
+            catch (Exception e)
+            {
+                finishing.Error = e;
+            }
+
+            _bakesFinished.Enqueue(finishing);
+        });
+    }
+
+    /// <summary>
+    /// Stops the running background bake, if any, without finishing it; the queue starts its area again while a frame
+    /// names it. Steps already submitted may still run, so the job is freed with the last submitted frame.
+    /// </summary>
+    private void StopBakeJob()
+    {
+        if (_bakeJob is not { } job)
+        {
+            return;
+        }
+
+        if (_bakeFinishing is { } finishing)
+        {
+            // Its file is being made; it is dropped, and the job freed when the thread pool is done with it.
+            finishing.Cancelled = true;
+            _bakeFinishing = null;
+        }
+        else
+        {
+            RetireBakeJob(job, Destroying());
+        }
+
+        _bakeJob = null;
+        _bakeQueue?.Stopped();
+    }
+
+    // A job that never stepped holds nothing the GPU reads, so it goes at once.
+    private void RetireBakeJob(BakeJob job, DestroyedSlot slot)
+    {
+        if (!job.Started)
+        {
+            job.Dispose();
+            return;
+        }
+
+        _retiringBakes.Add(job);
+        slot.Others.Add(new RetiredBake(this, job));
+    }
+
+    /// <summary>
+    /// Frees every background bake once the GPU is idle, for a whole bake, which needs the baker's pages, and for
+    /// <see cref="Dispose"/>: waits for the files being made, drops them, and stops the running bake.
+    /// </summary>
+    private void DropBackgroundBakes()
+    {
+        StopBakeJob();
+        foreach (var finishing in _bakeFinishes)
+        {
+            finishing.Cancelled = true;
+            finishing.Task?.Wait();
+        }
+
+        while (_bakesFinished.TryDequeue(out var finished))
+        {
+            finished.Job.Dispose();
+        }
+
+        _bakeFinishes.Clear();
+        foreach (var job in _retiringBakes)
+        {
+            // Disposing twice is harmless, so the slot's later release changes nothing.
+            job.Dispose();
+        }
+
+        _retiringBakes.Clear();
     }
 
     // The checks every bake of the view's space makes before it starts.
@@ -2104,6 +2536,7 @@ public sealed unsafe class Renderer : IDisposable
         BakeFiles.CheckChunks(view.BakedChunks);
         var resolved = ResolveChunk(view, draws, chunk);
         _api.DeviceWaitIdle(_context.Device).Check();
+        DropBackgroundBakes();
         _uploads.Flush();
         BakeSky(view);
         PrepareBaking(probes: false);
@@ -3243,25 +3676,31 @@ public sealed unsafe class Renderer : IDisposable
         BakeFiles.CheckChunks(view.BakedChunks);
         if (!_drawingWithoutBakedLights)
         {
+            // Before the bakes are resolved, so a file Done saves can be fresh this very frame.
+            TakeFinishedBakes();
+
             // Worked out once, from the original view: a frame drawn again without its baked sun keeps the sky that sun
             // lights, and its disc.
             BakeSky(view);
-        }
+            bool relit = ResolveBakes(view, draws, out var withoutBakedLights);
 
-        if (!_drawingWithoutBakedLights && ResolveBakes(view, draws, out var withoutBakedLights))
-        {
-            // A fresh bake has taken some lights over, so the frame is drawn without them.
-            _drawingWithoutBakedLights = true;
-            try
+            // From the frame with every light, since a bake takes the lights a fresh bake would drop.
+            UpdateBackgroundBake(view, draws);
+            if (relit)
             {
-                Render(withoutBakedLights, draws);
-            }
-            finally
-            {
-                _drawingWithoutBakedLights = false;
-            }
+                // A fresh bake has taken some lights over, so the frame is drawn without them.
+                _drawingWithoutBakedLights = true;
+                try
+                {
+                    Render(withoutBakedLights, draws);
+                }
+                finally
+                {
+                    _drawingWithoutBakedLights = false;
+                }
 
-            return;
+                return;
+            }
         }
 
         ManageProbeStorage();
@@ -3271,6 +3710,7 @@ public sealed unsafe class Renderer : IDisposable
         long waitStart = Stopwatch.GetTimestamp();
         _api.WaitForFences(_context.Device, 1, &fence, true, ulong.MaxValue).Check();
         ReleaseDestroyed(_frameIndex);
+        MeasureBakeSlice();
 
         var swapchainHandle = _swapchain.Handle;
         uint imageIndex = 0;
@@ -3364,6 +3804,8 @@ public sealed unsafe class Renderer : IDisposable
         _uploads.Record(cmd, _destroyed[_frameIndex].Others);
         // This frame's share of the chunk bakes going up, and those no copy named this frame let go once it is done.
         _chunkPool.Record(cmd, _destroyed[_frameIndex].Textures, _destroyed[_frameIndex].Others);
+        // A slice of the background bake, after the uploads so a mesh made this frame is in its scene.
+        RecordBakeSlice(cmd);
         // One top-level structure a frame, shared by the trace debug view and the traced probe updates, made only on
         // a frame that traces something.
         TopLevelStructure? traced = null;
@@ -3421,6 +3863,7 @@ public sealed unsafe class Renderer : IDisposable
             PSignalSemaphoreInfos = &signalInfo,
         };
         _api.QueueSubmit2(_context.Queue, 1, &submit, fence).Check();
+        _framesSubmitted++;
 
         var present = new PresentInfoKHR
         {
@@ -3632,6 +4075,7 @@ public sealed unsafe class Renderer : IDisposable
     {
         _api.DeviceWaitIdle(_context.Device).Check();
         _uploads.Discard();
+        DropBackgroundBakes();
         for (int slot = 0; slot < FramesInFlight; slot++)
         {
             ReleaseDestroyed(slot);
@@ -3644,6 +4088,7 @@ public sealed unsafe class Renderer : IDisposable
         _baker?.Dispose();
         _tracing?.Dispose();
         _gpuTimer.Dispose();
+        _bakeTimer.Dispose();
         _overlayPass.Dispose();
         _overlayAtlas?.Dispose();
         _finishPass.Dispose();
