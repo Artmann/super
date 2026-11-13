@@ -144,6 +144,17 @@ profile written by hand can hold only what it changes, and the rest keep their d
 { "VolumetricFog": false, "ShadowCascades": 2, "BakeOnArrival": false }
 ```
 
+A profile makes a custom preset of its own when `"Base"` names one to start from instead of the
+defaults: `Low`, `Medium`, `High`, `Ultra` or `Fastest`, in any case. The rest of the profile is
+written over it, so this is `Low` with reflections back on and three cascades:
+
+```json
+{ "Base": "Low", "Reflections": true, "ShadowCascades": 3 }
+```
+
+`Save` writes every setting and no `Base`, so a saved profile keeps what it held even when a
+later version changes the presets. Any other `Base` is refused with a message naming the file.
+
 A name the profile doesn't know, or a value a setting refuses, stops the load with an
 `InvalidDataException` naming the file. `--graphics` picks a preset or profile from the
 [command line](command-line.md): `low`, `medium`, `high`, `ultra`, `fastest`, `auto` for the
