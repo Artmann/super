@@ -19,6 +19,17 @@ iron, the ivy leaves, grass blades, dead leaves and cobweb its cards are cut fro
 grit laid over the stone, and the grime, gravel and stains its decals lay. The graphs are in
 `examples/Courtyard/content/materials` and make a good place to start a new one.
 
+![The Reef before and after its graphs: smooth sand on the left, rippled sand on the right](media/reef-materials.webp)
+
+The [Reef](../examples/Reef) example uses graphs on meshes made in code. Its seabed is a
+heightfield wearing `sand.material.cs`, wave ripples bent by noise, with shells and silt in
+the troughs. Its boulders are domes pushed out of shape, wearing `reef-rock.material.cs`:
+pale limestone bored with holes, with patches of pink crust, olive turf and small coral cups.
+
+![Two reef boulders among the coral, pale pitted limestone with soft patches of crust and turf](media/reef-rock.webp)
+Its own graphs are in `examples/Reef/content`, a content root of its own next to the shared
+`assets` folder, since a root's graphs can only come from inside it.
+
 ## Writing a graph
 
 A graph is one C# file in a content folder, named `*.material.cs`. It holds one public
