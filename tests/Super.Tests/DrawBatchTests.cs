@@ -90,6 +90,18 @@ public sealed class DrawBatchTests
         Assert.Equal(2, Batch(draws, keepOrder: false, out _).Count);
     }
 
+    [Theory]
+    [InlineData(false, MaterialFlags.None, false)]
+    [InlineData(false, MaterialFlags.TwoSided | MaterialFlags.Foliage | MaterialFlags.WorldVariation, false)]
+    [InlineData(true, MaterialFlags.None, true)]
+    [InlineData(false, MaterialFlags.Dithered, true)]
+    [InlineData(false, MaterialFlags.Transparent | MaterialFlags.TwoSided, true)]
+    public void Only_a_material_that_leaves_pixels_out_skips_the_solid_pipelines(
+        bool cutouts, MaterialFlags flags, bool expected)
+    {
+        Assert.Equal(expected, SceneDraws.HasHoles(cutouts, flags));
+    }
+
     [Fact]
     public void Kept_order_shares_a_draw_only_between_neighbours()
     {

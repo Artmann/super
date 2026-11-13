@@ -209,8 +209,8 @@ internal static unsafe class SceneDraws
     /// same as one instanced draw. Solid things and shadows are drawn in any order, which
     /// brings copies together. A pass with one entry in <paramref name="pipelines"/> draws
     /// everything with it. Otherwise each material picks its surface shader. Materials
-    /// without cut-out holes, and that aren't glass, use <paramref name="solid"/> when it's
-    /// given. Each copy's matrix goes into <paramref name="instances"/>. Materials that sway in the wind
+    /// without cut-out holes, that aren't dithered and aren't glass, use <paramref name="solids"/> when it's
+    /// given, picked the same way. Each copy's matrix goes into <paramref name="instances"/>. Materials that sway in the wind
     /// sway from the lowest point of their part, which <paramref name="details"/> holds.
     /// With <paramref name="still"/> nothing sways, for views that must not follow the wind.
     /// </summary>
@@ -225,7 +225,7 @@ internal static unsafe class SceneDraws
         List<PartDetail> details,
         InstanceBuffer instances,
         ScenePass pass,
-        PipelineVariants? solid = null,
+        List<PipelineVariants>? solids = null,
         int cascade = 0,
         bool still = false)
     {
@@ -249,11 +249,18 @@ internal static unsafe class SceneDraws
             var constants = still
                 ? Constants(draws[order[batch.First]], cascade)
                 : Constants(draws[order[batch.First]], cascade, resources.SwayOf, details);
-            Draw(api, cmd, layout, pipelines, resources, draws, order.Slice(batch.First, batch.Count), meshes, instances, constants, solid, ref bound);
+            Draw(api, cmd, layout, pipelines, resources, draws, order.Slice(batch.First, batch.Count), meshes, instances, constants, solids, ref bound);
         }
 
         ArrayPool<int>.Shared.Return(pooled);
     }
+
+    /// <summary>
+    /// Whether a material leaves some of its pixels out, by a cutoff, a dithered fade or glass's dithered shadow, so
+    /// its fragment shader has to run before a pixel's depth is known. The rest draw with the solid pipelines.
+    /// </summary>
+    public static bool HasHoles(bool cutouts, MaterialFlags flags) =>
+        cutouts || (flags & (MaterialFlags.Transparent | MaterialFlags.Dithered)) != 0;
 
     /// <summary>What a command buffer has bound, so the same pipeline or mesh isn't bound twice in a row.</summary>
     public struct Bound()
@@ -277,15 +284,13 @@ internal static unsafe class SceneDraws
         List<Mesh?> meshes,
         InstanceBuffer instances,
         DrawConstants constants,
-        PipelineVariants? solid,
+        List<PipelineVariants>? solids,
         ref Bound bound)
     {
         ref readonly var draw = ref draws[copies[0]];
         var flags = resources.GetFlags(draw.Material);
-        bool needsFragments = resources.HasCutouts(draw.Material) || (flags & MaterialFlags.Transparent) != 0;
-        var variants = solid is { } solidVariants && !needsFragments
-            ? solidVariants
-            : pipelines[pipelines.Count > 1 ? resources.GetShader(draw.Material) : 0];
+        var choices = solids is not null && !HasHoles(resources.HasCutouts(draw.Material), flags) ? solids : pipelines;
+        var variants = choices[choices.Count > 1 ? resources.GetShader(draw.Material) : 0];
         var pipeline = (flags & MaterialFlags.TwoSided) != 0 ? variants.TwoSided : variants.Culled;
         if (pipeline.Handle != bound.Pipeline.Handle)
         {

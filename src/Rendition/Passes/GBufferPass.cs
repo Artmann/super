@@ -10,6 +10,7 @@ internal sealed unsafe class GBufferPass : IDisposable
     private readonly ResourceTable _resources;
     private readonly PipelineLayout _layout;
     private readonly List<PipelineVariants> _pipelines = [];
+    private readonly List<PipelineVariants> _solids = [];
 
     public GBufferPass(VulkanContext context, DescriptorSetLayout frameSetLayout, ResourceTable resources)
     {
@@ -45,6 +46,13 @@ internal sealed unsafe class GBufferPass : IDisposable
         var culled = PipelineFactory.Create(_context, description);
         description.TwoSided = true;
         _pipelines.Add(new PipelineVariants(culled, PipelineFactory.Create(_context, description)));
+
+        // The same shader without its cut-outs, for materials with no holes, so hidden pixels are skipped unshaded.
+        description.Solid = true;
+        description.TwoSided = false;
+        var solidCulled = PipelineFactory.Create(_context, description);
+        description.TwoSided = true;
+        _solids.Add(new PipelineVariants(solidCulled, PipelineFactory.Create(_context, description)));
         return new SurfaceShaderHandle(_pipelines.Count - 1);
     }
 
@@ -91,14 +99,14 @@ internal sealed unsafe class GBufferPass : IDisposable
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set };
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
 
-        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, details, instances, ScenePass.Opaque);
+        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, details, instances, ScenePass.Opaque, solids: _solids);
 
         api.CmdEndRendering(cmd);
     }
 
     public void Dispose()
     {
-        foreach (var variants in _pipelines)
+        foreach (var variants in _pipelines.Concat(_solids))
         {
             _context.Api.DestroyPipeline(_context.Device, variants.TwoSided, null);
             _context.Api.DestroyPipeline(_context.Device, variants.Culled, null);

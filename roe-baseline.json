@@ -2081,7 +2081,7 @@
       "kind": "long-method",
       "name": "Rendition.Vulkan.PipelineFactory.Create",
       "file": "src/Rendition/Vulkan/PipelineFactory.cs",
-      "metric": 168
+      "metric": 179
     },
     {
       "kind": "long-method",
