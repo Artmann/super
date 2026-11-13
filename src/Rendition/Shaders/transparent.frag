@@ -70,7 +70,7 @@ void main() {
     // Opacity can come from either texture, as in surface.glsl and shadow.frag: a material
     // graph keeps it in the surface texture's alpha.
     baseColor.a *= texture(textures[material.surfaceTexture], inUv, frame.mipBias).a;
-    vec3 emissive = texture(textures[material.emissiveTexture], inUv, frame.mipBias).rgb * material.emissive.rgb;
+    vec3 emissive = isOff(OFF_EMISSIVE) ? vec3(0.0) : texture(textures[material.emissiveTexture], inUv, frame.mipBias).rgb * material.emissive.rgb;
     float roughnessOfSurface = material.roughness;
 
     // A see-through ghost is one matte colour that glows a little, like solid ghosts in
@@ -95,14 +95,16 @@ void main() {
     float nDotV = max(dot(n, v), 1e-4);
     float roughness = clamp(roughnessOfSurface, 0.045, 1.0);
     float alpha = roughness * roughness;
-    vec3 f0 = vec3(0.04);
+    // With Graphics.Specular off a zero f0 leaves no highlight and no reflection, only the diffuse light.
+    bool specularOn = !isOff(OFF_SPECULAR);
+    vec3 f0 = specularOn ? vec3(0.04) : vec3(0.0);
 
     vec2 brdf = environmentBrdf(roughness, nDotV);
     vec3 multiscatter = isOff(OFF_MULTISCATTER_SPECULAR) ? vec3(1.0) : multiscatterCompensation(f0, nDotV, roughness);
     // Glass reflects the yard or room round it where a reflection probe sees it, as lit surfaces do.
     vec3 reflectedLight = probeReflection(probeTexture, reflectionTexture, inPosition, reflect(-v, n), roughness * REFLECTION_LODS);
-    vec3 specular = reflectedLight * (f0 * brdf.x + brdf.y) * frame.backgroundRadiance.a * multiscatter;
-    vec3 diffuse = texture(irradianceTexture, n).rgb * frame.backgroundRadiance.a;
+    vec3 specular = specularOn ? reflectedLight * (f0 * brdf.x + brdf.y) * frame.backgroundRadiance.a * multiscatter : vec3(0.0);
+    vec3 diffuse = skyIrradiance(irradianceTexture, n) * frame.backgroundRadiance.a;
 
     for (int i = 0; i < frame.lightCount; i++) {
         vec3 l = frame.lights[i].direction.xyz;

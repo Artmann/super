@@ -268,6 +268,57 @@ public class PostGradeTests
         Assert.Equal(Tonemapper.Aces, view.Post.Tonemapper);
     }
 
+    private static PostSettings Graded() => new()
+    {
+        Exposure = 0.5f,
+        Bloom = 0.2f,
+        Vignette = 0.4f,
+        Grain = 0.3f,
+        Sharpen = 0.6f,
+        Contrast = 0.25f,
+        Saturation = -0.5f,
+        Lift = new Vector3(0.01f, 0.02f, 0.03f),
+        Gain = new Vector3(0.1f, 0.2f, 0.3f),
+        Temperature = 0.7f,
+        Tint = -0.4f,
+        Tonemapper = Tonemapper.Aces,
+        AgxLook = AgxLook.Base,
+    };
+
+    [Fact]
+    public void Nothing_off_leaves_the_post_settings_as_they_are()
+    {
+        Assert.Equal(Graded(), PostGrade.Without(Graded(), RenderEffects.None));
+    }
+
+    [Fact]
+    public void Each_finish_switch_clears_only_its_own_setting()
+    {
+        Assert.Equal(Graded() with { Vignette = 0f }, PostGrade.Without(Graded(), RenderEffects.Vignette));
+        Assert.Equal(Graded() with { Grain = 0f }, PostGrade.Without(Graded(), RenderEffects.Grain));
+        Assert.Equal(Graded() with { Sharpen = 0f }, PostGrade.Without(Graded(), RenderEffects.Sharpening));
+    }
+
+    [Fact]
+    public void Colour_grading_off_makes_the_grade_neutral_and_keeps_the_exposure_bloom_and_tonemapper()
+    {
+        var post = PostGrade.Without(Graded(), RenderEffects.ColorGrading);
+
+        Assert.Equal(
+            Graded() with
+            {
+                Contrast = 0f,
+                Saturation = 0f,
+                Lift = Vector3.Zero,
+                Gain = Vector3.Zero,
+                Temperature = 0f,
+                Tint = 0f,
+            },
+            post);
+        Assert.Equal(new Vector4(1f, 1f, 1f, 0f), PostGrade.Tint(post).Gain);
+        AssertNear(Matrix4x4.Identity, PostGrade.WhiteBalance(post.Temperature, post.Tint));
+    }
+
     private static void AssertNear(Matrix4x4 expected, Matrix4x4 actual)
     {
         for (int row = 0; row < 4; row++)

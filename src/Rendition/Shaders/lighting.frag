@@ -148,7 +148,7 @@ vec3 liveSoftLight(vec3 position, vec3 direction, vec3 v) {
         }
     }
 
-    return texture(irradianceTexture, direction).rgb * frame.backgroundRadiance.a;
+    return skyIrradiance(irradianceTexture, direction) * frame.backgroundRadiance.a;
 }
 
 // The soft light reaching a point from around a direction, in the lit image's units. Inside a fresh baked space, the
@@ -584,12 +584,21 @@ void main() {
         baseColor *= 1.0 - fresnelSchlick(nDotV, f0);
     }
 
+    // With Graphics.Specular off every surface is plain diffuse: metals in their base colour, no coat, and a zero f0,
+    // so shade() lights only the diffuse part.
+    bool specular = !isOff(OFF_SPECULAR);
+    if (!specular) {
+        metallic = 0.0;
+        clearcoat = 0.0;
+        f0 = vec3(0.0);
+    }
+
     vec2 brdf = environmentBrdf(roughness, nDotV);
     vec3 multiscatter = isOff(OFF_MULTISCATTER_SPECULAR) ? vec3(1.0) : multiscatterCompensation(f0, nDotV, roughness);
     vec3 reflectedLight = sampleReflection(position, reflect(-v, n), roughness * REFLECTION_LODS);
 
     // Coated surfaces are traced for their mirror-like coat, which then serves both layers.
-    float traceStrength = isOff(OFF_REFLECTIONS) ? 0.0
+    float traceStrength = isOff(OFF_REFLECTIONS) || !specular ? 0.0
         : clearcoat > 0.0 ? 1.0 : 1.0 - smoothstep(TRACE_MAX_ROUGHNESS * 0.5, TRACE_MAX_ROUGHNESS, roughness);
     vec4 traced = vec4(0.0);
     if (traceStrength > 0.0) {
@@ -607,7 +616,7 @@ void main() {
     // reflection is occluded. A traced reflection found what's in the way itself.
     reflectedLight *= specularOcclusion(nDotV, ao, roughness);
     reflectedLight = mix(reflectedLight, traced.rgb, traced.a);
-    vec3 environmentSpecular = reflectedLight * (f0 * brdf.x + brdf.y) * multiscatter;
+    vec3 environmentSpecular = specular ? reflectedLight * (f0 * brdf.x + brdf.y) * multiscatter : vec3(0.0);
     // Soft light already carries the environment's intensity; the reflections don't yet.
     // A lightmapped pixel's soft light is baked, with the environment's intensity in it, and the screen's occlusion
     // weighs on it only by LIGHTMAP_OCCLUSION. Its reflections are occluded as any other pixel's. In a chunk's edge band

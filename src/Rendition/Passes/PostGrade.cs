@@ -16,6 +16,41 @@ internal static class PostGrade
     // How far Tint 1 moves the white off the line of black-body colours, in the CIE 1960 uv plane.
     private const double MaxDuv = 0.02;
 
+    /// <summary>
+    /// <paramref name="post"/> with what <paramref name="off"/> leaves out set back to neutral: the vignette, the grain,
+    /// the sharpening, and with <see cref="RenderEffects.ColorGrading"/> the contrast, saturation, lift, gain and white
+    /// balance. The exposure, the bloom, the tonemapper and the lens are left alone.
+    /// </summary>
+    public static PostSettings Without(PostSettings post, RenderEffects off)
+    {
+        if ((off & RenderEffects.Vignette) != 0)
+        {
+            post.Vignette = 0f;
+        }
+
+        if ((off & RenderEffects.Grain) != 0)
+        {
+            post.Grain = 0f;
+        }
+
+        if ((off & RenderEffects.Sharpening) != 0)
+        {
+            post.Sharpen = 0f;
+        }
+
+        if ((off & RenderEffects.ColorGrading) != 0)
+        {
+            post.Contrast = 0f;
+            post.Saturation = 0f;
+            post.Lift = Vector3.Zero;
+            post.Gain = Vector3.Zero;
+            post.Temperature = 0f;
+            post.Tint = 0f;
+        }
+
+        return post;
+    }
+
     /// <summary>The lift, with the bloom's strength in w, and the gain as a multiplier for each channel.</summary>
     public static (Vector4 Lift, Vector4 Gain) Tint(in PostSettings post)
     {

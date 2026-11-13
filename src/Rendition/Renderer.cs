@@ -3052,9 +3052,11 @@ public sealed unsafe class Renderer : IDisposable
         hash.Add(view.Shadows.LightAngle);
 
         // Plain materials and wear and dirt change what colour the bounced light picks up, and multiscatter how
-        // brightly rough metals shine in what a probe photographs.
+        // brightly rough metals shine in what a probe photographs. Shine, the sky's light, glows and height maps all
+        // change the lit picture a probe photographs.
         hash.Add(view.Off & (RenderEffects.SunShadows | RenderEffects.Materials | RenderEffects.MultiscatterSpecular
-            | RenderEffects.WearAndDirt | RenderEffects.AmbientOcclusion));
+            | RenderEffects.WearAndDirt | RenderEffects.AmbientOcclusion | RenderEffects.Specular | RenderEffects.EnvironmentLight
+            | RenderEffects.Emissive | RenderEffects.HeightMaps));
         hash.Add(view.LightProbes);
         hash.Add(view.Occlusion);
         return hash.ToHashCode();
@@ -3083,7 +3085,7 @@ public sealed unsafe class Renderer : IDisposable
         hash.Add(view.EnvironmentIntensity);
         hash.Add(view.Sky.Turbidity);
         hash.Add(view.Shadows.Radius > 0f);
-        hash.Add(off & (RenderEffects.SunShadows | RenderEffects.Materials | RenderEffects.LightShadows));
+        hash.Add(off & (RenderEffects.SunShadows | RenderEffects.Materials | RenderEffects.LightShadows | RenderEffects.Emissive));
         return hash.ToHashCode();
     }
 
@@ -4039,9 +4041,14 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>
-    /// Renders a frame and also returns it as RGBA bytes, row by row from the top. It
-    /// works on a hidden window. Allocates and waits for the GPU, so it isn't for the game loop.
+    /// How many pixels a simpler model may stray by in a view that allows <paramref name="error"/> at a mesh detail of 1,
+    /// or 0, full detail, with <see cref="RenderEffects.SimplerModels"/> off.
     /// </summary>
+    private float DetailError(float error) => _off.HasFlag(RenderEffects.SimplerModels) ? 0f : error / MeshDetailScale;
+
+    /// <summary>Whether views leave out what they can't see, which <see cref="RenderEffects.Culling"/> off stops.</summary>
+    private bool Culls => !_off.HasFlag(RenderEffects.Culling);
+
     /// <summary>Leaves out what each pass can't see, and swaps in simpler models where nobody will notice.</summary>
     private (int Camera, int Shadows) SelectDraws(
         in FrameView view, in Matrix4x4 viewProjection, ReadOnlySpan<DrawItem> draws, bool castsShadow)
@@ -4056,7 +4063,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         var (pixelsAtOneUnit, pixelsPerUnit) = Projection.PixelScale(view.Projection, (int)_gBuffer.Extent.Height);
-        var camera = new DetailView(viewProjection, view.CameraPosition, pixelsAtOneUnit, pixelsPerUnit, CameraDetailError / MeshDetailScale);
+        var camera = new DetailView(viewProjection, view.CameraPosition, pixelsAtOneUnit, pixelsPerUnit, DetailError(CameraDetailError), cull: Culls);
         int cameraCount;
         if (_relightChunks)
         {
@@ -4085,7 +4092,7 @@ public sealed unsafe class Renderer : IDisposable
             {
                 float texelsPerUnit = _shadowPass.Resolution / (2f * ShadowPass.CascadeRadius(view.Shadows, cascade));
                 var shadow = new DetailView(
-                    _shadowMatrices[cascade], view.CameraPosition, 0f, texelsPerUnit, ShadowDetailError / MeshDetailScale);
+                    _shadowMatrices[cascade], view.CameraPosition, 0f, texelsPerUnit, DetailError(ShadowDetailError), cull: Culls);
                 _shadowCounts[cascade] = DrawSelection.Select(shadow, draws, _details, _shadowDraws[cascade], _windReach);
                 shadowCount += _shadowCounts[cascade];
             }
@@ -4160,7 +4167,8 @@ public sealed unsafe class Renderer : IDisposable
             }
 
             ref readonly var view = ref tiles[tile];
-            var shadow = new DetailView(view.Matrix, view.Eye, view.PixelsAtOneUnit, 0f, ShadowDetailError / MeshDetailScale, far: true);
+            var shadow = new DetailView(
+                view.Matrix, view.Eye, view.PixelsAtOneUnit, 0f, DetailError(ShadowDetailError), far: true, cull: Culls);
             int count = DrawSelection.Select(shadow, draws, _details, _tileDraws.AsSpan(total), _windReach);
             _tileRanges[tile] = (total, count);
             total += count;
@@ -4898,12 +4906,12 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->FrameNumber = frameNumber;
         uniforms->HistoryValid = historyValid ? 1 : 0;
         uniforms->ShowEnvironment = capturingProbe || view.ShowEnvironment ? 1 : 0;
-        uniforms->Grade = new Vector4(
-            MathF.Pow(2f, view.Post.Exposure), 1f + view.Post.Contrast, 1f + view.Post.Saturation, view.Post.Vignette);
-        uniforms->Finish = new Vector4(view.Post.Sharpen, view.Post.Grain, shift.X, shift.Y);
-        (uniforms->Lift, uniforms->Gain) = PostGrade.Tint(view.Post);
-        uniforms->WhiteBalance = PostGrade.WhiteBalance(view.Post.Temperature, view.Post.Tint);
-        uniforms->Curve = PostGrade.Curve(view.Post);
+        var post = PostGrade.Without(view.Post, _off);
+        uniforms->Grade = new Vector4(MathF.Pow(2f, post.Exposure), 1f + post.Contrast, 1f + post.Saturation, post.Vignette);
+        uniforms->Finish = new Vector4(post.Sharpen, post.Grain, shift.X, shift.Y);
+        (uniforms->Lift, uniforms->Gain) = PostGrade.Tint(post);
+        uniforms->WhiteBalance = PostGrade.WhiteBalance(post.Temperature, post.Tint);
+        uniforms->Curve = PostGrade.Curve(post);
         (uniforms->HazeOrigin, uniforms->HazeColor) = Haze.Pack(view.CameraPosition, view.BackgroundFadeOrigin, view.BackgroundFadeColor);
         uniforms->Occlusion = Occlusion.Pack(view.Occlusion);
         uniforms->Fog = Fog.Pack(view.Fog, _off, capturingProbe, underwater: view.Water.Absorption != Vector3.Zero);

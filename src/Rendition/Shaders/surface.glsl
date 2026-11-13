@@ -236,7 +236,7 @@ vec2 parallaxUvIn(uint heightTexture, vec2 uv, float depth, mat3 basis, vec2 uvX
     float distance = length(toEye);
     float fade = 1.0 - smoothstep(PARALLAX_FADE_START, PARALLAX_FADE_END, distance);
     vec3 view = transpose(basis) * (toEye / max(distance, 1e-6));
-    if (depth <= 0.0 || fade <= 0.0 || view.z <= 0.0) {
+    if (depth <= 0.0 || fade <= 0.0 || view.z <= 0.0 || isOff(OFF_HEIGHT_MAPS)) {
         return uv;
     }
 
@@ -545,6 +545,9 @@ void writeSurface(Surface surface) {
     }
 
     bool foliage = (material.flags & MATERIAL_FOLIAGE) != 0u;
+    if (isOff(OFF_EMISSIVE)) {
+        surface.emissive = vec3(0.0);
+    }
 
     // With materials off, every surface is the same plain clay, shaped only by its mesh: no
     // colour, tint, normal map, shine, coat or subsurface. Cut-outs still cut and glows still glow.

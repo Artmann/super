@@ -14,14 +14,18 @@ internal readonly struct DetailView
     private readonly Plane _bottom;
     private readonly Plane _near;
     private readonly Plane _far;
+    private readonly bool _cull;
 
     /// <summary>
     /// Takes the planes from clip space, where what's visible has |x| and |y| and z no larger than w.
     /// With <paramref name="far"/>, z must also be at least 0, for a view with a far plane, such as a
-    /// light's into a shadow tile; the camera's reaches forever and has none.
+    /// light's into a shadow tile; the camera's reaches forever and has none. Without <paramref name="cull"/>, the view
+    /// sees everything, for <see cref="RenderEffects.Culling"/> off.
     /// </summary>
-    public DetailView(in Matrix4x4 clip, Vector3 eye, float pixelsAtOneUnit, float pixelsPerUnit, float maxError, bool far = false)
+    public DetailView(
+        in Matrix4x4 clip, Vector3 eye, float pixelsAtOneUnit, float pixelsPerUnit, float maxError, bool far = false, bool cull = true)
     {
+        _cull = cull;
         var x = new Vector4(clip.M11, clip.M21, clip.M31, clip.M41);
         var y = new Vector4(clip.M12, clip.M22, clip.M32, clip.M42);
         var z = new Vector4(clip.M13, clip.M23, clip.M33, clip.M43);
@@ -46,11 +50,16 @@ internal readonly struct DetailView
     /// <summary>Pixels per unit at any distance, for a parallel view.</summary>
     public float PixelsPerUnit { get; }
 
-    /// <summary>How many pixels a simpler model may stray by.</summary>
+    /// <summary>How many pixels a simpler model may stray by. 0 keeps every model at full detail.</summary>
     public float MaxError { get; }
 
     public bool CanSee(Vector3 center, float radius)
     {
+        if (!_cull)
+        {
+            return true;
+        }
+
         ReadOnlySpan<Plane> planes = [_left, _right, _top, _bottom, _near, _far];
         for (int i = 0; i < PlaneCount; i++)
         {

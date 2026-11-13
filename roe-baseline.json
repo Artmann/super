@@ -621,12 +621,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Graphics.Off",
-      "file": "src/Super/Graphics.cs",
-      "metric": 20
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.Materials.BlendNode.Combine",
       "file": "src/Super.Materials/Blend.cs",
       "metric": 11
@@ -1212,12 +1206,6 @@
       "name": "Super.GameWindow.ListenForInput",
       "file": "src/Super/Rendering/GameWindow.cs",
       "metric": 17
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Super.Graphics.Off",
-      "file": "src/Super/Graphics.cs",
-      "metric": 19
     },
     {
       "kind": "high-cognitive-complexity",
@@ -3521,13 +3509,13 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5573
+      "metric": 5581
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
-      "metric": 1434
+      "metric": 1489
     },
     {
       "kind": "large-file",
@@ -3713,7 +3701,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 369
+      "metric": 371
     },
     {
       "kind": "large-type",
@@ -3911,7 +3899,7 @@
       "kind": "large-type",
       "name": "Super.Graphics",
       "file": "src/Super/Graphics.cs",
-      "metric": 40
+      "metric": 52
     },
     {
       "kind": "large-type",
@@ -4118,6 +4106,7 @@
         "Rendition.Passes.Motion",
         "Rendition.Passes.OverlayPass",
         "Rendition.Passes.ParticlePass",
+        "Rendition.Passes.PostGrade",
         "Rendition.Passes.ProbeCapturePass",
         "Rendition.Passes.ProbeDebugPass",
         "Rendition.Passes.ProbeSunShadow",

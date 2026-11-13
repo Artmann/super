@@ -54,8 +54,9 @@ Game.StartWindowsGameLoop<MyGame>(new GameOptions
 });
 ```
 
-`Graphics.Fastest()` turns every effect and vsync off (but keeps the materials and the baked lighting) and sets `MeshDetail` to 0.5, a start to turn back on only what
-the game needs. For settings a player picks from, see [quality presets and profiles](#quality-presets-and-profiles). Ask for `Graphics` in a constructor to change it while the game runs; the
+`Graphics.Fastest()` turns vsync and every effect that costs GPU time off, and sets `MeshDetail` to 0.5, a start to turn back on only what
+the game needs. It keeps what costs nothing or saves time: the materials, the baked lighting, `Specular`,
+`EnvironmentLight`, `Emissive`, `ColorGrading`, `Culling` and `SimplerModels`. For settings a player picks from, see [quality presets and profiles](#quality-presets-and-profiles). Ask for `Graphics` in a constructor to change it while the game runs; the
 next frame follows, so it can back an options menu.
 
 | Setting | Off, or set |
@@ -89,6 +90,34 @@ next frame follows, so it can back an options menu.
 | `BakeBudget` | Not a switch: the GPU milliseconds a [background bake](#baking-without-a-build-step) may take a frame, from 0.5 to 33. Null, the default, gives 4 from source and 2 in a published game |
 | `Materials` | Every surface is the same light grey, matte clay, shaped only by its mesh, so you can judge the lighting and the models without textures in the way. Glows still glow, cut-outs still cut, glass stays see-through and puddles still wet the clay. `--no-materials` turns it off too |
 | `WearAndDirt` | Models' materials show only their own colour and shine, without the pale worn edges and dark hollows their [baked masks](#wear-and-dirt) lay on, and the masks aren't read |
+| `HeightMaps` | Surfaces with a height map are flat, shaded only by their normal maps: bricks no longer stand out from the mortar as the view moves. It saves up to 32 lookups on each near pixel of those surfaces. Puddles still sink into the grooves. `GraphicsQuality.Low` and `Graphics.Fastest()` turn it off |
+| `Specular` | No shine: every surface is lit as plain matte, with no highlights, no reflections and no clear coat, metals in their base colour, and glass lets light through without reflecting. It's for judging the diffuse light, not for speed |
+| `EnvironmentLight` | The sky gives the same flat colour from every side, its average, instead of brighter light from above and the sky's colours in reflections. Light probes still see the real sky. It shows what the direct light and the probes do alone |
+| `Emissive` | No glows: lamps, screens and embers show only the light that falls on them, and no longer light the light probes. [Bakes](#baked-lighting) keep the glow they were made with. Ghosts still glow |
+| `Vignette` | The corners are as bright as the middle, whatever `PostSettings.Vignette` asks for |
+| `Grain` | No film grain, whatever `PostSettings.Grain` asks for |
+| `Sharpening` | No sharpening, whatever `PostSettings.Sharpen` asks for, and the finish pass skips that work |
+| `ColorGrading` | `PostSettings`' contrast, saturation, lift, gain, temperature and tint are all neutral. The exposure, the bloom and the tonemapper with its look stay |
+| `Culling` | Every model is drawn into the picture, each of the sun's cascades and each light's shadow tile, seen or not. It only costs time: it's there to check that culling hides nothing it shouldn't |
+| `SimplerModels` | Every model is drawn at full detail at any distance, whatever `MeshDetail` says, in the picture and the shadows. It only costs time: it's there to see what the simpler versions change |
+
+Tonemapping and glass have no switch. Without tonemapping, bright light clips to flat white, and
+without glass, windows would vanish rather than turn opaque, so neither shows anything useful.
+
+With `Specular` off, the Courtyard's puddle and window lose their reflections and only the
+diffuse light is left:
+
+![The Courtyard's window and puddle with Specular on, and off](media/graphics-specular.webp)
+
+The finishing touches change the whole picture. With them off, the colours are flatter and the
+corners no darker than the middle:
+
+![The Courtyard by default, and with Vignette, Grain, Sharpening and ColorGrading off](media/graphics-post.webp)
+
+With `Emissive` off, the Crypt's lantern goes dark. The torch and candle flames are particles,
+not emissive surfaces, so they still burn:
+
+![The Crypt's lantern with Emissive on, and off](media/graphics-emissive.webp)
 
 `Graphics.Fastest()` leaves `RenderScale` at 1 too, since a smaller picture is a change the
 player can see, not only a saving. A game for slow GPUs on big screens sets it to 0.75 or 0.5
@@ -101,7 +130,7 @@ itself, or offers it in an options menu.
 
 | Quality | What changes from `High` |
 |---|---|
-| `Low` | Render scale 0.75, 1024 shadow maps, 2 cascades, `MeshDetail` 0.5, `ProbeQuality.Low` and a 1 ms bake budget. Off: contact shadows, light shadows, light probes, ambient occlusion, reflections, auto exposure, depth of field, decals and volumetric fog. Puddles and wind stay on, as they cost next to nothing |
+| `Low` | Render scale 0.75, 1024 shadow maps, 2 cascades, `MeshDetail` 0.5, `ProbeQuality.Low` and a 1 ms bake budget. Off: contact shadows, light shadows, light probes, ambient occlusion, reflections, auto exposure, depth of field, decals, volumetric fog and height maps. Puddles and wind stay on, as they cost next to nothing |
 | `Medium` | Render scale 0.85, 3 cascades, `MeshDetail` 0.75, `ProbeQuality.Medium` and a 2 ms bake budget. Off: depth of field and volumetric fog |
 | `Ultra` | 4096 shadow maps and `MeshDetail` 1.5 |
 

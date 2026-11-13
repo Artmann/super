@@ -86,7 +86,7 @@ void main() {
         - camera.forward.xyz * sqrt(max(1.0 - r2, 0.0)));
     n = normalize(mix(-camera.forward.xyz, n, ROUNDNESS));
 
-    vec3 light = texture(irradianceTexture, n).rgb * frame.backgroundRadiance.a;
+    vec3 light = skyIrradiance(irradianceTexture, n) * frame.backgroundRadiance.a;
     for (int i = 0; i < frame.lightCount; i++) {
         vec3 l = frame.lights[i].direction.xyz;
         float wrapped = clamp(dot(n, l) * 0.5 + 0.5, 0.0, 1.0);

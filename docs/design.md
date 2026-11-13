@@ -1177,6 +1177,36 @@ mask texture, so the surface keeps its own colour and roughness. It is bit 10, a
 is in `ReflectionLightingHash` and the light probes' lighting key, and flipping it updates the
 probes again.
 
+Bits 19 to 28 skip no pass either; each is read where its effect is made:
+
+- `HeightMaps` (bit 19, `OFF_HEIGHT_MAPS`): `parallaxUvIn` in `surface.glsl` returns the uv as
+  it is, after taking the screen derivatives, so custom shaders that call `parallaxUv` are covered
+  too. Puddles still read the height texture to sink into grooves.
+- `Specular` (bit 20, `OFF_SPECULAR`): `lighting.frag` sets metallic, the clear coat and f0 to 0
+  after the puddle water's f0, skips the trace and zeroes the environment's specular, which the
+  `environmentBrdf` bias would otherwise leave. With f0 at 0, `shade()` gives no highlight and the
+  full diffuse with no change of its own. `transparent.frag` does the same with its f0, so glass
+  has no reflectance and its coverage is its opacity.
+- `EnvironmentLight` (bit 21, `OFF_ENVIRONMENT_LIGHT`): every read of the sky's irradiance and
+  reflection cubes outside the probes goes through `skyIrradiance` and `skyReflection` in
+  `common.glsl`, which return `flatSky`: the mean of the cube's six face centres at its coarsest
+  mip. `probe_trace.comp` and `probe_fold.comp` still see the real sky, so the bounce keeps its
+  colour.
+- `Emissive` (bit 22, `OFF_EMISSIVE`): `writeSurface()` zeroes `surface.emissive` after the surface
+  shader has run, and after ghosts have returned with their glow. `transparent.frag` zeroes the
+  material's emissive before the ghost's is set, and `probeRadiance` in `probe_light.glsl` leaves
+  it out, so neither captures nor traced probes see glows. Bakes keep theirs.
+- `Vignette`, `Grain`, `Sharpening` and `ColorGrading` (bits 23 to 26) work on the CPU:
+  `PostGrade.Without` sets the matching `PostSettings` to neutral before `WriteUniforms` packs
+  them, and `finish.frag` already skips the sharpening work when its strength is 0.
+- `Culling` (bit 27) makes `DetailView.CanSee` true for every ball, for the camera, the
+  cascades and the light tiles alike. `SimplerModels` (bit 28) hands `DetailView` a `MaxError`
+  of 0, which no simpler level meets, since every level's error is above 0.
+
+`Specular`, `EnvironmentLight`, `Emissive` and `HeightMaps` change what a reflection probe
+photographs, so they are in `ReflectionLightingHash`, and `Emissive` is in the light probes'
+lighting key too.
+
 The frame limit lives in Super's window loop, not the renderer (`FrameLimiter`). Each frame
 gets a slot one period after the last, so a long frame is made up by a shorter wait. A frame
 more than a period past its slot starts the count again instead of rushing to catch up. It

@@ -37,6 +37,16 @@ public class GraphicsProfileTests
         WearAndDirt = false,
         Puddles = false,
         Wind = false,
+        HeightMaps = false,
+        Specular = false,
+        EnvironmentLight = false,
+        Emissive = false,
+        Vignette = false,
+        Grain = false,
+        Sharpening = false,
+        ColorGrading = false,
+        Culling = false,
+        SimplerModels = false,
         BakedLighting = false,
         BakeOnArrival = false,
         BakeBudget = 3f,
@@ -254,6 +264,7 @@ public class GraphicsProfileTests
         Assert.True(low.Off.HasFlag(RenderEffects.VolumetricFog));
         Assert.True(low.Off.HasFlag(RenderEffects.Reflections));
         Assert.True(low.Off.HasFlag(RenderEffects.AmbientOcclusion));
+        Assert.True(low.Off.HasFlag(RenderEffects.HeightMaps));
     }
 
     [Theory]

@@ -219,6 +219,60 @@ public sealed class Graphics
     public bool Wind { get; set; } = true;
 
     /// <summary>
+    /// The depth that materials' height maps give their surfaces, so bricks stand out from the mortar and stones from the
+    /// path as the view moves. Off, those surfaces are flat, shaded only by their normal maps, and the height maps aren't
+    /// stepped through. It costs up to 32 lookups on each near pixel, so <see cref="GraphicsQuality.Low"/> and
+    /// <see cref="Fastest"/> turn it off.
+    /// </summary>
+    public bool HeightMaps { get; set; } = true;
+
+    /// <summary>
+    /// Shine: highlights from the lights, reflections, metal and the clear coat. Off, every surface is lit as plain
+    /// matte, metals in their base colour, and glass lets light through with no reflection. It's for looking, not for
+    /// speed, so <see cref="Fastest"/> leaves it on.
+    /// </summary>
+    public bool Specular { get; set; } = true;
+
+    /// <summary>
+    /// The soft light and reflections that the sky gives from each direction. Off, the sky gives the same flat colour
+    /// from every side, its average, which shows what the direct light and the probes do alone. The light probes still
+    /// see the real sky. It's for looking, so <see cref="Fastest"/> leaves it on.
+    /// </summary>
+    public bool EnvironmentLight { get; set; } = true;
+
+    /// <summary>
+    /// Surfaces that give their own light, such as lamps, screens and embers. Off, they show only the light that falls on
+    /// them, and they no longer light the probes. Bakes keep the glow they were made with. It's for looking, so
+    /// <see cref="Fastest"/> leaves it on.
+    /// </summary>
+    public bool Emissive { get; set; } = true;
+
+    /// <summary>
+    /// The darkening towards the picture's corners set with <see cref="PostSettings.Vignette"/>. Off, the corners are as
+    /// bright as the middle. <see cref="Fastest"/> turns it off.
+    /// </summary>
+    public bool Vignette { get; set; } = true;
+
+    /// <summary>
+    /// The film grain set with <see cref="PostSettings.Grain"/>. Off, the picture is clean. <see cref="Fastest"/> turns it
+    /// off.
+    /// </summary>
+    public bool Grain { get; set; } = true;
+
+    /// <summary>
+    /// The sharpening set with <see cref="PostSettings.Sharpen"/>, which wins back the detail anti-aliasing softens. Off,
+    /// the finish pass skips it. <see cref="Fastest"/> turns it off.
+    /// </summary>
+    public bool Sharpening { get; set; } = true;
+
+    /// <summary>
+    /// The colour grade set in <see cref="PostSettings"/>: contrast, saturation, lift, gain and white balance. Off, they're
+    /// all neutral. The exposure, the bloom and the tonemapper with its look stay, as the picture needs them. It costs
+    /// almost nothing, so <see cref="Fastest"/> leaves it on.
+    /// </summary>
+    public bool ColorGrading { get; set; } = true;
+
+    /// <summary>
     /// Light read from the bakes made with <c>--bake</c> for the areas set with <see cref="View.BakedLighting"/> and
     /// <see cref="View.BakedChunk"/>. Off, every bake is ignored and each area is lit live, as if it had never been
     /// baked, which shows what the bake changes. A bake costs less than the live light it stands in for, so
@@ -250,6 +304,20 @@ public sealed class Graphics
     private const float MaxBakeBudget = 33f;
 
     /// <summary>
+    /// Leaving out models the camera, the sun's cascades and the lights' shadow tiles can't see. Off, every model is drawn
+    /// into each of them, which only costs time: it's there to check that culling hides nothing it shouldn't. Every
+    /// preset leaves it on.
+    /// </summary>
+    public bool Culling { get; set; } = true;
+
+    /// <summary>
+    /// Models switching to their simpler versions as they move away, as <see cref="MeshDetail"/> tunes. Off, every model
+    /// is drawn at full detail at any distance, which only costs time: it's there to check what the simpler versions
+    /// change. Every preset leaves it on.
+    /// </summary>
+    public bool SimplerModels { get; set; } = true;
+
+    /// <summary>
     /// What the frame shows: the lit scene, the default, or a look inside the renderer such as
     /// <see cref="Rendition.DebugView.Probes"/>, which a game can switch on with a key. It is not an effect and costs
     /// nothing while <see cref="Rendition.DebugView.None"/>. <c>--debug-view</c> on the command line wins: while it
@@ -266,26 +334,7 @@ public sealed class Graphics
     /// </summary>
     public static Graphics For(GraphicsQuality quality) => quality switch
     {
-        GraphicsQuality.Low => new Graphics
-        {
-            RenderScale = 0.75f,
-            ShadowResolution = 1024,
-            ShadowCascades = 2,
-            MeshDetail = 0.5f,
-            ContactShadows = false,
-            LightShadows = false,
-            LightProbes = false,
-            ProbeQuality = ProbeQuality.Low,
-            AmbientOcclusion = false,
-            Reflections = false,
-            AutoExposure = false,
-            DepthOfField = false,
-            Decals = false,
-            VolumetricFog = false,
-            // Puddles and wind stay on: in the Courtyard each costs less than a frame's noise, and the water is part
-            // of the place, not a finish on it.
-            BakeBudget = 1f,
-        },
+        GraphicsQuality.Low => Low(),
         GraphicsQuality.Medium => new Graphics
         {
             RenderScale = 0.85f,
@@ -303,6 +352,28 @@ public sealed class Graphics
             MeshDetail = 1.5f,
         },
         _ => throw new ArgumentOutOfRangeException(nameof(quality), quality, "Graphics quality can be Low, Medium, High or Ultra."),
+    };
+
+    private static Graphics Low() => new()
+    {
+        RenderScale = 0.75f,
+        ShadowResolution = 1024,
+        ShadowCascades = 2,
+        MeshDetail = 0.5f,
+        ContactShadows = false,
+        LightShadows = false,
+        LightProbes = false,
+        ProbeQuality = ProbeQuality.Low,
+        AmbientOcclusion = false,
+        Reflections = false,
+        AutoExposure = false,
+        DepthOfField = false,
+        Decals = false,
+        VolumetricFog = false,
+        HeightMaps = false,
+        // Puddles and wind stay on: in the Courtyard each costs less than a frame's noise, and the water is part
+        // of the place, not a finish on it.
+        BakeBudget = 1f,
     };
 
     /// <summary>
@@ -341,9 +412,17 @@ public sealed class Graphics
         MeshDetail = profile.MeshDetail;
         RenderScale = profile.RenderScale;
         Upscaler = profile.Upscaler;
+        ProbeQuality = profile.ProbeQuality;
+        BakeOnArrival = profile.BakeOnArrival;
+        BakeBudget = profile.BakeBudget;
+        ApplySwitches(profile);
+    }
+
+    /// <summary>Takes the on and off of every effect from <paramref name="profile"/>.</summary>
+    private void ApplySwitches(Graphics profile)
+    {
         ContactShadows = profile.ContactShadows;
         LightProbes = profile.LightProbes;
-        ProbeQuality = profile.ProbeQuality;
         LightShadows = profile.LightShadows;
         AmbientOcclusion = profile.AmbientOcclusion;
         MultiscatterSpecular = profile.MultiscatterSpecular;
@@ -359,9 +438,17 @@ public sealed class Graphics
         WearAndDirt = profile.WearAndDirt;
         Puddles = profile.Puddles;
         Wind = profile.Wind;
+        HeightMaps = profile.HeightMaps;
+        Specular = profile.Specular;
+        EnvironmentLight = profile.EnvironmentLight;
+        Emissive = profile.Emissive;
+        Vignette = profile.Vignette;
+        Grain = profile.Grain;
+        Sharpening = profile.Sharpening;
+        ColorGrading = profile.ColorGrading;
+        Culling = profile.Culling;
+        SimplerModels = profile.SimplerModels;
         BakedLighting = profile.BakedLighting;
-        BakeOnArrival = profile.BakeOnArrival;
-        BakeBudget = profile.BakeBudget;
     }
 
     /// <summary>
@@ -390,8 +477,9 @@ public sealed class Graphics
         GraphicsProfile.Read(json, source, quality => quality is { } named ? For(named) : Fastest());
 
     /// <summary>
-    /// Every effect off but the materials and the baked lighting, and vsync off: the fastest the engine draws, and a
-    /// start for a game that must run on modest hardware. Turn back on only what it needs. The light probes are at
+    /// Every effect that costs GPU time off, and vsync off: the fastest the engine draws, and a start for a game that must
+    /// run on modest hardware. Turn back on only what it needs. What costs nothing or saves time stays on: the materials,
+    /// the baked lighting, the shine, the sky's light, glows, the colour grade, culling and simpler models. The light probes are at
     /// <see cref="Rendition.ProbeQuality.Low"/>, so turning them back on keeps them cheap, and models switch to their
     /// simpler versions at the lowest <see cref="MeshDetail"/>.
     /// </summary>
@@ -418,27 +506,61 @@ public sealed class Graphics
         VolumetricFog = false,
         Puddles = false,
         Wind = false,
+        HeightMaps = false,
+        Vignette = false,
+        Grain = false,
+        Sharpening = false,
     };
 
     /// <summary>The effects the renderer leaves out.</summary>
-    internal RenderEffects Off =>
-        (SunShadows ? 0 : RenderEffects.SunShadows)
-        | (ContactShadows ? 0 : RenderEffects.ContactShadows)
-        | (LightProbes ? 0 : RenderEffects.LightProbes)
-        | (LightShadows ? 0 : RenderEffects.LightShadows)
-        | (AmbientOcclusion ? 0 : RenderEffects.AmbientOcclusion)
-        | (MultiscatterSpecular ? 0 : RenderEffects.MultiscatterSpecular)
-        | (Reflections ? 0 : RenderEffects.Reflections)
-        | (AntiAliasing ? 0 : RenderEffects.AntiAliasing)
-        | (Bloom ? 0 : RenderEffects.Bloom)
-        | (Fog ? 0 : RenderEffects.Fog)
-        | (AutoExposure ? 0 : RenderEffects.AutoExposure)
-        | (DepthOfField ? 0 : RenderEffects.DepthOfField)
-        | (Decals ? 0 : RenderEffects.Decals)
-        | (VolumetricFog ? 0 : RenderEffects.VolumetricFog)
-        | (Puddles ? 0 : RenderEffects.Puddles)
-        | (Wind ? 0 : RenderEffects.Wind)
-        | (BakedLighting ? 0 : RenderEffects.BakedLighting)
-        | (Materials ? 0 : RenderEffects.Materials)
-        | (WearAndDirt ? 0 : RenderEffects.WearAndDirt);
+    internal RenderEffects Off
+    {
+        get
+        {
+            var off = RenderEffects.None;
+            foreach (var (on, effect) in Switches)
+            {
+                if (!on(this))
+                {
+                    off |= effect;
+                }
+            }
+
+            return off;
+        }
+    }
+
+    /// <summary>Each switch, with the effect the renderer leaves out while it's off.</summary>
+    private static readonly (Func<Graphics, bool> On, RenderEffects Effect)[] Switches =
+    [
+        (graphics => graphics.SunShadows, RenderEffects.SunShadows),
+        (graphics => graphics.ContactShadows, RenderEffects.ContactShadows),
+        (graphics => graphics.LightProbes, RenderEffects.LightProbes),
+        (graphics => graphics.LightShadows, RenderEffects.LightShadows),
+        (graphics => graphics.AmbientOcclusion, RenderEffects.AmbientOcclusion),
+        (graphics => graphics.MultiscatterSpecular, RenderEffects.MultiscatterSpecular),
+        (graphics => graphics.Reflections, RenderEffects.Reflections),
+        (graphics => graphics.AntiAliasing, RenderEffects.AntiAliasing),
+        (graphics => graphics.Bloom, RenderEffects.Bloom),
+        (graphics => graphics.Fog, RenderEffects.Fog),
+        (graphics => graphics.AutoExposure, RenderEffects.AutoExposure),
+        (graphics => graphics.DepthOfField, RenderEffects.DepthOfField),
+        (graphics => graphics.Decals, RenderEffects.Decals),
+        (graphics => graphics.VolumetricFog, RenderEffects.VolumetricFog),
+        (graphics => graphics.Puddles, RenderEffects.Puddles),
+        (graphics => graphics.Wind, RenderEffects.Wind),
+        (graphics => graphics.BakedLighting, RenderEffects.BakedLighting),
+        (graphics => graphics.Materials, RenderEffects.Materials),
+        (graphics => graphics.WearAndDirt, RenderEffects.WearAndDirt),
+        (graphics => graphics.HeightMaps, RenderEffects.HeightMaps),
+        (graphics => graphics.Specular, RenderEffects.Specular),
+        (graphics => graphics.EnvironmentLight, RenderEffects.EnvironmentLight),
+        (graphics => graphics.Emissive, RenderEffects.Emissive),
+        (graphics => graphics.Vignette, RenderEffects.Vignette),
+        (graphics => graphics.Grain, RenderEffects.Grain),
+        (graphics => graphics.Sharpening, RenderEffects.Sharpening),
+        (graphics => graphics.ColorGrading, RenderEffects.ColorGrading),
+        (graphics => graphics.Culling, RenderEffects.Culling),
+        (graphics => graphics.SimplerModels, RenderEffects.SimplerModels),
+    ];
 }
