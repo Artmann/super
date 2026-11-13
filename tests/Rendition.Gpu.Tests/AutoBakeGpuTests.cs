@@ -278,6 +278,53 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
     }
 
     [Fact]
+    public void Background_bake_turns_its_readbacks_into_arrays_off_the_render_thread()
+    {
+        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad(gpu);
+        BakeDone? done = null;
+        try
+        {
+            var room = Room(gpu, quad);
+
+            // Dense enough that one page's sums, filtered light and transfer are tens of megabytes, which take tens of
+            // milliseconds to turn into arrays; a step that did that on the render thread would show here. A small
+            // whole bake first, so the steps' first run in this process doesn't time the compiler.
+            gpu.Renderer.Bake(RoomView(gpu, room), room, new BakeSettings(4, BakeQuality.Preview));
+            var view = RoomView(gpu, room, texelsPerMetre: 180);
+            gpu.Renderer.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], d => done = d);
+
+            float largest = 0f;
+            int largestAt = -1;
+            int frame = 0;
+            int frames = RenderUntil(view, room, () =>
+            {
+                frame++;
+                if (gpu.Renderer.BakeStepCpuMilliseconds > largest)
+                {
+                    largest = gpu.Renderer.BakeStepCpuMilliseconds;
+                    largestAt = frame;
+                }
+
+                return done is not null;
+            });
+
+            Assert.True(done is not null, $"No background bake was done after {frames} frames.");
+            Assert.True(largest > 0f, "No step of the bake was timed.");
+            Assert.True(largest <= Budget,
+                $"The bake's step in frame {largestAt} of {frames} took {largest} ms on the render thread, more than the {Budget} ms budget.");
+        }
+        finally
+        {
+            gpu.Renderer.AutoBake = null;
+            gpu.Renderer.DestroyMesh(quad);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
     public void Background_bake_matches_a_whole_bake()
     {
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");

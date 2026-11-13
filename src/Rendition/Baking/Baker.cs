@@ -1180,12 +1180,16 @@ internal sealed unsafe class Baker : IDisposable
     /// direction and mask, one set each way between them, and the host-visible buffer they're uploaded from and read
     /// back into. One run uses it at a time; a chunk's page runs its light and both transfer runs through the same.
     /// </summary>
-    internal FilterRun CreateFilter(DescriptorPool pool, TracedPage traced)
+    internal FilterRun CreateFilter(DescriptorPool pool, TracedPage traced) =>
+        CreateFilter(pool, traced.Page, traced.X, traced.Y, traced.Width, traced.Height);
+
+    /// <summary>A filter run as the other overload makes it, for a region before its traced page is read back.</summary>
+    internal FilterRun CreateFilter(DescriptorPool pool, int page, int x, int y, int width, int height)
     {
-        var run = new FilterRun(_context, traced.Page, traced.X, traced.Y, traced.Width, traced.Height);
+        var run = new FilterRun(_context, page, x, y, width, height);
         run.Forward = AllocateSet(_filterSetLayout, pool);
         run.Backward = AllocateSet(_filterSetLayout, pool);
-        var targets = _pages[traced.Page];
+        var targets = _pages[page];
         WriteFilterSet(run.Forward, targets, run.A, run.B);
         WriteFilterSet(run.Backward, targets, run.B, run.A);
         return run;

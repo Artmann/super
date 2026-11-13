@@ -2037,6 +2037,12 @@ public sealed unsafe class Renderer : IDisposable
                 return job.Finish();
             }
 
+            if (result == BakeStepResult.AwaitCpu)
+            {
+                // A whole bake may wait, so the next step finds the work done rather than submitting empty steps.
+                job.WaitForCpu();
+            }
+
             // As many passes as fit the budget at the rate this step ran, never more than double at once. A step that
             // traced nothing starts the next stage's passes over from one, since its passes may cost something else.
             int count = job.PassesInLastStep;
@@ -2109,12 +2115,41 @@ public sealed unsafe class Renderer : IDisposable
         public bool Cancelled;
     }
 
-    /// <summary>A stopped job, freed once the frame slot it was queued against is done.</summary>
+    // Stopped jobs the GPU is done with whose work on the thread pool still runs, freed by a later frame once it is done.
+    private readonly List<BakeJob> _bakesBusyOnCpu = [];
+
+    /// <summary>
+    /// A stopped job, freed once the frame slot it was queued against is done, or, while its work on the thread pool
+    /// still runs, by the first frame after that work ends, so the render thread never waits for it.
+    /// </summary>
     private sealed class RetiredBake(Renderer renderer, BakeJob job) : IDisposable
     {
         public void Dispose()
         {
+            if (job.CpuBusy)
+            {
+                renderer._bakesBusyOnCpu.Add(job);
+                return;
+            }
+
             renderer._retiringBakes.Remove(job);
+            job.Dispose();
+        }
+    }
+
+    // Frees the stopped jobs whose work on the thread pool has ended.
+    private void FreeBakesDoneOnCpu()
+    {
+        for (int i = _bakesBusyOnCpu.Count - 1; i >= 0; i--)
+        {
+            var job = _bakesBusyOnCpu[i];
+            if (job.CpuBusy)
+            {
+                continue;
+            }
+
+            _bakesBusyOnCpu.RemoveAt(i);
+            _retiringBakes.Remove(job);
             job.Dispose();
         }
     }
@@ -2166,6 +2201,9 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>How many background bake slices have been measured on the GPU, for tests.</summary>
     internal int BakeSlicesMeasured { get; private set; }
 
+    /// <summary>The time the render thread spent in the background bake's last step, in milliseconds, for tests.</summary>
+    internal float BakeStepCpuMilliseconds { get; private set; }
+
     /// <summary>How many bake jobs are made and not yet disposed, for tests.</summary>
     internal int LiveBakeJobs => _baker?.JobPools ?? 0;
 
@@ -2175,6 +2213,7 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>Hands the files finished on the thread pool to <see cref="AutoBake"/>'s Done, on the render thread.</summary>
     private void TakeFinishedBakes()
     {
+        FreeBakesDoneOnCpu();
         while (_bakesFinished.TryDequeue(out var finished))
         {
             _bakeFinishes.Remove(finished);
@@ -2322,9 +2361,11 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         BakeStepResult result;
+        long stepStarted = Stopwatch.GetTimestamp();
         try
         {
             result = job.Step(cmd, _bakePasses);
+            BakeStepCpuMilliseconds = (float)Stopwatch.GetElapsedTime(stepStarted).TotalMilliseconds;
         }
         catch (Exception e) when (e is InvalidOperationException or ArgumentException)
         {
@@ -2484,11 +2525,13 @@ public sealed unsafe class Renderer : IDisposable
         _bakeFinishes.Clear();
         foreach (var job in _retiringBakes)
         {
-            // Disposing twice is harmless, so the slot's later release changes nothing.
+            // Disposing twice is harmless, so the slot's later release changes nothing. A job whose work on the thread
+            // pool still runs is waited for here, where waiting is allowed.
             job.Dispose();
         }
 
         _retiringBakes.Clear();
+        _bakesBusyOnCpu.Clear();
     }
 
     // The checks every bake of the view's space makes before it starts.

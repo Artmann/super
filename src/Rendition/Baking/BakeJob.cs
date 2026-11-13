@@ -16,6 +16,12 @@ internal enum BakeStepResult
     /// </summary>
     AwaitGpu,
 
+    /// <summary>
+    /// The step recorded nothing and started work on the thread pool; step again whenever suits, and the step that
+    /// finds the work done records what follows it. A caller that may wait can call <see cref="BakeJob.WaitForCpu"/>.
+    /// </summary>
+    AwaitCpu,
+
     /// <summary>Nothing is left to record; <see cref="BakeJob.Finish"/> makes the file.</summary>
     Done,
 }
@@ -45,7 +51,10 @@ internal sealed record BakeResult(
 /// caller submits: texel setup, then for each page its paths a few passes at a time, the readback of their sums, the
 /// filter and, for a chunk, both runs of its transfer dilation; then a space's probes, a batch of passes at a time,
 /// and their folds. A step that copies results back returns <see cref="BakeStepResult.AwaitGpu"/>, and the step after
-/// it reads them. Each pass is seeded by its own number, so however the passes are sliced the file is the same.
+/// it reads them. The work on the CPU that touches every texel of a page, turning the readbacks into arrays and filling
+/// the filter's uploads, runs on the thread pool: that step returns <see cref="BakeStepResult.AwaitCpu"/>, and the step
+/// that finds it done records the GPU work after it. Each pass is seeded by its own number, so however the passes are
+/// sliced the file is the same.
 /// <see cref="Renderer.Bake"/> and <see cref="Renderer.BakeChunk"/> run one to the end; a background bake runs a few
 /// steps a frame. The job owns its descriptor pool, its lights, its sums and readback buffers, and a held top-level
 /// structure, and holds the baker's pages from its first step until it is disposed, so one job runs at a time. Dispose
@@ -63,6 +72,7 @@ internal sealed unsafe class BakeJob : IDisposable
         ProbeTrace,
         Fold,
         ReadFold,
+        Cpu,
         Done,
     }
 
@@ -85,6 +95,10 @@ internal sealed unsafe class BakeJob : IDisposable
     private Stage _stage = Stage.Setup;
     private double _doneWork;
     private bool _disposed;
+
+    // Work running on the thread pool, and what the step that finds it done records after it.
+    private Task? _cpu;
+    private Func<CommandBuffer, BakeStepResult>? _afterCpu;
 
     // Texel setup.
     private TopLevelStructure _scene;
@@ -218,6 +232,33 @@ internal sealed unsafe class BakeJob : IDisposable
     /// <summary>Whether the first step has run, so the job holds the baker's pages.</summary>
     internal bool Started => _claimed;
 
+    /// <summary>
+    /// Whether work the job started on the thread pool is still running. It reads and writes the job's mapped buffers,
+    /// so <see cref="Dispose"/> waits for it; dispose a busy job only where waiting is allowed.
+    /// </summary>
+    internal bool CpuBusy => _cpu is { IsCompleted: false };
+
+    /// <summary>
+    /// Waits for the work the job started on the thread pool, after <see cref="BakeStepResult.AwaitCpu"/>. Its error,
+    /// if any, comes out of the next <see cref="Step"/>.
+    /// </summary>
+    internal void WaitForCpu()
+    {
+        if (_cpu is not { } task)
+        {
+            return;
+        }
+
+        try
+        {
+            task.Wait();
+        }
+        catch (AggregateException)
+        {
+            // Thrown again from the next step, on the thread that runs it.
+        }
+    }
+
     /// <summary>Whether one of the job's draws uses <paramref name="mesh"/>, so the job can't go on once it is destroyed.</summary>
     internal bool Uses(MeshHandle mesh)
     {
@@ -264,12 +305,13 @@ internal sealed unsafe class BakeJob : IDisposable
         {
             Stage.Setup => SetUp(cmd),
             Stage.Trace => Trace(cmd, passes),
-            Stage.ReadSums => ReadSums(cmd),
-            Stage.ReadFilter => ReadFilter(cmd),
-            Stage.ReadTransfer => ReadTransfer(cmd),
+            Stage.ReadSums => ReadSums(),
+            Stage.ReadFilter => ReadFilter(),
+            Stage.ReadTransfer => ReadTransfer(),
             Stage.ProbeTrace => TraceProbes(cmd, passes),
             Stage.Fold => Fold(cmd),
             Stage.ReadFold => ReadFold(),
+            Stage.Cpu => AfterCpu(cmd),
             _ => BakeStepResult.Done,
         };
     }
@@ -414,60 +456,142 @@ internal sealed unsafe class BakeJob : IDisposable
         return BakeStepResult.AwaitGpu;
     }
 
-    // Takes the page's mean light from its sums, then filters it.
-    private BakeStepResult ReadSums(CommandBuffer cmd)
+    /// <summary>
+    /// Starts <paramref name="work"/> on the thread pool and returns <see cref="BakeStepResult.AwaitCpu"/>; the first
+    /// step that finds it done calls <paramref name="then"/> on its own thread to record what follows. The work may
+    /// touch only what it was handed and the job's mapped buffers, which the job keeps until it is done.
+    /// </summary>
+    private BakeStepResult OffThread(Action work, Func<CommandBuffer, BakeStepResult> then)
+    {
+        _cpu = Task.Run(work);
+        _afterCpu = then;
+        _stage = Stage.Cpu;
+        return BakeStepResult.AwaitCpu;
+    }
+
+    private BakeStepResult AfterCpu(CommandBuffer cmd)
+    {
+        var task = _cpu!;
+        if (!task.IsCompleted)
+        {
+            return BakeStepResult.AwaitCpu;
+        }
+
+        var then = _afterCpu!;
+        _cpu = null;
+        _afterCpu = null;
+
+        // Throws the work's own exception, as if it had run in this step.
+        task.GetAwaiter().GetResult();
+        return then(cmd);
+    }
+
+    // Takes the page's mean light from its sums on the thread pool, then filters it.
+    private BakeStepResult ReadSums()
     {
         var (x, y, width, height) = _region;
-        var raw = Baker.ReadSumsBack(_sumsBuffer!, _page, x, y, width, height, _passes, _area.IsChunk);
-        FreeSums();
-        _raw = raw;
-        _run = _baker.CreateFilter(_pool, raw);
-        _run.Fill(raw.Irradiance, raw.Direction, raw.Mask);
-        _baker.RecordFilter(cmd, _run, true, _filter);
-        _stage = Stage.ReadFilter;
-        return BakeStepResult.AwaitGpu;
+        int page = _page;
+        int passes = _passes;
+        bool chunk = _area.IsChunk;
+        var buffer = _sumsBuffer!;
+
+        // The GPU is done with the sums; only their readback is still read.
+        FreeSumTargets();
+        var run = _baker.CreateFilter(_pool, page, x, y, width, height);
+        _run = run;
+        TracedPage? raw = null;
+        return OffThread(
+            () =>
+            {
+                raw = Baker.ReadSumsBack(buffer, page, x, y, width, height, passes, chunk);
+                run.Fill(raw.Irradiance, raw.Direction, raw.Mask);
+            },
+            next =>
+            {
+                FreeSums();
+                _raw = raw;
+                _baker.RecordFilter(next, run, true, _filter);
+                _stage = Stage.ReadFilter;
+                return BakeStepResult.AwaitGpu;
+            });
     }
 
-    // Keeps the filtered page, then dilates a chunk's transfer through the same run.
-    private BakeStepResult ReadFilter(CommandBuffer cmd)
+    // Keeps the filtered page, then dilates a chunk's transfer through the same run, its first run filled on the
+    // thread pool.
+    private BakeStepResult ReadFilter()
     {
         var raw = _raw!;
-        _filtered.Add(Baker.Filtered(raw, _run!));
-        if (!_area.IsChunk)
-        {
-            return EndPage();
-        }
+        var run = _run!;
+        bool chunk = _area.IsChunk;
+        TracedPage? filtered = null;
+        float[]? transfer = null;
+        bool[]? filled = null;
+        return OffThread(
+            () =>
+            {
+                filtered = Baker.Filtered(raw, run);
+                if (!chunk)
+                {
+                    return;
+                }
 
-        int count = raw.Width * raw.Height;
-        _transfer = new float[count * Baker.TransferFloats];
-        _transferFilled = new bool[count];
-        _transferRun = 0;
-        RecordTransferRun(cmd);
-        _stage = Stage.ReadTransfer;
-        return BakeStepResult.AwaitGpu;
+                int count = raw.Width * raw.Height;
+                transfer = new float[count * Baker.TransferFloats];
+                filled = new bool[count];
+                var (irradiance, direction, mask) = Baker.TransferRun(raw, 0);
+                run.Fill(irradiance, direction, mask);
+            },
+            next =>
+            {
+                _filtered.Add(filtered!);
+                if (!chunk)
+                {
+                    return EndPage();
+                }
+
+                _transfer = transfer;
+                _transferFilled = filled;
+                _transferRun = 0;
+                _baker.RecordFilter(next, run, false, false);
+                _stage = Stage.ReadTransfer;
+                return BakeStepResult.AwaitGpu;
+            });
     }
 
-    private BakeStepResult ReadTransfer(CommandBuffer cmd)
+    // Takes a run of the transfer dilation back, and fills the next, on the thread pool.
+    private BakeStepResult ReadTransfer()
     {
-        Baker.ReadTransferRun(_run!, _transferRun, _transfer!, _transferFilled!);
-        _transferRun++;
-        if (_transferRun < Baker.TransferRuns)
-        {
-            RecordTransferRun(cmd);
-            return BakeStepResult.AwaitGpu;
-        }
+        var raw = _raw!;
+        var run = _run!;
+        var transfer = _transfer!;
+        var filled = _transferFilled!;
+        int index = _transferRun;
+        bool more = index + 1 < Baker.TransferRuns;
+        return OffThread(
+            () =>
+            {
+                Baker.ReadTransferRun(run, index, transfer, filled);
+                if (more)
+                {
+                    var (irradiance, direction, mask) = Baker.TransferRun(raw, index + 1);
+                    run.Fill(irradiance, direction, mask);
+                }
+            },
+            next =>
+            {
+                _transferRun = index + 1;
+                if (more)
+                {
+                    _baker.RecordFilter(next, run, false, false);
+                    _stage = Stage.ReadTransfer;
+                    return BakeStepResult.AwaitGpu;
+                }
 
-        _transferPage = _raw! with { Transfer = _transfer, Filled = _transferFilled! };
-        _transfer = null;
-        _transferFilled = null;
-        return EndPage();
-    }
-
-    private void RecordTransferRun(CommandBuffer cmd)
-    {
-        var (irradiance, direction, mask) = Baker.TransferRun(_raw!, _transferRun);
-        _run!.Fill(irradiance, direction, mask);
-        _baker.RecordFilter(cmd, _run, false, false);
+                _transferPage = raw with { Transfer = transfer, Filled = filled };
+                _transfer = null;
+                _transferFilled = null;
+                return EndPage();
+            });
     }
 
     private BakeStepResult EndPage()
@@ -586,18 +710,24 @@ internal sealed unsafe class BakeJob : IDisposable
 
     private void FreeSums()
     {
-        if (_sums is not null)
-        {
-            foreach (var sum in _sums)
-            {
-                sum.Dispose();
-            }
-
-            _sums = null;
-        }
-
+        FreeSumTargets();
         _sumsBuffer?.Dispose();
         _sumsBuffer = null;
+    }
+
+    private void FreeSumTargets()
+    {
+        if (_sums is null)
+        {
+            return;
+        }
+
+        foreach (var sum in _sums)
+        {
+            sum.Dispose();
+        }
+
+        _sums = null;
     }
 
     private void FreeProbes()
@@ -614,7 +744,8 @@ internal sealed unsafe class BakeJob : IDisposable
 
     /// <summary>
     /// Frees what the job holds and gives the baker's pages back. Call it only once the GPU is done with every step
-    /// submitted; what <see cref="Finish"/> needs stays readable.
+    /// submitted; what <see cref="Finish"/> needs stays readable. Waits for work still running on the thread pool, which
+    /// reads the buffers freed here, so the renderer disposes a job only once <see cref="CpuBusy"/> is false.
     /// </summary>
     public void Dispose()
     {
@@ -624,6 +755,9 @@ internal sealed unsafe class BakeJob : IDisposable
         }
 
         _disposed = true;
+        WaitForCpu();
+        _cpu = null;
+        _afterCpu = null;
         FreeSums();
         _run?.Dispose();
         _run = null;

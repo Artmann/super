@@ -2087,11 +2087,11 @@ a value that isn't a number or is below 0 into 0 and holds one past 65,504 there
 added up by the filter, or a page that skipped it, never reaches the file as infinity, which
 `writeBaked` would carry into the HDR target for bloom to spread.
 
-A page's filter is one step of its `BakeJob`: the step that reads the page's sums back fills the
-`FilterRun`'s staging, records the upload, the filter and dilation passes and the copy back in
-the same command buffer, and returns `AwaitGpu`. The next step reads the filtered light from the
-staging. A chunk then runs each transfer run through the same `FilterRun` the same way, one step
-and one readback a run. Probes aren't filtered; each is one point with its own many rays, with no neighbours
+A page's filter runs inside its `BakeJob`: the step that reads the page's sums back reads them and
+fills the `FilterRun`'s staging on the thread pool, and the first step after that work is done records
+the upload, the filter and dilation passes and the copy back, and returns `AwaitGpu`. The next step
+reads the filtered light from the staging, on the thread pool too. A chunk then runs each transfer
+run through the same `FilterRun` the same way, one readback a run. Probes aren't filtered; each is one point with its own many rays, with no neighbours
 in a texture to borrow from.
 
 ## Baking probes
@@ -2161,17 +2161,24 @@ one `PrepareBaking` makes serves every bake. A chunk has no probes, so `PrepareB
 flush uploads, bake the sky and call `PrepareBaking`, then make the same job and step it to the end, one `SubmitAndWait` a step. A background bake can instead run a few
 steps a frame.
 
-`Step(cmd, passes)` returns `Continue`, `AwaitGpu` or `Done`, and traces at most `passes` passes. The steps, in order:
+`Step(cmd, passes)` returns `Continue`, `AwaitGpu`, `AwaitCpu` or `Done`, and traces at most `passes` passes.
+`AwaitCpu` means the step started work on the thread pool: turning a readback into arrays and filling the next upload,
+tens of megabytes for a large page. Later steps return `AwaitCpu` and record nothing until that work is done; the first
+step that finds it done records what follows on the caller's thread and rethrows the work's exception, if any.
+`CpuBusy` says whether the work still runs, and `WaitForCpu` waits for it, which `Bake` and `BakeChunk` do. The steps,
+in order:
 
 1. Texel setup. The job takes the baker's pages (`Baker.ClaimPages`), builds a top-level structure from its draws and
    records texel setup against it (`Baker.BuildScene`, `Baker.RecordTexels`).
 2. For each page, its paths a slice of passes at a time. The first slice makes the region's sums, writes the page's
    trace set and clears the sums. The step that traces the last pass also copies the sums, positions and validity into
    a host-visible buffer (`Baker.RecordSumsReadBack`) and returns `AwaitGpu`.
-3. The next step reads that buffer (`Baker.ReadSumsBack`), uploads the means and records the filter
-   (`Baker.CreateFilter`, `Baker.RecordFilter`), and returns `AwaitGpu`.
-4. The step after that keeps the filtered page. A chunk's page then runs both halves of its transfer through the same
-   filter run, one `AwaitGpu` step each (`Baker.TransferRun`, `Baker.ReadTransferRun`).
+3. The next step frees the sum targets, creates the filter run (`Baker.CreateFilter`) and returns `AwaitCpu` while the
+   thread pool reads that buffer (`Baker.ReadSumsBack`) and fills the filter's upload. The step that finds it done
+   records the filter (`Baker.RecordFilter`) and returns `AwaitGpu`.
+4. The step after that reads the filtered page on the thread pool, and keeps it. A chunk's page then runs both halves
+   of its transfer through the same filter run, each read back and the next filled on the thread pool
+   (`Baker.TransferRun`, `Baker.ReadTransferRun`).
 5. For a space, its probes, 64 at a time: a slice of the batch's passes at a time, cleared first. Then a step for each
    group of up to `FaceSlots` probes folds them and copies their tiles back, and returns `AwaitGpu`. The step after it
    writes those tiles into the atlases.
@@ -2193,6 +2200,7 @@ filter run, its probe targets and its readback buffers. Its top-level structure 
 `RayTracing.TopLevel(cmd, instances, out release)`, so a `Render` between steps doesn't recycle it. The baker's pages,
 probe volume and the top-level build's scratch are shared, so one job runs at a time. A second job's setup throws
 `InvalidOperationException` until the first is disposed. Dispose a job only once the GPU is done with its last step.
+`Dispose` waits for the job's work on the thread pool, since that work reads the job's mapped buffers.
 `Bake` and `BakeChunk` size each step by `Renderer.BakeBatchBudget`: one pass first, then as many as fit 80 ms at the
 last step's rate, at most double, starting over at one after a step that traced nothing.
 
@@ -2233,7 +2241,11 @@ each measurement. The measurement comes two frames late, so the passes double ab
 traces nothing (setup, readbacks, filters, folds) starts the count over at one, and an epoch number stops a slice
 measured from before then from resizing the next stage. A step that returns `AwaitGpu` holds the job until as many more
 frames as there are frames in flight have been submitted, since by then the fence of the frame that carried the step
-has passed and its readback has landed. Until a job's setup step has run, the baker's pages may still be held by the
+has passed and its readback has landed. A step that returns `AwaitCpu` leaves the job to the thread pool, and each
+frame's step until that work is done records nothing and takes microseconds. `Renderer.BakeStepCpuMilliseconds` is how
+long the last step took on the render thread: at 180 texels a metre the readback steps take one or two milliseconds,
+where turning the readbacks into arrays on the render thread took over 500 ms in one frame
+(`AutoBakeGpuTests` checks every step of such a bake stays within the budget). Until a job's setup step has run, the baker's pages may still be held by the
 last job's file being made, so the slice waits for them.
 
 At `Done` the job's `Finish` runs on the thread pool, since encoding the pages takes longer than a frame. The job stays
@@ -2242,7 +2254,9 @@ the running one meanwhile, holding the baker's pages, so no other job sets up. A
 the frame's bakes. Nothing catches an exception from `Done`, so it passes out of `Render`.
 
 A stopped job may have steps in frames still in flight, so it is disposed with the destroyed resources of the last
-submitted frame's slot. A job that never stepped holds nothing the GPU reads and goes at once. The job's held top-level
+submitted frame's slot. A job that never stepped holds nothing the GPU reads and goes at once. A job whose work on the
+thread pool still runs when its slot comes round is parked instead, and the first frame after that work ends disposes
+it, so `Render` never waits for it; `DropBackgroundBakes` waits. The job's held top-level
 structure points at bottom-level structures it doesn't own, so anything that frees one of those, or what they read,
 must stop it first. Every such path goes through `StopBakeThatReads`: `DestroyMesh`, destroying a material or a
 texture, and `UpdateMaterial` when the change makes `ForgetMaterial` drop the material's structures. Each stops the
@@ -2255,7 +2269,9 @@ then drop every background bake, waiting for any file being made, since the whol
 Measured on the development desktop's GPU at a 4 ms budget: the test's room, a 4 metre floor and three walls, at 180
 texels a metre (about 1.3 million texels) traces about a quarter of a millisecond a pass, so a trace slice settles
 near 16 passes. Its filter takes about 4 ms in one step and each probe fold about 0.6 ms. Those steps aren't split, so
-a page of more than about two million texels can take a frame past the budget. At 4 texels a metre a whole Preview
+a page of more than about two million texels can take a frame past the budget. The readback arrays are new on each
+page, tens of megabytes on the large object heap for a large page. They are made on the thread pool, but a garbage
+collection they set off can still pause the render thread; pooling them is left for later. At 4 texels a metre a whole Preview
 bake of that room takes about 100 frames, most of them the probes' folds and their readbacks.
 
 ## Paint and glass

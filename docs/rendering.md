@@ -762,7 +762,9 @@ With `Renderer.AutoBake` set, the renderer bakes by itself each space and chunk 
 stale, a slice a frame, so the game keeps running while it bakes. It starts once the lights have held still for a
 second (see [moving lights](#moving-lights)), bakes one area at a time, nearest the camera first, and gives every area
 its first quality before any gets its next. Each slice takes about `BudgetMilliseconds` of GPU time: the trace is
-sized to it, but a step that isn't split, such as one page's filter, can go over on a very large page. `Spaces: false`
+sized to it, but a step that isn't split, such as one page's filter, can go over on a very large page. Reading the
+GPU's results back into arrays runs on the thread pool, so a slice costs the render thread a millisecond or two even on
+a large page. `Spaces: false`
 bakes only chunks.
 
 The renderer doesn't save anything. It hands each finished file to `Done`, on the render thread, inside a later
