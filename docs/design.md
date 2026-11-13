@@ -3812,8 +3812,11 @@ isn't built.
 Super turns the renderer's [background bake](#baking-in-the-background) on in play only. `Game.StartWindowsGameLoop`
 makes the `BakeCache` just before `GameWindow.Run`, from the game's id, and hands it to `SceneRenderer.BakeCache`
 through `GameWindow.BakeCache`, so the other runs neither bake nor read the cache. `Run` turns baking on after the
-game goes live, and `ApplyAutoBake`, called again before each frame is shown, works out the plan only when
+game goes live by calling `AutoBakeSwitch.TurnOn` (`src/Super/Rendering/AutoBakeSwitch.cs`), and `ApplyAutoBake`,
+called again before each frame is shown, works out the plan only when `AutoBakeSwitch.Changed` says
 `Graphics.BakeOnArrival` or `Graphics.BakeBudget` changed, since setting `Renderer.AutoBake` restarts the running bake.
+Every other run leaves the switch off. The switch is tested on its own; that only `Run` turns it on, and that
+`SceneRenderer` starts `Renderer.BakeFadeSeconds` at 0 while `Run` sets 0.5, need a window and aren't tested.
 `AutoBakePolicy.For` (`src/Super/Rendering/AutoBakePolicy.cs`) makes the plan: null when the switch is off or the GPU
 can't trace; from source, where `CookedFolder.Dev` has roots, spaces and chunks at Preview then Final, 4 ms, with the
 first root as the space folder; published, chunks only at Preview, 2 ms, and no space folder.
@@ -3824,8 +3827,8 @@ the last bake's task on the thread pool, so files are kept in the order they fin
 Preview finished before it. It reads the file's header first, to log the bake's time and so a file that doesn't read
 back is never kept. A space's file (`done.File` equals `BakeFiles.Space(done.Name)`) is written into the space folder
 through a `{name}.{guid}.tmp` file and a move; the watch cook then cooks it and the content reload reads it again. A
-chunk's goes to `BakeCache.Write`, and its name goes onto a `ConcurrentQueue` that `SceneRenderer.Prepare` drains on the
-render thread into `LightBakeStore.Forget`, so the store reads the new file, from the cache's memory, on the next
+chunk's goes to `BakeCache.Write`, and its name goes to `WrittenBakes.Written`, a `ConcurrentQueue` that
+`SceneRenderer.Prepare` drains on the render thread with `WrittenBakes.ForgetIn` into `LightBakeStore.Forget(file)`, so the store reads the new file, from the cache's memory, on the next
 frame. Every exception is caught and logged as one line, since nothing else would hear of it, and the area stays lit
 live. `SceneRenderer.Dispose` waits up to 10 seconds for the saver after the renderer has gone, so a bake that finished
 just before the window closed is still kept. A new saver is made only when the space folder or the cache changes,
@@ -3838,6 +3841,8 @@ changes and the game's interface keeps its state as the line comes and goes.
 
 Where the GPU can't trace, `SceneRenderer.SaysWhyNotBaking` is set from source, and after `Render` the first frame
 with a space that isn't fresh, or a chunk that is neither fresh nor pending, logs `Not baking {name}: {reason}` once.
+`NotBakingNotice` (`src/Super/Rendering/NotBakingNotice.cs`) makes that decision from the frame's `BakeFrame`, and
+says nothing while baked lighting is switched off.
 
 ### The .lightbake file
 

@@ -276,7 +276,7 @@ internal sealed class SceneRenderer : IDisposable
         if (_saver is null || _saver.SpaceFolder != plan.SpaceFolder || _saver.Cache != BakeCache)
         {
             _saver?.Wait(TimeSpan.FromSeconds(10));
-            _saver = new BakeSaver(plan.SpaceFolder, BakeCache, _written.Enqueue, Console.Out, Console.Error);
+            _saver = new BakeSaver(plan.SpaceFolder, BakeCache, _written.Written, Console.Out, Console.Error);
         }
 
         _renderer.AutoBake = new AutoBake(plan.Budget, plan.Spaces, plan.Qualities, _saver.Done);
@@ -286,48 +286,20 @@ internal sealed class SceneRenderer : IDisposable
     /// Set when the game would bake from source but the GPU can't trace, so the first area that wants a bake says once,
     /// on the error stream, why it isn't baked.
     /// </summary>
-    internal bool SaysWhyNotBaking { get; set; }
+    internal bool SaysWhyNotBaking
+    {
+        get => _notBaking.On;
+        set => _notBaking.On = value;
+    }
 
     // The chunk files written to the cache on the thread pool, for the render thread to forget the bakes it holds.
-    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _written = new();
+    private readonly WrittenBakes _written = new();
+    private readonly NotBakingNotice _notBaking = new(Console.Error);
     private BakeSaver? _saver;
-    private bool _saidWhyNotBaking;
 
     // Says, once, why the first area the last frame wanted a bake for isn't baked.
-    private void SayWhyNotBaking(View view)
-    {
-        if (!SaysWhyNotBaking || _saidWhyNotBaking || Off.HasFlag(RenderEffects.BakedLighting)
-            || LastBakeFrame is not { } bakes)
-        {
-            return;
-        }
-
-        string? wanted = null;
-        if (view.BakedSpace is { } space && bakes.Space is not null && !bakes.SpaceFresh)
-        {
-            wanted = space.Name;
-        }
-        else
-        {
-            var chunks = view.PlacedBakedChunks;
-            for (int i = 0; i < bakes.Chunks.Count && i < chunks.Length; i++)
-            {
-                if (!bakes.ChunkFresh[i] && !bakes.ChunkPending(i))
-                {
-                    wanted = chunks[i].Name;
-                    break;
-                }
-            }
-        }
-
-        if (wanted is null)
-        {
-            return;
-        }
-
-        _saidWhyNotBaking = true;
-        Console.Error.WriteLine($"Not baking {wanted}: {NoTraceReason}");
-    }
+    private void SayWhyNotBaking(View view) => _notBaking.Check(
+        LastBakeFrame, view.BakedSpace, view.PlacedBakedChunks, Off.HasFlag(RenderEffects.BakedLighting), NoTraceReason);
 
     // A bake is cooked as data under its own name, so anything else of that name isn't one. Failing that, the cache
     // of bakes made on this machine may have it.
@@ -581,10 +553,7 @@ internal sealed class SceneRenderer : IDisposable
         }
 
         // A chunk baked in the background is in the cache now, so the bake held for its file is read again.
-        while (_written.TryDequeue(out string? file))
-        {
-            Bakes.Forget(file);
-        }
+        _written.ForgetIn(Bakes);
 
         // Set before anything new starts preparing, since models are read through it on background threads.
         _files = content.Files;

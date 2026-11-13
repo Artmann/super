@@ -144,7 +144,7 @@ internal sealed unsafe class GameWindow : IDisposable
 
         // Only here is missing lighting baked as it appears, and only here does a bake that arrives fade in.
         _scene.BakeFadeSeconds = PlayBakeFadeSeconds;
-        _bakesOnArrival = true;
+        _autoBake.TurnOn();
         host.ShowsBakes = true;
         ApplyAutoBake(host);
 
@@ -210,8 +210,7 @@ internal sealed unsafe class GameWindow : IDisposable
         set => _scene.BakeCache = value;
     }
 
-    private bool _bakesOnArrival;
-    private (bool On, float? Budget)? _autoBakeApplied;
+    private readonly AutoBakeSwitch _autoBake = new();
 
     private static DevSettings? DevOf<TGame>(GameHost<TGame> host)
         where TGame : class, IGame =>
@@ -226,18 +225,11 @@ internal sealed unsafe class GameWindow : IDisposable
     private void ApplyAutoBake<TGame>(GameHost<TGame> host)
         where TGame : class, IGame
     {
-        if (!_bakesOnArrival)
+        if (!_autoBake.Changed(host.Graphics))
         {
             return;
         }
 
-        var wanted = (host.Graphics.BakeOnArrival, host.Graphics.BakeBudget);
-        if (_autoBakeApplied == wanted)
-        {
-            return;
-        }
-
-        _autoBakeApplied = wanted;
         var dev = DevOf(host);
         _scene.BakeOnArrival(AutoBakePolicy.For(dev, CanTrace, host.Graphics));
 
