@@ -51,7 +51,8 @@ so they stay dynamic, and the probes light them as they move. The bake is
 
 ![The Crypt by the right torch, lit live (left) and with its bake (right): the wall and pillar beside the torch are a little dimmer in the bake, and the two look nearly the same otherwise](../../docs/media/crypt-baked-before-after.webp)
 
-The two look nearly the same. What the bake gains is cost, because the bounced light is no longer traced every frame. Moving lights, such as the lantern's, are kept out of the bake and lit live until they hold still.
+The two look nearly the same. What the bake gains is cost, because the bounced light is no
+longer traced every frame.
 
 The fire stays real-time and flickers, so each flame is a `Mixed` light. A `Baked` light is drawn
 from the lightmap alone and cannot flicker, and a `Realtime` one would lose the bounce:

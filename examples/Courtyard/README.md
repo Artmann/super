@@ -178,7 +178,8 @@ damp, the drip and the rust) stay live.
 
 ![The Courtyard window, barrel and wall, lit live (left) and with its bake (right): the window glass and the shade on the bricks differ slightly, and the two look nearly the same otherwise. The ivy differs because the plants sway](../../docs/media/courtyard-baked-before-after.webp)
 
-The two look nearly the same. What the bake gains is cost, because the bounce is no longer traced every frame. The plants sway, so their shapes differ between the halves whatever the lighting.
+The two look nearly the same. What the bake gains is cost, because the bounce is no longer traced
+every frame. The plants sway, so their shapes differ between the halves whatever the lighting.
 
 The lights are all `Mixed`, so the bake adds the light that bounces and soft shade, and the live
 lights keep their crisp shadows. A `Baked` light would give up those sharp shadows, and a
