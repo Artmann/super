@@ -784,15 +784,11 @@ internal sealed class SceneRenderer : IDisposable
         Wind = surface.Wind,
     };
 
-    /// <summary>
-    /// The switches a generated mesh's surface turns on in its material. Below full opacity it's glass, and foliage is
-    /// drawn from both sides, as a model's foliage rule does.
-    /// </summary>
+    /// <summary>A generated surface's material switches: glass below full opacity, foliage drawn from both sides.</summary>
     internal static MaterialFlags FlagsOf(Surface surface) =>
-        (surface.Opacity < 1f ? MaterialFlags.Transparent : 0)
-        | (surface.DetailMask ? MaterialFlags.DetailMask : 0) | (surface.WorldVariation ? MaterialFlags.WorldVariation : 0)
-        | (surface.Dithered ? MaterialFlags.Dithered : 0) | (surface.Puddles ? MaterialFlags.Puddles : 0)
-        | (surface.Foliage ? MaterialFlags.Foliage | MaterialFlags.TwoSided : 0);
+        (surface.Opacity < 1f ? MaterialFlags.Transparent : 0) | (surface.DetailMask ? MaterialFlags.DetailMask : 0)
+        | (surface.WorldVariation ? MaterialFlags.WorldVariation : 0) | (surface.Dithered ? MaterialFlags.Dithered : 0)
+        | (surface.Puddles ? MaterialFlags.Puddles : 0) | (surface.Foliage ? MaterialFlags.Foliage | MaterialFlags.TwoSided : 0);
 
     private TextureHandle? Texture(TextureRef? texture, Content content) =>
         texture is { } named ? Require<LoadedTexture>(named.Index, content).Handle : null;

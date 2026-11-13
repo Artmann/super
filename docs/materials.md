@@ -27,6 +27,19 @@ the troughs. Its boulders are domes pushed out of shape, wearing `reef-rock.mate
 pale limestone bored with holes, with patches of pink crust, olive turf and small coral cups.
 
 ![Two reef boulders among the coral, pale pitted limestone with soft patches of crust and turf](media/reef-rock.webp)
+
+Its coral and seagrass are grown in code too, in `Corals.cs`. Staghorn bushes, table coral
+and sea fans are branches swept round a spine, and wear `coral-polyps.material.cs`: packed
+cups with raised rims round dark pits, kept pale so the tint on each draw gives every colony
+its own colour. Brain coral is a boulder shape wearing `brain-coral.material.cs`, ridges
+drawn as contour lines of a smooth noise so they wander and loop like the real thing. Tufts
+of seagrass are thin strips wearing `seagrass.material.cs`, green blades with veins along
+them, and sway with the swell.
+
+![One coral cluster before and after: on the left only the modelled coral, dark and brown in murkier water; on the right a brain coral, staghorn and tufts of seagrass on lighter sand](media/reef-coral-close.webp)
+
+![The reef from the default camera before and after: a few dark coral shapes on the left, many more colonies in reds, pinks and lilacs on the right](media/reef-coral-wide.webp)
+
 Its own graphs are in `examples/Reef/content`, a content root of its own next to the shared
 `assets` folder, since a root's graphs can only come from inside it.
 

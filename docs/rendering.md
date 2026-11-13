@@ -1273,7 +1273,7 @@ sunlit surfaces and shafts of light:
 ```csharp
 view.Water(new UnderwaterSettings
 {
-    Absorption = new Vector3(0.075f, 0.026f, 0.018f),   // per metre; red should be largest
+    Absorption = new Vector3(0.045f, 0.024f, 0.018f),   // per metre; red should be largest
     ShallowColor = new Vector3(0.11f, 0.42f, 0.55f),
     DeepColor = new Vector3(0.01f, 0.09f, 0.17f),
     SurfaceHeight = 30f,
@@ -1285,7 +1285,9 @@ view.Water(new UnderwaterSettings
 ```
 
 Leaving `Absorption` at zero means there's no water. The [Reef example](../examples/Reef)
-uses this.
+uses this. Red goes first, so colours fade towards blue and green with distance: at a red
+absorption of 0.075 an orange coral turns brown a few metres off. The Reef lowers it to 0.045
+so its coral keeps some warmth across the view.
 
 ## Puddles
 
@@ -1369,6 +1371,15 @@ part is what stays still. A copy can be moved, scaled or turned about the vertic
 sway from its own foot, but one tipped over sways from the wrong height, because the height
 is measured straight up. Culling knows how far a swaying part can reach, so grass at the
 edge of the screen or of a shadow doesn't pop in or out as it leans.
+
+Wind works underwater too. The [Reef](../examples/Reef) rocks its seagrass and sea fans with
+the swell by setting a wind each frame whose strength follows a slow sine and whose direction
+flips as the sine crosses zero, so the lean swings smoothly from one side to the other:
+
+```csharp
+float surge = MathF.Sin(seconds * MathF.Tau / 7f);
+view.Wind(surgeDirection * MathF.Sign(surge), 0.45f * MathF.Abs(surge), gustiness: 0.3f);
+```
 [`Graphics.Wind`](#graphics-settings) turns it off, and
 `Graphics.Fastest()` turns it off. The Courtyard blows a breeze of 0.35 across its grass, with
 a share of 0.08 for the ivy and 0.4 for the tree's crown.

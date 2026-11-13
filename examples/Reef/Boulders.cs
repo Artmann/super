@@ -4,7 +4,7 @@ using Super;
 
 namespace Reef;
 
-/// <summary>Lumps of old reef rock, made by pushing a dome in and out by a few waves round it.</summary>
+/// <summary>Lumps of old reef rock and domes of brain coral, made by pushing a dome in and out by a few waves round it.</summary>
 internal static class Boulders
 {
     private const int Waves = 5;
@@ -12,15 +12,18 @@ internal static class Boulders
     /// <summary>How wide a boulder is usually drawn, in metres. The rock tiles at that size, since the transform scales it.</summary>
     public const float TypicalWidth = 3f;
 
-    /// <summary>A boulder a metre across, flat underneath at zero, its rock tiled for <see cref="TypicalWidth"/>.</summary>
-    public static GeneratedMesh Create(Surface rock, RandomStream random)
+    /// <summary>
+    /// A lump a metre across, flat underneath at zero, its surface tiled for drawing it <paramref name="typicalWidth"/>
+    /// metres across. A <paramref name="lumpiness"/> of 1 is a rough boulder, and less is rounder.
+    /// </summary>
+    public static GeneratedMesh Create(Surface rock, RandomStream random, float typicalWidth = TypicalWidth, float lumpiness = 1f)
     {
-        float uvPerMetre = TypicalWidth / (rock.TileWidth ?? 1f);
+        float uvPerMetre = typicalWidth / (rock.TileWidth ?? 1f);
         var dome = Shapes.Hemisphere(radius: 0.5f, segments: 40, rings: 14, surface: rock, uvPerMetre: uvPerMetre);
         var waves = new (Vector3 Direction, float Frequency, float Amount, float Phase)[Waves];
         for (int i = 0; i < Waves; i++)
         {
-            waves[i] = (random.Direction3D(), random.Between(1.5f, 4.5f), random.Between(0.04f, 0.12f) / (1f + i * 0.4f), random.Angle());
+            waves[i] = (random.Direction3D(), random.Between(1.5f, 4.5f), random.Between(0.04f, 0.12f) / (1f + i * 0.4f) * lumpiness, random.Angle());
         }
 
         var vertices = dome.Vertices.ToArray();
@@ -38,39 +41,8 @@ internal static class Boulders
             vertex.Position = position * Push(Vector3.Normalize(position), waves);
         }
 
-        Smooth(vertices, dome.Indices);
+        MeshParts.Smooth(vertices, dome.Indices);
         return dome with { Vertices = vertices };
-    }
-
-    private static void Smooth(Vertex[] vertices, uint[] indices)
-    {
-        // Smooth normals from the triangles round each corner. The dome repeats corners along its seam, so they are
-        // gathered by where they are rather than by index.
-        var sums = new Dictionary<Vector3, Vector3>();
-        for (int i = 0; i < indices.Length; i += 3)
-        {
-            var a = vertices[indices[i]].Position;
-            var b = vertices[indices[i + 1]].Position;
-            var c = vertices[indices[i + 2]].Position;
-            var face = Vector3.Cross(b - a, c - a);
-            foreach (var corner in (ReadOnlySpan<Vector3>)[a, b, c])
-            {
-                sums[corner] = sums.GetValueOrDefault(corner) + face;
-            }
-        }
-
-        foreach (ref var vertex in vertices.AsSpan())
-        {
-            // The base keeps its own normal, straight down, so its edge stays crisp.
-            if (vertex.Normal.Y > -0.99f)
-            {
-                vertex.Normal = Vector3.Normalize(sums[vertex.Position]);
-            }
-
-            var tangent = new Vector3(vertex.Tangent.X, vertex.Tangent.Y, vertex.Tangent.Z);
-            tangent = Vector3.Normalize(tangent - vertex.Normal * Vector3.Dot(tangent, vertex.Normal));
-            vertex.Tangent = new Vector4(tangent, vertex.Tangent.W);
-        }
     }
 
     private static float Push(Vector3 direction, ReadOnlySpan<(Vector3 Direction, float Frequency, float Amount, float Phase)> waves)
