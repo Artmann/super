@@ -25,7 +25,7 @@ const float FALLOFF_START = 0.6;
 const float OVERHEAD_RADIUS = 0.08;
 const float OVERHEAD_BIAS = 0.008;
 const float OVERHEAD_STRENGTH = 0.75;
-const int OVERHEAD_SAMPLES = 16;
+const int OVERHEAD_SAMPLES = 8;
 
 vec3 worldPosition(vec2 uv, float depth) {
     vec4 world = frame.inverseViewProjection * vec4(uv * 2.0 - 1.0, depth, 1.0);

@@ -215,7 +215,8 @@ public sealed unsafe class Renderer : IDisposable
     private readonly DescriptorSetLayout _twoTextureSetLayout;
     private readonly DescriptorSetLayout _oneTextureSetLayout;
     private readonly DescriptorSet _aoSet;
-    private readonly DescriptorSet _aoBlurSet;
+    private readonly DescriptorSet _aoAcrossSet;
+    private readonly DescriptorSet _aoDownSet;
     private readonly DescriptorSet _scatterAcrossSet;
     private readonly DescriptorSet _scatterDownSet;
     private readonly DescriptorSet _lightingSet;
@@ -563,10 +564,10 @@ public sealed unsafe class Renderer : IDisposable
         _oneTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit);
 
         _descriptorPool = _context.CreateDescriptorPool(
-            FramesInFlight + 9,
+            FramesInFlight + 10,
             new DescriptorPoolSize(DescriptorType.UniformBuffer, FramesInFlight),
             new DescriptorPoolSize(DescriptorType.StorageBuffer, 9 * FramesInFlight),
-            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 34 + 3 * FramesInFlight));
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 36 + 3 * FramesInFlight));
 
         for (int i = 0; i < FramesInFlight; i++)
         {
@@ -622,7 +623,8 @@ public sealed unsafe class Renderer : IDisposable
         _volumetricFog = new VolumetricFogVolume(_context, _frameSetLayout, _linearSampler);
 
         _aoSet = AllocateSet(_threeTextureSetLayout);
-        _aoBlurSet = AllocateSet(_twoTextureSetLayout);
+        _aoAcrossSet = AllocateSet(_twoTextureSetLayout);
+        _aoDownSet = AllocateSet(_twoTextureSetLayout);
         _scatterAcrossSet = AllocateSet(_twoTextureSetLayout);
         _scatterDownSet = AllocateSet(_twoTextureSetLayout);
         _lightingSet = AllocateSet(_lightingSetLayout);
@@ -643,7 +645,7 @@ public sealed unsafe class Renderer : IDisposable
 
         _gBufferPass = new GBufferPass(_context, _frameSetLayout, _resources);
         _aoPass = new FullscreenPass(_context, "ao.frag", GBuffer.AoFormat, [_frameSetLayout, _threeTextureSetLayout]);
-        _aoBlurPass = new FullscreenPass(_context, "ao_blur.frag", GBuffer.AoFormat, [_twoTextureSetLayout]);
+        _aoBlurPass = new FullscreenPass(_context, "ao_blur.frag", GBuffer.AoFormat, [_twoTextureSetLayout], 2 * sizeof(float));
         _lightingPass = new FullscreenPass(_context, "lighting.frag", [GBuffer.HdrFormat, GBuffer.HdrFormat],
             [_frameSetLayout, _lightingSetLayout, _resources.Layout]);
         _scatterAcrossPass = new FullscreenPass(_context, "sss_blur.frag", [GBuffer.HdrFormat],
@@ -4679,28 +4681,7 @@ public sealed unsafe class Renderer : IDisposable
 
         _gpuTimer.Mark(cmd);
 
-        // Left out, the lighting pass reads no occlusion, but it still binds the target.
-        if (_off.HasFlag(RenderEffects.AmbientOcclusion))
-        {
-            _api.Transition(cmd, targets.AoBlurred.Image, ImageAspectFlags.ColorBit,
-                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
-            _gpuTimer.Mark(cmd);
-            _gpuTimer.Mark(cmd);
-        }
-        else
-        {
-            ReadOnlySpan<DescriptorSet> aoSets = [frameSet, _aoSet];
-            _api.BeginColorTarget(cmd, targets.Ao.Image);
-            _aoPass.Record(cmd, targets.Ao.View, extent, aoSets);
-            _api.EndColorTarget(cmd, targets.Ao.Image);
-            _gpuTimer.Mark(cmd);
-
-            ReadOnlySpan<DescriptorSet> aoBlurSets = [_aoBlurSet];
-            _api.BeginColorTarget(cmd, targets.AoBlurred.Image);
-            _aoBlurPass.Record(cmd, targets.AoBlurred.View, extent, aoBlurSets);
-            _api.EndColorTarget(cmd, targets.AoBlurred.Image);
-            _gpuTimer.Mark(cmd);
-        }
+        RecordAmbientOcclusion(cmd, targets, frameSet);
 
         if (_traceView && traced is { } scene)
         {
@@ -4773,6 +4754,43 @@ public sealed unsafe class Renderer : IDisposable
 
         _api.EndColorTarget(cmd, targets.Hdr.Image);
         _gpuTimer.Mark(cmd);
+    }
+
+    /// <summary>
+    /// Works out the ambient occlusion from the G-buffer just drawn and blurs its grain away, as two timed
+    /// passes. Left out, the lighting pass reads no occlusion, but it still binds the target.
+    /// </summary>
+    private void RecordAmbientOcclusion(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet)
+    {
+        if (_off.HasFlag(RenderEffects.AmbientOcclusion))
+        {
+            _api.Transition(cmd, targets.AoBlurred.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
+            _gpuTimer.Mark(cmd);
+            _gpuTimer.Mark(cmd);
+            return;
+        }
+
+        var extent = targets.Extent;
+        ReadOnlySpan<DescriptorSet> aoSets = [frameSet, _aoSet];
+        _api.BeginColorTarget(cmd, targets.Ao.Image);
+        _aoPass.Record(cmd, targets.Ao.View, extent, aoSets);
+        _api.EndColorTarget(cmd, targets.Ao.Image);
+        _gpuTimer.Mark(cmd);
+
+        // Blurred across into a second image, then down into the one the lighting reads.
+        RecordAoBlur(cmd, targets.AoAcross, _aoAcrossSet, new Vector2(1f / extent.Width, 0f), extent);
+        RecordAoBlur(cmd, targets.AoBlurred, _aoDownSet, new Vector2(0f, 1f / extent.Height), extent);
+        _gpuTimer.Mark(cmd);
+    }
+
+    /// <summary>One direction of the occlusion blur: <paramref name="step"/> is one pixel along it.</summary>
+    private void RecordAoBlur(CommandBuffer cmd, RenderTarget target, DescriptorSet source, Vector2 step, Extent2D extent)
+    {
+        ReadOnlySpan<DescriptorSet> sets = [source];
+        _api.BeginColorTarget(cmd, target.Image);
+        _aoBlurPass.Record(cmd, target.View, extent, sets, new ReadOnlySpan<byte>(&step, sizeof(Vector2)));
+        _api.EndColorTarget(cmd, target.Image);
     }
 
     /// <summary>
@@ -5481,9 +5499,14 @@ public sealed unsafe class Renderer : IDisposable
         var shadowDepth = new DescriptorImageInfo(_sampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal);
 
         WriteImages(_aoSet, [depth, normal, shadowDepth]);
-        WriteImages(_aoBlurSet,
+        WriteImages(_aoAcrossSet,
         [
             new(_sampler, _gBuffer.Ao.View, ImageLayout.ShaderReadOnlyOptimal),
+            depth,
+        ]);
+        WriteImages(_aoDownSet,
+        [
+            new(_sampler, _gBuffer.AoAcross.View, ImageLayout.ShaderReadOnlyOptimal),
             depth,
         ]);
         WriteImages(_lightingSet,

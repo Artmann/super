@@ -65,7 +65,9 @@ internal sealed class GBuffer : IDisposable
     public readonly RenderTarget Scatter;
     public readonly RenderTarget ScatterBlurred;
 
+    /// <summary>Ambient occlusion as traced, then blurred across, then down as well, which is what the lighting reads.</summary>
     public readonly RenderTarget Ao;
+    public readonly RenderTarget AoAcross;
     public readonly RenderTarget AoBlurred;
     public readonly RenderTarget Ldr;
 
@@ -98,6 +100,7 @@ internal sealed class GBuffer : IDisposable
         Scatter = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         ScatterBlurred = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         Ao = new RenderTarget(context, AoFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
+        AoAcross = new RenderTarget(context, AoFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         AoBlurred = new RenderTarget(context, AoFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         Ldr = new RenderTarget(context, LdrFormat, Display, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
         Held = new RenderTarget(context, LdrFormat, Display, ImageUsageFlags.TransferDstBit, ImageAspectFlags.ColorBit);
@@ -126,6 +129,7 @@ internal sealed class GBuffer : IDisposable
         Scatter.Dispose();
         ScatterBlurred.Dispose();
         Ao.Dispose();
+        AoAcross.Dispose();
         AoBlurred.Dispose();
         Ldr.Dispose();
         Held.Dispose();
