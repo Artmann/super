@@ -536,7 +536,7 @@ public sealed class BakeFilterGpuTests(GpuFixture gpu)
     }
 
     /// <summary>
-    /// A traced page over the region <see cref="Baker.Trace"/> would cover, with <paramref name="light"/> of each texel's
+    /// A traced page over the region a bake traces (<see cref="Baker.UsedRegion"/>), with <paramref name="light"/> of each texel's
     /// rectangle number and page position on its covered texels, as the path tracer would leave it.
     /// </summary>
     private static TracedPage Synthetic(Baker baker, LightmapLayout layout, int page, Func<float, (int X, int Y), Light> light)

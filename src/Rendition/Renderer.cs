@@ -1843,6 +1843,65 @@ public sealed unsafe class Renderer : IDisposable
     /// </exception>
     public byte[] Bake(in FrameView view, ReadOnlySpan<DrawItem> draws, BakeSettings settings)
     {
+        var (space, probeSettings) = CheckSpace(view, settings);
+        long started = Stopwatch.GetTimestamp();
+        BakeIds.CheckStaticDraws(draws);
+        BakeFiles.CheckChunks(view.BakedChunks);
+        _api.DeviceWaitIdle(_context.Device).Check();
+        _uploads.Flush();
+        BakeSky(view);
+        using var job = SpaceJob(view, draws, settings, space, probeSettings, started);
+        return RunJob(job);
+    }
+
+    /// <summary>
+    /// The bake <see cref="Bake"/> makes, as a job to step, without waiting for the GPU: it records nothing until its
+    /// first step. The frame's sky and uploads are taken as they are, so call it after a frame has drawn this view.
+    /// The draws and lights are copied, so the job doesn't need the frame's spans.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">As <see cref="Bake"/>.</exception>
+    /// <exception cref="ArgumentException">As <see cref="Bake"/>.</exception>
+    internal BakeJob CreateSpaceJob(in FrameView view, ReadOnlySpan<DrawItem> draws, BakeSettings settings)
+    {
+        var (space, probeSettings) = CheckSpace(view, settings);
+        long started = Stopwatch.GetTimestamp();
+        BakeIds.CheckStaticDraws(draws);
+        BakeFiles.CheckChunks(view.BakedChunks);
+        return SpaceJob(view, draws, settings, space, probeSettings, started);
+    }
+
+    // Steps a job to the end, a submit at a time, with as many passes in each as fit the batch budget, then makes its
+    // file.
+    private byte[] RunJob(BakeJob job)
+    {
+        int batch = 1;
+        while (true)
+        {
+            var result = BakeStepResult.Continue;
+            long stepStarted = Stopwatch.GetTimestamp();
+            _context.SubmitAndWait(cmd => result = job.Step(cmd, batch));
+            if (result == BakeStepResult.Done)
+            {
+                return job.Finish();
+            }
+
+            // As many passes as fit the budget at the rate this step ran, never more than double at once. A step that
+            // traced nothing starts the next stage's passes over from one, since its passes may cost something else.
+            int count = job.PassesInLastStep;
+            if (count == 0)
+            {
+                batch = 1;
+                continue;
+            }
+
+            double perPass = Math.Max(Stopwatch.GetElapsedTime(stepStarted).TotalMilliseconds / count, 1e-3);
+            batch = Math.Clamp((int)(BakeBatchBudget.TotalMilliseconds / perPass), 1, Math.Max(count * 2, 1));
+        }
+    }
+
+    // The checks every bake of the view's space makes before it starts.
+    private static (BakedSpace Space, ProbeVolumeSettings Probes) CheckSpace(in FrameView view, BakeSettings settings)
+    {
         if (view.BakedSpace is not { } space)
         {
             throw new InvalidOperationException("Bake needs a baked space in the frame; call view.BakedLighting first.");
@@ -1864,13 +1923,15 @@ public sealed unsafe class Renderer : IDisposable
                 $"The baked space \"{space.Name}\" holds {probeCount.ToString(CultureInfo.InvariantCulture)} probes, but a bake holds at most {BakeFiles.MaxSpaceProbes.ToString(CultureInfo.InvariantCulture)}.");
         }
 
-        long started = Stopwatch.GetTimestamp();
-        BakeIds.CheckStaticDraws(draws);
-        BakeFiles.CheckChunks(view.BakedChunks);
-        _api.DeviceWaitIdle(_context.Device).Check();
-        _uploads.Flush();
-        BakeSky(view);
+        return (space, probeSettings);
+    }
 
+    // Resolves the space's inputs, lays out its draws and takes its lights, and makes the job that bakes them. Never
+    // waits, apart from making the baker and its probe volume the first time.
+    private BakeJob SpaceJob(
+        in FrameView view, ReadOnlySpan<DrawItem> draws, BakeSettings settings, BakedSpace space,
+        ProbeVolumeSettings probeSettings, long started)
+    {
         // A resolver of its own, so the frame's resolver keeps what the last frame drew. It still tells the tracker
         // where each light is, so a light that moved between frames is known to be moving.
         var inputs = new BakeResolver(NoBakes.Instance)
@@ -1957,20 +2018,22 @@ public sealed unsafe class Renderer : IDisposable
             }
         }
 
-        var area = BakeArea(new AreaJob(draws.ToArray(), bakeLights.ToArray(), false, layout, view.EnvironmentIntensity, true),
-            settings);
-
-        // A probe face texel sees one direction, not a cosine-weighted hemisphere, and the fold averages a thousand of
-        // them into each tile texel, so a sixteenth of the passes gives as quiet a result.
-        int probePasses = Math.Max(1, area.Passes / 16);
-        var probes = _baker!.TraceProbes(probeSettings, CollectionsMarshal.AsSpan(lights), probePasses,
-            view.EnvironmentIntensity, _environment.Sky, _environment.Sampler, BakeBatchBudget);
-
-        var report = new LightBakeReport(unassigned.ToArray(), area.InvalidShare, area.Passes, Stopwatch.GetElapsedTime(started));
-        var file = new LightBakeFile(inputs, settings.Quality, layout.Draws, area.Irradiance, area.Direction, area.Mask,
-            probes.Irradiance, probes.Depth, probeSettings, channels, report);
-        return file.ToBytes();
+        _baker ??= new Baker(_context, this);
+        var volume = _baker.EnsureProbeVolume(_environment.Sky, _environment.Sampler);
+        var area = new AreaJob(draws.ToArray(), bakeLights.ToArray(), false, layout, view.EnvironmentIntensity, true,
+            probeSettings);
+        var skipped = unassigned.ToArray();
+        var quality = settings.Quality;
+        return new BakeJob(_baker, _context, BakeFiles.Space(space.Name), space.Name, inputs, settings, area,
+            _environment.Sky, _environment.Sampler, volume,
+            result =>
+            {
+                var report = new LightBakeReport(skipped, result.InvalidShare, result.Passes, Stopwatch.GetElapsedTime(started));
+                return new LightBakeFile(inputs, quality, layout.Draws, result.Irradiance, result.Direction, result.Mask,
+                    result.ProbeIrradiance, result.ProbeDepth, probeSettings, channels, report);
+            });
     }
+
 
     /// <summary>
     /// Path traces chunk <paramref name="chunk"/> of the frame in its own space and returns its <c>.lightbake</c> bytes,
@@ -1992,6 +2055,39 @@ public sealed unsafe class Renderer : IDisposable
     /// </exception>
     public byte[] BakeChunk(in FrameView view, ReadOnlySpan<DrawItem> draws, int chunk, BakeSettings settings)
     {
+        CheckChunk(view, chunk, settings);
+        long started = Stopwatch.GetTimestamp();
+        BakeIds.CheckStaticDraws(draws);
+        BakeFiles.CheckChunks(view.BakedChunks);
+        var resolved = ResolveChunk(view, draws, chunk);
+        _api.DeviceWaitIdle(_context.Device).Check();
+        _uploads.Flush();
+        BakeSky(view);
+        using var job = ChunkJob(view, draws, chunk, settings, resolved, started);
+        return RunJob(job);
+    }
+
+    /// <summary>
+    /// The bake <see cref="BakeChunk"/> makes, as a job to step, without waiting for the GPU: it records nothing until
+    /// its first step. The frame's sky and uploads are taken as they are, so call it after a frame has drawn this view.
+    /// The draws and lights are copied, so the job doesn't need the frame's spans.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">As <see cref="BakeChunk"/>.</exception>
+    /// <exception cref="ArgumentException">As <see cref="BakeChunk"/>.</exception>
+    /// <exception cref="InvalidOperationException">As <see cref="BakeChunk"/>.</exception>
+    internal BakeJob CreateChunkJob(in FrameView view, ReadOnlySpan<DrawItem> draws, int chunk, BakeSettings settings)
+    {
+        CheckChunk(view, chunk, settings);
+        long started = Stopwatch.GetTimestamp();
+        BakeIds.CheckStaticDraws(draws);
+        BakeFiles.CheckChunks(view.BakedChunks);
+        var resolved = ResolveChunk(view, draws, chunk);
+        return ChunkJob(view, draws, chunk, settings, resolved, started);
+    }
+
+    // The checks every bake of a chunk makes before it starts.
+    private static void CheckChunk(in FrameView view, int chunk, BakeSettings settings)
+    {
         var chunks = view.BakedChunks;
         if (chunk < 0 || chunk >= chunks.Length)
         {
@@ -2006,12 +2102,13 @@ public sealed unsafe class Renderer : IDisposable
                 $"The baked chunk \"{baked.Name}\" is lit at {baked.TexelsPerMetre.ToString(CultureInfo.InvariantCulture)} texels a metre, so it can't be baked at {settings.TexelsPerMetre.ToString(CultureInfo.InvariantCulture)}: no frame would find that bake fresh.",
                 nameof(settings));
         }
+    }
 
-        long started = Stopwatch.GetTimestamp();
-        BakeIds.CheckStaticDraws(draws);
-        BakeFiles.CheckChunks(chunks);
-
-        // The same resolver the space's bake uses, so the chunk takes exactly the draws its inputs name.
+    // A chunk's inputs, and which draws are its, with the same resolver the space's bake uses, so the chunk takes exactly
+    // the draws its inputs name.
+    private (BakeInputs Inputs, BakeResolver Resolver, HashSet<ulong> Ids) ResolveChunk(
+        in FrameView view, ReadOnlySpan<DrawItem> draws, int chunk)
+    {
         var resolver = new BakeResolver(NoBakes.Instance);
         var inputs = resolver.Resolve(view, draws, _boundsOf ??= BoundsOf, EnvironmentHash, _animatedLights)
             .ChunkInputs[chunk];
@@ -2019,12 +2116,21 @@ public sealed unsafe class Renderer : IDisposable
         if (ids.Count == 0)
         {
             throw new InvalidOperationException(
-                $"The baked chunk \"{baked.Name}\" owns no static draws, so there is nothing to bake. A static draw belongs to the chunk whose box holds its centre, unless the baked space's box touches it.");
+                $"The baked chunk \"{view.BakedChunks[chunk].Name}\" owns no static draws, so there is nothing to bake. A static draw belongs to the chunk whose box holds its centre, unless the baked space's box touches it.");
         }
 
-        _api.DeviceWaitIdle(_context.Device).Check();
-        _uploads.Flush();
-        BakeSky(view);
+        return (inputs, resolver, ids);
+    }
+
+    // Moves the chunk's draws and lights into its space, lays them out on its page, and makes the job that bakes them.
+    // Never waits, apart from making the baker the first time.
+    private BakeJob ChunkJob(
+        in FrameView view, ReadOnlySpan<DrawItem> draws, int chunk, BakeSettings settings,
+        (BakeInputs Inputs, BakeResolver Resolver, HashSet<ulong> Ids) resolved, long started)
+    {
+        var chunks = view.BakedChunks;
+        var baked = chunks[chunk];
+        var (inputs, resolver, ids) = resolved;
 
         // The chunk's draws, in its own space. The rest of the world neither blocks nor bounces its light. Only this
         // copy's: every copy of a chunk has the same ids, so an id alone would take the other copies' draws too.
@@ -2092,98 +2198,27 @@ public sealed unsafe class Renderer : IDisposable
 
         // No sky and no sun in the plain light: the transfer carries them, for whatever sky the chunk is placed under.
         bool plainLight = lights.Count > 0 || glows;
-        var area = BakeArea(new AreaJob(owned.ToArray(), bakeLights, true, layout, 0f, plainLight), settings);
-
-        var report = new LightBakeReport(unassigned.ToArray(), area.InvalidShare, area.Passes, Stopwatch.GetElapsedTime(started));
-        var file = new LightBakeFile(inputs, settings.Quality, layout.Draws, area.Irradiance, area.Direction, area.Mask,
-            null, null, null, [], report)
-        {
-            Transfer = area.Transfer,
-            ChunkChannels = chunkChannels,
-        };
-        return file.ToBytes();
+        _baker ??= new Baker(_context, this);
+        var area = new AreaJob(owned.ToArray(), bakeLights, true, layout, 0f, plainLight, null);
+        var skipped = unassigned.ToArray();
+        var quality = settings.Quality;
+        return new BakeJob(_baker, _context, BakeFiles.Chunk(baked.Name, inputs.Combined), baked.Name, inputs, settings,
+            area, _environment.Sky, _environment.Sampler, null,
+            result =>
+            {
+                var report = new LightBakeReport(skipped, result.InvalidShare, result.Passes, Stopwatch.GetElapsedTime(started));
+                return new LightBakeFile(inputs, quality, layout.Draws, result.Irradiance, result.Direction, result.Mask,
+                    null, null, null, [], report)
+                {
+                    Transfer = result.Transfer,
+                    ChunkChannels = chunkChannels,
+                };
+            });
     }
 
     // Whether a material may have a lightmap: not one that sways in the wind or is see-through.
     private bool GetsLightmap(MaterialHandle material) =>
         _resources.GetWind(material) == 0f && (_resources.GetFlags(material) & MaterialFlags.Transparent) == 0;
-
-    /// <summary>
-    /// One area to bake, a space or a chunk, everything in the area's own space.
-    /// </summary>
-    /// <param name="Draws">Every draw that blocks and bounces light; the baker builds its top level from them.</param>
-    /// <param name="Lights">The lights of the bake, each Mixed one with the mask channel it was assigned.</param>
-    /// <param name="IsChunk">Whether the paths also sum the sky and sun transfer, on a page of the layout's own side.</param>
-    /// <param name="Layout">Where each draw sits: from <see cref="LightmapLayout.Build"/> for a space, <see cref="LightmapLayout.BuildSingle"/> for a chunk.</param>
-    /// <param name="SkyIntensity">What the sky in the plain light is scaled by; 0 leaves it out.</param>
-    /// <param name="PlainLight">Whether the irradiance and direction pages are kept.</param>
-    private sealed record AreaJob(
-        DrawItem[] Draws, GpuBakeLight[] Lights, bool IsChunk, LightmapLayout Layout, float SkyIntensity, bool PlainLight);
-
-    /// <summary>What <see cref="BakeArea"/> made: the pages as the file stores them, and what the report needs.</summary>
-    private sealed record AreaBake(
-        List<LightBakePage>? Irradiance, List<LightBakePage>? Direction, List<LightBakePage> Mask,
-        LightBakeTransfer? Transfer, float InvalidShare, int Passes);
-
-    /// <summary>
-    /// Sets up the job's texels, path traces them, then filters, dilates and encodes each page. A chunk's single page
-    /// is baked at the top left of the baker's full page and cut to its own side.
-    /// </summary>
-    private AreaBake BakeArea(AreaJob job, BakeSettings settings)
-    {
-        _baker ??= new Baker(_context, this);
-        var baker = _baker;
-        var pages = job.IsChunk ? job.Layout.OnFullPage() : job.Layout;
-        int side = job.Layout.PageSide;
-        var draws = job.Draws;
-        _context.SubmitAndWait(cmd => baker.SetUpTexels(cmd, pages, draws));
-
-        int passes = settings.Quality == BakeQuality.Preview ? 64 : 1024;
-        var traced = baker.Trace(pages, job.Lights, passes,
-            job.SkyIntensity, _environment.Sky, _environment.Sampler, BakeBatchBudget, job.IsChunk);
-
-        var irradiance = new List<LightBakePage>();
-        var direction = new List<LightBakePage>();
-        var mask = new List<LightBakePage>();
-        LightBakeTransfer? transfer = null;
-        long covered = 0;
-        long invalid = 0;
-        foreach (var raw in traced)
-        {
-            var page = baker.FilterAndDilate(raw, settings.Filter);
-            var encoded = Baker.Encode(page);
-            irradiance.Add(Baker.Crop(encoded.Irradiance, side));
-            direction.Add(Baker.Crop(encoded.Direction, side));
-            mask.Add(Baker.Crop(encoded.Mask, side));
-            if (job.IsChunk)
-            {
-                transfer = Baker.EncodeTransfer(baker.DilateTransfer(raw), side);
-            }
-
-            for (int t = 0; t < page.Covered.Length; t++)
-            {
-                if (page.Covered[t])
-                {
-                    covered++;
-                    if (!page.Valid[t])
-                    {
-                        invalid++;
-                    }
-                }
-            }
-        }
-
-        // A chunk with nothing that can hold a lightmap still has its transfer, holding none.
-        if (job.IsChunk && transfer is null)
-        {
-            var empty = new TracedPage(0, 0, 0, 0, 0, [], [], [], [], [], []) { Transfer = [] };
-            transfer = Baker.EncodeTransfer(empty, side);
-        }
-
-        return new AreaBake(
-            job.PlainLight ? irradiance : null, job.PlainLight ? direction : null, mask, transfer,
-            covered == 0 ? 0f : (float)invalid / covered, passes);
-    }
 
     private static ulong HashEnvironment(in EnvironmentDescription environment)
     {

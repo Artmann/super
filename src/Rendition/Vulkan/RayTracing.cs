@@ -155,7 +155,24 @@ internal sealed unsafe class RayTracing : IDisposable
     /// change a material between this call and the frame's submit. Nothing in <c>Renderer.Render</c> does today.
     /// </para>
     /// </summary>
-    public TopLevelStructure TopLevel(CommandBuffer cmd, IReadOnlyList<TraceInstance> instances)
+    public TopLevelStructure TopLevel(CommandBuffer cmd, IReadOnlyList<TraceInstance> instances) =>
+        Build(cmd, instances, false, out _);
+
+    /// <summary>
+    /// Records a build of the top-level structure as <see cref="TopLevel(CommandBuffer, IReadOnlyList{TraceInstance})"/>
+    /// does, but the structure isn't reused when the frame is: it is held until <paramref name="release"/> is disposed,
+    /// so work in later command buffers, such as a bake's steps, can read it. Dispose the release only once the GPU is
+    /// done with every command buffer that reads the structure. The scratch buffer is still shared, so the build itself
+    /// belongs to <paramref name="cmd"/> as any other build does.
+    /// </summary>
+    public TopLevelStructure TopLevel(CommandBuffer cmd, IReadOnlyList<TraceInstance> instances, out IDisposable release)
+    {
+        var structure = Build(cmd, instances, true, out var held);
+        release = held!;
+        return structure;
+    }
+
+    private TopLevelStructure Build(CommandBuffer cmd, IReadOnlyList<TraceInstance> instances, bool hold, out IDisposable? release)
     {
         if (_bottomLevelAddresses.Length < instances.Count)
         {
@@ -217,7 +234,16 @@ internal sealed unsafe class RayTracing : IDisposable
         WaitForBuild(cmd);
 
         target.Recycler ??= new Recycle(this, target);
-        _releaseAfterRecorded(target.Recycler);
+        if (hold)
+        {
+            release = target.Recycler;
+        }
+        else
+        {
+            _releaseAfterRecorded(target.Recycler);
+            release = null;
+        }
+
         _topLevelBuilds++;
         return new TopLevelStructure(target.Handle, target.Address, target.GeometryTable!, _packed.Count);
     }

@@ -1964,7 +1964,7 @@ invalid too. The validity shader binds its own set 0 and the resource table as s
 
 ## The path tracer
 
-`Baker.Trace` is the baker's second stage, and `bake_trace.comp` with `bake_lights.glsl` is its
+Tracing is the baker's second stage, run as steps of a `BakeJob` (see "Baking as a job"), and `bake_trace.comp` with `bake_lights.glsl` is its
 shader. The path itself, from its first direction to its last bounce, is `pathFrom` in
 `bake_paths.glsl`, which the probes' shader shares (see "Baking probes"). One pass sends one
 path from every valid texel of a page's region (the bounding box of its rectangles) and adds
@@ -1972,7 +1972,7 @@ what it brings back to three `rgba32f` sums: irradiance, direction and shadow ma
 irradiance sum's w adds the square of each pass's luminance. Sums are float32 so 1024 passes
 add up without losing the small ones. The baker reads them back and divides by the passes, and
 turns irradiance w into the variance of the mean luminance, `(E[l²] - E[l]²) / passes`, which
-tells the filter how noisy each texel is; `Baker.FilterAndDilate` cleans the page up (see "Filtering and
+tells the filter how noisy each texel is; the filter cleans the page up (see "Filtering and
 dilation") and `Baker.Encode` then writes it as the file stores it. Every texel's random
 numbers come from a hash of its place and the pass, so a bake of the same scene with the same
 settings gives the same file.
@@ -2020,19 +2020,19 @@ them reaches a texel, and each is measured where it shines. The mean is the shar
 the texel sees. A channel with no light holds 0 on valid texels and 1 elsewhere; nothing reads
 it.
 
-Passes go to the GPU in batches. The first is one pass; after each, the baker times it and
+Passes go to the GPU in batches. The first is one pass; after each, `Bake` times it and
 sizes the next to fit `Renderer.BakeBatchBudget` (80 ms) at that rate, at most double the last,
 so no submit holds the GPU long enough to trip a device timeout. A chunk's trace also sums its sky and sun transfer;
 see "Baking a chunk" under "Chunk transfer". `Renderer.Bake` takes the
-lights' modes from `BakeResolver`, so the bake and the frame agree on which lights are moving,
-and builds the top-level structure with `SetUpTexels`. That structure goes on the frame slot's
-destroyed list like any other, and is released only by a later `Render`; `Bake` waits for every
-batch before returning, so it stays alive for the whole trace.
+lights' modes from `BakeResolver`, so the bake and the frame agree on which lights are moving.
+The job builds and holds its own top-level structure, released only when the job is disposed, so it
+stays alive for the whole trace even if frames are drawn between steps.
 
 ## Filtering and dilation
 
-`Baker.FilterAndDilate` runs on each traced page before `Encode`, on the GPU, over the same
-region the tracer covered. It uploads the region's means into three `rgba32f` images, works
+The filter runs on each traced page before `Encode`, on the GPU, over the same
+region the tracer covered. A job records it with `Baker.RecordFilter` into a `FilterRun` from
+`Baker.CreateFilter`; `Baker.FilterAndDilate` runs it and waits, for tests. It uploads the region's means into three `rgba32f` images, works
 between two copies of them, and reads the result back. Two shaders do the work, and they share
 one descriptor set: the page's position, geometric normal and validity, the three inputs and the
 three outputs.
@@ -2092,7 +2092,7 @@ in a texture to borrow from.
 
 ## Baking probes
 
-`Baker.TraceProbes` bakes the space's light probes after the lightmap, with the same scene and
+A space's `BakeJob` bakes its light probes after the lightmap, with the same scene and
 lights, into the file's probe pages. The settings are the space's own box and `ProbeSpacing`
 (`BakedSpace` from `view.BakedLighting`), so `ProbeGrid` lays the baked probes out exactly as it
 would live probes in that box, at most `BakeFiles.MaxSpaceProbes` (4,096); `Renderer.Bake`
@@ -2121,7 +2121,8 @@ looks at it (`cubeFaceOf` in `cube_faces.glsl`), and that texel adds the light, 
 here as it is at a lightmap texel, since the frame draws it live; its light still arrives after
 a bounce through `pathFrom`. `Baked` lights, emission and the sky count in full.
 
-The fold is the live one. The baker makes a `ProbeVolume` of its own at `ProbeQuality.Low`, and
+The fold is the live one. The baker keeps a `ProbeVolume` of its own at `ProbeQuality.Low`, made by
+the first space bake (`Baker.EnsureProbeVolume`), and
 for each group of up to `FaceSlots` (8) probes copies their faces into `FacesImage`, one slot each,
 calls `ProbeVolume.RecordFold` per slot, and `RecordStagingReadBack` copies the staging slots to a
 host buffer. So the tiles, borders, depth moments and inside marks come from `probe_fold.comp`
@@ -2142,6 +2143,51 @@ probe sees it, for example where every nearby one is inside a wall, it falls bac
 `view.LightProbes` box (layer 4 of the live atlases), then to the live cascades round the camera,
 and last to the environment. A surface with a lightmap never gets here: its soft light is the
 lightmap's.
+
+## Baking as a job
+
+A bake runs as a `BakeJob` (`src/Rendition/Baking/BakeJob.cs`): a series of steps, each recording a slice of the work
+into a command buffer the caller submits. `Renderer.CreateSpaceJob` and `Renderer.CreateChunkJob` make one. They do
+every check `Bake` and `BakeChunk` do, resolve the inputs, lay out the draws and take the lights, and copy the draws and
+lights into the job, but record nothing and never wait for the GPU. The one exception is the first bake of a run, which
+makes the `Baker` and its probe volume. `Bake` and `BakeChunk` still wait for the GPU, flush uploads and bake the sky,
+then make the same job and step it to the end, one `SubmitAndWait` a step. A background bake can instead run a few
+steps a frame.
+
+`Step(cmd, passes)` returns `Continue`, `AwaitGpu` or `Done`, and traces at most `passes` passes. The steps, in order:
+
+1. Texel setup. The job takes the baker's pages (`Baker.ClaimPages`), builds a top-level structure from its draws and
+   records texel setup against it (`Baker.BuildScene`, `Baker.RecordTexels`).
+2. For each page, its paths a slice of passes at a time. The first slice makes the region's sums, writes the page's
+   trace set and clears the sums. The step that traces the last pass also copies the sums, positions and validity into
+   a host-visible buffer (`Baker.RecordSumsReadBack`) and returns `AwaitGpu`.
+3. The next step reads that buffer (`Baker.ReadSumsBack`), uploads the means and records the filter
+   (`Baker.CreateFilter`, `Baker.RecordFilter`), and returns `AwaitGpu`.
+4. The step after that keeps the filtered page. A chunk's page then runs both halves of its transfer through the same
+   filter run, one `AwaitGpu` step each (`Baker.TransferRun`, `Baker.ReadTransferRun`).
+5. For a space, its probes, 64 at a time: a slice of the batch's passes at a time, cleared first. Then a step for each
+   group of up to `FaceSlots` probes folds them and copies their tiles back, and returns `AwaitGpu`. The step after it
+   writes those tiles into the atlases.
+6. `Done` once nothing is left.
+
+`ReadsBack` says whether the next step reads what the last one copied, so the caller must wait for that submit first.
+
+`Finish` encodes and crops the pages, encodes a chunk's transfer, and makes the file's bytes. It needs no GPU, so a
+background bake can call it off the render thread. `Progress` goes from 0 to 1 by the texel and probe paths traced,
+and only reaches 1 at `Done`.
+
+The file is the same however the passes are sliced, so a job stepped one pass at a time matches `Bake` byte for byte
+(`BakeJobGpuTests`). Each pass's random numbers come from its own number (`Pass` in the push constants), not from where
+a submit started. The sums add up across submits in the same order. The steps hand over through the same readbacks the
+waiting baker used, and the filter, fold and encoding are unchanged.
+
+The job owns its descriptor pool (`Baker.CreateJobPool`, with room for all of its sets), its lights buffer, its sums, its
+filter run, its probe targets and its readback buffers. Its top-level structure is held through
+`RayTracing.TopLevel(cmd, instances, out release)`, so a `Render` between steps doesn't recycle it. The baker's pages,
+probe volume and the top-level build's scratch are shared, so one job runs at a time. A second job's setup throws
+`InvalidOperationException` until the first is disposed. Dispose a job only once the GPU is done with its last step.
+`Bake` and `BakeChunk` size each step by `Renderer.BakeBatchBudget`: one pass first, then as many as fit 80 ms at the
+last step's rate, at most double, starting over at one after a step that traced nothing.
 
 ## Paint and glass
 
@@ -3680,11 +3726,11 @@ scale the coefficients without turning them.
 
 ### Baking a chunk
 
-`Renderer.BakeChunk` and `Renderer.Bake` share `BakeArea`, which takes an `AreaJob`: the draws and lights in the
-area's own space, whether it is a chunk, its layout, the sky's intensity and whether the plain light is kept. The
-lights carry their mask channels. `BakeArea` sets up the texels, which builds the baker's top-level structure from the
-job's draws, traces, then filters, dilates and encodes each page. A space's job is its frame as it stands; the space's
-probes are traced after, in `Bake`.
+`Renderer.BakeChunk` and `Renderer.Bake` both run a `BakeJob` (see "Baking as a job"), made from an `AreaJob`: the
+draws and lights in the area's own space, whether it is a chunk, its layout, the sky's intensity, whether the plain
+light is kept, and a space's probes. The lights carry their mask channels. The job sets up the texels, which builds
+its top-level structure from the area's draws, traces, then filters and dilates each page, and `Finish` encodes them.
+A space's job is its frame as it stands, and traces the space's probes after the pages.
 
 A chunk's job holds only the static draws `BakeResolver.ChunkIds` files under it, the same ones its inputs hash, each
 moved by `BakeAreas.Relative` into the chunk's space, so a chunk's bake is the same wherever it stands and nothing
@@ -3702,7 +3748,7 @@ or a glowing static surface (`ResourceTable.Glows`, any emissive channel above 0
 lightmap of its own, such as a swaying one: it is still traced, so its glow still lights the chunk's other surfaces.
 There are no probes.
 
-With `Trace`'s `transfer` on, `bake_trace.comp` sets `chunk` in its push constants and `bake_paths.glsl`, compiled
+For a chunk, `bake_trace.comp` sets `chunk` in its push constants and `bake_paths.glsl`, compiled
 with `BAKE_TRANSFER` there and without it for the probes, sums the transfer into five more `rgba32f` sums alongside the
 plain light. A space binds 1 x 1 images there that are never written, and its random numbers are drawn exactly as
 before, so a space's bake doesn't change. The rules, in the chunk's space:
@@ -3719,7 +3765,7 @@ before, so a space's bake doesn't change. The rules, in the chunk's space:
 The two extra random numbers are drawn at every surface the path reaches, whether the ray goes or not.
 
 The transfer is dilated as the plain light is, with `bake_dilate.comp`'s rings run twice over ten floats at a time
-(`Baker.DilateTransfer`). First a NaN becomes 0 and anything past a half's range is clamped to it. The transfer isn't
+through the page's own filter run (`Baker.TransferRun` uploads each half, `Baker.ReadTransferRun` takes it back). First a NaN becomes 0 and anything past a half's range is clamped to it. The transfer isn't
 smoothed, so at Preview, 64 paths a texel, its bounce is grainy where the plain light would be smooth.
 `Baker.EncodeTransfer` then writes the sky's and sun's coefficients in RGBA16F and the sun's colour in RGBA8 as
 `SunTint`, divided by its largest channel. The sun's coefficients are scaled by that channel over the

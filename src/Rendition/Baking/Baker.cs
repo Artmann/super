@@ -74,11 +74,9 @@ internal sealed unsafe class Baker : IDisposable
     private readonly Sampler _sampler;
     private readonly List<PageTargets> _pages = [];
     private readonly DescriptorSetLayout _traceSetLayout;
-    private readonly DescriptorPool _tracePool;
     private readonly PipelineLayout _traceLayout;
     private readonly Pipeline _tracePipeline;
     private readonly DescriptorSetLayout _probeSetLayout;
-    private readonly DescriptorPool _probePool;
     private readonly PipelineLayout _probeLayout;
     private readonly Pipeline _probePipeline;
     private readonly DescriptorSetLayout _filterSetLayout;
@@ -87,7 +85,8 @@ internal sealed unsafe class Baker : IDisposable
     private readonly Pipeline _filterPipeline;
     private readonly Pipeline _dilatePipeline;
     private readonly Dictionary<LightmapRect, int> _charts = [];
-    private TopLevelStructure _scene;
+    private ProbeVolume? _probeVolume;
+    private (object Owner, string Name)? _pagesClaimedBy;
     private Pipeline _texelPipeline;
     private bool _texelPipelineConservative;
     private TileTargets? _tile;
@@ -157,8 +156,8 @@ internal sealed unsafe class Baker : IDisposable
         _resolvePipeline = PipelineFactory.CreateCompute(context, "bake_resolve.comp", _resolveLayout);
 
         // Trace: the scene and geometry table, the page's position, geometric normal and validity read, the lights, the
-        // three sums read and written, the sky, and a chunk's five transfer sums. Set 1 is the resource table again. One
-        // set, rewritten for each page.
+        // three sums read and written, the sky, and a chunk's five transfer sums. Set 1 is the resource table again. Each
+        // job writes a set a page from its own pool.
         var traceBindings = stackalloc DescriptorSetLayoutBinding[]
         {
             new(0, DescriptorType.AccelerationStructureKhr, 1, ShaderStageFlags.ComputeBit),
@@ -178,27 +177,12 @@ internal sealed unsafe class Baker : IDisposable
             new(14, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
         };
         _traceSetLayout = CreateSetLayout(traceBindings, 15);
-        var tracePoolSizes = stackalloc DescriptorPoolSize[]
-        {
-            new(DescriptorType.AccelerationStructureKhr, 1),
-            new(DescriptorType.StorageBuffer, 2),
-            new(DescriptorType.StorageImage, 6 + TransferSums),
-            new(DescriptorType.CombinedImageSampler, 1),
-        };
-        var tracePoolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = 1,
-            PoolSizeCount = 4,
-            PPoolSizes = tracePoolSizes,
-        };
-        api.CreateDescriptorPool(context.Device, &tracePoolInfo, null, out _tracePool).Check();
         _traceLayout = CreatePipelineLayout(
             [_traceSetLayout, renderer.Resources.Layout], ShaderStageFlags.ComputeBit, (uint)sizeof(TraceConstants));
         _tracePipeline = PipelineFactory.CreateCompute(context, "bake_trace.comp", _traceLayout);
 
         // Probes: the scene and geometry table, the lights, the probes' positions, the sum read and written, the faces
-        // written, and the sky. Set 1 is the resource table. One set, written once a bake.
+        // written, and the sky. Set 1 is the resource table. Each job writes one set from its own pool.
         var probeBindings = stackalloc DescriptorSetLayoutBinding[]
         {
             new(0, DescriptorType.AccelerationStructureKhr, 1, ShaderStageFlags.ComputeBit),
@@ -210,21 +194,6 @@ internal sealed unsafe class Baker : IDisposable
             new(6, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
         };
         _probeSetLayout = CreateSetLayout(probeBindings, 7);
-        var probePoolSizes = stackalloc DescriptorPoolSize[]
-        {
-            new(DescriptorType.AccelerationStructureKhr, 1),
-            new(DescriptorType.StorageBuffer, 3),
-            new(DescriptorType.StorageImage, 2),
-            new(DescriptorType.CombinedImageSampler, 1),
-        };
-        var probePoolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = 1,
-            PoolSizeCount = 4,
-            PPoolSizes = probePoolSizes,
-        };
-        api.CreateDescriptorPool(context.Device, &probePoolInfo, null, out _probePool).Check();
         _probeLayout = CreatePipelineLayout(
             [_probeSetLayout, renderer.Resources.Layout], ShaderStageFlags.ComputeBit, (uint)sizeof(ProbeTraceConstants));
         _probePipeline = PipelineFactory.CreateCompute(context, "bake_probes.comp", _probeLayout);
@@ -276,17 +245,33 @@ internal sealed unsafe class Baker : IDisposable
     /// Records texel setup for every page of <paramref name="layout"/> into <paramref name="cmd"/>: builds the scene's
     /// top-level structure from <paramref name="draws"/>, draws the static draws that have rectangles into their pages,
     /// and marks which texels are valid. Leaves every page's images in the general layout, ready for compute shaders
-    /// and copies. The descriptor sets are rewritten, so the previous call's work must be done.
+    /// and copies. The descriptor sets are rewritten, so the previous call's work must be done. The top-level structure
+    /// is the frame's, recycled at the renderer's next frame; a <see cref="BakeJob"/> holds its own instead.
     /// </summary>
     public void SetUpTexels(CommandBuffer cmd, LightmapLayout layout, ReadOnlySpan<DrawItem> draws)
+    {
+        _context.Api.ResetDescriptorPool(_context.Device, _pool, 0).Check();
+        var scene = _tracing.TopLevel(cmd, _traceScene.Collect(draws));
+        RecordTexels(cmd, layout, draws, _pool, scene);
+    }
+
+    /// <summary>
+    /// Records a build of the top-level structure over <paramref name="draws"/> that is held until
+    /// <paramref name="release"/> is disposed, so a bake's later steps, in later command buffers, can trace it.
+    /// </summary>
+    internal TopLevelStructure BuildScene(CommandBuffer cmd, ReadOnlySpan<DrawItem> draws, out IDisposable release) =>
+        _tracing.TopLevel(cmd, _traceScene.Collect(draws), out release);
+
+    /// <summary>
+    /// Records texel setup as <see cref="SetUpTexels"/> does, against <paramref name="scene"/>, with its descriptor
+    /// sets from <paramref name="pool"/>, which needs room for <see cref="CreateJobPool"/>'s sets for setup.
+    /// </summary>
+    internal void RecordTexels(
+        CommandBuffer cmd, LightmapLayout layout, ReadOnlySpan<DrawItem> draws, DescriptorPool pool, in TopLevelStructure scene)
     {
         var api = _context.Api;
         EnsurePages(layout.Pages);
         EnsureTexelPipeline();
-        api.ResetDescriptorPool(_context.Device, _pool, 0).Check();
-
-        // Kept for Trace. The renderer recycles it at its next frame, so it lives through every pass a bake submits.
-        var scene = _scene = _tracing.TopLevel(cmd, _traceScene.Collect(draws));
 
         // Each page's static draws and their rectangles.
         var onPage = new List<(DrawItem Draw, LightmapRect Rect)>[layout.Pages];
@@ -314,7 +299,7 @@ internal sealed unsafe class Baker : IDisposable
             }
             else
             {
-                DrawMultisampled(cmd, _pages[page], onPage[page]);
+                DrawMultisampled(cmd, _pages[page], onPage[page], pool);
             }
         }
 
@@ -336,7 +321,7 @@ internal sealed unsafe class Baker : IDisposable
                 PipelineStageFlags2.ComputeShaderBit | PipelineStageFlags2.CopyBit, AccessFlags2.None,
                 PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit);
 
-            var set = AllocateSet(_validitySetLayout);
+            var set = AllocateSet(_validitySetLayout, pool);
             WriteValiditySet(set, scene, targets);
             sets[0] = set;
             api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _validityLayout, 0, 2, sets, 0, null);
@@ -442,218 +427,137 @@ internal sealed unsafe class Baker : IDisposable
     }
 
     /// <summary>
-    /// Path traces every page of <paramref name="layout"/>, <paramref name="passes"/> paths a valid texel, and reads the
-    /// mean back, one region a page. Call it once <see cref="SetUpTexels"/>'s work is done, and before the renderer draws
-    /// another frame, which recycles the scene's top-level structure. Passes are submitted in batches sized from the
-    /// first, so no submit runs much past <paramref name="batchBudget"/>. Waits for the GPU.
+    /// A descriptor pool of a <see cref="BakeJob"/>'s own, with room for every set the job allocates over a layout of
+    /// <paramref name="pages"/> pages: texel setup's validity and resolve sets, the trace set and the filter's two sets
+    /// a page, and one probe set. Each job has its own, so no two jobs share a set. Free it with
+    /// <see cref="DestroyPool"/> once the GPU is done with the job.
     /// </summary>
-    /// <param name="lights">
-    /// Every light of the bake, sampled at each path vertex. Each light with a <see cref="GpuBakeLight.MaskChannel"/>
-    /// is also measured in that channel of the mask, wherever it reaches; lights that share a channel must not overlap.
-    /// </param>
-    /// <param name="skyIntensity">What the sky is scaled by; 0 leaves it out.</param>
-    /// <param name="sky">The sky to light by, a cube sampled by world direction, in the shader-read layout.</param>
-    /// <param name="transfer">
-    /// Whether this is a chunk, whose paths also sum its sky and sun transfer into <see cref="TracedPage.Transfer"/>.
-    /// See "Chunk transfer" in docs/design.md.
-    /// </param>
-    public TracedPage[] Trace(
-        LightmapLayout layout, ReadOnlySpan<GpuBakeLight> lights, int passes,
-        float skyIntensity, ImageView sky, Sampler skySampler, TimeSpan batchBudget, bool transfer = false)
+    internal DescriptorPool CreateJobPool(int pages)
     {
-        ArgumentOutOfRangeException.ThrowIfLessThan(passes, 1);
-
-        // An empty storage buffer isn't allowed, so there is always room for one light.
-        ulong lightBytes = (ulong)Math.Max(lights.Length, 1) * (ulong)sizeof(GpuBakeLight);
-        using var lightBuffer = GpuBuffer.CreateHostVisible(_context, lightBytes, BufferUsageFlags.StorageBufferBit);
-        lights.CopyTo(new Span<GpuBakeLight>(lightBuffer.Mapped, lights.Length));
-
-        var constants = new TraceConstants
+        uint count = (uint)Math.Max(pages, 1);
+        var sizes = stackalloc DescriptorPoolSize[]
         {
-            LightCount = (uint)lights.Length,
-            Lift = TraceLift,
-            SkyIntensity = skyIntensity,
-            Chunk = transfer ? 1u : 0u,
+            new(DescriptorType.AccelerationStructureKhr, count * 2 + 1),
+            new(DescriptorType.StorageBuffer, count * 3 + 3),
+            new(DescriptorType.StorageImage, count * (3 + 3 + 6 + TransferSums + 18) + 2),
+            new(DescriptorType.CombinedImageSampler, count * 4 + 1),
         };
-
-        var traced = new TracedPage[layout.Pages];
-        int batch = 1;
-        for (int page = 0; page < layout.Pages; page++)
+        var info = new DescriptorPoolCreateInfo
         {
-            var (x, y, width, height) = UsedRegion(layout, page);
-            constants.X = x;
-            constants.Y = y;
-            constants.Width = width;
-            constants.Height = height;
-            var extent = new Extent2D((uint)width, (uint)height);
-            const ImageUsageFlags usage = ImageUsageFlags.StorageBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit;
-            using var irradiance = new RenderTarget(_context, SumFormat, extent, usage, ImageAspectFlags.ColorBit);
-            using var direction = new RenderTarget(_context, SumFormat, extent, usage, ImageAspectFlags.ColorBit);
-            using var mask = new RenderTarget(_context, SumFormat, extent, usage, ImageAspectFlags.ColorBit);
+            SType = StructureType.DescriptorPoolCreateInfo,
+            MaxSets = count * 5 + 1,
+            PoolSizeCount = 4,
+            PPoolSizes = sizes,
+        };
+        _context.Api.CreateDescriptorPool(_context.Device, &info, null, out var pool).Check();
+        return pool;
+    }
 
-            // A space binds 1 x 1 transfer sums that the shader never writes.
-            var transferExtent = transfer ? extent : new Extent2D(1, 1);
-            var sums = new RenderTarget[3 + TransferSums];
-            sums[0] = irradiance;
-            sums[1] = direction;
-            sums[2] = mask;
-            for (int i = 0; i < TransferSums; i++)
-            {
-                sums[3 + i] = new RenderTarget(_context, SumFormat, transferExtent, usage, ImageAspectFlags.ColorBit);
-            }
+    /// <summary>Frees a pool from <see cref="CreateJobPool"/>, and every set in it.</summary>
+    internal void DestroyPool(DescriptorPool pool) => _context.Api.DestroyDescriptorPool(_context.Device, pool, null);
 
-            try
-            {
-                _context.Api.ResetDescriptorPool(_context.Device, _tracePool, 0).Check();
-                var set = AllocateSet(_traceSetLayout, _tracePool);
-                WriteTraceSet(set, _pages[page], lightBuffer, sums, sky, skySampler);
-
-                _context.SubmitAndWait(cmd => ClearSums(cmd, sums));
-                for (int pass = 0; pass < passes;)
-                {
-                    int count = Math.Min(batch, passes - pass);
-                    int first = pass;
-                    long started = System.Diagnostics.Stopwatch.GetTimestamp();
-                    _context.SubmitAndWait(cmd => RecordPasses(cmd, set, constants, first, count, width, height));
-                    var took = System.Diagnostics.Stopwatch.GetElapsedTime(started);
-                    pass += count;
-
-                    // As many passes as fit the budget at the rate this batch ran, never more than double at once.
-                    double perPass = Math.Max(took.TotalMilliseconds / count, 1e-3);
-                    batch = Math.Clamp((int)(batchBudget.TotalMilliseconds / perPass), 1, Math.Max(count * 2, 1));
-                }
-
-                traced[page] = ReadSums(page, sums, x, y, width, height, passes, transfer);
-            }
-            finally
-            {
-                for (int i = 0; i < TransferSums; i++)
-                {
-                    sums[3 + i].Dispose();
-                }
-            }
+    /// <summary>
+    /// Takes the baker's pages for the bake of <paramref name="name"/> until <see cref="ReleasePages"/>. The pages hold
+    /// one bake's texels at a time, so a second bake can't set up while the first still reads them.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Another bake holds the pages.</exception>
+    internal void ClaimPages(object owner, string name)
+    {
+        if (_pagesClaimedBy is { } held && !ReferenceEquals(held.Owner, owner))
+        {
+            throw new InvalidOperationException(
+                $"The baker's pages hold the bake of \"{held.Name}\", so the bake of \"{name}\" can't set up its texels until that one is done.");
         }
 
-        return traced;
+        _pagesClaimedBy = (owner, name);
+    }
+
+    /// <summary>Gives the pages back, if <paramref name="owner"/> holds them.</summary>
+    internal void ReleasePages(object owner)
+    {
+        if (_pagesClaimedBy is { } held && ReferenceEquals(held.Owner, owner))
+        {
+            _pagesClaimedBy = null;
+        }
     }
 
     /// <summary>
-    /// Path traces the light probes of <paramref name="probes"/> with the scene and lights of the last
-    /// <see cref="SetUpTexels"/>, and returns their atlases as the <c>.lightbake</c> file stores them. Each pass sends a
-    /// path through each quarter of every texel of each probe's six <see cref="ProbeVolume.FaceSize"/> faces; the faces are then folded
-    /// by <see cref="ProbeVolume.RecordFold"/>, the live probes' own fold, and the tiles written in <see cref="BakedProbeAtlas"/>'s
-    /// layout. A Mixed light's direct light at the probe is left out, as it is at a texel. Passes go in batches
-    /// that fit <paramref name="batchBudget"/>. Waits for the GPU.
+    /// The baker's probe volume, made the first time at the lowest quality, for its faces, its fold and its staging
+    /// slots. Its atlases stay unused, since a bake keeps the fixed layout of <see cref="BakedProbeAtlas"/>, and the
+    /// frame's own probes are left alone. Waits for the GPU the first time only.
     /// </summary>
-    /// <returns>The irradiance atlas in RGBA16F and the depth atlas's two moments in RGBA16F, blue and alpha 0.</returns>
-    public (LightBakePage Irradiance, LightBakePage Depth) TraceProbes(
-        in ProbeVolumeSettings probes, ReadOnlySpan<GpuBakeLight> lights, int passes, float skyIntensity, ImageView sky,
-        Sampler skySampler, TimeSpan batchBudget)
+    /// <exception cref="InvalidOperationException">The GPU lacks what the live probes fold with.</exception>
+    internal ProbeVolume EnsureProbeVolume(ImageView sky, Sampler skySampler)
     {
-        ArgumentOutOfRangeException.ThrowIfLessThan(passes, 1);
-        long total = ProbeGrid.Total(probes);
-        if (total > ProbeGrid.MaxProbes)
+        if (_probeVolume is { } made)
         {
-            throw new ArgumentException(
-                $"The probes number {total}, more than the {ProbeGrid.MaxProbes} the atlases hold.", nameof(probes));
+            return made;
         }
 
-        int count = (int)total;
-        ulong lightBytes = (ulong)Math.Max(lights.Length, 1) * (ulong)sizeof(GpuBakeLight);
-        using var lightBuffer = GpuBuffer.CreateHostVisible(_context, lightBytes, BufferUsageFlags.StorageBufferBit);
-        lights.CopyTo(new Span<GpuBakeLight>(lightBuffer.Mapped, lights.Length));
-        using var positionBuffer = GpuBuffer.CreateHostVisible(
-            _context, (ulong)count * (ulong)sizeof(Vector4), BufferUsageFlags.StorageBufferBit);
-        var positions = new Span<Vector4>(positionBuffer.Mapped, count);
-        for (int i = 0; i < count; i++)
-        {
-            positions[i] = new Vector4(ProbeGrid.Position(probes, i), 1f);
-        }
-
-        // A volume of its own at the lowest quality, for its faces, its fold and its staging slots; its atlases stay
-        // unused, since a bake keeps the fixed layout of BakedProbeAtlas, and the frame's own probes are left alone.
-        using var volume = new ProbeVolume(_context, skySampler, sky);
+        var volume = new ProbeVolume(_context, skySampler, sky);
         if (!volume.Supported)
         {
+            volume.Dispose();
             throw new InvalidOperationException("Baking light probes needs the storage image formats and multiview the live probes fold with.");
         }
 
         volume.EnsureStorage(ProbeQuality.Low);
-        int slots = Math.Min(volume.FaceSlots, volume.StagingSlots);
-        const int face = (int)ProbeVolume.FaceSize;
-        var extent = new Extent2D(6 * face, (uint)(face * ProbesPerBatch));
+        _probeVolume = volume;
+        return volume;
+    }
+
+    /// <summary>
+    /// A region's sums, <see cref="SumFormat"/> and cleared by <see cref="ClearSums"/>: irradiance, direction and mask,
+    /// then the five transfer sums, of the region's size for a chunk and 1 x 1, never written, for a space.
+    /// </summary>
+    internal RenderTarget[] CreateSums(int width, int height, bool transfer)
+    {
+        var extent = new Extent2D((uint)width, (uint)height);
+        var transferExtent = transfer ? extent : new Extent2D(1, 1);
         const ImageUsageFlags usage = ImageUsageFlags.StorageBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit;
-        using var sum = new RenderTarget(_context, SumFormat, extent, usage, ImageAspectFlags.ColorBit);
-        using var faces = new RenderTarget(_context, GBuffer.HdrFormat, extent, usage, ImageAspectFlags.ColorBit);
-        using var readBack = GpuBuffer.CreateHostVisible(
-            _context, (ulong)slots * ProbeVolume.StagedTileBytes, BufferUsageFlags.TransferDstBit);
-
-        _context.Api.ResetDescriptorPool(_context.Device, _probePool, 0).Check();
-        var set = AllocateSet(_probeSetLayout, _probePool);
-        WriteProbeSet(set, lightBuffer, positionBuffer, sum, faces, sky, skySampler);
-
-        const int irradianceSide = BakedProbeAtlas.IrradianceAtlasSize;
-        const int depthSide = BakedProbeAtlas.DepthAtlasSize;
-        var irradiance = new byte[irradianceSide * irradianceSide * 8];
-        var depth = new byte[depthSide * depthSide * 8];
-        float spacing = probes.Spacing;
-        var constants = new ProbeTraceConstants
+        var sums = new RenderTarget[3 + TransferSums];
+        for (int i = 0; i < sums.Length; i++)
         {
-            ProbeCount = (uint)count,
-            Passes = (uint)passes,
-            LightCount = (uint)lights.Length,
-            Lift = TraceLift,
-            SkyIntensity = skyIntensity,
-            MaxDistance = spacing * 2f,
-        };
-        int batch = 1;
-        for (int first = 0; first < count; first += ProbesPerBatch)
-        {
-            constants.FirstProbe = (uint)first;
-            _context.SubmitAndWait(cmd => ClearSums(cmd, [sum, faces]));
-            for (int pass = 0; pass < passes;)
-            {
-                int passCount = Math.Min(batch, passes - pass);
-                int firstPass = pass;
-                long started = System.Diagnostics.Stopwatch.GetTimestamp();
-                _context.SubmitAndWait(cmd => RecordProbePasses(cmd, set, constants, firstPass, passCount, extent));
-                var took = System.Diagnostics.Stopwatch.GetElapsedTime(started);
-                pass += passCount;
-
-                double perPass = Math.Max(took.TotalMilliseconds / passCount, 1e-3);
-                batch = Math.Clamp((int)(batchBudget.TotalMilliseconds / perPass), 1, Math.Max(passCount * 2, 1));
-            }
-
-            // The live fold, a few probes at a time, as many as the volume has slots for. The traced distances are
-            // already clamped short of the fold's sky mark, so it keeps the sky the paths brought back.
-            int inBatch = Math.Min(ProbesPerBatch, count - first);
-            for (int row = 0; row < inBatch; row += slots)
-            {
-                int inGroup = Math.Min(slots, inBatch - row);
-                int firstRow = row;
-                _context.SubmitAndWait(cmd =>
-                {
-                    RecordCopyFaces(cmd, faces, firstRow, inGroup, volume);
-                    volume.BeginFolds(cmd);
-                    for (int slot = 0; slot < inGroup; slot++)
-                    {
-                        volume.RecordFold(cmd, slot, spacing, skyIntensity, Vector4.Zero);
-                    }
-
-                    volume.RecordStagingReadBack(cmd, readBack, inGroup);
-                });
-                for (int slot = 0; slot < inGroup; slot++)
-                {
-                    var tile = new ReadOnlySpan<float>(
-                        (byte*)readBack.Mapped + (long)slot * ProbeVolume.StagedTileBytes, ProbeVolume.StagedTileBytes / sizeof(float));
-                    WriteTile(tile, first + firstRow + slot, irradiance, depth);
-                }
-            }
+            sums[i] = new RenderTarget(_context, SumFormat, i < 3 ? extent : transferExtent, usage, ImageAspectFlags.ColorBit);
         }
 
+        return sums;
+    }
+
+    /// <summary>
+    /// The probes' sum and their faces, <see cref="ProbesPerBatch"/> rows of six <see cref="ProbeVolume.FaceSize"/>
+    /// faces each.
+    /// </summary>
+    internal (RenderTarget Sum, RenderTarget Faces) CreateProbeTargets()
+    {
+        var extent = ProbeExtent;
+        const ImageUsageFlags usage = ImageUsageFlags.StorageBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit;
         return (
-            new LightBakePage(irradianceSide, irradianceSide, LightBakePageFormat.Rgba16f, irradiance),
-            new LightBakePage(depthSide, depthSide, LightBakePageFormat.Rgba16f, depth));
+            new RenderTarget(_context, SumFormat, extent, usage, ImageAspectFlags.ColorBit),
+            new RenderTarget(_context, GBuffer.HdrFormat, extent, usage, ImageAspectFlags.ColorBit));
+    }
+
+    /// <summary>The size of a batch of probes' faces.</summary>
+    internal static Extent2D ProbeExtent => new(6 * ProbeVolume.FaceSize, ProbeVolume.FaceSize * ProbesPerBatch);
+
+    /// <summary>A trace set from <paramref name="pool"/> for one page, written for the scene, lights, sums and sky.</summary>
+    internal DescriptorSet CreateTraceSet(
+        DescriptorPool pool, int page, in TopLevelStructure scene, GpuBuffer lights, RenderTarget[] sums, ImageView sky,
+        Sampler skySampler)
+    {
+        var set = AllocateSet(_traceSetLayout, pool);
+        WriteTraceSet(set, scene, _pages[page], lights, sums, sky, skySampler);
+        return set;
+    }
+
+    /// <summary>The probe set from <paramref name="pool"/>, written for the scene, lights, probes, targets and sky.</summary>
+    internal DescriptorSet CreateProbeSet(
+        DescriptorPool pool, in TopLevelStructure scene, GpuBuffer lights, GpuBuffer positions, RenderTarget sum,
+        RenderTarget faces, ImageView sky, Sampler skySampler)
+    {
+        var set = AllocateSet(_probeSetLayout, pool);
+        WriteProbeSet(set, scene, lights, positions, sum, faces, sky, skySampler);
+        return set;
     }
 
     /// <summary>
@@ -698,7 +602,7 @@ internal sealed unsafe class Baker : IDisposable
     }
 
     /// <summary>Records <paramref name="count"/> probe passes from <paramref name="first"/>, each waiting for the last's sum.</summary>
-    private void RecordProbePasses(CommandBuffer cmd, DescriptorSet set, ProbeTraceConstants constants, int first, int count, Extent2D extent)
+    internal void RecordProbePasses(CommandBuffer cmd, DescriptorSet set, ProbeTraceConstants constants, int first, int count, Extent2D extent)
     {
         var api = _context.Api;
         _tracing.ReadyToTrace(cmd);
@@ -734,7 +638,7 @@ internal sealed unsafe class Baker : IDisposable
     /// Copies the six faces of <paramref name="count"/> of the batch's probe rows from <paramref name="firstRow"/> into
     /// the volume's faces, one slot each, ready for the fold.
     /// </summary>
-    private void RecordCopyFaces(CommandBuffer cmd, RenderTarget faces, int firstRow, int count, ProbeVolume volume)
+    internal void RecordCopyFaces(CommandBuffer cmd, RenderTarget faces, int firstRow, int count, ProbeVolume volume)
     {
         var api = _context.Api;
         uint layers = (uint)(count * 6);
@@ -865,7 +769,7 @@ internal sealed unsafe class Baker : IDisposable
         return (left, top, right - left, bottom - top);
     }
 
-    private void ClearSums(CommandBuffer cmd, RenderTarget[] sums)
+    internal void ClearSums(CommandBuffer cmd, RenderTarget[] sums)
     {
         var api = _context.Api;
         var clear = new ClearColorValue(0f, 0f, 0f, 0f);
@@ -885,7 +789,7 @@ internal sealed unsafe class Baker : IDisposable
     }
 
     /// <summary>Records <paramref name="count"/> passes from <paramref name="first"/>, each waiting for the last's sums.</summary>
-    private void RecordPasses(CommandBuffer cmd, DescriptorSet set, TraceConstants constants, int first, int count, int width, int height)
+    internal void RecordPasses(CommandBuffer cmd, DescriptorSet set, TraceConstants constants, int first, int count, int width, int height)
     {
         var api = _context.Api;
         _tracing.ReadyToTrace(cmd);
@@ -917,48 +821,101 @@ internal sealed unsafe class Baker : IDisposable
         }
     }
 
-    /// <summary>Reads a page's sums and validity back and divides the sums by the passes.</summary>
-    private TracedPage ReadSums(int page, RenderTarget[] sums, int x, int y, int width, int height, int passes, bool transfer)
+    /// <summary>
+    /// The bytes <see cref="RecordSumsReadBack"/> copies for a region: its sums, then its texels' positions and validity.
+    /// </summary>
+    internal static ulong SumsReadBackBytes(int width, int height, bool transfer)
+    {
+        var (_, validityAt) = TexelOffsets(width, height, transfer);
+        return validityAt + (ulong)width * (ulong)height;
+    }
+
+    // Where the positions and validity start in a sums readback, after the sums it reads.
+    private static (ulong PositionAt, ulong ValidityAt) TexelOffsets(int width, int height, bool transfer)
     {
         ulong count = (ulong)width * (ulong)height;
-        ulong bytes = count * 16;
-        int read = transfer ? 3 + TransferSums : 3;
-        using var buffer = GpuBuffer.CreateHostVisible(_context, bytes * (ulong)read, BufferUsageFlags.TransferDstBit);
-        _context.SubmitAndWait(cmd =>
-        {
-            for (int i = 0; i < read; i++)
-            {
-                Copy(cmd, sums[i], buffer, bytes * (ulong)i, 0, 0, width, height);
-            }
-        });
+        ulong positionAt = Align(count * 16 * (ulong)SumsRead(transfer));
+        return (positionAt, Align(positionAt + count * 16));
+    }
 
-        var floats = new ReadOnlySpan<float>(buffer.Mapped, (int)(count * 12));
+    // The sums a readback copies: the transfer's only for a chunk.
+    private static int SumsRead(bool transfer) => transfer ? 3 + TransferSums : 3;
+
+    /// <summary>
+    /// Records copies of a page region's sums, and its texels' positions and validity, into <paramref name="buffer"/>,
+    /// of <see cref="SumsReadBackBytes"/> at least. Read it with <see cref="ReadSumsBack"/> once the GPU is done.
+    /// </summary>
+    internal void RecordSumsReadBack(
+        CommandBuffer cmd, int page, RenderTarget[] sums, GpuBuffer buffer, int x, int y, int width, int height, bool transfer)
+    {
+        var barrier = new MemoryBarrier2
+        {
+            SType = StructureType.MemoryBarrier2,
+            SrcStageMask = PipelineStageFlags2.AllCommandsBit,
+            SrcAccessMask = AccessFlags2.MemoryWriteBit,
+            DstStageMask = PipelineStageFlags2.CopyBit,
+            DstAccessMask = AccessFlags2.TransferReadBit,
+        };
+        var dependency = new DependencyInfo
+        {
+            SType = StructureType.DependencyInfo,
+            MemoryBarrierCount = 1,
+            PMemoryBarriers = &barrier,
+        };
+        _context.Api.CmdPipelineBarrier2(cmd, &dependency);
+
+        ulong bytes = (ulong)width * (ulong)height * 16;
+        int read = SumsRead(transfer);
+        for (int i = 0; i < read; i++)
+        {
+            Copy(cmd, sums[i], buffer, bytes * (ulong)i, 0, 0, width, height);
+        }
+
+        var (positionAt, validityAt) = TexelOffsets(width, height, transfer);
+        Copy(cmd, _pages[page].Position, buffer, positionAt, x, y, width, height);
+        Copy(cmd, _pages[page].Validity, buffer, validityAt, x, y, width, height);
+    }
+
+    /// <summary>
+    /// A page region as <see cref="RecordSumsReadBack"/> copied it: the sums divided by the passes, and which texels
+    /// are covered and valid.
+    /// </summary>
+    internal static TracedPage ReadSumsBack(
+        GpuBuffer buffer, int page, int x, int y, int width, int height, int passes, bool transfer)
+    {
+        int count = width * height;
+        int read = SumsRead(transfer);
+        var floats = new ReadOnlySpan<float>(buffer.Mapped, count * 4 * read);
         var irradiance = new float[count * 4];
         var direction = new float[count * 4];
         var mask = new float[count * 4];
         float scale = 1f / passes;
-        for (int i = 0; i < (int)count * 4; i++)
+        for (int i = 0; i < count * 4; i++)
         {
             irradiance[i] = floats[i] * scale;
-            direction[i] = floats[(int)count * 4 + i]; // Only its own direction matters, not its scale.
-            mask[i] = floats[(int)count * 8 + i] * scale;
+            direction[i] = floats[count * 4 + i]; // Only its own direction matters, not its scale.
+            mask[i] = floats[count * 8 + i] * scale;
         }
 
         // Irradiance w held the mean squared luminance; it becomes the variance of the mean luminance, which tells the
         // filter how much of the difference between two texels is noise.
-        for (int i = 0; i < (int)count; i++)
+        for (int i = 0; i < count; i++)
         {
             float mean = Luminance(irradiance[i * 4], irradiance[i * 4 + 1], irradiance[i * 4 + 2]);
             irradiance[i * 4 + 3] = MathF.Max(irradiance[i * 4 + 3] - mean * mean, 0f) * scale;
         }
 
-        float[] texels = ReadTexels(page, x, y, width, height);
+        // Covered where the position's w names a rectangle, valid where the validity pass wrote 1.
+        var (positionAt, validityAt) = TexelOffsets(width, height, transfer);
+        var bytes = (byte*)buffer.Mapped;
+        var positions = (float*)(bytes + positionAt);
+        var validity = bytes + validityAt;
         var valid = new bool[count];
         var covered = new bool[count];
-        for (int i = 0; i < (int)count; i++)
+        for (int i = 0; i < count; i++)
         {
-            covered[i] = texels[i * TexelFloats + 3] > 0.5f;
-            valid[i] = texels[i * TexelFloats + 10] > 0.5f;
+            covered[i] = positions[i * 4 + 3] > 0.5f;
+            valid[i] = validity[i] / 255f > 0.5f;
         }
 
         float[]? transferMeans = null;
@@ -966,15 +923,14 @@ internal sealed unsafe class Baker : IDisposable
         {
             // Interleaved a texel at a time, each sum's four floats in turn, as TracedPage.Transfer holds them.
             transferMeans = new float[count * TransferFloats];
-            var sumFloats = new ReadOnlySpan<float>(buffer.Mapped, (int)(count * 4) * read);
-            for (int t = 0; t < (int)count; t++)
+            for (int t = 0; t < count; t++)
             {
                 for (int s = 0; s < TransferSums; s++)
                 {
-                    int from = (3 + s) * (int)count * 4 + t * 4;
+                    int from = (3 + s) * count * 4 + t * 4;
                     for (int c = 0; c < 4; c++)
                     {
-                        transferMeans[t * TransferFloats + s * 4 + c] = sumFloats[from + c] * scale;
+                        transferMeans[t * TransferFloats + s * 4 + c] = floats[from + c] * scale;
                     }
                 }
             }
@@ -993,7 +949,8 @@ internal sealed unsafe class Baker : IDisposable
     /// shadow mask is left sharp. The filter stops at steps, creases and changes in light larger than the traced
     /// noise explains, using the variance in irradiance w, so converged shadow edges stay sharp. Last, <see cref="DilationRings"/> rings of dilation fill the gutters and invalid
     /// texels from their neighbours. No texel ever takes light from a texel drawn for another rectangle, apart from
-    /// gutter texels nothing covers. Waits for the GPU.
+    /// gutter texels nothing covers. Waits for the GPU; a <see cref="BakeJob"/> records the same run as a step with
+    /// <see cref="RecordFilter"/>.
     /// </summary>
     /// <returns>
     /// The page with the irradiance and mask as they will be stored, the direction as a mean direction with w 1, and
@@ -1007,7 +964,20 @@ internal sealed unsafe class Baker : IDisposable
                 nameof(traced), traced.Page, $"There are {_pages.Count} pages set up, so page {traced.Page} doesn't exist.");
         }
 
-        var (irradiance, direction, mask) = RunFilter(traced, traced.Irradiance, traced.Direction, traced.Mask, true, smooth);
+        _context.Api.ResetDescriptorPool(_context.Device, _filterPool, 0).Check();
+        using var run = CreateFilter(_filterPool, traced);
+        run.Fill(traced.Irradiance, traced.Direction, traced.Mask);
+        _context.SubmitAndWait(cmd => RecordFilter(cmd, run, true, smooth));
+        return Filtered(traced, run);
+    }
+
+    /// <summary>
+    /// The page with what a filter run of its light read back: its irradiance, direction and mask, and
+    /// <see cref="TracedPage.Filled"/> marking the texels that hold light.
+    /// </summary>
+    internal static TracedPage Filtered(TracedPage traced, FilterRun run)
+    {
+        var (irradiance, direction, mask) = run.Read();
         int count = traced.Width * traced.Height;
         var filled = new bool[count];
         for (int i = 0; i < count; i++)
@@ -1019,72 +989,79 @@ internal sealed unsafe class Baker : IDisposable
     }
 
     /// <summary>
-    /// Dilates a chunk's traced transfer as <see cref="FilterAndDilate"/> dilates its light, with the same
-    /// <see cref="DilationRings"/> rings, so gutters and invalid texels take their neighbours' transfer. It isn't
-    /// smoothed: values that aren't finite become 0 and ones past the half-float range its limit, and nothing more.
-    /// Run after <see cref="Trace"/> with transfer on. Waits for the GPU.
+    /// The dilation averages ten floats a texel, irradiance rgb, direction xyz and mask xyzw, so a chunk's twenty floats
+    /// of transfer go through it in this many runs.
     /// </summary>
-    /// <returns>
-    /// The page with its transfer dilated and <see cref="TracedPage.Filled"/> marking the texels that hold transfer.
-    /// </returns>
-    internal TracedPage DilateTransfer(TracedPage traced)
+    internal const int TransferRuns = TransferFloats / TransferRunFloats;
+
+    private const int TransferRunFloats = 10;
+
+    /// <summary>
+    /// What one run of a chunk's transfer dilation uploads: ten of each valid texel's transfer floats, made finite, in
+    /// the filter's irradiance rgb, direction xyz and mask xyzw, with irradiance w marking the texels that hold a value.
+    /// The transfer isn't smoothed, so run the filter without prepare or smoothing; <see cref="ReadTransferRun"/> takes
+    /// its result. Dilated with the same <see cref="DilationRings"/> rings as the light, gutters and invalid texels take
+    /// their neighbours' transfer. See "Chunk transfer" in docs/design.md.
+    /// </summary>
+    /// <exception cref="ArgumentException">The page was traced without its transfer.</exception>
+    internal static (float[] Irradiance, float[] Direction, float[] Mask) TransferRun(TracedPage traced, int run)
     {
         if (traced.Transfer is not { } transfer)
         {
             throw new ArgumentException("The page was traced without its transfer.", nameof(traced));
         }
 
-        // The dilation averages ten floats a texel, irradiance rgb, direction xyz and mask xyzw, so the twenty floats of
-        // transfer go in two runs. Irradiance w marks the texels that hold a value.
-        const int perRun = 10;
         int count = traced.Width * traced.Height;
-        var result = new float[count * TransferFloats];
-        var filled = new bool[count];
-        for (int run = 0; run < TransferFloats / perRun; run++)
+        var irradiance = new float[count * 4];
+        var direction = new float[count * 4];
+        var mask = new float[count * 4];
+        for (int t = 0; t < count; t++)
         {
-            var irradiance = new float[count * 4];
-            var direction = new float[count * 4];
-            var mask = new float[count * 4];
-            for (int t = 0; t < count; t++)
+            if (!traced.Valid[t])
             {
-                if (!traced.Valid[t])
-                {
-                    continue;
-                }
-
-                int from = t * TransferFloats + run * perRun;
-                for (int c = 0; c < 3; c++)
-                {
-                    irradiance[t * 4 + c] = Finite(transfer[from + c]);
-                    direction[t * 4 + c] = Finite(transfer[from + 3 + c]);
-                }
-
-                irradiance[t * 4 + 3] = 1f;
-                for (int c = 0; c < 4; c++)
-                {
-                    mask[t * 4 + c] = Finite(transfer[from + 6 + c]);
-                }
+                continue;
             }
 
-            var (a, b, m) = RunFilter(traced, irradiance, direction, mask, false, false);
-            for (int t = 0; t < count; t++)
+            int from = t * TransferFloats + run * TransferRunFloats;
+            for (int c = 0; c < 3; c++)
             {
-                filled[t] = a[t * 4 + 3] > 0.5f;
-                int to = t * TransferFloats + run * perRun;
-                for (int c = 0; c < 3; c++)
-                {
-                    result[to + c] = a[t * 4 + c];
-                    result[to + 3 + c] = b[t * 4 + c];
-                }
+                irradiance[t * 4 + c] = Finite(transfer[from + c]);
+                direction[t * 4 + c] = Finite(transfer[from + 3 + c]);
+            }
 
-                for (int c = 0; c < 4; c++)
-                {
-                    result[to + 6 + c] = m[t * 4 + c];
-                }
+            irradiance[t * 4 + 3] = 1f;
+            for (int c = 0; c < 4; c++)
+            {
+                mask[t * 4 + c] = Finite(transfer[from + 6 + c]);
             }
         }
 
-        return traced with { Transfer = result, Filled = filled };
+        return (irradiance, direction, mask);
+    }
+
+    /// <summary>
+    /// Puts what run <paramref name="run"/> of the transfer dilation read back into <paramref name="transfer"/>, laid
+    /// out as <see cref="TracedPage.Transfer"/>, and marks in <paramref name="filled"/> the texels that hold transfer.
+    /// </summary>
+    internal static void ReadTransferRun(FilterRun filter, int run, float[] transfer, bool[] filled)
+    {
+        var (a, b, m) = filter.Read();
+        int count = filter.Width * filter.Height;
+        for (int t = 0; t < count; t++)
+        {
+            filled[t] = a[t * 4 + 3] > 0.5f;
+            int to = t * TransferFloats + run * TransferRunFloats;
+            for (int c = 0; c < 3; c++)
+            {
+                transfer[to + c] = a[t * 4 + c];
+                transfer[to + 3 + c] = b[t * 4 + c];
+            }
+
+            for (int c = 0; c < 4; c++)
+            {
+                transfer[to + 6 + c] = m[t * 4 + c];
+            }
+        }
     }
 
     /// <summary>
@@ -1092,7 +1069,7 @@ internal sealed unsafe class Baker : IDisposable
     /// cut from the top left of the baker's page: the sky's coefficients for red, green and blue and the sun's in
     /// RGBA16F, and the sun's tint in RGBA8. The tint is the sun transfer's colour divided by its largest channel, and
     /// the sun's coefficients are scaled to match, so tint times sun gives each colour's transfer. A texel that isn't
-    /// <see cref="TracedPage.Filled"/> holds no transfer and a white tint. Run <see cref="DilateTransfer"/> first.
+    /// <see cref="TracedPage.Filled"/> holds no transfer and a white tint. Dilate it first through the filter, <see cref="TransferRun"/> then <see cref="ReadTransferRun"/>.
     /// </summary>
     internal static LightBakeTransfer EncodeTransfer(TracedPage traced, int side)
     {
@@ -1184,117 +1161,87 @@ internal sealed unsafe class Baker : IDisposable
     private static float Finite(float value) => float.IsNaN(value) ? 0f : Math.Clamp(value, -65504f, 65504f);
 
     /// <summary>
-    /// Runs the filter shaders over a page's region: with <paramref name="prepare"/>, the prepare stage first; with
-    /// <paramref name="smooth"/>, the à-trous passes; then the dilation rings. Returns the three images read back.
+    /// A filter run's images and sets for a page's region, from <paramref name="pool"/>: two copies of its irradiance,
+    /// direction and mask, one set each way between them, and the host-visible buffer they're uploaded from and read
+    /// back into. One run uses it at a time; a chunk's page runs its light and both transfer runs through the same.
     /// </summary>
-    private (float[] Irradiance, float[] Direction, float[] Mask) RunFilter(
-        TracedPage traced, float[] irradianceIn, float[] directionIn, float[] maskIn, bool prepare, bool smooth)
+    internal FilterRun CreateFilter(DescriptorPool pool, TracedPage traced)
+    {
+        var run = new FilterRun(_context, traced.Page, traced.X, traced.Y, traced.Width, traced.Height);
+        run.Forward = AllocateSet(_filterSetLayout, pool);
+        run.Backward = AllocateSet(_filterSetLayout, pool);
+        var targets = _pages[traced.Page];
+        WriteFilterSet(run.Forward, targets, run.A, run.B);
+        WriteFilterSet(run.Backward, targets, run.B, run.A);
+        return run;
+    }
+
+    /// <summary>
+    /// Records a filter run over the region into one command buffer: uploads what <see cref="FilterRun.Fill"/> wrote,
+    /// then with <paramref name="prepare"/> the prepare stage, with <paramref name="smooth"/> the à-trous passes, then
+    /// the dilation rings, and copies the result back into the run's buffer for <see cref="FilterRun.Read"/>.
+    /// </summary>
+    internal void RecordFilter(CommandBuffer cmd, FilterRun run, bool prepare, bool smooth)
     {
         var api = _context.Api;
-        int width = traced.Width;
-        int height = traced.Height;
-        int count = width * height;
-        ulong bytes = (ulong)count * 16;
-        var extent = new Extent2D((uint)width, (uint)height);
-        const ImageUsageFlags usage = ImageUsageFlags.StorageBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit;
-        var a = new RenderTarget[3];
-        var b = new RenderTarget[3];
+        int width = run.Width;
+        int height = run.Height;
+        ulong bytes = (ulong)width * (ulong)height * 16;
+        var a = run.A;
+        var b = run.B;
+        var constants = new FilterConstants { X = run.X, Y = run.Y, Width = width, Height = height };
+
+        // Upload into a, then prepare into b, or leave them in a with no prepare.
         for (int i = 0; i < 3; i++)
         {
-            a[i] = new RenderTarget(_context, SumFormat, extent, usage, ImageAspectFlags.ColorBit);
-            b[i] = new RenderTarget(_context, SumFormat, extent, usage, ImageAspectFlags.ColorBit);
+            api.Transition(cmd, a[i].Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.General,
+                PipelineStageFlags2.None, AccessFlags2.None,
+                PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit);
+            var region = new BufferImageCopy
+            {
+                BufferOffset = bytes * (ulong)i,
+                ImageSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
+                ImageExtent = new Extent3D((uint)width, (uint)height, 1),
+            };
+            api.CmdCopyBufferToImage(cmd, run.Staging.Handle, a[i].Image, ImageLayout.General, 1, &region);
+            api.Transition(cmd, a[i].Image, ImageAspectFlags.ColorBit,
+                ImageLayout.General, ImageLayout.General,
+                PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit,
+                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit);
+            api.Transition(cmd, b[i].Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.General,
+                PipelineStageFlags2.None, AccessFlags2.None,
+                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit);
         }
 
-        try
+        if (prepare)
         {
-            using var staging = GpuBuffer.CreateHostVisible(
-                _context, bytes * 3, BufferUsageFlags.TransferSrcBit | BufferUsageFlags.TransferDstBit);
-            var floats = new Span<float>(staging.Mapped, count * 12);
-            irradianceIn.AsSpan(0, count * 4).CopyTo(floats);
-            directionIn.AsSpan(0, count * 4).CopyTo(floats[(count * 4)..]);
-            maskIn.AsSpan(0, count * 4).CopyTo(floats[(count * 8)..]);
-
-            api.ResetDescriptorPool(_context.Device, _filterPool, 0).Check();
-            var forward = AllocateSet(_filterSetLayout, _filterPool);
-            var backward = AllocateSet(_filterSetLayout, _filterPool);
-            var targets = _pages[traced.Page];
-            WriteFilterSet(forward, targets, a, b);
-            WriteFilterSet(backward, targets, b, a);
-            var constants = new FilterConstants { X = traced.X, Y = traced.Y, Width = width, Height = height };
-
-            // Upload into a, then prepare into b, or leave them in a with no prepare.
-            _context.SubmitAndWait(cmd =>
-            {
-                for (int i = 0; i < 3; i++)
-                {
-                    api.Transition(cmd, a[i].Image, ImageAspectFlags.ColorBit,
-                        ImageLayout.Undefined, ImageLayout.General,
-                        PipelineStageFlags2.None, AccessFlags2.None,
-                        PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit);
-                    var region = new BufferImageCopy
-                    {
-                        BufferOffset = bytes * (ulong)i,
-                        ImageSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
-                        ImageExtent = new Extent3D((uint)width, (uint)height, 1),
-                    };
-                    api.CmdCopyBufferToImage(cmd, staging.Handle, a[i].Image, ImageLayout.General, 1, &region);
-                    api.Transition(cmd, a[i].Image, ImageAspectFlags.ColorBit,
-                        ImageLayout.General, ImageLayout.General,
-                        PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit,
-                        PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit);
-                    api.Transition(cmd, b[i].Image, ImageAspectFlags.ColorBit,
-                        ImageLayout.Undefined, ImageLayout.General,
-                        PipelineStageFlags2.None, AccessFlags2.None,
-                        PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageReadBit | AccessFlags2.ShaderStorageWriteBit);
-                }
-
-                if (prepare)
-                {
-                    RecordFilterPass(cmd, _filterPipeline, forward, constants with { Stage = 0 });
-                }
-            });
-
-            // Each pass reads one copy and writes the other; after the prepare the values are in b.
-            bool inB = prepare;
-            _context.SubmitAndWait(cmd =>
-            {
-                if (smooth)
-                {
-                    for (int pass = 0; pass < FilterPasses; pass++)
-                    {
-                        RecordFilterPass(cmd, _filterPipeline, inB ? backward : forward, constants with { Stage = 1 << pass });
-                        inB = !inB;
-                    }
-                }
-
-                for (int ring = 0; ring < DilationRings; ring++)
-                {
-                    RecordFilterPass(cmd, _dilatePipeline, inB ? backward : forward, constants);
-                    inB = !inB;
-                }
-            });
-
-            var result = inB ? b : a;
-            _context.SubmitAndWait(cmd =>
-            {
-                for (int i = 0; i < 3; i++)
-                {
-                    Copy(cmd, result[i], staging, bytes * (ulong)i, 0, 0, width, height);
-                }
-            });
-
-            return (
-                floats[..(count * 4)].ToArray(),
-                floats.Slice(count * 4, count * 4).ToArray(),
-                floats.Slice(count * 8, count * 4).ToArray());
+            RecordFilterPass(cmd, _filterPipeline, run.Forward, constants with { Stage = 0 });
         }
-        finally
+
+        // Each pass reads one copy and writes the other; after the prepare the values are in b.
+        bool inB = prepare;
+        if (smooth)
         {
-            for (int i = 0; i < 3; i++)
+            for (int pass = 0; pass < FilterPasses; pass++)
             {
-                a[i].Dispose();
-                b[i].Dispose();
+                RecordFilterPass(cmd, _filterPipeline, inB ? run.Backward : run.Forward, constants with { Stage = 1 << pass });
+                inB = !inB;
             }
+        }
+
+        for (int ring = 0; ring < DilationRings; ring++)
+        {
+            RecordFilterPass(cmd, _dilatePipeline, inB ? run.Backward : run.Forward, constants);
+            inB = !inB;
+        }
+
+        // The last pass's barrier lets the copies read what it wrote; the upload's reads of the buffer are done by then.
+        var result = inB ? b : a;
+        for (int i = 0; i < 3; i++)
+        {
+            Copy(cmd, result[i], run.Staging, bytes * (ulong)i, 0, 0, width, height);
         }
     }
 
@@ -1372,11 +1319,9 @@ internal sealed unsafe class Baker : IDisposable
         api.DestroyPipeline(_context.Device, _resolvePipeline, null);
         api.DestroyPipeline(_context.Device, _tracePipeline, null);
         api.DestroyPipelineLayout(_context.Device, _traceLayout, null);
-        api.DestroyDescriptorPool(_context.Device, _tracePool, null);
         api.DestroyDescriptorSetLayout(_context.Device, _traceSetLayout, null);
         api.DestroyPipeline(_context.Device, _probePipeline, null);
         api.DestroyPipelineLayout(_context.Device, _probeLayout, null);
-        api.DestroyDescriptorPool(_context.Device, _probePool, null);
         api.DestroyDescriptorSetLayout(_context.Device, _probeSetLayout, null);
         api.DestroyPipeline(_context.Device, _filterPipeline, null);
         api.DestroyPipeline(_context.Device, _dilatePipeline, null);
@@ -1389,6 +1334,7 @@ internal sealed unsafe class Baker : IDisposable
         api.DestroyDescriptorPool(_context.Device, _pool, null);
         api.DestroyDescriptorSetLayout(_context.Device, _validitySetLayout, null);
         api.DestroyDescriptorSetLayout(_context.Device, _resolveSetLayout, null);
+        _probeVolume?.Dispose();
         api.DestroySampler(_context.Device, _sampler, null);
     }
 
@@ -1420,7 +1366,8 @@ internal sealed unsafe class Baker : IDisposable
     /// Draws a page tile by tile into multisampled targets, then resolves each tile into the page, each texel taking a
     /// covered sample, so a triangle that misses a texel's centre but covers any sample still covers it.
     /// </summary>
-    private void DrawMultisampled(CommandBuffer cmd, PageTargets targets, List<(DrawItem Draw, LightmapRect Rect)> draws)
+    private void DrawMultisampled(
+        CommandBuffer cmd, PageTargets targets, List<(DrawItem Draw, LightmapRect Rect)> draws, DescriptorPool pool)
     {
         var api = _context.Api;
         _tile ??= new TileTargets(_context, MultisampleCount());
@@ -1442,7 +1389,7 @@ internal sealed unsafe class Baker : IDisposable
                 PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit);
         }
 
-        var set = AllocateSet(_resolveSetLayout);
+        var set = AllocateSet(_resolveSetLayout, pool);
         WriteResolveSet(set, tile, targets);
 
         const int tiles = LightmapLayout.PageSize / TileSize;
@@ -1695,9 +1642,10 @@ internal sealed unsafe class Baker : IDisposable
     }
 
     private void WriteTraceSet(
-        DescriptorSet set, PageTargets targets, GpuBuffer lights, RenderTarget[] sums, ImageView sky, Sampler skySampler)
+        DescriptorSet set, in TopLevelStructure scene, PageTargets targets, GpuBuffer lights, RenderTarget[] sums, ImageView sky,
+        Sampler skySampler)
     {
-        var handle = _scene.Handle;
+        var handle = scene.Handle;
         var structureInfo = new WriteDescriptorSetAccelerationStructureKHR
         {
             SType = StructureType.WriteDescriptorSetAccelerationStructureKhr,
@@ -1706,7 +1654,7 @@ internal sealed unsafe class Baker : IDisposable
         };
         var buffers = stackalloc DescriptorBufferInfo[]
         {
-            new(_scene.GeometryTable.Handle, 0, Vk.WholeSize),
+            new(scene.GeometryTable.Handle, 0, Vk.WholeSize),
             new(lights.Handle, 0, Vk.WholeSize),
         };
         var images = stackalloc DescriptorImageInfo[]
@@ -1757,10 +1705,11 @@ internal sealed unsafe class Baker : IDisposable
     }
 
     private void WriteProbeSet(
-        DescriptorSet set, GpuBuffer lights, GpuBuffer positions, RenderTarget sum, RenderTarget faces, ImageView sky,
+        DescriptorSet set, in TopLevelStructure scene, GpuBuffer lights, GpuBuffer positions, RenderTarget sum, RenderTarget faces,
+        ImageView sky,
         Sampler skySampler)
     {
-        var handle = _scene.Handle;
+        var handle = scene.Handle;
         var structureInfo = new WriteDescriptorSetAccelerationStructureKHR
         {
             SType = StructureType.WriteDescriptorSetAccelerationStructureKhr,
@@ -1769,7 +1718,7 @@ internal sealed unsafe class Baker : IDisposable
         };
         var buffers = stackalloc DescriptorBufferInfo[]
         {
-            new(_scene.GeometryTable.Handle, 0, Vk.WholeSize),
+            new(scene.GeometryTable.Handle, 0, Vk.WholeSize),
             new(lights.Handle, 0, Vk.WholeSize),
             new(positions.Handle, 0, Vk.WholeSize),
         };
@@ -1920,6 +1869,97 @@ internal sealed unsafe class Baker : IDisposable
         }
     }
 
+    /// <summary>
+    /// One filter run over a page region: two copies each of its irradiance, direction and mask, the sets that read one
+    /// copy and write the other, and the host-visible buffer the run uploads from and reads back into. See
+    /// <see cref="CreateFilter"/> and <see cref="RecordFilter"/>.
+    /// </summary>
+    internal sealed class FilterRun : IDisposable
+    {
+        private readonly int _count;
+
+        public FilterRun(VulkanContext context, int page, int x, int y, int width, int height)
+        {
+            Page = page;
+            X = x;
+            Y = y;
+            Width = width;
+            Height = height;
+            _count = width * height;
+            var extent = new Extent2D((uint)width, (uint)height);
+            const ImageUsageFlags usage = ImageUsageFlags.StorageBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit;
+            A = new RenderTarget[3];
+            B = new RenderTarget[3];
+            for (int i = 0; i < 3; i++)
+            {
+                A[i] = new RenderTarget(context, SumFormat, extent, usage, ImageAspectFlags.ColorBit);
+                B[i] = new RenderTarget(context, SumFormat, extent, usage, ImageAspectFlags.ColorBit);
+            }
+
+            ulong bytes = (ulong)_count * 16;
+            Staging = GpuBuffer.CreateHostVisible(
+                context, bytes * 3, BufferUsageFlags.TransferSrcBit | BufferUsageFlags.TransferDstBit);
+        }
+
+        public int Page { get; }
+
+        public int X { get; }
+
+        public int Y { get; }
+
+        public int Width { get; }
+
+        public int Height { get; }
+
+        /// <summary>The irradiance, direction and mask the run uploads into.</summary>
+        public RenderTarget[] A { get; }
+
+        /// <summary>The other copy, which each pass writes when it reads <see cref="A"/>.</summary>
+        public RenderTarget[] B { get; }
+
+        /// <summary>Irradiance, direction then mask, four floats a texel each: uploaded from, then read back into.</summary>
+        public GpuBuffer Staging { get; }
+
+        /// <summary>Reads <see cref="A"/> and writes <see cref="B"/>.</summary>
+        public DescriptorSet Forward { get; set; }
+
+        /// <summary>Reads <see cref="B"/> and writes <see cref="A"/>.</summary>
+        public DescriptorSet Backward { get; set; }
+
+        /// <summary>Writes what the run uploads, four floats a texel of each.</summary>
+        public void Fill(float[] irradiance, float[] direction, float[] mask)
+        {
+            int floats = _count * 4;
+            var staged = new Span<float>(Staging.Mapped, floats * 3);
+            irradiance.AsSpan(0, floats).CopyTo(staged);
+            direction.AsSpan(0, floats).CopyTo(staged[floats..]);
+            mask.AsSpan(0, floats).CopyTo(staged[(floats * 2)..]);
+        }
+
+        /// <summary>What the run read back, once the GPU is done with it.</summary>
+        public (float[] Irradiance, float[] Direction, float[] Mask) Read()
+        {
+            int floats = _count * 4;
+            var staged = new ReadOnlySpan<float>(Staging.Mapped, floats * 3);
+            return (staged[..floats].ToArray(), staged.Slice(floats, floats).ToArray(), staged[(floats * 2)..].ToArray());
+        }
+
+        public void Dispose()
+        {
+            foreach (var target in A)
+            {
+                target.Dispose();
+            }
+
+            foreach (var target in B)
+            {
+                target.Dispose();
+            }
+
+            Staging.Dispose();
+        }
+    }
+
     /// <summary>The multisampled targets one tile of a page is drawn into without conservative rasterization.</summary>
     private sealed class TileTargets : IDisposable
     {
@@ -1970,7 +2010,7 @@ internal sealed unsafe class Baker : IDisposable
 
     // Must match the push constants in bake_trace.comp.
     [StructLayout(LayoutKind.Sequential)]
-    private struct TraceConstants
+    internal struct TraceConstants
     {
         public int X;
         public int Y;
@@ -1985,7 +2025,7 @@ internal sealed unsafe class Baker : IDisposable
 
     // Must match the push constants in bake_probes.comp.
     [StructLayout(LayoutKind.Sequential)]
-    private struct ProbeTraceConstants
+    internal struct ProbeTraceConstants
     {
         public uint FirstProbe;
         public uint ProbeCount;
@@ -2075,7 +2115,7 @@ internal struct GpuBakeLight
 }
 
 /// <summary>
-/// What <see cref="Baker.Trace"/> found for one page, over the region (<see cref="X"/>, <see cref="Y"/>,
+/// What <see cref="Baker.ReadSumsBack"/> found for one page, over the region (<see cref="X"/>, <see cref="Y"/>,
 /// <see cref="Width"/>, <see cref="Height"/>) its rectangles cover. Each array runs row by row over the region. The
 /// irradiance and mask are means over the passes, four floats a texel, with the variance of the irradiance's mean
 /// luminance in irradiance w; the direction is the luminance-weighted sum of directions in xyz and the weight in w.
