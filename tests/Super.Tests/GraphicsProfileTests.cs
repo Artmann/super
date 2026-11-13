@@ -261,6 +261,20 @@ public class GraphicsProfileTests
     [InlineData(GraphicsQuality.Medium)]
     [InlineData(GraphicsQuality.High)]
     [InlineData(GraphicsQuality.Ultra)]
+    public void Every_quality_keeps_the_water_and_the_wind(GraphicsQuality quality)
+    {
+        // They cost next to nothing, and without them the Courtyard's puddle is gone and its grass stands still.
+        var graphics = Graphics.For(quality);
+
+        Assert.True(graphics.Puddles);
+        Assert.True(graphics.Wind);
+    }
+
+    [Theory]
+    [InlineData(GraphicsQuality.Low)]
+    [InlineData(GraphicsQuality.Medium)]
+    [InlineData(GraphicsQuality.High)]
+    [InlineData(GraphicsQuality.Ultra)]
     public void Every_quality_keeps_vsync_on_and_no_frame_limit(GraphicsQuality quality)
     {
         var graphics = Graphics.For(quality);

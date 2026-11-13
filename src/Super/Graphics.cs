@@ -282,8 +282,8 @@ public sealed class Graphics
             DepthOfField = false,
             Decals = false,
             VolumetricFog = false,
-            Puddles = false,
-            Wind = false,
+            // Puddles and wind stay on: in the Courtyard each costs less than a frame's noise, and the water is part
+            // of the place, not a finish on it.
             BakeBudget = 1f,
         },
         GraphicsQuality.Medium => new Graphics
