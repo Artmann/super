@@ -46,6 +46,12 @@ internal ref struct PipelineDescription
     /// overestimation. Only where <see cref="VulkanContext.ConservativeRasterization"/> is true.
     /// </summary>
     public bool Conservative;
+
+    /// <summary>
+    /// Builds a surface shader for materials without holes: its CUT_OUTS specialization constant (constant_id 0, in
+    /// surface.glsl) is false, so it never discards and the GPU can reject hidden pixels before shading them.
+    /// </summary>
+    public bool Solid;
 }
 
 internal static unsafe class PipelineFactory
@@ -75,12 +81,23 @@ internal static unsafe class PipelineFactory
             Module = vertexModule,
             PName = (byte*)entryPoint,
         };
+        // Always given: for a shader without the constant it changes nothing.
+        uint cutOuts = Convert.ToUInt32(!description.Solid);
+        var cutOutsEntry = new SpecializationMapEntry(0, 0, sizeof(uint));
+        var specialization = new SpecializationInfo
+        {
+            MapEntryCount = 1,
+            PMapEntries = &cutOutsEntry,
+            DataSize = sizeof(uint),
+            PData = &cutOuts,
+        };
         stages[1] = new PipelineShaderStageCreateInfo
         {
             SType = StructureType.PipelineShaderStageCreateInfo,
             Stage = ShaderStageFlags.FragmentBit,
             Module = fragmentModule,
             PName = (byte*)entryPoint,
+            PSpecializationInfo = &specialization,
         };
 
         bool hasDepth = description.DepthFormat != Format.Undefined && !description.IgnoreDepth;

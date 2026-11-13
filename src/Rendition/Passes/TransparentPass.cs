@@ -188,7 +188,7 @@ internal sealed unsafe class TransparentPass : IDisposable
                     constants.Tint.W = step.Refracts ? 1f : 0f;
                     SceneDraws.Draw(
                         api, cmd, _layout, _pipelines, _resources, draws, MemoryMarshal.CreateReadOnlySpan(ref index, 1),
-                        meshes, instances, constants, solid: null, ref drawn);
+                        meshes, instances, constants, solids: null, ref drawn);
                     break;
             }
         }

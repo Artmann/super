@@ -26,6 +26,10 @@ layout(location = 3) out vec2 outMotion;   // see Passes/Motion.cs
 layout(location = 4) out vec4 outBaked;    // baked diffuse light over pi, alpha how much the bake lights it; see writeBaked
 layout(location = 5) out vec4 outShadowMask; // the baked shadow mask, 1 where nothing is masked
 
+// False in the pipeline for materials without holes (PipelineDescription.Solid), which then never discard, so the GPU
+// can reject a hidden pixel by depth before shading it. A shader that may discard has to be shaded first.
+layout(constant_id = 0) const bool CUT_OUTS = true;
+
 // The motion of a point that was behind last frame's camera: far off any picture, near the most a 16-bit float holds.
 const float MOTION_OFF_PICTURE = -60000.0;
 
@@ -311,13 +315,13 @@ Surface materialSurface(vec2 uv) {
     // texture, and both read white where a material has no texture.
     vec4 baseColor = textureGrad(textures[material.baseColorTexture], uv, uvX, uvY) * material.baseColor;
     vec4 mask = textureGrad(textures[material.surfaceTexture], uv, uvX, uvY);
-    if (baseColor.a * mask.a < material.alphaCutoff) {
+    if (CUT_OUTS && baseColor.a * mask.a < material.alphaCutoff) {
         discard;
     }
 
     // A dithered material keeps a share of its pixels as large as its opacity, a different
     // share each frame, and anti-aliasing blends them with what's behind into a soft fade.
-    if ((material.flags & MATERIAL_DITHERED) != 0u) {
+    if (CUT_OUTS && (material.flags & MATERIAL_DITHERED) != 0u) {
         vec2 pixel = gl_FragCoord.xy + 5.588238 * float(frame.frameNumber % 64);
         float threshold = fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
         if (baseColor.a * mask.a <= threshold) {

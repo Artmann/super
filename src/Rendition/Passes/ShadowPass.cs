@@ -32,7 +32,7 @@ internal sealed unsafe class ShadowPass : IDisposable
     private readonly ResourceTable _resources;
     private readonly PipelineLayout _layout;
     private readonly List<PipelineVariants> _pipelines = [];
-    private readonly PipelineVariants _solid;
+    private readonly List<PipelineVariants> _solids = [];
 
     /// <summary>The cascades' maps, one layer each. Replaced when <see cref="Resize"/> changes the resolution.</summary>
     public RenderTarget Target { get; private set; }
@@ -86,7 +86,7 @@ internal sealed unsafe class ShadowPass : IDisposable
         description.TwoSided = false;
         var solidCulled = PipelineFactory.Create(context, description);
         description.TwoSided = true;
-        _solid = new PipelineVariants(solidCulled, PipelineFactory.Create(context, description));
+        _solids.Add(new PipelineVariants(solidCulled, PipelineFactory.Create(context, description)));
     }
 
     /// <summary>The resolution given, when it's one a cascade's map can be: 1024, 2048 or 4096.</summary>
@@ -291,7 +291,7 @@ internal sealed unsafe class ShadowPass : IDisposable
 
         var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set };
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
-        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, details, instances, ScenePass.Shadow, solid: _solid, cascade: cascade, still: still);
+        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, details, instances, ScenePass.Shadow, solids: _solids, cascade: cascade, still: still);
 
         api.CmdEndRendering(cmd);
     }
@@ -341,7 +341,7 @@ internal sealed unsafe class ShadowPass : IDisposable
             api.CmdSetScissor(cmd, 0, 1, &scissor);
             var (first, count) = ranges[tile];
             SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws.Slice(first, count), meshes, details, instances,
-                ScenePass.Shadow, solid: _solid, cascade: MaxCascades + tile);
+                ScenePass.Shadow, solids: _solids, cascade: MaxCascades + tile);
         }
 
         api.CmdEndRendering(cmd);
@@ -349,8 +349,8 @@ internal sealed unsafe class ShadowPass : IDisposable
 
     public void Dispose()
     {
-        _context.Api.DestroyPipeline(_context.Device, _solid.TwoSided, null);
-        _context.Api.DestroyPipeline(_context.Device, _solid.Culled, null);
+        _context.Api.DestroyPipeline(_context.Device, _solids[0].TwoSided, null);
+        _context.Api.DestroyPipeline(_context.Device, _solids[0].Culled, null);
         _context.Api.DestroyPipeline(_context.Device, _pipelines[0].TwoSided, null);
         _context.Api.DestroyPipeline(_context.Device, _pipelines[0].Culled, null);
         _context.Api.DestroyPipelineLayout(_context.Device, _layout, null);
