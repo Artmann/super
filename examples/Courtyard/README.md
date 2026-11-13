@@ -176,6 +176,8 @@ baked into `content/lighting/courtyard.lightbake`, 6.4 MB at the default 20 texe
 ivy and leaves are part of the model, so they are lightmapped with the rest. Only the decals (the
 damp, the drip and the rust) stay live.
 
+![The Courtyard lit live (left) and with its bake (right): the bake adds soft shade in the corners and under the ivy and the crates, and the yard looks much the same overall](../../docs/media/courtyard-baked-before-after.webp)
+
 The lights are all `Mixed`, so the bake adds the light that bounces and soft shade, and the live
 lights keep their crisp shadows. A `Baked` light would give up those sharp shadows, and a
 `Realtime` one would give up the bounce:

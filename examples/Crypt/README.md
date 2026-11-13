@@ -49,6 +49,8 @@ The shapes made in code are made static too, so they get lightmap UVs. The lante
 so they stay dynamic, and the probes light them as they move. The bake is
 `content/lighting/crypt.lightbake`, 4.1 MB at the default 20 texels a metre.
 
+![The Crypt lit live (left) and with its bake (right): the bounced firelight is softer and the corners and vault are a little darker, and the hall looks much the same overall](../../docs/media/crypt-baked-before-after.webp)
+
 The fire stays real-time and flickers, so each flame is a `Mixed` light. A `Baked` light is drawn
 from the lightmap alone and cannot flicker, and a `Realtime` one would lose the bounce:
 
