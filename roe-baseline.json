@@ -3539,13 +3539,13 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/GameWindow.cs",
       "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 779
+      "metric": 754
     },
     {
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1138
+      "metric": 1137
     },
     {
       "kind": "large-file",
@@ -3887,7 +3887,7 @@
       "kind": "large-type",
       "name": "Super.GameWindow",
       "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 49
+      "metric": 48
     },
     {
       "kind": "large-type",
@@ -3899,7 +3899,7 @@
       "kind": "large-type",
       "name": "Super.Input",
       "file": "src/Super/Input/Input.cs",
-      "metric": 49
+      "metric": 50
     },
     {
       "kind": "large-type",
