@@ -57,57 +57,9 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Rendition.BakeQueue.Update",
-      "file": "src/Rendition/Baking/BakeQueue.cs",
-      "metric": 19
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.BakeResolver.Arrive",
-      "file": "src/Rendition/Baking/BakeResolver.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.BakeResolver.ModelOrder.Compare",
-      "file": "src/Rendition/Baking/BakeResolver.cs",
-      "metric": 18
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.BakeResolver.Resolve",
-      "file": "src/Rendition/Baking/BakeResolver.cs",
-      "metric": 35
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.Baker.EncodeTransfer",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 14
-    },
-    {
-      "kind": "high-complexity",
       "name": "Rendition.Baker.ReadTexels/5",
       "file": "src/Rendition/Baking/Baker.cs",
       "metric": 12
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.ChunkBakePool.CheckPages",
-      "file": "src/Rendition/Baking/ChunkBakePool.cs",
-      "metric": 21
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.ChunkBakePool.Record",
-      "file": "src/Rendition/Baking/ChunkBakePool.cs",
-      "metric": 15
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Rendition.ChunkBakePool.Upload",
-      "file": "src/Rendition/Baking/ChunkBakePool.cs",
-      "metric": 16
     },
     {
       "kind": "high-complexity",
@@ -861,57 +813,9 @@
     },
     {
       "kind": "high-cognitive-complexity",
-      "name": "Rendition.BakeQueue.Update",
-      "file": "src/Rendition/Baking/BakeQueue.cs",
-      "metric": 22
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.BakeResolver.ModelOrder.Compare",
-      "file": "src/Rendition/Baking/BakeResolver.cs",
-      "metric": 17
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.BakeResolver.Resolve",
-      "file": "src/Rendition/Baking/BakeResolver.cs",
-      "metric": 53
-    },
-    {
-      "kind": "high-cognitive-complexity",
       "name": "Rendition.Baker.DrawMultisampled",
       "file": "src/Rendition/Baking/Baker.cs",
       "metric": 21
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Baker.Encode",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 16
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.Baker.EncodeTransfer",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 26
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.ChunkBakePool.CheckPages",
-      "file": "src/Rendition/Baking/ChunkBakePool.cs",
-      "metric": 25
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.ChunkBakePool.Record",
-      "file": "src/Rendition/Baking/ChunkBakePool.cs",
-      "metric": 20
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.ChunkBakePool.Upload",
-      "file": "src/Rendition/Baking/ChunkBakePool.cs",
-      "metric": 29
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1653,30 +1557,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.BakeQueue.Update",
-      "file": "src/Rendition/Baking/BakeQueue.cs",
-      "metric": 71
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.BakeResolver.Arrive",
-      "file": "src/Rendition/Baking/BakeResolver.cs",
-      "metric": 43
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.BakeResolver.FileModels",
-      "file": "src/Rendition/Baking/BakeResolver.cs",
-      "metric": 48
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.BakeResolver.Resolve",
-      "file": "src/Rendition/Baking/BakeResolver.cs",
-      "metric": 159
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.Baker.Baker",
       "file": "src/Rendition/Baking/Baker.cs",
       "metric": 122
@@ -1692,18 +1572,6 @@
       "name": "Rendition.Baker.DrawMultisampled",
       "file": "src/Rendition/Baking/Baker.cs",
       "metric": 82
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Baker.Encode",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 55
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Baker.EncodeTransfer",
-      "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 66
     },
     {
       "kind": "long-method",
@@ -1746,36 +1614,6 @@
       "name": "Rendition.Baker.WriteValiditySet",
       "file": "src/Rendition/Baking/Baker.cs",
       "metric": 49
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.ChunkBakePool.CheckPages",
-      "file": "src/Rendition/Baking/ChunkBakePool.cs",
-      "metric": 93
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.ChunkBakePool.Finish",
-      "file": "src/Rendition/Baking/ChunkBakePool.cs",
-      "metric": 44
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.ChunkBakePool.Record",
-      "file": "src/Rendition/Baking/ChunkBakePool.cs",
-      "metric": 77
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.ChunkBakePool.Start",
-      "file": "src/Rendition/Baking/ChunkBakePool.cs",
-      "metric": 44
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.ChunkBakePool.Upload",
-      "file": "src/Rendition/Baking/ChunkBakePool.cs",
-      "metric": 84
     },
     {
       "kind": "long-method",
@@ -3147,12 +2985,6 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Rendition.BakeResolver.SpaceInputs",
-      "file": "src/Rendition/Baking/BakeResolver.cs",
-      "metric": 7
-    },
-    {
-      "kind": "too-many-parameters",
       "name": "Rendition.Baker.Copy",
       "file": "src/Rendition/Baking/Baker.cs",
       "metric": 8
@@ -3689,7 +3521,7 @@
       "kind": "large-file",
       "name": "src/Rendition/Baking/Baker.cs",
       "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 2094
+      "metric": 1792
     },
     {
       "kind": "large-file",
@@ -3807,21 +3639,15 @@
     },
     {
       "kind": "large-type",
-      "name": "Rendition.BakeResolver",
-      "file": "src/Rendition/Baking/BakeResolver.cs",
-      "metric": 45
-    },
-    {
-      "kind": "large-type",
       "name": "Rendition.Baker",
       "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 94
+      "metric": 83
     },
     {
       "kind": "large-type",
       "name": "Rendition.ChunkBakePool",
       "file": "src/Rendition/Baking/ChunkBakePool.cs",
-      "metric": 33
+      "metric": 38
     },
     {
       "kind": "large-type",
@@ -4267,14 +4093,20 @@
     {
       "members": [
         "Rendition.AnimatedLights",
+        "Rendition.BakeArrivals",
+        "Rendition.BakeEncoding",
+        "Rendition.BakeFileNames",
         "Rendition.BakeFiles",
         "Rendition.BakeFreshness",
         "Rendition.BakeJob",
+        "Rendition.BakeLightOwners",
         "Rendition.BakeQueue",
         "Rendition.BakeResolver",
         "Rendition.BakedProbeAtlas",
         "Rendition.Baker",
+        "Rendition.ChunkBakeCheck",
         "Rendition.ChunkBakePool",
+        "Rendition.ChunkPageUploader",
         "Rendition.DrawSelection",
         "Rendition.FrameView",
         "Rendition.IBakeStore",
