@@ -3560,7 +3560,7 @@ called only for a chunk whose file is stored and fresh. When the store has no `L
 (`GivesLightmaps`) the hook answers true at once, as before. Otherwise `Renderer.ChunkResident`
 calls `ChunkBakePool.Use(file, store)`, which marks the file used this frame and answers whether
 its pages are all on the GPU. A file asked about for the first time gets an entry and a
-`Task.Run` that calls `IBakeStore.Load` and `ChunkBakePool.CheckPages`, which checks the five
+`Task.Run` that calls `IBakeStore.Load` and `ChunkBakeCheck.CheckPages`, which checks the five
 transfer pages (sky red, green and blue and sun as `Rgba16f`, sun tint as `Rgba8`, all one size,
 at least 1x1), at most one irradiance page and one mask page, as many direction pages as
 irradiance ones, each plain page's size,
@@ -3577,7 +3577,7 @@ so the chunk is lit live until a reload. A loaded bake gets one empty one-level 
 per page. Then it lets go of every entry no chunk named this frame: a page already in the
 resource table is marked dying and its slot added to the frame's `_destroyed` list, and a page
 still going up is disposed through the same list, so nothing is freed before the frames that
-used it have finished on the GPU. Then it uploads: it plans one band of rows per page, in order,
+used it have finished on the GPU. Then it uploads through its `ChunkPageUploader`: it plans one band of rows per page, in order,
 until `UploadBudget` is spent (`ChunkUploadBudget`, 8 MB, unless a test sets less), always at
 least one `GpuTexture.RowUnit` (4 rows for block-compressed pages) so a page bigger than the
 budget still moves, copies the bands into one host-visible staging buffer that the frame's
@@ -4052,7 +4052,7 @@ sky brighter below: its chunk read 0 against the space's 84 before, and reads 76
 Multiplying the two vectors axis by axis doesn't give the product's own lean either, which would be `t0 l + l0 t`,
 and doesn't turn with the chunk. It only picks the way a normal map shades, so it is kept for now.
 
-`ChunkBakePool.CheckPages` takes a chunk lit only by the sky and suns: it has a mask page but no irradiance or
+`ChunkBakeCheck.CheckPages` takes a chunk lit only by the sky and suns: it has a mask page but no irradiance or
 direction page, which it used to refuse.
 
 L1 keeps only the sky's broad shape. It is exact for an even sky, but a sky much brighter at the horizon than
