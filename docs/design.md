@@ -3738,17 +3738,33 @@ game's local app data and not the roaming folder (`LOCALAPPDATA\{id}\Bakes` on W
 `~/Library/Caches/{id}/Bakes` on macOS, `$XDG_CACHE_HOME/{id}/bakes` or `~/.cache/{id}/bakes` on
 Linux), under the same names as the content's bakes, which hold the input hash. `SceneRenderer.BakeCache`
 is null by default, and `ReadBake` asks it only for a name the cooked content doesn't have as data,
-so a cooked bake always wins. A bake is read where `ReadBake` already runs, never in `Render`.
+so a cooked bake always wins. A bake is read where `ReadBake` already runs, which can be on the
+render thread (see the known limit below).
 
 A file's last-write time is when it was last used: `Read` and `Write` set it from a `TimeProvider`, so
 tests drive it with a `FakeTimeProvider`. `Write` puts the bytes in a `.tmp` file next to the target
 and moves it over the target, so a reader never sees half a bake and a crash leaves the old one (the
 `.tmp` files are left out of the size and of reads). Then it deletes the files used longest ago, by
 time and then by name, until the total is at most the capacity, which is 512 MB unless the constructor
-is given another. A file larger than the capacity isn't kept, and the one of that name is deleted. One
-lock covers each call, since writes come from the thread pool and reads from the render thread. The
-cache never raises `Reloads`: a bake written over a damaged one calls `LightBakeStore.Forget(file)`
-(see [The bake store](#the-bake-store)).
+is given another. The file just written is never deleted, even on a tie, and a delete that fails
+(the file is in use) is left for a later write. A file larger than the capacity isn't kept, and the
+one of that name is deleted. The cache never raises `Reloads`: a bake written over a damaged one calls
+`LightBakeStore.Forget(file)` (see [The bake store](#the-bake-store)).
+
+Writes come from the thread pool and reads from the render thread, so a read never waits for file
+work in another thread. One lock guards a small map in memory and is never held across file I/O. A
+write goes to a temp file of its own name (`{name}.{guid}.tmp`), so two writes never share one, and is
+moved in outside the lock. Trimming runs under a second lock that only writes take, and deletes
+outside the map's lock. A read opens the file with `FileShare.Delete`, so a move can replace it
+meanwhile. The last four bakes written are also held in memory until each is read once, so the
+re-read after `Forget(file)` touches no disk; a read from memory is written onto the file's use time
+by the next trim. A problem setting a use time never fails a read or a write. The first write of a
+session sweeps `.tmp` files over an hour old, left by a crash.
+
+Known limit: a bake cached in an earlier session isn't in memory, so the first time its name is asked
+for it is read from disk, synchronously, on the thread that asks, which can be the render thread.
+It is one file read per chunk, once. Moving it off the render thread would need a read-ahead, which
+isn't built.
 
 ### The .lightbake file
 

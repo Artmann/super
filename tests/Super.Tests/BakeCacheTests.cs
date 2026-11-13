@@ -42,6 +42,8 @@ public sealed class BakeCacheTests : IDisposable
         cache.Write("lighting/house/00000000000000ab.lightbake", [1, 2, 3]);
 
         Assert.Equal([1, 2, 3], cache.Read("lighting/house/00000000000000ab.lightbake"));
+        // A cache made afterwards, as in the next session, has nothing in memory and reads the file.
+        Assert.Equal([1, 2, 3], new BakeCache(_folder, _time, capacity: 100).Read("lighting/house/00000000000000ab.lightbake"));
         Assert.Null(cache.Read("lighting/house/missing.lightbake"));
     }
 
@@ -101,6 +103,136 @@ public sealed class BakeCacheTests : IDisposable
 
             Assert.InRange(cache.Size, 0, Capacity);
         }
+    }
+
+    [Fact]
+    public void A_bake_just_written_is_read_from_memory_once_whatever_happens_to_the_file()
+    {
+        var cache = new BakeCache(_folder, _time, capacity: 100);
+        cache.Write("a.lightbake", [1, 2, 3]);
+        File.Delete(Path.Combine(_folder, "a.lightbake"));
+
+        Assert.Equal([1, 2, 3], cache.Read("a.lightbake"));
+        Assert.Null(cache.Read("a.lightbake"));
+    }
+
+    [Fact]
+    public void Only_the_last_few_bakes_written_are_held_in_memory()
+    {
+        var cache = new BakeCache(_folder, _time, capacity: 1000);
+        for (int i = 0; i < 6; i++)
+        {
+            cache.Write($"f{i}.lightbake", [(byte)i]);
+        }
+
+        foreach (string file in Directory.GetFiles(_folder))
+        {
+            File.Delete(file);
+        }
+
+        Assert.Null(cache.Read("f0.lightbake"));
+        Assert.Null(cache.Read("f1.lightbake"));
+        Assert.Equal([5], cache.Read("f5.lightbake"));
+    }
+
+    [Fact]
+    public async Task Reading_finishes_while_a_write_is_stuck_before_its_move()
+    {
+        var cache = new BakeCache(_folder, _time, capacity: 100);
+        Directory.CreateDirectory(_folder);
+        File.WriteAllBytes(Path.Combine(_folder, "old.lightbake"), [9, 9]);
+        using var reached = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        cache.BeforeMove = () =>
+        {
+            reached.Set();
+            Assert.True(release.Wait(TimeSpan.FromSeconds(30)), "The test never let the write go.");
+        };
+        var write = Task.Run(() => cache.Write("new.lightbake", [1, 2, 3]));
+        try
+        {
+            Assert.True(reached.Wait(TimeSpan.FromSeconds(30)), "The write never reached its move.");
+
+            var read = Task.Run(() => cache.Read("old.lightbake"));
+
+            Assert.Same(read, await Task.WhenAny(read, Task.Delay(TimeSpan.FromSeconds(10))));
+            Assert.Equal([9, 9], await read);
+        }
+        finally
+        {
+            release.Set();
+            await write;
+        }
+
+        Assert.Equal([1, 2, 3], cache.Read("new.lightbake"));
+    }
+
+    [Fact]
+    public void A_bake_read_from_memory_counts_as_used_for_the_next_trim()
+    {
+        var cache = new BakeCache(_folder, _time, capacity: 20);
+        Write(cache, "a.lightbake", 10, at: 1);
+        Write(cache, "b.lightbake", 10, at: 2);
+        _time.SetUtcNow(At(3));
+        Assert.NotNull(cache.Read("a.lightbake"));
+
+        Write(cache, "c.lightbake", 10, at: 4);
+
+        Assert.True(File.Exists(Path.Combine(_folder, "a.lightbake")));
+        Assert.False(File.Exists(Path.Combine(_folder, "b.lightbake")));
+    }
+
+    [Fact]
+    public void The_bake_just_written_is_never_the_one_trimmed_even_on_a_tie()
+    {
+        var cache = new BakeCache(_folder, _time, capacity: 10);
+        Write(cache, "z.lightbake", 6, at: 1);
+
+        // The same time and an earlier name: by time and name alone, the new one would go first.
+        Write(cache, "a.lightbake", 6, at: 1);
+
+        Assert.True(File.Exists(Path.Combine(_folder, "a.lightbake")));
+        Assert.False(File.Exists(Path.Combine(_folder, "z.lightbake")));
+    }
+
+    [Fact]
+    public void A_bake_is_read_even_when_its_use_time_cant_be_set()
+    {
+        var cache = new BakeCache(_folder, _time, capacity: 100);
+        Directory.CreateDirectory(_folder);
+        string path = Path.Combine(_folder, "a.lightbake");
+        File.WriteAllBytes(path, [4, 5]);
+        // The file goes between being read and being marked used, so setting its time fails.
+        cache.AfterRead = () => File.Delete(path);
+
+        Assert.Equal([4, 5], cache.Read("a.lightbake"));
+    }
+
+    [Fact]
+    public void Temp_files_left_by_a_crash_are_swept_by_the_first_write_but_a_recent_one_is_kept()
+    {
+        Directory.CreateDirectory(_folder);
+        string old = Path.Combine(_folder, "x.lightbake.0123.tmp");
+        string recent = Path.Combine(_folder, "y.lightbake.4567.tmp");
+        File.WriteAllBytes(old, new byte[50]);
+        File.WriteAllBytes(recent, new byte[50]);
+        File.SetCreationTimeUtc(old, DateTime.UtcNow.AddDays(-1));
+        var cache = new BakeCache(_folder, _time, capacity: 100);
+
+        cache.Write("a.lightbake", [1]);
+
+        Assert.False(File.Exists(old));
+        Assert.True(File.Exists(recent));
+    }
+
+    [Fact]
+    public void A_folder_with_a_trailing_separator_takes_names()
+    {
+        var cache = new BakeCache(_folder + Path.DirectorySeparatorChar, _time, capacity: 100);
+
+        cache.Write("lighting/a.lightbake", [1, 2]);
+
+        Assert.Equal([1, 2], cache.Read("lighting/a.lightbake"));
     }
 
     [Fact]
