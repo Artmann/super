@@ -253,6 +253,16 @@ public class GraphicsTests
     [InlineData(nameof(Graphics.Puddles), RenderEffects.Puddles)]
     [InlineData(nameof(Graphics.Wind), RenderEffects.Wind)]
     [InlineData(nameof(Graphics.BakedLighting), RenderEffects.BakedLighting)]
+    [InlineData(nameof(Graphics.HeightMaps), RenderEffects.HeightMaps)]
+    [InlineData(nameof(Graphics.Specular), RenderEffects.Specular)]
+    [InlineData(nameof(Graphics.EnvironmentLight), RenderEffects.EnvironmentLight)]
+    [InlineData(nameof(Graphics.Emissive), RenderEffects.Emissive)]
+    [InlineData(nameof(Graphics.Vignette), RenderEffects.Vignette)]
+    [InlineData(nameof(Graphics.Grain), RenderEffects.Grain)]
+    [InlineData(nameof(Graphics.Sharpening), RenderEffects.Sharpening)]
+    [InlineData(nameof(Graphics.ColorGrading), RenderEffects.ColorGrading)]
+    [InlineData(nameof(Graphics.Culling), RenderEffects.Culling)]
+    [InlineData(nameof(Graphics.SimplerModels), RenderEffects.SimplerModels)]
     public void Each_switch_turned_off_leaves_out_only_its_own_effect(string setting, RenderEffects effect)
     {
         var graphics = new Graphics();
@@ -276,7 +286,7 @@ public class GraphicsTests
 
     // A bake is cheaper than lighting live, so the fastest settings keep it.
     [Fact]
-    public void Fastest_leaves_out_every_effect_but_keeps_the_materials_and_baked_lighting_and_turns_vsync_off()
+    public void Fastest_leaves_out_every_effect_that_costs_time_and_turns_vsync_off()
     {
         var graphics = Graphics.Fastest();
 
@@ -285,10 +295,19 @@ public class GraphicsTests
             | RenderEffects.Reflections | RenderEffects.AntiAliasing | RenderEffects.Bloom | RenderEffects.ContactShadows
             | RenderEffects.LightProbes | RenderEffects.MultiscatterSpecular | RenderEffects.WearAndDirt | RenderEffects.Fog
             | RenderEffects.AutoExposure | RenderEffects.DepthOfField | RenderEffects.Decals | RenderEffects.VolumetricFog
-            | RenderEffects.Puddles | RenderEffects.Wind,
+            | RenderEffects.Puddles | RenderEffects.Wind | RenderEffects.HeightMaps | RenderEffects.Vignette
+            | RenderEffects.Grain | RenderEffects.Sharpening,
             graphics.Off);
         Assert.True(graphics.Materials);
         Assert.True(graphics.BakedLighting);
+
+        // These cost nothing, or turning them off costs time, so the fastest settings keep them.
+        Assert.True(graphics.Specular);
+        Assert.True(graphics.EnvironmentLight);
+        Assert.True(graphics.Emissive);
+        Assert.True(graphics.ColorGrading);
+        Assert.True(graphics.Culling);
+        Assert.True(graphics.SimplerModels);
         Assert.False(graphics.Vsync);
 
         // Dropping the resolution would be a change the game can see, so it stays the game's choice.

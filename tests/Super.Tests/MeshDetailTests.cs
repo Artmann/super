@@ -234,6 +234,20 @@ public sealed class MeshDetailTests
     }
 
     [Fact]
+    public void A_view_that_does_not_cull_keeps_every_draw_in_order()
+    {
+        DrawItem[] draws = [At(new Vector3(-1f, 0f, 0f)), At(new Vector3(500f, 0f, 0f)), At(new Vector3(0f, 0f, 50f))];
+        var selected = new DrawItem[draws.Length];
+        var view = new DetailView(Camera, new Vector3(0f, 0f, 10f), 500f, 0f, 1f, cull: false);
+
+        int count = DrawSelection.Select(view, draws, Details(1f), selected);
+
+        Assert.Equal(3, count);
+        Assert.Equal([-1f, 500f, 0f], selected.Select(draw => draw.Transform.M41));
+        Assert.Equal(50f, selected[2].Transform.M43);
+    }
+
+    [Fact]
     public void A_scaled_model_keeps_its_detail_for_longer()
     {
         var details = Details(0.1f, new DetailLevel(300, 100, 0.01f));

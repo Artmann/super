@@ -58,7 +58,7 @@ vec3 probeRadiance(vec3 position, vec3 normal, vec3 albedo, vec3 emissive) {
         bounce = max(probeIrradiance(position, normal, normal), vec3(0.0));
     }
 
-    return albedo * (direct / PI + bounce) + emissive;
+    return albedo * (direct / PI + bounce) + (isOff(OFF_EMISSIVE) ? vec3(0.0) : emissive);
 }
 
 #endif

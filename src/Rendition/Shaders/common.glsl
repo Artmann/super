@@ -81,6 +81,10 @@ const int OFF_DEPTH_OF_FIELD = 1 << 13;
 const int OFF_VOLUMETRIC_FOG = 1 << 15;
 const int OFF_PUDDLES = 1 << 16;
 const int OFF_WIND = 1 << 17;
+const int OFF_HEIGHT_MAPS = 1 << 19;
+const int OFF_SPECULAR = 1 << 20;
+const int OFF_ENVIRONMENT_LIGHT = 1 << 21;
+const int OFF_EMISSIVE = 1 << 22;
 // Not a RenderEffects bit: set by the renderer while a debug view shows (DebugViewBit in Renderer.cs). Tonemapping
 // and the finish pass then hand colours through as they are.
 const int OFF_DEBUG_VIEW = 1 << 30;
@@ -100,6 +104,27 @@ const float PLAIN_ROUGHNESS = 0.8;
 
 bool isOff(int effect) {
     return (frame.off & effect) != 0;
+}
+
+// A cube's average, from the middles of its six faces at its coarsest level. For the irradiance cube that is the sky's
+// average light: each face's middle already gathers the half of the sky it faces.
+vec3 flatSky(samplerCube cube) {
+    float lod = float(textureQueryLevels(cube) - 1);
+    return (textureLod(cube, vec3(1.0, 0.0, 0.0), lod).rgb + textureLod(cube, vec3(-1.0, 0.0, 0.0), lod).rgb
+        + textureLod(cube, vec3(0.0, 1.0, 0.0), lod).rgb + textureLod(cube, vec3(0.0, -1.0, 0.0), lod).rgb
+        + textureLod(cube, vec3(0.0, 0.0, 1.0), lod).rgb + textureLod(cube, vec3(0.0, 0.0, -1.0), lod).rgb) / 6.0;
+}
+
+// The sky's soft light round a direction, from the irradiance cube; with Graphics.EnvironmentLight off, the same flat
+// colour from every side.
+vec3 skyIrradiance(samplerCube irradiance, vec3 direction) {
+    return isOff(OFF_ENVIRONMENT_LIGHT) ? flatSky(irradiance) : texture(irradiance, direction).rgb;
+}
+
+// The sky seen in a direction by a reflection blurred to lod, from the studio's reflection cube; with
+// Graphics.EnvironmentLight off, the same flat colour every way.
+vec3 skyReflection(samplerCube studio, vec3 direction, float lod) {
+    return isOff(OFF_ENVIRONMENT_LIGHT) ? flatSky(studio) : textureLod(studio, direction, lod).rgb;
 }
 
 // How far into the haze a point is: from the camera, or across the ground from the view's haze origin.

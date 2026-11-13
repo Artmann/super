@@ -96,7 +96,8 @@ public sealed class QualityGpuTests(GpuFixture gpu)
             CameraPosition = new Vector3(0, 0, 3),
             Lights = sun,
             Shadows = new ShadowSettings { Center = Vector3.Zero, Radius = 4f, Cascades = 4 },
-            Off = off,
+            // Culling and simpler models stay on: they're what these tests measure.
+            Off = off & ~(RenderEffects.Culling | RenderEffects.SimplerModels),
         };
 
         gpu.Renderer.MeasureGpu = true;

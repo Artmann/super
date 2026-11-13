@@ -31,7 +31,7 @@ vec3 probeReflection(samplerCubeArray probes, samplerCube studio, vec3 position,
 
     // Probes hold the scene at full strength, but the caller scales for the studio.
     vec3 scene = sum / max(frame.backgroundRadiance.a, 1e-3);
-    return scene + textureLod(studio, direction, lod).rgb * (1.0 - covered);
+    return scene + skyReflection(studio, direction, lod) * (1.0 - covered);
 }
 
 #endif

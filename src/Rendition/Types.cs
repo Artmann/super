@@ -1135,9 +1135,64 @@ public enum RenderEffects
     /// </summary>
     BakedLighting = 1 << 18,
 
+    /// <summary>
+    /// Surfaces sunk into their height maps (<see cref="Material.HeightTexture"/>). Without it they are drawn flat, shaped
+    /// only by their normal maps, and the height map is read only where puddles need it.
+    /// </summary>
+    HeightMaps = 1 << 19,
+
+    /// <summary>
+    /// Shine: highlights from lights, reflections, coats and the darker grazing look of metals. Without it every surface,
+    /// metals and water too, is lit only diffusely, the way chalk is, in its own colour.
+    /// </summary>
+    Specular = 1 << 20,
+
+    /// <summary>
+    /// The light the sky gives from each direction, worked out from <see cref="FrameView.Sky"/> or the studio. Without it
+    /// the sky lights and reflects as one flat colour, its average, the same from every side. The background still shows
+    /// the sky.
+    /// </summary>
+    EnvironmentLight = 1 << 21,
+
+    /// <summary>
+    /// The light materials give off (<see cref="Material.Emissive"/>), on screen and in the light probes. Without it
+    /// nothing glows. Bakes keep the glow they were made with.
+    /// </summary>
+    Emissive = 1 << 22,
+
+    /// <summary>The corners darkened by <see cref="PostSettings.Vignette"/>. Without it they stay as bright as the rest.</summary>
+    Vignette = 1 << 23,
+
+    /// <summary>The film grain from <see cref="PostSettings.Grain"/>. Without it the picture is clean.</summary>
+    Grain = 1 << 24,
+
+    /// <summary>The crispness <see cref="PostSettings.Sharpen"/> gives back after anti-aliasing. Without it the frame is left as it is.</summary>
+    Sharpening = 1 << 25,
+
+    /// <summary>
+    /// The view's grade: <see cref="PostSettings.Contrast"/>, <see cref="PostSettings.Saturation"/>,
+    /// <see cref="PostSettings.Lift"/>, <see cref="PostSettings.Gain"/> and the white balance. Without it they are all
+    /// neutral. The tonemapper and its look stay, as they're how the light fits on a screen.
+    /// </summary>
+    ColorGrading = 1 << 26,
+
+    /// <summary>
+    /// Leaving out what a camera or a shadow map can't see. Without it every draw is drawn by every pass, which only costs
+    /// time, so it's for checking what culling hides.
+    /// </summary>
+    Culling = 1 << 27,
+
+    /// <summary>
+    /// Swapping in a model's simpler versions as it moves away, by <see cref="Renderer.MeshDetailScale"/>. Without it every
+    /// model is drawn at full detail at any distance, which only costs time, so it's for checking what the simpler
+    /// versions change.
+    /// </summary>
+    SimplerModels = 1 << 28,
+
     All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
         | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind
-        | BakedLighting,
+        | BakedLighting | HeightMaps | Specular | EnvironmentLight | Emissive | Vignette | Grain | Sharpening | ColorGrading
+        | Culling | SimplerModels,
 }
 
 /// <summary>
