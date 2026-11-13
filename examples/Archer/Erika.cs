@@ -59,9 +59,6 @@ public sealed class Erika
 
     public Matrix4x4 Previous { get; private set; }
 
-    /// <summary>Whether she's in the air.</summary>
-    public bool Leaping => _leap is not null;
-
     /// <summary>Turns her to face a point on the ground.</summary>
     public void Face(Vector3 point)
     {

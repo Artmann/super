@@ -111,8 +111,6 @@ public abstract class AnimationControllerBase
             ? definition
             : throw new InvalidOperationException($"The controller has no clip for the action {Enum.ToObject(ActionType, action)}.");
 
-    internal bool HasAction(int action) => _actions.ContainsKey(action);
-
     private protected void AddState(int state, StateDefinition definition) => _states[state] = definition;
 
     private protected void AddAction(int action, ActionDefinition definition)

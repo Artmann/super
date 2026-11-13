@@ -1427,7 +1427,7 @@ Each atlas is a 2D array of five layers: layers 0 to 3 hold the four `ProbeCasca
 finest first, and layer 4 holds the fixed grid. A probe's slot is its tile in its layer, row by
 row. A layer is as many tiles square as fit the larger of a cascade (counts x × y × z) and 4,096
 fixed-grid probes: 64 × 64 tiles at `ProbeQuality.Low`, 84 × 83 at `Medium` and 128 × 128 at
-`High`. `ProbeVolume.AtlasBytes` gives the memory for both atlases and all five layers: about
+`High`. Both atlases and all five layers take about
 43 MB at Low, 73 MB at Medium and 172 MB at High, against 8.6 MB for the single fixed-grid atlas
 before. `EnsureStorage(quality)` makes them on the first frame with the probes on, and again,
 cleared, after `Renderer.ProbeQuality` (High by default, set from `Graphics.ProbeQuality`) changes; `Release()` frees them when
