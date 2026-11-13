@@ -337,10 +337,10 @@ internal sealed unsafe class BakeJob : IDisposable
         long invalid = 0;
         foreach (var page in _filtered)
         {
-            var encoded = Baker.Encode(page);
-            irradiance.Add(Baker.Crop(encoded.Irradiance, side));
-            direction.Add(Baker.Crop(encoded.Direction, side));
-            mask.Add(Baker.Crop(encoded.Mask, side));
+            var encoded = BakeEncoding.Encode(page);
+            irradiance.Add(BakeEncoding.Crop(encoded.Irradiance, side));
+            direction.Add(BakeEncoding.Crop(encoded.Direction, side));
+            mask.Add(BakeEncoding.Crop(encoded.Mask, side));
             for (int t = 0; t < page.Covered.Length; t++)
             {
                 if (page.Covered[t])
@@ -359,7 +359,7 @@ internal sealed unsafe class BakeJob : IDisposable
         if (_area.IsChunk)
         {
             var page = _transferPage ?? new TracedPage(0, 0, 0, 0, 0, [], [], [], [], [], []) { Transfer = [] };
-            transfer = Baker.EncodeTransfer(page, side);
+            transfer = BakeEncoding.EncodeTransfer(page, side);
         }
 
         LightBakePage? probeIrradiance = null;
@@ -529,7 +529,7 @@ internal sealed unsafe class BakeJob : IDisposable
         return OffThread(
             () =>
             {
-                filtered = Baker.Filtered(raw, run);
+                filtered = BakeEncoding.Filtered(raw, run);
                 if (!chunk)
                 {
                     return;
@@ -538,7 +538,7 @@ internal sealed unsafe class BakeJob : IDisposable
                 int count = raw.Width * raw.Height;
                 transfer = new float[count * Baker.TransferFloats];
                 filled = new bool[count];
-                var (irradiance, direction, mask) = Baker.TransferRun(raw, 0);
+                var (irradiance, direction, mask) = BakeEncoding.TransferRun(raw, 0);
                 run.Fill(irradiance, direction, mask);
             },
             next =>
@@ -566,14 +566,14 @@ internal sealed unsafe class BakeJob : IDisposable
         var transfer = _transfer!;
         var filled = _transferFilled!;
         int index = _transferRun;
-        bool more = index + 1 < Baker.TransferRuns;
+        bool more = index + 1 < BakeEncoding.TransferRuns;
         return OffThread(
             () =>
             {
-                Baker.ReadTransferRun(run, index, transfer, filled);
+                BakeEncoding.ReadTransferRun(run, index, transfer, filled);
                 if (more)
                 {
-                    var (irradiance, direction, mask) = Baker.TransferRun(raw, index + 1);
+                    var (irradiance, direction, mask) = BakeEncoding.TransferRun(raw, index + 1);
                     run.Fill(irradiance, direction, mask);
                 }
             },
@@ -684,7 +684,7 @@ internal sealed unsafe class BakeJob : IDisposable
             var tile = new ReadOnlySpan<float>(
                 (byte*)_foldBuffer!.Mapped + (long)slot * ProbeVolume.StagedTileBytes,
                 ProbeVolume.StagedTileBytes / sizeof(float));
-            Baker.WriteTile(tile, _firstProbe + _row + slot, ProbeIrradiance, ProbeDepth);
+            BakeEncoding.WriteTile(tile, _firstProbe + _row + slot, ProbeIrradiance, ProbeDepth);
         }
 
         _row += _inGroup;

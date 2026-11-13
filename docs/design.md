@@ -1974,7 +1974,9 @@ irradiance sum's w adds the square of each pass's luminance. Sums are float32 so
 add up without losing the small ones. The baker reads them back and divides by the passes, and
 turns irradiance w into the variance of the mean luminance, `(E[l²] - E[l]²) / passes`, which
 tells the filter how noisy each texel is; the filter cleans the page up (see "Filtering and
-dilation") and `Baker.Encode` then writes it as the file stores it. Every texel's random
+dilation") and `BakeEncoding.Encode` then writes it as the file stores it. `BakeEncoding`
+(`src/Rendition/Baking/BakeEncoding.cs`) holds all the CPU side of turning what the baker read
+back into the file's pages, with no GPU work of its own. Every texel's random
 numbers come from a hash of its place and the pass, so a bake of the same scene with the same
 settings gives the same file.
 
@@ -2130,7 +2132,7 @@ The fold is the live one. The baker keeps a `ProbeVolume` of its own at `ProbeQu
 for each group of up to `FaceSlots` (8) probes copies their faces into `FacesImage`, one slot each,
 calls `ProbeVolume.RecordFold` per slot, and `RecordStagingReadBack` copies the staging slots to a
 host buffer. So the tiles, borders, depth moments and inside marks come from `probe_fold.comp`
-itself, not a copy of it. `Baker.WriteTile` writes each probe's float32 tiles into the pages as
+itself, not a copy of it. `BakeEncoding.WriteTile` writes each probe's float32 tiles into the pages as
 `Rgba16f`: irradiance (640²) with alpha 1, and depth (1152²) widened from two channels with blue and
 alpha 0, since the file has no two-channel format. Tiles past the last probe stay black. The
 volume's own atlases are never written.
@@ -2178,7 +2180,7 @@ in order:
    records the filter (`Baker.RecordFilter`) and returns `AwaitGpu`.
 4. The step after that reads the filtered page on the thread pool, and keeps it. A chunk's page then runs both halves
    of its transfer through the same filter run, each read back and the next filled on the thread pool
-   (`Baker.TransferRun`, `Baker.ReadTransferRun`).
+   (`BakeEncoding.TransferRun`, `BakeEncoding.ReadTransferRun`).
 5. For a space, its probes, 64 at a time: a slice of the batch's passes at a time, cleared first. Then a step for each
    group of up to `FaceSlots` probes folds them and copies their tiles back, and returns `AwaitGpu`. The step after it
    writes those tiles into the atlases.
@@ -3959,7 +3961,7 @@ outside it blocks or bounces its light. Copies of a chunk share ids, so a draw i
 from any one of them (`BakeChunkGpuTests`). Its layout is `LightmapLayout.BuildSingle`: draws share rectangles as in
 `Build`, and the rectangles go on one page with `Single`. The baker works on 2048-texel pages, so the page is baked at
 the top left of one (`LightmapLayout.OnFullPage`) and every page the file stores is cut to the layout's `PageSide`
-after encoding (`Baker.Crop`). Its lights are its own local `Baked` and `Mixed` lights that hold still, the ones
+after encoding (`BakeEncoding.Crop`). Its lights are its own local `Baked` and `Mixed` lights that hold still, the ones
 `BakeAreas.OwnerOfLight` gives the chunk, with position and direction moved by `BakeAreas.IntoChunk`. Mask channels
 come from `ShadowMaskChannels.AssignChunk`, with every other light counted as `Realtime`, and are listed in
 `ChunkChannels` by `BakeInputHash.Light` under the chunk's transform. A chunk has no sun channel. The plain light has
@@ -3985,9 +3987,9 @@ before, so a space's bake doesn't change. The rules, in the chunk's space:
 The two extra random numbers are drawn at every surface the path reaches, whether the ray goes or not.
 
 The transfer is dilated as the plain light is, with `bake_dilate.comp`'s rings run twice over ten floats at a time
-through the page's own filter run (`Baker.TransferRun` uploads each half, `Baker.ReadTransferRun` takes it back). First a NaN becomes 0 and anything past a half's range is clamped to it. The transfer isn't
+through the page's own filter run (`BakeEncoding.TransferRun` uploads each half, `BakeEncoding.ReadTransferRun` takes it back). First a NaN becomes 0 and anything past a half's range is clamped to it. The transfer isn't
 smoothed, so at Preview, 64 paths a texel, its bounce is grainy where the plain light would be smooth.
-`Baker.EncodeTransfer` then writes the sky's and sun's coefficients in RGBA16F and the sun's colour in RGBA8 as
+`BakeEncoding.EncodeTransfer` then writes the sky's and sun's coefficients in RGBA16F and the sun's colour in RGBA8 as
 `SunTint`, divided by its largest channel. The sun's coefficients are scaled by that channel over the
 colour's luminance, so `SunTint * Sun` is each colour's transfer. A texel no rectangle or dilation reaches holds no
 transfer and a white tint.
