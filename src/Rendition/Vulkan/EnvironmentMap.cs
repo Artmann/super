@@ -99,6 +99,14 @@ internal sealed unsafe class EnvironmentMap : IDisposable
     /// </summary>
     public ImageView Sky => _sky.Sampled;
 
+    /// <summary>
+    /// What Graphics.EnvironmentLight off gives every side: the irradiance cube's average, the sky's average soft light,
+    /// since each face's middle already gathers the half of the sky it faces; and the reflections' average at their
+    /// roughest level. Worked out once per bake by <see cref="CubeCentres"/>, so the shaders read one colour instead of
+    /// six lookups a pixel.
+    /// </summary>
+    public (Vector3 Irradiance, Vector3 Reflection) Flat { get; private set; }
+
     public EnvironmentMap(VulkanContext context)
     {
         _context = context;
@@ -175,6 +183,9 @@ internal sealed unsafe class EnvironmentMap : IDisposable
 
         BakeLevel(_irradiance.Image, 0, _sets[ReflectionMips], IrradianceSize, new BakeConstants { Irradiance = 1 });
         BakeLevel(_sky.Image, 0, _sets[ReflectionMips + 1], SkySize, new BakeConstants { Sky = 1 });
+        Flat = CubeCentres.Average(_context,
+            new CubeLevel(_irradiance.Image, 0, IrradianceSize),
+            new CubeLevel(_reflections.Image, ReflectionMips - 1, ReflectionSize >> (ReflectionMips - 1)));
     }
 
     public void Dispose()
@@ -221,13 +232,13 @@ internal sealed unsafe class EnvironmentMap : IDisposable
         var api = _context.Api;
         var pipeline = _pipeline;
         var layout = _pipelineLayout;
-        var range = new ImageSubresourceRange(ImageAspectFlags.ColorBit, (uint)mip, 1, 0, 6);
 
         _context.SubmitAndWait(cmd =>
         {
-            Barrier(api, cmd, image, range, ImageLayout.Undefined, ImageLayout.General,
+            api.Transition(cmd, image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.General,
                 PipelineStageFlags2.None, AccessFlags2.None,
-                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit);
+                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
+                baseMip: (uint)mip, layerCount: 6);
 
             var boundSet = set;
             var push = constants;
@@ -237,45 +248,11 @@ internal sealed unsafe class EnvironmentMap : IDisposable
             uint groups = (size + 7) / 8;
             api.CmdDispatch(cmd, groups, groups, 6);
 
-            Barrier(api, cmd, image, range, ImageLayout.General, ImageLayout.ShaderReadOnlyOptimal,
+            api.Transition(cmd, image, ImageAspectFlags.ColorBit, ImageLayout.General, ImageLayout.ShaderReadOnlyOptimal,
                 PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-                PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit);
+                PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit,
+                baseMip: (uint)mip, layerCount: 6);
         });
-    }
-
-    private static void Barrier(
-        Vk api,
-        CommandBuffer cmd,
-        Image image,
-        ImageSubresourceRange range,
-        ImageLayout from,
-        ImageLayout to,
-        PipelineStageFlags2 sourceStage,
-        AccessFlags2 sourceAccess,
-        PipelineStageFlags2 destinationStage,
-        AccessFlags2 destinationAccess)
-    {
-        var barrier = new ImageMemoryBarrier2
-        {
-            SType = StructureType.ImageMemoryBarrier2,
-            SrcStageMask = sourceStage,
-            SrcAccessMask = sourceAccess,
-            DstStageMask = destinationStage,
-            DstAccessMask = destinationAccess,
-            OldLayout = from,
-            NewLayout = to,
-            SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
-            DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
-            Image = image,
-            SubresourceRange = range,
-        };
-        var dependency = new DependencyInfo
-        {
-            SType = StructureType.DependencyInfo,
-            ImageMemoryBarrierCount = 1,
-            PImageMemoryBarriers = &barrier,
-        };
-        api.CmdPipelineBarrier2(cmd, &dependency);
     }
 
     private DescriptorSet CreateBakeSet(ImageView target)
@@ -324,7 +301,7 @@ internal sealed unsafe class EnvironmentMap : IDisposable
             ArrayLayers = 6,
             Samples = SampleCountFlags.Count1Bit,
             Tiling = ImageTiling.Optimal,
-            Usage = ImageUsageFlags.StorageBit | ImageUsageFlags.SampledBit,
+            Usage = ImageUsageFlags.StorageBit | ImageUsageFlags.SampledBit | ImageUsageFlags.TransferSrcBit,
             SharingMode = SharingMode.Exclusive,
             InitialLayout = ImageLayout.Undefined,
         };

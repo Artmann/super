@@ -1191,15 +1191,17 @@ Bits 19 to 28 skip no pass either; each is read where its effect is made:
   it is, after taking the screen derivatives, so custom shaders that call `parallaxUv` are covered
   too. Puddles still read the height texture to sink into grooves.
 - `Specular` (bit 20, `OFF_SPECULAR`): `lighting.frag` sets metallic, the clear coat and f0 to 0
-  after the puddle water's f0, skips the trace and zeroes the environment's specular, which the
-  `environmentBrdf` bias would otherwise leave. With f0 at 0, `shade()` gives no highlight and the
-  full diffuse with no change of its own. `transparent.frag` does the same with its f0, so glass
-  has no reflectance and its coverage is its opacity.
+  after the puddle water's f0, and skips the trace, the reflection lookup, `environmentBrdf` and
+  the multiscatter compensation, so the environment's specular is 0 at no cost. With f0 at 0,
+  `shade()` gives no highlight and the full diffuse with no change of its own. `transparent.frag`
+  does the same with its f0, so glass has no reflectance and its coverage is its opacity.
 - `EnvironmentLight` (bit 21, `OFF_ENVIRONMENT_LIGHT`): every read of the sky's irradiance and
   reflection cubes outside the probes goes through `skyIrradiance` and `skyReflection` in
-  `common.glsl`, which return `flatSky`: the mean of the cube's six face centres at its coarsest
-  mip. `probe_trace.comp` and `probe_fold.comp` still see the real sky, so the bounce keeps its
-  colour.
+  `common.glsl`, which return `frame.flatIrradiance` and `frame.flatReflection`. Those are the
+  mean of each cube's six face centres at its coarsest mip, which `CubeCentres` reads back
+  once per bake, so the switch costs no lookups at all. Working it out per pixel took six and
+  made the lighting pass slower with the switch off than on. `probe_trace.comp` and
+  `probe_fold.comp` still see the real sky, so the bounce keeps its colour.
 - `Emissive` (bit 22, `OFF_EMISSIVE`): `writeSurface()` zeroes `surface.emissive` after the surface
   shader has run, and after ghosts have returned with their glow. `transparent.frag` zeroes the
   material's emissive before the ghost's is set, and `probeRadiance` in `probe_light.glsl` leaves

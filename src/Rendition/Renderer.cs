@@ -4989,6 +4989,8 @@ public sealed unsafe class Renderer : IDisposable
 
         uniforms->CameraPosition = new Vector4(view.CameraPosition, 1f);
         uniforms->BackgroundRadiance = new Vector4(view.BackgroundRadiance, view.EnvironmentIntensity);
+        uniforms->FlatIrradiance = new Vector4(_environment.Flat.Irradiance, 0f);
+        uniforms->FlatReflection = new Vector4(_environment.Flat.Reflection, 0f);
 
         // Probes leave the sun's disc out: their rough levels would scatter it into specks, and
         // the sun's own light already gives surfaces its highlight. The sky is the one BakeSky worked out from the

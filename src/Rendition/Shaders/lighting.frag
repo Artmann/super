@@ -593,9 +593,18 @@ void main() {
         f0 = vec3(0.0);
     }
 
-    vec2 brdf = environmentBrdf(roughness, nDotV);
-    vec3 multiscatter = isOff(OFF_MULTISCATTER_SPECULAR) ? vec3(1.0) : multiscatterCompensation(f0, nDotV, roughness);
-    vec3 reflectedLight = sampleReflection(position, reflect(-v, n), roughness * REFLECTION_LODS);
+    // Without specular nothing reflects, so the reflection and its share aren't worked out at all. A zero f0 makes the
+    // multiscatter compensation exactly 1.
+    vec2 brdf = vec2(0.0);
+    vec3 multiscatter = vec3(1.0);
+    vec3 reflectedLight = vec3(0.0);
+    if (specular) {
+        brdf = environmentBrdf(roughness, nDotV);
+        if (!isOff(OFF_MULTISCATTER_SPECULAR)) {
+            multiscatter = multiscatterCompensation(f0, nDotV, roughness);
+        }
+        reflectedLight = sampleReflection(position, reflect(-v, n), roughness * REFLECTION_LODS);
+    }
 
     // Coated surfaces are traced for their mirror-like coat, which then serves both layers.
     float traceStrength = isOff(OFF_REFLECTIONS) || !specular ? 0.0

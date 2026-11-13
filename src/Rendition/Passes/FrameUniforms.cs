@@ -181,6 +181,12 @@ internal struct FrameUniforms
     /// <summary>x: how far the baked space's bake has faded in, from 0 to 1, which scales its lightmaps' and probes' weight; 1 when none is fading in.</summary>
     public Vector4 BakedFade;
 
+    /// <summary>rgb: the irradiance cube's average, the soft light every side gets with Graphics.EnvironmentLight off. See <see cref="Vulkan.EnvironmentMap.Flat"/>.</summary>
+    public Vector4 FlatIrradiance;
+
+    /// <summary>rgb: the reflection cube's average at its roughest level, what every reflection sees with Graphics.EnvironmentLight off.</summary>
+    public Vector4 FlatReflection;
+
     public int LightCount;
     public float Time;
     public int FrameNumber;
