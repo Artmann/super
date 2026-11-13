@@ -49,15 +49,16 @@ The shapes made in code are made static too, so they get lightmap UVs. The lante
 so they stay dynamic, and the probes light them as they move. The bake is
 `content/lighting/crypt.lightbake`, 4.1 MB at the default 20 texels a metre.
 
-The fire stays real-time and flickers, so each flame is a `Mixed` light:
+The fire stays real-time and flickers, so each flame is a `Mixed` light. A `Baked` light is drawn
+from the lightmap alone and cannot flicker, and a `Realtime` one would lose the bounce:
 
-| Light | Mode | Shadows |
-| --- | --- | --- |
-| The four torches | Mixed | Real-time shadow tiles, and the bake's mask for the rest of the hall |
-| Grate beam | Mixed | Real-time shadow tiles. It found no mask channel |
-| Altar glow and the altar's candelabra flames | Mixed | The glow has real-time tiles. The 15 flames have none, and no mask channel |
-| Loose candles | Mixed | No shadow tiles and no mask channel, so they light the floor with no shadows, as before |
-| Lantern spot and flame (swing) | Mixed | Real-time. They move, so the bake leaves them out and logs it |
+| Light | Mode | Why | Shadows |
+| --- | --- | --- | --- |
+| The four torches | Mixed | They flicker, so the flame must stay live, and the bake adds the bounce | Real-time shadow tiles, and the bake's mask for the rest of the hall |
+| Grate beam | Mixed | It is steady and could be `Baked`, but its beam is narrow and a lightmap at 20 texels a metre would blur the edge that real-time shadows keep sharp | Real-time shadow tiles. It found no mask channel |
+| Altar glow and the altar's candelabra flames | Mixed | They are fire and flicker like the torches | The glow has real-time tiles. The 15 flames have none, and no mask channel |
+| Loose candles | Mixed | They are fire and flicker | No shadow tiles and no mask channel, so they light the floor with no shadows, as before |
+| Lantern spot and flame (swing) | Mixed | They swing, so the bake can't hold their light | Real-time. They move, so the bake leaves them out and logs it |
 
 The bake's shadow mask has four channels, and the four torches take them. Every other `Mixed`
 light found none, and the bake lists them: 143 lights, the grate (340), the altar's flames and glow

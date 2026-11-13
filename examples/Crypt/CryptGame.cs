@@ -20,7 +20,7 @@ public sealed class CryptGame(Content content) : IGame
     private const int AltarKey = 300;
     private const int StatueKey = 310;
     private const int ChestKey = 320;
-    private const int LanternKey = 330;
+    public const int LanternKey = 330;
     private const int GrateKey = 340;
     private const int BarrelKey = 400;
     private const int CandelabraKey = 500;
@@ -28,10 +28,10 @@ public sealed class CryptGame(Content content) : IGame
     private const int CandleKey = 1000;
     private const int FlameKey = 100_000;
 
-    private const float HallWidth = 9f;
-    private const float HallFront = 4f;
-    private const float HallBack = -9.5f;
-    private const float HallHeight = 5f;
+    public const float HallWidth = 9f;
+    public const float HallFront = 4f;
+    public const float HallBack = -9.5f;
+    public const float HallHeight = 5f;
 
     /// <summary>
     /// A candle's flame: small glowing puffs packed close so they read as one teardrop, warm
