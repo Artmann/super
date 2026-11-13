@@ -2210,13 +2210,19 @@ Each frame, after `ResolveBakes`, `UpdateBackgroundBake` lists the frame's wants
 (`src/Rendition/Baking/BakeQueue.cs`). Nothing is wanted before `AnimatedLights.Settled`, since a light that moves may
 not have been seen moving yet. The space is wanted when `AutoBake.Spaces` is set and the store has no fresh bake of its
 inputs (`IsFreshQuietly`, so a frame doesn't log). A chunk is wanted the same way unless its fresh bake is
-`ChunkPending` or it owns no static draws. An area whose earlier qualities are finished but not its later ones is also
-wanted (`BakeQueue.Unfinished`), so a saved Preview that the store now finds fresh still gets its Final. The queue
+`ChunkPending` or it owns no static draws. `BakeQueue.Wants` decides both. A fresh area is still wanted when
+`IBakeStore.SavedQuality` says its file was baked at a quality before the last in `AutoBake.Qualities`: the saved
+quality and every one before it count as finished, so the next to start is the one after it, and a Preview saved before
+the game restarted still gets its Final. A store that can't tell the quality (the default answers null) leaves a fresh
+area wanted only while this queue has finished some of its qualities but not all (`BakeQueue.Unfinished`). The queue
 keeps one want per file, the copy nearest the camera. It picks the area whose next quality comes first in
 `AutoBake.Qualities`, then the nearest by its box's middle, then by file name. It remembers each finished file, inputs
 and quality, failures too, and never starts one again, so a saved file the store hasn't read yet doesn't loop. A
-running job whose file a frame names with other inputs is stopped, so changing the scene again starts its bake over. A
-job whose area the frame doesn't name carries on. The queue reuses its lists, so a frame with no wants allocates
+running job whose file a frame names with other inputs is stopped (`BakeQueue.Named`, asked of every named area, wanted
+or not, so an old bake never overwrites a file that is already fresh), and changing the scene again starts its bake
+over. The queue has already forgotten that job, and may start the next in the same frame, so the renderer retires it
+without telling the queue it stopped. A job whose area the frame doesn't name carries on. `BakeProgress` is null when
+no job runs and no area waits; while areas wait and none runs yet it has an empty name. The queue reuses its lists, so a frame with no wants allocates
 nothing.
 
 `RecordBakeSlice` runs after the chunk uploads are recorded and before the frame's top-level build. It records one
@@ -2232,11 +2238,12 @@ last job's file being made, so the slice waits for them.
 At `Done` the job's `Finish` runs on the thread pool, since encoding the pages takes longer than a frame. The job stays
 the running one meanwhile, holding the baker's pages, so no other job sets up. A later `Render` takes the bytes from a
 `ConcurrentQueue`, disposes the job, tells the queue, and calls `AutoBake.Done` on the render thread before it resolves
-the frame's bakes.
+the frame's bakes. Nothing catches an exception from `Done`, so it passes out of `Render`.
 
 A stopped job may have steps in frames still in flight, so it is disposed with the destroyed resources of the last
-submitted frame's slot. A job that never stepped holds nothing the GPU reads and goes at once. `DestroyMesh` and
-destroying a material stop the running job when its draws use them. `Bake`, `BakeChunk` and `Dispose` wait for the GPU,
+submitted frame's slot. A job that never stepped holds nothing the GPU reads and goes at once. `DestroyMesh`,
+destroying a material and destroying a texture stop the running job when its draws use them, a texture through the
+materials of its draws. `Bake`, `BakeChunk` and `Dispose` wait for the GPU,
 then drop every background bake, waiting for any file being made, since the whole bake needs the baker's pages.
 
 Measured on the development desktop's GPU at a 4 ms budget: the test's room, a 4 metre floor and three walls, at 180
@@ -3407,14 +3414,14 @@ pages are resident in the pool; see "Chunk bakes on the GPU" and "Relighting a c
 `LightBakeStore` (`src/Rendition/Baking/LightBakeStore.cs`) is the `IBakeStore` a Super game
 uses. It reads files through a `Func<string, byte[]?>`, so Rendition doesn't know where content
 lives; `SceneRenderer` gives it `Content.Files.Read` for names whose kind is `ContentKind.Data`,
-so it sees the cooked bakes, and logs to `Console.Error`. `Saved(file)` reads a file's header
-with `LightBakeFile.ReadInputs` the first time it is asked about and keeps the result in a
-`Dictionary<string, BakeInputs?>`, null for a missing file or one that can't be read: a header
+so it sees the cooked bakes, and logs to `Console.Error`. `Saved(file)` and `SavedQuality(file)`
+read a file's header with `LightBakeFile.ReadInputsAndQuality` the first time either is asked about
+and keep its inputs and quality in a `Dictionary`, null for a missing file or one that can't be read: a header
 that throws `InvalidDataException`, or a read that throws `IOException` or
 `UnauthorizedAccessException`, such as while a cook replaces the file. That is logged once with
 its message and kept until `Forget`, so the file is tried again after the content reloads rather
 than every frame. The read gives the whole file for its header, once per file. The store's
-header cache isn't thread-safe, so `IsFresh`, `Saved` and `Forget` are called from the render
+header cache isn't thread-safe, so `IsFresh`, `Saved`, `SavedQuality` and `Forget` are called from the render
 thread only; `Load` keeps nothing and only calls the read function, so the chunk pool calls it
 from a worker thread while the render thread goes on (`CookedFolder.Read` is `File.ReadAllBytes`
 on a volatile manifest, safe to call alongside). `IsFresh` compares the kept
@@ -3430,7 +3437,8 @@ calls it in `Prepare` when `Content.Files` is a different object or `Content.Rel
 since the last frame; `Content.Reload` counts up right after it refreshes the files. `Load`
 reads a whole file with `LightBakeFile.Read` and keeps nothing; it is for drawing a fresh bake.
 `Forget` also counts up `Reloads`, so the renderer reads the bake it holds again. Both are on
-`IBakeStore` with defaults (`Load` gives null, `Reloads` stays 0), so a store that only answers
+`IBakeStore` with defaults (`Load` gives null, `Reloads` stays 0, and `SavedQuality` gives null,
+so a background bake counts a fresh area as done), so a store that only answers
 `IsFresh` still works and its areas count as baked with live soft light. A store with a `Load` of
 its own, `LightBakeStore` among them, has no such excuse: when its `Load` gives null for a file
 it called fresh, the file went after its header was read, such as when it is removed without a

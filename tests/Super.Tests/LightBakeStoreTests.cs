@@ -18,6 +18,18 @@ public sealed class LightBakeStoreTests
     }
 
     [Fact]
+    public void Saved_quality_is_read_from_the_header()
+    {
+        const string Hall = "lighting/hall.lightbake";
+        var store = new LightBakeStore(
+            Files((Crypt, Bake(Saved, BakeQuality.Preview)), (Hall, Bake(Saved, BakeQuality.Final))), TextWriter.Null);
+
+        Assert.Equal(BakeQuality.Preview, store.SavedQuality(Crypt));
+        Assert.Equal(BakeQuality.Final, store.SavedQuality(Hall));
+        Assert.Null(store.SavedQuality("lighting/missing.lightbake"));
+    }
+
+    [Fact]
     public void A_bake_made_from_other_inputs_is_not_fresh()
     {
         var store = new LightBakeStore(Files((Crypt, Bake(Saved))), TextWriter.Null);
@@ -264,8 +276,8 @@ public sealed class LightBakeStoreTests
     }
 
     // A one-page bake made from the inputs given, with one draw on its page.
-    private static byte[] Bake(BakeInputs inputs) => new LightBakeFile(
-        inputs, BakeQuality.Preview,
+    private static byte[] Bake(BakeInputs inputs, BakeQuality quality = BakeQuality.Preview) => new LightBakeFile(
+        inputs, quality,
         [(7UL, new LightmapRect(0, new Vector2(0.5f), new Vector2(0.25f)))],
         [new LightBakePage(1, 1, LightBakePageFormat.Rgba16f, [1, 2, 3, 4, 5, 6, 7, 8])],
         [], [], null, null, null, [], new LightBakeReport([], 0f, 64, TimeSpan.FromSeconds(1))).ToBytes();

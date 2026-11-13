@@ -726,7 +726,8 @@ and `DroppedSuns` list the lights left to a bake, by their place in the frame's 
 ```csharp
 renderer.AutoBake = new AutoBake(
     BudgetMilliseconds: 4f, Spaces: true, Qualities: [BakeQuality.Preview, BakeQuality.Final],
-    Done: done => File.WriteAllBytes(Path.Combine("content", done.File), done.Bytes));
+    // Done runs inside Render, so the write goes to another thread instead of holding up the frame.
+    Done: done => Task.Run(() => File.WriteAllBytes(Path.Combine("content", done.File), done.Bytes)));
 ```
 
 With `Renderer.AutoBake` set, the renderer bakes by itself each space and chunk a frame names whose bake is missing or
@@ -738,15 +739,20 @@ bakes only chunks.
 
 The renderer doesn't save anything. It hands each finished file to `Done`, on the render thread, inside a later
 `Render`, with where it goes (`done.File`, the same path `--bake` writes), the area's name, the inputs it was made from
-and its quality. Once the store reads the file the area is fresh and drawn from its bake. A bake whose area changes
-while it runs is started over, and one finished from the same inputs and quality is never baked again, so a file the
-store hasn't read yet doesn't loop.
+and its quality. Writing a file there would hold up the frame, so hand the bytes to another thread, as above. `Done`
+must not throw, since an exception passes out of `Render`. Once the store reads the file the area is fresh and drawn
+from its bake. A bake whose area changes while it runs is started over, and one finished from the same inputs and
+quality is never baked again, so a file the store hasn't read yet doesn't loop. An area whose saved bake is fresh but
+at a quality before the last one asked for, such as a Preview saved before the game restarted, still gets the
+qualities after it. `LightBakeStore` reads the quality from the file's header; a store of your own tells it with
+`IBakeStore.SavedQuality`, and one that doesn't counts a fresh area as done.
 
-`Renderer.BakeProgress` is null when nothing is baking. Otherwise it gives the area's name, how much of it is done from
-0 to 1, how many other areas wait, and the GPU time of the last slice. Set `AutoBake` outside a frame, since the first
+`Renderer.BakeProgress` is null when nothing is baking and no area waits. Otherwise it gives the area's name (empty
+while areas wait and none has started), how much of it is done from 0 to 1, how many other areas wait, and the GPU
+time of the last slice. Set `AutoBake` outside a frame, since the first
 one prepares baking, which waits for the GPU. On a GPU that can't trace rays it does nothing, and a GPU that traces but
 can't bake says so once and bakes nothing. A whole `Bake` or `BakeChunk` stops the running background bake, which
-starts again on a later frame. Null, the default, bakes nothing.
+starts again on a later frame, and so does destroying a mesh, material or texture it uses. Null, the default, bakes nothing.
 
 ## Reflections
 

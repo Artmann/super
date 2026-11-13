@@ -144,6 +144,54 @@ internal sealed class BakeQueue
     public void Stopped() => _running = null;
 
     /// <summary>
+    /// Tells the queue a frame names <paramref name="file"/> made from <paramref name="inputs"/>, wanted or not. True
+    /// when that is the running bake's file with other inputs, so its bake would be stale and would overwrite a file
+    /// that may already be fresh: the queue forgets it, and the caller drops it.
+    /// </summary>
+    public bool Named(string file, BakeInputs inputs)
+    {
+        if (_running is { } running && string.Equals(running.File, file, StringComparison.Ordinal)
+            && running.Inputs != inputs)
+        {
+            _running = null;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Whether an area a frame names wants a bake: its saved bake in <paramref name="store"/> is missing or stale, or
+    /// fresh at a quality before the last of the queue's, or fresh while this queue has baked some of its qualities but
+    /// not all. A fresh saved bake counts as finished at its own quality and every one before, so the next to start is
+    /// the one after it, and a game that saved its preview and restarted still gets its final.
+    /// </summary>
+    public bool Wants(IBakeStore store, string file, BakeInputs inputs)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        if (!store.IsFreshQuietly(file, inputs))
+        {
+            return true;
+        }
+
+        if (store.SavedQuality(file) is not { } saved)
+        {
+            return Unfinished(file, inputs);
+        }
+
+        ulong combined = inputs.Combined;
+        foreach (var quality in _qualities)
+        {
+            if (quality <= saved)
+            {
+                _finished.Add((file, combined, quality));
+            }
+        }
+
+        return NextQuality(file, inputs) >= 0;
+    }
+
+    /// <summary>
     /// Whether some of <paramref name="file"/>'s qualities are finished from <paramref name="inputs"/> but not all, so
     /// an area whose saved preview made it fresh still wants its final.
     /// </summary>

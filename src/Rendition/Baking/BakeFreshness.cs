@@ -17,6 +17,13 @@ public interface IBakeStore
     bool IsFreshQuietly(string file, BakeInputs inputs) => IsFresh(file, inputs);
 
     /// <summary>
+    /// The quality <paramref name="file"/> was baked at, or null when it is missing or the store can't tell. A
+    /// background bake whose area is fresh at a quality before the last it is asked for bakes the rest; when the store
+    /// can't tell, a fresh area counts as done.
+    /// </summary>
+    BakeQuality? SavedQuality(string file) => null;
+
+    /// <summary>
     /// Reads the whole of <paramref name="file"/>, for the renderer to draw its lightmaps once
     /// <see cref="IsFresh"/> has said it is fresh. A store that leaves this out has no lightmaps to give: it answers
     /// null, and the area still counts as baked, but its surfaces take their soft light live. A store that has its own

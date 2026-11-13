@@ -1049,8 +1049,36 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>Marks a live texture as gone, drops any copy still waiting for it, and queues its release.</summary>
     private void QueueTextureDestroy(int slot)
     {
+        // A background bake whose materials read it would trace a freed image, so it stops and starts again.
+        if (_bakeJob is { } job && _bakeFinishing is null && BakeReadsTexture(job, slot))
+        {
+            StopBakeJob();
+        }
+
         _uploads.Cancel(_resources.MarkTextureDying(slot));
         Destroying().Textures.Add(slot);
+    }
+
+    // Whether a material of one of the job's draws names the texture in this slot.
+    private bool BakeReadsTexture(BakeJob job, int slot)
+    {
+        foreach (ref readonly var draw in job.Draws)
+        {
+            if (!_resources.IsLive(draw.Material))
+            {
+                continue;
+            }
+
+            foreach (int texture in _resources.TexturesOf(draw.Material))
+            {
+                if (texture == slot)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private void QueueMaterialDestroy(int slot)
@@ -2059,15 +2087,21 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>
-    /// How the background bake is getting on, or null when none runs. See <see cref="AutoBake"/>.
+    /// How the background bake is getting on, or null when none runs and no area waits for one. While areas wait and
+    /// none runs yet, its name is empty and its fraction 0. See <see cref="AutoBake"/>.
     /// </summary>
     public BakeProgress? BakeProgress => _bakeJob is { } job
         ? new BakeProgress(job.Name, _bakeFinishing is not null ? 1f : job.Progress, _bakeQueue?.Waiting ?? 0,
             _lastSliceMilliseconds)
-        : null;
+        : _bakeQueue is { Waiting: > 0 } queue
+            ? new BakeProgress("", 0f, queue.Waiting, _lastSliceMilliseconds)
+            : null;
 
     /// <summary>How many background bake slices have been measured on the GPU, for tests.</summary>
     internal int BakeSlicesMeasured { get; private set; }
+
+    /// <summary>How many bake jobs are made and not yet disposed, for tests.</summary>
+    internal int LiveBakeJobs => _baker?.JobPools ?? 0;
 
     /// <summary>The passes the next trace slice of the background bake records, for tests.</summary>
     internal int BakeSlicePasses => _bakePasses;
@@ -2113,13 +2147,15 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         int count = 0;
+        bool cancel = false;
         if (LastBakeFrame is { } bakes && _animatedLights.Settled)
         {
             var store = _readableBakes.Inner;
             if (auto.Spaces && view.BakedSpace is { } space && bakes.Space is { } spaceInputs)
             {
                 string file = _bakeResolver.SpaceFile(space.Name);
-                if (!store.IsFreshQuietly(file, spaceInputs) || queue.Unfinished(file, spaceInputs))
+                cancel |= queue.Named(file, spaceInputs);
+                if (queue.Wants(store, file, spaceInputs))
                 {
                     AddBakeWant(ref count, new BakeWant(file, space.Name, spaceInputs, -1, (space.Min + space.Max) * 0.5f));
                 }
@@ -2135,7 +2171,8 @@ public sealed unsafe class Renderer : IDisposable
 
                 var inputs = bakes.Chunks[c];
                 string file = bakes.ChunkFile(c);
-                if (!store.IsFreshQuietly(file, inputs) || queue.Unfinished(file, inputs))
+                cancel |= queue.Named(file, inputs);
+                if (queue.Wants(store, file, inputs))
                 {
                     var chunk = chunks[c];
                     var centre = Vector3.Transform((chunk.Min + chunk.Max) * 0.5f, chunk.Transform);
@@ -2144,15 +2181,22 @@ public sealed unsafe class Renderer : IDisposable
             }
         }
 
-        var start = queue.Update(_bakeWants.AsSpan(0, count), view.CameraPosition, out bool cancel, out var quality);
-        if (cancel)
+        var start = queue.Update(_bakeWants.AsSpan(0, count), view.CameraPosition, out bool cancelled, out var quality);
+        if (cancel || cancelled)
         {
-            StopBakeJob();
+            // The queue already forgot it, and may have started the next bake, so it isn't told again.
+            StopBakeJob(tellQueue: false);
         }
 
         if (start is not { } want)
         {
             return;
+        }
+
+        // The queue starts a bake only when none runs; a job left here would never be freed.
+        if (_bakeJob is not null)
+        {
+            StopBakeJob(tellQueue: false);
         }
 
         try
@@ -2311,9 +2355,11 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>
     /// Stops the running background bake, if any, without finishing it; the queue starts its area again while a frame
-    /// names it. Steps already submitted may still run, so the job is freed with the last submitted frame.
+    /// names it. Steps already submitted may still run, so the job is freed with the last submitted frame. Pass
+    /// <paramref name="tellQueue"/> false when the queue itself called the bake off, since it may already have started
+    /// the next one, which telling it would end too.
     /// </summary>
-    private void StopBakeJob()
+    private void StopBakeJob(bool tellQueue = true)
     {
         if (_bakeJob is not { } job)
         {
@@ -2332,7 +2378,10 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         _bakeJob = null;
-        _bakeQueue?.Stopped();
+        if (tellQueue)
+        {
+            _bakeQueue?.Stopped();
+        }
     }
 
     // A job that never stepped holds nothing the GPU reads, so it goes at once.

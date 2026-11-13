@@ -232,6 +232,9 @@ internal sealed unsafe class BakeJob : IDisposable
         return false;
     }
 
+    /// <summary>The draws the job traces, so the renderer can tell whether a texture it destroys is read by them.</summary>
+    internal ReadOnlySpan<DrawItem> Draws => _area.Draws.AsSpan();
+
     /// <summary>Whether one of the job's draws uses <paramref name="material"/>.</summary>
     internal bool Uses(MaterialHandle material)
     {

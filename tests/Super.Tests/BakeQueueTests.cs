@@ -220,6 +220,95 @@ public class BakeQueueTests
         Assert.Equal("A background bake needs at least one quality to bake at. (Parameter 'qualities')", error.Message);
     }
 
+    [Fact]
+    public void Fresh_saved_preview_still_wants_its_final()
+    {
+        // A new queue, as after the game restarts: it baked nothing itself, but the saved file is a fresh Preview.
+        var queue = new BakeQueue([BakeQuality.Preview, BakeQuality.Final]);
+        var store = new SavedStore { ["a.lightbake"] = (InputsA, BakeQuality.Preview) };
+
+        Assert.True(queue.Wants(store, "a.lightbake", InputsA));
+        var started = queue.Update([Want("a", InputsA, 1f)], Vector3.Zero, out _, out var quality);
+
+        Assert.Equal("a", started!.Value.Name);
+        Assert.Equal(BakeQuality.Final, quality);
+    }
+
+    [Fact]
+    public void Fresh_saved_preview_wants_the_final_when_only_the_final_is_asked_for()
+    {
+        var queue = new BakeQueue([BakeQuality.Final]);
+        var store = new SavedStore { ["a.lightbake"] = (InputsA, BakeQuality.Preview) };
+
+        Assert.True(queue.Wants(store, "a.lightbake", InputsA));
+    }
+
+    [Fact]
+    public void Fresh_saved_final_wants_nothing()
+    {
+        var queue = new BakeQueue([BakeQuality.Preview, BakeQuality.Final]);
+        var store = new SavedStore { ["a.lightbake"] = (InputsA, BakeQuality.Final) };
+
+        Assert.False(queue.Wants(store, "a.lightbake", InputsA));
+    }
+
+    [Fact]
+    public void Missing_or_stale_saved_bake_is_wanted()
+    {
+        var queue = new BakeQueue([BakeQuality.Preview]);
+        var store = new SavedStore { ["a.lightbake"] = (InputsA, BakeQuality.Final) };
+
+        Assert.True(queue.Wants(store, "a.lightbake", InputsB));
+        Assert.True(queue.Wants(store, "missing.lightbake", InputsA));
+    }
+
+    [Fact]
+    public void Fresh_bake_of_unknown_quality_is_wanted_only_while_unfinished()
+    {
+        var queue = new BakeQueue([BakeQuality.Preview, BakeQuality.Final]);
+        var store = new SavedStore { ["a.lightbake"] = (InputsA, null) };
+
+        Assert.False(queue.Wants(store, "a.lightbake", InputsA));
+
+        queue.Finished("a.lightbake", InputsA, BakeQuality.Preview);
+        Assert.True(queue.Wants(store, "a.lightbake", InputsA));
+    }
+
+    [Fact]
+    public void Running_bake_is_called_off_when_its_file_is_named_with_other_inputs_though_not_wanted()
+    {
+        var queue = new BakeQueue([BakeQuality.Preview]);
+        Assert.NotNull(queue.Update([Want("a", InputsA, 1f)], Vector3.Zero, out _, out _));
+
+        // Named with its own inputs, it carries on.
+        Assert.False(queue.Named("a.lightbake", InputsA));
+        Assert.True(queue.Running);
+
+        // The file is already fresh from other inputs, so it isn't a want, but the old bake would overwrite it.
+        Assert.True(queue.Named("a.lightbake", InputsB));
+        Assert.False(queue.Running);
+        Assert.Null(queue.Update([], Vector3.Zero, out bool cancel, out _));
+        Assert.False(cancel);
+    }
+
+    [Fact]
+    public void Another_file_named_leaves_the_running_bake_alone()
+    {
+        var queue = new BakeQueue([BakeQuality.Preview]);
+        queue.Update([Want("a", InputsA, 1f)], Vector3.Zero, out _, out _);
+
+        Assert.False(queue.Named("b.lightbake", InputsB));
+        Assert.True(queue.Running);
+    }
+
     private static BakeWant Want(string name, BakeInputs inputs, float x, int chunk = -1) =>
         new(name + ".lightbake", name, inputs, chunk, new Vector3(x, 0f, 0f));
+
+    // Saved files by name: the inputs each was made from and its quality, null when the store can't tell.
+    private sealed class SavedStore : Dictionary<string, (BakeInputs Inputs, BakeQuality? Quality)>, IBakeStore
+    {
+        public bool IsFresh(string file, BakeInputs inputs) => TryGetValue(file, out var saved) && saved.Inputs == inputs;
+
+        public BakeQuality? SavedQuality(string file) => TryGetValue(file, out var saved) ? saved.Quality : null;
+    }
 }

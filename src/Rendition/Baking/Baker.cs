@@ -450,11 +450,19 @@ internal sealed unsafe class Baker : IDisposable
             PPoolSizes = sizes,
         };
         _context.Api.CreateDescriptorPool(_context.Device, &info, null, out var pool).Check();
+        JobPools++;
         return pool;
     }
 
     /// <summary>Frees a pool from <see cref="CreateJobPool"/>, and every set in it.</summary>
-    internal void DestroyPool(DescriptorPool pool) => _context.Api.DestroyDescriptorPool(_context.Device, pool, null);
+    internal void DestroyPool(DescriptorPool pool)
+    {
+        _context.Api.DestroyDescriptorPool(_context.Device, pool, null);
+        JobPools--;
+    }
+
+    /// <summary>How many job pools are made and not yet freed: one for each job not yet disposed, for tests.</summary>
+    internal int JobPools { get; private set; }
 
     /// <summary>
     /// Takes the baker's pages for the bake of <paramref name="name"/> until <see cref="ReleasePages"/>. The pages hold
@@ -472,10 +480,10 @@ internal sealed unsafe class Baker : IDisposable
         _pagesClaimedBy = (owner, name);
     }
 
-    /// <summary>Gives the pages back, if <paramref name="owner"/> holds them.</summary>
     /// <summary>Whether a bake holds the pages, so another can't set up yet.</summary>
     internal bool PagesClaimed => _pagesClaimedBy is not null;
 
+    /// <summary>Gives the pages back, if <paramref name="owner"/> holds them.</summary>
     internal void ReleasePages(object owner)
     {
         if (_pagesClaimedBy is { } held && ReferenceEquals(held.Owner, owner))

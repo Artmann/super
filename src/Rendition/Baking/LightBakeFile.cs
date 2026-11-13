@@ -289,13 +289,17 @@ public sealed record LightBakeFile(
     }
 
     /// <summary>Reads only the header, so a freshness check never inflates a page. Throws like <see cref="Read"/> for a wrong magic or version.</summary>
-    public static BakeInputs ReadInputs(ReadOnlySpan<byte> bytes)
+    public static BakeInputs ReadInputs(ReadOnlySpan<byte> bytes) => ReadInputsAndQuality(bytes).Inputs;
+
+    /// <summary>Reads only the header's inputs and quality. Throws like <see cref="ReadInputs"/>.</summary>
+    internal static (BakeInputs Inputs, BakeQuality Quality) ReadInputsAndQuality(ReadOnlySpan<byte> bytes)
     {
         using var stream = new MemoryStream(bytes[..Math.Min(bytes.Length, HeaderSize)].ToArray(), writable: false);
         using var reader = new BinaryReader(stream);
         try
         {
-            return ReadHeader(reader).Inputs;
+            var header = ReadHeader(reader);
+            return (header.Inputs, header.Quality);
         }
         catch (EndOfStreamException)
         {

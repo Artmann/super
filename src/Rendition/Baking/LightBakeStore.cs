@@ -5,7 +5,7 @@ namespace Rendition;
 /// file's header is read the first time it is asked about and kept until <see cref="Forget"/>, so asking every frame
 /// reads nothing and, once each file has been asked about, allocates nothing. A file that can't be read, whether
 /// damaged or failing to open, is lit live and logged once. Its header cache isn't thread-safe, so ask
-/// <see cref="IsFresh"/>, <see cref="Saved"/> and <see cref="Forget"/> from the render thread only. <see cref="Load"/>
+/// <see cref="IsFresh"/>, <see cref="Saved"/>, <see cref="SavedQuality"/> and <see cref="Forget"/> from the render thread only. <see cref="Load"/>
 /// keeps nothing, so it may be called from another thread as long as the read function can be.
 /// See "Baked lighting" in docs/rendering.md.
 /// </summary>
@@ -14,8 +14,8 @@ public sealed class LightBakeStore : IBakeStore
     private readonly Func<string, byte[]?> _read;
     private readonly TextWriter _log;
 
-    // Each file's saved inputs, or null when it is missing or can't be read.
-    private readonly Dictionary<string, BakeInputs?> _headers = [];
+    // Each file's saved inputs and quality, or null when it is missing or can't be read.
+    private readonly Dictionary<string, (BakeInputs Inputs, BakeQuality Quality)?> _headers = [];
 
     // The stale files already logged, so each is logged once until the content reloads.
     private readonly HashSet<string> _logged = [];
@@ -62,7 +62,15 @@ public sealed class LightBakeStore : IBakeStore
     /// The inputs <paramref name="file"/> was made from, read from its header, or null when it is missing or its header
     /// can't be read. A damaged header is logged once.
     /// </summary>
-    public BakeInputs? Saved(string file)
+    public BakeInputs? Saved(string file) => Header(file)?.Inputs;
+
+    /// <summary>
+    /// The quality <paramref name="file"/> was baked at, read from its header, or null when it is missing or its header
+    /// can't be read.
+    /// </summary>
+    public BakeQuality? SavedQuality(string file) => Header(file)?.Quality;
+
+    private (BakeInputs Inputs, BakeQuality Quality)? Header(string file)
     {
         if (_headers.TryGetValue(file, out var known))
         {
@@ -70,12 +78,12 @@ public sealed class LightBakeStore : IBakeStore
         }
 
         // The read gives the whole file, though only the header is wanted. That happens once per file, until Forget.
-        BakeInputs? saved = null;
+        (BakeInputs Inputs, BakeQuality Quality)? saved = null;
         try
         {
             if (_read(file) is { } bytes)
             {
-                saved = LightBakeFile.ReadInputs(bytes);
+                saved = LightBakeFile.ReadInputsAndQuality(bytes);
             }
         }
         catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException)

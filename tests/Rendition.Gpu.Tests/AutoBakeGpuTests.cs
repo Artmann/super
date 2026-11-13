@@ -55,6 +55,54 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
     }
 
     [Fact]
+    public void Light_changed_mid_bake_restarts_it_from_the_new_inputs()
+    {
+        Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad(gpu);
+        var dones = new List<BakeDone>();
+        try
+        {
+            var room = Room(gpu, quad);
+            var view = RoomView(gpu, room);
+            int jobs = gpu.Renderer.LiveBakeJobs;
+            gpu.Renderer.AutoBake = new AutoBake(Budget, true, [BakeQuality.Preview], dones.Add);
+
+            // Far enough in that the job holds the baker's pages.
+            int traced = RenderUntil(view, room, () => gpu.Renderer.BakeProgress is { Fraction: > 0f } || dones.Count > 0);
+            Assert.True(gpu.Renderer.BakeProgress is { Fraction: > 0f and < 1f },
+                $"The background bake hadn't started tracing after {traced} frames, or had already finished.");
+            var before = gpu.Renderer.LastBakeFrame!.Space;
+
+            // The Baked light gets brighter: it is left out while it moves, then baked again once it holds still, so
+            // the area's inputs change twice while the bake runs.
+            var light = view.LocalLights[0];
+            light.Radiance = new Vector3(20f);
+            view.LocalLights = new[] { light };
+            // Game time goes on from where it was, since time going back would forget the light was ever dimmer.
+            int frames = RenderUntil(view, room, () => dones.Count > 0, first: traced);
+
+            var after = gpu.Renderer.LastBakeFrame!.Space;
+            Assert.NotEqual(before, after);
+            Assert.True(dones.Count > 0, $"No background bake was done in the {frames} frames after the light changed.");
+            Assert.All(dones, done => Assert.Equal(after, done.Inputs));
+
+            // Every stopped job is freed once the frames that may still run its steps are done, so none is left over
+            // to hold the baker's pages.
+            gpu.Renderer.AutoBake = null;
+            RenderUntil(view, room, () => false, first: traced + frames, frames: 4);
+            Assert.Equal(jobs, gpu.Renderer.LiveBakeJobs);
+        }
+        finally
+        {
+            gpu.Renderer.AutoBake = null;
+            gpu.Renderer.DestroyMesh(quad);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
     public void Background_bake_never_waits_for_the_gpu()
     {
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
@@ -246,12 +294,13 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
         return pixels;
     }
 
-    // Draws the room a frame at a time, game time moving on, until done says so or MaxFrames have been drawn.
-    private int RenderUntil(FrameView view, DrawItem[] room, Func<bool> done)
+    // Draws the room a frame at a time, game time moving on from frame first, until done says so or MaxFrames have been
+    // drawn, or frames when given. Returns how many were drawn.
+    private int RenderUntil(FrameView view, DrawItem[] room, Func<bool> done, int first = 0, int frames = MaxFrames)
     {
-        for (int frame = 0; frame < MaxFrames; frame++)
+        for (int frame = 0; frame < frames; frame++)
         {
-            view.Time = frame * FrameSeconds;
+            view.Time = (first + frame) * FrameSeconds;
             gpu.Renderer.Render(view, room);
             if (done())
             {
@@ -259,7 +308,7 @@ public sealed class AutoBakeGpuTests(GpuFixture gpu)
             }
         }
 
-        return MaxFrames;
+        return frames;
     }
 
     // The file as it would be had it taken no time, the only thing two bakes of the same frame may differ in.

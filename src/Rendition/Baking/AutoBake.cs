@@ -17,7 +17,9 @@ namespace Rendition;
 /// </param>
 /// <param name="Done">
 /// Given each finished bake's file, on the render thread, inside <see cref="Renderer.Render"/>. The renderer doesn't
-/// save it: the callback writes it where the store reads it, or keeps it some other way.
+/// save it: the callback writes it where the store reads it, or keeps it some other way. Writing a file here would hold
+/// up the frame, so hand the bytes to another thread. It must not throw: an exception passes out of
+/// <see cref="Renderer.Render"/>.
 /// </param>
 public sealed record AutoBake(
     float BudgetMilliseconds, bool Spaces, IReadOnlyList<BakeQuality> Qualities, Action<BakeDone> Done)
@@ -47,7 +49,7 @@ public sealed record AutoBake(
 public readonly record struct BakeDone(string File, string Name, BakeInputs Inputs, BakeQuality Quality, byte[] Bytes);
 
 /// <summary>How the renderer's background bake is getting on, from <see cref="Renderer.BakeProgress"/>.</summary>
-/// <param name="Name">The space or chunk being baked.</param>
+/// <param name="Name">The space or chunk being baked, or empty while areas wait and none has started.</param>
 /// <param name="Fraction">How much of it is done, from 0 to 1.</param>
 /// <param name="Waiting">How many other areas the last frame named that wait to be baked.</param>
 /// <param name="LastSliceMilliseconds">The GPU time of the last slice measured, or 0 before one has been.</param>
