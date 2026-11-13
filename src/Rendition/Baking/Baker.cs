@@ -132,21 +132,12 @@ internal sealed unsafe class Baker : IDisposable
 
         // One validity set and one resolve set a page, rewritten by each SetUpTexels.
         const uint pages = LightmapLayout.MaxPages;
-        var poolSizes = stackalloc DescriptorPoolSize[]
-        {
-            new(DescriptorType.AccelerationStructureKhr, pages),
-            new(DescriptorType.StorageBuffer, pages),
-            new(DescriptorType.StorageImage, pages * 6),
-            new(DescriptorType.CombinedImageSampler, pages * 3),
-        };
-        var poolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = pages * 2,
-            PoolSizeCount = 4,
-            PPoolSizes = poolSizes,
-        };
-        api.CreateDescriptorPool(context.Device, &poolInfo, null, out _pool).Check();
+        _pool = context.CreateDescriptorPool(
+            pages * 2,
+            new DescriptorPoolSize(DescriptorType.AccelerationStructureKhr, pages),
+            new DescriptorPoolSize(DescriptorType.StorageBuffer, pages),
+            new DescriptorPoolSize(DescriptorType.StorageImage, pages * 6),
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, pages * 3));
 
         _texelLayout = CreatePipelineLayout([], ShaderStageFlags.VertexBit, (uint)sizeof(TexelConstants));
         _validityLayout = CreatePipelineLayout(
@@ -207,15 +198,7 @@ internal sealed unsafe class Baker : IDisposable
         }
 
         _filterSetLayout = CreateSetLayout(filterBindings, 9);
-        var filterPoolSize = new DescriptorPoolSize(DescriptorType.StorageImage, 18);
-        var filterPoolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = 2,
-            PoolSizeCount = 1,
-            PPoolSizes = &filterPoolSize,
-        };
-        api.CreateDescriptorPool(context.Device, &filterPoolInfo, null, out _filterPool).Check();
+        _filterPool = context.CreateDescriptorPool(2, new DescriptorPoolSize(DescriptorType.StorageImage, 18));
         _filterLayout = CreatePipelineLayout([_filterSetLayout], ShaderStageFlags.ComputeBit, (uint)sizeof(FilterConstants));
         _filterPipeline = PipelineFactory.CreateCompute(context, "bake_filter.comp", _filterLayout);
         _dilatePipeline = PipelineFactory.CreateCompute(context, "bake_dilate.comp", _filterLayout);
@@ -435,21 +418,12 @@ internal sealed unsafe class Baker : IDisposable
     internal DescriptorPool CreateJobPool(int pages)
     {
         uint count = (uint)Math.Max(pages, 1);
-        var sizes = stackalloc DescriptorPoolSize[]
-        {
-            new(DescriptorType.AccelerationStructureKhr, count * 2 + 1),
-            new(DescriptorType.StorageBuffer, count * 3 + 3),
-            new(DescriptorType.StorageImage, count * (3 + 3 + 6 + TransferSums + 18) + 2),
-            new(DescriptorType.CombinedImageSampler, count * 4 + 1),
-        };
-        var info = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = count * 5 + 1,
-            PoolSizeCount = 4,
-            PPoolSizes = sizes,
-        };
-        _context.Api.CreateDescriptorPool(_context.Device, &info, null, out var pool).Check();
+        var pool = _context.CreateDescriptorPool(
+            count * 5 + 1,
+            new DescriptorPoolSize(DescriptorType.AccelerationStructureKhr, count * 2 + 1),
+            new DescriptorPoolSize(DescriptorType.StorageBuffer, count * 3 + 3),
+            new DescriptorPoolSize(DescriptorType.StorageImage, count * (3 + 3 + 6 + TransferSums + 18) + 2),
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, count * 4 + 1));
         JobPools++;
         return pool;
     }
@@ -1596,18 +1570,7 @@ internal sealed unsafe class Baker : IDisposable
 
     private DescriptorSet AllocateSet(DescriptorSetLayout layout) => AllocateSet(layout, _pool);
 
-    private DescriptorSet AllocateSet(DescriptorSetLayout layout, DescriptorPool pool)
-    {
-        var allocInfo = new DescriptorSetAllocateInfo
-        {
-            SType = StructureType.DescriptorSetAllocateInfo,
-            DescriptorPool = pool,
-            DescriptorSetCount = 1,
-            PSetLayouts = &layout,
-        };
-        _context.Api.AllocateDescriptorSets(_context.Device, &allocInfo, out var set).Check();
-        return set;
-    }
+    private DescriptorSet AllocateSet(DescriptorSetLayout layout, DescriptorPool pool) => _context.AllocateSet(pool, layout);
 
     private void WriteValiditySet(DescriptorSet set, in TopLevelStructure scene, PageTargets targets)
     {
@@ -1804,35 +1767,11 @@ internal sealed unsafe class Baker : IDisposable
         _context.Api.UpdateDescriptorSets(_context.Device, 6, writes, 0, null);
     }
 
-    private DescriptorSetLayout CreateSetLayout(DescriptorSetLayoutBinding* bindings, uint count)
-    {
-        var layoutInfo = new DescriptorSetLayoutCreateInfo
-        {
-            SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = count,
-            PBindings = bindings,
-        };
-        _context.Api.CreateDescriptorSetLayout(_context.Device, &layoutInfo, null, out var layout).Check();
-        return layout;
-    }
+    private DescriptorSetLayout CreateSetLayout(DescriptorSetLayoutBinding* bindings, uint count) =>
+        _context.CreateSetLayout(new ReadOnlySpan<DescriptorSetLayoutBinding>(bindings, (int)count));
 
-    private PipelineLayout CreatePipelineLayout(DescriptorSetLayout[] setLayouts, ShaderStageFlags pushStages, uint pushSize)
-    {
-        var range = new PushConstantRange(pushStages, 0, pushSize);
-        fixed (DescriptorSetLayout* layouts = setLayouts)
-        {
-            var info = new PipelineLayoutCreateInfo
-            {
-                SType = StructureType.PipelineLayoutCreateInfo,
-                SetLayoutCount = (uint)setLayouts.Length,
-                PSetLayouts = layouts,
-                PushConstantRangeCount = 1,
-                PPushConstantRanges = &range,
-            };
-            _context.Api.CreatePipelineLayout(_context.Device, &info, null, out var layout).Check();
-            return layout;
-        }
-    }
+    private PipelineLayout CreatePipelineLayout(DescriptorSetLayout[] setLayouts, ShaderStageFlags pushStages, uint pushSize) =>
+        _context.CreatePipelineLayout(setLayouts, new PushConstantRange(pushStages, 0, pushSize));
 
     private void Copy(CommandBuffer cmd, RenderTarget target, GpuBuffer buffer, ulong offset, int x, int y, int width, int height)
     {

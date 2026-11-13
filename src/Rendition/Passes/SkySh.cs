@@ -32,42 +32,16 @@ internal sealed unsafe class SkySh : IDisposable
         _buffer = GpuBuffer.CreateHostVisible(context, Size, BufferUsageFlags.StorageBufferBit);
         new Span<byte>(_buffer.Mapped, Size).Clear();
 
-        var bindings = stackalloc DescriptorSetLayoutBinding[]
-        {
+        _setLayout = context.CreateSetLayout(
+        [
             new(0, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
             new(1, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
-        };
-        var layoutInfo = new DescriptorSetLayoutCreateInfo
-        {
-            SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 2,
-            PBindings = bindings,
-        };
-        api.CreateDescriptorSetLayout(context.Device, &layoutInfo, null, out _setLayout).Check();
-
-        var poolSizes = stackalloc DescriptorPoolSize[]
-        {
-            new(DescriptorType.CombinedImageSampler, 1),
-            new(DescriptorType.StorageBuffer, 1),
-        };
-        var poolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = 1,
-            PoolSizeCount = 2,
-            PPoolSizes = poolSizes,
-        };
-        api.CreateDescriptorPool(context.Device, &poolInfo, null, out _pool).Check();
-
-        var setLayout = _setLayout;
-        var allocInfo = new DescriptorSetAllocateInfo
-        {
-            SType = StructureType.DescriptorSetAllocateInfo,
-            DescriptorPool = _pool,
-            DescriptorSetCount = 1,
-            PSetLayouts = &setLayout,
-        };
-        api.AllocateDescriptorSets(context.Device, &allocInfo, out _set).Check();
+        ]);
+        _pool = context.CreateDescriptorPool(
+            1,
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 1),
+            new DescriptorPoolSize(DescriptorType.StorageBuffer, 1));
+        _set = context.AllocateSet(_pool, _setLayout);
 
         var imageInfo = new DescriptorImageInfo(sampler, sky, ImageLayout.ShaderReadOnlyOptimal);
         var bufferInfo = new DescriptorBufferInfo(_buffer.Handle, 0, Size);
@@ -94,13 +68,7 @@ internal sealed unsafe class SkySh : IDisposable
         };
         api.UpdateDescriptorSets(context.Device, 2, writes, 0, null);
 
-        var pipelineLayoutInfo = new PipelineLayoutCreateInfo
-        {
-            SType = StructureType.PipelineLayoutCreateInfo,
-            SetLayoutCount = 1,
-            PSetLayouts = &setLayout,
-        };
-        api.CreatePipelineLayout(context.Device, &pipelineLayoutInfo, null, out _pipelineLayout).Check();
+        _pipelineLayout = context.CreatePipelineLayout([_setLayout]);
         _pipeline = PipelineFactory.CreateCompute(context, "sky_sh.comp", _pipelineLayout);
     }
 

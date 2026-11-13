@@ -55,17 +55,7 @@ internal sealed unsafe class ShadowPass : IDisposable
             context, GBuffer.DepthFormat, new Extent2D(LocalLights.AtlasSize, LocalLights.AtlasSize),
             ImageUsageFlags.DepthStencilAttachmentBit, ImageAspectFlags.DepthBit);
 
-        var setLayouts = stackalloc DescriptorSetLayout[] { frameSetLayout, resources.Layout };
-        var pushRange = SceneDraws.PushRange;
-        var layoutInfo = new PipelineLayoutCreateInfo
-        {
-            SType = StructureType.PipelineLayoutCreateInfo,
-            SetLayoutCount = 2,
-            PSetLayouts = setLayouts,
-            PushConstantRangeCount = 1,
-            PPushConstantRanges = &pushRange,
-        };
-        context.Api.CreatePipelineLayout(context.Device, &layoutInfo, null, out _layout).Check();
+        _layout = context.CreatePipelineLayout([frameSetLayout, resources.Layout], SceneDraws.PushRange);
 
         ReadOnlySpan<VertexInputBindingDescription> bindings =
         [

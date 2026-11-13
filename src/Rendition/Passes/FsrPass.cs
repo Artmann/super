@@ -29,40 +29,14 @@ internal sealed unsafe class FsrPass : IDisposable
     {
         _context = context;
         _pointSampler = pointSampler;
-        var api = context.Api;
 
-        var bindings = stackalloc DescriptorSetLayoutBinding[]
-        {
+        _setLayout = context.CreateSetLayout(
+        [
             new(0, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
             new(1, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
-        };
-        var layoutInfo = new DescriptorSetLayoutCreateInfo
-        {
-            SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 2,
-            PBindings = bindings,
-        };
-        api.CreateDescriptorSetLayout(context.Device, &layoutInfo, null, out _setLayout).Check();
-
-        var poolSize = new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 2);
-        var poolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = 1,
-            PoolSizeCount = 1,
-            PPoolSizes = &poolSize,
-        };
-        api.CreateDescriptorPool(context.Device, &poolInfo, null, out _pool).Check();
-
-        var setLayout = _setLayout;
-        var allocInfo = new DescriptorSetAllocateInfo
-        {
-            SType = StructureType.DescriptorSetAllocateInfo,
-            DescriptorPool = _pool,
-            DescriptorSetCount = 1,
-            PSetLayouts = &setLayout,
-        };
-        api.AllocateDescriptorSets(context.Device, &allocInfo, out _motionSet).Check();
+        ]);
+        _pool = context.CreateDescriptorPool(1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 2));
+        _motionSet = context.AllocateSet(_pool, _setLayout);
 
         _motionPass = new FullscreenPass(context, "fsr_motion.frag", MotionFormat, [frameSetLayout, _setLayout]);
         _exposurePass = new FullscreenPass(context, "fsr_exposure.frag", ExposureFormat, [frameSetLayout, exposureSetLayout]);

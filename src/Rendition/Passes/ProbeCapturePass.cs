@@ -20,7 +20,6 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
     /// <summary>How far, in the probe's cascade spacings, a draw can be and still be drawn round it.</summary>
     public const float ReachSpacings = 16f;
 
-    private const uint AtlasSet = 2;
     private const uint IrradianceBinding = 11;
     private const uint DepthBinding = 12;
     private const uint SunShadowBinding = 14;
@@ -62,52 +61,17 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
         _resources = resources;
         var api = context.Api;
 
-        var bindings = stackalloc DescriptorSetLayoutBinding[]
-        {
+        _setLayout = context.CreateSetLayout(
+        [
             new(IrradianceBinding, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
             new(DepthBinding, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
             new(SunShadowBinding, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
-        };
-        var setLayoutInfo = new DescriptorSetLayoutCreateInfo
-        {
-            SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 3,
-            PBindings = bindings,
-        };
-        api.CreateDescriptorSetLayout(context.Device, &setLayoutInfo, null, out _setLayout).Check();
-
-        var poolSize = new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 3);
-        var poolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = 1,
-            PoolSizeCount = 1,
-            PPoolSizes = &poolSize,
-        };
-        api.CreateDescriptorPool(context.Device, &poolInfo, null, out _pool).Check();
-
-        var setLayout = _setLayout;
-        var allocInfo = new DescriptorSetAllocateInfo
-        {
-            SType = StructureType.DescriptorSetAllocateInfo,
-            DescriptorPool = _pool,
-            DescriptorSetCount = 1,
-            PSetLayouts = &setLayout,
-        };
-        api.AllocateDescriptorSets(context.Device, &allocInfo, out _set).Check();
-
-        var setLayouts = stackalloc DescriptorSetLayout[] { frameSetLayout, resources.Layout, _setLayout };
-        var pushRange = new PushConstantRange(
-            SceneDraws.PushStages, 0, (uint)(sizeof(SceneDraws.DrawConstants) + sizeof(ProbeConstants)));
-        var layoutInfo = new PipelineLayoutCreateInfo
-        {
-            SType = StructureType.PipelineLayoutCreateInfo,
-            SetLayoutCount = 3,
-            PSetLayouts = setLayouts,
-            PushConstantRangeCount = 1,
-            PPushConstantRanges = &pushRange,
-        };
-        api.CreatePipelineLayout(context.Device, &layoutInfo, null, out _layout).Check();
+        ]);
+        _pool = context.CreateDescriptorPool(1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 3));
+        _set = context.AllocateSet(_pool, _setLayout);
+        _layout = context.CreatePipelineLayout(
+            [frameSetLayout, resources.Layout, _setLayout],
+            new PushConstantRange(SceneDraws.PushStages, 0, (uint)(sizeof(SceneDraws.DrawConstants) + sizeof(ProbeConstants))));
 
         if (!context.Multiview)
         {

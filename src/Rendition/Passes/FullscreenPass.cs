@@ -44,19 +44,10 @@ internal sealed unsafe class FullscreenPass : IDisposable
         _targetCount = targetFormats.Length;
         _blend = blend;
 
-        var pushRange = new PushConstantRange(ShaderStageFlags.FragmentBit, 0, pushConstantSize);
-        fixed (DescriptorSetLayout* layouts = setLayouts)
-        {
-            var layoutInfo = new PipelineLayoutCreateInfo
-            {
-                SType = StructureType.PipelineLayoutCreateInfo,
-                SetLayoutCount = (uint)setLayouts.Length,
-                PSetLayouts = layouts,
-                PushConstantRangeCount = pushConstantSize > 0 ? 1u : 0u,
-                PPushConstantRanges = &pushRange,
-            };
-            context.Api.CreatePipelineLayout(context.Device, &layoutInfo, null, out _layout).Check();
-        }
+        PushConstantRange? pushRange = pushConstantSize > 0
+            ? new PushConstantRange(ShaderStageFlags.FragmentBit, 0, pushConstantSize)
+            : null;
+        _layout = context.CreatePipelineLayout(setLayouts, pushRange);
 
         _pipeline = PipelineFactory.Create(context, new PipelineDescription
         {

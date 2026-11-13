@@ -36,47 +36,14 @@ internal sealed unsafe class DecalPass : IDisposable
         }
 
         // Depth, and the copy of the normal target taken before the pass.
-        var bindings = stackalloc DescriptorSetLayoutBinding[]
-        {
+        _setLayout = context.CreateSetLayout(
+        [
             new(0, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
             new(1, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
-        };
-        var setLayoutInfo = new DescriptorSetLayoutCreateInfo
-        {
-            SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 2,
-            PBindings = bindings,
-        };
-        api.CreateDescriptorSetLayout(context.Device, &setLayoutInfo, null, out _setLayout).Check();
-
-        var poolSize = new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 2);
-        var poolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = 1,
-            PoolSizeCount = 1,
-            PPoolSizes = &poolSize,
-        };
-        api.CreateDescriptorPool(context.Device, &poolInfo, null, out _pool).Check();
-
-        var setLayout = _setLayout;
-        var allocInfo = new DescriptorSetAllocateInfo
-        {
-            SType = StructureType.DescriptorSetAllocateInfo,
-            DescriptorPool = _pool,
-            DescriptorSetCount = 1,
-            PSetLayouts = &setLayout,
-        };
-        api.AllocateDescriptorSets(context.Device, &allocInfo, out _set).Check();
-
-        var setLayouts = stackalloc DescriptorSetLayout[] { frameSetLayout, resources.Layout, _setLayout };
-        var layoutInfo = new PipelineLayoutCreateInfo
-        {
-            SType = StructureType.PipelineLayoutCreateInfo,
-            SetLayoutCount = 3,
-            PSetLayouts = setLayouts,
-        };
-        api.CreatePipelineLayout(context.Device, &layoutInfo, null, out _layout).Check();
+        ]);
+        _pool = context.CreateDescriptorPool(1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 2));
+        _set = context.AllocateSet(_pool, _setLayout);
+        _layout = context.CreatePipelineLayout([frameSetLayout, resources.Layout, _setLayout]);
 
         uint box = (uint)Marshal.OffsetOf<GpuDecal>(nameof(GpuDecal.Box));
         uint inverse = (uint)Marshal.OffsetOf<GpuDecal>(nameof(GpuDecal.Inverse));

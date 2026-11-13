@@ -29,43 +29,20 @@ internal sealed unsafe class BloomPass : IDisposable
     {
         _context = context;
         _sampler = sampler;
-        var api = context.Api;
 
-        var bindings = stackalloc DescriptorSetLayoutBinding[]
-        {
+        _setLayout = context.CreateSetLayout(
+        [
             new(0, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
             new(1, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit),
-        };
-        var layoutInfo = new DescriptorSetLayoutCreateInfo
-        {
-            SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 2,
-            PBindings = bindings,
-        };
-        api.CreateDescriptorSetLayout(context.Device, &layoutInfo, null, out _setLayout).Check();
+        ]);
 
         int setCount = Levels + Levels - 1;
-        var poolSize = new DescriptorPoolSize(DescriptorType.CombinedImageSampler, (uint)(setCount * 2));
-        var poolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = (uint)setCount,
-            PoolSizeCount = 1,
-            PPoolSizes = &poolSize,
-        };
-        api.CreateDescriptorPool(context.Device, &poolInfo, null, out _pool).Check();
+        _pool = context.CreateDescriptorPool(
+            (uint)setCount, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, (uint)(setCount * 2)));
 
         for (int i = 0; i < setCount; i++)
         {
-            var setLayout = _setLayout;
-            var allocInfo = new DescriptorSetAllocateInfo
-            {
-                SType = StructureType.DescriptorSetAllocateInfo,
-                DescriptorPool = _pool,
-                DescriptorSetCount = 1,
-                PSetLayouts = &setLayout,
-            };
-            api.AllocateDescriptorSets(context.Device, &allocInfo, out var set).Check();
+            var set = context.AllocateSet(_pool, _setLayout);
             if (i < Levels)
             {
                 _downSets[i] = set;

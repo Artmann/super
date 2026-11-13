@@ -69,53 +69,20 @@ internal sealed unsafe class ReflectionProbes : IDisposable
             }
         }
 
-        var bindings = stackalloc DescriptorSetLayoutBinding[]
-        {
+        _setLayout = context.CreateSetLayout(
+        [
             new(0, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
             new(1, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
-        };
-        var layoutInfo = new DescriptorSetLayoutCreateInfo
-        {
-            SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 2,
-            PBindings = bindings,
-        };
-        api.CreateDescriptorSetLayout(context.Device, &layoutInfo, null, out _setLayout).Check();
+        ]);
+        _pool = context.CreateDescriptorPool(
+            1,
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 1),
+            new DescriptorPoolSize(DescriptorType.StorageImage, 1));
+        _set = context.AllocateSet(_pool, _setLayout);
 
-        var poolSizes = stackalloc DescriptorPoolSize[]
-        {
-            new(DescriptorType.CombinedImageSampler, 1),
-            new(DescriptorType.StorageImage, 1),
-        };
-        var poolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = 1,
-            PoolSizeCount = 2,
-            PPoolSizes = poolSizes,
-        };
-        api.CreateDescriptorPool(context.Device, &poolInfo, null, out _pool).Check();
-
-        var setLayout = _setLayout;
-        var allocInfo = new DescriptorSetAllocateInfo
-        {
-            SType = StructureType.DescriptorSetAllocateInfo,
-            DescriptorPool = _pool,
-            DescriptorSetCount = 1,
-            PSetLayouts = &setLayout,
-        };
-        api.AllocateDescriptorSets(context.Device, &allocInfo, out _set).Check();
-
-        var pushRange = new PushConstantRange(ShaderStageFlags.ComputeBit, 0, (uint)sizeof(FilterConstants));
-        var pipelineLayoutInfo = new PipelineLayoutCreateInfo
-        {
-            SType = StructureType.PipelineLayoutCreateInfo,
-            SetLayoutCount = 1,
-            PSetLayouts = &setLayout,
-            PushConstantRangeCount = 1,
-            PPushConstantRanges = &pushRange,
-        };
-        api.CreatePipelineLayout(context.Device, &pipelineLayoutInfo, null, out _pipelineLayout).Check();
+        _pipelineLayout = context.CreatePipelineLayout(
+            [_setLayout],
+            new PushConstantRange(ShaderStageFlags.ComputeBit, 0, (uint)sizeof(FilterConstants)));
         _pipeline = PipelineFactory.CreateCompute(context, "reflection_probe.comp", _pipelineLayout);
 
         // The lighting pass binds every probe from the start, captured or not.

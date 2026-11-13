@@ -122,50 +122,26 @@ internal sealed unsafe class EnvironmentMap : IDisposable
         };
         api.CreateSampler(context.Device, &samplerInfo, null, out Sampler).Check();
 
-        var bindings = stackalloc DescriptorSetLayoutBinding[]
-        {
+        _setLayout = context.CreateSetLayout(
+        [
             new(0, DescriptorType.UniformBuffer, 1, ShaderStageFlags.ComputeBit),
             new(1, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
-        };
-        var layoutInfo = new DescriptorSetLayoutCreateInfo
-        {
-            SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 2,
-            PBindings = bindings,
-        };
-        api.CreateDescriptorSetLayout(context.Device, &layoutInfo, null, out _setLayout).Check();
+        ]);
 
         uint setCount = (uint)_sets.Length;
-        var poolSizes = stackalloc DescriptorPoolSize[]
-        {
-            new(DescriptorType.UniformBuffer, setCount),
-            new(DescriptorType.StorageImage, setCount),
-        };
-        var poolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = setCount,
-            PoolSizeCount = 2,
-            PPoolSizes = poolSizes,
-        };
-        api.CreateDescriptorPool(context.Device, &poolInfo, null, out _pool).Check();
+        _pool = context.CreateDescriptorPool(
+            setCount,
+            new DescriptorPoolSize(DescriptorType.UniformBuffer, setCount),
+            new DescriptorPoolSize(DescriptorType.StorageImage, setCount));
 
         for (int i = 0; i < _sets.Length; i++)
         {
             _sets[i] = CreateBakeSet(i < ReflectionMips ? _reflections.Mips[i] : i == ReflectionMips ? _irradiance.Mips[0] : _sky.Mips[0]);
         }
 
-        var pushRange = new PushConstantRange(ShaderStageFlags.ComputeBit, 0, (uint)sizeof(BakeConstants));
-        var setLayout = _setLayout;
-        var pipelineLayoutInfo = new PipelineLayoutCreateInfo
-        {
-            SType = StructureType.PipelineLayoutCreateInfo,
-            SetLayoutCount = 1,
-            PSetLayouts = &setLayout,
-            PushConstantRangeCount = 1,
-            PPushConstantRanges = &pushRange,
-        };
-        api.CreatePipelineLayout(context.Device, &pipelineLayoutInfo, null, out _pipelineLayout).Check();
+        _pipelineLayout = context.CreatePipelineLayout(
+            [_setLayout],
+            new PushConstantRange(ShaderStageFlags.ComputeBit, 0, (uint)sizeof(BakeConstants)));
         _pipeline = PipelineFactory.CreateCompute(context, "environment.comp", _pipelineLayout);
     }
 
@@ -305,15 +281,7 @@ internal sealed unsafe class EnvironmentMap : IDisposable
     private DescriptorSet CreateBakeSet(ImageView target)
     {
         var api = _context.Api;
-        var layout = _setLayout;
-        var allocInfo = new DescriptorSetAllocateInfo
-        {
-            SType = StructureType.DescriptorSetAllocateInfo,
-            DescriptorPool = _pool,
-            DescriptorSetCount = 1,
-            PSetLayouts = &layout,
-        };
-        api.AllocateDescriptorSets(_context.Device, &allocInfo, out var set).Check();
+        var set = _context.AllocateSet(_pool, _setLayout);
 
         var bufferInfo = new DescriptorBufferInfo(_uniforms.Handle, 0, (ulong)sizeof(GpuEnvironment));
         var imageInfo = new DescriptorImageInfo(default, target, ImageLayout.General);

@@ -48,39 +48,15 @@ internal sealed unsafe class TransparentPass : IDisposable
 
         // The studio's reflections and light, the copy of the scene, depth and the reflection probes.
         const int bindingCount = 5;
-        var bindings = stackalloc DescriptorSetLayoutBinding[bindingCount];
+        Span<DescriptorSetLayoutBinding> bindings = stackalloc DescriptorSetLayoutBinding[bindingCount];
         for (int i = 0; i < bindingCount; i++)
         {
             bindings[i] = new DescriptorSetLayoutBinding((uint)i, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit);
         }
 
-        var setLayoutInfo = new DescriptorSetLayoutCreateInfo
-        {
-            SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = bindingCount,
-            PBindings = bindings,
-        };
-        api.CreateDescriptorSetLayout(context.Device, &setLayoutInfo, null, out _environmentLayout).Check();
-
-        var poolSize = new DescriptorPoolSize(DescriptorType.CombinedImageSampler, bindingCount);
-        var poolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = 1,
-            PoolSizeCount = 1,
-            PPoolSizes = &poolSize,
-        };
-        api.CreateDescriptorPool(context.Device, &poolInfo, null, out _pool).Check();
-
-        var environmentLayout = _environmentLayout;
-        var allocInfo = new DescriptorSetAllocateInfo
-        {
-            SType = StructureType.DescriptorSetAllocateInfo,
-            DescriptorPool = _pool,
-            DescriptorSetCount = 1,
-            PSetLayouts = &environmentLayout,
-        };
-        api.AllocateDescriptorSets(context.Device, &allocInfo, out _environmentSet).Check();
+        _environmentLayout = context.CreateSetLayout(bindings);
+        _pool = context.CreateDescriptorPool(1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, bindingCount));
+        _environmentSet = context.AllocateSet(_pool, _environmentLayout);
 
         WriteImages(0,
         [
@@ -89,17 +65,7 @@ internal sealed unsafe class TransparentPass : IDisposable
         ]);
         WriteImages(4, [new(environment.Sampler, probes.View, ImageLayout.ShaderReadOnlyOptimal)]);
 
-        var setLayouts = stackalloc DescriptorSetLayout[] { frameSetLayout, resources.Layout, _environmentLayout };
-        var pushRange = SceneDraws.PushRange;
-        var layoutInfo = new PipelineLayoutCreateInfo
-        {
-            SType = StructureType.PipelineLayoutCreateInfo,
-            SetLayoutCount = 3,
-            PSetLayouts = setLayouts,
-            PushConstantRangeCount = 1,
-            PPushConstantRanges = &pushRange,
-        };
-        api.CreatePipelineLayout(context.Device, &layoutInfo, null, out _layout).Check();
+        _layout = context.CreatePipelineLayout([frameSetLayout, resources.Layout, _environmentLayout], SceneDraws.PushRange);
 
         var description = new PipelineDescription
         {

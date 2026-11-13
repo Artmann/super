@@ -46,53 +46,20 @@ internal sealed unsafe class ExposureMeter : IDisposable
         _state = new GpuBuffer(
             context, StateSize, BufferUsageFlags.StorageBufferBit | BufferUsageFlags.TransferDstBit, MemoryPropertyFlags.DeviceLocalBit);
 
-        var bindings = stackalloc DescriptorSetLayoutBinding[]
-        {
+        SetLayout = context.CreateSetLayout(
+        [
             new(0, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit | ShaderStageFlags.FragmentBit),
             new(1, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
-        };
-        var layoutInfo = new DescriptorSetLayoutCreateInfo
-        {
-            SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 2,
-            PBindings = bindings,
-        };
-        api.CreateDescriptorSetLayout(context.Device, &layoutInfo, null, out SetLayout).Check();
+        ]);
+        _pool = context.CreateDescriptorPool(
+            1,
+            new DescriptorPoolSize(DescriptorType.StorageBuffer, 1),
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 1));
+        Set = context.AllocateSet(_pool, SetLayout);
 
-        var poolSizes = stackalloc DescriptorPoolSize[]
-        {
-            new(DescriptorType.StorageBuffer, 1),
-            new(DescriptorType.CombinedImageSampler, 1),
-        };
-        var poolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = 1,
-            PoolSizeCount = 2,
-            PPoolSizes = poolSizes,
-        };
-        api.CreateDescriptorPool(context.Device, &poolInfo, null, out _pool).Check();
-
-        var setLayout = SetLayout;
-        var allocInfo = new DescriptorSetAllocateInfo
-        {
-            SType = StructureType.DescriptorSetAllocateInfo,
-            DescriptorPool = _pool,
-            DescriptorSetCount = 1,
-            PSetLayouts = &setLayout,
-        };
-        api.AllocateDescriptorSets(context.Device, &allocInfo, out Set).Check();
-
-        var pushRange = new PushConstantRange(ShaderStageFlags.ComputeBit, 0, (uint)sizeof(AdaptConstants));
-        var pipelineLayoutInfo = new PipelineLayoutCreateInfo
-        {
-            SType = StructureType.PipelineLayoutCreateInfo,
-            SetLayoutCount = 1,
-            PSetLayouts = &setLayout,
-            PushConstantRangeCount = 1,
-            PPushConstantRanges = &pushRange,
-        };
-        api.CreatePipelineLayout(context.Device, &pipelineLayoutInfo, null, out _pipelineLayout).Check();
+        _pipelineLayout = context.CreatePipelineLayout(
+            [SetLayout],
+            new PushConstantRange(ShaderStageFlags.ComputeBit, 0, (uint)sizeof(AdaptConstants)));
 
         _histogram = PipelineFactory.CreateCompute(context, "exposure_histogram.comp", _pipelineLayout);
         _adapt = PipelineFactory.CreateCompute(context, "exposure_adapt.comp", _pipelineLayout);

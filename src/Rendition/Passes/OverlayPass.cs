@@ -33,17 +33,9 @@ internal sealed unsafe class OverlayPass : IDisposable
                 context, (ulong)(MaxQuads * sizeof(OverlayQuad)), BufferUsageFlags.VertexBufferBit);
         }
 
-        var setLayouts = stackalloc DescriptorSetLayout[] { atlasLayout, resources.Layout };
-        var pushConstants = new PushConstantRange(ShaderStageFlags.VertexBit, 0, sizeof(float) * 2);
-        var layoutInfo = new PipelineLayoutCreateInfo
-        {
-            SType = StructureType.PipelineLayoutCreateInfo,
-            SetLayoutCount = 2,
-            PSetLayouts = setLayouts,
-            PushConstantRangeCount = 1,
-            PPushConstantRanges = &pushConstants,
-        };
-        context.Api.CreatePipelineLayout(context.Device, &layoutInfo, null, out _layout).Check();
+        _layout = context.CreatePipelineLayout(
+            [atlasLayout, resources.Layout],
+            new PushConstantRange(ShaderStageFlags.VertexBit, 0, sizeof(float) * 2));
 
         ReadOnlySpan<VertexInputBindingDescription> bindings =
         [

@@ -50,52 +50,17 @@ internal sealed unsafe class ParticlePass : IDisposable
 
         // Depth, the shadow map with comparison, the sky's light and the sky itself.
         const ShaderStageFlags stages = ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit;
-        var bindings = stackalloc DescriptorSetLayoutBinding[]
-        {
+        _setLayout = context.CreateSetLayout(
+        [
             new(0, DescriptorType.CombinedImageSampler, 1, stages),
             new(1, DescriptorType.CombinedImageSampler, 1, stages),
             new(2, DescriptorType.CombinedImageSampler, 1, stages),
             new(3, DescriptorType.CombinedImageSampler, 1, stages),
-        };
-        var setLayoutInfo = new DescriptorSetLayoutCreateInfo
-        {
-            SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 4,
-            PBindings = bindings,
-        };
-        api.CreateDescriptorSetLayout(context.Device, &setLayoutInfo, null, out _setLayout).Check();
-
-        var poolSize = new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 4);
-        var poolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = 1,
-            PoolSizeCount = 1,
-            PPoolSizes = &poolSize,
-        };
-        api.CreateDescriptorPool(context.Device, &poolInfo, null, out _pool).Check();
-
-        var setLayout = _setLayout;
-        var allocInfo = new DescriptorSetAllocateInfo
-        {
-            SType = StructureType.DescriptorSetAllocateInfo,
-            DescriptorPool = _pool,
-            DescriptorSetCount = 1,
-            PSetLayouts = &setLayout,
-        };
-        api.AllocateDescriptorSets(context.Device, &allocInfo, out _set).Check();
-
-        var setLayouts = stackalloc DescriptorSetLayout[] { frameSetLayout, _setLayout };
-        var pushRange = new PushConstantRange(stages, 0, (uint)sizeof(CameraConstants));
-        var layoutInfo = new PipelineLayoutCreateInfo
-        {
-            SType = StructureType.PipelineLayoutCreateInfo,
-            SetLayoutCount = 2,
-            PSetLayouts = setLayouts,
-            PushConstantRangeCount = 1,
-            PPushConstantRanges = &pushRange,
-        };
-        api.CreatePipelineLayout(context.Device, &layoutInfo, null, out _layout).Check();
+        ]);
+        _pool = context.CreateDescriptorPool(1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 4));
+        _set = context.AllocateSet(_pool, _setLayout);
+        _layout = context.CreatePipelineLayout(
+            [frameSetLayout, _setLayout], new PushConstantRange(stages, 0, (uint)sizeof(CameraConstants)));
 
         ReadOnlySpan<VertexInputBindingDescription> vertexBindings =
         [
