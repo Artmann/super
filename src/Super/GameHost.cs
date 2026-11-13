@@ -60,6 +60,7 @@ internal sealed class GameHost<TGame> : IDisposable
         services.AddSingleton<Content>();
         services.AddSingleton(provider => new Audio(provider.GetRequiredService<Content>(), audioSeed ?? HeadlessAudioSeed));
         services.AddSingleton(graphics ?? new Graphics());
+        services.AddSingleton<Gpu>();
         services.AddSingleton<Input>();
         services.AddSingleton(typeof(Actions<>));
         services.AddSingleton<StateChanges>();
@@ -87,6 +88,7 @@ internal sealed class GameHost<TGame> : IDisposable
         Transitions = _services.GetRequiredService<Transitions>();
         Audio = _services.GetRequiredService<Audio>();
         Graphics = _services.GetRequiredService<Graphics>();
+        Gpu = _services.GetRequiredService<Gpu>();
         Game = _services.GetRequiredService<TGame>();
         _hooks = _services.GetServices<ITickHook>().ToArray();
         _drawHooks = _services.GetServices<IDrawHook>().ToArray();
@@ -121,6 +123,9 @@ internal sealed class GameHost<TGame> : IDisposable
 
     /// <summary>How the game is drawn. Changes show from the next frame.</summary>
     public Graphics Graphics { get; }
+
+    /// <summary>The GPU the game is drawn with, filled in by the window once it has made its device.</summary>
+    public Gpu Gpu { get; }
 
     /// <summary>Whether the interface shows what bakes in the background, over the game's own. Only play does.</summary>
     internal bool ShowsBakes { get; set; }

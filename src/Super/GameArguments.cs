@@ -28,7 +28,8 @@ internal sealed record GameArguments(
     Rendition.DebugView DebugView = Rendition.DebugView.None,
     bool Bake = false,
     bool BakeCheck = false,
-    Rendition.BakeQuality BakeQuality = Rendition.BakeQuality.Final)
+    Rendition.BakeQuality BakeQuality = Rendition.BakeQuality.Final,
+    string? GraphicsProfile = null)
 {
     public const int DefaultFramesPerSecond = 60;
 
@@ -58,6 +59,7 @@ internal sealed record GameArguments(
         bool bake = false;
         bool bakeCheck = false;
         Rendition.BakeQuality? bakeQuality = null;
+        string? graphicsProfile = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -101,6 +103,9 @@ internal sealed record GameArguments(
                     break;
                 case "--render-scale":
                     renderScale = SceneScale(args, ++i);
+                    break;
+                case "--graphics":
+                    graphicsProfile = GraphicsProfileName(args, ++i);
                     break;
                 case "--upscaler":
                     upscaler = UpscalerName(args, ++i);
@@ -207,7 +212,8 @@ internal sealed record GameArguments(
 
         return new GameArguments(
             seed, ticks, screenshotPath, recordPath, seconds, framesPerSecond, width, height, profilePath, frames ?? DefaultProfileFrames, noVsync, scriptName, userDataFolder, uiScale, noMaterials,
-            renderScale, upscaler, noTrace, debugView, bake, bakeCheck, bakeQuality ?? Rendition.BakeQuality.Final);
+            renderScale, upscaler, noTrace, debugView, bake, bakeCheck, bakeQuality ?? Rendition.BakeQuality.Final,
+            graphicsProfile);
     }
 
     private static Rendition.BakeQuality BakeQualityName(ReadOnlySpan<string> args, int index)
@@ -261,6 +267,45 @@ internal sealed record GameArguments(
             && scale is >= Rendition.Renderer.MinRenderScale and <= Rendition.Renderer.MaxRenderScale
                 ? scale
                 : throw new ArgumentException($"--render-scale needs a number from 0.5 to 2, such as 1.5, not '{text}'.");
+    }
+
+    /// <summary>The names <c>--graphics</c> takes besides a profile's path.</summary>
+    internal const string AutoProfile = "auto";
+
+    private static string GraphicsProfileName(ReadOnlySpan<string> args, int index)
+    {
+        string text = Value(args, index, "--graphics");
+        return text is "low" or "medium" or "high" or "ultra" or "fastest" or AutoProfile
+            || text.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+            ? text
+            : throw new ArgumentException($"--graphics needs low, medium, high, ultra, fastest, auto or a profile ending in .json, not '{text}'.");
+    }
+
+    /// <summary>
+    /// The settings <c>--graphics</c> names: a <see cref="GraphicsQuality"/> preset, <see cref="Graphics.Fastest"/>, the
+    /// quality <see cref="Graphics.Recommend"/> picks for <paramref name="gpu"/> when the name is <c>auto</c>, or a
+    /// profile read from a .json path. Null for <c>auto</c> while the GPU isn't known yet.
+    /// </summary>
+    internal static Graphics? GraphicsFor(string profile, Rendition.GpuInfo? gpu)
+    {
+        if (profile == AutoProfile)
+        {
+            return gpu is { } known ? Graphics.For(Graphics.Recommend(known)) : null;
+        }
+
+        if (profile == "fastest")
+        {
+            return Graphics.Fastest();
+        }
+
+        if (profile.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+        {
+            return File.Exists(profile)
+                ? Graphics.Load(profile)
+                : throw new ArgumentException($"--graphics can't find the profile '{profile}'.");
+        }
+
+        return Graphics.For(Enum.Parse<GraphicsQuality>(profile, ignoreCase: true));
     }
 
     private static Rendition.Upscaler UpscalerName(ReadOnlySpan<string> args, int index)

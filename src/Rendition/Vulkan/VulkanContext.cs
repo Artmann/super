@@ -107,6 +107,34 @@ internal sealed unsafe class VulkanContext : IDisposable
         Memory = new GpuMemory(this);
     }
 
+    /// <summary>The GPU's name, kind and memory, as its driver reports them.</summary>
+    public GpuInfo Gpu
+    {
+        get
+        {
+            Api.GetPhysicalDeviceProperties(PhysicalDevice, out var properties);
+            Api.GetPhysicalDeviceMemoryProperties(PhysicalDevice, out var memory);
+            long largest = 0;
+            for (int i = 0; i < memory.MemoryHeapCount; i++)
+            {
+                if ((memory.MemoryHeaps[i].Flags & MemoryHeapFlags.DeviceLocalBit) != 0)
+                {
+                    largest = Math.Max(largest, (long)memory.MemoryHeaps[i].Size);
+                }
+            }
+
+            var kind = properties.DeviceType switch
+            {
+                PhysicalDeviceType.DiscreteGpu => GpuKind.Discrete,
+                PhysicalDeviceType.IntegratedGpu => GpuKind.Integrated,
+                PhysicalDeviceType.VirtualGpu or PhysicalDeviceType.Cpu => GpuKind.Virtual,
+                _ => GpuKind.Unknown,
+            };
+            string name = Silk.NET.Core.Native.SilkMarshal.PtrToString((nint)properties.DeviceName) ?? "";
+            return new GpuInfo(name, kind, largest, CanTrace);
+        }
+    }
+
     public uint FindMemoryType(uint typeBits, MemoryPropertyFlags required)
     {
         Api.GetPhysicalDeviceMemoryProperties(PhysicalDevice, out var memory);

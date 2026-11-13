@@ -49,25 +49,7 @@ public static class Game
             Console.WriteLine("Hot reload is on, so an error stops the game until the next change instead of closing it.");
         }
 
-        if (arguments.NoVsync)
-        {
-            options.Graphics.Vsync = false;
-        }
-
-        if (arguments.NoMaterials)
-        {
-            options.Graphics.Materials = false;
-        }
-
-        if (arguments.RenderScale is { } renderScale)
-        {
-            options.Graphics.RenderScale = renderScale;
-        }
-
-        if (arguments.Upscaler is { } upscaler)
-        {
-            options.Graphics.Upscaler = upscaler;
-        }
+        ApplyGraphicsArguments(options.Graphics, arguments, gpu: null);
 
         using var host = new GameHost<TGame>(seed, options.TicksPerSecond, services, userDataFolder, audioSeed, options.Graphics)
         {
@@ -93,6 +75,14 @@ public static class Game
         }
 
         window.DebugView = arguments.DebugView;
+        host.Gpu.Fill(window.Gpu);
+        if (arguments.GraphicsProfile == GameArguments.AutoProfile)
+        {
+            // Only now is the GPU known. The window already has the settings it started with, so the first frame
+            // rebuilds whatever the recommended ones change, once.
+            Console.WriteLine($"{window.Gpu.Name}: {Graphics.Recommend(window.Gpu)} graphics");
+            ApplyGraphicsArguments(host.Graphics, arguments, window.Gpu);
+        }
 
         if (arguments.ProfilePath is { } report)
         {
@@ -205,5 +195,38 @@ public static class Game
         return scripts.TryGetValue(name, out var script)
             ? script
             : throw new ArgumentException($"There's no script named '{name}'. This game has: {string.Join(", ", scripts.Keys)}.");
+    }
+
+    /// <summary>
+    /// Sets <paramref name="graphics"/> from the command line: first the whole profile <c>--graphics</c> names, then the
+    /// single settings such as <c>--no-vsync</c> and <c>--render-scale</c> on top, so they win over the profile. With
+    /// <c>--graphics auto</c> and no <paramref name="gpu"/> yet, the profile waits and only the single settings apply.
+    /// </summary>
+    internal static void ApplyGraphicsArguments(Graphics graphics, GameArguments arguments, Rendition.GpuInfo? gpu)
+    {
+        if (arguments.GraphicsProfile is { } name && GameArguments.GraphicsFor(name, gpu) is { } profile)
+        {
+            graphics.Apply(profile);
+        }
+
+        if (arguments.NoVsync)
+        {
+            graphics.Vsync = false;
+        }
+
+        if (arguments.NoMaterials)
+        {
+            graphics.Materials = false;
+        }
+
+        if (arguments.RenderScale is { } renderScale)
+        {
+            graphics.RenderScale = renderScale;
+        }
+
+        if (arguments.Upscaler is { } upscaler)
+        {
+            graphics.Upscaler = upscaler;
+        }
     }
 }
