@@ -21,6 +21,10 @@ internal sealed unsafe class ChunkBakePool : IDisposable
     private readonly Action<string, string, string> _unreadable;
 
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
+
+    // The new bakes of forgotten resident files, read and uploaded while the old one is still drawn, by file.
+    private readonly Dictionary<string, Entry> _replacing = new(StringComparer.Ordinal);
+    private readonly List<string> _swapped = [];
     private readonly ConcurrentQueue<(Entry Entry, LightBakeFile? Bake, string? Failure)> _loaded = new();
     private readonly List<Entry> _uploading = [];
     private readonly List<Band> _bands = [];
@@ -51,8 +55,8 @@ internal sealed unsafe class ChunkBakePool : IDisposable
     /// <summary>The bakes with every page on the GPU.</summary>
     public int Resident { get; private set; }
 
-    /// <summary>The bakes being read or uploaded.</summary>
-    public int Pending => _entries.Count - Resident;
+    /// <summary>The bakes being read or uploaded, replacements of resident ones included.</summary>
+    public int Pending => _entries.Count + _replacing.Count - Resident;
 
     /// <summary>Every bake held, resident or pending. For tests.</summary>
     public IReadOnlyCollection<Entry> Entries => _entries.Values;
@@ -63,6 +67,9 @@ internal sealed unsafe class ChunkBakePool : IDisposable
         public readonly string File = file;
         internal int LastUsed;
         internal LightBakeFile? Bake;
+
+        // Forgotten while resident: still drawn, and read again the next time a copy names it.
+        internal bool Stale;
         internal readonly List<Page> Pages = [];
 
         public bool IsResident { get; internal set; }
@@ -99,7 +106,8 @@ internal sealed unsafe class ChunkBakePool : IDisposable
     /// <summary>
     /// Marks <paramref name="file"/>'s bake as named this frame, and gives it when every page is on the GPU. The first
     /// time, starts reading it from <paramref name="store"/> on a worker thread and gives null. Allocates nothing for a
-    /// file it already holds.
+    /// file it already holds. A resident bake that was forgotten is still given, while its replacement is read and
+    /// uploaded, until the replacement is resident.
     /// </summary>
     public Entry? Use(string file, IBakeStore store)
     {
@@ -107,25 +115,57 @@ internal sealed unsafe class ChunkBakePool : IDisposable
         {
             entry = new Entry(file);
             _entries.Add(file, entry);
-            var loaded = _loaded;
-            Task.Run(() =>
-            {
-                try
-                {
-                    var bake = store.Load(file)
-                        ?? throw new InvalidDataException("The file is gone, though its header was read as fresh.");
-                    CheckPages(bake, file);
-                    loaded.Enqueue((entry, bake, null));
-                }
-                catch (Exception e)
-                {
-                    loaded.Enqueue((entry, null, e.Message));
-                }
-            });
+            Read(entry, store);
+        }
+        else if (entry.Stale)
+        {
+            entry.Stale = false;
+            var replacement = new Entry(file);
+            _replacing.Add(file, replacement);
+            Read(replacement, store);
         }
 
         entry.LastUsed = _frame;
         return entry.IsResident ? entry : null;
+    }
+
+    private void Read(Entry entry, IBakeStore store)
+    {
+        var loaded = _loaded;
+        string file = entry.File;
+        Task.Run(() =>
+        {
+            try
+            {
+                var bake = store.Load(file)
+                    ?? throw new InvalidDataException("The file is gone, though its header was read as fresh.");
+                CheckPages(bake, file);
+                loaded.Enqueue((entry, bake, null));
+            }
+            catch (Exception e)
+            {
+                loaded.Enqueue((entry, null, e.Message));
+            }
+        });
+    }
+
+    private bool IsReplacement(Entry entry) =>
+        _replacing.TryGetValue(entry.File, out var replacement) && ReferenceEquals(replacement, entry);
+
+    // Lets go of a bake that couldn't be read or put on the GPU, and of the one it was to replace, so the chunk is lit
+    // live as any unreadable chunk is.
+    private void Drop(Entry entry, List<int> textures, List<IDisposable> others)
+    {
+        Release(entry, textures, others);
+        if (IsReplacement(entry))
+        {
+            _replacing.Remove(entry.File);
+        }
+
+        if (_entries.Remove(entry.File, out var held) && !ReferenceEquals(held, entry))
+        {
+            Release(held, textures, others);
+        }
     }
 
     /// <summary>
@@ -139,15 +179,16 @@ internal sealed unsafe class ChunkBakePool : IDisposable
         while (_loaded.TryDequeue(out var done))
         {
             var entry = done.Entry;
-            if (!_entries.TryGetValue(entry.File, out var held) || !ReferenceEquals(held, entry))
+            bool replacement = IsReplacement(entry);
+            if (!replacement && (!_entries.TryGetValue(entry.File, out var held) || !ReferenceEquals(held, entry)))
             {
-                // Let go, or cleared by a reload, while it was being read.
+                // Let go, forgotten again, or cleared by a reload, while it was being read.
                 continue;
             }
 
             if (done.Bake is not { } bake)
             {
-                _entries.Remove(entry.File);
+                Drop(entry, textures, others);
                 _unreadable(entry.File, "can't be read", done.Failure!);
                 continue;
             }
@@ -167,6 +208,10 @@ internal sealed unsafe class ChunkBakePool : IDisposable
         {
             Release(_entries[file], textures, others);
             _entries.Remove(file);
+            if (_replacing.Remove(file, out var replacement))
+            {
+                Release(replacement, textures, others);
+            }
         }
 
         _unused.Clear();
@@ -176,12 +221,35 @@ internal sealed unsafe class ChunkBakePool : IDisposable
         // lit live until the store reloads, as an unreadable one is.
         foreach (var (entry, reason) in _refused)
         {
-            Release(entry, textures, others);
-            _entries.Remove(entry.File);
+            Drop(entry, textures, others);
             _unreadable(entry.File, "can't go on the GPU", reason);
         }
 
         _refused.Clear();
+
+        // A replacement with every page up takes the old bake's place, which goes once the frames drawing it are done,
+        // so the chunk never draws live light between the two.
+        foreach (var (file, replacement) in _replacing)
+        {
+            if (replacement.IsResident)
+            {
+                _swapped.Add(file);
+            }
+        }
+
+        foreach (string file in _swapped)
+        {
+            _replacing.Remove(file, out var replacement);
+            if (_entries.TryGetValue(file, out var old))
+            {
+                replacement!.LastUsed = old.LastUsed;
+                Release(old, textures, others);
+            }
+
+            _entries[file] = replacement!;
+        }
+
+        _swapped.Clear();
         _frame++;
     }
 
@@ -193,26 +261,47 @@ internal sealed unsafe class ChunkBakePool : IDisposable
             Release(entry, textures, others);
         }
 
-        _entries.Clear();
-    }
-
-    /// <summary>
-    /// Lets go of one file's bake the same deferred way, as when its file was written over: it is read again the next
-    /// time a copy names it. Nothing else is touched. A bake being read is dropped, so its result is ignored. Reads no
-    /// file and waits for nothing.
-    /// </summary>
-    public void Forget(string file, List<int> textures, List<IDisposable> others)
-    {
-        if (_entries.Remove(file, out var entry))
+        foreach (var entry in _replacing.Values)
         {
             Release(entry, textures, others);
         }
+
+        _entries.Clear();
+        _replacing.Clear();
+    }
+
+    /// <summary>
+    /// Has one file's bake read again, as when its file was written over, the next time a copy names it. Nothing else
+    /// is touched. A resident bake is still drawn until the new one is resident, then swapped for it, so the chunk never
+    /// flickers to live light; a replacement already being read for it is dropped. A bake not yet resident is let go
+    /// the same deferred way as eviction, and its read's result ignored. Reads no file and waits for nothing.
+    /// </summary>
+    public void Forget(string file, List<int> textures, List<IDisposable> others)
+    {
+        if (_replacing.Remove(file, out var replacement))
+        {
+            Release(replacement, textures, others);
+        }
+
+        if (!_entries.TryGetValue(file, out var entry))
+        {
+            return;
+        }
+
+        if (entry.IsResident)
+        {
+            entry.Stale = true;
+            return;
+        }
+
+        _entries.Remove(file);
+        Release(entry, textures, others);
     }
 
     /// <summary>Frees the pages that never reached the material table, which frees the rest itself. Call once the GPU is idle.</summary>
     public void Dispose()
     {
-        foreach (var entry in _entries.Values)
+        foreach (var entry in _entries.Values.Concat(_replacing.Values))
         {
             foreach (var page in entry.Pages)
             {
@@ -224,6 +313,7 @@ internal sealed unsafe class ChunkBakePool : IDisposable
         }
 
         _entries.Clear();
+        _replacing.Clear();
         _uploading.Clear();
     }
 
@@ -359,7 +449,15 @@ internal sealed unsafe class ChunkBakePool : IDisposable
             }
 
             entry.Pages.Clear();
-            _entries.Remove(entry.File);
+            if (IsReplacement(entry))
+            {
+                _replacing.Remove(entry.File);
+            }
+            else
+            {
+                _entries.Remove(entry.File);
+            }
+
             throw;
         }
 

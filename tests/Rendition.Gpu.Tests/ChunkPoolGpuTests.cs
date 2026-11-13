@@ -387,11 +387,18 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             store.Forget(secondFile);
             gpu.Renderer.Render(view, [first, second]);
 
-            // Only the forgotten file went: the other stays up and fresh, and the forgotten one is read again.
+            // Only the forgotten file is read again; both chunks stay drawn from their bakes meanwhile.
             var frame = gpu.Renderer.LastBakeFrame!;
             Assert.True(frame.ChunkFresh[0], "The chunk that wasn't forgotten isn't fresh.");
-            Assert.True(frame.ChunkPending(1), "The forgotten chunk's old bake was kept.");
-            Assert.True(RenderUntilFresh(view, first, second) <= MostFrames, $"The forgotten chunk's bake wasn't resident again after {MostFrames} frames.");
+            Assert.True(frame.ChunkFresh[1], "The forgotten chunk's old bake wasn't drawn while the new one is read.");
+            int frames = 1;
+            while (store.LoadsOf(secondFile) < 2 || gpu.Renderer.ChunkBakes.Pending > 0)
+            {
+                Assert.True(frames++ <= MostFrames, $"The forgotten chunk's bake wasn't read and resident again after {MostFrames} frames.");
+                gpu.Renderer.Render(view, [first, second]);
+            }
+
+            Assert.Equal([true, true], gpu.Renderer.LastBakeFrame!.ChunkFresh);
             Assert.Equal(2, gpu.Renderer.ChunkBakes.Resident);
             Assert.Equal(1, store.LoadsOf(firstFile));
             Assert.Equal(2, store.LoadsOf(secondFile));
@@ -403,6 +410,90 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void Replacing_a_resident_chunks_bake_never_shows_live_light_between_the_two()
+    {
+        int errors = gpu.ValidationErrors;
+        var quad = CreateQuad();
+        var store = new SwapStore();
+        try
+        {
+            var wall = Wall(quad, First);
+            // The frame's lamp, and two bakes of a lamp in its place: one brighter and one dimmer, so every frame tells
+            // which light it draws. Each has a key of its own: one key changing its light would count as animated.
+            var lamp = Lamp(First, 7481);
+            LocalLight[] lamps = [lamp];
+            var bright = Bake(wall, First, [Lamp(First, 7482) with { Radiance = new Vector3(6f) }]);
+            var dim = Bake(wall, First, [Lamp(First, 7483) with { Radiance = new Vector3(1.5f) }]);
+            float live = CentreMean(Capture(View(First, lamps, []), wall));
+
+            store.Bake = bright;
+            gpu.Renderer.Bakes = store;
+            var view = View(First, lamps, [Chunk(First)]);
+            Assert.True(RenderUntilFresh(view, wall) <= MostFrames, $"The chunk's bake wasn't resident after {MostFrames} frames.");
+            float old = CentreMean(Capture(view, wall));
+            string file = store.LastFile!;
+
+            // The file is written over with the dim bake, whose read is held for a few frames.
+            store.Hold();
+            store.Bake = dim;
+            store.Forget(file);
+            var seen = new List<float>();
+            for (int frame = 0; frame < 8; frame++)
+            {
+                seen.Add(CentreMean(gpu.Renderer.Capture(view, [wall], out _, out _)));
+            }
+
+            store.Release();
+            for (int frame = 0; store.Loads < 2 || gpu.Renderer.ChunkBakes.Pending > 0; frame++)
+            {
+                Assert.True(frame < MostFrames, $"The new bake wasn't resident after {MostFrames} frames.");
+                seen.Add(CentreMean(gpu.Renderer.Capture(view, [wall], out _, out _)));
+            }
+
+            // The frame after the new bake went up draws it.
+            float now = CentreMean(gpu.Renderer.Capture(view, [wall], out _, out _));
+            seen.Add(now);
+            float replaced = CentreMean(Capture(view, wall));
+            float closest = Math.Min(Math.Abs(old - live), Math.Min(Math.Abs(replaced - live), Math.Abs(old - replaced)));
+            Assert.True(closest >= 8f, $"The old bake reads {old}, the new {replaced} and live light {live}: too close to tell apart.");
+            float tolerance = closest / 3f;
+            Assert.Equal(2, store.Loads);
+            for (int frame = 0; frame < seen.Count; frame++)
+            {
+                Assert.True(Math.Abs(seen[frame] - old) <= tolerance || Math.Abs(seen[frame] - replaced) <= tolerance,
+                    $"Frame {frame} after the forget reads {seen[frame]}, neither the old bake's {old} nor the new one's " +
+                    $"{replaced} (live light reads {live}).");
+            }
+
+            Assert.True(Math.Abs(seen[0] - old) <= tolerance, $"The frame of the forget reads {seen[0]}, not the old bake's {old}.");
+            Assert.True(Math.Abs(replaced - now) <= tolerance, $"The frame after the new bake went up reads {now}, not the new bake's {replaced}.");
+        }
+        finally
+        {
+            store.Release();
+            LetGo(quad);
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    // The mean of the red bytes in the middle 32 by 32 pixels, where the wall faces the camera.
+    private static float CentreMean(byte[] pixels)
+    {
+        const int Half = 16;
+        long sum = 0;
+        for (int y = Size / 2 - Half; y < Size / 2 + Half; y++)
+        {
+            for (int x = Size / 2 - Half; x < Size / 2 + Half; x++)
+            {
+                sum += pixels[(y * Size + x) * 4];
+            }
+        }
+
+        return sum / (float)(Half * 2 * Half * 2);
     }
 
     [Fact]
@@ -702,6 +793,62 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             }
 
             return _bake;
+        }
+    }
+
+    /// <summary>
+    /// A store whose one chunk file is fresh whatever the frame's inputs, and whose bake the test swaps, as a file
+    /// written over is. Its load can be held, and gives up after a while rather than hang the test.
+    /// </summary>
+    private sealed class SwapStore : IBakeStore
+    {
+        private readonly ManualResetEventSlim _gate = new(true);
+        private readonly Lock _lock = new();
+        private readonly List<string> _forgotten = [];
+        private int _loads;
+
+        public int Reloads => 0;
+
+        public int Loads => Volatile.Read(ref _loads);
+
+        public LightBakeFile? Bake { get; set; }
+
+        public string? LastFile { get; private set; }
+
+        public void Hold() => _gate.Reset();
+
+        public void Release() => _gate.Set();
+
+        public void Forget(string file)
+        {
+            lock (_lock)
+            {
+                _forgotten.Add(file);
+            }
+        }
+
+        public IReadOnlyCollection<string> TakeForgotten()
+        {
+            lock (_lock)
+            {
+                string[] taken = [.. _forgotten];
+                _forgotten.Clear();
+                return taken;
+            }
+        }
+
+        public bool IsFresh(string file, BakeInputs inputs) => file.StartsWith("lighting/pooled/", StringComparison.Ordinal);
+
+        public LightBakeFile? Load(string file)
+        {
+            Interlocked.Increment(ref _loads);
+            LastFile = file;
+            if (!_gate.Wait(TimeSpan.FromSeconds(30)))
+            {
+                throw new IOException("The test held the load and never let it go.");
+            }
+
+            return Bake;
         }
     }
 

@@ -3460,7 +3460,7 @@ allocates nothing, the stale path included, which `LightBakeStoreTests` checks w
 calls it in `Prepare` when `Content.Files` is a different object or `Content.Reloads` has moved
 since the last frame; `Content.Reload` counts up right after it refreshes the files. `Load`
 reads a whole file with `LightBakeFile.Read` and keeps nothing; it is for drawing a fresh bake.
-`Forget` also counts up `Reloads`, so the renderer reads the bake it holds again. `Forget(file)` drops one file's header and its stale report instead, and does not count `Reloads` up, since that would make the renderer let go of every chunk bake on the GPU and upload them all again. It records the file for `IBakeStore.TakeForgotten`, which the renderer drains in `ResolveBakes`: it takes that file off its unreadable set and calls `ChunkBakePool.Forget`, which lets go of just that entry the way eviction does (its textures retire after the frames using them, and a read still in flight is ignored). That reads no file and waits for nothing, so the other chunk bakes stay resident. `Load`, `Reloads` and `TakeForgotten` are on
+`Forget` also counts up `Reloads`, so the renderer reads the bake it holds again. `Forget(file)` drops one file's header and its stale report instead, and does not count `Reloads` up, since that would make the renderer let go of every chunk bake on the GPU and upload them all again. It records the file for `IBakeStore.TakeForgotten`, which the renderer drains in `ResolveBakes`: it takes that file off its unreadable set and calls `ChunkBakePool.Forget`, which touches just that entry (see [Chunk bakes on the GPU](#chunk-bakes-on-the-gpu)). That reads no file and waits for nothing, so the other chunk bakes stay resident. `Load`, `Reloads` and `TakeForgotten` are on
 `IBakeStore` with defaults (`Load` gives null, `Reloads` stays 0, `TakeForgotten` gives none, and `SavedQuality` gives null,
 so a background bake counts a fresh area as done), so a store that only answers
 `IsFresh` still works and its areas count as baked with live soft light. A store with a `Load` of
@@ -3587,7 +3587,17 @@ chunk isn't relit, being pending, stale or unowned, gets chunk -1 and finds noth
 space's rects, so it is lit live. A frame with no chunk draws exactly as before. A hash of the
 named files goes into `ReflectionLightingHash`, so reflection probes are taken again when a chunk
 bake arrives or goes. A change of store or `Reloads` calls `ChunkBakePool.Clear`, which lets go
-of every entry the same deferred way, while a file the store forgot by itself (`TakeForgotten`) goes through `ChunkBakePool.Forget`, which lets go of that entry alone. The sky and sun transfer pages are read as described in
+of every entry the same deferred way, while a file the store forgot by itself (`TakeForgotten`) goes
+through `ChunkBakePool.Forget`, which touches that entry alone. A forgotten entry that isn't resident
+yet is let go the way eviction does (its textures retire after the frames using them, and its read's
+result is ignored). A resident one is only marked stale and keeps drawing: the next `Use` starts a
+replacement read into a second map, `_replacing`, and the replacement goes up like any new bake. At
+the end of the `Record` where its last page goes up, it takes the old entry's place and the old one
+is released, so a bake written over, such as a Final over a Preview, never flickers to live light.
+A replacement that can't be read or put on the GPU is dropped with the old one, and the chunk is lit
+live as any unreadable chunk is. Forgetting again while a replacement is read drops that
+replacement, and a frame that names neither lets both go. `Pending` counts replacements too. The
+sky and sun transfer pages are read as described in
 [Relighting a chunk](#relighting-a-chunk).
 
 While the G-buffer pass records, `InstanceBuffer.Lightmaps` holds the loaded rects, and `Add`
