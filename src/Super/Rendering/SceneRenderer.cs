@@ -674,7 +674,6 @@ internal sealed class SceneRenderer : IDisposable
             DetailColorTexture = Texture(surface.DetailColorTexture, content),
             DetailNormalTexture = Texture(surface.DetailNormalTexture, content),
             DetailScale = surface.DetailScale,
-            Flags = FlagsOf(surface),
             Subsurface = surface.Subsurface,
             Shader = surface.Shader is { } shader ? Require<LoadedShader>(shader.Index, content).Handle : null,
         };
@@ -779,17 +778,21 @@ internal sealed class SceneRenderer : IDisposable
         BaseColor = new Vector4(surface.Color, Math.Clamp(surface.Opacity, 0f, 1f)),
         Roughness = surface.Roughness,
         Metallic = surface.Metallic,
-        Flags = surface.Opacity < 1f ? MaterialFlags.Transparent : MaterialFlags.None,
+        Flags = FlagsOf(surface),
         Ior = surface.Ior,
         Translucency = surface.Translucency,
         Wind = surface.Wind,
     };
 
-    /// <summary>The switches a generated mesh's surface turns on in its material.</summary>
+    /// <summary>
+    /// The switches a generated mesh's surface turns on in its material. Below full opacity it's glass, and foliage is
+    /// drawn from both sides, as a model's foliage rule does.
+    /// </summary>
     internal static MaterialFlags FlagsOf(Surface surface) =>
-        (surface.DetailMask ? MaterialFlags.DetailMask : 0) | (surface.WorldVariation ? MaterialFlags.WorldVariation : 0)
+        (surface.Opacity < 1f ? MaterialFlags.Transparent : 0)
+        | (surface.DetailMask ? MaterialFlags.DetailMask : 0) | (surface.WorldVariation ? MaterialFlags.WorldVariation : 0)
         | (surface.Dithered ? MaterialFlags.Dithered : 0) | (surface.Puddles ? MaterialFlags.Puddles : 0)
-        | (surface.Foliage ? MaterialFlags.Foliage : 0);
+        | (surface.Foliage ? MaterialFlags.Foliage | MaterialFlags.TwoSided : 0);
 
     private TextureHandle? Texture(TextureRef? texture, Content content) =>
         texture is { } named ? Require<LoadedTexture>(named.Index, content).Handle : null;

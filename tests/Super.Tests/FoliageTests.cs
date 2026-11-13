@@ -151,8 +151,16 @@ public class FoliageTests
 
         Assert.Equal(0.3f, material.Translucency);
         Assert.Equal(0.5f, material.Wind);
-        Assert.Equal(MaterialFlags.Foliage | MaterialFlags.Puddles, SceneRenderer.FlagsOf(surface));
+        Assert.Equal(MaterialFlags.Foliage | MaterialFlags.TwoSided | MaterialFlags.Puddles, material.Flags);
         Assert.Equal(MaterialFlags.None, SceneRenderer.FlagsOf(new Surface()));
+    }
+
+    [Fact]
+    public void A_glass_surface_keeps_its_other_switches_and_stays_see_through()
+    {
+        var material = SceneRenderer.MaterialOf(new Surface { Opacity = 0.4f, WorldVariation = true });
+
+        Assert.Equal(MaterialFlags.Transparent | MaterialFlags.WorldVariation, material.Flags);
     }
 
     private static string Shader(string name)

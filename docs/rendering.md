@@ -1463,8 +1463,9 @@ Leaves that aren't one rounded shape, such as ivy on a wall or grass across a ya
 the surface the leaves grow on in your modelling tool. As one crown, ivy whose rule also
 covers ivy spilling into the yard would have its wall leaves facing into the wall, and
 lit dark.
-A `Surface` sets the same with `Foliage = true` and `Translucency`, and a Rendition `Material`
-with `MaterialFlags.Foliage` and `Translucency`; both start at 0.6. To make the leaves move,
+A `Surface` sets the same with `Foliage = true` and `Translucency`, and is drawn from both
+sides too. A Rendition `Material` takes `MaterialFlags.Foliage` and `Translucency`, and needs
+`MaterialFlags.TwoSided` as well to show its back. Both start at a translucency of 0.6. To make the leaves move,
 add a [`wind`](#wind) rule.
 
 Textures are looked for beside the source file, then in any folder under it, as
