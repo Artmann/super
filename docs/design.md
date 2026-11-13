@@ -3781,7 +3781,8 @@ and moves it over the target, so a reader never sees half a bake and a crash lea
 time and then by name, until the total is at most the capacity, which is 512 MB unless the constructor
 is given another. The file just written is never deleted, even on a tie, and a delete that fails
 (the file is in use) is left for a later write. A file larger than the capacity isn't kept, and the
-one of that name is deleted. The cache never raises `Reloads`: a bake written over a damaged one calls
+one of that name is deleted, or left for a later write when a reader holds it open. Names are keyed
+with forward slashes, so `lighting\a.lightbake` and `lighting/a.lightbake` are the same bake. The cache never raises `Reloads`: a bake written over a damaged one calls
 `LightBakeStore.Forget(file)` (see [The bake store](#the-bake-store)).
 
 Writes come from the thread pool and reads from the render thread, so a read never waits for file
@@ -3795,7 +3796,8 @@ by the next trim. The held bakes are also bounded by bytes, 64 MB unless the con
 another: the oldest go first, and a bake larger than the bound is kept on disk only. A problem
 setting a use time never fails a read or a write. A file that can't be opened or read (locked by
 another handle, a folder in its place, no access) counts as not kept, so the chunk is baked again.
-The first write of a session sweeps `.tmp` files over an hour old, left by a crash.
+The first write of a session sweeps `.tmp` files last written over an hour before the `TimeProvider`'s
+now, left by a crash. It goes by the last-write time, since not every file system keeps a creation time.
 
 Known limit: a bake cached in an earlier session isn't in memory, so the first time its name is asked
 for it is read from disk, synchronously, on the thread that asks, which can be the render thread.

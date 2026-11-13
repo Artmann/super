@@ -272,7 +272,11 @@ public sealed class BakeCacheTests : IDisposable
         string recent = Path.Combine(_folder, "y.lightbake.4567.tmp");
         File.WriteAllBytes(old, new byte[50]);
         File.WriteAllBytes(recent, new byte[50]);
-        File.SetCreationTimeUtc(old, DateTime.UtcNow.AddDays(-1));
+
+        // By the cache's clock, not the machine's: the old one was last written a day before it, the recent one a minute.
+        File.SetLastWriteTimeUtc(old, At(0).UtcDateTime.AddDays(-1));
+        File.SetLastWriteTimeUtc(recent, At(0).UtcDateTime.AddMinutes(-1));
+        _time.SetUtcNow(At(0));
         var cache = new BakeCache(_folder, _time, capacity: 100);
 
         cache.Write("a.lightbake", [1]);
@@ -302,6 +306,30 @@ public sealed class BakeCacheTests : IDisposable
         Assert.Null(cache.Read("big.lightbake"));
         Assert.NotNull(cache.Read("small.lightbake"));
         Assert.Equal(6, cache.Size);
+    }
+
+    [Fact]
+    public void Bake_larger_than_the_capacity_over_an_old_one_a_reader_holds_open_does_not_throw()
+    {
+        var cache = new BakeCache(_folder, _time, capacity: 10);
+        Write(cache, "a.lightbake", 6, at: 1);
+        using var reader = new FileStream(Path.Combine(_folder, "a.lightbake"), FileMode.Open, FileAccess.Read, FileShare.Read);
+
+        var error = Record.Exception(() => Write(cache, "a.lightbake", 11, at: 2));
+
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void A_name_written_with_backslashes_is_read_from_memory_with_forward_slashes()
+    {
+        var cache = new BakeCache(_folder, _time, capacity: 100);
+        cache.Write("lighting\\a.lightbake", [1, 2]);
+
+        // Gone from disk, so only the copy in memory can give it.
+        File.Delete(Path.Combine(_folder, "lighting", "a.lightbake"));
+
+        Assert.Equal([1, 2], cache.Read("lighting/a.lightbake"));
     }
 
     [Fact]

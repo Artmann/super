@@ -98,6 +98,7 @@ internal sealed class BakeCache
     /// </summary>
     public byte[]? Read(string file)
     {
+        file = Key(file);
         string path = PathFor(file);
         lock (_lock)
         {
@@ -150,12 +151,21 @@ internal sealed class BakeCache
     public void Write(string file, byte[] bytes)
     {
         ArgumentNullException.ThrowIfNull(bytes);
+        file = Key(file);
         string path = PathFor(file);
         if (bytes.LongLength > _capacity)
         {
             // Whatever was kept under this name is the old bake, which a new one is meant to replace.
-            File.Delete(path);
             Unhold(file);
+            try
+            {
+                File.Delete(path);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // Held open by a reader: the old bake stays until a later write or trim gets it.
+            }
+
             return;
         }
 
@@ -193,14 +203,21 @@ internal sealed class BakeCache
         Trim(path);
     }
 
+    // Takes a key from Key.
     private void Unhold(string file)
     {
-        file = file.Replace('\\', '/');
         lock (_lock)
         {
-            _held.RemoveAll(entry => entry.File.Replace('\\', '/') == file);
+            _held.RemoveAll(entry => entry.File == file);
             _usedFromMemory.Remove(file);
         }
+    }
+
+    // A name as the cache keys it, with forward slashes, so a name given either way finds the same bake in memory.
+    private static string Key(string file)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(file);
+        return file.Replace('\\', '/');
     }
 
     // Sweeps temp files left by a crash the first time, then deletes the oldest files, by use then name, until the total
@@ -256,7 +273,7 @@ internal sealed class BakeCache
                 {
                     file.Delete();
                     total -= length;
-                    Unhold(Path.GetRelativePath(_folder, file.FullName).Replace('\\', '/'));
+                    Unhold(Key(Path.GetRelativePath(_folder, file.FullName)));
                 }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException)
                 {
@@ -273,12 +290,13 @@ internal sealed class BakeCache
             return;
         }
 
-        var cutoff = DateTime.UtcNow - AbandonedAfter;
+        // Last written, not created: creation times aren't kept on every file system.
+        var cutoff = _time.GetUtcNow().UtcDateTime - AbandonedAfter;
         foreach (var file in new DirectoryInfo(_folder).EnumerateFiles("*" + Unfinished, SearchOption.AllDirectories))
         {
             try
             {
-                if (file.CreationTimeUtc < cutoff)
+                if (file.LastWriteTimeUtc < cutoff)
                 {
                     file.Delete();
                 }
