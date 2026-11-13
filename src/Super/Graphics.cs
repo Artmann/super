@@ -364,13 +364,6 @@ public sealed class Graphics
         BakeBudget = profile.BakeBudget;
     }
 
-    private static readonly JsonSerializerOptions ProfileJson = new()
-    {
-        WriteIndented = true,
-        Converters = { new JsonStringEnumConverter() },
-        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
-    };
-
     /// <summary>
     /// Writes every setting but <see cref="DebugView"/> to a JSON profile at <paramref name="path"/>, which
     /// <see cref="Load"/> and <c>--graphics</c> read back. Edit it by hand to make a profile of your own.
@@ -381,32 +374,20 @@ public sealed class Graphics
     }
 
     /// <summary>The settings as a JSON profile, as <see cref="Save"/> writes it.</summary>
-    public string ToJson() => JsonSerializer.Serialize(this, ProfileJson);
+    public string ToJson() => JsonSerializer.Serialize(this, GraphicsProfile.Options);
 
     /// <summary>
     /// Reads a JSON profile that <see cref="Save"/> wrote or a person wrote by hand. A setting it leaves out keeps
-    /// its default, so a profile can hold only what it changes. A name it doesn't know, or a value a setting refuses,
-    /// throws <see cref="InvalidDataException"/> naming the file.
+    /// its default, so a profile can hold only what it changes. <c>"Base"</c> names a preset to start from instead of the
+    /// defaults: <c>Low</c>, <c>Medium</c>, <c>High</c>, <c>Ultra</c> or <c>Fastest</c>, so
+    /// <c>{ "Base": "Low", "Reflections": true }</c> is Low with reflections. A name it doesn't know, or a value a
+    /// setting refuses, throws <see cref="InvalidDataException"/> naming the file.
     /// </summary>
     public static Graphics Load(string path) => FromJson(File.ReadAllText(path), path);
 
     /// <summary>Reads a JSON profile from text. See <see cref="Load"/>; <paramref name="source"/> names it in errors.</summary>
-    public static Graphics FromJson(string json, string source = "the graphics profile")
-    {
-        try
-        {
-            return JsonSerializer.Deserialize<Graphics>(json, ProfileJson)
-                ?? throw new InvalidDataException($"{source} is empty. A graphics profile is a JSON object such as {{ \"Bloom\": false }}.");
-        }
-        catch (JsonException error)
-        {
-            throw new InvalidDataException($"{source} isn't a graphics profile: {error.Message}", error);
-        }
-        catch (ArgumentOutOfRangeException error)
-        {
-            throw new InvalidDataException($"{source} has a setting out of range: {error.Message}", error);
-        }
-    }
+    public static Graphics FromJson(string json, string source = "the graphics profile") =>
+        GraphicsProfile.Read(json, source, quality => quality is { } named ? For(named) : Fastest());
 
     /// <summary>
     /// Every effect off but the materials and the baked lighting, and vsync off: the fastest the engine draws, and a

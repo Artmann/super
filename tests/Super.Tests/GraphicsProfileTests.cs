@@ -102,6 +102,74 @@ public class GraphicsProfileTests
     }
 
     [Fact]
+    public void A_profile_with_a_base_starts_from_that_preset()
+    {
+        var read = Graphics.FromJson("""{ "Base": "Low", "Reflections": true, "ShadowCascades": 3 }""");
+
+        // Low's own values, by hand: three quarters scale, 1024 shadows, half detail, ambient occlusion off.
+        Assert.Equal(0.75f, read.RenderScale);
+        Assert.Equal(1024, read.ShadowResolution);
+        Assert.Equal(0.5f, read.MeshDetail);
+        Assert.False(read.AmbientOcclusion);
+        Assert.False(read.VolumetricFog);
+        // And the profile's, over them.
+        Assert.True(read.Reflections);
+        Assert.Equal(3, read.ShadowCascades);
+    }
+
+    [Theory]
+    [InlineData("Low", GraphicsQuality.Low)]
+    [InlineData("medium", GraphicsQuality.Medium)]
+    [InlineData("High", GraphicsQuality.High)]
+    [InlineData("ULTRA", GraphicsQuality.Ultra)]
+    public void A_base_alone_gives_the_preset_it_names(string name, GraphicsQuality quality)
+    {
+        var read = Graphics.FromJson($$"""{ "Base": "{{name}}" }""");
+
+        Assert.All(Settings(), property => Assert.Equal(property.GetValue(Graphics.For(quality)), property.GetValue(read)));
+    }
+
+    [Fact]
+    public void A_profile_can_start_from_fastest()
+    {
+        var read = Graphics.FromJson("""{ "Base": "Fastest", "Bloom": true }""");
+
+        Assert.False(read.Vsync);
+        Assert.False(read.Fog);
+        Assert.Equal(0.5f, read.MeshDetail);
+        Assert.True(read.Bloom);
+    }
+
+    [Theory]
+    [InlineData("\"Potato\"", "\"Potato\"")]
+    [InlineData("2", "2")]
+    [InlineData("\"2\"", "\"2\"")]
+    [InlineData("null", "null")]
+    public void A_base_that_is_not_a_preset_is_refused(string value, string shown)
+    {
+        var error = Assert.Throws<InvalidDataException>(() => Graphics.FromJson($$"""{ "Base": {{value}} }""", "low.json"));
+
+        Assert.Equal($"low.json has a Base of {shown}, but it can be Low, Medium, High, Ultra or Fastest.", error.Message);
+    }
+
+    [Fact]
+    public void A_profile_with_a_base_still_refuses_names_it_does_not_know()
+    {
+        var error = Assert.Throws<InvalidDataException>(() => Graphics.FromJson("""{ "Base": "Low", "Blooom": false }""", "low.json"));
+
+        Assert.StartsWith("low.json isn't a graphics profile: ", error.Message);
+        Assert.Contains("Blooom", error.Message);
+    }
+
+    [Fact]
+    public void A_profile_with_a_base_still_refuses_values_out_of_range()
+    {
+        var error = Assert.Throws<InvalidDataException>(() => Graphics.FromJson("""{ "Base": "Low", "ShadowCascades": 6 }""", "low.json"));
+
+        Assert.StartsWith("low.json has a setting out of range: The sun can draw from 1 to 4 shadow cascades.", error.Message);
+    }
+
+    [Fact]
     public void A_profile_with_a_setting_it_does_not_know_is_refused()
     {
         var error = Assert.Throws<InvalidDataException>(() => Graphics.FromJson("""{ "Blooom": false }""", "low.json"));
