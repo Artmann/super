@@ -20,6 +20,16 @@ public sealed class SpinnerTests
     }
 
     [Fact]
+    public void The_stand_model_was_cooked_and_is_drawn()
+    {
+        using var run = HeadlessGame.Create<SpinnerGame>(seed: 1);
+
+        run.Ticks(1);
+
+        Assert.Contains(run.Drawn, draw => draw.Key == 2);
+    }
+
+    [Fact]
     public void The_upscaler_library_is_found_the_way_the_renderer_looks_for_it()
     {
         bool found = NativeLibrary.TryLoad(

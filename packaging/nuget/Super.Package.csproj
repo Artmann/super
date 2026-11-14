@@ -108,10 +108,14 @@
         The cook tool as it was built, which is everything it needs to run. It runs on the machine doing the
         build, which is Windows for now, and never draws, so the other platforms' native libraries, the
         shaders and the upscaler stay out. They would make the package about 100 MB larger.
+
+        NuGet adds each file's folder under the wildcard (%(RecursiveDir)) to its PackagePath by itself, so
+        the path names only tools/super-cook. Naming the folder too packs runtimes\win-x64\native\Assimp64.dll
+        at runtimes\win-x64\native\runtimes\win-x64\native, where the tool never finds it.
       -->
       <_SuperCookToolFile Include="$(_SuperCookToolFolder)**"
                           Exclude="$(_SuperCookToolFolder)runtimes\linux*\**;$(_SuperCookToolFolder)runtimes\osx*\**;$(_SuperCookToolFolder)shaders\**;$(_SuperCookToolFolder)amd_fidelityfx_vk.dll" />
-      <TfmSpecificPackageFile Include="@(_SuperCookToolFile)" PackagePath="tools/super-cook/%(RecursiveDir)" />
+      <TfmSpecificPackageFile Include="@(_SuperCookToolFile)" PackagePath="tools/super-cook/" />
     </ItemGroup>
   </Target>
 
