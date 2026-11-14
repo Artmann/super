@@ -660,9 +660,14 @@ void main() {
         // surfaces are all that can block it. Light from behind is looked up from the
         // side it arrives on.
         vec3 lightSide = dot(n, l) >= 0.0 ? n : -n;
-        float visibility = frame.lights[i].direction.w > 0.5
-            ? shadowVisibility(position, lightSide, l) * (foliage ? 1.0 : contactShadow(position, lightSide, l))
-            : screenAo;
+        float visibility = screenAo;
+        if (frame.lights[i].direction.w > 0.5) {
+            // Where the shadow map already blocks all the light, a contact shadow can take nothing more away.
+            visibility = shadowVisibility(position, lightSide, l);
+            if (visibility > 0.0 && !foliage) {
+                visibility *= contactShadow(position, lightSide, l);
+            }
+        }
         visibility = maskedVisibility(bakedWeight, shadowMask, frame.lights[i].radiance.w, frame.lights[i].direction.w > 0.5, visibility);
         vec3 reaching = sunlightReaching(position, l, i) * visibility;
         if (subsurface) {
