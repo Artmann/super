@@ -23,7 +23,7 @@ public readonly record struct Body
 {
     /// <summary>A kinematic body, the same as <see cref="Kinematic"/>; without this, <c>new Body()</c> would collide with nothing.</summary>
     public Body()
-        : this(BodyKind.Kinematic, 0f, 0.5f, 0f, 0f, 0f, 0f, false, false, Physics.AllLayers)
+        : this(BodyKind.Kinematic, 0f, 0.5f, 0f, 0f, 0f, 0f, false, false, LayerBits.All)
     {
     }
 
@@ -55,7 +55,7 @@ public readonly record struct Body
     public static Body Kinematic { get; } = new();
 
     /// <summary>A static body that collides with every layer.</summary>
-    public static Body Static { get; } = new(BodyKind.Static, 0f, 0.5f, 0f, 0f, 0f, 0f, false, false, Physics.AllLayers);
+    public static Body Static { get; } = new(BodyKind.Static, 0f, 0.5f, 0f, 0f, 0f, 0f, false, false, LayerBits.All);
 
     /// <summary>How much the angular velocity fades each second, from 0 up.</summary>
     public float AngularDrag { get; }
@@ -102,7 +102,7 @@ public readonly record struct Body
         float gravityScale = 1f,
         bool lockRotation = false,
         bool continuous = false,
-        uint collidesWith = Physics.AllLayers) =>
+        uint collidesWith = LayerBits.All) =>
         new(BodyKind.Dynamic, mass, friction, bounciness, drag, angularDrag, gravityScale, lockRotation, continuous, collidesWith);
 
     /// <summary>The same body, bumping into other layers.</summary>

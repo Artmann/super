@@ -37,7 +37,7 @@ public sealed partial class Physics
         foreach (var trigger in _triggers)
         {
             ref var tracked = ref CollectionsMarshal.GetValueRefOrNullRef(_bodies, trigger);
-            var shape = QueryShape(tracked.Collider, tracked.Scale, trigger, "trigger");
+            var shape = _queryShapes.Get(tracked.Collider, tracked.Scale, trigger, "trigger");
             var detects = _world.Get<Trigger>(trigger).Detects;
             if (detects == 0 || (detects & ~AllLayers) != 0)
             {
@@ -94,15 +94,5 @@ public sealed partial class Physics
                 j++;
             }
         }
-    }
-
-    private sealed class EntityOrder : IComparer<Entity>
-    {
-        public static readonly EntityOrder Instance = new();
-
-        // List.Sort wraps an IComparer in a new delegate on every call; sorting by this one allocates nothing.
-        public static readonly Comparison<Entity> Comparison = Instance.Compare;
-
-        public int Compare(Entity a, Entity b) => a.Id != b.Id ? a.Id.CompareTo(b.Id) : a.Generation.CompareTo(b.Generation);
     }
 }

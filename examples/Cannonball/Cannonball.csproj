@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Super.Physics\Super.Physics.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Cannonball.Tests" />
+  </ItemGroup>
+
+  <!-- The stuntman and the clips come from the shared assets folder. -->
+  <Import Project="..\..\src\Super.Build\Super.targets" />
+  <ItemGroup>
+    <SuperContent Include="..\..\assets" Only="cannonball/**" />
+  </ItemGroup>
+
+</Project>

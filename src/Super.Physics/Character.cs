@@ -16,12 +16,12 @@ namespace Super.Physics;
 public readonly record struct Character(
     float MaxSlope = 50f,
     float StepHeight = 0.3f,
-    uint CollidesWith = Physics.AllLayers,
+    uint CollidesWith = LayerBits.All,
     float Mass = 70f)
 {
     /// <summary>A character with the defaults; without this, <c>new Character()</c> would be all zeros.</summary>
     public Character()
-        : this(50f, 0.3f, Physics.AllLayers, 70f)
+        : this(50f, 0.3f, LayerBits.All, 70f)
     {
     }
 }

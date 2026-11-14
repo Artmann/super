@@ -96,6 +96,12 @@ The low-poly coral pack is not used, because its author and license are unknown.
   - [marble_bust_01](https://polyhaven.com/a/marble_bust_01);
   - [bronze_whale_statue](https://polyhaven.com/a/bronze_whale_statue).
 
+## Cannonball example
+
+- The stuntman character and its animations are from [Mixamo](https://www.mixamo.com) by Adobe,
+  used under Mixamo's terms, which allow them in games and films but not redistributing
+  the files themselves.
+
 ## Forest example
 
 - The sounds and music in `examples/Forest/content` are from the

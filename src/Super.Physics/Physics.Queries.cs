@@ -8,9 +8,7 @@ namespace Super.Physics;
 
 public sealed partial class Physics
 {
-    // Query shapes are kept by what they're made from, so casting the same collider every tick builds nothing.
-    private const int MostQueryShapes = 256;
-    private readonly Dictionary<(Collider Collider, Vector3 Scale), Shape> _queryShapes = [];
+    private readonly QueryShapeCache _queryShapes = new();
     private readonly List<RayCastResult> _rayResults = [];
     private readonly List<ShapeCastResult> _castResults = [];
     private readonly List<uint> _collided = [];
@@ -125,10 +123,10 @@ public sealed partial class Physics
     public void Overlap(Collider shape, Vector3 position, List<Entity> hits, Quaternion? rotation = null, uint layers = AllLayers)
     {
         hits.Clear();
-        var query = QueryShape(shape, Vector3.One, null, "Overlap");
-        var turn = Turn(rotation);
+        var query = _queryShapes.Get(shape, Vector3.One, null, "Overlap");
+        var turn = QueryMath.Turn(rotation);
         Filter(layers);
-        var transform = CentreOfMass(query, position, turn);
+        var transform = QueryMath.CentreOfMass(query, position, turn);
         Collide(query, transform, hits);
     }
 
@@ -169,17 +167,17 @@ public sealed partial class Physics
     private void CastShape(Collider shape, Vector3 from, Vector3 direction, float reach, Quaternion? rotation, uint layers)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        CheckReach(reach);
+        QueryMath.CheckReach(reach);
         if (!(direction.LengthSquared() > 0f) || !float.IsFinite(direction.X + direction.Y + direction.Z))
         {
             throw new ArgumentOutOfRangeException(nameof(direction), direction, "A shape cast needs a direction that isn't zero.");
         }
 
-        var query = QueryShape(shape, Vector3.One, null, "ShapeCast");
-        var turn = Turn(rotation);
+        var query = _queryShapes.Get(shape, Vector3.One, null, "ShapeCast");
+        var turn = QueryMath.Turn(rotation);
         Filter(layers);
         // Unlike CollideShape, Jolt's CastShape takes where the shape's origin is, and finds its centre itself.
-        var transform = Placed(from, turn);
+        var transform = QueryMath.Placed(from, turn);
         var sweep = Vector3.Normalize(direction) * reach;
         var origin = Vector3.Zero;
         var settings = new ShapeCastSettings { ReturnDeepestPoint = true };
@@ -197,7 +195,7 @@ public sealed partial class Physics
     private JoltRay Cast(Super.Ray ray, float reach, uint layers)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        CheckReach(reach);
+        QueryMath.CheckReach(reach);
         Filter(layers);
         return new JoltRay(ray.Origin, ray.Direction * reach);
     }
@@ -219,79 +217,11 @@ public sealed partial class Physics
         _aliveFilter.Skip = null;
     }
 
-    private static void CheckReach(float reach)
-    {
-        if (!(reach > 0f) || !float.IsFinite(reach))
-        {
-            throw new ArgumentOutOfRangeException(nameof(reach), reach, "A query's reach must be a finite distance above 0.");
-        }
-    }
-
-    private static Quaternion Turn(Quaternion? rotation)
-    {
-        if (rotation is not { } turn)
-        {
-            return Quaternion.Identity;
-        }
-
-        if (!(turn.LengthSquared() > 0f) || !float.IsFinite(turn.X + turn.Y + turn.Z + turn.W))
-        {
-            throw new ArgumentOutOfRangeException(nameof(rotation), rotation, "A query's rotation must be a finite quaternion that isn't zero.");
-        }
-
-        return Quaternion.Normalize(turn);
-    }
-
-    /// <summary>
-    /// Where a shape's centre of mass is, turned, with its origin at <paramref name="position"/>: how Jolt places
-    /// shapes. Jolt's matrices act on column vectors, with the move in the last column, so this is the transpose of
-    /// System.Numerics' own.
-    /// </summary>
-    private static Matrix4x4 CentreOfMass(Shape shape, Vector3 position, Quaternion rotation) =>
-        Placed(position + Vector3.Transform(shape.CenterOfMass, rotation), rotation);
-
-    /// <summary>A turn and a move, as a Jolt matrix.</summary>
-    private static Matrix4x4 Placed(Vector3 position, Quaternion rotation)
-    {
-        var matrix = Matrix4x4.CreateFromQuaternion(rotation);
-        matrix.Translation = position;
-        return Matrix4x4.Transpose(matrix);
-    }
-
-    /// <summary>The shape for a query, or a trigger's check, built once. Errors name the entity, or else the query.</summary>
-    private Shape QueryShape(Collider collider, Vector3 scale, Entity? owner, string query)
-    {
-        if (_queryShapes.TryGetValue((collider, scale), out var shape))
-        {
-            return shape;
-        }
-
-        Check(owner is { } entity ? $"Entity {entity.Id}'s Collider" : $"The {query} shape", collider);
-        if (_queryShapes.Count >= MostQueryShapes)
-        {
-            DisposeQueryShapes();
-        }
-
-        shape = Shape(collider, scale);
-        _queryShapes[(collider, scale)] = shape;
-        return shape;
-    }
-
     private void FreeHandle()
     {
         if (_self.IsAllocated)
         {
             _self.Free();
         }
-    }
-
-    private void DisposeQueryShapes()
-    {
-        foreach (var (_, shape) in _queryShapes)
-        {
-            shape.Dispose();
-        }
-
-        _queryShapes.Clear();
     }
 }

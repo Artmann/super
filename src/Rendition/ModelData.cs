@@ -74,8 +74,8 @@ public sealed class ModelData
     // 4: materials gained Subsurface. 5: height and detail textures. 6: materials gained Ior. 7: part names sit at the front.
     // 8: a texture is either inside the file or named by the hash of an object of its own. 9: textures say their format.
     // 10: material shaders. 11: vertices gained Uv2, and materials masks. 12: masks lost their height.
-    // 13: materials gained Translucency and Wind.
-    private const int Version = 13;
+    // 13: materials gained Translucency and Wind. 14: skeletons gained the bounds of the vertices each joint moves.
+    private const int Version = 14;
 
     private const byte TextureInside = 0;
     private const byte TextureByHash = 1;
@@ -220,8 +220,7 @@ public sealed class ModelData
         writer.Write(Magic);
         writer.Write(Version);
 
-        // The part names come first, then the rig, so a game can read either without the geometry
-        // and textures behind them.
+        // Part names, then the rig, come first, so a game can read either without the geometry and textures.
         writer.Write(MeshNames.Length);
         foreach (string meshName in MeshNames)
         {
@@ -241,6 +240,7 @@ public sealed class ModelData
             WriteArray(writer, skeleton.Rest);
             WriteArray(writer, skeleton.InverseBind);
             WriteArray(writer, new[] { skeleton.RootTransform });
+            WriteArray(writer, skeleton.Bounds ?? []);
         }
 
         writer.Write(Clips.Length);
@@ -445,7 +445,8 @@ public sealed class ModelData
             var rest = ReadArray<JointPose>(reader);
             var inverseBind = ReadArray<Matrix4x4>(reader);
             var root = ReadArray<Matrix4x4>(reader)[0];
-            skeleton = new Skeleton(names, parents, rest, inverseBind, root);
+            var bounds = ReadArray<JointBounds>(reader);
+            skeleton = new Skeleton(names, parents, rest, inverseBind, root, bounds.Length == names.Length ? bounds : null);
         }
 
         var clips = new AnimationClip[reader.ReadInt32()];

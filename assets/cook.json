@@ -2,6 +2,7 @@
   "rules": [
     { "match": "**/textures/**", "cook": false },
     { "match": "archer/animations/**", "cook": false },
+    { "match": "cannonball/animations/**", "cook": false },
     { "match": "archer-props/*.png", "cook": false },
     { "match": "ford-gt/*.png", "cook": false },
     { "match": "reef/**/*.png", "cook": false },

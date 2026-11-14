@@ -1,6 +1,6 @@
 # Shared assets
 
-The source models for the examples live here. Archer, Crypt, Fox and Reef list this folder as a
+The source models for the examples live here. Archer, Cannonball, Crypt, Fox and Reef list this folder as a
 content root, so their build cooks whatever is in it (see
 [Content](../docs/content.md) and [Rendering](../docs/rendering.md#models)).
 
@@ -102,6 +102,24 @@ The three firs are parts of one file: `archer-props/firs.glb#tall`, `#broad` and
 
 The ground textures are the Archer example's own; see its
 [README](../examples/Archer/README.md#getting-the-assets).
+
+## Cannonball
+
+Download the character Ch20 from [Mixamo](https://www.mixamo.com) as FBX with skin,
+and save it as `cannonball/stuntman.fbx`. Download these animations without skin into
+`cannonball/animations`:
+
+| File | Mixamo animation |
+| --- | --- |
+| `idle.fbx` | idle, from the Action Adventure Pack |
+| `flail.fbx` | falling idle, from the Action Adventure Pack |
+| `landing.fbx` | hard landing, from the Action Adventure Pack |
+| `standup.fbx` | zombie stand up, from the Not So Scary Zombie Pack |
+| `standup2.fbx` | zombie stand up (2), from the Not So Scary Zombie Pack |
+| `standup3.fbx` | zombie stand up (3), from the Not So Scary Zombie Pack |
+
+The animations are cooked into the stuntman's model, not on their own. The model must be
+cooked with its mesh, because the ragdoll fits its bodies to it.
 
 ## Crypt
 

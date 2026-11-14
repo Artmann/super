@@ -48,9 +48,9 @@ public sealed class ModelCooker : ICooker
     // alpha, the colour keeps the coverage of their product and the surface is left whole. 18: BC7 compression keeps a
     // cut-out's coverage too. 19: compression keeps the product's coverage on the colour, and leaves such a surface
     // whole. 20: every model has a second UV set fit for a lightmap, its own when it's usable and an unwrapped one when
-    // it isn't. 21: a rig's vertices are in its rest pose. The graphs' own version is folded in, so a change to
-    // Super.Materials cooks every model again, since one may use a graph.
-    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 21);
+    // it isn't. 21: a rig's vertices are in its rest pose. 22: skeletons keep the bounds of what each joint moves. The
+    // graphs' own version is folded in, so a change to Super.Materials cooks every model again, since one may use a graph.
+    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 22);
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -407,7 +407,7 @@ public sealed class ModelCooker : ICooker
             rig?.MoveToRest(vertexArray);
             var normalization = Normalization(vertexArray, settings.RotateY, settings.TargetLength, settings.KeepOrigin);
             Apply(vertexArray, normalization);
-            skeleton = rig?.ToSkeleton(normalization);
+            skeleton = rig?.ToSkeleton(normalization).WithBounds(vertexArray);
         }
         finally
         {

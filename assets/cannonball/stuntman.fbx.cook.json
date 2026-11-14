@@ -1,0 +1,12 @@
+{
+  "targetLength": 1.8,
+  "materials": [],
+  "animations": [
+    { "file": "animations/idle.fbx", "name": "Idle" },
+    { "file": "animations/flail.fbx", "name": "Flail" },
+    { "file": "animations/landing.fbx", "name": "Landing" },
+    { "file": "animations/standup.fbx", "name": "StandUp" },
+    { "file": "animations/standup2.fbx", "name": "StandUp2" },
+    { "file": "animations/standup3.fbx", "name": "StandUp3" }
+  ]
+}
