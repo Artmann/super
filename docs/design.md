@@ -106,7 +106,9 @@ only public one. Engine code uses one of two shapes instead:
 
 A nullable field can be the whole state when its value is the only data, as long as nothing
 else repeats it. `Transitions` keeps a fade's pending change in one field, and that field
-being set is what says the cut is still to come.
+being set is what says the cut is still to come. `Animator` keeps the state a change left as
+a nullable record struct, which costs nothing per change, since every character changes state
+often: null means no cross-fade is running.
 
 When two lifecycles can overlap, each gets its own field instead of one state for every
 combination. `UiPointer` keeps what the left button holds (a click or a scroll bar's thumb)
