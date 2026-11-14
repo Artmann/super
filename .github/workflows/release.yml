@@ -7,7 +7,7 @@ on:
     inputs:
       tag:
         description: >-
-          Tag to pack and publish, such as v0.1.0. Use this when Release Please made a release
+          Tag to pack and publish, such as v1.0.0. Use this when Release Please made a release
           but the package didn't get published, so it can be published without another push to main.
         required: false
 

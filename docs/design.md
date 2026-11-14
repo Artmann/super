@@ -4543,7 +4543,7 @@ before publishing.
 Releases are made by Release Please (`.github/workflows/release.yml`, the same shape as
 Roe's). On each push to `main` it keeps a pull request open that raises `version.txt` and
 writes `CHANGELOG.md` from the conventional commits since the last release. Merging that pull
-request makes the tag, such as `v0.1.0`, and a GitHub release, and then the workflow packs
+request makes the tag, such as `v1.0.0`, and a GitHub release, and then the workflow packs
 that tag with `-p:Version`, checks the package, and pushes it to nuget.org. It signs in with
 trusted publishing: `NuGet/login` trades the run's OIDC token for a key that lasts an hour, so
 the repository holds no API key. The policy on nuget.org names this repository and
