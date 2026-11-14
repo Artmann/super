@@ -25,6 +25,10 @@ layout(push_constant) uniform Draw {
     float windSway; // the material's share of the wind's lean, 0 to stand still
 } draw;
 
+// The depth-first draws and the shading draws that follow must land on the very same depth, whatever else each
+// pipeline's compiler does with this shader.
+invariant gl_Position;
+
 layout(location = 0) out vec3 outNormal;
 layout(location = 1) out vec4 outTangent;
 layout(location = 2) out vec2 outUv;

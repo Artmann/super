@@ -52,6 +52,18 @@ internal ref struct PipelineDescription
     /// surface.glsl) is false, so it never discards and the GPU can reject hidden pixels before shading them.
     /// </summary>
     public bool Solid;
+
+    /// <summary>
+    /// For surfaces whose depth is already in the depth image: draws only the pixels at exactly that depth, and
+    /// writes no depth of its own. So each pixel is shaded once, by the surface that shows.
+    /// </summary>
+    public bool DepthDrawn;
+
+    /// <summary>Whether what the pipeline draws goes into the depth image, when there is one.</summary>
+    public readonly bool WritesDepth => !Transparent && !DepthDrawn;
+
+    /// <summary>What a pixel's depth must be to the depth already there. Reversed-Z: nearer surfaces have larger depth.</summary>
+    public readonly CompareOp DepthCompare => DepthDrawn ? CompareOp.Equal : CompareOp.Greater;
 }
 
 internal static unsafe class PipelineFactory
@@ -145,8 +157,8 @@ internal static unsafe class PipelineFactory
         {
             SType = StructureType.PipelineDepthStencilStateCreateInfo,
             DepthTestEnable = hasDepth,
-            DepthWriteEnable = hasDepth && !description.Transparent,
-            DepthCompareOp = CompareOp.Greater, // Reversed-Z: nearer surfaces have larger depth.
+            DepthWriteEnable = hasDepth && description.WritesDepth,
+            DepthCompareOp = description.DepthCompare,
         };
 
         int colorCount = description.ColorFormats.Length;

@@ -1973,7 +1973,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.SelectDraws",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 59
+      "metric": 60
     },
     {
       "kind": "long-method",
@@ -3497,13 +3497,13 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5695
+      "metric": 5710
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
-      "metric": 1515
+      "metric": 1523
     },
     {
       "kind": "large-file",
@@ -3689,7 +3689,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 381
+      "metric": 384
     },
     {
       "kind": "large-type",
@@ -3887,7 +3887,7 @@
       "kind": "large-type",
       "name": "Super.Graphics",
       "file": "src/Super/Graphics.cs",
-      "metric": 54
+      "metric": 55
     },
     {
       "kind": "large-type",
@@ -4071,6 +4071,7 @@
         "Rendition.Passes.BloomPass",
         "Rendition.Passes.DecalBatch",
         "Rendition.Passes.DecalPass",
+        "Rendition.Passes.DepthFirst",
         "Rendition.Passes.DepthOfFieldConstants",
         "Rendition.Passes.DepthOfFieldPass",
         "Rendition.Passes.Exposure",

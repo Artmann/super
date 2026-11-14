@@ -204,6 +204,27 @@ internal static class DrawSelection
         return true;
     }
 
+    /// <summary>
+    /// About how many pixels a draw's ball covers in a view: the disc it shows as. A draw with no bounds, or with
+    /// the eye inside its ball, may cover any number, so it gives infinity.
+    /// </summary>
+    public static float PixelsCovered(in DetailView view, in DrawItem draw, List<PartDetail> details)
+    {
+        if (!TryBounds(draw, details, out var center, out float radius))
+        {
+            return float.PositiveInfinity;
+        }
+
+        float distance = Vector3.Distance(view.Eye, center);
+        if (distance <= radius)
+        {
+            return float.PositiveInfinity;
+        }
+
+        float pixels = radius * (view.PixelsPerUnit + view.PixelsAtOneUnit / distance);
+        return MathF.PI * pixels * pixels;
+    }
+
     private static (Vector3 Center, float Radius) Bounds(in DrawItem draw, PartDetail detail, float scale) =>
         (Vector3.Transform(detail.Center, draw.Transform), (detail.Radius + MathF.Abs(draw.Swim.Amplitude)) * scale);
 

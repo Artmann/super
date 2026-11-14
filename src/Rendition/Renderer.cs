@@ -233,6 +233,11 @@ public sealed unsafe class Renderer : IDisposable
 
     private readonly ShadowPass _shadowPass;
     private readonly GBufferPass _gBufferPass;
+
+    // The camera's view as SelectDraws made it, which decides whose depth the G-buffer pass draws first.
+    private DetailView _cameraView;
+
+    private DetailView? DepthFirstView => _off.HasFlag(RenderEffects.DepthFirst) ? null : _cameraView;
     private readonly FullscreenPass _aoPass;
     private readonly FullscreenPass _aoBlurPass;
     private readonly FullscreenPass _reflectionPass;
@@ -3370,16 +3375,16 @@ public sealed unsafe class Renderer : IDisposable
         {
             ForgetProbeLightsGone(scheduler);
         }
+    }
 
+    // Marks the probes near each light that wasn't seen this frame, and forgets the light.
+    private void ForgetProbeLightsGone(ProbeScheduler scheduler)
+    {
         _probeLightsGone.Clear();
         foreach (var (key, old) in _probeLights)
         {
             if (!_probeLightsSeen.Contains(key))
-    }
             {
-    // Marks the probes near each light that wasn't seen this frame, and forgets the light.
-    private void ForgetProbeLightsGone(ProbeScheduler scheduler)
-    {
                 scheduler.LightChanged(old.Position, old.Range);
                 _probeLightsGone.Add(key);
             }
@@ -4119,6 +4124,7 @@ public sealed unsafe class Renderer : IDisposable
 
         var (pixelsAtOneUnit, pixelsPerUnit) = Projection.PixelScale(view.Projection, (int)_gBuffer.Extent.Height);
         var camera = new DetailView(viewProjection, view.CameraPosition, pixelsAtOneUnit, pixelsPerUnit, DetailError(CameraDetailError), cull: Culls);
+        _cameraView = camera;
         int cameraCount;
         if (_relightChunks)
         {
@@ -4394,7 +4400,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         RecordScene(cmd, frameSet, draws, [], shadowsSelected: true, _transparentView, _particleCount, _motion, traced, sceneDraws, updateProbes: true,
-            probeView: _probeView, relightChunks: _relightChunks);
+            probeView: _probeView, relightChunks: _relightChunks, depthFirst: DepthFirstView);
 
         // Anti-aliasing blends in the last frame, and reflections read it, so it's kept for
         // the next while either wants it. Without anti-aliasing the lit image is the frame.
@@ -4597,7 +4603,8 @@ public sealed unsafe class Renderer : IDisposable
         ReadOnlySpan<DrawItem> probeDraws = default,
         bool updateProbes = false,
         bool probeView = false,
-        bool relightChunks = false)
+        bool relightChunks = false,
+        DetailView? depthFirst = null)
     {
         var targets = _gBuffer;
         var instances = _frames[_frameIndex].Instances;
@@ -4708,7 +4715,7 @@ public sealed unsafe class Renderer : IDisposable
 
         instances.History = motion;
         instances.Lightmaps = _activeLightmaps;
-        _gBufferPass.Record(cmd, targets, frameSet, draws, _meshes, _details, instances);
+        _gBufferPass.Record(cmd, targets, frameSet, draws, _meshes, _details, instances, depthFirst);
         instances.History = null;
         instances.Lightmaps = null;
         instances.Chunks = null;

@@ -25,6 +25,56 @@ internal readonly record struct DrawBatch(int First, int Count);
 /// <summary>The pipelines of one shader, for one-sided and two-sided materials.</summary>
 internal readonly record struct PipelineVariants(Pipeline Culled, Pipeline TwoSided);
 
+/// <summary>
+/// Draws depth ahead of shading, so a pixel is shaded once, by the surface that shows, however many lie behind it.
+/// <paramref name="depth"/> holds the one pair of pipelines that write depth alone, and <paramref name="shown"/> each
+/// surface shader's pipelines that shade only at the depth already drawn.
+/// </summary>
+internal sealed class DepthFirst(List<PipelineVariants> depth, List<PipelineVariants> shown)
+{
+    private DetailView _view;
+    private float _viewPixels;
+
+    /// <summary>Sets the view the next draws are for, which has <paramref name="viewPixels"/> pixels in its picture.</summary>
+    public void Aim(in DetailView view, float viewPixels)
+    {
+        _view = view;
+        _viewPixels = viewPixels;
+    }
+
+    /// <summary>
+    /// How many pixels a triangle has to cover, on average over its draw, for drawing the draw twice to pay. The
+    /// first time costs by the triangle and saves by the pixel: walls and floors gain from it, and a shoal of small
+    /// fish, a few pixels a triangle, only loses.
+    /// </summary>
+    public const float PixelsPerTriangle = 8f;
+
+    public List<PipelineVariants> Depth { get; } = depth;
+
+    public List<PipelineVariants> Shown { get; } = shown;
+
+    /// <summary>
+    /// Whether to draw a draw's depth first: its material has no holes, whose depth only its own shader knows, and
+    /// its triangles are large enough on screen.
+    /// </summary>
+    public bool Pays(in DrawItem draw, ResourceTable resources, List<PartDetail> details)
+    {
+        if (SceneDraws.HasHoles(resources.HasCutouts(draw.Material), resources.GetFlags(draw.Material)))
+        {
+            return false;
+        }
+
+        return Pays(DrawSelection.PixelsCovered(_view, draw, details), _viewPixels, draw.IndexCount);
+    }
+
+    /// <summary>
+    /// Whether a draw of <paramref name="indexCount"/> indices that covers <paramref name="covered"/> pixels, in a
+    /// picture of <paramref name="viewPixels"/>, has triangles large enough. It can't cover more than the picture.
+    /// </summary>
+    public static bool Pays(float covered, float viewPixels, uint indexCount) =>
+        MathF.Min(covered, viewPixels) >= PixelsPerTriangle * (indexCount / 3);
+}
+
 /// <summary>Issues the draws for a pass that renders scene geometry.</summary>
 internal static unsafe class SceneDraws
 {
@@ -210,6 +260,8 @@ internal static unsafe class SceneDraws
     /// given, picked the same way. Each copy's matrix goes into <paramref name="instances"/>. Materials that sway in the wind
     /// sway from the lowest point of their part, which <paramref name="details"/> holds.
     /// With <paramref name="still"/> nothing sways, for views that must not follow the wind.
+    /// With <paramref name="depthFirst"/>, the batches it pays for are drawn twice: first all of them for their depth
+    /// alone, then with the rest to be shaded, where only their pixels that show are.
     /// </summary>
     public static void Record(
         Vk api,
@@ -224,32 +276,121 @@ internal static unsafe class SceneDraws
         ScenePass pass,
         List<PipelineVariants>? solids = null,
         int cascade = 0,
-        bool still = false)
+        bool still = false,
+        DepthFirst? depthFirst = null)
     {
         int[] pooled = ArrayPool<int>.Shared.Rent(draws.Length);
+        var order = pooled.AsSpan(0, Belonging(draws, resources, pass, pooled));
+        var batches = _batches ??= [];
+        Batch(draws, order, keepOrder: pass == ScenePass.Transparent, batches);
+
+        // Each batch's copies go into the instance buffer once, however many times the batch is drawn.
+        int[] firsts = ArrayPool<int>.Shared.Rent(batches.Count);
+        for (int i = 0; i < batches.Count; i++)
+        {
+            firsts[i] = AddCopies(draws, order.Slice(batches[i].First, batches[i].Count), instances);
+        }
+
+        var ready = new ReadyBatches
+        {
+            Draws = draws, Order = order, Batches = batches, Firsts = firsts, Resources = resources, Details = details,
+            Cascade = cascade, Still = still, To = new Recorder(api, cmd, layout, meshes),
+        };
+
+        // With depth first there are two rounds: the depth of the batches it pays for, then every batch shaded.
+        bool[]? ahead = depthFirst is null ? null : ready.IssueDepth(depthFirst);
+        for (int i = 0; i < batches.Count; i++)
+        {
+            bool shown = ahead is not null && ahead[i];
+            ready.Issue(i, PipelineFor(ready.First(i), pipelines, resources, shown ? depthFirst!.Shown : solids));
+        }
+
+        if (ahead is not null)
+        {
+            ArrayPool<bool>.Shared.Return(ahead);
+        }
+
+        ArrayPool<int>.Shared.Return(firsts);
+        ArrayPool<int>.Shared.Return(pooled);
+    }
+
+    // Writes the indices of the draws that belong in a pass into `order`, and returns how many there are.
+    private static int Belonging(ReadOnlySpan<DrawItem> draws, ResourceTable resources, ScenePass pass, int[] order)
+    {
         int count = 0;
         for (int i = 0; i < draws.Length; i++)
         {
             if (Belongs(draws[i], resources.GetFlags(draws[i].Material), pass))
             {
-                pooled[count++] = i;
+                order[count++] = i;
             }
         }
 
-        var order = pooled.AsSpan(0, count);
-        var batches = _batches ??= [];
-        Batch(draws, order, keepOrder: pass == ScenePass.Transparent, batches);
+        return count;
+    }
 
-        var bound = new Bound();
-        foreach (var batch in batches)
+    // A pass's batches with their copies already in the instance buffer, so each can be drawn more than once.
+    private ref struct ReadyBatches
+    {
+        public ReadOnlySpan<DrawItem> Draws;
+        public ReadOnlySpan<int> Order;
+        public List<DrawBatch> Batches;
+        public int[] Firsts;
+        public ResourceTable Resources;
+        public List<PartDetail> Details;
+        public int Cascade;
+        public bool Still;
+        public Recorder To;
+
+        /// <summary>The first draw of a batch, which every copy in it looks like.</summary>
+        public readonly ref readonly DrawItem First(int batch) => ref Draws[Order[Batches[batch].First]];
+
+        public void Issue(int batch, Pipeline pipeline)
         {
-            var constants = still
-                ? Constants(draws[order[batch.First]], cascade)
-                : Constants(draws[order[batch.First]], cascade, resources.SwayOf, details);
-            Draw(api, cmd, layout, pipelines, resources, draws, order.Slice(batch.First, batch.Count), meshes, instances, constants, solids, ref bound);
+            ref readonly var draw = ref First(batch);
+            var constants = Still ? Constants(draw, Cascade) : Constants(draw, Cascade, Resources.SwayOf, Details);
+            To.Issue(pipeline, draw, Batches[batch].Count, Firsts[batch], constants);
         }
 
-        ArrayPool<int>.Shared.Return(pooled);
+        /// <summary>
+        /// Draws the depth of the batches <paramref name="depthFirst"/> pays for, and returns which they were, in an
+        /// array from the shared pool.
+        /// </summary>
+        public bool[] IssueDepth(DepthFirst depthFirst)
+        {
+            bool[] ahead = ArrayPool<bool>.Shared.Rent(Batches.Count);
+            for (int i = 0; i < Batches.Count; i++)
+            {
+                ref readonly var draw = ref First(i);
+                ahead[i] = depthFirst.Pays(draw, Resources, Details);
+                if (ahead[i])
+                {
+                    Issue(i, PipelineFor(draw, depthFirst.Depth, Resources, null));
+                }
+            }
+
+            return ahead;
+        }
+    }
+
+    private static Pipeline PipelineFor(in DrawItem draw, List<PipelineVariants> pipelines, ResourceTable resources, List<PipelineVariants>? solids)
+    {
+        var flags = resources.GetFlags(draw.Material);
+        var choices = solids is not null && !HasHoles(resources.HasCutouts(draw.Material), flags) ? solids : pipelines;
+        var variants = choices[choices.Count > 1 ? resources.GetShader(draw.Material) : 0];
+        return (flags & MaterialFlags.TwoSided) != 0 ? variants.TwoSided : variants.Culled;
+    }
+
+    // Writes each copy's own matrix and swim into the instance buffer, and returns where the first went.
+    private static int AddCopies(ReadOnlySpan<DrawItem> draws, ReadOnlySpan<int> copies, InstanceBuffer instances)
+    {
+        int first = instances.Count;
+        foreach (int index in copies)
+        {
+            instances.Add(draws[index], index);
+        }
+
+        return first;
     }
 
     /// <summary>
@@ -285,34 +426,41 @@ internal static unsafe class SceneDraws
         ref Bound bound)
     {
         ref readonly var draw = ref draws[copies[0]];
-        var flags = resources.GetFlags(draw.Material);
-        var choices = solids is not null && !HasHoles(resources.HasCutouts(draw.Material), flags) ? solids : pipelines;
-        var variants = choices[choices.Count > 1 ? resources.GetShader(draw.Material) : 0];
-        var pipeline = (flags & MaterialFlags.TwoSided) != 0 ? variants.TwoSided : variants.Culled;
-        if (pipeline.Handle != bound.Pipeline.Handle)
-        {
-            api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, pipeline);
-            bound.Pipeline = pipeline;
-        }
+        var to = new Recorder(api, cmd, layout, meshes) { Bound = bound };
+        to.Issue(PipelineFor(draw, pipelines, resources, solids), draw, copies.Length, AddCopies(draws, copies, instances), constants);
+        bound = to.Bound;
+    }
 
-        if (draw.Mesh.Index != bound.Mesh)
-        {
-            var mesh = meshes[draw.Mesh.Index]!;
-            var vertexBuffer = mesh.Vertices.Handle;
-            ulong offset = 0;
-            api.CmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
-            api.CmdBindIndexBuffer(cmd, mesh.Indices.Handle, 0, IndexType.Uint32);
-            bound.Mesh = draw.Mesh.Index;
-        }
+    // Issues instanced draws into a command buffer, binding a pipeline or a mesh only when it changes.
+    private struct Recorder(Vk api, CommandBuffer cmd, PipelineLayout layout, List<Mesh?> meshes)
+    {
+        public Bound Bound = new();
 
-        int firstInstance = instances.Count;
-        foreach (int index in copies)
+        /// <summary>
+        /// One instanced draw of <paramref name="copies"/> copies of a draw, whose own data starts at
+        /// <paramref name="firstInstance"/> in the instance buffer.
+        /// </summary>
+        public void Issue(Pipeline pipeline, in DrawItem draw, int copies, int firstInstance, DrawConstants constants)
         {
-            instances.Add(draws[index], index);
-        }
+            if (pipeline.Handle != Bound.Pipeline.Handle)
+            {
+                api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, pipeline);
+                Bound.Pipeline = pipeline;
+            }
 
-        api.CmdPushConstants(cmd, layout, PushStages, 0, (uint)sizeof(DrawConstants), &constants);
-        api.CmdDrawIndexed(cmd, draw.IndexCount, (uint)copies.Length, draw.FirstIndex, 0, (uint)firstInstance);
+            if (draw.Mesh.Index != Bound.Mesh)
+            {
+                var mesh = meshes[draw.Mesh.Index]!;
+                var vertexBuffer = mesh.Vertices.Handle;
+                ulong offset = 0;
+                api.CmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
+                api.CmdBindIndexBuffer(cmd, mesh.Indices.Handle, 0, IndexType.Uint32);
+                Bound.Mesh = draw.Mesh.Index;
+            }
+
+            api.CmdPushConstants(cmd, layout, PushStages, 0, (uint)sizeof(DrawConstants), &constants);
+            api.CmdDrawIndexed(cmd, draw.IndexCount, (uint)copies, draw.FirstIndex, 0, (uint)firstInstance);
+        }
     }
 
     [ThreadStatic]

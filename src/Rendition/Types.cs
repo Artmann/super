@@ -1189,10 +1189,18 @@ public enum RenderEffects
     /// </summary>
     SimplerModels = 1 << 28,
 
+    /// <summary>
+    /// Drawing the depth of large solid surfaces ahead of shading them, so a pixel is shaded once however many
+    /// surfaces lie behind it. Without it every surface drawn before the one that hides it is shaded too, which only
+    /// costs time, so it's for measuring what the extra pass saves. The picture is the same either way, but where two
+    /// surfaces lie in the very same plane, where the other of the two may show.
+    /// </summary>
+    DepthFirst = 1 << 29,
+
     All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
         | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind
         | BakedLighting | HeightMaps | Specular | EnvironmentLight | Emissive | Vignette | Grain | Sharpening | ColorGrading
-        | Culling | SimplerModels,
+        | Culling | SimplerModels | DepthFirst,
 }
 
 /// <summary>
