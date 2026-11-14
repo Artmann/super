@@ -239,7 +239,7 @@
       "kind": "high-complexity",
       "name": "Rendition.Renderer.Render",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 43
+      "metric": 44
     },
     {
       "kind": "high-complexity",
@@ -1955,13 +1955,13 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.Render",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 296
+      "metric": 297
     },
     {
       "kind": "long-method",
       "name": "Rendition.Renderer.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 151
+      "metric": 152
     },
     {
       "kind": "long-method",
@@ -3503,13 +3503,13 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5666
+      "metric": 5695
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
-      "metric": 1502
+      "metric": 1515
     },
     {
       "kind": "large-file",
@@ -3545,7 +3545,7 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1144
+      "metric": 1151
     },
     {
       "kind": "large-file",
@@ -3665,7 +3665,7 @@
       "kind": "large-type",
       "name": "Rendition.Passes.GBuffer",
       "file": "src/Rendition/Passes/GBuffer.cs",
-      "metric": 28
+      "metric": 30
     },
     {
       "kind": "large-type",
@@ -3695,7 +3695,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 379
+      "metric": 381
     },
     {
       "kind": "large-type",
@@ -3893,7 +3893,7 @@
       "kind": "large-type",
       "name": "Super.Graphics",
       "file": "src/Super/Graphics.cs",
-      "metric": 53
+      "metric": 54
     },
     {
       "kind": "large-type",
@@ -3947,7 +3947,7 @@
       "kind": "large-type",
       "name": "Super.SceneRenderer",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 104
+      "metric": 105
     },
     {
       "kind": "large-type",

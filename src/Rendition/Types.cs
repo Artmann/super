@@ -1475,6 +1475,19 @@ public enum ReflectionResolution
     Full
 }
 
+/// <summary>How many of the screen's pixels work out their ambient occlusion each frame.</summary>
+public enum OcclusionResolution
+{
+    /// <summary>
+    /// One pixel in four works out its occlusion, a different one each frame, and the pixels between take theirs from
+    /// the ones round them at the same depth. Anti-aliasing blends the frames into a full picture.
+    /// </summary>
+    Half,
+
+    /// <summary>Every pixel works out its own occlusion every frame.</summary>
+    Full
+}
+
 /// <summary>What kind of GPU draws the game, as the driver says.</summary>
 public enum GpuKind
 {

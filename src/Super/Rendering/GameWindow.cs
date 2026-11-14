@@ -604,14 +604,14 @@ internal sealed unsafe class GameWindow : IDisposable
     private void ApplyGraphics(Graphics graphics, bool settlingProbes = false)
     {
         (_scene.Off, _scene.Vsync, _scene.ShadowResolution, _scene.MaxShadowCascades, _scene.MeshDetail, _scene.RenderScale,
-            _scene.Upscaler, _scene.ProbeQuality, _scene.ReflectionResolution, _scene.DebugView) =
+            _scene.Upscaler, _scene.ProbeQuality, _scene.ReflectionResolution, _scene.OcclusionResolution, _scene.DebugView) =
             RendererSettings(graphics, _hidden, settlingProbes, _commandLineDebugView, CanTrace);
     }
 
     /// <summary>
     /// What the renderer is told from the game's graphics settings: the effects left out, whether to wait
     /// for the display, the sun's shadow map size and cascades, the mesh detail, the render scale, the upscaler, the light
-    /// probes' quality and the debug view.
+    /// probes' quality, the resolution of the reflections and the occlusion, and the debug view.
     /// A hidden window always waits for the display, except while a screenshot waits for the light probes to
     /// settle, where waiting would only slow the shot down. The debug view is the command line's when it named one,
     /// else the game's <see cref="Graphics.DebugView"/>, except that a game's Trace view is dropped to None on a
@@ -619,7 +619,7 @@ internal sealed unsafe class GameWindow : IDisposable
     /// </summary>
     internal static (RenderEffects Off, bool Vsync, int ShadowResolution, int ShadowCascades, float MeshDetail, float RenderScale,
         Upscaler Upscaler, ProbeQuality ProbeQuality, ReflectionResolution ReflectionResolution,
-        Rendition.DebugView DebugView) RendererSettings(
+        OcclusionResolution OcclusionResolution, Rendition.DebugView DebugView) RendererSettings(
             Graphics graphics, bool hidden, bool settlingProbes = false, Rendition.DebugView commandLineDebugView = Rendition.DebugView.None,
             bool canTrace = true)
     {
@@ -631,7 +631,7 @@ internal sealed unsafe class GameWindow : IDisposable
 
         return (graphics.Off, hidden ? !settlingProbes : graphics.Vsync, graphics.ShadowResolution, graphics.ShadowCascades,
             graphics.MeshDetail, graphics.RenderScale, graphics.Upscaler, graphics.ProbeQuality, graphics.ReflectionResolution,
-            debugView);
+            graphics.OcclusionResolution, debugView);
     }
 
     /// <summary>Feeds the window's events into the game's input. Only the interactive loop does this.</summary>

@@ -2956,7 +2956,27 @@ form itself gives a wrong direction where it folds, and averages the visibility 
 The blur runs twice, 7 pixels across into `GBuffer.AoAcross` and then 7 down into
 `AoBlurred`, with the step pushed as a constant. That reads 14 pixels where the square it
 replaced read 49, and took the blur from about 0.4 to 0.12 ms at 1080p. A pixel with
-nothing drawn in it is written as fully visible without reading any taps. The overhead
+nothing drawn in it is written as fully visible without reading any taps.
+
+At `OcclusionResolution.Half`, the default, the three occlusion targets are
+`GBuffer.AoExtent`, half the scene's size each way, rounded up, and the pass works the
+way the [traced reflections](#reflections) do at half resolution: each texel works out
+the occlusion of one pixel of a 2 × 2 block, the one `tracedPixel` in `screen_trace.glsl`
+picks from the frame number, with that pixel's own depth and normal. The pass is pushed
+the scale, 1 or 2, and so is the blur, which takes the frame's set to know the frame
+number and compares the depths of the pixels its taps were worked out for. At half
+resolution the blur reads 3 texels across instead of 7, since each is two pixels wide
+and the lighting spreads them once more: 7 there took a fifth of the darkness out of a
+corner. `screenOcclusionAt` in `lighting.frag` reads its own texel at `Full`, which it
+tells by comparing the target's size with the depth buffer's. At `Half` it blends the
+four texels round the pixel by how near each one's worked-out pixel is and how close its
+depth is (`OCCLUSION_DEPTH_FALLOFF`), summing the bent normals as directions as the blur
+does, so occlusion doesn't spill across the edge of something in front. In the Courtyard
+at 1080p the occlusion pass went from 1.79 to about 0.5 ms, and at 4K in the Forest from
+5.4 to 1.6 ms. A change of `Renderer.OcclusionResolution` rebuilds the targets as a
+change of render scale does.
+
+The overhead
 occlusion, which reads the sun's first cascade to see what stands over a point, takes 8
 taps over its disc. It took 16 until each was measured at about 0.07 ms in the Courtyard,
 since taps scattered over a 4096 map rarely share a cache line; halving them changed the

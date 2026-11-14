@@ -65,10 +65,19 @@ internal sealed class GBuffer : IDisposable
     public readonly RenderTarget Scatter;
     public readonly RenderTarget ScatterBlurred;
 
-    /// <summary>Ambient occlusion as traced, then blurred across, then down as well, which is what the lighting reads.</summary>
+    /// <summary>
+    /// Ambient occlusion as traced, then blurred across, then down as well, which is what the lighting reads. At
+    /// <see cref="AoExtent"/>.
+    /// </summary>
     public readonly RenderTarget Ao;
     public readonly RenderTarget AoAcross;
     public readonly RenderTarget AoBlurred;
+
+    /// <summary>The size of the occlusion targets: the scene's, or half of it each way, rounded up.</summary>
+    public readonly Extent2D AoExtent;
+
+    /// <summary>What the occlusion targets were sized for.</summary>
+    public readonly OcclusionResolution Occlusion;
 
     /// <summary>
     /// The screen-space reflections, traced before the lighting reads them: the colour each ray found, with alpha how
@@ -91,12 +100,15 @@ internal sealed class GBuffer : IDisposable
     public readonly RenderTarget SceneColor;
 
     public GBuffer(
-        VulkanContext context, Extent2D extent, Extent2D? display = null, ReflectionResolution reflections = ReflectionResolution.Half)
+        VulkanContext context, Extent2D extent, Extent2D? display = null, ReflectionResolution reflections = ReflectionResolution.Half,
+        OcclusionResolution occlusion = OcclusionResolution.Half)
     {
         Extent = extent;
         Display = display ?? extent;
         Reflections = reflections;
-        TracedExtent = TracedSize(extent, reflections);
+        TracedExtent = reflections == ReflectionResolution.Full ? extent : HalfSize(extent);
+        Occlusion = occlusion;
+        AoExtent = occlusion == OcclusionResolution.Full ? extent : HalfSize(extent);
         BaseColor = new RenderTarget(context, BaseColorFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         Normal = new RenderTarget(context, NormalFormat, extent, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
         NormalCopy = new RenderTarget(context, NormalFormat, extent, ImageUsageFlags.TransferDstBit, ImageAspectFlags.ColorBit);
@@ -115,9 +127,9 @@ internal sealed class GBuffer : IDisposable
         History = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.TransferDstBit, ImageAspectFlags.ColorBit);
         Scatter = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         ScatterBlurred = new RenderTarget(context, HdrFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
-        Ao = new RenderTarget(context, AoFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
-        AoAcross = new RenderTarget(context, AoFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
-        AoBlurred = new RenderTarget(context, AoFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
+        Ao = new RenderTarget(context, AoFormat, AoExtent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
+        AoAcross = new RenderTarget(context, AoFormat, AoExtent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
+        AoBlurred = new RenderTarget(context, AoFormat, AoExtent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         Traced = new RenderTarget(context, HdrFormat, TracedExtent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         Ldr = new RenderTarget(context, LdrFormat, Display, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
         Held = new RenderTarget(context, LdrFormat, Display, ImageUsageFlags.TransferDstBit, ImageAspectFlags.ColorBit);
@@ -131,11 +143,10 @@ internal sealed class GBuffer : IDisposable
         Math.Min(SceneColorMips, (uint)Math.Floor(Math.Log2(Math.Max(1u, Math.Min(extent.Width, extent.Height)))) + 1);
 
     /// <summary>
-    /// The reflection target's size for a scene this size. Half rounds up, so the last pixel of an odd row or column
-    /// still has a traced pixel of its own.
+    /// The size of a half-resolution target for a scene this size. Half rounds up, so the last pixel of an odd row or
+    /// column still has a pixel of its own there.
     /// </summary>
-    public static Extent2D TracedSize(Extent2D extent, ReflectionResolution reflections) =>
-        reflections == ReflectionResolution.Full ? extent : new Extent2D((extent.Width + 1) / 2, (extent.Height + 1) / 2);
+    private static Extent2D HalfSize(Extent2D extent) => new((extent.Width + 1) / 2, (extent.Height + 1) / 2);
 
     public void Dispose()
     {

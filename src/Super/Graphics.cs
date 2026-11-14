@@ -148,6 +148,22 @@ public sealed class Graphics
             : throw new ArgumentOutOfRangeException(nameof(value), value, "Reflection resolution can be Half or Full.");
     } = ReflectionResolution.Half;
 
+    /// <summary>
+    /// How many pixels work out their ambient occlusion each frame, when <see cref="AmbientOcclusion"/> is on.
+    /// <see cref="Rendition.OcclusionResolution.Half"/>, the default, works out one pixel in four, a different one each
+    /// frame, and anti-aliasing blends the frames into a full picture; <see cref="Rendition.OcclusionResolution.Full"/>
+    /// works out every pixel every frame, which keeps the finest creases a little crisper and costs about three times
+    /// as much. A change while the game runs rebuilds the renderer's targets on the next frame, which waits for the
+    /// GPU once. <see cref="GraphicsQuality.Ultra"/> sets Full.
+    /// </summary>
+    public OcclusionResolution OcclusionResolution
+    {
+        get;
+        set => field = Enum.IsDefined(value)
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), value, "Occlusion resolution can be Half or Full.");
+    } = OcclusionResolution.Half;
+
     /// <summary>Point and spot light shadows. Off, those lights are blocked only by nearby surfaces, as the sun is without its shadows.</summary>
     public bool LightShadows { get; set; } = true;
 
@@ -367,6 +383,7 @@ public sealed class Graphics
             ShadowResolution = 4096,
             MeshDetail = 1.5f,
             ReflectionResolution = ReflectionResolution.Full,
+            OcclusionResolution = OcclusionResolution.Full,
         },
         _ => throw new ArgumentOutOfRangeException(nameof(quality), quality, "Graphics quality can be Low, Medium, High or Ultra."),
     };
@@ -431,6 +448,7 @@ public sealed class Graphics
         Upscaler = profile.Upscaler;
         ProbeQuality = profile.ProbeQuality;
         ReflectionResolution = profile.ReflectionResolution;
+        OcclusionResolution = profile.OcclusionResolution;
         BakeOnArrival = profile.BakeOnArrival;
         BakeBudget = profile.BakeBudget;
         ApplySwitches(profile);

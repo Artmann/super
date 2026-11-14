@@ -3,12 +3,15 @@
 #include "common.glsl"
 #include "brdf.glsl"
 #include "sampling.glsl"
-
-layout(location = 0) in vec2 inUv;
+#include "screen_trace.glsl"
 
 layout(set = 1, binding = 0) uniform sampler2D depthTexture;
 layout(set = 1, binding = 1) uniform sampler2D normalRoughnessAoTexture;
 layout(set = 1, binding = 2) uniform sampler2DArray shadowDepthTexture;
+
+layout(push_constant) uniform Occlusion {
+    int scale; // Screen pixels per pixel of the target, along each axis: 1 or 2.
+} occlusion;
 
 // xy: the bent normal in view space, octahedral and moved into 0 to 1; z: visibility.
 layout(location = 0) out vec4 outOcclusion;
@@ -73,8 +76,16 @@ float overheadOcclusion(vec3 position, vec3 n, float rotation) {
 // is its horizon, and the arc between the two horizons, weighted by the cosine to the
 // normal, is how much of the sky's light reaches the point. The same arcs give the bent
 // normal: the average direction the point still sees the sky in.
+//
+// At half resolution each pixel here stands for a block of four on screen and works out the occlusion of one of
+// them, a different one each frame, exactly as it would at full resolution.
 void main() {
-    float depth = texture(depthTexture, inUv).r;
+    vec2 size = vec2(textureSize(depthTexture, 0));
+    ivec2 cell = ivec2(gl_FragCoord.xy);
+    ivec2 pixel = occlusion.scale > 1 ? tracedPixel(cell, ivec2(size)) : cell;
+    vec2 inUv = (vec2(pixel) + 0.5) / size;
+
+    float depth = texelFetch(depthTexture, pixel, 0).r;
     if (depth == 0.0) {
         outOcclusion = vec4(0.5, 0.5, 1.0, 1.0);
         return;
@@ -84,7 +95,7 @@ void main() {
     float strength = frame.occlusion.y;
 
     vec3 world = worldPosition(inUv, depth);
-    vec3 worldNormal = octahedralDecode(texture(normalRoughnessAoTexture, inUv).xy);
+    vec3 worldNormal = octahedralDecode(texelFetch(normalRoughnessAoTexture, pixel, 0).xy);
     vec3 position = (frame.view * vec4(world, 1.0)).xyz;
     vec3 n = normalize(mat3(frame.view) * worldNormal);
     vec3 v = normalize(-position);
@@ -93,7 +104,6 @@ void main() {
     vec3 toCamera = normalize(frame.cameraPosition.xyz - world);
     vec3 side = normalize(cross(toCamera, vec3(0.01, 1.0, 0.0)));
     vec4 edge = frame.viewProjection * vec4(world + side * radius, 1.0);
-    vec2 size = vec2(textureSize(depthTexture, 0));
     float screenRadius = min(length((edge.xy / edge.w * 0.5 + 0.5 - inUv) * size), size.y * 0.25);
 
     // One number turns the slices, the other shifts the steps along them.
