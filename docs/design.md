@@ -4539,7 +4539,11 @@ but the package reference:
 - `tools/super-cook`, the cook tool as it was built, without the other platforms' native
   libraries and without shaders, which it never draws with. The package's targets set
   `SuperCookPrebuilt` to it, and `Super.Cook.targets` then leaves out its project references
-  to the tool and to `Super.Materials`, and runs that tool.
+  to the tool and to `Super.Materials`, and runs that tool. Its files keep the folders they
+  were built in, such as `runtimes/win-x64/native/Assimp64.dll`, since the tool's `deps.json`
+  looks for its native libraries there. NuGet adds a wildcard file's folder to its
+  `PackagePath` by itself, so the packaging names only `tools/super-cook/`; naming the folder
+  too packed every one of them twice over in 1.0.0, and no model could be cooked.
 - `shaders/*.spv`, Rendition's compiled shaders, which the targets copy to the game's
   `shaders` output folder. The shader includes are in `buildTransitive/Rendition/Shaders`,
   where `Shaders.targets` looks for them beside itself, as it does in `src`.
@@ -4549,8 +4553,10 @@ but the package reference:
 `packaging/nuget/smoke` is a small game and its tests that use the package and nothing else
 from the repository. `.github/scripts/test-package.ps1` copies it outside the repository,
 where no `Directory.Build.props` reaches it, builds it against a `.nupkg` and runs its tests.
-The game loads a JSON file and uses its own shader, so a package that can't cook or compile
-fails there. It first deletes that version from NuGet's global packages folder, since NuGet
+The game loads a JSON file and a model and uses its own shader, so a package that can't cook,
+import a model with the tool's Assimp, or compile fails there. The script also checks that
+every Windows native library the tool's `super-cook.deps.json` names is at that path in the
+package. It first deletes that version from NuGet's global packages folder, since NuGet
 never unpacks a version twice. CI runs it on every pull request, and the release runs it
 before publishing.
 

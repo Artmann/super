@@ -5,5 +5,8 @@ package, with no project references. `.github/scripts/test-package.ps1` copies t
 somewhere outside the repository and builds it against a `.nupkg`, so nothing here is in
 `Super.slnx`.
 
-The game loads a JSON file, so the build has to cook its content, and uses a shader of its own,
-so the build has to compile it with the package's includes.
+The game loads a JSON file and a model, so the build has to cook its content with the package's
+cook tool, including Assimp, the native library that tool imports models with. It uses a shader of
+its own, so the build has to compile it with the package's includes. The script also checks that
+every Windows native library the cook tool's `super-cook.deps.json` names is at that path in the
+package.

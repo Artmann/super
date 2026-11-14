@@ -1,7 +1,8 @@
 # Checks a Super package the way a game outside this repository uses it. It copies the small game in
 # packaging/nuget/smoke to a folder outside the repository, builds it against the .nupkg and runs its tests.
-# The game loads cooked content and uses its own shader, so this fails when the package can't cook, has no
-# shaders or is missing a library. With -Screenshot the game also draws a frame, which needs a GPU.
+# The game loads cooked content, a model among it, and uses its own shader, so this fails when the package
+# can't cook, can't import a model, has no shaders or is missing a library. With -Screenshot the game also
+# draws a frame, which needs a GPU.
 param(
     # The folder the .nupkg is in.
     [Parameter(Mandatory)][string]$Packages,
@@ -29,9 +30,9 @@ Copy-Item (Join-Path $PSScriptRoot '..\..\packaging\nuget\smoke') $work -Recurse
 # NuGet keeps each version it has unpacked and never looks at the .nupkg again, so a package packed twice
 # under one version would be checked as it was the first time.
 $unpacked = (dotnet nuget locals global-packages --list) -replace '^global-packages:\s*', ''
-$stale = Join-Path $unpacked "super\$Version"
-if (Test-Path $stale) {
-    Remove-Item $stale -Recurse -Force
+$package = Join-Path $unpacked "super\$Version"
+if (Test-Path $package) {
+    Remove-Item $package -Recurse -Force
 }
 
 @"
@@ -55,6 +56,28 @@ if (Test-Path $stale) {
 
 $tests = Join-Path $work 'Spinner.Tests\Spinner.Tests.csproj'
 dotnet build $tests -c Release "-p:SuperVersion=$Version"
+
+# The cook tool finds its native libraries, such as Assimp, at the paths its deps.json names, so each Windows
+# one has to be at that path in the package. The Linux and macOS ones are left out of the package on purpose.
+$tool = Join-Path $package 'tools\super-cook'
+$deps = Get-Content (Join-Path $tool 'super-cook.deps.json') -Raw | ConvertFrom-Json
+$native = foreach ($target in $deps.targets.PSObject.Properties.Value) {
+    foreach ($library in $target.PSObject.Properties.Value) {
+        if ($library.runtimeTargets) {
+            $library.runtimeTargets.PSObject.Properties |
+                Where-Object { $_.Value.assetType -eq 'native' -and $_.Value.rid -like 'win*' } |
+                ForEach-Object { $_.Name }
+        }
+    }
+}
+if (-not ($native -contains 'runtimes/win-x64/native/Assimp64.dll')) {
+    throw "super-cook.deps.json doesn't name runtimes/win-x64/native/Assimp64.dll, so this check can't trust it."
+}
+foreach ($file in $native | Sort-Object -Unique) {
+    if (-not (Test-Path (Join-Path $tool $file))) {
+        throw "The package has no tools/super-cook/$file, so the cook tool can't load it."
+    }
+}
 
 # What the package has to put beside a game, and beside its tests.
 foreach ($project in 'Spinner', 'Spinner.Tests') {
