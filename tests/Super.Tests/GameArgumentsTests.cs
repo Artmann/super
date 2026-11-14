@@ -120,10 +120,10 @@ public class GameArgumentsTests
     }
 
     [Fact]
-    public void Reads_no_vsync()
+    public void Reads_vsync()
     {
-        Assert.True(GameArguments.Parse(["--no-vsync"]).NoVsync);
-        Assert.False(GameArguments.Parse([]).NoVsync);
+        Assert.True(GameArguments.Parse(["--vsync"]).Vsync);
+        Assert.False(GameArguments.Parse([]).Vsync);
     }
 
     [Fact]
@@ -135,11 +135,15 @@ public class GameArgumentsTests
     }
 
     [Fact]
-    public void No_vsync_is_only_for_playing_in_a_window()
+    public void Vsync_is_only_for_playing_in_a_window()
     {
-        Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--no-vsync", "--profile", "reef.txt"]));
-        Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--no-vsync", "--screenshot", "day.png"]));
-        Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--no-vsync", "--record", "clip.mp4", "--seconds", "1"]));
+        const string Message = "--vsync only works when playing in a window, so it can't run with --screenshot, --record or --profile.";
+
+        Assert.Equal(Message, Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--vsync", "--profile", "reef.txt"])).Message);
+        Assert.Equal(Message, Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--vsync", "--screenshot", "day.png"])).Message);
+        Assert.Equal(
+            Message,
+            Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--vsync", "--record", "clip.mp4", "--seconds", "1"])).Message);
     }
 
     [Fact]
@@ -428,14 +432,14 @@ public class GameArgumentsTests
     public void Flags_win_over_the_graphics_profile()
     {
         var graphics = new Graphics();
-        var arguments = GameArguments.Parse(["--graphics", "low", "--render-scale", "1", "--no-vsync"]);
+        var arguments = GameArguments.Parse(["--graphics", "low", "--render-scale", "1", "--vsync"]);
 
         Game.ApplyGraphicsArguments(graphics, arguments, gpu: null);
 
         Assert.Equal(1024, graphics.ShadowResolution);
         Assert.False(graphics.Reflections);
         Assert.Equal(1f, graphics.RenderScale);
-        Assert.False(graphics.Vsync);
+        Assert.True(graphics.Vsync);
     }
 
     [Fact]

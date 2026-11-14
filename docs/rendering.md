@@ -43,8 +43,9 @@ looks now, at the same seed and frame:
 
 ## Graphics settings
 
-Everything above is on by default, and vsync keeps the frame rate at the display's, often 60.
-A game that must run fast on modest hardware turns off what it doesn't need:
+Everything above is on by default. Vsync is off, so frames come as fast as the machine draws
+them; set `Vsync` to hold the frame rate at the display's, often 60, or `MaxFramesPerSecond`
+to cap it. A game that must run fast on modest hardware turns off what it doesn't need:
 
 ```csharp
 Game.StartWindowsGameLoop<MyGame>(new GameOptions
@@ -54,14 +55,14 @@ Game.StartWindowsGameLoop<MyGame>(new GameOptions
 });
 ```
 
-`Graphics.Fastest()` turns vsync and every effect that costs GPU time off, and sets `MeshDetail` to 0.5, a start to turn back on only what
+`Graphics.Fastest()` turns every effect that costs GPU time off, and sets `MeshDetail` to 0.5, a start to turn back on only what
 the game needs. It keeps what costs nothing or saves time: the materials, the baked lighting, `Specular`,
 `EnvironmentLight`, `Emissive`, `ColorGrading`, `Culling`, `SimplerModels` and `DepthFirst`. For settings a player picks from, see [quality presets and profiles](#quality-presets-and-profiles). Ask for `Graphics` in a constructor to change it while the game runs; the
 next frame follows, so it can back an options menu.
 
 | Setting | Off, or set |
 |---|---|
-| `Vsync` | Frames come as fast as the machine draws them, and fast movement may tear. `--no-vsync` turns it off too |
+| `Vsync` | Off is the default: frames come as fast as the machine draws them, and fast movement may tear. On, each frame waits for the display. `--vsync` turns it on too |
 | `MaxFramesPerSecond` | The most frames drawn a second. 0, the default, is no limit. It saves power, and with vsync off it holds a steady rate |
 | `SunShadows` | Nothing is drawn into the sun's shadow maps, often the biggest saving. Ambient occlusion still darkens nooks |
 | `ShadowResolution` | How many texels across each of the sun's shadow maps is: 1024, 2048 (the default) or 4096. Each step up sharpens shadow edges for four times the memory. A change rebuilds the maps before the next frame, which waits for the GPU once |
@@ -144,7 +145,7 @@ reflects from the screen, though the puddle stays and still mirrors the sky:
 
 ![The Courtyard's barrel, window and puddle at High, Medium and Low, with the GPU time of each](media/graphics-quality.webp)
 
-Every preset keeps vsync on and no frame limit, since those are the player's choice rather than a
+Every preset keeps vsync off and no frame limit, since those are the player's choice rather than a
 quality. `graphics.Apply(profile)` switches a running game to another set of settings: it copies
 every setting but `DebugView`, and the next frame follows. An options menu can do this:
 

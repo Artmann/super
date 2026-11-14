@@ -8,17 +8,18 @@ namespace Super;
 /// <summary>
 /// How the game is drawn: which effects are worth their GPU time, and how fast frames come.
 /// Set it in <see cref="GameOptions.Graphics"/>, or ask for it in a constructor and change
-/// it as the game runs, and the next frame follows. Everything starts on, with vsync, as
-/// the engine looks best. Each effect turned off skips its work on the GPU, not only its look.
+/// it as the game runs, and the next frame follows. Every effect starts on, as the engine
+/// looks best, and vsync starts off, so frames come as fast as they are drawn. Each effect turned off skips its work on the GPU, not only its look.
 /// </summary>
 public sealed class Graphics
 {
     /// <summary>
     /// Waits for the display before showing each frame, so the picture never tears and the frame rate
-    /// stops at the display's, often 60. Off, frames come as fast as the computer can draw them.
-    /// <c>--no-vsync</c> turns it off. Screenshots, recordings and profiles always keep it on.
+    /// stops at the display's, often 60. Off, the default, frames come as fast as the computer can draw
+    /// them, and fast movement may tear. <c>--vsync</c> turns it on. Only play in a window follows it:
+    /// recordings and profiles always wait for the display, and screenshots never do.
     /// </summary>
-    public bool Vsync { get; set; } = true;
+    public bool Vsync { get; set; }
 
     /// <summary>
     /// The most frames drawn in a second, or 0 for no limit. A limit saves power and keeps a
@@ -369,7 +370,7 @@ public sealed class Graphics
 
     /// <summary>
     /// A ready-made set of settings for a <see cref="GraphicsQuality"/>. <see cref="GraphicsQuality.High"/> is the same
-    /// as <c>new Graphics()</c>. Every preset keeps vsync on and no frame limit, as those are the player's choice, not
+    /// as <c>new Graphics()</c>. Every preset keeps vsync off and no frame limit, as those are the player's choice, not
     /// a quality. Hand one to <see cref="Apply"/> to switch a running game to it.
     /// </summary>
     public static Graphics For(GraphicsQuality quality) => quality switch
@@ -522,7 +523,7 @@ public sealed class Graphics
         GraphicsProfile.Read(json, source, quality => quality is { } named ? For(named) : Fastest());
 
     /// <summary>
-    /// Every effect that costs GPU time off, and vsync off: the fastest the engine draws, and a start for a game that must
+    /// Every effect that costs GPU time off: the fastest the engine draws, and a start for a game that must
     /// run on modest hardware. Turn back on only what it needs. What costs nothing or saves time stays on: the materials,
     /// the baked lighting, the shine, the sky's light, glows, the colour grade, culling and simpler models. The light probes are at
     /// <see cref="Rendition.ProbeQuality.Low"/>, so turning them back on keeps them cheap, and models switch to their
@@ -530,7 +531,6 @@ public sealed class Graphics
     /// </summary>
     public static Graphics Fastest() => new()
     {
-        Vsync = false,
         Upscaler = Upscaler.Taa,
         MeshDetail = 0.5f,
         SunShadows = false,

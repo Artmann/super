@@ -48,7 +48,7 @@ internal sealed unsafe class GameWindow : IDisposable
     private readonly Func<int, bool> _isGamepad;
     private readonly WindowCursor _cursor = new();
 
-    /// <summary>Screenshots, recordings and profiles keep vsync, so they're the same on every computer.</summary>
+    /// <summary>Without a window, recordings and profiles wait for the display whatever Graphics.Vsync says, and screenshots don't.</summary>
     private readonly bool _hidden;
 
     public GameWindow(
