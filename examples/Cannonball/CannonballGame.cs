@@ -70,7 +70,7 @@ public sealed class CannonballGame(World world, Content content, Physics physics
     private Vector3 JointAt(string joint) => (world.Get<Animated>(Stuntman).Value.Joint(joint) * world.Get<Transform>(Stuntman).Matrix).Translation;
 
     /// <summary>Follows the stuntman from behind, to the side and above, so the whole flight crosses the screen and the camera looks over the wall at where they land.</summary>
-    public FollowCamera Camera { get; } = new() { Offset = new Vector3(-9f, 7f, -8f), Lag = 0.35f, FieldOfView = 0.8f, WideAs = 16f / 9f };
+    public FollowCamera Camera { get; } = new() { Offset = new Vector3(-8f, 11f, -8f), Lag = 0.35f, FieldOfView = 0.8f, WideAs = 16f / 9f };
 
     /// <summary>For <c>--script bodies</c>: shows the ragdoll's bodies, so a screenshot can show them.</summary>
     public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
@@ -89,8 +89,7 @@ public sealed class CannonballGame(World world, Content content, Physics physics
     public void Load()
     {
         var rig = content.Rig("cannonball/stuntman.fbx");
-        _body = RagdollBody.Humanoid(rig);
-        _controller = new AnimationController<Stance, Move>(rig) { CrossFadeSeconds = 0.25f }
+        _body = RagdollBody.Humanoid(rig);        _controller = new AnimationController<Stance, Move>(rig) { CrossFadeSeconds = 0.25f }
             .State(Stance.Idle, rig.Clip("Idle"))
             .State(Stance.Flail, rig.Clip("Flail"))
             // The get-ups start the moment the ragdoll turns off, so the body is placed to match their first frame.
