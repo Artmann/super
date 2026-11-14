@@ -1,5 +1,6 @@
 // What the passes that walk rays through the depth buffer share: contact shadows in lighting.frag, the traced
-// reflections in reflections.frag, and the lighting's reading of them. Needs common.glsl first.
+// reflections in reflections.frag, the ambient occlusion in ao.frag and ao_blur.frag, and the lighting's reading of
+// them. Needs common.glsl first.
 #ifndef SCREEN_TRACE_GLSL
 #define SCREEN_TRACE_GLSL
 
@@ -57,13 +58,14 @@ float traceStrength(float roughness, float clearcoat) {
 }
 
 // At half resolution one pixel of each block of four is traced, a different one each frame, so over four frames
-// every pixel has had its own ray and anti-aliasing blends them into a full picture.
+// every pixel has had its own ray and anti-aliasing blends them into a full picture. Reflections and ambient
+// occlusion both work this way.
 ivec2 tracedCorner() {
     int turn = frame.frameNumber & 3;
     return ivec2(turn & 1, (turn >> 1) ^ (turn & 1));
 }
 
-// The screen pixel that a cell of the half-resolution reflection target traces this frame.
+// The screen pixel that a cell of a half-resolution target traces this frame.
 ivec2 tracedPixel(ivec2 cell, ivec2 screenSize) {
     return min(cell * 2 + tracedCorner(), screenSize - 1);
 }

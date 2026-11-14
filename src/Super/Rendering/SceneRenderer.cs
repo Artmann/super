@@ -184,6 +184,13 @@ internal sealed class SceneRenderer : IDisposable
         set => _renderer.ReflectionResolution = value;
     }
 
+    /// <summary>How many pixels work out their ambient occlusion each frame. A change rebuilds the targets on the next frame.</summary>
+    public OcclusionResolution OcclusionResolution
+    {
+        get => _renderer.OcclusionResolution;
+        set => _renderer.OcclusionResolution = value;
+    }
+
     /// <summary>Whether the light probes near the camera are all up to date. See <see cref="Renderer.ProbesSettled"/>.</summary>
     public bool ProbesSettled => _renderer.ProbesSettled;
 

@@ -416,6 +416,46 @@ vec4 tracedReflection(ivec2 pixel, float depth, vec3 n) {
     return total > 1e-6 ? vec4(color / max(trust, 1e-6), trust / total) : vec4(0.0);
 }
 
+// How fast a half-resolution pixel of occlusion stops counting as its depth leaves the pixel's own.
+const float OCCLUSION_DEPTH_FALLOFF = 40.0;
+
+// The ambient occlusion for a pixel: xyz the bent normal in view space and w how much of the sky the point sees. At
+// full resolution it is the pixel's own. At half resolution only one pixel of each block of four was worked out this
+// frame, so the pixel blends the four round it, each weighed by how near it is and how close its depth is, which
+// keeps one object's occlusion from spilling over its edge onto what lies behind.
+vec4 screenOcclusionAt(ivec2 pixel, float depth) {
+    ivec2 size = textureSize(depthTexture, 0);
+    ivec2 cells = textureSize(ambientOcclusionTexture, 0);
+    if (cells == size) {
+        vec4 own = texelFetch(ambientOcclusionTexture, pixel, 0);
+        return vec4(octahedralDecode(own.xy * 2.0 - 1.0), own.z);
+    }
+
+    ivec2 fromFirst = pixel - tracedCorner();
+    ivec2 first = fromFirst >> 1;
+    vec2 between = vec2(fromFirst & 1) * 0.5;
+
+    vec3 bent = vec3(0.0);
+    float visibility = 0.0;
+    float total = 0.0;
+    for (int i = 0; i < 4; i++) {
+        ivec2 corner = ivec2(i & 1, i >> 1);
+        ivec2 cell = clamp(first + corner, ivec2(0), cells - 1);
+        vec4 tap = texelFetch(ambientOcclusionTexture, cell, 0);
+        float fromDepth = texelFetch(depthTexture, tracedPixel(cell, size), 0).r;
+        vec2 nearness = mix(1.0 - between, between, vec2(corner));
+        // A little weight even at no nearness and across an edge, so the pixel always has something to read.
+        float weight = (nearness.x * nearness.y + 0.02)
+            * (exp(-abs(fromDepth / depth - 1.0) * OCCLUSION_DEPTH_FALLOFF) + 1e-4);
+        bent += octahedralDecode(tap.xy * 2.0 - 1.0) * weight;
+        visibility += tap.z * weight;
+        total += weight;
+    }
+
+    // Directions that cancel leave no bent normal. A zero one tells the caller to keep the surface's own.
+    return vec4(dot(bent, bent) > 1e-12 ? normalize(bent) : vec3(0.0), visibility / total);
+}
+
 void main() {
     float depth = texture(depthTexture, inUv).r;
 
@@ -460,10 +500,9 @@ void main() {
     vec3 n = octahedralDecode(normalRoughnessAo.xy);
     float roughness = clamp(normalRoughnessAo.z, 0.045, 1.0);
     // Left out, the occlusion pass never ran, so its target holds nothing to read.
-    // Its xy hold the bent normal, in view space; z how much of the sky the point sees.
     bool occlusionOff = isOff(OFF_AMBIENT_OCCLUSION);
-    vec4 screenOcclusion = occlusionOff ? vec4(0.5, 0.5, 1.0, 1.0) : texture(ambientOcclusionTexture, inUv);
-    float screenAo = screenOcclusion.z;
+    vec4 screenOcclusion = occlusionOff ? vec4(0.0, 0.0, 0.0, 1.0) : screenOcclusionAt(ivec2(gl_FragCoord.xy), depth);
+    float screenAo = screenOcclusion.w;
     // Puddle water lies open under the sky. The occlusion pass only saw the hollow beneath it.
     bool water = normalRoughnessAo.w > 0.5 * (1.0 + WATER_SIDE);
     if (water) {
@@ -475,8 +514,8 @@ void main() {
     // along the bent normal. The bent normal is blurred, so the more open the point, the more
     // its own normal and the detail in it take over.
     vec3 bentNormal = n;
-    if (!occlusionOff && !water) {
-        vec3 bent = transpose(mat3(frame.view)) * octahedralDecode(screenOcclusion.xy * 2.0 - 1.0);
+    if (!occlusionOff && !water && screenOcclusion.xyz != vec3(0.0)) {
+        vec3 bent = transpose(mat3(frame.view)) * screenOcclusion.xyz;
         bentNormal = normalize(mix(n, bent, 1.0 - screenAo) + n * 1e-3);
     }
     // Alpha holds the clearcoat, for foliage how much light shines through as a negative

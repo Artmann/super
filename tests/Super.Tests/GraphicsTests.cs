@@ -29,6 +29,37 @@ public class GraphicsTests
         Assert.Equal(1f, graphics.RenderScale);
         Assert.Equal(ProbeQuality.High, graphics.ProbeQuality);
         Assert.Equal(ReflectionResolution.Half, graphics.ReflectionResolution);
+        Assert.Equal(OcclusionResolution.Half, graphics.OcclusionResolution);
+    }
+
+    [Fact]
+    public void An_undefined_occlusion_resolution_is_refused()
+    {
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => new Graphics { OcclusionResolution = (OcclusionResolution)7 });
+
+        Assert.StartsWith("Occlusion resolution can be Half or Full.", error.Message);
+        Assert.Equal("value", error.ParamName);
+    }
+
+    [Fact]
+    public void Only_ultra_works_out_occlusion_at_full_resolution()
+    {
+        Assert.Equal(OcclusionResolution.Full, Graphics.For(GraphicsQuality.Ultra).OcclusionResolution);
+        Assert.Equal(OcclusionResolution.Half, Graphics.For(GraphicsQuality.High).OcclusionResolution);
+        Assert.Equal(OcclusionResolution.Half, Graphics.For(GraphicsQuality.Medium).OcclusionResolution);
+        Assert.Equal(OcclusionResolution.Half, Graphics.For(GraphicsQuality.Low).OcclusionResolution);
+        Assert.Equal(OcclusionResolution.Half, Graphics.Fastest().OcclusionResolution);
+    }
+
+    [Fact]
+    public void A_changed_occlusion_resolution_reaches_the_renderer_next_frame()
+    {
+        var given = new Graphics();
+        using var host = new GameHost<Settings>(1, 30, null, graphics: given);
+
+        host.Game.Graphics.OcclusionResolution = OcclusionResolution.Full;
+
+        Assert.Equal(OcclusionResolution.Full, GameWindow.RendererSettings(host.Graphics, hidden: false).OcclusionResolution);
     }
 
     [Fact]

@@ -90,6 +90,7 @@ public sealed unsafe class Renderer : IDisposable
     // The scene's size against the window's, which the next frame rebuilds the targets at if it differs.
     private float _renderScale = 1f;
     private ReflectionResolution _reflectionResolution = ReflectionResolution.Half;
+    private OcclusionResolution _occlusionResolution = OcclusionResolution.Half;
     // The largest image side the device can make, which the scene is shrunk to fit.
     private readonly int _maxImageSize;
     private readonly Vk _api;
@@ -432,6 +433,24 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>
+    /// How many pixels work out their ambient occlusion each frame: see <see cref="Rendition.OcclusionResolution"/>.
+    /// A change rebuilds the targets before the next frame.
+    /// </summary>
+    public OcclusionResolution OcclusionResolution
+    {
+        get => _occlusionResolution;
+        set
+        {
+            if (!Enum.IsDefined(value))
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), value, "Occlusion resolution can be Half or Full.");
+            }
+
+            _occlusionResolution = value;
+        }
+    }
+
+    /// <summary>
     /// What anti-aliases the scene: the engine's own TAA, or AMD's FSR 3.1, which also rebuilds a scene drawn
     /// below a <see cref="RenderScale"/> of 1 at the window's size instead of stretching it. FSR needs its library,
     /// amd_fidelityfx_vk.dll, next to the game; without it, or above a render scale of 1, TAA is used, and a missing
@@ -666,8 +685,9 @@ public sealed unsafe class Renderer : IDisposable
         WriteTargetDescriptors();
 
         _gBufferPass = new GBufferPass(_context, _frameSetLayout, _resources);
-        _aoPass = new FullscreenPass(_context, "ao.frag", GBuffer.AoFormat, [_frameSetLayout, _threeTextureSetLayout]);
-        _aoBlurPass = new FullscreenPass(_context, "ao_blur.frag", GBuffer.AoFormat, [_twoTextureSetLayout], 2 * sizeof(float));
+        _aoPass = new FullscreenPass(_context, "ao.frag", GBuffer.AoFormat, [_frameSetLayout, _threeTextureSetLayout], sizeof(int));
+        _aoBlurPass = new FullscreenPass(
+            _context, "ao_blur.frag", GBuffer.AoFormat, [_frameSetLayout, _twoTextureSetLayout], 3 * sizeof(int));
         _reflectionPass = new FullscreenPass(_context, "reflections.frag", GBuffer.HdrFormat, [_frameSetLayout, _fourTextureSetLayout], sizeof(int));
         _lightingPass = new FullscreenPass(_context, "lighting.frag", [GBuffer.HdrFormat, GBuffer.HdrFormat],
             [_frameSetLayout, _lightingSetLayout, _resources.Layout]);
@@ -3796,11 +3816,12 @@ public sealed unsafe class Renderer : IDisposable
         {
             Resize((uint)view.Width, (uint)view.Height);
         }
-        else if (upscalingChanged || _reflectionResolution != _gBuffer.Reflections || (SceneExtent(_swapchain.Extent) is var scene
-            && (scene.Width != _gBuffer.Extent.Width || scene.Height != _gBuffer.Extent.Height)))
+        else if (upscalingChanged || _reflectionResolution != _gBuffer.Reflections || _occlusionResolution != _gBuffer.Occlusion
+            || (SceneExtent(_swapchain.Extent) is var scene
+                && (scene.Width != _gBuffer.Extent.Width || scene.Height != _gBuffer.Extent.Height)))
         {
             // Frames in flight still read the targets being replaced. Changing the scale, the upscaler or the
-            // reflections' resolution is rare.
+            // resolution of the reflections or the occlusion is rare.
             _api.DeviceWaitIdle(_context.Device).Check();
             RebuildTargets();
         }
@@ -4799,18 +4820,23 @@ public sealed unsafe class Renderer : IDisposable
             return;
         }
 
-        var extent = targets.Extent;
+        var extent = targets.AoExtent;
+        int scale = targets.Occlusion == OcclusionResolution.Full ? 1 : 2;
         ReadOnlySpan<DescriptorSet> aoSets = [frameSet, _aoSet];
         _api.BeginColorTarget(cmd, targets.Ao.Image);
-        _aoPass.Record(cmd, targets.Ao.View, extent, aoSets);
+        _aoPass.Record(cmd, targets.Ao.View, extent, aoSets, new ReadOnlySpan<byte>(&scale, sizeof(int)));
         _api.EndColorTarget(cmd, targets.Ao.Image);
         _gpuTimer.Mark(cmd);
 
         // Blurred across into a second image, then down into the one the lighting reads.
-        RecordAoBlur(cmd, targets.AoAcross, _aoAcrossSet, new Vector2(1f / extent.Width, 0f), extent);
-        RecordAoBlur(cmd, targets.AoBlurred, _aoDownSet, new Vector2(0f, 1f / extent.Height), extent);
+        RecordAoBlur(cmd, targets.AoAcross, [frameSet, _aoAcrossSet], new AoBlurStep(1, 0, scale), extent);
+        RecordAoBlur(cmd, targets.AoBlurred, [frameSet, _aoDownSet], new AoBlurStep(0, 1, scale), extent);
         _gpuTimer.Mark(cmd);
     }
+
+    /// <summary>ao_blur.frag's constants: one pixel along the way a pass blurs, and screen pixels per pixel of occlusion.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private readonly record struct AoBlurStep(int X, int Y, int Scale);
 
     /// <summary>
     /// Traces the screen-space reflections from the G-buffer just drawn and last frame's picture, for the lighting to
@@ -4836,12 +4862,15 @@ public sealed unsafe class Renderer : IDisposable
         _gpuTimer.Mark(cmd);
     }
 
-    /// <summary>One direction of the occlusion blur: <paramref name="step"/> is one pixel along it.</summary>
-    private void RecordAoBlur(CommandBuffer cmd, RenderTarget target, DescriptorSet source, Vector2 step, Extent2D extent)
+    /// <summary>
+    /// One direction of the occlusion blur: <paramref name="step"/> is one pixel along it, and
+    /// <paramref name="sets"/> the frame's set and then the one with the occlusion to blur.
+    /// </summary>
+    private void RecordAoBlur(
+        CommandBuffer cmd, RenderTarget target, ReadOnlySpan<DescriptorSet> sets, AoBlurStep step, Extent2D extent)
     {
-        ReadOnlySpan<DescriptorSet> sets = [source];
         _api.BeginColorTarget(cmd, target.Image);
-        _aoBlurPass.Record(cmd, target.View, extent, sets, new ReadOnlySpan<byte>(&step, sizeof(Vector2)));
+        _aoBlurPass.Record(cmd, target.View, extent, sets, new ReadOnlySpan<byte>(&step, sizeof(AoBlurStep)));
         _api.EndColorTarget(cmd, target.Image);
     }
 
@@ -5257,7 +5286,7 @@ public sealed unsafe class Renderer : IDisposable
     private void CreateTargets()
     {
         var scene = SceneExtent(_swapchain.Extent);
-        _gBuffer = new GBuffer(_context, scene, _upscaling ? _swapchain.Extent : scene, _reflectionResolution);
+        _gBuffer = new GBuffer(_context, scene, _upscaling ? _swapchain.Extent : scene, _reflectionResolution, _occlusionResolution);
         if (_upscaling)
         {
             try
@@ -5271,7 +5300,7 @@ public sealed unsafe class Renderer : IDisposable
                 _upscalerUsed = Upscaler.Taa;
                 _upscaling = false;
                 _gBuffer.Dispose();
-                _gBuffer = new GBuffer(_context, scene, reflections: _reflectionResolution);
+                _gBuffer = new GBuffer(_context, scene, reflections: _reflectionResolution, occlusion: _occlusionResolution);
             }
         }
         else
