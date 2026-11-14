@@ -14,7 +14,7 @@ internal static class RagdollBuilder
     public static void Build(PhysicsSystem system, Entity entity, LiveRagdoll live, Ragdoll ragdoll, Dictionary<uint, Entity> owners)
     {
         var parts = live.Parts;
-        parts.Filter = NeighbourFilter(live.Body.PartTree.ParentParts);
+        parts.Filter = NeighbourFilter(live.Body);
         parts.Handles = new JoltPhysicsSharp.Body[live.Body.PartTree.Joints.Length];
         for (int i = 0; i < parts.Ids.Length; i++)
         {
@@ -42,30 +42,16 @@ internal static class RagdollBuilder
         Join(system, live);
     }
 
-    /// <summary>A filter that keeps parts that touch at rest from colliding.</summary>
-    private static GroupFilterTable NeighbourFilter(int[] parents)
+    /// <summary>A filter that keeps parts from colliding with their parent, and with parts they touch at rest.</summary>
+    private static GroupFilterTable NeighbourFilter(RagdollBody body)
     {
-        var filter = new GroupFilterTable((uint)parents.Length);
-        for (int i = 0; i < parents.Length; i++)
+        var filter = new GroupFilterTable((uint)body.Parts.Count);
+        foreach (var (a, b) in body.Touching)
         {
-            for (int j = 0; j < i; j++)
-            {
-                if (Neighbours(parents, i, j))
-                {
-                    filter.DisableCollision(new CollisionSubGroupID((uint)i), new CollisionSubGroupID((uint)j));
-                }
-            }
+            filter.DisableCollision(new CollisionSubGroupID((uint)a), new CollisionSubGroupID((uint)b));
         }
 
         return filter;
-    }
-
-    /// <summary>Whether two parts touch at rest, as parent and child, grandparent and grandchild, or siblings, so they mustn't collide.</summary>
-    private static bool Neighbours(int[] parents, int a, int b)
-    {
-        int pa = parents[a];
-        int pb = parents[b];
-        return pa == b || pb == a || (pa >= 0 && pa == pb) || (pa >= 0 && parents[pa] == b) || (pb >= 0 && parents[pb] == a);
     }
 
     private static JoltPhysicsSharp.Body? AddPart(PhysicsSystem system, LiveRagdoll live, Ragdoll ragdoll, int part, CollisionGroupID group)

@@ -203,6 +203,75 @@ public class RagdollTests
         }
     }
 
+    [Theory]
+    [Trait("Speed", "Slow")]
+    [InlineData("LeftUpLeg", "LeftFoot", "RightUpLeg")]
+    [InlineData("LeftLeg", "LeftFoot", "RightLeg")]
+    public void A_leg_pushed_into_the_other_stops_against_it(string swung, string pushed, string held)
+    {
+        var (world, physics) = Make(floor: false);
+        using var _ = physics;
+
+        // The other leg stays where the animation holds it; this one is pushed across into it, over and over.
+        var ragdoll = TestHumanoid.Limp(Body) with { Mask = TestHumanoid.Rig.Mask(swung) };
+        var (person, animator) = TestHumanoid.Place(world, Transform.At(new Vector3(0f, 10f, 0f)), ragdoll);
+        physics.Sync();
+        float closest = float.MaxValue;
+        float radius = 0f;
+        for (int i = 0; i < 60; i++)
+        {
+            physics.PushPart(person, pushed, new Vector3(-6f, 0f, 0f));
+            Run(physics, animator, 1);
+            var shapes = Shapes(physics, person);
+            var still = shapes.Single(shape => shape.Joint == held);
+            var moving = shapes.Single(shape => shape.Joint == HeldsTwin(held));
+            closest = MathF.Min(closest, Gap(still, moving));
+            radius = still.Radius;
+        }
+
+        // Pushed this hard, colliding capsules sink in a few centimetres. Passing through takes one past the other's
+        // surface by more than its own radius, towards the other's middle.
+        Assert.True(closest > -radius, $"the {HeldsTwin(held)} capsule sank {-closest} m into the {held} one, deeper than its {radius} m radius");
+    }
+
+    [Theory]
+    [InlineData(1f, false)]
+    [InlineData(1.8f, true)]
+    public void Parts_that_overlap_at_rest_dont_collide(float thighThickness, bool keptApart)
+    {
+        // The thighs' joints are 0.2 m apart and each capsule is 0.064 m round, so 1.8 times as thick they overlap.
+        var parts = Body.Parts.Select(part => part.Joint.EndsWith("UpLeg", StringComparison.Ordinal) ? part with { Thickness = thighThickness } : part).ToList();
+        var body = new RagdollBody(TestHumanoid.Rig, parts);
+        int left = body.PartOf("LeftUpLeg");
+        int right = body.PartOf("RightUpLeg");
+
+        Assert.Equal(keptApart, body.Touching.Contains((Math.Max(left, right), Math.Min(left, right))));
+        Assert.Contains((left, body.PartOf("Hips")), body.Touching);
+    }
+
+    private static string HeldsTwin(string held) => held.Replace("Right", "Left", StringComparison.Ordinal);
+
+    /// <summary>How far apart two capsules' surfaces are, in metres, or how deep they overlap when negative.</summary>
+    private static float Gap(RagdollShapeView a, RagdollShapeView b)
+    {
+        Assert.Equal(RagdollShape.Capsule, a.Shape);
+        Assert.Equal(RagdollShape.Capsule, b.Shape);
+
+        // Close enough for a test: the nearest of many points along each capsule's middle.
+        float nearest = float.MaxValue;
+        for (int i = 0; i <= 50; i++)
+        {
+            var p = Vector3.Transform(new Vector3(0f, a.HalfSize.Y * ((i / 25f) - 1f), 0f), a.Transform);
+            for (int j = 0; j <= 50; j++)
+            {
+                var q = Vector3.Transform(new Vector3(0f, b.HalfSize.Y * ((j / 25f) - 1f), 0f), b.Transform);
+                nearest = MathF.Min(nearest, Vector3.Distance(p, q));
+            }
+        }
+
+        return nearest - a.Radius - b.Radius;
+    }
+
     [Fact]
     public void Parts_outside_the_mask_follow_the_animation()
     {

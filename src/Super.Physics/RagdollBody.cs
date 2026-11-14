@@ -93,6 +93,8 @@ public sealed class RagdollBody
         Mass = mass;
         PartTree = new RagdollTree(skeleton, parts);
         Fitting = new RagdollFitting(skeleton, PartTree, parts, mass);
+        var rest = RagdollFitting.RestGlobals(skeleton);
+        Touching = RagdollTouching.Pairs(PartTree.ParentParts, [.. Enumerable.Range(0, parts.Count).Select(part => RagdollTouching.Covering(ShapeOf(part), rest[PartTree.Joints[part]]))]);
     }
 
     public Rig Rig { get; }
@@ -125,6 +127,9 @@ public sealed class RagdollBody
 
     /// <summary>Each part's size, mass and joint axes, fitted to the mesh.</summary>
     internal RagdollFitting Fitting { get; }
+
+    /// <summary>The pairs of parts that don't collide: each with its parent, and any two that overlap at rest.</summary>
+    internal IReadOnlyList<(int A, int B)> Touching { get; }
 
     /// <summary>
     /// The ragdoll for a humanoid rig with the usual joint names, such as Mixamo's: pelvis, two spine parts, head, and

@@ -82,7 +82,7 @@ internal sealed class RagdollFitting
     public float RootScale { get; }
 
     /// <summary>Each joint's place in the skeleton at rest.</summary>
-    private static Matrix4x4[] RestGlobals(Skeleton skeleton)
+    internal static Matrix4x4[] RestGlobals(Skeleton skeleton)
     {
         var globals = new Matrix4x4[skeleton.Count];
         for (int i = 0; i < skeleton.Count; i++)

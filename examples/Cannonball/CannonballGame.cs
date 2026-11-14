@@ -89,7 +89,8 @@ public sealed class CannonballGame(World world, Content content, Physics physics
     public void Load()
     {
         var rig = content.Rig("cannonball/stuntman.fbx");
-        _body = RagdollBody.Humanoid(rig);        _controller = new AnimationController<Stance, Move>(rig) { CrossFadeSeconds = 0.25f }
+        _body = RagdollBody.Humanoid(rig);
+        _controller = new AnimationController<Stance, Move>(rig) { CrossFadeSeconds = 0.25f }
             .State(Stance.Idle, rig.Clip("Idle"))
             .State(Stance.Flail, rig.Clip("Flail"))
             // The get-ups start the moment the ragdoll turns off, so the body is placed to match their first frame.
