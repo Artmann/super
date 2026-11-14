@@ -28,11 +28,12 @@ public sealed class CannonballTests
 
     private static float Across(Vector3 a, Vector3 b) => new Vector2(a.X - b.X, a.Z - b.Z).Length();
 
-    [Fact]
+    [Theory]
+    [Seeds(10)]
     [Trait("Speed", "Slow")]
-    public void A_shot_lands_in_the_field_hard_enough_to_go_limp()
+    public void Every_shot_lands_in_the_field_hard_enough_to_go_limp(int seed)
     {
-        using var run = Start();
+        using var run = Start(seed);
         var loaded = run.Game.Hips;
 
         RunUntil(run, Stage.Flying);
@@ -40,6 +41,27 @@ public sealed class CannonballTests
 
         Assert.True(run.Game.HitSpeed >= StuntFlight.KnockoutSpeed, $"the hit was only {run.Game.HitSpeed} m/s");
         Assert.True(run.Game.Hips.Z - loaded.Z > 15f, $"he only flew to {run.Game.Hips}");
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void Shots_leave_the_cannon_at_different_speeds_up_to_18_metres_a_second()
+    {
+        var flown = new List<float>();
+        for (int seed = 1; seed <= 10; seed++)
+        {
+            using var run = Start(seed);
+            RunUntil(run, Stage.Flying);
+            var fired = run.Game.Hips;
+            run.Ticks(TicksPerSecond / 2);
+            flown.Add(run.Game.Hips.Z - fired.Z);
+        }
+
+        // Half a second along the barrel's 0.7 radian slope covers 18 * cos(0.7) / 2 = 6.88 m forward at 18 m/s,
+        // and 5.51 m at 14.4 m/s, 20% slower.
+        Assert.True(flown.Max() < 6.9f, $"a shot flew {flown.Max()} m forward in half a second, faster than 18 m/s");
+        Assert.True(flown.Min() > 5.45f, $"a shot flew only {flown.Min()} m forward in half a second, slower than 14.4 m/s");
+        Assert.True(flown.Max() - flown.Min() > 0.5f, $"every shot flew about as far, from {flown.Min()} to {flown.Max()} m");
     }
 
     [Fact]
