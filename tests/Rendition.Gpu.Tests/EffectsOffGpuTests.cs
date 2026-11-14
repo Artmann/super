@@ -16,7 +16,7 @@ public sealed class EffectsOffGpuTests(GpuFixture gpu, ITestOutputHelper output)
     // The counts are read a frame or two late, so a few frames go first.
     private const int Frames = 4;
 
-    // Everything the renderer can switch off. Culling, simpler models and depth-first drawing cost time when off, so
+    // Everything the renderer can switch off. Culling, simpler models and depth-first drawing cost more when off, so
     // they stay on in the off frames.
     private static readonly RenderEffects EverythingOff =
         RenderEffects.All & ~(RenderEffects.Culling | RenderEffects.SimplerModels | RenderEffects.DepthFirst);
@@ -39,37 +39,34 @@ public sealed class EffectsOffGpuTests(GpuFixture gpu, ITestOutputHelper output)
     [InlineData("Glass and particles")]
     public void Every_effect_off_runs_no_shaders_in_its_pass(string pass)
     {
-        int errors = gpu.ValidationErrors;
-        var scene = BuildScene();
-        try
-        {
-            var on = Measure(scene, RenderEffects.None);
-            var off = Measure(scene, EverythingOff);
+        var (on, off) = MeasureOnAndOff();
 
-            Assert.True(on.Passes.ContainsKey(pass), $"The GPU timer has no pass called {pass}.");
-            Assert.True(on.Passes[pass].Shaders > 0, $"{pass} ran no shaders with every effect on, so the scene doesn't exercise it.");
-            Assert.True(off.Passes[pass].Shaders == 0, $"{pass} ran {Show(off.Passes[pass])} with every effect off.");
-        }
-        finally
-        {
-            Destroy(scene);
-        }
-
-        Assert.Equal(errors, gpu.ValidationErrors);
+        Assert.True(on.Passes.ContainsKey(pass), $"The GPU timer has no pass called {pass}.");
+        Assert.True(on.Passes[pass].Shaders > 0, $"{pass} ran no shaders with every effect on, so the scene doesn't exercise it.");
+        Assert.True(off.Passes[pass].Shaders == 0, $"{pass} ran {Show(off.Passes[pass])} with every effect off.");
     }
 
     [Fact]
     public void Every_effect_off_draws_no_shadow_triangles()
     {
+        var (on, off) = MeasureOnAndOff();
+
+        Assert.True(on.ShadowTriangles > 0, $"The scene drew {on.ShadowTriangles} shadow triangles with every effect on.");
+        Assert.True(off.ShadowTriangles == 0, $"The scene drew {off.ShadowTriangles} shadow triangles with every effect off.");
+    }
+
+    // Measures the scene with every effect on and with everything off. The scene is destroyed and the validation
+    // error count checked before the caller asserts anything.
+    private (Measurement On, Measurement Off) MeasureOnAndOff()
+    {
         int errors = gpu.ValidationErrors;
         var scene = BuildScene();
+        Measurement on;
+        Measurement off;
         try
         {
-            var on = Measure(scene, RenderEffects.None);
-            var off = Measure(scene, EverythingOff);
-
-            Assert.True(on.ShadowTriangles > 0, $"The scene drew {on.ShadowTriangles} shadow triangles with every effect on.");
-            Assert.True(off.ShadowTriangles == 0, $"The scene drew {off.ShadowTriangles} shadow triangles with every effect off.");
+            on = Measure(scene, RenderEffects.None);
+            off = Measure(scene, EverythingOff);
         }
         finally
         {
@@ -77,6 +74,7 @@ public sealed class EffectsOffGpuTests(GpuFixture gpu, ITestOutputHelper output)
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
+        return (on, off);
     }
 
     // Renders a few frames of the scene with the effects given off, then reads the shaders the newest finished frame ran.
@@ -115,9 +113,9 @@ public sealed class EffectsOffGpuTests(GpuFixture gpu, ITestOutputHelper output)
     // clusters.
     private Scene BuildScene()
     {
+        var renderer = gpu.Renderer;
         var quad = TestMeshes.Quad();
         var cube = TestMeshes.Cube();
-        var renderer = gpu.Renderer;
 
         var floorMaterial = renderer.CreateMaterial(new Material
         {
@@ -146,24 +144,20 @@ public sealed class EffectsOffGpuTests(GpuFixture gpu, ITestOutputHelper output)
             Subsurface = new Subsurface { Radius = 0.01f, Color = new Vector3(1f, 0.4f, 0.25f), Transmission = 0.3f },
         });
 
-        var floorMesh = renderer.CreateDrawItem(quad.Vertices, quad.Indices, floorMaterial);
-        var panelMesh = renderer.CreateDrawItem(quad.Vertices, quad.Indices, panelMaterial);
-        var glowMesh = renderer.CreateDrawItem(quad.Vertices, quad.Indices, glowMaterial);
-        var cubeMesh = renderer.CreateDrawItem(cube.Vertices, cube.Indices, cubeMaterial);
-        var skinMesh = renderer.CreateDrawItem(quad.Vertices, quad.Indices, skinMaterial);
+        DrawItem Place((Vertex[] Vertices, uint[] Indices) mesh, MaterialHandle material, Matrix4x4 transform) =>
+            renderer.CreateDrawItem(mesh.Vertices, mesh.Indices, material) with { Transform = transform };
 
         DrawItem[] draws =
         [
-            floorMesh with { Transform = Matrix4x4.CreateRotationX(-MathF.PI / 2f) * Matrix4x4.CreateScale(8f) * Matrix4x4.CreateTranslation(0f, -1f, 0f) },
-            panelMesh with { Transform = Matrix4x4.CreateScale(2f) * Matrix4x4.CreateTranslation(0f, 0f, -1.5f) },
-            glowMesh with { Transform = Matrix4x4.CreateScale(0.3f) * Matrix4x4.CreateTranslation(0.7f, 0.2f, 0.3f) },
-            cubeMesh with { Transform = Matrix4x4.CreateTranslation(-0.6f, -0.5f, 0.4f) },
-            skinMesh with { Transform = Matrix4x4.CreateScale(1.2f) * Matrix4x4.CreateTranslation(-0.9f, 0.1f, 0.9f) },
+            Place(quad, floorMaterial, Matrix4x4.CreateRotationX(-MathF.PI / 2f) * Matrix4x4.CreateScale(8f) * Matrix4x4.CreateTranslation(0f, -1f, 0f)),
+            Place(quad, panelMaterial, Matrix4x4.CreateScale(2f) * Matrix4x4.CreateTranslation(0f, 0f, -1.5f)),
+            Place(quad, glowMaterial, Matrix4x4.CreateScale(0.3f) * Matrix4x4.CreateTranslation(0.7f, 0.2f, 0.3f)),
+            Place(cube, cubeMaterial, Matrix4x4.CreateTranslation(-0.6f, -0.5f, 0.4f)),
+            Place(quad, skinMaterial, Matrix4x4.CreateScale(1.2f) * Matrix4x4.CreateTranslation(-0.9f, 0.1f, 0.9f)),
         ];
 
         return new Scene(
             draws,
-            [floorMesh.Mesh, panelMesh.Mesh, glowMesh.Mesh, cubeMesh.Mesh, skinMesh.Mesh],
             [floorMaterial, panelMaterial, glowMaterial, cubeMaterial, decalMaterial, skinMaterial],
             decalMaterial);
     }
@@ -238,9 +232,9 @@ public sealed class EffectsOffGpuTests(GpuFixture gpu, ITestOutputHelper output)
 
     private void Destroy(Scene scene)
     {
-        foreach (var mesh in scene.Meshes)
+        foreach (var draw in scene.Draws)
         {
-            gpu.Renderer.DestroyMesh(mesh);
+            gpu.Renderer.DestroyMesh(draw.Mesh);
         }
 
         foreach (var material in scene.Materials)
@@ -251,9 +245,5 @@ public sealed class EffectsOffGpuTests(GpuFixture gpu, ITestOutputHelper output)
 
     private sealed record Measurement(Dictionary<string, GpuPassWork> Passes, long ShadowTriangles);
 
-    private sealed record Scene(
-        DrawItem[] Draws,
-        MeshHandle[] Meshes,
-        MaterialHandle[] Materials,
-        MaterialHandle DecalMaterial);
+    private sealed record Scene(DrawItem[] Draws, MaterialHandle[] Materials, MaterialHandle DecalMaterial);
 }

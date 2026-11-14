@@ -24,24 +24,33 @@ public sealed class SwitchPictureGpuTests(GpuFixture gpu, ITestOutputHelper outp
 
     private static readonly Vector3 HazeColour = new(1f, 0f, 0f);
 
+    private static readonly DirectionalLight[] Backlight =
+    [
+        new() { Direction = Vector3.Normalize(new Vector3(0f, 0.2f, -1f)), Radiance = new Vector3(6f) },
+    ];
+
+    private static readonly DirectionalLight[] Frontlight =
+    [
+        new() { Direction = Vector3.Normalize(new Vector3(0f, 0.2f, 1f)), Radiance = new Vector3(2f) },
+    ];
+
     [Fact]
     public void Haze_off_leaves_a_far_object_as_it_is_with_no_haze()
     {
-        int errors = gpu.ValidationErrors;
-        var quad = TestMeshes.Quad();
-        var material = gpu.Renderer.CreateMaterial(new Material
+        WithScene(scene =>
         {
-            BaseColor = new Vector4(0.2f, 0.6f, 0.2f, 1f), Roughness = 0.8f,
             // The scene has no light, so the object glows to be seen at all.
-            Emissive = new Vector3(0.2f, 0.6f, 0.2f),
-        });
-        var far = gpu.Renderer.CreateDrawItem(quad.Vertices, quad.Indices, material);
-        var draws = new[] { far with { Transform = Matrix4x4.CreateScale(40f) * Matrix4x4.CreateTranslation(0f, 0f, -40f) } };
-        try
-        {
-            var none = Centre(Render(View(haze: false), draws));
-            var hazed = Centre(Render(View(haze: true), draws));
-            var hazeOff = Centre(Render(View(haze: true, off: RenderEffects.Haze), draws));
+            var far = scene.Quad(
+                new Material
+                {
+                    BaseColor = new Vector4(0.2f, 0.6f, 0.2f, 1f), Roughness = 0.8f,
+                    Emissive = new Vector3(0.2f, 0.6f, 0.2f),
+                },
+                Matrix4x4.CreateScale(40f) * Matrix4x4.CreateTranslation(0f, 0f, -40f));
+
+            var none = Centre(Render(View(haze: false), far));
+            var hazed = Centre(Render(View(haze: true), far));
+            var hazeOff = Centre(Render(View(haze: true, off: RenderEffects.Haze), far));
             output.WriteLine($"Far object centre: no haze {Show(none)}, haze on {Show(hazed)}, haze off {Show(hazeOff)}.");
 
             Assert.True(
@@ -53,40 +62,32 @@ public sealed class SwitchPictureGpuTests(GpuFixture gpu, ITestOutputHelper outp
             Assert.True(
                 Distance(hazeOff, hazed) > VisibleChange,
                 $"With haze off the far object's centre was {Show(hazeOff)}, the same as with haze on at {Show(hazed)}.");
-        }
-        finally
-        {
-            gpu.Renderer.DestroyMesh(far.Mesh);
-            gpu.Renderer.DestroyMaterial(material);
-        }
-
-        Assert.Equal(errors, gpu.ValidationErrors);
+        });
     }
 
     [Fact]
     public void Underwater_off_leaves_the_picture_as_it_is_with_no_water()
     {
-        int errors = gpu.ValidationErrors;
-        var quad = TestMeshes.Quad();
-        var material = gpu.Renderer.CreateMaterial(new Material
+        WithScene(scene =>
         {
-            BaseColor = new Vector4(0.8f, 0.8f, 0.8f, 1f), Roughness = 0.8f,
-            Emissive = new Vector3(0.5f, 0.5f, 0.5f),
-        });
-        var wall = gpu.Renderer.CreateDrawItem(quad.Vertices, quad.Indices, material);
-        var draws = new[] { wall with { Transform = Matrix4x4.CreateScale(20f) * Matrix4x4.CreateTranslation(0f, 0f, -4f) } };
-        var water = new UnderwaterSettings
-        {
-            Absorption = new Vector3(0.5f, 0.2f, 0.1f),
-            ShallowColor = new Vector3(0.1f, 0.4f, 0.6f),
-            DeepColor = new Vector3(0f, 0.1f, 0.2f),
-            SurfaceHeight = 10f,
-        };
-        try
-        {
-            var dry = Centre(Render(View(water: default), draws));
-            var wet = Centre(Render(View(water: water), draws));
-            var wetOff = Centre(Render(View(water: water, off: RenderEffects.Underwater), draws));
+            var wall = scene.Quad(
+                new Material
+                {
+                    BaseColor = new Vector4(0.8f, 0.8f, 0.8f, 1f), Roughness = 0.8f,
+                    Emissive = new Vector3(0.5f, 0.5f, 0.5f),
+                },
+                Matrix4x4.CreateScale(20f) * Matrix4x4.CreateTranslation(0f, 0f, -4f));
+            var water = new UnderwaterSettings
+            {
+                Absorption = new Vector3(0.5f, 0.2f, 0.1f),
+                ShallowColor = new Vector3(0.1f, 0.4f, 0.6f),
+                DeepColor = new Vector3(0f, 0.1f, 0.2f),
+                SurfaceHeight = 10f,
+            };
+
+            var dry = Centre(Render(View(), wall));
+            var wet = Centre(Render(View(water: water), wall));
+            var wetOff = Centre(Render(View(water: water, off: RenderEffects.Underwater), wall));
             output.WriteLine($"Wall centre: no water {Show(dry)}, underwater {Show(wet)}, underwater off {Show(wetOff)}.");
 
             Assert.True(
@@ -95,44 +96,34 @@ public sealed class SwitchPictureGpuTests(GpuFixture gpu, ITestOutputHelper outp
             Assert.True(
                 Distance(wetOff, dry) <= SameTolerance,
                 $"With underwater off the centre was {Show(wetOff)}, but with no water it is {Show(dry)}.");
-        }
-        finally
-        {
-            gpu.Renderer.DestroyMesh(wall.Mesh);
-            gpu.Renderer.DestroyMaterial(material);
-        }
-
-        Assert.Equal(errors, gpu.ValidationErrors);
+        });
     }
 
     [Fact]
     public void Subsurface_off_lights_skin_as_the_same_plain_material()
     {
-        int errors = gpu.ValidationErrors;
-        var quad = TestMeshes.Quad();
-        var colour = new Vector4(0.85f, 0.6f, 0.48f, 1f);
-        var skin = gpu.Renderer.CreateMaterial(new Material
+        WithScene(scene =>
         {
-            BaseColor = colour, Roughness = 0.5f,
-            Subsurface = new Subsurface { Radius = 0.02f, Color = new Vector3(1f, 0.4f, 0.25f), Transmission = 1f },
-        });
-        var plain = gpu.Renderer.CreateMaterial(new Material { BaseColor = colour, Roughness = 0.5f });
-        var skinWall = gpu.Renderer.CreateDrawItem(quad.Vertices, quad.Indices, skin);
-        var plainWall = gpu.Renderer.CreateDrawItem(quad.Vertices, quad.Indices, plain);
-        var at = Matrix4x4.CreateScale(4f);
-        var skinDraws = new[] { skinWall with { Transform = at } };
-        var plainDraws = new[] { plainWall with { Transform = at } };
-        try
-        {
+            var colour = new Vector4(0.85f, 0.6f, 0.48f, 1f);
+            var at = Matrix4x4.CreateScale(4f);
+            var skinWall = scene.Quad(
+                new Material
+                {
+                    BaseColor = colour, Roughness = 0.5f,
+                    Subsurface = new Subsurface { Radius = 0.02f, Color = new Vector3(1f, 0.4f, 0.25f), Transmission = 1f },
+                },
+                at);
+            var plainWall = scene.Quad(new Material { BaseColor = colour, Roughness = 0.5f }, at);
+
             // With the sun behind the wall, only light that shines through it reaches the camera's side.
-            var flat = Centre(Render(LitView(Backlight, RenderEffects.None), plainDraws));
-            var scattered = Centre(Render(LitView(Backlight, RenderEffects.None), skinDraws));
-            var scatterOff = Centre(Render(LitView(Backlight, RenderEffects.Subsurface), skinDraws));
+            var flat = Centre(Render(LitView(Backlight, RenderEffects.None), plainWall));
+            var scattered = Centre(Render(LitView(Backlight, RenderEffects.None), skinWall));
+            var scatterOff = Centre(Render(LitView(Backlight, RenderEffects.Subsurface), skinWall));
             output.WriteLine($"Backlit wall centre: plain {Show(flat)}, skin {Show(scattered)}, skin with subsurface off {Show(scatterOff)}.");
 
             // With the sun in front, a skin wall that still sent its light to be spread would lose it with the blurs skipped.
-            var frontFlat = Centre(Render(LitView(Frontlight, RenderEffects.None), plainDraws));
-            var frontOff = Centre(Render(LitView(Frontlight, RenderEffects.Subsurface), skinDraws));
+            var frontFlat = Centre(Render(LitView(Frontlight, RenderEffects.None), plainWall));
+            var frontOff = Centre(Render(LitView(Frontlight, RenderEffects.Subsurface), skinWall));
             output.WriteLine($"Front-lit wall centre: plain {Show(frontFlat)}, skin with subsurface off {Show(frontOff)}.");
 
             Assert.True(
@@ -144,27 +135,20 @@ public sealed class SwitchPictureGpuTests(GpuFixture gpu, ITestOutputHelper outp
             Assert.True(
                 Distance(frontOff, frontFlat) <= SameTolerance,
                 $"With subsurface off the front-lit skin wall's centre was {Show(frontOff)}, but the plain wall's is {Show(frontFlat)}.");
-        }
-        finally
+        });
+    }
+
+    // Runs the body with a scene that destroys what it made, then checks the validation errors did not grow.
+    private void WithScene(Action<Scene> body)
+    {
+        int errors = gpu.ValidationErrors;
+        using (var scene = new Scene(gpu))
         {
-            gpu.Renderer.DestroyMesh(skinWall.Mesh);
-            gpu.Renderer.DestroyMesh(plainWall.Mesh);
-            gpu.Renderer.DestroyMaterial(skin);
-            gpu.Renderer.DestroyMaterial(plain);
+            body(scene);
         }
 
         Assert.Equal(errors, gpu.ValidationErrors);
     }
-
-    private static readonly DirectionalLight[] Backlight =
-    [
-        new() { Direction = Vector3.Normalize(new Vector3(0f, 0.2f, -1f)), Radiance = new Vector3(6f) },
-    ];
-
-    private static readonly DirectionalLight[] Frontlight =
-    [
-        new() { Direction = Vector3.Normalize(new Vector3(0f, 0.2f, 1f)), Radiance = new Vector3(2f) },
-    ];
 
     // The fixture's view lit by the sun given, with no shadow map, so the wall doesn't shade itself.
     private FrameView LitView(DirectionalLight[] sun, RenderEffects off)
@@ -192,7 +176,7 @@ public sealed class SwitchPictureGpuTests(GpuFixture gpu, ITestOutputHelper outp
     }
 
     // A few frames first, then the one read back, so the picture has settled the same way for every capture.
-    private byte[] Render(FrameView view, DrawItem[] draws)
+    private byte[] Render(FrameView view, params DrawItem[] draws)
     {
         for (int frame = 0; frame < 2; frame++)
         {
@@ -223,4 +207,35 @@ public sealed class SwitchPictureGpuTests(GpuFixture gpu, ITestOutputHelper outp
     private static float Distance(Vector3 a, Vector3 b) => Vector3.Distance(a, b);
 
     private static string Show(Vector3 colour) => $"({colour.X:F0}, {colour.Y:F0}, {colour.Z:F0})";
+
+    // The materials and quads a test makes, destroyed together when the test ends.
+    private sealed class Scene(GpuFixture gpu) : IDisposable
+    {
+        private readonly List<MeshHandle> meshes = [];
+        private readonly List<MaterialHandle> materials = [];
+
+        // A quad with the material, moved by the transform.
+        public DrawItem Quad(Material material, Matrix4x4 transform)
+        {
+            var quad = TestMeshes.Quad();
+            var handle = gpu.Renderer.CreateMaterial(material);
+            materials.Add(handle);
+            var item = gpu.Renderer.CreateDrawItem(quad.Vertices, quad.Indices, handle) with { Transform = transform };
+            meshes.Add(item.Mesh);
+            return item;
+        }
+
+        public void Dispose()
+        {
+            foreach (var mesh in meshes)
+            {
+                gpu.Renderer.DestroyMesh(mesh);
+            }
+
+            foreach (var material in materials)
+            {
+                gpu.Renderer.DestroyMaterial(material);
+            }
+        }
+    }
 }

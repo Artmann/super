@@ -105,18 +105,25 @@ public class SkyModelTests
         Ground = new Vector3(0.2f, 0.17f, 0.14f),
     };
 
+    // Water with its own shallow and deep colours, to tell its bands from the sky's.
+    private static readonly UnderwaterSettings Lake = new()
+    {
+        Absorption = new Vector3(0.4f, 0.1f, 0.05f),
+        ShallowColor = new Vector3(0.1f, 0.5f, 0.6f),
+        DeepColor = new Vector3(0f, 0.1f, 0.2f),
+    };
+
     [Fact]
     public void Turbidity_zero_keeps_the_gradient()
     {
         var view = new View();
-        var sky = Gradient;
-        view.Sky(sky);
+        view.Sky(Gradient);
 
         var (ceiling, horizon, floor) = SceneRenderer.SurroundingColors(view, RenderEffects.None);
 
-        Assert.Equal(sky.Zenith, ceiling);
-        Assert.Equal(sky.Horizon, horizon);
-        Assert.Equal(sky.Ground, floor);
+        Assert.Equal(Gradient.Zenith, ceiling);
+        Assert.Equal(Gradient.Horizon, horizon);
+        Assert.Equal(Gradient.Ground, floor);
         Assert.Equal(0f, SceneRenderer.FrameSky(view, RenderEffects.None).Turbidity);
     }
 
@@ -134,40 +141,39 @@ public class SkyModelTests
         Assert.Equal(0f, SceneRenderer.FrameSky(view, RenderEffects.None).Turbidity);
     }
 
+    // The gradient sky with a clear-sky turbidity, under the lake.
+    private static View UnderTheLake()
+    {
+        var sky = Gradient;
+        sky.Turbidity = 2.5f;
+        var view = new View();
+        view.Sky(sky);
+        view.Water(Lake);
+        return view;
+    }
+
     [Fact]
     public void With_underwater_off_a_view_under_water_keeps_the_sky_bands_and_turbidity()
     {
-        var view = new View();
-        var sky = Gradient with { Turbidity = 2.5f };
-        view.Sky(sky);
-        view.Water(new UnderwaterSettings
-        {
-            Absorption = new Vector3(0.4f, 0.1f, 0.05f),
-            ShallowColor = new Vector3(0.1f, 0.5f, 0.6f),
-            DeepColor = new Vector3(0f, 0.1f, 0.2f),
-        });
+        var view = UnderTheLake();
 
         var (ceiling, horizon, floor) = SceneRenderer.SurroundingColors(view, RenderEffects.Underwater);
 
-        Assert.Equal(sky.Zenith, ceiling);
-        Assert.Equal(sky.Horizon, horizon);
-        Assert.Equal(sky.Ground, floor);
+        Assert.Equal(Gradient.Zenith, ceiling);
+        Assert.Equal(Gradient.Horizon, horizon);
+        Assert.Equal(Gradient.Ground, floor);
         Assert.Equal(2.5f, SceneRenderer.FrameSky(view, RenderEffects.Underwater).Turbidity);
     }
 
     [Fact]
     public void With_underwater_on_a_view_under_water_takes_the_water_bands_and_no_sky()
     {
-        var view = new View();
-        view.Sky(new SkySettings { Zenith = new Vector3(0.2f, 0.38f, 0.8f), Turbidity = 2.5f });
-        var shallow = new Vector3(0.1f, 0.5f, 0.6f);
-        var deep = new Vector3(0f, 0.1f, 0.2f);
-        view.Water(new UnderwaterSettings { Absorption = new Vector3(0.4f, 0.1f, 0.05f), ShallowColor = shallow, DeepColor = deep });
+        var view = UnderTheLake();
 
         var (ceiling, _, floor) = SceneRenderer.SurroundingColors(view, RenderEffects.None);
 
-        Assert.Equal(shallow, ceiling);
-        Assert.Equal(deep, floor);
+        Assert.Equal(Lake.ShallowColor, ceiling);
+        Assert.Equal(Lake.DeepColor, floor);
         Assert.Equal(0f, SceneRenderer.FrameSky(view, RenderEffects.None).Turbidity);
     }
 

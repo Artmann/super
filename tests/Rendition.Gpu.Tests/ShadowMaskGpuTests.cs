@@ -18,8 +18,7 @@ public sealed class ShadowMaskGpuTests(GpuFixture gpu)
     private const int NoisePeriod = 64;
     private const int TexelsPerMetre = 8;
     private const RenderEffects Off =
-        RenderEffects.All & ~RenderEffects.BakedLighting & ~RenderEffects.SunShadows & ~RenderEffects.LightShadows
-        & ~RenderEffects.LocalLights;
+        TestEffects.OnlyBaked & ~RenderEffects.SunShadows & ~RenderEffects.LightShadows;
 
     private static readonly BakedSpace Room =
         new("shadow-mask-room", new Vector3(-6f, -3f, -6f), new Vector3(6f, 7f, 6f), 1f, TexelsPerMetre);

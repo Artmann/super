@@ -16,8 +16,6 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
     private const int NoisePeriod = 64;
     private const int Density = 8;
     private const int MostFrames = 120;
-    // Point and spot lights stay on: the live lighting a missing or unread bake falls back to needs them.
-    private const RenderEffects OnlyBaked = RenderEffects.All & ~(RenderEffects.BakedLighting | RenderEffects.LocalLights);
 
     // The floor fills about 25 to 231 of the 256 pixels each way; the edges, where it meets the walls, are left out.
     private const int FloorFrom = 40;
@@ -425,7 +423,7 @@ public sealed class ChunkRelightGpuTests(GpuFixture gpu)
             CameraPosition = eye,
             EnvironmentIntensity = environment,
             Sky = sky,
-            Off = OnlyBaked,
+            Off = TestEffects.OnlyBaked,
             Lights = suns,
             BakedChunks = chunks ?? [],
             BakedSpace = space,

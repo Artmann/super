@@ -191,7 +191,7 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
     // baked lighting unless asked otherwise. In a chunk, the frame names no space and a chunk round the cube instead.
     private byte[] Capture(
         DrawItem cube, LightMode pointMode, bool baked, bool withPointLight = true,
-        RenderEffects off = RenderEffects.All & ~(RenderEffects.BakedLighting | RenderEffects.LocalLights), bool inChunk = false)
+        RenderEffects off = TestEffects.OnlyBaked, bool inChunk = false)
     {
         DirectionalLight[] suns =
         [

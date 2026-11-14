@@ -17,8 +17,6 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
     private const int Size = 256;
     private const int NoisePeriod = 64;
     private const int TexelsPerMetre = 4;
-    // Point and spot lights stay on: the live lighting a missing or unread bake falls back to needs them.
-    private const RenderEffects OnlyBaked = RenderEffects.All & ~(RenderEffects.BakedLighting | RenderEffects.LocalLights);
 
     // Where the tests' clock starts, far from any other test's, so nothing they drew is mistaken for this one's.
     private const float Start = 500f;
@@ -320,7 +318,7 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
         Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 4f, 1f, 0.1f),
         CameraPosition = new Vector3(0f, 2.5f, 4f),
         EnvironmentIntensity = 0f,
-        Off = OnlyBaked,
+        Off = TestEffects.OnlyBaked,
         BakedSpace = Space,
         LocalLights = lit
             ? new[]
