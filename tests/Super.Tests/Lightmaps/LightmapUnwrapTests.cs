@@ -220,6 +220,7 @@ public class LightmapUnwrapTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Charts_that_dont_fit_1024_texels_are_laid_out_at_2048()
     {
         var (vertices, indices) = Scattered(120_000);

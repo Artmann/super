@@ -7,6 +7,7 @@ namespace Courtyard.Tests;
 /// The Courtyard's wood: six boards of six tones, knots, darker ends, silvering that grows with <see cref="Wood.Weathering"/>,
 /// and rust that runs down from iron bands.
 /// </summary>
+[Trait("Speed", "Slow")]
 public sealed class WoodTests
 {
     private const int Size = 512;

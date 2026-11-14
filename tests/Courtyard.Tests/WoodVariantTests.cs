@@ -9,6 +9,7 @@ namespace Courtyard.Tests;
 /// The barrel's and the deck's wood are variants of <c>wood.material.cs</c>. Cooked the way the game's cook cooks them,
 /// every setting they name must reach the graph and change the wood.
 /// </summary>
+[Trait("Speed", "Slow")]
 public sealed class WoodVariantTests : IDisposable
 {
     private readonly string _folder = Path.Combine(Path.GetTempPath(), "courtyard-wood-variants-" + Guid.NewGuid().ToString("N"));

@@ -218,6 +218,7 @@ public sealed class ModelShaderRuleTests : IDisposable
         """;
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void A_graph_with_alpha_cutoff_writes_its_opacity_into_the_colour_alpha()
     {
         string src = Folder("""
