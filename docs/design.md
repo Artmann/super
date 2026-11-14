@@ -80,6 +80,31 @@ is in: the model cooker keeps skeletons and clips, and the vertex shader skins. 
 are in too: a `ParticleEffect` of chained emitters turns a key and an age into particles with no state
 from frame to frame; see [Particles](#particles).
 
+## Lifecycle state in engine code
+
+Many engine classes move through a lifecycle: a background bake waits for pages, steps,
+waits for a readback and finishes; a mouse press becomes a click or a drag; a voice starts,
+plays, holds and fades out. Each one writes its states down as one value, never as a set of
+bools and nullable fields that only make sense together. A field that belongs to one state
+lives in that state, so code in another state can't read a stale value, and a new field
+can't be missed by one of several places that reset things by hand.
+
+There is no shared state machine type. The states carry different data, run on different
+threads, and some sit in hot paths where a table of transitions and delegates would cost
+more than the switch it replaces. `States<TEnum>` is the game's own state machine and the
+only public one. Engine code uses one of two shapes instead:
+
+- States that carry no data of their own are a private enum in one field, and the work
+  for each is a `switch` over it. `BakeJob`'s `Stage` and `States<TEnum>`'s pending change
+  are written this way.
+- States that carry data are a small closed set of types, such as a sealed record for each,
+  matched with `switch` patterns, so each state holds exactly what it needs. This allocates
+  on each change, which is fine for things that change a few times a second at most, such
+  as a click or a new bake.
+
+Each change of state is one assignment, in a method named for the change. Code that runs per
+sample or per draw keeps an enum on the object and decides once per block, not per item.
+
 ## Audio mixer
 
 `Mixer` (in `src/Super/Audio`) owns every playing voice. `Mix(span)` clears the span,

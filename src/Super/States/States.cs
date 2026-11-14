@@ -14,9 +14,9 @@ public sealed class States<TState> : IStateMachine
     private readonly StateChanges _changes;
     private readonly Dictionary<TState, List<Action>> _enter = [];
     private readonly Dictionary<TState, List<Action>> _exit = [];
-    private bool _started;
-    private bool _hasNext;
-    private bool _reenter;
+
+    // What the next change does, and the state it goes to. See "Lifecycle state in engine code" in docs/design.md.
+    private Pending _pending = Pending.Start;
     private TState _next;
 
     public States(StateChanges changes)
@@ -25,13 +25,28 @@ public sealed class States<TState> : IStateMachine
         changes.Add(this);
     }
 
+    private enum Pending
+    {
+        /// <summary>Nothing has been entered yet. The first change enters <see cref="_next"/> with no exit.</summary>
+        Start,
+
+        /// <summary>Nothing was asked for since the last change.</summary>
+        None,
+
+        /// <summary>Move to <see cref="_next"/>, unless that's the current state.</summary>
+        Move,
+
+        /// <summary>Leave the current state and enter <see cref="_next"/>, even when it's the same one.</summary>
+        Reenter,
+    }
+
     /// <summary>The state running now.</summary>
     public TState Current { get; private set; }
 
     /// <summary>The state before this one, so entering a house can put the player at the right door.</summary>
     public TState Previous { get; private set; }
 
-    bool IStateMachine.ChangeDue => !_started || _hasNext;
+    bool IStateMachine.ChangeDue => _pending != Pending.None;
 
     /// <summary>Whether this is the current state. Systems use it to say where they run.</summary>
     public bool Is(TState state) => Same.Equals(Current, state);
@@ -45,8 +60,10 @@ public sealed class States<TState> : IStateMachine
     {
         ThrowIfClosed();
         _next = state;
-        _hasNext = true;
-        _reenter = false;
+        if (_pending != Pending.Start)
+        {
+            _pending = Pending.Move;
+        }
     }
 
     /// <summary>
@@ -58,13 +75,19 @@ public sealed class States<TState> : IStateMachine
     public void Reenter()
     {
         ThrowIfClosed();
-        if (!_hasNext)
+        switch (_pending)
         {
-            _next = Current;
-            _hasNext = true;
+            case Pending.Start:
+                // Nothing has been entered, so the first change enters it once anyway.
+                break;
+            case Pending.None:
+                _next = Current;
+                _pending = Pending.Reenter;
+                break;
+            default:
+                _pending = Pending.Reenter;
+                break;
         }
-
-        _reenter = true;
     }
 
     /// <summary>Adds something to run on entering a state. Use it to build what the state needs.</summary>
@@ -75,31 +98,21 @@ public sealed class States<TState> : IStateMachine
 
     void IStateMachine.Change(IStateHook[] hooks)
     {
-        var next = _hasNext ? _next : Current;
-        bool reenter = _reenter;
-        _hasNext = false;
-        _reenter = false;
-        if (!_started)
+        // Cleared before any callback runs, so a callback that asks for a change queues the next one.
+        var pending = _pending;
+        _pending = Pending.None;
+        switch (pending)
         {
-            _started = true;
-            Previous = next;
-            Enter(next, hooks);
-            return;
+            case Pending.Start:
+                Previous = _next;
+                Enter(_next, hooks);
+                break;
+            case Pending.Move when !Same.Equals(_next, Current):
+            case Pending.Reenter:
+                Exit(hooks);
+                Enter(_next, hooks);
+                break;
         }
-
-        if (Same.Equals(next, Current) && !reenter)
-        {
-            return;
-        }
-
-        Run(_exit, Current);
-        foreach (var hook in hooks)
-        {
-            hook.Exited(Current);
-        }
-
-        Previous = Current;
-        Enter(next, hooks);
     }
 
     private void ThrowIfClosed()
@@ -108,6 +121,17 @@ public sealed class States<TState> : IStateMachine
         {
             throw new InvalidOperationException("States can't change in Draw or Ui, which only describe state. Change them in Update.");
         }
+    }
+
+    private void Exit(IStateHook[] hooks)
+    {
+        Run(_exit, Current);
+        foreach (var hook in hooks)
+        {
+            hook.Exited(Current);
+        }
+
+        Previous = Current;
     }
 
     private void Enter(TState state, IStateHook[] hooks)

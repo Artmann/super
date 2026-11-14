@@ -60,6 +60,26 @@ public class StatesTests
         }
     }
 
+    private class ReentersInLoad(States<Screen> states) : IGame
+    {
+        public List<string> Log { get; } = [];
+
+        public void Load()
+        {
+            states.OnEnter(Screen.Menu, () => Log.Add("enter Menu"));
+            states.OnExit(Screen.Menu, () => Log.Add("exit Menu"));
+            states.Reenter();
+        }
+
+        public void Update(GameTime time)
+        {
+        }
+
+        public void Draw(View view)
+        {
+        }
+    }
+
     private class Chain(States<Screen> states) : IGame
     {
         public void Load()
@@ -221,6 +241,14 @@ public class StatesTests
         run.Ticks(1);
 
         Assert.Equal(["update Menu", "exit Menu current Menu", "enter Outside from Menu"], run.Game.Log);
+    }
+
+    [Fact]
+    public void Reenter_in_Load_enters_the_first_state_once_without_leaving_it()
+    {
+        using var run = HeadlessGame.Create<ReentersInLoad>(1);
+        run.Ticks(1);
+        Assert.Equal(["enter Menu"], run.Game.Log);
     }
 
     [Fact]
