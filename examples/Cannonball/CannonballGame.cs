@@ -69,8 +69,8 @@ public sealed class CannonballGame(World world, Content content, Physics physics
 
     private Vector3 JointAt(string joint) => (world.Get<Animated>(Stuntman).Value.Joint(joint) * world.Get<Transform>(Stuntman).Matrix).Translation;
 
-    /// <summary>Follows the stuntman from the side, a little ahead and above, so the whole flight crosses the screen and the wall never hides where they land.</summary>
-    public FollowCamera Camera { get; } = new() { Offset = new Vector3(-11f, 7f, 4f), Lag = 0.35f, FieldOfView = 0.8f, WideAs = 16f / 9f };
+    /// <summary>Follows the stuntman from behind, to the side and above, so the whole flight crosses the screen and the camera looks over the wall at where they land.</summary>
+    public FollowCamera Camera { get; } = new() { Offset = new Vector3(-9f, 7f, -8f), Lag = 0.35f, FieldOfView = 0.8f, WideAs = 16f / 9f };
 
     /// <summary>For <c>--script bodies</c>: shows the ragdoll's bodies, so a screenshot can show them.</summary>
     public IReadOnlyDictionary<string, InputScript> Scripts => new Dictionary<string, InputScript>
