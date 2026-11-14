@@ -51,7 +51,7 @@ can read it and act on it directly.
 - **Native code shows up as the C# call that entered it.** The samples stop at managed
   code, so time inside the GPU driver lands on the function that called it.
 - **A profile run differs a little from a normal one.** It's a hidden window with Vulkan
-  validation off, and it asks the GPU for timestamps.
+  validation off, and it asks the GPU for timestamps and to count the shaders each pass runs.
 
 ## Comparing before and after
 
@@ -71,7 +71,7 @@ For a live figure while playing, show [`GameStats`](interfaces.md#showing-how-th
 in a panel. Vsync is off unless the game or `--vsync` turns it on, so the figure is the frame
 rate the machine can reach.
 To see what an effect costs, turn it off in [`Graphics`](rendering.md#graphics-settings) and
-profile again: its pass drops to nothing in the GPU list.
+profile again: its pass drops to nothing in the GPU list. Light clusters, Subsurface and the particles in Glass and particles have switches too (`LocalLights`, `Subsurface` and `Particles`), though glass stays in that pass.
 
 "Light probes" in the GPU list is the time spent updating the
 [bounced light](rendering.md#bounced-light)'s probes: traced on a GPU that can, drawn otherwise.

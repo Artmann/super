@@ -15,7 +15,8 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
     private const int Size = 256;
     private const int NoisePeriod = 64;
     private const int TexelsPerMetre = 8;
-    private const RenderEffects OnlyBaked = RenderEffects.All & ~RenderEffects.BakedLighting;
+    // Point and spot lights stay on: the live lighting a missing or unread bake falls back to needs them.
+    private const RenderEffects OnlyBaked = RenderEffects.All & ~(RenderEffects.BakedLighting | RenderEffects.LocalLights);
 
     private static readonly BakedSpace Room =
         new("lightmap-room", new Vector3(-6f, -3f, -6f), new Vector3(6f, 7f, 6f), 1f, TexelsPerMetre);

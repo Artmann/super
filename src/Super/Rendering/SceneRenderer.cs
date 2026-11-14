@@ -99,10 +99,10 @@ internal sealed class SceneRenderer : IDisposable
     /// The bands baked into the environment. Water wins over the sky, which wins over the studio.
     /// A clear sky keeps its three colours here, and the renderer uses only the ground below its horizon.
     /// </summary>
-    internal static Bands SurroundingColors(View view)
+    internal static Bands SurroundingColors(View view, RenderEffects off)
     {
         var water = view.WaterSettings;
-        if (water.Absorption != Vector3.Zero)
+        if (Submerged(view, off))
         {
             return new Bands(water.ShallowColor, Vector3.Lerp(water.ShallowColor, water.DeepColor, 0.5f), water.DeepColor);
         }
@@ -116,10 +116,14 @@ internal sealed class SceneRenderer : IDisposable
     }
 
     /// <summary>The view's clear sky, or none under water, which takes over the sky.</summary>
-    internal static AnalyticSky FrameSky(View view) =>
-        view.WaterSettings.Absorption == Vector3.Zero && view.SkySettings is { } sky
+    internal static AnalyticSky FrameSky(View view, RenderEffects off) =>
+        !Submerged(view, off) && view.SkySettings is { } sky
             ? new AnalyticSky { Turbidity = sky.Turbidity }
             : default;
+
+    /// <summary>Whether the view is under its water, which it never is while <see cref="RenderEffects.Underwater"/> is off.</summary>
+    private static bool Submerged(View view, RenderEffects off) =>
+        view.WaterSettings.Absorption != Vector3.Zero && !off.HasFlag(RenderEffects.Underwater);
 
     public int ValidationErrors => _renderer.ValidationErrors;
 
@@ -616,7 +620,7 @@ internal sealed class SceneRenderer : IDisposable
 
         // Surfaces pick up the color of the water or sky around them. Baking is slow, so
         // it only happens when the colors change.
-        var bands = SurroundingColors(view);
+        var bands = SurroundingColors(view, Off);
         if (bands != _bakedBands)
         {
             _renderer.SetEnvironment(new EnvironmentDescription
@@ -1105,7 +1109,7 @@ internal sealed class SceneRenderer : IDisposable
             BakedSpace = view.BakedSpace,
             BakedChunks = view.PlacedBakedChunks,
             EnvironmentIntensity = sky is null ? 0.8f : sky.Value.Brightness > 0f ? sky.Value.Brightness : 1f,
-            Sky = FrameSky(view),
+            Sky = FrameSky(view, Off),
             BackgroundRadiance = new Vector3(0.15f, 0.16f, 0.18f),
             ShowEnvironment = sky is not null,
             BackgroundFadeStart = sky?.HazeStart ?? 0f,

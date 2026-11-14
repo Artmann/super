@@ -233,7 +233,7 @@
       "kind": "high-complexity",
       "name": "Rendition.Renderer.RecordScene",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 17
+      "metric": 18
     },
     {
       "kind": "high-complexity",
@@ -269,7 +269,7 @@
       "kind": "high-complexity",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 40
+      "metric": 43
     },
     {
       "kind": "high-complexity",
@@ -941,7 +941,7 @@
       "kind": "high-cognitive-complexity",
       "name": "Rendition.Renderer.RecordScene",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 22
+      "metric": 23
     },
     {
       "kind": "high-cognitive-complexity",
@@ -977,7 +977,7 @@
       "kind": "high-cognitive-complexity",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 44
+      "metric": 47
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1955,7 +1955,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 152
+      "metric": 154
     },
     {
       "kind": "long-method",
@@ -2003,7 +2003,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 169
+      "metric": 171
     },
     {
       "kind": "long-method",
@@ -2165,7 +2165,7 @@
       "kind": "long-method",
       "name": "Rendition.Vulkan.VulkanContext.CreateDevice",
       "file": "src/Rendition/Vulkan/VulkanContext.cs",
-      "metric": 133
+      "metric": 135
     },
     {
       "kind": "long-method",
@@ -3491,13 +3491,13 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5724
+      "metric": 5752
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
-      "metric": 1529
+      "metric": 1571
     },
     {
       "kind": "large-file",
@@ -3533,7 +3533,7 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1157
+      "metric": 1161
     },
     {
       "kind": "large-file",
@@ -3683,7 +3683,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 385
+      "metric": 389
     },
     {
       "kind": "large-type",
@@ -3749,7 +3749,7 @@
       "kind": "large-type",
       "name": "Rendition.Vulkan.VulkanContext",
       "file": "src/Rendition/Vulkan/VulkanContext.cs",
-      "metric": 39
+      "metric": 40
     },
     {
       "kind": "large-type",
@@ -3881,7 +3881,7 @@
       "kind": "large-type",
       "name": "Super.Graphics",
       "file": "src/Super/Graphics.cs",
-      "metric": 55
+      "metric": 60
     },
     {
       "kind": "large-type",
@@ -3935,7 +3935,7 @@
       "kind": "large-type",
       "name": "Super.SceneRenderer",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 106
+      "metric": 107
     },
     {
       "kind": "large-type",

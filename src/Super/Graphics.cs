@@ -168,6 +168,13 @@ public sealed class Graphics
     /// <summary>Point and spot light shadows. Off, those lights are blocked only by nearby surfaces, as the sun is without its shadows.</summary>
     public bool LightShadows { get; set; } = true;
 
+    /// <summary>
+    /// Point and spot lights. Off, they light nothing: none is clustered, shadowed or lit onto the light probes, so the
+    /// scene looks as if they weren't there and the sun and sky light it alone. Light a bake already holds stays, and no
+    /// bake is redone; turn <see cref="BakedLighting"/> off too to drop it.
+    /// </summary>
+    public bool LocalLights { get; set; } = true;
+
     /// <summary>Darkening in corners, creases and under things. Off, they're as bright as open ground.</summary>
     public bool AmbientOcclusion { get; set; } = true;
 
@@ -194,6 +201,18 @@ public sealed class Graphics
     public bool Fog { get; set; } = true;
 
     /// <summary>
+    /// Distant things fading into the sky behind them, from <see cref="SkySettings.HazeStart"/> to
+    /// <see cref="SkySettings.HazeEnd"/>. Off, they keep their colours however far they are. The sky's own colour stays.
+    /// </summary>
+    public bool Haze { get; set; } = true;
+
+    /// <summary>
+    /// The water set with <c>view.Water</c>. Off, the view is drawn as if the camera weren't under water: no absorption,
+    /// no caustics and no light shafts, and the sky shows.
+    /// </summary>
+    public bool Underwater { get; set; } = true;
+
+    /// <summary>
     /// Metering the picture for <see cref="PostSettings.AutoExposure"/>, so the brightness follows what the
     /// camera sees, as an eye does. Off, the fixed <see cref="PostSettings.Exposure"/> sets it, as for a view
     /// that never asked. It costs a pass over the frame, so <see cref="Fastest"/> turns it off.
@@ -213,6 +232,16 @@ public sealed class Graphics
     /// <see cref="Fastest"/> turns it off.
     /// </summary>
     public bool Decals { get; set; } = true;
+
+    /// <summary>Particles, such as dust, smoke, sparks and flames. Off, none is uploaded or drawn.</summary>
+    public bool Particles { get; set; } = true;
+
+    /// <summary>
+    /// Light spreading under the surface of skin and wax, from a material's <c>Subsurface</c>. Off, those surfaces are
+    /// lit as plain matte and light no longer shines through their thin parts, which saves two blurs across the picture.
+    /// <see cref="Fastest"/> turns it off.
+    /// </summary>
+    public bool Subsurface { get; set; } = true;
 
     /// <summary>
     /// Working out the fog near the camera in a volume that the sun's shadows and the point and spot lights
@@ -469,15 +498,20 @@ public sealed class Graphics
         ContactShadows = profile.ContactShadows;
         LightProbes = profile.LightProbes;
         LightShadows = profile.LightShadows;
+        LocalLights = profile.LocalLights;
         AmbientOcclusion = profile.AmbientOcclusion;
         MultiscatterSpecular = profile.MultiscatterSpecular;
         Reflections = profile.Reflections;
         AntiAliasing = profile.AntiAliasing;
         Bloom = profile.Bloom;
         Fog = profile.Fog;
+        Haze = profile.Haze;
+        Underwater = profile.Underwater;
         AutoExposure = profile.AutoExposure;
         DepthOfField = profile.DepthOfField;
         Decals = profile.Decals;
+        Particles = profile.Particles;
+        Subsurface = profile.Subsurface;
         VolumetricFog = profile.VolumetricFog;
         Materials = profile.Materials;
         WearAndDirt = profile.WearAndDirt;
@@ -524,7 +558,8 @@ public sealed class Graphics
 
     /// <summary>
     /// Every effect that costs GPU time off: the fastest the engine draws, and a start for a game that must
-    /// run on modest hardware. Turn back on only what it needs. What costs nothing or saves time stays on: the materials,
+    /// run on modest hardware. Turn back on only what it needs. Point and spot lights and particles stay, as they
+    /// are the game's own content rather than effects. What costs nothing or saves time stays on: the materials,
     /// the baked lighting, the shine, the sky's light, glows, the colour grade, culling and simpler models. The light probes are at
     /// <see cref="Rendition.ProbeQuality.Low"/>, so turning them back on keeps them cheap, and models switch to their
     /// simpler versions at the lowest <see cref="MeshDetail"/>.
@@ -555,6 +590,7 @@ public sealed class Graphics
         Vignette = false,
         Grain = false,
         Sharpening = false,
+        Subsurface = false,
     };
 
     /// <summary>The effects the renderer leaves out.</summary>
@@ -608,5 +644,10 @@ public sealed class Graphics
         (graphics => graphics.Culling, RenderEffects.Culling),
         (graphics => graphics.SimplerModels, RenderEffects.SimplerModels),
         (graphics => graphics.DepthFirst, RenderEffects.DepthFirst),
+        (graphics => graphics.Subsurface, RenderEffects.Subsurface),
+        (graphics => graphics.Particles, RenderEffects.Particles),
+        (graphics => graphics.LocalLights, RenderEffects.LocalLights),
+        (graphics => graphics.Haze, RenderEffects.Haze),
+        (graphics => graphics.Underwater, RenderEffects.Underwater),
     ];
 }

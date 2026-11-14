@@ -17,7 +17,8 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
     private const int NoisePeriod = 64;
     private const int Density = 8;
     private const int MostFrames = 120;
-    private const RenderEffects OnlyBaked = RenderEffects.All & ~RenderEffects.BakedLighting;
+    // Point and spot lights stay on: the live lighting a missing or unread bake falls back to needs them.
+    private const RenderEffects OnlyBaked = RenderEffects.All & ~(RenderEffects.BakedLighting | RenderEffects.LocalLights);
 
     // The lamp's place in front of the wall, in the chunk's space.
     private static readonly Vector3 LampAt = new(0.3f, 0.2f, 1f);

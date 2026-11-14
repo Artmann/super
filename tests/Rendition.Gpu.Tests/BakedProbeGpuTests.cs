@@ -19,7 +19,8 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
     private const int NoisePeriod = 64;
     private const int MaxSettleFrames = 600;
     private const int TexelsPerMetre = 4;
-    private const RenderEffects OnlyBaked = RenderEffects.All & ~RenderEffects.BakedLighting;
+    // Point and spot lights stay on: the live lighting a missing or unread bake falls back to needs them.
+    private const RenderEffects OnlyBaked = RenderEffects.All & ~(RenderEffects.BakedLighting | RenderEffects.LocalLights);
 
     // Probes a metre apart, x = -4 to 4 and so on.
     private static readonly BakedSpace Room =

@@ -391,7 +391,7 @@ they fade with distance but miss the shafts of light. They're sorted with
 [glass](rendering.md#glass), so a puff in front of a pane covers it and one behind is
 seen through it. `Cached` keeps only
 models, so draw particles outside it. A frame holds at most 32,768 particles; more
-are dropped. The `Dust` example drops trees in a clearing.
+are dropped. `Graphics.Particles` turns them off, see [graphics settings](rendering.md#graphics-settings). The `Dust` example drops trees in a clearing.
 
 ## Decals
 

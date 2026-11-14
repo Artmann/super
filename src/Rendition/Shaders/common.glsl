@@ -87,6 +87,7 @@ const int OFF_HEIGHT_MAPS = 1 << 19;
 const int OFF_SPECULAR = 1 << 20;
 const int OFF_ENVIRONMENT_LIGHT = 1 << 21;
 const int OFF_EMISSIVE = 1 << 22;
+const int OFF_SUBSURFACE = int(0x80000000u);   // 1 << 31, the last bit the shaders read.
 // Not a RenderEffects bit: set by the renderer while a debug view shows (DebugViewBit in Renderer.cs). Tonemapping
 // and the finish pass then hand colours through as they are.
 const int OFF_DEBUG_VIEW = 1 << 30;
