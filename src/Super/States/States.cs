@@ -98,19 +98,21 @@ public sealed class States<TState> : IStateMachine
 
     void IStateMachine.Change(IStateHook[] hooks)
     {
-        // Cleared before any callback runs, so a callback that asks for a change queues the next one.
+        // Taken before any callback runs, so a callback that asks for a change queues the next one
+        // instead of replacing this one.
         var pending = _pending;
+        var next = _next;
         _pending = Pending.None;
         switch (pending)
         {
             case Pending.Start:
-                Previous = _next;
-                Enter(_next, hooks);
+                Previous = next;
+                Enter(next, hooks);
                 break;
-            case Pending.Move when !Same.Equals(_next, Current):
+            case Pending.Move when !Same.Equals(next, Current):
             case Pending.Reenter:
                 Exit(hooks);
-                Enter(_next, hooks);
+                Enter(next, hooks);
                 break;
         }
     }

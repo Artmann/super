@@ -892,7 +892,7 @@ Then it clears the stop and runs the tick, which delivers the reload and `CodeRe
 before `Update`.
 
 When `Update` stopped the game, `Draw` still runs the game's `Draw`, and only the interface
-is swapped for `StoppedPanel`. When `Draw` or `Ui` threw, `_drawStopped` is set and later
+is swapped for `StoppedPanel`. When `Draw` or `Ui` threw, `_halt` holds a `DrawHalt` and later
 frames run `DrawStopped` instead. It begins an empty view, ends the audio frame and shows
 the panel without calling any of the game's code, so a broken Draw isn't hit every frame.
 Both paths end with `StateChanges.Open` set to true again, because a Draw that threw never
@@ -1608,8 +1608,9 @@ radius. That is why the view's shadow centre and radius are out of the hash, and
 camera captures nothing. Captures draw into a small G-buffer kept for reflection probes
 (`_reflectionProbeTargets`),
 set the renderer's switches from the view first, since `Render` hasn't applied this frame's
-yet, and put back the switches and the held-transition, LDR and history flags after, because
-rebinding the targets clears them and a transition's held outgoing shot would be lost.
+yet, and put back the switches and the screen's targets after. What each set of targets holds
+(history, a transition's held outgoing shot, the last frame) is kept on that `GBuffer`, so a
+capture leaves the screen's alone.
 
 ## Light probes
 

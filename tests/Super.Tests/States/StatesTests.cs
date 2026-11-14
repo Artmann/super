@@ -97,6 +97,29 @@ public class StatesTests
         }
     }
 
+    private class SetsOnExit(States<Screen> states) : IGame
+    {
+        public List<string> Log { get; } = [];
+
+        public void Load()
+        {
+            foreach (var screen in Enum.GetValues<Screen>())
+            {
+                states.OnEnter(screen, () => Log.Add($"enter {screen}"));
+            }
+
+            states.OnExit(Screen.Menu, () => states.Set(Screen.Outside));
+        }
+
+        public void Update(GameTime time)
+        {
+        }
+
+        public void Draw(View view)
+        {
+        }
+    }
+
     private class Loop(States<Screen> states) : IGame
     {
         public void Load()
@@ -167,6 +190,18 @@ public class StatesTests
         run.Game.SetOnUpdate = Screen.House;
         run.Ticks(1);
         Assert.Equal(["update Menu", "still Menu", "exit Menu current Menu", "enter House from Menu"], run.Game.Log);
+    }
+
+    [Fact]
+    public void A_change_asked_for_while_leaving_comes_after_the_one_being_made()
+    {
+        using var run = HeadlessGame.Create<SetsOnExit>(1);
+        run.Game.Log.Clear();
+        run.States<Screen>().Set(Screen.House);
+        run.Ticks(1);
+
+        Assert.Equal(["enter House", "enter Outside"], run.Game.Log);
+        Assert.Equal(Screen.House, run.States<Screen>().Previous);
     }
 
     [Fact]
