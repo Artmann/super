@@ -64,13 +64,71 @@ public sealed class DrawBatchTests
             plain with { Material = new MaterialHandle(3) },
             plain with { Mesh = new MeshHandle(4) },
             plain with { IndexCount = 12 },
-            plain with { Swim = new SwimMotion(0.1f, 1f, 0.5f) },
         ];
 
         foreach (var other in different)
         {
             Assert.Equal(2, Batch([plain, other], keepOrder: false, out _).Count);
         }
+    }
+
+    [Fact]
+    public void Fish_that_swim_out_of_step_are_one_draw()
+    {
+        // The swim is each copy's own, like its matrix, so a shoal's hundred phases don't make a hundred draws.
+        DrawItem[] shoal =
+        [
+            Part(0, x: 1f) with { Swim = new SwimMotion(0.1f, 1f, 0.5f) },
+            Part(0, x: 2f) with { Swim = new SwimMotion(0.1f, 1f, 2.5f) },
+            Part(0, x: 3f) with { Swim = new SwimMotion(0.2f, 1.5f, 4f) },
+            Part(0, x: 4f),
+        ];
+
+        var batch = Assert.Single(Batch(shoal, keepOrder: false, out _));
+
+        Assert.Equal(new DrawBatch(0, 4), batch);
+    }
+
+    [Fact]
+    public void Copies_that_look_the_same_keep_the_order_they_came_in()
+    {
+        var red = Part(0) with { Tint = new Vector3(1f, 0f, 0f) };
+        var other = Part(0) with { Mesh = new MeshHandle(7) };
+        // Positions tell the copies apart: 0 to 5 as listed.
+        DrawItem[] draws =
+        [
+            red with { Transform = Matrix4x4.CreateTranslation(0f, 0f, 0f) },
+            other with { Transform = Matrix4x4.CreateTranslation(1f, 0f, 0f) },
+            red with { Transform = Matrix4x4.CreateTranslation(2f, 0f, 0f) },
+            Part(0, x: 3f),
+            other with { Transform = Matrix4x4.CreateTranslation(4f, 0f, 0f) },
+            red with { Transform = Matrix4x4.CreateTranslation(5f, 0f, 0f) },
+        ];
+
+        var batches = Batch(draws, keepOrder: false, out int[] order);
+
+        Assert.Equal(3, batches.Count);
+        var groups = batches.Select(batch => order.AsSpan(batch.First, batch.Count).ToArray()).OrderBy(group => group[0]).ToArray();
+        Assert.Equal([0, 2, 5], groups[0]);
+        Assert.Equal([1, 4], groups[1]);
+        Assert.Equal([3], groups[2]);
+    }
+
+    [Fact]
+    public void A_meshs_parts_are_drawn_in_the_order_the_mesh_holds_them()
+    {
+        // A model's parts are laid out to be drawn in order, and drawing them in another costs overdraw.
+        DrawItem[] draws =
+        [
+            Part(72) with { Material = new MaterialHandle(1) },
+            Part(0) with { Material = new MaterialHandle(9) },
+            Part(36) with { Material = new MaterialHandle(5) },
+            Part(108) with { Material = new MaterialHandle(3) },
+        ];
+
+        Batch(draws, keepOrder: false, out int[] order);
+
+        Assert.Equal([0u, 36u, 72u, 108u], order.Select(i => draws[i].FirstIndex));
     }
 
     [Fact]

@@ -19,9 +19,6 @@ layout(push_constant) uniform Draw {
     vec4 tint;
     vec4 ghost; // rgb is the colour of a ghost and a its opacity, or 0 for no ghost.
     int material;
-    float swimAmplitude;
-    float swimBodyLength;
-    float swimPhase;
     int cascade;
     int firstBone;
     float windBase; // the lowest height of the draw's part, in its own space; see wind.glsl
@@ -77,7 +74,8 @@ void main() {
     int chunk = lightmap.chunk.x;
     outLightmap = ivec4(lightmap.textures.xyz, chunk);
     vec3 posed = (skinned * vec4(inPosition, 1.0)).xyz;
-    vec3 swum = swim(posed, draw.swimAmplitude, draw.swimBodyLength, draw.swimPhase);
+    vec3 swimming = instanceSwim();
+    vec3 swum = swim(posed, swimming.x, swimming.y, swimming.z);
     vec4 position = vec4(windSwayPlaced((placed * vec4(swum, 1.0)).xyz, placed, posed, draw.windBase, draw.windSway), 1.0);
     outPosition = position.xyz;
     outChunkPosition = chunk >= 0 ? position * chunkData.chunks[chunk].intoChunk : vec3(0.0);

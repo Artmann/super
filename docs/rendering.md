@@ -1834,9 +1834,10 @@ A colour passed when drawing a model tints it and keeps its textures, so one tre
 can be drawn in many autumn shades at no extra cost.
 
 Draw a model as many times as you like. After culling, the renderer draws copies of one
-part that look the same (same level of detail, material, tint, ghost and swim) as one
+part that look the same (same level of detail, material, tint and ghost) as one
 instanced draw, so a forest of one tree or a grid of tiles costs a few draws, not
-thousands. Only where each copy stands can differ. A different tint splits copies into
+thousands. Where each copy stands and how it swims can differ, so a shoal of fish that
+swim out of step is still one draw. A different tint splits copies into
 separate draws but still works. Skinned models are drawn one at a time.
 
 The Archer, Fox and Reef examples share their models through the `assets` folder at the

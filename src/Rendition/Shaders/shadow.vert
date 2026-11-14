@@ -16,9 +16,6 @@ layout(push_constant) uniform Draw {
     vec4 tint;
     vec4 ghost; // rgb is the colour of a ghost and a its opacity, or 0 for no ghost.
     int material;
-    float swimAmplitude;
-    float swimBodyLength;
-    float swimPhase;
     int cascade; // a sun's cascade, from 4 on a tile of the local lights' atlas, or -1 for the light probes' sun map
     int firstBone;
     float windBase; // the lowest height of the draw's part, in its own space; see wind.glsl
@@ -30,7 +27,8 @@ layout(location = 0) out vec2 outUv;
 void main() {
     outUv = inUv;
     vec3 posed = (skinMatrix(draw.firstBone, inJoints, inWeights) * vec4(inPosition, 1.0)).xyz;
-    vec3 swum = swim(posed, draw.swimAmplitude, draw.swimBodyLength, draw.swimPhase);
+    vec3 swimming = instanceSwim();
+    vec3 swum = swim(posed, swimming.x, swimming.y, swimming.z);
     mat4 light = draw.cascade < 0 ? frame.probeSunMatrix
         : draw.cascade < 4 ? frame.shadowMatrices[draw.cascade] : shadowTiles[draw.cascade - 4].matrix;
     mat4 placed = instanceModel();
