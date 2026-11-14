@@ -30,14 +30,14 @@ internal static class TextureCompression
     private const CompressionQuality Quality = CompressionQuality.Fast;
 
     /// <summary>
-    /// Names the code that compresses, for the step cache's keys: this library's build, which holds
+    /// Names the code that compresses, for the step cache's keys: this library's code (<see cref="CodeId"/>), which holds
     /// <see cref="Bc7Encoder"/>, BCnEncoder.Net's version and the quality it runs at.
     /// </summary>
     private static readonly string EncoderVersion = EncoderVersionFor(Bc7Encoder.Version, Quality);
 
     /// <summary>The encoder's version as <see cref="EncoderVersion"/> names it, for a given <see cref="Bc7Encoder.Version"/> and BCnEncoder.Net quality.</summary>
     internal static string EncoderVersionFor(int bc7Version, CompressionQuality quality) => string.Join(',',
-        typeof(TextureCompression).Assembly.ManifestModule.ModuleVersionId.ToString("N"),
+        CodeId.Of(typeof(TextureCompression).Assembly).ToString("N"),
         bc7Version.ToString(CultureInfo.InvariantCulture),
         typeof(BcEncoder).Assembly.GetName().Version?.ToString() ?? "",
         quality.ToString());

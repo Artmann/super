@@ -493,8 +493,8 @@ public sealed class ModelCooker : ICooker
     /// <summary>The note's reason for a material none of whose meshes has a second UV set.</summary>
     private const string NoUv2 = "the file has none";
 
-    /// <summary>Names the code that unwraps and the kept bytes' layout, for the step cache's keys: the builds of the libraries that hold <see cref="LightmapUnwrap"/> and this cooker.</summary>
-    private static readonly string UnwrapVersion = typeof(LightmapUnwrap).Assembly.ManifestModule.ModuleVersionId.ToString("N") + typeof(ModelCooker).Assembly.ManifestModule.ModuleVersionId.ToString("N");
+    /// <summary>Names the code that unwraps and the kept bytes' layout, for the step cache's keys: <see cref="LightmapUnwrap.Version"/> and this cooker's code.</summary>
+    private static readonly string UnwrapVersion = LightmapUnwrap.Version + CodeId.Of(typeof(ModelCooker).Assembly).ToString("N");
 
     /// <summary>
     /// Gives every material's parts a second UV set fit for a lightmap. A material is the group the masks bake one mask
@@ -947,11 +947,11 @@ public sealed class ModelCooker : ICooker
     private const string MaskStep = "mask";
 
     /// <summary>
-    /// Names the code that bakes masks, for the step cache's keys: this library's build, which holds
+    /// Names the code that bakes masks, for the step cache's keys: this library's code (<see cref="CodeId"/>), which holds
     /// <see cref="MaskBaker"/>, and the size it bakes at.
     /// </summary>
     private static readonly string MaskVersion = string.Join(',',
-        typeof(MaskBaker).Assembly.ManifestModule.ModuleVersionId.ToString("N"),
+        CodeId.Of(typeof(MaskBaker).Assembly).ToString("N"),
         MaskBaker.DefaultSize.ToString(CultureInfo.InvariantCulture));
 
     /// <summary>The hash of the corners and second UVs every material's mask is baked from.</summary>

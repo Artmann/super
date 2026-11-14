@@ -10,9 +10,9 @@
     <TieredPGO>true</TieredPGO>
     <!--
       The SDK asks git for the commit and writes it into every assembly: in its informational version, and in the
-      SourceLink URL in its PDB, whose hash the assembly carries. Then every commit gives the cook libraries a new
-      build id, and the cooker's version, which is made from those ids, changes with it: the whole cook cache misses
-      after any commit, even one that touches no cook code. Without it, unchanged code builds to the same bytes.
+      SourceLink URL in its PDB, whose hash the assembly carries. Then every commit gives the cook libraries new
+      bytes, and the cooker's version, which is a hash of their code (CodeId), changes with it: the whole cook cache
+      misses after any commit, even one that touches no cook code. Without it, unchanged code builds to the same bytes.
     -->
     <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
   </PropertyGroup>

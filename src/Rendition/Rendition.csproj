@@ -21,6 +21,30 @@
           Visible="false" />
   </ItemGroup>
 
+  <!--
+    Writes a hash of the lightmap unwrap's source into the assembly, for LightmapUnwrap.Version. The cook keeps
+    unwrapped models under it, so they are only unwrapped again when these files change. The assembly's own build
+    id would change with any edit to the renderer, and unwrapping the Courtyard takes minutes. Types.cs holds
+    Vertex, which the unwrap reads and writes.
+  -->
+  <Target Name="LightmapUnwrapVersion" BeforeTargets="GetAssemblyAttributes">
+    <ItemGroup>
+      <_LightmapUnwrapSource Include="Lightmaps\*.cs;Types.cs" />
+    </ItemGroup>
+    <GetFileHash Files="@(_LightmapUnwrapSource)">
+      <Output TaskParameter="Items" ItemName="_LightmapUnwrapHashed" />
+    </GetFileHash>
+    <Hash ItemsToHash="@(_LightmapUnwrapHashed->'%(Filename)%(Extension):%(FileHash)')">
+      <Output TaskParameter="HashResult" PropertyName="_LightmapUnwrapVersion" />
+    </Hash>
+    <ItemGroup>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>LightmapUnwrapVersion</_Parameter1>
+        <_Parameter2>$(_LightmapUnwrapVersion)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
+
   <Import Project="..\Shaders.targets" />
 
 </Project>
