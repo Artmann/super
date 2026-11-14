@@ -126,7 +126,8 @@ public sealed class StuntFlight(World world, Physics physics)
         bool faceUp = physics.IsFaceUp(Stuntman);
         world.Get<Ragdoll>(Stuntman) = world.Get<Ragdoll>(Stuntman) with { Mode = RagdollMode.Off };
         Animator.Set(Stance.Idle);
-        Animator.Play(faceUp ? Move.StandUp : Move.StandUpFromFront);        Stage = Stage.GettingUp;
+        Animator.Play(faceUp ? Move.StandUp : Move.StandUpFromFront);
+        Stage = Stage.GettingUp;
         _seconds = 0f;
     }
 
