@@ -10,7 +10,16 @@ internal sealed unsafe class GBufferPass : IDisposable
     private readonly ResourceTable _resources;
     private readonly PipelineLayout _layout;
     private readonly List<PipelineVariants> _pipelines = [];
+    private static readonly Format[] ColorFormats =
+    [
+        GBuffer.BaseColorFormat, GBuffer.NormalFormat, GBuffer.EmissiveFormat, GBuffer.MotionFormat,
+        GBuffer.BakedFormat, GBuffer.MaskFormat,
+    ];
+
     private readonly List<PipelineVariants> _solids = [];
+    private readonly List<PipelineVariants> _shown = [];
+    private readonly List<PipelineVariants> _depthOnly = [];
+    private readonly DepthFirst _depthFirst;
 
     public GBufferPass(VulkanContext context, DescriptorSetLayout frameSetLayout, ResourceTable resources)
     {
@@ -18,6 +27,23 @@ internal sealed unsafe class GBufferPass : IDisposable
         _resources = resources;
 
         _layout = context.CreatePipelineLayout([frameSetLayout, resources.Layout], SceneDraws.PushRange);
+
+        // Depth alone: no fragment shader, and nothing written to the colour targets.
+        Span<PipelineColorBlendAttachmentState> noColor = stackalloc PipelineColorBlendAttachmentState[ColorFormats.Length];
+        var depthOnly = new PipelineDescription
+        {
+            VertexShader = "gbuffer.vert",
+            Layout = _layout,
+            ColorFormats = ColorFormats,
+            Blends = noColor,
+            DepthFormat = GBuffer.DepthFormat,
+            VertexBindings = SceneDraws.VertexBindings,
+            VertexAttributes = SceneDraws.VertexAttributes,
+        };
+        var depthCulled = PipelineFactory.Create(_context, depthOnly);
+        depthOnly.TwoSided = true;
+        _depthOnly.Add(new PipelineVariants(depthCulled, PipelineFactory.Create(_context, depthOnly)));
+        _depthFirst = new DepthFirst(_depthOnly, _shown);
 
         // The first entry is the standard shader, which materials use by default.
         AddShader(null);
@@ -34,11 +60,7 @@ internal sealed unsafe class GBufferPass : IDisposable
             FragmentShader = "gbuffer.frag",
             FragmentCode = code,
             Layout = _layout,
-            ColorFormats =
-            [
-                GBuffer.BaseColorFormat, GBuffer.NormalFormat, GBuffer.EmissiveFormat, GBuffer.MotionFormat,
-                GBuffer.BakedFormat, GBuffer.MaskFormat,
-            ],
+            ColorFormats = ColorFormats,
             DepthFormat = GBuffer.DepthFormat,
             VertexBindings = SceneDraws.VertexBindings,
             VertexAttributes = SceneDraws.VertexAttributes,
@@ -53,9 +75,20 @@ internal sealed unsafe class GBufferPass : IDisposable
         var solidCulled = PipelineFactory.Create(_context, description);
         description.TwoSided = true;
         _solids.Add(new PipelineVariants(solidCulled, PipelineFactory.Create(_context, description)));
+
+        // And once more for when their depth is drawn first, to shade only the pixels that show.
+        description.DepthDrawn = true;
+        description.TwoSided = false;
+        var shownCulled = PipelineFactory.Create(_context, description);
+        description.TwoSided = true;
+        _shown.Add(new PipelineVariants(shownCulled, PipelineFactory.Create(_context, description)));
         return new SurfaceShaderHandle(_pipelines.Count - 1);
     }
 
+    /// <summary>
+    /// Draws the solid things into <paramref name="targets"/>. Given the camera as <paramref name="depthFirst"/>,
+    /// draws whose triangles are large in its view have their depth drawn first; see <see cref="DepthFirst"/>.
+    /// </summary>
     public void Record(
         CommandBuffer cmd,
         GBuffer targets,
@@ -63,10 +96,31 @@ internal sealed unsafe class GBufferPass : IDisposable
         ReadOnlySpan<DrawItem> draws,
         List<Mesh?> meshes,
         List<PartDetail> details,
-        InstanceBuffer instances)
+        InstanceBuffer instances,
+        DetailView? depthFirst = null)
     {
         var api = _context.Api;
+        Begin(cmd, targets);
 
+        var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set };
+        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
+
+        if (depthFirst is { } view)
+        {
+            _depthFirst.Aim(view, (float)targets.Extent.Width * targets.Extent.Height);
+        }
+
+        SceneDraws.Record(
+            api, cmd, _layout, _pipelines, _resources, draws, meshes, details, instances, ScenePass.Opaque,
+            solids: _solids, depthFirst: depthFirst is null ? null : _depthFirst);
+
+        api.CmdEndRendering(cmd);
+    }
+
+    // Starts drawing into the targets, each cleared.
+    private void Begin(CommandBuffer cmd, GBuffer targets)
+    {
+        var api = _context.Api;
         var colorAttachments = stackalloc RenderingAttachmentInfo[6];
         colorAttachments[0] = ColorAttachment(targets.BaseColor.View);
         colorAttachments[1] = ColorAttachment(targets.Normal.View);
@@ -95,18 +149,11 @@ internal sealed unsafe class GBufferPass : IDisposable
 
         api.CmdBeginRendering(cmd, &rendering);
         api.SetFullViewport(cmd, targets.Extent);
-
-        var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set };
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
-
-        SceneDraws.Record(api, cmd, _layout, _pipelines, _resources, draws, meshes, details, instances, ScenePass.Opaque, solids: _solids);
-
-        api.CmdEndRendering(cmd);
     }
 
     public void Dispose()
     {
-        foreach (var variants in _pipelines.Concat(_solids))
+        foreach (var variants in _pipelines.Concat(_solids).Concat(_shown).Concat(_depthOnly))
         {
             _context.Api.DestroyPipeline(_context.Device, variants.TwoSided, null);
             _context.Api.DestroyPipeline(_context.Device, variants.Culled, null);

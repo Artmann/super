@@ -49,6 +49,7 @@ public class GraphicsProfileTests
         ColorGrading = false,
         Culling = false,
         SimplerModels = false,
+        DepthFirst = false,
         BakedLighting = false,
         BakeOnArrival = false,
         BakeBudget = 3f,

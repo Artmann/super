@@ -350,6 +350,14 @@ public sealed class Graphics
     public bool SimplerModels { get; set; } = true;
 
     /// <summary>
+    /// Drawing the depth of large solid surfaces before shading anything, so each pixel is shaded once, by the surface
+    /// that shows. Off, surfaces drawn before the ones that hide them are shaded too, which only costs time: it's
+    /// there to measure what the extra pass saves. The picture is the same either way, but where two surfaces lie in
+    /// the very same plane, where the other of the two may show. Every preset leaves it on.
+    /// </summary>
+    public bool DepthFirst { get; set; } = true;
+
+    /// <summary>
     /// What the frame shows: the lit scene, the default, or a look inside the renderer such as
     /// <see cref="Rendition.DebugView.Probes"/>, which a game can switch on with a key. It is not an effect and costs
     /// nothing while <see cref="Rendition.DebugView.None"/>. <c>--debug-view</c> on the command line wins: while it
@@ -484,6 +492,7 @@ public sealed class Graphics
         ColorGrading = profile.ColorGrading;
         Culling = profile.Culling;
         SimplerModels = profile.SimplerModels;
+        DepthFirst = profile.DepthFirst;
         BakedLighting = profile.BakedLighting;
     }
 
@@ -598,5 +607,6 @@ public sealed class Graphics
         (graphics => graphics.ColorGrading, RenderEffects.ColorGrading),
         (graphics => graphics.Culling, RenderEffects.Culling),
         (graphics => graphics.SimplerModels, RenderEffects.SimplerModels),
+        (graphics => graphics.DepthFirst, RenderEffects.DepthFirst),
     ];
 }

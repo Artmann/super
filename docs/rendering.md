@@ -56,7 +56,7 @@ Game.StartWindowsGameLoop<MyGame>(new GameOptions
 
 `Graphics.Fastest()` turns vsync and every effect that costs GPU time off, and sets `MeshDetail` to 0.5, a start to turn back on only what
 the game needs. It keeps what costs nothing or saves time: the materials, the baked lighting, `Specular`,
-`EnvironmentLight`, `Emissive`, `ColorGrading`, `Culling` and `SimplerModels`. For settings a player picks from, see [quality presets and profiles](#quality-presets-and-profiles). Ask for `Graphics` in a constructor to change it while the game runs; the
+`EnvironmentLight`, `Emissive`, `ColorGrading`, `Culling`, `SimplerModels` and `DepthFirst`. For settings a player picks from, see [quality presets and profiles](#quality-presets-and-profiles). Ask for `Graphics` in a constructor to change it while the game runs; the
 next frame follows, so it can back an options menu.
 
 | Setting | Off, or set |
@@ -102,6 +102,7 @@ next frame follows, so it can back an options menu.
 | `ColorGrading` | `PostSettings`' contrast, saturation, lift, gain, temperature and tint are all neutral. The exposure, the bloom and the tonemapper with its look stay |
 | `Culling` | Every model is drawn into the picture, each of the sun's cascades and each light's shadow tile, seen or not. It only costs time: it's there to check that culling hides nothing it shouldn't |
 | `SimplerModels` | Every model is drawn at full detail at any distance, whatever `MeshDetail` says, in the picture and the shadows. It only costs time: it's there to see what the simpler versions change |
+| `DepthFirst` | Large solid surfaces are no longer drawn twice, depth first and then shaded, so a surface drawn before the one that hides it is shaded for nothing. It only costs time: it's there to measure what drawing depth first saves. The picture is the same, but where two surfaces lie in the very same plane, where the other of the two may show |
 
 Tonemapping and glass have no switch. Without tonemapping, bright light clips to flat white, and
 without glass, windows would vanish rather than turn opaque, so neither shows anything useful.

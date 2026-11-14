@@ -325,6 +325,7 @@ public class GraphicsTests
     [InlineData(nameof(Graphics.ColorGrading), RenderEffects.ColorGrading)]
     [InlineData(nameof(Graphics.Culling), RenderEffects.Culling)]
     [InlineData(nameof(Graphics.SimplerModels), RenderEffects.SimplerModels)]
+    [InlineData(nameof(Graphics.DepthFirst), RenderEffects.DepthFirst)]
     public void Each_switch_turned_off_leaves_out_only_its_own_effect(string setting, RenderEffects effect)
     {
         var graphics = new Graphics();
@@ -370,6 +371,7 @@ public class GraphicsTests
         Assert.True(graphics.ColorGrading);
         Assert.True(graphics.Culling);
         Assert.True(graphics.SimplerModels);
+        Assert.True(graphics.DepthFirst);
         Assert.False(graphics.Vsync);
 
         // Dropping the resolution would be a change the game can see, so it stays the game's choice.

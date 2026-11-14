@@ -1056,6 +1056,30 @@ overdraw. Two looks that mix to the same 32 bits only split their batches where 
 interleave, since `SameLook` still decides what shares a draw. Coplanar surfaces can trade places in a depth tie, which moved 0.03% of the
 pixels in Archer by at most 3 of 255.
 
+The G-buffer pass draws depth first where that pays (`DepthFirst` in `SceneDraws.cs`). The
+pass was bound by its pixels: the Courtyard is one model of 830,000 triangles with nothing
+culled, and its G-buffer took 0.8 ms at 320 by 180 and 8 ms at 4K, shading surfaces that
+later ones covered. So `SceneDraws.Record` runs two rounds inside the one render scope. The
+first draws the chosen batches with a pipeline that has no fragment shader and writes no
+colour, only depth. The second draws every batch to be shaded, and the chosen ones use the
+"shown" pipelines (`PipelineDescription.DepthDrawn`): depth compare `Equal`, no depth write,
+so only the surface that shows runs its fragment shader. Each batch's copies go into the
+`InstanceBuffer` once and both rounds read them. `gbuffer.vert` declares
+`invariant gl_Position`, so the two pipelines land on the same depth to the bit.
+
+The first round costs by the triangle and saves by the pixel, so a batch is chosen only when
+its triangles are large on screen: `DrawSelection.PixelsCovered` gives the disc its bounding
+ball shows as, capped at the picture's size, and it must reach `DepthFirst.PixelsPerTriangle`,
+8 pixels for each triangle. Drawing everything depth first took the Courtyard's G-buffer from
+2.74 ms to 2.24 at 1080p but the Reef's, with 6.2 million small triangles, from 2.79 to 3.57;
+with the threshold the Courtyard takes 2.22 and the Reef 2.81. A material with holes
+(`SceneDraws.HasHoles`: a cutoff, a dithered fade) is never chosen, since only its own
+fragment shader knows its depth, and it draws as before, tested against the depth already
+there. Two surfaces in the very same plane both pass `Equal`, so the later of the two shows
+where the earlier did before. Probe and reflection captures and the shadow passes don't draw
+depth first. A surface shader must not discard pixels of a material without a cutoff: it
+never could in the solid pipelines' early depth test, and here it would leave a hole.
+
 A draw's tint rides in its push constants and multiplies the material's colour in
 `writeSurface()`, so every surface shader gets it, and copies of one textured model can
 each have their own hue.
@@ -1233,6 +1257,8 @@ Bits 19 to 28 skip no pass either; each is read where its effect is made:
 - `Culling` (bit 27) makes `DetailView.CanSee` true for every ball, for the camera, the
   cascades and the light tiles alike. `SimplerModels` (bit 28) hands `DetailView` a `MaxError`
   of 0, which no simpler level meets, since every level's error is above 0.
+- `DepthFirst` (bit 29) keeps the camera's `DetailView` from `GBufferPass.Record`, so
+  `SceneDraws.Record` runs its shading round alone.
 
 `Specular`, `EnvironmentLight`, `Emissive` and `HeightMaps` change what a reflection probe
 photographs, so they are in `ReflectionLightingHash`, and `Emissive` is in the light probes'
