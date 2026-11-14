@@ -10,10 +10,13 @@ namespace Cannonball;
 /// One shot, from sitting in the cannon to standing up again: fires the stuntman, watches for the hit that knocks him
 /// limp, waits for him to come to rest, and gets him up.
 /// </summary>
-public sealed class StuntFlight(World world, Physics physics)
+public sealed class StuntFlight(World world, Physics physics, RandomStream random)
 {
-    /// <summary>How fast the stuntman leaves the muzzle, in metres per second.</summary>
-    public const float MuzzleSpeed = 18f;
+    /// <summary>The fastest the stuntman leaves the muzzle, in metres per second.</summary>
+    public const float TopSpeed = 18f;
+
+    /// <summary>The slowest shot, in metres per second, so each lands a little differently.</summary>
+    public const float LowestSpeed = TopSpeed * 0.8f;
 
     /// <summary>A hit at least this fast, in metres per second, knocks the fight out of him.</summary>
     public const float KnockoutSpeed = 4f;
@@ -83,7 +86,7 @@ public sealed class StuntFlight(World world, Physics physics)
         // A little muscle keeps the flail in the arms and legs, but the flight is his own.
         world.Get<Ragdoll>(Stuntman) = world.Get<Ragdoll>(Stuntman) with { Mode = RagdollMode.Simulated, Strength = 0.3f };
         Animator.Set(Stance.Flail);
-        physics.SetVelocity(Stuntman, CannonballField.Aim * MuzzleSpeed);
+        physics.SetVelocity(Stuntman, CannonballField.Aim * random.Between(LowestSpeed, TopSpeed));
         physics.SetAngularVelocity(Stuntman, new Vector3(1.5f, 0f, 0.4f));
         Stage = Stage.Flying;
         _seconds = 0f;

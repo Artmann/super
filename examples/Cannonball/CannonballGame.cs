@@ -44,10 +44,10 @@ public enum Move
 /// when he hits something, tumbles to a stop and gets up, and then the cannon fires again. R fires at once, and D shows
 /// the ragdoll's bodies.
 /// </summary>
-public sealed class CannonballGame(World world, Content content, Physics physics, Input input) : IGame
+public sealed class CannonballGame(World world, Content content, Physics physics, Input input, GameRandom random) : IGame
 {
     private readonly CannonballField _field = new(world);
-    private readonly StuntFlight _flight = new(world, physics);
+    private readonly StuntFlight _flight = new(world, physics, random.Stream("shots"));
     private readonly RagdollOverlay _overlay = new(physics);
     private AnimationController<Stance, Move> _controller = null!;
     private RagdollBody _body = null!;
