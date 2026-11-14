@@ -7,6 +7,7 @@ namespace Courtyard.Tests;
 /// The window's glass: its panes in the glass graph line up with the glazing bars of the model's window, so the dust
 /// packed into each pane's corners sits in the corners the bars make.
 /// </summary>
+[Trait("Speed", "Slow")]
 public sealed class GlassTests
 {
     // The window in art/courtyard.py: WIN_X 2.4 and WIN_W 2.0 put the opening from 1.4 to 3.4 m across, and the frame,

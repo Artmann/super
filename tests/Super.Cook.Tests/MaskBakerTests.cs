@@ -5,6 +5,7 @@ using Super.Cook.Models;
 
 namespace Super.Cook.Tests;
 
+[Trait("Speed", "Slow")]
 public sealed class MaskBakerTests : IDisposable
 {
     private const int Size = MaskBaker.DefaultSize;

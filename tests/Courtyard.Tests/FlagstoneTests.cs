@@ -6,6 +6,7 @@ namespace Courtyard.Tests;
 /// The Courtyard's flagstones: each stone is a cell of an 8 by 8 grid, a third of them cracked, one in eight a warm
 /// sandstone among close greys, and their crowns worn smoother than the rest.
 /// </summary>
+[Trait("Speed", "Slow")]
 public sealed class FlagstoneTests
 {
     private const int Size = 512;

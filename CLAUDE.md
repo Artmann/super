@@ -59,6 +59,20 @@ show it in the PR:
 **When nothing on screen changes** (engine internals, tools, tests, docs), skip the
 pictures.
 
+## Running tests
+
+While working, run the fast tests, which take about 17 seconds:
+
+```
+dotnet test Super.slnx -c Release --filter "Speed!=Slow&Needs!=GPU"
+```
+
+Or run only the project you touched, such as `dotnet test tests/Super.Tests -c Release`.
+Before committing, run everything CI runs with `--filter "Needs!=GPU"`, and for rendering
+work the GPU tests too, with `dotnet test tests/Rendition.Gpu.Tests -c Release`.
+
+Mark a test `[Trait("Speed", "Slow")]` when it takes more than about half a second on its own.
+
 ## Writing tests
 
 Lessons from a full review of the test suite. Follow them when you add tests.

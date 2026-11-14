@@ -4,6 +4,7 @@ using Super.Materials;
 namespace Courtyard.Tests;
 
 /// <summary>The cobweb card: fine threads in the image's top-left corner, the rest cut out.</summary>
+[Trait("Speed", "Slow")]
 public sealed class CobwebTests
 {
     private const int Size = 1024;

@@ -1115,6 +1115,7 @@ public sealed class ModelCookerTests : IDisposable
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Bakes_masks_without_an_authored_second_uv_set()
     {
         string src = QuadsFolder(uvs2: null, rule: """
@@ -1373,6 +1374,7 @@ public sealed class ModelCookerTests : IDisposable
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Lays_a_material_out_at_1024_when_its_charts_dont_fit_512()
     {
         // 30,000 separate triangles: at 3 texels each with the gutter, 512 holds about 29,000 of them.

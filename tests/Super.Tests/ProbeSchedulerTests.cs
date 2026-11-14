@@ -31,6 +31,7 @@ public class ProbeSchedulerTests
     }
 
     [Theory, Seeds(15)]
+    [Trait("Speed", "Slow")]
     public void A_frame_never_hands_out_more_probes_than_the_budget(int seed)
     {
         foreach (var quality in new[] { ProbeQuality.Low, ProbeQuality.Medium, ProbeQuality.High })

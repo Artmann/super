@@ -183,6 +183,29 @@ public void Starting_goes_through_loading_to_the_house()
 }
 ```
 
+## A fast run
+
+Most headless tests take a few milliseconds, and a handful take most of the time: the ones
+that cook real content, bake, or play many seeds of a big world. Mark those with a trait,
+on the test or on its whole class:
+
+```csharp
+[Fact]
+[Trait("Speed", "Slow")]
+public void Every_seed_places_a_village_of_buildings() { ... }
+```
+
+Then leave them out while you work, and run everything before you merge:
+
+```
+dotnet test -c Release --filter "Speed!=Slow"
+dotnet test -c Release
+```
+
+Super's own tests work this way. The fast run is 3,864 of its 4,005 tests and takes about 17
+seconds where the whole suite takes about 50. A test that takes more than about half a second
+on its own is marked slow.
+
 ## Repeatability
 
 Runs repeat exactly on the same build and the same kind of CPU. Different CPU types can

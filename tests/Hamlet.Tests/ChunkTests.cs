@@ -7,6 +7,7 @@ namespace Hamlet.Tests;
 
 // Each building is a baked chunk, and a chunk's contents are its static draws with their colours, so every
 // building that draws the same static parts in the same colours shares one bake.
+[Trait("Speed", "Slow")]
 public sealed class ChunkTests
 {
     private static HeadlessRun<HamletGame> Start(int seed)
