@@ -13,7 +13,7 @@ namespace Cannonball;
 public sealed class StuntFlight(World world, Physics physics, RandomStream random)
 {
     /// <summary>The fastest the stuntman leaves the muzzle, in metres per second.</summary>
-    public const float TopSpeed = 18f;
+    public const float TopSpeed = 22.5f;
 
     /// <summary>The slowest shot, in metres per second, so each lands a little differently.</summary>
     public const float LowestSpeed = TopSpeed * 0.8f;

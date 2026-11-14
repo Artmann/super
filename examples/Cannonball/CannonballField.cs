@@ -19,6 +19,9 @@ public sealed class CannonballField(World world)
 
     private const float CrateSize = 0.8f;
 
+    // How far down the field the wall stands, where most shots come down. The rest of the field is set out from it.
+    private const float WallDistance = 42f;
+
     // The wall sits a little to the camera's left of the line he flies along.
     private const float WallShift = 0.8f;
 
@@ -82,7 +85,7 @@ public sealed class CannonballField(World world)
             for (int column = 0; column < 6; column++)
             {
                 float x = WallShift + ((column - 2.5f + (row % 2 * 0.5f)) * CrateSize);
-                Crate(new Vector3(x, (row + 0.5f) * CrateSize, 30f), Woods[(row + column) % Woods.Length]);
+                Crate(new Vector3(x, (row + 0.5f) * CrateSize, WallDistance), Woods[(row + column) % Woods.Length]);
             }
         }
     }
@@ -97,7 +100,7 @@ public sealed class CannonballField(World world)
                 for (int column = 0; column < 4 - row; column++)
                 {
                     float x = side + ((column - ((3 - row) / 2f)) * CrateSize);
-                    Crate(new Vector3(x, (row + 0.5f) * CrateSize, 26f), Woods[(row + column + 1) % Woods.Length]);
+                    Crate(new Vector3(x, (row + 0.5f) * CrateSize, WallDistance - 4f), Woods[(row + column + 1) % Woods.Length]);
                 }
             }
         }
@@ -110,16 +113,16 @@ public sealed class CannonballField(World world)
         for (int i = 0; i < 6; i++)
         {
             float angle = i * 1.1f;
-            Ball(new Vector3(MathF.Cos(angle) * 3f, BallRadius, 22f + (MathF.Sin(angle) * 2f)), paints[i % paints.Length]);
+            Ball(new Vector3(MathF.Cos(angle) * 3f, BallRadius, WallDistance - 8f + (MathF.Sin(angle) * 2f)), paints[i % paints.Length]);
         }
 
         // Each sits on the middle of a top-row crate, which is set half a crate over from the row below.
         float top = (4f * CrateSize) + BallRadius;
         Vector3[] atWall =
         [
-            new(WallShift - CrateSize, top, 30f), new(WallShift + CrateSize, top, 30f), new(WallShift + (3f * CrateSize), top, 30f),
-            new(WallShift - (3.5f * CrateSize), BallRadius, 29f), new(WallShift + (4f * CrateSize), BallRadius, 30.6f),
-            new(WallShift + 0.5f, BallRadius, 32.5f), new(WallShift - 1.5f, BallRadius, 33.2f),
+            new(WallShift - CrateSize, top, WallDistance), new(WallShift + CrateSize, top, WallDistance), new(WallShift + (3f * CrateSize), top, WallDistance),
+            new(WallShift - (3.5f * CrateSize), BallRadius, WallDistance - 1f), new(WallShift + (4f * CrateSize), BallRadius, WallDistance + 0.6f),
+            new(WallShift + 0.5f, BallRadius, WallDistance + 2.5f), new(WallShift - 1.5f, BallRadius, WallDistance + 3.2f),
         ];
         for (int i = 0; i < atWall.Length; i++)
         {
@@ -139,7 +142,7 @@ public sealed class CannonballField(World world)
     {
         for (int i = 0; i < 8; i++)
         {
-            var at = new Vector3(((i % 4) - 1.5f) * 1.4f, 0.3f, 18f + ((i / 4) * 1.3f));
+            var at = new Vector3(((i % 4) - 1.5f) * 1.4f, 0.3f, WallDistance - 12f + ((i / 4) * 1.3f));
             var bale = Prop(new Transform(at, Quaternion.CreateFromYawPitchRoll(i * 0.4f, 0f, 0f), new Vector3(1.2f, 0.6f, 0.7f)), new Vector3(0.85f, 0.72f, 0.35f));
             world.Add(bale, Collider.Box(Vector3.One));
             world.Add(bale, Body.Dynamic(mass: 15f, friction: 0.9f));
