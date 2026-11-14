@@ -344,6 +344,25 @@ public sealed class AudioThreadTests
     }
 
     [Fact]
+    public void RecordingLeavesADevicePausedBeforeItPaused()
+    {
+        (AudioService audio, _) = Make();
+        audio.UseOutput(new StandInSpeakers(), TextWriter.Null);
+        try
+        {
+            audio.PauseDevice();
+            audio.StartRecording(new AudioRecording(new MemoryStream()));
+            audio.StopRecording();
+
+            Assert.True(audio.Manual);
+        }
+        finally
+        {
+            audio.Close();
+        }
+    }
+
+    [Fact]
     public void OnTheThreadAdvanceThrows()
     {
         (AudioService audio, _) = Make();

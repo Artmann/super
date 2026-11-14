@@ -282,7 +282,6 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     internal bool BakedProbeBand { get; set; } = true;
 
-    private bool _historyReady;
     private Matrix4x4 _previousViewProjection;
     // Last frame's time and where its keyed draws stood, for motion vectors.
     private float _previousTime;
@@ -320,13 +319,11 @@ public sealed unsafe class Renderer : IDisposable
     // Whether the frame being recorded draws the volumetric fog.
     private bool _volumetricDrawn;
 
-    // Moving between pictures: what the frame asks for, which hold the held picture
-    // belongs to, and whether the held picture and the last finished frame exist yet.
+    // Moving between pictures: what the frame asks for, and which hold the held picture belongs to.
+    // Whether the held picture and the last finished frame exist yet is on the targets.
     private TransitionConstants _transition;
     private int _transitionHold;
     private int _heldNumber;
-    private bool _heldReady;
-    private bool _ldrReady;
 
     /// <summary>Vulkan validation messages so far. Always zero when validation is off.</summary>
     public int ValidationErrors => _context.ValidationErrors;
@@ -1145,7 +1142,7 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     private void StopBakeThatReads(Func<BakeJob, bool> reads)
     {
-        if (_bakeJob is { } job && _bakeFinishing is null && reads(job))
+        if (_bake is SteppingBake { Job: var job } && reads(job))
         {
             StopBakeJob();
         }
@@ -2117,12 +2114,10 @@ public sealed unsafe class Renderer : IDisposable
     // This frame's wants, grown when a frame names more areas.
     private BakeWant[] _bakeWants = new BakeWant[16];
 
-    // The running background bake: what the queue started, at which quality. Kept while its file is made on the
-    // thread pool, so no other bake sets up on the baker's pages before it lets them go.
-    private BakeJob? _bakeJob;
-    private BakeWant _bakeJobWant;
-    private BakeQuality _bakeJobQuality;
-    private FinishingBake? _bakeFinishing;
+    // The running background bake, stepping or finishing, or null. Kept while its file is made on the thread pool, so
+    // no other bake sets up on the baker's pages before it lets them go. See "Lifecycle state in engine code" in
+    // docs/design.md.
+    private RunningBake? _bake;
 
     // Finishes on the thread pool, until the render thread takes their results; and those results.
     private readonly List<FinishingBake> _bakeFinishes = [];
@@ -2136,9 +2131,8 @@ public sealed unsafe class Renderer : IDisposable
     private int _bakePasses = 1;
     private int _bakePassEpoch;
 
-    // Frames submitted, and the count after which a step that copied results back has landed.
+    // Frames submitted, so a step that copied results back knows when they have landed.
     private long _framesSubmitted;
-    private long _bakeAwaitUntil;
 
     // Each frame slot's slice: whether it was timed, its passes and its epoch.
     private readonly GpuTimer _bakeTimer;
@@ -2150,12 +2144,27 @@ public sealed unsafe class Renderer : IDisposable
     // Areas whose bake failed, each reported once.
     private readonly HashSet<string> _bakeFailuresLogged = new(StringComparer.Ordinal);
 
-    /// <summary>A background bake whose file is being made on the thread pool.</summary>
-    private sealed class FinishingBake(BakeJob job, BakeWant want, BakeQuality quality)
+    /// <summary>The running background bake: the job the queue started, for which area, at which quality.</summary>
+    private abstract class RunningBake(BakeJob job, BakeWant want, BakeQuality quality)
     {
         public readonly BakeJob Job = job;
         public readonly BakeWant Want = want;
         public readonly BakeQuality Quality = quality;
+    }
+
+    /// <summary>
+    /// A background bake recording a slice a frame, from the frame after <paramref name="readyAt"/> frames have been
+    /// submitted, when a step that copied results back has landed.
+    /// </summary>
+    private sealed class SteppingBake(BakeJob job, BakeWant want, BakeQuality quality, long readyAt)
+        : RunningBake(job, want, quality)
+    {
+        public readonly long ReadyAt = readyAt;
+    }
+
+    /// <summary>A background bake whose steps are done and whose file is being made on the thread pool.</summary>
+    private sealed class FinishingBake(BakeJob job, BakeWant want, BakeQuality quality) : RunningBake(job, want, quality)
+    {
         public Task? Task;
         public byte[]? Bytes;
         public Exception? Error;
@@ -2240,8 +2249,8 @@ public sealed unsafe class Renderer : IDisposable
     /// How the background bake is getting on, or null when none runs and no area waits for one. While areas wait and
     /// none runs yet, its name is empty and its fraction 0. See <see cref="AutoBake"/>.
     /// </summary>
-    public BakeProgress? BakeProgress => _bakeJob is { } job
-        ? new BakeProgress(job.Name, _bakeFinishing is not null ? 1f : job.Progress, _bakeQueue?.Waiting ?? 0,
+    public BakeProgress? BakeProgress => _bake is { Job: var job }
+        ? new BakeProgress(job.Name, _bake is FinishingBake ? 1f : job.Progress, _bakeQueue?.Waiting ?? 0,
             _lastSliceMilliseconds)
         : _bakeQueue is { Waiting: > 0 } queue
             ? new BakeProgress("", 0f, queue.Waiting, _lastSliceMilliseconds)
@@ -2274,8 +2283,7 @@ public sealed unsafe class Renderer : IDisposable
                 continue;
             }
 
-            _bakeJob = null;
-            _bakeFinishing = null;
+            _bake = null;
             var want = finished.Want;
             _bakeQueue?.Finished(want.File, want.Inputs, finished.Quality);
             if (finished.Error is { } error)
@@ -2348,18 +2356,17 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         // The queue starts a bake only when none runs; a job left here would never be freed.
-        if (_bakeJob is not null)
+        if (_bake is not null)
         {
             StopBakeJob(tellQueue: false);
         }
 
         try
         {
-            _bakeJob = want.Chunk < 0
+            var job = want.Chunk < 0
                 ? CreateSpaceJob(view, draws, new BakeSettings(view.BakedSpace!.Value.TexelsPerMetre, quality))
                 : CreateChunkJob(view, draws, want.Chunk, new BakeSettings(view.BakedChunks[want.Chunk].TexelsPerMetre, quality));
-            _bakeJobWant = want;
-            _bakeJobQuality = quality;
+            _bake = new SteppingBake(job, want, quality, readyAt: 0);
             _bakePasses = 1;
             _bakePassEpoch++;
         }
@@ -2397,7 +2404,7 @@ public sealed unsafe class Renderer : IDisposable
     private void RecordBakeSlice(CommandBuffer cmd)
     {
         _sliceTimed[_frameIndex] = false;
-        if (_bakeJob is not { } job || _bakeFinishing is not null || _framesSubmitted < _bakeAwaitUntil
+        if (_bake is not SteppingBake { Job: var job } stepping || _framesSubmitted < stepping.ReadyAt
             || (!job.Started && _baker!.PagesClaimed))
         {
             return;
@@ -2419,11 +2426,10 @@ public sealed unsafe class Renderer : IDisposable
         catch (Exception e) when (e is InvalidOperationException or ArgumentException)
         {
             // What the step recorded rides this frame, so the job goes with this frame's slot.
-            var want = _bakeJobWant;
-            _bakeQueue?.Finished(want.File, want.Inputs, _bakeJobQuality);
+            _bakeQueue?.Finished(stepping.Want.File, stepping.Want.Inputs, stepping.Quality);
             RetireBakeJob(job, _destroyed[_frameIndex]);
-            _bakeJob = null;
-            ReportBakeFailure(want, e);
+            _bake = null;
+            ReportBakeFailure(stepping.Want, e);
             return;
         }
         finally
@@ -2450,10 +2456,10 @@ public sealed unsafe class Renderer : IDisposable
         {
             case BakeStepResult.AwaitGpu:
                 // This frame is the next submitted; its fence has passed once as many more frames have been.
-                _bakeAwaitUntil = _framesSubmitted + FramesInFlight;
+                _bake = new SteppingBake(job, stepping.Want, stepping.Quality, _framesSubmitted + FramesInFlight);
                 break;
             case BakeStepResult.Done:
-                StartFinishingBake(job);
+                StartFinishingBake(stepping);
                 break;
         }
     }
@@ -2489,16 +2495,16 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     // Makes the finished job's file on the thread pool, since encoding the pages takes longer than a frame.
-    private void StartFinishingBake(BakeJob job)
+    private void StartFinishingBake(SteppingBake stepping)
     {
-        var finishing = new FinishingBake(job, _bakeJobWant, _bakeJobQuality);
-        _bakeFinishing = finishing;
+        var finishing = new FinishingBake(stepping.Job, stepping.Want, stepping.Quality);
+        _bake = finishing;
         _bakeFinishes.Add(finishing);
         finishing.Task = Task.Run(() =>
         {
             try
             {
-                finishing.Bytes = job.Finish();
+                finishing.Bytes = finishing.Job.Finish();
             }
             catch (Exception e)
             {
@@ -2517,23 +2523,20 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     private void StopBakeJob(bool tellQueue = true)
     {
-        if (_bakeJob is not { } job)
+        switch (_bake)
         {
-            return;
+            case null:
+                return;
+            case FinishingBake finishing:
+                // Its file is being made; it is dropped, and the job freed when the thread pool is done with it.
+                finishing.Cancelled = true;
+                break;
+            default:
+                RetireBakeJob(_bake.Job, Destroying());
+                break;
         }
 
-        if (_bakeFinishing is { } finishing)
-        {
-            // Its file is being made; it is dropped, and the job freed when the thread pool is done with it.
-            finishing.Cancelled = true;
-            _bakeFinishing = null;
-        }
-        else
-        {
-            RetireBakeJob(job, Destroying());
-        }
-
-        _bakeJob = null;
+        _bake = null;
         if (tellQueue)
         {
             _bakeQueue?.Stopped();
@@ -3491,12 +3494,9 @@ public sealed unsafe class Renderer : IDisposable
         _uploads.Flush();
         BakeSky(view);
 
-        // The passes are bound to the screen's targets, so small ones stand in for a while. Rebinding
-        // them forgets the held transition picture, so that is put back after.
+        // The passes are bound to the screen's targets, so small ones stand in for a while. Each set
+        // keeps what its own images hold, so the screen's history and held picture survive this.
         var screenTargets = _gBuffer;
-        bool heldReady = _heldReady;
-        bool ldrReady = _ldrReady;
-        bool historyReady = _historyReady;
         var screenOff = _off;
         _reflectionProbeTargets ??= new GBuffer(_context, new Extent2D(ReflectionProbes.FaceSize, ReflectionProbes.FaceSize));
         _gBuffer = _reflectionProbeTargets;
@@ -3505,9 +3505,7 @@ public sealed unsafe class Renderer : IDisposable
         // The picture follows the view's switches, which Render hasn't applied yet this frame.
         _off = view.Off & RenderEffects.All;
 
-        // The probe's targets have no history, so RecordScene readies an empty one each face.
-        // The screen's history is kept, and so is the flag, which the finally puts back.
-        _historyReady = false;
+        // The probe's targets never copy a history, so RecordScene readies an empty one each face.
         try
         {
             var faceView = view;
@@ -3519,9 +3517,6 @@ public sealed unsafe class Renderer : IDisposable
             _off = screenOff;
             _gBuffer = screenTargets;
             WriteTargetDescriptors();
-            _heldReady = heldReady;
-            _ldrReady = ldrReady;
-            _historyReady = historyReady;
         }
     }
 
@@ -3991,14 +3986,14 @@ public sealed unsafe class Renderer : IDisposable
         int jitterPhases = _upscaling ? Upscale.JitterPhaseCount((float)_gBuffer.Extent.Width / _gBuffer.Display.Width) : JitterSteps;
         var jitter = Upscale.Jitter(_frameNumber, jitterPhases);
         var shift = antiAliased ? jitter * 2f / scenePixels : Vector2.Zero;
-        var previous = _historyReady ? _previousViewProjection : viewProjection;
+        var previous = _gBuffer.HistoryReady ? _previousViewProjection : viewProjection;
         if (_upscaling)
         {
             float milliseconds = (view.Time - _previousTime) * 1000f;
             _fsrFrame = new FsrFrame(
                 jitter,
-                _historyReady && milliseconds > 0f ? milliseconds : 1000f / 60f,
-                Reset: !_historyReady,
+                _gBuffer.HistoryReady && milliseconds > 0f ? milliseconds : 1000f / 60f,
+                Reset: !_gBuffer.HistoryReady,
                 CameraNear(view.Projection),
                 VerticalFov(view.Projection));
         }
@@ -4013,10 +4008,10 @@ public sealed unsafe class Renderer : IDisposable
 
         int casters = DrawSelection.Bounds(draws, _details, _casterBounds, _windReach);
         bool castsShadow = WriteUniforms(
-            frame, view, previous, shift, _frameNumber, _historyReady, capturingProbe: false, _casterBounds.AsSpan(0, casters));
+            frame, view, previous, shift, _frameNumber, _gBuffer.HistoryReady, capturingProbe: false, _casterBounds.AsSpan(0, casters));
         _uniformFrame = _frameIndex;
         WriteBones(frame, view.Bones);
-        _motion.Begin(draws, view.Bones, _historyReady,
+        _motion.Begin(draws, view.Bones, _gBuffer.HistoryReady,
             new Span<Matrix4x4>((Matrix4x4*)frame.Bones.Mapped + view.Bones.Length, 2 * MaxBones - view.Bones.Length));
         _previousViewProjection = viewProjection;
         _previousTime = view.Time;
@@ -4422,9 +4417,9 @@ public sealed unsafe class Renderer : IDisposable
         var swapchainImage = _swapchain.Images[imageIndex];
 
         // Ldr still holds the last frame, so it's kept before this frame draws over it.
-        if (_transitionHold != _heldNumber || !_heldReady)
+        if (_transitionHold != _heldNumber || !targets.HeldReady)
         {
-            RecordHold(cmd, targets, copyLastFrame: _transitionHold != _heldNumber && _ldrReady);
+            RecordHold(cmd, targets, copyLastFrame: _transitionHold != _heldNumber && targets.LdrReady);
             _heldNumber = _transitionHold;
         }
 
@@ -4453,7 +4448,7 @@ public sealed unsafe class Renderer : IDisposable
         }
         else
         {
-            _historyReady = false;
+            targets.HistoryReady = false;
         }
 
         _gpuTimer.Mark(cmd);
@@ -4501,7 +4496,7 @@ public sealed unsafe class Renderer : IDisposable
         transition.Style.Z = extent.Width != window.Width || extent.Height != window.Height ? 1f : 0f;
         _finishPass.Record(cmd, _swapchain.Views[imageIndex], window, finishSets,
             new ReadOnlySpan<byte>(&transition, (int)TransitionConstants.Size));
-        _ldrReady = true;
+        _gBuffer.LdrReady = true;
         _gpuTimer.Mark(cmd);
 
         if (overlayQuads > 0)
@@ -4564,7 +4559,7 @@ public sealed unsafe class Renderer : IDisposable
             ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
             PipelineStageFlags2.CopyBit | PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit,
             SampledStage, SampledAccess);
-        _heldReady = true;
+        targets.HeldReady = true;
     }
 
     /// <summary>
@@ -4606,7 +4601,7 @@ public sealed unsafe class Renderer : IDisposable
         _api.Transition(cmd, frame, ImageAspectFlags.ColorBit,
             ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal,
             PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit, SampledStage, SampledAccess);
-        _historyReady = true;
+        _gBuffer.HistoryReady = true;
     }
 
     /// <summary>
@@ -4640,8 +4635,8 @@ public sealed unsafe class Renderer : IDisposable
         var extent = targets.Extent;
 
         // The lighting pass binds history even before there is any. Probe captures have their
-        // own small targets, whose history is never drawn, so they clear the flag while they run.
-        if (!_historyReady)
+        // own small targets, whose history is never drawn.
+        if (!targets.HistoryReady)
         {
             _api.Transition(cmd, targets.History.Image, ImageAspectFlags.ColorBit,
                 ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
@@ -4890,7 +4885,7 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     private void RecordReflections(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet)
     {
-        if (!_historyReady || (_off & (RenderEffects.Reflections | RenderEffects.Specular)) != 0)
+        if (!targets.HistoryReady || (_off &(RenderEffects.Reflections | RenderEffects.Specular)) != 0)
         {
             _api.Transition(cmd, targets.Traced.Image, ImageAspectFlags.ColorBit,
                 ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
@@ -5373,7 +5368,6 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         WriteTargetDescriptors();
-        _historyReady = false;
     }
 
     /// <summary>The scene's size for a window this size, at the render scale.</summary>
@@ -5721,10 +5715,6 @@ public sealed unsafe class Renderer : IDisposable
         {
             WriteVolumetricDescriptor(frame);
         }
-
-        // New targets start empty, so neither a held picture nor a last frame survives them.
-        _heldReady = false;
-        _ldrReady = false;
     }
 
     private void WriteImages(DescriptorSet set, ReadOnlySpan<DescriptorImageInfo> images)

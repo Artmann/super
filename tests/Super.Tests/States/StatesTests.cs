@@ -60,12 +60,55 @@ public class StatesTests
         }
     }
 
+    private class ReentersInLoad(States<Screen> states) : IGame
+    {
+        public List<string> Log { get; } = [];
+
+        public void Load()
+        {
+            states.OnEnter(Screen.Menu, () => Log.Add("enter Menu"));
+            states.OnExit(Screen.Menu, () => Log.Add("exit Menu"));
+            states.Reenter();
+        }
+
+        public void Update(GameTime time)
+        {
+        }
+
+        public void Draw(View view)
+        {
+        }
+    }
+
     private class Chain(States<Screen> states) : IGame
     {
         public void Load()
         {
             states.OnEnter(Screen.House, () => states.Set(Screen.Outside));
             states.Set(Screen.House);
+        }
+
+        public void Update(GameTime time)
+        {
+        }
+
+        public void Draw(View view)
+        {
+        }
+    }
+
+    private class SetsOnExit(States<Screen> states) : IGame
+    {
+        public List<string> Log { get; } = [];
+
+        public void Load()
+        {
+            foreach (var screen in Enum.GetValues<Screen>())
+            {
+                states.OnEnter(screen, () => Log.Add($"enter {screen}"));
+            }
+
+            states.OnExit(Screen.Menu, () => states.Set(Screen.Outside));
         }
 
         public void Update(GameTime time)
@@ -150,6 +193,18 @@ public class StatesTests
     }
 
     [Fact]
+    public void A_change_asked_for_while_leaving_comes_after_the_one_being_made()
+    {
+        using var run = HeadlessGame.Create<SetsOnExit>(1);
+        run.Game.Log.Clear();
+        run.States<Screen>().Set(Screen.House);
+        run.Ticks(1);
+
+        Assert.Equal(["enter House", "enter Outside"], run.Game.Log);
+        Assert.Equal(Screen.House, run.States<Screen>().Previous);
+    }
+
+    [Fact]
     public void The_draw_after_a_change_shows_the_new_state()
     {
         using var run = HeadlessGame.Create<Walker>(1);
@@ -221,6 +276,14 @@ public class StatesTests
         run.Ticks(1);
 
         Assert.Equal(["update Menu", "exit Menu current Menu", "enter Outside from Menu"], run.Game.Log);
+    }
+
+    [Fact]
+    public void Reenter_in_Load_enters_the_first_state_once_without_leaving_it()
+    {
+        using var run = HeadlessGame.Create<ReentersInLoad>(1);
+        run.Ticks(1);
+        Assert.Equal(["enter Menu"], run.Game.Log);
     }
 
     [Fact]

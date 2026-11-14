@@ -36,9 +36,26 @@ public sealed class Audio
     private int _musicVoice = NoId;
     private double _carriedFrames;
     private DeviceOutput? _output;
-    private bool _outputPaused;
     private AudioRecording? _recording;
-    private bool _recordingPausedDevice;
+
+    // Who mixes: the device's audio thread, or the game loop. Set with _output, which a state other than None plays
+    // through. See "Lifecycle state in engine code" in docs/design.md.
+    private DeviceState _device;
+
+    private enum DeviceState
+    {
+        /// <summary>No device: the game loop mixes.</summary>
+        None,
+
+        /// <summary>The audio thread mixes into the device.</summary>
+        Playing,
+
+        /// <summary><see cref="PauseDevice"/> took the mixer back, so the game loop mixes.</summary>
+        Paused,
+
+        /// <summary>A recording took the mixer back, and gives it back to the audio thread when it stops.</summary>
+        PausedForRecording,
+    }
 
     // Mixer side: only whatever renders touches these. Indexed by the slot of a game id.
     private readonly Mixer _mixer;
@@ -85,7 +102,7 @@ public sealed class Audio
     /// True when the game loop drives the mixer, a tick at a time: in tests and headless runs, when no device opened,
     /// and while the device is paused. False while an audio thread plays it through a device.
     /// </summary>
-    internal bool Manual => _output is null || _outputPaused;
+    internal bool Manual => _device != DeviceState.Playing;
 
     /// <summary>The mixer's sample clock, frames mixed so far. Readable from any thread.</summary>
     internal long MixedFrames => _mixer.Clock;
@@ -105,15 +122,26 @@ public sealed class Audio
     internal bool UseDevice(TextWriter log, Func<string?>? openOverride = null)
     {
         CheckNoOutput();
-        _output = DeviceOutput.TryOpen(this, log, openOverride);
-        return _output is not null;
+        if (DeviceOutput.TryOpen(this, log, openOverride) is not { } output)
+        {
+            return false;
+        }
+
+        Play(output);
+        return true;
     }
 
     /// <summary>As <see cref="UseDevice"/>, into a stand-in for the speakers, so tests can run the audio thread.</summary>
     internal void UseOutput(IAudioSink sink, TextWriter log)
     {
         CheckNoOutput();
-        _output = new DeviceOutput(this, sink, log);
+        Play(new DeviceOutput(this, sink, log));
+    }
+
+    private void Play(DeviceOutput output)
+    {
+        _output = output;
+        _device = DeviceState.Playing;
     }
 
     /// <summary>
@@ -122,27 +150,29 @@ public sealed class Audio
     /// mix on the calling thread, and the game loop advances it each tick. Does nothing without a device or when
     /// already paused.
     /// </summary>
-    internal void PauseDevice()
+    internal void PauseDevice() => Pause(DeviceState.Paused);
+
+    private void Pause(DeviceState paused)
     {
-        if (_output is null || _outputPaused)
+        if (_device != DeviceState.Playing)
         {
             return;
         }
 
-        _output.Pause();
-        _outputPaused = true;
+        _output!.Pause();
+        _device = paused;
     }
 
     /// <summary>Hands the mixer back to the audio thread. Does nothing without a device or when it isn't paused.</summary>
     internal void ResumeDevice()
     {
-        if (_output is null || !_outputPaused)
+        if (_device is not (DeviceState.Paused or DeviceState.PausedForRecording))
         {
             return;
         }
 
-        _outputPaused = false;
-        _output.Resume();
+        _device = DeviceState.Playing;
+        _output!.Resume();
     }
 
     /// <summary>
@@ -153,7 +183,6 @@ public sealed class Audio
     {
         var recording = _recording;
         _recording = null;
-        _recordingPausedDevice = false;
         try
         {
             recording?.Finish();
@@ -162,7 +191,7 @@ public sealed class Audio
         {
             _output?.Dispose();
             _output = null;
-            _outputPaused = false;
+            _device = DeviceState.None;
             _mixer.StopAll();
         }
     }
@@ -192,15 +221,13 @@ public sealed class Audio
         }
 
         _recording = recording;
-        _recordingPausedDevice = _output is not null && !_outputPaused;
         try
         {
-            PauseDevice();
+            Pause(DeviceState.PausedForRecording);
         }
         catch
         {
             _recording = null;
-            _recordingPausedDevice = false;
             recording.Dispose();
             throw;
         }
@@ -222,9 +249,8 @@ public sealed class Audio
         }
         finally
         {
-            if (_recordingPausedDevice)
+            if (_device == DeviceState.PausedForRecording)
             {
-                _recordingPausedDevice = false;
                 ResumeDevice();
             }
         }

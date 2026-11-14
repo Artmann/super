@@ -11,8 +11,10 @@ namespace Super;
 public sealed class Transitions(GameTime time)
 {
     private Transition? _playing;
+
+    // A fade's change, until it runs at the cut: while this is set the cut is still to come.
     private Action? _atCut;
-    private bool _cutDone;
+
     private long _ticks;
     private float _skip;
     private Camera _from;
@@ -37,10 +39,9 @@ public sealed class Transitions(GameTime time)
     /// <summary>Ends the transition now, running a fade's change if it hasn't happened yet.</summary>
     public void Stop()
     {
-        var pending = _cutDone ? null : _atCut;
+        var pending = _atCut;
         _playing = null;
         _atCut = null;
-        _cutDone = true;
         pending?.Invoke();
     }
 
@@ -74,7 +75,6 @@ public sealed class Transitions(GameTime time)
         if (transition.Kind == TransitionKind.Fade)
         {
             _atCut = atCut;
-            _cutDone = atCut is null;
             return;
         }
 
@@ -99,12 +99,10 @@ public sealed class Transitions(GameTime time)
             return;
         }
 
-        if (!_cutDone && _ticks * time.TickSeconds + _skip >= _playing.Seconds / 2f)
+        if (_atCut is { } change && _ticks * time.TickSeconds + _skip >= _playing.Seconds / 2f)
         {
-            _cutDone = true;
-            var change = _atCut;
             _atCut = null;
-            change?.Invoke();
+            change();
         }
     }
 
