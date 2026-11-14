@@ -166,7 +166,7 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
         {
             ScrollTo(thumb, bar.OffsetFor(thumb, position, held.Grab));
         }
-        else if (_drag is ArmedDrag armed && Vector2.Distance(position, armed.From) >= DragThreshold)
+        else if (_drag is ArmedDrag armed && Vector2.Distance(position, armed.DownAt) >= DragThreshold)
         {
             StartMoving(armed);
         }
@@ -174,10 +174,10 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
 
     private void StartMoving(ArmedDrag armed)
     {
-        _drag = new MovingDrag(armed.Source, armed.Payload, armed.Preview, armed.Pressed);
+        _drag = new MovingDrag(armed.Source, armed.Payload, armed.Preview, armed.DraggedWith);
 
         // The drag's own press stops being a click. A left click held while another button drags is kept.
-        if (armed.Pressed == MouseButton.Left)
+        if (armed.DraggedWith == MouseButton.Left)
         {
             _hold = null;
         }
@@ -253,7 +253,7 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     {
         ForgetUnmounted();
         var hit = Hit();
-        var ending = _drag?.Pressed == button ? _drag : null;
+        var ending = _drag?.DraggedWith == button ? _drag : null;
         if (ending is MovingDrag moving && DropTargetUnder(hit, moving) is { View: DropModifier target })
         {
             object payload = moving.Payload;
@@ -415,13 +415,13 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     private sealed record ThumbHold(UiNode Bar, float Grab) : Hold;
 
     /// <summary>A drag, carrying what its source handed over at the press.</summary>
-    private abstract record Drag(UiNode Source, object Payload, UiView? Preview, MouseButton Pressed);
+    private abstract record Drag(UiNode Source, object Payload, UiView? Preview, MouseButton DraggedWith);
 
-    /// <summary>Pressed on a source, but not yet moved far enough from <paramref name="From"/> to stop being a click.</summary>
-    private sealed record ArmedDrag(UiNode Source, object Payload, UiView? Preview, MouseButton Pressed, Vector2 From)
-        : Drag(Source, Payload, Preview, Pressed);
+    /// <summary>Pressed on a source, but not yet moved far enough from <paramref name="DownAt"/> to stop being a click.</summary>
+    private sealed record ArmedDrag(UiNode Source, object Payload, UiView? Preview, MouseButton DraggedWith, Vector2 DownAt)
+        : Drag(Source, Payload, Preview, DraggedWith);
 
     /// <summary>Moving: the preview follows the cursor and a release over a target drops.</summary>
-    private sealed record MovingDrag(UiNode Source, object Payload, UiView? Preview, MouseButton Pressed)
-        : Drag(Source, Payload, Preview, Pressed);
+    private sealed record MovingDrag(UiNode Source, object Payload, UiView? Preview, MouseButton DraggedWith)
+        : Drag(Source, Payload, Preview, DraggedWith);
 }
