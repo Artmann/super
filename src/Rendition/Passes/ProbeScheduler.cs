@@ -534,7 +534,7 @@ internal sealed class ProbeScheduler
         }
 
         _unsettled.EnsureCapacity(probes);
-        _captures.Reserve(probes * 2);
+        _captures.Reserve(probes);
 
         for (int slot = 0; slot < count; slot++)
         {
