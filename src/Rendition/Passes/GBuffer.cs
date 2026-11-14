@@ -96,6 +96,18 @@ internal sealed class GBuffer : IDisposable
     /// <summary>An earlier frame's Ldr, kept for a dissolve or wipe to show over the new one.</summary>
     public readonly RenderTarget Held;
 
+    // What the images hold so far. New targets start empty, and each set of targets keeps its own, so drawing a
+    // reflection probe into its small targets leaves the screen's alone.
+
+    /// <summary>Whether <see cref="History"/> holds the last frame. Until then the lighting binds it empty and reflections trace nothing.</summary>
+    public bool HistoryReady { get; set; }
+
+    /// <summary>Whether <see cref="Held"/> holds a picture for the transition to show.</summary>
+    public bool HeldReady { get; set; }
+
+    /// <summary>Whether <see cref="Ldr"/> holds a finished frame, which a new hold copies.</summary>
+    public bool LdrReady { get; set; }
+
     /// <summary>A copy of Hdr behind the glass, with blurrier mips, for glass to see through and bend.</summary>
     public readonly RenderTarget SceneColor;
 

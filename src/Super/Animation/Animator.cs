@@ -21,11 +21,9 @@ public sealed class Animator
     private float _parameter;
     private float _speed = 1f;
 
-    private bool _fading;
-    private int _previousState;
-    private float _previousPhase;
-    private float _previousParameter;
-    private float _fadeSeconds;
+    // The state a change left, while the new one blends in over it, or null once it has. See "Lifecycle state in
+    // engine code" in docs/design.md.
+    private Outgoing? _outgoing;
 
     // Each joint in the model for this tick, worked out when first asked for.
     private Matrix4x4[]? _joints;
@@ -130,7 +128,7 @@ public sealed class Animator
     public float Phase => _phase;
 
     /// <summary>Whether a change of state is still blending from the old clip.</summary>
-    public bool IsCrossFading => _fading;
+    public bool IsCrossFading => _outgoing is not null;
 
     /// <summary>Whether the animator is in this state.</summary>
     public bool IsIn<TState>(TState state) where TState : struct, Enum
@@ -154,11 +152,7 @@ public sealed class Animator
         }
 
         _controller.GetState(index);
-        _previousState = _state;
-        _previousPhase = _phase;
-        _previousParameter = _parameter;
-        _fading = _controller.CrossFadeSeconds > 0f;
-        _fadeSeconds = 0f;
+        _outgoing = _controller.CrossFadeSeconds > 0f ? new Outgoing(_state, _parameter, _phase, Seconds: 0f) : null;
         _state = index;
         Rebuild();
     }
@@ -243,14 +237,12 @@ public sealed class Animator
         seconds *= _speed;
 
         _phase = AdvancePhase(_controller.GetState(_state), _parameter, _phase, seconds);
-        if (_fading)
+        if (_outgoing is { } outgoing)
         {
-            _previousPhase = AdvancePhase(_controller.GetState(_previousState), _previousParameter, _previousPhase, seconds);
-            _fadeSeconds += seconds;
-            if (_fadeSeconds >= _controller.CrossFadeSeconds)
-            {
-                _fading = false;
-            }
+            float faded = outgoing.Seconds + seconds;
+            _outgoing = faded >= _controller.CrossFadeSeconds
+                ? null
+                : outgoing with { Phase = AdvancePhase(_controller.GetState(outgoing.From), outgoing.Parameter, outgoing.Phase, seconds), Seconds = faded };
         }
 
         for (int i = 0; i < _actions.Length; i++)
@@ -337,11 +329,11 @@ public sealed class Animator
     {
         _jointsFresh = false;
         Pose.Clear();
-        if (_fading)
+        if (_outgoing is { } outgoing)
         {
-            float f = Math.Clamp(_fadeSeconds / _controller.CrossFadeSeconds, 0f, 1f);
+            float f = Math.Clamp(outgoing.Seconds / _controller.CrossFadeSeconds, 0f, 1f);
             var (first, second, w) = _controller.GetState(_state).Motion.Pick(_parameter);
-            AddState(_previousState, _previousParameter, _previousPhase, 1f);
+            AddState(outgoing.From, outgoing.Parameter, outgoing.Phase, 1f);
             // Lerping into the previous pose by f, towards a mix of (first, second) at w,
             // takes two layers: first by f(1-w)/(1-fw), then second by fw.
             AddStateClip(_controller.GetState(_state), _parameter, first, _phase, f * (1f - w) / (1f - f * w));
@@ -408,4 +400,7 @@ public sealed class Animator
     private static int Index<T>(T value) where T : struct, Enum => Unsafe.As<T, int>(ref value);
 
     private record struct ActionPlay(bool Playing, float Time, float PreviousTime);
+
+    /// <summary>The state blending out: where its cycle is, and how long it has been fading.</summary>
+    private readonly record struct Outgoing(int From, float Parameter, float Phase, float Seconds);
 }

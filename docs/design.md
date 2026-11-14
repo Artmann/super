@@ -80,6 +80,44 @@ is in: the model cooker keeps skeletons and clips, and the vertex shader skins. 
 are in too: a `ParticleEffect` of chained emitters turns a key and an age into particles with no state
 from frame to frame; see [Particles](#particles).
 
+## Lifecycle state in engine code
+
+Many engine classes move through a lifecycle: a background bake waits for pages, steps,
+waits for a readback and finishes; a mouse press becomes a click or a drag; a voice starts,
+plays, holds and fades out. Each one writes its states down as one value, never as a set of
+bools and nullable fields that only make sense together. A field that belongs to one state
+lives in that state, so code in another state can't read a stale value, and a new field
+can't be missed by one of several places that reset things by hand.
+
+There is no shared state machine type. The states carry different data, run on different
+threads, and some sit in hot paths where a table of transitions and delegates would cost
+more than the switch it replaces. `States<TEnum>` is the game's own state machine and the
+only public one. Engine code uses one of two shapes instead:
+
+- States that carry no data of their own are a private enum in one field, and the work
+  for each is a `switch` over it. `BakeJob`'s `Stage`, `States<TEnum>`'s pending change and
+  whether `Audio`'s device plays or is paused, and by whom, are written this way.
+- States that carry data are a small closed set of types, such as a sealed record for each,
+  matched with `switch` patterns, so each state holds exactly what it needs. This allocates
+  on each change, which is fine for things that change a few times a second at most, such
+  as a click or a new bake. `UiPointer` holds its gestures this way, `Renderer` its
+  running background bake, and `GameHost` what stopped the game: an Update that threw
+  still draws the world, a Draw that threw shows only the error.
+
+A nullable field can be the whole state when its value is the only data, as long as nothing
+else repeats it. `Transitions` keeps a fade's pending change in one field, and that field
+being set is what says the cut is still to come. `Animator` keeps the state a change left as
+a nullable record struct, which costs nothing per change, since every character changes state
+often: null means no cross-fade is running.
+
+When two lifecycles can overlap, each gets its own field instead of one state for every
+combination. `UiPointer` keeps what the left button holds (a click or a scroll bar's thumb)
+apart from a drag, which can be on any button, so a right drag can run while a left click
+stays held on something else.
+
+Each change of state is one assignment, in a method named for the change. Code that runs per
+sample or per draw keeps an enum on the object and decides once per block, not per item.
+
 ## Audio mixer
 
 `Mixer` (in `src/Super/Audio`) owns every playing voice. `Mix(span)` clears the span,
@@ -854,7 +892,7 @@ Then it clears the stop and runs the tick, which delivers the reload and `CodeRe
 before `Update`.
 
 When `Update` stopped the game, `Draw` still runs the game's `Draw`, and only the interface
-is swapped for `StoppedPanel`. When `Draw` or `Ui` threw, `_drawStopped` is set and later
+is swapped for `StoppedPanel`. When `Draw` or `Ui` threw, `_halt` holds a `DrawHalt` and later
 frames run `DrawStopped` instead. It begins an empty view, ends the audio frame and shows
 the panel without calling any of the game's code, so a broken Draw isn't hit every frame.
 Both paths end with `StateChanges.Open` set to true again, because a Draw that threw never
@@ -977,10 +1015,11 @@ so they follow the scene size with no code of their own. When the scale changes,
 frame waits for the device to go idle once and rebuilds the targets (`RebuildTargets`), the
 same way a window resize does, and history starts again. Probes have their own small
 G-buffers, and `RenderScale` isn't part of `FrameView`, so it never changes the lighting
-hash or photographs a probe again. A probe's history image is never drawn, but the lighting
-pass still binds it, so both kinds of capture clear `_historyReady` while they run. Each face
-then moves that image out of `Undefined` before it is read, and the flag goes back to the
-screen's value afterwards, in a `finally` that also puts back the screen's targets.
+hash or photographs a probe again. Each `GBuffer` keeps what its own images hold
+(`HistoryReady`, `HeldReady`, `LdrReady`), and a new one starts with none of them. A probe's
+history image is never drawn, but the lighting pass still binds it, so each face moves that
+image out of `Undefined` before it is read. The screen's flags are untouched while a probe's
+targets stand in, so a `finally` only has to put the screen's targets back.
 
 When the scene and window sizes differ, the renderer sets `TransitionConstants.Style.z` to
 1, and `finish.frag` reads its centre sample with a Catmull-Rom filter (`catmullRom` in
@@ -1582,8 +1621,9 @@ radius. That is why the view's shadow centre and radius are out of the hash, and
 camera captures nothing. Captures draw into a small G-buffer kept for reflection probes
 (`_reflectionProbeTargets`),
 set the renderer's switches from the view first, since `Render` hasn't applied this frame's
-yet, and put back the switches and the held-transition, LDR and history flags after, because
-rebinding the targets clears them and a transition's held outgoing shot would be lost.
+yet, and put back the switches and the screen's targets after. What each set of targets holds
+(history, a transition's held outgoing shot, the last frame) is kept on that `GBuffer`, so a
+capture leaves the screen's alone.
 
 ## Light probes
 
@@ -2435,8 +2475,11 @@ where turning the readbacks into arrays on the render thread took over 500 ms in
 (`AutoBakeGpuTests` checks every step of such a bake stays within the budget). Until a job's setup step has run, the baker's pages may still be held by the
 last job's file being made, so the slice waits for them.
 
+The running job is one field of the renderer, `_bake`, holding a `SteppingBake` (with the frame count an `AwaitGpu`
+waits for), a `FinishingBake`, or nothing. Each carries the job with the area and quality it bakes.
+
 At `Done` the job's `Finish` runs on the thread pool, since encoding the pages takes longer than a frame. The job stays
-the running one meanwhile, holding the baker's pages, so no other job sets up. A later `Render` takes the bytes from a
+the running one meanwhile, as a `FinishingBake`, holding the baker's pages, so no other job sets up. A later `Render` takes the bytes from a
 `ConcurrentQueue`, disposes the job, tells the queue, and calls `AutoBake.Done` on the render thread before it resolves
 the frame's bakes. Nothing catches an exception from `Done`, so it passes out of `Render`.
 
