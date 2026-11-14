@@ -6,7 +6,7 @@
     { "file": "animations/flail.fbx", "name": "Flail" },
     { "file": "animations/landing.fbx", "name": "Landing" },
     { "file": "animations/standup.fbx", "name": "StandUp" },
-    { "file": "animations/standup2.fbx", "name": "StandUp2" },
-    { "file": "animations/standup3.fbx", "name": "StandUp3" }
+    { "file": "animations/standup-front.fbx", "name": "StandUpFront" },
+    { "file": "animations/rallying.fbx", "name": "Rallying", "inPlace": true }
   ]
 }

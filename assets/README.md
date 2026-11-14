@@ -115,8 +115,8 @@ and save it as `cannonball/stuntman.fbx`. Download these animations without skin
 | `flail.fbx` | falling idle, from the Action Adventure Pack |
 | `landing.fbx` | hard landing, from the Action Adventure Pack |
 | `standup.fbx` | zombie stand up, from the Not So Scary Zombie Pack |
-| `standup2.fbx` | zombie stand up (2), from the Not So Scary Zombie Pack |
-| `standup3.fbx` | zombie stand up (3), from the Not So Scary Zombie Pack |
+| `standup-front.fbx` | standing up, the one that starts lying face down |
+| `rallying.fbx` | rallying, cooked in place so they don't step back |
 
 The animations are cooked into the stuntman's model, not on their own. The model must be
 cooked with its mesh, because the ragdoll fits its bodies to it.

@@ -18,8 +18,11 @@ public enum Stage
     /// <summary>Limp, bouncing and rolling until he comes to rest.</summary>
     Tumbling,
 
-    /// <summary>Getting up, then standing for a moment before the next shot.</summary>
+    /// <summary>Getting up.</summary>
     GettingUp,
+
+    /// <summary>Back on his feet, rallying the crowd, then standing for a moment before the next shot.</summary>
+    Cheering,
 }
 
 /// <summary>The stuntman's looping clips.</summary>
@@ -37,6 +40,9 @@ public enum Move
 
     /// <summary>Getting up from lying on the front.</summary>
     StandUpFromFront,
+
+    /// <summary>Rallying the crowd, once he's back on his feet.</summary>
+    Cheer,
 }
 
 /// <summary>
@@ -96,7 +102,9 @@ public sealed class CannonballGame(World world, Content content, Physics physics
             .State(Stance.Flail, rig.Clip("Flail"))
             // The get-ups start the moment the ragdoll turns off, so the body is placed to match their first frame.
             .Action(Move.StandUp, rig.Clip("StandUp"), fadeSeconds: 0f)
-            .Action(Move.StandUpFromFront, rig.Clip("StandUp3"), fadeSeconds: 0f);
+            // This one lies still for its first four seconds, so it plays faster.
+            .Action(Move.StandUpFromFront, rig.Clip("StandUpFront"), fadeSeconds: 0f, speed: 1.5f)
+            .Action(Move.Cheer, rig.Clip("Rallying"), fadeSeconds: 0.25f);
 
         _field.Build();
         Load(fresh: false);
