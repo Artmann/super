@@ -1462,6 +1462,19 @@ public enum ProbeQuality
     High
 }
 
+/// <summary>How many of the screen's pixels trace their reflection each frame.</summary>
+public enum ReflectionResolution
+{
+    /// <summary>
+    /// One pixel in four traces a reflection, a different one each frame, and the pixels between take theirs from the
+    /// traced ones round them on the same surface. Anti-aliasing blends the frames into a full picture.
+    /// </summary>
+    Half,
+
+    /// <summary>Every pixel traces its own reflection every frame.</summary>
+    Full
+}
+
 /// <summary>What kind of GPU draws the game, as the driver says.</summary>
 public enum GpuKind
 {

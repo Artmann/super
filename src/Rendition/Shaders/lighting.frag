@@ -12,6 +12,7 @@
 #include "local_shadows.glsl"
 #include "sky.glsl"
 #include "fog.glsl"
+#include "screen_trace.glsl"
 
 layout(location = 0) in vec2 inUv;
 
@@ -31,6 +32,9 @@ layout(set = 1, binding = 10) uniform samplerCubeArray probeTexture;
 // band, which blends the two.
 layout(set = 1, binding = 13) uniform sampler2D bakedTexture;
 layout(set = 1, binding = 14) uniform sampler2D shadowMaskTexture;
+// What reflections.frag traced on screen, at the screen's size or half of it. rgb is the colour a ray found and a how
+// far to trust it, or -1 where the surface isn't one that is traced.
+layout(set = 1, binding = 15) uniform sampler2D tracedTexture;
 
 // How much of the screen's occlusion a lightmapped pixel's soft light still takes. The bake already saw the creases it
 // could resolve, so taking all of it would darken them twice; the screen still adds the contact it is too coarse for.
@@ -79,21 +83,6 @@ const float CONTACT_THICKNESS = 0.02;
 // A surface more than this far in front of the ray is a nearer object passing in front, not
 // something touching, and the shadow maps already cover it.
 const float CONTACT_DEPTH_LIMIT = 0.15;
-
-// The clear lacquer over car paint is very smooth and reflects like glass.
-const float CLEARCOAT_ROUGHNESS = 0.06;
-const vec3 CLEARCOAT_F0 = vec3(0.04);
-
-// How reflected rays walk through the depth buffer. Steps grow with distance, because
-// far away precision matters less. Metres, except for the growth.
-const int TRACE_STEPS = 56;
-const int TRACE_REFINE_STEPS = 5;
-const float TRACE_FIRST_STEP = 0.02;
-const float TRACE_GROWTH = 1.07;
-const float TRACE_DISTANCE = 12.0;
-const float TRACE_THICKNESS = 0.25;
-const float TRACE_MAX_ROUGHNESS = 0.45;
-const float TRACE_MAX_RADIANCE = 16.0;
 
 // Light that bounces between the walls of a crease before it escapes, which plain
 // occlusion leaves out. Pale surfaces pass most of it on, so their creases darken less
@@ -333,39 +322,6 @@ vec3 sampleReflection(vec3 position, vec3 direction, float lod) {
     return probeReflection(probeTexture, reflectionTexture, position, direction, lod);
 }
 
-// Tilts a mirror reflection the way a slightly rough surface scatters it. One random
-// tilt per pixel per frame turns into a smooth blur once frames are averaged.
-vec3 scatterReflection(vec3 v, vec3 n, float alpha, vec2 random) {
-    float cosTheta = sqrt((1.0 - random.y) / (1.0 + (alpha * alpha - 1.0) * random.y));
-    float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
-    float phi = 2.0 * PI * random.x;
-    vec3 tangent = normalize(cross(abs(n.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), n));
-    vec3 bitangent = cross(n, tangent);
-    vec3 h = tangent * sinTheta * cos(phi) + bitangent * sinTheta * sin(phi) + n * cosTheta;
-    vec3 direction = reflect(-v, h);
-    return dot(direction, n) > 0.0 ? direction : reflect(-v, n);
-}
-
-// How far a point is behind what the camera sees there. Under perspective, clip z is the
-// same everywhere and reversed-Z stores clip z / w, so dividing recovers the distance of
-// the stored surface. Under orthographic, w is always 1 and depth is even, so the
-// difference only needs scaling by how much depth one world unit is worth.
-float depthGap(vec4 clip, out vec2 uv) {
-    uv = clip.xy / clip.w * 0.5 + 0.5;
-    float stored = texture(depthTexture, uv).r;
-    if (stored <= 0.0) {
-        return -1.0;
-    }
-
-    mat4 m = frame.viewProjection;
-    bool parallel = m[0][3] == 0.0 && m[1][3] == 0.0 && m[2][3] == 0.0;
-    if (parallel) {
-        return (stored - clip.z) / length(vec3(m[0][2], m[1][2], m[2][2]));
-    }
-
-    return clip.w - clip.z / stored;
-}
-
 // Light blocked by something touching the surface, nearer than the shadow maps' texels can
 // tell: walks frame.shadowFade.w metres towards the light, seeing each step where the camera
 // sees it, and darkens the light where the step is behind what the camera sees there. A
@@ -397,7 +353,7 @@ float contactShadow(vec3 position, vec3 n, vec3 l) {
         }
 
         vec2 uv;
-        float gap = depthGap(clip, uv);
+        float gap = depthGap(depthTexture, clip, uv);
         if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
             break;
         }
@@ -410,75 +366,54 @@ float contactShadow(vec3 position, vec3 n, vec3 l) {
     return 1.0;
 }
 
-// Screen-space reflection: walks along the ray until it passes behind something the
-// camera sees, then reads that spot from the previous finished frame. rgb is the colour
-// and a is how far to trust it, since rays leaving the screen know nothing.
-vec4 traceReflection(vec3 position, vec3 n, vec3 direction, float noise) {
-    if (frame.historyValid == 0) {
-        return vec4(0.0);
+// How much a half-resolution reflection counts for a pixel it wasn't traced from. Two surfaces at different distances
+// or facing different ways reflect different things, so one's ray says little about the other.
+const float TRACED_DEPTH_FALLOFF = 40.0;
+const float TRACED_NORMAL_POWER = 16.0;
+
+// The screen-space reflection traced for a pixel: rgb the colour and a how far to trust it. At full resolution it is
+// the pixel's own ray. At half resolution only one pixel of each block of four was traced this frame, so the pixel
+// blends the four traced round it, each weighed by how near it is and how alike its surface: the same depth and the
+// same normal count in full, and a ray from across an edge counts for almost nothing.
+vec4 tracedReflection(ivec2 pixel, float depth, vec3 n) {
+    ivec2 size = textureSize(depthTexture, 0);
+    ivec2 cells = textureSize(tracedTexture, 0);
+    if (cells == size) {
+        vec4 own = texelFetch(tracedTexture, pixel, 0);
+        return own.a < 0.0 ? vec4(0.0) : own;
     }
 
-    vec3 start = position + n * 0.01;
-    float stepLength = TRACE_FIRST_STEP;
-    float last = 0.0;
-    float travelled = stepLength * (0.5 + noise);
-    for (int i = 0; i < TRACE_STEPS && travelled < TRACE_DISTANCE; i++) {
-        vec4 clip = frame.viewProjection * vec4(start + direction * travelled, 1.0);
-        if (clip.w <= 0.0) {
-            break;
+    // Where the pixel sits among the traced ones, which are two pixels apart: on one, or halfway between two.
+    ivec2 fromFirst = pixel - tracedCorner();
+    ivec2 first = fromFirst >> 1;
+    vec2 between = vec2(fromFirst & 1) * 0.5;
+
+    vec3 color = vec3(0.0);
+    float trust = 0.0;
+    float total = 0.0;
+    for (int i = 0; i < 4; i++) {
+        ivec2 corner = ivec2(i & 1, i >> 1);
+        ivec2 cell = clamp(first + corner, ivec2(0), cells - 1);
+        vec4 tap = texelFetch(tracedTexture, cell, 0);
+        if (tap.a < 0.0) {
+            continue;
         }
 
-        vec2 uv;
-        float gap = depthGap(clip, uv);
-        if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
-            break;
-        }
-
-        if (gap > 0.0 && gap < max(TRACE_THICKNESS, stepLength * 2.0)) {
-            float nearer = last;
-            float farther = travelled;
-            for (int j = 0; j < TRACE_REFINE_STEPS; j++) {
-                float middle = 0.5 * (nearer + farther);
-                if (depthGap(frame.viewProjection * vec4(start + direction * middle, 1.0), uv) > 0.0) {
-                    farther = middle;
-                } else {
-                    nearer = middle;
-                }
-            }
-
-            // Hitting the back of a surface means the ray slipped through the depth buffer.
-            depthGap(frame.viewProjection * vec4(start + direction * farther, 1.0), uv);
-            vec3 hitNormal = octahedralDecode(texture(normalRoughnessAoTexture, uv).xy);
-            if (dot(hitNormal, direction) < 0.0) {
-                vec4 previous = frame.previousViewProjection * vec4(start + direction * farther, 1.0);
-                vec2 historyUv = previous.xy / previous.w * 0.5 + 0.5;
-                vec2 edges = smoothstep(vec2(0.0), vec2(0.06), min(historyUv, 1.0 - historyUv));
-                float trust = edges.x * edges.y * (1.0 - smoothstep(0.7, 1.0, farther / TRACE_DISTANCE));
-                return vec4(min(texture(historyTexture, historyUv).rgb, vec3(TRACE_MAX_RADIANCE)), trust);
-            }
-        }
-
-        last = travelled;
-        stepLength *= TRACE_GROWTH;
-        travelled += stepLength;
+        ivec2 from = tracedPixel(cell, size);
+        float fromDepth = texelFetch(depthTexture, from, 0).r;
+        vec3 fromNormal = octahedralDecode(texelFetch(normalRoughnessAoTexture, from, 0).xy);
+        vec2 nearness = mix(1.0 - between, between, vec2(corner));
+        // A little weight even at no nearness, so a pixel on a traced one still has neighbours to fall back on.
+        float weight = (nearness.x * nearness.y + 0.02)
+            * exp(-abs(fromDepth / depth - 1.0) * TRACED_DEPTH_FALLOFF)
+            * pow(max(dot(n, fromNormal), 0.0), TRACED_NORMAL_POWER);
+        color += tap.rgb * tap.a * weight;
+        trust += tap.a * weight;
+        total += weight;
     }
 
-    return vec4(0.0);
-}
-
-// Where the camera's ray through this pixel crosses the puddles' water level. The depth
-// buffer holds the ground under the water, and a reflection traced from there would run
-// straight into the sides of its own hollow. Two points along the pixel's ray, at its depth
-// and nearer, give the ray under any projection.
-vec3 onWaterSurface(vec4 clip, vec3 ground) {
-    vec4 nearer = frame.inverseViewProjection * vec4(clip.xy, min(clip.z * 2.0 + 1e-4, 1.0), 1.0);
-    vec3 towardsCamera = nearer.xyz / nearer.w - ground;
-    float rise = frame.puddles.x - ground.y;
-    if (rise <= 0.0 || towardsCamera.y <= 1e-6) {
-        return ground;
-    }
-
-    return ground + towardsCamera * (rise / towardsCamera.y);
+    // A ray that found nothing has no colour, so the colour is the average of those that did.
+    return total > 1e-6 ? vec4(color / max(trust, 1e-6), trust / total) : vec4(0.0);
 }
 
 void main() {
@@ -606,19 +541,14 @@ void main() {
         reflectedLight = sampleReflection(position, reflect(-v, n), roughness * REFLECTION_LODS);
     }
 
-    // Coated surfaces are traced for their mirror-like coat, which then serves both layers.
-    float traceStrength = isOff(OFF_REFLECTIONS) || !specular ? 0.0
-        : clearcoat > 0.0 ? 1.0 : 1.0 - smoothstep(TRACE_MAX_ROUGHNESS * 0.5, TRACE_MAX_ROUGHNESS, roughness);
+    // What reflections.frag traced on screen for this pixel, weighed by how much of its reflection is traced. With
+    // specular off the coat is already 0 and traceStrength is too.
+    float strength = traceStrength(roughness, clearcoat);
     vec4 traced = vec4(0.0);
-    if (traceStrength > 0.0) {
-        // Two independent numbers per pixel, each visiting new values every frame.
-        vec2 random = fract(vec2(
-            interleavedGradientNoise(gl_FragCoord.xy) + float(frame.frameNumber % 64) * 0.7548777,
-            interleavedGradientNoise(gl_FragCoord.yx + 47.0) + float(frame.frameNumber % 64) * 0.5698403));
-        float scatter = clearcoat > 0.0 ? CLEARCOAT_ROUGHNESS * CLEARCOAT_ROUGHNESS : alpha;
-        traced = traceReflection(position, n, scatterReflection(v, n, scatter, random), random.x);
+    if (strength > 0.0) {
+        traced = tracedReflection(ivec2(gl_FragCoord.xy), depth, n);
         traced.rgb /= max(frame.backgroundRadiance.a, 1e-3);
-        traced.a *= traceStrength;
+        traced.a *= strength;
     }
 
     // Probes and the environment can't see what hides them in a crease, so their

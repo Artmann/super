@@ -89,6 +89,7 @@ public sealed unsafe class Renderer : IDisposable
     private int _shadowResolution;
     // The scene's size against the window's, which the next frame rebuilds the targets at if it differs.
     private float _renderScale = 1f;
+    private ReflectionResolution _reflectionResolution = ReflectionResolution.Half;
     // The largest image side the device can make, which the scene is shrunk to fit.
     private readonly int _maxImageSize;
     private readonly Vk _api;
@@ -220,6 +221,7 @@ public sealed unsafe class Renderer : IDisposable
     private readonly DescriptorSet _scatterAcrossSet;
     private readonly DescriptorSet _scatterDownSet;
     private readonly DescriptorSet _lightingSet;
+    private readonly DescriptorSet _reflectionSet;
     private readonly DescriptorSet _taaSet;
     private readonly DescriptorSet _tonemapSet;
     private readonly DescriptorSet _finishSet;
@@ -232,6 +234,7 @@ public sealed unsafe class Renderer : IDisposable
     private readonly GBufferPass _gBufferPass;
     private readonly FullscreenPass _aoPass;
     private readonly FullscreenPass _aoBlurPass;
+    private readonly FullscreenPass _reflectionPass;
     private readonly FullscreenPass _lightingPass;
     private readonly FullscreenPass _scatterAcrossPass;
     private readonly FullscreenPass _scatterDownPass;
@@ -411,6 +414,24 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>
+    /// How many pixels trace their screen-space reflection each frame: see <see cref="Rendition.ReflectionResolution"/>.
+    /// A change rebuilds the targets before the next frame.
+    /// </summary>
+    public ReflectionResolution ReflectionResolution
+    {
+        get => _reflectionResolution;
+        set
+        {
+            if (!Enum.IsDefined(value))
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), value, "Reflection resolution can be Half or Full.");
+            }
+
+            _reflectionResolution = value;
+        }
+    }
+
+    /// <summary>
     /// What anti-aliases the scene: the engine's own TAA, or AMD's FSR 3.1, which also rebuilds a scene drawn
     /// below a <see cref="RenderScale"/> of 1 at the window's size instead of stretching it. FSR needs its library,
     /// amd_fidelityfx_vk.dll, next to the game; without it, or above a render scale of 1, TAA is used, and a missing
@@ -557,17 +578,17 @@ public sealed unsafe class Renderer : IDisposable
         _api.CreateSampler(_context.Device, &shadowSamplerInfo, null, out _shadowSampler).Check();
 
         _frameSetLayout = CreateFrameSetLayout();
-        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 15, ShaderStageFlags.FragmentBit);
+        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 16, ShaderStageFlags.FragmentBit);
         _threeTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 3, ShaderStageFlags.FragmentBit);
         _fourTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 4, ShaderStageFlags.FragmentBit);
         _twoTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 2, ShaderStageFlags.FragmentBit);
         _oneTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit);
 
         _descriptorPool = _context.CreateDescriptorPool(
-            FramesInFlight + 10,
+            FramesInFlight + 11,
             new DescriptorPoolSize(DescriptorType.UniformBuffer, FramesInFlight),
             new DescriptorPoolSize(DescriptorType.StorageBuffer, 9 * FramesInFlight),
-            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 36 + 3 * FramesInFlight));
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 41 + 3 * FramesInFlight));
 
         for (int i = 0; i < FramesInFlight; i++)
         {
@@ -628,6 +649,7 @@ public sealed unsafe class Renderer : IDisposable
         _scatterAcrossSet = AllocateSet(_twoTextureSetLayout);
         _scatterDownSet = AllocateSet(_twoTextureSetLayout);
         _lightingSet = AllocateSet(_lightingSetLayout);
+        _reflectionSet = AllocateSet(_fourTextureSetLayout);
         _taaSet = AllocateSet(_fourTextureSetLayout);
         _tonemapSet = AllocateSet(_twoTextureSetLayout);
         _finishSet = AllocateSet(_twoTextureSetLayout);
@@ -646,6 +668,7 @@ public sealed unsafe class Renderer : IDisposable
         _gBufferPass = new GBufferPass(_context, _frameSetLayout, _resources);
         _aoPass = new FullscreenPass(_context, "ao.frag", GBuffer.AoFormat, [_frameSetLayout, _threeTextureSetLayout]);
         _aoBlurPass = new FullscreenPass(_context, "ao_blur.frag", GBuffer.AoFormat, [_twoTextureSetLayout], 2 * sizeof(float));
+        _reflectionPass = new FullscreenPass(_context, "reflections.frag", GBuffer.HdrFormat, [_frameSetLayout, _fourTextureSetLayout], sizeof(int));
         _lightingPass = new FullscreenPass(_context, "lighting.frag", [GBuffer.HdrFormat, GBuffer.HdrFormat],
             [_frameSetLayout, _lightingSetLayout, _resources.Layout]);
         _scatterAcrossPass = new FullscreenPass(_context, "sss_blur.frag", [GBuffer.HdrFormat],
@@ -3773,10 +3796,11 @@ public sealed unsafe class Renderer : IDisposable
         {
             Resize((uint)view.Width, (uint)view.Height);
         }
-        else if (upscalingChanged || (SceneExtent(_swapchain.Extent) is var scene
+        else if (upscalingChanged || _reflectionResolution != _gBuffer.Reflections || (SceneExtent(_swapchain.Extent) is var scene
             && (scene.Width != _gBuffer.Extent.Width || scene.Height != _gBuffer.Extent.Height)))
         {
-            // Frames in flight still read the targets being replaced. Changing the scale or upscaler is rare.
+            // Frames in flight still read the targets being replaced. Changing the scale, the upscaler or the
+            // reflections' resolution is rare.
             _api.DeviceWaitIdle(_context.Device).Check();
             RebuildTargets();
         }
@@ -4264,6 +4288,7 @@ public sealed unsafe class Renderer : IDisposable
         _particlePass.Dispose();
         _decalPass.Dispose();
         _lightingPass.Dispose();
+        _reflectionPass.Dispose();
         _scatterAcrossPass.Dispose();
         _scatterDownPass.Dispose();
         _aoBlurPass.Dispose();
@@ -4687,6 +4712,7 @@ public sealed unsafe class Renderer : IDisposable
         {
             // The trace debug view writes Hdr in place of lighting, and nothing blends over it. Depth is left read-only
             // as the transparent pass would leave it, for the passes after.
+            _gpuTimer.Mark(cmd);
             _traceDebugPass!.Record(cmd, _frameIndex, _tracing!, scene, frameSet, _resources.Set, targets.Hdr, extent);
             _gpuTimer.Mark(cmd);
             _gpuTimer.Mark(cmd);
@@ -4696,6 +4722,8 @@ public sealed unsafe class Renderer : IDisposable
             _gpuTimer.Mark(cmd);
             return;
         }
+
+        RecordReflections(cmd, targets, frameSet);
 
         _api.BeginColorTarget(cmd, targets.Hdr.Image);
         _api.BeginColorTarget(cmd, targets.Scatter.Image);
@@ -4781,6 +4809,30 @@ public sealed unsafe class Renderer : IDisposable
         // Blurred across into a second image, then down into the one the lighting reads.
         RecordAoBlur(cmd, targets.AoAcross, _aoAcrossSet, new Vector2(1f / extent.Width, 0f), extent);
         RecordAoBlur(cmd, targets.AoBlurred, _aoDownSet, new Vector2(0f, 1f / extent.Height), extent);
+        _gpuTimer.Mark(cmd);
+    }
+
+    /// <summary>
+    /// Traces the screen-space reflections from the G-buffer just drawn and last frame's picture, for the lighting to
+    /// read: one ray a pixel, or one for each block of four at <see cref="ReflectionResolution.Half"/>. Left out when
+    /// nothing would be traced: with reflections or specular off, or with no last frame, as on a probe's faces. The
+    /// lighting reads no reflection then, but it still binds the target.
+    /// </summary>
+    private void RecordReflections(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet)
+    {
+        if (!_historyReady || (_off & (RenderEffects.Reflections | RenderEffects.Specular)) != 0)
+        {
+            _api.Transition(cmd, targets.Traced.Image, ImageAspectFlags.ColorBit,
+                ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
+            _gpuTimer.Mark(cmd);
+            return;
+        }
+
+        int scale = targets.Reflections == ReflectionResolution.Full ? 1 : 2;
+        ReadOnlySpan<DescriptorSet> sets = [frameSet, _reflectionSet];
+        _api.BeginColorTarget(cmd, targets.Traced.Image);
+        _reflectionPass.Record(cmd, targets.Traced.View, targets.TracedExtent, sets, new ReadOnlySpan<byte>(&scale, sizeof(int)));
+        _api.EndColorTarget(cmd, targets.Traced.Image);
         _gpuTimer.Mark(cmd);
     }
 
@@ -5205,7 +5257,7 @@ public sealed unsafe class Renderer : IDisposable
     private void CreateTargets()
     {
         var scene = SceneExtent(_swapchain.Extent);
-        _gBuffer = new GBuffer(_context, scene, _upscaling ? _swapchain.Extent : scene);
+        _gBuffer = new GBuffer(_context, scene, _upscaling ? _swapchain.Extent : scene, _reflectionResolution);
         if (_upscaling)
         {
             try
@@ -5219,7 +5271,7 @@ public sealed unsafe class Renderer : IDisposable
                 _upscalerUsed = Upscaler.Taa;
                 _upscaling = false;
                 _gBuffer.Dispose();
-                _gBuffer = new GBuffer(_context, scene);
+                _gBuffer = new GBuffer(_context, scene, reflections: _reflectionResolution);
             }
         }
         else
@@ -5526,6 +5578,14 @@ public sealed unsafe class Renderer : IDisposable
             new(_linearSampler, _lightProbes.DepthView, ImageLayout.General),
             new(_sampler, _gBuffer.Baked.View, ImageLayout.ShaderReadOnlyOptimal),
             new(_sampler, _gBuffer.Mask.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_sampler, _gBuffer.Traced.View, ImageLayout.ShaderReadOnlyOptimal),
+        ]);
+        WriteImages(_reflectionSet,
+        [
+            depth,
+            normal,
+            new(_sampler, _gBuffer.Emissive.View, ImageLayout.ShaderReadOnlyOptimal),
+            new(_linearSampler, _gBuffer.History.View, ImageLayout.ShaderReadOnlyOptimal),
         ]);
 
         // Glass and particles read depth while it's also attached for glass to test against.

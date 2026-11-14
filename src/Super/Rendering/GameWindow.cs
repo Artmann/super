@@ -604,7 +604,7 @@ internal sealed unsafe class GameWindow : IDisposable
     private void ApplyGraphics(Graphics graphics, bool settlingProbes = false)
     {
         (_scene.Off, _scene.Vsync, _scene.ShadowResolution, _scene.MaxShadowCascades, _scene.MeshDetail, _scene.RenderScale,
-            _scene.Upscaler, _scene.ProbeQuality, _scene.DebugView) =
+            _scene.Upscaler, _scene.ProbeQuality, _scene.ReflectionResolution, _scene.DebugView) =
             RendererSettings(graphics, _hidden, settlingProbes, _commandLineDebugView, CanTrace);
     }
 
@@ -618,7 +618,7 @@ internal sealed unsafe class GameWindow : IDisposable
     /// GPU that can't trace (<paramref name="canTrace"/>), where the renderer would throw.
     /// </summary>
     internal static (RenderEffects Off, bool Vsync, int ShadowResolution, int ShadowCascades, float MeshDetail, float RenderScale,
-        Upscaler Upscaler, ProbeQuality ProbeQuality,
+        Upscaler Upscaler, ProbeQuality ProbeQuality, ReflectionResolution ReflectionResolution,
         Rendition.DebugView DebugView) RendererSettings(
             Graphics graphics, bool hidden, bool settlingProbes = false, Rendition.DebugView commandLineDebugView = Rendition.DebugView.None,
             bool canTrace = true)
@@ -630,7 +630,8 @@ internal sealed unsafe class GameWindow : IDisposable
         }
 
         return (graphics.Off, hidden ? !settlingProbes : graphics.Vsync, graphics.ShadowResolution, graphics.ShadowCascades,
-            graphics.MeshDetail, graphics.RenderScale, graphics.Upscaler, graphics.ProbeQuality, debugView);
+            graphics.MeshDetail, graphics.RenderScale, graphics.Upscaler, graphics.ProbeQuality, graphics.ReflectionResolution,
+            debugView);
     }
 
     /// <summary>Feeds the window's events into the game's input. Only the interactive loop does this.</summary>

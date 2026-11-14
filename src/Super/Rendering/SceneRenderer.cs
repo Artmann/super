@@ -177,6 +177,13 @@ internal sealed class SceneRenderer : IDisposable
         set => _renderer.ProbeQuality = value;
     }
 
+    /// <summary>How many pixels trace their screen-space reflection each frame. A change rebuilds the targets on the next frame.</summary>
+    public ReflectionResolution ReflectionResolution
+    {
+        get => _renderer.ReflectionResolution;
+        set => _renderer.ReflectionResolution = value;
+    }
+
     /// <summary>Whether the light probes near the camera are all up to date. See <see cref="Renderer.ProbesSettled"/>.</summary>
     public bool ProbesSettled => _renderer.ProbesSettled;
 

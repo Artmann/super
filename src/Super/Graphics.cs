@@ -132,6 +132,22 @@ public sealed class Graphics
             : throw new ArgumentOutOfRangeException(nameof(value), value, "Probe quality can be Low, Medium or High.");
     } = ProbeQuality.High;
 
+    /// <summary>
+    /// How many pixels trace their screen-space reflection each frame, when <see cref="Reflections"/> is on.
+    /// <see cref="Rendition.ReflectionResolution.Half"/>, the default, traces one pixel in four, a different one each
+    /// frame, and anti-aliasing blends the frames into a full picture; <see cref="Rendition.ReflectionResolution.Full"/>
+    /// traces every pixel every frame, which sharpens a reflection that moves fast and costs up to four times as much.
+    /// A change while the game runs rebuilds the renderer's targets on the next frame, which waits for the GPU once.
+    /// <see cref="GraphicsQuality.Ultra"/> sets Full.
+    /// </summary>
+    public ReflectionResolution ReflectionResolution
+    {
+        get;
+        set => field = Enum.IsDefined(value)
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), value, "Reflection resolution can be Half or Full.");
+    } = ReflectionResolution.Half;
+
     /// <summary>Point and spot light shadows. Off, those lights are blocked only by nearby surfaces, as the sun is without its shadows.</summary>
     public bool LightShadows { get; set; } = true;
 
@@ -350,6 +366,7 @@ public sealed class Graphics
         {
             ShadowResolution = 4096,
             MeshDetail = 1.5f,
+            ReflectionResolution = ReflectionResolution.Full,
         },
         _ => throw new ArgumentOutOfRangeException(nameof(quality), quality, "Graphics quality can be Low, Medium, High or Ultra."),
     };
@@ -413,6 +430,7 @@ public sealed class Graphics
         RenderScale = profile.RenderScale;
         Upscaler = profile.Upscaler;
         ProbeQuality = profile.ProbeQuality;
+        ReflectionResolution = profile.ReflectionResolution;
         BakeOnArrival = profile.BakeOnArrival;
         BakeBudget = profile.BakeBudget;
         ApplySwitches(profile);
