@@ -256,7 +256,15 @@ only, hips further forward than back. For another rig, list the parts yourself a
 `RagdollPart`s, each naming its joint and its share of the mass, with its shape, how far
 its joint swings and twists, and which way it bends. `Friction`, `Bounciness`, `Layers`,
 `CollidesWith` and `Continuous` on the `RagdollBody` apply to every part. `Continuous` is
-on by default, so a body fired at a wall doesn't pass through it.
+on by default, so a body fired at a wall doesn't pass through it. To give a humanoid
+other settings, start from its parts:
+
+```csharp
+var body = new RagdollBody(rig, RagdollBody.HumanoidParts()) { Bounciness = 0.6f };
+```
+
+`Bounciness` is 0.1 by default, so a body mostly thuds. Cannonball uses 0.6, so the
+stuntman bounces off the ground before rolling to a stop.
 
 ### Turning it on and off
 

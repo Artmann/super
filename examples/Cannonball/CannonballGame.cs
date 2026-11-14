@@ -89,7 +89,8 @@ public sealed class CannonballGame(World world, Content content, Physics physics
     public void Load()
     {
         var rig = content.Rig("cannonball/stuntman.fbx");
-        _body = RagdollBody.Humanoid(rig);
+        // Bouncier than the usual 0.1 (his hips bounce about 15 cm rather than 5), so he bounces off the ground once or twice before he rolls to a stop.
+        _body = new RagdollBody(rig, RagdollBody.HumanoidParts()) { Bounciness = 0.6f };
         _controller = new AnimationController<Stance, Move>(rig) { CrossFadeSeconds = 0.25f }
             .State(Stance.Idle, rig.Clip("Idle"))
             .State(Stance.Flail, rig.Clip("Flail"))
