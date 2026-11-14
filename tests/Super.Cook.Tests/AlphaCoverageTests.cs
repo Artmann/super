@@ -70,7 +70,7 @@ public sealed class AlphaCoverageTests : IDisposable
     private static MemoryStore Cook(string src, string? cache = null)
     {
         var store = new MemoryStore();
-        var result = new CookPipeline(ModelCookers.All, new CookOptions(CacheFolder: cache)).Cook([new FolderRoot(src)], store);
+        var result = new CookPipeline(ModelCookers.All, new CookOptions(CacheFolder: cache) { CacheLimit = CacheSize.Default }).Cook([new FolderRoot(src)], store);
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
         return store;
     }

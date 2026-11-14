@@ -19,7 +19,7 @@ public class RandomStreamTests
             total += value;
         }
 
-        Assert.Equal(0.5, total / Samples, 0.01);
+        Assert.Equal(0.5, total / Samples, 0.004);
     }
 
     [Fact]
@@ -33,7 +33,7 @@ public class RandomStreamTests
 
         foreach (int count in counts)
         {
-            Assert.InRange(count, Samples / 6 - 800, Samples / 6 + 800);
+            Assert.InRange(count, Samples / 6 - 500, Samples / 6 + 500);
         }
     }
 
@@ -58,21 +58,28 @@ public class RandomStreamTests
     }
 
     [Fact]
-    public void Decimal_Between_stays_in_range()
+    public void Decimal_Between_stays_in_range_and_averages_the_middle()
     {
+        double total = 0;
         for (int i = 0; i < Samples; i++)
         {
-            Assert.InRange(_rolls.Between(-2.5f, 4f), -2.5f, 4f);
+            float value = _rolls.Between(-2.5f, 4f);
+            Assert.InRange(value, -2.5f, 4f);
+            total += value;
         }
 
+        // The middle of -2.5 to 4 is 0.75, and the mean of 100 000 has a deviation of 6.5 / sqrt(12 * 100 000).
+        Assert.Equal(0.75, total / Samples, 0.025);
         Assert.Equal(3f, _rolls.Between(3f, 3f));
     }
 
     [Fact]
     public void Between_rejects_a_backwards_range()
     {
-        Assert.Throws<ArgumentException>(() => _rolls.Between(2, 1));
-        Assert.Throws<ArgumentException>(() => _rolls.Between(2f, 1f));
+        var whole = Assert.Throws<ArgumentException>(() => _rolls.Between(2, 1));
+        Assert.Equal("max (1) is less than min (2). (Parameter 'max')", whole.Message);
+        var decimals = Assert.Throws<ArgumentException>(() => _rolls.Between(2f, 1f));
+        Assert.Equal("max (1) is less than min (2). (Parameter 'max')", decimals.Message);
     }
 
     [Fact]
@@ -90,7 +97,7 @@ public class RandomStreamTests
             Assert.True(_rolls.Chance(1f));
         }
 
-        Assert.InRange(hits, Samples * 0.24, Samples * 0.26);
+        Assert.InRange(hits, Samples * 0.2445, Samples * 0.2555);
     }
 
     [Fact]
@@ -107,17 +114,24 @@ public class RandomStreamTests
             sum += sign;
         }
 
-        Assert.InRange(trues, Samples * 0.48, Samples * 0.52);
-        Assert.InRange(sum, -2000, 2000);
+        Assert.InRange(trues, Samples * 0.4935, Samples * 0.5065);
+        Assert.InRange(sum, -1300, 1300);
     }
 
     [Fact]
-    public void Angle_stays_within_one_turn()
+    public void Angle_stays_within_one_turn_and_averages_half_a_turn()
     {
+        double total = 0;
         for (int i = 0; i < Samples; i++)
         {
-            Assert.InRange(_rolls.Angle(), 0f, MathF.Tau);
+            float angle = _rolls.Angle();
+            Assert.InRange(angle, 0f, MathF.Tau);
+            total += angle;
         }
+
+        // An even angle has a deviation of tau / sqrt(12), so the mean of 100 000 has one of 0.006, and 0.025 is
+        // four of those.
+        Assert.Equal(Math.PI, total / Samples, 0.025);
     }
 
     [Fact]
@@ -133,8 +147,8 @@ public class RandomStreamTests
             squares += (value - 10f) * (value - 10f);
         }
 
-        Assert.Equal(10, total / Samples, 0.05);
-        Assert.Equal(2, Math.Sqrt(squares / Samples), 0.05);
+        Assert.Equal(10, total / Samples, 0.025);
+        Assert.Equal(2, Math.Sqrt(squares / Samples), 0.02);
     }
 
     [Fact]
@@ -148,7 +162,8 @@ public class RandomStreamTests
         }
 
         Assert.Equal(items.Length, seen.Count);
-        Assert.Throws<ArgumentException>(() => _rolls.Pick(Array.Empty<string>()));
+        var thrown = Assert.Throws<ArgumentException>(() => _rolls.Pick(Array.Empty<string>()));
+        Assert.Equal("There is nothing to pick from. (Parameter 'items')", thrown.Message);
     }
 
     [Fact]
@@ -169,13 +184,21 @@ public class RandomStreamTests
     public void PickWeighted_rejects_bad_weights()
     {
         float[] none = [0f, 0f];
-        float[] negative = [1f, -1f];
+        float[] negative = [3f, -1f];
         float[] broken = [1f, float.NaN];
 
-        Assert.Throws<ArgumentException>(() => _rolls.PickWeighted(none, static weight => weight));
-        Assert.Throws<ArgumentException>(() => _rolls.PickWeighted(negative, static weight => weight));
-        Assert.Throws<ArgumentException>(() => _rolls.PickWeighted(broken, static weight => weight));
-        Assert.Throws<ArgumentException>(() => _rolls.PickWeighted(Array.Empty<float>(), static weight => weight));
+        Assert.Equal(
+            "At least one item needs a weight above zero. (Parameter 'items')",
+            Assert.Throws<ArgumentException>(() => _rolls.PickWeighted(none, static weight => weight)).Message);
+        Assert.Equal(
+            "Item 1 has the weight -1. (Parameter 'weight')",
+            Assert.Throws<ArgumentException>(() => _rolls.PickWeighted(negative, static weight => weight)).Message);
+        Assert.Equal(
+            "Item 1 has the weight NaN. (Parameter 'weight')",
+            Assert.Throws<ArgumentException>(() => _rolls.PickWeighted(broken, static weight => weight)).Message);
+        Assert.Equal(
+            "At least one item needs a weight above zero. (Parameter 'items')",
+            Assert.Throws<ArgumentException>(() => _rolls.PickWeighted(Array.Empty<float>(), static weight => weight)).Message);
     }
 
     [Fact]
@@ -196,7 +219,7 @@ public class RandomStreamTests
 
         foreach (int count in firstPlace)
         {
-            Assert.InRange(count, Samples / 4 - 1000, Samples / 4 + 1000);
+            Assert.InRange(count, Samples / 4 - 550, Samples / 4 + 550);
         }
     }
 
@@ -229,7 +252,7 @@ public class RandomStreamTests
             total += _rolls.Direction3D();
         }
 
-        Assert.InRange((total / Samples).Length(), 0f, 0.02f);
+        Assert.InRange((total / Samples).Length(), 0f, 0.008f);
     }
 
     [Fact]
@@ -242,17 +265,27 @@ public class RandomStreamTests
             nearEquator += MathF.Abs(_rolls.Direction3D().Y) < 0.5f ? 1 : 0;
         }
 
-        Assert.InRange(nearEquator, Samples * 0.49, Samples * 0.51);
+        Assert.InRange(nearEquator, Samples * 0.4935, Samples * 0.5065);
     }
 
     [Fact]
-    public void Points_stay_inside_their_shape()
+    public void Points_fill_their_shape_out_to_the_radius_and_no_further()
     {
+        float circleFarthest = 0f;
+        float sphereFarthest = 0f;
         for (int i = 0; i < 1000; i++)
         {
-            Assert.InRange(_rolls.InsideCircle(3f).Length(), 0f, 3.001f);
-            Assert.InRange(_rolls.InsideSphere(3f).Length(), 0f, 3.001f);
+            float circle = _rolls.InsideCircle(3f).Length();
+            float sphere = _rolls.InsideSphere(3f).Length();
+            Assert.InRange(circle, 0f, 3.001f);
+            Assert.InRange(sphere, 0f, 3.001f);
+            circleFarthest = MathF.Max(circleFarthest, circle);
+            sphereFarthest = MathF.Max(sphereFarthest, sphere);
         }
+
+        // A thousand points all closer than 2.9 is about a chance in e^68 for the circle and less for the sphere.
+        Assert.InRange(circleFarthest, 2.9f, 3.001f);
+        Assert.InRange(sphereFarthest, 2.9f, 3.001f);
     }
 
     [Fact]
@@ -265,7 +298,7 @@ public class RandomStreamTests
             inner += _rolls.InsideCircle().Length() < 0.5f ? 1 : 0;
         }
 
-        Assert.InRange(inner, Samples * 0.24, Samples * 0.26);
+        Assert.InRange(inner, Samples * 0.2445, Samples * 0.2555);
     }
 
     [Fact]
@@ -278,6 +311,6 @@ public class RandomStreamTests
             inner += _rolls.InsideSphere().Length() < 0.5f ? 1 : 0;
         }
 
-        Assert.InRange(inner, Samples * 0.12, Samples * 0.13);
+        Assert.InRange(inner, Samples * 0.1205, Samples * 0.1295);
     }
 }

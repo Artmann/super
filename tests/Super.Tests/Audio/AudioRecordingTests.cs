@@ -188,7 +188,7 @@ public sealed class AudioRecordingTests : IDisposable
     }
 
     [Fact]
-    public void AudioStaysManualForTheRecordingAndCannotBeStartedTwice()
+    public void ARecordingCannotBeStartedTwiceAndStoppingTwiceIsHarmless()
     {
         using var run = Start();
         AudioService audio = run.Game.Audio;
@@ -201,7 +201,7 @@ public sealed class AudioRecordingTests : IDisposable
     }
 
     [Fact]
-    public void AGameCaptureStartsTheWavWithTheFirstPictureAndKeepsNoneWithoutOne()
+    public void AGameCaptureStoppedBeforeAnyPictureKeepsNoWavAndNoVideo()
     {
         using var run = Start();
         string video = Path.Combine(_folder, "clip.mp4");

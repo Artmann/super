@@ -174,22 +174,6 @@ public sealed class TextureCookerTests
     }
 
     [Fact]
-    public void A_texture_cooked_before_mips_were_stored_must_be_cooked_again()
-    {
-        // Version 1: the header without a format or a count of levels, then the pixels.
-        byte[] old = new byte[21 + TwoPixels.Length];
-        BitConverter.GetBytes(0x58455453u).CopyTo(old, 0);
-        BitConverter.GetBytes(1).CopyTo(old, 4);
-        BitConverter.GetBytes(2).CopyTo(old, 8);
-        BitConverter.GetBytes(1).CopyTo(old, 12);
-        TwoPixels.CopyTo(old, 21);
-
-        var exception = Assert.Throws<ContentException>(() => CookedTexture.ReadSize(old, "rock.png"));
-
-        Assert.Equal("rock.png is not a current cooked texture. Cook again.", exception.Message);
-    }
-
-    [Fact]
     public void A_texture_marked_with_an_older_version_must_be_cooked_again()
     {
         byte[] bytes = new CookedTexture(2, 1, TextureKind.Color, false, TwoPixels).Write();

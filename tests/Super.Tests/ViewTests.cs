@@ -59,8 +59,9 @@ public class ViewTests
         var error = Assert.Throws<ArgumentOutOfRangeException>(
             () => view.PointLight(1, Vector3.Zero, Vector3.One, 5f, mode: (LightMode)7));
 
-        Assert.Contains("mode", error.Message);
-        Assert.Contains("7", error.Message);
+        Assert.Equal("mode", error.ParamName);
+        Assert.Equal(7, error.ActualValue);
+        Assert.StartsWith("A light's mode must be Mixed, Realtime or Baked, but it was 7.", error.Message);
     }
 
     [Fact]

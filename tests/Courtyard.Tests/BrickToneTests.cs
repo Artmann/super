@@ -101,7 +101,8 @@ public sealed class BrickToneTests
         {
             for (var column = 0; column < Bricks.Columns; column++)
             {
-                if (Bricks.MiddleReds.Contains(ToneAt(tones, CentreOf(row, column))))
+                // Tones 2 and 3 are the two middle reds.
+                if (ToneAt(tones, CentreOf(row, column)) is 2 or 3)
                 {
                     reds++;
                 }

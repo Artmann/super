@@ -209,7 +209,7 @@ public sealed class SharedGraphRunsTests : IDisposable
     private static (CookResult Result, MemoryStore Store) Cook(string src, int workers, string cache)
     {
         var store = new MemoryStore();
-        var result = new CookPipeline([.. ModelCookers.All, new MaterialCooker()], new CookOptions(Workers: workers, CacheFolder: cache))
+        var result = new CookPipeline([.. ModelCookers.All, new MaterialCooker()], new CookOptions(Workers: workers, CacheFolder: cache) { CacheLimit = CacheSize.Default })
             .Cook([new FolderRoot(src)], store);
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
         return (result, store);

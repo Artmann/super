@@ -102,7 +102,7 @@ public class ImageTests
     {
         var content = new Content(new MemoryContent());
         var error = Assert.Throws<ContentException>(() => content.Image("gone.png"));
-        Assert.Contains("gone.png", error.Message);
+        Assert.Equal("gone.png isn't in the cooked content. Check the name, including its case and extension.", error.Message);
     }
 
     [Fact]
@@ -110,7 +110,7 @@ public class ImageTests
     {
         var content = new Content(new MemoryContent().Add("a.png", [1, 2, 3]));
         var error = Assert.Throws<ContentException>(() => content.Image("a.png"));
-        Assert.Contains("a.png", error.Message);
+        Assert.Equal("memory:a.png: error SUPER001: a.png is not an image this can read", error.Message);
     }
 
     [Fact]
@@ -229,7 +229,8 @@ public class ImageTests
         var content = new Content(new MemoryContent());
         var image = content.Image(1, 1, new byte[4]);
         content.Unload(image);
-        Assert.Throws<ArgumentException>(() => content.Unload(image));
+        var error = Assert.Throws<ArgumentException>(() => content.Unload(image));
+        Assert.Equal("image names 1, which was unloaded. (Parameter 'image')", error.Message);
     }
 
     [Fact]

@@ -128,8 +128,8 @@ public class LightmapLayoutTests
 
         tiny.TryGet(BakeIds.Of(InstanceA, 0), out var small);
         huge.TryGet(BakeIds.Of(InstanceA, 0), out var big);
-        Assert.Equal(LightmapLayout.MinSide, SideInTexels(small));
-        Assert.Equal(LightmapLayout.MaxSide, SideInTexels(big));
+        Assert.Equal(8, SideInTexels(small));
+        Assert.Equal(1024, SideInTexels(big));
     }
 
     [Fact]
@@ -190,7 +190,7 @@ public class LightmapLayoutTests
     }
 
     [Fact]
-    public void Wind_and_transparent_draws_get_no_rectangle()
+    public void Draws_whose_material_is_not_baked_get_no_rectangle()
     {
         var draws = new[]
         {
@@ -199,7 +199,7 @@ public class LightmapLayoutTests
             Draw(BakeIds.Of(InstanceA, 2), material: 2),
         };
 
-        // Material 1 sways in the wind and material 2 is glass.
+        // Only material 0 is baked, as a material swaying in the wind or made of glass would not be.
         var layout = Build(draws, [1f], material => material.Index == 0);
 
         Assert.True(layout.TryGet(BakeIds.Of(InstanceA, 0), out _));

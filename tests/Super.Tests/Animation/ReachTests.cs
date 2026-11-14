@@ -161,13 +161,28 @@ public class ReachTests
     [Fact]
     public void A_limb_must_run_down_the_skeleton()
     {
-        var rig = Arm();
+        var problem = Assert.Throws<ArgumentException>(() => Arm().Limb("elbow", "shoulder", "wrist"));
 
-        var problem = Assert.Throws<ArgumentException>(() => rig.Limb("elbow", "shoulder", "wrist"));
+        Assert.Equal("A limb's joints must each be under the one before, but shoulder isn't under elbow.", problem.Message);
+    }
 
-        Assert.Contains("shoulder isn't under elbow", problem.Message);
-        Assert.Throws<ArgumentException>(() => rig.Limb("shoulder", "elbow", "hand"));
-        Assert.Throws<ArgumentException>(() => new AnimationPose(rig).Reach(Arm().Limb("shoulder", "elbow", "wrist"), Vector3.Zero));
+    [Fact]
+    public void A_limb_names_joints_the_rig_has()
+    {
+        var problem = Assert.Throws<ArgumentException>(() => Arm().Limb("shoulder", "elbow", "hand"));
+
+        Assert.Equal(
+            "The rig has no joint called hand. It has: body, shoulder, elbow, wrist, sword. (Parameter 'upper')",
+            problem.Message);
+    }
+
+    [Fact]
+    public void A_pose_only_reaches_with_a_limb_of_its_own_rig()
+    {
+        var problem = Assert.Throws<ArgumentException>(
+            () => new AnimationPose(Arm()).Reach(Arm().Limb("shoulder", "elbow", "wrist"), Vector3.Zero));
+
+        Assert.Equal("The limb is for another rig. (Parameter 'limb')", problem.Message);
     }
 
     /// <summary>Each joint in the model, as drawn.</summary>

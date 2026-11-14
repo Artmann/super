@@ -67,7 +67,7 @@ public sealed class ProbeStorageTests(GpuFixture gpu)
     }
 
     [Fact]
-    public void A_point_with_no_captured_probes_reads_the_sky()
+    public void A_point_with_no_captured_probes_reads_as_no_probe()
     {
         int errors = gpu.ValidationErrors;
         gpu.Renderer.ClearProbesForTest();
@@ -78,11 +78,11 @@ public sealed class ProbeStorageTests(GpuFixture gpu)
             Render();
             var far = Cell(0, new Vector3(6f, 0f, 0f));
             gpu.Renderer.WriteProbeTileForTest(new ProbeId(0, gpu.Renderer.LightProbeCascades.Slot(0, far)), new Vector3(1f));
-            Render(sky: new Vector3(0f, 0f, 0.5f));
+            Render();
 
             var sample = Sample(Point);
 
-            // -1 is what softLight in lighting.frag turns into the sky's irradiance.
+            // -1 is what liveSoftLight in lighting.frag turns into the sky's irradiance.
             Assert.Equal(new Vector3(-1f), sample);
             Assert.Equal(errors, gpu.ValidationErrors);
         }
@@ -137,7 +137,7 @@ public sealed class ProbeStorageTests(GpuFixture gpu)
         }
     }
 
-    private void Render(ProbeVolumeSettings? lightProbes = null, Vector3? sky = null)
+    private void Render(ProbeVolumeSettings? lightProbes = null)
     {
         var view = new FrameView
         {
@@ -148,10 +148,6 @@ public sealed class ProbeStorageTests(GpuFixture gpu)
             CameraPosition = Vector3.Zero,
             LightProbes = lightProbes,
         };
-        if (sky is { } radiance)
-        {
-            view.BackgroundRadiance = radiance;
-        }
 
         gpu.Renderer.Render(view, []);
     }

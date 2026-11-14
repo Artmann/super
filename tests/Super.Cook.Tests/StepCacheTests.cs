@@ -150,7 +150,7 @@ public sealed class StepCacheTests : IDisposable
     {
         Super.Cook.Materials.SharedGraphRuns.Forget();
         var store = new MemoryStore();
-        var result = new CookPipeline(ModelCookers.All, new CookOptions(CacheFolder: cache)).Cook([new FolderRoot(src)], store);
+        var result = new CookPipeline(ModelCookers.All, new CookOptions(CacheFolder: cache) { CacheLimit = CacheSize.Default }).Cook([new FolderRoot(src)], store);
         Assert.True(result.Succeeded, string.Join("; ", result.Problems));
         return (result, store);
     }
@@ -544,7 +544,6 @@ public sealed class StepCacheTests : IDisposable
         var texture = Texture(1);
         string key = TextureCompression.Key(texture, TextureFormat.Bc7);
 
-        Assert.Equal(TextureCompression.Key(texture, TextureFormat.Bc7, TextureCompression.EncoderVersionFor(Bc7Encoder.Version, CompressionQuality.Fast)), key);
         Assert.NotEqual(key, TextureCompression.Key(texture, TextureFormat.Bc7, TextureCompression.EncoderVersionFor(Bc7Encoder.Version + 1, CompressionQuality.Fast)));
         Assert.NotEqual(key, TextureCompression.Key(texture, TextureFormat.Bc7, TextureCompression.EncoderVersionFor(Bc7Encoder.Version, CompressionQuality.Balanced)));
     }

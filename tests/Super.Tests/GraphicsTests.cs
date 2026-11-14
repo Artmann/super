@@ -275,6 +275,7 @@ public class GraphicsTests
 
     [Theory]
     [InlineData(1024)]
+    [InlineData(2048)]
     [InlineData(4096)]
     public void Shadow_resolution_takes_each_of_the_three_sizes(int resolution)
     {
@@ -332,19 +333,7 @@ public class GraphicsTests
         typeof(Graphics).GetProperty(setting)!.SetValue(graphics, false);
 
         Assert.Equal(effect, graphics.Off);
-    }
-
-    [Fact]
-    public void Baked_lighting_is_on_by_default_and_off_maps_to_the_effect()
-    {
-        var graphics = new Graphics();
-        Assert.True(graphics.BakedLighting);
-        Assert.False(graphics.Off.HasFlag(RenderEffects.BakedLighting));
-
-        graphics.BakedLighting = false;
-
-        Assert.Equal(RenderEffects.BakedLighting, graphics.Off);
-        Assert.True(RenderEffects.All.HasFlag(RenderEffects.BakedLighting));
+        Assert.True(RenderEffects.All.HasFlag(effect));
     }
 
     // A bake is cheaper than lighting live, so the fastest settings keep it.
@@ -389,19 +378,6 @@ public class GraphicsTests
 
         host.Game.Graphics.Upscaler = Upscaler.Taa;
         Assert.Equal(Upscaler.Taa, GameWindow.RendererSettings(host.Graphics, hidden: false).Upscaler);
-    }
-
-    [Fact]
-    public void Materials_can_be_turned_off_and_back_on_while_the_game_runs()
-    {
-        var given = new Graphics();
-        using var host = new GameHost<Settings>(1, 30, null, graphics: given);
-
-        host.Game.Graphics.Materials = false;
-        Assert.Equal(RenderEffects.Materials, host.Graphics.Off);
-
-        host.Game.Graphics.Materials = true;
-        Assert.Equal(RenderEffects.None, host.Graphics.Off);
     }
 
     [Fact]

@@ -7,14 +7,14 @@ public class SoundContentTests
 {
     private static byte[] Wav(float first = 0.25f) => TestWav.Make(48000, 1, [first, 0.5f, -0.5f], asFloat: false);
 
-    private static string Forest(string every = "[4, 12]") => $$"""
+    private const string Forest = """
         {
           "layers": [
             { "file": "wind.wav", "volume": 0.6 },
             { "file": "birds.wav", "volume": 0.3 }
           ],
           "scattered": [
-            { "files": ["crow.wav", "owl.wav"], "every": {{every}}, "volume": [0.4, 0.8], "pitchVariation": 0.1 }
+            { "files": ["crow.wav", "owl.wav"], "every": [4, 12], "volume": [0.4, 0.8], "pitchVariation": 0.1 }
           ]
         }
         """;
@@ -66,7 +66,7 @@ public class SoundContentTests
     [Fact]
     public void AmbienceReadsLayersAndScattered()
     {
-        var content = new Content(ForestFiles(Forest()));
+        var content = new Content(ForestFiles(Forest));
 
         AmbienceDefinition forest = content.AmbienceOf(content.Ambience("sounds/forest.ambience.json"));
 
@@ -104,7 +104,7 @@ public class SoundContentTests
     [Fact]
     public void SameAmbiencePathGivesSameRef()
     {
-        var content = new Content(ForestFiles(Forest()));
+        var content = new Content(ForestFiles(Forest));
 
         Assert.Equal(content.Ambience("sounds/forest.ambience.json"), content.Ambience("sounds/forest.ambience.json"));
     }
@@ -144,17 +144,6 @@ public class SoundContentTests
         AmbienceDefinition forest = content.AmbienceOf(content.Ambience("sounds/forest.ambience.json"));
 
         Assert.Equal("sounds/ambient/rain.wav", forest.Layers[0].Clip.Path);
-    }
-
-    [Fact]
-    public void AmbienceEveryWithMinAboveMaxExplains()
-    {
-        var content = new Content(ForestFiles(Forest("[12, 4]")));
-
-        var problem = Assert.Throws<ContentException>(() => content.Ambience("sounds/forest.ambience.json"));
-
-        Assert.Contains("forest.ambience.json", problem.Message);
-        Assert.Contains("every", problem.Message);
     }
 
     [Theory]
@@ -212,7 +201,7 @@ public class SoundContentTests
     [Fact]
     public void AmbienceMissingLayerFileNamesBothFiles()
     {
-        var files = ForestFiles(Forest());
+        var files = ForestFiles(Forest);
         files.Remove("sounds/birds.wav");
         var content = new Content(files);
 

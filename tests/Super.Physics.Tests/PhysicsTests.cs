@@ -51,7 +51,19 @@ public class PhysicsTests
         physics.Sync();
 
         Assert.Null(physics.Raycast(Forward));
-        Assert.Null(physics.Raycast(Forward, reach: 5f));
+    }
+
+    [Fact]
+    public void A_ray_reaches_only_as_far_as_its_reach()
+    {
+        // The ball's near side is 9.5 m along the ray.
+        var (world, physics) = Make();
+        using var _ = physics;
+        var ball = Place(world, new Vector3(0f, 1f, 0f), Collider.Ball(0.5f));
+        physics.Sync();
+
+        Assert.Null(physics.Raycast(Forward, reach: 9f));
+        Assert.Equal(ball, physics.Raycast(Forward, reach: 10f)!.Value.Entity);
     }
 
     [Fact]

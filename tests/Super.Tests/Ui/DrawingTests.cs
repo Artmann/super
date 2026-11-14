@@ -140,7 +140,21 @@ public class DrawingTests
         }
 
         var error = Assert.Throws<InvalidOperationException>(() => Show(stack));
-        Assert.Contains("8192", error.Message);
+        Assert.Equal(
+            "This interface draws more than 8192 quads, and each character of text is one. The rest won't show.",
+            error.Message);
+    }
+#else
+    [Fact]
+    public void Quads_past_8192_are_dropped_in_a_release_build()
+    {
+        var stack = new VStack(Spacing: 0f);
+        for (int i = 0; i < 8192 + 10; i++)
+        {
+            stack.Add(Block(1f, 1f).Background(Red));
+        }
+
+        Assert.Equal(8192, Show(stack).Length);
     }
 #endif
 }

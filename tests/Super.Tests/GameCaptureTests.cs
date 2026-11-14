@@ -71,17 +71,34 @@ public class GameCaptureTests
         using var capture = new GameCapture();
         capture.StartRecording("clip.mp4");
 
-        Assert.Throws<InvalidOperationException>(() => capture.StartRecording("other.mp4"));
+        var thrown = Assert.Throws<InvalidOperationException>(() => capture.StartRecording("other.mp4"));
+        Assert.Equal("Already recording clip.mp4.", thrown.Message);
     }
 
-    [Theory]
-    [InlineData("clip.avi", 60)]
-    [InlineData("clip.mp4", 0)]
-    [InlineData("", 60)]
-    public void Refuses_a_bad_recording(string path, int framesPerSecond)
+    [Fact]
+    public void Refuses_a_video_that_is_not_an_mp4()
     {
         using var capture = new GameCapture();
 
-        Assert.ThrowsAny<ArgumentException>(() => capture.StartRecording(path, framesPerSecond));
+        var thrown = Assert.Throws<ArgumentException>(() => capture.StartRecording("clip.avi", 60));
+        Assert.Equal("Videos are saved as .mp4, so 'clip.avi' won't work. (Parameter 'path')", thrown.Message);
+    }
+
+    [Fact]
+    public void Refuses_zero_frames_a_second()
+    {
+        using var capture = new GameCapture();
+
+        var thrown = Assert.Throws<ArgumentOutOfRangeException>(() => capture.StartRecording("clip.mp4", 0));
+        Assert.Equal("framesPerSecond", thrown.ParamName);
+    }
+
+    [Fact]
+    public void Refuses_an_empty_path()
+    {
+        using var capture = new GameCapture();
+
+        var thrown = Assert.Throws<ArgumentException>(() => capture.StartRecording("", 60));
+        Assert.Equal("path", thrown.ParamName);
     }
 }

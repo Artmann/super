@@ -27,7 +27,8 @@ public class GameArgumentsTests
     [Fact]
     public void A_script_needs_a_name()
     {
-        Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--script"]));
+        var thrown = Assert.Throws<ArgumentException>(() => GameArguments.Parse(["--script"]));
+        Assert.Equal("--script needs a value.", thrown.Message);
     }
 
     [Fact]
@@ -167,31 +168,39 @@ public class GameArgumentsTests
     }
 
     [Theory]
-    [InlineData("--seed")]
-    [InlineData("--seed", "soon")]
-    [InlineData("--seed", "99999999999")]
-    [InlineData("--ticks", "many", "--screenshot", "a.png")]
-    [InlineData("--ticks", "-1", "--screenshot", "a.png")]
-    [InlineData("--ticks", "10")]
-    [InlineData("--screenshot")]
-    [InlineData("--record", "clip.mp4")]
-    [InlineData("--record", "clip.avi", "--seconds", "1")]
-    [InlineData("--record", "clip.mp4", "--seconds", "0")]
-    [InlineData("--record", "clip.mp4", "--seconds", "soon")]
-    [InlineData("--record", "clip.mp4", "--seconds", "1", "--fps", "0")]
-    [InlineData("--record", "clip.mp4", "--seconds", "1", "--fps", "99999999999")]
-    [InlineData("--record", "clip.mp4", "--seconds", "1", "--screenshot", "a.png")]
-    [InlineData("--seconds", "1")]
-    [InlineData("--frames", "60")]
-    [InlineData("--profile", "reef.txt", "--frames", "0")]
-    [InlineData("--profile", "reef.txt", "--frames", "99999999999")]
-    [InlineData("--profile", "reef.txt", "--screenshot", "a.png")]
-    [InlineData("--profile", "reef.txt", "--record", "clip.mp4", "--seconds", "1")]
-    [InlineData("--size", "big", "--screenshot", "a.png")]
-    [InlineData("--size", "0x10", "--screenshot", "a.png")]
-    public void Refuses_a_bad_command_line(params string[] args)
+    [InlineData("--seed needs a value.", "--seed")]
+    [InlineData("--seed needs a whole number, not 'soon'.", "--seed", "soon")]
+    [InlineData("--seed needs a whole number, not '99999999999'.", "--seed", "99999999999")]
+    [InlineData("--ticks needs a whole number, not 'many'.", "--ticks", "many", "--screenshot", "a.png")]
+    [InlineData("--ticks can't be negative.", "--ticks", "-1", "--screenshot", "a.png")]
+    [InlineData(
+        "--ticks needs --screenshot, --record, --profile, --bake or --bake-check, because those are the only runs without a window so far.",
+        "--ticks", "10")]
+    [InlineData("--screenshot needs a value.", "--screenshot")]
+    [InlineData("--record needs --seconds.", "--record", "clip.mp4")]
+    [InlineData("--record needs a path ending in .mp4.", "--record", "clip.avi", "--seconds", "1")]
+    [InlineData("--seconds needs a number above zero, not '0'.", "--record", "clip.mp4", "--seconds", "0")]
+    [InlineData("--seconds needs a number above zero, not 'soon'.", "--record", "clip.mp4", "--seconds", "soon")]
+    [InlineData("--fps must be above zero.", "--record", "clip.mp4", "--seconds", "1", "--fps", "0")]
+    [InlineData(
+        "--fps needs a whole number, not '99999999999'.", "--record", "clip.mp4", "--seconds", "1", "--fps", "99999999999")]
+    [InlineData(
+        "--screenshot, --record and --profile can't run together.",
+        "--record", "clip.mp4", "--seconds", "1", "--screenshot", "a.png")]
+    [InlineData("--seconds needs --record.", "--seconds", "1")]
+    [InlineData("--frames needs --profile.", "--frames", "60")]
+    [InlineData("--frames must be above zero.", "--profile", "reef.txt", "--frames", "0")]
+    [InlineData("--frames needs a whole number, not '99999999999'.", "--profile", "reef.txt", "--frames", "99999999999")]
+    [InlineData("--screenshot, --record and --profile can't run together.", "--profile", "reef.txt", "--screenshot", "a.png")]
+    [InlineData(
+        "--screenshot, --record and --profile can't run together.",
+        "--profile", "reef.txt", "--record", "clip.mp4", "--seconds", "1")]
+    [InlineData("--size needs a size like 1920x1080, not 'big'.", "--size", "big", "--screenshot", "a.png")]
+    [InlineData("--size needs a size like 1920x1080, not '0x10'.", "--size", "0x10", "--screenshot", "a.png")]
+    public void Refuses_a_bad_command_line_and_says_why(string message, params string[] args)
     {
-        Assert.Throws<ArgumentException>(() => GameArguments.Parse(args));
+        var thrown = Assert.Throws<ArgumentException>(() => GameArguments.Parse(args));
+        Assert.Equal(message, thrown.Message);
     }
 
     [Fact]

@@ -65,12 +65,6 @@ public sealed class ManifestTests
     }
 
     [Fact]
-    public void Empty_has_no_assets()
-    {
-        Assert.Empty(ContentManifest.Empty.Assets);
-    }
-
-    [Fact]
     public void Shared_objects_round_trip_sorted_after_the_assets()
     {
         var manifest = new ContentManifest("desktop", new Dictionary<string, ManifestEntry>

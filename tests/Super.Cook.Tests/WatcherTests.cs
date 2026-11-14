@@ -163,15 +163,10 @@ public sealed class WatcherTests : IDisposable
         Assert.Equal(Quiet, clock.Timer.Due);
     }
 
-    [Fact]
+    // Only Windows refuses to replace a file another program has open.
+    [WindowsFact]
     public void Manifest_the_game_is_reading_is_tried_again_after_quiet()
     {
-        // Only Windows refuses to replace a file another program has open.
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         var clock = new ManualClock();
         using var watcher = new CookWatcher(_pipeline, [new FolderRoot(_content)], _store, _log, Quiet, clock);
         File.WriteAllText(Path.Combine(_content, "items", "sword.json"), """{ "name": "Sword" }""");

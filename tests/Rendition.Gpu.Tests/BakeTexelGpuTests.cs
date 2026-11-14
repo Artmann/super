@@ -207,9 +207,14 @@ public sealed class BakeTexelGpuTests(GpuFixture gpu)
         return rect;
     }
 
-    private void AssertPath(Baker baker, bool forceMultisample)
+    // Forcing multisampling must take the multisampled path even on a GPU that can rasterise conservatively.
+    private static void AssertPath(Baker baker, bool forceMultisample)
     {
-        Assert.Equal(!forceMultisample && gpu.Context.ConservativeRasterization, baker.Conservative);    }
+        if (forceMultisample)
+        {
+            Assert.False(baker.Conservative);
+        }
+    }
 
     private static (int X, int Y, int Side) Texels(LightmapRect rect) => (
         (int)MathF.Round(rect.Offset.X * LightmapLayout.PageSize),

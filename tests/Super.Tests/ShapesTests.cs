@@ -121,9 +121,20 @@ public class ShapesTests
     [MemberData(nameof(ClosedShapes))]
     public void Closed_shapes_are_watertight(string name)
     {
-        var mesh = Make(name);
+        Assert.Null(Leak(Make(name)));
+    }
 
-        // Seams double vertices for their UVs, so corners are matched by where they are.
+    [Fact]
+    public void An_open_plane_is_not_watertight()
+    {
+        // Proves the watertight check can fail: a plane's rim has nothing on the other side.
+        Assert.EndsWith("has nothing on the other side.", Leak(Make("plane")));
+    }
+
+    // Why the mesh isn't watertight, or null when it is. Seams double vertices for their UVs, so corners
+    // are matched by where they are. Every edge must be used once each way.
+    private static string? Leak(GeneratedMesh mesh)
+    {
         var edges = new Dictionary<(Vector3, Vector3), int>();
         for (int i = 0; i < mesh.Indices.Length; i += 3)
         {
@@ -134,29 +145,25 @@ public class ShapesTests
             }
         }
 
-        Assert.NotEmpty(edges);
+        if (edges.Count == 0)
+        {
+            return "has no edges";
+        }
+
         foreach (var ((from, to), count) in edges)
         {
-            Assert.True(count == 1, $"The edge {from} to {to} is used {count} times one way.");
-            Assert.True(edges.ContainsKey((to, from)), $"The edge {from} to {to} has nothing on the other side.");
-        }
-    }
+            if (count != 1)
+            {
+                return $"The edge {from} to {to} is used {count} times one way.";
+            }
 
-    [Fact]
-    public void An_open_plane_is_not_watertight()
-    {
-        // Proves the watertight check can fail: a plane's rim has nothing on the other side.
-        var mesh = Make("plane");
-        var edges = new HashSet<(Vector3, Vector3)>();
-        for (int i = 0; i < mesh.Indices.Length; i += 3)
-        {
-            var (a, b, c) = Corners(mesh, i);
-            edges.Add((Snap(a), Snap(b)));
-            edges.Add((Snap(b), Snap(c)));
-            edges.Add((Snap(c), Snap(a)));
+            if (!edges.ContainsKey((to, from)))
+            {
+                return $"The edge {from} to {to} has nothing on the other side.";
+            }
         }
 
-        Assert.Contains(edges, edge => !edges.Contains((edge.Item2, edge.Item1)));
+        return null;
     }
 
     [Theory]

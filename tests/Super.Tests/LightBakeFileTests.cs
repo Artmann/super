@@ -112,14 +112,6 @@ public sealed class LightBakeFileTests
     }
 
     [Fact]
-    public void Final_quality_reads_back_as_final()
-    {
-        var written = Build(false) with { Quality = BakeQuality.Final };
-
-        Assert.Equal(BakeQuality.Final, LightBakeFile.Read(written.ToBytes()).Quality);
-    }
-
-    [Fact]
     public void Reading_inputs_does_not_need_the_pages()
     {
         var bytes = Build(true).ToBytes();

@@ -54,7 +54,7 @@ public sealed class StartOrderTests : IDisposable
 
     // One worker, so the sources start one after another in the order the pipeline picks.
     private static CookResult Cook(string src, string cache, MemoryStore store, params ICooker[] cookers) =>
-        new CookPipeline(cookers, new CookOptions(CacheFolder: cache, Workers: 1)).Cook([new FolderRoot(src)], store);
+        new CookPipeline(cookers, new CookOptions(CacheFolder: cache, Workers: 1) { CacheLimit = CacheSize.Default }).Cook([new FolderRoot(src)], store);
 
     // Starts with the name, so no two sources have the same bytes and one never comes from the cache for another.
     private static void Write(string src, string name, int bytes) =>

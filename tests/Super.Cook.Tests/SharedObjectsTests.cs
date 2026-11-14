@@ -41,7 +41,7 @@ public sealed class SharedObjectsTests : IDisposable
     }
 
     private static CookResult Cook(string src, ICookedStore store, string? cache = null) =>
-        new CookPipeline([.. BuiltInCookers.All, new SharingCooker()], new CookOptions(CacheFolder: cache)).Cook([new FolderRoot(src)], store);
+        new CookPipeline([.. BuiltInCookers.All, new SharingCooker()], new CookOptions(CacheFolder: cache) { CacheLimit = CacheSize.Default }).Cook([new FolderRoot(src)], store);
 
     private static string Hash(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 

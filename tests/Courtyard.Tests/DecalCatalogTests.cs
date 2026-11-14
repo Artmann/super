@@ -54,8 +54,10 @@ public sealed class DecalCatalogTests(CookedDecals cooked) : IClassFixture<Cooke
 
         var ring = Assert.Single(cooked.Decals, decal => decal.Name == "barrel-ring");
 
-        // art/courtyard.py stands the barrel at Blender (0.2, 3.25) on the ground, which is (0.2, 0, -3.25) here.
-        Assert.Equal(new Vector3(0.2f, 0f, -3.25f), ring.Position);
+        // The ring lies on the ground under the barrel's middle. Blender's (x, y) is (x, -y) here.
+        Assert.Equal(GravelSpills.BarrelCentre.X, ring.Position.X, 0.02f);
+        Assert.Equal(0f, ring.Position.Y, 0.02f);
+        Assert.Equal(-GravelSpills.BarrelCentre.Y, ring.Position.Z, 0.02f);
         Assert.Equal("materials/stain.material.cs", ring.Material);
         Assert.Null(ring.Facing);
     }

@@ -489,18 +489,21 @@ public class ContentTests
         byte[] pixels = new byte[2 * 2 * 4];
         for (int i = 0; i < 4; i++)
         {
-            // Two normals leaning left, two leaning right: the average points straight up.
-            pixels[i * 4] = (byte)(i < 2 ? 0 : 255);
+            // Two unit normals leaning left, two leaning right, about (∓0.6, 0, 0.8). Their average is
+            // (0, 0, 0.8), 0.8 long, which only renormalising brings back to straight up at full blue.
+            pixels[i * 4] = (byte)(i < 2 ? 51 : 204);
             pixels[i * 4 + 1] = 128;
-            pixels[i * 4 + 2] = 255;
+            pixels[i * 4 + 2] = 230;
             pixels[i * 4 + 3] = 255;
         }
 
-        var data = TextureData.FromPixels(2, 2, TextureKind.Linear, pixels, normalMap: true);
+        var normals = TextureData.FromPixels(2, 2, TextureKind.Linear, pixels, normalMap: true);
+        var colours = TextureData.FromPixels(2, 2, TextureKind.Linear, pixels, normalMap: false);
 
-        Assert.Equal(2, data.Mips.Length);
-        Assert.Equal(4, data.Mips[1].Length);
-        Assert.InRange(data.Mips[1][2], 250, 255);
+        Assert.Equal(2, normals.Mips.Length);
+        Assert.Equal(4, normals.Mips[1].Length);
+        Assert.InRange(normals.Mips[1][2], 250, 255);
+        Assert.InRange(colours.Mips[1][2], 228, 232);
     }
 
     [Fact]

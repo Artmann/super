@@ -192,6 +192,7 @@ public class CameraTests
     {
         using var run = HeadlessGame.Create<Clicker>(1);
         run.Game.Peek = run.Game.ReadRay;
-        Assert.Throws<InvalidOperationException>(() => run.Ticks(1));
+        var error = Assert.Throws<InvalidOperationException>(() => run.Ticks(1));
+        Assert.Equal("Input can only be read in Update. Draw and Ui describe state, so they can't look at input.", error.Message);
     }
 }

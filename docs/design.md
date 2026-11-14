@@ -1436,7 +1436,7 @@ With the volumetric fog on, the sky does get the volume's light, so this only sh
 ### Volumetric fog
 
 Near the camera the height fog is worked out in a froxel grid instead of in closed form.
-`Passes/VolumetricFog.cs` holds the grid's shape and sums in C# for the tests, and
+`Passes/VolumetricFog.cs` holds the grid's size and what the frame uniforms get, and
 `Vulkan/VolumetricFogVolume.cs` the GPU side. The grid has one cell per 8×8 scene pixels
 (after render scale, rounded up) and 64 slices. Slice boundary i lies at view depth
 `n·(f/n)^(i/64)`, where f is `VolumetricDistance` and n, where the exponential split
@@ -1480,7 +1480,7 @@ first frame after the fog was skipped, the new value stands alone.
 is its depth span times the length of the ray's per-unit-depth step, its transmittance
 `exp(-σ·L)`, and it adds `kept·(1 - T)·rgb`, the plain fog's rule of colour times what is
 hidden. Texel i of the result holds the light in front of, and the transmittance to, the
-far side of cell i. `VolumetricFog.Integrate` is the same sum.
+far side of cell i.
 
 `fog.glsl`'s `fogInFront()` replaces the old transmittance and fog light in
 `lighting.frag`, `transparent.frag` and `particle.frag`. With no volume it is the plain fog
@@ -3641,7 +3641,7 @@ Otherwise it runs in this order:
    one resolver, so a game that draws an extra view naming no area every frame, between frames
    that do, never sees a bake fade. `BakeFrame.SpaceFade` and `ChunkFade(i)` give the result, 0
    for a stale area. `Renderer.BakeFadeSeconds` sets `FadeSeconds`, 0.5 by default; a resolver
-   made on its own, as `BakeFreshness.Resolve` makes, starts at 0 and never fades. Super's
+   made on its own, as the tests make, starts at 0 and never fades. Super's
    `SceneRenderer` sets it to 0 when it is made, so a screenshot, recording, profile or bake never
    catches a bake half faded in, and `GameWindow.Run` sets 0.5 for play.
 
@@ -3706,8 +3706,7 @@ not passed to the resolver, since it is part of what the scene asks for, like pr
 it made would never be fresh.
 
 The work is done by a `BakeResolver` (`src/Rendition/Baking/BakeResolver.cs`), which the
-renderer keeps one of; `BakeFreshness.Resolve` makes a new one for a single call and is for
-tests and tools. The resolver hands its parts of the work to helpers it keeps in
+renderer keeps one of; tests and tools make one of their own. The resolver hands its parts of the work to helpers it keeps in
 `src/Rendition/Baking`: `BakeLightOwners` hashes the lights, gives each an owner and hands the
 lights of fresh bakes over (steps 1, 2, 4 and 6), `ModelOwners` files the static draws a model at
 a time (step 3), `SpaceDraws` gathers the space's draws and placed chunks, `BakeFileNames` caches

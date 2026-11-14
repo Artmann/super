@@ -44,7 +44,7 @@ public sealed class ReportTests : IDisposable
     private static CookResult Cook(string cache, ISourceRoot root)
     {
         var cookers = BuiltInCookers.All.Append(new ReadsExtra()).ToList();
-        return new CookPipeline(cookers, new CookOptions(CacheFolder: cache)).Cook([root], new MemoryStore());
+        return new CookPipeline(cookers, new CookOptions(CacheFolder: cache) { CacheLimit = CacheSize.Default }).Cook([root], new MemoryStore());
     }
 
     [Fact]

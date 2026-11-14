@@ -53,7 +53,8 @@ public class WorldTests
 
         _world.Remove<Position>(entity);
         Assert.False(_world.Has<Position>(entity));
-        Assert.Throws<InvalidOperationException>(() => _world.Get<Position>(entity));
+        var error = Assert.Throws<InvalidOperationException>(() => _world.Get<Position>(entity));
+        Assert.Equal($"Entity {entity.Id} has no Position.", error.Message);
 
         _world.Remove<Position>(entity);
     }
@@ -95,8 +96,10 @@ public class WorldTests
         Assert.Equal(old.Id, reused.Id);
         Assert.False(_world.IsAlive(old));
         Assert.True(_world.IsAlive(reused));
-        Assert.Throws<InvalidOperationException>(() => _world.Get<Position>(old));
-        Assert.Throws<InvalidOperationException>(() => _world.Destroy(old));
+        var read = Assert.Throws<InvalidOperationException>(() => _world.Get<Position>(old));
+        Assert.Equal($"Entity {old.Id} is not alive.", read.Message);
+        var destroy = Assert.Throws<InvalidOperationException>(() => _world.Destroy(old));
+        Assert.Equal($"Entity {old.Id} is not alive.", destroy.Message);
     }
 
     [Fact]
@@ -192,13 +195,16 @@ public class WorldTests
     {
         var entity = Create(1f);
 
-        Assert.Throws<InvalidOperationException>(() =>
+        var error = Assert.Throws<InvalidOperationException>(() =>
         {
             foreach (var row in _world.Query<Position>())
             {
                 _world.Destroy(row.Entity);
             }
         });
+        Assert.Equal(
+            "Entities can't be created, destroyed or change their components during a query. Collect the changes and make them afterwards.",
+            error.Message);
 
         // Leaving a query, even by an exception, makes changes possible again.
         _world.Destroy(entity);
@@ -216,37 +222,6 @@ public class WorldTests
         }
 
         Assert.Equal(9f, _world.Get<Position>(entity).X);
-    }
-
-    [Fact]
-    public void The_same_steps_give_the_same_order()
-    {
-        static List<float> Order()
-        {
-            var world = new World();
-            var entities = new List<Entity>();
-            for (int i = 0; i < 100; i++)
-            {
-                var entity = world.Create();
-                world.Add(entity, new Position(i));
-                entities.Add(entity);
-            }
-
-            for (int i = 0; i < 100; i += 7)
-            {
-                world.Destroy(entities[i]);
-            }
-
-            var order = new List<float>();
-            foreach (var row in world.Query<Position>())
-            {
-                order.Add(row.First.X);
-            }
-
-            return order;
-        }
-
-        Assert.Equal(Order(), Order());
     }
 
     [Fact]

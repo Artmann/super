@@ -132,7 +132,7 @@ public sealed class BakeProbeGpuTests(GpuFixture gpu)
     }
 
     [Fact]
-    public void Probe_tiles_match_the_live_layout()
+    public void Probe_tiles_are_laid_out_like_the_live_ones_in_pages_64_tiles_across()
     {
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
         int errors = gpu.ValidationErrors;
@@ -147,7 +147,8 @@ public sealed class BakeProbeGpuTests(GpuFixture gpu)
             // The probes are the space's: its box and spacing.
             Assert.Equal(new ProbeVolumeSettings(Room.Min, Room.Max, Room.ProbeSpacing), file.Probes);
 
-            // Both atlases are 64 tiles square, as the live ones are.
+            // Both atlases are 64 tiles square. The live ones are layered and sized by quality, so a bake keeps
+            // this fixed layout of its own, with the live tiles' sizes and borders.
             Assert.NotNull(file.ProbeIrradiance);
             Assert.NotNull(file.ProbeDepth);
             Assert.Equal((IrradianceWidth, IrradianceWidth, LightBakePageFormat.Rgba16f),

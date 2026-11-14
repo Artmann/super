@@ -40,12 +40,15 @@ public class FixedStepClockTests
     {
         var clock = new FixedStepClock(30);
 
-        Assert.InRange(clock.Advance(60.0), 7, 8);
+        // A stall loses all but a quarter of a second, and a quarter of a second at 30 a second is 7.5 ticks.
+        Assert.Equal(7, clock.Advance(60.0));
     }
 
     [Fact]
     public void GameTime_rejects_a_tick_rate_of_zero()
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => new GameTime(0));
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => new GameTime(0));
+        Assert.Equal("ticksPerSecond", error.ParamName);
+        Assert.StartsWith("There must be at least one tick per second.", error.Message);
     }
 }

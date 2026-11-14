@@ -30,7 +30,7 @@ public sealed class LinkTests : IDisposable
 
     private static CookResult Cook(string src, string cache, string output)
     {
-        return new CookPipeline(BuiltInCookers.All, new CookOptions(CacheFolder: cache)).Cook([new FolderRoot(src)], new FolderStore(output));
+        return new CookPipeline(BuiltInCookers.All, new CookOptions(CacheFolder: cache) { CacheLimit = CacheSize.Default }).Cook([new FolderRoot(src)], new FolderStore(output));
     }
 
     private static string HashOf(string output, string name)
