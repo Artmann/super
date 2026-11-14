@@ -1433,6 +1433,32 @@ previous finished frame. Slightly rough surfaces tilt the ray at random per pixe
 per frame, and temporal anti-aliasing averages that into a blur. Rays that leave the
 screen fall back to a reflection probe, and without a probe to the studio.
 
+The rays are traced in a pass of their own, `reflections.frag`, between the occlusion
+blur and the lighting, which `GpuTimer` reports as "Reflections". It writes
+`GBuffer.Traced` (RGBA16F): the colour each ray found, with alpha how far to trust it,
+or -1 where the surface is too rough to trace or nothing was drawn. `lighting.frag`
+reads it at set 1 binding 15 and blends it over the probe's reflection as before.
+`screen_trace.glsl` holds what the two shaders share: `traceStrength`, which says
+whether a surface is traced at all, and which pixel of a block is traced this frame.
+
+At `ReflectionResolution.Half`, the default, the target is half the scene's size each
+way, rounded up, and each of its texels traces one pixel of a 2 × 2 block: the corner
+`tracedCorner()` picks from the frame number, which goes round all four in four frames.
+The traced pixel uses its own depth, normal and random numbers, so over four frames
+every pixel gets exactly the ray it would have traced at `Full`. The lighting gives a
+pixel the four traced pixels round it, weighted by how near they are, how close their
+depth is (`TRACED_DEPTH_FALLOFF`) and how far their normal agrees (`TRACED_NORMAL_POWER`),
+so a reflection doesn't leak across an edge. Rays that found nothing lower the trust
+without darkening the colour. At `Full` the target is the scene's size and each pixel
+reads its own texel. The lighting tells the two apart by comparing the target's size
+with the depth buffer's, and a change of `Renderer.ReflectionResolution` rebuilds the
+targets as a change of render scale does.
+
+`RecordReflections` leaves the pass out when nothing would be traced: with
+`RenderEffects.Reflections` or `Specular` off, or with no last frame to read, as on a
+reflection probe's faces. It still moves the target to a readable layout, since the
+lighting binds it, and `traceStrength` is 0 in the same cases, so it is never read.
+
 A probe is a cube map captured from one spot by `Renderer.CaptureReflectionProbe`,
 using the normal scene passes, then blurred per roughness step. It waits for the GPU,
 so it belongs in loading. Each probe has a box for the space it describes, and a

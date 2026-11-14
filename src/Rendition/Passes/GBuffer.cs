@@ -69,6 +69,19 @@ internal sealed class GBuffer : IDisposable
     public readonly RenderTarget Ao;
     public readonly RenderTarget AoAcross;
     public readonly RenderTarget AoBlurred;
+
+    /// <summary>
+    /// The screen-space reflections, traced before the lighting reads them: the colour each ray found, with alpha how
+    /// far to trust it, or -1 where the surface isn't traced. At <see cref="TracedExtent"/>.
+    /// </summary>
+    public readonly RenderTarget Traced;
+
+    /// <summary>The size of <see cref="Traced"/>: the scene's, or half of it each way, rounded up.</summary>
+    public readonly Extent2D TracedExtent;
+
+    /// <summary>What <see cref="Traced"/> was sized for.</summary>
+    public readonly ReflectionResolution Reflections;
+
     public readonly RenderTarget Ldr;
 
     /// <summary>An earlier frame's Ldr, kept for a dissolve or wipe to show over the new one.</summary>
@@ -77,10 +90,13 @@ internal sealed class GBuffer : IDisposable
     /// <summary>A copy of Hdr behind the glass, with blurrier mips, for glass to see through and bend.</summary>
     public readonly RenderTarget SceneColor;
 
-    public GBuffer(VulkanContext context, Extent2D extent, Extent2D? display = null)
+    public GBuffer(
+        VulkanContext context, Extent2D extent, Extent2D? display = null, ReflectionResolution reflections = ReflectionResolution.Half)
     {
         Extent = extent;
         Display = display ?? extent;
+        Reflections = reflections;
+        TracedExtent = TracedSize(extent, reflections);
         BaseColor = new RenderTarget(context, BaseColorFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         Normal = new RenderTarget(context, NormalFormat, extent, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
         NormalCopy = new RenderTarget(context, NormalFormat, extent, ImageUsageFlags.TransferDstBit, ImageAspectFlags.ColorBit);
@@ -102,6 +118,7 @@ internal sealed class GBuffer : IDisposable
         Ao = new RenderTarget(context, AoFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         AoAcross = new RenderTarget(context, AoFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         AoBlurred = new RenderTarget(context, AoFormat, extent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
+        Traced = new RenderTarget(context, HdrFormat, TracedExtent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         Ldr = new RenderTarget(context, LdrFormat, Display, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
         Held = new RenderTarget(context, LdrFormat, Display, ImageUsageFlags.TransferDstBit, ImageAspectFlags.ColorBit);
         SceneColor = new RenderTarget(
@@ -113,8 +130,16 @@ internal sealed class GBuffer : IDisposable
     public static uint MipsFor(Extent2D extent) =>
         Math.Min(SceneColorMips, (uint)Math.Floor(Math.Log2(Math.Max(1u, Math.Min(extent.Width, extent.Height)))) + 1);
 
+    /// <summary>
+    /// The reflection target's size for a scene this size. Half rounds up, so the last pixel of an odd row or column
+    /// still has a traced pixel of its own.
+    /// </summary>
+    public static Extent2D TracedSize(Extent2D extent, ReflectionResolution reflections) =>
+        reflections == ReflectionResolution.Full ? extent : new Extent2D((extent.Width + 1) / 2, (extent.Height + 1) / 2);
+
     public void Dispose()
     {
+        Traced.Dispose();
         BaseColor.Dispose();
         Normal.Dispose();
         NormalCopy.Dispose();

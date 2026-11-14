@@ -22,6 +22,7 @@ public class GraphicsProfileTests
         ContactShadows = false,
         LightProbes = false,
         ProbeQuality = ProbeQuality.Medium,
+        ReflectionResolution = ReflectionResolution.Full,
         LightShadows = false,
         AmbientOcclusion = false,
         MultiscatterSpecular = false,
@@ -96,6 +97,7 @@ public class GraphicsProfileTests
 
         Assert.Contains("\"Upscaler\": \"Fsr\"", json);
         Assert.Contains("\"ProbeQuality\": \"Medium\"", json);
+        Assert.Contains("\"ReflectionResolution\": \"Full\"", json);
         Assert.DoesNotContain("DebugView", json);
     }
 
@@ -248,6 +250,7 @@ public class GraphicsProfileTests
             Assert.True(higher.MeshDetail >= lower.MeshDetail, pair);
             Assert.True(higher.RenderScale >= lower.RenderScale, pair);
             Assert.True(higher.ProbeQuality >= lower.ProbeQuality, pair);
+            Assert.True(higher.ReflectionResolution >= lower.ReflectionResolution, pair);
         }
     }
 

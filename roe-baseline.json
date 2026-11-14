@@ -239,7 +239,7 @@
       "kind": "high-complexity",
       "name": "Rendition.Renderer.Render",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 42
+      "metric": 43
     },
     {
       "kind": "high-complexity",
@@ -1907,7 +1907,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.Dispose",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 84
+      "metric": 85
     },
     {
       "kind": "long-method",
@@ -1949,19 +1949,19 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.RecordScene",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 211
+      "metric": 214
     },
     {
       "kind": "long-method",
       "name": "Rendition.Renderer.Render",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 295
+      "metric": 296
     },
     {
       "kind": "long-method",
       "name": "Rendition.Renderer.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 149
+      "metric": 151
     },
     {
       "kind": "long-method",
@@ -2003,7 +2003,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteTargetDescriptors",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 89
+      "metric": 97
     },
     {
       "kind": "long-method",
@@ -3503,13 +3503,13 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5606
+      "metric": 5666
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
-      "metric": 1489
+      "metric": 1502
     },
     {
       "kind": "large-file",
@@ -3539,13 +3539,13 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/GameWindow.cs",
       "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 754
+      "metric": 755
     },
     {
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1137
+      "metric": 1144
     },
     {
       "kind": "large-file",
@@ -3665,7 +3665,7 @@
       "kind": "large-type",
       "name": "Rendition.Passes.GBuffer",
       "file": "src/Rendition/Passes/GBuffer.cs",
-      "metric": 24
+      "metric": 28
     },
     {
       "kind": "large-type",
@@ -3695,7 +3695,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 374
+      "metric": 379
     },
     {
       "kind": "large-type",
@@ -3893,7 +3893,7 @@
       "kind": "large-type",
       "name": "Super.Graphics",
       "file": "src/Super/Graphics.cs",
-      "metric": 52
+      "metric": 53
     },
     {
       "kind": "large-type",
@@ -3947,7 +3947,7 @@
       "kind": "large-type",
       "name": "Super.SceneRenderer",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 103
+      "metric": 104
     },
     {
       "kind": "large-type",

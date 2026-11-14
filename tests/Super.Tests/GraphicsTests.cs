@@ -28,6 +28,37 @@ public class GraphicsTests
         Assert.Equal(2048, graphics.ShadowResolution);
         Assert.Equal(1f, graphics.RenderScale);
         Assert.Equal(ProbeQuality.High, graphics.ProbeQuality);
+        Assert.Equal(ReflectionResolution.Half, graphics.ReflectionResolution);
+    }
+
+    [Fact]
+    public void An_undefined_reflection_resolution_is_refused()
+    {
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => new Graphics { ReflectionResolution = (ReflectionResolution)7 });
+
+        Assert.StartsWith("Reflection resolution can be Half or Full.", error.Message);
+        Assert.Equal("value", error.ParamName);
+    }
+
+    [Fact]
+    public void Only_ultra_traces_reflections_at_full_resolution()
+    {
+        Assert.Equal(ReflectionResolution.Full, Graphics.For(GraphicsQuality.Ultra).ReflectionResolution);
+        Assert.Equal(ReflectionResolution.Half, Graphics.For(GraphicsQuality.High).ReflectionResolution);
+        Assert.Equal(ReflectionResolution.Half, Graphics.For(GraphicsQuality.Medium).ReflectionResolution);
+        Assert.Equal(ReflectionResolution.Half, Graphics.For(GraphicsQuality.Low).ReflectionResolution);
+        Assert.Equal(ReflectionResolution.Half, Graphics.Fastest().ReflectionResolution);
+    }
+
+    [Fact]
+    public void A_changed_reflection_resolution_reaches_the_renderer_next_frame()
+    {
+        var given = new Graphics();
+        using var host = new GameHost<Settings>(1, 30, null, graphics: given);
+
+        host.Game.Graphics.ReflectionResolution = ReflectionResolution.Full;
+
+        Assert.Equal(ReflectionResolution.Full, GameWindow.RendererSettings(host.Graphics, hidden: false).ReflectionResolution);
     }
 
     [Fact]
