@@ -22,10 +22,10 @@ dotnet run -c Release --project MyColony -- --script tooltip --ticks 40 --screen
 | `--profile file.txt` | Measures where the time goes. See [Profiling](profiling.md) |
 | `--frames N` | How many frames `--profile` measures, 60 by default |
 | `--script name` | Plays one of the game's [input scripts](#scripted-input) |
-| `--graphics name` | Starts from a [quality preset or profile](rendering.md#quality-presets-and-profiles): `low`, `medium`, `high`, `ultra`, `fastest`, `auto`, or a path to a profile ending in `.json`, which can extend a preset with `"Extends"`. `auto` picks the quality `Graphics.Recommend` gives for the GPU and prints it, such as `NVIDIA GeForce RTX 4060 Ti: High graphics`. It replaces the game's own settings, and `--render-scale`, `--upscaler`, `--no-vsync` and `--no-materials` then apply on top. Works in the window and with `--screenshot`, `--record` and `--profile`. Anything else is refused, and a profile that can't be found or read stops the game with a message saying why |
+| `--graphics name` | Starts from a [quality preset or profile](rendering.md#quality-presets-and-profiles): `low`, `medium`, `high`, `ultra`, `fastest`, `auto`, or a path to a profile ending in `.json`, which can extend a preset with `"Extends"`. `auto` picks the quality `Graphics.Recommend` gives for the GPU and prints it, such as `NVIDIA GeForce RTX 4060 Ti: High graphics`. It replaces the game's own settings, and `--render-scale`, `--upscaler`, `--vsync` and `--no-materials` then apply on top. Works in the window and with `--screenshot`, `--record` and `--profile`. Anything else is refused, and a profile that can't be found or read stops the game with a message saying why |
 | `--render-scale N` | Draws the scene this many times the window's size each way, from 0.5 to 2, such as `2` for smoother edges or `0.5` for speed. The picture saved is still `--size`. Same as [`Graphics.RenderScale`](rendering.md#graphics-settings); the game's own setting by default, which is 1 |
 | `--upscaler taa\|fsr` | Picks what smooths edges and, below a render scale of 1, rebuilds the picture at the window's size: the engine's TAA or AMD FSR. Same as [`Graphics.Upscaler`](rendering.md#upscaling); the game's own setting by default, which is TAA. Anything else is refused |
-| `--no-vsync` | Plays in the window without waiting for the display |
+| `--vsync` | Plays in the window waiting for the display, so frames don't tear |
 | `--no-materials` | Draws every surface as plain grey clay, to judge the lighting. Works in the window and with `--screenshot`, `--record` and `--profile`. Same as [`Graphics.Materials`](rendering.md#graphics-settings) set to false |
 | `--no-trace` | Makes the GPU's device without ray queries, even if it has them, to see what a player whose GPU can't trace gets. Works in the window and with `--screenshot`, `--record` and `--profile`. Without rays the light probes are drawn a few a frame instead of traced, so the bounced light fills in and follows changes more slowly, and `--debug-view trace` can't run. Nothing is printed at start; why tracing is off is only said when something asks for it, as `--debug-view trace` does. See [ray tracing](rendering.md#ray-tracing) |
 | `--debug-view trace` | Shows what a ray from the camera hits in the ray tracing layer, as each surface's base colour with no lighting, and sky blue where it hits nothing, to check that rays see the scene you see. Leaves out skinned and swimming draws and ghosts, and rays pass through the holes in cut-outs. Works in the window and with `--screenshot` and `--record`. With `--profile` it runs too, so the profile times the trace view, not the lit scene. Needs a GPU that can trace, so with `--no-trace`, or on a GPU that can't, the game exits at once with `--debug-view trace needs a GPU that can trace rays, and this one can't (reason).` Any other name than `trace` or `probes` is refused. See [the debug view](rendering.md#ray-tracing) |
@@ -133,17 +133,19 @@ input. Asking for a name the game doesn't have lists the ones it does. The
 dotnet run --project examples/Crafting -- --script tooltip --ticks 40 --screenshot tooltip.png
 ```
 
-## Playing without vsync
+## Playing with vsync
 
 ```
-dotnet run -c Release --project MyColony -- --no-vsync
+dotnet run -c Release --project MyColony -- --vsync
 ```
 
-`--no-vsync` stops waiting for the display, so a game draws as fast as the machine can and
-the frame rate shows what it can really do. Fast movement may tear, and displays that
-can't run this way keep vsync on. It's for playing in the window, so it can't be combined
-with `--screenshot`, `--record` or `--profile`. It does the same as setting
-[`Graphics.Vsync`](rendering.md#graphics-settings) to false, which a game can also do from code.
+A game draws as fast as the machine can unless it says otherwise, so the frame rate shows
+what it can really do, and fast movement may tear. `--vsync` waits for the display on each
+frame instead, which stops the tearing and holds the frame rate at the display's, often 60.
+Displays that can't run without vsync keep it on either way. It's for playing in the window,
+so it can't be combined with `--screenshot`, `--record` or `--profile`. It does the same as
+setting [`Graphics.Vsync`](rendering.md#graphics-settings) to true, which a game can also do
+from code.
 
 ## Capturing from code
 

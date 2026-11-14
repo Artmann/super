@@ -18,12 +18,12 @@ public class GraphicsTests
     }
 
     [Fact]
-    public void Out_of_the_box_every_effect_is_drawn_with_vsync_and_no_frame_limit()
+    public void Out_of_the_box_every_effect_is_drawn_without_vsync_or_a_frame_limit()
     {
         var graphics = new Graphics();
 
         Assert.Equal(RenderEffects.None, graphics.Off);
-        Assert.True(graphics.Vsync);
+        Assert.False(graphics.Vsync);
         Assert.Equal(0, graphics.MaxFramesPerSecond);
         Assert.Equal(2048, graphics.ShadowResolution);
         Assert.Equal(1f, graphics.RenderScale);
@@ -349,7 +349,7 @@ public class GraphicsTests
 
     // A bake is cheaper than lighting live, so the fastest settings keep it.
     [Fact]
-    public void Fastest_leaves_out_every_effect_that_costs_time_and_turns_vsync_off()
+    public void Fastest_leaves_out_every_effect_that_costs_time_and_keeps_vsync_off()
     {
         var graphics = Graphics.Fastest();
 

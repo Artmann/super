@@ -17,7 +17,7 @@ internal sealed record GameArguments(
     int? Height = null,
     string? ProfilePath = null,
     int Frames = GameArguments.DefaultProfileFrames,
-    bool NoVsync = false,
+    bool Vsync = false,
     string? ScriptName = null,
     string? UserDataFolder = null,
     float? UiScale = null,
@@ -47,7 +47,7 @@ internal sealed record GameArguments(
         int? height = null;
         string? profilePath = null;
         int? frames = null;
-        bool noVsync = false;
+        bool vsync = false;
         bool noMaterials = false;
         bool noTrace = false;
         string? scriptName = null;
@@ -113,8 +113,8 @@ internal sealed record GameArguments(
                 case "--debug-view":
                     debugView = DebugViewName(args, ++i);
                     break;
-                case "--no-vsync":
-                    noVsync = true;
+                case "--vsync":
+                    vsync = true;
                     break;
                 case "--no-materials":
                     noMaterials = true;
@@ -151,7 +151,7 @@ internal sealed record GameArguments(
                 : recordPath is not null ? "--record"
                 : profilePath is not null ? "--profile"
                 : name == "--bake" && bakeCheck ? "--bake-check"
-                : noVsync ? "--no-vsync"
+                : vsync ? "--vsync"
                 : null;
             if (other is not null)
             {
@@ -174,10 +174,10 @@ internal sealed record GameArguments(
             throw new ArgumentException("--screenshot, --record and --profile can't run together.");
         }
 
-        // Presenting to a hidden window is slow, so the numbers would be misleading.
-        if (noVsync && (screenshotPath is not null || recordPath is not null || profilePath is not null))
+        // A run without a window decides for itself whether to wait for the display.
+        if (vsync && (screenshotPath is not null || recordPath is not null || profilePath is not null))
         {
-            throw new ArgumentException("--no-vsync only works when playing in a window, so it can't run with --screenshot, --record or --profile.");
+            throw new ArgumentException("--vsync only works when playing in a window, so it can't run with --screenshot, --record or --profile.");
         }
 
         if (frames is not null && profilePath is null)
@@ -211,7 +211,7 @@ internal sealed record GameArguments(
         }
 
         return new GameArguments(
-            seed, ticks, screenshotPath, recordPath, seconds, framesPerSecond, width, height, profilePath, frames ?? DefaultProfileFrames, noVsync, scriptName, userDataFolder, uiScale, noMaterials,
+            seed, ticks, screenshotPath, recordPath, seconds, framesPerSecond, width, height, profilePath, frames ?? DefaultProfileFrames, vsync, scriptName, userDataFolder, uiScale, noMaterials,
             renderScale, upscaler, noTrace, debugView, bake, bakeCheck, bakeQuality ?? Rendition.BakeQuality.Final,
             graphicsProfile);
     }

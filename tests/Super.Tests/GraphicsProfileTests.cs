@@ -11,7 +11,7 @@ public class GraphicsProfileTests
     // Every setting moved away from its default, so a copy or a round trip that drops one shows.
     private static Graphics Unusual() => new()
     {
-        Vsync = false,
+        Vsync = true,
         MaxFramesPerSecond = 90,
         SunShadows = false,
         ShadowResolution = 4096,
@@ -149,7 +149,6 @@ public class GraphicsProfileTests
     {
         var read = Graphics.FromJson("""{ "Extends": "Fastest", "Bloom": true }""");
 
-        Assert.False(read.Vsync);
         Assert.False(read.Fog);
         Assert.Equal(0.5f, read.MeshDetail);
         Assert.True(read.Bloom);
@@ -293,11 +292,11 @@ public class GraphicsProfileTests
     [InlineData(GraphicsQuality.Medium)]
     [InlineData(GraphicsQuality.High)]
     [InlineData(GraphicsQuality.Ultra)]
-    public void Every_quality_keeps_vsync_on_and_no_frame_limit(GraphicsQuality quality)
+    public void Every_quality_keeps_vsync_off_and_no_frame_limit(GraphicsQuality quality)
     {
         var graphics = Graphics.For(quality);
 
-        Assert.True(graphics.Vsync);
+        Assert.False(graphics.Vsync);
         Assert.Equal(0, graphics.MaxFramesPerSecond);
     }
 

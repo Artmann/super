@@ -68,7 +68,8 @@ A `.nettrace` file lands next to the report. Open it in
 [PerfView](https://github.com/microsoft/perfview) to dig further.
 
 For a live figure while playing, show [`GameStats`](interfaces.md#showing-how-the-game-runs)
-in a panel, and run with `--no-vsync` to see the frame rate the machine can reach.
+in a panel. Vsync is off unless the game or `--vsync` turns it on, so the figure is the frame
+rate the machine can reach.
 To see what an effect costs, turn it off in [`Graphics`](rendering.md#graphics-settings) and
 profile again: its pass drops to nothing in the GPU list.
 

@@ -199,7 +199,7 @@ public static class Game
 
     /// <summary>
     /// Sets <paramref name="graphics"/> from the command line: first the whole profile <c>--graphics</c> names, then the
-    /// single settings such as <c>--no-vsync</c> and <c>--render-scale</c> on top, so they win over the profile. With
+    /// single settings such as <c>--vsync</c> and <c>--render-scale</c> on top, so they win over the profile. With
     /// <c>--graphics auto</c> and no <paramref name="gpu"/> yet, the profile waits and only the single settings apply.
     /// </summary>
     internal static void ApplyGraphicsArguments(Graphics graphics, GameArguments arguments, Rendition.GpuInfo? gpu)
@@ -209,9 +209,9 @@ public static class Game
             graphics.Apply(profile);
         }
 
-        if (arguments.NoVsync)
+        if (arguments.Vsync)
         {
-            graphics.Vsync = false;
+            graphics.Vsync = true;
         }
 
         if (arguments.NoMaterials)
