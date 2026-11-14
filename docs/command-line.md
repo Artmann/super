@@ -377,10 +377,17 @@ name was cooked in parts.
 
 ### In the build
 
-A game imports `src/Super.Build/Super.targets` and `dotnet build` cooks its content:
+`dotnet build` cooks a game's content. A game that uses the Super package needs nothing in
+its project file for that. A game in this repository references the engine's projects
+instead, and imports `src/Super.Build/Super.targets`:
 
 ```xml
 <Import Project="..\..\src\Super.Build\Super.targets" />
+```
+
+Either way, `SuperContent` items say which folders to cook:
+
+```xml
 <ItemGroup>
   <!-- Optional. With none, the "content" folder beside the project is used when it exists. -->
   <SuperContent Include="content" />
@@ -397,6 +404,9 @@ After the build, the cooked content is in `bin/<config>/content` and `content.de
 is beside it. Cook errors are build errors with file and line. `SuperTarget` picks the
 target, `desktop` by default. `dotnet publish` copies `content` beside the program and
 leaves `content.dev.json` out, so a shipped game never thinks it's running from source.
+
+The Super package holds `super-cook` already built, so a game that uses the package runs
+that one and builds no tool. The rest of this section is about a game in this repository.
 
 The build restores and builds `super-cook` itself, for the machine doing the build, so a
 fresh clone needs nothing first and `dotnet publish -r linux-x64` still cooks on Windows.

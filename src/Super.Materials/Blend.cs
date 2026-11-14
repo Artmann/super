@@ -106,7 +106,7 @@ public sealed partial class Rgb
     public Rgb Multiply(Rgb other) => Blend(other, BlendMode.Multiply);
 }
 
-/// <summary>Blends a top of one or <paramref name="channels"/> channels over a base. A one-channel top or mask is broadcast.</summary>
+/// <summary>Blends a top of one or <paramref name="width"/> channels over a base. A one-channel top or mask is broadcast.</summary>
 sealed class BlendNode(int width, Node baseImage, Node top, Node? mask, BlendMode mode, float opacity)
     : Node(width, mask is null ? [baseImage, top] : [baseImage, top, mask])
 {

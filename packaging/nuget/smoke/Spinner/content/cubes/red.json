@@ -1,0 +1,5 @@
+{
+  "id": "red",
+  "turnsPerSecond": 0.25,
+  "glow": [0.4, 0.05, 0.02],
+}

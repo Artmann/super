@@ -101,7 +101,9 @@ Super is early. These are the known gaps, so you can plan around them.
   so a mod can't replace anything yet.
 - **Unloading game states.** Entities can be [scoped to a state](ecs.md#entities-that-belong-to-a-state),
   but models and other content stay loaded unless you call `content.Unload`.
-- **NuGet packages.** Clone the repository and reference the projects for now.
+- **Smaller packages.** Super is one NuGet package, so every game also depends on xUnit and
+  the C# compiler, which only the test helpers and material graphs use. The cook tool in it
+  runs on Windows only.
 - **Other platforms.** Windows only for now, with Linux kept possible.
 
 An editor is not planned. Super is a library, and your code and JSON files are the source

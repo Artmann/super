@@ -1,0 +1,118 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Packs the engine as one NuGet package, Super: the libraries, the renderer's compiled shaders, the build
+    targets that cook a game's content, and the cook tool they run. This project has no code of its own.
+
+      dotnet pack packaging/nuget/Super.Package.csproj -c Release -o packages
+
+    The version is the one in version.txt, which Release Please writes, unless -p:Version gives another.
+  -->
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <!--
+      A restore names each project by its package id, and src\Super is already named Super, so two of them
+      stop it with "Ambiguous project name". During a restore this project keeps its own name.
+    -->
+    <PackageId Condition="'$(MSBuildRestoreSessionId)' == ''">Super</PackageId>
+    <Version Condition="'$(Version)' == ''">$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\..\version.txt').Trim())</Version>
+    <Authors>Christoffer Artmann</Authors>
+    <Description>A C# game engine you use as a library, with a 3D Vulkan renderer built in. Made so a coding agent can build, run, test and see a game with no editor.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/Artmann/super</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>3d;ecs;game-engine;gamedev;renderer;vulkan</PackageTags>
+    <RepositoryUrl>https://github.com/Artmann/super</RepositoryUrl>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- The package holds the libraries below, not this project's own empty assembly. -->
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <!-- The code under smoke is a game that uses the package, not part of it. -->
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);_SuperPackageFiles</TargetsForTfmSpecificContentInPackage>
+  </PropertyGroup>
+
+  <!--
+    The libraries in the package. PrivateAssets keeps them from being listed as packages Super depends on,
+    since their assemblies are inside it.
+  -->
+  <ItemGroup>
+    <SuperLibrary Include="Rendition;Super;Super.Random;Super.Ecs;Super.Physics;Super.Materials;Super.Cook;Super.Cook.Materials;Super.Testing" />
+    <ProjectReference Include="@(SuperLibrary->'..\..\src\%(Identity)\%(Identity).csproj')" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- Built in Release with the same settings a game's build asks for (Super.targets), so it's built once. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\tools\Super.Cook.Tool\Super.Cook.Tool.csproj"
+                      ReferenceOutputAssembly="false"
+                      Private="false"
+                      PrivateAssets="all"
+                      OutputItemType="_SuperCookTool"
+                      SetConfiguration="Configuration=Release" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+    <None Include="..\..\CREDITS.md" Pack="true" PackagePath="/" />
+    <None Include="..\..\third_party\fidelityfx\LICENSE.txt" Pack="true" PackagePath="licenses/fidelityfx.txt" />
+    <None Include="..\..\src\Super\Ui\Fonts\LICENSE.txt" Pack="true" PackagePath="licenses/inter.txt" />
+
+    <!-- NuGet copies this next to a game that names a runtime, and under runtimes\win-x64\native otherwise. -->
+    <None Include="..\..\third_party\fidelityfx\amd_fidelityfx_vk.dll" Pack="true" PackagePath="runtimes/win-x64/native/" />
+
+    <!--
+      NuGet imports buildTransitive\Super.targets into a game that references the package, and into a project
+      that references that game, such as its tests. The engine's own two targets files go beside it unchanged.
+      Shaders.targets looks for the shader includes in Rendition\Shaders beside itself, as it does in src.
+    -->
+    <None Include="Super.targets" Pack="true" PackagePath="buildTransitive/" />
+    <None Include="build\Super.targets" Pack="true" PackagePath="build/" />
+    <None Include="..\..\src\Super.Build\Super.targets" Pack="true" PackagePath="buildTransitive/Super.Cook.targets" />
+    <None Include="..\..\src\Shaders.targets" Pack="true" PackagePath="buildTransitive/" />
+    <None Include="..\..\src\Rendition\Shaders\*.glsl" Pack="true" PackagePath="buildTransitive/Rendition/Shaders/" />
+  </ItemGroup>
+
+  <!--
+    The package depends on every package its libraries use. NuGet only lists a project's own package
+    references, so the libraries' references are added to this project's, each time NuGet asks for them.
+  -->
+  <Target Name="_SuperLibraryPackages" BeforeTargets="CollectPackageReferences">
+    <MSBuild Projects="@(SuperLibrary->'..\..\src\%(Identity)\%(Identity).csproj')" Targets="CollectPackageReferences">
+      <Output TaskParameter="TargetOutputs" ItemName="_SuperLibraryPackage" />
+    </MSBuild>
+    <ItemGroup>
+      <_SuperLibraryPackage Remove="@(_SuperLibraryPackage)" Condition="'%(_SuperLibraryPackage.IsImplicitlyDefined)' == 'true'" />
+      <PackageReference Include="@(_SuperLibraryPackage->Distinct())" />
+    </ItemGroup>
+  </Target>
+
+  <!-- What the build made: read when packing, after the build, since none of it is there before. -->
+  <Target Name="_SuperPackageFiles" DependsOnTargets="ResolveReferences">
+    <Error Condition="'$(Configuration)' != 'Release'" Text="Pack Super in Release: dotnet pack -c Release." />
+
+    <PropertyGroup>
+      <_SuperCookToolFolder>@(_SuperCookTool->'%(RootDir)%(Directory)')</_SuperCookToolFolder>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(_SuperCookToolFolder)super-cook.dll')" Text="super-cook wasn't built, so it can't be packed: '$(_SuperCookToolFolder)'." />
+
+    <ItemGroup>
+      <!-- Each library with its symbols and its XML comments. -->
+      <_SuperLibraryFile Include="@(ReferenceCopyLocalPaths)"
+                         Condition="'%(ReferenceCopyLocalPaths.ReferenceSourceTarget)' == 'ProjectReference' and '%(Extension)' == '.dll'" />
+      <TfmSpecificPackageFile Include="@(_SuperLibraryFile);@(_SuperLibraryFile->'%(RootDir)%(Directory)%(Filename).pdb');@(_SuperLibraryFile->'%(RootDir)%(Directory)%(Filename).xml')"
+                              PackagePath="lib/$(TargetFramework)" />
+
+      <!-- Rendition's compiled shaders, as the build copied them here. Its .sources file names this machine's folders. -->
+      <TfmSpecificPackageFile Include="$(OutDir)shaders\*.spv" PackagePath="shaders" />
+
+      <!--
+        The cook tool as it was built, which is everything it needs to run. It runs on the machine doing the
+        build, which is Windows for now, and never draws, so the other platforms' native libraries, the
+        shaders and the upscaler stay out. They would make the package about 100 MB larger.
+      -->
+      <_SuperCookToolFile Include="$(_SuperCookToolFolder)**"
+                          Exclude="$(_SuperCookToolFolder)runtimes\linux*\**;$(_SuperCookToolFolder)runtimes\osx*\**;$(_SuperCookToolFolder)shaders\**;$(_SuperCookToolFolder)amd_fidelityfx_vk.dll" />
+      <TfmSpecificPackageFile Include="@(_SuperCookToolFile)" PackagePath="tools/super-cook/%(RecursiveDir)" />
+    </ItemGroup>
+  </Target>
+
+</Project>

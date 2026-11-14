@@ -1,6 +1,8 @@
 # Testing
 
-Reference `Super.Testing` from a normal xUnit test project. Your game runs at full speed
+Reference your game from a normal xUnit test project. The Super package has the test
+helpers, in `Super.Testing`, and the test project gets them through the game. In this
+repository, reference the `Super.Testing` project. Your game runs at full speed
 with no window and no GPU, through the same `Update`, `Draw` and `Ui` code.
 
 ```csharp

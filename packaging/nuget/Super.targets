@@ -1,0 +1,28 @@
+<Project>
+
+  <!--
+    What a game gets from the Super package: NuGet imports this file into every project that references the
+    package, and into projects that reference those. It does what a game in the engine's own repository gets
+    from its project references and from importing src\Super.Build\Super.targets and src\Shaders.targets.
+  -->
+  <PropertyGroup>
+    <SuperPackageFolder>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..'))</SuperPackageFolder>
+    <!-- The cook tool comes built, so the build runs this one and doesn't build its own. -->
+    <SuperCookPrebuilt>$(SuperPackageFolder)tools\super-cook\super-cook.dll</SuperCookPrebuilt>
+  </PropertyGroup>
+
+  <!-- Rendition's compiled shaders, which it reads from a shaders folder next to the game. -->
+  <ItemGroup>
+    <None Include="$(SuperPackageFolder)shaders\*.spv"
+          Link="shaders\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          Visible="false" />
+  </ItemGroup>
+
+  <!-- Cooks the game's content as part of its build. -->
+  <Import Project="Super.Cook.targets" />
+
+  <!-- Compiles the game's own shaders, when it has a Shaders folder. That needs glslc from the Vulkan SDK. -->
+  <Import Project="Shaders.targets" Condition="Exists('$(MSBuildProjectDirectory)\Shaders')" />
+
+</Project>

@@ -1,0 +1,15 @@
+<Project>
+
+  <Import Project="..\Directory.Build.props" />
+
+  <!--
+    The libraries' XML comments go into the Super package beside each assembly, so an editor or an agent
+    sees them without the source. Not everything public has a comment, and a comment may describe only
+    some of a method's parameters, so those warnings stay off: CS1591 and CS1573.
+  -->
+  <PropertyGroup>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+  </PropertyGroup>
+
+</Project>

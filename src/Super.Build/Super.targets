@@ -9,6 +9,8 @@
         <SuperContent Include="..\..\art\content" Only="props/**;textures/**" />
       </ItemGroup>
 
+    A game that uses the Super package gets this file from the package and imports nothing.
+
     Only cooks just the files of that folder its globs match, for a folder several games share.
     With no SuperContent items, the "content" folder beside the project is the root, when there is one.
     The cooked content goes to $(OutDir)content, and content.dev.json beside it tells a game run from
@@ -38,6 +40,10 @@
     <SuperTarget Condition="'$(SuperTarget)' == ''">desktop</SuperTarget>
     <SuperCookProject>$(MSBuildThisFileDirectory)..\..\tools\Super.Cook.Tool\Super.Cook.Tool.csproj</SuperCookProject>
     <!--
+      The Super package ships the tool already built, and sets SuperCookPrebuilt to its super-cook.dll.
+      Then nothing here builds the tool, and Super.Materials comes from the package too.
+    -->
+    <!--
       Properties set on the game's own build, such as by dotnet publish -r win-x64, that would otherwise
       reach the tool. The tool always builds the same way, for the machine doing the build.
     -->
@@ -59,7 +65,7 @@
     "An item with the same key has already been added" before the game started. The build that dotnet
     watch runs is an ordinary one and still has the reference.
   -->
-  <ItemGroup Condition="'$(IsGraphBuild)' != 'true'">
+  <ItemGroup Condition="'$(IsGraphBuild)' != 'true' and '$(SuperCookPrebuilt)' == ''">
     <ProjectReference Include="$(SuperCookProject)"
                       ReferenceOutputAssembly="false"
                       Private="false"
@@ -97,7 +103,7 @@
     cooker loads Super.Materials there. Private="false" on this direct reference would also keep out the copy
     that comes through Super.Testing, so a test project keeps the library in its output.
   -->
-  <ItemGroup>
+  <ItemGroup Condition="'$(SuperCookPrebuilt)' == ''">
     <ProjectReference Include="$(MSBuildThisFileDirectory)..\Super.Materials\Super.Materials.csproj"
                       Private="$([MSBuild]::ValueOrDefault('$(IsTestProject)', 'false'))"
                       PrivateAssets="all" />
@@ -121,14 +127,15 @@
       built here. ExcludeRestorePackageImports is what restore is normally evaluated with, and keeps that
       evaluation apart from the build's.
     -->
-    <MSBuild Projects="$(SuperCookProject)" Targets="Restore" Properties="Configuration=Release;ExcludeRestorePackageImports=true" RemoveProperties="$(_SuperCookRemovedProperties);IsGraphBuild" Condition="'$(IsGraphBuild)' == 'true' and '@(_SuperRoot)' != ''" />
-    <MSBuild Projects="$(SuperCookProject)" Targets="Build" Properties="Configuration=Release" RemoveProperties="$(_SuperCookRemovedProperties);IsGraphBuild" Condition="'$(IsGraphBuild)' == 'true' and '@(_SuperRoot)' != ''" />
-    <MSBuild Projects="$(SuperCookProject)" Targets="GetTargetPath" Properties="Configuration=Release" RemoveProperties="$(_SuperCookRemovedProperties);IsGraphBuild" Condition="'$(IsGraphBuild)' == 'true' and '@(_SuperRoot)' != ''">
+    <MSBuild Projects="$(SuperCookProject)" Targets="Restore" Properties="Configuration=Release;ExcludeRestorePackageImports=true" RemoveProperties="$(_SuperCookRemovedProperties);IsGraphBuild" Condition="'$(IsGraphBuild)' == 'true' and '$(SuperCookPrebuilt)' == '' and '@(_SuperRoot)' != ''" />
+    <MSBuild Projects="$(SuperCookProject)" Targets="Build" Properties="Configuration=Release" RemoveProperties="$(_SuperCookRemovedProperties);IsGraphBuild" Condition="'$(IsGraphBuild)' == 'true' and '$(SuperCookPrebuilt)' == '' and '@(_SuperRoot)' != ''" />
+    <MSBuild Projects="$(SuperCookProject)" Targets="GetTargetPath" Properties="Configuration=Release" RemoveProperties="$(_SuperCookRemovedProperties);IsGraphBuild" Condition="'$(IsGraphBuild)' == 'true' and '$(SuperCookPrebuilt)' == '' and '@(_SuperRoot)' != ''">
       <Output TaskParameter="TargetOutputs" ItemName="_SuperCookTool" />
     </MSBuild>
 
     <PropertyGroup>
       <_SuperCookTool>@(_SuperCookTool)</_SuperCookTool>
+      <_SuperCookTool Condition="'$(SuperCookPrebuilt)' != ''">$(SuperCookPrebuilt)</_SuperCookTool>
     </PropertyGroup>
     <Error Condition="'@(_SuperRoot)' != '' and '$(_SuperCookTool)' == ''" Text="super-cook wasn't built, so the content can't be cooked." />
 

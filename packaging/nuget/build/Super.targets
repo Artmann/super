@@ -1,0 +1,6 @@
+<Project>
+
+  <!-- For a NuGet too old to know buildTransitive. A newer one imports that file itself, and this one not at all. -->
+  <Import Project="..\buildTransitive\Super.targets" Condition="'$(SuperPackageFolder)' == ''" />
+
+</Project>

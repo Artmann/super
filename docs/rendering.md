@@ -2223,7 +2223,8 @@ bump += normalFrom(shaderLayer(1, inUv, float(i))) * weights[i];
 ![The Archer clearing on main, with BC5 normals read as xyz, and with normalFrom](media/archer-bc5-normals.webp)
 
 Unset slots read white. To compile shaders, put them in a `Shaders` folder in your game
-project and import the targets file, which runs `glslc` from the Vulkan SDK:
+project. The build runs `glslc` from the Vulkan SDK on them. A game that uses the Super
+package needs nothing more. A game in this repository imports the targets file:
 
 ```xml
 <Import Project="..\..\src\Shaders.targets" />
