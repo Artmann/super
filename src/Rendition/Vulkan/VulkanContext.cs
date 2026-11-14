@@ -54,8 +54,15 @@ internal sealed unsafe class VulkanContext : IDisposable
     /// <summary>Owns every byte of device memory. Set once the device exists.</summary>
     public readonly GpuMemory Memory;
 
+    /// <summary>
+    /// Every pipeline there is, with <see cref="RendererOptions.LiveShaders"/>, so a changed shader can find the
+    /// ones to build again. Null otherwise, and then pipelines keep nothing.
+    /// </summary>
+    public readonly HashSet<LivePipeline>? LivePipelines;
+
     public VulkanContext(RendererOptions options)
     {
+        LivePipelines = options.LiveShaders ? [] : null;
         bool validation = options.EnableValidation && IsValidationLayerAvailable();
         if (options.EnableValidation && !validation)
         {

@@ -55,7 +55,7 @@ internal sealed unsafe class ProbeTracePass : IDisposable
     private readonly DescriptorSet[] _sceneSets;
     private readonly GpuBuffer[] _probes;
     private readonly PipelineLayout _pipelineLayout;
-    private readonly Pipeline _pipeline;
+    private readonly LivePipeline _pipeline;
 
     /// <param name="framesInFlight">One scene set and one buffer of probes is kept per frame in flight.</param>
     /// <param name="frameSetLayout">Set 0: the frame's uniforms and lights.</param>
@@ -254,7 +254,7 @@ internal sealed unsafe class ProbeTracePass : IDisposable
     public void Dispose()
     {
         var api = _context.Api;
-        api.DestroyPipeline(_context.Device, _pipeline, null);
+        _pipeline.Destroy();
         api.DestroyPipelineLayout(_context.Device, _pipelineLayout, null);
         api.DestroyDescriptorPool(_context.Device, _pool, null);
         api.DestroyDescriptorSetLayout(_context.Device, _sceneLayout, null);

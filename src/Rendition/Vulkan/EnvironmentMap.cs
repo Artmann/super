@@ -87,7 +87,7 @@ internal sealed unsafe class EnvironmentMap : IDisposable
     private readonly DescriptorPool _pool;
     private readonly DescriptorSet[] _sets = new DescriptorSet[ReflectionMips + 2];
     private readonly PipelineLayout _pipelineLayout;
-    private readonly Pipeline _pipeline;
+    private readonly LivePipeline _pipeline;
 
     public readonly Sampler Sampler;
     public ImageView Reflections => _reflections.Sampled;
@@ -191,7 +191,7 @@ internal sealed unsafe class EnvironmentMap : IDisposable
     public void Dispose()
     {
         var api = _context.Api;
-        api.DestroyPipeline(_context.Device, _pipeline, null);
+        _pipeline.Destroy();
         api.DestroyPipelineLayout(_context.Device, _pipelineLayout, null);
         api.DestroyDescriptorPool(_context.Device, _pool, null);
         api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);

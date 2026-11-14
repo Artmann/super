@@ -11,7 +11,7 @@ internal sealed unsafe class FullscreenPass : IDisposable
 {
     private readonly VulkanContext _context;
     private readonly PipelineLayout _layout;
-    private readonly Pipeline _pipeline;
+    private readonly LivePipeline _pipeline;
     private readonly uint _pushConstantSize;
     private readonly int _targetCount;
     private readonly bool _blend;
@@ -126,7 +126,7 @@ internal sealed unsafe class FullscreenPass : IDisposable
 
     public void Dispose()
     {
-        _context.Api.DestroyPipeline(_context.Device, _pipeline, null);
+        _pipeline.Destroy();
         _context.Api.DestroyPipelineLayout(_context.Device, _layout, null);
     }
 }

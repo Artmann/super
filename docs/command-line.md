@@ -52,9 +52,21 @@ Before it saves, `--screenshot` renders on, at that moment, until the
 frames, so the bounced light is as it will be rather than still filling in. It prints how many
 frames that took, or that the probes were still filling in at 2,048, which a big scene such as
 Courtyard can reach at `ProbeQuality.High`. With `Graphics.LightProbes` off, or on a GPU that
-can't run the probes, it doesn't wait. Those extra frames don't wait for the display, so the
-wait is as quick as the GPU can draw them: Gallery with `--no-trace` takes about 13 seconds in
+can't run the probes, it doesn't wait. No frame of a screenshot run waits for the display, so
+it is as quick as the GPU can draw them: Gallery with `--no-trace` takes about 13 seconds in
 all. `--record` doesn't wait for the probes.
+
+`dotnet run` checks every project for changes before it starts the game, which takes a few
+seconds each time. To take several shots of the same build, build once and start the program
+itself:
+
+```
+dotnet build -c Release MyColony
+MyColony/bin/Release/net10.0/MyColony --seed 42 --ticks 6000 --screenshot day-200.png
+```
+
+On this repo's Crafting example a shot at 300 ticks took 11 seconds through `dotnet run` and
+3 seconds this way.
 
 When a [test invariant](testing.md#invariants) fails, its message gives the options that
 take you back to that tick.
@@ -210,7 +222,8 @@ file that hasn't changed is kept and used again. The cache is in `~/.super/cache
 the folder in the `SUPER_CACHE` environment variable when that is set, so a build server
 can keep it somewhere of its own. `--cache` picks a folder for one run. Deleting the cache
 is always safe: the next cook makes it again. A change to the cook's own code misses the
-entries it affects, but a commit that doesn't touch that code keeps the cache.
+entries it affects, but a change to the rest of the engine, or a commit that doesn't touch
+that code, keeps the cache.
 
 A source that does cook again keeps its slow steps' results in the cache's `steps` folder too,
 each under the hash of everything that step reads. A model whose one material graph changed
@@ -221,8 +234,8 @@ under a minute rather than many. Each kind of step has its own key:
 | Step | Kept by |
 |---|---|
 | `graph-run` | The graph's code, a variant's values, the size, the cook's version, and the hash of every image the graph read |
-| `lightmap-uv` | One material's positions, normals and indices in the model, the unwrapper's and the model cooker's builds and the largest page it may try |
-| `mask` | The model's positions and second UVs, the material's triangles and which part each is in, the other triangles the bake traces against, the mask size and the mask baker's build |
+| `lightmap-uv` | One material's positions, normals and indices in the model, the unwrapper's and the model cooker's code and the largest page it may try |
+| `mask` | The model's positions and second UVs, the material's triangles and which part each is in, the other triangles the bake traces against, the mask size and the mask baker's code |
 | `compressed-texture` | The hash of the pixels of every mip level, the size and format, and the encoder's version. A cut-out's mips depend on its `alphaCutoff`, so changing the cutoff misses |
 
 A damaged entry is a miss, never a wrong result. `--timings` shows the time spent looking

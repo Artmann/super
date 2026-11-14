@@ -88,9 +88,9 @@ internal sealed unsafe class ProbeVolume : IDisposable
     private readonly DescriptorPool _pool;
     private readonly DescriptorSet _set;
     private readonly PipelineLayout _pipelineLayout;
-    private readonly Pipeline _foldPipeline;
-    private readonly Pipeline _blendPipeline;
-    private readonly Pipeline _invalidatePipeline;
+    private readonly LivePipeline? _foldPipeline;
+    private readonly LivePipeline? _blendPipeline;
+    private readonly LivePipeline? _invalidatePipeline;
 
     private Image _irradiance;
     private GpuAllocation _irradianceMemory;
@@ -281,7 +281,7 @@ internal sealed unsafe class ProbeVolume : IDisposable
             EnvironmentIntensity = environmentIntensity,
             SkySun = skySun,
         };
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _foldPipeline);
+        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _foldPipeline!);
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 1, &set, 0, null);
         api.CmdPushConstants(cmd, _pipelineLayout, ShaderStageFlags.ComputeBit, 0, (uint)sizeof(FoldConstants), &constants);
         api.CmdDispatch(cmd, 1, 1, 1);
@@ -331,7 +331,7 @@ internal sealed unsafe class ProbeVolume : IDisposable
             StartX = slabStart.X, StartY = slabStart.Y, StartZ = slabStart.Z,
             SlabX = slabCount.X, SlabY = slabCount.Y, SlabZ = slabCount.Z,
         };
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _invalidatePipeline);
+        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _invalidatePipeline!);
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 1, &set, 0, null);
         api.CmdPushConstants(cmd, _pipelineLayout, ShaderStageFlags.ComputeBit, 0, (uint)sizeof(InvalidateConstants), &constants);
         api.CmdDispatch(cmd, (uint)((total + 63) / 64), 1, 1);
@@ -394,7 +394,7 @@ internal sealed unsafe class ProbeVolume : IDisposable
 
         var set = _set;
         var constants = new BlendConstants { Alpha = alpha, Count = count, Snap = snap };
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _blendPipeline);
+        api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _blendPipeline!);
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 1, &set, 0, null);
         api.CmdPushConstants(cmd, _pipelineLayout, ShaderStageFlags.ComputeBit, 0, (uint)sizeof(BlendConstants), &constants);
         api.CmdDispatch(cmd, (uint)count, 1, 1);
@@ -425,12 +425,9 @@ internal sealed unsafe class ProbeVolume : IDisposable
     {
         var api = _context.Api;
         DestroyStorage();
-        if (Supported)
-        {
-            api.DestroyPipeline(_context.Device, _foldPipeline, null);
-            api.DestroyPipeline(_context.Device, _blendPipeline, null);
-            api.DestroyPipeline(_context.Device, _invalidatePipeline, null);
-        }
+        _foldPipeline?.Destroy();
+        _blendPipeline?.Destroy();
+        _invalidatePipeline?.Destroy();
 
         api.DestroyPipelineLayout(_context.Device, _pipelineLayout, null);
         api.DestroyDescriptorPool(_context.Device, _pool, null);

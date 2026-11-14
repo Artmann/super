@@ -21,7 +21,7 @@ internal sealed unsafe class ProbeDebugPass : IDisposable
 
     private readonly VulkanContext _context;
     private readonly PipelineLayout _layout;
-    private readonly Pipeline _pipeline;
+    private readonly LivePipeline _pipeline;
 
     /// <param name="frameSetLayout">Set 0: the frame's uniforms, which say where the probes are.</param>
     /// <param name="lightingSetLayout">Set 1: the lighting pass's textures, among them the probe atlases.</param>
@@ -105,7 +105,7 @@ internal sealed unsafe class ProbeDebugPass : IDisposable
 
     public void Dispose()
     {
-        _context.Api.DestroyPipeline(_context.Device, _pipeline, null);
+        _pipeline.Destroy();
         _context.Api.DestroyPipelineLayout(_context.Device, _layout, null);
     }
 }

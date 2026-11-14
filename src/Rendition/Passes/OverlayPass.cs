@@ -19,7 +19,7 @@ internal sealed unsafe class OverlayPass : IDisposable
     private readonly VulkanContext _context;
     private readonly ResourceTable _resources;
     private readonly PipelineLayout _layout;
-    private readonly Pipeline _pipeline;
+    private readonly LivePipeline _pipeline;
     private readonly GpuBuffer[] _buffers;
 
     public OverlayPass(VulkanContext context, Format targetFormat, DescriptorSetLayout atlasLayout, ResourceTable resources, int framesInFlight)
@@ -117,7 +117,7 @@ internal sealed unsafe class OverlayPass : IDisposable
             buffer.Dispose();
         }
 
-        _context.Api.DestroyPipeline(_context.Device, _pipeline, null);
+        _pipeline.Destroy();
         _context.Api.DestroyPipelineLayout(_context.Device, _layout, null);
     }
 }

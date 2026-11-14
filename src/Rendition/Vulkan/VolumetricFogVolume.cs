@@ -29,8 +29,8 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
     private readonly DescriptorPool _pool;
     private readonly DescriptorSet[] _sets = new DescriptorSet[2];
     private readonly PipelineLayout _pipelineLayout;
-    private readonly Pipeline _inject;
-    private readonly Pipeline _integrate;
+    private readonly LivePipeline _inject;
+    private readonly LivePipeline _integrate;
     private readonly Volume _empty;
     private Volume[]? _injected;
     private Volume? _integrated;
@@ -192,8 +192,8 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
         var api = _context.Api;
         DestroyTargets();
         Destroy(_empty);
-        api.DestroyPipeline(_context.Device, _inject, null);
-        api.DestroyPipeline(_context.Device, _integrate, null);
+        _inject.Destroy();
+        _integrate.Destroy();
         api.DestroyPipelineLayout(_context.Device, _pipelineLayout, null);
         api.DestroyDescriptorPool(_context.Device, _pool, null);
         api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);

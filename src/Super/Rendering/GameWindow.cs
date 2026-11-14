@@ -23,6 +23,8 @@ internal sealed unsafe class GameWindow : IDisposable
 
     private const int ScreenshotPlayedTicks = 120;
 
+    private bool _takingShot;
+
     private const int RecordingSettleFrames = 16;
 
     /// <summary>Frames played before measuring, so results don't include .NET still warming up.</summary>
@@ -104,7 +106,30 @@ internal sealed unsafe class GameWindow : IDisposable
             ShadowResolution = shadowResolution,
             RenderScale = renderScale,
             Upscaler = upscaler,
+            // A window someone looks at, run from source, swaps in shaders as they are saved; see ReloadSavedShaders.
+            LiveShaders = !hidden && ShaderWatch.CanWatch(ShaderWatch.DefaultFolder),
         });
+    }
+
+    /// <summary>
+    /// Swaps in the shaders that were saved and compiled since the last frame. A shader that needs something the
+    /// running game didn't set up, such as a new texture, can fail here; the game then keeps the old one.
+    /// </summary>
+    private void ReloadSavedShaders(ShaderWatch? shaders)
+    {
+        if (shaders?.TakeChanged() is not { Count: > 0 } changed)
+        {
+            return;
+        }
+
+        try
+        {
+            _scene.ReloadShaders(changed);
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"Could not swap in {string.Join(", ", changed.Order())}, so the game keeps the old one: {e.Message}");
+        }
     }
 
     // Left to itself Windows cascades new windows down the screen. This centres the window, title bar
@@ -150,10 +175,14 @@ internal sealed unsafe class GameWindow : IDisposable
 
         var limiter = new FrameLimiter(TimeProvider.System);
         IDisposable? fineSleep = null;
+
+        // From source, a saved shader is compiled and swapped in while the game runs. A shipped game has no sources.
+        using var shaders = _hidden ? null : ShaderWatch.Start(ShaderWatch.DefaultFolder, Console.WriteLine);
         try
         {
             while (!_glfw.WindowShouldClose(_window))
             {
+                ReloadSavedShaders(shaders);
                 PlayFrame(host, clock, realTime, ref last, ref played);
 
                 int limit = host.Graphics.MaxFramesPerSecond;
@@ -266,6 +295,8 @@ internal sealed unsafe class GameWindow : IDisposable
     public int Screenshot<TGame>(GameHost<TGame> host, long ticks, string path)
         where TGame : class, IGame
     {
+        // Nobody sees any frame of this run, and the count of frames, not the time, decides what the shot shows.
+        _takingShot = true;
         PlayTo(host, ticks);
         Draw(host, 1f);
         float time = (float)host.Time.TotalSeconds;
@@ -524,8 +555,6 @@ internal sealed unsafe class GameWindow : IDisposable
     /// Renders on until the light probes near the camera are all drawn, up to <see cref="ScreenshotProbeFrames"/>
     /// frames, so a screenshot shows the bounced light as it will be rather than still filling in. With the probes
     /// off there is nothing to wait for. Says how long it waited, as a slow scene can make a shot take a while.
-    /// These frames don't wait for the display, as nobody sees them; the count of frames, not the time, decides
-    /// what the shot shows, so it's the same either way.
     /// </summary>
     private void SettleProbes<TGame>(GameHost<TGame> host, float time)
         where TGame : class, IGame
@@ -540,7 +569,7 @@ internal sealed unsafe class GameWindow : IDisposable
             () => _scene.ProbesSettled,
             () =>
             {
-                ApplyGraphics(host.Graphics, settlingProbes: true);
+                ApplyGraphics(host.Graphics);
                 _scene.Render(host.View, host.Content, width, height, time);
             },
             ScreenshotProbeFrames);
@@ -601,26 +630,26 @@ internal sealed unsafe class GameWindow : IDisposable
     }
 
     /// <summary>Hands the game's graphics settings, as they are now, to the renderer for the next frame.</summary>
-    private void ApplyGraphics(Graphics graphics, bool settlingProbes = false)
+    private void ApplyGraphics(Graphics graphics)
     {
         (_scene.Off, _scene.Vsync, _scene.ShadowResolution, _scene.MaxShadowCascades, _scene.MeshDetail, _scene.RenderScale,
             _scene.Upscaler, _scene.ProbeQuality, _scene.ReflectionResolution, _scene.OcclusionResolution, _scene.DebugView) =
-            RendererSettings(graphics, _hidden, settlingProbes, _commandLineDebugView, CanTrace);
+            RendererSettings(graphics, _hidden, _takingShot, _commandLineDebugView, CanTrace);
     }
 
     /// <summary>
     /// What the renderer is told from the game's graphics settings: the effects left out, whether to wait
     /// for the display, the sun's shadow map size and cascades, the mesh detail, the render scale, the upscaler, the light
     /// probes' quality, the resolution of the reflections and the occlusion, and the debug view.
-    /// A hidden window always waits for the display, except while a screenshot waits for the light probes to
-    /// settle, where waiting would only slow the shot down. The debug view is the command line's when it named one,
+    /// A hidden window always waits for the display, except for a screenshot, where waiting would only slow the
+    /// shot down. The debug view is the command line's when it named one,
     /// else the game's <see cref="Graphics.DebugView"/>, except that a game's Trace view is dropped to None on a
     /// GPU that can't trace (<paramref name="canTrace"/>), where the renderer would throw.
     /// </summary>
     internal static (RenderEffects Off, bool Vsync, int ShadowResolution, int ShadowCascades, float MeshDetail, float RenderScale,
         Upscaler Upscaler, ProbeQuality ProbeQuality, ReflectionResolution ReflectionResolution,
         OcclusionResolution OcclusionResolution, Rendition.DebugView DebugView) RendererSettings(
-            Graphics graphics, bool hidden, bool settlingProbes = false, Rendition.DebugView commandLineDebugView = Rendition.DebugView.None,
+            Graphics graphics, bool hidden, bool takingShot = false, Rendition.DebugView commandLineDebugView = Rendition.DebugView.None,
             bool canTrace = true)
     {
         var debugView = commandLineDebugView;
@@ -629,7 +658,7 @@ internal sealed unsafe class GameWindow : IDisposable
             debugView = graphics.DebugView;
         }
 
-        return (graphics.Off, hidden ? !settlingProbes : graphics.Vsync, graphics.ShadowResolution, graphics.ShadowCascades,
+        return (graphics.Off, hidden ? !takingShot : graphics.Vsync, graphics.ShadowResolution, graphics.ShadowCascades,
             graphics.MeshDetail, graphics.RenderScale, graphics.Upscaler, graphics.ProbeQuality, graphics.ReflectionResolution,
             graphics.OcclusionResolution, debugView);
     }

@@ -51,14 +51,17 @@ internal sealed unsafe class GBufferPass : IDisposable
 
     public int ShaderCount => _pipelines.Count;
 
-    /// <summary>Adds a surface shader. No code means the standard one.</summary>
-    public SurfaceShaderHandle AddShader(byte[]? code)
+    /// <summary>
+    /// Adds a surface shader. No code means the standard one. The name is the compiled file the code came from, such
+    /// as <c>terrain.frag</c>, for live shader reload to read again.
+    /// </summary>
+    public SurfaceShaderHandle AddShader(byte[]? code, string? name = null)
     {
         var description = new PipelineDescription
         {
             VertexShader = "gbuffer.vert",
             FragmentShader = "gbuffer.frag",
-            FragmentCode = code,
+            FragmentCode = code is null ? null : (code, name),
             Layout = _layout,
             ColorFormats = ColorFormats,
             DepthFormat = GBuffer.DepthFormat,
@@ -155,8 +158,8 @@ internal sealed unsafe class GBufferPass : IDisposable
     {
         foreach (var variants in _pipelines.Concat(_solids).Concat(_shown).Concat(_depthOnly))
         {
-            _context.Api.DestroyPipeline(_context.Device, variants.TwoSided, null);
-            _context.Api.DestroyPipeline(_context.Device, variants.Culled, null);
+            variants.TwoSided.Destroy();
+            variants.Culled.Destroy();
         }
 
         _context.Api.DestroyPipelineLayout(_context.Device, _layout, null);

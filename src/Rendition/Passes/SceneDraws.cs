@@ -23,7 +23,7 @@ internal enum ScenePass
 internal readonly record struct DrawBatch(int First, int Count);
 
 /// <summary>The pipelines of one shader, for one-sided and two-sided materials.</summary>
-internal readonly record struct PipelineVariants(Pipeline Culled, Pipeline TwoSided);
+internal readonly record struct PipelineVariants(LivePipeline Culled, LivePipeline TwoSided);
 
 /// <summary>
 /// Draws depth ahead of shading, so a pixel is shaded once, by the surface that shows, however many lie behind it.

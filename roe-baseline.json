@@ -297,7 +297,7 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Rendition.Vulkan.PipelineFactory.Create",
+      "name": "Rendition.Vulkan.PipelineFactory.Build",
       "file": "src/Rendition/Vulkan/PipelineFactory.cs",
       "metric": 14
     },
@@ -2073,7 +2073,7 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.Vulkan.PipelineFactory.Create",
+      "name": "Rendition.Vulkan.PipelineFactory.Build",
       "file": "src/Rendition/Vulkan/PipelineFactory.cs",
       "metric": 179
     },
@@ -2171,7 +2171,7 @@
       "kind": "long-method",
       "name": "Rendition.Vulkan.VulkanContext.VulkanContext",
       "file": "src/Rendition/Vulkan/VulkanContext.cs",
-      "metric": 51
+      "metric": 52
     },
     {
       "kind": "long-method",
@@ -2573,7 +2573,7 @@
       "kind": "long-method",
       "name": "Super.GameWindow.GameWindow",
       "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 53
+      "metric": 55
     },
     {
       "kind": "long-method",
@@ -2585,7 +2585,7 @@
       "kind": "long-method",
       "name": "Super.GameWindow.Run",
       "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 42
+      "metric": 46
     },
     {
       "kind": "long-method",
@@ -3485,25 +3485,25 @@
       "kind": "large-file",
       "name": "src/Rendition/Baking/Baker.cs",
       "file": "src/Rendition/Baking/Baker.cs",
-      "metric": 1539
+      "metric": 1532
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
       "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 1857
+      "metric": 1867
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5710
+      "metric": 5724
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
-      "metric": 1523
+      "metric": 1529
     },
     {
       "kind": "large-file",
@@ -3533,13 +3533,13 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/GameWindow.cs",
       "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 755
+      "metric": 784
     },
     {
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1151
+      "metric": 1157
     },
     {
       "kind": "large-file",
@@ -3623,7 +3623,7 @@
       "kind": "large-type",
       "name": "Rendition.LightmapUnwrap",
       "file": "src/Rendition/Lightmaps/LightmapUnwrap.cs",
-      "metric": 39
+      "metric": 40
     },
     {
       "kind": "large-type",
@@ -3689,7 +3689,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 384
+      "metric": 385
     },
     {
       "kind": "large-type",
@@ -3755,7 +3755,7 @@
       "kind": "large-type",
       "name": "Rendition.Vulkan.VulkanContext",
       "file": "src/Rendition/Vulkan/VulkanContext.cs",
-      "metric": 38
+      "metric": 39
     },
     {
       "kind": "large-type",
@@ -3881,7 +3881,7 @@
       "kind": "large-type",
       "name": "Super.GameWindow",
       "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 48
+      "metric": 50
     },
     {
       "kind": "large-type",
@@ -3941,7 +3941,7 @@
       "kind": "large-type",
       "name": "Super.SceneRenderer",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 105
+      "metric": 106
     },
     {
       "kind": "large-type",
@@ -4206,6 +4206,7 @@
       "members": [
         "Rendition.Vulkan.GpuAllocation",
         "Rendition.Vulkan.GpuMemory",
+        "Rendition.Vulkan.LivePipeline",
         "Rendition.Vulkan.VulkanContext"
       ]
     },

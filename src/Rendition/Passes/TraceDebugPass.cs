@@ -17,7 +17,7 @@ internal sealed unsafe class TraceDebugPass : IDisposable
     private readonly DescriptorPool _pool;
     private readonly DescriptorSet[] _sets;
     private readonly PipelineLayout _pipelineLayout;
-    private readonly Pipeline _pipeline;
+    private readonly LivePipeline _pipeline;
 
     /// <param name="framesInFlight">One set is kept per frame in flight, since each frame traces its own structure.</param>
     /// <param name="frameSetLayout">Set 0: the frame's uniforms.</param>
@@ -133,7 +133,7 @@ internal sealed unsafe class TraceDebugPass : IDisposable
     public void Dispose()
     {
         var api = _context.Api;
-        api.DestroyPipeline(_context.Device, _pipeline, null);
+        _pipeline.Destroy();
         api.DestroyPipelineLayout(_context.Device, _pipelineLayout, null);
         api.DestroyDescriptorPool(_context.Device, _pool, null);
         api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);

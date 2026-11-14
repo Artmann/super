@@ -203,6 +203,9 @@ internal sealed class SceneRenderer : IDisposable
     /// <summary>Whether the GPU can trace rays. See <see cref="Renderer.CanTrace"/>.</summary>
     public bool CanTrace => _renderer.CanTrace;
 
+    /// <summary>Swaps in shaders that were compiled again. See <see cref="Renderer.ReloadShaders"/>.</summary>
+    public int ReloadShaders(IReadOnlySet<string> names) => _renderer.ReloadShaders(names);
+
     /// <summary>Why <see cref="CanTrace"/> is false, or null when it is true.</summary>
     public string? NoTraceReason => _renderer.NoTraceReason;
 
@@ -531,7 +534,7 @@ internal sealed class SceneRenderer : IDisposable
         {
             if (!_modelShaders.ContainsKey(name))
             {
-                _modelShaders[name] = _renderer.CreateSurfaceShader(spirv);
+                _modelShaders[name] = _renderer.CreateSurfaceShader(spirv, name + ".frag");
             }
         }
 
@@ -650,7 +653,7 @@ internal sealed class SceneRenderer : IDisposable
     private object PrepareItem(object item) => item switch
     {
         string name => PrepareModel(name, _files!),
-        ShaderItem shader => LoadShader(shader.Name),
+        ShaderItem shader => new PreparedShader(shader.Name, LoadShader(shader.Name)),
         TextureItem texture => LoadTexture(texture),
         TextureArrayItem array => Array.ConvertAll(array.Layers, LoadTexture),
         GameImage image => LoadImage(image),
@@ -665,7 +668,7 @@ internal sealed class SceneRenderer : IDisposable
     {
         ModelData model => new LoadedModel(_renderer.CreateModel(model), null, null, model.Skeleton?.Count ?? 0),
         PreparedModel model => UploadModel(model),
-        byte[] spirv => new LoadedShader(_renderer.CreateSurfaceShader(spirv)),
+        PreparedShader shader => new LoadedShader(_renderer.CreateSurfaceShader(shader.Spirv, shader.Name + ".frag")),
         TextureData texture => new LoadedTexture(_renderer.CreateTexture(texture)),
         TextureData[] layers => new LoadedTextureArray(_renderer.CreateTextureArray(layers)),
         PreparedMesh(var mesh, var owned) => UploadMesh(mesh, owned, content),
@@ -1124,6 +1127,9 @@ internal sealed class SceneRenderer : IDisposable
     }
 
     private sealed record PreparedMesh(GeneratedMesh Mesh, TextureData? OwnedTexture);
+
+    /// <summary>A surface shader's compiled code, and its name so live shader reload can read the file again.</summary>
+    private sealed record PreparedShader(string Name, byte[] Spirv);
 
     /// <summary>A model whose materials name surface shaders, with the shaders and textures they read.</summary>
     internal sealed record PreparedModel(ModelData Model, Dictionary<string, byte[]> Shaders, Dictionary<string, TextureData> Textures);

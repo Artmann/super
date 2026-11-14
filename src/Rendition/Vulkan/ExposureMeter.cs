@@ -28,8 +28,8 @@ internal sealed unsafe class ExposureMeter : IDisposable
     private readonly GpuBuffer _state;
     private readonly DescriptorPool _pool;
     private readonly PipelineLayout _pipelineLayout;
-    private readonly Pipeline _histogram;
-    private readonly Pipeline _adapt;
+    private readonly LivePipeline _histogram;
+    private readonly LivePipeline _adapt;
     private Extent2D _sourceSize;
 
     /// <summary>The state buffer at binding 0, for the compute passes and the tonemap, and the frame at binding 1.</summary>
@@ -140,8 +140,8 @@ internal sealed unsafe class ExposureMeter : IDisposable
     public void Dispose()
     {
         var api = _context.Api;
-        api.DestroyPipeline(_context.Device, _histogram, null);
-        api.DestroyPipeline(_context.Device, _adapt, null);
+        _histogram.Destroy();
+        _adapt.Destroy();
         api.DestroyPipelineLayout(_context.Device, _pipelineLayout, null);
         api.DestroyDescriptorPool(_context.Device, _pool, null);
         api.DestroyDescriptorSetLayout(_context.Device, SetLayout, null);

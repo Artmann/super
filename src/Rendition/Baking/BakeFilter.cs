@@ -27,8 +27,8 @@ internal sealed unsafe class BakeFilter : IDisposable
     private readonly VulkanContext _context;
     private readonly DescriptorSetLayout _setLayout;
     private readonly PipelineLayout _layout;
-    private readonly Pipeline _filterPipeline;
-    private readonly Pipeline _dilatePipeline;
+    private readonly LivePipeline _filterPipeline;
+    private readonly LivePipeline _dilatePipeline;
 
     public BakeFilter(VulkanContext context)
     {
@@ -106,8 +106,8 @@ internal sealed unsafe class BakeFilter : IDisposable
     public void Dispose()
     {
         var api = _context.Api;
-        api.DestroyPipeline(_context.Device, _filterPipeline, null);
-        api.DestroyPipeline(_context.Device, _dilatePipeline, null);
+        _filterPipeline.Destroy();
+        _dilatePipeline.Destroy();
         api.DestroyPipelineLayout(_context.Device, _layout, null);
         api.DestroyDescriptorPool(_context.Device, Pool, null);
         api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);
