@@ -104,7 +104,7 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     /// <summary>Draws the drag preview and the tooltip, above everything.</summary>
     public void ShowOverlays()
     {
-        var preview = (_drag as MovingDrag)?.Preview;
+        var preview = (_drag as MovingDrag)?.Floating;
         bool showTip = _tip is not null && !_tipHidden && _uiHeld == 0 && _tipAge >= _tooltipTicks;
         tree.ShowOverlays(preview, showTip ? ((TooltipModifier)_tip!.View).Content : null, _position);
     }
@@ -174,7 +174,7 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
 
     private void StartMoving(ArmedDrag armed)
     {
-        _drag = new MovingDrag(armed.Source, armed.Payload, armed.Preview, armed.DraggedWith);
+        _drag = new MovingDrag(armed.Source, armed.Payload, armed.Floating, armed.DraggedWith);
 
         // The drag's own press stops being a click. A left click held while another button drags is kept.
         if (armed.DraggedWith == MouseButton.Left)
@@ -415,13 +415,13 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     private sealed record ThumbHold(UiNode Bar, float Grab) : Hold;
 
     /// <summary>A drag, carrying what its source handed over at the press.</summary>
-    private abstract record Drag(UiNode Source, object Payload, UiView? Preview, MouseButton DraggedWith);
+    private abstract record Drag(UiNode Source, object Payload, UiView? Floating, MouseButton DraggedWith);
 
     /// <summary>Pressed on a source, but not yet moved far enough from <paramref name="DownAt"/> to stop being a click.</summary>
-    private sealed record ArmedDrag(UiNode Source, object Payload, UiView? Preview, MouseButton DraggedWith, Vector2 DownAt)
-        : Drag(Source, Payload, Preview, DraggedWith);
+    private sealed record ArmedDrag(UiNode Source, object Payload, UiView? Floating, MouseButton DraggedWith, Vector2 DownAt)
+        : Drag(Source, Payload, Floating, DraggedWith);
 
     /// <summary>Moving: the preview follows the cursor and a release over a target drops.</summary>
-    private sealed record MovingDrag(UiNode Source, object Payload, UiView? Preview, MouseButton DraggedWith)
-        : Drag(Source, Payload, Preview, DraggedWith);
+    private sealed record MovingDrag(UiNode Source, object Payload, UiView? Floating, MouseButton DraggedWith)
+        : Drag(Source, Payload, Floating, DraggedWith);
 }
