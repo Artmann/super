@@ -391,7 +391,7 @@ public sealed class ModelCooker : ICooker
                         for (uint a = 0; a < extra->MNumAnimations; a++)
                         {
                             string name = extra->MNumAnimations == 1 ? baseName : $"{baseName}{a + 1}";
-                            AddClip(clips, rig.ReadClip(extra->MAnimations[a], name));
+                            AddClip(clips, rig.ReadClip(extra->MAnimations[a], name, source.InPlace));
                         }
                     }
                     finally

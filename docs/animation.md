@@ -38,6 +38,16 @@ are matched to the model's joints by name, so they must be from the same rig:
 Without a `name`, a clip is named after its file. Download Mixamo clips "without skin"
 to keep them small; the character itself comes from one file "with skin".
 
+The engine doesn't move a character with its clip, so a clip that walks or steps back
+plays its steps and then snaps back when the next clip takes over. `"inPlace": true` cooks
+it on the spot: the clip's root, the first joint it moves (Mixamo's hips), stays over the
+ground where the first frame puts it, and still rises and falls. Use it for clips that
+travel when Mixamo offers no "in place" download, such as a cheer that wanders:
+
+```json
+{ "file": "rallying.fbx", "name": "Rallying", "inPlace": true }
+```
+
 A model drawn with no pose, such as a fish that only swims (see `Swim` in
 [the ECS](ecs.md)), stands as the file shows it at rest, not as it was bound. Many
 files bind the skin a turn away from the rest pose, such as an armature turned up from z-up,

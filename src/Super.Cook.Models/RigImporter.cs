@@ -285,7 +285,7 @@ internal sealed unsafe class RigImporter
     /// move hold their rest pose. Channels are matched to joints by node name, so a clip
     /// from another file of the same rig fits.
     /// </summary>
-    public AnimationClip? ReadClip(Animation* animation, string name)
+    public AnimationClip? ReadClip(Animation* animation, string name, bool inPlace = false)
     {
         double ticksPerSecond = animation->MTicksPerSecond > 0 ? animation->MTicksPerSecond : 25.0;
         float seconds = (float)(animation->MDuration / ticksPerSecond);
@@ -325,7 +325,7 @@ internal sealed unsafe class RigImporter
             }
         }
 
-        return new AnimationClip(name, FrameRate, JointCount, frames);
+        return new AnimationClip(name, FrameRate, JointCount, inPlace ? ClipInPlace.Held(frames, _parents, _restGlobal) : frames);
     }
 
     /// <summary>

@@ -67,6 +67,12 @@ public sealed class AnimationSource
 
     /// <summary>The clip's name in the game. Without one, the file's name without its extension.</summary>
     public string? Name { get; set; }
+
+    /// <summary>
+    /// Plays the clip on the spot: its root, such as the hips, stays over the ground where the first frame puts it,
+    /// for a clip that walks or steps back while the game moves the character itself. It still rises and falls.
+    /// </summary>
+    public bool InPlace { get; set; }
 }
 
 /// <summary>
