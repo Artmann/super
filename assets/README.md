@@ -111,7 +111,7 @@ and save it as `cannonball/stuntman.fbx`. Download these animations without skin
 
 | File | Mixamo animation |
 | --- | --- |
-| `idle.fbx` | idle, from the Action Adventure Pack |
+| `idle.fbx` | idle, from the Locomotion Pack |
 | `flail.fbx` | falling idle, from the Action Adventure Pack |
 | `landing.fbx` | hard landing, from the Action Adventure Pack |
 | `standup.fbx` | zombie stand up, from the Not So Scary Zombie Pack |
