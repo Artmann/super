@@ -3355,23 +3355,31 @@ public sealed unsafe class Renderer : IDisposable
                     continue;
                 }
 
-                scheduler.LightChanged(old.Position, old.Range);
+                // A light that only flickers covers the same probes as before, so they are marked once, below.
+                if (old.Position != light.Position || old.Range != light.Range)
+                {
+                    scheduler.LightChanged(old.Position, old.Range);
+                }
             }
 
             scheduler.LightChanged(light.Position, light.Range);
             _probeLights[light.Key] = light;
         }
 
-        if (_probeLights.Count == _probeLightsSeen.Count)
+        if (_probeLights.Count != _probeLightsSeen.Count)
         {
-            return;
+            ForgetProbeLightsGone(scheduler);
         }
 
         _probeLightsGone.Clear();
         foreach (var (key, old) in _probeLights)
         {
             if (!_probeLightsSeen.Contains(key))
+    }
             {
+    // Marks the probes near each light that wasn't seen this frame, and forgets the light.
+    private void ForgetProbeLightsGone(ProbeScheduler scheduler)
+    {
                 scheduler.LightChanged(old.Position, old.Range);
                 _probeLightsGone.Add(key);
             }

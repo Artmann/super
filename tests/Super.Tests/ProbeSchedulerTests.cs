@@ -562,6 +562,37 @@ public class ProbeSchedulerTests
     }
 
     [Fact]
+    public void A_bigger_batch_of_clean_probes_than_any_before_allocates_nothing()
+    {
+        var cascades = new ProbeCascades(ProbeQuality.Low);
+        var scheduler = new ProbeScheduler(cascades, 0);
+        var camera = new Vector3(0.25f, 1.1f, 0.25f);
+        scheduler.Scrolled(cascades.Move(camera));
+        CaptureEverything(scheduler, camera);
+
+        // Warm up with small batches, so nothing has had to hold many clean probes yet.
+        for (int frame = 0; frame < 10; frame++)
+        {
+            scheduler.Updated(scheduler.Next(16, camera, Forward));
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        int taken = 0;
+        for (int frame = 0; frame < 10; frame++)
+        {
+            // No asserts in here: xUnit's own asserts allocate.
+            var batch = scheduler.Next(1024, camera, Forward);
+            taken += batch.Count;
+            scheduler.Updated(batch);
+        }
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0L, allocated);
+        Assert.Equal(10240, taken);
+    }
+
+    [Fact]
     public void Once_settled_only_the_refresh_budget_of_clean_probes_is_handed_out()
     {
         var cascades = new ProbeCascades(ProbeQuality.Low);

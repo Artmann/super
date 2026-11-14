@@ -137,12 +137,20 @@ internal sealed class ProbeCaptureQueue(byte[]?[] state, long[]?[] updated, Vect
         _end = kept;
     }
 
-    /// <summary>Makes room for <paramref name="count"/> captures, so recording them allocates nothing.</summary>
-    public void Reserve(int count)
+    /// <summary>
+    /// Makes room for the captures of <paramref name="probes"/> probes, twice over, so recording them allocates
+    /// nothing, and for reading one capture of each, so <see cref="TakeOldest"/> allocates nothing either.
+    /// </summary>
+    public void Reserve(int probes)
     {
-        if (_captures.Length < count)
+        if (_captures.Length < probes * 2)
         {
-            Array.Resize(ref _captures, count);
+            Array.Resize(ref _captures, probes * 2);
+        }
+
+        if (_oldest.Length < probes)
+        {
+            Array.Resize(ref _oldest, probes);
         }
     }
 
