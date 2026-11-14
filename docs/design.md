@@ -100,7 +100,8 @@ only public one. Engine code uses one of two shapes instead:
 - States that carry data are a small closed set of types, such as a sealed record for each,
   matched with `switch` patterns, so each state holds exactly what it needs. This allocates
   on each change, which is fine for things that change a few times a second at most, such
-  as a click or a new bake. `UiPointer` holds its gestures this way.
+  as a click or a new bake. `UiPointer` holds its gestures this way, and `Renderer` its
+  running background bake.
 
 When two lifecycles can overlap, each gets its own field instead of one state for every
 combination. `UiPointer` keeps what the left button holds (a click or a scroll bar's thumb)
@@ -2452,8 +2453,11 @@ where turning the readbacks into arrays on the render thread took over 500 ms in
 (`AutoBakeGpuTests` checks every step of such a bake stays within the budget). Until a job's setup step has run, the baker's pages may still be held by the
 last job's file being made, so the slice waits for them.
 
+The running job is one field of the renderer, `_bake`, holding a `SteppingBake` (with the frame count an `AwaitGpu`
+waits for), a `FinishingBake`, or nothing. Each carries the job with the area and quality it bakes.
+
 At `Done` the job's `Finish` runs on the thread pool, since encoding the pages takes longer than a frame. The job stays
-the running one meanwhile, holding the baker's pages, so no other job sets up. A later `Render` takes the bytes from a
+the running one meanwhile, as a `FinishingBake`, holding the baker's pages, so no other job sets up. A later `Render` takes the bytes from a
 `ConcurrentQueue`, disposes the job, tells the queue, and calls `AutoBake.Done` on the render thread before it resolves
 the frame's bakes. Nothing catches an exception from `Done`, so it passes out of `Render`.
 

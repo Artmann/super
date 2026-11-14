@@ -1133,7 +1133,7 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     private void StopBakeThatReads(Func<BakeJob, bool> reads)
     {
-        if (_bakeJob is { } job && _bakeFinishing is null && reads(job))
+        if (_bake is SteppingBake { Job: var job } && reads(job))
         {
             StopBakeJob();
         }
@@ -2105,12 +2105,10 @@ public sealed unsafe class Renderer : IDisposable
     // This frame's wants, grown when a frame names more areas.
     private BakeWant[] _bakeWants = new BakeWant[16];
 
-    // The running background bake: what the queue started, at which quality. Kept while its file is made on the
-    // thread pool, so no other bake sets up on the baker's pages before it lets them go.
-    private BakeJob? _bakeJob;
-    private BakeWant _bakeJobWant;
-    private BakeQuality _bakeJobQuality;
-    private FinishingBake? _bakeFinishing;
+    // The running background bake, stepping or finishing, or null. Kept while its file is made on the thread pool, so
+    // no other bake sets up on the baker's pages before it lets them go. See "Lifecycle state in engine code" in
+    // docs/design.md.
+    private RunningBake? _bake;
 
     // Finishes on the thread pool, until the render thread takes their results; and those results.
     private readonly List<FinishingBake> _bakeFinishes = [];
@@ -2124,9 +2122,8 @@ public sealed unsafe class Renderer : IDisposable
     private int _bakePasses = 1;
     private int _bakePassEpoch;
 
-    // Frames submitted, and the count after which a step that copied results back has landed.
+    // Frames submitted, so a step that copied results back knows when they have landed.
     private long _framesSubmitted;
-    private long _bakeAwaitUntil;
 
     // Each frame slot's slice: whether it was timed, its passes and its epoch.
     private readonly GpuTimer _bakeTimer;
@@ -2138,12 +2135,27 @@ public sealed unsafe class Renderer : IDisposable
     // Areas whose bake failed, each reported once.
     private readonly HashSet<string> _bakeFailuresLogged = new(StringComparer.Ordinal);
 
-    /// <summary>A background bake whose file is being made on the thread pool.</summary>
-    private sealed class FinishingBake(BakeJob job, BakeWant want, BakeQuality quality)
+    /// <summary>The running background bake: the job the queue started, for which area, at which quality.</summary>
+    private abstract class RunningBake(BakeJob job, BakeWant want, BakeQuality quality)
     {
         public readonly BakeJob Job = job;
         public readonly BakeWant Want = want;
         public readonly BakeQuality Quality = quality;
+    }
+
+    /// <summary>
+    /// A background bake recording a slice a frame, from the frame after <paramref name="readyAt"/> frames have been
+    /// submitted, when a step that copied results back has landed.
+    /// </summary>
+    private sealed class SteppingBake(BakeJob job, BakeWant want, BakeQuality quality, long readyAt)
+        : RunningBake(job, want, quality)
+    {
+        public readonly long ReadyAt = readyAt;
+    }
+
+    /// <summary>A background bake whose steps are done and whose file is being made on the thread pool.</summary>
+    private sealed class FinishingBake(BakeJob job, BakeWant want, BakeQuality quality) : RunningBake(job, want, quality)
+    {
         public Task? Task;
         public byte[]? Bytes;
         public Exception? Error;
@@ -2228,8 +2240,8 @@ public sealed unsafe class Renderer : IDisposable
     /// How the background bake is getting on, or null when none runs and no area waits for one. While areas wait and
     /// none runs yet, its name is empty and its fraction 0. See <see cref="AutoBake"/>.
     /// </summary>
-    public BakeProgress? BakeProgress => _bakeJob is { } job
-        ? new BakeProgress(job.Name, _bakeFinishing is not null ? 1f : job.Progress, _bakeQueue?.Waiting ?? 0,
+    public BakeProgress? BakeProgress => _bake is { Job: var job }
+        ? new BakeProgress(job.Name, _bake is FinishingBake ? 1f : job.Progress, _bakeQueue?.Waiting ?? 0,
             _lastSliceMilliseconds)
         : _bakeQueue is { Waiting: > 0 } queue
             ? new BakeProgress("", 0f, queue.Waiting, _lastSliceMilliseconds)
@@ -2262,8 +2274,7 @@ public sealed unsafe class Renderer : IDisposable
                 continue;
             }
 
-            _bakeJob = null;
-            _bakeFinishing = null;
+            _bake = null;
             var want = finished.Want;
             _bakeQueue?.Finished(want.File, want.Inputs, finished.Quality);
             if (finished.Error is { } error)
@@ -2336,18 +2347,17 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         // The queue starts a bake only when none runs; a job left here would never be freed.
-        if (_bakeJob is not null)
+        if (_bake is not null)
         {
             StopBakeJob(tellQueue: false);
         }
 
         try
         {
-            _bakeJob = want.Chunk < 0
+            var job = want.Chunk < 0
                 ? CreateSpaceJob(view, draws, new BakeSettings(view.BakedSpace!.Value.TexelsPerMetre, quality))
                 : CreateChunkJob(view, draws, want.Chunk, new BakeSettings(view.BakedChunks[want.Chunk].TexelsPerMetre, quality));
-            _bakeJobWant = want;
-            _bakeJobQuality = quality;
+            _bake = new SteppingBake(job, want, quality, readyAt: 0);
             _bakePasses = 1;
             _bakePassEpoch++;
         }
@@ -2385,7 +2395,7 @@ public sealed unsafe class Renderer : IDisposable
     private void RecordBakeSlice(CommandBuffer cmd)
     {
         _sliceTimed[_frameIndex] = false;
-        if (_bakeJob is not { } job || _bakeFinishing is not null || _framesSubmitted < _bakeAwaitUntil
+        if (_bake is not SteppingBake { Job: var job } stepping || _framesSubmitted < stepping.ReadyAt
             || (!job.Started && _baker!.PagesClaimed))
         {
             return;
@@ -2407,11 +2417,10 @@ public sealed unsafe class Renderer : IDisposable
         catch (Exception e) when (e is InvalidOperationException or ArgumentException)
         {
             // What the step recorded rides this frame, so the job goes with this frame's slot.
-            var want = _bakeJobWant;
-            _bakeQueue?.Finished(want.File, want.Inputs, _bakeJobQuality);
+            _bakeQueue?.Finished(stepping.Want.File, stepping.Want.Inputs, stepping.Quality);
             RetireBakeJob(job, _destroyed[_frameIndex]);
-            _bakeJob = null;
-            ReportBakeFailure(want, e);
+            _bake = null;
+            ReportBakeFailure(stepping.Want, e);
             return;
         }
         finally
@@ -2438,10 +2447,10 @@ public sealed unsafe class Renderer : IDisposable
         {
             case BakeStepResult.AwaitGpu:
                 // This frame is the next submitted; its fence has passed once as many more frames have been.
-                _bakeAwaitUntil = _framesSubmitted + FramesInFlight;
+                _bake = new SteppingBake(job, stepping.Want, stepping.Quality, _framesSubmitted + FramesInFlight);
                 break;
             case BakeStepResult.Done:
-                StartFinishingBake(job);
+                StartFinishingBake(stepping);
                 break;
         }
     }
@@ -2477,16 +2486,16 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     // Makes the finished job's file on the thread pool, since encoding the pages takes longer than a frame.
-    private void StartFinishingBake(BakeJob job)
+    private void StartFinishingBake(SteppingBake stepping)
     {
-        var finishing = new FinishingBake(job, _bakeJobWant, _bakeJobQuality);
-        _bakeFinishing = finishing;
+        var finishing = new FinishingBake(stepping.Job, stepping.Want, stepping.Quality);
+        _bake = finishing;
         _bakeFinishes.Add(finishing);
         finishing.Task = Task.Run(() =>
         {
             try
             {
-                finishing.Bytes = job.Finish();
+                finishing.Bytes = finishing.Job.Finish();
             }
             catch (Exception e)
             {
@@ -2505,23 +2514,20 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     private void StopBakeJob(bool tellQueue = true)
     {
-        if (_bakeJob is not { } job)
+        switch (_bake)
         {
-            return;
+            case null:
+                return;
+            case FinishingBake finishing:
+                // Its file is being made; it is dropped, and the job freed when the thread pool is done with it.
+                finishing.Cancelled = true;
+                break;
+            default:
+                RetireBakeJob(_bake.Job, Destroying());
+                break;
         }
 
-        if (_bakeFinishing is { } finishing)
-        {
-            // Its file is being made; it is dropped, and the job freed when the thread pool is done with it.
-            finishing.Cancelled = true;
-            _bakeFinishing = null;
-        }
-        else
-        {
-            RetireBakeJob(job, Destroying());
-        }
-
-        _bakeJob = null;
+        _bake = null;
         if (tellQueue)
         {
             _bakeQueue?.Stopped();

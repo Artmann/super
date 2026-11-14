@@ -221,7 +221,7 @@
       "kind": "high-complexity",
       "name": "Rendition.Renderer.RecordBakeSlice",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 12
+      "metric": 11
     },
     {
       "kind": "high-complexity",
@@ -730,12 +730,6 @@
     {
       "kind": "high-complexity",
       "name": "Super.Ui.UiPointer.RefreshLook",
-      "file": "src/Super/Ui/UiPointer.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Ui.UiPointer.Released",
       "file": "src/Super/Ui/UiPointer.cs",
       "metric": 11
     },
@@ -1931,7 +1925,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.RecordBakeSlice",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 62
+      "metric": 61
     },
     {
       "kind": "long-method",
@@ -1985,7 +1979,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.UpdateBackgroundBake",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 76
+      "metric": 75
     },
     {
       "kind": "long-method",
@@ -2823,12 +2817,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.Ui.UiPointer.Down",
-      "file": "src/Super/Ui/UiPointer.cs",
-      "metric": 44
-    },
-    {
-      "kind": "long-method",
       "name": "Super.View.ReflectionProbe",
       "file": "src/Super/View.cs",
       "metric": 42
@@ -3491,7 +3479,7 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5724
+      "metric": 5730
     },
     {
       "kind": "large-file",
@@ -3683,7 +3671,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 385
+      "metric": 381
     },
     {
       "kind": "large-type",
@@ -3953,7 +3941,7 @@
       "kind": "large-type",
       "name": "Super.States",
       "file": "src/Super/States/States.cs",
-      "metric": 22
+      "metric": 21
     },
     {
       "kind": "large-type",
@@ -3995,7 +3983,7 @@
       "kind": "large-type",
       "name": "Super.Ui.UiPointer",
       "file": "src/Super/Ui/UiPointer.cs",
-      "metric": 44
+      "metric": 37
     },
     {
       "kind": "large-type",
