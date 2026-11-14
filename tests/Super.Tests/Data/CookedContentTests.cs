@@ -19,16 +19,29 @@ public class CookedContentTests
     }
 
     [Fact]
-    public void Wrong_case_is_missing()
+    public void Wrong_case_is_missing_from_a_cooked_folder_even_on_a_disk_that_ignores_case()
     {
-        var files = new MemoryContent();
-        files.AddModel("fox.glb");
-        var content = new Content(files);
+        string root = Directory.CreateTempSubdirectory().FullName;
+        string cooked = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(root, "axe.json"), "{ \"id\": \"axe\", \"power\": 3 }");
+            var content = new Content(CookedTemp.Cook(root, cooked));
 
-        var problem = Assert.Throws<ContentException>(() => content.Model("Fox.glb"));
+            var wrongCase = Assert.Throws<ContentException>(() => content.Model("Axe.json"));
+            var rightCase = Assert.Throws<ContentException>(() => content.Model("axe.json"));
 
-        Assert.StartsWith("Fox.glb isn't in the cooked content.", problem.Message);
-        content.Model("fox.glb");
+            // The right case is found, and only then refused for being data, not a model.
+            Assert.Equal(
+                "Axe.json isn't in the cooked content. Check the name, including its case and extension.",
+                wrongCase.Message);
+            Assert.Equal("axe.json is a data, not a model.", rightCase.Message);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+            Directory.Delete(cooked, recursive: true);
+        }
     }
 
     [Fact]

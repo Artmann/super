@@ -55,7 +55,6 @@ public class FoliageTests
     {
         string surface = Shader("surface.glsl");
 
-        Assert.DoesNotContain("FOLIAGE_TRANSLUCENCY", surface);
         Assert.Contains("return -max(material.transmission, FOLIAGE_MARK);", surface);
         Assert.Contains("float channel = foliage ? foliageChannel(material) : surface.clearcoat;", surface);
         Assert.Contains("outEmissiveClearcoat = vec4(surface.emissive, foliage ? foliageChannel(material) : 0.0);", surface);

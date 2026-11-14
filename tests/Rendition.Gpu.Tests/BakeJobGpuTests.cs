@@ -345,7 +345,7 @@ public sealed class BakeJobGpuTests(GpuFixture gpu)
         return view;
     }
 
-    // Plan 6's chunk: a 4 metre plane beside an 8 metre wall at its +x edge, placed away from the origin.
+    // A chunk: a 4 metre plane beside an 8 metre wall at its +x edge, placed away from the origin.
     private static FrameView ChunkView(GpuFixture g)
     {
         var view = g.View(DebugView.None);

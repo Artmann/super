@@ -12,12 +12,13 @@ public sealed class DeviceAddressTests(GpuFixture gpu)
     public void A_mesh_built_for_tracing_has_addresses_and_no_validation_errors()
     {
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        int errors = gpu.ValidationErrors;
         var (vertices, indices) = TestMeshes.Quad();
         var handle = gpu.Renderer.CreateMesh(vertices, indices);
         var mesh = gpu.Renderer.MeshFor(handle);
         Assert.NotEqual(0ul, mesh.Vertices.Address);
         Assert.NotEqual(0ul, mesh.Indices.Address);
-        Assert.Equal(0, gpu.ValidationErrors);
+        Assert.Equal(errors, gpu.ValidationErrors);
         gpu.Renderer.DestroyMesh(handle);
     }
 
@@ -25,9 +26,10 @@ public sealed class DeviceAddressTests(GpuFixture gpu)
     public void A_buffer_bigger_than_a_block_still_has_an_address()
     {
         Assert.True(gpu.Renderer.CanTrace, "This test needs a GPU that can trace rays.");
+        int errors = gpu.ValidationErrors;
         using var big = new GpuBuffer(gpu.Context, GpuMemory.BlockSize + 1024,
             BufferUsageFlags.StorageBufferBit | BufferUsageFlags.ShaderDeviceAddressBit, MemoryPropertyFlags.DeviceLocalBit);
         Assert.NotEqual(0ul, big.Address);
-        Assert.Equal(0, gpu.ValidationErrors);
+        Assert.Equal(errors, gpu.ValidationErrors);
     }
 }

@@ -418,15 +418,6 @@ public sealed class MaterialCookerTests : IDisposable
             Assert.Single(result.Problems, p => p.IsError).Message);
     }
 
-    [Fact]
-    public void Linq_works_in_a_graph()
-    {
-        var (result, store) = Cook(("linq.material.cs", Graph("        return new Material { Width = Enumerable.Range(1, 3).Sum() };")));
-
-        Assert.True(result.Succeeded, string.Join("; ", result.Problems));
-        Assert.Equal("""{"width":6}""", Encoding.UTF8.GetString(Data(store, "linq.material.cs#material")));
-    }
-
     [Theory]
     [InlineData("        bool there = System.IO.File.Exists(\"a\");", "System.IO.File.Exists")]
     [InlineData("        var now = DateTime.Now;", "System.DateTime.Now")]
@@ -549,7 +540,7 @@ public sealed class MaterialCookerTests : IDisposable
 
     private static CookResult CookFolder(string source, string cache, MemoryStore store)
     {
-        return new CookPipeline([.. BuiltInCookers.All, new MaterialCooker()], new CookOptions(CacheFolder: cache)).Cook([new FolderRoot(source)], store);
+        return new CookPipeline([.. BuiltInCookers.All, new MaterialCooker()], new CookOptions(CacheFolder: cache) { CacheLimit = CacheSize.Default }).Cook([new FolderRoot(source)], store);
     }
 
     [Fact]

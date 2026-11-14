@@ -25,7 +25,8 @@ public class EvaluatorTests
     [Fact]
     public void The_same_graph_gives_the_same_pixels_on_one_thread_and_many()
     {
-        Func<Image> build = () => Gray.Of(0.25f).Add(Gray.Of(0.5f));
+        // Noise and a blur, so each row is different and the blur reads rows other threads write.
+        Func<Image> build = () => Noise.Perlin(4, octaves: 3, seed: 1).Blur(0.05f).Add(Noise.White(seed: 2));
         Assert.Equal(GraphRunner.Evaluate(build, 64, maxThreads: 1), GraphRunner.Evaluate(build, 64, maxThreads: 8));
     }
 
@@ -117,8 +118,16 @@ public class EvaluatorTests
             return Gray.Of(0f);
         }, 1, seed: 7);
 
+        var otherSeed = new List<ulong>();
+        GraphRunner.Evaluate(() =>
+        {
+            otherSeed.Add(new SeedNode().Seed);
+            return Gray.Of(0f);
+        }, 1, seed: 8);
+
         Assert.Equal(seeds, again);
         Assert.NotEqual(seeds[0], seeds[1]);
+        Assert.NotEqual(seeds[0], otherSeed[0]);
     }
 
     sealed class SeedNode() : Node(1)

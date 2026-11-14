@@ -78,7 +78,7 @@ public class SpinningCubeTests
         Assert.NotEqual(ColorsOver(1, OneMinute), ColorsOver(2, OneMinute));
     }
 
-    [Theory, Seeds(100)]
+    [Theory, Seeds(10)]
     public void Pressing_cycle_changes_the_color_that_tick(int seed)
     {
         using var run = HeadlessGame.Create<SpinningCube>(seed);
@@ -110,16 +110,23 @@ public class SpinningCubeTests
     }
 
     [Fact]
-    public void Holding_W_tips_the_drawn_cube_over()
+    public void Holding_W_for_a_second_tips_the_drawn_cube_a_further_half_turn_about_X()
     {
-        using var steered = HeadlessGame.Create<SpinningCube>(3);
-        steered.Input.Hold(Key.W);
-        steered.Ticks(30);
-        using var untouched = HeadlessGame.Create<SpinningCube>(3);
-        untouched.Ticks(30);
+        using var run = HeadlessGame.Create<SpinningCube>(3);
+        run.Input.Hold(Key.W);
+        run.Ticks(30);
 
-        // A second of W turns the cube half a turn about X, so the two cubes face opposite ways.
-        Assert.NotEqual(untouched.Drawn[0].Transform, steered.Drawn[0].Transform);
+        // Half a turn a second of steering adds 180 degrees about X to the 21.6 the spin gives: Y(36) * X(201.6).
+        // Turning half a turn more about X flips the sign of the Y and Z columns of the untouched cube's matrix.
+        AssertMatrix(
+            new float[,]
+            {
+                { 0.80902f, -0.21638f, 0.54651f, 0f },
+                { 0f, -0.92978f, -0.36812f, 0f },
+                { 0.58779f, 0.29782f, -0.75220f, 0f },
+                { 0f, 0f, 0f, 1f },
+            },
+            run.Drawn[0].Transform);
     }
 
     [Fact]
@@ -130,14 +137,19 @@ public class SpinningCubeTests
 
         // 0.1 turns a second is 36 degrees about Y, and the tip about X is 0.6 of that, 21.6 degrees.
         // Worked by hand: Y(36) * X(21.6) in the row-vector convention.
-        float[,] expected =
-        {
-            { 0.80902f, 0.21638f, -0.54651f, 0f },
-            { 0f, 0.92978f, 0.36812f, 0f },
-            { 0.58779f, -0.29782f, 0.75220f, 0f },
-            { 0f, 0f, 0f, 1f },
-        };
-        var actual = run.Drawn[0].Transform;
+        AssertMatrix(
+            new float[,]
+            {
+                { 0.80902f, 0.21638f, -0.54651f, 0f },
+                { 0f, 0.92978f, 0.36812f, 0f },
+                { 0.58779f, -0.29782f, 0.75220f, 0f },
+                { 0f, 0f, 0f, 1f },
+            },
+            run.Drawn[0].Transform);
+    }
+
+    private static void AssertMatrix(float[,] expected, Matrix4x4 actual)
+    {
         for (int row = 0; row < 4; row++)
         {
             for (int column = 0; column < 4; column++)

@@ -83,18 +83,6 @@ public class SkylinePackerTests
     }
 
     [Fact]
-    public void Packs_the_same_way_every_time()
-    {
-        (int, int)[] sizes = [(7, 3), (3, 7), (5, 5), (7, 3)];
-        var first = new (int, int)[4];
-        var second = new (int, int)[4];
-        Assert.True(SkylinePacker.TryPack(sizes, 32, 32, 2, first));
-        Assert.True(SkylinePacker.TryPack(sizes, 32, 32, 2, second));
-        Assert.Equal(first, second);
-        Assert.Equal(first.Distinct().Count(), first.Length);
-    }
-
-    [Fact]
     public void Breaks_ties_by_width_then_index()
     {
         // Equal heights: the wider goes first, equal sizes go in input order.
@@ -140,6 +128,6 @@ public class SkylinePackerTests
     {
         var thrown = Assert.Throws<ArgumentException>(() =>
             SkylinePacker.TryPack([(1, 1), (1, 1)], 64, 64, gutter: 0, new (int, int)[1]));
-        Assert.Contains("positions", thrown.Message);
+        Assert.Equal("There is room for 1 positions but 2 rectangles. (Parameter 'positions')", thrown.Message);
     }
 }

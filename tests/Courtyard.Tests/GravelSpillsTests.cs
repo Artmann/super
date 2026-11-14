@@ -77,23 +77,6 @@ public sealed class GravelSpillsTests
     }
 
     [Fact]
-    public void Each_part_of_the_spills_is_laid_the_same_whatever_order_the_parts_are_laid_in()
-    {
-        // Each side of each arm and the ring draw their own random numbers, so laying them last to first gives the
-        // same boxes as laying them first to last.
-        var backwards = new List<Matrix4x4>();
-        for (var part = GravelSpills.Parts - 1; part >= 0; part--)
-        {
-            backwards.AddRange(GravelSpills.Spills(CourtyardGame.GravelSeed, part));
-        }
-
-        var forwards = GravelSpills.Boxes(CourtyardGame.GravelSeed);
-
-        Assert.True(forwards.Count > GravelSpills.Parts, $"Only {forwards.Count} spills were laid.");
-        Assert.Equal(Sorted(forwards), Sorted(backwards));
-    }
-
-    [Fact]
     public void The_gravel_image_lies_thick_from_a_sharp_edge_near_V_0_and_thins_out_towards_V_1()
     {
         // The spill is an oval 0.39 of the image high round V 0.45, so it ends at V 0.06 and 0.84, give or take the
@@ -160,11 +143,6 @@ public sealed class GravelSpillsTests
         }
 
         return 1f;
-    }
-
-    private static List<string> Sorted(List<Matrix4x4> boxes)
-    {
-        return boxes.Select(box => box.ToString()).Order(StringComparer.Ordinal).ToList();
     }
 
     [Theory]

@@ -113,6 +113,21 @@ public class HeightfieldTests
     }
 
     [Fact]
+    public void A_chunk_spans_its_lightmap_from_corner_to_corner()
+    {
+        var field = new Heightfield(Wavy, Spacing);
+
+        var chunk = field.Chunk(1, -2, Quads, new Surface(), 0.25f);
+
+        int side = Quads + 1;
+        Assert.Equal(Vector2.Zero, chunk.Vertices[0].Uv2);
+        Assert.Equal(new Vector2(1f, 0f), chunk.Vertices[side - 1].Uv2);
+        Assert.Equal(Vector2.One, chunk.Vertices[side * side - 1].Uv2);
+        Assert.Null(LightmapUnwrap.Problem(
+            chunk.Vertices.Select(v => v.Position).ToArray(), chunk.Vertices.Select(v => v.Uv2).ToArray(), chunk.Indices));
+    }
+
+    [Fact]
     public void Triangles_face_up()
     {
         var field = new Heightfield((_, _) => 0f, 1f);

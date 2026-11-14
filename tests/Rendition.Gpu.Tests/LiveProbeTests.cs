@@ -219,15 +219,13 @@ public sealed class LiveProbeTests(GpuFixture shared)
     }
 
     [Fact]
-    public void A_traced_probe_lit_by_a_small_bright_emitter_holds_as_steady_as_one_in_a_lit_room()
+    public void A_traced_probe_lit_by_a_small_bright_emitter_wanders_by_under_5_percent()
     {
         // A light seen by only a few of a probe's 128 rays changes its tile's mean by far more than the snap from one
         // update to the next, by noise alone. The blend must not take that noise whole.
-        float lit = Spread(ProbeScenes.WhiteRoom);
         float emitter = Spread(ProbeScenes.DarkRoomWithEmitter);
 
-        Assert.True(emitter <= 0.05f,
-            $"Over 20 updates the probe under the emitter wandered by {emitter:P1} and the one in the lit room by {lit:P1}.");
+        Assert.True(emitter <= 0.05f, $"Over 20 updates the probe under the emitter wandered by {emitter:P1}.");
     }
 
     // How much the probe at (0, 1.5, 0), facing up, wanders over 20 traced updates once its room has filled in: the

@@ -88,14 +88,6 @@ public class FogTests
     }
 
     [Fact]
-    public void Packs_density_height_falloff_and_sun_scatter()
-    {
-        var packed = Fog.Pack(new FogSettings(0.004f, 1.5f, 0.15f, 0.6f));
-
-        Assert.Equal(new Vector4(0.004f, 1.5f, 0.15f, 0.6f), packed);
-    }
-
-    [Fact]
     public void With_the_fog_switch_off_the_frame_gets_no_density()
     {
         var packed = Fog.Pack(new FogSettings(0.004f, 1.5f, 0.15f, 0.6f), RenderEffects.Fog, capturingProbe: false, underwater: false);

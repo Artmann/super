@@ -177,8 +177,8 @@ public sealed class BakeResolverTests
 
         // The bigger frames come first, so the resolver has more to forget when the smaller ones follow.
         var first = Scenario(Courtyard, [Room, FarRoom], twoSuns, lights, interleaved, new EveryBakeFresh());
-        saved.Save("lighting/courtyard.lightbake", BakeFreshness.Resolve(
-            first.Frame, first.Draws, TwoParts, 42, new AnimatedLights(TextWriter.Null), NoBakes.Instance).Space!.Value);
+        saved.Save("lighting/courtyard.lightbake", new BakeResolver(NoBakes.Instance).Resolve(
+            first.Frame, first.Draws, TwoParts, 42, new AnimatedLights(TextWriter.Null)).Space!.Value);
         var scenarios = new[]
         {
             first,
@@ -196,8 +196,8 @@ public sealed class BakeResolverTests
         for (int s = 0; s < scenarios.Length; s++)
         {
             var scenario = scenarios[s];
-            var expected = BakeFreshness.Resolve(
-                scenario.Frame, scenario.Draws, TwoParts, 42, new AnimatedLights(TextWriter.Null), scenario.Store);
+            var expected = new BakeResolver(scenario.Store).Resolve(
+                scenario.Frame, scenario.Draws, TwoParts, 42, new AnimatedLights(TextWriter.Null));
             resolver.Store = scenario.Store;
             var actual = resolver.Resolve(
                 scenario.Frame, scenario.Draws, TwoParts, 42, new AnimatedLights(TextWriter.Null));
@@ -219,8 +219,8 @@ public sealed class BakeResolverTests
         }
 
         // The scenarios must not all come to the same thing, or the comparison would prove little.
-        Assert.NotEmpty(BakeFreshness.Resolve(
-            first.Frame, first.Draws, TwoParts, 42, new AnimatedLights(TextWriter.Null), first.Store).DroppedLocalLights);
+        Assert.NotEmpty(new BakeResolver(first.Store).Resolve(
+            first.Frame, first.Draws, TwoParts, 42, new AnimatedLights(TextWriter.Null)).DroppedLocalLights);
     }
 
     [Fact]

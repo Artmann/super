@@ -14,8 +14,8 @@ internal static class Fog
     /// </summary>
     private const float LevelRay = 1e-4f;
 
-    /// <summary>x: density at the fog's height; y: that height; z: falloff per metre; w: sun scatter.</summary>
-    public static Vector4 Pack(in FogSettings settings) =>
+    // x: density at the fog's height; y: that height; z: falloff per metre; w: sun scatter.
+    private static Vector4 Pack(in FogSettings settings) =>
         new(settings.Density, settings.Height, settings.Falloff, settings.SunScatter);
 
     /// <summary>

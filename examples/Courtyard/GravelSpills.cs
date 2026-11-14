@@ -64,17 +64,13 @@ public static class GravelSpills
         return boxes;
     }
 
-    /// <summary>How many parts the spills are laid in: both sides of each arm of the path, then the ring round the barrel.</summary>
-    public static int Parts => PathArms.Length * 2 + 1;
+    // How many parts the spills are laid in: both sides of each arm of the path, then the ring round the barrel.
+    private static int Parts => PathArms.Length * 2 + 1;
 
-    /// <summary>
-    /// The boxes of one part of the spills: for arm <c>a</c>, part <c>2a</c> is its left side and <c>2a + 1</c> its
-    /// right, and the last part is the ring round the barrel.
-    /// </summary>
-    public static List<Matrix4x4> Spills(int seed, int part)
+    // The boxes of one part of the spills: for arm a, part 2a is its left side and 2a + 1 its right, and the last
+    // part is the ring round the barrel.
+    private static List<Matrix4x4> Spills(int seed, int part)
     {
-        ArgumentOutOfRangeException.ThrowIfNegative(part);
-        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(part, Parts);
         var boxes = new List<Matrix4x4>();
         var random = Stream(seed, part);
         if (part < PathArms.Length * 2)

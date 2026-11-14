@@ -123,6 +123,12 @@ public class ReferenceTests
     {
         var files = new MemoryContent { ["recipes/chop.json"] = Chop };
         using var run = HeadlessGame.Create<LoadsLate>(1, services => services.AddContentFiles(files));
-        Assert.Throws<ContentException>(() => run.Ticks(1));
+        var error = Assert.Throws<ContentException>(() => run.Ticks(1));
+        Assert.Equal(
+            [
+                "recipes/chop.json:3: makes points at axe, but no Item was loaded",
+                "recipes/chop.json:4: needs[0] points at axe, but no Item was loaded",
+            ],
+            error.Problems);
     }
 }

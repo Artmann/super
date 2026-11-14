@@ -54,9 +54,6 @@ internal sealed class Road
     /// <summary>The middle of the road.</summary>
     public Spline Path { get; }
 
-    /// <summary>How many different models the road draws.</summary>
-    public static int Models => 4;
-
     /// <summary>Where the cart is now.</summary>
     public Vector3 Cart => _follower.Position;
 

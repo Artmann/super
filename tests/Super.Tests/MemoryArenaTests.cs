@@ -62,7 +62,8 @@ public sealed class MemoryArenaTests
         var arena = new MemoryArena(1000);
         Assert.True(arena.TryAllocate(10, 1, out ulong offset));
         arena.Free(offset);
-        Assert.Throws<InvalidOperationException>(() => arena.Free(offset));
+        var error = Assert.Throws<InvalidOperationException>(() => arena.Free(offset));
+        Assert.Equal($"Offset {offset} is not allocated.", error.Message);
     }
 
     [Fact]

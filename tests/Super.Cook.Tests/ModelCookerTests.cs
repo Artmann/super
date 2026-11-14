@@ -27,7 +27,7 @@ public sealed class ModelCookerTests : IDisposable
     private static (CookResult Result, MemoryStore Store) Cook(ISourceRoot root, string? cache = null)
     {
         var store = new MemoryStore();
-        var result = new CookPipeline(ModelCookers.All, new CookOptions(CacheFolder: cache)).Cook([root], store);
+        var result = new CookPipeline(ModelCookers.All, new CookOptions(CacheFolder: cache) { CacheLimit = CacheSize.Default }).Cook([root], store);
         return (result, store);
     }
 
@@ -814,9 +814,10 @@ public sealed class ModelCookerTests : IDisposable
         Assert.Equal(TextureFormat.Bc4, model.Textures[material.HeightTexture].Format);
         foreach (var texture in model.Textures)
         {
-            // 16, 8 and 4 pixels across are whole blocks; 2 and 1 still take a block each.
-            int[] sizes = [16, 8, 4, 2, 1];
-            Assert.Equal(sizes.Select(s => TextureData.LevelSize(texture.Format, s, s)), texture.Mips.Select(m => m.Length));
+            // 16, 8 and 4 pixels across are 16, 4 and 1 blocks of 4 by 4; 2 and 1 still take a block each. A block is
+            // 16 bytes in BC7 and BC5 and 8 in BC4.
+            int[] bytes = texture.Format == TextureFormat.Bc4 ? [128, 32, 8, 8, 8] : [256, 64, 16, 16, 16];
+            Assert.Equal(bytes, texture.Mips.Select(m => m.Length));
         }
     }
 

@@ -190,12 +190,16 @@ public class ActionsTests
     public void A_control_enum_that_is_not_int_sized_is_rejected()
     {
         var input = new Input { Readable = true };
-        Assert.Throws<ArgumentException>(() => new Actions<Small>(input));
+        var thrown = Assert.Throws<ArgumentException>(() => new Actions<Small>(input));
+        Assert.Equal("Small must be an int-sized enum to be used with Actions. (Parameter 'TControl')", thrown.Message);
     }
 
     [Fact]
     public void Axis_rejects_a_stick_operand()
     {
-        Assert.Throws<ArgumentException>(() => Binding.Axis(GamepadStick.Left, Key.A));
+        var thrown = Assert.Throws<ArgumentException>(() => Binding.Axis(GamepadStick.Left, Key.A));
+        Assert.Equal(
+            "An axis or composite takes keys, buttons or triggers, not sticks or the mouse. (Parameter 'negative')",
+            thrown.Message);
     }
 }

@@ -30,9 +30,6 @@ public sealed class Bricks : MaterialGraph
         "#94765a", // pale buff
     ];
 
-    /// <summary>The two middle reds, tones 2 and 3, which a third of the bricks are.</summary>
-    public static readonly int[] MiddleReds = [2, 3];
-
     // How many of the 96 bricks take each tone: a bell round the reds, 32 of the two middle reds, and the plum
     // and the buff rare accents.
     private static readonly int[] ToneCounts = [5, 14, 16, 16, 20, 13, 8, 4];

@@ -19,7 +19,7 @@ public class ReflectionProbeTests
 
         var error = Assert.Throws<InvalidOperationException>(() => view.ReflectionProbe(4, Vector3.Zero, BoxMin, BoxMax));
 
-        Assert.Contains("4", error.Message);
+        Assert.Equal("At most 4 reflection probes fit in a frame.", error.Message);
         Assert.Equal(4, view.ReflectionProbes.Length);
     }
 
@@ -31,7 +31,9 @@ public class ReflectionProbeTests
         var error = Assert.Throws<ArgumentException>(() => view.ReflectionProbe(1, new Vector3(0f, 7f, 0f), BoxMin, BoxMax));
 
         Assert.Equal("position", error.ParamName);
-        Assert.Contains("position", error.Message);
+        Assert.Equal(
+            "The reflection probe's position <0, 7, 0> must be inside its box, from <-3, -1, -10> to <10, 6, 7>. (Parameter 'position')",
+            error.Message);
         Assert.True(view.ReflectionProbes.IsEmpty);
     }
 
@@ -44,7 +46,8 @@ public class ReflectionProbeTests
         var error = Assert.Throws<ArgumentException>(() => view.ReflectionProbe(7, new Vector3(1f, 1.6f, -1f), BoxMin, BoxMax));
 
         Assert.Equal("key", error.ParamName);
-        Assert.Contains("7", error.Message);
+        Assert.Equal(
+            "Reflection probe 7 was already placed this frame. Give each probe its own key. (Parameter 'key')", error.Message);
         Assert.Equal(1, view.ReflectionProbes.Length);
     }
 

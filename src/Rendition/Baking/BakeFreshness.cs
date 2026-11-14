@@ -110,7 +110,7 @@ public sealed class BakeFrame
     /// <summary>
     /// Whether chunk <paramref name="chunk"/>'s bake is fresh in the store but not yet all on the GPU: being read, or
     /// uploaded a little a frame. Until it arrives the chunk isn't <see cref="ChunkFresh"/>, so its Baked lights are
-    /// drawn live. Always false for a frame resolved without a renderer, as by <see cref="BakeFreshness.Resolve"/>.
+    /// drawn live. Always false for a frame resolved without a renderer, as by a <see cref="BakeResolver"/> of its own.
     /// </summary>
     public bool ChunkPending(int chunk) => _chunkPending[chunk];
 
@@ -246,20 +246,6 @@ public sealed class BakeFrame
 /// </summary>
 public static class BakeFreshness
 {
-    /// <summary>
-    /// Resolves the frame with a new <see cref="BakeResolver"/>, so what it returns is the caller's to keep. The
-    /// renderer keeps one resolver instead, which allocates nothing after its first frames. See
-    /// <see cref="BakeResolver.Resolve"/> for what is hashed and decided.
-    /// </summary>
-    /// <remarks>
-    /// A frame that names no space and no chunks returns one shared empty frame at once, without hashing anything,
-    /// asking the store or updating <paramref name="animated"/>. Otherwise it allocates the resolver and the frame.
-    /// </remarks>
-    public static BakeFrame Resolve(
-        in FrameView frame, ReadOnlySpan<DrawItem> draws, Func<DetailHandle, BakeSphere> bounds, ulong environment,
-        AnimatedLights animated, IBakeStore store) =>
-        new BakeResolver(store).Resolve(frame, draws, bounds, environment, animated);
-
     /// <summary>
     /// <paramref name="items"/> without the ones at <paramref name="dropped"/> (ascending indices), copied into
     /// <paramref name="buffer"/>, which grows when it must and is kept for the next frame. With nothing dropped it is

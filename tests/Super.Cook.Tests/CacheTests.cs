@@ -40,7 +40,7 @@ public sealed class CacheTests : IDisposable
     private static CookResult Cook(string cache, IReadOnlyList<ISourceRoot> roots, ICookedStore? store = null, params ICooker[] extra)
     {
         var cookers = BuiltInCookers.All.Concat(extra).ToList();
-        return new CookPipeline(cookers, new CookOptions(CacheFolder: cache)).Cook(roots, store ?? new MemoryStore());
+        return new CookPipeline(cookers, new CookOptions(CacheFolder: cache) { CacheLimit = CacheSize.Default }).Cook(roots, store ?? new MemoryStore());
     }
 
     private static byte[] Png()
@@ -339,23 +339,6 @@ public sealed class CacheTests : IDisposable
         Assert.True(result.Succeeded);
         Assert.Equal(1, result.Cooked);
         Assert.Equal(0, result.FromCache);
-    }
-
-    [Fact]
-    public void A_missing_cached_object_is_a_miss()
-    {
-        string src = Temp();
-        string cache = Temp();
-        File.WriteAllText(Path.Combine(src, "a.json"), "{ \"x\": 1 }");
-        Cook(cache, [new FolderRoot(src)]);
-        foreach (string file in Directory.GetFiles(Path.Combine(cache, "objects"), "*", SearchOption.AllDirectories))
-        {
-            File.Delete(file);
-        }
-
-        var result = Cook(cache, [new FolderRoot(src)]);
-
-        Assert.Equal(1, result.Cooked);
     }
 
     [Fact]

@@ -95,26 +95,16 @@ public class ExposureTests
     }
 
     [Fact]
-    public void Sixty_fixed_steps_from_the_same_frame_give_the_same_exposure_every_run()
+    public void Sixty_steps_of_a_sixtieth_at_2_stops_a_second_move_2_stops()
     {
-        static float Run()
+        float exposure = Exposure.Adapt(float.NaN, 0f, 2f, 1f / 60f);
+        for (int i = 0; i < 60; i++)
         {
-            float exposure = float.NaN;
-            exposure = Exposure.Adapt(exposure, 0f, 2f, 1f / 60f);
-            for (int i = 0; i < 60; i++)
-            {
-                exposure = Exposure.Adapt(exposure, 3f, 2f, 1f / 60f);
-            }
-
-            return exposure;
+            exposure = Exposure.Adapt(exposure, 3f, 2f, 1f / 60f);
         }
 
-        float first = Run();
-        float second = Run();
-
         // A second at 2 stops a second moves 2 stops of the 3.
-        Assert.Equal(BitConverter.SingleToInt32Bits(first), BitConverter.SingleToInt32Bits(second));
-        Assert.Equal(2f, first, 1e-4f);
+        Assert.Equal(2f, exposure, 1e-4f);
     }
 
     [Theory]

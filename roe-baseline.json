@@ -2943,12 +2943,6 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Rendition.BakeFreshness.Resolve",
-      "file": "src/Rendition/Baking/BakeFreshness.cs",
-      "metric": 6
-    },
-    {
-      "kind": "too-many-parameters",
       "name": "Rendition.BakeInputHash.Space",
       "file": "src/Rendition/Baking/BakeInputHash.cs",
       "metric": 6
@@ -4051,7 +4045,6 @@
         "Rendition.BakeFileNames",
         "Rendition.BakeFiles",
         "Rendition.BakeFilter",
-        "Rendition.BakeFreshness",
         "Rendition.BakeJob",
         "Rendition.BakeLightOwners",
         "Rendition.BakeQueue",

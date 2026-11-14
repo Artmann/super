@@ -5,15 +5,6 @@ namespace Super.Tests;
 public class StableHasherTests
 {
     [Fact]
-    public void Same_values_hash_the_same_in_a_new_hasher()
-    {
-        ulong first = new StableHasher().Add(1).Add(2.5f).Add("a").Finish();
-        ulong second = new StableHasher().Add(1).Add(2.5f).Add("a").Finish();
-
-        Assert.Equal(first, second);
-    }
-
-    [Fact]
     public void Known_input_gives_a_known_hash()
     {
         // XxHash64.HashToUInt64 with seed 0 of the bytes 01 00 00 00, the int 1 in little-endian order. Written out

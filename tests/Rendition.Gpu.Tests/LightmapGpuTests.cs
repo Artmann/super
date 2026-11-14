@@ -107,7 +107,7 @@ public sealed class LightmapGpuTests(GpuFixture gpu)
     }
 
     [Fact]
-    public void Turning_baked_lighting_off_falls_back_to_probes()
+    public void Turning_baked_lighting_off_draws_the_plane_as_if_it_had_never_been_baked()
     {
         int errors = gpu.ValidationErrors;
         var quad = CreateQuad();

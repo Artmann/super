@@ -28,7 +28,7 @@ public sealed class ModelMeshNamesTests : IDisposable
     private static (CookResult Result, MemoryStore Store) Cook(ISourceRoot root, string? cache = null)
     {
         var store = new MemoryStore();
-        var result = new CookPipeline(ModelCookers.All, new CookOptions(CacheFolder: cache)).Cook([root], store);
+        var result = new CookPipeline(ModelCookers.All, new CookOptions(CacheFolder: cache) { CacheLimit = CacheSize.Default }).Cook([root], store);
         return (result, store);
     }
 

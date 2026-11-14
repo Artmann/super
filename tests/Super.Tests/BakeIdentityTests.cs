@@ -406,9 +406,9 @@ public class BakeIdentityTests
         var chunks = view.PlacedBakedChunks.ToArray();
         var settings = new BakeSettings();
 
-        var resolved = BakeFreshness.Resolve(
+        var resolved = new BakeResolver(NoBakes.Instance).Resolve(
             new FrameView { BakedChunks = chunks }, parts, detail => bounds[detail.Index], 0,
-            new AnimatedLights(new StringWriter()), NoBakes.Instance);
+            new AnimatedLights(new StringWriter()));
 
         Assert.Equal(2, parts.Length);
         Assert.Equal(BakeInputHash.Chunk([parts[0].BakeId, parts[1].BakeId], [], chunks[0], settings).Draws, resolved.Chunks[0].Draws);
