@@ -675,6 +675,79 @@ public class ProbeSchedulerTests
         }
     }
 
+    [Fact]
+    public void Among_clean_probes_captured_in_one_frame_the_nearest_is_refreshed_first()
+    {
+        // Three probes in a row, at x = 0, 1 and 2.
+        var scheduler = new ProbeScheduler(new ProbeCascades(ProbeQuality.Low), 3);
+        scheduler.SetFixedGrid(Vector3.Zero, 3, 1, 1, 1f);
+        var right = new Vector3(2.2f, 0f, 0f);
+        var left = new Vector3(-0.2f, 0f, 0f);
+
+        // All three are captured in one frame, the one at x = 2 first.
+        var first = scheduler.Next(3, right, Vector3.Zero).ToArray();
+        Assert.Equal([new ProbeId(4, 2), new ProbeId(4, 1), new ProbeId(4, 0)], first);
+        scheduler.Updated(first);
+
+        // They are all as old, so the camera's place decides, not the order they were captured in.
+        Assert.Equal([new ProbeId(4, 0)], scheduler.Next(1, left, Vector3.Zero));
+        Assert.Equal([new ProbeId(4, 2)], scheduler.Next(1, right, Vector3.Zero));
+    }
+
+    [Fact]
+    public void The_clean_probe_updated_longest_ago_is_refreshed_first_however_far_it_is()
+    {
+        // Three probes in a row, at x = 0, 1 and 2, with the camera beside the last.
+        var scheduler = new ProbeScheduler(new ProbeCascades(ProbeQuality.Low), 3);
+        scheduler.SetFixedGrid(Vector3.Zero, 3, 1, 1, 1f);
+        var camera = new Vector3(2.2f, 0f, 0f);
+        scheduler.Updated(scheduler.Next(3, camera, Vector3.Zero));
+
+        // One a frame: the nearest of the three, then the nearer of the two left, then the far one, and round again.
+        var order = new List<ProbeId>();
+        for (int frame = 0; frame < 6; frame++)
+        {
+            var batch = scheduler.Next(1, camera, Vector3.Zero);
+            order.AddRange(batch);
+            scheduler.Updated(batch);
+        }
+
+        ProbeId[] round = [new ProbeId(4, 2), new ProbeId(4, 1), new ProbeId(4, 0)];
+        Assert.Equal([.. round, .. round], order);
+    }
+
+    [Fact]
+    public void A_probe_captured_before_and_after_a_scroll_in_one_frame_is_handed_out_once()
+    {
+        var cascades = new ProbeCascades(ProbeQuality.Low);
+        var scheduler = new ProbeScheduler(cascades, 0);
+        var camera = new Vector3(0.25f, 1.1f, 0.25f);
+        scheduler.Scrolled(cascades.Move(camera));
+        CaptureEverything(scheduler, camera);
+
+        // Eight probes are captured, every slot becomes a new probe, and the same eight slots are captured again.
+        var twice = scheduler.Next(8, camera, Forward).ToArray();
+        Assert.Equal(8, twice.Length);
+        scheduler.Updated(twice);
+        var far = camera + new Vector3(5000f, 0f, 5000f);
+        var scroll = cascades.Move(far);
+        Assert.True(scroll.Teleported(ProbeCascades.Count - 1));
+        scheduler.Scrolled(scroll);
+        scheduler.Updated(twice);
+
+        // The other 8,184 probes take seven frames of 1,024 and 1,016 of an eighth, which leaves room for the eight.
+        var handedOut = new List<ProbeId>();
+        for (int frame = 0; frame < 8; frame++)
+        {
+            var batch = scheduler.Next(1024, far, Forward);
+            handedOut.AddRange(batch);
+            scheduler.Updated(batch);
+        }
+
+        Assert.Equal(8192, handedOut.Count);
+        Assert.Equal(8192, handedOut.Distinct().Count());
+    }
+
     private static ProbeId[] Probes(int cascade, int count)
     {
         return Enumerable.Range(0, count).Select(slot => new ProbeId(cascade, slot)).ToArray();

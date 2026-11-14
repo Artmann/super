@@ -179,7 +179,7 @@
       "kind": "high-complexity",
       "name": "Rendition.ProbeScheduler.Next",
       "file": "src/Rendition/Passes/ProbeScheduler.cs",
-      "metric": 23
+      "metric": 16
     },
     {
       "kind": "high-complexity",
@@ -906,12 +906,6 @@
       "name": "Rendition.ProbeScheduler.LightChanged",
       "file": "src/Rendition/Passes/ProbeScheduler.cs",
       "metric": 26
-    },
-    {
-      "kind": "high-cognitive-complexity",
-      "name": "Rendition.ProbeScheduler.Next",
-      "file": "src/Rendition/Passes/ProbeScheduler.cs",
-      "metric": 31
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1883,7 +1877,7 @@
       "kind": "long-method",
       "name": "Rendition.ProbeScheduler.Next",
       "file": "src/Rendition/Passes/ProbeScheduler.cs",
-      "metric": 116
+      "metric": 85
     },
     {
       "kind": "long-method",
@@ -3689,7 +3683,7 @@
       "kind": "large-type",
       "name": "Rendition.ProbeScheduler",
       "file": "src/Rendition/Passes/ProbeScheduler.cs",
-      "metric": 34
+      "metric": 35
     },
     {
       "kind": "large-type",
@@ -4050,19 +4044,8 @@
     {
       "members": [
         "Bricks",
-        "Super.Materials.Tiles"
-      ]
-    },
-    {
-      "members": [
-        "Gallery.Building",
-        "Gallery.GalleryGame",
-        "Gallery.Tour"
-      ]
-    },
-    {
-      "members": [
         "Rendition.AnimatedLights",
+        "Rendition.AreaJob",
         "Rendition.BakeArrivals",
         "Rendition.BakeEncoding",
         "Rendition.BakeFileNames",
@@ -4083,8 +4066,10 @@
         "Rendition.FrameView",
         "Rendition.IBakeStore",
         "Rendition.LightBakeFile",
+        "Rendition.LightmapLayout",
         "Rendition.NoBakes",
         "Rendition.Passes.BloomPass",
+        "Rendition.Passes.DecalBatch",
         "Rendition.Passes.DecalPass",
         "Rendition.Passes.DepthOfFieldConstants",
         "Rendition.Passes.DepthOfFieldPass",
@@ -4112,18 +4097,24 @@
         "Rendition.Passes.SkyModel",
         "Rendition.Passes.SkySh",
         "Rendition.Passes.TraceDebugPass",
+        "Rendition.Passes.TransitionConstants",
         "Rendition.Passes.TransparentPass",
         "Rendition.Passes.Upscale",
         "Rendition.Passes.VolumetricFog",
         "Rendition.Passes.Wind",
+        "Rendition.ProbeCandidate",
+        "Rendition.ProbeCaptureQueue",
         "Rendition.ProbeScheduler",
         "Rendition.RenderEffects",
         "Rendition.Renderer",
         "Rendition.ShL1",
         "Rendition.Vulkan.CaptureCube",
+        "Rendition.Vulkan.CubeCentres",
+        "Rendition.Vulkan.CubeLevel",
         "Rendition.Vulkan.EnvironmentMap",
         "Rendition.Vulkan.ExposureMeter",
         "Rendition.Vulkan.Fsr",
+        "Rendition.Vulkan.FsrInputs",
         "Rendition.Vulkan.GpuLightmapRect",
         "Rendition.Vulkan.GpuTexture",
         "Rendition.Vulkan.InstanceBuffer",
@@ -4131,10 +4122,71 @@
         "Rendition.Vulkan.ProbeVolume",
         "Rendition.Vulkan.RayTracing",
         "Rendition.Vulkan.ReflectionProbes",
+        "Rendition.Vulkan.RenderTarget",
         "Rendition.Vulkan.ResourceTable",
+        "Rendition.Vulkan.Swapchain",
+        "Rendition.Vulkan.TraceScene",
         "Rendition.Vulkan.UploadQueue",
         "Rendition.Vulkan.VolumetricFogVolume",
-        "Rendition.WindReach"
+        "Rendition.WindReach",
+        "Super.Color",
+        "Super.Materials.ArrayNode",
+        "Super.Materials.BlendNode",
+        "Super.Materials.BlurNode",
+        "Super.Materials.BricksNode",
+        "Super.Materials.CellsNode",
+        "Super.Materials.ConstantNode",
+        "Super.Materials.CurvatureNode",
+        "Super.Materials.DirectionalWarpNode",
+        "Super.Materials.DistanceNode",
+        "Super.Materials.DistanceTransform",
+        "Super.Materials.EdgeDetectNode",
+        "Super.Materials.EvaluationContext",
+        "Super.Materials.FloodFillNode",
+        "Super.Materials.Gradient",
+        "Super.Materials.GradientMapNode",
+        "Super.Materials.Gray",
+        "Super.Materials.HeightBlendNode",
+        "Super.Materials.HeightBlendResult",
+        "Super.Materials.HeightToNormalNode",
+        "Super.Materials.HeightToOcclusionNode",
+        "Super.Materials.HslNode",
+        "Super.Materials.Image",
+        "Super.Materials.ImageInputNode",
+        "Super.Materials.Islands",
+        "Super.Materials.LevelsNode",
+        "Super.Materials.LinearGradientNode",
+        "Super.Materials.MapNode",
+        "Super.Materials.Material",
+        "Super.Materials.MaterialGraph",
+        "Super.Materials.Node",
+        "Super.Materials.Noise",
+        "Super.Materials.NormalOverNode",
+        "Super.Materials.Normals",
+        "Super.Materials.PerlinNode",
+        "Super.Materials.Pixel",
+        "Super.Materials.PixelNode",
+        "Super.Materials.RadialGradientNode",
+        "Super.Materials.Ramp",
+        "Super.Materials.RandomGrayNode",
+        "Super.Materials.Rgb",
+        "Super.Materials.Shape",
+        "Super.Materials.ShapeNode",
+        "Super.Materials.SlopeBlurNode",
+        "Super.Materials.SplatterNode",
+        "Super.Materials.Tiles",
+        "Super.Materials.ToGradientNode",
+        "Super.Materials.ToGrayNode",
+        "Super.Materials.TransformNode",
+        "Super.Materials.WarpNode",
+        "Super.Materials.WhiteNode"
+      ]
+    },
+    {
+      "members": [
+        "Gallery.Building",
+        "Gallery.GalleryGame",
+        "Gallery.Tour"
       ]
     },
     {
@@ -4260,17 +4312,6 @@
         "Super.Game",
         "Super.GameHost<TGame>",
         "Super.GameWindow"
-      ]
-    },
-    {
-      "members": [
-        "Super.Materials.GradientMapNode",
-        "Super.Materials.Gray",
-        "Super.Materials.HeightBlendResult",
-        "Super.Materials.Islands",
-        "Super.Materials.Normals",
-        "Super.Materials.Ramp",
-        "Super.Materials.Rgb"
       ]
     },
     {
