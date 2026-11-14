@@ -494,9 +494,9 @@ public static class MaterialGraphs
     private static int FoldVersion()
     {
         byte[] ids = [
-            .. typeof(MaterialGraph).Assembly.ManifestModule.ModuleVersionId.ToByteArray(),
-            .. typeof(GameRandom).Assembly.ManifestModule.ModuleVersionId.ToByteArray(),
-            .. typeof(MaterialGraphs).Assembly.ManifestModule.ModuleVersionId.ToByteArray(),
+            .. CodeId.Of(typeof(MaterialGraph).Assembly).ToByteArray(),
+            .. CodeId.Of(typeof(GameRandom).Assembly).ToByteArray(),
+            .. CodeId.Of(typeof(MaterialGraphs).Assembly).ToByteArray(),
             .. BitConverter.GetBytes(FormatVersion),
         ];
         return BinaryPrimitives.ReadInt32LittleEndian(SHA256.HashData(ids));

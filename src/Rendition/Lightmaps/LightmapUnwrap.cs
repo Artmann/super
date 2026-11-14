@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Numerics;
+using System.Reflection;
 
 namespace Rendition;
 
@@ -21,6 +22,15 @@ public static class LightmapUnwrap
 
     /// <summary>The empty texels kept between any two charts at the size they are laid out or checked at.</summary>
     public const int Gutter = 2;
+
+    /// <summary>
+    /// Names this code, for a cache of unwrapped meshes: a hash of the source files in this folder and of the one
+    /// that holds <see cref="Vertex"/>, written into the assembly by the build. It changes when they do, and not with
+    /// the rest of the renderer.
+    /// </summary>
+    public static string Version { get; } = typeof(LightmapUnwrap).Assembly
+        .GetCustomAttributes<AssemblyMetadataAttribute>()
+        .Single(attribute => attribute.Key == "LightmapUnwrapVersion").Value!;
 
     /// <summary>A chart takes triangles within 60 degrees of its mean normal.</summary>
     private const double ConeCosine = 0.5;
