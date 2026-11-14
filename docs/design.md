@@ -95,8 +95,8 @@ more than the switch it replaces. `States<TEnum>` is the game's own state machin
 only public one. Engine code uses one of two shapes instead:
 
 - States that carry no data of their own are a private enum in one field, and the work
-  for each is a `switch` over it. `BakeJob`'s `Stage` and `States<TEnum>`'s pending change
-  are written this way.
+  for each is a `switch` over it. `BakeJob`'s `Stage`, `States<TEnum>`'s pending change and
+  whether `Audio`'s device plays or is paused, and by whom, are written this way.
 - States that carry data are a small closed set of types, such as a sealed record for each,
   matched with `switch` patterns, so each state holds exactly what it needs. This allocates
   on each change, which is fine for things that change a few times a second at most, such
