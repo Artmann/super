@@ -100,8 +100,13 @@ only public one. Engine code uses one of two shapes instead:
 - States that carry data are a small closed set of types, such as a sealed record for each,
   matched with `switch` patterns, so each state holds exactly what it needs. This allocates
   on each change, which is fine for things that change a few times a second at most, such
-  as a click or a new bake. `UiPointer` holds its gestures this way, and `Renderer` its
-  running background bake.
+  as a click or a new bake. `UiPointer` holds its gestures this way, `Renderer` its
+  running background bake, and `GameHost` what stopped the game: an Update that threw
+  still draws the world, a Draw that threw shows only the error.
+
+A nullable field can be the whole state when its value is the only data, as long as nothing
+else repeats it. `Transitions` keeps a fade's pending change in one field, and that field
+being set is what says the cut is still to come.
 
 When two lifecycles can overlap, each gets its own field instead of one state for every
 combination. `UiPointer` keeps what the left button holds (a click or a scroll bar's thumb)

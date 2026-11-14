@@ -26,7 +26,9 @@ internal sealed class GameHost<TGame> : IDisposable
     private long _scriptStart;
     private int _codeChangesSeen = HotReload.Changes;
     private bool _codeChanged;
-    private bool _drawStopped;
+
+    // What stopped the game, or null while it runs. See "Lifecycle state in engine code" in docs/design.md.
+    private Halt? _halt;
 
     /// <summary>When set, this is the player. Each tick plays what's due on it, counting from the tick it was set.</summary>
     public InputScript? Script
@@ -155,7 +157,7 @@ internal sealed class GameHost<TGame> : IDisposable
     public TextWriter Errors { get; init; } = Console.Error;
 
     /// <summary>What stopped the game, until a change to the code or content lets it try again.</summary>
-    public Exception? Stopped { get; private set; }
+    public Exception? Stopped => _halt?.Error;
 
     /// <summary>Acts as if hot reload changed the code. It lands at the start of the next tick.</summary>
     internal void CodeChanged() => _codeChanged = true;
@@ -170,15 +172,14 @@ internal sealed class GameHost<TGame> : IDisposable
             return;
         }
 
-        if (Stopped is not null)
+        if (_halt is not null)
         {
             if (!CodeChangeDue && !Content.ReloadWanted)
             {
                 return;
             }
 
-            Stopped = null;
-            _drawStopped = false;
+            _halt = null;
         }
 
         try
@@ -187,7 +188,7 @@ internal sealed class GameHost<TGame> : IDisposable
         }
         catch (Exception error)
         {
-            Stop(error);
+            _halt = new UpdateHalt(FirstError(error));
         }
     }
 
@@ -258,7 +259,7 @@ internal sealed class GameHost<TGame> : IDisposable
         }
 
         // Once Draw or Ui has thrown, it isn't called again until a change, so the error is reported once.
-        if (!_drawStopped)
+        if (_halt is not DrawHalt)
         {
             try
             {
@@ -267,8 +268,7 @@ internal sealed class GameHost<TGame> : IDisposable
             }
             catch (Exception error)
             {
-                _drawStopped = true;
-                Stop(error);
+                _halt = new DrawHalt(FirstError(error));
             }
         }
 
@@ -327,25 +327,38 @@ internal sealed class GameHost<TGame> : IDisposable
     {
         View.Begin(blend, Time.Tick, Time.TickSeconds, Time.Scale);
         Audio.EndFrame(View.Shot, Time.Scale);
-        Ui.Update(StoppedPanel.For(Stopped!), ScreenWidth, ScreenHeight);
+        Ui.Update(StoppedPanel.For(_halt!.Error), ScreenWidth, ScreenHeight);
         View.Ui = Ui;
         _changes.Open = true;
     }
 
-    private void Stop(Exception error)
+    /// <summary>
+    /// The error the game stops with: this one, reported, or the one it already stopped with, so a Draw that throws
+    /// after Update stopped shows and reports only the first.
+    /// </summary>
+    private Exception FirstError(Exception error)
     {
         // Update may have thrown part way, with input still readable. A Draw that threw leaves state changes
         // closed, which DrawStopped opens again.
         Input.Readable = false;
-        if (Stopped is not null)
+        if (_halt is { } halt)
         {
-            return;
+            return halt.Error;
         }
 
-        Stopped = error;
         Errors.WriteLine($"{StoppedPanel.Title}: {error}");
         Errors.WriteLine(StoppedPanel.CarryOn);
+        return error;
     }
+
+    /// <summary>What stopped the game, which a change to the code or content clears.</summary>
+    private abstract record Halt(Exception Error);
+
+    /// <summary>A tick threw. Frames still draw the world, with the error in place of the game's interface.</summary>
+    private sealed record UpdateHalt(Exception Error) : Halt(Error);
+
+    /// <summary>Draw or Ui threw, so frames run none of the game's code and show only the error.</summary>
+    private sealed record DrawHalt(Exception Error) : Halt(Error);
 
     public void Dispose()
     {
