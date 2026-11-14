@@ -144,6 +144,16 @@ jobs:
       - name: Test
         run: dotnet test Super.slnx -c Release --no-build --filter "Needs!=GPU" --logger trx --results-directory TestResults
 
+      # Packs Super as a release does, then builds a small game against the package and runs its tests, so a
+      # change that breaks the package fails here and not at the next release.
+      - name: Check the package
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $version = (Get-Content version.txt -Raw).Trim()
+          dotnet pack packaging/nuget/Super.Package.csproj -c Release -o "$env:RUNNER_TEMP\packages"
+          ./.github/scripts/test-package.ps1 -Packages "$env:RUNNER_TEMP\packages" -Version $version
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4

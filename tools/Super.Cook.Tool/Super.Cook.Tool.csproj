@@ -4,6 +4,8 @@
     <OutputType>Exe</OutputType>
     <AssemblyName>super-cook</AssemblyName>
     <RootNamespace>Super.Cook.Tool</RootNamespace>
+    <!-- The C# compiler's messages in thirteen other languages, which would be 13 folders in the Super package. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 
   <!--

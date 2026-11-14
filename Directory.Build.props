@@ -8,6 +8,8 @@
     <ServerGarbageCollection>false</ServerGarbageCollection>
     <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
     <TieredPGO>true</TieredPGO>
+    <!-- Only packaging/nuget makes a package: the one Super package, which holds every library. -->
+    <IsPackable>false</IsPackable>
     <!--
       The SDK asks git for the commit and writes it into every assembly: in its informational version, and in the
       SourceLink URL in its PDB, whose hash the assembly carries. Then every commit gives the cook libraries new

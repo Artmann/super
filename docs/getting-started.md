@@ -4,9 +4,32 @@
 
 - Windows and a GPU with Vulkan 1.3 support
 - .NET 10 SDK
-- Vulkan SDK, to compile shaders: `winget install KhronosGroup.VulkanSDK`
+- Vulkan SDK, to compile shaders: `winget install KhronosGroup.VulkanSDK`. A game that
+  has no shaders of its own doesn't need it. Building this repository does.
 
-Super isn't on NuGet yet. Clone the repository, build and test it:
+## Start a game
+
+Super is one NuGet package, which holds the engine, the Rendition renderer, the ECS,
+physics and the test helpers:
+
+```
+dotnet new console -n MyGame
+cd MyGame
+dotnet add package Super
+```
+
+Put [a first game](#a-first-game) in `Program.cs` and start it with `dotnet run -c Release`.
+The package sets up the build too, with nothing to add to the project file. A `content`
+folder beside the project is [cooked by `dotnet build`](command-line.md#in-the-build), and
+shaders in a `Shaders` folder are [compiled](rendering.md#custom-shaders). A test project
+that references the game gets the engine, the cooked content and the shaders through it.
+
+The package runs on Windows only, and it brings xUnit and the C# compiler with it, for the
+test helpers and for material graphs.
+
+## Work on the engine
+
+Clone the repository, build and test it:
 
 ```
 dotnet build Super.slnx -c Release

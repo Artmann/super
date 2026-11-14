@@ -33,7 +33,7 @@ public static class BakeAreas
 
     /// <summary>
     /// The owner of a whole model, from its shown parts' spheres in world space, in the model's part order:
-    /// <see cref="OwnerOfDraw"/> of their <see cref="Union"/>, so a model is never split between areas. Super gives
+    /// <see cref="OwnerOfDraw"/> of their <see cref="Union(ReadOnlySpan{BakeSphere})"/>, so a model is never split between areas. Super gives
     /// bake ids by it and <see cref="BakeFreshness.Resolve"/> files the ids by it, so the two always agree.
     /// </summary>
     public static int OwnerOfModel(ReadOnlySpan<BakeSphere> worldParts, BakedSpace? space, ReadOnlySpan<BakedChunk> chunks) =>

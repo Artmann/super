@@ -7,7 +7,7 @@ namespace Rendition.Vulkan;
 /// <summary>
 /// A built top-level structure: its handle, the address a shader traces it by, and the geometry table its instances
 /// index, <see cref="GeometryCount"/> entries, one per part. Valid only in the command buffer it was recorded into;
-/// see <see cref="RayTracing.TopLevel"/>.
+/// see <see cref="RayTracing.TopLevel(CommandBuffer, IReadOnlyList{TraceInstance})"/>.
 /// </summary>
 internal readonly unsafe record struct TopLevelStructure(
     AccelerationStructureKHR Handle, ulong Address, GpuBuffer GeometryTable, int GeometryCount)
@@ -252,7 +252,7 @@ internal sealed unsafe class RayTracing : IDisposable
 
     /// <summary>
     /// Makes compute shaders recorded after this wait for every structure built before it, so they can trace them.
-    /// <see cref="TopLevel"/>'s own barrier only covers later builds.
+    /// <see cref="TopLevel(CommandBuffer, IReadOnlyList{TraceInstance})"/>'s own barrier only covers later builds.
     /// </summary>
     public void ReadyToTrace(CommandBuffer cmd)
     {

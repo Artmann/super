@@ -75,9 +75,19 @@ and the same seed always plays the same way.
 
 ## Try it
 
-You need Windows, a GPU with Vulkan 1.3, the .NET 10 SDK and the Vulkan SDK
-(`winget install KhronosGroup.VulkanSDK`). Super isn't on NuGet yet, so clone this
-repository:
+You need Windows, a GPU with Vulkan 1.3 and the .NET 10 SDK. Super is one
+[NuGet package](https://www.nuget.org/packages/Super):
+
+```
+dotnet new console -n MyGame
+cd MyGame
+dotnet add package Super
+```
+
+[Getting started](docs/getting-started.md) has a first game to put in `Program.cs`.
+
+To run the examples or work on the engine, clone this repository. That also needs the
+Vulkan SDK (`winget install KhronosGroup.VulkanSDK`):
 
 ```
 dotnet build Super.slnx -c Release

@@ -570,7 +570,7 @@ internal sealed class SceneRenderer : IDisposable
         if (!File.Exists(path))
         {
             throw new FileNotFoundException(
-                $"Could not find the shader {name}: expected {path}. Shaders/{name}.frag compiles to it when the project imports src/Shaders.targets.",
+                $"Could not find the shader {name}: expected {path}. The build compiles Shaders/{name}.frag to it, when the game uses the Super package or its project imports src/Shaders.targets.",
                 path);
         }
 

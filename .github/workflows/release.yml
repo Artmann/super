@@ -1,0 +1,128 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: >-
+          Tag to pack and publish, such as v0.1.0. Use this when Release Please made a release
+          but the package didn't get published, so it can be published without another push to main.
+        required: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  # Keeps a pull request open with the next version and its changelog. Merging it makes the tag and
+  # the GitHub release, and then the jobs below publish the package.
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v5
+        id: release
+
+  resolve-release:
+    name: Resolve release to publish
+    needs: release-please
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      should_publish: ${{ steps.resolve.outputs.should_publish }}
+      tag_name: ${{ steps.resolve.outputs.tag_name }}
+    steps:
+      - name: Resolve
+        id: resolve
+        env:
+          MANUAL_TAG: ${{ github.event.inputs.tag }}
+          RELEASE_CREATED: ${{ needs.release-please.outputs.release_created }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          if [ -n "${MANUAL_TAG}" ]; then
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+            echo "tag_name=${MANUAL_TAG}" >> "$GITHUB_OUTPUT"
+          elif [ "${RELEASE_CREATED}" = "true" ]; then
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+            echo "tag_name=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            echo "tag_name=" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Signs in with NuGet trusted publishing (OIDC), so there's no API key secret. The Super package's
+  # trusted publishing policy on nuget.org has to name this repository and this file, release.yml.
+  nuget-publish:
+    name: Publish NuGet package
+    needs: resolve-release
+    if: always() && needs.resolve-release.outputs.should_publish == 'true'
+    # Super is Windows-only for now, and the package holds a cook tool built for Windows.
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      id-token: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      TAG: ${{ needs.resolve-release.outputs.tag_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve-release.outputs.tag_name }}
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      # The build compiles shaders with glslc, which comes with the Vulkan SDK.
+      - uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: latest
+          install_runtime: false
+          cache: true
+          stripdown: true
+
+      - name: Pack
+        run: |
+          dotnet pack packaging/nuget/Super.Package.csproj \
+            --configuration Release \
+            --output packages \
+            "-p:Version=${TAG#*v}"
+
+      # Builds a small game against the package and runs its tests, so a package that can't cook content
+      # or compile a shader is never published.
+      - name: Check the package
+        shell: pwsh
+        run: ./.github/scripts/test-package.ps1 -Packages packages -Version $env:TAG.Substring($env:TAG.IndexOf('v') + 1)
+
+      - name: Authenticate with NuGet
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: Artmann
+
+      # --skip-duplicate lets a run that published but failed afterwards be started again.
+      - name: Push
+        env:
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+        run: |
+          dotnet nuget push "packages/Super.${TAG#*v}.nupkg" \
+            --api-key "${NUGET_API_KEY}" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+
+      - name: Attach the package to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${TAG}" "packages/Super.${TAG#*v}.nupkg" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --clobber

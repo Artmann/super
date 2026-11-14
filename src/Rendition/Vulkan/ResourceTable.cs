@@ -225,7 +225,7 @@ internal sealed unsafe class ResourceTable : IDisposable
     }
 
     /// <summary>
-    /// Whether <see cref="AddTexture"/> has a slot to give now. Ask before handing over a texture that must not be
+    /// Whether <see cref="AddTexture(GpuTexture, TextureEdges)"/> has a slot to give now. Ask before handing over a texture that must not be
     /// freed at once, since a full table frees the texture it refuses.
     /// </summary>
     public bool HasTextureRoom => _freeTextures.Count > 0 || _textures.Count < MaxTextures;
@@ -260,7 +260,7 @@ internal sealed unsafe class ResourceTable : IDisposable
         return new TextureHandle(slot);
     }
 
-    /// <summary>Takes a slot for a texture array, the same way as <see cref="AddTexture(GpuTexture)"/>.</summary>
+    /// <summary>Takes a slot for a texture array, the same way as <see cref="AddTexture(GpuTexture, TextureEdges)"/>.</summary>
     public TextureArrayHandle AddTextureArray(GpuTexture texture)
     {
         int slot;

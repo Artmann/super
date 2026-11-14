@@ -327,7 +327,7 @@ internal sealed class CookCache(string folder, CacheUsage? usage = null)
 
     /// <summary>
     /// Trims the cache to <paramref name="limit"/> bytes, least recently used first, keeping everything this cook used.
-    /// See <see cref="CacheFolder.Trim"/>.
+    /// See <see cref="CacheFolder.Trim(string, long)"/>.
     /// </summary>
     public CacheTrim Trim(long limit)
     {

@@ -4497,6 +4497,60 @@ On synchronisation: the upload barriers add the tracing stages (`RayTracing.Trac
 devices that can trace. Synchronisation validation doesn't fire on SDK 1.4.363, so those barriers,
 and `ReadyToTrace`, are checked by review and by the GPU tests, not by the validation layer.
 
+## The NuGet package
+
+The engine is published as one package, Super. `packaging/nuget/Super.Package.csproj` packs it
+and has no code of its own: it references the nine libraries with `PrivateAssets="all"`, so
+none of them is listed as a package Super depends on, and puts their assemblies, symbols and
+XML comments in `lib/net10.0` itself. One package means a game can't get two versions of the
+engine's parts that don't fit, and has one thing to add. It costs every game a dependency on
+xUnit, through `Super.Testing`, and on the C# compiler, through `Super.Cook.Materials`.
+
+NuGet only lists a project's own package references, so a target before
+`CollectPackageReferences` asks each library for its references and adds them to the
+packaging project's. No version is written twice, and a library that gets a new dependency
+needs no change to the packaging.
+
+`src/Directory.Build.props` turns XML documentation files on for the libraries, with the
+warnings for a missing comment off. A wrong `cref` is still an error.
+
+The package also holds what a game's build needs, so a game's project file has nothing in it
+but the package reference:
+
+- `buildTransitive/Super.targets`, which NuGet imports into the game and into any project
+  that references the game, such as its tests. `build/Super.targets` imports the same file for
+  a NuGet that doesn't know `buildTransitive`. It imports the two files the examples import,
+  packed unchanged: `src/Super.Build/Super.targets` as `Super.Cook.targets`, and
+  `src/Shaders.targets`, only when the project has a `Shaders` folder.
+- `tools/super-cook`, the cook tool as it was built, without the other platforms' native
+  libraries and without shaders, which it never draws with. The package's targets set
+  `SuperCookPrebuilt` to it, and `Super.Cook.targets` then leaves out its project references
+  to the tool and to `Super.Materials`, and runs that tool.
+- `shaders/*.spv`, Rendition's compiled shaders, which the targets copy to the game's
+  `shaders` output folder. The shader includes are in `buildTransitive/Rendition/Shaders`,
+  where `Shaders.targets` looks for them beside itself, as it does in `src`.
+- `runtimes/win-x64/native/amd_fidelityfx_vk.dll`, which .NET finds there through the game's
+  `deps.json`.
+
+`packaging/nuget/smoke` is a small game and its tests that use the package and nothing else
+from the repository. `.github/scripts/test-package.ps1` copies it outside the repository,
+where no `Directory.Build.props` reaches it, builds it against a `.nupkg` and runs its tests.
+The game loads a JSON file and uses its own shader, so a package that can't cook or compile
+fails there. It first deletes that version from NuGet's global packages folder, since NuGet
+never unpacks a version twice. CI runs it on every pull request, and the release runs it
+before publishing.
+
+Releases are made by Release Please (`.github/workflows/release.yml`, the same shape as
+Roe's). On each push to `main` it keeps a pull request open that raises `version.txt` and
+writes `CHANGELOG.md` from the conventional commits since the last release. Merging that pull
+request makes the tag, such as `v0.1.0`, and a GitHub release, and then the workflow packs
+that tag with `-p:Version`, checks the package, and pushes it to nuget.org. It signs in with
+trusted publishing: `NuGet/login` trades the run's OIDC token for a key that lasts an hour, so
+the repository holds no API key. The policy on nuget.org names this repository and
+`release.yml`. Running the workflow by hand with a tag publishes that tag again, for a release
+that was tagged but not published. Before 1.0 a `feat:` raises the minor version and a breaking
+change does too.
+
 ## Known simplifications to revisit
 
 - Only cooked models' textures are block-compressed. Textures loaded on their own, graph
