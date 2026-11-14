@@ -1,5 +1,10 @@
 # Supercharge Your Game
 
+[![CI](https://github.com/Artmann/super/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Artmann/super/actions/workflows/ci.yml)
+[![NuGet](https://img.shields.io/nuget/v/Super?logo=nuget)](https://www.nuget.org/packages/Super)
+[![.NET 10](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet)](https://dotnet.microsoft.com/download/dotnet/10.0)
+[![Windows](https://img.shields.io/badge/platform-Windows-0078D4)](#try-it)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 [![The Reef example: schools of fish over a coral reef](docs/media/reef.webp)](docs/media/reef.mp4)
 
@@ -60,6 +65,10 @@ one test process.
 physically based Vulkan renderer: cascaded soft shadows, image-based lighting,
 screen-space reflections, temporal anti-aliasing, ambient occlusion, bloom, colour
 grading and your own surface shaders. It also works on its own, without the engine.
+
+![The Courtyard example: a brick wall with ivy, a barrel, a cart wheel and a puddle on flagstones and dirt](docs/media/courtyard.webp)
+
+<sub>The [Courtyard](examples/Courtyard) example: every brick, flagstone, plank and patch of dirt is a material graph made in code.</sub>
 
 ## How a game is shaped
 
