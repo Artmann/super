@@ -112,7 +112,7 @@ public sealed class Animator
             _locals ??= new JointPose[skeleton.Count];
             _scratch ??= new JointPose[skeleton.Count];
             var locals = _locals;
-            Pose.Evaluate(0f, locals, _scratch);
+            Pose.Evaluate(0f, locals, _scratch, 1f);
             for (int i = 0; i < skeleton.Count; i++)
             {
                 _joints[i] = skeleton.Parents[i] >= 0 ? locals[i].Matrix * _joints[skeleton.Parents[i]] : locals[i].Matrix;

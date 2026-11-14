@@ -121,7 +121,7 @@ public sealed partial class Physics
             return walker;
         }
 
-        Check($"Entity {entity.Id}'s Collider", collider);
+        ColliderShapes.Check($"Entity {entity.Id}'s Collider", collider);
         CheckCharacter(entity, settings);
         var position = transform.Position;
         var velocity = Vector3.Zero;
@@ -132,7 +132,7 @@ public sealed partial class Physics
             walker.Dispose();
         }
 
-        using var shape = Shape(collider, transform.Scale);
+        using var shape = ColliderShapes.Make(collider, transform.Scale);
         var rotation = Quaternion.Normalize(transform.Rotation);
         var virtualSettings = new CharacterVirtualSettings
         {

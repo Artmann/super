@@ -32,6 +32,8 @@
     <InternalsVisibleTo Include="Super.Tests" />
     <InternalsVisibleTo Include="Super.Ecs.Tests" />
     <InternalsVisibleTo Include="Super.Ecs" />
+    <InternalsVisibleTo Include="Super.Physics" />
+    <InternalsVisibleTo Include="Super.Physics.Tests" />
     <InternalsVisibleTo Include="Super.Cook" />
     <InternalsVisibleTo Include="Super.Cook.Tests" />
     <InternalsVisibleTo Include="Super.Cook.Materials" />

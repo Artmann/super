@@ -47,6 +47,29 @@ public struct JointPose(Vector3 position, Quaternion rotation, Vector3 scale)
     }
 }
 
+/// <summary>A box lined up with a joint's own axes, from its least corner to its greatest.</summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly record struct JointBounds(Vector3 Min, Vector3 Max)
+{
+    /// <summary>A box round nothing, which grows to the first point included.</summary>
+    public static JointBounds Empty { get; } = new(new Vector3(float.MaxValue), new Vector3(float.MinValue));
+
+    public bool IsEmpty => Min.X > Max.X || Min.Y > Max.Y || Min.Z > Max.Z;
+
+    public Vector3 Size => IsEmpty ? Vector3.Zero : Max - Min;
+
+    public Vector3 Centre => IsEmpty ? Vector3.Zero : (Min + Max) / 2f;
+
+    /// <summary>The box grown to take in a point.</summary>
+    public JointBounds Including(Vector3 point) => new(Vector3.Min(Min, point), Vector3.Max(Max, point));
+
+    /// <summary>One of the box's eight corners: bits 1, 2 and 4 of <paramref name="index"/> pick the greatest x, y and z.</summary>
+    public Vector3 Corner(int index) => new(
+        (index & 1) == 0 ? Min.X : Max.X,
+        (index & 2) == 0 ? Min.Y : Max.Y,
+        (index & 4) == 0 ? Min.Z : Max.Z);
+}
+
 /// <summary>
 /// The joints of a rigged model, parents before children. Each joint's rest pose is
 /// relative to its parent, and its inverse bind matrix takes a mesh vertex into the
@@ -60,11 +83,16 @@ public sealed class Skeleton
 
     private readonly Dictionary<string, int> _indexOf;
 
-    public Skeleton(string[] names, int[] parents, JointPose[] rest, Matrix4x4[] inverseBind, Matrix4x4 rootTransform)
+    public Skeleton(string[] names, int[] parents, JointPose[] rest, Matrix4x4[] inverseBind, Matrix4x4 rootTransform, JointBounds[]? bounds = null)
     {
         if (names.Length != parents.Length || names.Length != rest.Length || names.Length != inverseBind.Length)
         {
             throw new ArgumentException("Every joint needs a name, a parent, a rest pose and an inverse bind matrix.");
+        }
+
+        if (bounds is not null && bounds.Length != names.Length)
+        {
+            throw new ArgumentException($"The bounds need one entry per joint, {names.Length}, not {bounds.Length}.", nameof(bounds));
         }
 
         if (names.Length > MaxJoints)
@@ -85,6 +113,7 @@ public sealed class Skeleton
         Rest = rest;
         InverseBind = inverseBind;
         RootTransform = rootTransform;
+        Bounds = bounds;
         _indexOf = new Dictionary<string, int>(StringComparer.Ordinal);
         for (int i = 0; i < names.Length; i++)
         {
@@ -104,6 +133,46 @@ public sealed class Skeleton
     public Matrix4x4 RootTransform { get; }
 
     public int Count => Names.Length;
+
+    /// <summary>
+    /// For each joint, the box round the vertices that follow it most, in the joint's own
+    /// space, so a ragdoll's shapes can fit the mesh. Null when the skeleton was made without
+    /// a mesh; a joint no vertex follows most has an empty box.
+    /// </summary>
+    public JointBounds[]? Bounds { get; }
+
+    /// <summary>
+    /// The same skeleton with <see cref="Bounds"/> measured from these vertices, each counted
+    /// for the joint that moves it most.
+    /// </summary>
+    public Skeleton WithBounds(ReadOnlySpan<Vertex> vertices)
+    {
+        var bounds = new JointBounds[Count];
+        bounds.AsSpan().Fill(JointBounds.Empty);
+        foreach (ref readonly var vertex in vertices)
+        {
+            int joint = -1;
+            uint heaviest = 0;
+            for (int i = 0; i < 4; i++)
+            {
+                uint weight = (vertex.Weights >> (8 * i)) & 0xFF;
+                if (weight > heaviest)
+                {
+                    heaviest = weight;
+                    joint = (int)((vertex.Joints >> (8 * i)) & 0xFF);
+                }
+            }
+
+            if (joint < 0 || joint >= Count)
+            {
+                continue;
+            }
+
+            bounds[joint] = bounds[joint].Including(Vector3.Transform(vertex.Position, InverseBind[joint]));
+        }
+
+        return new Skeleton(Names, Parents, Rest, InverseBind, RootTransform, bounds);
+    }
 
     /// <summary>The joint with this name, or -1.</summary>
     public int IndexOf(string name) => _indexOf.GetValueOrDefault(name, -1);

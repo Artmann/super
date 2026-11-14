@@ -15,7 +15,7 @@ namespace Super.Physics;
 public sealed partial class Physics : ITickHook, IDisposable
 {
     /// <summary>Every layer, for queries that skip none.</summary>
-    public const uint AllLayers = 0xFFFF;
+    public const uint AllLayers = LayerBits.All;
 
     /// <summary>How far a ray or shape cast reaches when no distance is given, in metres.</summary>
     public const float DefaultReach = 1000f;
@@ -46,24 +46,11 @@ public sealed partial class Physics : ITickHook, IDisposable
 
     // Each sync takes entities out of _bodies as it meets them and puts them in _next, then swaps the two. Whatever is
     // left in _bodies lost its collider, or its entity is gone, so its body goes.
-    private Dictionary<Entity, Tracked> _bodies = [];
-    private Dictionary<Entity, Tracked> _next = [];
+    private Dictionary<Entity, TrackedBody> _bodies = [];
+    private Dictionary<Entity, TrackedBody> _next = [];
     private readonly Dictionary<uint, Entity> _owners = [];
+    private readonly JointSet _joints;
     private bool _disposed;
-
-    private struct Tracked
-    {
-        public BodyID Body;
-        public Collider Collider;
-        public Body Settings;
-        public bool Trigger;
-        public bool Character;
-        public uint Mask;
-        public Vector3 Scale;
-        public Vector3 Position;
-        public Quaternion Rotation;
-        public bool Moving;
-    }
 
     /// <summary>A world that steps only when <see cref="Step"/> is called, such as in a test.</summary>
     public Physics(World world)
@@ -103,7 +90,11 @@ public sealed partial class Physics : ITickHook, IDisposable
             ObjectVsBroadPhaseLayerFilter = _objectVsBroadPhase,
         });
         _system.Gravity = EarthGravity;
+        _contacts = new ContactSet(_owners);
+        _system.OnContactAdded += _contacts.Added;
+        _joints = new JointSet(world, _system);
         _aliveFilter = new AliveFilter(this);
+        _ragdolls = new RagdollSet(world, _system, _owners, (from, reach, layers) => Raycast(new Super.Ray(from, -Vector3.UnitY), reach, layers)?.Point.Y);
     }
 
     /// <summary>How many colliders there are, as of the last sync, triggers and characters included.</summary>
@@ -150,14 +141,14 @@ public sealed partial class Physics : ITickHook, IDisposable
         }
 
         Sync(seconds);
-        if (seconds > 0f && _dynamics.Count + KinematicsMoving() > 0)
+        if (seconds > 0f && (_dynamics.Count + KinematicsMoving() > 0 || _ragdolls.AnyActive()))
         {
             _jobs ??= new JobSystemThreadPool();
             int steps = Math.Max(1, (int)MathF.Ceiling((seconds / LongestStep) - 0.001f));
             PhysicsUpdateError error;
             lock (Scratch)
             {
-                error = _system.Update(seconds, steps, _jobs);
+                error = _ragdolls.Update(seconds, steps, _jobs);
             }
 
             if (error != PhysicsUpdateError.None)
@@ -166,8 +157,10 @@ public sealed partial class Physics : ITickHook, IDisposable
             }
 
             WriteDynamics();
+            _ragdolls.Write(seconds);
         }
 
+        _contacts.Gather();
         FindTriggerEvents();
     }
 
@@ -191,8 +184,11 @@ public sealed partial class Physics : ITickHook, IDisposable
 
         _disposed = true;
         DisposeCharacters();
-        DisposeQueryShapes();
+        _ragdolls.Dispose();
+        _joints.Dispose();
+        _queryShapes.Dispose();
         FreeHandle();
+        _system.OnContactAdded -= _contacts.Added;
         _system.Dispose();
         _jobs?.Dispose();
         _aliveFilter.Dispose();
@@ -283,35 +279,45 @@ public sealed partial class Physics : ITickHook, IDisposable
         }
         finally
         {
-            // After a throw, what wasn't reached stays as it was, rather than counting as removed.
-            foreach (var (entity, left) in _bodies)
-            {
-                if (completed)
-                {
-                    Destroy(left);
-                }
-                else
-                {
-                    _next[entity] = left;
-                }
-            }
-
-            _bodies.Clear();
-            (_next, _bodies) = (_bodies, _next);
+            SwapBodies(completed);
         }
 
         DropCharacters();
+        _ragdolls.Sync(seconds);
+        _joints.Sync(_bodies);
         _triggers.Sort(EntityOrder.Comparison);
     }
 
-    private void Update(Entity entity, ref Tracked tracked, Collider collider, uint mask, Vector3 scale, Vector3 position, Quaternion rotation, float seconds)
+    /// <summary>
+    /// Ends a sync: destroys the bodies it didn't meet, then makes the bodies it met the ones there are. After a
+    /// throw, what wasn't reached stays as it was, rather than counting as removed.
+    /// </summary>
+    private void SwapBodies(bool completed)
+    {
+        foreach (var (entity, left) in _bodies)
+        {
+            if (completed)
+            {
+                Destroy(left);
+            }
+            else
+            {
+                _next[entity] = left;
+            }
+        }
+
+        _bodies.Clear();
+        (_next, _bodies) = (_bodies, _next);
+    }
+
+    private void Update(Entity entity, ref TrackedBody tracked, Collider collider, uint mask, Vector3 scale, Vector3 position, Quaternion rotation, float seconds)
     {
         var bodies = _system.BodyInterface;
         bool dynamic = tracked.Settings.Kind == BodyKind.Dynamic;
         if (tracked.Collider != collider || tracked.Scale != scale)
         {
-            Check($"Entity {entity.Id}'s Collider", collider);
-            using var shape = Shape(collider, scale);
+            ColliderShapes.Check($"Entity {entity.Id}'s Collider", collider);
+            using var shape = ColliderShapes.Make(collider, scale);
             bodies.SetShape(in tracked.Body, shape, false, Activation.DontActivate);
 
             tracked.Collider = collider;
@@ -363,18 +369,11 @@ public sealed partial class Physics : ITickHook, IDisposable
         tracked.Rotation = rotation;
     }
 
-    private Tracked Create(Entity entity, Collider collider, Body body, bool trigger, bool character, uint mask, Vector3 scale, Vector3 position, Quaternion rotation)
+    private TrackedBody Create(Entity entity, Collider collider, Body body, bool trigger, bool character, uint mask, Vector3 scale, Vector3 position, Quaternion rotation)
     {
-        Check($"Entity {entity.Id}'s Collider", collider);
-        CheckBody(entity, body);
-        using var shape = Shape(collider, scale);
-        var motion = body.Kind switch
-        {
-            BodyKind.Dynamic => MotionType.Dynamic,
-            BodyKind.Static => MotionType.Static,
-            _ => MotionType.Kinematic,
-        };
-        using var settings = new BodyCreationSettings(shape, in position, in rotation, motion, Layer(collider.Layers, mask))
+        BodySetup.Check(entity, collider, body);
+        using var shape = ColliderShapes.Make(collider, scale);
+        using var settings = new BodyCreationSettings(shape, in position, in rotation, BodySetup.Motion(body.Kind), Layer(collider.Layers, mask))
         {
             Friction = body.Friction,
             Restitution = body.Bounciness,
@@ -382,30 +381,22 @@ public sealed partial class Physics : ITickHook, IDisposable
         };
         if (body.Kind == BodyKind.Dynamic)
         {
-            var mass = shape.MassProperties;
-            mass.ScaleToMass(body.Mass);
-            settings.OverrideMassProperties = OverrideMassProperties.MassAndInertiaProvided;
-            settings.MassPropertiesOverride = mass;
-            settings.LinearDamping = body.Drag;
-            settings.AngularDamping = body.AngularDrag;
-            settings.GravityFactor = body.GravityScale;
-            settings.MotionQuality = body.Continuous ? MotionQuality.LinearCast : MotionQuality.Discrete;
-            if (body.LockRotation)
-            {
-                settings.AllowedDOFs = AllowedDOFs.TranslationX | AllowedDOFs.TranslationY | AllowedDOFs.TranslationZ;
-            }
+            BodySetup.Simulate(settings, shape, body);
         }
 
-        var id = _system.BodyInterface.CreateAndAddBody(settings, body.Kind == BodyKind.Dynamic ? Activation.Activate : Activation.DontActivate);
-        if (id.IsInvalid)
+        var handle = _system.BodyInterface.CreateBody(settings);
+        if (handle is null || handle.ID.IsInvalid)
         {
             throw new InvalidOperationException($"Entity {entity.Id}'s Collider couldn't be added: there are already {_owners.Count} colliders, and {MaxBodies} is the most.");
         }
 
+        var id = handle.ID;
+        _system.BodyInterface.AddBody(in id, body.Kind == BodyKind.Dynamic ? Activation.Activate : Activation.DontActivate);
         _owners[id.ID] = entity;
-        return new Tracked
+        return new TrackedBody
         {
             Body = id,
+            Handle = handle,
             Collider = collider,
             Settings = body,
             Trigger = trigger,
@@ -417,8 +408,9 @@ public sealed partial class Physics : ITickHook, IDisposable
         };
     }
 
-    private void Destroy(in Tracked tracked)
+    private void Destroy(in TrackedBody tracked)
     {
+        _joints.LetGoOf(tracked.Body);
         _system.BodyInterface.RemoveAndDestroyBody(in tracked.Body);
         _owners.Remove(tracked.Body.ID);
     }
@@ -471,108 +463,7 @@ public sealed partial class Physics : ITickHook, IDisposable
         }
     }
 
-    private static void CheckBody(Entity entity, Body body)
-    {
-        if ((body.CollidesWith & ~AllLayers) != 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(body), body.CollidesWith, $"Entity {entity.Id}'s Body collides with layers {body.CollidesWith}; layers are bits 0 to 15.");
-        }
-
-        if (!(body.Friction >= 0f) || !float.IsFinite(body.Friction))
-        {
-            throw new ArgumentOutOfRangeException(nameof(body), body.Friction, $"Entity {entity.Id}'s Body has friction {body.Friction}; it must be 0 or more.");
-        }
-
-        if (!(body.Bounciness >= 0f && body.Bounciness <= 1f))
-        {
-            throw new ArgumentOutOfRangeException(nameof(body), body.Bounciness, $"Entity {entity.Id}'s Body has bounciness {body.Bounciness}; it must be from 0 to 1.");
-        }
-
-        if (body.Kind != BodyKind.Dynamic)
-        {
-            return;
-        }
-
-        if (!(body.Mass > 0f) || !float.IsFinite(body.Mass))
-        {
-            throw new ArgumentOutOfRangeException(nameof(body), body.Mass, $"Entity {entity.Id}'s Body has mass {body.Mass}; it must be above 0.");
-        }
-
-        if (!(body.Drag >= 0f) || !float.IsFinite(body.Drag) || !(body.AngularDrag >= 0f) || !float.IsFinite(body.AngularDrag))
-        {
-            throw new ArgumentOutOfRangeException(nameof(body), body.Drag, $"Entity {entity.Id}'s Body has drag {body.Drag} and angular drag {body.AngularDrag}; both must be 0 or more.");
-        }
-
-        if (!float.IsFinite(body.GravityScale))
-        {
-            throw new ArgumentOutOfRangeException(nameof(body), body.GravityScale, $"Entity {entity.Id}'s Body has gravity scale {body.GravityScale}; it must be finite.");
-        }
-    }
-
     private static ObjectLayer Layer(uint layers, uint mask) => ObjectLayerPairFilterMask.GetObjectLayer(layers, mask);
-
-    private static void Check(string what, Collider collider)
-    {
-        if (collider.Layers == 0 || (collider.Layers & ~AllLayers) != 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(collider), collider.Layers, $"{what} is on layers {collider.Layers}; layers are bits 0 to 15, and it needs at least one.");
-        }
-
-        if (!float.IsFinite(collider.Offset.X) || !float.IsFinite(collider.Offset.Y) || !float.IsFinite(collider.Offset.Z))
-        {
-            throw new ArgumentOutOfRangeException(nameof(collider), collider.Offset, $"{what} has offset {collider.Offset}, which isn't a finite position.");
-        }
-
-        switch (collider.Shape)
-        {
-            case ColliderShape.Ball when !(collider.Radius > 0f) || !float.IsFinite(collider.Radius):
-                throw new ArgumentOutOfRangeException(nameof(collider), collider.Radius, $"{what} is a ball of radius {collider.Radius}; it must be above 0.");
-            case ColliderShape.Box when !(collider.Size.X > 0f && collider.Size.Y > 0f && collider.Size.Z > 0f) || !float.IsFinite(collider.Size.X + collider.Size.Y + collider.Size.Z):
-                throw new ArgumentOutOfRangeException(nameof(collider), collider.Size, $"{what} is a box of size {collider.Size}; each side must be above 0.");
-            case ColliderShape.Capsule when !(collider.Radius > 0f) || !(collider.Size.Y >= collider.Radius * 2f) || !float.IsFinite(collider.Size.Y):
-                throw new ArgumentOutOfRangeException(nameof(collider), collider.Size.Y, $"{what} is a capsule {collider.Size.Y} high with radius {collider.Radius}; the radius must be above 0 and the height at least twice it.");
-        }
-    }
-
-    /// <summary>The collider's shape in its entity's space, scaled with it.</summary>
-    private static Shape Shape(Collider collider, Vector3 scale)
-    {
-        Shape shape;
-        Vector3 centre = collider.Offset;
-        switch (collider.Shape)
-        {
-            case ColliderShape.Ball:
-                shape = new SphereShape(collider.Radius);
-                break;
-            case ColliderShape.Box:
-                var half = collider.Size / 2f;
-                shape = new BoxShape(in half, MathF.Min(Foundation.DefaultConvexRadius, MathF.Min(half.X, MathF.Min(half.Y, half.Z)) / 2f));
-                break;
-            default:
-                float cylinder = (collider.Size.Y / 2f) - collider.Radius;
-                shape = cylinder > 0f ? new CapsuleShape(cylinder, collider.Radius) : new SphereShape(collider.Radius);
-                centre += new Vector3(0f, collider.Size.Y / 2f, 0f);
-                break;
-        }
-
-        if (centre != Vector3.Zero)
-        {
-            var rotation = Quaternion.Identity;
-            var moved = new RotatedTranslatedShape(in centre, in rotation, shape);
-            shape.Dispose();
-            shape = moved;
-        }
-
-        if (scale != Vector3.One)
-        {
-            var valid = shape.MakeScaleValid(in scale);
-            var scaled = new ScaledShape(shape, in valid);
-            shape.Dispose();
-            shape = scaled;
-        }
-
-        return shape;
-    }
 
     /// <summary>Lets a query see only colliders on some layers.</summary>
     private sealed class LayerFilter : ObjectLayerFilter
@@ -594,7 +485,7 @@ public sealed partial class Physics : ITickHook, IDisposable
             physics._owners.TryGetValue(bodyID.ID, out var entity)
             && entity != Skip
             && physics._world.IsAlive(entity)
-            && physics._world.Has<Collider>(entity)
+            && (physics._world.Has<Collider>(entity) || physics._world.Has<Ragdoll>(entity))
             && !physics._world.Has<Trigger>(entity);
 
         protected override bool ShouldCollideLocked(JoltPhysicsSharp.Body body) => true;

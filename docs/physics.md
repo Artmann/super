@@ -1,8 +1,9 @@
 # Physics
 
 `Super.Physics` gives entities solid shapes. Things fall, stack, bounce and get pushed;
-characters walk into walls and up stairs; trigger areas notice who comes and goes; and
-rays and shape casts find what's in the way. It's built on
+characters walk into walls and up stairs; joints hold bodies together; animated characters
+turn into ragdolls and back; trigger areas notice who comes and goes; contacts say what
+hit what and how hard; and rays and shape casts find what's in the way. It's built on
 [Jolt Physics](https://github.com/jrouwe/JoltPhysics), through JoltPhysicsSharp.
 
 It's an optional package, since it brings a native library (`joltc.dll`, copied beside
@@ -179,6 +180,144 @@ An entity destroyed while inside leaves, so check `world.IsAlive` before using i
 trigger that's removed reports no one leaving. Triggers are checked after each step, so a
 character moved in Update is noticed on the next tick.
 
+## Contacts
+
+`physics.Contacts` lists what started touching in the last step: a crate landing, a ball
+hitting a wall, a ragdoll's elbow hitting the floor. Each `Contact` gives the two
+entities, the point, the normal from the first into the second, and `Speed`, how fast
+they were closing in metres per second, which tells a tap from a crash:
+
+```csharp
+foreach (var contact in physics.Contacts)
+{
+    if (contact.Speed > 2f)
+    {
+        audio.Play(thud, at: contact.Point, volume: MathF.Min(1f, contact.Speed / 10f));
+    }
+}
+```
+
+There's one contact for each pair of entities, the hardest if several of their shapes
+touched, with the lower entity first and the pairs in entity order. A pair is listed in
+the step its shapes start touching, so a crate resting on the floor isn't listed again
+until it lifts off and lands, but a ragdoll rolling over the floor is listed in most
+steps, as one part after another touches down. Triggers don't make
+contacts, and neither do a ragdoll's own parts touching each other. Read the list in
+Update: the next step replaces it.
+
+## Joints
+
+A `Joint` holds an entity's body to another entity's, or to a point in the world, so
+they move together. Both need a `Collider`, and at least one should be dynamic:
+
+```csharp
+world.Add(door, Joint.Hinge(anchor: new Vector3(-0.5f, 0f, 0f), axis: Vector3.UnitY, to: frame,
+    minAngle: -100f, maxAngle: 100f));
+world.Add(lamp, Joint.Rope(anchor: new Vector3(0f, 0.3f, 0f), to: null, otherAnchor: hook, length: 2f));
+```
+
+| Joint | Made with | What it does |
+| --- | --- | --- |
+| Fixed | `Joint.Fixed(to)` | Welds the two as they are now |
+| Ball | `Joint.Ball(anchor, to)` | Holds them at one point, turning any way, like a chain link |
+| Hinge | `Joint.Hinge(anchor, axis, to, minAngle, maxAngle)` | Turns about one axis only, between two angles in degrees from where it started, like a door or a wheel |
+| Rope | `Joint.Rope(anchor, to, otherAnchor, length)` | Keeps two points no more than `length` metres apart; it goes slack |
+| Rod | `Joint.Rod(anchor, to, otherAnchor, length)` | Keeps two points exactly `length` metres apart |
+
+Anchors and axes are in each entity's own space. With no `to`, the other anchor is a
+point in the world. A joint holds the bodies as they are when it's made, on the step
+after it's added or changed. An entity has one joint at most, so for a chain, give each
+link a joint back to the one before. When the other entity is destroyed or loses its
+collider, the joint lets go; take the `Joint` away to let go yourself.
+
+## Ragdolls
+
+A `Ragdoll` makes an animated character fall, tumble and get pushed like a body. It
+goes on an entity with a `Transform` and an `Animated`, and it needs a `RagdollBody`,
+the parts and the joints between them. Make that once per rig and share it:
+
+```csharp
+var rig = content.Rig("cannonball/stuntman.fbx");
+var body = RagdollBody.Humanoid(rig);
+
+world.Add(stuntman, Transform.At(position));
+world.Add(stuntman, new Animated(controller.Start(Stance.Idle)));
+world.Add(stuntman, new Ragdoll(body));
+```
+
+![A stuntman fired from a cannon, crashing into crates, lying where the ragdoll fell, and back on their feet](media/cannonball-round.webp)
+
+`RagdollBody.Humanoid` suits a rig with the usual human joint names, such as Mixamo's,
+with or without a prefix like `mixamorig:`. It has 16 parts: the pelvis, two spine
+parts, the head, and the upper arm, forearm, hand, thigh, shin and foot on each side.
+Each part is a box, ball or capsule fitted to the vertices its joints move, so the model
+must be cooked with its mesh. The joints bend as a body does: elbows and knees one way
+only, hips further forward than back. For another rig, list the parts yourself as
+`RagdollPart`s, each naming its joint and its share of the mass, with its shape, how far
+its joint swings and twists, and which way it bends. `Friction`, `Bounciness`, `Layers`,
+`CollidesWith` and `Continuous` on the `RagdollBody` apply to every part. `Continuous` is
+on by default, so a body fired at a wall doesn't pass through it.
+
+### Turning it on and off
+
+Set `Mode` to switch the ragdoll:
+
+| Mode | What happens |
+| --- | --- |
+| `Off` | No bodies; the animator moves the character. The default |
+| `Kinematic` | Bodies follow the animation, so the character pushes crates and rays hit its limbs |
+| `Simulated` | The simulation moves the bodies, and the character takes their pose |
+
+```csharp
+world.Get<Ragdoll>(stuntman) = world.Get<Ragdoll>(stuntman) with { Mode = RagdollMode.Simulated };
+physics.SetVelocity(stuntman, aim * 18f);
+```
+
+A ragdoll switched to `Simulated` starts where the animation has the limbs, moving as
+fast as they were moving, so a running character falls forward. While it's simulated,
+the entity's Transform follows the pelvis. `Push`, `SetVelocity`, `SetAngularVelocity`,
+`AddForce` and `Velocity` work on the whole body, spread over its mass; `Push` with a
+point pushes the part nearest it, and `AddTorque` twists the pelvis while the mask leaves
+it simulated (the animation holds a pelvis outside the mask, so a twist does nothing). They work straight
+after the switch, in the same Update. `physics.PushPart(entity, "Head", impulse, point)`
+pushes a part by name, such as the head a ball hits.
+
+`Strength` sets how hard the muscles pull each part towards the pose the animation
+gives, from 0, limp, to 1, which holds the pose against gravity but still gives under a
+blow. Between them, a character braces and stumbles. A flailing clip played at 0.3 makes
+a body that waves its arms in the air and crumples when it lands. `Mask` simulates only
+some joints, such as `rig.Mask("Spine")` for a body that flops above the waist while the
+legs keep walking; the other parts follow the animation.
+
+### Getting up
+
+Switching back to `Off` takes the bodies away and blends the ragdoll's pose back into
+the clips over `BlendSeconds`, 0.4 by default. `physics.IsFaceUp(entity)` says which
+get-up clip to pick before the switch:
+
+```csharp
+bool faceUp = physics.IsFaceUp(stuntman);
+world.Get<Ragdoll>(stuntman) = world.Get<Ragdoll>(stuntman) with { Mode = RagdollMode.Off };
+animator.Play(faceUp ? Move.StandUp : Move.StandUpFromFront);
+```
+
+Play the get-up in the same Update as the switch, as an action with `fadeSeconds: 0`,
+such as `.Action(Move.StandUp, rig.Clip("StandUp"), fadeSeconds: 0f)`. The ragdoll then
+lays the clip over the body: it turns the character so the clip's first frame lies the
+same way as the body, and moves them so the clip's pelvis is where the body's is, on the
+ground below. The blend only has to bend the limbs, and the character stands up from
+where they fell. With no lying-down clip playing, the character stands under the pelvis,
+facing the way a body lying there would get up.
+
+### Seeing the bodies
+
+`physics.RagdollShapes(entity, shapes)` lists each part's shape where it is now, as a
+`RagdollShapeView` with its joint, shape, transform, size and whether it's simulated.
+Draw them over the character while tuning a `RagdollBody`; the
+[Cannonball](../examples/Cannonball) example does this on D.
+
+![The stuntman lying still, and the same moment with the ragdoll's boxes and capsules drawn over them](media/cannonball-bodies.webp)
+
 ## Queries
 
 ```csharp
@@ -229,9 +368,12 @@ Jolt's order. A pile of 60 dropped boxes lands the same way every run of a seed.
 
 - No mesh, convex-hull or height-field colliders; build a shape from balls, boxes and
   capsules.
-- No joints, ragdolls or vehicles yet.
-- No contact events between solid bodies, such as for a sound when a crate lands. Use a
-  trigger, or watch a body's velocity.
+- No vehicles, motors on joints, or springs.
+- A ragdoll's muscles only pull towards the animation's pose. They don't balance, so a
+  ragdoll can't stay on its feet or walk by itself.
+- A ragdoll's parts don't collide with the parts next to them, nor with the
+  grandparent or siblings that touch them at rest.
+- An entity has one `Joint` at most.
 - A collider's transform can't be sheared; a parent scaled unevenly under a turned child
   throws.
 - Results repeat on one machine and build, not across machines.

@@ -29,6 +29,8 @@ public sealed class AnimationPose
     private bool _hasTurns;
     private readonly List<Goal> _reaches = [];
 
+    private readonly HeldJoints _held = new();
+
     public AnimationPose(Rig rig)
     {
         Rig = rig;
@@ -202,9 +204,50 @@ public sealed class AnimationPose
     /// Works out the joints' local poses at a moment: <paramref name="ahead"/> seconds
     /// after the last tick, for a display between ticks. The result starts from the
     /// skeleton's rest pose, so a pose with no layers is the model as modelled. Set joints
-    /// go over the layers, then turns go on, then limbs reach.
+    /// go over the layers, then turns go on, then limbs reach, then the joints physics holds, such as a ragdoll's,
+    /// go over all of that.
     /// </summary>
-    public void Evaluate(float ahead, Span<JointPose> pose, Span<JointPose> scratch)
+    public void Evaluate(float ahead, Span<JointPose> pose, Span<JointPose> scratch) =>
+        Evaluate(ahead, pose, scratch, _held.Progress(ahead));
+
+    /// <summary>
+    /// Whether physics holds any joints, such as while a ragdoll is simulated or blending back to the clips.
+    /// </summary>
+    public bool IsPhysical => _held.IsActive;
+
+    /// <summary>
+    /// Hands joints to physics. Each is where it is in the skeleton's space, before the root transform, at the tick
+    /// before and at this one; between ticks the pose moves from one to the other over
+    /// <paramref name="tickSeconds"/>. A joint's weight mixes from the layers, at 0, to physics, at 1. Only joints'
+    /// turns are taken, so bones keep their length, but for <paramref name="placed"/>, whose place is taken too.
+    /// </summary>
+    internal void SetPhysical(ReadOnlySpan<JointPose> from, ReadOnlySpan<JointPose> to, ReadOnlySpan<float> weights, int placed, float tickSeconds)
+    {
+        int count = Rig.Skeleton.Count;
+        if (from.Length != count || to.Length != count || weights.Length != count)
+        {
+            throw new ArgumentException($"The rig has {count} joints, but got {from.Length}, {to.Length} and {weights.Length}.");
+        }
+
+        _held.Set(from, to, weights, placed, tickSeconds);
+        Version++;
+    }
+
+    /// <summary>Hands every joint physics held back to the layers.</summary>
+    internal void ClearPhysical()
+    {
+        if (_held.Clear())
+        {
+            Version++;
+        }
+    }
+
+    /// <summary>
+    /// Evaluates, with physics' joints <paramref name="physical"/> of the way from the tick before to the last: 1 for
+    /// the pose as of the last tick, or null for what the layers, set joints, turns and reaches give without physics,
+    /// which a ragdoll's muscles aim for.
+    /// </summary>
+    internal void Evaluate(float ahead, Span<JointPose> pose, Span<JointPose> scratch, float? physical)
     {
         var skeleton = Rig.Skeleton;
         if (pose.Length != skeleton.Count || scratch.Length != skeleton.Count)
@@ -212,20 +255,7 @@ public sealed class AnimationPose
             throw new ArgumentException($"The rig has {skeleton.Count} joints, but got {pose.Length} and {scratch.Length}.");
         }
 
-        skeleton.Rest.AsSpan().CopyTo(pose);
-        foreach (ref readonly var layer in Layers)
-        {
-            var clip = Rig.Clips[layer.Clip];
-            float time = layer.Time + ahead * layer.Speed;
-            if (layer.Loops && clip.Duration > 0f)
-            {
-                time = ((time % clip.Duration) + clip.Duration) % clip.Duration;
-            }
-
-            clip.Sample(time, scratch);
-            PoseBlend.Blend(pose, scratch, layer.Amount, layer.Mask?.Weights ?? default(ReadOnlySpan<float>));
-        }
-
+        Sample(ahead, pose, scratch);
         if (HasSetJoints)
         {
             for (int i = 0; i < pose.Length; i++)
@@ -241,6 +271,29 @@ public sealed class AnimationPose
         {
             Solve(pose);
         }
+
+        if (physical is { } amount && _held.IsActive)
+        {
+            _held.Apply(skeleton.Parents, amount, pose);
+        }
+    }
+
+    /// <summary>The rest pose with each layer's clip blended over it in turn, <paramref name="ahead"/> seconds after the last tick.</summary>
+    private void Sample(float ahead, Span<JointPose> pose, Span<JointPose> scratch)
+    {
+        Rig.Skeleton.Rest.AsSpan().CopyTo(pose);
+        foreach (ref readonly var layer in Layers)
+        {
+            var clip = Rig.Clips[layer.Clip];
+            float time = layer.Time + ahead * layer.Speed;
+            if (layer.Loops && clip.Duration > 0f)
+            {
+                time = ((time % clip.Duration) + clip.Duration) % clip.Duration;
+            }
+
+            clip.Sample(time, scratch);
+            PoseBlend.Blend(pose, scratch, layer.Amount, layer.Mask?.Weights ?? default(ReadOnlySpan<float>));
+        }
     }
 
     /// <summary>
@@ -253,6 +306,7 @@ public sealed class AnimationPose
         int count = skeleton.Count;
         Span<Matrix4x4> globals = count <= 128 ? stackalloc Matrix4x4[count] : new Matrix4x4[count];
         Span<Quaternion> turned = count <= 128 ? stackalloc Quaternion[count] : new Quaternion[count];
+        var space = new SkeletonSpace(skeleton.Parents, pose, globals, turned);
         Matrix4x4.Decompose(skeleton.RootTransform, out _, out var rootTurn, out _);
         Matrix4x4.Invert(skeleton.RootTransform, out var fromModel);
 
@@ -261,123 +315,16 @@ public sealed class AnimationPose
         {
             if (_hasTurns && _isTurned![i])
             {
-                TurnJoint(pose, turned, i, Within(_turns![i], rootTurn));
+                space.Turn(i, SkeletonSpace.Within(_turns![i], rootTurn));
             }
 
-            Place(pose, globals, turned, i);
+            space.Place(i);
         }
 
         foreach (var reach in _reaches)
         {
-            ReachLimb(pose, globals, turned, reach, Vector3.Transform(reach.Target, fromModel));
+            space.Reach(reach.Limb, reach.Point, reach.Weight, Vector3.Transform(reach.Target, fromModel));
         }
-    }
-
-    private void ReachLimb(Span<JointPose> pose, Span<Matrix4x4> globals, Span<Quaternion> turned, Goal reach, Vector3 goal)
-    {
-        var limb = reach.Limb;
-        var upper = globals[limb.Upper].Translation;
-        var lower = globals[limb.Lower].Translation;
-        var end = globals[limb.End].Translation;
-        var endTurn = turned[limb.End];
-
-        // What the tip holds stays where it is relative to the end, which keeps its turn, so
-        // the end's goal is the goal less that.
-        var held = Vector3.Transform(reach.Point, globals[limb.Tip]) - end;
-        var wrist = goal - held;
-
-        float upperLength = Vector3.Distance(upper, lower);
-        float lowerLength = Vector3.Distance(lower, end);
-        var toGoal = wrist - upper;
-        float span = toGoal.Length();
-        if (upperLength < 1e-6f || lowerLength < 1e-6f || span < 1e-6f)
-        {
-            return;
-        }
-
-        var along = toGoal / span;
-        span = Math.Clamp(span, MathF.Abs(upperLength - lowerLength) * 1.001f, (upperLength + lowerLength) * 0.999f);
-
-        // The bend keeps to the side the layers bend it: the lower joint's way out from the line
-        // between the upper joint and the goal.
-        var bend = lower - upper - (Vector3.Dot(lower - upper, along) * along);
-        if (bend.LengthSquared() < 1e-10f)
-        {
-            bend = Vector3.Cross(along, MathF.Abs(along.Y) < 0.9f ? Vector3.UnitY : Vector3.UnitX);
-        }
-
-        bend = Vector3.Normalize(bend);
-        float cos = Math.Clamp(((upperLength * upperLength) + (span * span) - (lowerLength * lowerLength)) / (2f * upperLength * span), -1f, 1f);
-        var elbow = upper + (upperLength * ((cos * along) + (MathF.Sqrt(1f - (cos * cos)) * bend)));
-
-        var first = Quaternion.Slerp(Quaternion.Identity, Between(lower - upper, elbow - upper), reach.Weight);
-        TurnJoint(pose, turned, limb.Upper, first);
-        Refresh(pose, globals, turned, limb.Upper);
-
-        var bent = globals[limb.Lower].Translation;
-        var second = Quaternion.Slerp(Quaternion.Identity, Between(globals[limb.End].Translation - bent, upper + (span * along) - bent), reach.Weight);
-        TurnJoint(pose, turned, limb.Lower, second);
-        Refresh(pose, globals, turned, limb.Lower);
-
-        // The end turns back to how the layers had it.
-        TurnJoint(pose, turned, limb.End, endTurn * Quaternion.Inverse(turned[limb.End]));
-        Refresh(pose, globals, turned, limb.End);
-    }
-
-    /// <summary>Turns a joint about itself by a rotation in the skeleton's space, its parent's place already known.</summary>
-    private void TurnJoint(Span<JointPose> pose, Span<Quaternion> turned, int joint, Quaternion turn)
-    {
-        int parent = Rig.Skeleton.Parents[joint];
-        var local = parent >= 0 ? Within(turn, turned[parent]) : turn;
-        pose[joint].Rotation = Quaternion.Normalize(local * pose[joint].Rotation);
-    }
-
-    /// <summary>Works out a joint's place and rotation in the skeleton from its parent's.</summary>
-    private void Place(Span<JointPose> pose, Span<Matrix4x4> globals, Span<Quaternion> turned, int joint)
-    {
-        int parent = Rig.Skeleton.Parents[joint];
-        globals[joint] = parent >= 0 ? pose[joint].Matrix * globals[parent] : pose[joint].Matrix;
-        turned[joint] = parent >= 0 ? Quaternion.Normalize(turned[parent] * pose[joint].Rotation) : pose[joint].Rotation;
-    }
-
-    /// <summary>Works out a joint and everything under it again, after it's turned.</summary>
-    private void Refresh(Span<JointPose> pose, Span<Matrix4x4> globals, Span<Quaternion> turned, int joint)
-    {
-        var parents = Rig.Skeleton.Parents;
-        Span<bool> under = parents.Length <= 256 ? stackalloc bool[parents.Length] : new bool[parents.Length];
-        under[joint] = true;
-        Place(pose, globals, turned, joint);
-        for (int i = joint + 1; i < parents.Length; i++)
-        {
-            if (parents[i] >= 0 && under[parents[i]])
-            {
-                under[i] = true;
-                Place(pose, globals, turned, i);
-            }
-        }
-    }
-
-    /// <summary>A rotation given outside a frame, such as the model's, as the same rotation inside it.</summary>
-    private static Quaternion Within(Quaternion turn, Quaternion frame) => Quaternion.Inverse(frame) * turn * frame;
-
-    /// <summary>The shortest rotation that takes one direction to another.</summary>
-    private static Quaternion Between(Vector3 from, Vector3 to)
-    {
-        from = Vector3.Normalize(from);
-        to = Vector3.Normalize(to);
-        float dot = Vector3.Dot(from, to);
-        if (dot > 0.99999f)
-        {
-            return Quaternion.Identity;
-        }
-
-        var axis = Vector3.Cross(from, to);
-        if (axis.LengthSquared() < 1e-10f)
-        {
-            axis = Vector3.Cross(from, MathF.Abs(from.Y) < 0.9f ? Vector3.UnitY : Vector3.UnitX);
-        }
-
-        return Quaternion.CreateFromAxisAngle(Vector3.Normalize(axis), MathF.Acos(Math.Clamp(dot, -1f, 1f)));
     }
 
     private readonly record struct Goal(Limb Limb, Vector3 Target, float Weight, Vector3 Point);

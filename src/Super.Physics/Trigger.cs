@@ -8,11 +8,11 @@ namespace Super.Physics;
 /// <see cref="Physics.Entered"/> and <see cref="Physics.Exited"/> list who came and went.
 /// </summary>
 /// <param name="Detects">The layers whose colliders it notices, as bits.</param>
-public readonly record struct Trigger(uint Detects = Physics.AllLayers)
+public readonly record struct Trigger(uint Detects = LayerBits.All)
 {
     /// <summary>A trigger that detects every layer; without this, <c>new Trigger()</c> would detect none.</summary>
     public Trigger()
-        : this(Physics.AllLayers)
+        : this(LayerBits.All)
     {
     }
 }

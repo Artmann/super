@@ -171,10 +171,72 @@ public class ClipTests
             var model = ModelData.Read(path);
             Assert.Equal(1u, model.Vertices[0].Joints & 0xFF);
             Assert.Equal(255u, model.Vertices[0].Weights & 0xFF);
+            Assert.Null(skeleton.Bounds);
         }
         finally
         {
             Directory.Delete(folder, recursive: true);
         }
+    }
+
+    [Fact]
+    public void Bounds_hold_the_vertices_each_joint_moves_most_in_its_own_space()
+    {
+        // The child sits one unit up, so a vertex at y 3 is 2 up in the child's own space.
+        var low = Skinned(new Vector3(0.5f, 0.2f, 0f), (0, 0.9f), (1, 0.1f));
+        var high = Skinned(new Vector3(-1f, 3f, 0.25f), (0, 0.3f), (1, 0.7f));
+        var higher = Skinned(new Vector3(1f, 2f, -0.25f), (1, 1f));
+
+        var bounds = TestRig.Skeleton().WithBounds([low, high, higher]).Bounds!;
+
+        Assert.Equal(new JointBounds(new Vector3(0.5f, 0.2f, 0f), new Vector3(0.5f, 0.2f, 0f)), bounds[0]);
+        Assert.Equal(new JointBounds(new Vector3(-1f, 1f, -0.25f), new Vector3(1f, 2f, 0.25f)), bounds[1]);
+    }
+
+    [Fact]
+    public void A_joint_no_vertex_follows_most_has_empty_bounds()
+    {
+        var bounds = TestRig.Skeleton().WithBounds([Skinned(Vector3.One, (1, 1f))]).Bounds!;
+
+        Assert.True(bounds[0].IsEmpty);
+        Assert.Equal(Vector3.Zero, bounds[0].Size);
+        Assert.False(bounds[1].IsEmpty);
+    }
+
+    [Fact]
+    public void A_model_file_keeps_its_skeletons_bounds()
+    {
+        string folder = Directory.CreateTempSubdirectory().FullName;
+        string path = Path.Combine(folder, "rig.rmodel");
+        try
+        {
+            var vertex = Skinned(new Vector3(0f, 1.5f, 0f), (1, 1f));
+            new ModelData
+            {
+                Vertices = [vertex, vertex, vertex],
+                Indices = [0, 1, 2],
+                Parts = [new ModelPart { FirstIndex = 0, IndexCount = 3, Material = 0 }],
+                Materials = [new ModelMaterial { BaseColor = Vector4.One }],
+                Textures = [],
+                Skeleton = TestRig.Skeleton().WithBounds([vertex]),
+            }.Write(path);
+
+            var (skeleton, _) = ModelData.ReadRig(path);
+
+            Assert.NotNull(skeleton?.Bounds);
+            Assert.True(skeleton.Bounds[0].IsEmpty);
+            Assert.Equal(new Vector3(0f, 0.5f, 0f), skeleton.Bounds[1].Min);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    private static Vertex Skinned(Vector3 position, params (int Joint, float Weight)[] influences)
+    {
+        var vertex = new Vertex { Position = position };
+        vertex.SetSkin(influences);
+        return vertex;
     }
 }

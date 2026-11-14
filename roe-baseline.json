@@ -221,7 +221,7 @@
       "kind": "high-complexity",
       "name": "Rendition.Renderer.RecordBakeSlice",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 12
+      "metric": 11
     },
     {
       "kind": "high-complexity",
@@ -318,12 +318,6 @@
       "name": "Super.AmbienceReader.Read",
       "file": "src/Super/Audio/AmbienceDefinition.cs",
       "metric": 18
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.AnimationPose.Evaluate",
-      "file": "src/Super/Animation/AnimationPose.cs",
-      "metric": 11
     },
     {
       "kind": "high-complexity",
@@ -669,15 +663,15 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Physics.Physics.Check",
-      "file": "src/Super.Physics/Physics.cs",
-      "metric": 15
+      "name": "Super.Physics.BodySetup.CheckBody",
+      "file": "src/Super.Physics/BodySetup.cs",
+      "metric": 14
     },
     {
       "kind": "high-complexity",
-      "name": "Super.Physics.Physics.CheckBody",
-      "file": "src/Super.Physics/Physics.cs",
-      "metric": 14
+      "name": "Super.Physics.ColliderShapes.Check",
+      "file": "src/Super.Physics/ColliderShapes.cs",
+      "metric": 15
     },
     {
       "kind": "high-complexity",
@@ -689,7 +683,7 @@
       "kind": "high-complexity",
       "name": "Super.Physics.Physics.Sync/1",
       "file": "src/Super.Physics/Physics.cs",
-      "metric": 21
+      "metric": 19
     },
     {
       "kind": "high-complexity",
@@ -730,12 +724,6 @@
     {
       "kind": "high-complexity",
       "name": "Super.Ui.UiPointer.RefreshLook",
-      "file": "src/Super/Ui/UiPointer.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Ui.UiPointer.Released",
       "file": "src/Super/Ui/UiPointer.cs",
       "metric": 11
     },
@@ -1265,7 +1253,7 @@
       "kind": "high-cognitive-complexity",
       "name": "Super.Physics.Physics.Sync/1",
       "file": "src/Super.Physics/Physics.cs",
-      "metric": 34
+      "metric": 30
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1931,7 +1919,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.RecordBakeSlice",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 62
+      "metric": 61
     },
     {
       "kind": "long-method",
@@ -1985,7 +1973,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.UpdateBackgroundBake",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 76
+      "metric": 75
     },
     {
       "kind": "long-method",
@@ -1997,7 +1985,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteTargetDescriptors",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 97
+      "metric": 93
     },
     {
       "kind": "long-method",
@@ -2196,12 +2184,6 @@
       "name": "Super.AmbienceReader.Read",
       "file": "src/Super/Audio/AmbienceDefinition.cs",
       "metric": 91
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.AnimationPose.ReachLimb",
-      "file": "src/Super/Animation/AnimationPose.cs",
-      "metric": 49
     },
     {
       "kind": "long-method",
@@ -2709,12 +2691,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Super.Physics.Physics.Create",
-      "file": "src/Super.Physics/Physics.cs",
-      "metric": 52
-    },
-    {
-      "kind": "long-method",
       "name": "Super.Physics.Physics.FindTriggerEvents",
       "file": "src/Super.Physics/Physics.Triggers.cs",
       "metric": 41
@@ -2729,7 +2705,7 @@
       "kind": "long-method",
       "name": "Super.Physics.Physics.Sync/1",
       "file": "src/Super.Physics/Physics.cs",
-      "metric": 99
+      "metric": 87
     },
     {
       "kind": "long-method",
@@ -2787,6 +2763,12 @@
     },
     {
       "kind": "long-method",
+      "name": "Super.SkeletonSpace.Reach",
+      "file": "src/Super/Animation/SkeletonSpace.cs",
+      "metric": 48
+    },
+    {
+      "kind": "long-method",
       "name": "Super.Spline.MinimalUps",
       "file": "src/Super/Spline.cs",
       "metric": 53
@@ -2820,12 +2802,6 @@
       "name": "Super.Ui.GlyphAtlas.Wrap",
       "file": "src/Super/Ui/GlyphAtlas.cs",
       "metric": 49
-    },
-    {
-      "kind": "long-method",
-      "name": "Super.Ui.UiPointer.Down",
-      "file": "src/Super/Ui/UiPointer.cs",
-      "metric": 44
     },
     {
       "kind": "long-method",
@@ -3491,7 +3467,7 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5752
+      "metric": 5742
     },
     {
       "kind": "large-file",
@@ -3683,7 +3659,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 389
+      "metric": 382
     },
     {
       "kind": "large-type",
@@ -3761,13 +3737,13 @@
       "kind": "large-type",
       "name": "Super.AnimationPose",
       "file": "src/Super/Animation/AnimationPose.cs",
-      "metric": 28
+      "metric": 27
     },
     {
       "kind": "large-type",
       "name": "Super.Animator",
       "file": "src/Super/Animation/Animator.cs",
-      "metric": 43
+      "metric": 39
     },
     {
       "kind": "large-type",
@@ -3953,7 +3929,7 @@
       "kind": "large-type",
       "name": "Super.States",
       "file": "src/Super/States/States.cs",
-      "metric": 22
+      "metric": 21
     },
     {
       "kind": "large-type",
@@ -3995,7 +3971,7 @@
       "kind": "large-type",
       "name": "Super.Ui.UiPointer",
       "file": "src/Super/Ui/UiPointer.cs",
-      "metric": 44
+      "metric": 38
     },
     {
       "kind": "large-type",
@@ -4221,6 +4197,7 @@
         "Super.ContentSchema",
         "Super.ContentValidator",
         "Super.CookedFolder",
+        "Super.HeldJoints",
         "Super.ICatalog",
         "Super.Keys",
         "Super.Limb",
@@ -4230,6 +4207,7 @@
         "Super.Rig",
         "Super.SceneRenderer",
         "Super.Shapes",
+        "Super.SkeletonSpace",
         "Super.StateDefinition",
         "Super.Ui.Button",
         "Super.Ui.ClickModifier",
@@ -4313,14 +4291,6 @@
       "members": [
         "Super.ParticleEffect",
         "Super.ParticleEmitter"
-      ]
-    },
-    {
-      "members": [
-        "Super.Physics.Body",
-        "Super.Physics.Character",
-        "Super.Physics.Physics",
-        "Super.Physics.Trigger"
       ]
     },
     {

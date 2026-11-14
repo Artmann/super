@@ -271,6 +271,15 @@ it away, and `ClearJoints()` takes away turns and reaches too. Like set joints, 
 reaches aren't moved ahead between ticks, so set them in Draw from blended values; the
 clips under them still are.
 
+## Ragdolls
+
+A [ragdoll](physics.md#ragdolls) from `Super.Physics` drives the joints it simulates
+over everything else: the clips, set joints, turns and reaches. The animator keeps
+playing underneath, so a ragdoll with some `Strength` pulls towards the clip, and one
+switched off blends back into whatever the animator plays by then, such as a get-up.
+Only the joints' turns are taken, apart from the pelvis's place, so bones keep their
+length. `animator.Joint(name)` gives where a joint is as of the last tick, ragdoll and all.
+
 ## With the ECS
 
 Give an entity a `Transform` and an `Animated`, and `view.Models(world)` draws the rig's

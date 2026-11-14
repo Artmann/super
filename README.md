@@ -143,6 +143,7 @@ marked as planned. The examples are the best place to see it running:
 | [Gallery](examples/Gallery) | Plaster rooms along a sunlit colonnade: a bust between a red wall and a blue one, a bronze whale under a skylight, a lamp room and a candlelit chapel, all under today's real-time lights |
 | [Wax](examples/Wax) | Skin, candle wax and jade with subsurface scattering, each beside a plain twin under a hard light |
 | [Dust](examples/Dust) | Trees falling in a clearing, throwing up soft particle dust along where they land |
+| [Cannonball](examples/Cannonball) | Ragdolls: a stuntman fired from a cannon tumbles through crates and balls, then gets up where they land; D shows the ragdoll's bodies |
 | [Forest](examples/Forest) | Sound: a looping ambience and music, a hammering builder whose sound pans as the camera circles, and channel volumes |
 
 ## License
