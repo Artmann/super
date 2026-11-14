@@ -68,15 +68,25 @@ public class GpuMaterialTests
     [Fact]
     public void Draw_constants_match_the_draw_block_in_material_glsl()
     {
-        // vec4 tint, vec4 ghost, int material, three swim floats, int cascade, int firstBone, then the
-        // wind's base and sway. Each copy's matrix is in the instance buffer, not here.
+        // vec4 tint, vec4 ghost, int material, int cascade, int firstBone, then the wind's base and sway. Each
+        // copy's matrix and swim are in the instance buffer, not here.
         Assert.Equal(0, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.Tint)));
         Assert.Equal(16, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.Ghost)));
         Assert.Equal(32, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.Material)));
-        Assert.Equal(48, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.Cascade)));
-        Assert.Equal(52, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.FirstBone)));
-        Assert.Equal(56, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.WindBase)));
-        Assert.Equal(60, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.WindSway)));
+        Assert.Equal(36, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.Cascade)));
+        Assert.Equal(40, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.FirstBone)));
+        Assert.Equal(44, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.WindBase)));
+        Assert.Equal(48, (int)Marshal.OffsetOf<SceneDraws.DrawConstants>(nameof(SceneDraws.DrawConstants.WindSway)));
+        // 52 bytes of fields, rounded up so the vec4 the probe capture adds after them starts at 64, where a vec4 must.
         Assert.Equal(64, Unsafe.SizeOf<SceneDraws.DrawConstants>());
+    }
+
+    [Fact]
+    public void A_copys_instance_matches_the_instance_struct_in_instances_glsl()
+    {
+        // mat4 model, then vec4 swim.
+        Assert.Equal(0, (int)Marshal.OffsetOf<GpuInstance>(nameof(GpuInstance.Model)));
+        Assert.Equal(64, (int)Marshal.OffsetOf<GpuInstance>(nameof(GpuInstance.Swim)));
+        Assert.Equal(80, Unsafe.SizeOf<GpuInstance>());
     }
 }

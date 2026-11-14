@@ -1036,13 +1036,24 @@ still reads as foliage). The lighting pass reads the size of a negative channel 
 translucency.
 
 Copies are drawn instanced. `SceneDraws.Batch` sorts a pass's opaque and shadow draws
-by mesh, part, material, tint, ghost and swim, and each run of draws that match is one
+by mesh, part, material, tint and ghost, and each run of draws that match is one
 `vkCmdDrawIndexed`. Skinned draws never match. The order is safe because the depth test
 decides what shows. Glass is sorted by `TransparentPlan` and drawn one at a time. Each copy's model
-matrix goes into the frame's `InstanceBuffer` (set 0, binding 2, `instances.glsl`), and
-the vertex shaders read it by `gl_InstanceIndex`. The buffer grows before a frame is
-recorded, sized from the selected draws. The push constants hold only what copies
-share. Coplanar surfaces can trade places in a depth tie, which moved 0.03% of the
+matrix and swim go into the frame's `InstanceBuffer` (set 0, binding 2, `GpuInstance`, 80 bytes,
+`instances.glsl`), and the vertex shaders read them by `gl_InstanceIndex`. The swim is the
+copy's because each fish of a shoal is at its own point in the stroke: as a push constant it
+made every fish its own draw, and the Reef's 6,240 fish cost 16 ms of CPU a frame where they
+now cost 6. The buffer grows before a frame is recorded, sized from the selected draws. The
+push constants hold only what copies share.
+
+The sort is of one number a draw (`SceneDraws.SortKey`, a `UInt128`), not of the looks field by
+field, which took a third of the Reef's frame. From the top it holds the mesh, the part's first
+index, 32 bits mixed from the index count, material, tint and ghost, and the draw's place in
+the list. So a mesh is bound once, its parts are drawn in the order the mesh holds them, and
+copies that look the same stay in the order they came. The part's order matters: with the
+parts in mixed-up order the Courtyard's G-buffer took 3.6 ms where it takes 2.8, from
+overdraw. Two looks that mix to the same 32 bits only split their batches where they
+interleave, since `SameLook` still decides what shares a draw. Coplanar surfaces can trade places in a depth tie, which moved 0.03% of the
 pixels in Archer by at most 3 of 255.
 
 A draw's tint rides in its push constants and multiplies the material's colour in
@@ -2863,9 +2874,10 @@ include: the shadows sway with the mesh because the same sum runs in both. The f
 `wind` holds the way the wind blows, flattened onto the ground and scaled by its strength, in
 xyz, and the gustiness in w; `Passes/Wind.cs` packs it, and sends all zero with no wind, a
 calm or `RenderEffects.Wind` (bit 17) off, and the shader also checks `OFF_WIND`. A draw's push
-constants carry the material's sway share (`DrawConstants.WindSway`, at 60) and its part's
-lowest point in model space (`WindBase`, at 56, from `PartDetail.MinY`, which `MeshDetail` keeps
-from the part's bounds), so `DrawConstants` is 64 bytes. A share of 0, which every material has
+constants carry the material's sway share (`DrawConstants.WindSway`, at 48) and its part's
+lowest point in model space (`WindBase`, at 44, from `PartDetail.MinY`, which `MeshDetail` keeps
+from the part's bounds). `DrawConstants` is 52 bytes of fields rounded up to 64, so the vec4 the
+probe capture adds after it starts where its shader's block puts it. A share of 0, which every material has
 unless it asks, skips the sum. `windSwayPlaced` puts the vertex's x and z with the base's y
 through the copy's model matrix to find the foot in the world, so a copy that is moved, turned about the vertical
 or scaled sways from its own foot, and the height above it, clamped to 1 m, is `h`. It takes

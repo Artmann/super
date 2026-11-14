@@ -30,9 +30,6 @@ layout(push_constant) uniform Draw {
     vec4 tint;
     vec4 ghost;
     int material;
-    float swimAmplitude;
-    float swimBodyLength;
-    float swimPhase;
     int cascade;
     int firstBone;
     float windBase;

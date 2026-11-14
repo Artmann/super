@@ -1,13 +1,25 @@
-// The model matrix of every copy drawn this frame, one after another. An instanced draw
-// of copies that look the same starts at its own place, so gl_InstanceIndex, which counts
-// from the draw's first instance, picks this copy's matrix.
-// Filled by InstanceBuffer in Vulkan/InstanceBuffer.cs, from SceneDraws.Record.
+// What every copy drawn this frame has of its own, one after another: its model matrix and how it
+// swims. An instanced draw of copies that look the same starts at its own place, so
+// gl_InstanceIndex, which counts from the draw's first instance, picks this copy's.
+// Filled by InstanceBuffer in Vulkan/InstanceBuffer.cs, from SceneDraws.Record, and must match
+// GpuInstance there.
+struct Instance {
+    mat4 model;
+    vec4 swim; // amplitude, body length and phase; w is unused
+};
+
 layout(std430, set = 0, binding = 2) readonly buffer Instances {
-    mat4 models[];
+    Instance copies[];
 } instances;
 
 mat4 instanceModel() {
-    return instances.models[gl_InstanceIndex];
+    return instances.copies[gl_InstanceIndex].model;
+}
+
+// The copy's swim, as amplitude, body length and phase: see swim in common.glsl. Each fish of a shoal
+// is at its own point in the stroke, so this is the copy's and not the draw's.
+vec3 instanceSwim() {
+    return instances.copies[gl_InstanceIndex].swim.xyz;
 }
 
 // Where each copy stood last frame, beside its matrix above, for motion vectors. With no last frame,

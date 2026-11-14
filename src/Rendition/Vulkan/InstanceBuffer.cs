@@ -40,7 +40,20 @@ internal struct GpuLightmapRect
 }
 
 /// <summary>
-/// One frame's model matrices, one for each copy drawn, which the scene's vertex shaders
+/// What one copy has of its own, as the scene's vertex shaders read it from set 0, binding 2: where it stands and how
+/// it swims. Laid out as std430 has it: 80 bytes. Must match Instance in Shaders/instances.glsl.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct GpuInstance
+{
+    public Matrix4x4 Model;
+
+    /// <summary>The swim's amplitude, body length and phase, as <see cref="SwimMotion"/> has them. W is unused.</summary>
+    public Vector4 Swim;
+}
+
+/// <summary>
+/// One frame's model matrices and swims, one for each copy drawn, which the scene's vertex shaders
 /// read by <c>gl_InstanceIndex</c> (set 0, binding 2, in Shaders/instances.glsl), and beside
 /// them where each copy stood last frame, for motion vectors (binding 9), and where it reads its
 /// baked light (binding 10). It grows to fit, but only before a frame is recorded, since the
@@ -130,7 +143,7 @@ internal sealed unsafe class InstanceBuffer : IDisposable
     }
 
     /// <summary>
-    /// Writes the next copy's matrix, where it stood last frame and its lightmap, and returns its index.
+    /// Writes the next copy's matrix and swim, where it stood last frame and its lightmap, and returns its index.
     /// <paramref name="index"/> is the draw's place among the draws being recorded, which finds its chunk in
     /// <see cref="Chunks"/>.
     /// </summary>
@@ -141,7 +154,11 @@ internal sealed unsafe class InstanceBuffer : IDisposable
             throw new InvalidOperationException($"This frame draws more than the {Capacity} copies it made room for.");
         }
 
-        ((Matrix4x4*)_buffer.Mapped)[Count] = draw.Transform;
+        ((GpuInstance*)_buffer.Mapped)[Count] = new GpuInstance
+        {
+            Model = draw.Transform,
+            Swim = new Vector4(draw.Swim.Amplitude, draw.Swim.BodyLength, draw.Swim.Phase, 0f),
+        };
         ((PreviousInstance*)_previous.Mapped)[Count] = History is { } history ? history.Previous(draw) : PreviousInstance.None(draw);
         var lightmap = GpuLightmapRect.None;
         int chunk = Chunks is { } chunks ? chunks[index] : -1;
@@ -164,7 +181,7 @@ internal sealed unsafe class InstanceBuffer : IDisposable
     }
 
     private static (GpuBuffer Models, GpuBuffer Previous, GpuBuffer Lightmaps) Create(VulkanContext context, int capacity) => (
-        GpuBuffer.CreateHostVisible(context, (ulong)(capacity * sizeof(Matrix4x4)), BufferUsageFlags.StorageBufferBit),
+        GpuBuffer.CreateHostVisible(context, (ulong)(capacity * sizeof(GpuInstance)), BufferUsageFlags.StorageBufferBit),
         GpuBuffer.CreateHostVisible(context, (ulong)(capacity * sizeof(PreviousInstance)), BufferUsageFlags.StorageBufferBit),
         GpuBuffer.CreateHostVisible(context, (ulong)(capacity * sizeof(GpuLightmapRect)), BufferUsageFlags.StorageBufferBit));
 }

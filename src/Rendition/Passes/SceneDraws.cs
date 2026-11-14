@@ -35,7 +35,9 @@ internal static unsafe class SceneDraws
     /// same for every copy in an instanced draw. Each copy's matrix is in the frame's
     /// <see cref="InstanceBuffer"/>.
     /// </summary>
-    [StructLayout(LayoutKind.Sequential)]
+    // Rounded up to 64 bytes, a multiple of a vec4, so what a pass adds after it, like the probe capture's vec4, starts
+    // where the shader's block puts it.
+    [StructLayout(LayoutKind.Sequential, Size = 64)]
     internal struct DrawConstants
     {
         /// <summary>rgb multiplies the material's colour. For glass, w is 1 when it sees the scene through the copy and 0 when it only blends over it. Comes before the scalars to keep std430 alignment.</summary>
@@ -45,7 +47,6 @@ internal static unsafe class SceneDraws
         public Vector4 Ghost;
 
         public int Material;
-        public SwimMotion Swim;
 
         /// <summary>Which sun cascade the shadow pass is drawing, or from <see cref="ShadowPass.MaxCascades"/> on, which tile of the atlas. Other passes ignore it.</summary>
         public int Cascade;
@@ -94,8 +95,8 @@ internal static unsafe class SceneDraws
     }
 
     /// <summary>
-    /// Groups draws that differ only in where they stand, so each group is one instanced
-    /// draw. <paramref name="order"/> holds the indices of the draws to make, and unless
+    /// Groups draws that differ only in what each copy has of its own, where it stands and how it swims, so each
+    /// group is one instanced draw. <paramref name="order"/> holds the indices of the draws to make, and unless
     /// <paramref name="keepOrder"/> it's sorted so that copies far apart in the list meet,
     /// as copies of a model with several parts are. Kept order, for glass, groups only
     /// neighbours. A skinned draw is always alone, since its skin is its own.
@@ -105,19 +106,16 @@ internal static unsafe class SceneDraws
         batches.Clear();
         if (!keepOrder)
         {
-            var looks = ArrayPool<Look>.Shared.Rent(order.Length);
+            // One number a draw, sorted as plain numbers, which is several times faster than comparing the looks
+            // field by field. The place in the list comes last in it, so draws that look the same stay in order.
+            UInt128[] keys = ArrayPool<UInt128>.Shared.Rent(order.Length);
             for (int i = 0; i < order.Length; i++)
             {
-                looks[i] = new Look(draws[order[i]], order[i]);
+                keys[i] = SortKey(draws[order[i]], i);
             }
 
-            looks.AsSpan(0, order.Length).Sort();
-            for (int i = 0; i < order.Length; i++)
-            {
-                order[i] = looks[i].Index;
-            }
-
-            ArrayPool<Look>.Shared.Return(looks);
+            keys.AsSpan(0, order.Length).Sort(order);
+            ArrayPool<UInt128>.Shared.Return(keys);
         }
 
         int first = 0;
@@ -138,44 +136,44 @@ internal static unsafe class SceneDraws
         && a.IndexCount == b.IndexCount
         && a.Material == b.Material
         && a.Tint == b.Tint
-        && a.Ghost == b.Ghost
-        && a.Swim == b.Swim;
+        && a.Ghost == b.Ghost;
 
-    /// <summary>What a draw looks like, to sort draws that look the same next to each other, and otherwise keep their order.</summary>
-    private readonly struct Look(in DrawItem draw, int index) : IComparable<Look>
+    /// <summary>
+    /// A number that sorts draws that look the same next to each other, in the order they came. The mesh is on top,
+    /// so one mesh's parts stay together and it's bound once, then the part, so a mesh's parts are drawn in the
+    /// order the mesh holds them, which is the order a model was made to be drawn in and costs the least overdraw.
+    /// Then the rest of the look mixed into 32 bits, then the draw's <paramref name="place"/> in the list. Two looks
+    /// can mix to the same bits, which only splits their batches where they interleave, since
+    /// <see cref="SameLook"/> still decides what shares a draw. Nothing here changes from run to run, so neither
+    /// does the order.
+    /// </summary>
+    private static UInt128 SortKey(in DrawItem draw, int place)
     {
-        private readonly int _mesh = draw.Mesh.Index;
-        private readonly uint _firstIndex = draw.FirstIndex;
-        private readonly uint _indexCount = draw.IndexCount;
-        private readonly int _material = draw.Material.Index;
-        private readonly Vector4 _tint = draw.Tint is { } tint ? new Vector4(tint, 1f) : Vector4.Zero;
-        private readonly Vector4 _ghost = draw.Ghost is { } ghost ? new Vector4(ghost.Color, ghost.Opacity) : Vector4.Zero;
-        private readonly SwimMotion _swim = draw.Swim;
-
-        public int Index { get; } = index;
-
-        public int CompareTo(Look other)
+        ulong look = Mix(draw.IndexCount, (uint)draw.Material.Index);
+        if (draw.Tint is { } tint)
         {
-            int compared = _mesh.CompareTo(other._mesh);
-            compared = compared != 0 ? compared : _firstIndex.CompareTo(other._firstIndex);
-            compared = compared != 0 ? compared : _indexCount.CompareTo(other._indexCount);
-            compared = compared != 0 ? compared : _material.CompareTo(other._material);
-            compared = compared != 0 ? compared : Compare(_tint, other._tint);
-            compared = compared != 0 ? compared : Compare(_ghost, other._ghost);
-            compared = compared != 0 ? compared : _swim.Amplitude.CompareTo(other._swim.Amplitude);
-            compared = compared != 0 ? compared : _swim.BodyLength.CompareTo(other._swim.BodyLength);
-            compared = compared != 0 ? compared : _swim.Phase.CompareTo(other._swim.Phase);
-            return compared != 0 ? compared : Index.CompareTo(other.Index);
+            look = Mix(look, Bits(tint.X));
+            look = Mix(look, Bits(tint.Y));
+            look = Mix(look, Bits(tint.Z) + 1);
         }
 
-        private static int Compare(Vector4 a, Vector4 b)
+        if (draw.Ghost is { } ghost)
         {
-            int compared = a.X.CompareTo(b.X);
-            compared = compared != 0 ? compared : a.Y.CompareTo(b.Y);
-            compared = compared != 0 ? compared : a.Z.CompareTo(b.Z);
-            return compared != 0 ? compared : a.W.CompareTo(b.W);
+            look = Mix(look, Bits(ghost.Color.X));
+            look = Mix(look, Bits(ghost.Color.Y));
+            look = Mix(look, Bits(ghost.Color.Z));
+            look = Mix(look, Bits(ghost.Opacity) + 1);
         }
+
+        return new UInt128(
+            ((ulong)(uint)draw.Mesh.Index << 32) | draw.FirstIndex,
+            (look & 0xFFFFFFFF00000000ul) | (uint)place);
     }
+
+    private static uint Bits(float value) => BitConverter.SingleToUInt32Bits(value);
+
+    // Folds one more value into a running hash, by a multiply that carries every bit towards the top.
+    private static ulong Mix(ulong hash, uint value) => (hash ^ value) * 0x9E3779B97F4A7C15ul;
 
     /// <summary>
     /// The push constants that draw one item, or every copy in its batch. <paramref name="windSway"/> is the
@@ -186,7 +184,6 @@ internal static unsafe class SceneDraws
         Tint = new Vector4(draw.Tint ?? Vector3.One, 1f),
         Ghost = draw.Ghost is { } ghost ? new Vector4(ghost.Color, ghost.Opacity) : Vector4.Zero,
         Material = draw.Material.Index,
-        Swim = draw.Swim,
         Cascade = cascade,
         FirstBone = draw.Bones.Count > 0 ? draw.Bones.First : -1,
         WindBase = windSway > 0f ? windBase : 0f,
