@@ -161,12 +161,12 @@ public class GraphicsTests
     [InlineData(true, false, true, true)]
     [InlineData(true, true, true, false)]
     [InlineData(true, true, false, false)]
-    public void A_hidden_window_waits_for_the_display_except_while_a_shot_settles_its_probes(
-        bool hidden, bool settlingProbes, bool vsync, bool expected)
+    public void A_hidden_window_waits_for_the_display_except_for_a_screenshot(
+        bool hidden, bool takingShot, bool vsync, bool expected)
     {
         var graphics = new Graphics { Vsync = vsync };
 
-        Assert.Equal(expected, GameWindow.RendererSettings(graphics, hidden, settlingProbes).Vsync);
+        Assert.Equal(expected, GameWindow.RendererSettings(graphics, hidden, takingShot).Vsync);
     }
 
     [Theory]

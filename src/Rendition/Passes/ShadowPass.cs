@@ -349,10 +349,10 @@ internal sealed unsafe class ShadowPass : IDisposable
 
     public void Dispose()
     {
-        _context.Api.DestroyPipeline(_context.Device, _solids[0].TwoSided, null);
-        _context.Api.DestroyPipeline(_context.Device, _solids[0].Culled, null);
-        _context.Api.DestroyPipeline(_context.Device, _pipelines[0].TwoSided, null);
-        _context.Api.DestroyPipeline(_context.Device, _pipelines[0].Culled, null);
+        _solids[0].TwoSided.Destroy();
+        _solids[0].Culled.Destroy();
+        _pipelines[0].TwoSided.Destroy();
+        _pipelines[0].Culled.Destroy();
         _context.Api.DestroyPipelineLayout(_context.Device, _layout, null);
         Target.Dispose();
         Atlas.Dispose();

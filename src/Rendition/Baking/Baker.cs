@@ -63,20 +63,20 @@ internal sealed unsafe class Baker : IDisposable
     private readonly PipelineLayout _texelLayout;
     private readonly PipelineLayout _validityLayout;
     private readonly PipelineLayout _resolveLayout;
-    private readonly Pipeline _validityPipeline;
-    private readonly Pipeline _resolvePipeline;
+    private readonly LivePipeline _validityPipeline;
+    private readonly LivePipeline _resolvePipeline;
     private readonly Sampler _sampler;
     private readonly List<PageTargets> _pages = [];
     private readonly DescriptorSetLayout _traceSetLayout;
     private readonly PipelineLayout _traceLayout;
-    private readonly Pipeline _tracePipeline;
+    private readonly LivePipeline _tracePipeline;
     private readonly DescriptorSetLayout _probeSetLayout;
     private readonly PipelineLayout _probeLayout;
-    private readonly Pipeline _probePipeline;
+    private readonly LivePipeline _probePipeline;
     private readonly Dictionary<LightmapRect, int> _charts = [];
     private ProbeVolume? _probeVolume;
     private (object Owner, string Name)? _pagesClaimedBy;
-    private Pipeline _texelPipeline;
+    private LivePipeline? _texelPipeline;
     private bool _texelPipelineConservative;
     private TileTargets? _tile;
 
@@ -854,17 +854,13 @@ internal sealed unsafe class Baker : IDisposable
         }
 
         _tile?.Dispose();
-        if (_texelPipeline.Handle != 0)
-        {
-            api.DestroyPipeline(_context.Device, _texelPipeline, null);
-        }
-
-        api.DestroyPipeline(_context.Device, _validityPipeline, null);
-        api.DestroyPipeline(_context.Device, _resolvePipeline, null);
-        api.DestroyPipeline(_context.Device, _tracePipeline, null);
+        _texelPipeline?.Destroy();
+        _validityPipeline.Destroy();
+        _resolvePipeline.Destroy();
+        _tracePipeline.Destroy();
         api.DestroyPipelineLayout(_context.Device, _traceLayout, null);
         api.DestroyDescriptorSetLayout(_context.Device, _traceSetLayout, null);
-        api.DestroyPipeline(_context.Device, _probePipeline, null);
+        _probePipeline.Destroy();
         api.DestroyPipelineLayout(_context.Device, _probeLayout, null);
         api.DestroyDescriptorSetLayout(_context.Device, _probeSetLayout, null);
         Filtering.Dispose();
@@ -1027,7 +1023,7 @@ internal sealed unsafe class Baker : IDisposable
         var scissor = new Rect2D(default, extent);
         api.CmdSetViewport(cmd, 0, 1, &viewport);
         api.CmdSetScissor(cmd, 0, 1, &scissor);
-        api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _texelPipeline);
+        api.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _texelPipeline!);
 
         foreach (var (draw, rect) in draws)
         {
@@ -1070,15 +1066,12 @@ internal sealed unsafe class Baker : IDisposable
     private void EnsureTexelPipeline()
     {
         bool conservative = Conservative;
-        if (_texelPipeline.Handle != 0 && _texelPipelineConservative == conservative)
+        if (_texelPipeline is not null && _texelPipelineConservative == conservative)
         {
             return;
         }
 
-        if (_texelPipeline.Handle != 0)
-        {
-            _context.Api.DestroyPipeline(_context.Device, _texelPipeline, null);
-        }
+        _texelPipeline?.Destroy();
 
         // Only position, normal and the second UVs: attributes 0, 1 and 6 of the scene's vertex layout.
         var all = SceneDraws.VertexAttributes;

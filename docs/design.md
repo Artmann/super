@@ -383,8 +383,16 @@ hash of the source. Other files the cooker read, such as a model's textures, are
 the key: the cache record lists them with their hashes, and a record only counts while every
 one still matches, so editing a texture cooks its model again. A
 cooker that changes its output bumps its version, which misses every old entry. The model and
-material cookers' versions, and the mask and texture step keys, come from the build ids of the
-cook libraries, so a change to their code misses too. That only works because unchanged code
+material cookers' versions, and the mask and texture step keys, come from the code of the
+cook libraries, so a change to their code misses too. `CodeId` names that code: a hash of the
+assembly file without its module version id, timestamp and debug directory. The compiler's
+own build id isn't used, because it changes when the code doesn't. It covers the PDB's
+checksum, and the PDB lists the build id of every assembly the code was compiled against, so
+one new internal method in the renderer gave every cook library a new id and the Courtyard
+unwrapped and baked its masks again, for minutes. The unwrap step runs code that lives in the
+renderer, so its key takes `LightmapUnwrap.Version` instead: a hash of the files in
+`src/Rendition/Lightmaps` and of `Types.cs`, which the build writes into the assembly. An edit
+anywhere else in the renderer leaves it alone. All of this only works because unchanged code
 builds to the same bytes: `Directory.Build.props` sets `EnableSourceControlManagerQueries` to
 false, since otherwise the SDK writes the git commit into every assembly and its PDB, and any
 commit would miss the whole cache. `CookCache`
@@ -863,6 +871,43 @@ the program on the first run, and reads it back on later ones. Without the varia
 writes nothing, so plain runs and published games are unaffected. The seed is written with
 the invariant culture: under a culture such as `sv-SE`, a negative number is written with
 U+2212 for the minus sign, which an invariant parse rejects.
+
+## Live shaders
+
+A saved shader is compiled and swapped into the running game. It doesn't go through
+`dotnet watch`, which would restart the game for a file it can't apply. There are three
+parts.
+
+`src/Shaders.targets` writes a `<Project>.sources` file into the `shaders` output folder
+of every project that compiles shaders. It has four lines: the path to `glslc`, the flags,
+the include folder and the project's `Shaders` folder. So the running game compiles a
+shader exactly as the build did, and finds the sources without guessing where the
+repository is. The file isn't published, and a folder it names that doesn't exist is
+ignored, so a copied build or a published game watches nothing.
+
+`ShaderWatch` in Rendition reads those files and watches the folders. A save starts a
+100 ms timer, since editors write a file in several steps, and then it compiles each stage
+file that was saved, plus every stage file whose includes reach a saved file. It follows
+`#include` lines itself, beside the file first and then in the include folder. `glslc`
+writes to `<name>.spv.new`, which is moved over the old file only when the compile
+succeeded, so a broken shader leaves the old one in place. All of this is on the timer's
+thread. The game's thread calls `TakeChanged` before each frame, which returns the names
+compiled since the last call, and is one lock and a count when there are none.
+
+`RendererOptions.LiveShaders` makes the renderer able to rebuild pipelines. Every pipeline
+is a `LivePipeline`, which holds the handle and converts to it, so passes bind it as they
+did. With the option on, `PipelineFactory.Create` also copies the description and keeps a
+function that builds the pipeline again, and the context lists every live pipeline.
+`Renderer.ReloadShaders` rebuilds the ones that use a named shader, waits for the device to
+be idle, and destroys the old handles. A surface shader is made from bytes, so
+`CreateSurfaceShader` takes the name of its compiled file as well, and a rebuild reads the
+file again. Without the option nothing is copied or listed, which is how screenshots,
+tests and published games run. `GameWindow` turns it on for a shown window whose shader
+folder has sources.
+
+A rebuilt pipeline keeps its layout. A shader whose bindings, push constants or outputs
+changed no longer matches the layout or the C# that fills it, and the validation layers
+say so. That needs a restart.
 
 # Rendition design
 
@@ -1739,10 +1784,12 @@ is public, is the scheduler's `Settled`, false while the probes are switched off
 GPU that can't run them. Super's `GameWindow.Screenshot` renders on after its 48
 settle frames until `ProbesSettled`, at most `ScreenshotProbeFrames` (2,048) more, through
 `ExtraSettleFrames`, and prints how many it took or that it hit the cap; with `Graphics.LightProbes`
-off it doesn't wait. The wait renders without vsync, through `RendererSettings(…, settlingProbes: true)`,
-because nobody sees those frames and the count of frames, not the time, decides what the shot shows.
-The 48 frames before it and the shot itself keep vsync, so a shot switches twice, which costs two
-device waits outside the game's own frames. At 1280×720 on the development machine, Gallery with
+off it doesn't wait. A whole screenshot run renders without vsync, through
+`RendererSettings(…, takingShot: true)`, because nobody sees its frames and the count of frames, not
+the time, decides what the shot shows. That covers the last 120 ticks, which are drawn as they play,
+the 48 settle frames, the wait for the probes and the shot itself: 168 frames or more that each
+waited for the display before. Recordings and profiles keep vsync. At first only the wait for the
+probes ran without it, and that alone measured as follows. At 1280×720 on the development machine, Gallery with
 `--no-trace` waits 1,534 frames, which took 20.5 s at about 13 ms a frame with vsync and now takes
 8.9 s at about 5 ms, for a bit-identical shot. Courtyard with `--no-trace` hits the 2,048-frame cap
 either way at about 16.6 ms a frame, as its GPU work is the limit, so it isn't faster. An earlier
@@ -3322,7 +3369,10 @@ buffers are created exactly as before.
 window the way `GameWindow` does and makes one `Renderer` with validation on, which every test
 shares; the tests run one at a time and carry `[Trait("Speed", "Slow")]` and
 `[Trait("Needs", "GPU")]`. CI runs on machines without a GPU, so it filters them out with
-`--filter "Needs!=GPU"`; run them locally before merging rendering work. A test that needs tracing fails with a message saying so on a GPU that
+`--filter "Needs!=GPU"`; run them locally before merging rendering work. The other test projects
+use the same `Speed` trait for any test that takes more than about half a second on its own, so
+`--filter "Speed!=Slow&Needs!=GPU"` is the [fast run](testing.md#a-fast-run) for working, and CI
+still runs every test that needs no GPU. A test that needs tracing fails with a message saying so on a GPU that
 can't trace, rather than passing without checking anything. `GpuFixture.Matte` is a plain opaque
 material for tests to draw or trace with, and `RenderOneFrame` renders one frame, empty or of the draws given,
 which also runs every queued upload; `CaptureOneFrame` does the same through `Capture` and returns the pixels. A test can make a fixture of its own, such as one whose device can't

@@ -553,7 +553,7 @@ public sealed unsafe class Renderer : IDisposable
     private int _tileCount;
     private bool _clustersNeeded;
     private readonly PipelineLayout _clusterLayout;
-    private readonly Pipeline _clusterPipeline;
+    private readonly LivePipeline _clusterPipeline;
 
     public Renderer(RendererOptions options)
     {
@@ -955,7 +955,7 @@ public sealed unsafe class Renderer : IDisposable
         }
         finally
         {
-            _api.DestroyPipeline(device, pipeline, null);
+            pipeline.Destroy();
             _api.DestroyPipelineLayout(device, pipelineLayout, null);
             _api.DestroyDescriptorPool(device, pool, null);
             _api.DestroyDescriptorSetLayout(device, setLayout, null);
@@ -3594,7 +3594,12 @@ public sealed unsafe class Renderer : IDisposable
     /// looks and is lit like any other. See docs/design.md for how to write one. This is
     /// slow, so call it while loading.
     /// </summary>
-    public SurfaceShaderHandle CreateSurfaceShader(byte[] spirv)
+    /// <param name="spirv">The compiled code.</param>
+    /// <param name="name">
+    /// The compiled file the code came from, without <c>.spv</c>, such as <c>terrain.frag</c>, when it is one in the
+    /// <c>shaders</c> folder next to the program. <see cref="ReloadShaders"/> then reads it again when it changes.
+    /// </param>
+    public SurfaceShaderHandle CreateSurfaceShader(byte[] spirv, string? name = null)
     {
         const uint spirvMagic = 0x07230203;
         if (spirv.Length < 20 || spirv.Length % sizeof(uint) != 0 || BitConverter.ToUInt32(spirv, 0) != spirvMagic)
@@ -3602,8 +3607,17 @@ public sealed unsafe class Renderer : IDisposable
             throw new ArgumentException("This is not compiled SPIR-V code.", nameof(spirv));
         }
 
-        return _gBufferPass.AddShader(spirv);
+        return _gBufferPass.AddShader(spirv, name);
     }
+
+    /// <summary>
+    /// Builds every pipeline that uses one of these shaders again, from the compiled files in the <c>shaders</c>
+    /// folder as they are now, and returns how many it built. Names are the files' without <c>.spv</c>, such as
+    /// <c>lighting.frag</c>. Needs <see cref="RendererOptions.LiveShaders"/>, and does nothing without it. It waits
+    /// for the GPU, so call it between frames. A shader that changed what it reads or writes, not only how, needs
+    /// a restart.
+    /// </summary>
+    public int ReloadShaders(IReadOnlySet<string> names) => PipelineFactory.Reload(_context, names);
 
     public MaterialHandle CreateMaterial(in Material material)
     {
@@ -4330,7 +4344,7 @@ public sealed unsafe class Renderer : IDisposable
         _aoPass.Dispose();
         _gBufferPass.Dispose();
         _shadowPass.Dispose();
-        _api.DestroyPipeline(_context.Device, _clusterPipeline, null);
+        _clusterPipeline.Destroy();
         _api.DestroyPipelineLayout(_context.Device, _clusterLayout, null);
         _probes.Dispose();
         _lightProbes.Dispose();

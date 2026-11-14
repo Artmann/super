@@ -11,7 +11,7 @@ dotnet watch --project examples/Crafting --non-interactive
 This is .NET's own hot reload, so an IDE's hot reload button works too. Super adds three
 things on top: an error stops the game instead of closing it, a restart keeps the seed,
 and the game is told when its code changed. [JSON content](content.md#change-it-while-the-game-runs)
-reloads as well, as it does in any run from source.
+and [shaders](#shaders) reload as well, as they do in any run from source.
 
 ## What changes live
 
@@ -87,6 +87,39 @@ restart.
 
 An exception in `Load` isn't caught: the game closes, and `dotnet watch` starts it again
 after the next save.
+
+## Shaders
+
+Save a shader while the game runs and the next frame is drawn with it. This needs no
+`dotnet watch`: any game run from source in its window does it, with `dotnet run` or by
+starting the built program. It covers the game's own
+[surface shaders](rendering.md#surface-shaders) in its `Shaders` folder and the engine's
+shaders in `src/Rendition/Shaders`.
+
+The console says what happened:
+
+```
+Compiled terrain.frag in 0.27 s.
+```
+
+Saving a file that other shaders include, such as `surface.glsl`, compiles every shader
+that includes it. Only the pipelines that use a compiled shader are built again, so the
+world, the camera and everything loaded stay as they were.
+
+A shader that doesn't compile is reported with the compiler's own message, and the game
+keeps drawing with the old one until a save compiles:
+
+```
+terrain.frag didn't compile, so the game keeps the old one:
+C:\game\Shaders\terrain.frag:41: error: 'slope' : undeclared identifier
+```
+
+A change to how a shader works is applied live. A change to what it reads or writes, such
+as a new uniform block, texture binding or output, has to match the C# code that feeds
+it, so change both and restart. A new shader file is compiled when you save it, but a game
+only uses it once the code that names it runs.
+
+Screenshots, recordings, headless runs and published games don't watch shaders.
 
 Screenshots, recordings, profiles and headless runs never keep going after an error, so
 a broken game still fails loudly there. In tests, `run.CodeChanged()` acts as if hot

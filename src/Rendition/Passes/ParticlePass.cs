@@ -21,7 +21,7 @@ internal sealed unsafe class ParticlePass : IDisposable
     private readonly DescriptorPool _pool;
     private readonly DescriptorSet _set;
     private readonly PipelineLayout _layout;
-    private readonly Pipeline _pipeline;
+    private readonly LivePipeline _pipeline;
     private readonly GpuBuffer[] _buffers;
     private readonly float[] _keys = new float[MaxParticles];
     private readonly int[] _order = new int[MaxParticles];
@@ -175,7 +175,7 @@ internal sealed unsafe class ParticlePass : IDisposable
         }
 
         var api = _context.Api;
-        api.DestroyPipeline(_context.Device, _pipeline, null);
+        _pipeline.Destroy();
         api.DestroyPipelineLayout(_context.Device, _layout, null);
         api.DestroyDescriptorPool(_context.Device, _pool, null);
         api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);

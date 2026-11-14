@@ -38,8 +38,11 @@ public sealed unsafe class GpuFixture : IDisposable
     {
     }
 
-    /// <summary>A fixture of its own, alongside the shared one. Pass true to make its device without ray queries.</summary>
-    internal GpuFixture(bool disableRayTracing)
+    /// <summary>
+    /// A fixture of its own, alongside the shared one. Pass true to make its device without ray queries, or to
+    /// make a renderer that can swap in shaders compiled again.
+    /// </summary>
+    internal GpuFixture(bool disableRayTracing, bool liveShaders = false)
     {
         _glfw = Glfw.GetApi();
         lock (GlfwLock)
@@ -72,6 +75,7 @@ public sealed unsafe class GpuFixture : IDisposable
                 Height = _height,
                 EnableValidation = true,
                 DisableRayTracing = disableRayTracing,
+                LiveShaders = liveShaders,
             });
             // Most tests draw an area live and then with its bake at one fixed time, which a fade would keep live, and
             // the renderer is shared, so a fade would tie each test to the ones before it. BakeFadeGpuTests turn it on.

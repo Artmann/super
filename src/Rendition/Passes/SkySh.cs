@@ -22,7 +22,7 @@ internal sealed unsafe class SkySh : IDisposable
     private readonly DescriptorPool _pool;
     private readonly DescriptorSet _set;
     private readonly PipelineLayout _pipelineLayout;
-    private readonly Pipeline _pipeline;
+    private readonly LivePipeline _pipeline;
 
     /// <param name="sky">The sky cube, which keeps its view for the renderer's life.</param>
     public SkySh(VulkanContext context, ImageView sky, Sampler sampler)
@@ -109,7 +109,7 @@ internal sealed unsafe class SkySh : IDisposable
     public void Dispose()
     {
         var api = _context.Api;
-        api.DestroyPipeline(_context.Device, _pipeline, null);
+        _pipeline.Destroy();
         api.DestroyPipelineLayout(_context.Device, _pipelineLayout, null);
         api.DestroyDescriptorPool(_context.Device, _pool, null);
         api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);

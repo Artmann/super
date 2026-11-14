@@ -11,8 +11,12 @@ internal ref struct PipelineDescription
     /// <summary>Null for a pass that only writes depth, which lets the GPU skip shading.</summary>
     public string? FragmentShader;
 
-    /// <summary>Compiled code to use instead of <see cref="FragmentShader"/>.</summary>
-    public byte[]? FragmentCode;
+    /// <summary>
+    /// Compiled code to use instead of <see cref="FragmentShader"/>, and the file it came from, as shaders are named,
+    /// such as <c>terrain.frag</c>, when it has one. Live shader reload reads the code from there again when that
+    /// file changes.
+    /// </summary>
+    public (byte[] Bytes, string? Name)? FragmentCode;
     public PipelineLayout Layout;
     public ReadOnlySpan<Format> ColorFormats;
     public Format DepthFormat;
@@ -66,16 +70,170 @@ internal ref struct PipelineDescription
     public readonly CompareOp DepthCompare => DepthDrawn ? CompareOp.Equal : CompareOp.Greater;
 }
 
+/// <summary>
+/// A pipeline, used wherever its handle is. With <see cref="RendererOptions.LiveShaders"/> it also remembers how it
+/// was made, so <see cref="PipelineFactory.Reload"/> can build it again from changed shaders and swap the handle.
+/// So keep this object, never a copy of <see cref="Handle"/>, and end it with <see cref="Destroy"/>.
+/// </summary>
+internal sealed class LivePipeline(VulkanContext context, Pipeline handle, Func<Pipeline>? rebuild, string[] shaders)
+{
+    public Pipeline Handle { get; private set; } = handle;
+
+    public static implicit operator Pipeline(LivePipeline pipeline) => pipeline.Handle;
+
+    public bool Uses(IReadOnlySet<string> changed) => shaders.Any(changed.Contains);
+
+    /// <summary>Builds the pipeline again and returns the old handle, which the caller destroys once the GPU is idle.</summary>
+    public Pipeline Rebuild()
+    {
+        var old = Handle;
+        Handle = rebuild!();
+        return old;
+    }
+
+    public unsafe void Destroy()
+    {
+        context.LivePipelines?.Remove(this);
+        context.Api.DestroyPipeline(context.Device, Handle, null);
+        Handle = default;
+    }
+}
+
 internal static unsafe class PipelineFactory
 {
-    public static Pipeline Create(VulkanContext context, in PipelineDescription description)
+    public static LivePipeline Create(VulkanContext context, in PipelineDescription description)
+    {
+        var handle = Build(context, description);
+        if (context.LivePipelines is not { } live)
+        {
+            return new LivePipeline(context, handle, null, []);
+        }
+
+        var kept = Keep(description);
+        string? fragment = description.FragmentCode is { } code ? code.Name : description.FragmentShader;
+        string[] shaders = fragment is null ? [description.VertexShader] : [description.VertexShader, fragment];
+        var pipeline = new LivePipeline(context, handle, () => Build(context, kept.Restore()), shaders);
+        live.Add(pipeline);
+        return pipeline;
+    }
+
+    // The description's spans don't outlive the call, so what they hold is copied for the next build.
+    private static KeptDescription Keep(in PipelineDescription description) => new()
+    {
+        VertexShader = description.VertexShader,
+        FragmentShader = description.FragmentShader,
+        FragmentCode = description.FragmentCode,
+        Layout = description.Layout,
+        ColorFormats = description.ColorFormats.ToArray(),
+        DepthFormat = description.DepthFormat,
+        VertexBindings = description.VertexBindings.ToArray(),
+        VertexAttributes = description.VertexAttributes.ToArray(),
+        Blends = description.Blends.ToArray(),
+        TwoSided = description.TwoSided,
+        Transparent = description.Transparent,
+        IgnoreDepth = description.IgnoreDepth,
+        CullMode = description.CullMode,
+        ViewMask = description.ViewMask,
+        Samples = description.Samples,
+        Conservative = description.Conservative,
+        Solid = description.Solid,
+        DepthDrawn = description.DepthDrawn,
+    };
+
+    /// <summary>A <see cref="PipelineDescription"/> that can be kept, to build its pipeline again.</summary>
+    private sealed class KeptDescription
+    {
+        public required string VertexShader;
+        public string? FragmentShader;
+        public (byte[] Bytes, string? Name)? FragmentCode;
+        public PipelineLayout Layout;
+        public required Format[] ColorFormats;
+        public Format DepthFormat;
+        public required VertexInputBindingDescription[] VertexBindings;
+        public required VertexInputAttributeDescription[] VertexAttributes;
+        public required PipelineColorBlendAttachmentState[] Blends;
+        public bool TwoSided;
+        public bool Transparent;
+        public bool IgnoreDepth;
+        public CullModeFlags? CullMode;
+        public uint ViewMask;
+        public SampleCountFlags Samples;
+        public bool Conservative;
+        public bool Solid;
+        public bool DepthDrawn;
+
+        /// <summary>The description again. Code that has a file is read from it as it is now.</summary>
+        public PipelineDescription Restore() => new()
+        {
+            VertexShader = VertexShader,
+            FragmentShader = FragmentShader,
+            FragmentCode = FragmentCode is (_, { } name) ? (ReadShader(name), name) : FragmentCode,
+            Layout = Layout,
+            ColorFormats = ColorFormats,
+            DepthFormat = DepthFormat,
+            VertexBindings = VertexBindings,
+            VertexAttributes = VertexAttributes,
+            Blends = Blends,
+            TwoSided = TwoSided,
+            Transparent = Transparent,
+            IgnoreDepth = IgnoreDepth,
+            CullMode = CullMode,
+            ViewMask = ViewMask,
+            Samples = Samples,
+            Conservative = Conservative,
+            Solid = Solid,
+            DepthDrawn = DepthDrawn,
+        };
+    }
+
+    /// <summary>
+    /// Builds every pipeline that uses one of these shaders again, from the compiled files as they are now, and
+    /// returns how many it built. Names are as shaders are named, such as <c>lighting.frag</c>. Waits for the GPU
+    /// to finish with the old pipelines, so call it between frames. Does nothing without
+    /// <see cref="RendererOptions.LiveShaders"/>.
+    /// </summary>
+    public static int Reload(VulkanContext context, IReadOnlySet<string> changed)
+    {
+        if (context.LivePipelines is not { } live)
+        {
+            return 0;
+        }
+
+        // A build that throws leaves that pipeline and the ones after it as they were, and the ones before it new.
+        var old = new List<Pipeline>();
+        try
+        {
+            foreach (var pipeline in live)
+            {
+                if (pipeline.Uses(changed))
+                {
+                    old.Add(pipeline.Rebuild());
+                }
+            }
+        }
+        finally
+        {
+            if (old.Count > 0)
+            {
+                context.Api.DeviceWaitIdle(context.Device).Check();
+                foreach (var pipeline in old)
+                {
+                    context.Api.DestroyPipeline(context.Device, pipeline, null);
+                }
+            }
+        }
+
+        return old.Count;
+    }
+
+    private static Pipeline Build(VulkanContext context, in PipelineDescription description)
     {
         var api = context.Api;
         var vertexModule = LoadShader(context, description.VertexShader);
         ShaderModule fragmentModule = default;
         if (description.FragmentCode is { } code)
         {
-            fragmentModule = CreateModule(context, code);
+            fragmentModule = CreateModule(context, code.Bytes);
         }
         else if (description.FragmentShader is { } fragmentShader)
         {
@@ -249,7 +407,20 @@ internal static unsafe class PipelineFactory
         return pipeline;
     }
 
-    public static Pipeline CreateCompute(VulkanContext context, string shader, PipelineLayout layout)
+    public static LivePipeline CreateCompute(VulkanContext context, string shader, PipelineLayout layout)
+    {
+        var handle = BuildCompute(context, shader, layout);
+        if (context.LivePipelines is not { } live)
+        {
+            return new LivePipeline(context, handle, null, []);
+        }
+
+        var pipeline = new LivePipeline(context, handle, () => BuildCompute(context, shader, layout), [shader]);
+        live.Add(pipeline);
+        return pipeline;
+    }
+
+    private static Pipeline BuildCompute(VulkanContext context, string shader, PipelineLayout layout)
     {
         var api = context.Api;
         var module = LoadShader(context, shader);
@@ -274,8 +445,10 @@ internal static unsafe class PipelineFactory
         return pipeline;
     }
 
-    private static ShaderModule LoadShader(VulkanContext context, string name) =>
-        CreateModule(context, File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "shaders", name + ".spv")));
+    private static ShaderModule LoadShader(VulkanContext context, string name) => CreateModule(context, ReadShader(name));
+
+    private static byte[] ReadShader(string name) =>
+        File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "shaders", name + ".spv"));
 
     private static ShaderModule CreateModule(VulkanContext context, byte[] code)
     {

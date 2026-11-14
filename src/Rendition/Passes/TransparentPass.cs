@@ -353,8 +353,8 @@ internal sealed unsafe class TransparentPass : IDisposable
     public void Dispose()
     {
         var api = _context.Api;
-        api.DestroyPipeline(_context.Device, _pipelines[0].TwoSided, null);
-        api.DestroyPipeline(_context.Device, _pipelines[0].Culled, null);
+        _pipelines[0].TwoSided.Destroy();
+        _pipelines[0].Culled.Destroy();
         api.DestroyPipelineLayout(_context.Device, _layout, null);
         api.DestroyDescriptorPool(_context.Device, _pool, null);
         api.DestroyDescriptorSetLayout(_context.Device, _environmentLayout, null);

@@ -33,7 +33,7 @@ internal sealed unsafe class ReflectionProbes : IDisposable
     private readonly DescriptorPool _pool;
     private readonly DescriptorSet _set;
     private readonly PipelineLayout _pipelineLayout;
-    private readonly Pipeline _pipeline;
+    private readonly LivePipeline _pipeline;
     private readonly GpuReflectionProbe[] _probes = new GpuReflectionProbe[FrameUniforms.MaxProbes];
 
     public readonly ImageView View;
@@ -151,7 +151,7 @@ internal sealed unsafe class ReflectionProbes : IDisposable
     public void Dispose()
     {
         var api = _context.Api;
-        api.DestroyPipeline(_context.Device, _pipeline, null);
+        _pipeline.Destroy();
         api.DestroyPipelineLayout(_context.Device, _pipelineLayout, null);
         api.DestroyDescriptorPool(_context.Device, _pool, null);
         api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);

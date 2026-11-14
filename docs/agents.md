@@ -19,7 +19,7 @@ GPU, so they run anywhere, including CI and sandboxes:
 dotnet test -c Release
 ```
 
-A failing [invariant](testing.md#invariants) says which seed and tick broke the rule, and
+Mark the few slow tests and [leave them out](testing.md#a-fast-run) while you work. A failing [invariant](testing.md#invariants) says which seed and tick broke the rule, and
 which options take you back there.
 
 **3. Look at it.** Render the exact moment as a picture or a video, through the real
@@ -31,7 +31,9 @@ dotnet run -c Release --project MyGame -- --seed 7 --ticks 300 --record shots/af
 ```
 
 The same seed and ticks give the same picture, so a before and after compare like for
-like. To see hover states, tooltips or a drag in progress, play an
+like. For several shots of one build, build once and
+[start the program itself](command-line.md#screenshots), which skips the seconds `dotnet run`
+spends checking every project. To see hover states, tooltips or a drag in progress, play an
 [input script](command-line.md#scripted-input) first:
 
 ```

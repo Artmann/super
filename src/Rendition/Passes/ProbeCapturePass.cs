@@ -46,7 +46,7 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
     private readonly DescriptorPool _pool;
     private readonly DescriptorSet _set;
     private readonly PipelineLayout _layout;
-    private readonly Pipeline _pipeline;
+    private readonly LivePipeline? _pipeline;
     private readonly List<PipelineVariants> _pipelines = [];
     private readonly List<DrawBatch> _batches = [];
 
@@ -289,10 +289,7 @@ internal sealed unsafe class ProbeCapturePass : IDisposable
     public void Dispose()
     {
         var api = _context.Api;
-        if (_pipeline.Handle != 0)
-        {
-            api.DestroyPipeline(_context.Device, _pipeline, null);
-        }
+        _pipeline?.Destroy();
 
         api.DestroyPipelineLayout(_context.Device, _layout, null);
         api.DestroyDescriptorPool(_context.Device, _pool, null);
