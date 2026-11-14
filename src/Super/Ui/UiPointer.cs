@@ -25,16 +25,11 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     private int _uiHeld;
     private int _gameHeld;
 
-    private UiNode? _pressed;
-    private Action? _pressedClick;
-    private UiNode? _dragSource;
-    private object? _payload;
-    private UiView? _preview;
-    private MouseButton _dragButton;
-    private Vector2 _pressedAt;
-    private bool _dragging;
-    private UiNode? _thumb;
-    private float _thumbGrab;
+    // Two gestures that can overlap: the left button holding something, and a drag on any
+    // button, so a right drag can run while a left click stays held elsewhere. Each is one
+    // value. See "Lifecycle state in engine code" in docs/design.md.
+    private Hold? _hold;
+    private Drag? _drag;
 
     private UiNode? _look;
     private PressState _lookState;
@@ -109,7 +104,7 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     /// <summary>Draws the drag preview and the tooltip, above everything.</summary>
     public void ShowOverlays()
     {
-        var preview = _dragging ? _preview : null;
+        var preview = (_drag as MovingDrag)?.Preview;
         bool showTip = _tip is not null && !_tipHidden && _uiHeld == 0 && _tipAge >= _tooltipTicks;
         tree.ShowOverlays(preview, showTip ? ((TooltipModifier)_tip!.View).Content : null, _position);
     }
@@ -145,16 +140,16 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
 
     private static UiNode? Clickable(UiNode? node) => Find<ClickModifier>(node) is { View: ClickModifier { Disabled: false } } found ? found : null;
 
-    private UiNode? DropTargetUnder(UiNode? node)
+    private static UiNode? DropTargetUnder(UiNode? node, Drag drag)
     {
-        if (Inside(node, _dragSource!))
+        if (Inside(node, drag.Source))
         {
             return null;
         }
 
         for (; node is not null; node = node.Parent)
         {
-            if (node.View is DropModifier target && target.Accepts(_payload!))
+            if (node.View is DropModifier target && target.Accepts(drag.Payload))
             {
                 return node;
             }
@@ -167,19 +162,24 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     {
         _position = position;
         _inWindow = true;
-        if (_thumb is { View: ScrollView bar })
+        if (_hold is ThumbHold { Bar: { View: ScrollView bar } thumb } held)
         {
-            ScrollTo(_thumb, bar.OffsetFor(_thumb, position, _thumbGrab));
+            ScrollTo(thumb, bar.OffsetFor(thumb, position, held.Grab));
         }
-        else if (_dragSource is not null && !_dragging && Vector2.Distance(position, _pressedAt) >= DragThreshold)
+        else if (_drag is ArmedDrag armed && Vector2.Distance(position, armed.From) >= DragThreshold)
         {
-            _dragging = true;
+            StartMoving(armed);
+        }
+    }
 
-            // The drag's own press stops being a click. A left click held while another button drags is kept.
-            if (_dragButton == MouseButton.Left)
-            {
-                _pressed = null;
-            }
+    private void StartMoving(ArmedDrag armed)
+    {
+        _drag = new MovingDrag(armed.Source, armed.Payload, armed.Preview, armed.Button);
+
+        // The drag's own press stops being a click. A left click held while another button drags is kept.
+        if (armed.Button == MouseButton.Left)
+        {
+            _hold = null;
         }
     }
 
@@ -198,34 +198,34 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
         _tipHidden = true;
 
         // One drag at a time: other buttons pressed while it's held do nothing.
-        if (_dragSource is not null)
+        if (_drag is not null)
         {
             return;
         }
 
         if (button == MouseButton.Left && hit.View is ScrollView bar && bar.InBar(hit, _position.X, _position.Y))
         {
-            _thumb = hit;
-            _thumbGrab = bar.Grab(hit, _position);
-            ScrollTo(hit, bar.OffsetFor(hit, _position, _thumbGrab));
+            var thumb = new ThumbHold(hit, bar.Grab(hit, _position));
+            _hold = thumb;
+            ScrollTo(hit, bar.OffsetFor(hit, _position, thumb.Grab));
             return;
         }
 
         // What's under the cursor now is what counts, whatever the tree turns into while it's held.
-        _pressedAt = _position;
         if (button == MouseButton.Left)
         {
-            _pressed = Clickable(hit);
-            _pressedClick = (_pressed?.View as ClickModifier)?.Click;
+            _hold = Clickable(hit) is { View: ClickModifier clickable } node ? new ClickHold(node, clickable.Click) : null;
         }
 
-        // What a drag carries is settled at the press, by the button and the keys held then.
+        ArmDrag(hit, button);
+    }
+
+    /// <summary>What a drag carries is settled at the press, by the button and the keys held then.</summary>
+    private void ArmDrag(UiNode hit, MouseButton button)
+    {
         if (Find<DragModifier>(hit) is { View: DragModifier drag } source && drag.Grab(Start(button)) is { } payload)
         {
-            _dragSource = source;
-            _payload = payload;
-            _preview = drag.Preview(payload);
-            _dragButton = button;
+            _drag = new ArmedDrag(source, payload, drag.Preview(payload), button, _position);
         }
     }
 
@@ -253,36 +253,28 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     {
         ForgetUnmounted();
         var hit = Hit();
-        bool endsDrag = _dragSource is not null && button == _dragButton;
-        if (endsDrag && _dragging && DropTargetUnder(hit) is { View: DropModifier target })
+        var ending = _drag?.Button == button ? _drag : null;
+        if (ending is MovingDrag moving && DropTargetUnder(hit, moving) is { View: DropModifier target })
         {
-            object payload = _payload!;
+            object payload = moving.Payload;
             _callbacks.Add(() => target.Drop(payload));
         }
-        else if (button == MouseButton.Left && _pressed is { View: ClickModifier { Disabled: false } } && _pressedClick is { } click && Inside(hit, _pressed))
+        else if (button == MouseButton.Left
+            && _hold is ClickHold { Node: { View: ClickModifier { Disabled: false } } node, Click: { } click }
+            && Inside(hit, node))
         {
             _callbacks.Add(click);
         }
 
         if (button == MouseButton.Left)
         {
-            _pressed = null;
-            _pressedClick = null;
-            _thumb = null;
+            _hold = null;
         }
 
-        if (endsDrag)
+        if (ending is not null)
         {
-            EndDrag();
+            _drag = null;
         }
-    }
-
-    private void EndDrag()
-    {
-        _dragSource = null;
-        _payload = null;
-        _preview = null;
-        _dragging = false;
     }
 
     private void Wheel(float notches)
@@ -330,20 +322,15 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
 
     private void ForgetUnmounted()
     {
-        if (_pressed is { Mounted: false })
+        if (_hold is ClickHold { Node.Mounted: false } or ThumbHold { Bar.Mounted: false })
         {
-            _pressed = null;
+            _hold = null;
         }
 
         // What it carried may be gone too, so a drag doesn't outlive where it came from.
-        if (_dragSource is { Mounted: false })
+        if (_drag is { Source.Mounted: false })
         {
-            EndDrag();
-        }
-
-        if (_thumb is { Mounted: false })
-        {
-            _thumb = null;
+            _drag = null;
         }
     }
 
@@ -351,14 +338,14 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     {
         UiNode? look = null;
         bool pressed = false;
-        if (_dragging)
+        if (_drag is MovingDrag moving)
         {
-            look = DropTargetUnder(hit) is null ? null : Clickable(hit);
+            look = DropTargetUnder(hit, moving) is null ? null : Clickable(hit);
         }
-        else if (_pressed is not null)
+        else if (_hold is ClickHold held)
         {
-            pressed = Inside(hit, _pressed);
-            look = pressed ? _pressed : null;
+            pressed = Inside(hit, held.Node);
+            look = pressed ? held.Node : null;
         }
         else if ((_uiHeld & Left) == 0)
         {
@@ -388,7 +375,7 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
 
     private bool RefreshBar(UiNode? hit)
     {
-        var lit = _thumb;
+        var lit = (_hold as ThumbHold)?.Bar;
         if (lit is null && (_uiHeld & Left) == 0 && hit?.View is ScrollView bar && bar.InBar(hit, _position.X, _position.Y))
         {
             lit = hit;
@@ -417,4 +404,24 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
             _tipHidden = false;
         }
     }
+
+    /// <summary>What the left button is holding in the interface.</summary>
+    private abstract record Hold;
+
+    /// <summary>A press on something clickable. Its click is kept from the press, so it stays with what was pressed.</summary>
+    private sealed record ClickHold(UiNode Node, Action? Click) : Hold;
+
+    /// <summary>A scroll bar's thumb, held this far from its top.</summary>
+    private sealed record ThumbHold(UiNode Bar, float Grab) : Hold;
+
+    /// <summary>A drag, carrying what its source handed over at the press.</summary>
+    private abstract record Drag(UiNode Source, object Payload, UiView? Preview, MouseButton Button);
+
+    /// <summary>Pressed on a source, but not yet moved far enough from <paramref name="From"/> to stop being a click.</summary>
+    private sealed record ArmedDrag(UiNode Source, object Payload, UiView? Preview, MouseButton Button, Vector2 From)
+        : Drag(Source, Payload, Preview, Button);
+
+    /// <summary>Moving: the preview follows the cursor and a release over a target drops.</summary>
+    private sealed record MovingDrag(UiNode Source, object Payload, UiView? Preview, MouseButton Button)
+        : Drag(Source, Payload, Preview, Button);
 }

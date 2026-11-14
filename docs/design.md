@@ -100,7 +100,12 @@ only public one. Engine code uses one of two shapes instead:
 - States that carry data are a small closed set of types, such as a sealed record for each,
   matched with `switch` patterns, so each state holds exactly what it needs. This allocates
   on each change, which is fine for things that change a few times a second at most, such
-  as a click or a new bake.
+  as a click or a new bake. `UiPointer` holds its gestures this way.
+
+When two lifecycles can overlap, each gets its own field instead of one state for every
+combination. `UiPointer` keeps what the left button holds (a click or a scroll bar's thumb)
+apart from a drag, which can be on any button, so a right drag can run while a left click
+stays held on something else.
 
 Each change of state is one assignment, in a method named for the change. Code that runs per
 sample or per draw keeps an enum on the object and decides once per block, not per item.
