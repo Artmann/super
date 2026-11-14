@@ -281,7 +281,6 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     internal bool BakedProbeBand { get; set; } = true;
 
-    private bool _historyReady;
     private Matrix4x4 _previousViewProjection;
     // Last frame's time and where its keyed draws stood, for motion vectors.
     private float _previousTime;
@@ -316,13 +315,11 @@ public sealed unsafe class Renderer : IDisposable
     // Whether the frame being recorded draws the volumetric fog.
     private bool _volumetricDrawn;
 
-    // Moving between pictures: what the frame asks for, which hold the held picture
-    // belongs to, and whether the held picture and the last finished frame exist yet.
+    // Moving between pictures: what the frame asks for, and which hold the held picture belongs to.
+    // Whether the held picture and the last finished frame exist yet is on the targets.
     private TransitionConstants _transition;
     private int _transitionHold;
     private int _heldNumber;
-    private bool _heldReady;
-    private bool _ldrReady;
 
     /// <summary>Vulkan validation messages so far. Always zero when validation is off.</summary>
     public int ValidationErrors => _context.ValidationErrors;
@@ -3483,12 +3480,9 @@ public sealed unsafe class Renderer : IDisposable
         _uploads.Flush();
         BakeSky(view);
 
-        // The passes are bound to the screen's targets, so small ones stand in for a while. Rebinding
-        // them forgets the held transition picture, so that is put back after.
+        // The passes are bound to the screen's targets, so small ones stand in for a while. Each set
+        // keeps what its own images hold, so the screen's history and held picture survive this.
         var screenTargets = _gBuffer;
-        bool heldReady = _heldReady;
-        bool ldrReady = _ldrReady;
-        bool historyReady = _historyReady;
         var screenOff = _off;
         _reflectionProbeTargets ??= new GBuffer(_context, new Extent2D(ReflectionProbes.FaceSize, ReflectionProbes.FaceSize));
         _gBuffer = _reflectionProbeTargets;
@@ -3497,9 +3491,7 @@ public sealed unsafe class Renderer : IDisposable
         // The picture follows the view's switches, which Render hasn't applied yet this frame.
         _off = view.Off & RenderEffects.All;
 
-        // The probe's targets have no history, so RecordScene readies an empty one each face.
-        // The screen's history is kept, and so is the flag, which the finally puts back.
-        _historyReady = false;
+        // The probe's targets never copy a history, so RecordScene readies an empty one each face.
         try
         {
             var faceView = view;
@@ -3511,9 +3503,6 @@ public sealed unsafe class Renderer : IDisposable
             _off = screenOff;
             _gBuffer = screenTargets;
             WriteTargetDescriptors();
-            _heldReady = heldReady;
-            _ldrReady = ldrReady;
-            _historyReady = historyReady;
         }
     }
 
@@ -3983,14 +3972,14 @@ public sealed unsafe class Renderer : IDisposable
         int jitterPhases = _upscaling ? Upscale.JitterPhaseCount((float)_gBuffer.Extent.Width / _gBuffer.Display.Width) : JitterSteps;
         var jitter = Upscale.Jitter(_frameNumber, jitterPhases);
         var shift = antiAliased ? jitter * 2f / scenePixels : Vector2.Zero;
-        var previous = _historyReady ? _previousViewProjection : viewProjection;
+        var previous = _gBuffer.HistoryReady ? _previousViewProjection : viewProjection;
         if (_upscaling)
         {
             float milliseconds = (view.Time - _previousTime) * 1000f;
             _fsrFrame = new FsrFrame(
                 jitter,
-                _historyReady && milliseconds > 0f ? milliseconds : 1000f / 60f,
-                Reset: !_historyReady,
+                _gBuffer.HistoryReady && milliseconds > 0f ? milliseconds : 1000f / 60f,
+                Reset: !_gBuffer.HistoryReady,
                 CameraNear(view.Projection),
                 VerticalFov(view.Projection));
         }
@@ -4005,10 +3994,10 @@ public sealed unsafe class Renderer : IDisposable
 
         int casters = DrawSelection.Bounds(draws, _details, _casterBounds, _windReach);
         bool castsShadow = WriteUniforms(
-            frame, view, previous, shift, _frameNumber, _historyReady, capturingProbe: false, _casterBounds.AsSpan(0, casters));
+            frame, view, previous, shift, _frameNumber, _gBuffer.HistoryReady, capturingProbe: false, _casterBounds.AsSpan(0, casters));
         _uniformFrame = _frameIndex;
         WriteBones(frame, view.Bones);
-        _motion.Begin(draws, view.Bones, _historyReady,
+        _motion.Begin(draws, view.Bones, _gBuffer.HistoryReady,
             new Span<Matrix4x4>((Matrix4x4*)frame.Bones.Mapped + view.Bones.Length, 2 * MaxBones - view.Bones.Length));
         _previousViewProjection = viewProjection;
         _previousTime = view.Time;
@@ -4413,9 +4402,9 @@ public sealed unsafe class Renderer : IDisposable
         var swapchainImage = _swapchain.Images[imageIndex];
 
         // Ldr still holds the last frame, so it's kept before this frame draws over it.
-        if (_transitionHold != _heldNumber || !_heldReady)
+        if (_transitionHold != _heldNumber || !targets.HeldReady)
         {
-            RecordHold(cmd, targets, copyLastFrame: _transitionHold != _heldNumber && _ldrReady);
+            RecordHold(cmd, targets, copyLastFrame: _transitionHold != _heldNumber && targets.LdrReady);
             _heldNumber = _transitionHold;
         }
 
@@ -4444,7 +4433,7 @@ public sealed unsafe class Renderer : IDisposable
         }
         else
         {
-            _historyReady = false;
+            targets.HistoryReady = false;
         }
 
         _gpuTimer.Mark(cmd);
@@ -4492,7 +4481,7 @@ public sealed unsafe class Renderer : IDisposable
         transition.Style.Z = extent.Width != window.Width || extent.Height != window.Height ? 1f : 0f;
         _finishPass.Record(cmd, _swapchain.Views[imageIndex], window, finishSets,
             new ReadOnlySpan<byte>(&transition, (int)TransitionConstants.Size));
-        _ldrReady = true;
+        _gBuffer.LdrReady = true;
         _gpuTimer.Mark(cmd);
 
         if (overlayQuads > 0)
@@ -4555,7 +4544,7 @@ public sealed unsafe class Renderer : IDisposable
             ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
             PipelineStageFlags2.CopyBit | PipelineStageFlags2.ClearBit, AccessFlags2.TransferWriteBit,
             SampledStage, SampledAccess);
-        _heldReady = true;
+        targets.HeldReady = true;
     }
 
     /// <summary>
@@ -4597,7 +4586,7 @@ public sealed unsafe class Renderer : IDisposable
         _api.Transition(cmd, frame, ImageAspectFlags.ColorBit,
             ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal,
             PipelineStageFlags2.CopyBit, AccessFlags2.TransferReadBit, SampledStage, SampledAccess);
-        _historyReady = true;
+        _gBuffer.HistoryReady = true;
     }
 
     /// <summary>
@@ -4631,8 +4620,8 @@ public sealed unsafe class Renderer : IDisposable
         var extent = targets.Extent;
 
         // The lighting pass binds history even before there is any. Probe captures have their
-        // own small targets, whose history is never drawn, so they clear the flag while they run.
-        if (!_historyReady)
+        // own small targets, whose history is never drawn.
+        if (!targets.HistoryReady)
         {
             _api.Transition(cmd, targets.History.Image, ImageAspectFlags.ColorBit,
                 ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
@@ -4881,7 +4870,7 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     private void RecordReflections(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet)
     {
-        if (!_historyReady || (_off & (RenderEffects.Reflections | RenderEffects.Specular)) != 0)
+        if (!targets.HistoryReady || (_off &(RenderEffects.Reflections | RenderEffects.Specular)) != 0)
         {
             _api.Transition(cmd, targets.Traced.Image, ImageAspectFlags.ColorBit,
                 ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal, SampledStage, SampledAccess, SampledStage, SampledAccess);
@@ -5351,7 +5340,6 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         WriteTargetDescriptors();
-        _historyReady = false;
     }
 
     /// <summary>The scene's size for a window this size, at the render scale.</summary>
@@ -5699,10 +5687,6 @@ public sealed unsafe class Renderer : IDisposable
         {
             WriteVolumetricDescriptor(frame);
         }
-
-        // New targets start empty, so neither a held picture nor a last frame survives them.
-        _heldReady = false;
-        _ldrReady = false;
     }
 
     private void WriteImages(DescriptorSet set, ReadOnlySpan<DescriptorImageInfo> images)

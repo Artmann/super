@@ -1013,10 +1013,11 @@ so they follow the scene size with no code of their own. When the scale changes,
 frame waits for the device to go idle once and rebuilds the targets (`RebuildTargets`), the
 same way a window resize does, and history starts again. Probes have their own small
 G-buffers, and `RenderScale` isn't part of `FrameView`, so it never changes the lighting
-hash or photographs a probe again. A probe's history image is never drawn, but the lighting
-pass still binds it, so both kinds of capture clear `_historyReady` while they run. Each face
-then moves that image out of `Undefined` before it is read, and the flag goes back to the
-screen's value afterwards, in a `finally` that also puts back the screen's targets.
+hash or photographs a probe again. Each `GBuffer` keeps what its own images hold
+(`HistoryReady`, `HeldReady`, `LdrReady`), and a new one starts with none of them. A probe's
+history image is never drawn, but the lighting pass still binds it, so each face moves that
+image out of `Undefined` before it is read. The screen's flags are untouched while a probe's
+targets stand in, so a `finally` only has to put the screen's targets back.
 
 When the scene and window sizes differ, the renderer sets `TransitionConstants.Style.z` to
 1, and `finish.frag` reads its centre sample with a Catmull-Rom filter (`catmullRom` in

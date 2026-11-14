@@ -1991,7 +1991,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteTargetDescriptors",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 97
+      "metric": 93
     },
     {
       "kind": "long-method",
@@ -3479,7 +3479,7 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5730
+      "metric": 5714
     },
     {
       "kind": "large-file",
@@ -3641,7 +3641,7 @@
       "kind": "large-type",
       "name": "Rendition.Passes.GBuffer",
       "file": "src/Rendition/Passes/GBuffer.cs",
-      "metric": 30
+      "metric": 33
     },
     {
       "kind": "large-type",
@@ -3671,7 +3671,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 381
+      "metric": 378
     },
     {
       "kind": "large-type",
