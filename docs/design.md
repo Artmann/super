@@ -1766,8 +1766,15 @@ front of the camera count as nearer (×0.75). Among clean probes the oldest goes
 distance only breaks ties, so no probe waits longer than about probes ÷ budget frames, or
 probes ÷ `refreshBudget` once settled and past the bounce window below. Ties end in the lowest cascade and slot, so the same calls
 always give the same batches. `Frame` counts the
-calls to `Next`, and ages are in frames, never seconds. The pass over all probes keeps the best
-`budget` in a binary heap rather than sorting, so a frame at High (65,536 probes) costs one scan.
+calls to `Next`, and ages are in frames, never seconds. `Next` doesn't scan every probe. The probes
+that aren't clean are kept in a list, added to as `Scrolled`, `LightChanged` and `EverythingChanged`
+change them and dropped from once they are captured, and `Next` keeps the best `budget` of them in a
+binary heap. Clean probes are found through a queue of captures in the order `Updated` made them, so
+the oldest are at its front: `Next` reads whole frames of captures from the front until it has
+enough to fill what is left of the budget, sorts those, and takes the best. A capture whose probe
+has been captured again since, or is no longer clean, is skipped, and the queue is packed down when
+it fills. A settled frame at High (65,536 probes) so looks at about a budget of probes, not all of
+them.
 `Settled` means cascades 0 and 1 and the fixed grid are all captured and clean. It reads a count of
 probes that aren't clean, kept per cascade as probes change state, so reading it every frame scans
 nothing. `LightChanged` doesn't scan every probe either: per axis it works out the cells of each
@@ -1817,8 +1824,9 @@ the whole budget for good would reach 90% after about 1,600 and 95% after about 
 dropping to the quarter at once took about 540 frames for half and 2,100 for 80%. Scenes
 whose near probes never settle keep the whole budget: Crypt's flickering torches dirty probes
 every frame (0.90 ms), and Gallery's camera tour keeps bringing in new ones (0.42 ms). On the
-CPU, `Next` scans every probe each frame whatever the budget, which `--profile` puts at about 1 ms
-a frame at High in Rooms and Bricks.
+CPU, `Next` used to scan every probe each frame whatever the budget, which `--profile` put at about
+1 ms a frame at High. Reading only the waiting probes and the oldest captures took the Courtyard's
+CPU time from 1.6 to 0.7 ms a frame, and left `Next` under 1% of the game thread's samples.
 
 `ProbeDebugPass` draws `DebugView.Probes`. Only a frame's `RecordScene` runs it (never a
 reflection probe's capture), after the transparent pass and only while `_lightProbesInUse`, so with

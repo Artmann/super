@@ -43,11 +43,12 @@ internal readonly record struct ProbeId(int Cascade, int Slot);
 /// two updates of any probe to about (probes / budget) frames, or (probes / refreshBudget) once settled and the
 /// bounce has had <see cref="BounceRefreshes"/> refreshes; distance only breaks ties.
 ///
-/// <see cref="Next"/> is one pass over every probe that keeps the best <c>budget</c> in a small
-/// binary heap, so it costs O(probes + budget log budget) with no sort of all probes. Once its
-/// buffers have grown to the budget, nothing on the per-frame path allocates: <see cref="Next"/>
-/// hands back the same list each call, and <see cref="Settled"/> reads counts kept as probes change
-/// state rather than scanning them.
+/// <see cref="Next"/> never looks at every probe. The probes that aren't clean are kept in a list as they change
+/// state, and the best <c>budget</c> of them in a small binary heap. Clean probes are found through a queue of
+/// captures in the order they were made, so the oldest are at its front and only about a budget of them are read. A
+/// settled scene so costs O(budget log budget) a frame however many probes there are. Once its buffers have grown,
+/// nothing on the per-frame path allocates: <see cref="Next"/> hands back the same list each call, and
+/// <see cref="Settled"/> reads counts kept as probes change state rather than scanning them.
 /// </summary>
 internal sealed class ProbeScheduler
 {
@@ -64,12 +65,6 @@ internal sealed class ProbeScheduler
     private const byte NeverCaptured = 0;
     private const byte Dirty = 1;
     private const byte Clean = 2;
-
-    // Squared distances are scaled by (1 + cascade / 2) squared, so a finer cascade beats a coarser
-    // one at the same distance, and by 0.75 squared for a probe in front of the camera. The fixed grid
-    // wins inside its box, so it counts as the finest.
-    private static readonly float[] CascadeScale = { 1f, 2.25f, 4f, 6.25f, 1f };
-    private const float FrontScale = 0.5625f;
 
     private readonly ProbeCascades _cascades;
 
@@ -94,9 +89,17 @@ internal sealed class ProbeScheduler
     private float _gridSpacing;
 
     // The best dirty probes of the fine groups, and the best of all the rest, each kept to the budget.
-    private Candidate[] _nearHeap = Array.Empty<Candidate>();
-    private Candidate[] _heap = Array.Empty<Candidate>();
+    private ProbeCandidate[] _nearHeap = Array.Empty<ProbeCandidate>();
+    private ProbeCandidate[] _heap = Array.Empty<ProbeCandidate>();
     private readonly List<ProbeId> _batch = [];
+
+    // The probes that aren't clean, each once: _listed says which are in it. A probe stays listed after it is
+    // captured until the next Next, which drops it.
+    private readonly List<ProbeId> _unsettled = [];
+    private readonly bool[]?[] _listed = new bool[]?[FixedGrid + 1];
+
+    // Every capture in the order they were made, so the oldest clean probes are at the front.
+    private readonly ProbeCaptureQueue _captures;
 
     public ProbeScheduler(ProbeCascades cascades, int fixedGridProbes)
     {
@@ -104,6 +107,7 @@ internal sealed class ProbeScheduler
         ArgumentOutOfRangeException.ThrowIfNegative(fixedGridProbes);
 
         _cascades = cascades;
+        _captures = new ProbeCaptureQueue(_state, _updated, _position, Clean);
         AllocateGroup(FixedGrid, fixedGridProbes);
     }
 
@@ -200,6 +204,7 @@ internal sealed class ProbeScheduler
                 }
 
                 state[slot] = NeverCaptured;
+                List(c, slot);
                 updated[slot] = 0;
                 position[slot] = _cascades.Position(c, slot);
             }
@@ -277,6 +282,7 @@ internal sealed class ProbeScheduler
         if (state[slot] == Clean && Vector3.DistanceSquared(_position[group]![slot], center) <= range * range)
         {
             state[slot] = Dirty;
+            List(group, slot);
             _pending[group]++;
         }
     }
@@ -306,6 +312,7 @@ internal sealed class ProbeScheduler
                 if (state[slot] == Clean)
                 {
                     state[slot] = Dirty;
+                    List(group, slot);
                     _pending[group]++;
                 }
             }
@@ -348,53 +355,22 @@ internal sealed class ProbeScheduler
 
         if (_heap.Length < budget)
         {
-            _heap = new Candidate[budget];
-            _nearHeap = new Candidate[budget];
+            _heap = new ProbeCandidate[budget];
+            _nearHeap = new ProbeCandidate[budget];
         }
 
         int nearSize = 0;
         int size = 0;
-        bool facing = forward != Vector3.Zero;
+        OfferUnsettled(budget, camera, forward, ref nearSize, ref size);
 
-        for (int group = 0; group <= FixedGrid; group++)
+        // Clean probes come after every other, so they only fill what the rest leaves of the budget.
+        int room = budget - size;
+        if (Settled && bounced)
         {
-            var state = _state[group];
-            if (state == null)
-            {
-                continue;
-            }
-
-            var updated = _updated[group]!;
-            var position = _position[group]!;
-            float scale = CascadeScale[group];
-            bool fine = group <= 1 || group == FixedGrid;
-
-            for (int slot = 0; slot < state.Length; slot++)
-            {
-                var offset = position[slot] - camera;
-                float distance = offset.LengthSquared() * scale;
-                if (facing && Vector3.Dot(offset, forward) > 0f)
-                {
-                    distance *= FrontScale;
-                }
-
-                var candidate = new Candidate(
-                    state[slot],
-                    state[slot] == Clean ? Frame - updated[slot] : 0,
-                    distance,
-                    group,
-                    slot);
-
-                if (fine && state[slot] == Dirty)
-                {
-                    Offer(_nearHeap, ref nearSize, budget, candidate);
-                }
-                else
-                {
-                    Offer(_heap, ref size, budget, candidate);
-                }
-            }
+            room = Math.Min(room, refreshBudget);
         }
+
+        size += _captures.TakeOldest(_heap.AsSpan(size, Math.Max(room, 0)), Frame, camera, forward);
 
         // The heaps are rebuilt every call, so they can be sorted in place. The order is total, so any sort gives the
         // same result.
@@ -439,19 +415,45 @@ internal sealed class ProbeScheduler
         return _batch;
     }
 
-    // Keeps the best `budget` candidates offered so far in a heap whose root is the worst of them.
-    private static void Offer(Candidate[] heap, ref int size, int budget, in Candidate candidate)
+    // Offers every probe that isn't clean to the heaps, and forgets the ones that have been captured since they were
+    // listed.
+    private void OfferUnsettled(int budget, Vector3 camera, Vector3 forward, ref int nearSize, ref int size)
     {
-        if (size < budget)
+        int kept = 0;
+        for (int i = 0; i < _unsettled.Count; i++)
         {
-            heap[size] = candidate;
-            SiftUp(heap, size);
-            size++;
+            var id = _unsettled[i];
+            byte state = _state[id.Cascade]![id.Slot];
+            if (state == Clean)
+            {
+                _listed[id.Cascade]![id.Slot] = false;
+                continue;
+            }
+
+            _unsettled[kept++] = id;
+            float rank = ProbeCandidate.Rank(_position[id.Cascade]![id.Slot], id.Cascade, camera, forward);
+            var candidate = new ProbeCandidate(state, 0, rank, id.Cascade, id.Slot);
+            bool fine = id.Cascade <= 1 || id.Cascade == FixedGrid;
+            if (fine && state == Dirty)
+            {
+                ProbeCandidate.Offer(_nearHeap, ref nearSize, budget, candidate);
+            }
+            else
+            {
+                ProbeCandidate.Offer(_heap, ref size, budget, candidate);
+            }
         }
-        else if (candidate.Before(heap[0]))
+
+        _unsettled.RemoveRange(kept, _unsettled.Count - kept);
+    }
+
+    private void List(int group, int slot)
+    {
+        var listed = _listed[group]!;
+        if (!listed[slot])
         {
-            heap[0] = candidate;
-            SiftDown(heap, size);
+            listed[slot] = true;
+            _unsettled.Add(new ProbeId(group, slot));
         }
     }
 
@@ -468,6 +470,7 @@ internal sealed class ProbeScheduler
             }
 
             var state = _state[id.Cascade]!;
+            var updated = _updated[id.Cascade]!;
             if (state[id.Slot] != Clean)
             {
                 _pending[id.Cascade]--;
@@ -477,8 +480,14 @@ internal sealed class ProbeScheduler
                 _refreshesSinceChange++;
             }
 
+            // A probe captured twice in a frame has its capture recorded already, even if it went dirty between.
+            if (state[id.Slot] == NeverCaptured || updated[id.Slot] != Frame)
+            {
+                _captures.Record(Frame, id.Cascade, id.Slot);
+            }
+
             state[id.Slot] = Clean;
-            _updated[id.Cascade]![id.Slot] = Frame;
+            updated[id.Slot] = Frame;
         }
     }
 
@@ -507,102 +516,30 @@ internal sealed class ProbeScheduler
 
     private void AllocateGroup(int group, int count)
     {
+        // What was known about the group's old probes goes with them.
+        _unsettled.RemoveAll(id => id.Cascade == group);
+        _captures.Forget(group);
+
         // Every new probe starts never captured.
         _state[group] = new byte[count];
         _updated[group] = new long[count];
         _position[group] = new Vector3[count];
+        _listed[group] = new bool[count];
         _pending[group] = count;
-    }
 
-    // The heap's root is the worst probe kept so far, so a new probe is compared with the root only.
-    private static void SiftUp(Candidate[] heap, int index)
-    {
-        while (index > 0)
+        int probes = 0;
+        for (int g = 0; g <= FixedGrid; g++)
         {
-            int parent = (index - 1) / 2;
-            if (!heap[parent].Before(heap[index]))
-            {
-                return;
-            }
+            probes += _state[g]?.Length ?? 0;
+        }
 
-            (heap[parent], heap[index]) = (heap[index], heap[parent]);
-            index = parent;
+        _unsettled.EnsureCapacity(probes);
+        _captures.Reserve(probes * 2);
+
+        for (int slot = 0; slot < count; slot++)
+        {
+            List(group, slot);
         }
     }
 
-    private static void SiftDown(Candidate[] heap, int size)
-    {
-        int index = 0;
-        while (true)
-        {
-            int worst = index;
-            int left = index * 2 + 1;
-            int right = left + 1;
-
-            if (left < size && heap[worst].Before(heap[left]))
-            {
-                worst = left;
-            }
-
-            if (right < size && heap[worst].Before(heap[right]))
-            {
-                worst = right;
-            }
-
-            if (worst == index)
-            {
-                return;
-            }
-
-            (heap[worst], heap[index]) = (heap[index], heap[worst]);
-            index = worst;
-        }
-    }
-
-    private readonly struct Candidate(byte tier, long age, float distance, int group, int slot) : IComparable<Candidate>
-    {
-        public readonly byte Tier = tier;
-        public readonly long Age = age;
-        public readonly float Distance = distance;
-        public readonly int Group = group;
-        public readonly int Slot = slot;
-
-        // A total order, so the same probes always come out in the same order: the tier, then (for clean
-        // probes) the oldest, then the nearest, then the finest cascade, then the lowest slot.
-        public bool Before(Candidate other)
-        {
-            if (Tier != other.Tier)
-            {
-                return Tier < other.Tier;
-            }
-
-            if (Age != other.Age)
-            {
-                return Age > other.Age;
-            }
-
-            if (Distance != other.Distance)
-            {
-                return Distance < other.Distance;
-            }
-
-            if (Group != other.Group)
-            {
-                return Group < other.Group;
-            }
-
-            return Slot < other.Slot;
-        }
-
-        // Sorting by IComparable needs no comparer, so it makes no delegate; a sort given a comparer would.
-        public int CompareTo(Candidate other)
-        {
-            if (Before(other))
-            {
-                return -1;
-            }
-
-            return other.Before(this) ? 1 : 0;
-        }
-    }
 }
