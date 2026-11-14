@@ -387,7 +387,8 @@ public class WindTests
 
     private static string WindShader() =>File.ReadAllText(Path.Combine(ShaderFolder(), "wind.glsl"));
 
-    private static string ShaderFolder()
+    /// <summary>The engine's shader folder, found above the test binaries.</summary>
+    internal static string ShaderFolder()
     {
         for (var folder = new DirectoryInfo(AppContext.BaseDirectory); folder is not null; folder = folder.Parent)
         {

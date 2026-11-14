@@ -126,7 +126,8 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
         {
             byte[] lit = Capture(cube, LightMode.Mixed, baked: false);
             gpu.Renderer.Bakes = new EveryBakeFresh();
-            byte[] off = Capture(cube, LightMode.Baked, baked: true, off: RenderEffects.All);
+            // The lamp stays on, so with the bake ignored it lights the cube live, as it does unbaked.
+            byte[] off = Capture(cube, LightMode.Baked, baked: true, off: RenderEffects.All & ~RenderEffects.LocalLights);
 
             var frame = Assert.IsType<BakeFrame>(gpu.Renderer.LastBakeFrame);
             Assert.False(frame.SpaceFresh);
@@ -190,7 +191,7 @@ public sealed class NoBakeGpuTests(GpuFixture gpu)
     // baked lighting unless asked otherwise. In a chunk, the frame names no space and a chunk round the cube instead.
     private byte[] Capture(
         DrawItem cube, LightMode pointMode, bool baked, bool withPointLight = true,
-        RenderEffects off = RenderEffects.All & ~RenderEffects.BakedLighting, bool inChunk = false)
+        RenderEffects off = TestEffects.OnlyBaked, bool inChunk = false)
     {
         DirectionalLight[] suns =
         [

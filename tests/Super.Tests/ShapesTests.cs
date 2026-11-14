@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Numerics;
 using Rendition;
 using Super.Testing;
@@ -436,6 +437,25 @@ public class ShapesTests
 
         Assert.Equal("tube", problem.ParamName);
         Assert.Contains("thinner than its radius (0.5)", problem.Message);
+    }
+
+    [Fact]
+    public void Refused_shapes_write_their_sizes_the_same_in_every_culture()
+    {
+        var original = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = new CultureInfo("sv-SE");
+        try
+        {
+            var capsule = Assert.Throws<ArgumentOutOfRangeException>(() => Shapes.Capsule(0.75f, 1f));
+            var torus = Assert.Throws<ArgumentOutOfRangeException>(() => Shapes.Torus(0.25f, 0.5f));
+
+            Assert.Contains("at least twice its radius (1.5)", capsule.Message);
+            Assert.Contains("thinner than its radius (0.25)", torus.Message);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
     }
 
     [Fact]

@@ -5,13 +5,15 @@ namespace Rendition.Vulkan;
 /// <summary>
 /// Times each render pass on the GPU. The GPU writes a timestamp after each pass, and the
 /// results are read once that frame has finished, a frame or two later. Marks must come
-/// in the order of the timer's pass names.
+/// in the order of the timer's pass names. Given a <see cref="GpuWorkCounter"/>, it also has
+/// the shaders each pass runs counted at the same marks.
 /// </summary>
 internal sealed unsafe class GpuTimer : IDisposable
 {
     private const double NanosecondsPerMillisecond = 1_000_000.0;
 
-    private static readonly string[] FramePasses =
+    /// <summary>The passes of a frame, in the order the renderer marks them.</summary>
+    internal static readonly string[] FramePasses =
     [
         "Shadows", "Light probes", "Light clusters", "Volumetric fog", "G-buffer", "Ambient occlusion", "AO blur", "Reflections", "Lighting", "Subsurface", "Glass and particles",
         "Anti-aliasing", "Depth of field", "Bloom", "Tonemap", "Finish", "Overlay",
@@ -24,20 +26,21 @@ internal sealed unsafe class GpuTimer : IDisposable
     private readonly ulong[] _stamps;
     private readonly GpuPassTime[] _times;
     private readonly double _nanosecondsPerStamp;
+    private readonly GpuWorkCounter? _counter;
     private uint _nextMark;
-    private int _frame;
-    private bool _active;
+    // The frame slot being timed, or -1 outside a timed frame.
+    private int _frame = -1;
     private bool _collected;
 
-    public GpuTimer(VulkanContext context, int framesInFlight)
-        : this(context, framesInFlight, FramePasses)
+    /// <summary>
+    /// Times the frame's passes, or <paramref name="passNames"/> of its own, such as the slice of a background bake.
+    /// A <paramref name="counter"/> made for the same passes counts their shaders too, and is disposed with the timer.
+    /// </summary>
+    public GpuTimer(VulkanContext context, int framesInFlight, string[]? passNames = null, GpuWorkCounter? counter = null)
     {
-    }
-
-    /// <summary>Times passes of its own, such as the slice of a background bake.</summary>
-    public GpuTimer(VulkanContext context, int framesInFlight, string[] passNames)
-    {
+        passNames ??= FramePasses;
         _passNames = passNames;
+        _counter = counter;
         _stamps = new ulong[passNames.Length + 1];
         _times = new GpuPassTime[passNames.Length];
         _context = context;
@@ -67,9 +70,9 @@ internal sealed unsafe class GpuTimer : IDisposable
     public void Begin(CommandBuffer cmd, int frame)
     {
         _frame = frame;
-        _active = true;
         _written[frame] = true;
         _context.Api.CmdResetQueryPool(cmd, _pools[frame], 0, (uint)_stamps.Length);
+        _counter?.Begin(cmd, frame);
         _nextMark = 0;
         Mark(cmd);
     }
@@ -77,13 +80,23 @@ internal sealed unsafe class GpuTimer : IDisposable
     /// <summary>Marks the end of a pass. Does nothing outside a timed frame, as when capturing a probe.</summary>
     public void Mark(CommandBuffer cmd)
     {
-        if (_active)
+        if (_frame >= 0)
         {
+            _counter?.Mark(cmd, _nextMark);
             _context.Api.CmdWriteTimestamp2(cmd, PipelineStageFlags2.AllCommandsBit, _pools[_frame], _nextMark++);
         }
     }
 
-    public void End() => _active = false;
+    /// <summary>Ends the timed frame, and the count of a pass left open.</summary>
+    public void End(CommandBuffer cmd)
+    {
+        if (_frame >= 0)
+        {
+            _counter?.End(cmd, _nextMark);
+        }
+
+        _frame = -1;
+    }
 
     /// <summary>
     /// Reads a frame's results, once. Its fence must have been waited on. False when nothing was timed in that slot
@@ -112,6 +125,7 @@ internal sealed unsafe class GpuTimer : IDisposable
         }
 
         _collected = true;
+        _counter?.Collect(frame);
         return true;
     }
 
@@ -121,5 +135,7 @@ internal sealed unsafe class GpuTimer : IDisposable
         {
             _context.Api.DestroyQueryPool(_context.Device, pool, null);
         }
+
+        _counter?.Dispose();
     }
 }

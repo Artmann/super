@@ -327,6 +327,11 @@ public class GraphicsTests
     [InlineData(nameof(Graphics.Culling), RenderEffects.Culling)]
     [InlineData(nameof(Graphics.SimplerModels), RenderEffects.SimplerModels)]
     [InlineData(nameof(Graphics.DepthFirst), RenderEffects.DepthFirst)]
+    [InlineData(nameof(Graphics.Subsurface), RenderEffects.Subsurface)]
+    [InlineData(nameof(Graphics.Particles), RenderEffects.Particles)]
+    [InlineData(nameof(Graphics.LocalLights), RenderEffects.LocalLights)]
+    [InlineData(nameof(Graphics.Haze), RenderEffects.Haze)]
+    [InlineData(nameof(Graphics.Underwater), RenderEffects.Underwater)]
     public void Each_switch_turned_off_leaves_out_only_its_own_effect(string setting, RenderEffects effect)
     {
         var graphics = new Graphics();
@@ -348,7 +353,7 @@ public class GraphicsTests
             | RenderEffects.LightProbes | RenderEffects.MultiscatterSpecular | RenderEffects.WearAndDirt | RenderEffects.Fog
             | RenderEffects.AutoExposure | RenderEffects.DepthOfField | RenderEffects.Decals | RenderEffects.VolumetricFog
             | RenderEffects.Puddles | RenderEffects.Wind | RenderEffects.HeightMaps | RenderEffects.Vignette
-            | RenderEffects.Grain | RenderEffects.Sharpening,
+            | RenderEffects.Grain | RenderEffects.Sharpening | RenderEffects.Subsurface,
             graphics.Off);
         Assert.True(graphics.Materials);
         Assert.True(graphics.BakedLighting);
@@ -361,6 +366,10 @@ public class GraphicsTests
         Assert.True(graphics.Culling);
         Assert.True(graphics.SimplerModels);
         Assert.True(graphics.DepthFirst);
+        Assert.True(graphics.Particles);
+        Assert.True(graphics.LocalLights);
+        Assert.True(graphics.Haze);
+        Assert.True(graphics.Underwater);
         Assert.False(graphics.Vsync);
 
         // Dropping the resolution would be a change the game can see, so it stays the game's choice.

@@ -17,7 +17,6 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
     private const int NoisePeriod = 64;
     private const int Density = 8;
     private const int MostFrames = 120;
-    private const RenderEffects OnlyBaked = RenderEffects.All & ~RenderEffects.BakedLighting;
 
     // The chunk's box, 4 metres across x and z, in its own space.
     private static readonly Vector3 ChunkMin = new(-2f, -1f, -2f);
@@ -320,7 +319,7 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
         Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 4f, 1f, 0.1f),
         CameraPosition = eye,
         EnvironmentIntensity = 1f,
-        Off = OnlyBaked,
+        Off = TestEffects.OnlyBaked,
         BakedChunks = new[] { chunk },
     };
 
@@ -333,7 +332,7 @@ public sealed class EdgeBandGpuTests(GpuFixture gpu)
         Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 4f, 1f, 0.1f),
         CameraPosition = camera,
         EnvironmentIntensity = sky,
-        Off = OnlyBaked,
+        Off = TestEffects.OnlyBaked,
         BakedSpace = room,
         Lights = suns,
     };

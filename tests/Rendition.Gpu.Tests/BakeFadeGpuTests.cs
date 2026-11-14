@@ -17,7 +17,6 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
     private const int Size = 256;
     private const int NoisePeriod = 64;
     private const int TexelsPerMetre = 4;
-    private const RenderEffects OnlyBaked = RenderEffects.All & ~RenderEffects.BakedLighting;
 
     // Where the tests' clock starts, far from any other test's, so nothing they drew is mistaken for this one's.
     private const float Start = 500f;
@@ -319,7 +318,7 @@ public sealed class BakeFadeGpuTests(GpuFixture gpu)
         Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 4f, 1f, 0.1f),
         CameraPosition = new Vector3(0f, 2.5f, 4f),
         EnvironmentIntensity = 0f,
-        Off = OnlyBaked,
+        Off = TestEffects.OnlyBaked,
         BakedSpace = Space,
         LocalLights = lit
             ? new[]

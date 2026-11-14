@@ -221,7 +221,7 @@
       "kind": "high-complexity",
       "name": "Rendition.Renderer.RecordBakeSlice",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 11
+      "metric": 12
     },
     {
       "kind": "high-complexity",
@@ -233,7 +233,7 @@
       "kind": "high-complexity",
       "name": "Rendition.Renderer.RecordScene",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 17
+      "metric": 18
     },
     {
       "kind": "high-complexity",
@@ -269,7 +269,7 @@
       "kind": "high-complexity",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 40
+      "metric": 43
     },
     {
       "kind": "high-complexity",
@@ -735,6 +735,12 @@
     },
     {
       "kind": "high-complexity",
+      "name": "Super.Ui.UiPointer.Released",
+      "file": "src/Super/Ui/UiPointer.cs",
+      "metric": 11
+    },
+    {
+      "kind": "high-complexity",
       "name": "Super.View.CheckLight",
       "file": "src/Super/View.cs",
       "metric": 13
@@ -935,7 +941,7 @@
       "kind": "high-cognitive-complexity",
       "name": "Rendition.Renderer.RecordScene",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 22
+      "metric": 23
     },
     {
       "kind": "high-cognitive-complexity",
@@ -971,7 +977,7 @@
       "kind": "high-cognitive-complexity",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 44
+      "metric": 47
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1925,7 +1931,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.RecordBakeSlice",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 61
+      "metric": 62
     },
     {
       "kind": "long-method",
@@ -1949,7 +1955,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 152
+      "metric": 154
     },
     {
       "kind": "long-method",
@@ -1979,7 +1985,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.UpdateBackgroundBake",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 75
+      "metric": 76
     },
     {
       "kind": "long-method",
@@ -1991,13 +1997,13 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteTargetDescriptors",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 93
+      "metric": 97
     },
     {
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 169
+      "metric": 171
     },
     {
       "kind": "long-method",
@@ -2159,7 +2165,7 @@
       "kind": "long-method",
       "name": "Rendition.Vulkan.VulkanContext.CreateDevice",
       "file": "src/Rendition/Vulkan/VulkanContext.cs",
-      "metric": 133
+      "metric": 135
     },
     {
       "kind": "long-method",
@@ -2814,6 +2820,12 @@
       "name": "Super.Ui.GlyphAtlas.Wrap",
       "file": "src/Super/Ui/GlyphAtlas.cs",
       "metric": 49
+    },
+    {
+      "kind": "long-method",
+      "name": "Super.Ui.UiPointer.Down",
+      "file": "src/Super/Ui/UiPointer.cs",
+      "metric": 44
     },
     {
       "kind": "long-method",
@@ -3479,13 +3491,13 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5714
+      "metric": 5752
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
-      "metric": 1529
+      "metric": 1571
     },
     {
       "kind": "large-file",
@@ -3503,7 +3515,7 @@
       "kind": "large-file",
       "name": "src/Super/Audio/Audio.cs",
       "file": "src/Super/Audio/Audio.cs",
-      "metric": 860
+      "metric": 834
     },
     {
       "kind": "large-file",
@@ -3521,7 +3533,7 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1157
+      "metric": 1161
     },
     {
       "kind": "large-file",
@@ -3641,7 +3653,7 @@
       "kind": "large-type",
       "name": "Rendition.Passes.GBuffer",
       "file": "src/Rendition/Passes/GBuffer.cs",
-      "metric": 33
+      "metric": 30
     },
     {
       "kind": "large-type",
@@ -3671,7 +3683,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 378
+      "metric": 389
     },
     {
       "kind": "large-type",
@@ -3737,7 +3749,7 @@
       "kind": "large-type",
       "name": "Rendition.Vulkan.VulkanContext",
       "file": "src/Rendition/Vulkan/VulkanContext.cs",
-      "metric": 39
+      "metric": 40
     },
     {
       "kind": "large-type",
@@ -3755,7 +3767,7 @@
       "kind": "large-type",
       "name": "Super.Animator",
       "file": "src/Super/Animation/Animator.cs",
-      "metric": 39
+      "metric": 43
     },
     {
       "kind": "large-type",
@@ -3869,7 +3881,7 @@
       "kind": "large-type",
       "name": "Super.Graphics",
       "file": "src/Super/Graphics.cs",
-      "metric": 55
+      "metric": 60
     },
     {
       "kind": "large-type",
@@ -3923,7 +3935,7 @@
       "kind": "large-type",
       "name": "Super.SceneRenderer",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 106
+      "metric": 107
     },
     {
       "kind": "large-type",
@@ -3941,7 +3953,7 @@
       "kind": "large-type",
       "name": "Super.States",
       "file": "src/Super/States/States.cs",
-      "metric": 21
+      "metric": 22
     },
     {
       "kind": "large-type",
@@ -3983,7 +3995,7 @@
       "kind": "large-type",
       "name": "Super.Ui.UiPointer",
       "file": "src/Super/Ui/UiPointer.cs",
-      "metric": 37
+      "metric": 44
     },
     {
       "kind": "large-type",

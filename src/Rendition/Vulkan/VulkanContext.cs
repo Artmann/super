@@ -39,6 +39,9 @@ internal sealed unsafe class VulkanContext : IDisposable
     /// <summary>Whether one draw can render to six layers at once, which the light probes' cube captures need.</summary>
     public bool Multiview { get; private set; }
 
+    /// <summary>Whether the GPU can count the shaders each pass runs, which <see cref="GpuTimer"/> does where it can.</summary>
+    public bool PipelineStatistics { get; private set; }
+
     /// <summary>Whether the device was made with ray queries on: the three extensions and the features they need.</summary>
     public bool CanTrace { get; private set; }
 
@@ -340,6 +343,7 @@ internal sealed unsafe class VulkanContext : IDisposable
         Api.GetPhysicalDeviceFeatures(PhysicalDevice, out var supported);
         RequireFeatures(supported);
         StorageImageExtendedFormats = supported.ShaderStorageImageExtendedFormats;
+        PipelineStatistics = supported.PipelineStatisticsQuery;
 
         // FSR picks its shaders by what the GPU supports, not by what the device turned on: 16-bit maths where
         // the GPU has it, and a fixed subgroup size where it can choose one. So those are turned on wherever
@@ -380,6 +384,7 @@ internal sealed unsafe class VulkanContext : IDisposable
             TextureCompressionBC = true,
             ShaderStorageImageExtendedFormats = StorageImageExtendedFormats,
             ShaderInt16 = supported.ShaderInt16,
+            PipelineStatisticsQuery = PipelineStatistics,
         };
         var features11 = new PhysicalDeviceVulkan11Features
         {

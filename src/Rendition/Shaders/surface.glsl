@@ -576,7 +576,8 @@ void writeSurface(Surface surface) {
     }
 
     float channel = foliage ? foliageChannel(material) : surface.clearcoat;
-    if (material.subsurface.w > 0.0) {
+    // With subsurface off the surface is marked plain, so the lighting shades it as matte and sends nothing to blur.
+    if (material.subsurface.w > 0.0 && !isOff(OFF_SUBSURFACE)) {
         channel = SUBSURFACE_MARK + float(draw.material);
     }
     outBaseColorMetallic = vec4(surface.baseColor * draw.tint.rgb, surface.metallic);
