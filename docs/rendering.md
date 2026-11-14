@@ -55,7 +55,7 @@ Game.StartWindowsGameLoop<MyGame>(new GameOptions
 });
 ```
 
-`Graphics.Fastest()` turns every effect that costs GPU time off, and sets `MeshDetail` to 0.5, a start to turn back on only what
+`Graphics.Fastest()` turns every effect that costs GPU time off, except point and spot lights and particles, and sets `MeshDetail` to 0.5, a start to turn back on only what
 the game needs. It keeps what costs nothing or saves time: the materials, the baked lighting, `Specular`,
 `EnvironmentLight`, `Emissive`, `ColorGrading`, `Culling`, `SimplerModels` and `DepthFirst`. For settings a player picks from, see [quality presets and profiles](#quality-presets-and-profiles). Ask for `Graphics` in a constructor to change it while the game runs; the
 next frame follows, so it can back an options menu.
@@ -72,6 +72,7 @@ next frame follows, so it can back an options menu.
 | `Upscaler` | What smooths edges when `AntiAliasing` is on: `Upscaler.Taa`, the default, or `Upscaler.Fsr`, which hands the frame to AMD FSR to rebuild at the window's size. See [upscaling](#upscaling). `--upscaler fsr` sets it too, and `Graphics.Fastest()` uses TAA |
 | `ContactShadows` | No thin dark line where things meet the ground in sunlight, only what the shadow maps show. `view.Shadows`' `contact` only changes [how far they look](#shadows) |
 | `LightShadows` | Point and spot lights shine through walls |
+| `LocalLights` | Point and spot lights give no light: none is clustered, shadowed or lit onto the [light probes](#bounced-light), so the sun and the sky light the scene alone. Light a bake already holds stays, and no bake is redone. `BakedLighting` drops it too |
 | `AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. `view.AmbientOcclusion` only changes [how far and how dark](#ambient-occlusion) |
 | `MultiscatterSpecular` | Rough surfaces lose the light that bounces between their tiny facets, so rough metals such as worn iron come out darker than they should, by up to half at full roughness. It costs almost nothing, so leave it on unless you're comparing |
 | `LightProbes` | No [bounced light](#bounced-light): shade takes its soft light from the sky alone, even inside a `view.LightProbes` box. No probes are drawn, and their memory, about 170 MB at `ProbeQuality.High`, is freed until it is switched back on, when every probe starts again. `Graphics.Fastest()` turns it off |
@@ -82,9 +83,12 @@ next frame follows, so it can back an options menu.
 | `AntiAliasing` | Edges show their pixels, and moving things stay sharp |
 | `Bloom` | No glow round bright things. `PostSettings.Bloom` only changes how much there is |
 | `Fog` | Clear air, whatever `SkySettings.Fog` asks for. [Haze](#the-sky) stays, since it isn't fog. `SkySettings.Fog` only changes [how thick it is](#fog) |
+| `Haze` | Distant things keep their colours instead of fading into the sky between `SkySettings.HazeStart` and `HazeEnd`. The sky's own colour stays |
+| `Underwater` | `view.Water` is ignored: the view is drawn as if the camera were not under water, with no absorption, caustics or light shafts, and the sky and the surrounding colours come back. See [water](#water) |
 | `VolumetricFog` | The fog is the plain height fog all the way, exactly as if `FogSettings.VolumetricDistance` were 0: no shafts of sunlight and no halos round lamps. It saves two compute passes over a small grid and about 35 MB of memory at 1600 by 900, which is freed when it is switched off and made again, without its history, when it is switched back on. See [volumetric fog](#volumetric-fog) |
 | `AutoExposure` | Views that ask for [auto exposure](#auto-exposure) keep the fixed `PostSettings.Exposure` instead, as if they hadn't asked. It saves a compute pass over the frame |
 | `DepthOfField` | Everything is sharp, even in views that open the lens with `PostSettings.Aperture`. It saves three passes, two of them at half size. See [focus](#focus) |
+| `Particles` | No [particles](views.md#particles) are drawn, and none is uploaded. The game can still emit them |
 | `Decals` | No [decals](views.md#decals): surfaces show as they are, without the grime and stains `view.Decal` lays on them. It saves a copy of the normal target and a pass over the decals' pixels |
 | `Puddles` | Every surface is dry, whatever level `view.Puddles` sets: no water and no damp band. It saves a few noise lookups on each wet pixel. See [puddles](#puddles) |
 | `Wind` | Grass, leaves and anything else flagged for the [wind](#wind) stand still, whatever `view.Wind` sets, and so do their shadows |
@@ -96,6 +100,7 @@ next frame follows, so it can back an options menu.
 | `HeightMaps` | Surfaces with a height map are flat, shaded only by their normal maps: bricks no longer stand out from the mortar as the view moves. It saves up to 32 lookups on each near pixel of those surfaces. Puddles still sink into the grooves. `GraphicsQuality.Low` and `Graphics.Fastest()` turn it off |
 | `Specular` | No shine: every surface is lit as plain matte, with no highlights, no reflections and no clear coat, metals in their base colour, and glass lets light through without reflecting. It's for judging the diffuse light, not for speed |
 | `EnvironmentLight` | The sky gives the same flat colour from every side, its average, instead of brighter light from above and the sky's colours in reflections. Light probes still see the real sky. It shows what the direct light and the probes do alone |
+| `Subsurface` | Skin and wax are lit as plain matte, and light no longer shines through their thin parts. It saves two blurs across the picture. `Graphics.Fastest()` turns it off. See [skin and wax](#skin-and-wax) |
 | `Emissive` | No glows: lamps, screens and embers show only the light that falls on them, and no longer light the light probes. [Bakes](#baked-lighting) keep the glow they were made with. Ghosts still glow |
 | `Vignette` | The corners are as bright as the middle, whatever `PostSettings.Vignette` asks for |
 | `Grain` | No film grain, whatever `PostSettings.Grain` asks for |
@@ -323,7 +328,7 @@ shines in a cone, like a lantern's beam. The colour is how bright the light is a
 away. It dims with the square of the distance and fades smoothly to nothing at the
 range, so a small range is cheaper and keeps a candle's light on its own table. A spot
 is full inside its inner angle and fades out by its outer one. Both angles are measured
-from the direction, in radians, and the outer one must be under a right angle.
+from the direction, in radians, and the outer one must be under a right angle. `Graphics.LocalLights` turns them all off, see [graphics settings](#graphics-settings).
 
 A light also has a radius, the size of its glowing part, 0.1 m unless you pass
 `radius:`. No surface gets much brighter than it would be that far from the light. On
@@ -1138,7 +1143,7 @@ view.Sky(new SkySettings
 
 Haze fades things into the sky behind them, from nothing at `HazeStart` to all sky at
 `HazeEnd`, so the far edge of a world melts away instead of stopping. Leave both at
-zero for no haze. A negative brightness, or haze that ends nearer than it starts, throws.
+zero for no haze. A negative brightness, or haze that ends nearer than it starts, throws. `Graphics.Haze` turns the fade off for every view, see [graphics settings](#graphics-settings).
 
 `HazeFromFocus` measures the haze across the ground from the point the camera looks at
 instead of from the camera. Use it with a far-off camera, such as an isometric one: from there everything on
@@ -1290,7 +1295,7 @@ view.Water(new UnderwaterSettings
 Leaving `Absorption` at zero means there's no water. The [Reef example](../examples/Reef)
 uses this. Red goes first, so colours fade towards blue and green with distance: at a red
 absorption of 0.075 an orange coral turns brown a few metres off. The Reef lowers it to 0.045
-so its coral keeps some warmth across the view.
+so its coral keeps some warmth across the view. `Graphics.Underwater` turns the water off for every view, see [graphics settings](#graphics-settings).
 
 ## Puddles
 
@@ -1916,7 +1921,7 @@ A model sets it per material in its cook settings:
 Subsurface can't be combined with `clearcoat` or `foliage`. The renderer refuses such a
 material and the cook stops with an error naming it. Under water the light isn't spread.
 When no material in the world scatters light the blur doesn't run, so it costs nothing.
-The [Wax](../examples/Wax) example puts each kind beside a plain twin.
+`Graphics.Subsurface` turns it off, see [graphics settings](#graphics-settings). The [Wax](../examples/Wax) example puts each kind beside a plain twin.
 
 ## Ghosts
 

@@ -262,6 +262,7 @@ public sealed unsafe class Renderer : IDisposable
     private readonly OverlayPass _overlayPass;
     private readonly DescriptorSet _overlaySet;
     private readonly GpuTimer _gpuTimer;
+    private readonly GpuWorkCounter? _gpuWork;
     private GpuTexture? _overlayAtlas;
 
     private Swapchain _swapchain;
@@ -297,6 +298,9 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>OFF_DEBUG_VIEW in common.glsl: tonemapping and the finish pass pass colours through untouched.</summary>
     private const int DebugViewBit = 1 << 30;
+
+    /// <summary>The effects the shaders read through <c>frame.off</c>, an <c>int</c>. The renderer leaves out the rest itself.</summary>
+    private const RenderEffects ShadedEffects = (RenderEffects)0xFFFF_FFFFL;
 
     // How far the frame's wind can move each material's vertices, which culling adds to the bounds.
     private WindReach _windReach;
@@ -518,6 +522,12 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>Times from the newest finished frame, while <see cref="MeasureGpu"/> is on. Empty if the GPU can't time passes.</summary>
     public ReadOnlySpan<GpuPassTime> GpuTimes => _gpuTimer.Times;
 
+    /// <summary>
+    /// The shaders each pass ran in the newest finished frame, while <see cref="MeasureGpu"/> is on. Empty if the GPU
+    /// can't count them. A pass that is switched off runs none.
+    /// </summary>
+    public ReadOnlySpan<GpuPassWork> GpuWork => _gpuWork is { } counter ? counter.Work : default;
+
     /// <summary>How long the last frame waited for the GPU to finish earlier work and for the display, while <see cref="MeasureGpu"/> is on.</summary>
     public double WaitMilliseconds { get; private set; }
 
@@ -705,7 +715,9 @@ public sealed unsafe class Renderer : IDisposable
             [_frameSetLayout, _twoTextureSetLayout, _exposureMeter.SetLayout]);
         _finishPass = new FullscreenPass(_context, "finish.frag", _swapchain.Format, [_frameSetLayout, _twoTextureSetLayout], TransitionConstants.Size);
         _overlayPass = new OverlayPass(_context, _swapchain.Format, _oneTextureSetLayout, _resources, FramesInFlight);
-        _gpuTimer = new GpuTimer(_context, FramesInFlight);
+        // Counting each pass's shaders needs a device feature; without it the frame is only timed.
+        _gpuWork = _context.PipelineStatistics ? new GpuWorkCounter(_context, FramesInFlight, GpuTimer.FramePasses) : null;
+        _gpuTimer = new GpuTimer(_context, FramesInFlight, counter: _gpuWork);
         _bakeTimer = new GpuTimer(_context, FramesInFlight, ["Background bake"]);
     }
 
@@ -2419,7 +2431,7 @@ public sealed unsafe class Renderer : IDisposable
             if (timed)
             {
                 _bakeTimer.Mark(cmd);
-                _bakeTimer.End();
+                _bakeTimer.End(cmd);
             }
         }
 
@@ -3106,7 +3118,7 @@ public sealed unsafe class Renderer : IDisposable
         // change the lit picture a probe photographs.
         hash.Add(view.Off & (RenderEffects.SunShadows | RenderEffects.Materials | RenderEffects.MultiscatterSpecular
             | RenderEffects.WearAndDirt | RenderEffects.AmbientOcclusion | RenderEffects.Specular | RenderEffects.EnvironmentLight
-            | RenderEffects.Emissive | RenderEffects.HeightMaps));
+            | RenderEffects.Emissive | RenderEffects.HeightMaps | RenderEffects.Underwater));
         hash.Add(view.LightProbes);
         hash.Add(view.Occlusion);
         return hash.ToHashCode();
@@ -3135,7 +3147,9 @@ public sealed unsafe class Renderer : IDisposable
         hash.Add(view.EnvironmentIntensity);
         hash.Add(view.Sky.Turbidity);
         hash.Add(view.Shadows.Radius > 0f);
-        hash.Add(off & (RenderEffects.SunShadows | RenderEffects.Materials | RenderEffects.LightShadows | RenderEffects.Emissive));
+        // Under water the probes see the sun through it, so switching the water off lights them again.
+        hash.Add(off & (RenderEffects.SunShadows | RenderEffects.Materials | RenderEffects.LightShadows | RenderEffects.Emissive
+            | RenderEffects.Underwater));
         return hash.ToHashCode();
     }
 
@@ -3261,7 +3275,7 @@ public sealed unsafe class Renderer : IDisposable
             scheduler.EverythingChanged();
         }
 
-        FollowProbeLights(view.LocalLights, scheduler);
+        FollowProbeLights(DrawnLocalLights(view), scheduler);
 
         var camera = view.CameraPosition;
         var forward = -new Vector3(view.View.M13, view.View.M23, view.View.M33);
@@ -3864,7 +3878,7 @@ public sealed unsafe class Renderer : IDisposable
         // Metering is left out of the shaders unless the view asked for it, so the fixed exposure stays as it was.
         _off = Exposure.ShaderOff(view.Post, viewOff & RenderEffects.All);
         _windReach = new WindReach(Wind.Strength(view.Wind, _off), _resources.SwayOf);
-        if (!_volumetricFog.HasTargets && VolumetricFog.Pack(view.Fog, _off, false, view.Water.Absorption != Vector3.Zero).X > 0f)
+        if (!_volumetricFog.HasTargets && VolumetricFog.Pack(view.Fog, _off, false, Underwater(view)).X > 0f)
         {
             // The fog's volumes are made the first time it's drawn. Frames in flight bind the stand-in.
             _api.DeviceWaitIdle(_context.Device).Check();
@@ -4056,7 +4070,7 @@ public sealed unsafe class Renderer : IDisposable
         _exposureStep = _exposureClock.Next(
             !_off.HasFlag(RenderEffects.AutoExposure), view.Time, Exposure.Speed(view.Post.AdaptationSpeed));
         RecordFrame(cmd, frame.Set, imageIndex, _cameraDraws.AsSpan(0, cameraCount), draws, overlayQuads, traced);
-        _gpuTimer.End();
+        _gpuTimer.End(cmd);
         _api.EndCommandBuffer(cmd).Check();
 
         var renderFinished = _swapchain.RenderFinished[imageIndex];
@@ -4222,7 +4236,8 @@ public sealed unsafe class Renderer : IDisposable
             Up = new Vector4(up, 0f),
             Forward = new Vector4(forward, 0f),
         };
-        _particleCount = _particlePass.Upload(_frameIndex, view.Particles, view.CameraPosition, forward);
+        ReadOnlySpan<Particle> particles = _off.HasFlag(RenderEffects.Particles) ? [] : view.Particles;
+        _particleCount = _particlePass.Upload(_frameIndex, particles, view.CameraPosition, forward);
         _transparentView = TransparentView.From(view.View, view.Projection);
     }
 
@@ -4784,8 +4799,8 @@ public sealed unsafe class Renderer : IDisposable
         _gpuTimer.Mark(cmd);
 
         // The diffuse light of skin and wax spreads across the screen, then down it and
-        // onto the lit image. Nothing to spread when no material scatters.
-        if (_resources.AnySubsurface)
+        // onto the lit image. Nothing to spread when no material scatters, or while subsurface is off.
+        if (_resources.AnySubsurface && !_off.HasFlag(RenderEffects.Subsurface))
         {
             var across = BlurConstants.Across;
             ReadOnlySpan<DescriptorSet> acrossSets = [frameSet, _scatterAcrossSet, _resources.Set];
@@ -5042,8 +5057,8 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->Curve = PostGrade.Curve(post);
         (uniforms->HazeOrigin, uniforms->HazeColor) = Haze.Pack(view.CameraPosition, view.BackgroundFadeOrigin, view.BackgroundFadeColor);
         uniforms->Occlusion = Occlusion.Pack(view.Occlusion);
-        uniforms->Fog = Fog.Pack(view.Fog, _off, capturingProbe, underwater: view.Water.Absorption != Vector3.Zero);
-        var volumetric = VolumetricFog.Pack(view.Fog, _off, capturingProbe, underwater: view.Water.Absorption != Vector3.Zero);
+        uniforms->Fog = Fog.Pack(view.Fog, _off, capturingProbe, underwater: Underwater(view));
+        var volumetric = VolumetricFog.Pack(view.Fog, _off, capturingProbe, underwater: Underwater(view));
         if (!_volumetricFog.HasTargets)
         {
             volumetric = Vector4.Zero;
@@ -5135,10 +5150,12 @@ public sealed unsafe class Renderer : IDisposable
         // Moving points two texels of the first cascade off their surface stops them
         // shadowing themselves. The lighting pass works this out per cascade itself.
         float normalOffset = view.Shadows.Radius * 4f / _shadowPass.Resolution;
+        // A fade from 0 to 0 is none: the shaders fade only where the end lies past the start.
+        bool haze = !_off.HasFlag(RenderEffects.Haze);
         uniforms->Parameters = new Vector4(
-            view.BackgroundFadeStart, view.BackgroundFadeEnd, view.Shadows.LightAngle, normalOffset);
+            haze ? view.BackgroundFadeStart : 0f, haze ? view.BackgroundFadeEnd : 0f, view.Shadows.LightAngle, normalOffset);
 
-        ref readonly var water = ref view.Water;
+        var water = Underwater(view) ? view.Water : default;
         uniforms->WaterAbsorption = new Vector4(water.Absorption, water.Absorption != Vector3.Zero ? 1f : 0f);
         uniforms->WaterShallow = new Vector4(water.ShallowColor, water.SurfaceHeight);
         uniforms->WaterDeep = new Vector4(water.DeepColor, water.ShaftStrength);
@@ -5178,7 +5195,7 @@ public sealed unsafe class Renderer : IDisposable
 
         // With no sun shadow there are no maps to look up, so nothing walks the cascades.
         uniforms->ShadowCascades = castsShadow ? _shadowCascades : 0;
-        uniforms->Off = (int)_off | (_traceView && !capturingProbe ? DebugViewBit : 0);
+        uniforms->Off = unchecked((int)(_off & ShadedEffects)) | (_traceView && !capturingProbe ? DebugViewBit : 0);
         uniforms->MipBias = capturingProbe || _off.HasFlag(RenderEffects.AntiAliasing) ? 0f
             : _upscaling ? FsrMipBias(_gBuffer.Extent.Width, _gBuffer.Display.Width)
             : TemporalMipBias;
@@ -5191,6 +5208,17 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->ProbeSunMatrix = !capturingProbe && _probeSun is not null ? _probeSun.Matrix : default;
         return castsShadow;
     }
+
+    /// <summary>
+    /// The point and spot lights the frame draws: none while <see cref="RenderEffects.LocalLights"/> is off. Bakes
+    /// keep reading the view's own, so the switch never makes a bake stale.
+    /// </summary>
+    private ReadOnlySpan<LocalLight> DrawnLocalLights(in FrameView view) =>
+        _off.HasFlag(RenderEffects.LocalLights) ? [] : view.LocalLights;
+
+    /// <summary>Whether the camera is under the view's water, which it never is while <see cref="RenderEffects.Underwater"/> is off.</summary>
+    private bool Underwater(in FrameView view) =>
+        view.Water.Absorption != Vector3.Zero && !_off.HasFlag(RenderEffects.Underwater);
 
     /// <summary>
     /// Picks the point and spot lights the view needs and their shadow tiles, and writes
@@ -5214,7 +5242,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         _localLights.Prepare(
-            view.LocalLights,
+            DrawnLocalLights(view),
             view.View,
             view.Projection,
             (int)_gBuffer.Extent.Height,

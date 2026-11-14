@@ -1035,9 +1035,11 @@ public ref struct FrameView
 /// <summary>
 /// The parts of the picture that cost GPU time and can be left out. Each one left out skips
 /// its work, not only its look, so a frame without any of them is as cheap as the renderer gets.
+/// The low 32 bits reach the shaders, which read them as an <c>int</c>; the effects above them the renderer leaves out
+/// on its own.
 /// </summary>
 [Flags]
-public enum RenderEffects
+public enum RenderEffects : long
 {
     None = 0,
 
@@ -1197,10 +1199,40 @@ public enum RenderEffects
     /// </summary>
     DepthFirst = 1 << 29,
 
+    // Bit 30 is the renderer's debug view bit, so no effect uses it.
+
+    /// <summary>
+    /// Light spreading under the surface of skin and wax, from <see cref="Material.Subsurface"/>. Without it those
+    /// surfaces are lit as plain matte, light no longer shines through their thin parts, and the two blurs across the
+    /// picture are skipped. The last bit the shaders can read.
+    /// </summary>
+    Subsurface = 1L << 31,
+
+    /// <summary>The frame's <see cref="FrameView.Particles"/>. Without them no particle is uploaded or drawn.</summary>
+    Particles = 1L << 32,
+
+    /// <summary>
+    /// Point and spot lights, from <see cref="FrameView.LocalLights"/>. Without them those lights give no light: none
+    /// is clustered, shadowed or lit onto the light probes. Light a bake already holds stays, and no bake is redone.
+    /// </summary>
+    LocalLights = 1L << 33,
+
+    /// <summary>
+    /// Distant things fading into the sky behind them, from <see cref="FrameView.BackgroundFadeStart"/> to
+    /// <see cref="FrameView.BackgroundFadeEnd"/>. Without it they keep their colours. The sky's own colour stays.
+    /// </summary>
+    Haze = 1L << 34,
+
+    /// <summary>
+    /// The water from <see cref="FrameView.Water"/>. Without it the view is drawn as if the camera were not under water:
+    /// no absorption, caustics or light shafts.
+    /// </summary>
+    Underwater = 1L << 35,
+
     All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
         | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind
         | BakedLighting | HeightMaps | Specular | EnvironmentLight | Emissive | Vignette | Grain | Sharpening | ColorGrading
-        | Culling | SimplerModels | DepthFirst,
+        | Culling | SimplerModels | DepthFirst | Subsurface | Particles | LocalLights | Haze | Underwater,
 }
 
 /// <summary>
@@ -1305,6 +1337,16 @@ public struct OverlayQuad
 
 /// <summary>How long one render pass took on the GPU.</summary>
 public readonly record struct GpuPassTime(string Name, double Milliseconds);
+
+/// <summary>
+/// How many times the GPU ran each kind of shader in one render pass. Unlike the time, it is exact: a pass whose work
+/// is skipped runs none, and one that still runs counts every shader, even those that leave at once.
+/// </summary>
+public readonly record struct GpuPassWork(string Name, ulong VertexShaders, ulong FragmentShaders, ulong ComputeShaders)
+{
+    /// <summary>Every shader the pass ran, of any kind.</summary>
+    public ulong Shaders => VertexShaders + FragmentShaders + ComputeShaders;
+}
 
 public static class Projection
 {

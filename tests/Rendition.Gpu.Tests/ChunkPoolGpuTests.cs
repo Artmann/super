@@ -17,7 +17,6 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
     private const int NoisePeriod = 64;
     private const int Density = 8;
     private const int MostFrames = 120;
-    private const RenderEffects OnlyBaked = RenderEffects.All & ~RenderEffects.BakedLighting;
 
     // The lamp's place in front of the wall, in the chunk's space.
     private static readonly Vector3 LampAt = new(0.3f, 0.2f, 1f);
@@ -735,7 +734,7 @@ public sealed class ChunkPoolGpuTests(GpuFixture gpu)
             Projection = Projection.PerspectiveInfiniteReversedZ(MathF.PI / 4f, 1f, 0.1f),
             CameraPosition = eye,
             EnvironmentIntensity = 0f,
-            Off = OnlyBaked,
+            Off = TestEffects.OnlyBaked,
             LocalLights = lamps,
             BakedChunks = chunks,
         };

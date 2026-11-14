@@ -19,7 +19,6 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
     private const int NoisePeriod = 64;
     private const int MaxSettleFrames = 600;
     private const int TexelsPerMetre = 4;
-    private const RenderEffects OnlyBaked = RenderEffects.All & ~RenderEffects.BakedLighting;
 
     // Probes a metre apart, x = -4 to 4 and so on.
     private static readonly BakedSpace Room =
@@ -145,7 +144,7 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
             // 3 x 3 x 3 probes, x = 4.2 to 6.2, round the quad and clear of the box.
             var probes = new ProbeVolumeSettings(new Vector3(4.2f, -1f, -1f), new Vector3(6.2f, 1f, 1f), 1f);
             // Materials on too, or the live probes would see the green wall as grey clay.
-            const RenderEffects off = OnlyBaked & ~RenderEffects.LightProbes & ~RenderEffects.Materials;
+            const RenderEffects off = TestEffects.OnlyBaked & ~RenderEffects.LightProbes & ~RenderEffects.Materials;
             gpu.Renderer.SetEnvironment(EvenSky());
 
             var skyOnly = Centre(Capture(draws, camera, sky: 1f, off));
@@ -194,7 +193,7 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
             var camera = new Vector3(0f, 0f, 1.5f);
             // 3 x 3 x 3 live probes round the quad, all inside the baked space.
             var probes = new ProbeVolumeSettings(new Vector3(-1f, -1f, -1f), new Vector3(1f, 1f, 1f), 1f);
-            const RenderEffects off = OnlyBaked & ~RenderEffects.LightProbes & ~RenderEffects.Materials;
+            const RenderEffects off = TestEffects.OnlyBaked & ~RenderEffects.LightProbes & ~RenderEffects.Materials;
             gpu.Renderer.SetEnvironment(EvenSky());
 
             var skyOnly = Centre(Capture(draws, camera, sky: 1f, off));
@@ -272,8 +271,8 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
 
         // The renderer is shared, so a sun another test drew differently at the same index would count as moving, and
         // the bake would leave it live. A frame without lights forgets them all.
-        gpu.Renderer.Render(View(Vector3.UnitZ * 3f, sky: 0f, OnlyBaked, []), [wall]);
-        var view = View(Vector3.UnitZ * 3f, sky: 0f, OnlyBaked, WallSun);
+        gpu.Renderer.Render(View(Vector3.UnitZ * 3f, sky: 0f, TestEffects.OnlyBaked, []), [wall]);
+        var view = View(Vector3.UnitZ * 3f, sky: 0f, TestEffects.OnlyBaked, WallSun);
         var bake = LightBakeFile.Read(gpu.Renderer.Bake(view, [wall], new BakeSettings(TexelsPerMetre, BakeQuality.Preview)));
         Assert.NotNull(bake.Probes);
         return bake;
@@ -310,7 +309,7 @@ public sealed class BakedProbeGpuTests(GpuFixture gpu)
 
     // The 64th frame, with no lights, so two captures fall on the same noise.
     private byte[] Capture(
-        DrawItem[] draws, Vector3 camera, float sky, RenderEffects off = OnlyBaked, ProbeVolumeSettings? probes = null)
+        DrawItem[] draws, Vector3 camera, float sky, RenderEffects off = TestEffects.OnlyBaked, ProbeVolumeSettings? probes = null)
     {
         var view = View(camera, sky, off, [], probes);
         if (probes is not null)

@@ -1244,7 +1244,11 @@ buffers, sync objects and the uniform buffer.
 
 `FrameView.Off` is a set of `RenderEffects` the frame skips, filled from Super's `Graphics`.
 A skipped pass records nothing but still calls `GpuTimer.Mark`, since the timer's pass names
-are fixed. Every image a later pass binds must still be in a valid layout, so a skipped
+are fixed. Where the GPU has `pipelineStatisticsQuery`, the frame's timer also counts the
+vertex, fragment and compute shaders each pass runs, with one pipeline statistics query a pass
+begun and ended at the marks. `Renderer.GpuWork` hands them out beside `GpuTimes`. A skipped
+pass counts exactly zero, while a pass that still runs counts every shader, even those that
+return at once, so `EffectsOffGpuTests` checks each switch by its count, not its time. Every image a later pass binds must still be in a valid layout, so a skipped
 pass moves its output from `Undefined` to `ShaderReadOnlyOptimal` instead (the sun's shadow
 map, the blurred AO, bloom's result). The contents are then undefined, so the shaders that
 bind them read the same set from `FrameUniforms.Off` (`frame.off` and `isOff()` in
@@ -1305,9 +1309,18 @@ Bits 19 to 28 skip no pass either; each is read where its effect is made:
 - `DepthFirst` (bit 29) keeps the camera's `DetailView` from `GBufferPass.Record`, so
   `SceneDraws.Record` runs its shading round alone.
 
+`Subsurface` (bit 31, `OFF_SUBSURFACE`) is the last bit the shaders can read. `RenderEffects` is a `long` now, and the
+renderer passes only its low 32 bits on, as `frame.off` (`ShadedEffects` in `Renderer.cs`). Bit 30 is the debug view bit,
+so no effect uses it, and bit 31 fills the `int`: a switch the shaders must read after this needs a new uniform field.
+`writeSurface()` in `surface.glsl` marks a subsurface surface plain, so the lighting shades it as matte and writes no
+scatter. `Particles` (bit 32), `LocalLights` (33), `Haze` (34) and `Underwater` (35) have no shader flag; the renderer
+tests them on the CPU. With `LocalLights` off, `DrawnLocalLights` gives the frame no local lights, though bakes still read
+the view's. With `Haze` off the fade is sent as 0 to 0. With `Underwater` off, `Underwater()` is false and the water
+uniforms stay zero. With `Particles` off, nothing is uploaded.
+
 `Specular`, `EnvironmentLight`, `Emissive` and `HeightMaps` change what a reflection probe
 photographs, so they are in `ReflectionLightingHash`, and `Emissive` is in the light probes'
-lighting key too.
+lighting key too. `Underwater` is in both, since the water changes what a probe sees.
 
 The frame limit lives in Super's window loop, not the renderer (`FrameLimiter`). Each frame
 gets a slot one period after the last, so a long frame is made up by a shorter wait. A frame
@@ -1545,7 +1558,7 @@ pass binds the probe cube array at set 2, binding 4. Glass sees no screen-space 
 `ClearReflectionProbes` forgets them all, since a slot in the middle can't be dropped.
 `Renderer.ReflectionLightingHash` hashes the suns' directions and colours, the environment (a
 version bumped by `SetEnvironment`), its intensity, the clear sky, the background, the sun
-shadow's softness and cascades, the light probe box, the occlusion settings, and whether the
+shadow's softness and cascades, the light probe box, the occlusion settings, the underwater switch, and whether the
 light probes are in use and have settled at least once since their storage was made, so a probe
 captured while they fill in is redone once they first settle; a probe can be captured two or
 three times at the start. The live `ProbesSettled` isn't used, because it turns false whenever
@@ -1767,7 +1780,7 @@ of the slots it handed to new probes so they read as uncaptured instead of as th
 left. When `FrameView.LightProbes` changes it sets or clears the scheduler's fixed grid and
 clears layer 4 the same way. `ProbeLightingKey` hashes the suns' directions, colours and shadow
 flags, the environment (a version bumped by `SetEnvironment`), its intensity, the sky's
-turbidity, whether the sun's shadow is on, and the sun-shadow, light-shadow and plain-materials
+turbidity, whether the sun's shadow is on, and the sun-shadow, light-shadow, plain-materials and underwater
 switches. Not wear and dirt, which neither path draws into a probe. When it changes, `EverythingChanged` marks every probe dirty.
 Geometry and the camera are not in it.
 `FollowProbeLights` compares the frame's point and spot lights with last frame's by `Key`: a
@@ -2507,7 +2520,8 @@ rather than on screen keeps the blur the same size at any range and stops light 
 bleeding across a silhouette to whatever is behind, so there is no halo. The taps reach
 three standard deviations of the widest colour, at most 96 pixels, and shift a little
 every frame so anti-aliasing turns the gaps between them into smooth grain. When no
-material has subsurface both blur passes are skipped.
+material has subsurface both blur passes are skipped. With `RenderEffects.Subsurface` off, `writeSurface()` marks
+no surface and the blur is skipped, so the surface is lit as plain matte.
 
 ## Decals
 
@@ -2592,7 +2606,8 @@ a variant that picks its lumpy outline and a glow, its own light as a share of i
 up to `Particle.MaxPerFrame` (32,768) a frame; more are dropped. `ParticlePass` sorts
 them furthest first along the view direction on the CPU, into the frame's own
 host-visible vertex buffer, with scratch arrays made once, so nothing allocates. Each
-particle is one instance of a six-vertex square facing the camera.
+particle is one instance of a six-vertex square facing the camera. With `RenderEffects.Particles` off, `Upload` gets an
+empty span, so none is drawn.
 
 They're drawn after lighting, sorted together with glass (see Paint and glass), so
 glass covers dust behind it and dust covers glass behind it. They aren't depth

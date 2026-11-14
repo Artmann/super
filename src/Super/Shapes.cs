@@ -102,7 +102,7 @@ public static partial class Shapes
         RequireAtLeast(rings, 1, nameof(rings));
         if (!(height >= 2f * radius))
         {
-            throw new ArgumentOutOfRangeException(nameof(height), height, $"A capsule's height is from end to end, so it must be at least twice its radius ({2f * radius}).");
+            throw new ArgumentOutOfRangeException(nameof(height), height, FormattableString.Invariant($"A capsule's height is from end to end, so it must be at least twice its radius ({2f * radius})."));
         }
 
         float middle = (height - 2f * radius) * 0.5f;
@@ -220,7 +220,7 @@ public static partial class Shapes
         RequirePositive(tube, nameof(tube), "tube");
         if (tube >= radius)
         {
-            throw new ArgumentOutOfRangeException(nameof(tube), tube, $"A torus's tube must be thinner than its radius ({radius}), or it would pass through itself.");
+            throw new ArgumentOutOfRangeException(nameof(tube), tube, FormattableString.Invariant($"A torus's tube must be thinner than its radius ({radius}), or it would pass through itself."));
         }
 
         RequireAtLeast(segments, 3, nameof(segments));
