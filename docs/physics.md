@@ -371,8 +371,8 @@ Jolt's order. A pile of 60 dropped boxes lands the same way every run of a seed.
 - No vehicles, motors on joints, or springs.
 - A ragdoll's muscles only pull towards the animation's pose. They don't balance, so a
   ragdoll can't stay on its feet or walk by itself.
-- A ragdoll's parts don't collide with the parts next to them, nor with the
-  grandparent or siblings that touch them at rest.
+- A ragdoll's parts don't collide with their parent part, nor with parts their shape
+  overlaps at rest. Every other pair collides, so one leg can't pass through the other.
 - An entity has one `Joint` at most.
 - A collider's transform can't be sheared; a parent scaled unevenly under a turned child
   throws.
