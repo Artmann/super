@@ -25,7 +25,7 @@ layout(set = 1, binding = 5) uniform samplerCube reflectionTexture;
 layout(set = 1, binding = 6) uniform samplerCube irradianceTexture;
 layout(set = 1, binding = 7) uniform sampler2D emissiveClearcoatTexture;
 layout(set = 1, binding = 8) uniform sampler2D ambientOcclusionTexture;
-layout(set = 1, binding = 9) uniform sampler2D historyTexture;
+// Binding 9 is last frame's picture, which only reflections.frag reads now, through its own set.
 layout(set = 1, binding = 10) uniform samplerCubeArray probeTexture;
 // The G-buffer's baked light and shadow mask; see writeBaked in surface.glsl. Alpha above 0 in the baked light marks a
 // pixel with a lightmap, whose soft light comes from it instead of the probes or the sky; alpha below 1 is a chunk's edge

@@ -139,7 +139,8 @@ internal sealed class ProbeCaptureQueue(byte[]?[] state, long[]?[] updated, Vect
 
     /// <summary>
     /// Makes room for the captures of <paramref name="probes"/> probes, twice over, so recording them allocates
-    /// nothing, and for reading one capture of each, so <see cref="TakeOldest"/> allocates nothing either.
+    /// nothing, and for reading one capture of each, so <see cref="TakeOldest"/> allocates nothing either unless
+    /// probes were captured twice in a frame with a scroll between.
     /// </summary>
     public void Reserve(int probes)
     {
