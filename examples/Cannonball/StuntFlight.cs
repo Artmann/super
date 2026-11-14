@@ -25,7 +25,7 @@ public sealed class StuntFlight(World world, Physics physics, RandomStream rando
     private const float StillSpeed = 0.4f;
     private const float StillSeconds = 0.75f;
     private const float LongestTumble = 8f;
-    private const float StandingSeconds = 2f;
+    private const float StandingSeconds = 1f;
     private const float LongestFlight = 6f;
 
     private float _seconds;
@@ -66,7 +66,16 @@ public sealed class StuntFlight(World world, Physics physics, RandomStream rando
                 WatchForRest(seconds);
                 break;
             case Stage.GettingUp:
-                return WatchForStanding();
+                WatchForGetUp();
+                break;
+            case Stage.Cheering:
+                // The moment of standing counts from the end of the cheer.
+                if (Animator.IsPlaying(Move.Cheer))
+                {
+                    _seconds = 0f;
+                }
+
+                return _seconds >= StandingSeconds;
         }
 
         return false;
@@ -134,15 +143,16 @@ public sealed class StuntFlight(World world, Physics physics, RandomStream rando
         _seconds = 0f;
     }
 
-    /// <summary>Waits out the get-up, then stands a while, saying when the shot is over.</summary>
-    private bool WatchForStanding()
+    /// <summary>Waits out the get-up, then has him rally the crowd.</summary>
+    private void WatchForGetUp()
     {
         if (Animator.IsPlaying(Move.StandUp) || Animator.IsPlaying(Move.StandUpFromFront))
         {
-            _seconds = 0f;
-            return false;
+            return;
         }
 
-        return _seconds >= StandingSeconds;
+        Animator.Play(Move.Cheer);
+        Stage = Stage.Cheering;
+        _seconds = 0f;
     }
 }

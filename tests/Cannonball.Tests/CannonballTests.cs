@@ -66,7 +66,7 @@ public sealed class CannonballTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void He_gets_up_from_where_he_lay_and_stands_before_the_next_shot()
+    public void He_gets_up_from_where_he_lay_and_rallies_the_crowd_before_the_next_shot()
     {
         using var run = Start();
         RunUntil(run, Stage.Tumbling);
@@ -86,10 +86,12 @@ public sealed class CannonballTests
             run.Ticks(1);
         }
 
-        Assert.Equal(Stage.Loaded, run.Game.Stage);
+        Assert.Equal(Stage.Cheering, run.Game.Stage);
         Assert.True(standing.Y > 0.9f, $"he ended the get-up leaning {standing}");
-        // The get-up from the front crawls the hips about 1.2 m on its own, so allow for that and no more.
-        Assert.True(Across(lying, hips) < 1.5f,$"he got up at {hips}, {Across(lying, hips)} m from where he lay at {lying}");
+        // Each get-up shifts the hips a little on its own, about 0.1 m, so allow for that and no more.
+        Assert.True(Across(lying, hips) < 0.5f, $"he got up at {hips}, {Across(lying, hips)} m from where he lay at {lying}");
+
+        RunUntil(run, Stage.Loaded);
     }
 
     [Fact]

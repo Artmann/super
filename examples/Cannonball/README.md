@@ -4,7 +4,7 @@ A human cannonball, to show [ragdolls](../../docs/physics.md#ragdolls). A stuntm
 from a cannon, flailing as they fly, and goes limp at the first hard hit. They tumble
 through a wall of crates, pyramids, balls and hay bales, and once they lie still they get
 up from where they fell, with a get-up clip picked by whether they lie face up or down.
-Then the cannon fires again.
+They rally the crowd, and then the cannon fires again.
 
 ![The cannon firing, the crash into the crates, the stuntman lying still, and back on their feet](../../docs/media/cannonball-round.webp)
 
