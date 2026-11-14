@@ -136,7 +136,13 @@ public sealed class RagdollBody
     /// upper arm, forearm, hand, thigh, shin and foot each side, with joints that bend as a body does. Names may have
     /// a prefix such as <c>mixamorig:</c>.
     /// </summary>
-    public static RagdollBody Humanoid(Rig rig, float mass = 70f)
+    public static RagdollBody Humanoid(Rig rig, float mass = 70f) => new(rig, HumanoidParts(), mass);
+
+    /// <summary>
+    /// The parts <see cref="Humanoid"/> uses, to make a humanoid with other settings, such as
+    /// <c>new RagdollBody(rig, RagdollBody.HumanoidParts()) { Bounciness = 0.6f }</c>, or to change a part.
+    /// </summary>
+    public static List<RagdollPart> HumanoidParts()
     {
         List<RagdollPart> parts =
         [
@@ -155,7 +161,7 @@ public sealed class RagdollBody
             parts.Add(new($"{side}Foot", 0.015f) { Shape = RagdollShape.Box, Swing = 30f, Twist = 10f });
         }
 
-        return new RagdollBody(rig, parts, mass);
+        return parts;
     }
 
     /// <summary>The part a joint belongs to, by name, or -1 for one above the ragdoll.</summary>
