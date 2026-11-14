@@ -28,8 +28,8 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     // Two gestures that can overlap: the left button holding something, and a drag on any
     // button, so a right drag can run while a left click stays held elsewhere. Each is one
     // value. See "Lifecycle state in engine code" in docs/design.md.
-    private Hold? _hold;
-    private Drag? _drag;
+    private LeftHold? _hold;
+    private PointerDrag? _drag;
 
     private UiNode? _look;
     private PressState _lookState;
@@ -140,7 +140,7 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
 
     private static UiNode? Clickable(UiNode? node) => Find<ClickModifier>(node) is { View: ClickModifier { Disabled: false } } found ? found : null;
 
-    private static UiNode? DropTargetUnder(UiNode? node, Drag drag)
+    private static UiNode? DropTargetUnder(UiNode? node, PointerDrag drag)
     {
         if (Inside(node, drag.Source))
         {
@@ -406,22 +406,22 @@ internal sealed class UiPointer(UiTree tree, Input input, int ticksPerSecond)
     }
 
     /// <summary>What the left button is holding in the interface.</summary>
-    private abstract record Hold;
+    private abstract record LeftHold;
 
     /// <summary>A press on something clickable. Its click is kept from the press, so it stays with what was pressed.</summary>
-    private sealed record ClickHold(UiNode Node, Action? Click) : Hold;
+    private sealed record ClickHold(UiNode Node, Action? Click) : LeftHold;
 
     /// <summary>A scroll bar's thumb, held this far from its top.</summary>
-    private sealed record ThumbHold(UiNode Bar, float Grab) : Hold;
+    private sealed record ThumbHold(UiNode Bar, float Grab) : LeftHold;
 
     /// <summary>A drag, carrying what its source handed over at the press.</summary>
-    private abstract record Drag(UiNode Source, object Payload, UiView? Floating, MouseButton DraggedWith);
+    private abstract record PointerDrag(UiNode Source, object Payload, UiView? Floating, MouseButton DraggedWith);
 
     /// <summary>Pressed on a source, but not yet moved far enough from <paramref name="DownAt"/> to stop being a click.</summary>
     private sealed record ArmedDrag(UiNode Source, object Payload, UiView? Floating, MouseButton DraggedWith, Vector2 DownAt)
-        : Drag(Source, Payload, Floating, DraggedWith);
+        : PointerDrag(Source, Payload, Floating, DraggedWith);
 
     /// <summary>Moving: the preview follows the cursor and a release over a target drops.</summary>
     private sealed record MovingDrag(UiNode Source, object Payload, UiView? Floating, MouseButton DraggedWith)
-        : Drag(Source, Payload, Floating, DraggedWith);
+        : PointerDrag(Source, Payload, Floating, DraggedWith);
 }
