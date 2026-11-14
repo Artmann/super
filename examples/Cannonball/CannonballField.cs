@@ -19,6 +19,12 @@ public sealed class CannonballField(World world)
 
     private const float CrateSize = 0.8f;
 
+    // The wall sits a little to the camera's left of the line he flies along.
+    private const float WallShift = 0.8f;
+
+    // Balls are drawn and collide at this radius: a unit sphere scaled to twice it.
+    private const float BallRadius = 0.6f;
+
     // Above any entity's ID, so these keys never meet the ones view.Models gives entities.
     private const int CannonKey = 1_000_000;
 
@@ -75,7 +81,7 @@ public sealed class CannonballField(World world)
         {
             for (int column = 0; column < 6; column++)
             {
-                float x = (column - 2.5f + (row % 2 * 0.5f)) * CrateSize;
+                float x = WallShift + ((column - 2.5f + (row % 2 * 0.5f)) * CrateSize);
                 Crate(new Vector3(x, (row + 0.5f) * CrateSize, 30f), Woods[(row + column) % Woods.Length]);
             }
         }
@@ -97,17 +103,35 @@ public sealed class CannonballField(World world)
         }
     }
 
+    /// <summary>A ring of balls before the pyramids, three along the top of the wall and a few on the ground around it.</summary>
     private void BuildBalls()
     {
         Vector3[] paints = [new(0.85f, 0.2f, 0.15f), new(0.95f, 0.75f, 0.15f), new(0.2f, 0.45f, 0.85f)];
         for (int i = 0; i < 6; i++)
         {
             float angle = i * 1.1f;
-            var at = new Vector3(MathF.Cos(angle) * 3f, 0.6f, 22f + (MathF.Sin(angle) * 2f));
-            var ball = Prop(Transform.At(at, 1.2f), paints[i % paints.Length], ModelRef.Sphere);
-            world.Add(ball, Collider.Ball(0.5f));
-            world.Add(ball, Body.Dynamic(mass: 6f, bounciness: 0.5f));
+            Ball(new Vector3(MathF.Cos(angle) * 3f, BallRadius, 22f + (MathF.Sin(angle) * 2f)), paints[i % paints.Length]);
         }
+
+        // Each sits on the middle of a top-row crate, which is set half a crate over from the row below.
+        float top = (4f * CrateSize) + BallRadius;
+        Vector3[] atWall =
+        [
+            new(WallShift - CrateSize, top, 30f), new(WallShift + CrateSize, top, 30f), new(WallShift + (3f * CrateSize), top, 30f),
+            new(WallShift - (3.5f * CrateSize), BallRadius, 29f), new(WallShift + (4f * CrateSize), BallRadius, 30.6f),
+            new(WallShift + 0.5f, BallRadius, 32.5f), new(WallShift - 1.5f, BallRadius, 33.2f),
+        ];
+        for (int i = 0; i < atWall.Length; i++)
+        {
+            Ball(atWall[i], paints[(i + 1) % paints.Length]);
+        }
+    }
+
+    private void Ball(Vector3 at, Vector3 paint)
+    {
+        var ball = Prop(Transform.At(at, 2f * BallRadius), paint, ModelRef.Sphere);
+        world.Add(ball, Collider.Ball(0.5f));
+        world.Add(ball, Body.Dynamic(mass: 6f, bounciness: 0.5f));
     }
 
     /// <summary>Hay bales to land on, light enough to scatter.</summary>

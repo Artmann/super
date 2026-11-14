@@ -66,7 +66,8 @@ public sealed class CannonballTests
 
         Assert.Equal(Stage.Loaded, run.Game.Stage);
         Assert.True(standing.Y > 0.9f, $"he ended the get-up leaning {standing}");
-        Assert.True(Across(lying, hips) < 1f, $"he got up at {hips}, {Across(lying, hips)} m from where he lay at {lying}");
+        // The get-up from the front crawls the hips about 1.2 m on its own, so allow for that and no more.
+        Assert.True(Across(lying, hips) < 1.5f,$"he got up at {hips}, {Across(lying, hips)} m from where he lay at {lying}");
     }
 
     [Fact]
