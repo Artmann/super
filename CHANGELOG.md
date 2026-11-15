@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.1](https://github.com/Artmann/super/compare/v1.2.0...v1.2.1) (2026-11-15)
+
+
+### Bug Fixes
+
+* build the cook tool before the solution on CI ([284402d](https://github.com/Artmann/super/commit/284402d8abceccebfa81af34b34bc36769bf04b0))
+* fit ragdoll parts to rigs scaled by a joint above the hips ([9978958](https://github.com/Artmann/super/commit/9978958cd215c6fa2a4a00adb431fe8323ce6bef))
+* run the loading tests' blocking work on threads of their own ([2459231](https://github.com/Artmann/super/commit/24592312f5756360bdd53b9ffca6ef798bafd436))
+
 ## [1.2.0](https://github.com/Artmann/super/compare/v1.1.0...v1.2.0) (2026-11-15)
 
 
