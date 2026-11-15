@@ -245,7 +245,7 @@ world.Add(stuntman, new Animated(controller.Start(Stance.Idle)));
 world.Add(stuntman, new Ragdoll(body));
 ```
 
-![A stuntman fired from a cannon, crashing into crates, lying where the ragdoll fell, and back on their feet](media/cannonball-round.webp)
+![A stuntman fired from a cannon, crashing through a wall of crates, lying where the ragdoll fell, and rallying the crowd](media/cannonball-round.webp)
 
 `RagdollBody.Humanoid` suits a rig with the usual human joint names, such as Mixamo's,
 with or without a prefix like `mixamorig:`. It has 16 parts: the pelvis, two spine

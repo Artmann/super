@@ -6,7 +6,7 @@ through a wall of crates, pyramids, balls and hay bales, and once they lie still
 up from where they fell, with a get-up clip picked by whether they lie face up or down.
 They rally the crowd, and then the cannon fires again.
 
-![The cannon firing, the crash into the crates, the stuntman lying still, and back on their feet](../../docs/media/cannonball-round.webp)
+![The cannon firing, the crash through the wall, the stuntman lying still, and rallying the crowd](../../docs/media/cannonball-round.webp)
 
 ```
 dotnet run -c Release --project examples/Cannonball
