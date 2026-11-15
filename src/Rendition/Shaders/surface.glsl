@@ -200,9 +200,15 @@ void applyPuddles(inout Surface surface, vec3 worldPos, float height, float heig
     puddleWater = water;
 }
 
-// What to write in the normal target's alpha: WATER_SIDE for the front of puddle water, 1 for the rest.
+// How much soft light reaches the pixel, from 0 for none to 1 for all, which the lighting multiplies into the sky's,
+// the probes' and the bake's light and the reflections. materialSurface sets it from the material's occlusion texture.
+// It stays 1 for a shader that builds its Surface by hand, and a shader can set its own.
+float surfaceOcclusion = 1.0;
+
+// What to write in the normal target's alpha: WATER_SIDE for the front of puddle water, the occlusion for the rest.
+// Water lies open over the hollows, so it has none.
 float waterSide() {
-    return puddleWater >= 0.5 ? WATER_SIDE : 1.0;
+    return puddleWater >= 0.5 ? WATER_SIDE : clamp(surfaceOcclusion, 0.0, 1.0);
 }
 
 // Whether this pixel's material gets wet and the frame has puddles to wet it.
@@ -360,6 +366,15 @@ Surface materialSurface(vec2 uv) {
     surface.normal = normalize(basis * mapped);
     surface.emissive = textureGrad(textures[material.emissiveTexture], uv, uvX, uvY).rgb * material.emissive.rgb;
     surface.clearcoat = material.clearcoat;
+
+    // Occlusion on the first uv moves with the height map like the rest. On the second it was baked onto a layout
+    // of its own, which the height map doesn't shift.
+    if ((material.flags & MATERIAL_OCCLUSION_UV2) != 0u) {
+        surfaceOcclusion = textureGrad(textures[material.occlusionTexture], inUv2,
+            dFdx(inUv2) * sharper, dFdy(inUv2) * sharper).r;
+    } else {
+        surfaceOcclusion = textureGrad(textures[material.occlusionTexture], uv, uvX, uvY).r;
+    }
 
     // Without a level set, or with Graphics.Puddles off, frame.puddles.z is 0 and nothing is wet.
     if (puddlesHere()) {
@@ -554,7 +569,7 @@ void writeSurface(Surface surface) {
     }
 
     // With materials off, every surface is the same plain clay, shaped only by its mesh: no
-    // colour, tint, normal map, shine, coat or subsurface. Cut-outs still cut and glows still glow.
+    // colour, tint, normal map, occlusion, shine, coat or subsurface. Cut-outs still cut and glows still glow.
     // Puddles are the frame's weather, not the material's, so the clay still gets wet, at the
     // height of its mesh, as there is no height map to sink it.
     if (isOff(OFF_MATERIALS)) {
@@ -564,6 +579,7 @@ void writeSurface(Surface surface) {
         plain.roughness = PLAIN_ROUGHNESS;
         plain.normal = surfaceFrame()[2];
         puddleWater = 0.0;
+        surfaceOcclusion = 1.0;
         if (puddlesHere()) {
             applyPuddles(plain, inPosition, 1.0, 0.0);
         }

@@ -45,7 +45,8 @@ internal static class TextureCompression
     /// <summary>
     /// Replaces each of <paramref name="textures"/> with its compressed form, judging its use
     /// from the materials that point to it. A texture no material points to stays as it is.
-    /// <paramref name="masks"/> are the materials' baked masks, which keep all four channels.
+    /// <paramref name="extra"/> are the textures a material names outside <see cref="ModelMaterial"/>, with the format
+    /// each wants: BC7 for the baked masks, which keep all four channels, and BC4 for occlusion, which is red alone.
     /// With <paramref name="input"/> and a cook cache, each compressed texture is kept in the step
     /// cache by the hash of its pixels, its size and format and the encoder's version, so a later
     /// cook compresses only textures whose pixels changed. The entry only names the texture's object,
@@ -55,14 +56,14 @@ internal static class TextureCompression
     public static void Compress(
         TextureData[] textures,
         IReadOnlyList<ModelMaterial> materials,
-        IEnumerable<int>? masks = null,
+        IEnumerable<(int Texture, TextureFormat Format)>? extra = null,
         CookInput? input = null,
         Action<string>? warn = null)
     {
         var formats = new TextureFormat?[textures.Length];
-        foreach (int mask in masks ?? [])
+        foreach (var (texture, format) in extra ?? [])
         {
-            Use(formats, mask, TextureFormat.Bc7);
+            Use(formats, texture, format);
         }
 
         foreach (var material in materials)

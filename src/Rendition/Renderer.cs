@@ -3724,6 +3724,11 @@ public sealed unsafe class Renderer : IDisposable
                 material.Dirt = masks.Dirt;
             }
 
+            if (model.OcclusionOf(i) is >= 0 and int occlusion)
+            {
+                material.OcclusionTexture = textures[occlusion];
+            }
+
             materials[i] = CreateMaterial(finish is null ? material : finish(i, material));
         }
 
@@ -3735,7 +3740,8 @@ public sealed unsafe class Renderer : IDisposable
 
     /// <summary>
     /// The material a cooked model's material makes, with its texture indices turned into <paramref name="textures"/>'
-    /// handles and -1 for none. The mask textures come separately, from <see cref="ModelData.MaskOf"/>.
+    /// handles and -1 for none. The mask and occlusion textures come separately, from <see cref="ModelData.MaskOf"/>
+    /// and <see cref="ModelData.OcclusionOf"/>.
     /// </summary>
     internal static Material MaterialOf(in ModelMaterial source, ReadOnlySpan<TextureHandle> textures)
     {

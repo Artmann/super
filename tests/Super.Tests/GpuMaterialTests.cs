@@ -23,7 +23,7 @@ public class GpuMaterialTests
             + 4 * scalar        // flags, transmission, heightTexture, heightDepth
             + 4 * scalar        // detailColorTexture, detailNormalTexture, detailScale, ior
             + vec4              // subsurface
-            + 4 * scalar        // maskTexture, maskHeight, wearRoughness, dirtRoughness
+            + 4 * scalar        // maskTexture, occlusionTexture, wearRoughness, dirtRoughness
             + vec4              // wear
             + vec4;             // dirt
 
@@ -32,8 +32,8 @@ public class GpuMaterialTests
 
     // 64 bytes of fixed values, 128 of shader parameters, 16 and 16 of slots, then the
     // flags, transmission, the height and detail fields and ior, four bytes each, then subsurface.
-    // Subsurface is a vec4, so it ends at 272. The mask, a padding and the two roughnesses follow at 272, 276, 280 and
-    // 284, which leaves wear on a 16-byte boundary at 288 and dirt after it at 304, ending at 320.
+    // Subsurface is a vec4, so it ends at 272. The mask, the occlusion and the two roughnesses follow at 272, 276, 280
+    // and 284, which leaves wear on a 16-byte boundary at 288 and dirt after it at 304, ending at 320.
     [Theory]
     [InlineData(nameof(ResourceTable.GpuMaterial.Flags), 224)]
     [InlineData(nameof(ResourceTable.GpuMaterial.Transmission), 228)]
@@ -45,7 +45,7 @@ public class GpuMaterialTests
     [InlineData(nameof(ResourceTable.GpuMaterial.Ior), 252)]
     [InlineData(nameof(ResourceTable.GpuMaterial.Subsurface), 256)]
     [InlineData(nameof(ResourceTable.GpuMaterial.MaskTexture), 272)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.MaskPadding), 276)]
+    [InlineData(nameof(ResourceTable.GpuMaterial.OcclusionTexture), 276)]
     [InlineData(nameof(ResourceTable.GpuMaterial.WearRoughness), 280)]
     [InlineData(nameof(ResourceTable.GpuMaterial.DirtRoughness), 284)]
     [InlineData(nameof(ResourceTable.GpuMaterial.Wear), 288)]

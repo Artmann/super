@@ -77,6 +77,10 @@ public sealed class ModelData
     // 13: materials gained Translucency and Wind. 14: skeletons gained the bounds of the vertices each joint moves.
     private const int Version = 14;
 
+    // Marks the optional sections after the textures, which a model without them leaves out, so its bytes, and the bake
+    // ids made from them, stay as they were before the section existed. The end of the stream ends the file.
+    private const byte OcclusionSection = 1;
+
     private const byte TextureInside = 0;
     private const byte TextureByHash = 1;
 
@@ -122,11 +126,39 @@ public sealed class ModelData
         material < MaterialMasks.Length ? MaterialMasks[material] : null;
 
     /// <summary>
+    /// For each material, its occlusion texture's index in <see cref="Textures"/>, or -1 for none: see
+    /// <see cref="Material.OcclusionTexture"/>. The second UV set reads it where the material has
+    /// <see cref="MaterialFlags.OcclusionOnUv2"/>. In the same order as <see cref="Materials"/>. Empty when no material
+    /// has one; otherwise it must be as long as <see cref="Materials"/>. Read it with <see cref="OcclusionOf"/>.
+    /// </summary>
+    public int[] MaterialOcclusion { get; init; } = [];
+
+    /// <summary>Material <paramref name="material"/>'s occlusion texture's index, or -1 when it has none.</summary>
+    public int OcclusionOf(int material) =>
+        material < MaterialOcclusion.Length ? MaterialOcclusion[material] : -1;
+
+    /// <summary>
     /// What texture <paramref name="texture"/> reads past its edge: <see cref="TextureEdges.Clamp"/> when it's
-    /// a material's masks, which are an atlas of the mesh's islands, and <see cref="TextureEdges.Repeat"/> otherwise.
+    /// a material's masks or an occlusion texture on the second UV set, which are atlases of the mesh's islands, and
+    /// <see cref="TextureEdges.Repeat"/> otherwise.
     /// </summary>
     public TextureEdges EdgesOf(int texture) =>
-        MaterialMasks.Any(masks => masks?.Texture == texture) ? TextureEdges.Clamp : TextureEdges.Repeat;
+        MaterialMasks.Any(masks => masks?.Texture == texture) || IsOcclusionOnUv2(texture)
+            ? TextureEdges.Clamp
+            : TextureEdges.Repeat;
+
+    private bool IsOcclusionOnUv2(int texture)
+    {
+        for (int i = 0; i < MaterialOcclusion.Length; i++)
+        {
+            if (MaterialOcclusion[i] == texture && (Materials[i].Flags & MaterialFlags.OcclusionOnUv2) != 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// Says why a material's cutoff can't work, or returns null when it can or there is
@@ -194,17 +226,9 @@ public sealed class ModelData
                 $"The model has {Parts.Length} parts and {MeshNames.Length} mesh names. Give one name to each part, or none.");
         }
 
-        if (MaterialShaders.Length != 0 && MaterialShaders.Length != Materials.Length)
-        {
-            throw new InvalidOperationException(
-                $"The model has {Materials.Length} materials and {MaterialShaders.Length} material shaders. Give one to each material, or none.");
-        }
-
-        if (MaterialMasks.Length != 0 && MaterialMasks.Length != Materials.Length)
-        {
-            throw new InvalidOperationException(
-                $"The model has {Materials.Length} materials and {MaterialMasks.Length} material masks. Give one to each material, or none.");
-        }
+        RequireOnePerMaterial(MaterialShaders.Length, "material shaders", "or none");
+        RequireOnePerMaterial(MaterialMasks.Length, "material masks", "or none");
+        RequireOnePerMaterial(MaterialOcclusion.Length, "occlusion textures", "-1 for none, or none at all");
 
         var stream = new MemoryStream();
         using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
@@ -213,6 +237,16 @@ public sealed class ModelData
         }
 
         return stream.ToArray();
+    }
+
+    // A list that goes with the materials must have one entry for each of them, or be empty.
+    private void RequireOnePerMaterial(int count, string what, string otherwise)
+    {
+        if (count != 0 && count != Materials.Length)
+        {
+            throw new InvalidOperationException(
+                $"The model has {Materials.Length} materials and {count} {what}. Give one to each material, {otherwise}.");
+        }
     }
 
     private void WriteTo(BinaryWriter writer, Func<TextureData, string>? share)
@@ -297,6 +331,35 @@ public sealed class ModelData
                 writer.Write(share(texture));
             }
         }
+
+        WriteOcclusion(writer);
+    }
+
+    // The optional section after the textures. A model without occlusion writes nothing here.
+    private void WriteOcclusion(BinaryWriter writer)
+    {
+        if (MaterialOcclusion.Length != 0)
+        {
+            writer.Write(OcclusionSection);
+            WriteArray(writer, MaterialOcclusion);
+        }
+    }
+
+    // The occlusion section, or nothing when the stream ends with the textures.
+    private static int[] ReadOcclusion(Stream stream, BinaryReader reader, string name)
+    {
+        int section = stream.ReadByte();
+        if (section == -1)
+        {
+            return [];
+        }
+
+        if (section != OcclusionSection)
+        {
+            throw new InvalidDataException($"{name} is damaged: it has the unknown section {section} after its textures. Cook it again.");
+        }
+
+        return ReadArray<int>(reader);
     }
 
     public static ModelData Read(string path)
@@ -362,6 +425,7 @@ public sealed class ModelData
             }
         }
 
+        int[] occlusion = ReadOcclusion(stream, reader, name);
         return new ModelData
         {
             Vertices = vertices,
@@ -370,6 +434,7 @@ public sealed class ModelData
             Materials = materials,
             MaterialShaders = shaders,
             MaterialMasks = masks,
+            MaterialOcclusion = occlusion,
             Textures = textures,
             Skeleton = skeleton,
             Clips = clips,

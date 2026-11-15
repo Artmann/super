@@ -60,8 +60,8 @@ internal sealed unsafe class ResourceTable : IDisposable
 
         public uint MaskTexture;
 
-        /// <summary>Unused, so wear lands on a 16-byte boundary.</summary>
-        public float MaskPadding;
+        /// <summary>White without one. <see cref="MaterialFlags.OcclusionOnUv2"/> says which UV set reads it.</summary>
+        public uint OcclusionTexture;
 
         /// <summary>Below 0 keeps the surface's own roughness under the layer.</summary>
         public float WearRoughness;
@@ -102,12 +102,12 @@ internal sealed unsafe class ResourceTable : IDisposable
 
     /// <summary>
     /// Texture slots a material can name: base colour, normal, surface, emissive, height,
-    /// detail colour, detail normal and mask, then the four shader textures.
+    /// detail colour, detail normal, mask and occlusion, then the four shader textures.
     /// </summary>
     public const int TexturesPerMaterial = OwnTextures + ShaderTextures.Length;
 
     /// <summary>How many of a material's texture slots come before its shader textures.</summary>
-    private const int OwnTextures = 8;
+    private const int OwnTextures = 9;
 
     public readonly DescriptorSetLayout Layout;
     public readonly DescriptorSet Set;
@@ -492,6 +492,7 @@ internal sealed unsafe class ResourceTable : IDisposable
             Transmission = Transmission(material),
             Subsurface = Spread(material.Subsurface),
             MaskTexture = (uint)(material.MaskTexture ?? _white).Index,
+            OcclusionTexture = (uint)(material.OcclusionTexture ?? _white).Index,
             WearRoughness = material.Wear.Roughness,
             DirtRoughness = material.Dirt.Roughness,
             Wear = Layer(material.Wear, material.MaskTexture is not null),
@@ -519,6 +520,7 @@ internal sealed unsafe class ResourceTable : IDisposable
         owned[5] = material.DetailColorTexture?.Index ?? -1;
         owned[6] = material.DetailNormalTexture?.Index ?? -1;
         owned[7] = material.MaskTexture?.Index ?? -1;
+        owned[8] = material.OcclusionTexture?.Index ?? -1;
         for (int i = 0; i < ShaderTextures.Length; i++)
         {
             owned[OwnTextures + i] = material.ShaderTextures[i]?.Index ?? -1;

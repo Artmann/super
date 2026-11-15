@@ -62,6 +62,20 @@ public sealed record Surface
     public bool DetailMask { get; init; }
 
     /// <summary>
+    /// How much soft light reaches each point, in red: white for all, black for none, as in the cracks between planks.
+    /// It darkens the light from the sky, the light probes and the bake, and dims reflections, but not the sun's or a
+    /// lamp's direct light. Cook it as linear data, with <c>"texture": { "linear": true }</c> in a <c>cook.json</c> rule.
+    /// </summary>
+    public TextureRef? OcclusionTexture { get; init; }
+
+    /// <summary>
+    /// Reads <see cref="OcclusionTexture"/> through the second UV set, <see cref="Vertex.Uv2"/>, instead of the first,
+    /// for occlusion baked onto a layout of its own. <see cref="Content.Mesh"/> with <c>isStatic</c> refuses a mesh
+    /// whose <see cref="Vertex.Uv2"/> it would have to replace.
+    /// </summary>
+    public bool OcclusionOnUv2 { get; init; }
+
+    /// <summary>
     /// Darkens and lightens the colour in broad patches laid by where the surface is in the world, so a texture that
     /// repeats across a big wall or floor doesn't show it.
     /// </summary>
@@ -136,25 +150,22 @@ public sealed record GeneratedMesh(Vertex[] Vertices, uint[] Indices, Surface Su
     /// <see cref="LightmapUnwrap.LargestSize"/> when the charts don't fit. A set made for a larger page only, such as one
     /// whose gutters are two texels at 1024 but one at 512, is replaced.
     /// </summary>
-    /// <exception cref="InvalidOperationException">The charts don't fit even the largest page.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The charts don't fit even the largest page, or the set must be replaced but the surface reads its
+    /// <see cref="Surface.OcclusionTexture"/> through it.
+    /// </exception>
     public GeneratedMesh WithLightmapUvs()
     {
-        if (Indices.Length == 0)
+        if (Indices.Length == 0 || Uv2Problem() is not { } problem)
         {
             return this;
         }
 
-        var positions = new Vector3[Vertices.Length];
-        var uvs = new Vector2[Vertices.Length];
-        for (int i = 0; i < Vertices.Length; i++)
+        // The occlusion was painted for this set, so on a new one it would land in the wrong places.
+        if (Surface.OcclusionOnUv2 && Surface.OcclusionTexture is not null)
         {
-            positions[i] = Vertices[i].Position;
-            uvs[i] = Vertices[i].Uv2;
-        }
-
-        if (LightmapUnwrap.Problem(positions, uvs, Indices) is null)
-        {
-            return this;
+            throw new InvalidOperationException(
+                $"The surface reads its occlusion texture through Uv2, so Uv2 can't be replaced to fit a lightmap. {problem} Fix the mesh's Uv2, or read the occlusion through Uv.");
         }
 
         string? failure = null;
@@ -172,5 +183,19 @@ public sealed record GeneratedMesh(Vertex[] Vertices, uint[] Indices, Surface Su
         }
 
         throw new InvalidOperationException(failure);
+    }
+
+    /// <summary>Why <see cref="Vertex.Uv2"/> doesn't fit a lightmap, as <see cref="LightmapUnwrap.Problem"/> says, or null when it does.</summary>
+    private string? Uv2Problem()
+    {
+        var positions = new Vector3[Vertices.Length];
+        var uvs = new Vector2[Vertices.Length];
+        for (int i = 0; i < Vertices.Length; i++)
+        {
+            positions[i] = Vertices[i].Position;
+            uvs[i] = Vertices[i].Uv2;
+        }
+
+        return LightmapUnwrap.Problem(positions, uvs, Indices);
     }
 }

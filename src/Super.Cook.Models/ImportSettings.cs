@@ -110,6 +110,21 @@ public sealed class MaterialRule
     /// <summary>Red is metalness, green is roughness, alpha is opacity.</summary>
     public string? Surface { get; set; }
 
+    /// <summary>
+    /// Red is how much soft light reaches the surface, white for all and black for none. A glTF file links its own
+    /// occlusion texture, which this replaces.
+    /// </summary>
+    public string? Occlusion { get; set; }
+
+    /// <summary>
+    /// Which UV set reads the occlusion texture: 0 for the first, 1 for the second (<c>TEXCOORD_1</c>). Without it, a
+    /// texture the glTF file links is read through the set the file says, and one named here through the first.
+    /// </summary>
+    public int? OcclusionUv { get; set; }
+
+    /// <summary>Ignores the occlusion texture linked in the model file.</summary>
+    public bool NoOcclusionMap { get; set; }
+
     /// <summary>Texture of the light the surface gives off.</summary>
     public string? Emissive { get; set; }
 

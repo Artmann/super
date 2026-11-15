@@ -16,6 +16,7 @@ What it does for every game, with no setup:
 - Temporal anti-aliasing that follows moving, animated and swaying things with [motion vectors](#motion-vectors), and bloom
 - [Glass](#glass) that bends and frosts what's behind it, car paint clearcoat and surfaces that glow
 - [Height maps](#height-and-detail-maps) that sink mortar and grooves into a flat surface, and detail maps for fine grain
+- [Occlusion maps](#occlusion-maps) that darken the soft light in cracks, read through either UV set
 - Skin, wax and jade that [let light spread under the surface](#skin-and-wax)
 - Cut-out leaves, grass and cobwebs that [keep their shape in the distance](#models), since the cook keeps their alpha coverage in every mip
 - Soft, lit [particles](views.md#particles) for dust and smoke
@@ -73,7 +74,7 @@ next frame follows, so it can back an options menu.
 | `ContactShadows` | No thin dark line where things meet the ground in sunlight, only what the shadow maps show. `view.Shadows`' `contact` only changes [how far they look](#shadows) |
 | `LightShadows` | Point and spot lights shine through walls |
 | `LocalLights` | Point and spot lights give no light: none is clustered, shadowed or lit onto the [light probes](#bounced-light), so the sun and the sky light the scene alone. Light a bake already holds stays, and no bake is redone. `BakedLighting` drops it too |
-| `AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. `view.AmbientOcclusion` only changes [how far and how dark](#ambient-occlusion) |
+| `AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. A material's [occlusion map](#occlusion-maps) still darkens its own cracks. `view.AmbientOcclusion` only changes [how far and how dark](#ambient-occlusion) |
 | `MultiscatterSpecular` | Rough surfaces lose the light that bounces between their tiny facets, so rough metals such as worn iron come out darker than they should, by up to half at full roughness. It costs almost nothing, so leave it on unless you're comparing |
 | `LightProbes` | No [bounced light](#bounced-light): shade takes its soft light from the sky alone, even inside a `view.LightProbes` box. No probes are drawn, and their memory, about 170 MB at `ProbeQuality.High`, is freed until it is switched back on, when every probe starts again. `Graphics.Fastest()` turns it off |
 | `ProbeQuality` | How many [light probes](#bounced-light) follow the camera and how many are redrawn a frame. `High`, the default and the best look, keeps 32 × 16 × 32 probes in each of the four boxes and redraws 32 a frame, for about 170 MB. `Medium` keeps 24 × 12 × 24 and redraws 16, for about 73 MB. `Low` keeps 16 × 8 × 16 and redraws 8, for about 43 MB, so the boxes reach half as far, the bounce fills in more slowly at the start and is slower to follow lights that move. Anything else is refused. A change starts every probe again on the next frame, which waits for the GPU once. `Graphics.Fastest()` sets `Low`, so turning the probes back on stays cheap |
@@ -95,7 +96,7 @@ next frame follows, so it can back an options menu.
 | `BakedLighting` | Every bake is ignored, so each [baked area](#baked-lighting) is lit live, as if it had never been baked: lights its bake holds are drawn again. It shows what a bake changes. A bake costs less than the live light it stands in for, so `Graphics.Fastest()` leaves it on |
 | `BakeOnArrival` | Areas with no bake, or a stale one, stay lit live instead of [baking as the game runs](#baking-without-a-build-step), and a running bake stops |
 | `BakeBudget` | Not a switch: the GPU milliseconds a [background bake](#baking-without-a-build-step) may take a frame, from 0.5 to 33. Null, the default, gives 4 from source and 2 in a published game |
-| `Materials` | Every surface is the same light grey, matte clay, shaped only by its mesh, so you can judge the lighting and the models without textures in the way. Glows still glow, cut-outs still cut, glass stays see-through and puddles still wet the clay. `--no-materials` turns it off too |
+| `Materials` | Every surface is the same light grey, matte clay, shaped only by its mesh, with no occlusion map, so you can judge the lighting and the models without textures in the way. Glows still glow, cut-outs still cut, glass stays see-through and puddles still wet the clay. `--no-materials` turns it off too |
 | `WearAndDirt` | Models' materials show only their own colour and shine, without the pale worn edges and dark hollows their [baked masks](#wear-and-dirt) lay on, and the masks aren't read |
 | `HeightMaps` | Surfaces with a height map are flat, shaded only by their normal maps: bricks no longer stand out from the mortar as the view moves. It saves up to 32 lookups on each near pixel of those surfaces. Puddles still sink into the grooves. `GraphicsQuality.Low` and `Graphics.Fastest()` turn it off |
 | `Specular` | No shine: every surface is lit as plain matte, with no highlights, no reflections and no clear coat, metals in their base colour, and glass lets light through without reflecting. It's for judging the diffuse light, not for speed |
@@ -1496,6 +1497,7 @@ texture a rule names that can't be found stops the cook; one the model file link
 warns.
 
 Every cooked model has a second UV set for lighting and for [wear and dirt](#wear-and-dirt),
+which an [occlusion map](#occlusion-maps) can be read through too,
 checked and made for each material on its own. Each material's set is in its own 0 to 1, in
 which no two places on that material's meshes share a texel, and two materials may overlap
 each other there. The cook keeps the file's own `TEXCOORD_1` for a material when every mesh
@@ -1554,7 +1556,7 @@ and the character would end up shifted by an amount you can't predict. A rigged 
 stays in the same place as its mesh. It's `false` by default.
 
 `compressTextures` block-compresses the model's textures, which is on by default. Normal maps
-become BC5, height maps BC4 and the rest BC7, so a texture takes a quarter of the memory or less.
+become BC5, height and occlusion maps BC4 and the rest BC7, so a texture takes a quarter of the memory or less.
 Compressing is quick: BC7 takes about a tenth of a second for a 2048-pixel texture, and the
 whole Courtyard cooks from nothing in about 2 minutes, most of it running material graphs.
 Each compressed texture is kept in the cook cache by its pixels, so editing one graph
@@ -1618,7 +1620,8 @@ as the shared `assets` folder does for Poly Haven's `textures` folders:
 }
 ```
 
-Other options are the `baseColor`, `normal`, `surface` and `emissive` textures,
+Other options are the `baseColor`, `normal`, `surface`, `emissive` and [`occlusion`](#occlusion-maps)
+textures, `occlusionUv`, `noOcclusionMap`,
 `color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `heightDepth`,
 `detailScale`, `detailMask`, `twoSided`, `transparent`, `opacity`, `ior`, `noNormalMap`,
 `worldVariation`, `dithered`, `puddles`, `wind` and `rotateY`, and `graph`, `graphSize`, `detailGraph` and
@@ -2060,7 +2063,7 @@ A texture made from your own pixels, a `GeneratedTexture`, stays RGBA8 with all 
 channels.
 
 The layers of a texture array must match in size, in colour or linear, and in format:
-cooked colour or linear textures are BC7, cooked normal maps BC5, material heights BC4, and
+cooked colour or linear textures are BC7, cooked normal maps BC5, material heights and occlusion BC4, and
 textures cooked with `compressTextures` off or made from a `GeneratedTexture` are RGBA8. So
 a `GeneratedTexture` can't share an array with cooked layers unless they're cooked
 uncompressed. Otherwise the array fails to load with an error that gives the index of the
@@ -2117,6 +2120,70 @@ the normal map alone looks the same and costs less. Keep `HeightDepth` to a few
 centimetres. Deeper looks stretched at low angles, because the surface's edge and its
 shadows stay flat. Transparent surfaces ignore height and detail maps. The [Bricks
 example](../examples/Bricks) shows a wall and a street; P turns the height maps off and D the detail.
+
+## Occlusion maps
+
+An occlusion map says how much of the soft light from around reaches each point of a
+surface: white for all of it, black for none, as in the cracks between planks or the
+mortar between bricks. Its red is multiplied into the light from the sky, the light
+probes and the bake, and dims reflections the same way, but not the sun's or a lamp's
+direct light, which casts its own shadows. It works alongside [ambient
+occlusion](#ambient-occlusion): that one finds the creases the camera sees between
+surfaces, and the map holds the fine ones painted into a surface. `Graphics.AmbientOcclusion`
+off leaves the map on, as it's part of the material; `Graphics.Materials` off, or
+`--no-materials`, turns it off with the rest.
+
+```csharp
+ModelRef wall = content.Mesh(Shapes.Box(new Vector3(16f, 3f, 0.4f), new Surface
+{
+    ColorTexture = bricks,
+    OcclusionTexture = bricksOcclusion,
+}, uvPerMetre: 1f / 0.9f));
+```
+
+The map is read through the first UV set and moves with a height map like the other
+textures. Many models bake occlusion onto a layout of its own, the second UV set
+(`Vertex.Uv2`, glTF's `TEXCOORD_1`), and `OcclusionOnUv2 = true` reads it there. That set is
+also the one lighting uses, so it must stay as it is: [`content.Mesh`](#meshes-made-by-code)
+with `isStatic`, and `WithLightmapUvs`, throw rather than replace a `Uv2` that doesn't fit a
+lightmap while the surface reads its occlusion through it:
+
+```text
+The surface reads its occlusion texture through Uv2, so Uv2 can't be replaced to fit a lightmap. Triangles 0 and 2 overlap at texel (12, 40). Fix the mesh's Uv2, or read the occlusion through Uv.
+```
+
+Cook the texture as linear data, with `"texture": { "linear": true }` in a
+[`cook.json`](content.md#rules-and-sidecars) rule. In a model, the cooker stores it as BC4,
+which keeps the red alone.
+
+A cooked glTF model takes the occlusion texture its material links, through the UV set the
+file names. A material rule's `occlusion` names one instead, read through the first set
+unless `occlusionUv` says 1, and `occlusionUv` also moves a linked one to the other set.
+`occlusionUv` must be 0 or 1, and anything else stops the cook. `noOcclusionMap` leaves out
+the one the file links. Poly Haven's glTF models link none, but their `arm` texture holds
+occlusion in red, so a rule can name it:
+
+```json
+// props/treasure_chest/treasure_chest_1k.gltf.cook.json
+{ "materials": [ { "match": "treasure_chest", "occlusion": "treasure_chest_arm_1k.jpg" } ] }
+```
+
+The cook keeps a file's `TEXCOORD_1` only when it fits a lightmap (see [Models](#models)),
+and makes a new second set otherwise. An occlusion texture painted for the file's set would
+land in the wrong places on the new one, so the cook leaves it out with a warning. It does
+the same for one on a set past the second, which it doesn't keep:
+
+```text
+material bark: its occlusion texture is on the second UV set, which the cook made again for lighting, so it's left out. Give the model a second UV set that fits a lightmap, or put the occlusion on the first.
+material bark: its occlusion texture is on TEXCOORD_2, and the cook keeps only the first two UV sets, so it's left out.
+```
+
+glTF's occlusion `strength` is ignored, and transparent surfaces ignore occlusion maps.
+The detail mask, in the surface texture's blue, is still read through the first UV set only.
+The [Bricks example](../examples/Bricks) darkens its joints with occlusion maps made in code;
+O turns them off.
+
+![The Bricks wall before and after its occlusion maps: on the right the mortar and the bricks' rounded edges are darker where the sky's light can't reach, while the sunlit faces stay as they were](media/occlusion-maps.webp)
 
 ## Meshes along a spline
 
@@ -2201,8 +2268,11 @@ void main() {
 ```
 
 `materialSurface()` gives the surface the material's textures and values describe, so a
-shader only changes what it cares about. A shader can also read `inUv`, `inPosition`,
-`inNormal`, `inTangent` and `frame`.
+shader only changes what it cares about. A shader can also read `inUv`, the second UV set
+`inUv2`, `inPosition`, `inNormal`, `inTangent` and `frame`. `materialSurface()` also sets
+`surfaceOcclusion` from the material's [occlusion map](#occlusion-maps), which `writeSurface`
+writes. It's 1, no occlusion, in a shader that builds its `Surface` by hand, and a shader
+can set its own, from 0 to 1, before `writeSurface`.
 
 | From the `Surface` | In the shader |
 | --- | --- |

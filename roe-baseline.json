@@ -329,7 +329,7 @@
       "kind": "high-complexity",
       "name": "Super.BakeIdentity.AddMesh",
       "file": "src/Super/Rendering/BakeIdentity.cs",
-      "metric": 16
+      "metric": 18
     },
     {
       "kind": "high-complexity",
@@ -995,7 +995,7 @@
       "kind": "high-cognitive-complexity",
       "name": "Super.BakeIdentity.AddMesh",
       "file": "src/Super/Rendering/BakeIdentity.cs",
-      "metric": 18
+      "metric": 21
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1325,7 +1325,7 @@
       "kind": "long-method",
       "name": "BricksExample.Masonry.Make",
       "file": "examples/Bricks/Masonry.cs",
-      "metric": 43
+      "metric": 51
     },
     {
       "kind": "long-method",
@@ -1721,13 +1721,13 @@
       "kind": "long-method",
       "name": "Rendition.ModelData.Read/3",
       "file": "src/Rendition/ModelData.cs",
-      "metric": 65
+      "metric": 67
     },
     {
       "kind": "long-method",
       "name": "Rendition.ModelData.WriteTo",
       "file": "src/Rendition/ModelData.cs",
-      "metric": 82
+      "metric": 84
     },
     {
       "kind": "long-method",
@@ -2123,7 +2123,7 @@
       "kind": "long-method",
       "name": "Rendition.Vulkan.ResourceTable.WriteMaterial",
       "file": "src/Rendition/Vulkan/ResourceTable.cs",
-      "metric": 60
+      "metric": 62
     },
     {
       "kind": "long-method",
@@ -2213,7 +2213,7 @@
       "kind": "long-method",
       "name": "Super.BakeIdentity.AddMesh",
       "file": "src/Super/Rendering/BakeIdentity.cs",
-      "metric": 75
+      "metric": 82
     },
     {
       "kind": "long-method",
@@ -2411,7 +2411,7 @@
       "kind": "long-method",
       "name": "Super.Cook.Models.ModelCooker.CookOne",
       "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 320
+      "metric": 325
     },
     {
       "kind": "long-method",
@@ -3467,13 +3467,13 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5742
+      "metric": 5748
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
-      "metric": 1571
+      "metric": 1585
     },
     {
       "kind": "large-file",
@@ -3485,7 +3485,7 @@
       "kind": "large-file",
       "name": "src/Super.Cook.Models/ModelCooker.cs",
       "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 1800
+      "metric": 1892
     },
     {
       "kind": "large-file",
@@ -3497,7 +3497,7 @@
       "kind": "large-file",
       "name": "src/Super/Content.cs",
       "file": "src/Super/Content.cs",
-      "metric": 981
+      "metric": 984
     },
     {
       "kind": "large-file",
@@ -3509,7 +3509,7 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1161
+      "metric": 1163
     },
     {
       "kind": "large-file",
@@ -3599,13 +3599,13 @@
       "kind": "large-type",
       "name": "Rendition.Material",
       "file": "src/Rendition/Types.cs",
-      "metric": 30
+      "metric": 31
     },
     {
       "kind": "large-type",
       "name": "Rendition.ModelData",
       "file": "src/Rendition/ModelData.cs",
-      "metric": 26
+      "metric": 32
     },
     {
       "kind": "large-type",
@@ -3803,13 +3803,13 @@
       "kind": "large-type",
       "name": "Super.Cook.Models.MaterialRule",
       "file": "src/Super.Cook.Models/ImportSettings.cs",
-      "metric": 39
+      "metric": 42
     },
     {
       "kind": "large-type",
       "name": "Super.Cook.Models.ModelCooker",
       "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 53
+      "metric": 55
     },
     {
       "kind": "large-type",
@@ -3935,7 +3935,7 @@
       "kind": "large-type",
       "name": "Super.Surface",
       "file": "src/Super/Surface.cs",
-      "metric": 26
+      "metric": 28
     },
     {
       "kind": "large-type",
@@ -3971,7 +3971,7 @@
       "kind": "large-type",
       "name": "Super.Ui.UiPointer",
       "file": "src/Super/Ui/UiPointer.cs",
-      "metric": 38
+      "metric": 37
     },
     {
       "kind": "large-type",

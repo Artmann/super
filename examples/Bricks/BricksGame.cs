@@ -5,8 +5,9 @@ namespace BricksExample;
 
 /// <summary>
 /// A brick wall beside a street of setts, seen from a camera walking slowly along it, so
-/// the wall is seen at a grazing angle. The bricks and setts use height maps, and the
-/// street a detail texture of grit. P turns the height maps off and D the detail.
+/// the wall is seen at a grazing angle. The bricks and setts use height maps and occlusion
+/// maps, which darken the sky's light in the joints, and the street a detail texture of grit.
+/// P turns the height maps off, D the detail and O the occlusion.
 /// </summary>
 public sealed class BricksGame(Content content, Input input) : IGame
 {
@@ -18,10 +19,11 @@ public sealed class BricksGame(Content content, Input input) : IGame
     private const float BrickTileMetres = 0.9f;
     private const float SettTileMetres = 1.2f;
 
-    private Look _wall;
-    private Look _street;
+    private (Look Occluded, Look Open) _wall;
+    private (Look Occluded, Look Open) _street;
     private bool _flat;
     private bool _noDetail;
+    private bool _noOcclusion;
     private float _walked;
     private float _previousWalked;
 
@@ -33,6 +35,7 @@ public sealed class BricksGame(Content content, Input input) : IGame
         ["flat"] = new InputScript().Press(Key.P),
         ["no-detail"] = new InputScript().Press(Key.D),
         ["plain"] = new InputScript().Press(Key.P).Press(Key.D),
+        ["no-occlusion"] = new InputScript().Press(Key.O),
     };
 
     public void Load()
@@ -61,6 +64,11 @@ public sealed class BricksGame(Content content, Input input) : IGame
             _noDetail = !_noDetail;
         }
 
+        if (input.Pressed(Key.O))
+        {
+            _noOcclusion = !_noOcclusion;
+        }
+
         _previousWalked = _walked;
         _walked += WalkSpeed * time.TickSeconds;
     }
@@ -77,13 +85,17 @@ public sealed class BricksGame(Content content, Input input) : IGame
         view.Model(1, Pick(_street), Matrix4x4.CreateTranslation(0f, 0f, 5.6f));
     }
 
-    private ModelRef Pick(Look look) => (_flat, _noDetail) switch
+    private ModelRef Pick((Look Occluded, Look Open) looks)
     {
-        (false, false) => look.Full,
-        (true, false) => look.Flat,
-        (false, true) => look.NoDetail,
-        _ => look.Plain,
-    };
+        var look = _noOcclusion ? looks.Open : looks.Occluded;
+        return (_flat, _noDetail) switch
+        {
+            (false, false) => look.Full,
+            (true, false) => look.Flat,
+            (false, true) => look.NoDetail,
+            _ => look.Plain,
+        };
+    }
 
     private Surface Textured(Masonry masonry, float depth, float roughness) => new()
     {
@@ -93,16 +105,23 @@ public sealed class BricksGame(Content content, Input input) : IGame
         NormalTexture = content.Texture(masonry.Normal, Rendition.TextureKind.Linear, normalMap: true),
         HeightTexture = content.Texture(masonry.Height, Rendition.TextureKind.Linear),
         HeightDepth = depth,
+        OcclusionTexture = content.Texture(masonry.Occlusion, Rendition.TextureKind.Linear),
     };
 
-    private Look Shaped(GeneratedMesh mesh, Surface surface, (TextureRef Color, TextureRef Normal)? detail)
+    /// <summary>The shape with its occlusion map and without, each in every mix of height map and detail.</summary>
+    private (Look Occluded, Look Open) Shaped(GeneratedMesh mesh, Surface surface, (TextureRef Color, TextureRef Normal)? detail)
     {
-        var detailed = detail is { } d ? surface with { DetailColorTexture = d.Color, DetailNormalTexture = d.Normal, DetailScale = 5f } : surface;
-        var flat = detailed with { HeightTexture = null };
-        return new Look(
-            content.Mesh(mesh with { Surface = detailed }),
-            content.Mesh(mesh with { Surface = flat }),
-            content.Mesh(mesh with { Surface = surface }),
-            content.Mesh(mesh with { Surface = surface with { HeightTexture = null } }));
+        Look Looks(Surface surface)
+        {
+            var detailed = detail is { } d ? surface with { DetailColorTexture = d.Color, DetailNormalTexture = d.Normal, DetailScale = 5f } : surface;
+            var flat = detailed with { HeightTexture = null };
+            return new Look(
+                content.Mesh(mesh with { Surface = detailed }),
+                content.Mesh(mesh with { Surface = flat }),
+                content.Mesh(mesh with { Surface = surface }),
+                content.Mesh(mesh with { Surface = surface with { HeightTexture = null } }));
+        }
+
+        return (Looks(surface), Looks(surface with { OcclusionTexture = null }));
     }
 }

@@ -235,6 +235,13 @@ internal static class BakeIdentity
                 AddTexture(hasher, layer);
             }
         }
+
+        // Only a surface with occlusion adds it, so every mesh made before it existed keeps its hash and its bake.
+        if (surface.OcclusionTexture is not null)
+        {
+            AddTexture(hasher, surface.OcclusionTexture, items);
+            hasher.Add(surface.OcclusionOnUv2 ? 1 : 0);
+        }
     }
 
     private static void AddTexture(StableHasher hasher, TextureRef? texture, IReadOnlyList<object> items)

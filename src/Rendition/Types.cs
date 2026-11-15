@@ -133,6 +133,12 @@ public enum MaterialFlags
     /// band. Its height map counts, so the hollows flood before the tops. Without a level it does nothing.
     /// </summary>
     Puddles = 64,
+
+    /// <summary>
+    /// <see cref="Material.OcclusionTexture"/> is read through the second UV set, <see cref="Vertex.Uv2"/>, instead of
+    /// the first. For occlusion baked onto a layout of its own, as many models keep it.
+    /// </summary>
+    OcclusionOnUv2 = 128,
 }
 
 /// <summary>
@@ -189,6 +195,14 @@ public struct Material
 
     /// <summary>How many times the detail textures repeat for each repeat of the others. 0 counts as 1.</summary>
     public float DetailScale;
+
+    /// <summary>
+    /// How much soft light reaches each point, in red: white is open and black is hidden, as in the cracks between
+    /// planks. It darkens the light from the sky, the light probes and the bake, and dims reflections, but not the
+    /// sun's or a lamp's direct light, which casts its own shadows. Read through the first UV set, or through
+    /// <see cref="Vertex.Uv2"/> with <see cref="MaterialFlags.OcclusionOnUv2"/>. Store it as linear data.
+    /// </summary>
+    public TextureHandle? OcclusionTexture;
     public MaterialFlags Flags;
 
     /// <summary>

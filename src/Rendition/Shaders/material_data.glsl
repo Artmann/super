@@ -26,7 +26,7 @@ struct Material {
     float ior; // 1 or more; 1 bends nothing.
     vec4 subsurface; // How far red, green and blue spread under the surface in metres; w is the widest, 0 for none.
     uint maskTexture; // Read by the second uv: curvature, sky seen, height above the foot, wear breakup.
-    float maskPadding; // Unused, so wear lands on a 16-byte boundary.
+    uint occlusionTexture; // Red is the soft light that reaches the surface; read by the uv MATERIAL_OCCLUSION_UV2 picks.
     float wearRoughness; // Below 0 keeps the surface's roughness.
     float dirtRoughness;
     vec4 wear; // rgb is the colour, a the amount: 0 for none.
@@ -40,6 +40,7 @@ const uint MATERIAL_DETAIL_MASK = 8u;
 const uint MATERIAL_WORLD_VARIATION = 16u;
 const uint MATERIAL_DITHERED = 32u;
 const uint MATERIAL_PUDDLES = 64u;
+const uint MATERIAL_OCCLUSION_UV2 = 128u;
 
 // A G-buffer emissive alpha at or above this marks a subsurface pixel, holding the
 // material's index plus this. Clearcoat stays within 0 to 1 and foliage is negative.

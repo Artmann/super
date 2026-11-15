@@ -128,7 +128,7 @@ marked as planned. The examples are the best place to see it running:
 | --- | --- |
 | [ColorCube](examples/ColorCube) | The game loop, input actions and seeded randomness |
 | [Shapes](examples/Shapes) | Every built-in shape, and shapes made in code with `Shapes` |
-| [Bricks](examples/Bricks) | A brick wall and a cobbled street whose mortar sinks in with height maps, with fine grit from detail maps; P and D turn them off |
+| [Bricks](examples/Bricks) | A brick wall and a cobbled street whose mortar sinks in with height maps and darkens with occlusion maps, with fine grit from detail maps; P, D and O turn them off |
 | [Rooms](examples/Rooms) | Game states, a loading screen, JSON content, clicking the ground and huts that rise on a curve |
 | [Courtyard](examples/Courtyard) | Material graphs: bricks, flagstones, dirt, wood, leather and rusty metal made in code, on a courtyard modelled in Blender |
 | [Crafting](examples/Crafting) | An inventory and crafting bench driven entirely by the mouse |
