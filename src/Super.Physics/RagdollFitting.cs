@@ -21,7 +21,9 @@ internal sealed class RagdollFitting
             throw new ArgumentException($"The rig's root transform scales unevenly, by {rootScale}, so its parts can't be fitted.", "rig");
         }
 
-        RootScale = rootScale.X;
+        // A rig in centimetres often hangs under a joint scaling it by 0.01, which scales the parts as the root does.
+        float above = MathF.Cbrt(MathF.Abs(rest[tree.Joints[0]].GetDeterminant()));
+        RootScale = rootScale.X * above;
         var fromModel = Quaternion.Inverse(rootTurn);
         Forward = Vector3.Normalize(Vector3.Transform(Vector3.UnitZ, fromModel));
         Up = Vector3.Normalize(Vector3.Transform(Vector3.UnitY, fromModel));
@@ -31,37 +33,22 @@ internal sealed class RagdollFitting
         Masses = new float[count];
         Inertias = new float[count];
         Frames = new JointFrame[count];
-        JointScales = new float[count];
-        var fits = new JointBounds[count];
-        for (int i = 0; i < count; i++)
-        {
-            fits[i] = Fit(skeleton, rest, parts[i], i);
-        }
-
-        float lowest = Lowest(fits, rest);
         float shares = parts.Sum(part => part.Mass);
         for (int i = 0; i < count; i++)
         {
-            // A joint above the ragdoll can scale it, as a rig from centimetres often hangs under one at 0.01; the fit
-            // is in the part's joint's own units, so it's brought into the skeleton's.
-            JointScales[i] = ScaleOf(rest[_tree.Joints[i]]);
-            Fits[i] = new JointBounds(fits[i].Min * JointScales[i], fits[i].Max * JointScales[i]);
+            Fits[i] = Fit(skeleton, rest, parts[i], i);
             Masses[i] = mass * parts[i].Mass / shares;
             var size = Fits[i].Size;
             float longest = MathF.Max(size.X, MathF.Max(size.Y, size.Z));
             float shortest = MathF.Min(size.X, MathF.Min(size.Y, size.Z));
             Inertias[i] = Masses[i] * ((longest * longest) + (shortest * shortest)) / 12f;
-        }
-
-        for (int i = 1; i < count; i++)
-        {
-            Frames[i] = Frame(skeleton, rest, parts[i], i);
+            Frames[i] = i == 0 ? default : Frame(skeleton, rest, parts[i], i);
         }
 
         var intoPelvis = Quaternion.Inverse(Turn(rest[tree.Joints[0]]));
         PelvisForward = Vector3.Transform(Forward, intoPelvis);
         PelvisUp = Vector3.Transform(Up, intoPelvis);
-        PelvisHeight = Vector3.Dot(rest[tree.Joints[0]].Translation, Up) - lowest;
+        PelvisHeight = (Vector3.Dot(rest[tree.Joints[0]].Translation, Up) - Lowest(rest)) / above;
     }
 
     /// <summary>Each part's box, in its joint's own space and the skeleton's units.</summary>
@@ -89,14 +76,8 @@ internal sealed class RagdollFitting
     /// <summary>How high the first part's joint stands above the lowest vertex at rest, in the skeleton's units.</summary>
     public float PelvisHeight { get; }
 
-    /// <summary>How much the joints above each part scale it at rest, which the fits already have and the pose puts back.</summary>
-    public float[] JointScales { get; }
-
-    /// <summary>How much the rig's root transform scales the skeleton, such as from centimetres to metres.</summary>
+    /// <summary>How much the rig's root transform and any joint above the ragdoll scale its parts, such as from centimetres to metres.</summary>
     public float RootScale { get; }
-
-    /// <summary>How much a matrix scales, the cube root of its volume's change, so a part scaled evenly gets its scale back.</summary>
-    private static float ScaleOf(Matrix4x4 matrix) => MathF.Cbrt(MathF.Abs(matrix.GetDeterminant()));
 
     /// <summary>Each joint's place in the skeleton at rest.</summary>
     internal static Matrix4x4[] RestGlobals(Skeleton skeleton)
@@ -139,14 +120,14 @@ internal sealed class RagdollFitting
     }
 
     /// <summary>How far below the first part's joint the lowest corner of any part reaches at rest, along up.</summary>
-    private float Lowest(JointBounds[] fits, Matrix4x4[] rest)
+    private float Lowest(Matrix4x4[] rest)
     {
         float lowest = float.MaxValue;
-        for (int i = 0; i < fits.Length; i++)
+        for (int i = 0; i < Fits.Length; i++)
         {
             for (int corner = 0; corner < 8; corner++)
             {
-                lowest = MathF.Min(lowest, Vector3.Dot(Vector3.Transform(fits[i].Corner(corner), rest[_tree.Joints[i]]), Up));
+                lowest = MathF.Min(lowest, Vector3.Dot(Vector3.Transform(Fits[i].Corner(corner), rest[_tree.Joints[i]]), Up));
             }
         }
 
