@@ -3441,7 +3441,9 @@ shares; the tests run one at a time and carry `[Trait("Speed", "Slow")]` and
 `--filter "Needs!=GPU"`; run them locally before merging rendering work. The other test projects
 use the same `Speed` trait for any test that takes more than about half a second on its own, so
 `--filter "Speed!=Slow&Needs!=GPU"` is the [fast run](testing.md#a-fast-run) for working, and CI
-still runs every test that needs no GPU. A test that needs tracing fails with a message saying so on a GPU that
+still runs every test that needs no GPU. Tests of an example whose models aren't in the repository, such
+as Cannonball's Mixamo stuntman, carry `[Trait("Needs", "Assets")]`. CI has no `assets` folder, so it runs
+`--filter "Needs!=GPU&Needs!=Assets"`; run them locally once you have the assets. A test that needs tracing fails with a message saying so on a GPU that
 can't trace, rather than passing without checking anything. `GpuFixture.Matte` is a plain opaque
 material for tests to draw or trace with, and `RenderOneFrame` renders one frame, empty or of the draws given,
 which also runs every queued upload; `CaptureOneFrame` does the same through `Capture` and returns the pixels. A test can make a fixture of its own, such as one whose device can't
