@@ -23,13 +23,22 @@ internal static class TestHumanoid
 
     private static readonly Lazy<Rig> Shared = new(Build);
 
+    private static readonly Lazy<Rig> SharedCentimetres = new(() => InCentimetres(Shared.Value));
+
     public static Rig Rig => Shared.Value;
+
+    /// <summary>
+    /// The same person in centimetres under a root joint that scales by 0.01, as a rig exported from FBX often comes,
+    /// its root transform leaving it as it is.
+    /// </summary>
+    public static Rig Centimetres => SharedCentimetres.Value;
 
     /// <summary>A ragdolled person standing at a place, its animator holding the T-pose.</summary>
     public static (Entity Entity, Animator Animator) Place(World world, Transform transform, Ragdoll ragdoll)
     {
-        var animator = new AnimationController<Stance, Deed>(Rig).State(Stance.Still, Rig.Clip("still"))
-            .Action(Deed.GetUp, Rig.Clip("lying"), fadeSeconds: 0f)
+        var rig = ragdoll.Body.Rig;
+        var animator = new AnimationController<Stance, Deed>(rig).State(Stance.Still, rig.Clip("still"))
+            .Action(Deed.GetUp, rig.Clip("lying"), fadeSeconds: 0f)
             .Start(Stance.Still);
         var entity = world.Create();
         world.Add(entity, transform);
@@ -100,6 +109,47 @@ internal static class TestHumanoid
         var lying = (JointPose[])rest.Clone();
         lying[hips] = JointPose.FromMatrix(Matrix4x4.CreateRotationX(-MathF.PI / 2f) * Matrix4x4.CreateTranslation(LyingHips));
         return new Rig(skeleton, [new AnimationClip("still", 1f, count, [.. rest, .. rest]), new AnimationClip("lying", 1f, count, [.. lying, .. lying])]);
+    }
+
+    /// <summary>A metre rig moved into centimetres under a new first joint, "Root", that scales it back down.</summary>
+    private static Rig InCentimetres(Rig rig)
+    {
+        var skeleton = rig.Skeleton;
+        int count = skeleton.Count + 1;
+        var root = new JointPose(Vector3.Zero, Quaternion.Identity, new Vector3(0.01f));
+        JointPose Larger(JointPose pose) => new(pose.Position * 100f, pose.Rotation, pose.Scale);
+        JointPose[] Moved(JointPose[] poses, int joints)
+        {
+            var moved = new JointPose[poses.Length / joints * (joints + 1)];
+            for (int frame = 0; frame < poses.Length / joints; frame++)
+            {
+                moved[frame * (joints + 1)] = root;
+                for (int j = 0; j < joints; j++)
+                {
+                    moved[(frame * (joints + 1)) + j + 1] = Larger(poses[(frame * joints) + j]);
+                }
+            }
+
+            return moved;
+        }
+
+        var rest = Moved(skeleton.Rest, skeleton.Count);
+        int[] parents = [-1, .. skeleton.Parents.Select(parent => parent + 1)];
+        var globals = new Matrix4x4[count];
+        var inverseBind = new Matrix4x4[count];
+        for (int i = 0; i < count; i++)
+        {
+            globals[i] = parents[i] >= 0 ? rest[i].Matrix * globals[parents[i]] : rest[i].Matrix;
+            Matrix4x4.Invert(globals[i], out inverseBind[i]);
+        }
+
+        JointBounds[] bounds =
+        [
+            JointBounds.Empty,
+            .. skeleton.Bounds!.Select(box => box.IsEmpty ? box : new JointBounds(box.Min * 100f, box.Max * 100f)),
+        ];
+        var scaled = new Skeleton(["Root", .. skeleton.Names], parents, rest, inverseBind, skeleton.RootTransform, bounds);
+        return new Rig(scaled, [.. rig.Clips.Select(clip => new AnimationClip(clip.Name, clip.FrameRate, count, Moved(clip.Frames, skeleton.Count)))]);
     }
 
     /// <summary>Where the "lying" clip puts the hips, in the entity's space.</summary>

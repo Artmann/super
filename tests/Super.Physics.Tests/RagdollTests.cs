@@ -70,6 +70,48 @@ public class RagdollTests
         Assert.True(physics.Velocity(person).Length() < 0.2f, $"it still moves at {physics.Velocity(person)}");
     }
 
+    [Fact]
+    public void A_rig_scaled_by_a_joint_above_the_hips_fits_the_same_parts()
+    {
+        var (world, physics) = Make(floor: false);
+        using var _ = physics;
+        var at = Transform.At(new Vector3(0f, 10f, 0f));
+        var (metres, _) = TestHumanoid.Place(world, at, new Ragdoll(Body) { Mode = RagdollMode.Kinematic });
+        var (centimetres, _) = TestHumanoid.Place(world, at, new Ragdoll(RagdollBody.Humanoid(TestHumanoid.Centimetres)) { Mode = RagdollMode.Kinematic });
+
+        physics.Sync();
+
+        var expected = Shapes(physics, metres);
+        var actual = Shapes(physics, centimetres);
+        Assert.Equal(expected.Count, actual.Count);
+        for (int i = 0; i < expected.Count; i++)
+        {
+            Assert.Equal(expected[i].Joint, actual[i].Joint);
+            Assert.True(Vector3.Distance(expected[i].HalfSize, actual[i].HalfSize) < 1e-3f, $"{actual[i].Joint} is {actual[i].HalfSize} across, not {expected[i].HalfSize}");
+            Assert.Equal(expected[i].Radius, actual[i].Radius, 1e-3f);
+            Assert.True(Vector3.Distance(expected[i].Transform.Translation, actual[i].Transform.Translation) < 1e-3f, $"{actual[i].Joint} is at {actual[i].Transform.Translation}, not {expected[i].Transform.Translation}");
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void A_limp_body_scaled_by_a_joint_above_the_hips_falls_and_lies_on_the_floor()
+    {
+        var (world, physics) = Make();
+        using var _ = physics;
+        var ragdoll = new Ragdoll(RagdollBody.Humanoid(TestHumanoid.Centimetres)) { Mode = RagdollMode.Simulated };
+        var (person, animator) = TestHumanoid.Place(world, Transform.At(new Vector3(0f, 2f, 0f)), ragdoll);
+
+        Run(physics, animator, 240);
+
+        var hips = JointAt(world, person, animator, "Hips");
+        var head = JointAt(world, person, animator, "Head");
+        Assert.True(hips.Y is > 0f and < 0.35f, $"the hips are {hips.Y} m up");
+        Assert.True(head.Y is > 0f and < 0.35f, $"the head is {head.Y} m up");
+        Assert.True(Vector3.Distance(hips, head) is > 0.4f and < 0.8f, $"the head is {Vector3.Distance(hips, head)} m from the hips");
+        Assert.True(physics.Velocity(person).Length() < 0.2f, $"it still moves at {physics.Velocity(person)}");
+    }
+
     [Theory]
     [InlineData(RagdollMode.Off)]
     [InlineData(RagdollMode.Kinematic)]
