@@ -547,8 +547,8 @@ void writeBaked(vec3 normal) {
 }
 
 // Applies the draw's tint, so every surface shader gets it. Foliage has no clearcoat, so
-// its translucency travels in the same channel as a negative number, and a subsurface
-// material puts its index there, plus SUBSURFACE_MARK, so the lighting and blur find it.
+// its translucency travels in the same channel as a negative number, and a subsurface,
+// toon or outlined material puts its index there, plus SUBSURFACE_MARK, so the lighting and blur find it.
 // A ghost keeps only the surface's shape: one matte colour that glows a little,
 // whatever the material.
 // Every surface also writes its motion: in scene pixels, from where it is now back to where it was, as Motion.Pack does.
@@ -605,7 +605,8 @@ void writeSurface(Surface surface) {
 
     float channel = foliage ? foliageChannel(material) : surface.clearcoat;
     // With subsurface off the surface is marked plain, so the lighting shades it as matte and sends nothing to blur.
-    if (material.subsurface.w > 0.0 && !isOff(OFF_SUBSURFACE)) {
+    // Toon and outlined materials are marked the same way, and the lighting looks up which the material is.
+    if ((material.subsurface.w > 0.0 && !isOff(OFF_SUBSURFACE)) || (material.flags & (MATERIAL_TOON | MATERIAL_OUTLINE)) != 0u) {
         channel = SUBSURFACE_MARK + float(draw.material);
     }
     outBaseColorMetallic = vec4(surface.baseColor * draw.tint.rgb, surface.metallic);

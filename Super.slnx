@@ -33,6 +33,7 @@
     <Project Path="examples/Rooms/Rooms.csproj" />
     <Project Path="examples/Shapes/Shapes.csproj" />
     <Project Path="examples/Terrain/Terrain.csproj" />
+    <Project Path="examples/Toon/Toon.csproj" />
     <Project Path="examples/Transitions/Transitions.csproj" />
     <Project Path="examples/Wax/Wax.csproj" />
   </Folder>

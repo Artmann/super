@@ -6,6 +6,16 @@ namespace Super;
 /// <summary>A picture made by code, as RGBA bytes row by row. It must be square.</summary>
 public sealed record GeneratedTexture(int Size, byte[] Pixels);
 
+/// <summary>
+/// Cel shading for a <see cref="Surface.Toon"/>: the light from the sun and lamps falls into <paramref name="Steps"/> flat
+/// bands, or the colours of <paramref name="Ramp"/> read from dark on its left to lit on its right, shine is a
+/// hard-edged spot, and <paramref name="Rim"/> lights the outline of the shape. See docs/rendering.md.
+/// </summary>
+/// <param name="Steps">How many bands the light falls into, from 1 to <see cref="ToonShading.MostSteps"/>.</param>
+/// <param name="Ramp">A linear texture read across its middle row instead of plain bands, or null.</param>
+/// <param name="Rim">Light added along the outline of the shape, zero for none.</param>
+public sealed record Toon(int Steps = 3, TextureRef? Ramp = null, Vector3 Rim = default);
+
 /// <summary>How a generated mesh looks. Everything is optional; the default is matte grey.</summary>
 public sealed record Surface
 {
@@ -74,6 +84,16 @@ public sealed record Surface
     /// whose <see cref="Vertex.Uv2"/> it would have to replace.
     /// </summary>
     public bool OcclusionOnUv2 { get; init; }
+
+    /// <summary>
+    /// Cel shading instead of the physically based kind, for a cartoon look. The soft light from the sky stays
+    /// smooth, so shade keeps its colour. It can't be combined with <see cref="Foliage"/> or <see cref="Subsurface"/>,
+    /// which it turns off. Null, the default, is the physically based look.
+    /// </summary>
+    public Toon? Toon { get; init; }
+
+    /// <summary>Draws an ink line round the surface's outline and along its creases, as <see cref="View.Outlines"/> sets it.</summary>
+    public bool Outline { get; init; }
 
     /// <summary>
     /// Darkens and lightens the colour in broad patches laid by where the surface is in the world, so a texture that

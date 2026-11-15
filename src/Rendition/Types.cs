@@ -139,6 +139,51 @@ public enum MaterialFlags
     /// the first. For occlusion baked onto a layout of its own, as many models keep it.
     /// </summary>
     OcclusionOnUv2 = 128,
+
+    /// <summary>
+    /// Draws an ink line along the surface's outer edges and creases, where the depth or the normal jumps, as the
+    /// frame's <see cref="FrameView.Outlines"/> sets it. For toon looks, but any material can have one.
+    /// </summary>
+    Outline = 256,
+}
+
+/// <summary>
+/// Cel shading for a <see cref="Material.Toon"/>: the light from the sun and lamps falls into a few flat bands instead
+/// of a smooth gradient, shine is a hard-edged spot, and a rim of colour can light the outline of the shape.
+/// </summary>
+public readonly record struct ToonShading
+{
+    /// <summary>The most bands of light a toon material can have.</summary>
+    public const int MostSteps = 16;
+
+    /// <summary>Three bands, no ramp and no rim.</summary>
+    public ToonShading()
+    {
+    }
+
+    /// <summary>
+    /// How many bands the light falls into, from 1, lit or not, to <see cref="MostSteps"/>. Ignored with a
+    /// <see cref="Ramp"/>.
+    /// </summary>
+    public int Steps { get; init; } = 3;
+
+    /// <summary>
+    /// A ramp from dark on the left to lit on the right, read across its middle row by how much light arrives, so
+    /// its colours and the places they change pick the bands. Store it as linear data. Its first and last texels
+    /// hold all the way to the ends, so it can repeat. Null for <see cref="Steps"/> plain bands.
+    /// </summary>
+    public TextureHandle? Ramp { get; init; }
+
+    /// <summary>Light added along the shape's outline, where the surface turns away from the camera. Zero for none.</summary>
+    public Vector3 Rim { get; init; }
+
+    /// <summary>Says why these settings can't be used, or returns null when they can.</summary>
+    public string? Problem() =>
+        Steps is >= 1 and <= MostSteps
+            ? float.IsFinite(Rim.X) && float.IsFinite(Rim.Y) && float.IsFinite(Rim.Z) && Rim.X >= 0f && Rim.Y >= 0f && Rim.Z >= 0f
+                ? null
+                : $"toon rim {Rim} must be 0 or more in each channel."
+            : $"toon steps {Steps} must be from 1 to {MostSteps}.";
 }
 
 /// <summary>
@@ -203,6 +248,14 @@ public struct Material
     /// <see cref="Vertex.Uv2"/> with <see cref="MaterialFlags.OcclusionOnUv2"/>. Store it as linear data.
     /// </summary>
     public TextureHandle? OcclusionTexture;
+
+    /// <summary>
+    /// Cel shading instead of the physically based kind, for a cartoon look. The soft light from the sky, probes and
+    /// bake stays smooth, so shade still has colour. It takes the G-buffer channel clearcoat, foliage and subsurface
+    /// use, so it can't be combined with them: a toon material is drawn without them. Null, the default, is the
+    /// physically based look. Transparent glass ignores it.
+    /// </summary>
+    public ToonShading? Toon;
     public MaterialFlags Flags;
 
     /// <summary>
@@ -310,7 +363,8 @@ public struct Material
         ?? ((Flags & MaterialFlags.Foliage) != 0 ? TranslucencyProblem(Translucency) : null)
         ?? WindProblem(Wind)
         ?? (Fade is { } fade ? DistanceFade.Problem(fade) : null)
-        ?? SoftEdgeProblem(SoftEdge);
+        ?? SoftEdgeProblem(SoftEdge)
+        ?? Toon?.Problem();
 }
 
 /// <summary>Eight vectors a surface shader can read as shaderParameters[0] to [7].</summary>
@@ -912,6 +966,40 @@ public readonly record struct OcclusionSettings(float Radius = OcclusionSettings
 }
 
 /// <summary>
+/// The ink lines drawn round materials with <see cref="MaterialFlags.Outline"/>: their linear colour, how many pixels of
+/// the picture wide they are, and the distances in metres over which they fade out, so far-off things don't turn into
+/// smudges of ink.
+/// </summary>
+public readonly record struct OutlineSettings(
+    Vector3 Color,
+    float Thickness = OutlineSettings.DefaultThickness,
+    float FadeStart = OutlineSettings.DefaultFadeStart,
+    float FadeEnd = OutlineSettings.DefaultFadeEnd)
+{
+    public const float DefaultThickness = 1.5f;
+    public const float DefaultFadeStart = 30f;
+    public const float DefaultFadeEnd = 60f;
+
+    /// <summary>The thickest an outline can be, in pixels.</summary>
+    public const float MostThickness = 8f;
+
+    /// <summary>Black lines a pixel and a half wide, fading out from 30 to 60 metres.</summary>
+    public OutlineSettings() : this(Vector3.Zero)
+    {
+    }
+
+    /// <summary>Says why these settings can't be used, or returns null when they can.</summary>
+    public string? Problem() =>
+        !(Thickness is >= 0f and <= MostThickness)
+            ? $"The outline thickness must be from 0 to {MostThickness} pixels, not {Thickness}."
+            : !(FadeStart >= 0f && FadeEnd >= FadeStart && float.IsFinite(FadeEnd))
+                ? $"The outline must start fading at zero or further and end no nearer than it starts, but it runs from {FadeStart} to {FadeEnd} metres."
+                : !(Color.X >= 0f && Color.Y >= 0f && Color.Z >= 0f && float.IsFinite(Color.X + Color.Y + Color.Z))
+                    ? $"The outline colour {Color} must be 0 or more in each channel."
+                    : null;
+}
+
+/// <summary>
 /// Air that thickens towards the ground and dims and tints what's far away. <see cref="Density"/>
 /// is how much light it takes per metre at <see cref="Height"/>, 0 for none; above that height
 /// it thins by e every 1 / <see cref="Falloff"/> metres, and below it thickens the same way, so
@@ -1033,6 +1121,9 @@ public ref struct FrameView
 
     /// <summary>How nearby surfaces darken the soft light. See docs/rendering.md.</summary>
     public OcclusionSettings Occlusion = new();
+
+    /// <summary>The ink lines round materials with <see cref="MaterialFlags.Outline"/>. A thickness of 0 draws none.</summary>
+    public OutlineSettings Outlines = new();
 
     /// <summary>
     /// A box of light probes that gives the surfaces inside it bounced light in place of the sky's,

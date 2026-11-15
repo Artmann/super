@@ -83,9 +83,10 @@ public class PostGradeTests
         // After shadowRadii come shadowFade, shadowDepthScales, clusters, screen, occlusion and the
         // light probes' two, the four probe cascade origins and the cascade counts, the clear sky's sun
         // and its disc, the fog, the white balance mat4, the curve, the volumetric fog's vec4, the
-        // puddles' vec4, the wind's vec4, the baked probes' four, the bake's fade and the two flat environment colours, then
-        // eight ints, the last the local light count, then the effects left out, the mip bias, the probe light count and
-        // the previous time, so the lights start on a 16 byte boundary: 416 + 80 + 8 * 4 + 4 * 4 = 544 past shadowRadii.
+        // puddles' vec4, the wind's vec4, the baked probes' four, the bake's fade, the two flat environment colours and the
+        // outlines' two, then eight ints, the last the local light count, then the effects left out, the mip bias, the
+        // probe light count and the previous time, so the lights start on a 16 byte boundary: 416 + 112 + 8 * 4 + 4 * 4 =
+        // 576 past shadowRadii.
         int radii = (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.ShadowRadii));
         Assert.Equal(radii + 16, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.ShadowFade)));
         Assert.Equal(radii + 32, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.ShadowDepthScales)));
@@ -111,12 +112,14 @@ public class PostGradeTests
         Assert.Equal(radii + 448, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.BakedFade)));
         Assert.Equal(radii + 464, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.FlatIrradiance)));
         Assert.Equal(radii + 480, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.FlatReflection)));
-        Assert.Equal(radii + 496, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.LightCount)));
-        Assert.Equal(radii + 524, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.LocalLightCount)));
-        Assert.Equal(radii + 528, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Off)));
-        Assert.Equal(radii + 536, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.ProbeLightCount)));
-        Assert.Equal(radii + 540, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.PreviousTime)));
-        Assert.Equal(radii + 544, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Lights)));
+        Assert.Equal(radii + 496, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Outline)));
+        Assert.Equal(radii + 512, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.OutlineFade)));
+        Assert.Equal(radii + 528, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.LightCount)));
+        Assert.Equal(radii + 556, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.LocalLightCount)));
+        Assert.Equal(radii + 560, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Off)));
+        Assert.Equal(radii + 568, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.ProbeLightCount)));
+        Assert.Equal(radii + 572, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.PreviousTime)));
+        Assert.Equal(radii + 576, (int)Marshal.OffsetOf<FrameUniforms>(nameof(FrameUniforms.Lights)));
     }
 
     [Fact]

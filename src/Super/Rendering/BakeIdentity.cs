@@ -236,11 +236,28 @@ internal static class BakeIdentity
             }
         }
 
-        // Only a surface with occlusion adds it, so every mesh made before it existed keeps its hash and its bake.
+        AddLaterLooks(hasher, surface, items);
+    }
+
+    // What a surface has gained since bakes were first committed: occlusion, toon shading and outlines. Each adds to the
+    // hash only when the surface has it, so every mesh made before it existed keeps its hash and its bake.
+    private static void AddLaterLooks(StableHasher hasher, Surface surface, IReadOnlyList<object> items)
+    {
         if (surface.OcclusionTexture is not null)
         {
             AddTexture(hasher, surface.OcclusionTexture, items);
             hasher.Add(surface.OcclusionOnUv2 ? 1 : 0);
+        }
+
+        if (surface.Toon is { } toon)
+        {
+            hasher.Add(toon.Steps).Add(toon.Rim);
+            AddTexture(hasher, toon.Ramp, items);
+        }
+
+        if (surface.Outline)
+        {
+            hasher.Add("outline");
         }
     }
 
