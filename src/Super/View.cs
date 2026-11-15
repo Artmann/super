@@ -112,6 +112,7 @@ public sealed class View
     internal float SunSize { get; private set; }
     internal float ShadowContact { get; private set; } = ShadowSettings.DefaultContactLength;
     internal OcclusionSettings Occlusion { get; private set; } = new();
+    internal OutlineSettings OutlineSettings { get; private set; } = new();
     internal ProbeVolumeSettings? LightProbeVolume { get; private set; }
     internal BakedSpace? BakedSpace { get; private set; }
 
@@ -747,6 +748,27 @@ public sealed class View
     }
 
     /// <summary>
+    /// Sets the ink lines drawn round surfaces with <see cref="Surface.Outline"/>: their linear colour, black when null,
+    /// how many pixels of the picture wide they are, from 0 for none to <see cref="OutlineSettings.MostThickness"/>, and
+    /// the distances in metres over which they fade out. Without a call they're black, 1.5 pixels wide and fade from
+    /// 30 to 60 metres.
+    /// </summary>
+    public void Outlines(
+        Vector3? color = null,
+        float thickness = OutlineSettings.DefaultThickness,
+        float fadeStart = OutlineSettings.DefaultFadeStart,
+        float fadeEnd = OutlineSettings.DefaultFadeEnd)
+    {
+        var settings = new OutlineSettings(color ?? Vector3.Zero, thickness, fadeStart, fadeEnd);
+        if (settings.Problem() is { } problem)
+        {
+            throw new ArgumentException(problem);
+        }
+
+        OutlineSettings = settings;
+    }
+
+    /// <summary>
     /// Fills the box from <paramref name="min"/> to <paramref name="max"/> with light probes
     /// <paramref name="spacing"/> metres apart, which give the surfaces inside the light bounced
     /// off the walls, floor and everything else around them, in place of the sky's. A probe
@@ -1084,6 +1106,7 @@ public sealed class View
         SunSize = DefaultSunSize;
         ShadowContact = ShadowSettings.DefaultContactLength;
         Occlusion = new OcclusionSettings();
+        OutlineSettings = new OutlineSettings();
         LightProbeVolume = null;
         BakedSpace = null;
         _bakedChunks.Clear();

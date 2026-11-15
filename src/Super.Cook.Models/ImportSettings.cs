@@ -110,6 +110,21 @@ public sealed class MaterialRule
     /// <summary>Red is metalness, green is roughness, alpha is opacity.</summary>
     public string? Surface { get; set; }
 
+    /// <summary>
+    /// Red is how much soft light reaches the surface, white for all and black for none. A glTF file links its own
+    /// occlusion texture, which this replaces.
+    /// </summary>
+    public string? Occlusion { get; set; }
+
+    /// <summary>
+    /// Which UV set reads the occlusion texture: 0 for the first, 1 for the second (<c>TEXCOORD_1</c>). Without it, a
+    /// texture the glTF file links is read through the set the file says, and one named here through the first.
+    /// </summary>
+    public int? OcclusionUv { get; set; }
+
+    /// <summary>Ignores the occlusion texture linked in the model file.</summary>
+    public bool NoOcclusionMap { get; set; }
+
     /// <summary>Texture of the light the surface gives off.</summary>
     public string? Emissive { get; set; }
 
@@ -222,6 +237,16 @@ public sealed class MaterialRule
     [JsonConverter(typeof(TrueOrObjectConverter<WindRule>))]
     public WindRule? Wind { get; set; }
 
+    /// <summary>
+    /// Cel shading for a cartoon look: the light falls into flat bands and shine is a hard spot. Written <c>true</c>,
+    /// or <c>{ "steps": 2, "ramp": "ramp.png", "rim": [0.2, 0.2, 0.3] }</c>.
+    /// </summary>
+    [JsonConverter(typeof(TrueOrObjectConverter<ToonRule>))]
+    public ToonRule? Toon { get; set; }
+
+    /// <summary>Draws an ink line round the material's outline and along its creases, as the game's view sets it.</summary>
+    public bool Outline { get; set; }
+
     public bool Transparent { get; set; }
 
     /// <summary>For transparent glass: 1 is straight through, as a window, and about 1.5 bends the view like a bottle or a marble.</summary>
@@ -293,6 +318,19 @@ public sealed class FoliageRule
     /// or grass across a yard, whose modelling tool bends them out of the surface they grow on.
     /// </summary>
     public bool Crown { get; set; } = true;
+}
+
+/// <summary>A cel-shaded material: see <see cref="MaterialRule.Toon"/>.</summary>
+public sealed class ToonRule
+{
+    /// <summary>How many bands the light falls into, from 1 to 16. 3 by default.</summary>
+    public int Steps { get; set; } = 3;
+
+    /// <summary>A texture read from dark on its left to lit on its right instead of plain bands, cooked as linear data.</summary>
+    public string? Ramp { get; set; }
+
+    /// <summary>Linear light added along the shape's outline, three numbers. None by default.</summary>
+    public float[]? Rim { get; set; }
 }
 
 /// <summary>How a material moves in the wind: see <see cref="MaterialRule.Wind"/>.</summary>

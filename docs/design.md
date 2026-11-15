@@ -800,7 +800,7 @@ vertices whose heaviest weight is that joint, in the joint's own space (the vert
 `InverseBind`). The cooker measures it with `Skeleton.WithBounds` after the vertices are moved
 to rest and normalized, and ragdolls size their shapes from it. A skeleton made in code has none.
 
-The `.rmodel` format is version 14 and the model cook version 22, with the material graphs'
+The `.rmodel` format is version 14 and the model cook version 24, with the material graphs'
 version folded in. Their history is in the comments on `ModelData.Version` and
 `ModelCooker.Version`, and an old file fails with "Cook it again" when it is read.
 
@@ -1048,7 +1048,7 @@ G-buffer layout:
 | Target | Format | Contents |
 | --- | --- | --- |
 | 0 | `R8G8B8A8_SRGB` | base colour, metallic |
-| 1 | `R16G16B16A16_SFLOAT` | octahedral normal (xy), roughness, AO |
+| 1 | `R16G16B16A16_SFLOAT` | octahedral normal (xy), roughness, the material's occlusion (or `WATER_SIDE` for puddle water); see "Occlusion maps" |
 | 2 | `R16G16B16A16_SFLOAT` | emissive colour, clearcoat (or minus the translucency, for foliage, or 2 plus the material index, for subsurface) |
 | 3 | `R16G16_SFLOAT` | motion since last frame, in scene pixels; see "Motion vectors" |
 | 4 | `R16G16B16A16_SFLOAT` | baked diffuse light over pi, turned by the normal, and in alpha how much the lightmap counts: 1 for a lightmapped pixel, less in a chunk's edge band; cleared to 0. See "Drawing a bake" and "Edge bands" |
@@ -2872,6 +2872,99 @@ transparent pass doesn't apply the layers. The masks are in the model's `.rmodel
 `Wear` and `Dirt`, each layer a `vec4` of colour and amount. `Vertex` grew from 56 to 64 bytes for `Uv2`, which `gbuffer.vert` passes
 on at location 4.
 
+## Occlusion maps
+
+A material's occlusion texture (`Material.OcclusionTexture`) rides the channel the G-buffer
+already had for it: the alpha of RT1, which `lighting.frag` multiplies into the screen-space
+occlusion as `ao` before it darkens the environment, the probes and the bake and feeds
+`specularOcclusion`. Before, every surface wrote 1 there, or `WATER_SIDE` for puddle water,
+which still wins, since water lies open over the hollows. Direct light never reads it.
+
+`materialSurface(uv)` reads the texture's red into the global `surfaceOcclusion`, as
+`applyPuddles` sets `puddleWater`, and `waterSide()` in `writeSurface` writes it. A global
+rather than a `Surface` field keeps every surface shader that builds its `Surface` by hand
+(the Archer clearing, Terrain, and any game's) compiling and writing 1, where a new struct
+field would be left undefined. With `MaterialFlags.OcclusionOnUv2` (bit 128,
+`MATERIAL_OCCLUSION_UV2`) it reads `inUv2` with its own derivatives, which the height map
+doesn't shift, since that layout isn't the colour's; otherwise it reads the parallax-moved
+`uv` like the other textures. The flag comes from the draw's material, so the branch is
+uniform and its derivatives are safe. With materials off the clay writes 1. A material
+without a texture reads the white one, one extra fetch of a 1x1 texture.
+
+`GpuMaterial.OcclusionTexture` goes after `dirt`, at byte 320, since the padding after
+`MaskTexture` holds the glass's `softEdge`. std430 rounds the struct up to a whole 16 bytes,
+so it grew from 320 to 336, and `GpuMaterial` pads the last 12 by hand (`EndPadding`). It's
+the ninth of a material's own texture slots in `ResourceTable`, so destroying the material
+frees it.
+
+`ModelData.MaterialOcclusion` holds each material's occlusion texture, -1 for none, and is
+empty when no material has one, like `MaterialShaders` and `MaterialMasks`. It isn't a field
+of `ModelMaterial`, which the file writes as a raw array, and the file's version stays 14:
+the occlusion is an optional section after the textures, a byte (`OcclusionSection`, 1) and
+the array, which a model without occlusion leaves out. The reader takes one more byte after
+the textures, and the end of the stream means there is none. A cooked model's bake id is the
+hash of its file, so every model cooked before keeps its bytes, its ids and its bake. A
+generated mesh's `BakeIdentity` likewise only hashes the occlusion texture when there is one.
+`EdgesOf` clamps an occlusion texture on the second set, which is an atlas of islands like
+the masks, and leaves one on the first set repeating.
+
+The model cooker asks Assimp for a glTF material's occlusion as its `Lightmap` texture,
+which is where Assimp's glTF importer files `occlusionTexture`, with the UV set from
+`GetMaterialTexture`'s `uvindex`. `OcclusionWanted` settles the file, the set and a rule's
+`occlusion`, `occlusionUv` and `noOcclusionMap` while the materials import, but the texture
+is only added once `LightmapUv` has settled each material's second set. `LightmapUv` returns
+the materials whose set it made (unwrapped or recalled), and `AddOcclusion` leaves out, with a
+warning, an occlusion texture on the second set of one of those, so the image is never cooked
+for nothing. `TextureCompression.Compress` takes the occlusion textures as BC4 in its `extra`
+list, beside the masks as BC7, since they're named outside `ModelMaterial`.
+
+A generated mesh's `WithLightmapUvs` throws rather than replace a `Uv2` its surface reads
+occlusion through, which also covers `content.Mesh(..., isStatic: true)`.
+
+## Toon shading and outlines
+
+A toon or outlined pixel has to tell the deferred lighting which material it is, and the
+G-buffer has no room for a shading-model id. Subsurface pixels already write their material's
+index plus `SUBSURFACE_MARK` in RT2's alpha, so `writeSurface` marks toon (`MATERIAL_TOON`) and
+outlined (`MATERIAL_OUTLINE`) materials the same way, and `lighting.frag` reads the flags of
+the marked material: toon wins, and a pixel is subsurface only when the material has a radius
+and subsurface isn't off. This is why a toon material loses clearcoat, foliage and
+subsurface. `MATERIAL_TOON` is bit 16, set by `ResourceTable` from `Material.Toon` rather than
+from `MaterialFlags`, so a material can't be marked toon without its settings.
+
+`GpuMaterial` grew from 336 to 352 bytes: `toonSteps`, `toonRamp` and a padding take the 12
+bytes std430 left after `occlusionTexture`, and `toonRim` is a `vec4` after them. The ramp is
+the tenth of a material's own texture slots. `toonSteps` is 0 when there is a ramp.
+
+In the light loops the visibility (shadow map, contact shadow, mask) is worked out as before,
+then `toonLight()` replaces `shade()`'s diffuse and specular with banded ones that already hold
+it, and the visibility is set to 1 so it isn't applied twice. The bands are
+`floor(k) - 1 + smoothstep(0, TOON_EDGE, fract(k))` with `k = arriving * steps + 1 -
+TOON_FIRST_BAND`, so the first band starts just past the terminator and each edge is softened
+over 4% of a band; a fixed softness, since derivatives aren't defined inside the light loops,
+which `continue`. A ramp is read at `arriving`, kept half a texel inside its ends. The spot is
+where GGX's distribution, scaled to 1 at its peak (`D * pi * alpha^2`), times the arriving
+light passes 0.5, faded out between roughness 0.65 and 0.75. A toon pixel takes the
+`Graphics.Specular` off path (no environment reflection, metal drawn in its colour, f0 0), and
+its soft light is read for the normal (0, 1, 0), so the environment adds one flat colour.
+
+The outline is worked out in `lighting.frag` too, for marked pixels whose material has
+`MATERIAL_OUTLINE`, before the underwater and fog code so both apply to it. `outlineCoverage`
+looks at eight pixels `frame.outline.w` scene pixels away and draws the line where one is the
+sky, lies more than 6% further from the camera, or has a normal more than about 41° off
+(cosine 0.75). Distances come from each tap's position rebuilt through `inverseViewProjection`,
+so it holds for any projection. Testing only further neighbours keeps the line on the
+outlined surface's side of the silhouette. `Outlines.Pack` turns the view's thickness from the
+picture's pixels to the scene's (`GBuffer.Extent.Width / FrameView.Width`) and sets 0 while a
+reflection probe is captured. The two uniforms, `outline` and `outlineFade`, sit after
+`flatReflection` in the frame block.
+
+A cooked model keeps toon settings in a second optional section after the textures
+(`ToonSection`, 2, after the occlusion's), an array of `(steps, ramp, rim)` with 0 steps for a
+material that isn't toon, and its outline in `ModelMaterial.Flags`, so a model with neither
+keeps its bytes and its bake ids. The reader reads sections until the stream ends. A generated
+mesh's `BakeIdentity` hashes toon and outline only when the surface has them.
+
 ## Texture mips, roughness and compression
 
 `TextureData.FromRgba` builds a texture's mips one level from the next with a separable
@@ -4676,6 +4769,17 @@ change does too.
 - Only cooked models' textures are block-compressed. Textures loaded on their own, graph
   textures cooked by themselves and generated shapes' textures stay RGBA8.
 - The table holds at most 1024 textures, 1024 materials and 256 texture arrays.
+- Only the occlusion texture can pick its UV set; the detail mask, in the surface texture's
+  blue, is read through the first set. An occlusion texture on a second set the cook makes
+  again is left out, where it could be baked across onto the new set. glTF's occlusion
+  `strength` is ignored, and the transparent pass ignores occlusion. A vertex holds two UV
+  sets and stays 64 bytes; a third set would need another vertex stream.
+- Toon shading lives in the lighting pass, so the transparent pass, reflection probes and the
+  light probes' captures still shade toon materials the physically based way, and a bake's
+  lightmaps hold physically based soft light. Outlines are drawn only on the outlined surface,
+  inside its silhouette, so a line is as thick as the setting at most and thins where the
+  surface itself is thinner; a line outside the silhouette would need its own pass after
+  lighting. Outlines and toon both turn off with `--no-materials`.
 - Glass is sorted by the middle of each draw, not per triangle, so two panes that cross
   or a pane inside a bigger one can blend in the wrong order. There's no way to set a
   draw's order by hand. Bending is one refraction at the near side, followed at most

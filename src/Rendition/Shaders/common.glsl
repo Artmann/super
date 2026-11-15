@@ -54,6 +54,8 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 bakedFade;          // x: how far the baked space's bake has faded in, from 0 to 1, for its lightmaps and probes; 1 when none is fading
     vec4 flatIrradiance;     // rgb: the irradiance cube's average, the soft light with Graphics.EnvironmentLight off
     vec4 flatReflection;     // rgb: the reflection cube's average at its roughest level, its reflections with it off
+    vec4 outline;            // rgb: the outlines' colour; w: their thickness in scene pixels, 0 for none
+    vec4 outlineFade;        // x, y: the distances in metres over which outlines fade out
     int lightCount;
     float time;              // Seconds, as set by the game.
     int frameNumber;

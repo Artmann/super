@@ -4,14 +4,18 @@ using Super;
 namespace BricksExample;
 
 /// <summary>
-/// Textures for a laid surface, made in code: a colour, a height map and the normal map
-/// that height gives, all tiling. Each stone is a rounded block sunk in mortar.
+/// Textures for a laid surface, made in code: a colour, a height map, the normal map
+/// that height gives and how much of the sky each point sees, all tiling. Each stone is a
+/// rounded block sunk in mortar.
 /// </summary>
 public sealed class Masonry
 {
     public required GeneratedTexture Color { get; init; }
     public required GeneratedTexture Height { get; init; }
     public required GeneratedTexture Normal { get; init; }
+
+    /// <summary>The joints between the stones see little of the sky, and a stone more of it the further from its edge.</summary>
+    public required GeneratedTexture Occlusion { get; init; }
 
     /// <summary>Which stone a pixel is on, and how far it is from the stone's edge in pixels; -1 for mortar.</summary>
     private delegate (int Stone, float Inside) Layout(int x, int y);
@@ -86,6 +90,7 @@ public sealed class Masonry
         var heights = new float[size * size];
         var color = new byte[size * size * 4];
         var heightPixels = new byte[size * size * 4];
+        var occlusionPixels = new byte[size * size * 4];
         for (int y = 0; y < size; y++)
         {
             for (int x = 0; x < size; x++)
@@ -93,10 +98,12 @@ public sealed class Masonry
                 var (id, inside) = layout(x, y);
                 float rough = Noise.Tiled(x, y, size, 16f, seed);
                 float h;
+                float open;
                 Vector3 shade;
                 if (inside <= 0f)
                 {
                     h = 0.1f + 0.1f * rough;
+                    open = 0.3f + 0.1f * rough;
                     shade = joint * (0.85f + 0.3f * rough);
                 }
                 else
@@ -104,6 +111,8 @@ public sealed class Masonry
                     float rise = MathF.Min(inside / bevel, 1f);
                     rise = MathF.Sqrt(rise * (2f - rise));
                     h = 0.25f + 0.75f * rise * (0.85f + 0.15f * rough);
+                    // The stone's own rounded edge hides some of the sky, until it's twice the bevel in from it.
+                    open = 0.6f + 0.4f * MathF.Min(inside / (2f * bevel), 1f);
                     float tone = 0.8f + 0.4f * Noise.Hash(id, seed);
                     shade = stone * tone * (0.88f + 0.24f * rough);
                 }
@@ -111,6 +120,8 @@ public sealed class Masonry
                 heights[y * size + x] = h;
                 byte value = (byte)MathF.Round(h * 255f);
                 Put(heightPixels, y * size + x, value, value, value);
+                byte seen = (byte)MathF.Round(open * 255f);
+                Put(occlusionPixels, y * size + x, seen, seen, seen);
                 Put(color, y * size + x, ToSrgb(shade.X), ToSrgb(shade.Y), ToSrgb(shade.Z));
             }
         }
@@ -121,6 +132,7 @@ public sealed class Masonry
             Color = new GeneratedTexture(size, color),
             Height = new GeneratedTexture(size, heightPixels),
             Normal = NormalMap(heights, size, depth / metresPerPixel),
+            Occlusion = new GeneratedTexture(size, occlusionPixels),
         };
     }
 
