@@ -1668,7 +1668,7 @@ as the shared `assets` folder does for Poly Haven's `textures` folders:
 Other options are the `baseColor`, `normal`, `surface` and `emissive` textures,
 `color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `heightDepth`,
 `detailScale`, `detailMask`, `twoSided`, `transparent`, `opacity`, `ior`, `noNormalMap`,
-`worldVariation`, `dithered`, `puddles`, `wind` and `rotateY`, and `graph`, `graphSize`, `detailGraph` and
+`worldVariation`, `dithered`, `puddles`, [`noDecals`](views.md#decals), `wind` and `rotateY`, and `graph`, `graphSize`, `detailGraph` and
 `detailGraphSize`, and `shader`, `shaderParameters` and `shaderTextures`, below; see
 `src/Super.Cook.Models/ImportSettings.cs`.
 

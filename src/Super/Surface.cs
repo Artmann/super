@@ -80,6 +80,12 @@ public sealed record Surface
     public bool Puddles { get; init; }
 
     /// <summary>
+    /// <see cref="View.Decal"/>s don't lay on the surface, so a prop standing in a stain or a crate in a scorch mark
+    /// keeps its own look. Animated characters never take decals.
+    /// </summary>
+    public bool NoDecals { get; init; }
+
+    /// <summary>
     /// The surface is leaves or blades: sunlight shines through it from behind, as much as <see cref="Translucency"/>
     /// says, both sides are lit as the front, and it gets no contact shadows, which thin cut-out leaves would only
     /// spoil.

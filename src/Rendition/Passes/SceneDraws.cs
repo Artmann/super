@@ -12,6 +12,12 @@ internal enum ScenePass
     /// <summary>Solid things, into the G-buffer.</summary>
     Opaque,
 
+    /// <summary>Solid things that take decals, into the G-buffer before the decals are laid on it.</summary>
+    OpaqueTakingDecals,
+
+    /// <summary>Solid things that don't take decals, into the G-buffer after them, so they cover what the decals laid.</summary>
+    OpaqueAfterDecals,
+
     /// <summary>Glass and see-through ghosts, shaded forward over the lit picture.</summary>
     Transparent,
 
@@ -139,10 +145,30 @@ internal static unsafe class SceneDraws
         return pass switch
         {
             ScenePass.Opaque => !transparent,
+            ScenePass.OpaqueTakingDecals => !transparent && TakesDecals(draw, flags),
+            ScenePass.OpaqueAfterDecals => !transparent && !TakesDecals(draw, flags),
             ScenePass.Transparent => transparent,
             _ => draw.Ghost is null,
         };
     }
+
+    /// <summary>Whether any of the draws belongs in the pass.</summary>
+    public static bool AnyIn(ReadOnlySpan<DrawItem> draws, ResourceTable resources, ScenePass pass)
+    {
+        foreach (ref readonly var draw in draws)
+        {
+            if (Belongs(draw, resources.GetFlags(draw.Material), pass))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Whether decals lay on a draw: not on a skinned one, a character, nor one whose material has <see cref="MaterialFlags.NoDecals"/>.</summary>
+    public static bool TakesDecals(in DrawItem draw, MaterialFlags flags) =>
+        draw.Bones.Count == 0 && (flags & MaterialFlags.NoDecals) == 0;
 
     /// <summary>
     /// Groups draws that differ only in what each copy has of its own, where it stands and how it swims, so each

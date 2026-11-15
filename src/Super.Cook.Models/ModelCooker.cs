@@ -1605,7 +1605,8 @@ public sealed class ModelCooker : ICooker
             | (rule.DetailMask ? MaterialFlags.DetailMask : 0)
             | (rule.WorldVariation ? MaterialFlags.WorldVariation : 0)
             | (rule.Dithered ? MaterialFlags.Dithered : 0)
-            | (rule.Puddles ? MaterialFlags.Puddles : 0);
+            | (rule.Puddles ? MaterialFlags.Puddles : 0)
+            | (rule.NoDecals ? MaterialFlags.NoDecals : 0);
         var emissive = rule.EmissiveColor is { Length: 3 } e
             ? new Vector3(e[0], e[1], e[2])
             : rule.Emissive != null ? Vector3.One : Vector3.Zero;

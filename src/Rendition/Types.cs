@@ -133,6 +133,12 @@ public enum MaterialFlags
     /// band. Its height map counts, so the hollows flood before the tops. Without a level it does nothing.
     /// </summary>
     Puddles = 64,
+
+    /// <summary>
+    /// Decals don't lay on the surface: a character walking through a stain or standing over a scorch mark keeps its
+    /// own look. Skinned draws, which are characters, never take decals, whatever their material says.
+    /// </summary>
+    NoDecals = 512,
 }
 
 /// <summary>

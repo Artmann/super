@@ -233,7 +233,7 @@
       "kind": "high-complexity",
       "name": "Rendition.Renderer.RecordScene",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 18
+      "metric": 22
     },
     {
       "kind": "high-complexity",
@@ -479,7 +479,7 @@
       "kind": "high-complexity",
       "name": "Super.Cook.Models.ModelCooker.ImportMaterial",
       "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 37
+      "metric": 38
     },
     {
       "kind": "high-complexity",
@@ -923,7 +923,7 @@
       "kind": "high-cognitive-complexity",
       "name": "Rendition.Renderer.RecordScene",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 23
+      "metric": 27
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1091,7 +1091,7 @@
       "kind": "high-cognitive-complexity",
       "name": "Super.Cook.Models.ModelCooker.ImportMaterial",
       "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 50
+      "metric": 51
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1913,7 +1913,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.RecordScene",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 214
+      "metric": 223
     },
     {
       "kind": "long-method",
@@ -2399,7 +2399,7 @@
       "kind": "long-method",
       "name": "Super.Cook.Models.ModelCooker.ImportMaterial",
       "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 153
+      "metric": 154
     },
     {
       "kind": "long-method",
@@ -3443,13 +3443,13 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5743
+      "metric": 5770
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
-      "metric": 1659
+      "metric": 1665
     },
     {
       "kind": "large-file",
@@ -3461,7 +3461,7 @@
       "kind": "large-file",
       "name": "src/Super.Cook.Models/ModelCooker.cs",
       "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 1800
+      "metric": 1801
     },
     {
       "kind": "large-file",
@@ -3485,7 +3485,7 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1164
+      "metric": 1165
     },
     {
       "kind": "large-file",
@@ -3635,7 +3635,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 383
+      "metric": 384
     },
     {
       "kind": "large-type",
@@ -3779,7 +3779,7 @@
       "kind": "large-type",
       "name": "Super.Cook.Models.MaterialRule",
       "file": "src/Super.Cook.Models/ImportSettings.cs",
-      "metric": 39
+      "metric": 40
     },
     {
       "kind": "large-type",
@@ -3911,7 +3911,7 @@
       "kind": "large-type",
       "name": "Super.Surface",
       "file": "src/Super/Surface.cs",
-      "metric": 28
+      "metric": 29
     },
     {
       "kind": "large-type",

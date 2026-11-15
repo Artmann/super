@@ -91,6 +91,9 @@ internal sealed unsafe class GBufferPass : IDisposable
     /// <summary>
     /// Draws the solid things into <paramref name="targets"/>. Given the camera as <paramref name="depthFirst"/>,
     /// draws whose triangles are large in its view have their depth drawn first; see <see cref="DepthFirst"/>.
+    /// <paramref name="pass"/> is <see cref="ScenePass.Opaque"/> for all of them, <see cref="ScenePass.OpaqueTakingDecals"/>
+    /// for those the decals then lay on, or <see cref="ScenePass.OpaqueAfterDecals"/> for the rest, drawn over what the
+    /// first round and the decals left in the targets, so where they stand in front of a decal they cover it.
     /// </summary>
     public void Record(
         CommandBuffer cmd,
@@ -100,13 +103,11 @@ internal sealed unsafe class GBufferPass : IDisposable
         List<Mesh?> meshes,
         List<PartDetail> details,
         InstanceBuffer instances,
-        DetailView? depthFirst = null)
+        DetailView? depthFirst = null,
+        ScenePass pass = ScenePass.Opaque)
     {
         var api = _context.Api;
-        Begin(cmd, targets);
-
-        var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set };
-        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
+        Begin(cmd, targets, clear: pass != ScenePass.OpaqueAfterDecals, frameSet);
 
         if (depthFirst is { } view)
         {
@@ -114,29 +115,30 @@ internal sealed unsafe class GBufferPass : IDisposable
         }
 
         SceneDraws.Record(
-            api, cmd, _layout, _pipelines, _resources, draws, meshes, details, instances, ScenePass.Opaque,
+            api, cmd, _layout, _pipelines, _resources, draws, meshes, details, instances, pass,
             solids: _solids, depthFirst: depthFirst is null ? null : _depthFirst);
 
         api.CmdEndRendering(cmd);
     }
 
-    // Starts drawing into the targets, each cleared.
-    private void Begin(CommandBuffer cmd, GBuffer targets)
+    // Starts drawing into the targets, each cleared or keeping what's there, and binds the frame's and the materials' sets.
+    private void Begin(CommandBuffer cmd, GBuffer targets, bool clear, DescriptorSet frameSet)
     {
         var api = _context.Api;
+        var load = clear ? AttachmentLoadOp.Clear : AttachmentLoadOp.Load;
         var colorAttachments = stackalloc RenderingAttachmentInfo[6];
-        colorAttachments[0] = ColorAttachment(targets.BaseColor.View);
-        colorAttachments[1] = ColorAttachment(targets.Normal.View);
-        colorAttachments[2] = ColorAttachment(targets.Emissive.View);
-        colorAttachments[3] = ColorAttachment(targets.Motion.View); // Cleared to no motion, which the sky keeps.
-        colorAttachments[4] = ColorAttachment(targets.Baked.View); // Cleared to not lightmapped.
-        colorAttachments[5] = ColorAttachment(targets.Mask.View, 1f); // Cleared to fully lit.
+        colorAttachments[0] = ColorAttachment(targets.BaseColor.View, load);
+        colorAttachments[1] = ColorAttachment(targets.Normal.View, load);
+        colorAttachments[2] = ColorAttachment(targets.Emissive.View, load);
+        colorAttachments[3] = ColorAttachment(targets.Motion.View, load); // Cleared to no motion, which the sky keeps.
+        colorAttachments[4] = ColorAttachment(targets.Baked.View, load); // Cleared to not lightmapped.
+        colorAttachments[5] = ColorAttachment(targets.Mask.View, load, 1f); // Cleared to fully lit.
         var depthAttachment = new RenderingAttachmentInfo
         {
             SType = StructureType.RenderingAttachmentInfo,
             ImageView = targets.Depth.View,
             ImageLayout = ImageLayout.DepthAttachmentOptimal,
-            LoadOp = AttachmentLoadOp.Clear,
+            LoadOp = load,
             StoreOp = AttachmentStoreOp.Store,
             ClearValue = new ClearValue(depthStencil: new ClearDepthStencilValue(0f, 0)), // Reversed-Z far plane.
         };
@@ -152,6 +154,9 @@ internal sealed unsafe class GBufferPass : IDisposable
 
         api.CmdBeginRendering(cmd, &rendering);
         api.SetFullViewport(cmd, targets.Extent);
+
+        var sets = stackalloc DescriptorSet[] { frameSet, _resources.Set };
+        api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _layout, 0, 2, sets, 0, null);
     }
 
     public void Dispose()
@@ -165,12 +170,12 @@ internal sealed unsafe class GBufferPass : IDisposable
         _context.Api.DestroyPipelineLayout(_context.Device, _layout, null);
     }
 
-    private static RenderingAttachmentInfo ColorAttachment(ImageView view, float clear = 0f) => new()
+    private static RenderingAttachmentInfo ColorAttachment(ImageView view, AttachmentLoadOp load, float clear = 0f) => new()
     {
         SType = StructureType.RenderingAttachmentInfo,
         ImageView = view,
         ImageLayout = ImageLayout.ColorAttachmentOptimal,
-        LoadOp = AttachmentLoadOp.Clear,
+        LoadOp = load,
         StoreOp = AttachmentStoreOp.Store,
         ClearValue = new ClearValue(new ClearColorValue(clear, clear, clear, clear)),
     };
