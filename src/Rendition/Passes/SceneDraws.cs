@@ -59,7 +59,7 @@ internal sealed class DepthFirst(List<PipelineVariants> depth, List<PipelineVari
     /// </summary>
     public bool Pays(in DrawItem draw, ResourceTable resources, List<PartDetail> details)
     {
-        if (SceneDraws.HasHoles(resources.HasCutouts(draw.Material), resources.GetFlags(draw.Material)))
+        if (SceneDraws.HasHoles(draw, resources))
         {
             return false;
         }
@@ -186,7 +186,8 @@ internal static unsafe class SceneDraws
         && a.IndexCount == b.IndexCount
         && a.Material == b.Material
         && a.Tint == b.Tint
-        && a.Ghost == b.Ghost;
+        && a.Ghost == b.Ghost
+        && (a.Dither != 0f) == (b.Dither != 0f);
 
     /// <summary>
     /// A number that sorts draws that look the same next to each other, in the order they came. The mesh is on top,
@@ -200,6 +201,11 @@ internal static unsafe class SceneDraws
     private static UInt128 SortKey(in DrawItem draw, int place)
     {
         ulong look = Mix(draw.IndexCount, (uint)draw.Material.Index);
+        if (draw.Dither != 0f)
+        {
+            look = Mix(look, 1);
+        }
+
         if (draw.Tint is { } tint)
         {
             look = Mix(look, Bits(tint.X));
@@ -376,7 +382,7 @@ internal static unsafe class SceneDraws
     private static Pipeline PipelineFor(in DrawItem draw, List<PipelineVariants> pipelines, ResourceTable resources, List<PipelineVariants>? solids)
     {
         var flags = resources.GetFlags(draw.Material);
-        var choices = solids is not null && !HasHoles(resources.HasCutouts(draw.Material), flags) ? solids : pipelines;
+        var choices = solids is not null && !HasHoles(draw, resources) ? solids : pipelines;
         var variants = choices[choices.Count > 1 ? resources.GetShader(draw.Material) : 0];
         return (flags & MaterialFlags.TwoSided) != 0 ? variants.TwoSided : variants.Culled;
     }
@@ -399,6 +405,13 @@ internal static unsafe class SceneDraws
     /// </summary>
     public static bool HasHoles(bool cutouts, MaterialFlags flags) =>
         cutouts || (flags & (MaterialFlags.Transparent | MaterialFlags.Dithered)) != 0;
+
+    /// <summary>
+    /// Whether a draw leaves some of its pixels out: its material does, or it's fading, out with distance or into a
+    /// finer version of itself, which dithers it.
+    /// </summary>
+    public static bool HasHoles(in DrawItem draw, ResourceTable resources) =>
+        draw.Dither != 0f || HasHoles(resources.HasCutouts(draw.Material), resources.GetFlags(draw.Material));
 
     /// <summary>What a command buffer has bound, so the same pipeline or mesh isn't bound twice in a row.</summary>
     public struct Bound()

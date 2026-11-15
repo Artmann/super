@@ -388,6 +388,15 @@ public sealed class Graphics
     public bool DepthFirst { get; set; } = true;
 
     /// <summary>
+    /// Things fading out smoothly with distance, from <see cref="Surface.FadeDistance"/> and a model's own fade, models
+    /// cross-fading into their simpler versions instead of popping, and glass fading where it meets the ground, from
+    /// <see cref="Surface.SoftEdge"/>. Off, a fade is a hard cut halfway through it, a simpler version swaps in at once
+    /// and glass ends in a hard line. It costs little: fading things skip the early depth test, and a model near a swap
+    /// is drawn twice. Every preset leaves it on.
+    /// </summary>
+    public bool Fades { get; set; } = true;
+
+    /// <summary>
     /// What the frame shows: the lit scene, the default, or a look inside the renderer such as
     /// <see cref="Rendition.DebugView.Probes"/>, which a game can switch on with a key. It is not an effect and costs
     /// nothing while <see cref="Rendition.DebugView.None"/>. <c>--debug-view</c> on the command line wins: while it
@@ -528,6 +537,7 @@ public sealed class Graphics
         Culling = profile.Culling;
         SimplerModels = profile.SimplerModels;
         DepthFirst = profile.DepthFirst;
+        Fades = profile.Fades;
         BakedLighting = profile.BakedLighting;
     }
 
@@ -644,6 +654,7 @@ public sealed class Graphics
         (graphics => graphics.Culling, RenderEffects.Culling),
         (graphics => graphics.SimplerModels, RenderEffects.SimplerModels),
         (graphics => graphics.DepthFirst, RenderEffects.DepthFirst),
+        (graphics => graphics.Fades, RenderEffects.Fades),
         (graphics => graphics.Subsurface, RenderEffects.Subsurface),
         (graphics => graphics.Particles, RenderEffects.Particles),
         (graphics => graphics.LocalLights, RenderEffects.LocalLights),

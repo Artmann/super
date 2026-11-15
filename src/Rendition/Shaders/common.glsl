@@ -91,6 +91,9 @@ const int OFF_SUBSURFACE = int(0x80000000u);   // 1 << 31, the last bit the shad
 // Not a RenderEffects bit: set by the renderer while a debug view shows (DebugViewBit in Renderer.cs). Tonemapping
 // and the finish pass then hand colours through as they are.
 const int OFF_DEBUG_VIEW = 1 << 30;
+// Not a RenderEffects bit: RenderEffects.Fades is past the bits the shaders read, so the renderer sets this bit,
+// DepthFirst's, which only the CPU reads, when it's off (FadesOffBit in Renderer.cs).
+const int OFF_FADES = 1 << 29;
 
 // The normal target's alpha holds 1 for a surface. Puddle water writes
 // WATER_SIDE instead, so the lighting knows to shade it at the water's surface, not on the

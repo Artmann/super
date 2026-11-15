@@ -18,6 +18,7 @@ layout(location = 7) in vec2 inLightmapUv; // where the pixel is on its lightmap
 // for none.
 layout(location = 8) flat in ivec4 inLightmap;
 layout(location = 9) in vec3 inChunkPosition; // where the pixel is in that chunk's own space
+layout(location = 10) flat in float inFade;    // how much of the copy is drawn; see instanceFade in instances.glsl
 
 layout(location = 0) out vec4 outBaseColorMetallic;
 layout(location = 1) out vec4 outNormalRoughnessAo;
@@ -299,6 +300,13 @@ vec3 blendNormals(vec3 base, vec3 detail) {
     return normalize(t * dot(t, u) / t.z - u);
 }
 
+// Noise from 0 to 1 that changes from pixel to pixel and from frame to frame, interleaved gradient
+// noise, so anti-aliasing blends a dithered share of pixels into a smooth one.
+float frameNoise() {
+    vec2 pixel = gl_FragCoord.xy + 5.588238 * float(frame.frameNumber % 64);
+    return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
+}
+
 // The surface as the material's constants and textures describe it at this uv, with
 // cut-out pixels discarded. Textures pick their mip level from inUv, so pass inUv or a uv
 // shifted from it, such as parallaxUv's.
@@ -322,9 +330,7 @@ Surface materialSurface(vec2 uv) {
     // A dithered material keeps a share of its pixels as large as its opacity, a different
     // share each frame, and anti-aliasing blends them with what's behind into a soft fade.
     if (CUT_OUTS && (material.flags & MATERIAL_DITHERED) != 0u) {
-        vec2 pixel = gl_FragCoord.xy + 5.588238 * float(frame.frameNumber % 64);
-        float threshold = fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
-        if (baseColor.a * mask.a <= threshold) {
+        if (baseColor.a * mask.a <= frameNoise()) {
             discard;
         }
     }
@@ -532,6 +538,12 @@ void writeBaked(vec3 normal) {
 // whatever the material.
 // Every surface also writes its motion: in scene pixels, from where it is now back to where it was, as Motion.Pack does.
 void writeSurface(Surface surface) {
+    // A copy fading out with distance, or cross-fading into a finer version of itself, keeps only its
+    // share of the pixels. Fading copies are drawn with the cut-out pipelines, so CUT_OUTS is on.
+    if (CUT_OUTS && !fadeKeeps(inFade, frameNoise())) {
+        discard;
+    }
+
     // Behind last frame's camera there's nowhere to point, so it points far off the picture, which has no history.
     outMotion = inClipBefore.z > 0.0
         ? (inClipBefore.xy / inClipBefore.z - inClipNow.xy / inClipNow.z) * 0.5 * frame.screen.xy

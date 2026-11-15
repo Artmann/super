@@ -6,7 +6,8 @@ namespace GlassExample;
 /// <summary>
 /// Panes of glass standing one behind another in front of coloured posts: a clear one, a
 /// frosted one and a green one. Glass balls bend the posts behind them, and dust drifts
-/// up between the panes, in front of some and behind others.
+/// up between the panes, in front of some and behind others. A shallow pool in front fades
+/// out softly where a stone runs into it.
 /// </summary>
 public sealed class GlassRoom(Content content) : IGame
 {
@@ -48,6 +49,8 @@ public sealed class GlassRoom(Content content) : IGame
     private ModelRef _floor;
     private ModelRef _ball;
     private ModelRef _bigBall;
+    private ModelRef _pool;
+    private ModelRef _stone;
     private long _tick;
     private int _ticksPerSecond = 60;
 
@@ -68,6 +71,11 @@ public sealed class GlassRoom(Content content) : IGame
         var clear = new Surface { Color = new Vector3(0.95f), Roughness = 0.02f, Opacity = 0.08f, Ior = ior };
         _ball = content.Mesh(Shapes.Sphere(0.35f, 48, 24, clear));
         _bigBall = content.Mesh(Shapes.Sphere(0.6f, 64, 32, clear));
+
+        // The water fades out where the stone comes within 0.2 m under its top, instead of meeting it in a hard line.
+        var water = new Surface { Color = new Vector3(0.35f, 0.55f, 0.6f), Roughness = 0.05f, Opacity = 0.3f, Ior = ior, SoftEdge = 0.2f };
+        _pool = content.Mesh(Shapes.Plane(new Vector2(2.2f, 1f), surface: water));
+        _stone = content.Mesh(Shapes.Box(new Vector3(1.4f, 0.3f, 0.5f), new Surface { Color = new Vector3(0.55f, 0.52f, 0.48f), Roughness = 0.8f }));
     }
 
     public void Update(GameTime time)
@@ -104,6 +112,8 @@ public sealed class GlassRoom(Content content) : IGame
 
         view.Model(30, _ball, Matrix4x4.CreateTranslation(-1.7f, 0.35f, 1.6f));
         view.Model(31, _bigBall, Matrix4x4.CreateTranslation(1.9f, 0.6f, 0.6f));
+        view.Model(32, _stone, Matrix4x4.CreateRotationZ(0.25f) * Matrix4x4.CreateRotationY(0.4f) * Matrix4x4.CreateTranslation(0.1f, 0.05f, 1.75f));
+        view.Model(33, _pool, Matrix4x4.CreateTranslation(0.1f, 0.12f, 1.75f));
 
         // Two cycles at once, so dust is always rising. Each cycle has its own key.
         long cycleTicks = (long)(DustCycleSeconds * _ticksPerSecond);

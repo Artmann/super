@@ -23,9 +23,11 @@ layout(push_constant) uniform Draw {
 } draw;
 
 layout(location = 0) out vec2 outUv;
+layout(location = 1) flat out float outFade; // how much of the copy is drawn; see instanceFade in instances.glsl
 
 void main() {
     outUv = inUv;
+    outFade = instanceFade();
     vec3 posed = (skinMatrix(draw.firstBone, inJoints, inWeights) * vec4(inPosition, 1.0)).xyz;
     vec3 swimming = instanceSwim();
     vec3 swum = swim(posed, swimming.x, swimming.y, swimming.z);

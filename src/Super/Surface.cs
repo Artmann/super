@@ -96,6 +96,20 @@ public sealed record Surface
     /// </summary>
     public float Wind { get; init; }
 
+    /// <summary>
+    /// Fades everything with this surface out with distance from the camera, such as grass that's gone by 60 metres:
+    /// <c>new DistanceFade(50, 60)</c>. It's dithered away, and anti-aliasing smooths that into a fade. A model drawn
+    /// with a fade of its own uses that instead. Null, the default, never fades. Glass fades its opacity.
+    /// </summary>
+    public DistanceFade? FadeDistance { get; init; }
+
+    /// <summary>
+    /// For glass, below full <see cref="Opacity"/>: how far behind it, in metres, the scene must be for it to show
+    /// fully, so water fades softly where it meets the shore instead of ending in a hard line. 0, the default, never
+    /// fades, as suits a window in its frame.
+    /// </summary>
+    public float SoftEdge { get; init; }
+
     /// <summary>Light that spreads under the surface, for skin, wax and marble. Off by default.</summary>
     public Subsurface Subsurface { get; init; }
 
