@@ -114,7 +114,6 @@ internal sealed class RagdollHeldPose
         var skeleton = body.Rig.Skeleton;
         Matrix4x4.Invert(skeleton.RootTransform * transform.Matrix, out var toSkeleton);
         Weights.AsSpan().Clear();
-        var size = Matrix4x4.CreateScale(scale);
         for (int i = 0; i < parts.Ids.Length; i++)
         {
             if (!parts.Dynamic[i])
@@ -123,7 +122,7 @@ internal sealed class RagdollHeldPose
             }
 
             int joint = body.PartTree.Joints[i];
-            var world = size * Matrix4x4.CreateFromQuaternion(parts.Rotations[i]) * Matrix4x4.CreateTranslation(parts.Positions[i]);
+            var world = Matrix4x4.CreateScale(scale * body.Fitting.JointScales[i]) * Matrix4x4.CreateFromQuaternion(parts.Rotations[i]) * Matrix4x4.CreateTranslation(parts.Positions[i]);
             _to[joint] = JointPose.FromMatrix(world * toSkeleton);
             Weights[joint] = 1f;
         }
