@@ -5,6 +5,8 @@ using Super.Testing;
 
 namespace Cannonball.Tests;
 
+// The stuntman is from Mixamo and isn't in the repository, so CI, which has no assets folder, leaves these out.
+[Trait("Needs", "Assets")]
 public sealed class CannonballTests
 {
     private const int TicksPerSecond = 30;

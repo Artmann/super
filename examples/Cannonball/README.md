@@ -23,7 +23,8 @@ simulated:
 
 The stuntman and the clips are from Mixamo and aren't in the repository. See
 [the shared assets](../../assets/README.md#cannonball) for what to download and where to
-save it.
+save it. The tests need them too, so they carry `[Trait("Needs", "Assets")]`, and CI, which
+doesn't have them, leaves them out.
 
 ## What it shows
 
