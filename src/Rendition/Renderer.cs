@@ -298,11 +298,18 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>OFF_DEBUG_VIEW in common.glsl: tonemapping and the finish pass pass colours through untouched.</summary>
     private const int DebugViewBit = 1 << 30;
 
+    /// <summary>
+    /// OFF_FADES in common.glsl, for <see cref="RenderEffects.Fades"/>, which is past the bits the shaders read. It
+    /// takes the bit of <see cref="RenderEffects.DepthFirst"/>, which only the CPU reads.
+    /// </summary>
+    private const int FadesOffBit = 1 << 29;
+
     /// <summary>The effects the shaders read through <c>frame.off</c>, an <c>int</c>. The renderer leaves out the rest itself.</summary>
     private const RenderEffects ShadedEffects = (RenderEffects)0xFFFF_FFFFL;
 
     // How far the frame's wind can move each material's vertices, which culling adds to the bounds.
     private WindReach _windReach;
+    private FadeRules _fadeRules;
     private bool _readsAntiAliased = true;
 
     // The upscaler asked for, the one it comes to once FSR's library is looked for, and whether FSR draws the
@@ -3657,19 +3664,9 @@ public sealed unsafe class Renderer : IDisposable
 
     private void ValidateMaterial(in Material material)
     {
-        if (material.Subsurface.Problem(material.Clearcoat, material.Flags) is { } problem)
+        if (material.Problem() is { } problem)
         {
             throw new ArgumentException($"The material's {problem}", nameof(material));
-        }
-
-        if ((material.Flags & MaterialFlags.Foliage) != 0 && Material.TranslucencyProblem(material.Translucency) is { } translucency)
-        {
-            throw new ArgumentException($"The material's {translucency}", nameof(material));
-        }
-
-        if (Material.WindProblem(material.Wind) is { } wind)
-        {
-            throw new ArgumentException($"The material's {wind}", nameof(material));
         }
 
         if (material.Shader is { } shader)
@@ -3873,6 +3870,7 @@ public sealed unsafe class Renderer : IDisposable
         // Metering is left out of the shaders unless the view asked for it, so the fixed exposure stays as it was.
         _off = Exposure.ShaderOff(view.Post, viewOff & RenderEffects.All);
         _windReach = new WindReach(Wind.Strength(view.Wind, _off), _resources.SwayOf);
+        _fadeRules = new FadeRules(view.CameraPosition, !_off.HasFlag(RenderEffects.Fades), _resources.FadeOf);
         if (!_volumetricFog.HasTargets && VolumetricFog.Pack(view.Fog, _off, false, Underwater(view)).X > 0f)
         {
             // The fog's volumes are made the first time it's drawn. Frames in flight bind the stand-in.
@@ -4136,7 +4134,8 @@ public sealed unsafe class Renderer : IDisposable
     private (int Camera, int Shadows) SelectDraws(
         in FrameView view, in Matrix4x4 viewProjection, ReadOnlySpan<DrawItem> draws, bool castsShadow)
     {
-        if (_cameraDraws.Length < draws.Length)
+        // A draw near swapping to a finer version is drawn twice, cross-fading, so every view has room for two of each.
+        if (_cameraDraws.Length < draws.Length * 2)
         {
             _cameraDraws = new DrawItem[draws.Length * 2];
             for (int i = 0; i < _shadowDraws.Length; i++)
@@ -4157,7 +4156,7 @@ public sealed unsafe class Renderer : IDisposable
                 _cameraChunks = new int[_cameraDraws.Length];
             }
 
-            cameraCount = DrawSelection.Select(camera, draws, _details, _cameraDraws, _windReach, _cameraSources);
+            cameraCount = DrawSelection.Select(camera, draws, _details, _cameraDraws, _windReach, _cameraSources, _fadeRules);
             for (int i = 0; i < cameraCount; i++)
             {
                 _cameraChunks[i] = _drawChunks[_cameraSources[i]];
@@ -4165,7 +4164,7 @@ public sealed unsafe class Renderer : IDisposable
         }
         else
         {
-            cameraCount = DrawSelection.Select(camera, draws, _details, _cameraDraws, _windReach);
+            cameraCount = DrawSelection.Select(camera, draws, _details, _cameraDraws, _windReach, fades: _fadeRules);
         }
 
         int shadowCount = 0;
@@ -4177,7 +4176,7 @@ public sealed unsafe class Renderer : IDisposable
                 float texelsPerUnit = _shadowPass.Resolution / (2f * ShadowPass.CascadeRadius(view.Shadows, cascade));
                 var shadow = new DetailView(
                     _shadowMatrices[cascade], view.CameraPosition, 0f, texelsPerUnit, DetailError(ShadowDetailError), cull: Culls);
-                _shadowCounts[cascade] = DrawSelection.Select(shadow, draws, _details, _shadowDraws[cascade], _windReach);
+                _shadowCounts[cascade] = DrawSelection.Select(shadow, draws, _details, _shadowDraws[cascade], _windReach, fades: _fadeRules);
                 shadowCount += _shadowCounts[cascade];
             }
         }
@@ -4246,15 +4245,15 @@ public sealed unsafe class Renderer : IDisposable
         int total = 0;
         for (int tile = 0; tile < tiles.Length; tile++)
         {
-            if (_tileDraws.Length < total + draws.Length)
+            if (_tileDraws.Length < total + draws.Length * 2)
             {
-                Array.Resize(ref _tileDraws, Math.Max(_tileDraws.Length * 2, total + draws.Length));
+                Array.Resize(ref _tileDraws, Math.Max(_tileDraws.Length * 2, total + draws.Length * 2));
             }
 
             ref readonly var view = ref tiles[tile];
             var shadow = new DetailView(
                 view.Matrix, view.Eye, view.PixelsAtOneUnit, 0f, DetailError(ShadowDetailError), far: true, cull: Culls);
-            int count = DrawSelection.Select(shadow, draws, _details, _tileDraws.AsSpan(total), _windReach);
+            int count = DrawSelection.Select(shadow, draws, _details, _tileDraws.AsSpan(total), _windReach, fades: _fadeRules);
             _tileRanges[tile] = (total, count);
             total += count;
         }
@@ -5190,7 +5189,9 @@ public sealed unsafe class Renderer : IDisposable
 
         // With no sun shadow there are no maps to look up, so nothing walks the cascades.
         uniforms->ShadowCascades = castsShadow ? _shadowCascades : 0;
-        uniforms->Off = unchecked((int)(_off & ShadedEffects)) | (_traceView && !capturingProbe ? DebugViewBit : 0);
+        uniforms->Off = unchecked((int)(_off & ShadedEffects & ~RenderEffects.DepthFirst))
+            | (_off.HasFlag(RenderEffects.Fades) ? FadesOffBit : 0)
+            | (_traceView && !capturingProbe ? DebugViewBit : 0);
         uniforms->MipBias = capturingProbe || _off.HasFlag(RenderEffects.AntiAliasing) ? 0f
             : _upscaling ? FsrMipBias(_gBuffer.Extent.Width, _gBuffer.Display.Width)
             : TemporalMipBias;

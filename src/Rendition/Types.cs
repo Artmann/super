@@ -255,6 +255,26 @@ public struct Material
     /// </summary>
     public float Wind;
 
+    /// <summary>
+    /// Fades every draw with this material out with distance from the camera, such as grass at 60 metres. A draw's
+    /// own <see cref="DrawItem.Fade"/> wins over it. Null, the default, never fades. Transparent glass fades its
+    /// opacity instead of dithering.
+    /// </summary>
+    public DistanceFade? Fade;
+
+    /// <summary>
+    /// For transparent glass, how far behind it, in metres, the scene must be for the glass to show fully, so water
+    /// and glass fade softly where they meet the ground instead of ending in a hard line. 0, the default, never fades,
+    /// which suits a window set into its frame.
+    /// </summary>
+    public float SoftEdge;
+
+    /// <summary>Says why a soft edge can't be used, or returns null when it can.</summary>
+    public static string? SoftEdgeProblem(float softEdge) =>
+        float.IsFinite(softEdge) && softEdge >= 0f
+            ? null
+            : $"soft edge {softEdge.ToString(System.Globalization.CultureInfo.InvariantCulture)} must be 0 or more.";
+
     /// <summary>Says why a foliage translucency can't be used, or returns null when it can.</summary>
     public static string? TranslucencyProblem(float translucency) =>
         translucency is >= 0f and <= 1f
@@ -266,6 +286,17 @@ public struct Material
         float.IsFinite(wind) && wind >= 0f
             ? null
             : $"wind sway {wind.ToString(System.Globalization.CultureInfo.InvariantCulture)} must be 0 or more.";
+
+    /// <summary>
+    /// Says what's wrong with the material's own values, such as a negative wind sway or a fade that ends before it
+    /// starts, or returns null when nothing is.
+    /// </summary>
+    public readonly string? Problem() =>
+        Subsurface.Problem(Clearcoat, Flags)
+        ?? ((Flags & MaterialFlags.Foliage) != 0 ? TranslucencyProblem(Translucency) : null)
+        ?? WindProblem(Wind)
+        ?? (Fade is { } fade ? DistanceFade.Problem(fade) : null)
+        ?? SoftEdgeProblem(SoftEdge);
 }
 
 /// <summary>Eight vectors a surface shader can read as shaderParameters[0] to [7].</summary>
@@ -310,6 +341,43 @@ public readonly record struct Ghost(Vector3 Color, float Opacity = 1f)
 {
     /// <summary>Whether the world shows through, which draws it with glass rather than solid things.</summary>
     public bool SeeThrough => Opacity < 1f;
+}
+
+/// <summary>
+/// Fades a draw out with distance from the camera, in metres: whole up to <see cref="Start"/>, gone from
+/// <see cref="End"/>, and dithered away in between, which anti-aliasing smooths into a fade. Grass that fades out at
+/// 60 metres is <c>new DistanceFade(50, 60)</c>. The distance is measured to the middle of the draw's bounds.
+/// </summary>
+public readonly record struct DistanceFade(float Start, float End)
+{
+    /// <summary>How much of the draw is kept at a distance, from 1, all of it, to 0, none.</summary>
+    public float Keep(float distance)
+    {
+        if (distance <= Start)
+        {
+            return 1f;
+        }
+
+        if (distance >= End)
+        {
+            return 0f;
+        }
+
+        return (End - distance) / (End - Start);
+    }
+
+    /// <summary>Says why a fade can't be used, or returns null when it can.</summary>
+    public static string? Problem(DistanceFade fade)
+    {
+        var start = fade.Start.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var end = fade.End.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (!float.IsFinite(fade.Start) || !float.IsFinite(fade.End) || fade.Start < 0f)
+        {
+            return $"fade distances {start} to {end} must be 0 or more.";
+        }
+
+        return fade.End < fade.Start ? $"fade distance end {end} must not be before its start {start}." : null;
+    }
 }
 
 public struct DrawItem
@@ -361,6 +429,18 @@ public struct DrawItem
     /// <see cref="Swim"/>. The renderer hashes it into each baked area's inputs. See "Bake ids" in docs/design.md.
     /// </summary>
     public ulong BakeId;
+
+    /// <summary>
+    /// Fades this draw out with distance from the camera, winning over its material's
+    /// <see cref="Material.Fade"/>. Null uses the material's. Needs <see cref="Detail"/> for the distance to be measured
+    /// to the middle of the draw; without it the distance is to the draw's origin.
+    /// </summary>
+    public DistanceFade? Fade;
+
+    // How much of this copy the frame draws, set by DrawSelection: 0 draws it whole, a share above 0 keeps that share
+    // of its pixels, and one below 0 keeps the other end of the noise, so a level fading in fills the pixels the one
+    // fading out leaves. See "Fades" in docs/design.md.
+    internal float Dither;
 }
 
 /// <summary>A run of a frame's bone matrices. A count of zero means no skinning.</summary>
@@ -1229,10 +1309,18 @@ public enum RenderEffects : long
     /// </summary>
     Underwater = 1L << 35,
 
+    /// <summary>
+    /// Fading things out with distance, from <see cref="Material.Fade"/> and <see cref="DrawItem.Fade"/>, cross-fading
+    /// between a model and its simpler versions, and glass fading where it meets the scene, from
+    /// <see cref="Material.SoftEdge"/>. Without it a distance fade is a hard cut halfway through, a simpler version
+    /// swaps in at once and glass ends in a hard line.
+    /// </summary>
+    Fades = 1L << 36,
+
     All = SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
         | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind
         | BakedLighting | HeightMaps | Specular | EnvironmentLight | Emissive | Vignette | Grain | Sharpening | ColorGrading
-        | Culling | SimplerModels | DepthFirst | Subsurface | Particles | LocalLights | Haze | Underwater,
+        | Culling | SimplerModels | DepthFirst | Subsurface | Particles | LocalLights | Haze | Underwater | Fades,
 }
 
 /// <summary>

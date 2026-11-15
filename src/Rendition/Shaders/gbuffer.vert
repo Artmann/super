@@ -46,6 +46,8 @@ layout(location = 7) out vec2 outLightmapUv;
 layout(location = 8) flat out ivec4 outLightmap;
 // Where the vertex is in its chunk's own space, for its relighting in writeBaked.
 layout(location = 9) out vec3 outChunkPosition;
+// How much of the copy is drawn; see instanceFade in instances.glsl.
+layout(location = 10) flat out float outFade;
 
 // Where the vertex stood in the world last frame: placed by last frame's matrix, skin, swim and wind. A copy with no
 // last frame stands where it is now, so it moves with the camera alone.
@@ -73,6 +75,7 @@ void main() {
     outTangent = vec4(model * inTangent.xyz, inTangent.w);
     outUv = inUv;
     outUv2 = inUv2;
+    outFade = instanceFade();
     LightmapRect lightmap = lightmapRect();
     outLightmapUv = inUv2 * lightmap.scaleOffset.xy + lightmap.scaleOffset.zw;
     int chunk = lightmap.chunk.x;

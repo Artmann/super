@@ -45,7 +45,7 @@ public class GpuMaterialTests
     [InlineData(nameof(ResourceTable.GpuMaterial.Ior), 252)]
     [InlineData(nameof(ResourceTable.GpuMaterial.Subsurface), 256)]
     [InlineData(nameof(ResourceTable.GpuMaterial.MaskTexture), 272)]
-    [InlineData(nameof(ResourceTable.GpuMaterial.MaskPadding), 276)]
+    [InlineData(nameof(ResourceTable.GpuMaterial.SoftEdge), 276)]
     [InlineData(nameof(ResourceTable.GpuMaterial.WearRoughness), 280)]
     [InlineData(nameof(ResourceTable.GpuMaterial.DirtRoughness), 284)]
     [InlineData(nameof(ResourceTable.GpuMaterial.Wear), 288)]

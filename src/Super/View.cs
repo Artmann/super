@@ -25,7 +25,8 @@ public readonly record struct ModelDraw(
     float PoseAhead = 0f,
     Ghost? Ghost = null,
     MeshMask? Meshes = null,
-    bool Static = false);
+    bool Static = false,
+    DistanceFade? Fade = null);
 
 /// <summary>
 /// A light as far away as the sun, shining the same way everywhere. One sun casts the
@@ -322,8 +323,8 @@ public sealed class View
     /// of a model can have its own. The cube is white under a color. A static draw never moves,
     /// so baked lighting can hold it; see "Static draws" in docs/views.md.
     /// </summary>
-    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color = null, bool isStatic = false) =>
-        Model(key, model, transform, color, default, null, null, isStatic);
+    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color = null, bool isStatic = false, DistanceFade? fade = null) =>
+        Model(key, model, transform, color, default, null, null, isStatic, fade);
 
     /// <summary>Draws some meshes of a model, or all of them when the mask is null, perhaps static.</summary>
     public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, MeshMask? meshes, bool isStatic = false) =>
@@ -394,23 +395,21 @@ public sealed class View
 
     /// <summary>
     /// The full draw: a color, a swimming motion, a pose and the meshes to show, any of which
-    /// may be left out. Throws if the mask was made for another model, or if a static draw
-    /// swims or has a pose, since a bake holds it where it stands.
+    /// may be left out, and a <paramref name="fade"/> that fades it out with distance, winning over its surfaces'
+    /// <see cref="Surface.FadeDistance"/>. Throws if the mask was made for another model, if a static draw
+    /// swims or has a pose, since a bake holds it where it stands, or for a fade that ends before it starts.
     /// </summary>
-    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim, AnimationPose? pose, MeshMask? meshes, bool isStatic = false)
+    public void Model(int key, ModelRef model, Matrix4x4 transform, Vector3? color, SwimMotion swim, AnimationPose? pose, MeshMask? meshes, bool isStatic = false,
+        DistanceFade? fade = null)
     {
-        if (isStatic && swim.Amplitude != 0f)
+        if (fade is { } fading && DistanceFade.Problem(fading) is { } problem)
         {
-            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture,
-                $"Model {key} is static, so it can't swim, but its swim has amplitude {swim.Amplitude}. Draw it without isStatic, or without the swim."),
-                nameof(swim));
+            throw new ArgumentException($"Model {key}'s {problem}", nameof(fade));
         }
 
-        if (isStatic && pose is not null)
+        if (isStatic)
         {
-            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture,
-                $"Model {key} is static, so it can't move in a pose. Draw it without isStatic, or without the pose."),
-                nameof(pose));
+            CheckStatic(key, swim, pose);
         }
 
         if (model.Index < -Shapes.BuiltInNames.Length)
@@ -428,7 +427,25 @@ public sealed class View
             throw new ArgumentException($"The mesh mask was made for model {mask.Model}, not model {model.Index}. Make it with Content.Meshes for this model.", nameof(meshes));
         }
 
-        _models.Add(new ModelDraw(key, model, transform, color, swim, pose, pose is null ? 0f : Blend * _tickSeconds * _timeScale, null, meshes, isStatic));
+        _models.Add(new ModelDraw(key, model, transform, color, swim, pose, pose is null ? 0f : Blend * _tickSeconds * _timeScale, null, meshes, isStatic, fade));
+    }
+
+    // A bake holds a static draw where it stands, so it can't swim or take a pose.
+    private static void CheckStatic(int key, SwimMotion swim, AnimationPose? pose)
+    {
+        if (swim.Amplitude != 0f)
+        {
+            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture,
+                $"Model {key} is static, so it can't swim, but its swim has amplitude {swim.Amplitude}. Draw it without isStatic, or without the swim."),
+                nameof(swim));
+        }
+
+        if (pose is not null)
+        {
+            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture,
+                $"Model {key} is static, so it can't move in a pose. Draw it without isStatic, or without the pose."),
+                nameof(pose));
+        }
     }
 
     /// <summary>

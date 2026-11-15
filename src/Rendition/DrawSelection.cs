@@ -100,33 +100,70 @@ internal readonly struct WindReach(float strength, Func<MaterialHandle, float>? 
     }
 }
 
+/// <summary>
+/// How draws fade in a frame: by distance from <paramref name="from"/>, the camera, in every view, so a shadow fades
+/// with what casts it, with <paramref name="fadeOf"/> giving each material's fade. With <paramref name="smooth"/> off,
+/// for <see cref="RenderEffects.Fades"/> off, a fade is a hard cut halfway through it and simpler versions swap at once.
+/// </summary>
+internal readonly struct FadeRules(Vector3 from, bool smooth, Func<MaterialHandle, DistanceFade?>? fadeOf = null)
+{
+    public Vector3 From { get; } = from;
+
+    public bool Smooth { get; } = smooth;
+
+    /// <summary>How much of a draw the fade keeps, from 0 to 1, given where its middle is.</summary>
+    public float Keep(in DrawItem draw, Vector3 center)
+    {
+        var fade = draw.Fade ?? fadeOf?.Invoke(draw.Material);
+        if (fade is not { } distances)
+        {
+            return 1f;
+        }
+
+        float distance = Vector3.Distance(From, center);
+        if (!Smooth)
+        {
+            return distance < (distances.Start + distances.End) * 0.5f ? 1f : 0f;
+        }
+
+        return distances.Keep(distance);
+    }
+}
+
 /// <summary>Picks what a view needs from a list of draws, keeping their order.</summary>
 internal static class DrawSelection
 {
     private const float NearestDistance = 0.1f;
 
     /// <summary>
+    /// How close to swapping to a finer version, as a share of the error a view allows, a draw starts to dither into
+    /// it, drawing both versions with complementary noise so the swap never pops.
+    /// </summary>
+    public const float CrossFade = 0.25f;
+
+    /// <summary>
     /// Writes the draws to keep into <paramref name="selected"/> and returns how many there are. A draw that sways in
     /// <paramref name="wind"/> is kept while its sway could still bring it into view. When <paramref name="sources"/> is
-    /// given, each kept draw's index in <paramref name="draws"/> is written into it at the same place.
+    /// given, each kept draw's index in <paramref name="draws"/> is written into it at the same place. With
+    /// <paramref name="fades"/>, draws fade out with distance, and a draw near swapping to a finer version is written
+    /// twice, once for each version, so <paramref name="selected"/> needs room for twice as many draws.
     /// </summary>
     public static int Select(
         in DetailView view, ReadOnlySpan<DrawItem> draws, List<PartDetail> details, Span<DrawItem> selected, WindReach wind = default,
-        Span<int> sources = default)
+        Span<int> sources = default, FadeRules? fades = null)
     {
-        bool keepSources = !sources.IsEmpty;
-        int count = 0;
+        var writer = new SelectionWriter(selected, sources);
         for (int index = 0; index < draws.Length; index++)
         {
             ref readonly var draw = ref draws[index];
             if (draw.Detail.Index == 0)
             {
-                if (keepSources)
+                float whole = fades?.Keep(draw, draw.Transform.Translation) ?? 1f;
+                if (whole > 0f)
                 {
-                    sources[count] = index;
+                    writer.Add(index, draw, Dither(whole), null);
                 }
 
-                selected[count++] = draw;
                 continue;
             }
 
@@ -141,29 +178,101 @@ internal static class DrawSelection
                 continue;
             }
 
-            if (keepSources)
+            float keep = fades?.Keep(draw, center) ?? 1f;
+            if (keep <= 0f)
             {
-                sources[count] = index;
+                continue;
             }
 
-            ref var item = ref selected[count++];
-            item = draw;
             float distance = MathF.Max(Vector3.Distance(view.Eye, center) - radius, NearestDistance);
             float pixels = scale * (view.PixelsPerUnit + view.PixelsAtOneUnit / distance);
-            var levels = detail.Levels;
-            for (int i = levels.Length - 1; i >= 0; i--)
-            {
-                if (levels[i].Error * pixels <= view.MaxError)
-                {
-                    item.FirstIndex = levels[i].FirstIndex;
-                    item.IndexCount = levels[i].IndexCount;
-                    break;
-                }
-            }
+            WriteLevels(ref writer, new LevelChoice(detail.Levels, pixels, view.MaxError, fades is { Smooth: true }), index, draw, keep);
         }
 
-        return count;
+        return writer.Count;
     }
+
+    /// <summary>
+    /// Writes the version of a draw its size on screen calls for. Near the error a view allows, the chosen version is
+    /// about to give way to the next finer one, or the full mesh, so both are written: the coarse one keeps a share of
+    /// the pixels that shrinks to nothing as the swap comes, and the fine one keeps the rest.
+    /// </summary>
+    private static void WriteLevels(ref SelectionWriter writer, in LevelChoice choice, int index, in DrawItem draw, float keep)
+    {
+        int chosen = choice.Chosen();
+        DetailLevel? coarseLevel = chosen >= 0 ? choice.Levels[chosen] : null;
+        float coarse = coarseLevel is { } level ? choice.CoarseShare(level) : 1f;
+        if (coarse < 1f)
+        {
+            DetailLevel? fineLevel = chosen > 0 ? choice.Levels[chosen - 1] : null;
+            writer.Add(index, draw, coarse <= 0f ? Dither(keep) : -(1f - coarse) * keep, fineLevel);
+        }
+
+        if (coarse > 0f)
+        {
+            writer.Add(index, draw, coarse < 1f ? coarse * keep : Dither(keep), coarseLevel);
+        }
+    }
+
+    /// <summary>A draw's simpler versions, with how many pixels a unit of their error covers and how many a view allows.</summary>
+    private readonly record struct LevelChoice(DetailLevel[] Levels, float Pixels, float MaxError, bool Smooth)
+    {
+        /// <summary>The coarsest version within the error allowed, or -1 for the full mesh.</summary>
+        public int Chosen()
+        {
+            for (int i = Levels.Length - 1; i >= 0; i--)
+            {
+                if (Levels[i].Error * Pixels <= MaxError)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        /// <summary>The share of pixels the chosen version keeps in a cross-fade, 1 or more when it's drawn alone.</summary>
+        public float CoarseShare(DetailLevel level)
+        {
+            if (!Smooth)
+            {
+                return 1f;
+            }
+
+            float closeness = level.Error * Pixels / MaxError;
+            return MathF.Min((1f - closeness) / CrossFade, 1f);
+        }
+    }
+
+    /// <summary>Writes kept draws, and where each came from when the caller asked.</summary>
+    private ref struct SelectionWriter(Span<DrawItem> selected, Span<int> sources)
+    {
+        private readonly Span<DrawItem> _selected = selected;
+        private readonly Span<int> _sources = sources;
+
+        public int Count { get; private set; }
+
+        /// <summary>Writes one copy of the draw from <paramref name="index"/>, with <paramref name="level"/>'s indices when it has one.</summary>
+        public void Add(int index, in DrawItem draw, float dither, DetailLevel? level)
+        {
+            if (!_sources.IsEmpty)
+            {
+                _sources[Count] = index;
+            }
+
+            ref var item = ref _selected[Count++];
+            item = draw;
+            item.Dither = dither;
+            if (level is { } at)
+            {
+                item.FirstIndex = at.FirstIndex;
+                item.IndexCount = at.IndexCount;
+            }
+        }
+    }
+
+    // A draw kept whole is drawn as usual, with no noise.
+    private static float Dither(float keep) => keep >= 1f ? 0f : keep;
 
     /// <summary>
     /// Writes the world-space ball, x, y and z with the radius in w, round each draw that has
