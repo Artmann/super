@@ -48,9 +48,11 @@ public sealed class ModelCooker : ICooker
     // alpha, the colour keeps the coverage of their product and the surface is left whole. 18: BC7 compression keeps a
     // cut-out's coverage too. 19: compression keeps the product's coverage on the colour, and leaves such a surface
     // whole. 20: every model has a second UV set fit for a lightmap, its own when it's usable and an unwrapped one when
-    // it isn't. 21: a rig's vertices are in its rest pose. 22: skeletons keep the bounds of what each joint moves. The
+    // it isn't. 21: a rig's vertices are in its rest pose. 22: skeletons keep the bounds of what each joint moves.
+    // 23: materials take an occlusion texture, the glTF file's or a rule's, on either UV set. 24: a rule's toon and
+    // outline. The
     // graphs' own version is folded in, so a change to Super.Materials cooks every model again, since one may use a graph.
-    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 22);
+    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 24);
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -177,6 +179,7 @@ public sealed class ModelCooker : ICooker
         }
 
         var textures = new ModelTextures(input, output, prefix);
+        var context = new MaterialContext(settings, textures, graphs, output, prefix, isGltf);
         var vertices = new List<Vertex>();
         var indices = new List<uint>();
         var parts = new List<ModelPart>();
@@ -184,6 +187,8 @@ public sealed class ModelCooker : ICooker
         var materials = new List<ModelMaterial>();
         var materialNames = new List<string>();
         var shaders = new List<ModelMaterialShader?>();
+        var occlusions = new List<WantedOcclusion?>();
+        var toons = new List<ModelMaterialToon?>();
 
         // The width in metres of each material's graph, or 0 for a material without one.
         var graphWidths = new List<float>();
@@ -281,8 +286,9 @@ public sealed class ModelCooker : ICooker
             graphs.RunAhead(GraphsWanted(assimp, scene, settings));
             for (uint i = 0; i < scene->MNumMaterials; i++)
             {
-                var context = new MaterialContext(settings, textures, graphs, output, prefix, isGltf);
                 var material = ImportMaterial(assimp, scene->MMaterials[i], context, out string materialName, out float graphWidth);
+                occlusions.Add(OcclusionWanted(assimp, scene->MMaterials[i], materialName, context));
+                toons.Add(ImportToon(materialName, context));
                 textures.WidenRoughness(material.SurfaceTexture, material.NormalTexture);
                 materials.Add(material);
                 materialNames.Add(materialName);
@@ -432,7 +438,8 @@ public sealed class ModelCooker : ICooker
             return null;
         }
 
-        vertexArray = lightmapped;
+        vertexArray = lightmapped.Vertices;
+        int[] occlusion = AddOcclusion(context, materials, materialNames, occlusions, lightmapped.Made);
 
         // It times its own phases: taking masks from the step cache, baking the rest, and keeping them.
         var masks = BakeMasks(input, settings, output, prefix, vertexArray, indices, parts, materialNames, textures);
@@ -451,6 +458,8 @@ public sealed class ModelCooker : ICooker
             Materials = materials.ToArray(),
             MaterialShaders = shaders.Any(shader => shader is not null) ? shaders.ToArray() : [],
             MaterialMasks = masks.Any(mask => mask is not null) ? masks : [],
+            MaterialOcclusion = occlusion,
+            MaterialToon = toons.Any(toon => toon is not null) ? toons.ToArray() : [],
             Textures = textures.ToArray(),
             Skeleton = skeleton,
             Clips = clips.ToArray(),
@@ -477,8 +486,9 @@ public sealed class ModelCooker : ICooker
         if (settings.CompressTextures)
         {
             // It times its own phases: taking textures from the step cache, compressing the rest, and keeping them.
-            TextureCompression.Compress(model.Textures, model.Materials, masks.OfType<ModelMaterialMasks>().Select(mask => mask.Texture), input,
-                message => output.Warning(prefix + message));
+            var extra = masks.OfType<ModelMaterialMasks>().Select(mask => (mask.Texture, TextureFormat.Bc7))
+                .Concat(occlusion.Where(texture => texture >= 0).Select(texture => (texture, TextureFormat.Bc4)));
+            TextureCompression.Compress(model.Textures, model.Materials, extra, input, message => output.Warning(prefix + message));
         }
 
         using (input.Time("write model"))
@@ -503,9 +513,10 @@ public sealed class ModelCooker : ICooker
     /// unwrapped: at <see cref="LightmapUnwrap.ReferenceSize"/>, then twice and four times that when its charts don't
     /// fit. A note says which materials got new ones, when they were unwrapped rather than recalled. Unwrapping splits
     /// vertices where charts meet, so this returns the vertices to use and rewrites <paramref name="indices"/> in place,
-    /// keeping every part's triangles in their order. Null when a material can't be unwrapped, which was reported.
+    /// keeping every part's triangles in their order. It also returns the materials whose set it made, unwrapped or
+    /// recalled. Null when a material can't be unwrapped, which was reported.
     /// </summary>
-    private static Vertex[]? LightmapUv(
+    private static (Vertex[] Vertices, HashSet<int> Made)? LightmapUv(
         CookInput input, CookOutput output, string prefix, Vertex[] vertices, List<uint> indices, List<ModelPart> parts,
         List<string> materialNames, Dictionary<int, (int With, int Without)> uv2Meshes)
     {
@@ -600,7 +611,7 @@ public sealed class ModelCooker : ICooker
         Note(output, prefix, notes, groups.Count, materialNames);
         if (made.Count == 0)
         {
-            return vertices;
+            return (vertices, []);
         }
 
         // The materials kept hold on to their vertices, in their order, and the new ones follow, material by material.
@@ -646,7 +657,7 @@ public sealed class ModelCooker : ICooker
             }
         }
 
-        return result.ToArray();
+        return (result.ToArray(), made.Keys.ToHashSet());
     }
 
     /// <summary>One material's parts on their own: the vertices they use, in the model's order, and their indices into those, part after part.</summary>
@@ -1200,6 +1211,115 @@ public sealed class ModelCooker : ICooker
     private sealed record MaterialContext(
         ImportSettings Settings, ModelTextures Textures, GraphRuns Graphs, CookOutput Output, string Prefix, bool IsGltf);
 
+    /// <summary>
+    /// A material's occlusion texture before it's cooked: its file, whether the second UV set reads it, and the
+    /// material when a rule named it, so a missing file stops the cook rather than warns.
+    /// </summary>
+    private sealed record WantedOcclusion(string File, bool OnUv2, string? NamedBy);
+
+    /// <summary>
+    /// The material rule's <c>toon</c>, with its ramp cooked as linear data, or null for none. Steps out of range, or a
+    /// rim that isn't three numbers of 0 or more, stop the cook.
+    /// </summary>
+    private static ModelMaterialToon? ImportToon(string materialName, MaterialContext context)
+    {
+        if (RuleFor(context.Settings, materialName)?.Toon is not { } rule)
+        {
+            return null;
+        }
+
+        void Error(string message) => context.Output.Error($"{context.Prefix}material {materialName}: {message}");
+        if (rule.Rim is { } rim && rim.Length != 3)
+        {
+            Error($"toon rim must be three numbers, red, green and blue, not {rim.Length}.");
+            return null;
+        }
+
+        var shading = new ToonShading { Steps = rule.Steps, Rim = rule.Rim is { } r ? new Vector3(r[0], r[1], r[2]) : Vector3.Zero };
+        if (shading.Problem() is { } problem)
+        {
+            Error(problem);
+            return null;
+        }
+
+        int ramp = context.Textures.Add(rule.Ramp, TextureKind.Linear, namedBy: materialName);
+        return new ModelMaterialToon(shading.Steps, ramp, shading.Rim);
+    }
+
+    /// <summary>
+    /// The occlusion texture a material wants: the rule's own, or else the one a glTF file links, which Assimp files as
+    /// its lightmap, unless the rule says <c>noOcclusionMap</c>. Null for none, or when the rule's UV set is wrong or
+    /// the file's is past the two the cook keeps, which was reported.
+    /// </summary>
+    private static unsafe WantedOcclusion? OcclusionWanted(
+        Assimp assimp, Silk.NET.Assimp.Material* source, string materialName, MaterialContext context)
+    {
+        var rule = RuleFor(context.Settings, materialName) ?? new MaterialRule();
+        string problemPrefix = $"{context.Prefix}material {materialName}: ";
+        if (rule.OcclusionUv is { } asked && asked is not (0 or 1))
+        {
+            context.Output.Error($"{problemPrefix}occlusionUv must be 0 or 1, not {asked}.");
+            return null;
+        }
+
+        uint linkedUv = 0;
+        string? linked = context.IsGltf && !rule.NoOcclusionMap ? GetTexture(assimp, source, TextureType.Lightmap, out linkedUv) : null;
+        if ((rule.Occlusion ?? linked) is not { } file)
+        {
+            return null;
+        }
+
+        uint uv = rule.OcclusionUv is { } set ? (uint)set : rule.Occlusion is null ? linkedUv : 0u;
+        if (uv > 1)
+        {
+            context.Output.Warning(
+                $"{problemPrefix}its occlusion texture is on TEXCOORD_{uv}, and the cook keeps only the first two UV sets, so it's left out.");
+            return null;
+        }
+
+        return new WantedOcclusion(file, uv == 1, rule.Occlusion is null ? null : materialName);
+    }
+
+    /// <summary>
+    /// Cooks each material's occlusion texture once the second UV set is settled, and returns each one's index, -1 for
+    /// none, or nothing when no material has one, as <see cref="ModelData.MaterialOcclusion"/> wants. A texture on that
+    /// set was painted for the file's own layout, so where the cook <paramref name="made"/> a new set for lighting it
+    /// would land in the wrong places, and it's left out with a warning.
+    /// </summary>
+    private static int[] AddOcclusion(
+        MaterialContext context, List<ModelMaterial> materials, List<string> materialNames, List<WantedOcclusion?> wanted,
+        HashSet<int> made)
+    {
+        var cooked = new int[materials.Count];
+        Array.Fill(cooked, -1);
+        for (int i = 0; i < materials.Count; i++)
+        {
+            if (wanted[i] is not { } occlusion)
+            {
+                continue;
+            }
+
+            if (occlusion.OnUv2 && made.Contains(i))
+            {
+                context.Output.Warning(
+                    $"{context.Prefix}material {materialNames[i]}: its occlusion texture is on the second UV set, which the cook made again for lighting, so it's left out. Give the model a second UV set that fits a lightmap, or put the occlusion on the first.");
+                continue;
+            }
+
+            int texture = context.Textures.Add(occlusion.File, TextureKind.Linear, namedBy: occlusion.NamedBy);
+            if (texture >= 0 && occlusion.OnUv2)
+            {
+                var material = materials[i];
+                material.Flags |= MaterialFlags.OcclusionOnUv2;
+                materials[i] = material;
+            }
+
+            cooked[i] = texture;
+        }
+
+        return cooked.Any(texture => texture >= 0) ? cooked : [];
+    }
+
     /// <summary>One graph's images, packed into the pixels of its textures.</summary>
     private sealed record GraphRun(string Key, int Size, float Width, float HeightDepth, MaterialPixels Pixels);
 
@@ -1606,6 +1726,7 @@ public sealed class ModelCooker : ICooker
             | (rule.WorldVariation ? MaterialFlags.WorldVariation : 0)
             | (rule.Dithered ? MaterialFlags.Dithered : 0)
             | (rule.Puddles ? MaterialFlags.Puddles : 0)
+            | (rule.Outline ? MaterialFlags.Outline : 0)
             | (rule.NoDecals ? MaterialFlags.NoDecals : 0);
         var emissive = rule.EmissiveColor is { Length: 3 } e
             ? new Vector3(e[0], e[1], e[2])
@@ -1770,10 +1891,16 @@ public sealed class ModelCooker : ICooker
         }
     }
 
-    private static unsafe string? GetTexture(Assimp assimp, Silk.NET.Assimp.Material* material, TextureType type)
+    private static unsafe string? GetTexture(Assimp assimp, Silk.NET.Assimp.Material* material, TextureType type) =>
+        GetTexture(assimp, material, type, out _);
+
+    /// <summary>The texture's file name, or null for none, and in <paramref name="uv"/> the UV set it's read through.</summary>
+    private static unsafe string? GetTexture(Assimp assimp, Silk.NET.Assimp.Material* material, TextureType type, out uint uv)
     {
         AssimpString path;
-        var result = assimp.GetMaterialTexture(material, type, 0, &path, null, null, null, null, null, null);
+        uint set = 0;
+        var result = assimp.GetMaterialTexture(material, type, 0, &path, null, &set, null, null, null, null);
+        uv = set;
         return result == Return.Success ? Path.GetFileName(path.AsString.Replace('\\', '/')) : null;
     }
 }

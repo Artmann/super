@@ -187,6 +187,12 @@ internal struct FrameUniforms
     /// <summary>rgb: the reflection cube's average at its roughest level, what every reflection sees with Graphics.EnvironmentLight off.</summary>
     public Vector4 FlatReflection;
 
+    /// <summary>rgb: the outlines' colour; w: their thickness in scene pixels, 0 for none.</summary>
+    public Vector4 Outline;
+
+    /// <summary>x, y: the distances in metres over which outlines fade out.</summary>
+    public Vector4 OutlineFade;
+
     public int LightCount;
     public float Time;
     public int FrameNumber;

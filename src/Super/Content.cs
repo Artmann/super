@@ -413,7 +413,8 @@ public sealed class Content
     /// are the same mesh. Drawing a mesh made without it static throws on the next render.
     /// </summary>
     /// <exception cref="InvalidOperationException">
-    /// <paramref name="isStatic"/> is set and the mesh's charts don't fit even <see cref="LightmapUnwrap.LargestSize"/>.
+    /// <paramref name="isStatic"/> is set and the mesh's charts don't fit even <see cref="LightmapUnwrap.LargestSize"/>,
+    /// or its <see cref="Vertex.Uv2"/> doesn't fit a lightmap but its surface reads the occlusion texture through it.
     /// </exception>
     public ModelRef Mesh(GeneratedMesh mesh, bool isStatic = false)
     {
@@ -446,6 +447,16 @@ public sealed class Content
         RequireTexture(surface.HeightTexture, nameof(surface.HeightTexture));
         RequireTexture(surface.DetailColorTexture, nameof(surface.DetailColorTexture));
         RequireTexture(surface.DetailNormalTexture, nameof(surface.DetailNormalTexture));
+        RequireTexture(surface.OcclusionTexture, nameof(surface.OcclusionTexture));
+        if (surface.Toon is { } toon)
+        {
+            RequireTexture(toon.Ramp, "Toon.Ramp");
+            if (new ToonShading { Steps = toon.Steps, Rim = toon.Rim }.Problem() is { } problem)
+            {
+                throw new ArgumentException($"The surface's {problem}", nameof(surface));
+            }
+        }
+
         if (surface.Shader is { } shader)
         {
             Require<ShaderItem>(shader.Index, nameof(surface.Shader), "shader");
@@ -652,21 +663,12 @@ public sealed class Content
 
     private static bool Names(Surface surface, TextureRef texture)
     {
-        if (surface.ColorTexture == texture || surface.NormalTexture == texture || surface.SurfaceTexture == texture
-            || surface.HeightTexture == texture || surface.DetailColorTexture == texture || surface.DetailNormalTexture == texture)
-        {
-            return true;
-        }
-
-        foreach (var named in surface.ShaderTextures)
-        {
-            if (named == texture)
-            {
-                return true;
-            }
-        }
-
-        return false;
+        TextureRef?[] own =
+        [
+            surface.ColorTexture, surface.NormalTexture, surface.SurfaceTexture, surface.HeightTexture,
+            surface.DetailColorTexture, surface.DetailNormalTexture, surface.OcclusionTexture, surface.Toon?.Ramp,
+        ];
+        return own.Contains(texture) || surface.ShaderTextures.Contains(texture);
     }
 
     /// <summary>Whether an item was let go. Cheap, so drawing can ask every frame.</summary>

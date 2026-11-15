@@ -24,8 +24,8 @@ public sealed class TextureCompressionTests
         TextureData[] first = [texture];
         TextureData[] second = [texture];
 
-        TextureCompression.Compress(first, [], masks: [0]);
-        TextureCompression.Compress(second, [], masks: [0]);
+        TextureCompression.Compress(first, [], extra: [(0, TextureFormat.Bc7)]);
+        TextureCompression.Compress(second, [], extra: [(0, TextureFormat.Bc7)]);
 
         Assert.Equal(TextureFormat.Bc7, first[0].Format);
         Assert.Same(first[0], second[0]);
@@ -90,13 +90,13 @@ public sealed class TextureCompressionTests
         // In watch mode the process lives on, so a failure must not stay in the memo.
         var texture = Texture(level0: new byte[3]);
         // Three bytes can't hold a 4 by 4 level, so the encoder refuses them.
-        var failure = Assert.Throws<AggregateException>(() => TextureCompression.Compress([texture], [], masks: [0]));
+        var failure = Assert.Throws<AggregateException>(() => TextureCompression.Compress([texture], [], extra: [(0, TextureFormat.Bc7)]));
         var refused = Assert.IsType<ArgumentException>(Assert.Single(failure.InnerExceptions));
         Assert.StartsWith("A 4x4 RGBA8 image is 64 bytes, not 3.", refused.Message);
 
         texture.Mips[0] = Texture().Mips[0];
         TextureData[] textures = [texture];
-        TextureCompression.Compress(textures, [], masks: [0]);
+        TextureCompression.Compress(textures, [], extra: [(0, TextureFormat.Bc7)]);
 
         Assert.Equal(TextureFormat.Bc7, textures[0].Format);
     }

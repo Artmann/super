@@ -31,6 +31,11 @@ struct Material {
     float dirtRoughness;
     vec4 wear; // rgb is the colour, a the amount: 0 for none.
     vec4 dirt;
+    uint occlusionTexture; // Red is the soft light that reaches the surface; read by the uv MATERIAL_OCCLUSION_UV2 picks.
+    float toonSteps;       // How many bands a toon material's light falls into; 0 reads toonRamp instead.
+    uint toonRamp;         // Dark to lit from left to right, read across its middle row.
+    float toonPadding;     // Unused, so toonRim lands on a 16-byte boundary.
+    vec4 toonRim;          // rgb: light along the shape's outline, for toon materials.
 };
 
 const uint MATERIAL_TWO_SIDED = 1u;
@@ -40,6 +45,10 @@ const uint MATERIAL_DETAIL_MASK = 8u;
 const uint MATERIAL_WORLD_VARIATION = 16u;
 const uint MATERIAL_DITHERED = 32u;
 const uint MATERIAL_PUDDLES = 64u;
+const uint MATERIAL_OCCLUSION_UV2 = 128u;
+const uint MATERIAL_OUTLINE = 256u;
+// Set from Material.Toon, not from MaterialFlags: ResourceTable.ToonFlag.
+const uint MATERIAL_TOON = 65536u;
 
 // A G-buffer emissive alpha at or above this marks a subsurface pixel, holding the
 // material's index plus this. Clearcoat stays within 0 to 1 and foliage is negative.

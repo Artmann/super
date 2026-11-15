@@ -461,7 +461,7 @@
       "kind": "high-complexity",
       "name": "Super.Cook.Models.ModelCooker.CookOne",
       "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 50
+      "metric": 51
     },
     {
       "kind": "high-complexity",
@@ -479,7 +479,7 @@
       "kind": "high-complexity",
       "name": "Super.Cook.Models.ModelCooker.ImportMaterial",
       "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 38
+      "metric": 39
     },
     {
       "kind": "high-complexity",
@@ -1085,13 +1085,13 @@
       "kind": "high-cognitive-complexity",
       "name": "Super.Cook.Models.ModelCooker.CookOne",
       "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 94
+      "metric": 95
     },
     {
       "kind": "high-cognitive-complexity",
       "name": "Super.Cook.Models.ModelCooker.ImportMaterial",
       "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 51
+      "metric": 52
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1313,7 +1313,7 @@
       "kind": "long-method",
       "name": "BricksExample.Masonry.Make",
       "file": "examples/Bricks/Masonry.cs",
-      "metric": 43
+      "metric": 51
     },
     {
       "kind": "long-method",
@@ -1703,13 +1703,13 @@
       "kind": "long-method",
       "name": "Rendition.ModelData.Read/3",
       "file": "src/Rendition/ModelData.cs",
-      "metric": 65
+      "metric": 68
     },
     {
       "kind": "long-method",
       "name": "Rendition.ModelData.WriteTo",
       "file": "src/Rendition/ModelData.cs",
-      "metric": 82
+      "metric": 84
     },
     {
       "kind": "long-method",
@@ -1967,7 +1967,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 173
+      "metric": 174
     },
     {
       "kind": "long-method",
@@ -2099,7 +2099,7 @@
       "kind": "long-method",
       "name": "Rendition.Vulkan.ResourceTable.WriteMaterial",
       "file": "src/Rendition/Vulkan/ResourceTable.cs",
-      "metric": 62
+      "metric": 65
     },
     {
       "kind": "long-method",
@@ -2189,7 +2189,7 @@
       "kind": "long-method",
       "name": "Super.BakeIdentity.AddMesh",
       "file": "src/Super/Rendering/BakeIdentity.cs",
-      "metric": 75
+      "metric": 77
     },
     {
       "kind": "long-method",
@@ -2387,7 +2387,7 @@
       "kind": "long-method",
       "name": "Super.Cook.Models.ModelCooker.CookOne",
       "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 320
+      "metric": 328
     },
     {
       "kind": "long-method",
@@ -2399,7 +2399,7 @@
       "kind": "long-method",
       "name": "Super.Cook.Models.ModelCooker.ImportMaterial",
       "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 154
+      "metric": 155
     },
     {
       "kind": "long-method",
@@ -2705,7 +2705,7 @@
       "kind": "long-method",
       "name": "Super.SceneRenderer.CreateFrame",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 55
+      "metric": 56
     },
     {
       "kind": "long-method",
@@ -3443,13 +3443,13 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5770
+      "metric": 5782
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
-      "metric": 1665
+      "metric": 1770
     },
     {
       "kind": "large-file",
@@ -3461,7 +3461,7 @@
       "kind": "large-file",
       "name": "src/Super.Cook.Models/ModelCooker.cs",
       "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 1801
+      "metric": 1928
     },
     {
       "kind": "large-file",
@@ -3473,7 +3473,7 @@
       "kind": "large-file",
       "name": "src/Super/Content.cs",
       "file": "src/Super/Content.cs",
-      "metric": 981
+      "metric": 983
     },
     {
       "kind": "large-file",
@@ -3485,13 +3485,13 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1165
+      "metric": 1169
     },
     {
       "kind": "large-file",
       "name": "src/Super/View.cs",
       "file": "src/Super/View.cs",
-      "metric": 1099
+      "metric": 1122
     },
     {
       "kind": "large-type",
@@ -3563,7 +3563,7 @@
       "kind": "large-type",
       "name": "Rendition.FrameView",
       "file": "src/Rendition/Types.cs",
-      "metric": 34
+      "metric": 35
     },
     {
       "kind": "large-type",
@@ -3575,13 +3575,13 @@
       "kind": "large-type",
       "name": "Rendition.Material",
       "file": "src/Rendition/Types.cs",
-      "metric": 34
+      "metric": 36
     },
     {
       "kind": "large-type",
       "name": "Rendition.ModelData",
       "file": "src/Rendition/ModelData.cs",
-      "metric": 26
+      "metric": 34
     },
     {
       "kind": "large-type",
@@ -3599,7 +3599,7 @@
       "kind": "large-type",
       "name": "Rendition.Passes.FrameUniforms",
       "file": "src/Rendition/Passes/FrameUniforms.cs",
-      "metric": 58
+      "metric": 60
     },
     {
       "kind": "large-type",
@@ -3683,13 +3683,13 @@
       "kind": "large-type",
       "name": "Rendition.Vulkan.ResourceTable",
       "file": "src/Rendition/Vulkan/ResourceTable.cs",
-      "metric": 60
+      "metric": 61
     },
     {
       "kind": "large-type",
       "name": "Rendition.Vulkan.ResourceTable.GpuMaterial",
       "file": "src/Rendition/Vulkan/ResourceTable.cs",
-      "metric": 28
+      "metric": 33
     },
     {
       "kind": "large-type",
@@ -3779,13 +3779,13 @@
       "kind": "large-type",
       "name": "Super.Cook.Models.MaterialRule",
       "file": "src/Super.Cook.Models/ImportSettings.cs",
-      "metric": 40
+      "metric": 45
     },
     {
       "kind": "large-type",
       "name": "Super.Cook.Models.ModelCooker",
       "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 53
+      "metric": 56
     },
     {
       "kind": "large-type",
@@ -3911,7 +3911,7 @@
       "kind": "large-type",
       "name": "Super.Surface",
       "file": "src/Super/Surface.cs",
-      "metric": 29
+      "metric": 33
     },
     {
       "kind": "large-type",
@@ -3959,7 +3959,7 @@
       "kind": "large-type",
       "name": "Super.View",
       "file": "src/Super/View.cs",
-      "metric": 72
+      "metric": 74
     },
     {
       "kind": "large-type",
@@ -4014,6 +4014,7 @@
         "Rendition.LightBakeFile",
         "Rendition.LightmapLayout",
         "Rendition.Material",
+        "Rendition.ModelData",
         "Rendition.NoBakes",
         "Rendition.Passes.BloomPass",
         "Rendition.Passes.DecalBatch",

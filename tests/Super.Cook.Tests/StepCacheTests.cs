@@ -438,7 +438,7 @@ public sealed class StepCacheTests : IDisposable
     {
         string cache = Temp();
         TextureData[] first = [Texture(1)];
-        TextureCompression.Compress(first, [], masks: [0], input: Input(cache));
+        TextureCompression.Compress(first, [], extra: [(0, TextureFormat.Bc7)], input: Input(cache));
 
         string entry = Assert.Single(TextureEntries(cache));
         Assert.Equal(64 + 32, new FileInfo(entry).Length);
@@ -450,7 +450,7 @@ public sealed class StepCacheTests : IDisposable
         File.SetLastWriteTimeUtc(entry, halfAnHourAgo);
 
         TextureData[] second = [Texture(1)];
-        TextureCompression.Compress(second, [], masks: [0], input: Input(cache));
+        TextureCompression.Compress(second, [], extra: [(0, TextureFormat.Bc7)], input: Input(cache));
 
         Assert.Equal(halfAnHourAgo, File.GetLastWriteTimeUtc(entry));
         Assert.Equal(first[0].Mips, second[0].Mips);
@@ -463,11 +463,11 @@ public sealed class StepCacheTests : IDisposable
     {
         string cache = Temp();
         TextureData[] first = [Texture(1)];
-        TextureCompression.Compress(first, [], masks: [0], input: Input(cache));
+        TextureCompression.Compress(first, [], extra: [(0, TextureFormat.Bc7)], input: Input(cache));
         File.Delete(Assert.Single(Doctor(cache, 0xab)));
 
         TextureData[] second = [Texture(1)];
-        TextureCompression.Compress(second, [], masks: [0], input: Input(cache));
+        TextureCompression.Compress(second, [], extra: [(0, TextureFormat.Bc7)], input: Input(cache));
 
         Assert.Equal(first[0].Mips, second[0].Mips);
     }
@@ -477,14 +477,14 @@ public sealed class StepCacheTests : IDisposable
     {
         string cache = Temp();
         TextureData[] first = [Texture(1)];
-        TextureCompression.Compress(first, [], masks: [0], input: Input(cache));
+        TextureCompression.Compress(first, [], extra: [(0, TextureFormat.Bc7)], input: Input(cache));
         string doctored = Assert.Single(Doctor(cache, 0xab));
         byte[] bytes = File.ReadAllBytes(doctored);
         bytes[^1] ^= 0xff;
         File.WriteAllBytes(doctored, bytes);
 
         TextureData[] second = [Texture(1)];
-        TextureCompression.Compress(second, [], masks: [0], input: Input(cache));
+        TextureCompression.Compress(second, [], extra: [(0, TextureFormat.Bc7)], input: Input(cache));
 
         Assert.Equal(first[0].Mips, second[0].Mips);
     }
@@ -494,12 +494,12 @@ public sealed class StepCacheTests : IDisposable
     {
         string cache = Temp();
         TextureData[] first = [Texture(1)];
-        TextureCompression.Compress(first, [], masks: [0], input: Input(cache));
+        TextureCompression.Compress(first, [], extra: [(0, TextureFormat.Bc7)], input: Input(cache));
         Doctor(cache, 0xab);
 
         // A new texture with the same pixels, so the memo of this process doesn't have it.
         TextureData[] second = [Texture(1)];
-        TextureCompression.Compress(second, [], masks: [0], input: Input(cache));
+        TextureCompression.Compress(second, [], extra: [(0, TextureFormat.Bc7)], input: Input(cache));
 
         Assert.Equal(TextureFormat.Bc7, second[0].Format);
         Assert.All(second[0].Mips[0], b => Assert.Equal(0xab, b));
@@ -510,11 +510,11 @@ public sealed class StepCacheTests : IDisposable
     public void A_texture_with_other_pixels_is_compressed_again()
     {
         string cache = Temp();
-        TextureCompression.Compress([Texture(1)], [], masks: [0], input: Input(cache));
+        TextureCompression.Compress([Texture(1)], [], extra: [(0, TextureFormat.Bc7)], input: Input(cache));
         Doctor(cache, 0xab);
 
         TextureData[] other = [Texture(2)];
-        TextureCompression.Compress(other, [], masks: [0], input: Input(cache));
+        TextureCompression.Compress(other, [], extra: [(0, TextureFormat.Bc7)], input: Input(cache));
 
         Assert.Equal(TextureFormat.Bc7, other[0].Format);
         Assert.Contains(other[0].Mips[0], b => b != 0xab);
@@ -524,7 +524,7 @@ public sealed class StepCacheTests : IDisposable
     public void A_texture_wanted_in_another_format_is_compressed_again()
     {
         string cache = Temp();
-        TextureCompression.Compress([Texture(1)], [], masks: [0], input: Input(cache));
+        TextureCompression.Compress([Texture(1)], [], extra: [(0, TextureFormat.Bc7)], input: Input(cache));
         Doctor(cache, 0xab);
 
         TextureData[] normal = [Texture(1)];
