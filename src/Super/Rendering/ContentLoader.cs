@@ -14,6 +14,12 @@ internal sealed class ContentLoader<TLoaded>(TLoaded first, Func<object, object>
     private readonly List<Task<object>?> _preparing = [null];
     private int _firstWaiting = 1;
 
+    /// <summary>
+    /// Starts an item's background work. A thread pool task, unless a test needs work that waits on it to
+    /// have threads of its own, so a busy pool can't hold it up.
+    /// </summary>
+    public Func<Func<object>, Task<object>> Start { get; init; } = work => Task.Run(work);
+
     /// <summary>Starts anything newly named, then uploads what this frame should.</summary>
     public void Update(Content content)
     {
@@ -21,7 +27,7 @@ internal sealed class ContentLoader<TLoaded>(TLoaded first, Func<object, object>
         {
             object item = content.Items[_loaded.Count - 1];
             _loaded.Add(null);
-            _preparing.Add(Task.Run(() => prepare(item)));
+            _preparing.Add(Start(() => prepare(item)));
         }
 
         while (_firstWaiting < _loaded.Count && _loaded[_firstWaiting] is not null)

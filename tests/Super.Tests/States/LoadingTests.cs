@@ -59,8 +59,17 @@ public class LoadingTests
                 {
                     Uploaded.Add((string)prepared);
                     return (string)prepared;
-                });
+                })
+            {
+                // The work blocks until the test finishes it. On the thread pool, a pool kept busy by the
+                // tests running alongside could leave it unstarted past every deadline here.
+                Start = OwnThread,
+            };
         }
+
+        /// <summary>Runs work on a thread of its own, so the thread pool being busy can't hold it up.</summary>
+        public static Task<T> OwnThread<T>(Func<T> work) =>
+            Task.Factory.StartNew(work, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
         public int Name(string path)
         {
@@ -202,7 +211,11 @@ public class LoadingTests
         var fake = new Fake();
         int rock = fake.Name("rock");
         fake.Loader.Update(fake.Content);
-        Task.Run(() => fake.Finish("rock"));
+        Fake.OwnThread(() =>
+        {
+            fake.Finish("rock");
+            return true;
+        });
 
         Assert.Equal("rock", fake.Loader.Get(rock, fake.Content));
         Assert.True(fake.Content.IsLoaded);
