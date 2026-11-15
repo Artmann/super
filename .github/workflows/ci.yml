@@ -100,6 +100,13 @@ jobs:
         shell: pwsh
         run: ./.github/scripts/list-cook-cache.ps1 -Cache $env:SUPER_CACHE -Out "$env:RUNNER_TEMP\cook-before.txt"
 
+      # The solution builds the cook tool itself, and every game builds it too, for its cook. MSBuild can run those
+      # requests on two nodes at once, and in a clean checkout both compile the cook libraries into the same obj
+      # folder, which failed with CS2012 when one held the file the other wrote. Built first on its own, the tool and
+      # its libraries are up to date by the time the solution gets to them, so nothing compiles twice.
+      - name: Build the cook tool
+        run: dotnet build tools/Super.Cook.Tool -c Release --no-restore
+
       - name: Build
         run: dotnet build Super.slnx -c Release --no-restore
 
