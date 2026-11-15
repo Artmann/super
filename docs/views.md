@@ -457,6 +457,15 @@ A view refuses, with a message naming what's wrong:
   textures;
 - a surface naming a texture its content doesn't have.
 
+A character walking through a puddle stain or standing over a scorch mark shouldn't wear it,
+so animated characters never take decals: a rigged model drawn with a pose is drawn after the
+decals are laid, over them. Any surface can opt out the same way with `NoDecals = true`, such
+as a crate set down in a stain, whose lid the stain would otherwise reach; a cooked model's
+material takes `"noDecals": true` in its rule. What doesn't take decals still covers them where
+it stands in front, and the decals still land on the ground round it.
+
+![Two crates in one tall stain decal: the left one takes decals, so the stain covers its lid too; the right one has NoDecals, so its lid keeps its wood colour while the floor round it is stained](media/decal-opt-out.webp)
+
 [`Graphics.Decals`](rendering.md#graphics-settings) turns them all off, and
 `Graphics.Fastest()` does too. The Courtyard lays its damp, the dirty water under its sill
 and the rust under its anchor plates as decals, and the gravel kicked off its path into the

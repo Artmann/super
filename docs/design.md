@@ -998,6 +998,7 @@ ShadowPass    scene geometry   -> depth from the key light (1024, 2048 or 4096 s
 cluster.comp  compute          -> the point and spot lights reaching each of 16 x 9 x 24 clusters
 GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, motion, baked light, shadow mask, depth
 DecalPass     decal boxes      -> colour, normal and roughness laid over the G-buffer, reading a copy of its normals
+GBufferPass   no-decal draws   -> the same targets, loaded: skinned draws and NoDecals materials, only when decals and they are both in the frame
 AoPass        fullscreen       -> GTAO from depth and normals: bent normal (view space, octahedral) and visibility, RGBA8
 AoBlurPass    fullscreen x 2   -> the same with the grain averaged away, across and then down
 LightingPass  fullscreen       -> HDR colour (Cook-Torrance GGX PBR, traced reflections, probes), subsurface diffuse apart

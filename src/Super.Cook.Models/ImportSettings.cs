@@ -192,6 +192,9 @@ public sealed class MaterialRule
     /// </summary>
     public bool Puddles { get; set; }
 
+    /// <summary>Decals the game lays don't land on the material. A rigged model never takes them anyway.</summary>
+    public bool NoDecals { get; set; }
+
     /// <summary>Light that spreads under the surface, for skin, wax and marble. Off by default.</summary>
     public SubsurfaceRule? Subsurface { get; set; }
 

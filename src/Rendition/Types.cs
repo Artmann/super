@@ -145,6 +145,12 @@ public enum MaterialFlags
     /// frame's <see cref="FrameView.Outlines"/> sets it. For toon looks, but any material can have one.
     /// </summary>
     Outline = 256,
+
+    /// <summary>
+    /// Decals don't lay on the surface: a character walking through a stain or standing over a scorch mark keeps its
+    /// own look. Skinned draws, which are characters, never take decals, whatever their material says.
+    /// </summary>
+    NoDecals = 512,
 }
 
 /// <summary>

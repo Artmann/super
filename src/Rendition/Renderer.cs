@@ -4749,12 +4749,20 @@ public sealed unsafe class Renderer : IDisposable
 
         instances.History = motion;
         instances.Lightmaps = _activeLightmaps;
-        _gBufferPass.Record(cmd, targets, frameSet, draws, _meshes, _details, instances, depthFirst);
+        // Draws that don't take decals, such as characters, are drawn after them, over what they laid.
+        bool late = _decalPass.Count > 0 && SceneDraws.AnyIn(draws, _resources, ScenePass.OpaqueAfterDecals);
+        _gBufferPass.Record(cmd, targets, frameSet, draws, _meshes, _details, instances, depthFirst,
+            late ? ScenePass.OpaqueTakingDecals : ScenePass.Opaque);
+        bool decalsDrawn = RecordDecals(cmd, targets, frameSet);
+        if (late)
+        {
+            RecordAfterDecals(cmd, targets, frameSet, draws, instances);
+        }
+
         instances.History = null;
         instances.Lightmaps = null;
         instances.Chunks = null;
         instances.ChunkLightmaps = null;
-        bool decalsDrawn = RecordDecals(cmd, targets, frameSet);
 
         _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
             ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, ColorStage, ColorWrite, SampledStage, SampledAccess);
@@ -4768,7 +4776,8 @@ public sealed unsafe class Renderer : IDisposable
             ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, ColorStage, ColorWrite, SampledStage, SampledAccess);
         _api.Transition(cmd, targets.Mask.Image, ImageAspectFlags.ColorBit,
             ImageLayout.ColorAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, ColorStage, ColorWrite, SampledStage, SampledAccess);
-        if (!decalsDrawn)
+        // The decals leave depth ready to read, unless draws came after them.
+        if (!decalsDrawn || late)
         {
             _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
                 ImageLayout.DepthAttachmentOptimal, ImageLayout.ShaderReadOnlyOptimal, DepthStages, DepthWrite, SampledStage, SampledAccess);
@@ -4965,6 +4974,24 @@ public sealed unsafe class Renderer : IDisposable
 
         _decalPass.Record(cmd, targets, frameSet, _frameIndex);
         return true;
+    }
+
+    /// <summary>
+    /// Draws what doesn't take decals over the G-buffer the decals were laid on. The decals read depth and wrote the
+    /// colour and normals, so depth goes back to being drawn into, and the draws wait for the decals' writes.
+    /// </summary>
+    private void RecordAfterDecals(CommandBuffer cmd, GBuffer targets, DescriptorSet frameSet, ReadOnlySpan<DrawItem> draws, InstanceBuffer instances)
+    {
+        _api.Transition(cmd, targets.Depth.Image, ImageAspectFlags.DepthBit,
+            ImageLayout.ShaderReadOnlyOptimal, ImageLayout.DepthAttachmentOptimal, SampledStage, SampledAccess, DepthStages,
+            DepthWrite | AccessFlags2.DepthStencilAttachmentReadBit);
+        _api.Transition(cmd, targets.BaseColor.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
+            ColorWrite | AccessFlags2.ColorAttachmentReadBit);
+        _api.Transition(cmd, targets.Normal.Image, ImageAspectFlags.ColorBit,
+            ImageLayout.ColorAttachmentOptimal, ImageLayout.ColorAttachmentOptimal, ColorStage, ColorWrite, ColorStage,
+            ColorWrite | AccessFlags2.ColorAttachmentReadBit);
+        _gBufferPass.Record(cmd, targets, frameSet, draws, _meshes, _details, instances, pass: ScenePass.OpaqueAfterDecals);
     }
 
     /// <summary>

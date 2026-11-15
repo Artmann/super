@@ -814,7 +814,8 @@ internal sealed class SceneRenderer : IDisposable
         (surface.Opacity < 1f ? MaterialFlags.Transparent : 0) | (surface.DetailMask ? MaterialFlags.DetailMask : 0)
         | (surface.WorldVariation ? MaterialFlags.WorldVariation : 0) | (surface.Dithered ? MaterialFlags.Dithered : 0)
         | (surface.Puddles ? MaterialFlags.Puddles : 0) | (surface.Foliage ? MaterialFlags.Foliage | MaterialFlags.TwoSided : 0)
-        | (surface.OcclusionOnUv2 ? MaterialFlags.OcclusionOnUv2 : 0) | (surface.Outline ? MaterialFlags.Outline : 0);
+        | (surface.OcclusionOnUv2 ? MaterialFlags.OcclusionOnUv2 : 0) | (surface.Outline ? MaterialFlags.Outline : 0)
+        | (surface.NoDecals ? MaterialFlags.NoDecals : 0);
 
     private TextureHandle? Texture(TextureRef? texture, Content content) =>
         texture is { } named ? Require<LoadedTexture>(named.Index, content).Handle : null;
