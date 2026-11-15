@@ -4,6 +4,7 @@
 #include "material.glsl"
 
 layout(location = 0) in vec2 inUv;
+layout(location = 1) flat in float inFade; // how much of the copy is drawn; see instanceFade in instances.glsl
 
 // A 4x4 ordered pattern, so glass lets a share of the light through evenly.
 const float DITHER[16] = float[16](
@@ -30,6 +31,13 @@ void main() {
 
     ivec2 texel = ivec2(gl_FragCoord.xy) & 3;
     float threshold = (DITHER[texel.y * 4 + texel.x] + 0.5) / 16.0;
+
+    // A copy fading out casts as much shadow as it shows, and two cross-fading versions of one
+    // model cast one shadow between them, as they never keep the same texel.
+    if (!fadeKeeps(inFade, threshold)) {
+        discard;
+    }
+
     if ((material.flags & MATERIAL_TRANSPARENT) != 0u) {
         if (threshold < (1.0 - opacity) * GLASS_LIGHT) {
             discard;

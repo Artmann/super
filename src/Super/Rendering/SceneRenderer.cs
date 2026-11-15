@@ -804,6 +804,8 @@ internal sealed class SceneRenderer : IDisposable
         Ior = surface.Ior,
         Translucency = surface.Translucency,
         Wind = surface.Wind,
+        Fade = surface.FadeDistance,
+        SoftEdge = surface.SoftEdge,
     };
 
     /// <summary>A generated surface's material switches: glass below full opacity, foliage drawn from both sides.</summary>
@@ -925,6 +927,7 @@ internal sealed class SceneRenderer : IDisposable
             item.Bones = bones;
             item.Ghost = draw.Ghost;
             item.Key = draw.Key;
+            item.Fade = draw.Fade;
         }
 
         if (!draw.Static)

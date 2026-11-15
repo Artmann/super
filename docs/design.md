@@ -1111,6 +1111,49 @@ or 2 texels in the shadow map. `Renderer.MeshDetailScale` (`Graphics.MeshDetail`
 both limits, so at 0.5 a version may stray twice as far. `DrawItem`s written by hand have neither, and always draw
 in full.
 
+### Fades
+
+A distance fade and a swap between simpler versions are both dithered: a copy keeps a share
+of its pixels, picked by a threshold from 0 to 1 per pixel, and the rest are discarded. The
+share travels per copy in `GpuInstance.Swim.W` (`DrawItem.Dither`, read by `instanceFade()` in
+`instances.glsl`), so it costs no new buffer and copies batched into one instanced call each
+keep their own. 0 draws the copy whole. A share `f` above 0 keeps the pixels whose threshold
+is below `f`, and one below 0 keeps those at or above `1 + f` (`fadeKeeps()` in
+`material.glsl`). A swap gives the coarser version `+t` and the finer one `-(1 - t)`, so the two
+keep complementary pixels and never both draw, or both miss, the same one. A distance fade
+`k` scales both, `+t·k` and `-(1 - t)·k`.
+
+`DrawSelection.Select` works the shares out for every view with the same `FadeRules`, measured
+from the camera, so a shadow fades with what casts it. A draw's keep comes from
+`DrawItem.Fade`, or else its material's (`ResourceTable.FadeOf`), at the middle of its bounds.
+A keep of 0 drops the draw before anything else is paid for it. With bounds, the coarsest
+version that passes is found as before, and when its error is within `CrossFade` (a quarter)
+of the limit, the finer version is written too, just before it, so `selected` needs room for
+twice the draws. The coarse version's share runs from 1 at the edge of that band to 0 at the
+limit. The renderer's draw lists grow to twice the draws for this.
+
+A dithered copy needs a pipeline that can discard, so `SceneDraws.HasHoles` counts any copy
+with a share as having holes. That puts it on the cut-out pipeline (`CUT_OUTS`), keeps it out
+of the depth-first pass, and splits it from solid copies of the same mesh in `SameLook` and
+the sort key. The G-buffer's threshold is interleaved gradient noise that moves each frame
+(`frameNoise()` in `surface.glsl`), which TAA averages into a smooth blend. Shadow maps aren't
+anti-aliased the same way, so `shadow.frag` uses the 4x4 ordered pattern it already uses for
+glass, which the soft shadow filter blurs. Glass doesn't dither: `transparent.frag` scales
+its output by the share (`glassShown()`), the absolute value for either half of a swap, so
+glass mid-swap shows each version by its share and isn't exact.
+
+A soft edge is `GpuMaterial.SoftEdge`, at byte 276, where the padding was. `glassShown()`
+rebuilds the opaque scene's position behind the pixel from `sceneDepth`, as the refraction
+does, and scales the glass by the distance to it over the soft edge, clamped to 1. The sky
+(depth 0) is never near.
+
+`Graphics.Fades` is `RenderEffects.Fades` (bit 36). On the CPU, `FadeRules.Smooth` is off,
+so a fade is a cut at its midpoint and no swap is cross-faded. The shaders learn of it
+through bit 29 of `frame.off` (`OFF_FADES`), which is free in the uniform because
+`DepthFirst`, the effect that owns bit 29, is only read on the CPU, so the renderer clears it
+and sets bit 29 from `Fades` instead. `transparent.frag` reads it to drop the soft edge.
+Probe captures draw the unselected list, so they never fade.
+
 Model files often link only colour and normal maps. Each model's
 `<file>.cook.json` sidecar connects the remaining textures and sets material
 values. The surface texture holds metalness in red, roughness in green
@@ -1361,7 +1404,8 @@ Bits 19 to 28 skip no pass either; each is read where its effect is made:
 
 `Subsurface` (bit 31, `OFF_SUBSURFACE`) is the last bit the shaders can read. `RenderEffects` is a `long` now, and the
 renderer passes only its low 32 bits on, as `frame.off` (`ShadedEffects` in `Renderer.cs`). Bit 30 is the debug view bit,
-so no effect uses it, and bit 31 fills the `int`: a switch the shaders must read after this needs a new uniform field.
+so no effect uses it, and bit 31 fills the `int`: a switch the shaders must read after this needs a new uniform field,
+or a bit the shaders don't otherwise read, as `Fades` (bit 36) borrows bit 29 (see [Fades](#fades)).
 `writeSurface()` in `surface.glsl` marks a subsurface surface plain, so the lighting shades it as matte and writes no
 scatter. `Particles` (bit 32), `LocalLights` (33), `Haze` (34) and `Underwater` (35) have no shader flag; the renderer
 tests them on the CPU. With `LocalLights` off, `DrawnLocalLights` gives the frame no local lights, though bakes still read
@@ -2847,9 +2891,11 @@ doesn't shift, since that layout isn't the colour's; otherwise it reads the para
 uniform and its derivatives are safe. With materials off the clay writes 1. A material
 without a texture reads the white one, one extra fetch of a 1x1 texture.
 
-`GpuMaterial.OcclusionTexture` took the place of the padding after `MaskTexture`, so the
-struct stays 320 bytes and `wear` stays on its 16-byte boundary. It's the ninth of a
-material's own texture slots in `ResourceTable`, so destroying the material frees it.
+`GpuMaterial.OcclusionTexture` goes after `dirt`, at byte 320, since the padding after
+`MaskTexture` holds the glass's `softEdge`. std430 rounds the struct up to a whole 16 bytes,
+so it grew from 320 to 336, and `GpuMaterial` pads the last 12 by hand (`EndPadding`). It's
+the ninth of a material's own texture slots in `ResourceTable`, so destroying the material
+frees it.
 
 `ModelData.MaterialOcclusion` holds each material's occlusion texture, -1 for none, and is
 empty when no material has one, like `MaterialShaders` and `MaterialMasks`. It isn't a field

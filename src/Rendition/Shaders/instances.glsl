@@ -5,7 +5,7 @@
 // GpuInstance there.
 struct Instance {
     mat4 model;
-    vec4 swim; // amplitude, body length and phase; w is unused
+    vec4 swim; // amplitude, body length and phase; w is the copy's fade: see instanceFade()
 };
 
 layout(std430, set = 0, binding = 2) readonly buffer Instances {
@@ -20,6 +20,13 @@ mat4 instanceModel() {
 // is at its own point in the stroke, so this is the copy's and not the draw's.
 vec3 instanceSwim() {
     return instances.copies[gl_InstanceIndex].swim.xyz;
+}
+
+// How much of the copy is drawn, as DrawSelection set it: 0 draws it whole, a share above 0 keeps
+// pixels whose noise is below it, and one below 0 keeps the top of the noise, so a finer version
+// fading in fills just the pixels the coarser one fading out leaves. See "Fades" in docs/design.md.
+float instanceFade() {
+    return instances.copies[gl_InstanceIndex].swim.w;
 }
 
 // Where each copy stood last frame, beside its matrix above, for motion vectors. With no last frame,

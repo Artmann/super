@@ -327,6 +327,7 @@ public class GraphicsTests
     [InlineData(nameof(Graphics.Culling), RenderEffects.Culling)]
     [InlineData(nameof(Graphics.SimplerModels), RenderEffects.SimplerModels)]
     [InlineData(nameof(Graphics.DepthFirst), RenderEffects.DepthFirst)]
+    [InlineData(nameof(Graphics.Fades), RenderEffects.Fades)]
     [InlineData(nameof(Graphics.Subsurface), RenderEffects.Subsurface)]
     [InlineData(nameof(Graphics.Particles), RenderEffects.Particles)]
     [InlineData(nameof(Graphics.LocalLights), RenderEffects.LocalLights)]
@@ -366,6 +367,7 @@ public class GraphicsTests
         Assert.True(graphics.Culling);
         Assert.True(graphics.SimplerModels);
         Assert.True(graphics.DepthFirst);
+        Assert.True(graphics.Fades);
         Assert.True(graphics.Particles);
         Assert.True(graphics.LocalLights);
         Assert.True(graphics.Haze);

@@ -26,11 +26,14 @@ struct Material {
     float ior; // 1 or more; 1 bends nothing.
     vec4 subsurface; // How far red, green and blue spread under the surface in metres; w is the widest, 0 for none.
     uint maskTexture; // Read by the second uv: curvature, sky seen, height above the foot, wear breakup.
-    uint occlusionTexture; // Red is the soft light that reaches the surface; read by the uv MATERIAL_OCCLUSION_UV2 picks.
+    float softEdge;    // Glass: metres behind it the scene must be for it to show fully. 0 never fades.
     float wearRoughness; // Below 0 keeps the surface's roughness.
     float dirtRoughness;
     vec4 wear; // rgb is the colour, a the amount: 0 for none.
     vec4 dirt;
+    // Red is the soft light that reaches the surface; read by the uv MATERIAL_OCCLUSION_UV2 picks. std430 rounds the
+    // struct up to 16 bytes after it, which GpuMaterial pads by hand.
+    uint occlusionTexture;
 };
 
 const uint MATERIAL_TWO_SIDED = 1u;

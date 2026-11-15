@@ -60,8 +60,8 @@ internal sealed unsafe class ResourceTable : IDisposable
 
         public uint MaskTexture;
 
-        /// <summary>White without one. <see cref="MaterialFlags.OcclusionOnUv2"/> says which UV set reads it.</summary>
-        public uint OcclusionTexture;
+        /// <summary>How far behind transparent glass the scene must be for it to show fully, in metres; 0 never fades.</summary>
+        public float SoftEdge;
 
         /// <summary>Below 0 keeps the surface's own roughness under the layer.</summary>
         public float WearRoughness;
@@ -70,6 +70,12 @@ internal sealed unsafe class ResourceTable : IDisposable
         /// <summary>The layer's colour in xyz and its amount in w. An amount of 0, as with no mask texture, skips it.</summary>
         public Vector4 Wear;
         public Vector4 Dirt;
+
+        /// <summary>White without one. <see cref="MaterialFlags.OcclusionOnUv2"/> says which UV set reads it.</summary>
+        public uint OcclusionTexture;
+
+        /// <summary>Unused: std430 rounds the struct up to a whole 16 bytes after <see cref="OcclusionTexture"/>.</summary>
+        public Vector3 EndPadding;
     }
 
     private readonly VulkanContext _context;
@@ -83,6 +89,7 @@ internal sealed unsafe class ResourceTable : IDisposable
     private readonly int[] _materialShaders = new int[MaxMaterials];
     private readonly bool[] _materialCutouts = new bool[MaxMaterials];
     private readonly float[] _materialWind = new float[MaxMaterials];
+    private readonly DistanceFade?[] _materialFade = new DistanceFade?[MaxMaterials];
     private readonly bool[] _materialGlows = new bool[MaxMaterials];
     private readonly bool[] _materialSubsurface = new bool[MaxMaterials];
     private readonly int[] _materialTextures = new int[MaxMaterials * TexturesPerMaterial];
@@ -116,6 +123,7 @@ internal sealed unsafe class ResourceTable : IDisposable
     {
         _context = context;
         SwayOf = GetWind;
+        FadeOf = material => _materialFade[material.Index];
         var api = context.Api;
 
         api.GetPhysicalDeviceProperties(context.PhysicalDevice, out var properties);
@@ -206,6 +214,9 @@ internal sealed unsafe class ResourceTable : IDisposable
 
     /// <summary><see cref="GetWind"/> as a lookup that passes and culling hold on to, made once.</summary>
     public Func<MaterialHandle, float> SwayOf { get; }
+
+    /// <summary>How each material fades out with distance, null when it never does, as a lookup made once.</summary>
+    public Func<MaterialHandle, DistanceFade?> FadeOf { get; }
 
     /// <summary>True when a live material scatters light under its surface, so the frame needs the subsurface blur.</summary>
     public bool AnySubsurface
@@ -497,6 +508,7 @@ internal sealed unsafe class ResourceTable : IDisposable
             DirtRoughness = material.Dirt.Roughness,
             Wear = Layer(material.Wear, material.MaskTexture is not null),
             Dirt = Layer(material.Dirt, material.MaskTexture is not null),
+            SoftEdge = float.IsFinite(material.SoftEdge) ? MathF.Max(material.SoftEdge, 0f) : 0f,
         };
         for (int i = 0; i < ShaderTextures.Length; i++)
         {
@@ -508,6 +520,7 @@ internal sealed unsafe class ResourceTable : IDisposable
         _materialShaders[index] = material.Shader?.Index ?? 0;
         _materialCutouts[index] = material.AlphaCutoff > 0f;
         _materialWind[index] = Sway(material);
+        _materialFade[index] = material.Fade;
         _materialGlows[index] = material.Emissive.X > 0f || material.Emissive.Y > 0f || material.Emissive.Z > 0f;
         _materialSubsurface[index] = material.Subsurface.IsOn;
 

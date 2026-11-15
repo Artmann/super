@@ -263,13 +263,13 @@
       "kind": "high-complexity",
       "name": "Rendition.Renderer.ValidateMaterial",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 14
+      "metric": 11
     },
     {
       "kind": "high-complexity",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 43
+      "metric": 44
     },
     {
       "kind": "high-complexity",
@@ -735,12 +735,6 @@
     },
     {
       "kind": "high-complexity",
-      "name": "Super.View.Model/8",
-      "file": "src/Super/View.cs",
-      "metric": 11
-    },
-    {
-      "kind": "high-complexity",
       "name": "Super.View.ReflectionProbe",
       "file": "src/Super/View.cs",
       "metric": 13
@@ -957,15 +951,9 @@
     },
     {
       "kind": "high-cognitive-complexity",
-      "name": "Rendition.Renderer.ValidateMaterial",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 17
-    },
-    {
-      "kind": "high-cognitive-complexity",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 47
+      "metric": 48
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1581,12 +1569,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.DrawSelection.Select",
-      "file": "src/Rendition/DrawSelection.cs",
-      "metric": 51
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.FoliageNormals.PointOutOfCrown",
       "file": "src/Rendition/FoliageNormals.cs",
       "metric": 42
@@ -1937,7 +1919,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.Render",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 297
+      "metric": 298
     },
     {
       "kind": "long-method",
@@ -1961,7 +1943,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.SelectDraws",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 60
+      "metric": 61
     },
     {
       "kind": "long-method",
@@ -1977,12 +1959,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.Renderer.ValidateMaterial",
-      "file": "src/Rendition/Renderer.cs",
-      "metric": 42
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.Renderer.WriteTargetDescriptors",
       "file": "src/Rendition/Renderer.cs",
       "metric": 93
@@ -1991,7 +1967,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 171
+      "metric": 173
     },
     {
       "kind": "long-method",
@@ -2117,13 +2093,13 @@
       "kind": "long-method",
       "name": "Rendition.Vulkan.ResourceTable.ResourceTable",
       "file": "src/Rendition/Vulkan/ResourceTable.cs",
-      "metric": 77
+      "metric": 78
     },
     {
       "kind": "long-method",
       "name": "Rendition.Vulkan.ResourceTable.WriteMaterial",
       "file": "src/Rendition/Vulkan/ResourceTable.cs",
-      "metric": 62
+      "metric": 64
     },
     {
       "kind": "long-method",
@@ -3429,7 +3405,7 @@
     },
     {
       "kind": "too-many-parameters",
-      "name": "Super.View.Model/8",
+      "name": "Super.View.Model/9",
       "file": "src/Super/View.cs",
       "metric": 7
     },
@@ -3467,13 +3443,13 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5748
+      "metric": 5749
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
-      "metric": 1585
+      "metric": 1673
     },
     {
       "kind": "large-file",
@@ -3485,7 +3461,7 @@
       "kind": "large-file",
       "name": "src/Super.Cook.Models/ModelCooker.cs",
       "file": "src/Super.Cook.Models/ModelCooker.cs",
-      "metric": 1892
+      "metric": 1893
     },
     {
       "kind": "large-file",
@@ -3509,13 +3485,13 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1163
+      "metric": 1166
     },
     {
       "kind": "large-file",
       "name": "src/Super/View.cs",
       "file": "src/Super/View.cs",
-      "metric": 1082
+      "metric": 1099
     },
     {
       "kind": "large-type",
@@ -3599,7 +3575,7 @@
       "kind": "large-type",
       "name": "Rendition.Material",
       "file": "src/Rendition/Types.cs",
-      "metric": 31
+      "metric": 35
     },
     {
       "kind": "large-type",
@@ -3659,7 +3635,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 382
+      "metric": 383
     },
     {
       "kind": "large-type",
@@ -3707,13 +3683,13 @@
       "kind": "large-type",
       "name": "Rendition.Vulkan.ResourceTable",
       "file": "src/Rendition/Vulkan/ResourceTable.cs",
-      "metric": 58
+      "metric": 60
     },
     {
       "kind": "large-type",
       "name": "Rendition.Vulkan.ResourceTable.GpuMaterial",
       "file": "src/Rendition/Vulkan/ResourceTable.cs",
-      "metric": 28
+      "metric": 30
     },
     {
       "kind": "large-type",
@@ -3857,7 +3833,7 @@
       "kind": "large-type",
       "name": "Super.Graphics",
       "file": "src/Super/Graphics.cs",
-      "metric": 60
+      "metric": 61
     },
     {
       "kind": "large-type",
@@ -3935,7 +3911,7 @@
       "kind": "large-type",
       "name": "Super.Surface",
       "file": "src/Super/Surface.cs",
-      "metric": 28
+      "metric": 30
     },
     {
       "kind": "large-type",
@@ -3983,7 +3959,7 @@
       "kind": "large-type",
       "name": "Super.View",
       "file": "src/Super/View.cs",
-      "metric": 71
+      "metric": 72
     },
     {
       "kind": "large-type",
@@ -4031,11 +4007,13 @@
         "Rendition.ChunkBakePool",
         "Rendition.ChunkPageUploader",
         "Rendition.DrawSelection",
+        "Rendition.FadeRules",
         "Rendition.FilterRun",
         "Rendition.FrameView",
         "Rendition.IBakeStore",
         "Rendition.LightBakeFile",
         "Rendition.LightmapLayout",
+        "Rendition.Material",
         "Rendition.NoBakes",
         "Rendition.Passes.BloomPass",
         "Rendition.Passes.DecalBatch",

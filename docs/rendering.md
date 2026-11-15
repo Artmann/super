@@ -58,7 +58,7 @@ Game.StartWindowsGameLoop<MyGame>(new GameOptions
 
 `Graphics.Fastest()` turns every effect that costs GPU time off, except point and spot lights and particles, and sets `MeshDetail` to 0.5, a start to turn back on only what
 the game needs. It keeps what costs nothing or saves time: the materials, the baked lighting, `Specular`,
-`EnvironmentLight`, `Emissive`, `ColorGrading`, `Culling`, `SimplerModels` and `DepthFirst`. For settings a player picks from, see [quality presets and profiles](#quality-presets-and-profiles). Ask for `Graphics` in a constructor to change it while the game runs; the
+`EnvironmentLight`, `Emissive`, `ColorGrading`, `Culling`, `SimplerModels`, `DepthFirst` and `Fades`, whose small cost buys a picture without pops. For settings a player picks from, see [quality presets and profiles](#quality-presets-and-profiles). Ask for `Graphics` in a constructor to change it while the game runs; the
 next frame follows, so it can back an options menu.
 
 | Setting | Off, or set |
@@ -110,6 +110,7 @@ next frame follows, so it can back an options menu.
 | `Culling` | Every model is drawn into the picture, each of the sun's cascades and each light's shadow tile, seen or not. It only costs time: it's there to check that culling hides nothing it shouldn't |
 | `SimplerModels` | Every model is drawn at full detail at any distance, whatever `MeshDetail` says, in the picture and the shadows. It only costs time: it's there to see what the simpler versions change |
 | `DepthFirst` | Large solid surfaces are no longer drawn twice, depth first and then shaded, so a surface drawn before the one that hides it is shaded for nothing. It only costs time: it's there to measure what drawing depth first saves. The picture is the same, but where two surfaces lie in the very same plane, where the other of the two may show |
+| `Fades` | Nothing [fades with distance](#fading-with-distance): a fade becomes a hard cut halfway through it, models swap to their simpler versions at once, so the swap can pop, and glass shows fully up to whatever is behind it, with no soft edge. It saves drawing a model twice while it swaps |
 
 Tonemapping and glass have no switch. Without tonemapping, bright light clips to flat white, and
 without glass, windows would vanish rather than turn opaque, so neither shows anything useful.
@@ -1392,6 +1393,52 @@ view.Wind(surgeDirection * MathF.Sign(surge), 0.45f * MathF.Abs(surge), gustines
 [`Graphics.Wind`](#graphics-settings) turns it off, and
 `Graphics.Fastest()` turns it off. The Courtyard blows a breeze of 0.35 across its grass, with
 a share of 0.08 for the ivy and 0.4 for the tree's crown.
+
+## Fading with distance
+
+Grass, flowers and small stones can fade out with distance, so a field thins out instead of
+ending in a line. Give a `Surface` a `FadeDistance`, from where the fade starts to where
+nothing is left, in metres from the camera:
+
+```csharp
+var grass = new Surface { Color = new Vector3(0.4f, 0.6f, 0.2f), Foliage = true, FadeDistance = new DistanceFade(50f, 60f) };
+```
+
+A draw can have a fade of its own, which wins over its surfaces' fades, so one model can be
+kept further away than another:
+
+```csharp
+view.Model(key, tuft, transform, fade: new DistanceFade(50f, 60f));
+world.Add(entity, new Model(tuft, Fade: new DistanceFade(50f, 60f)));  // the same with Super.Ecs
+```
+
+A fade starts at 0 or more and ends no sooner than it starts, or the material or the draw is
+refused with a message saying why. A fade that starts and ends at the same distance is a hard
+cut there. The distance is measured to the middle of the draw's bounds, or to its origin for
+a `DrawItem` made by hand without them. A model fades as a whole, each of its parts by its own
+middle. In between, the model drops more and more of its pixels in a fine noise that changes
+each frame, and anti-aliasing blends that into a smooth fade. Past the end it isn't drawn at
+all, which saves its time in the picture and in the shadows. Its shadow fades with it, by the
+distance from the camera, not from the sun. Glass fades its opacity instead. A cooked model's
+materials have no fade yet, so give its draw one.
+
+Models switch to [simpler versions](#graphics-settings) with distance, and the switch fades
+too. As a model nears the distance where its next finer version takes over, both versions are
+drawn, each into the pixels the other leaves, so the coarser one gives way to the finer bit by
+bit instead of popping. That costs drawing the model twice while it swaps.
+
+Glass can also fade where it meets what's behind it. `SoftEdge` is how far behind the glass,
+in metres, the scene must be for the glass to show fully, so water fades out softly where it
+meets the shore or a stone instead of ending in a hard line. It suits water and fog cards;
+leave it at 0, the default, for a window in its frame:
+
+```csharp
+var water = new Surface { Color = new Vector3(0.35f, 0.55f, 0.6f), Roughness = 0.05f, Opacity = 0.3f, Ior = 1.33f, SoftEdge = 0.2f };
+```
+
+![The Glass example's pool where a stone runs into it: on the left with no soft edge, a hard line where the stone leaves the water; on the right with a soft edge of 0.2 m, the water fading out towards the stone](media/soft-edge-before-after.webp)
+
+[`Graphics.Fades`](#graphics-settings) turns all three off.
 
 ## Motion vectors
 

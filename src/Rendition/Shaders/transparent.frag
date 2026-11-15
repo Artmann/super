@@ -12,6 +12,7 @@
 layout(location = 0) in vec3 inNormal;
 layout(location = 2) in vec2 inUv;
 layout(location = 3) in vec3 inPosition;
+layout(location = 10) flat in float inFade; // how much of the copy is drawn; see instanceFade in instances.glsl
 
 layout(set = 2, binding = 0) uniform samplerCube reflectionTexture;
 layout(set = 2, binding = 1) uniform samplerCube irradianceTexture;
@@ -58,6 +59,28 @@ vec2 refractedUv(vec2 here, vec3 v, vec3 n, float ior) {
     }
 
     return uv;
+}
+
+// How much of the glass shows, from 0 to 1. A copy fading out with distance fades its opacity
+// rather than dithering, as glass blends anyway; two versions cross-fading each show their share.
+// With a soft edge, the glass fades out where the scene behind comes within that many metres of
+// it, as water does where it meets the shore. With Graphics.Fades off, neither fades.
+float glassShown(Material material, vec2 here) {
+    if (isOff(OFF_FADES)) {
+        return 1.0;
+    }
+
+    float shown = inFade == 0.0 ? 1.0 : abs(inFade);
+    if (material.softEdge > 0.0) {
+        float behind = texture(sceneDepth, here).r;
+        if (behind > 0.0) { // Reversed-Z: 0 is the sky, which is never near.
+            vec4 world = frame.inverseViewProjection * vec4(here * 2.0 - 1.0, behind, 1.0);
+            float gap = distance(world.xyz / world.w, inPosition);
+            shown *= clamp(gap / material.softEdge, 0.0, 1.0);
+        }
+    }
+
+    return shown;
 }
 
 // Glass reflects its surroundings at full strength however clear it is. Only its own
@@ -158,14 +181,16 @@ void main() {
         own = own * fog.a + fog.rgb * coverage;
     }
 
+    vec2 here = gl_FragCoord.xy / vec2(textureSize(sceneDepth, 0));
+    float shown = glassShown(material, here);
     if (draw.tint.w < 0.5) {
-        outColor = vec4(own, coverage);
+        outColor = vec4(own, coverage) * shown;
         return;
     }
 
-    vec2 here = gl_FragCoord.xy / vec2(textureSize(sceneDepth, 0));
     vec2 uv = plain ? here : refractedUv(here, v, n, material.ior);
     float lod = plain ? 0.0 : min(roughnessOfSurface * FROST_LODS, float(textureQueryLevels(sceneColor) - 1));
     vec3 transmitted = textureLod(sceneColor, uv, lod).rgb;
-    outColor = vec4(own + (1.0 - coverage) * transmitted, 1.0);
+    vec3 glass = own + (1.0 - coverage) * transmitted;
+    outColor = vec4(shown < 1.0 ? mix(textureLod(sceneColor, here, 0.0).rgb, glass, shown) : glass, 1.0);
 }

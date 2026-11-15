@@ -50,6 +50,7 @@ public class GraphicsProfileTests
         Culling = false,
         SimplerModels = false,
         DepthFirst = false,
+        Fades = false,
         Subsurface = false,
         Particles = false,
         LocalLights = false,

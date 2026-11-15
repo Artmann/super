@@ -48,7 +48,10 @@ internal struct GpuInstance
 {
     public Matrix4x4 Model;
 
-    /// <summary>The swim's amplitude, body length and phase, as <see cref="SwimMotion"/> has them. W is unused.</summary>
+    /// <summary>
+    /// The swim's amplitude, body length and phase, as <see cref="SwimMotion"/> has them, and in w how much of the copy is
+    /// drawn: see <see cref="DrawItem.Dither"/>.
+    /// </summary>
     public Vector4 Swim;
 }
 
@@ -157,7 +160,7 @@ internal sealed unsafe class InstanceBuffer : IDisposable
         ((GpuInstance*)_buffer.Mapped)[Count] = new GpuInstance
         {
             Model = draw.Transform,
-            Swim = new Vector4(draw.Swim.Amplitude, draw.Swim.BodyLength, draw.Swim.Phase, 0f),
+            Swim = new Vector4(draw.Swim.Amplitude, draw.Swim.BodyLength, draw.Swim.Phase, draw.Dither),
         };
         ((PreviousInstance*)_previous.Mapped)[Count] = History is { } history ? history.Previous(draw) : PreviousInstance.None(draw);
         var lightmap = GpuLightmapRect.None;

@@ -60,6 +60,7 @@ component on its entity instead. See [Audio](audio.md).
 | `view.Model(key, model, transform, color)` | A model. `color`, if given, tints it and keeps its textures. `ModelRef.Cube`, `Sphere`, `Capsule`, `Cylinder`, `Cone`, `Plane`, `Quad` and `Torus` are [built in](rendering.md#built-in-shapes) |
 | `view.Model(key, model, transform, meshes)` | Only the meshes a `MeshMask` shows, such as a body without its helmet. See [Showing some meshes](#showing-some-meshes) |
 | `view.Model(key, model, transform, color, isStatic: true)` | A model that never moves, whose lighting will be baked. See [Static draws](#static-draws) |
+| `view.Model(key, model, transform, fade: new DistanceFade(50, 60))` | A model that fades out between 50 and 60 metres from the camera, such as grass. See [Fading with distance](rendering.md#fading-with-distance) |
 | `view.Decal(key, box, material, blend)` | Grime, damp or a stain projected onto whatever is inside a box. Up to 256 a frame. See [Decals](#decals) |
 | `view.Ghost(key, model, transform, color, opacity)` | A model in one colour that glows a little, as a [preview of where something will go](rendering.md#ghosts) |
 | `view.Shadows(radius, cascades, sunSize, contact)` | How far shadows reach, how soft they are, and how far contact shadows look where things meet the ground. See [Rendering](rendering.md#shadows) |

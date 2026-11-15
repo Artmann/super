@@ -19,3 +19,10 @@ layout(set = 1, binding = 2) uniform sampler2DArray textureArrays[];
 layout(std430, set = 1, binding = 1) readonly buffer Materials {
     Material materials[];
 };
+
+// Whether a fading copy keeps the pixel whose noise, from 0 to 1, is threshold. The fade comes from
+// instanceFade() in instances.glsl: 0 keeps everything, above 0 keeps the bottom of the noise and
+// below 0 the top, so two copies cross-fading never cover the same pixel.
+bool fadeKeeps(float fade, float threshold) {
+    return fade == 0.0 || (fade > 0.0 ? threshold < fade : threshold >= 1.0 + fade);
+}
