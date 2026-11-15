@@ -2153,7 +2153,7 @@
       "kind": "long-method",
       "name": "Rendition.Vulkan.VulkanContext.CreateDevice",
       "file": "src/Rendition/Vulkan/VulkanContext.cs",
-      "metric": 135
+      "metric": 137
     },
     {
       "kind": "long-method",
@@ -3971,7 +3971,7 @@
       "kind": "large-type",
       "name": "Super.Ui.UiPointer",
       "file": "src/Super/Ui/UiPointer.cs",
-      "metric": 38
+      "metric": 37
     },
     {
       "kind": "large-type",

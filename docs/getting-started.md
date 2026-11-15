@@ -43,6 +43,24 @@ content that changed, and only saves the cache when the cook added to it. Cookin
 from scratch takes about six minutes there, which happens when the cook's code or the .NET SDK
 changes, and once a month.
 
+### On a Mac
+
+The engine also starts on a Mac through MoltenVK, which is enough to work on it, run the
+tests and take [screenshots](command-line.md#screenshots). Install the shader compiler, the
+Vulkan loader, MoltenVK and the validation layer with Homebrew, and tell .NET where they are:
+
+```
+brew install shaderc vulkan-loader molten-vk vulkan-validationlayers
+export DYLD_LIBRARY_PATH=/opt/homebrew/lib
+export VK_LAYER_PATH=/opt/homebrew/opt/vulkan-validationlayers/share/vulkan/explicit_layer.d
+```
+
+The picture matches Windows closely, but MoltenVK has no ray queries, so light probes are
+drawn instead of traced, as with `--no-trace`. `--validate` also reports about 50 messages
+that don't come up on Windows, because the renderer's table of every texture is bigger than
+MoltenVK allows in a descriptor set. Compare shots from the same machine. The
+package itself still supports Windows only.
+
 To see games running, try the examples:
 
 ```
