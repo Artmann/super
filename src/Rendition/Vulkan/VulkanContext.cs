@@ -234,6 +234,7 @@ internal sealed unsafe class VulkanContext : IDisposable
             extensions.Add(ExtDebugUtils.ExtensionName);
         }
 
+        var flags = Portability.AddInstanceExtension(Api, extensions);
         nint appName = SilkMarshal.StringToPtr("Rendition");
         nint extensionNames = SilkMarshal.StringArrayToPtr(extensions);
         nint layerNames = SilkMarshal.StringArrayToPtr([ValidationLayer]);
@@ -248,6 +249,7 @@ internal sealed unsafe class VulkanContext : IDisposable
         var createInfo = new InstanceCreateInfo
         {
             SType = StructureType.InstanceCreateInfo,
+            Flags = flags,
             PApplicationInfo = &appInfo,
             EnabledExtensionCount = (uint)extensions.Count,
             PpEnabledExtensionNames = (byte**)extensionNames,
@@ -450,11 +452,13 @@ internal sealed unsafe class VulkanContext : IDisposable
             features11.PNext = &accelerationStructure;
         }
 
+        var portability = new PhysicalDevicePortabilitySubsetFeaturesKHR { SType = StructureType.PhysicalDevicePortabilitySubsetFeaturesKhr, PNext = &features13 };
+        bool portable = Portability.TurnOn(Api, PhysicalDevice, deviceExtensions, extensions, ref portability);
         nint extensionNames = SilkMarshal.StringArrayToPtr(extensions);
         var createInfo = new DeviceCreateInfo
         {
             SType = StructureType.DeviceCreateInfo,
-            PNext = &features13,
+            PNext = portable ? &portability : &features13,
             PEnabledFeatures = &features,
             QueueCreateInfoCount = 1,
             PQueueCreateInfos = &queueInfo,
