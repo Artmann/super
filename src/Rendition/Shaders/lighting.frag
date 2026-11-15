@@ -213,6 +213,91 @@ bool shade(Surface s, vec3 l, out vec3 diffuseLit, out vec3 specularLit) {
     return true;
 }
 
+// How soft the step from one toon band to the next is, as a share of a band.
+const float TOON_EDGE = 0.04;
+
+// How much light, as a share of one band, must arrive before a toon surface's first band lights it: a little, so the
+// line where light gives way to shade sits near where the surface turns from the light.
+const float TOON_FIRST_BAND = 0.1;
+
+// A toon highlight shows where the GGX highlight is past half its peak, on surfaces smoother than this roughness.
+const float TOON_ROUGHEST = 0.75;
+
+// Cel shading for one light, in place of shade()'s: the light that arrives, its angle times what the shadow lets
+// through, falls into the material's bands or is read across its ramp, and shine is a hard spot as bright as the lit
+// colour, white or, for metal, the metal's own. Both are for each unit of the light's brightness, as shade()'s are,
+// with the shadow already taken.
+void toonLight(Surface s, vec3 l, float visibility, Material m, out vec3 diffuseLit, out vec3 specularLit) {
+    float arriving = max(dot(s.n, l), 0.0) * visibility;
+    vec3 band;
+    if (m.toonSteps > 0.0) {
+        // One step up just past each whole band, softened over TOON_EDGE so its edge doesn't crawl.
+        float k = arriving * m.toonSteps + (1.0 - TOON_FIRST_BAND);
+        float steps = floor(k) - 1.0 + smoothstep(0.0, TOON_EDGE, fract(k));
+        band = vec3(clamp(steps, 0.0, m.toonSteps) / m.toonSteps);
+    } else {
+        // Kept inside the first and last texels, so a ramp that repeats doesn't blend its two ends.
+        float texel = 0.5 / float(textureSize(textures[m.toonRamp], 0).x);
+        band = textureLod(textures[m.toonRamp], vec2(clamp(arriving, texel, 1.0 - texel), 0.5), 0.0).rgb;
+    }
+
+    diffuseLit = (1.0 - s.metallic) * s.baseColor / PI * band;
+
+    vec3 h = normalize(s.v + l);
+    float alpha2 = s.alpha * s.alpha;
+    float peak = distributionGgx(max(dot(s.n, h), 0.0), s.alpha) * PI * alpha2;
+    float glossy = 1.0 - smoothstep(TOON_ROUGHEST - 0.1, TOON_ROUGHEST, sqrt(s.alpha));
+    float spot = smoothstep(0.5 - TOON_EDGE, 0.5 + TOON_EDGE, peak * arriving) * glossy;
+    specularLit = mix(vec3(1.0), s.baseColor, s.metallic) * spot / PI;
+}
+
+// The rim of light a toon material adds where its surface turns away from the camera, a band along the outline.
+vec3 toonRim(Material m, float nDotV) {
+    return m.toonRim.rgb * smoothstep(0.65, 0.75, 1.0 - nDotV);
+}
+
+// The eight directions an outline looks for an edge in, a thickness away.
+const vec2 OUTLINE_DIRECTIONS[8] = vec2[8](
+    vec2(1.0, 0.0), vec2(-1.0, 0.0), vec2(0.0, 1.0), vec2(0.0, -1.0),
+    vec2(0.7071, 0.7071), vec2(-0.7071, 0.7071), vec2(0.7071, -0.7071), vec2(-0.7071, -0.7071));
+
+// A neighbour this much further from the camera than the pixel, as a share of the pixel's distance, is behind an edge.
+const float OUTLINE_DEPTH_STEP = 0.06;
+
+// Normals that turn more than this from the pixel's, as the cosine between them, are across a crease.
+const float OUTLINE_CREASE = 0.75;
+
+// How much of an outline covers a pixel of an outlined surface at this distance from the camera: all of it where a
+// pixel a thickness away lies well behind, or nothing was drawn there, as along the shape's silhouette, or faces
+// another way, as across a crease, faded out over frame.outlineFade. The line falls on the surface's own side of the
+// silhouette, so it never covers what's behind.
+float outlineCoverage(vec3 n, float away) {
+    float fade = 1.0 - smoothstep(frame.outlineFade.x, frame.outlineFade.y, away);
+    if (fade <= 0.0) {
+        return 0.0;
+    }
+
+    ivec2 here = ivec2(gl_FragCoord.xy);
+    ivec2 last = ivec2(frame.screen.xy) - 1;
+    for (int i = 0; i < 8; i++) {
+        ivec2 at = clamp(here + ivec2(round(OUTLINE_DIRECTIONS[i] * frame.outline.w)), ivec2(0), last);
+        float depth = texelFetch(depthTexture, at, 0).r;
+        if (depth == 0.0) {
+            return fade;
+        }
+
+        vec2 uv = (vec2(at) + 0.5) * frame.screen.zw;
+        vec4 world = frame.inverseViewProjection * vec4(uv * 2.0 - 1.0, depth, 1.0);
+        float there = length(world.xyz / world.w - frame.cameraPosition.xyz);
+        vec3 facing = octahedralDecode(texelFetch(normalRoughnessAoTexture, at, 0).xy);
+        if (there > away * (1.0 + OUTLINE_DEPTH_STEP) || dot(facing, n) < OUTLINE_CREASE) {
+            return fade;
+        }
+    }
+
+    return 0.0;
+}
+
 // How far inside a cascade's map the point is, as a share of the map from its nearest
 // edge, leaving room for the filter: below 0 is outside.
 float cascadeMargin(int c, vec3 position, float inset) {
@@ -519,12 +604,16 @@ void main() {
         bentNormal = normalize(mix(n, bent, 1.0 - screenAo) + n * 1e-3);
     }
     // Alpha holds the clearcoat, for foliage how much light shines through as a negative
-    // number, or for a subsurface material its index plus SUBSURFACE_MARK.
+    // number, or for a subsurface, toon or outlined material its index plus SUBSURFACE_MARK.
     // writeSurface() in surface.glsl packs it.
     vec4 emissiveClearcoat = texture(emissiveClearcoatTexture, inUv);
-    bool subsurface = emissiveClearcoat.a >= SUBSURFACE_MARK - 0.5;
-    int materialIndex = subsurface ? int(emissiveClearcoat.a - SUBSURFACE_MARK + 0.5) : 0;
-    float clearcoat = subsurface ? 0.0 : max(emissiveClearcoat.a, 0.0);
+    bool marked = emissiveClearcoat.a >= SUBSURFACE_MARK - 0.5;
+    int materialIndex = marked ? int(emissiveClearcoat.a - SUBSURFACE_MARK + 0.5) : 0;
+    uint markedFlags = marked ? materials[materialIndex].flags : 0u;
+    // Toon wins over subsurface, which it can't be combined with.
+    bool toon = (markedFlags & MATERIAL_TOON) != 0u;
+    bool subsurface = marked && !toon && materials[materialIndex].subsurface.w > 0.0 && !isOff(OFF_SUBSURFACE);
+    float clearcoat = marked ? 0.0 : max(emissiveClearcoat.a, 0.0);
     float translucency = max(-emissiveClearcoat.a, 0.0);
     // Foliage is marked by a negative channel. Its cut-out leaves are too thin for the depth
     // buffer, which holds only the front leaf, so it gets no contact shadows.
@@ -559,8 +648,9 @@ void main() {
     }
 
     // With Graphics.Specular off every surface is plain diffuse: metals in their base colour, no coat, and a zero f0,
-    // so shade() lights only the diffuse part.
-    bool specular = !isOff(OFF_SPECULAR);
+    // so shade() lights only the diffuse part. A toon surface is drawn so too, its reflections being too busy for a
+    // flat look; its shine is toonLight()'s hard spot.
+    bool specular = !isOff(OFF_SPECULAR) && !toon;
     if (!specular) {
         metallic = 0.0;
         clearcoat = 0.0;
@@ -607,15 +697,18 @@ void main() {
     vec4 shadowMask = lightmapped ? textureLod(shadowMaskTexture, inUv, 0.0) : vec4(1.0);
     float diffuseAo = ao;
     vec3 softDiffuse;
+    // A toon surface takes its soft light as it comes from straight up, the same all over, so its shape is drawn by
+    // its bands alone.
+    vec3 softNormal = toon ? vec3(0.0, 1.0, 0.0) : bentNormal;
     if (lightmapped) {
         diffuseAo = min(normalRoughnessAo.w, 1.0) * mix(1.0, screenAo, LIGHTMAP_OCCLUSION);
         softDiffuse = baked.rgb;
         if (bakedWeight < 1.0) {
             diffuseAo = mix(ao, diffuseAo, bakedWeight);
-            softDiffuse = mix(softLight(position, bentNormal, v), baked.rgb, bakedWeight);
+            softDiffuse = mix(softLight(position, softNormal, v), baked.rgb, bakedWeight);
         }
     } else {
-        softDiffuse = softLight(position, bentNormal, v);
+        softDiffuse = softLight(position, softNormal, v);
     }
 
     vec3 diffuseColor = baseColor * (1.0 - metallic) * multiBounceOcclusion(diffuseAo, baseColor);
@@ -645,6 +738,9 @@ void main() {
     }
 
     vec3 color = environmentLight * environmentIntensity + environmentDiffuse + emissiveClearcoat.rgb;
+    if (toon) {
+        color += toonRim(materials[materialIndex], nDotV);
+    }
 
     // Subsurface materials keep the diffuse light of every light apart, for the blur.
     Surface surface = Surface(n, v, nDotV, alpha, f0, multiscatter, baseColor, metallic, clearcoat, translucency, transmissionTint);
@@ -669,6 +765,12 @@ void main() {
             }
         }
         visibility = maskedVisibility(bakedWeight, shadowMask, frame.lights[i].radiance.w, frame.lights[i].direction.w > 0.5, visibility);
+        // A toon surface's bands take the shadow in with the angle, so a shadow's edge is a band's edge too.
+        if (toon) {
+            toonLight(surface, l, visibility, materials[materialIndex], diffuseLit, specularLit);
+            visibility = 1.0;
+        }
+
         vec3 reaching = sunlightReaching(position, l, i) * visibility;
         if (subsurface) {
             scattered += diffuseLit * reaching;
@@ -700,6 +802,11 @@ void main() {
         bool shadowed = light.radianceShadow.w >= 0.0;
         float visibility = shadowed ? localShadow(light, position, lightSide, l) : screenAo;
         visibility = maskedVisibility(bakedWeight, shadowMask, localMaskChannel(light), shadowed, visibility);
+        if (toon) {
+            toonLight(surface, l, visibility, materials[materialIndex], diffuseLit, specularLit);
+            visibility = 1.0;
+        }
+
         vec3 arriving = light.radianceShadow.rgb * reaching * visibility;
         if (subsurface) {
             scattered += diffuseLit * arriving;
@@ -707,6 +814,13 @@ void main() {
         } else {
             color += (diffuseLit + specularLit) * arriving;
         }
+    }
+
+    // An outline is ink on the surface, so it's drawn over the lit colour and then fogged and tinted like the rest.
+    if ((markedFlags & MATERIAL_OUTLINE) != 0u && frame.outline.w > 0.0) {
+        float ink = outlineCoverage(n, length(position - frame.cameraPosition.xyz));
+        color = mix(color, frame.outline.rgb, ink);
+        scattered *= 1.0 - ink;
     }
 
     // Water tints everything on its way to the camera, which the blur can't redo, so

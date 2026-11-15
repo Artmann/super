@@ -59,6 +59,12 @@ public sealed record ModelMaterialShader(string Name, Vector4[] Parameters, stri
 /// <param name="Dirt">Dirt, laid in hollows and near each mesh's foot.</param>
 public sealed record ModelMaterialMasks(int Texture, MaterialLayer Wear, MaterialLayer Dirt);
 
+/// <summary>A cooked material's cel shading. See <see cref="Material.Toon"/>.</summary>
+/// <param name="Steps">How many bands the light falls into, from 1 to <see cref="ToonShading.MostSteps"/>.</param>
+/// <param name="Ramp">The ramp texture's index in <see cref="ModelData.Textures"/>, or -1 for plain bands.</param>
+/// <param name="Rim">Light added along the shape's outline.</param>
+public readonly record struct ModelMaterialToon(int Steps, int Ramp, Vector3 Rim);
+
 /// <summary>One run of triangles sharing a material.</summary>
 public struct ModelPart
 {
@@ -80,6 +86,7 @@ public sealed class ModelData
     // Marks the optional sections after the textures, which a model without them leaves out, so its bytes, and the bake
     // ids made from them, stay as they were before the section existed. The end of the stream ends the file.
     private const byte OcclusionSection = 1;
+    private const byte ToonSection = 2;
 
     private const byte TextureInside = 0;
     private const byte TextureByHash = 1;
@@ -136,6 +143,17 @@ public sealed class ModelData
     /// <summary>Material <paramref name="material"/>'s occlusion texture's index, or -1 when it has none.</summary>
     public int OcclusionOf(int material) =>
         material < MaterialOcclusion.Length ? MaterialOcclusion[material] : -1;
+
+    /// <summary>
+    /// For each material, its cel shading, or null for the physically based look: see <see cref="Material.Toon"/>. In
+    /// the same order as <see cref="Materials"/>. Empty when no material is toon; otherwise it must be as long as
+    /// <see cref="Materials"/>. Read it with <see cref="ToonOf"/>.
+    /// </summary>
+    public ModelMaterialToon?[] MaterialToon { get; init; } = [];
+
+    /// <summary>Material <paramref name="material"/>'s cel shading, or null when it has none.</summary>
+    public ModelMaterialToon? ToonOf(int material) =>
+        material < MaterialToon.Length ? MaterialToon[material] : null;
 
     /// <summary>
     /// What texture <paramref name="texture"/> reads past its edge: <see cref="TextureEdges.Clamp"/> when it's
@@ -229,6 +247,7 @@ public sealed class ModelData
         RequireOnePerMaterial(MaterialShaders.Length, "material shaders", "or none");
         RequireOnePerMaterial(MaterialMasks.Length, "material masks", "or none");
         RequireOnePerMaterial(MaterialOcclusion.Length, "occlusion textures", "-1 for none, or none at all");
+        RequireOnePerMaterial(MaterialToon.Length, "toon settings", "null for none, or none at all");
 
         var stream = new MemoryStream();
         using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
@@ -332,35 +351,53 @@ public sealed class ModelData
             }
         }
 
-        WriteOcclusion(writer);
+        WriteSections(writer);
     }
 
-    // The optional section after the textures. A model without occlusion writes nothing here.
-    private void WriteOcclusion(BinaryWriter writer)
+    // The optional sections after the textures, each only when a material has what it holds, so a model without them
+    // writes nothing here.
+    private void WriteSections(BinaryWriter writer)
     {
         if (MaterialOcclusion.Length != 0)
         {
             writer.Write(OcclusionSection);
             WriteArray(writer, MaterialOcclusion);
         }
+
+        if (MaterialToon.Length != 0)
+        {
+            writer.Write(ToonSection);
+            WriteArray(writer, MaterialToon.Select(toon => toon is { } t ? new StoredToon(t.Steps, t.Ramp, t.Rim) : default).ToArray());
+        }
     }
 
-    // The occlusion section, or nothing when the stream ends with the textures.
-    private static int[] ReadOcclusion(Stream stream, BinaryReader reader, string name)
+    // The optional sections, until the stream ends.
+    private static (int[] Occlusion, ModelMaterialToon?[] Toon) ReadSections(Stream stream, BinaryReader reader, string name)
     {
-        int section = stream.ReadByte();
-        if (section == -1)
+        int[] occlusion = [];
+        ModelMaterialToon?[] toon = [];
+        for (int section = stream.ReadByte(); section != -1; section = stream.ReadByte())
         {
-            return [];
+            if (section == OcclusionSection)
+            {
+                occlusion = ReadArray<int>(reader);
+            }
+            else if (section == ToonSection)
+            {
+                toon = [.. ReadArray<StoredToon>(reader).Select(s => s.Steps > 0 ? new ModelMaterialToon(s.Steps, s.Ramp, s.Rim) : (ModelMaterialToon?)null)];
+            }
+            else
+            {
+                throw new InvalidDataException($"{name} is damaged: it has the unknown section {section} after its textures. Cook it again.");
+            }
         }
 
-        if (section != OcclusionSection)
-        {
-            throw new InvalidDataException($"{name} is damaged: it has the unknown section {section} after its textures. Cook it again.");
-        }
-
-        return ReadArray<int>(reader);
+        return (occlusion, toon);
     }
+
+    // A material's toon settings as the file keeps them, with 0 steps for a material that isn't toon.
+    [StructLayout(LayoutKind.Sequential)]
+    private readonly record struct StoredToon(int Steps, int Ramp, Vector3 Rim);
 
     public static ModelData Read(string path)
     {
@@ -425,7 +462,7 @@ public sealed class ModelData
             }
         }
 
-        int[] occlusion = ReadOcclusion(stream, reader, name);
+        var (occlusion, toon) = ReadSections(stream, reader, name);
         return new ModelData
         {
             Vertices = vertices,
@@ -435,6 +472,7 @@ public sealed class ModelData
             MaterialShaders = shaders,
             MaterialMasks = masks,
             MaterialOcclusion = occlusion,
+            MaterialToon = toon,
             Textures = textures,
             Skeleton = skeleton,
             Clips = clips,

@@ -74,9 +74,25 @@ internal sealed unsafe class ResourceTable : IDisposable
         /// <summary>White without one. <see cref="MaterialFlags.OcclusionOnUv2"/> says which UV set reads it.</summary>
         public uint OcclusionTexture;
 
-        /// <summary>Unused: std430 rounds the struct up to a whole 16 bytes after <see cref="OcclusionTexture"/>.</summary>
-        public Vector3 EndPadding;
+        /// <summary>How many bands a toon material's light falls into, 0 with a ramp or for a material that isn't toon.</summary>
+        public float ToonSteps;
+
+        /// <summary>The toon ramp, white without one.</summary>
+        public uint ToonRamp;
+
+        /// <summary>Unused, so the rim lands on a 16-byte boundary.</summary>
+        public float ToonPadding;
+
+        /// <summary>The toon rim's light in rgb; a is unused.</summary>
+        public Vector4 ToonRim;
     }
+
+    /// <summary>
+    /// The flag bit a toon material has on the GPU, set from <see cref="Material.Toon"/> rather than from
+    /// <see cref="MaterialFlags"/>, so a material can't be marked toon without its settings. MATERIAL_TOON in
+    /// material_data.glsl.
+    /// </summary>
+    internal const uint ToonFlag = 1u << 16;
 
     private readonly VulkanContext _context;
     private readonly Sampler _sampler;
@@ -109,12 +125,12 @@ internal sealed unsafe class ResourceTable : IDisposable
 
     /// <summary>
     /// Texture slots a material can name: base colour, normal, surface, emissive, height,
-    /// detail colour, detail normal, mask and occlusion, then the four shader textures.
+    /// detail colour, detail normal, mask, occlusion and toon ramp, then the four shader textures.
     /// </summary>
     public const int TexturesPerMaterial = OwnTextures + ShaderTextures.Length;
 
     /// <summary>How many of a material's texture slots come before its shader textures.</summary>
-    private const int OwnTextures = 9;
+    private const int OwnTextures = 10;
 
     public readonly DescriptorSetLayout Layout;
     public readonly DescriptorSet Set;
@@ -534,11 +550,29 @@ internal sealed unsafe class ResourceTable : IDisposable
         owned[6] = material.DetailNormalTexture?.Index ?? -1;
         owned[7] = material.MaskTexture?.Index ?? -1;
         owned[8] = material.OcclusionTexture?.Index ?? -1;
+        owned[9] = WriteToon(ref gpu, material.Toon);
         for (int i = 0; i < ShaderTextures.Length; i++)
         {
             owned[OwnTextures + i] = material.ShaderTextures[i]?.Index ?? -1;
         }
 
+    }
+
+    // A toon material's flag, bands or ramp, and rim, and the ramp's texture slot for the material's own, -1 for none.
+    // Plain bands, and a material that isn't toon, keep the white texture in the ramp's slot.
+    private int WriteToon(ref GpuMaterial gpu, ToonShading? shading)
+    {
+        gpu.ToonRamp = (uint)_white.Index;
+        if (shading is not { } toon)
+        {
+            return -1;
+        }
+
+        gpu.Flags |= ToonFlag;
+        gpu.ToonSteps = toon.Ramp is null ? toon.Steps : 0f;
+        gpu.ToonRamp = (uint)(toon.Ramp ?? _white).Index;
+        gpu.ToonRim = new Vector4(toon.Rim, 0f);
+        return toon.Ramp?.Index ?? -1;
     }
 
     public void Dispose()

@@ -448,6 +448,15 @@ public sealed class Content
         RequireTexture(surface.DetailColorTexture, nameof(surface.DetailColorTexture));
         RequireTexture(surface.DetailNormalTexture, nameof(surface.DetailNormalTexture));
         RequireTexture(surface.OcclusionTexture, nameof(surface.OcclusionTexture));
+        if (surface.Toon is { } toon)
+        {
+            RequireTexture(toon.Ramp, "Toon.Ramp");
+            if (new ToonShading { Steps = toon.Steps, Rim = toon.Rim }.Problem() is { } problem)
+            {
+                throw new ArgumentException($"The surface's {problem}", nameof(surface));
+            }
+        }
+
         if (surface.Shader is { } shader)
         {
             Require<ShaderItem>(shader.Index, nameof(surface.Shader), "shader");
@@ -654,22 +663,12 @@ public sealed class Content
 
     private static bool Names(Surface surface, TextureRef texture)
     {
-        if (surface.ColorTexture == texture || surface.NormalTexture == texture || surface.SurfaceTexture == texture
-            || surface.HeightTexture == texture || surface.DetailColorTexture == texture || surface.DetailNormalTexture == texture
-            || surface.OcclusionTexture == texture)
-        {
-            return true;
-        }
-
-        foreach (var named in surface.ShaderTextures)
-        {
-            if (named == texture)
-            {
-                return true;
-            }
-        }
-
-        return false;
+        TextureRef?[] own =
+        [
+            surface.ColorTexture, surface.NormalTexture, surface.SurfaceTexture, surface.HeightTexture,
+            surface.DetailColorTexture, surface.DetailNormalTexture, surface.OcclusionTexture, surface.Toon?.Ramp,
+        ];
+        return own.Contains(texture) || surface.ShaderTextures.Contains(texture);
     }
 
     /// <summary>Whether an item was let go. Cheap, so drawing can ask every frame.</summary>

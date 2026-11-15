@@ -3726,6 +3726,11 @@ public sealed unsafe class Renderer : IDisposable
                 material.OcclusionTexture = textures[occlusion];
             }
 
+            if (model.ToonOf(i) is { } toon)
+            {
+                material.Toon = new ToonShading { Steps = toon.Steps, Ramp = toon.Ramp >= 0 ? textures[toon.Ramp] : null, Rim = toon.Rim };
+            }
+
             materials[i] = CreateMaterial(finish is null ? material : finish(i, material));
         }
 
@@ -5057,6 +5062,7 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->Curve = PostGrade.Curve(post);
         (uniforms->HazeOrigin, uniforms->HazeColor) = Haze.Pack(view.CameraPosition, view.BackgroundFadeOrigin, view.BackgroundFadeColor);
         uniforms->Occlusion = Occlusion.Pack(view.Occlusion);
+        (uniforms->Outline, uniforms->OutlineFade) = Outlines.Pack(view.Outlines, _gBuffer.Extent.Width / (float)Math.Max(view.Width, 1), capturingProbe);
         uniforms->Fog = Fog.Pack(view.Fog, _off, capturingProbe, underwater: Underwater(view));
         var volumetric = VolumetricFog.Pack(view.Fog, _off, capturingProbe, underwater: Underwater(view));
         if (!_volumetricFog.HasTargets)

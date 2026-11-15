@@ -49,9 +49,10 @@ public sealed class ModelCooker : ICooker
     // cut-out's coverage too. 19: compression keeps the product's coverage on the colour, and leaves such a surface
     // whole. 20: every model has a second UV set fit for a lightmap, its own when it's usable and an unwrapped one when
     // it isn't. 21: a rig's vertices are in its rest pose. 22: skeletons keep the bounds of what each joint moves.
-    // 23: materials take an occlusion texture, the glTF file's or a rule's, on either UV set. The
+    // 23: materials take an occlusion texture, the glTF file's or a rule's, on either UV set. 24: a rule's toon and
+    // outline. The
     // graphs' own version is folded in, so a change to Super.Materials cooks every model again, since one may use a graph.
-    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 23);
+    public int Version { get; } = unchecked(MaterialGraphs.Version * 31 + 24);
 
     public IReadOnlyList<string> Extensions { get; } = [".glb", ".gltf", ".fbx", ".obj"];
 
@@ -187,6 +188,7 @@ public sealed class ModelCooker : ICooker
         var materialNames = new List<string>();
         var shaders = new List<ModelMaterialShader?>();
         var occlusions = new List<WantedOcclusion?>();
+        var toons = new List<ModelMaterialToon?>();
 
         // The width in metres of each material's graph, or 0 for a material without one.
         var graphWidths = new List<float>();
@@ -286,6 +288,7 @@ public sealed class ModelCooker : ICooker
             {
                 var material = ImportMaterial(assimp, scene->MMaterials[i], context, out string materialName, out float graphWidth);
                 occlusions.Add(OcclusionWanted(assimp, scene->MMaterials[i], materialName, context));
+                toons.Add(ImportToon(materialName, context));
                 textures.WidenRoughness(material.SurfaceTexture, material.NormalTexture);
                 materials.Add(material);
                 materialNames.Add(materialName);
@@ -456,6 +459,7 @@ public sealed class ModelCooker : ICooker
             MaterialShaders = shaders.Any(shader => shader is not null) ? shaders.ToArray() : [],
             MaterialMasks = masks.Any(mask => mask is not null) ? masks : [],
             MaterialOcclusion = occlusion,
+            MaterialToon = toons.Any(toon => toon is not null) ? toons.ToArray() : [],
             Textures = textures.ToArray(),
             Skeleton = skeleton,
             Clips = clips.ToArray(),
@@ -1214,6 +1218,35 @@ public sealed class ModelCooker : ICooker
     private sealed record WantedOcclusion(string File, bool OnUv2, string? NamedBy);
 
     /// <summary>
+    /// The material rule's <c>toon</c>, with its ramp cooked as linear data, or null for none. Steps out of range, or a
+    /// rim that isn't three numbers of 0 or more, stop the cook.
+    /// </summary>
+    private static ModelMaterialToon? ImportToon(string materialName, MaterialContext context)
+    {
+        if (RuleFor(context.Settings, materialName)?.Toon is not { } rule)
+        {
+            return null;
+        }
+
+        void Error(string message) => context.Output.Error($"{context.Prefix}material {materialName}: {message}");
+        if (rule.Rim is { } rim && rim.Length != 3)
+        {
+            Error($"toon rim must be three numbers, red, green and blue, not {rim.Length}.");
+            return null;
+        }
+
+        var shading = new ToonShading { Steps = rule.Steps, Rim = rule.Rim is { } r ? new Vector3(r[0], r[1], r[2]) : Vector3.Zero };
+        if (shading.Problem() is { } problem)
+        {
+            Error(problem);
+            return null;
+        }
+
+        int ramp = context.Textures.Add(rule.Ramp, TextureKind.Linear, namedBy: materialName);
+        return new ModelMaterialToon(shading.Steps, ramp, shading.Rim);
+    }
+
+    /// <summary>
     /// The occlusion texture a material wants: the rule's own, or else the one a glTF file links, which Assimp files as
     /// its lightmap, unless the rule says <c>noOcclusionMap</c>. Null for none, or when the rule's UV set is wrong or
     /// the file's is past the two the cook keeps, which was reported.
@@ -1692,7 +1725,8 @@ public sealed class ModelCooker : ICooker
             | (rule.DetailMask ? MaterialFlags.DetailMask : 0)
             | (rule.WorldVariation ? MaterialFlags.WorldVariation : 0)
             | (rule.Dithered ? MaterialFlags.Dithered : 0)
-            | (rule.Puddles ? MaterialFlags.Puddles : 0);
+            | (rule.Puddles ? MaterialFlags.Puddles : 0)
+            | (rule.Outline ? MaterialFlags.Outline : 0);
         var emissive = rule.EmissiveColor is { Length: 3 } e
             ? new Vector3(e[0], e[1], e[2])
             : rule.Emissive != null ? Vector3.One : Vector3.Zero;

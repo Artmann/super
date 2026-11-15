@@ -696,6 +696,7 @@ internal sealed class SceneRenderer : IDisposable
             DetailNormalTexture = Texture(surface.DetailNormalTexture, content),
             DetailScale = surface.DetailScale,
             OcclusionTexture = Texture(surface.OcclusionTexture, content),
+            Toon = surface.Toon is { } toon ? new ToonShading { Steps = toon.Steps, Ramp = Texture(toon.Ramp, content), Rim = toon.Rim } : null,
             Subsurface = surface.Subsurface,
             Shader = surface.Shader is { } shader ? Require<LoadedShader>(shader.Index, content).Handle : null,
         };
@@ -813,7 +814,7 @@ internal sealed class SceneRenderer : IDisposable
         (surface.Opacity < 1f ? MaterialFlags.Transparent : 0) | (surface.DetailMask ? MaterialFlags.DetailMask : 0)
         | (surface.WorldVariation ? MaterialFlags.WorldVariation : 0) | (surface.Dithered ? MaterialFlags.Dithered : 0)
         | (surface.Puddles ? MaterialFlags.Puddles : 0) | (surface.Foliage ? MaterialFlags.Foliage | MaterialFlags.TwoSided : 0)
-        | (surface.OcclusionOnUv2 ? MaterialFlags.OcclusionOnUv2 : 0);
+        | (surface.OcclusionOnUv2 ? MaterialFlags.OcclusionOnUv2 : 0) | (surface.Outline ? MaterialFlags.Outline : 0);
 
     private TextureHandle? Texture(TextureRef? texture, Content content) =>
         texture is { } named ? Require<LoadedTexture>(named.Index, content).Handle : null;
@@ -1110,6 +1111,7 @@ internal sealed class SceneRenderer : IDisposable
             Bones = _bones.AsSpan(0, _boneCount),
             Shadows = FrameShadows(view, aspect),
             Occlusion = view.Occlusion,
+            Outlines = view.OutlineSettings,
             LightProbes = view.LightProbeVolume,
             BakedSpace = view.BakedSpace,
             BakedChunks = view.PlacedBakedChunks,

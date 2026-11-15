@@ -17,6 +17,7 @@ What it does for every game, with no setup:
 - [Glass](#glass) that bends and frosts what's behind it, car paint clearcoat and surfaces that glow
 - [Height maps](#height-and-detail-maps) that sink mortar and grooves into a flat surface, and detail maps for fine grain
 - [Occlusion maps](#occlusion-maps) that darken the soft light in cracks, read through either UV set
+- [Toon shading](#toon-shading-and-outlines) in flat bands with ink outlines, for any surface beside physically based ones
 - Skin, wax and jade that [let light spread under the surface](#skin-and-wax)
 - Cut-out leaves, grass and cobwebs that [keep their shape in the distance](#models), since the cook keeps their alpha coverage in every mip
 - Soft, lit [particles](views.md#particles) for dust and smoke
@@ -1668,7 +1669,7 @@ as the shared `assets` folder does for Poly Haven's `textures` folders:
 ```
 
 Other options are the `baseColor`, `normal`, `surface`, `emissive` and [`occlusion`](#occlusion-maps)
-textures, `occlusionUv`, `noOcclusionMap`,
+textures, `occlusionUv`, `noOcclusionMap`, [`toon` and `outline`](#toon-shading-and-outlines),
 `color`, `emissiveColor`, `metallic`, `roughness`, `clearcoat`, `subsurface`, `heightDepth`,
 `detailScale`, `detailMask`, `twoSided`, `transparent`, `opacity`, `ior`, `noNormalMap`,
 `worldVariation`, `dithered`, `puddles`, `wind` and `rotateY`, and `graph`, `graphSize`, `detailGraph` and
@@ -2231,6 +2232,70 @@ The [Bricks example](../examples/Bricks) darkens its joints with occlusion maps 
 O turns them off.
 
 ![The Bricks wall before and after its occlusion maps: on the right the mortar and the bricks' rounded edges are darker where the sky's light can't reach, while the sunlit faces stay as they were](media/occlusion-maps.webp)
+
+## Toon shading and outlines
+
+A surface can be drawn as a cartoon instead of physically based: the light from the sun and
+lamps falls into a few flat bands, shine is a hard-edged spot, and an ink line runs round the
+shape. Both are the surface's own, so a cartoon character can stand in a physically based
+world, or the other way round.
+
+```csharp
+var snow = new Surface
+{
+    Color = new Vector3(0.92f, 0.94f, 1f),
+    Toon = new Toon(Steps: 2, Rim: new Vector3(0.25f, 0.3f, 0.4f)),
+    Outline = true,
+};
+ModelRef ball = content.Mesh(Shapes.Sphere(0.6f, surface: snow));
+```
+
+`Toon` has these settings:
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `Steps` | 3 | How many bands of light there are above the shade, from 1 (lit or not) to 16. The first band starts just past where the surface turns from the light |
+| `Ramp` | none | A linear texture read across its middle row, from the shade on its left to full light on its right, in place of plain bands, so its colours and the places they change pick the bands. Its end texels hold to the ends, so it can tile |
+| `Rim` | none | Linear light added in a band along the outline of the shape, where the surface turns away from the camera |
+
+The bands take a shadow in with the light's angle, so a shadow's edge is a band's edge too,
+and each sun and lamp makes its own bands. The soft light from the sky, the probes and the
+bake doesn't band: a toon surface takes it as it comes from straight up, the same all over,
+so the shade keeps its colour and the shape is drawn by the bands alone. A toon surface has
+no reflections, and a metal one is drawn in its own colour; its shine is a spot as bright as
+white where a surface smoother than a roughness of about 0.7 catches the light. It takes the
+G-buffer channel that clearcoat, foliage and subsurface use, so a toon surface has none of
+them. Transparent glass ignores `Toon`.
+
+An outline is drawn on the outlined surface itself, where a pixel a thickness away lies well
+behind it or faces another way: along the shape's silhouette and its sharp creases, never over
+what's behind. It's drawn before fog and underwater tinting, so it fades into the distance
+with the rest. The view sets how every outline looks:
+
+```csharp
+view.Outlines(color: new Vector3(0.05f, 0.03f, 0.02f), thickness: 2f, fadeStart: 20f, fadeEnd: 40f);
+```
+
+The colour is linear light, black when left out. The thickness is in the picture's pixels,
+from 0 for none to 8, whatever the render scale, 1.5 by default; the lines fade out from
+`fadeStart` to `fadeEnd` metres, 30 to 60 by default, so far-off things don't turn into
+smudges. Anything else throws, such as
+`The outline thickness must be from 0 to 8 pixels, not 9.` Like the view's other settings it
+goes back to the defaults each frame. Reflection probes capture no outlines.
+
+A cooked model takes both in a material rule: `"toon": true`, or
+`"toon": { "steps": 2, "ramp": "ramp.png", "rim": [0.25, 0.3, 0.4] }`, and `"outline": true`.
+The ramp is cooked as linear data and left uncompressed, so its bands stay sharp. Steps
+outside 1 to 16, a rim that isn't three numbers of 0 or more, and a missing ramp stop the
+cook, such as `material bark: toon steps 0 must be from 1 to 16.` A Rendition `Material` takes
+`Toon = new ToonShading { ... }` and `MaterialFlags.Outline`, and a `FrameView` its
+`Outlines`.
+
+The [Toon example](../examples/Toon) is a cartoon garden under a low sun with shadows, a
+lantern and fog, and a chrome ball that stays physically based. T draws everything the
+physically based way, and O turns the outlines off.
+
+![The Toon garden drawn physically based on the left and toon shaded on the right: on the right the snowman, mushroom and ring are lit in flat bands with hard edges and inked outlines, while the chrome ball looks the same on both sides](media/toon-shading.webp)
 
 ## Meshes along a spline
 
