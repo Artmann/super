@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.2.0](https://github.com/Artmann/super/compare/v1.1.0...v1.2.0) (2026-11-15)
+
+
+### Features
+
+* add ragdolls built from characters, and a Cannonball example ([788741b](https://github.com/Artmann/super/commit/788741bfa28969121603c912d116bc63046f062f))
+* cook an animation in place with inPlace, so a clip that walks plays on the spot ([b597874](https://github.com/Artmann/super/commit/b59787425271b0b289ad54ed471375f4c8d52ee6))
+* fade draws out with distance, dither between simpler versions and soften glass where it meets the scene ([68601cf](https://github.com/Artmann/super/commit/68601cf9d1e5dd2199f2912e63a32f9dbb746fcc))
+* fire each Cannonball shot at 80 to 100 percent of 18 m/s, so every shot lands a little differently ([9dbd584](https://github.com/Artmann/super/commit/9dbd584a5984219fffcac256e91569efcad4cd4d))
+* fire the Cannonball stuntman 25% harder and move the field out to where he lands ([c1f85db](https://github.com/Artmann/super/commit/c1f85db6745f03bece8998dde580ce00cd532f3b))
+* have the Cannonball stuntman rally the crowd after getting up, in place of clapping ([6aeb592](https://github.com/Artmann/super/commit/6aeb592030e0160f83da85681f35bfc2adc91106))
+* let characters and chosen materials keep decals off ([#114](https://github.com/Artmann/super/issues/114)) ([e0547dc](https://github.com/Artmann/super/commit/e0547dc3af4935a2b99857fcabd0e3d57a2d2993))
+* make the Cannonball stuntman bounce off the ground ([d0b592d](https://github.com/Artmann/super/commit/d0b592de839cc8b171f1fafcdcb121d145ae7013))
+* put balls on and around the last wall in Cannonball, and raise the camera over it ([27119e2](https://github.com/Artmann/super/commit/27119e29c22d19d981d3f5f46a1a2670b9d1654e))
+* read occlusion maps through either UV set ([#112](https://github.com/Artmann/super/issues/112)) ([c5e0a4c](https://github.com/Artmann/super/commit/c5e0a4c5bee58d84ba36482eb80e386dd98bf108))
+
+
+### Bug Fixes
+
+* find MoltenVK on macOS, so the renderer starts there for working on the engine ([2800ab2](https://github.com/Artmann/super/commit/2800ab23de29666904859f4646c415608e01c2ac))
+* follow the cannonball from ahead and above, so the wall doesn't hide the landing ([d735561](https://github.com/Artmann/super/commit/d735561e39b13e1f8b770bfa1cc728085990c4d8))
+* follow the cannonball from behind and above, so the camera looks over the wall ([0e077db](https://github.com/Artmann/super/commit/0e077db984ccfa61461459de08869df7c0dc8c55))
+* keep UiPointer's size in the Roe baseline as Windows counts it ([5dd2929](https://github.com/Artmann/super/commit/5dd2929d951cc57a9820b011af51451986b0b388))
+* leave the Cannonball tests out on CI, which doesn't have the Mixamo stuntman ([f1c397c](https://github.com/Artmann/super/commit/f1c397c1281f5ad44108c128ede3fe5c7f464ed1))
+* let a ragdoll's legs collide with each other ([1329557](https://github.com/Artmann/super/commit/132955742782bd41abba4361403cda9cd4cc0b89))
+
 ## [1.1.0](https://github.com/Artmann/super/compare/v1.0.0...v1.1.0) (2026-11-14)
 
 
