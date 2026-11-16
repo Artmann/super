@@ -282,6 +282,29 @@ public class FogVolumeTests
     }
 
     /// <summary>Places a volume with these settings under a Swedish culture, which writes decimals with a comma, and returns the error.</summary>
+    [Fact]
+    public void Fog_volumes_draw_in_a_game_that_sets_no_fog_of_its_own()
+    {
+        var noSky = SceneRenderer.FrameFog(null);
+        var skyWithoutFog = SceneRenderer.FrameFog(new SkySettings());
+
+        Assert.Equal(48f, VolumetricFog.Pack(noSky, 1, RenderEffects.None, false, false).X);
+        Assert.Equal(48f, VolumetricFog.Pack(skyWithoutFog, 1, RenderEffects.None, false, false).X);
+        Assert.Equal(0f, noSky.Density);
+        Assert.Equal(0f, skyWithoutFog.Density);
+    }
+
+    [Fact]
+    public void A_sky_whose_fog_turns_the_volume_off_keeps_it_off()
+    {
+        var fog = new FogSettings(0.01f) { VolumetricDistance = 0f };
+
+        var frame = SceneRenderer.FrameFog(new SkySettings { Fog = fog });
+
+        Assert.Equal(fog, frame);
+        Assert.Equal(0f, VolumetricFog.Pack(frame, 1, RenderEffects.None, false, false).X);
+    }
+
     private static ArgumentException ThrowsUnderSwedish(FogVolumeSettings settings)
     {
         var original = CultureInfo.CurrentCulture;

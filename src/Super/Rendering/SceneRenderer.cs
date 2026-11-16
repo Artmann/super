@@ -1063,8 +1063,13 @@ internal sealed class SceneRenderer : IDisposable
     /// <summary>Where the haze is measured from: the camera's focus when the sky asks for it, else the camera.</summary>
     internal static Vector3? HazeOrigin(SkySettings? sky, Camera shot) => sky is { HazeFromFocus: true } ? shot.Target : null;
 
-    /// <summary>The fog the sky asks for, or clear air without a sky.</summary>
-    internal static FogSettings FrameFog(SkySettings? sky) => sky?.Fog ?? default;
+    /// <summary>
+    /// The fog the sky asks for, or clear air where there's no sky or its fog was never set. Clear air is
+    /// <c>new FogSettings()</c>, not <c>default</c>: the struct's default skips its initializers, so its volumetric
+    /// distance would be 0 and the fog volumes, which need the volume, would never draw.
+    /// </summary>
+    internal static FogSettings FrameFog(SkySettings? sky) =>
+        sky is { Fog: var fog } && fog != default ? fog : new FogSettings();
 
     /// <summary>Which sun casts the shadows: the one marked to, or else the first.</summary>
     internal static int ShadowSun(ReadOnlySpan<SunLight> suns)
