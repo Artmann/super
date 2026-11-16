@@ -73,6 +73,25 @@ public sealed class LiveProbeTests(GpuFixture shared)
         Assert.Equal(0, probes.NewValidationErrors);
     }
 
+    [Fact]
+    public void Fog_in_a_closed_room_is_not_lit_by_the_sky()
+    {
+        using var probes = Open(traced: true);
+        var gpu = probes.Gpu;
+        var scene = probes.Scene(ProbeScenes.DarkClosedBox);
+        Settle(gpu, scene);
+
+        // The box's walls are nearly black, so the fog's own light is what it adds to the picture.
+        float withProbes = FogLight(gpu, scene, RenderEffects.None);
+        float withSky = FogLight(gpu, scene, RenderEffects.LightProbes);
+
+        Assert.True(withSky > 20f, $"Lit by the sky the fog only added {withSky:F1}, so the check proves nothing.");
+        Assert.True(
+            withProbes < withSky * 0.1f,
+            $"In the closed box the fog added {withProbes:F1} with the probes, against {withSky:F1} lit by the sky.");
+        Assert.Equal(0, probes.NewValidationErrors);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -685,6 +704,54 @@ public sealed class LiveProbeTests(GpuFixture shared)
 
         Assert.Fail($"The probes had not settled after {MaxFrames} frames.");
         return mostUpdated;
+    }
+
+    // How much a metre of fog of density 0.5 brightens the middle of the picture from the centre of the scene, in 0 to
+    // 255, with the effects given off as well as those that add noise or change the exposure from frame to frame. The
+    // fog is a box 1.6 metres across that stops 10 cm short of the closed box's walls, so the cells that reach past a
+    // wall, lit by the sky outside it, hold none.
+    private static float FogLight(GpuFixture gpu, ProbeScene scene, RenderEffects off)
+    {
+        var view = View(scene, Vector3.Zero);
+        view.Off = off | RenderEffects.AntiAliasing | RenderEffects.AutoExposure | RenderEffects.Bloom;
+        view.Fog = new FogSettings();
+        float clear = Brightness(Settled(gpu, view, scene));
+        view.FogVolumes = new FogVolumeDraw[]
+        {
+            new(FogShape.Box, Matrix4x4.CreateScale(1.6f) * Matrix4x4.CreateTranslation(0f, 0f, -0.2f),
+                new FogVolumeSettings(0.5f) { EdgeFade = 0f }),
+        };
+        float fogged = Brightness(Settled(gpu, view, scene));
+        return fogged - clear;
+    }
+
+    // The picture after the volumetric fog, which keeps 90% of last frame's light, has had 40 frames to settle.
+    private static byte[] Settled(GpuFixture gpu, FrameView view, ProbeScene scene)
+    {
+        for (int frame = 0; frame < 40; frame++)
+        {
+            gpu.Renderer.Render(view, scene.Draws);
+        }
+
+        return gpu.Renderer.Capture(view, scene.Draws, out _, out _);
+    }
+
+    // The mean of the middle quarter of a picture, in 0 to 255.
+    private static float Brightness(byte[] pixels)
+    {
+        float sum = 0f;
+        int count = 0;
+        for (int y = Size * 3 / 8; y < Size * 5 / 8; y++)
+        {
+            for (int x = Size * 3 / 8; x < Size * 5 / 8; x++)
+            {
+                int at = (y * Size + x) * 4;
+                sum += pixels[at] + pixels[at + 1] + pixels[at + 2];
+                count += 3;
+            }
+        }
+
+        return sum / count;
     }
 
     private static void Render(GpuFixture gpu, ProbeScene scene, Vector3 camera)

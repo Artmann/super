@@ -1270,6 +1270,11 @@ air really scatters, 0 leaves the light out of the fog, and more makes its halo
 stronger. A negative strength throws. A light's halo is cut by its own shadow where it
 casts one, so a lantern's beam shows as a cone.
 
+The soft light round the fog comes from the [light probes](#bounced-light) where they
+cover it, so mist in a closed room or a shaded corner stays dark instead of glowing with
+the sky. Where no probe reaches, as outside the probes' volume or with light probes off,
+the fog is lit by the sky as the plain fog is.
+
 The fog near the camera is kept in a grid of cells, one for every 8 by 8 pixels of the
 scene and 64 deep unless [`Graphics.VolumetricFogCellSize` and `VolumetricFogSlices`](#the-grids-cost)
 say otherwise: one cell for the first metre, then thin cells that get deeper further out. Each frame lights

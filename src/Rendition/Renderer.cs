@@ -5831,7 +5831,9 @@ public sealed unsafe class Renderer : IDisposable
 
         _volumetricFog.SetSources(
             new(_shadowSampler, _shadowPass.Target.View, ImageLayout.ShaderReadOnlyOptimal),
-            new(_environment.Sampler, _environment.Reflections, ImageLayout.ShaderReadOnlyOptimal));
+            new(_environment.Sampler, _environment.Reflections, ImageLayout.ShaderReadOnlyOptimal),
+            new(_linearSampler, _lightProbes.IrradianceView, ImageLayout.General),
+            new(_linearSampler, _lightProbes.DepthView, ImageLayout.General));
         foreach (ref var frame in _frames.AsSpan())
         {
             WriteVolumetricDescriptor(frame);

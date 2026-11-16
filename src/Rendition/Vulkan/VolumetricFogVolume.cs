@@ -17,6 +17,10 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
 {
     private const Format VolumeFormat = Format.R16G16B16A16Sfloat;
 
+    // Where probes.glsl reads the live light probes' atlases, in every set that includes it.
+    private const uint ProbeIrradianceBinding = 11;
+    private const uint ProbeDepthBinding = 12;
+
     private sealed class Volume(Image image, GpuAllocation memory, ImageView view)
     {
         public readonly Image Image = image;
@@ -67,10 +71,12 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
             new(3, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
             new(4, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
             new(FogVolumeBuffers.Binding, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
+            new(ProbeIrradianceBinding, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
+            new(ProbeDepthBinding, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
         ]);
         _pool = context.CreateDescriptorPool(
             2,
-            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 6),
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 10),
             new DescriptorPoolSize(DescriptorType.StorageImage, 4),
             new DescriptorPoolSize(DescriptorType.StorageBuffer, 2));
         context.AllocateSets(_pool, _setLayout, _sets);
@@ -85,21 +91,26 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
     }
 
     /// <summary>
-    /// Points the inject pass at the sun's shadow cascades and the sky the fog takes its colour
-    /// from. Only while no frame in flight uses them.
+    /// Points the inject pass at the sun's shadow cascades, the sky the fog takes its colour
+    /// from where no light probe can tell, and the live light probes' two atlases, which the
+    /// shader's probes.glsl reads at bindings 11 and 12. Only while no frame in flight uses them.
     /// </summary>
-    public void SetSources(in DescriptorImageInfo sunShadow, in DescriptorImageInfo sky)
+    public void SetSources(
+        in DescriptorImageInfo sunShadow, in DescriptorImageInfo sky,
+        in DescriptorImageInfo probeIrradiance, in DescriptorImageInfo probeDepth)
     {
-        var shadowInfo = sunShadow;
-        var skyInfo = sky;
-        var writes = stackalloc WriteDescriptorSet[4];
+        var infos = stackalloc DescriptorImageInfo[] { sunShadow, sky, probeIrradiance, probeDepth };
+        uint* bindings = stackalloc uint[] { 0, 1, ProbeIrradianceBinding, ProbeDepthBinding };
+        var writes = stackalloc WriteDescriptorSet[8];
         for (int i = 0; i < 2; i++)
         {
-            writes[2 * i] = ImageWrite(_sets[i], 0, DescriptorType.CombinedImageSampler, &shadowInfo);
-            writes[2 * i + 1] = ImageWrite(_sets[i], 1, DescriptorType.CombinedImageSampler, &skyInfo);
+            for (int s = 0; s < 4; s++)
+            {
+                writes[4 * i + s] = ImageWrite(_sets[i], bindings[s], DescriptorType.CombinedImageSampler, &infos[s]);
+            }
         }
 
-        _context.Api.UpdateDescriptorSets(_context.Device, 4, writes, 0, null);
+        _context.Api.UpdateDescriptorSets(_context.Device, 8, writes, 0, null);
     }
 
     /// <summary>

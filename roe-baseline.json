@@ -1961,7 +1961,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteTargetDescriptors",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 93
+      "metric": 95
     },
     {
       "kind": "long-method",
@@ -3443,7 +3443,7 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5863
+      "metric": 5865
     },
     {
       "kind": "large-file",
@@ -3485,7 +3485,7 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1184
+      "metric": 1189
     },
     {
       "kind": "large-file",

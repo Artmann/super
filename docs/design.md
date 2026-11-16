@@ -1583,12 +1583,20 @@ metre, σ_s·L. σ is the height fog's `fogDensity()` plus each fog volume's den
 (see "Fog volumes" below), and σ_s is the same sum with each volume's density times its
 colour, so height fog scatters what it stops and a coloured volume stops every colour but
 scatters only its own. When σ is 0 the cell skips the lights. L is
-the sky light `fogSkyLight()` (the plain fog's colour without its sun glow), plus each sun's
+the ambient `fogAmbient()`, plus each sun's
 radiance times one tap of its shadow cascade times the Henyey-Greenstein phase of the angle
 between the view ray and the sun, plus each point and spot light from the cell's cluster
 times `localLightReaching()`, one tap of its shadow tile (`localShadowInAir`), its
 `Volumetric` strength (`fade.z` in `light_data.glsl`) and the phase. The sun's shadow in air
-fades out with distance as the surfaces' does. Then the cell's world point is projected
+fades out with distance as the surfaces' does. `fogAmbient()` is the mean of
+`probeIrradiance()` facing up and facing down, which is E/π, so each half reads the
+radiance of an even sky, and the air scatters the same every way, so no 1/π is needed.
+It reads the probe atlases at set 1 bindings 11 and 12 (`PROBE_ATLAS_SET 1`), when the
+frame has a probe volume or cascades. Where neither half finds a probe, it falls back to the
+sky light `fogSkyLight()` (the plain fog's colour without its sun glow). The probe
+counts are zero while a probe is captured, so the fallback covers that too, though the
+fog is off then anyway. Cells that straddle a wall take light from probes on both sides,
+so fog touching a closed room's wall leaks a cell's width of the outside light. Then the cell's world point is projected
 with `previousViewProjection`; if it lands on screen and inside last frame's slices, the
 history at that spot is blended in at 90%. Off screen, outside the slices, or on the
 first frame after the fog was skipped, the new value stands alone.
