@@ -48,6 +48,9 @@ internal sealed class SceneRenderer : IDisposable
     /// </summary>
     private readonly Dictionary<Surface, (MaterialHandle Handle, long Frame)> _decalMaterials = [];
 
+    /// <summary>The materials of generated meshes without textures of their own, one for each surface.</summary>
+    private readonly SharedMaterials _meshMaterials;
+
     /// <summary>
     /// How many decal materials are kept. Past this, the ones this frame didn't use are let go, so a game that
     /// makes a new <see cref="Surface"/> value every frame doesn't fill the material slots. Twice what one
@@ -73,6 +76,7 @@ internal sealed class SceneRenderer : IDisposable
         _renderer.BakeFadeSeconds = 0f;
         // White, so a draw's color comes out exactly as asked. CubeColor greys the rest.
         _defaultMaterial = _renderer.CreateMaterial(CreateMaterial(Vector3.One));
+        _meshMaterials = new SharedMaterials(_renderer.DestroyMaterial);
         _items = new ContentLoader<Loaded>(
             new LoadedModel([_renderer.CreateDrawItem(Cube.Vertices, Cube.Indices, _defaultMaterial)], null, null),
             PrepareItem,
@@ -680,11 +684,38 @@ internal sealed class SceneRenderer : IDisposable
         _ => throw new InvalidOperationException($"Content can't upload a {prepared.GetType().Name}."),
     };
 
-    /// <summary>Each generated mesh gets its own material, built from what its surface named.</summary>
+    /// <summary>
+    /// A generated mesh's material, built from what its surface named. Meshes with the same surface share one; a mesh
+    /// with its own texture gets its own.
+    /// </summary>
     private LoadedModel UploadMesh(GeneratedMesh mesh, TextureData? owned, Content content)
     {
         var surface = mesh.Surface;
         TextureHandle? ownedTexture = owned is null ? null : _renderer.CreateTexture(owned);
+        if (ownedTexture is not null || !_meshMaterials.TryShare(surface, out var handle))
+        {
+            handle = _renderer.CreateMaterial(MeshMaterial(surface, ownedTexture, content));
+            if (ownedTexture is null)
+            {
+                _meshMaterials.Add(surface, handle);
+            }
+        }
+
+        try
+        {
+            var part = _renderer.CreateDrawItem(mesh.Vertices, mesh.Indices, handle, mesh.Simplify);
+            return new LoadedModel([part], handle, ownedTexture);
+        }
+        catch when (ownedTexture is null)
+        {
+            _meshMaterials.Release(handle);
+            throw;
+        }
+    }
+
+    /// <summary>The material a generated mesh draws with: its surface's values, textures and shader.</summary>
+    private Material MeshMaterial(Surface surface, TextureHandle? ownedTexture, Content content)
+    {
         var material = MaterialOf(surface) with
         {
             BaseColorTexture = ownedTexture ?? Texture(surface.ColorTexture, content),
@@ -715,9 +746,7 @@ internal sealed class SceneRenderer : IDisposable
             material.ShaderArrays[i] = Require<LoadedTextureArray>(surface.ShaderArrays[i].Index, content).Handle;
         }
 
-        var handle = _renderer.CreateMaterial(material);
-        var part = _renderer.CreateDrawItem(mesh.Vertices, mesh.Indices, handle, mesh.Simplify);
-        return new LoadedModel([part], handle, ownedTexture);
+        return material;
     }
 
     /// <summary>The view's decals, each with its surface's material, or none while decals are off.</summary>
@@ -845,10 +874,14 @@ internal sealed class SceneRenderer : IDisposable
         {
             case LoadedModel { Material: { } material } generated:
                 _renderer.DestroyMesh(generated.Parts[0].Mesh);
-                _renderer.DestroyMaterial(material);
                 if (generated.OwnedTexture is { } owned)
                 {
+                    _renderer.DestroyMaterial(material);
                     _renderer.DestroyTexture(owned);
+                }
+                else
+                {
+                    _meshMaterials.Release(material);
                 }
 
                 break;
@@ -1149,8 +1182,8 @@ internal sealed class SceneRenderer : IDisposable
     private abstract record Loaded;
 
     /// <summary>
-    /// A model's parts. Material and OwnedTexture are set for a generated mesh, which made
-    /// them itself. JointCount is 0 for a model with no skeleton.
+    /// A model's parts. Material is set for a generated mesh: its own when it has an OwnedTexture,
+    /// otherwise shared through SharedMaterials. JointCount is 0 for a model with no skeleton.
     /// </summary>
     private sealed record LoadedModel(DrawItem[] Parts, MaterialHandle? Material, TextureHandle? OwnedTexture, int JointCount = 0) : Loaded;
 
