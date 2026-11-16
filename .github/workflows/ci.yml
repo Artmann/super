@@ -16,9 +16,14 @@ permissions:
 
 jobs:
   build-and-test:
-    # Super is Windows-only for now.
-    runs-on: windows-latest
-    timeout-minutes: 30
+    # Super runs on Windows and on Apple silicon Macs. The tests need no GPU, so the Mac runner's lack of one doesn't
+    # matter.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
 
     steps:
       - uses: actions/checkout@v4
@@ -39,18 +44,23 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # The build compiles shaders with glslc, which comes with the Vulkan SDK.
-      # The tests themselves need no GPU.
+      # The build compiles shaders with glslc, which comes with the Vulkan SDK on Windows and with shaderc on a Mac.
+      # The tests themselves need no GPU. The recording tests run ffmpeg for real.
+      - name: Install glslc and ffmpeg
+        if: runner.os == 'macOS'
+        run: brew install shaderc ffmpeg
+
       - uses: jakoch/install-vulkan-sdk-action@v1
+        if: runner.os == 'Windows'
         with:
           vulkan_version: latest
           install_runtime: false
           cache: true
           stripdown: true
 
-      # The recording tests run ffmpeg for real. Taking ffmpeg.exe straight from the build's zip takes a few
-      # seconds, where Chocolatey took about 30.
+      # Taking ffmpeg.exe straight from the build's zip takes a few seconds, where Chocolatey took about 30.
       - name: Install ffmpeg
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
@@ -78,7 +88,7 @@ jobs:
         id: cook-key
         shell: pwsh
         run: |
-          "SUPER_CACHE=$env:RUNNER_TEMP\super-cache" >> $env:GITHUB_ENV
+          "SUPER_CACHE=$(Join-Path $env:RUNNER_TEMP super-cache)" >> $env:GITHUB_ENV
           "month=$(Get-Date -Format yyyy-MM)" >> $env:GITHUB_OUTPUT
           "sdk=$(dotnet --version)" >> $env:GITHUB_OUTPUT
 
@@ -98,7 +108,7 @@ jobs:
       - name: List cook cache entries
         if: steps.cook-cache.outputs.cache-hit != 'true'
         shell: pwsh
-        run: ./.github/scripts/list-cook-cache.ps1 -Cache $env:SUPER_CACHE -Out "$env:RUNNER_TEMP\cook-before.txt"
+        run: ./.github/scripts/list-cook-cache.ps1 -Cache $env:SUPER_CACHE -Out "$env:RUNNER_TEMP/cook-before.txt"
 
       # The solution builds the cook tool itself, and every game builds it too, for its cook. MSBuild can run those
       # requests on two nodes at once, and in a clean checkout both compile the cook libraries into the same obj
@@ -115,9 +125,9 @@ jobs:
         if: steps.cook-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          ./.github/scripts/list-cook-cache.ps1 -Cache $env:SUPER_CACHE -Out "$env:RUNNER_TEMP\cook-after.txt"
-          $before = (Get-FileHash "$env:RUNNER_TEMP\cook-before.txt").Hash
-          $after = (Get-FileHash "$env:RUNNER_TEMP\cook-after.txt").Hash
+          ./.github/scripts/list-cook-cache.ps1 -Cache $env:SUPER_CACHE -Out "$env:RUNNER_TEMP/cook-after.txt"
+          $before = (Get-FileHash "$env:RUNNER_TEMP/cook-before.txt").Hash
+          $after = (Get-FileHash "$env:RUNNER_TEMP/cook-after.txt").Hash
           $changed = $before -ne $after
           "changed=$($changed.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
           if ($changed) {
@@ -136,8 +146,10 @@ jobs:
           key: ${{ steps.cook-cache.outputs.cache-primary-key }}
 
       # Roe fails the run on dead code, and on health findings that roe-baseline.json doesn't already record.
-      # Duplicates are printed but don't fail it, since they can't be baselined yet.
+      # Duplicates are printed but don't fail it, since they can't be baselined yet. It runs on Windows only, since it
+      # counts some types' members differently on a Mac, and the baseline is Windows'.
       - name: Roe
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           dotnet tool restore
@@ -152,19 +164,20 @@ jobs:
         run: dotnet test Super.slnx -c Release --no-build --filter "Needs!=GPU&Needs!=Assets" --logger trx --results-directory TestResults
 
       # Packs Super as a release does, then builds a small game against the package and runs its tests, so a
-      # change that breaks the package fails here and not at the next release.
+      # change that breaks the package fails here and not at the next release. On a Mac too, which checks that the
+      # package brings MoltenVK and the cook tool's Mac libraries.
       - name: Check the package
         shell: pwsh
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
           $version = (Get-Content version.txt -Raw).Trim()
-          dotnet pack packaging/nuget/Super.Package.csproj -c Release -o "$env:RUNNER_TEMP\packages"
-          ./.github/scripts/test-package.ps1 -Packages "$env:RUNNER_TEMP\packages" -Version $version
+          dotnet pack packaging/nuget/Super.Package.csproj -c Release -o "$env:RUNNER_TEMP/packages"
+          ./.github/scripts/test-package.ps1 -Packages "$env:RUNNER_TEMP/packages" -Version $version
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
+          name: test-results-${{ runner.os }}
           path: TestResults/*.trx
           if-no-files-found: ignore

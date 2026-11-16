@@ -57,21 +57,22 @@ if (Test-Path $package) {
 $tests = Join-Path $work 'Spinner.Tests\Spinner.Tests.csproj'
 dotnet build $tests -c Release "-p:SuperVersion=$Version"
 
-# The cook tool finds its native libraries, such as Assimp, at the paths its deps.json names, so each Windows
-# one has to be at that path in the package. The Linux and macOS ones are left out of the package on purpose.
-$tool = Join-Path $package 'tools\super-cook'
+# The cook tool finds its native libraries, such as Assimp, at the paths its deps.json names, so each one for
+# this machine has to be at that path in the package. Linux's and Intel Macs' are left out of the package on purpose.
+$tool = Join-Path $package 'tools/super-cook'
 $deps = Get-Content (Join-Path $tool 'super-cook.deps.json') -Raw | ConvertFrom-Json
+$rids, $assimp = if ($IsMacOS) { @('osx', 'osx-arm64'), 'runtimes/osx-arm64/native/libassimp.6.dylib' } else { @('win-x64'), 'runtimes/win-x64/native/Assimp64.dll' }
 $native = foreach ($target in $deps.targets.PSObject.Properties.Value) {
     foreach ($library in $target.PSObject.Properties.Value) {
         if ($library.runtimeTargets) {
             $library.runtimeTargets.PSObject.Properties |
-                Where-Object { $_.Value.assetType -eq 'native' -and $_.Value.rid -like 'win*' } |
+                Where-Object { $_.Value.assetType -eq 'native' -and $rids -contains $_.Value.rid } |
                 ForEach-Object { $_.Name }
         }
     }
 }
-if (-not ($native -contains 'runtimes/win-x64/native/Assimp64.dll')) {
-    throw "super-cook.deps.json doesn't name runtimes/win-x64/native/Assimp64.dll, so this check can't trust it."
+if (-not ($native -contains $assimp)) {
+    throw "super-cook.deps.json doesn't name $assimp, so this check can't trust it."
 }
 foreach ($file in $native | Sort-Object -Unique) {
     if (-not (Test-Path (Join-Path $tool $file))) {
@@ -81,8 +82,12 @@ foreach ($file in $native | Sort-Object -Unique) {
 
 # What the package has to put beside a game, and beside its tests.
 foreach ($project in 'Spinner', 'Spinner.Tests') {
-    $out = Join-Path $work "$project\bin\Release\net10.0"
-    foreach ($file in 'shaders\gbuffer.frag.spv', 'shaders\glow.frag.spv', 'content', 'content.dev.json', 'Super.dll', 'Rendition.dll') {
+    $out = Join-Path $work "$project/bin/Release/net10.0"
+    $files = 'shaders/gbuffer.frag.spv', 'shaders/glow.frag.spv', 'content', 'content.dev.json', 'Super.dll', 'Rendition.dll'
+    if ($IsMacOS) {
+        $files += 'runtimes/osx/native/libMoltenVK.dylib'
+    }
+    foreach ($file in $files) {
         if (-not (Test-Path (Join-Path $out $file))) {
             throw "$project has no $file in its output, so the package didn't give it one."
         }
@@ -93,7 +98,8 @@ dotnet test $tests -c Release --no-build "-p:SuperVersion=$Version"
 
 if ($Screenshot) {
     $shot = [IO.Path]::GetFullPath($Screenshot)
-    & (Join-Path $work 'Spinner\bin\Release\net10.0\Spinner.exe') --seed 1 --ticks 30 --screenshot $shot
+    $game = if ($IsWindows) { 'Spinner.exe' } else { 'Spinner' }
+    & (Join-Path $work "Spinner/bin/Release/net10.0/$game") --seed 1 --ticks 30 --screenshot $shot
     if (-not (Test-Path $shot)) {
         throw "The game didn't save $shot."
     }
