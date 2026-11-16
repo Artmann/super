@@ -17,10 +17,11 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
 {
     private const Format VolumeFormat = Format.R16G16B16A16Sfloat;
 
-    // Where probes.glsl reads the live light probes' atlases, in every set that includes it.
-    // Must match BLOCK in volumetric_inject.comp.
+    // How many cells across and down each invocation of the inject pass lights. Must match BLOCK in
+    // volumetric_inject.comp.
     private const int InjectBlock = 2;
 
+    // Where probes.glsl reads the live light probes' atlases, in every set that includes it.
     private const uint ProbeIrradianceBinding = 11;
     private const uint ProbeDepthBinding = 12;
 
@@ -109,7 +110,7 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
         {
             for (int s = 0; s < 4; s++)
             {
-                writes[4 * i + s] = ImageWrite(_sets[i], bindings[s], DescriptorType.CombinedImageSampler, &infos[s]);
+                writes[4 * i + s] = Descriptors.ImageWrite(_sets[i], bindings[s], DescriptorType.CombinedImageSampler, &infos[s]);
             }
         }
 
@@ -145,9 +146,9 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
         {
             history[i] = new DescriptorImageInfo(_sampler, _injected[1 - i].View, ImageLayout.General);
             written[i] = new DescriptorImageInfo(default, _injected[i].View, ImageLayout.General);
-            writes[3 * i] = ImageWrite(_sets[i], 2, DescriptorType.CombinedImageSampler, &history[i]);
-            writes[3 * i + 1] = ImageWrite(_sets[i], 3, DescriptorType.StorageImage, &written[i]);
-            writes[3 * i + 2] = ImageWrite(_sets[i], 4, DescriptorType.StorageImage, &summed);
+            writes[3 * i] = Descriptors.ImageWrite(_sets[i], 2, DescriptorType.CombinedImageSampler, &history[i]);
+            writes[3 * i + 1] = Descriptors.ImageWrite(_sets[i], 3, DescriptorType.StorageImage, &written[i]);
+            writes[3 * i + 2] = Descriptors.ImageWrite(_sets[i], 4, DescriptorType.StorageImage, &summed);
         }
 
         _context.Api.UpdateDescriptorSets(_context.Device, 6, writes, 0, null);
@@ -255,16 +256,6 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
         api.DestroyImage(_context.Device, volume.Image, null);
         _context.Memory.Free(volume.Memory);
     }
-
-    private static WriteDescriptorSet ImageWrite(DescriptorSet set, uint binding, DescriptorType type, DescriptorImageInfo* info) => new()
-    {
-        SType = StructureType.WriteDescriptorSet,
-        DstSet = set,
-        DstBinding = binding,
-        DescriptorCount = 1,
-        DescriptorType = type,
-        PImageInfo = info,
-    };
 
     private void Barrier(
         CommandBuffer cmd, PipelineStageFlags2 sourceStage, AccessFlags2 sourceAccess, PipelineStageFlags2 destinationStage, AccessFlags2 destinationAccess)

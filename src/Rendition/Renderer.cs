@@ -690,7 +690,7 @@ public sealed unsafe class Renderer : IDisposable
         foreach (ref var frame in _frames.AsSpan())
         {
             var skyShInfo = new DescriptorBufferInfo(_skySh.Handle, 0, SkySh.Size);
-            var skyShWrite = StorageWrite(frame.Set, 12, &skyShInfo);
+            var skyShWrite = Descriptors.BufferWrite(frame.Set, 12, &skyShInfo);
             _api.UpdateDescriptorSets(_context.Device, 1, &skyShWrite, 0, null);
         }
 
@@ -5250,10 +5250,6 @@ public sealed unsafe class Renderer : IDisposable
         _off.HasFlag(RenderEffects.LocalLights) ? [] : view.LocalLights;
 
     /// <summary>
-    /// Makes the volumetric fog's volumes the first time a frame draws it, frees them while it's switched off, and
-    /// remakes them when the cell size or slice count changes. Each waits for the GPU, which is rare.
-    /// </summary>
-    /// <summary>
     /// Fills the volumetric fog's part of the frame block and writes the fog volumes it draws, and decides whether
     /// this frame draws the fog at all.
     /// </summary>
@@ -5302,6 +5298,10 @@ public sealed unsafe class Renderer : IDisposable
         return volumes;
     }
 
+    /// <summary>
+    /// Makes the volumetric fog's volumes the first time a frame draws it, frees them while it's switched off, and
+    /// remakes them when the cell size or slice count changes. Each waits for the GPU, which is rare.
+    /// </summary>
     private void KeepVolumetricTargets(in FrameView view)
     {
         int width = (int)_gBuffer.Extent.Width;
@@ -5313,8 +5313,7 @@ public sealed unsafe class Renderer : IDisposable
             _volumetricFog.SetSize(width, height, VolumetricFogCellSize, VolumetricFogSlices);
             WriteTargetDescriptors();
         }
-        else if (_volumetricFog.HasTargets && (_off.HasFlag(RenderEffects.VolumetricFog)
-            || _off.HasFlag(RenderEffects.Fog | RenderEffects.FogVolumes)))
+        else if (_volumetricFog.HasTargets && VolumetricFog.CanFreeTargets(_off, UnderwaterReach(view)))
         {
             // Switched off, the volumes are freed, and made again with no history if it's switched back on.
             // Frames in flight still read them. Flipping the switch is rare.
@@ -5591,10 +5590,10 @@ public sealed unsafe class Renderer : IDisposable
                 DescriptorType = DescriptorType.StorageBuffer,
                 PBufferInfo = &bonesInfo,
             },
-            StorageWrite(frame.Set, 3, &lightsInfo),
-            StorageWrite(frame.Set, 4, &tilesInfo),
-            StorageWrite(frame.Set, 5, &clustersInfo),
-            StorageWrite(frame.Set, 11, &chunksInfo),
+            Descriptors.BufferWrite(frame.Set, 3, &lightsInfo),
+            Descriptors.BufferWrite(frame.Set, 4, &tilesInfo),
+            Descriptors.BufferWrite(frame.Set, 5, &clustersInfo),
+            Descriptors.BufferWrite(frame.Set, 11, &chunksInfo),
         };
         _api.UpdateDescriptorSets(_context.Device, 6, writes, 0, null);
 
@@ -5615,16 +5614,6 @@ public sealed unsafe class Renderer : IDisposable
             WriteInstanceDescriptor(frame);
         }
     }
-
-    private static WriteDescriptorSet StorageWrite(DescriptorSet set, uint binding, DescriptorBufferInfo* info) => new()
-    {
-        SType = StructureType.WriteDescriptorSet,
-        DstSet = set,
-        DstBinding = binding,
-        DescriptorCount = 1,
-        DescriptorType = DescriptorType.StorageBuffer,
-        PBufferInfo = info,
-    };
 
     /// <summary>The shadow atlas, read once with a depth comparison and once as plain depth.</summary>
     private void WriteAtlasDescriptors(in Frame frame)
@@ -5678,9 +5667,9 @@ public sealed unsafe class Renderer : IDisposable
         var lightmapInfo = new DescriptorBufferInfo(frame.Instances.LightmapHandle, 0, frame.Instances.LightmapSize);
         var writes = stackalloc WriteDescriptorSet[]
         {
-            StorageWrite(frame.Set, 2, &info),
-            StorageWrite(frame.Set, 9, &previousInfo),
-            StorageWrite(frame.Set, 10, &lightmapInfo),
+            Descriptors.BufferWrite(frame.Set, 2, &info),
+            Descriptors.BufferWrite(frame.Set, 9, &previousInfo),
+            Descriptors.BufferWrite(frame.Set, 10, &lightmapInfo),
         };
         _api.UpdateDescriptorSets(_context.Device, 3, writes, 0, null);
     }

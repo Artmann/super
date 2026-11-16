@@ -1373,6 +1373,8 @@ water under it. The grid also holds the water's own colour out to that distance,
 fills in as before. A wide `ShaftDistance` spreads the grid's slices over more water, so
 shafts close by blur, the way a wide [`VolumetricDistance`](#the-grids-cost) does on land.
 
+![The Reef with its shafts drawn the old way, marched per pixel, on the left, and in the volumetric fog's grid on the right: they look the same](media/reef-shafts.webp)
+
 The shafts need [`Graphics.VolumetricFog`](#graphics-settings). With it off, as in the
 `Low` and `Medium` presets, the water has its colour and caustics but no shafts.
 

@@ -24,15 +24,7 @@ internal sealed unsafe class FogVolumeBuffers : IDisposable
             _buffers[i] = GpuBuffer.CreateHostVisible(
                 context, (ulong)(FogVolumeBatch.MaxVolumes * FogVolumePack.Stride), BufferUsageFlags.StorageBufferBit);
             infos[i] = new DescriptorBufferInfo(_buffers[i].Handle, 0, Vk.WholeSize);
-            writes[i] = new WriteDescriptorSet
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = sets[i],
-                DstBinding = Binding,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.StorageBuffer,
-                PBufferInfo = &infos[i],
-            };
+            writes[i] = Descriptors.BufferWrite(sets[i], Binding, &infos[i]);
         }
 
         context.Api.UpdateDescriptorSets(context.Device, 2, writes, 0, null);

@@ -132,6 +132,19 @@ public class VolumetricFogTests
         Assert.Equal(Vector4.Zero, VolumetricFog.Pack(new FogSettings(0.004f), 2, off, capturingProbe, reach));
     }
 
+    [Theory]
+    [InlineData(RenderEffects.None, null, false)]
+    [InlineData(RenderEffects.Fog, null, false)]
+    [InlineData(RenderEffects.Fog | RenderEffects.FogVolumes, 30f, false)]
+    [InlineData(RenderEffects.Fog | RenderEffects.FogVolumes, null, true)]
+    [InlineData(RenderEffects.VolumetricFog, 30f, true)]
+    public void The_volumes_are_freed_only_when_no_frame_like_this_can_draw_them(RenderEffects off, float? underwaterReach, bool freed)
+    {
+        // Under water with the fog and the fog volumes off, the water still fills the volume, so
+        // freeing it there would remake it the next frame, and free it again, every frame.
+        Assert.Equal(freed, VolumetricFog.CanFreeTargets(off, underwaterReach));
+    }
+
     [Fact]
     public void A_volumetric_distance_of_zero_is_the_analytic_fog_only()
     {

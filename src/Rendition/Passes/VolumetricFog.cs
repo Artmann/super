@@ -71,6 +71,14 @@ internal static class VolumetricFog
         return new Vector4(distance, MathF.Min(FirstSlice, distance * 0.5f), settings.Anisotropy, 0f);
     }
 
+    /// <summary>
+    /// Whether the switches leave the grid nothing to draw, so its volumes can be freed: the volumetric fog is off, or
+    /// both the fog and the fog volumes are off above water. Under water the water fills the grid without either.
+    /// </summary>
+    public static bool CanFreeTargets(RenderEffects off, float? underwaterReach) =>
+        (off & RenderEffects.VolumetricFog) != 0
+        || (underwaterReach == null && (off & (RenderEffects.Fog | RenderEffects.FogVolumes)) == (RenderEffects.Fog | RenderEffects.FogVolumes));
+
     /// <summary>Whether the grid has any fog to draw: the scene's own, or fog volumes.</summary>
     public static bool HasFog(in FogSettings settings, int fogVolumes, RenderEffects off) =>
         ((off & RenderEffects.Fog) == 0 && settings.Density > 0f)

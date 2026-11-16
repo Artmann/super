@@ -996,6 +996,11 @@ rendering. Game-facing features belong in Super, which has the audio (see
 ShadowPass    scene geometry   -> depth from the key light (1024, 2048 or 4096 square, up to 4 cascades)
               scene geometry   -> point and spot light shadows, tiles of one 4096 x 4096 atlas
 cluster.comp  compute          -> the point and spot lights reaching each of 16 x 9 x 24 clusters
+volumetric_inject.comp compute -> with volumetric fog, each froxel's extinction and in-scattered light from the height fog,
+                                  the fog volumes' buffer, the probe atlases or the sky, the shadow maps and the
+                                  clusters (under water, the water and its shafts), blended with last frame's
+volumetric_integrate.comp compute -> the same summed front to back along each column, which the lighting pass,
+                                  glass and particles read as the fog in front of each pixel
 GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, motion, baked light, shadow mask, depth
 DecalPass     decal boxes      -> colour, normal and roughness laid over the G-buffer, reading a copy of its normals
 GBufferPass   no-decal draws   -> the same targets, loaded: skinned draws and NoDecals materials, only when decals and they are both in the frame
@@ -4999,10 +5004,14 @@ change does too.
   the rasterized capture then lights through walls (above). The capture's near plane is 1 mm;
   at 5 cm the room's outer probes, which sit 5 cm from the walls, floor and ceiling, saw through
   them into the black sky, and the rasterized readings were 10 to 15% lower.
-- Volumetric fog is a froxel grid of one cell per 8×8 scene pixels, so light bleeds a
+- Volumetric fog is a froxel grid of one cell per 8×8 scene pixels by default
+  (`VolumetricFogCellSize`, 4 to 32, and `VolumetricFogSlices`, 16 to 128), so light bleeds a
   cell across silhouettes, a shaft narrower than a cell blurs, and its history smears a
-  moving light or a fast camera for a few frames. Past `VolumetricDistance` the fog is the
-  plain height fog again.
+  moving light or a fast camera for a few frames. Past `VolumetricDistance` (under water,
+  `ShaftDistance`) the fog is the plain height fog again, and fog volumes are cut off there.
+  The soft light in the fog comes from the live probes where they reach and the sky where they
+  don't, with no blend between, and it is found once for each 2×2 cells. Baked probes don't
+  light the fog.
 - Decals that overlap don't stack their normals and roughness, only their colours, and a
   decal can't make a surface metal or make it glow. See [Decals](#decals).
 - Puddles have one flat level per view. Water doesn't run, rise in one hollow and not
