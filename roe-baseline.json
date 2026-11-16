@@ -3479,7 +3479,7 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1189
+      "metric": 1222
     },
     {
       "kind": "large-file",
@@ -3881,7 +3881,7 @@
       "kind": "large-type",
       "name": "Super.SceneRenderer",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 109
+      "metric": 111
     },
     {
       "kind": "large-type",

@@ -2156,6 +2156,15 @@ var mesh = new GeneratedMesh(vertices, indices, new Surface
 ModelRef rock = content.Mesh(mesh);
 ```
 
+Meshes with the same surface share one material, so a game can load as many chunks or
+pieces as it likes from one `Surface` without running out of the renderer's 1024 materials.
+Surfaces match by value, `Parameters`, `ShaderTextures` and `ShaderArrays` included, so a
+surface built again with the same values shares too. The material keeps the values it was
+made from: changing an array of a surface in place gives the meshes loaded after it a new
+material, and leaves the ones already loaded as they were. The material goes when the last
+mesh using it is unloaded. A mesh with pixels of its own (`GeneratedTexture`) always gets
+its own material.
+
 A mesh you build yourself has no second UV set for lighting unless you set each vertex's
 `Uv2`. `mesh.WithLightmapUvs()` gives it one: it returns the mesh itself when its `Uv2`
 already fits a lightmap by the same rules as a cooked model's (inside 0 to 1, no overlaps,
