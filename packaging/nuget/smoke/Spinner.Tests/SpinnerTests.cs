@@ -29,7 +29,7 @@ public sealed class SpinnerTests
         Assert.Contains(run.Drawn, draw => draw.Key == 2);
     }
 
-    [Fact]
+    [OnlyOn("Windows")]
     public void The_upscaler_library_is_found_the_way_the_renderer_looks_for_it()
     {
         bool found = NativeLibrary.TryLoad(
@@ -39,5 +39,26 @@ public sealed class SpinnerTests
             out _);
 
         Assert.True(found, "amd_fidelityfx_vk.dll wasn't found, so FSR upscaling would quietly fall back to TAA.");
+    }
+
+    [OnlyOn("macOS")]
+    public void Vulkan_is_found_on_a_mac_the_way_the_renderer_looks_for_it()
+    {
+        // A Vulkan loader installed with Homebrew comes first, and then the MoltenVK the package puts beside the game.
+        string? path = Rendition.VulkanLibrary.Path;
+
+        Assert.True(File.Exists(path), $"Vulkan was looked for at {path}, which isn't there.");
+    }
+}
+
+/// <summary>A test that only one system can run, named as <see cref="OperatingSystem.IsOSPlatform"/> names it.</summary>
+public sealed class OnlyOnAttribute : FactAttribute
+{
+    public OnlyOnAttribute(string platform)
+    {
+        if (!OperatingSystem.IsOSPlatform(platform))
+        {
+            Skip = $"Only {platform} can check this.";
+        }
     }
 }

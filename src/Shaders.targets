@@ -2,7 +2,11 @@
 
   <!-- Compiles every GLSL shader in Shaders\ to SPIR-V and ships it next to the assembly. -->
   <PropertyGroup>
-    <Glslc Condition="'$(VULKAN_SDK)' != ''">$(VULKAN_SDK)\Bin\glslc.exe</Glslc>
+    <Glslc Condition="'$(VULKAN_SDK)' != '' And $([MSBuild]::IsOSPlatform('Windows'))">$(VULKAN_SDK)\Bin\glslc.exe</Glslc>
+    <Glslc Condition="'$(VULKAN_SDK)' != '' And !$([MSBuild]::IsOSPlatform('Windows'))">$(VULKAN_SDK)/bin/glslc</Glslc>
+    <!-- On a Mac, Homebrew's folder isn't on the PATH of an IDE started from the Dock. -->
+    <Glslc Condition="'$(Glslc)' == '' And Exists('/opt/homebrew/bin/glslc')">/opt/homebrew/bin/glslc</Glslc>
+    <Glslc Condition="'$(Glslc)' == '' And Exists('/usr/local/bin/glslc')">/usr/local/bin/glslc</Glslc>
     <Glslc Condition="'$(Glslc)' == ''">glslc</Glslc>
     <GlslcFlags>--target-env=vulkan1.3 -O -Werror</GlslcFlags>
     <ShaderOutputDir>$(MSBuildProjectDirectory)\obj\shaders\</ShaderOutputDir>

@@ -27,7 +27,7 @@ class Spinner : IGame
 
 ## Start a game
 
-You need Windows, a GPU with Vulkan 1.3 and the .NET 10 SDK.
+You need Windows and a GPU with Vulkan 1.3, or a Mac with Apple silicon, and the .NET 10 SDK.
 
 ```
 dotnet new console -n MyGame
@@ -41,7 +41,7 @@ renderer, the ECS, physics and the test helpers.
 
 A `content` folder beside the project is cooked by `dotnet build`, with no extra setup.
 Shaders in a `Shaders` folder are compiled too, which needs the Vulkan SDK
-(`winget install KhronosGroup.VulkanSDK`).
+(`winget install KhronosGroup.VulkanSDK`), or on a Mac `brew install shaderc`.
 
 Every game has the same command line, so you can see it without a person at the mouse:
 

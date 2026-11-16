@@ -17,7 +17,7 @@ dotnet run -c Release --project MyColony -- --script tooltip --ticks 40 --screen
 | `--screenshot file.png` | Saves the picture at that moment, then exits. It first waits for the light probes near the camera to settle, up to 2,048 frames. Without tracing (`--no-trace`, or a GPU that can't trace), a dense scene such as Courtyard can reach that cap first, and then the shot shows the probes still filling in and the console says so. See [Screenshots](#screenshots) |
 | `--record file.mp4 --seconds S` | Saves that many seconds of video, then exits |
 | `--fps N` | Frames per second for `--record`, 60 by default |
-| `--size WxH` | The picture size, such as `1920x1080`, or `1080x1920` for a vertical video. The game's window size by default |
+| `--size WxH` | The picture size in pixels, such as `1920x1080`, or `1080x1920` for a vertical video, on a Mac's Retina screen too. The game's window size by default |
 | `--ui-scale N` | Makes the [interface](interfaces.md#scale) this many times bigger, such as `2` or `1.5`. The game's `UiScale` by default, which is 1 |
 | `--profile file.txt` | Measures where the time goes. See [Profiling](profiling.md) |
 | `--frames N` | How many frames `--profile` measures, 60 by default |
@@ -74,7 +74,7 @@ take you back to that tick.
 ## Videos
 
 `--record` plays to `--ticks`, then saves `--seconds` of video. It needs a GPU, and
-[ffmpeg](https://ffmpeg.org) on the PATH (`winget install Gyan.FFmpeg`). A video runs as
+[ffmpeg](https://ffmpeg.org) on the PATH (`winget install Gyan.FFmpeg`, or on a Mac `brew install ffmpeg`). A video runs as
 fast as the machine can make it, and the same seed gives the same frames.
 
 `--record` includes the game's sound. The audio is mixed a tick at a time, like the

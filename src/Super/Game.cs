@@ -74,6 +74,10 @@ public static class Game
             return;
         }
 
+        // On a Retina screen the window has twice the pixels, so the interface is drawn twice as big to look the same.
+        // A hidden window, for a picture or a video, has the pixels asked for, so it keeps the scale.
+        host.Ui.Scale *= window.PixelsPerPoint;
+
         window.DebugView = arguments.DebugView;
         host.Gpu.Fill(window.Gpu);
         if (arguments.GraphicsProfile == GameArguments.AutoProfile)

@@ -8,5 +8,5 @@ somewhere outside the repository and builds it against a `.nupkg`, so nothing he
 The game loads a JSON file and a model, so the build has to cook its content with the package's
 cook tool, including Assimp, the native library that tool imports models with. It uses a shader of
 its own, so the build has to compile it with the package's includes. The script also checks that
-every Windows native library the cook tool's `super-cook.deps.json` names is at that path in the
-package.
+every native library for the machine it runs on, Windows or a Mac, that the cook tool's
+`super-cook.deps.json` names is at that path in the package, and on a Mac that the game has MoltenVK.

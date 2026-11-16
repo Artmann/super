@@ -35,6 +35,8 @@ const int screenshotFrame = 48;
 unsafe
 {
     var glfw = Glfw.GetApi();
+    glfw.Context.TryGetProcAddress("glfwInitVulkanLoader", out nint initVulkanLoader);
+    VulkanLibrary.ShareWithGlfw(initVulkanLoader);
     if (!glfw.Init())
     {
         throw new InvalidOperationException("Could not initialize GLFW.");

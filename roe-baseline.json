@@ -1871,7 +1871,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.Dispose",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 85
+      "metric": 86
     },
     {
       "kind": "long-method",
@@ -1925,7 +1925,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 154
+      "metric": 157
     },
     {
       "kind": "long-method",
@@ -2093,7 +2093,7 @@
       "kind": "long-method",
       "name": "Rendition.Vulkan.ResourceTable.ResourceTable",
       "file": "src/Rendition/Vulkan/ResourceTable.cs",
-      "metric": 78
+      "metric": 88
     },
     {
       "kind": "long-method",
@@ -2129,13 +2129,13 @@
       "kind": "long-method",
       "name": "Rendition.Vulkan.VulkanContext.CreateDevice",
       "file": "src/Rendition/Vulkan/VulkanContext.cs",
-      "metric": 137
+      "metric": 139
     },
     {
       "kind": "long-method",
       "name": "Rendition.Vulkan.VulkanContext.VulkanContext",
       "file": "src/Rendition/Vulkan/VulkanContext.cs",
-      "metric": 52
+      "metric": 54
     },
     {
       "kind": "long-method",
@@ -2507,7 +2507,7 @@
       "kind": "long-method",
       "name": "Super.Game.StartWindowsGameLoop",
       "file": "src/Super/Game.cs",
-      "metric": 146
+      "metric": 150
     },
     {
       "kind": "long-method",
@@ -2531,7 +2531,7 @@
       "kind": "long-method",
       "name": "Super.GameWindow.GameWindow",
       "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 55
+      "metric": 48
     },
     {
       "kind": "long-method",
@@ -3443,7 +3443,7 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5782
+      "metric": 5787
     },
     {
       "kind": "large-file",
@@ -3479,7 +3479,7 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/GameWindow.cs",
       "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 784
+      "metric": 820
     },
     {
       "kind": "large-file",
@@ -3635,7 +3635,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 384
+      "metric": 385
     },
     {
       "kind": "large-type",
@@ -3683,7 +3683,7 @@
       "kind": "large-type",
       "name": "Rendition.Vulkan.ResourceTable",
       "file": "src/Rendition/Vulkan/ResourceTable.cs",
-      "metric": 61
+      "metric": 63
     },
     {
       "kind": "large-type",
@@ -3827,7 +3827,7 @@
       "kind": "large-type",
       "name": "Super.GameWindow",
       "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 50
+      "metric": 52
     },
     {
       "kind": "large-type",

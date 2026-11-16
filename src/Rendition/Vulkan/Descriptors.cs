@@ -9,13 +9,34 @@ namespace Rendition.Vulkan;
 internal static unsafe class Descriptors
 {
     /// <summary>Makes a set layout with these bindings.</summary>
-    public static DescriptorSetLayout CreateSetLayout(this VulkanContext context, ReadOnlySpan<DescriptorSetLayoutBinding> bindings)
+    public static DescriptorSetLayout CreateSetLayout(this VulkanContext context, ReadOnlySpan<DescriptorSetLayoutBinding> bindings) =>
+        context.CreateSetLayout(bindings, updateAfterBind: false);
+
+    /// <summary>
+    /// The same, made update-after-bind when asked, which only image bindings may be. Such a set counts against the
+    /// limits for update-after-bind sets, which are far higher: MoltenVK allows 16 samplers a stage in ordinary sets, so
+    /// a pass that samples more than that needs one. Its set must come from a pool made with
+    /// <see cref="DescriptorPoolCreateFlags.UpdateAfterBindBit"/>.
+    /// </summary>
+    public static DescriptorSetLayout CreateSetLayout(
+        this VulkanContext context, ReadOnlySpan<DescriptorSetLayoutBinding> bindings, bool updateAfterBind)
     {
+        Span<DescriptorBindingFlags> flags = stackalloc DescriptorBindingFlags[bindings.Length];
+        flags.Fill(DescriptorBindingFlags.UpdateAfterBindBit);
         fixed (DescriptorSetLayoutBinding* first = bindings)
+        fixed (DescriptorBindingFlags* firstFlags = flags)
         {
+            var flagsInfo = new DescriptorSetLayoutBindingFlagsCreateInfo
+            {
+                SType = StructureType.DescriptorSetLayoutBindingFlagsCreateInfo,
+                BindingCount = (uint)bindings.Length,
+                PBindingFlags = firstFlags,
+            };
             var info = new DescriptorSetLayoutCreateInfo
             {
                 SType = StructureType.DescriptorSetLayoutCreateInfo,
+                PNext = updateAfterBind ? &flagsInfo : null,
+                Flags = updateAfterBind ? DescriptorSetLayoutCreateFlags.UpdateAfterBindPoolBit : 0,
                 BindingCount = (uint)bindings.Length,
                 PBindings = first,
             };
@@ -25,13 +46,19 @@ internal static unsafe class Descriptors
     }
 
     /// <summary>Makes a pool with room for <paramref name="maxSets"/> sets holding these descriptors between them.</summary>
-    public static DescriptorPool CreateDescriptorPool(this VulkanContext context, uint maxSets, params ReadOnlySpan<DescriptorPoolSize> sizes)
+    public static DescriptorPool CreateDescriptorPool(this VulkanContext context, uint maxSets, params ReadOnlySpan<DescriptorPoolSize> sizes) =>
+        context.CreateDescriptorPool(0, maxSets, sizes);
+
+    /// <summary>The same, with flags, such as update-after-bind for a set whose layout is.</summary>
+    public static DescriptorPool CreateDescriptorPool(
+        this VulkanContext context, DescriptorPoolCreateFlags flags, uint maxSets, params ReadOnlySpan<DescriptorPoolSize> sizes)
     {
         fixed (DescriptorPoolSize* first = sizes)
         {
             var info = new DescriptorPoolCreateInfo
             {
                 SType = StructureType.DescriptorPoolCreateInfo,
+                Flags = flags,
                 MaxSets = maxSets,
                 PoolSizeCount = (uint)sizes.Length,
                 PPoolSizes = first,

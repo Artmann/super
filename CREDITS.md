@@ -19,6 +19,10 @@ where to save it.
   `amd_fidelityfx_vk.dll` from the SDK's release is kept in `third_party/fidelityfx` and
   copied next to every game. It is Copyright 2024 Advanced Micro Devices, Inc. and licensed
   under the MIT license, in [third_party/fidelityfx/LICENSE.txt](third_party/fidelityfx/LICENSE.txt).
+- [MoltenVK](https://github.com/KhronosGroup/MoltenVK) runs Rendition's Vulkan on a Mac, on
+  top of Metal. Its `libMoltenVK.dylib`, from the `Silk.NET.MoltenVK.Native` package, is
+  copied next to every game built for a Mac. It is Copyright The Brenwill Workshop Ltd. and
+  licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
 
 ## Fonts
 

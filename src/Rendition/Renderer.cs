@@ -210,6 +210,7 @@ public sealed unsafe class Renderer : IDisposable
     private SkySun _bakedSky;
 
     private readonly DescriptorPool _descriptorPool;
+    private readonly DescriptorPool _lightingPool;
     private readonly DescriptorSetLayout _frameSetLayout;
     private readonly DescriptorSetLayout _lightingSetLayout;
     private readonly DescriptorSetLayout _threeTextureSetLayout;
@@ -616,17 +617,20 @@ public sealed unsafe class Renderer : IDisposable
         _api.CreateSampler(_context.Device, &shadowSamplerInfo, null, out _shadowSampler).Check();
 
         _frameSetLayout = CreateFrameSetLayout();
-        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 16, ShaderStageFlags.FragmentBit);
+        // With the frame set's three, the lighting pass samples 19 textures, more than MoltenVK allows in ordinary sets.
+        _lightingSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 16, ShaderStageFlags.FragmentBit, updateAfterBind: true);
         _threeTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 3, ShaderStageFlags.FragmentBit);
         _fourTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 4, ShaderStageFlags.FragmentBit);
         _twoTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 2, ShaderStageFlags.FragmentBit);
         _oneTextureSetLayout = CreateSetLayout(DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.FragmentBit);
 
         _descriptorPool = _context.CreateDescriptorPool(
-            FramesInFlight + 11,
+            FramesInFlight + 10,
             new DescriptorPoolSize(DescriptorType.UniformBuffer, FramesInFlight),
             new DescriptorPoolSize(DescriptorType.StorageBuffer, 9 * FramesInFlight),
-            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 41 + 3 * FramesInFlight));
+            new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 25 + 3 * FramesInFlight));
+        _lightingPool = _context.CreateDescriptorPool(
+            DescriptorPoolCreateFlags.UpdateAfterBindBit, 1, new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 16));
 
         for (int i = 0; i < FramesInFlight; i++)
         {
@@ -686,7 +690,7 @@ public sealed unsafe class Renderer : IDisposable
         _aoDownSet = AllocateSet(_twoTextureSetLayout);
         _scatterAcrossSet = AllocateSet(_twoTextureSetLayout);
         _scatterDownSet = AllocateSet(_twoTextureSetLayout);
-        _lightingSet = AllocateSet(_lightingSetLayout);
+        _lightingSet = _context.AllocateSet(_lightingPool, _lightingSetLayout);
         _reflectionSet = AllocateSet(_fourTextureSetLayout);
         _taaSet = AllocateSet(_fourTextureSetLayout);
         _tonemapSet = AllocateSet(_twoTextureSetLayout);
@@ -4397,6 +4401,7 @@ public sealed unsafe class Renderer : IDisposable
         }
 
         _api.DestroyDescriptorPool(_context.Device, _descriptorPool, null);
+        _api.DestroyDescriptorPool(_context.Device, _lightingPool, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _oneTextureSetLayout, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _twoTextureSetLayout, null);
         _api.DestroyDescriptorSetLayout(_context.Device, _threeTextureSetLayout, null);
@@ -5648,7 +5653,7 @@ public sealed unsafe class Renderer : IDisposable
         return _context.CreateSetLayout(new ReadOnlySpan<DescriptorSetLayoutBinding>(bindings, 13));
     }
 
-    private DescriptorSetLayout CreateSetLayout(DescriptorType type, int bindingCount, ShaderStageFlags stages)
+    private DescriptorSetLayout CreateSetLayout(DescriptorType type, int bindingCount, ShaderStageFlags stages, bool updateAfterBind = false)
     {
         Span<DescriptorSetLayoutBinding> bindings = stackalloc DescriptorSetLayoutBinding[bindingCount];
         for (int i = 0; i < bindingCount; i++)
@@ -5656,7 +5661,7 @@ public sealed unsafe class Renderer : IDisposable
             bindings[i] = new DescriptorSetLayoutBinding((uint)i, type, 1, stages);
         }
 
-        return _context.CreateSetLayout(bindings);
+        return _context.CreateSetLayout(bindings, updateAfterBind);
     }
 
     private DescriptorSet AllocateSet(DescriptorSetLayout layout) => _context.AllocateSet(_descriptorPool, layout);

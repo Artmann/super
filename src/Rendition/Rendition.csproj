@@ -4,6 +4,12 @@
     <PackageReference Include="Silk.NET.Vulkan" Version="2.23.0" />
     <PackageReference Include="Silk.NET.Vulkan.Extensions.EXT" Version="2.23.0" />
     <PackageReference Include="Silk.NET.Vulkan.Extensions.KHR" Version="2.23.0" />
+    <!--
+      MoltenVK, which runs Vulkan on a Mac on top of Metal; see VulkanLibrary. Apache 2.0; see CREDITS.md. The package
+      also holds static libraries for iOS and tvOS, about 70 MB, so it's only downloaded, and the Mac library is copied
+      below.
+    -->
+    <PackageReference Include="Silk.NET.MoltenVK.Native" Version="2.23.0" ExcludeAssets="all" PrivateAssets="all" GeneratePathProperty="true" />
     <PackageReference Include="System.IO.Hashing" Version="10.0.8" />
   </ItemGroup>
 
@@ -13,10 +19,20 @@
     <InternalsVisibleTo Include="Hamlet.Tests" />
   </ItemGroup>
 
-  <!-- AMD FidelityFX's prebuilt, signed Vulkan library, for FSR upscaling. MIT licensed; see CREDITS.md. -->
-  <ItemGroup>
+  <!--
+    AMD FidelityFX's prebuilt, signed Vulkan library, for FSR upscaling. MIT licensed; see CREDITS.md. It's built for
+    Windows only, so a build for a Mac leaves it out and upscales with TAA.
+  -->
+  <ItemGroup Condition="('$(RuntimeIdentifier)' == '' And $([MSBuild]::IsOSPlatform('Windows'))) Or $(RuntimeIdentifier.StartsWith('win'))">
     <None Include="..\..\third_party\fidelityfx\amd_fidelityfx_vk.dll"
           Link="amd_fidelityfx_vk.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          Visible="false" />
+  </ItemGroup>
+
+  <ItemGroup Condition="('$(RuntimeIdentifier)' == '' And $([MSBuild]::IsOSPlatform('OSX'))) Or $(RuntimeIdentifier.StartsWith('osx'))">
+    <None Include="$(PkgSilk_NET_MoltenVK_Native)/runtimes/osx/native/libMoltenVK.dylib"
+          Link="libMoltenVK.dylib"
           CopyToOutputDirectory="PreserveNewest"
           Visible="false" />
   </ItemGroup>

@@ -59,14 +59,7 @@ internal sealed unsafe class GameWindow : IDisposable
         _hidden = hidden;
         _glfw = Glfw.GetApi();
         _isGamepad = slot => _glfw.JoystickIsGamepad(slot);
-        if (!_glfw.Init())
-        {
-            throw new InvalidOperationException("Could not initialize GLFW.");
-        }
-
-        _glfw.WindowHint(WindowHintClientApi.ClientApi, ClientApi.NoApi);
-        // Every window starts hidden, so a shown one appears already in its place rather than jumping there.
-        _glfw.WindowHint(WindowHintBool.Visible, false);
+        StartGlfw(_glfw, hidden);
 
         // Windows shrinks a window whose title bar would push it past the screen's height,
         // and a hidden window should come out at exactly the size that was asked for.
@@ -129,6 +122,35 @@ internal sealed unsafe class GameWindow : IDisposable
         catch (Exception e)
         {
             Console.WriteLine($"Could not swap in {string.Join(", ", changed.Order())}, so the game keeps the old one: {e.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Starts GLFW on the Vulkan the renderer uses, and sets the hints every window shares: no OpenGL, and hidden, so a
+    /// shown one appears already in its place rather than jumping there.
+    /// </summary>
+    private static void StartGlfw(Glfw glfw, bool hidden)
+    {
+        glfw.Context.TryGetProcAddress("glfwInitVulkanLoader", out nint initVulkanLoader);
+        VulkanLibrary.ShareWithGlfw(initVulkanLoader);
+        if (!glfw.Init())
+        {
+            throw new InvalidOperationException("Could not initialize GLFW.");
+        }
+
+        if (!glfw.VulkanSupported())
+        {
+            glfw.Terminate();
+            throw new InvalidOperationException("GLFW found no Vulkan, so it can't make a window to draw in.");
+        }
+
+        glfw.WindowHint(WindowHintClientApi.ClientApi, ClientApi.NoApi);
+        glfw.WindowHint(WindowHintBool.Visible, false);
+        if (hidden && OperatingSystem.IsMacOS())
+        {
+            // A Retina screen would double a window's pixels, and a picture should be exactly the size asked for.
+            const int cocoaRetinaFramebuffer = 0x00023001;
+            glfw.WindowHint((WindowHintBool)cocoaRetinaFramebuffer, false);
         }
     }
 
@@ -290,6 +312,20 @@ internal sealed unsafe class GameWindow : IDisposable
 
     /// <summary>The GPU the game is drawn with.</summary>
     public Rendition.GpuInfo Gpu => _scene.Gpu;
+
+    /// <summary>
+    /// How many pixels the window has for each unit of its size: 2 on a Mac's Retina screen, where the window is sized
+    /// in points, and 1 elsewhere, and in a hidden window, which asks for no Retina pixels.
+    /// </summary>
+    public float PixelsPerPoint
+    {
+        get
+        {
+            _glfw.GetWindowSize(_window, out int windowWidth, out _);
+            _glfw.GetFramebufferSize(_window, out int framebufferWidth, out _);
+            return windowWidth > 0 && framebufferWidth > 0 ? (float)framebufferWidth / windowWidth : 1f;
+        }
+    }
 
     /// <summary>Plays the given number of ticks and saves the picture. Returns the validation message count.</summary>
     public int Screenshot<TGame>(GameHost<TGame> host, long ticks, string path)

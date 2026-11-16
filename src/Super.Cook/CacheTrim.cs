@@ -98,7 +98,10 @@ public static class CacheFolder
     /// <summary>What <see cref="Parts"/> calls files in the folder that the cache didn't write. They're never deleted.</summary>
     public const string NotTheCaches = "not the cache's";
 
-    internal static readonly StringComparer PathComparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+    /// <summary>Windows' and macOS' file systems ignore case by default; Linux's don't.</summary>
+    internal static readonly StringComparer PathComparer = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+        ? StringComparer.OrdinalIgnoreCase
+        : StringComparer.Ordinal;
 
     /// <summary>The parts trimming may delete from. Anything else, such as <c>hashes.json</c>, is counted but kept.</summary>
     private static readonly string[] Evictable = ["records", "objects", "steps"];
