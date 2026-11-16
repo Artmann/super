@@ -62,6 +62,7 @@ component on its entity instead. See [Audio](audio.md).
 | `view.Model(key, model, transform, color, isStatic: true)` | A model that never moves, whose lighting will be baked. See [Static draws](#static-draws) |
 | `view.Model(key, model, transform, fade: new DistanceFade(50, 60))` | A model that fades out between 50 and 60 metres from the camera, such as grass. See [Fading with distance](rendering.md#fading-with-distance) |
 | `view.Decal(key, box, material, blend)` | Grime, damp or a stain projected onto whatever is inside a box. Up to 256 a frame. See [Decals](#decals) |
+| `view.FogVolume(key, shape, transform, settings)` | A box, ellipsoid, cylinder or cone filled with fog of its own, such as mist in a room or a lamp's beam. Up to 64 a frame. See [Fog volumes](#fog-volumes) |
 | `view.Ghost(key, model, transform, color, opacity)` | A model in one colour that glows a little, as a [preview of where something will go](rendering.md#ghosts) |
 | `view.Shadows(radius, cascades, sunSize, contact)` | How far shadows reach, how soft they are, and how far contact shadows look where things meet the ground. See [Rendering](rendering.md#shadows) |
 | `view.AmbientOcclusion(radius, strength)` | How far corners and creases reach out to darken the soft light, and how dark. See [Rendering](rendering.md#ambient-occlusion) |
@@ -483,6 +484,57 @@ Decals have some limits:
 - On strongly bumped surfaces, the fade by angle follows the bumps, so near the limit it
   fades in specks.
 - Reflection probes see decals, but moving or adding one doesn't photograph them again. Light probes don't see them, so a decal doesn't tint bounced light.
+
+## Fog volumes
+
+A fog volume fills a shape with fog of its own: mist pooled in a cellar, steam over a
+pool, or the haze a lamp's beam lights up. It is drawn into the
+[volumetric fog](rendering.md#volumetric-fog), so the sun and the lights shine through it
+and cast shadows in it, the same as the scene's fog. The shape is one of four unit shapes,
+moved, turned and sized by the transform:
+
+| `FogShape` | Before the transform |
+| --- | --- |
+| `Box` | From −0.5 to 0.5 on each axis |
+| `Ellipsoid` | A sphere of radius 0.5 |
+| `Cylinder` | Along Y, radius 0.5, from y −0.5 to 0.5 |
+| `Cone` | Its tip at y 0.5 and a base of radius 0.5 at y −0.5 |
+
+```csharp
+// Mist a metre deep over a cellar floor ten metres by eight.
+var mist = new FogVolumeSettings(0.4f) { Noise = 0.5f, Wind = new Vector3(0.2f, 0f, 0f) };
+view.FogVolume(CellarMistKey, FogShape.Box,
+    Matrix4x4.CreateScale(10f, 1f, 8f) * Matrix4x4.CreateTranslation(0f, 0.5f, 0f), mist);
+```
+
+`FogVolumeSettings` says what the fog is like. Only the density has to be given:
+
+| Field | Default | What it does |
+| --- | --- | --- |
+| `Density` | | How much of the light the fog stops per metre, 0 or more, the same measure as `FogSettings.Density`. 0.05 is a thin haze; at 0.5 you can barely see across a room |
+| `Color` | white | The colour the fog scatters light in, each channel from 0 to 1 |
+| `EdgeFade` | 0.25 | The share of the way in from the surface over which the fog thickens from nothing to full, from 0 for a hard edge to 1 for fog thickest only at the centre |
+| `Noise` | 0 | How much noise breaks the fog up, from 0 for even fog to 1 for patches with gaps between |
+| `NoiseSize` | 2 | How big the patches are, in metres, more than 0 |
+| `Wind` | 0 | How fast the patches drift, in metres per second |
+
+Where volumes overlap, and where they overlap the scene's fog, the fog adds up. The key
+names the volume, the same as a decal's.
+
+A view refuses, with a message naming what's wrong:
+
+- more than 64 fog volumes in a frame;
+- a key used twice in a frame;
+- a shape that isn't one of the four;
+- a transform squashed flat on any axis, or holding a number that isn't finite;
+- a density below 0 or not finite, a colour channel or `EdgeFade` or `Noise` outside 0 to 1,
+  a `NoiseSize` of 0 or less, or a `Wind` that isn't finite.
+
+Fog volumes show only where the volumetric fog reaches, out to
+`FogSettings.VolumetricDistance`, and only while
+[`Graphics.VolumetricFog`](rendering.md#graphics-settings) is on.
+`Graphics.FogVolumes` turns them off on their own, and `Graphics.Fastest()` turns both off.
+The grid's [cell size and slices](rendering.md#the-grids-cost) set how sharp their edges are.
 
 ## Planned
 

@@ -213,6 +213,13 @@ public sealed class Graphics
     public bool Underwater { get; set; } = true;
 
     /// <summary>
+    /// The fog volumes placed with <c>view.FogVolume</c>, such as mist in a room or a lamp's beam. Off, only the scene's
+    /// own fog fills the volumetric fog. They need <see cref="VolumetricFog"/>, and cost a little more for each volume
+    /// on screen.
+    /// </summary>
+    public bool FogVolumes { get; set; } = true;
+
+    /// <summary>
     /// Metering the picture for <see cref="PostSettings.AutoExposure"/>, so the brightness follows what the
     /// camera sees, as an eye does. Off, the fixed <see cref="PostSettings.Exposure"/> sets it, as for a view
     /// that never asked. It costs a pass over the frame, so <see cref="Fastest"/> turns it off.
@@ -546,6 +553,7 @@ public sealed class Graphics
         Fog = profile.Fog;
         Haze = profile.Haze;
         Underwater = profile.Underwater;
+        FogVolumes = profile.FogVolumes;
         AutoExposure = profile.AutoExposure;
         DepthOfField = profile.DepthOfField;
         Decals = profile.Decals;
@@ -631,6 +639,7 @@ public sealed class Graphics
         Grain = false,
         Sharpening = false,
         Subsurface = false,
+        FogVolumes = false,
     };
 
     /// <summary>The effects the renderer leaves out.</summary>
@@ -690,5 +699,6 @@ public sealed class Graphics
         (graphics => graphics.LocalLights, RenderEffects.LocalLights),
         (graphics => graphics.Haze, RenderEffects.Haze),
         (graphics => graphics.Underwater, RenderEffects.Underwater),
+        (graphics => graphics.FogVolumes, RenderEffects.FogVolumes),
     ];
 }

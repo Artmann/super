@@ -58,6 +58,7 @@ public class GraphicsProfileTests
         LocalLights = false,
         Haze = false,
         Underwater = false,
+        FogVolumes = false,
         BakedLighting = false,
         BakeOnArrival = false,
         BakeBudget = 3f,

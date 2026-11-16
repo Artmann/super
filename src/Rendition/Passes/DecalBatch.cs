@@ -70,7 +70,7 @@ public static class DecalBatch
         }
     }
 
-    private static bool IsFinite(in Matrix4x4 m) =>
+    internal static bool IsFinite(in Matrix4x4 m) =>
         float.IsFinite(m.M11) && float.IsFinite(m.M12) && float.IsFinite(m.M13) && float.IsFinite(m.M14)
         && float.IsFinite(m.M21) && float.IsFinite(m.M22) && float.IsFinite(m.M23) && float.IsFinite(m.M24)
         && float.IsFinite(m.M31) && float.IsFinite(m.M32) && float.IsFinite(m.M33) && float.IsFinite(m.M34)

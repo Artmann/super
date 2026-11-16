@@ -1149,6 +1149,7 @@ internal sealed class SceneRenderer : IDisposable
             Transition = view.Transition,
             Off = Off,
             LocalLights = view.DrawnLights,
+            FogVolumes = Off.HasFlag(RenderEffects.FogVolumes) || Off.HasFlag(RenderEffects.VolumetricFog) ? default : view.DrawnFogVolumes,
         };
     }
 

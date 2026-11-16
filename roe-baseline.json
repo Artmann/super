@@ -2705,7 +2705,7 @@
       "kind": "long-method",
       "name": "Super.SceneRenderer.CreateFrame",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 56
+      "metric": 57
     },
     {
       "kind": "long-method",
@@ -3449,7 +3449,7 @@
       "kind": "large-file",
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
-      "metric": 1770
+      "metric": 1782
     },
     {
       "kind": "large-file",
@@ -3485,13 +3485,13 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1183
+      "metric": 1184
     },
     {
       "kind": "large-file",
       "name": "src/Super/View.cs",
       "file": "src/Super/View.cs",
-      "metric": 1122
+      "metric": 1155
     },
     {
       "kind": "large-type",
@@ -3563,7 +3563,7 @@
       "kind": "large-type",
       "name": "Rendition.FrameView",
       "file": "src/Rendition/Types.cs",
-      "metric": 35
+      "metric": 36
     },
     {
       "kind": "large-type",
@@ -3833,7 +3833,7 @@
       "kind": "large-type",
       "name": "Super.Graphics",
       "file": "src/Super/Graphics.cs",
-      "metric": 63
+      "metric": 64
     },
     {
       "kind": "large-type",
@@ -3959,7 +3959,7 @@
       "kind": "large-type",
       "name": "Super.View",
       "file": "src/Super/View.cs",
-      "metric": 74
+      "metric": 78
     },
     {
       "kind": "large-type",

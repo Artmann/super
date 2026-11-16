@@ -333,6 +333,7 @@ public class GraphicsTests
     [InlineData(nameof(Graphics.LocalLights), RenderEffects.LocalLights)]
     [InlineData(nameof(Graphics.Haze), RenderEffects.Haze)]
     [InlineData(nameof(Graphics.Underwater), RenderEffects.Underwater)]
+    [InlineData(nameof(Graphics.FogVolumes), RenderEffects.FogVolumes)]
     public void Each_switch_turned_off_leaves_out_only_its_own_effect(string setting, RenderEffects effect)
     {
         var graphics = new Graphics();
@@ -354,7 +355,7 @@ public class GraphicsTests
             | RenderEffects.LightProbes | RenderEffects.MultiscatterSpecular | RenderEffects.WearAndDirt | RenderEffects.Fog
             | RenderEffects.AutoExposure | RenderEffects.DepthOfField | RenderEffects.Decals | RenderEffects.VolumetricFog
             | RenderEffects.Puddles | RenderEffects.Wind | RenderEffects.HeightMaps | RenderEffects.Vignette
-            | RenderEffects.Grain | RenderEffects.Sharpening | RenderEffects.Subsurface,
+            | RenderEffects.Grain | RenderEffects.Sharpening | RenderEffects.Subsurface | RenderEffects.FogVolumes,
             graphics.Off);
         Assert.True(graphics.Materials);
         Assert.True(graphics.BakedLighting);
