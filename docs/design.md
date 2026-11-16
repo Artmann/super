@@ -1572,8 +1572,12 @@ them anew with no history. Without them binding 8 of
 the frame set holds a 1×1×1 texel of (0, 0, 0, 1), which lets everything through. Two passes run after the shadow maps and the cluster lists, before
 the lighting pass, and the shadow maps' barriers list the compute stage among their readers.
 `GpuTimer` reports the two together as "Volumetric fog", and the light lists before them as
-"Light clusters". At 1600×900 they take about 0.16 ms in the Courtyard and 0.3 ms in the
-Crypt, whose many lights make the inject pass work harder.
+"Light clusters". At 1600×900 they take about 0.16 ms in the Courtyard. In the Crypt at
+1920×1080, with its floor mist and live probes, they take about 1.3 ms, of which about 0.5 ms
+is the probe light (0.8 ms with `RenderEffects.LightProbes` off), because its many lights make
+the inject pass work harder. The cost grows with the cell count, so a larger `Graphics.VolumetricFogCellSize`
+or fewer `VolumetricFogSlices` is the first thing to try when the fog is slow, and with the number of
+fog volumes, as each cell sums every one.
 
 `volumetric_inject.comp` writes one of two injected volumes and samples the other as
 history. For each cell it finds the view ray through the cell's centre from
@@ -1590,11 +1594,18 @@ radiance times one tap of its shadow cascade times the Henyey-Greenstein phase o
 between the view ray and the sun, plus each point and spot light from the cell's cluster
 times `localLightReaching()`, one tap of its shadow tile (`localShadowInAir`), its
 `Volumetric` strength (`fade.z` in `light_data.glsl`) and the phase. The sun's shadow in air
-fades out with distance as the surfaces' does. `fogAmbient()` is the mean of
-`probeIrradiance()` facing up and facing down, which is E/π, so each half reads the
-radiance of an even sky, and the air scatters the same every way, so no 1/π is needed.
+fades out with distance as the surfaces' does. `fogAmbient()` is `probeAirLight()` from
+`probes.glsl`, the probe sum with its `air` flag set: each probe's irradiance is the mean of
+facing up and facing down, which is E/π, so it reads the radiance of an even sky, and the air
+scatters the same every way, so no 1/π is needed. Air has no surface, so the flag also drops
+the sum's facing weight and its push along the normal, which halves the atlas reads. The soft
+light changes little across a few cells, since the probes are a metre or more apart, so each
+invocation of the inject pass lights a block of 2×2 cells (`BLOCK`, matched by `InjectBlock` in
+`VolumetricFogVolume`, which dispatches groups of 16×16 cells) and finds the ambient once for
+them, on the block's middle ray at the first cell's depth that has air to light. Together these
+took the probe light in the Crypt from about 2.9 ms to about 0.5 ms at 1920×1080.
 It reads the probe atlases at set 1 bindings 11 and 12 (`PROBE_ATLAS_SET 1`), when the
-frame has a probe volume or cascades. Where neither half finds a probe, it falls back to the
+frame has a probe volume or cascades. Where no probe answers, it falls back to the
 sky light `fogSkyLight()` (the plain fog's colour without its sun glow). The probe
 counts are zero while a probe is captured, so the fallback covers that too, though the
 fog is off then anyway. Cells that straddle a wall take light from probes on both sides,

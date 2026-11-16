@@ -86,11 +86,15 @@ float probeVisible(vec2 moments, float distanceToProbe) {
 // The probes sit at first + cell * spacing for cells 0 to counts - 1. In the fixed grid probe
 // x + counts.x * (y + counts.y * z) is in slot of the same number; a cascade's cell, counted from
 // the world origin as origin + cell, wraps round the box to find its slot (ProbeCascades.Slot).
-// The weights are the sums ProbeGrid.Weight in ProbeGrid.cs makes, and its tests pin them.
-vec4 probeSum(vec3 p, vec3 n, vec3 v, vec3 first, float spacing, ivec3 counts, int layer, bool wraps, ivec3 origin) {
+// The weights are the sums ProbeGrid.Weight in ProbeGrid.cs makes, and its tests pin them. For a
+// point in the air, which has no surface, air leaves out the facing weight and the lift along n,
+// and gives the mean of the light from round n and from round -n, reading each probe's
+// visibility once for both.
+vec4 probeSum(vec3 p, vec3 n, vec3 v, vec3 first, float spacing, ivec3 counts, int layer, bool wraps, ivec3 origin,
+    bool air) {
     // Moving the point off the surface, and a little towards the viewer, keeps it from
     // reading the probe's own view of that surface, which would make it shadow itself.
-    vec3 biased = p + spacing * 0.2 * (0.75 * n + 0.25 * v);
+    vec3 biased = p + spacing * 0.2 * ((air ? 0.0 : 0.75) * n + 0.25 * v);
     ivec3 base = clamp(ivec3(floor((biased - first) / spacing)), ivec3(0), counts - 2);
 
     ivec2 irradianceSize = textureSize(probeIrradianceAtlas, 0).xy;
@@ -131,9 +135,14 @@ vec4 probeSum(vec3 p, vec3 n, vec3 v, vec3 first, float spacing, ivec3 counts, i
             visible = probeVisible(texture(probeDepthAtlas, vec3(depthUv, float(layer))).rg, distanceToProbe);
         }
 
-        float weight = trilinear * probeFacing(probePosition, p, n) * visible;
+        float weight = trilinear * (air ? 1.0 : probeFacing(probePosition, p, n)) * visible;
         vec2 irradianceUv = probeTileUv(probe, n, PROBE_IRRADIANCE_TEXELS, irradianceSize);
         vec3 irradiance = texture(probeIrradianceAtlas, vec3(irradianceUv, float(layer))).rgb;
+        if (air) {
+            vec2 oppositeUv = probeTileUv(probe, -n, PROBE_IRRADIANCE_TEXELS, irradianceSize);
+            irradiance = 0.5 * (irradiance + texture(probeIrradianceAtlas, vec3(oppositeUv, float(layer))).rgb);
+        }
+
         sum += irradiance * weight;
         total += weight;
     }
@@ -204,21 +213,22 @@ float probeCascadeDepth(int cascade, vec3 p, ivec3 counts) {
     return min(depth.x, min(depth.y, depth.z));
 }
 
-vec4 probeCascadeSum(int cascade, vec3 p, vec3 n, vec3 v, ivec3 counts) {
+vec4 probeCascadeSum(int cascade, vec3 p, vec3 n, vec3 v, ivec3 counts, bool air) {
     vec4 origin = frame.probeCascadeOrigin[cascade];
     ivec3 cell = ivec3(floor(origin.xyz + 0.5));
-    return probeSum(p, n, v, origin.xyz * origin.w, origin.w, counts, cascade, true, cell);
+    return probeSum(p, n, v, origin.xyz * origin.w, origin.w, counts, cascade, true, cell, air);
 }
 
 // The light reaching a point from around n, or -1 where no probe can tell, so the caller falls
 // back to the sky. In order: the fixed grid, wherever its probes reach; then the finest cascade
 // that holds the point, fading into the next coarser one across its outermost cell; then, while a
 // cascade's probes round the point aren't captured or can't see it, the next coarser one.
-vec3 probeIrradiance(vec3 p, vec3 n, vec3 v) {
+// With air, the mean of the light from round n and from round -n at a point in the air (see probeSum).
+vec3 probeLight(vec3 p, vec3 n, vec3 v, bool air) {
     if (frame.lightProbeCounts.w > 0.5) {
         ivec3 counts = ivec3(frame.lightProbeCounts.xyz + 0.5);
         vec4 grid = probeSum(p, n, v, frame.lightProbeMin.xyz, frame.lightProbeMin.w, counts,
-            PROBE_FIXED_GRID_LAYER, false, ivec3(0));
+            PROBE_FIXED_GRID_LAYER, false, ivec3(0), air);
         if (grid.w >= PROBE_MIN_WEIGHT) {
             return grid.rgb / grid.w;
         }
@@ -232,14 +242,14 @@ vec3 probeIrradiance(vec3 p, vec3 n, vec3 v) {
                 continue;
             }
 
-            vec4 fine = probeCascadeSum(c, p, n, v, counts);
+            vec4 fine = probeCascadeSum(c, p, n, v, counts, air);
             if (fine.w < PROBE_MIN_WEIGHT) {
                 continue;
             }
 
             vec3 light = fine.rgb / fine.w;
             if (depth < 1.0 && c + 1 < PROBE_CASCADES && probeCascadeDepth(c + 1, p, counts) >= 0.0) {
-                vec4 coarse = probeCascadeSum(c + 1, p, n, v, counts);
+                vec4 coarse = probeCascadeSum(c + 1, p, n, v, counts, air);
                 if (coarse.w >= PROBE_MIN_WEIGHT) {
                     light = mix(coarse.rgb / coarse.w, light, depth);
                 }
@@ -250,6 +260,17 @@ vec3 probeIrradiance(vec3 p, vec3 n, vec3 v) {
     }
 
     return vec3(-1.0);
+}
+
+// The light reaching a surface at p facing n, seen from v. See probeLight.
+vec3 probeIrradiance(vec3 p, vec3 n, vec3 v) {
+    return probeLight(p, n, v, false);
+}
+
+// The light from all round a point in the air, seen from v: the mean of what reaches it from above
+// and from below, or -1 where no probe can tell. See probeLight.
+vec3 probeAirLight(vec3 p, vec3 v) {
+    return probeLight(p, vec3(0.0, 1.0, 0.0), v, true);
 }
 
 #endif

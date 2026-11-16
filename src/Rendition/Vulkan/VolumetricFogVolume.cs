@@ -18,6 +18,9 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
     private const Format VolumeFormat = Format.R16G16B16A16Sfloat;
 
     // Where probes.glsl reads the live light probes' atlases, in every set that includes it.
+    // Must match BLOCK in volumetric_inject.comp.
+    private const int InjectBlock = 2;
+
     private const uint ProbeIrradianceBinding = 11;
     private const uint ProbeDepthBinding = 12;
 
@@ -194,9 +197,12 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
         var sets = stackalloc DescriptorSet[] { frameSet, _sets[_current] };
         uint groupsX = (uint)(_size.X + 7) / 8;
         uint groupsY = (uint)(_size.Y + 7) / 8;
+
+        // Each of the inject pass's invocations lights a block of InjectBlock by InjectBlock cells.
+        const int injectGroup = 8 * InjectBlock;
         api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _inject);
         api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 2, sets, 0, null);
-        api.CmdDispatch(cmd, groupsX, groupsY, (uint)_size.Z);
+        api.CmdDispatch(cmd, (uint)(_size.X + injectGroup - 1) / injectGroup, (uint)(_size.Y + injectGroup - 1) / injectGroup, (uint)_size.Z);
 
         Barrier(cmd,
             PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
