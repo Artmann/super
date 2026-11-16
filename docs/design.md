@@ -1545,21 +1545,24 @@ With the volumetric fog on, the sky does get the volume's light, so this only sh
 
 Near the camera the height fog is worked out in a froxel grid instead of in closed form.
 `Passes/VolumetricFog.cs` holds the grid's size and what the frame uniforms get, and
-`Vulkan/VolumetricFogVolume.cs` the GPU side. The grid has one cell per 8×8 scene pixels
-(after render scale, rounded up) and 64 slices. Slice boundary i lies at view depth
-`n·(f/n)^(i/64)`, where f is `VolumetricDistance` and n, where the exponential split
+`Vulkan/VolumetricFogVolume.cs` the GPU side. The grid has one cell per c×c scene pixels
+(after render scale, rounded up) and S slices, where c is `Renderer.VolumetricFogCellSize`
+(4 to 32, 8 by default) and S is `Renderer.VolumetricFogSlices` (16 to 128, 64 by default).
+Slice boundary i lies at view depth `n·(f/n)^(i/S)`, where f is `VolumetricDistance` and n, where the exponential split
 starts, is the smaller of 1 m and f/2. Cell 0 runs from the camera to boundary 1 and every
 other cell from its boundary to the next. So the first cell is one deep block, 0 to about
-1.06 m at the default reach of 48, and past it the slices are thin and grow with distance:
+1.06 m at the default reach of 48 and 64 slices, and past it the slices are thin and grow with distance:
 about 6 cm just past 1 m and about 2.8 m at 48 m. Fog within a metre of the eye is too thin
 to show any detail, and the first cell's light is faded in linearly from the camera (see
 `fogInFront()` below), so it is one cell rather than several. The frame uniforms carry `volumetric` (reach, n, anisotropy, and 1 when last frame's
-volume can be used), right after `curve`. `VolumetricFog.Pack` zeroes it, which makes every
+volume can be used), right after `curve`, and then `volumetricGrid` (S, c). The shaders
+read S from there; the cell size reaches them only through the images' size. `VolumetricFog.Pack` zeroes it, which makes every
 shader take the plain path untouched, with `RenderEffects.Fog` or `RenderEffects.VolumetricFog`
 off, a density or distance of 0, under water and while a probe is captured.
 
 Three rgba16f 3D images, about 35 MB at 1600×900, stay in the general layout for good. They
-are made the first time a frame draws the fog, at the scene's size, and remade with it.
+are made the first time a frame draws the fog, at the scene's size, and remade with it, or,
+after a device wait, when the cell size or slice count changes, which drops the history.
 Turning `RenderEffects.Fog` or `RenderEffects.VolumetricFog` off frees them after a device
 wait, and turning it on again makes them anew with no history. Without them binding 8 of
 the frame set holds a 1×1×1 texel of (0, 0, 0, 1), which lets everything through. Two passes run after the shadow maps and the cluster lists, before

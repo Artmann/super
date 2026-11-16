@@ -35,6 +35,8 @@ public class GraphicsProfileTests
         DepthOfField = false,
         Decals = false,
         VolumetricFog = false,
+        VolumetricFogCellSize = 16,
+        VolumetricFogSlices = 32,
         Materials = false,
         WearAndDirt = false,
         Puddles = false,
@@ -260,6 +262,8 @@ public class GraphicsProfileTests
             Assert.True(higher.ProbeQuality >= lower.ProbeQuality, pair);
             Assert.True(higher.ReflectionResolution >= lower.ReflectionResolution, pair);
             Assert.True(higher.OcclusionResolution >= lower.OcclusionResolution, pair);
+            Assert.True(higher.VolumetricFogCellSize <= lower.VolumetricFogCellSize, pair);
+            Assert.True(higher.VolumetricFogSlices >= lower.VolumetricFogSlices, pair);
         }
     }
 

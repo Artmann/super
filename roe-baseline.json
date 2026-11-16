@@ -239,7 +239,7 @@
       "kind": "high-complexity",
       "name": "Rendition.Renderer.Render",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 44
+      "metric": 40
     },
     {
       "kind": "high-complexity",
@@ -929,7 +929,7 @@
       "kind": "high-cognitive-complexity",
       "name": "Rendition.Renderer.Render",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 42
+      "metric": 38
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1919,7 +1919,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.Render",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 298
+      "metric": 284
     },
     {
       "kind": "long-method",
@@ -1967,7 +1967,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 174
+      "metric": 175
     },
     {
       "kind": "long-method",
@@ -3443,7 +3443,7 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5787
+      "metric": 5827
     },
     {
       "kind": "large-file",
@@ -3479,13 +3479,13 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/GameWindow.cs",
       "file": "src/Super/Rendering/GameWindow.cs",
-      "metric": 820
+      "metric": 822
     },
     {
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1169
+      "metric": 1183
     },
     {
       "kind": "large-file",
@@ -3599,7 +3599,7 @@
       "kind": "large-type",
       "name": "Rendition.Passes.FrameUniforms",
       "file": "src/Rendition/Passes/FrameUniforms.cs",
-      "metric": 60
+      "metric": 61
     },
     {
       "kind": "large-type",
@@ -3635,7 +3635,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 385
+      "metric": 388
     },
     {
       "kind": "large-type",
@@ -3695,7 +3695,7 @@
       "kind": "large-type",
       "name": "Rendition.Vulkan.VolumetricFogVolume",
       "file": "src/Rendition/Vulkan/VolumetricFogVolume.cs",
-      "metric": 28
+      "metric": 29
     },
     {
       "kind": "large-type",
@@ -3833,7 +3833,7 @@
       "kind": "large-type",
       "name": "Super.Graphics",
       "file": "src/Super/Graphics.cs",
-      "metric": 61
+      "metric": 63
     },
     {
       "kind": "large-type",
@@ -3887,7 +3887,7 @@
       "kind": "large-type",
       "name": "Super.SceneRenderer",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 107
+      "metric": 109
     },
     {
       "kind": "large-type",

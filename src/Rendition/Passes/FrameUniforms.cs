@@ -160,6 +160,9 @@ internal struct FrameUniforms
     /// </summary>
     public Vector4 Volumetric;
 
+    /// <summary>x: the volumetric fog's slices in depth; y: scene pixels across a cell. See <see cref="Renderer.VolumetricFogSlices"/>.</summary>
+    public Vector4 VolumetricGrid;
+
     /// <summary>x: the water's level; y: the damp band above it; z: 1 when there is water. See <see cref="Passes.Puddles.Pack(float, float)"/>.</summary>
     public Vector4 Puddles;
 

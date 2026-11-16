@@ -36,6 +36,9 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
     private Volume? _integrated;
     private (int X, int Y, int Z) _size;
 
+    /// <summary>The cells across, down and deep of the volumes made last; meaningless without <see cref="HasTargets"/>.</summary>
+    public (int X, int Y, int Z) Size => _size;
+
     // Which of the two injected volumes this frame writes; the other holds last frame's.
     private int _current;
 
@@ -95,12 +98,13 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
     }
 
     /// <summary>
-    /// Makes the volumes for a scene of this many pixels, after render scale, replacing any
+    /// Makes the volumes for a scene of this many pixels, after render scale, cut into cells this many
+    /// pixels across and this many slices deep, replacing any
     /// there were, and starts the history again. Only while no frame in flight uses them.
     /// </summary>
-    public void SetSize(int sceneWidth, int sceneHeight)
+    public void SetSize(int sceneWidth, int sceneHeight, int cellPixels, int slices)
     {
-        var size = VolumetricFog.GridSize(sceneWidth, sceneHeight);
+        var size = VolumetricFog.GridSize(sceneWidth, sceneHeight, cellPixels, slices);
         if (HasTargets && size == _size)
         {
             return;

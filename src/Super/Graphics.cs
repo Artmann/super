@@ -252,6 +252,33 @@ public sealed class Graphics
     public bool VolumetricFog { get; set; } = true;
 
     /// <summary>
+    /// Scene pixels across one cell of the volumetric fog's grid, each way, from 4 to 32. Smaller cells show finer
+    /// shafts and sharper edges on fog volumes, and cost about four times as much each time the size halves. The
+    /// size is after <see cref="RenderScale"/>. At 8, the default, the grid takes about 35 MB at 1600 by 900, and
+    /// 16 cuts that to a quarter.
+    /// </summary>
+    public int VolumetricFogCellSize
+    {
+        get;
+        set => field = value is >= 4 and <= 32
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), value, "A volumetric fog cell can be from 4 to 32 pixels across.");
+    } = 8;
+
+    /// <summary>
+    /// How many slices the volumetric fog's grid has in depth, from 16 to 128, out to
+    /// <see cref="Rendition.FogSettings.VolumetricDistance"/>. More slices keep shafts and fog volumes sharp further
+    /// out, and the cost grows with the count. <see cref="GraphicsQuality.Ultra"/> uses 128; the rest 64.
+    /// </summary>
+    public int VolumetricFogSlices
+    {
+        get;
+        set => field = value is >= 16 and <= 128
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), value, "The volumetric fog can have from 16 to 128 slices.");
+    } = 64;
+
+    /// <summary>
     /// Every surface's own colour, textures, normal maps and shine. Off, everything is the same light grey,
     /// matte clay, shaped only by its mesh, so the lighting and the models can be judged without the
     /// textures in the way. Glows still glow, cut-outs still cut and glass stays see-through. It's
@@ -431,6 +458,7 @@ public sealed class Graphics
             MeshDetail = 1.5f,
             ReflectionResolution = ReflectionResolution.Full,
             OcclusionResolution = OcclusionResolution.Full,
+            VolumetricFogSlices = 128,
         },
         _ => throw new ArgumentOutOfRangeException(nameof(quality), quality, "Graphics quality can be Low, Medium, High or Ultra."),
     };
@@ -496,6 +524,8 @@ public sealed class Graphics
         ProbeQuality = profile.ProbeQuality;
         ReflectionResolution = profile.ReflectionResolution;
         OcclusionResolution = profile.OcclusionResolution;
+        VolumetricFogCellSize = profile.VolumetricFogCellSize;
+        VolumetricFogSlices = profile.VolumetricFogSlices;
         BakeOnArrival = profile.BakeOnArrival;
         BakeBudget = profile.BakeBudget;
         ApplySwitches(profile);

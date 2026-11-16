@@ -390,6 +390,26 @@ public sealed unsafe class Renderer : IDisposable
             : throw new ArgumentOutOfRangeException(nameof(value), value, $"The sun can draw from 1 to {ShadowPass.MaxCascades} cascades.");
     } = ShadowPass.MaxCascades;
 
+    /// <summary>
+    /// Scene pixels across one cell of the volumetric fog's grid, each way, from 4 to 32; 8 unless set. Smaller
+    /// cells are sharper and cost more. A change remakes the grid, with no history, before the next frame.
+    /// </summary>
+    public int VolumetricFogCellSize
+    {
+        get;
+        set => field = VolumetricFog.CheckCellPixels(value);
+    } = VolumetricFog.CellPixels;
+
+    /// <summary>
+    /// Slices in the volumetric fog's grid, from the camera out to <see cref="FogSettings.VolumetricDistance"/>,
+    /// from 16 to 128; 64 unless set. A change remakes the grid, with no history, before the next frame.
+    /// </summary>
+    public int VolumetricFogSlices
+    {
+        get;
+        set => field = VolumetricFog.CheckSlices(value);
+    } = VolumetricFog.Slices;
+
     /// <summary>The smallest <see cref="MeshDetailScale"/>: models switch to their simpler versions at twice the distance.</summary>
     public const float MinMeshDetail = 0.5f;
 
@@ -3886,21 +3906,7 @@ public sealed unsafe class Renderer : IDisposable
         _off = Exposure.ShaderOff(view.Post, viewOff & RenderEffects.All);
         _windReach = new WindReach(Wind.Strength(view.Wind, _off), _resources.SwayOf);
         _fadeRules = new FadeRules(view.CameraPosition, !_off.HasFlag(RenderEffects.Fades), _resources.FadeOf);
-        if (!_volumetricFog.HasTargets && VolumetricFog.Pack(view.Fog, _off, false, Underwater(view)).X > 0f)
-        {
-            // The fog's volumes are made the first time it's drawn. Frames in flight bind the stand-in.
-            _api.DeviceWaitIdle(_context.Device).Check();
-            _volumetricFog.SetSize((int)_gBuffer.Extent.Width, (int)_gBuffer.Extent.Height);
-            WriteTargetDescriptors();
-        }
-        else if (_volumetricFog.HasTargets && (_off & (RenderEffects.Fog | RenderEffects.VolumetricFog)) != 0)
-        {
-            // Switched off, the volumes are freed, and made again with no history if it's switched back on.
-            // Frames in flight still read them. Flipping the switch is rare.
-            _api.DeviceWaitIdle(_context.Device).Check();
-            _volumetricFog.Release();
-            WriteTargetDescriptors();
-        }
+        KeepVolumetricTargets(view);
 
         _depthOfField = DepthOfFieldConstants.For(view.Post, _off, (int)_gBuffer.Extent.Width);
         bool antiAliased = !_off.HasFlag(RenderEffects.AntiAliasing);
@@ -5104,6 +5110,7 @@ public sealed unsafe class Renderer : IDisposable
 
         volumetric.W = historyValid && _volumetricFog.HistoryReady ? 1f : 0f;
         uniforms->Volumetric = volumetric;
+        uniforms->VolumetricGrid = new Vector4(VolumetricFogSlices, VolumetricFogCellSize, 0f, 0f);
         uniforms->Puddles = Puddles.Pack(view.Puddles, _off);
         uniforms->Wind = Wind.Pack(view.Wind, _off);
         _volumetricDrawn = volumetric.X > 0f;
@@ -5255,6 +5262,39 @@ public sealed unsafe class Renderer : IDisposable
     /// </summary>
     private ReadOnlySpan<LocalLight> DrawnLocalLights(in FrameView view) =>
         _off.HasFlag(RenderEffects.LocalLights) ? [] : view.LocalLights;
+
+    /// <summary>
+    /// Makes the volumetric fog's volumes the first time a frame draws it, frees them while it's switched off, and
+    /// remakes them when the cell size or slice count changes. Each waits for the GPU, which is rare.
+    /// </summary>
+    private void KeepVolumetricTargets(in FrameView view)
+    {
+        int width = (int)_gBuffer.Extent.Width;
+        int height = (int)_gBuffer.Extent.Height;
+        if (!_volumetricFog.HasTargets && VolumetricFog.Pack(view.Fog, _off, false, Underwater(view)).X > 0f)
+        {
+            // The fog's volumes are made the first time it's drawn. Frames in flight bind the stand-in.
+            _api.DeviceWaitIdle(_context.Device).Check();
+            _volumetricFog.SetSize(width, height, VolumetricFogCellSize, VolumetricFogSlices);
+            WriteTargetDescriptors();
+        }
+        else if (_volumetricFog.HasTargets && (_off & (RenderEffects.Fog | RenderEffects.VolumetricFog)) != 0)
+        {
+            // Switched off, the volumes are freed, and made again with no history if it's switched back on.
+            // Frames in flight still read them. Flipping the switch is rare.
+            _api.DeviceWaitIdle(_context.Device).Check();
+            _volumetricFog.Release();
+            WriteTargetDescriptors();
+        }
+        else if (_volumetricFog.HasTargets
+            && _volumetricFog.Size != VolumetricFog.GridSize(width, height, VolumetricFogCellSize, VolumetricFogSlices))
+        {
+            // A new cell size or slice count remakes the grid, with no history. Frames in flight still read the old one.
+            _api.DeviceWaitIdle(_context.Device).Check();
+            _volumetricFog.SetSize(width, height, VolumetricFogCellSize, VolumetricFogSlices);
+            WriteTargetDescriptors();
+        }
+    }
 
     /// <summary>Whether the camera is under the view's water, which it never is while <see cref="RenderEffects.Underwater"/> is off.</summary>
     private bool Underwater(in FrameView view) =>
@@ -5409,7 +5449,7 @@ public sealed unsafe class Renderer : IDisposable
         _depthOfFieldPass.SetTargets(DisplaySource, _gBuffer.Depth.View, _gBuffer.Extent);
         if (_volumetricFog.HasTargets)
         {
-            _volumetricFog.SetSize((int)_gBuffer.Extent.Width, (int)_gBuffer.Extent.Height);
+            _volumetricFog.SetSize((int)_gBuffer.Extent.Width, (int)_gBuffer.Extent.Height, VolumetricFogCellSize, VolumetricFogSlices);
         }
 
         WriteTargetDescriptors();

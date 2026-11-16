@@ -45,6 +45,7 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     mat4 whiteBalance;       // Linear colour to white-balanced colour, used as mat3 by the tone mapping.
     vec4 curve;              // x: 1 for ACES, 0 for AgX; y, z: the AgX look's power and saturation
     vec4 volumetric;         // x: how far the volumetric fog reaches, 0 for none; y: where its first slice ends; z: anisotropy; w: 1 when last frame's volume can be used
+    vec4 volumetricGrid;     // x: the volumetric fog's slices in depth; y: scene pixels across a cell
     vec4 puddles;            // x: puddleLevel, the water's height in metres; y: puddleBand, the damp band above it; z: 1 when there is water
     vec4 wind;               // xyz: the way the wind blows times its strength, all zero in a calm; w: its gustiness. See wind.glsl.
     vec4 bakedProbeMin;      // xyz: the drawn bake's first light probe; w: their spacing in metres

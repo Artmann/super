@@ -3,24 +3,47 @@ using System.Numerics;
 namespace Rendition.Passes;
 
 /// <summary>
-/// The volumetric fog's grid size and the fog settings the shaders get. The grid has
-/// one cell for every 8 by 8 pixels of the scene and <see cref="Slices"/> slices in depth, split
-/// exponentially so the near cells are thin and the far ones deep.
+/// The volumetric fog's grid size and the fog settings the shaders get. The grid has one cell
+/// for every <see cref="Renderer.VolumetricFogCellSize"/> by that many pixels of the scene and
+/// <see cref="Renderer.VolumetricFogSlices"/> slices in depth, split exponentially so the near
+/// cells are thin and the far ones deep.
 /// </summary>
 internal static class VolumetricFog
 {
-    /// <summary>Scene pixels across one cell, each way.</summary>
+    /// <summary>Scene pixels across one cell, each way, unless a game picks another.</summary>
     public const int CellPixels = 8;
 
-    /// <summary>Cells in depth, from the camera out to <see cref="FogSettings.VolumetricDistance"/>.</summary>
+    /// <summary>The fewest scene pixels across a cell.</summary>
+    public const int MinCellPixels = 4;
+
+    /// <summary>The most scene pixels across a cell.</summary>
+    public const int MaxCellPixels = 32;
+
+    /// <summary>Cells in depth, from the camera out to <see cref="FogSettings.VolumetricDistance"/>, unless a game picks another.</summary>
     public const int Slices = 64;
+
+    /// <summary>The fewest slices in depth.</summary>
+    public const int MinSlices = 16;
+
+    /// <summary>The most slices in depth.</summary>
+    public const int MaxSlices = 128;
 
     /// <summary>Where the first slice ends at most, in metres; it ends sooner in a volume under twice this deep.</summary>
     public const float FirstSlice = 1f;
 
     /// <summary>The cells across, down and deep for a scene of this many pixels, after render scale.</summary>
-    public static (int X, int Y, int Z) GridSize(int sceneWidth, int sceneHeight) =>
-        ((sceneWidth + CellPixels - 1) / CellPixels, (sceneHeight + CellPixels - 1) / CellPixels, Slices);
+    public static (int X, int Y, int Z) GridSize(int sceneWidth, int sceneHeight, int cellPixels = CellPixels, int slices = Slices) =>
+        ((sceneWidth + cellPixels - 1) / cellPixels, (sceneHeight + cellPixels - 1) / cellPixels, slices);
+
+    /// <summary>Throws unless a cell this many pixels across fits the grid.</summary>
+    public static int CheckCellPixels(int value) => value is >= MinCellPixels and <= MaxCellPixels
+        ? value
+        : throw new ArgumentOutOfRangeException(nameof(value), value, $"A volumetric fog cell can be from {MinCellPixels} to {MaxCellPixels} pixels across.");
+
+    /// <summary>Throws unless the grid can have this many slices.</summary>
+    public static int CheckSlices(int value) => value is >= MinSlices and <= MaxSlices
+        ? value
+        : throw new ArgumentOutOfRangeException(nameof(value), value, $"The volumetric fog can have from {MinSlices} to {MaxSlices} slices.");
 
     /// <summary>
     /// What the frame block gets: x the distance the volume reaches, y where its first slice ends,

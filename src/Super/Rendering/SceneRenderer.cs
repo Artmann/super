@@ -195,6 +195,20 @@ internal sealed class SceneRenderer : IDisposable
         set => _renderer.OcclusionResolution = value;
     }
 
+    /// <summary>Scene pixels across a volumetric fog cell. See <see cref="Renderer.VolumetricFogCellSize"/>.</summary>
+    public int VolumetricFogCellSize
+    {
+        get => _renderer.VolumetricFogCellSize;
+        set => _renderer.VolumetricFogCellSize = value;
+    }
+
+    /// <summary>Slices in the volumetric fog's depth. See <see cref="Renderer.VolumetricFogSlices"/>.</summary>
+    public int VolumetricFogSlices
+    {
+        get => _renderer.VolumetricFogSlices;
+        set => _renderer.VolumetricFogSlices = value;
+    }
+
     /// <summary>Whether the light probes near the camera are all up to date. See <see cref="Renderer.ProbesSettled"/>.</summary>
     public bool ProbesSettled => _renderer.ProbesSettled;
 

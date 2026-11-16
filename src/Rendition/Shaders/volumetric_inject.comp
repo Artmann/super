@@ -114,9 +114,9 @@ void main() {
             float previousDepth = parallelProjection(frame.previousViewProjection) ? depth : clip.w;
             float previousCell = volumetricCellOf(previousDepth);
             bool inside = all(greaterThanEqual(previousUv, vec2(0.0))) && all(lessThanEqual(previousUv, vec2(1.0)))
-                && previousDepth >= 0.0 && previousCell <= float(VOLUMETRIC_SLICES);
+                && previousDepth >= 0.0 && previousCell <= frame.volumetricGrid.x;
             if (inside) {
-                vec4 before = textureLod(history, vec3(previousUv, previousCell / float(VOLUMETRIC_SLICES)), 0.0);
+                vec4 before = textureLod(history, vec3(previousUv, previousCell / frame.volumetricGrid.x), 0.0);
                 value = mix(value, before, VOLUMETRIC_HISTORY);
             }
         }
