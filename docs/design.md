@@ -3591,6 +3591,13 @@ builds them from `Shapes.BuiltIn` once, with the shared white material, and keep
 for its whole life; `Content` treats any index of 0 or below as always ready and never
 unloadable, and `View.Model` refuses a negative index with no shape behind it.
 
+Generated meshes share materials. `SceneRenderer` keeps one material per surface in
+`SharedMaterials`, counting the meshes that use it, and destroys it when the last of them is
+unloaded or fails to upload. Surfaces are compared by value, with their arrays compared item
+by item, and the cache keeps its own copy of each surface's arrays, so a game changing one in
+place can't change a key under the dictionary. A mesh with its own `GeneratedTexture` names
+that texture in its material, so it gets one of its own and destroys it with the mesh.
+
 Device memory is sub-allocated from 64 MB blocks in `GpuMemory`, one set of pools
 per memory type, kept apart for buffers and images and for host-visible memory.
 Anything larger than a block gets its own allocation.
