@@ -3,6 +3,7 @@
 #define VOLUMETRIC_WRITER
 #include "common.glsl"
 #include "volumetric.glsl"
+#include "water_absorption.glsl"
 
 // Sums each column of the volumetric fog front to back, so a surface at any depth finds the
 // fog's light in front of it, and the share of its own light that gets through, in one
@@ -26,18 +27,24 @@ void main() {
     volumetricRay((vec2(column) + 0.5) / vec2(size.xy), origin, along);
     float metresPerDepth = length(along);
 
+    // Under water the water stops red, green and blue apart. Its share of what's behind is
+    // left out of a, as lookups work it out from the distance, but it dims the light in front.
+    vec3 water = isUnderwater() ? frame.waterAbsorption.rgb : vec3(0.0);
     vec3 light = vec3(0.0);
+    vec3 keptAll = vec3(1.0);
     float kept = 1.0;
     for (int slice = 0; slice < size.z; slice++) {
         vec4 cell = imageLoad(injected, ivec3(column, slice));
         float metres = (volumetricCellStart(slice + 1) - volumetricCellStart(slice)) * metresPerDepth;
-        // The cell sends cell.rgb per metre and stops cell.a of what's behind it per metre, so
+        // The cell sends cell.rgb per metre and stops sigma of what's behind it per metre, so
         // its own light is dimmed on the way out of it too: over L metres it adds
-        // cell.rgb * (1 - e^(-cell.a L)) / cell.a, which is cell.rgb * L in clear air.
-        float through = exp(-cell.a * metres);
-        float reach = cell.a > 1e-6 ? (1.0 - through) / cell.a : metres;
-        light += kept * cell.rgb * reach;
-        kept *= through;
+        // cell.rgb * (1 - e^(-sigma L)) / sigma, which is cell.rgb * L in clear air.
+        vec3 sigma = cell.a + water;
+        vec3 through = exp(-sigma * metres);
+        vec3 reach = mix(vec3(metres), (1.0 - through) / max(sigma, vec3(1e-6)), greaterThan(sigma, vec3(1e-6)));
+        light += keptAll * cell.rgb * reach;
+        keptAll *= through;
+        kept *= exp(-cell.a * metres);
         imageStore(integrated, ivec3(column, slice), vec4(light, kept));
     }
 }

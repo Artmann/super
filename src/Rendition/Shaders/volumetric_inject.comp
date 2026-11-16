@@ -11,6 +11,7 @@
 #include "fog_volumes.glsl"
 #define PROBE_ATLAS_SET 1
 #include "probes.glsl"
+#include "water.glsl"
 
 // Lights each cell of the volumetric fog: how much light its air takes per metre, from the
 // height fog and the fog volumes, and the light it sends towards the camera per metre, from
@@ -114,6 +115,24 @@ vec3 lightInAir(vec3 position, vec2 uv, float depth, vec3 towards, float g) {
     return light;
 }
 
+// Under water, the light the water itself sends towards the camera per metre. Its colour that
+// way times what it stops per metre, which summed through the water is the closed form's tint,
+// and the shafts: the caustics' light coming down through the water, where the sun's shadow
+// lets it through, brightest looking towards the sun.
+vec3 waterInScatter(vec3 position, vec3 towards) {
+    vec3 light = frame.waterAbsorption.rgb * waterColor(towards);
+    if (frame.waterDeep.a <= 0.0 || frame.lightCount == 0) {
+        return light;
+    }
+
+    vec3 l = frame.lights[0].direction.xyz;
+    float pattern = causticAt(position, l, frame.waterLight.y * SHAFT_PATTERN_SCALE);
+    float shadow = frame.lights[0].direction.w > 0.5 ? sunShadowInAir(position) : 1.0;
+    float towardsSun = 0.5 + 0.5 * dot(towards, l);
+    vec3 down = waterAbsorbed(metresToSurface(position, l));
+    return light + frame.waterDeep.a * pattern * shadow * towardsSun * down * frame.waterShallow.rgb;
+}
+
 void main() {
     ivec3 size = imageSize(injected);
     ivec3 cell = ivec3(gl_GlobalInvocationID);
@@ -131,7 +150,9 @@ void main() {
     float g = frame.volumetric.z;
 
     // How much of the light the air stops per metre in a, and the light it scatters towards
-    // the camera per metre in rgb, from the height fog and every fog volume here.
+    // the camera per metre in rgb, from the height fog and every fog volume here. Under water
+    // the height fog is clear, the water adds its own light, and volumetric_integrate.comp
+    // adds what the water stops, which is red, green and blue apart.
     float heightDensity = fogDensity(position);
     float extinction = heightDensity;
     vec3 scattering = vec3(heightDensity);
@@ -142,7 +163,12 @@ void main() {
         scattering += density * fogVolumes[i].colorDensity.rgb;
     }
 
-    vec4 value = extinction > 0.0 ? vec4(scattering * lightInAir(position, uv, depth, towards, g), extinction) : vec4(0.0);
+    vec3 sent = extinction > 0.0 ? scattering * lightInAir(position, uv, depth, towards, g) : vec3(0.0);
+    if (isUnderwater()) {
+        sent += waterInScatter(position, towards);
+    }
+
+    vec4 value = vec4(sent, extinction);
 
     // Last frame's light for the same air, where it was in last frame's volume. Air that was
     // off screen or outside the volume then has none, and takes this frame's.

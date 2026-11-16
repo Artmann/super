@@ -90,26 +90,46 @@ public class VolumetricFogTests
         Assert.False(Graphics.Fastest().VolumetricFog);
 
         // On, the volume reaches 48 m, starts its slices at 1 m and scatters forwards.
-        Assert.Equal(new Vector4(48f, 1f, 0.6f, 0f), VolumetricFog.Pack(fog, 0, RenderEffects.None, false, false));
+        Assert.Equal(new Vector4(48f, 1f, 0.6f, 0f), VolumetricFog.Pack(fog, 0, RenderEffects.None, false, null));
 
         // Off, it reaches nowhere, which every shader takes as the analytic fog, and the analytic
         // fog still gets its own settings.
-        Assert.Equal(Vector4.Zero, VolumetricFog.Pack(fog, 0, RenderEffects.VolumetricFog, false, false));
+        Assert.Equal(Vector4.Zero, VolumetricFog.Pack(fog, 0, RenderEffects.VolumetricFog, false, null));
         Assert.Equal(new Vector4(0.004f, 1.5f, 0.15f, 0.6f), Fog.Pack(fog, RenderEffects.VolumetricFog, false, false));
     }
 
     [Theory]
-    [InlineData(0f, false, false, false)]
-    [InlineData(0.004f, true, false, false)]
-    [InlineData(0.004f, false, true, false)]
-    [InlineData(0.004f, false, false, true)]
-    public void No_volume_without_fog_in_probes_under_water_or_with_the_fog_off(
-        float density, bool fogOff, bool capturingProbe, bool underwater)
+    [InlineData(0f, false, false)]
+    [InlineData(0.004f, true, false)]
+    [InlineData(0.004f, false, true)]
+    public void No_volume_without_fog_in_probes_or_with_the_fog_off(float density, bool fogOff, bool capturingProbe)
     {
         var fog = new FogSettings(density);
         var off = fogOff ? RenderEffects.Fog : RenderEffects.None;
 
-        Assert.Equal(Vector4.Zero, VolumetricFog.Pack(fog, 0, off, capturingProbe, underwater));
+        Assert.Equal(Vector4.Zero, VolumetricFog.Pack(fog, 0, off, capturingProbe, null));
+    }
+
+    [Fact]
+    public void Under_water_the_volume_reaches_the_shaft_distance()
+    {
+        // The water itself fills the volume, so it needs no fog, and a shorter reach starts its
+        // slices closer as above water.
+        var clear = new FogSettings();
+
+        Assert.Equal(new Vector4(30f, 1f, 0.6f, 0f), VolumetricFog.Pack(clear, 0, RenderEffects.None, false, 30f));
+        Assert.Equal(new Vector4(1.5f, 0.75f, 0.6f, 0f), VolumetricFog.Pack(clear, 0, RenderEffects.None, false, 1.5f));
+    }
+
+    [Theory]
+    [InlineData(RenderEffects.VolumetricFog, false, 30f)]
+    [InlineData(RenderEffects.None, true, 30f)]
+    [InlineData(RenderEffects.None, false, 0f)]
+    public void Under_water_with_volumetric_fog_off_there_is_no_volume(RenderEffects off, bool capturingProbe, float reach)
+    {
+        // Volumetric fog off, a probe being captured, or no shaft distance: the water is drawn in
+        // closed form, with no shafts.
+        Assert.Equal(Vector4.Zero, VolumetricFog.Pack(new FogSettings(0.004f), 2, off, capturingProbe, reach));
     }
 
     [Fact]
@@ -117,7 +137,7 @@ public class VolumetricFogTests
     {
         var fog = new FogSettings(0.004f) { VolumetricDistance = 0f };
 
-        Assert.Equal(Vector4.Zero, VolumetricFog.Pack(fog, 0, RenderEffects.None, false, false));
+        Assert.Equal(Vector4.Zero, VolumetricFog.Pack(fog, 0, RenderEffects.None, false, null));
     }
 
     [Fact]
@@ -126,7 +146,7 @@ public class VolumetricFogTests
         // Under 2 m the first slice ends halfway, so the slices still cover the whole volume.
         var fog = new FogSettings(0.004f) { VolumetricDistance = 1f };
 
-        Assert.Equal(new Vector4(1f, 0.5f, 0.6f, 0f), VolumetricFog.Pack(fog, 0, RenderEffects.None, false, false));
+        Assert.Equal(new Vector4(1f, 0.5f, 0.6f, 0f), VolumetricFog.Pack(fog, 0, RenderEffects.None, false, null));
     }
 
     [Fact]

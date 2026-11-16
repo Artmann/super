@@ -87,7 +87,7 @@ next frame follows, so it can back an options menu.
 | `Fog` | Clear air, whatever `SkySettings.Fog` asks for. [Haze](#the-sky) stays, since it isn't fog. `SkySettings.Fog` only changes [how thick it is](#fog) |
 | `Haze` | Distant things keep their colours instead of fading into the sky between `SkySettings.HazeStart` and `HazeEnd`. The sky's own colour stays |
 | `Underwater` | `view.Water` is ignored: the view is drawn as if the camera were not under water, with no absorption, caustics or light shafts, and the sky and the surrounding colours come back. See [water](#water) |
-| `VolumetricFog` | The fog is the plain height fog all the way, exactly as if `FogSettings.VolumetricDistance` were 0: no shafts of sunlight and no halos round lamps. It saves two compute passes over a small grid and about 35 MB of memory at 1600 by 900, which is freed when it is switched off and made again, without its history, when it is switched back on. See [volumetric fog](#volumetric-fog) |
+| `VolumetricFog` | The fog is the plain height fog all the way, exactly as if `FogSettings.VolumetricDistance` were 0: no shafts of sunlight and no halos round lamps, and under water no shafts of light. It saves two compute passes over a small grid and about 35 MB of memory at 1600 by 900, which is freed when it is switched off and made again, without its history, when it is switched back on. See [volumetric fog](#volumetric-fog) |
 | `FogVolumes` | The [fog volumes](views.md#fog-volumes) a view places are left out, and only the scene's own fog fills the volumetric fog. They show only while `VolumetricFog` is on too. `Graphics.Fastest()` turns it off |
 | `VolumetricFogCellSize` | Not a switch: how many scene pixels across, each way, one cell of the [volumetric fog's](#volumetric-fog) grid covers, from 4 to 32. 8 is the default. Smaller cells show finer shafts and sharper edges on fog volumes; each halving costs about four times the memory and work. The size is after `RenderScale`. Anything else is refused. A change remakes the grid before the next frame, which waits for the GPU once and starts its history again. See [the grid's cost](#the-grids-cost) |
 | `VolumetricFogSlices` | Not a switch: how many slices deep the volumetric fog's grid is, from 16 to 128, out to `FogSettings.VolumetricDistance`. 64 is the default. More slices keep shafts and fog volumes sharp further out, for memory and work that grow with the count. Anything else is refused. A change remakes the grid like `VolumetricFogCellSize`. `GraphicsQuality.Ultra` sets 128 |
@@ -1282,7 +1282,8 @@ every cell at a different point of its depth and keeps 90% of what the cell held
 frame, so a light that moves or switches on takes a few frames to settle in the fog.
 Screenshots and recordings that fix the frame come out the same every time. The grid
 follows [`RenderScale`](#graphics-settings), not the window. Like the plain fog, it is
-drawn for the camera only and is left out under water. `Graphics.VolumetricFog` turns it
+drawn for the camera only. Under water the scene's fog is clear and the grid holds the
+water instead, with its [shafts of light](#water). `Graphics.VolumetricFog` turns it
 off, which gives the plain fog exactly, and `Graphics.Fastest()` turns it off.
 
 #### Fog volumes
@@ -1300,7 +1301,8 @@ makes the grid for its volumes. That also means they share the grid's limits:
 - They show only out to `FogSettings.VolumetricDistance`; past it a volume is cut off.
 - Their edges are as sharp as the grid's cells. A volume much thinner than a cell, or than
   a slice at its distance, blurs into the air round it and thins out, so give mist some depth.
-- They are left out under water and in light probes, as the volumetric fog is.
+- They are left out of light probes, as the volumetric fog is. Under water they show in the
+  water, out to its `ShaftDistance`.
 - A frame holds at most 64.
 
 `Graphics.FogVolumes` turns them off on their own, and `Graphics.VolumetricFog` turns
@@ -1347,6 +1349,17 @@ Leaving `Absorption` at zero means there's no water. The [Reef example](../examp
 uses this. Red goes first, so colours fade towards blue and green with distance: at a red
 absorption of 0.075 an orange coral turns brown a few metres off. The Reef lowers it to 0.045
 so its coral keeps some warmth across the view. `Graphics.Underwater` turns the water off for every view, see [graphics settings](#graphics-settings).
+
+The shafts are the sun's caustics coming down through the water, brightest looking towards
+the sun. They are drawn in the [volumetric fog's](#volumetric-fog) grid, out to
+`ShaftDistance`, so the sun's shadow cuts them: a ledge or a hull overhead leaves dark
+water under it. The grid also holds the water's own colour out to that distance, and any
+[fog volumes](views.md#fog-volumes), such as silt over the floor; past it the water's colour
+fills in as before. A wide `ShaftDistance` spreads the grid's slices over more water, so
+shafts close by blur, the way a wide [`VolumetricDistance`](#the-grids-cost) does on land.
+
+The shafts need [`Graphics.VolumetricFog`](#graphics-settings). With it off, as in the
+`Low` and `Medium` presets, the water has its colour and caustics but no shafts.
 
 ## Puddles
 

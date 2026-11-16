@@ -49,18 +49,25 @@ internal static class VolumetricFog
     /// What the frame block gets: x the distance the volume reaches, y where its first slice ends,
     /// z the anisotropy, w left for the renderer to say whether last frame's volume can be used.
     /// All zero, which draws the plain fog, with the volumetric switch off, a volumetric distance
-    /// of 0, while a probe is captured or under water, and when there's nothing to draw: no
-    /// scene fog (or its switch off) and no fog volumes (or their switch off).
+    /// of 0, while a probe is captured, and above water when there's nothing to draw: no
+    /// scene fog (or its switch off) and no fog volumes (or their switch off). Under water,
+    /// <paramref name="underwaterReach"/> is the shafts' distance and the volume reaches that far
+    /// with or without fog, as the water fills it; a reach of 0 draws the water in closed form.
     /// </summary>
-    public static Vector4 Pack(in FogSettings settings, int fogVolumes, RenderEffects off, bool capturingProbe, bool underwater)
+    public static Vector4 Pack(in FogSettings settings, int fogVolumes, RenderEffects off, bool capturingProbe, float? underwaterReach)
     {
-        if (capturingProbe || underwater || (off & RenderEffects.VolumetricFog) != 0
-            || !(settings.VolumetricDistance > 0f) || !HasFog(settings, fogVolumes, off))
+        if (capturingProbe || (off & RenderEffects.VolumetricFog) != 0)
         {
             return Vector4.Zero;
         }
 
-        float distance = settings.VolumetricDistance;
+        // Under water the water itself fills the volume, out to the shafts' distance.
+        float distance = underwaterReach ?? settings.VolumetricDistance;
+        if (!(distance > 0f) || (underwaterReach == null && !HasFog(settings, fogVolumes, off)))
+        {
+            return Vector4.Zero;
+        }
+
         return new Vector4(distance, MathF.Min(FirstSlice, distance * 0.5f), settings.Anisotropy, 0f);
     }
 

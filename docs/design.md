@@ -1558,8 +1558,10 @@ to show any detail, and the first cell's light is faded in linearly from the cam
 volume can be used), right after `curve`, and then `volumetricGrid` (S, c, the number of
 fog volumes). The shaders read S from there; the cell size reaches them only through the images' size. `VolumetricFog.Pack` zeroes it, which makes every
 shader take the plain path untouched, with `RenderEffects.VolumetricFog` off, a distance of 0,
-under water, while a probe is captured, and when there is nothing to draw: neither a scene
+while a probe is captured, and when there is nothing to draw: neither a scene
 fog with density (and `RenderEffects.Fog` on) nor a fog volume (and `RenderEffects.FogVolumes` on).
+Under water (see "Under water" below) the reach is `UnderwaterSettings.ShaftDistance` instead
+of `VolumetricDistance`, and the volume is drawn with or without fog, since it holds the water.
 
 Three rgba16f 3D images, about 35 MB at 1600×900, stay in the general layout for good. They
 are made the first time a frame draws the fog, at the scene's size, and remade with it, or,
@@ -1607,6 +1609,31 @@ is its depth span times the length of the ray's per-unit-depth step, its transmi
 its own depth, or `kept·rgb·L` when σ is below 1e-6. For height fog, where rgb is σ times
 the light, that is the plain fog's rule of colour times what is hidden. Texel i of the
 result holds the light in front of, and the transmittance to, the far side of cell i.
+
+#### Under water
+
+Under water the volume holds the water near the camera, and the shafts of light that
+`water.glsl` used to march per pixel are cells of it, so the sun's shadow cuts them. The
+height fog's uniforms are zeroed under water, so σ is only the fog volumes'. Inject adds
+`waterInScatter()` to every cell's rgb whatever σ is: the water's own light,
+`waterAbsorption·waterColor(towards)`, which summed through the water gives the closed
+form's tint, and with `ShaftStrength` above 0 and a light, the shafts, `ShaftStrength` times
+the caustic pattern at `SHAFT_PATTERN_SCALE` traced up to the surface, one tap of the sun's
+shadow in air, `0.5 + 0.5·dot(towards, l)` and `waterAbsorbed()` over the way down, in
+the shallow colour. Integrate keeps a transmittance per channel for its running light,
+with σ plus the water's absorption, since the water stops red, green and blue apart, but
+stores in a only the fog volumes' share, `exp(-Σσ·L)`, as readers work the water's own share
+out from the distance.
+
+`throughWater()` reads the volume at the point and returns
+`near.rgb + near.a·(color·kept + waterColor·(keptAtReach - kept))`, where kept is
+`waterAbsorbed()` over the whole distance and keptAtReach over the part of it inside the
+reach, so past the reach the closed form's tint carries on from where the volume ends. Inside
+it keptAtReach equals kept and only the volume's light is added. With the volume off it is
+the closed form as before, with no shafts. `fogInFront()` takes the plain path under water,
+which is clear, so glass and particles keep their old look; particles still leave out the
+shafts, which would be added once per puff. With `ShaftStrength` at 0, the Reef's water
+matches the closed form to within one level of 255 in every part of the frame.
 
 #### Fog volumes
 

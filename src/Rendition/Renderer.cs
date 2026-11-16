@@ -5260,7 +5260,7 @@ public sealed unsafe class Renderer : IDisposable
     private void WriteVolumetric(FrameUniforms* uniforms, in FrameView view, bool capturingProbe, bool historyValid)
     {
         var fogVolumes = FogVolumesOf(view);
-        var volumetric = VolumetricFog.Pack(view.Fog, fogVolumes.Length, _off, capturingProbe, underwater: Underwater(view));
+        var volumetric = VolumetricFog.Pack(view.Fog, fogVolumes.Length, _off, capturingProbe, UnderwaterReach(view));
         if (!_volumetricFog.HasTargets)
         {
             volumetric = Vector4.Zero;
@@ -5306,7 +5306,7 @@ public sealed unsafe class Renderer : IDisposable
     {
         int width = (int)_gBuffer.Extent.Width;
         int height = (int)_gBuffer.Extent.Height;
-        if (!_volumetricFog.HasTargets && VolumetricFog.Pack(view.Fog, FogVolumesOf(view).Length, _off, false, Underwater(view)).X > 0f)
+        if (!_volumetricFog.HasTargets && VolumetricFog.Pack(view.Fog, FogVolumesOf(view).Length, _off, false, UnderwaterReach(view)).X > 0f)
         {
             // The fog's volumes are made the first time it's drawn. Frames in flight bind the stand-in.
             _api.DeviceWaitIdle(_context.Device).Check();
@@ -5335,6 +5335,9 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>Whether the camera is under the view's water, which it never is while <see cref="RenderEffects.Underwater"/> is off.</summary>
     private bool Underwater(in FrameView view) =>
         view.Water.Absorption != Vector3.Zero && !_off.HasFlag(RenderEffects.Underwater);
+
+    /// <summary>How far the volumetric fog reaches under water, the shafts' distance, or null above water.</summary>
+    private float? UnderwaterReach(in FrameView view) => Underwater(view) ? view.Water.ShaftDistance : null;
 
     /// <summary>
     /// Picks the point and spot lights the view needs and their shadow tiles, and writes

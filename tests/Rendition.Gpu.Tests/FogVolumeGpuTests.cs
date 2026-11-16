@@ -1,4 +1,5 @@
 using System.Numerics;
+using static Rendition.Gpu.Tests.TestPixels;
 using Xunit.Abstractions;
 
 namespace Rendition.Gpu.Tests;
@@ -125,29 +126,7 @@ public sealed class FogVolumeGpuTests(GpuFixture gpu, ITestOutputHelper output)
         return gpu.Renderer.Capture(view, draws, out _, out _);
     }
 
-    private static Vector3 Centre(byte[] pixels) => Mean(pixels, Size / 2, Size / 2);
+    private static Vector3 Centre(byte[] pixels) => Mean(pixels, Size, Size / 2, Size / 2, SampleRadius);
 
-    private static Vector3 Corner(byte[] pixels) => Mean(pixels, SampleRadius + 4, SampleRadius + 4);
-
-    // The mean colour of the square round a pixel, in 0 to 255.
-    private static Vector3 Mean(byte[] pixels, int centreX, int centreY)
-    {
-        var sum = Vector3.Zero;
-        int count = 0;
-        for (int y = centreY - SampleRadius; y < centreY + SampleRadius; y++)
-        {
-            for (int x = centreX - SampleRadius; x < centreX + SampleRadius; x++)
-            {
-                int at = (y * Size + x) * 4;
-                sum += new Vector3(pixels[at], pixels[at + 1], pixels[at + 2]);
-                count++;
-            }
-        }
-
-        return sum / count;
-    }
-
-    private static float Brightness(Vector3 colour) => (colour.X + colour.Y + colour.Z) / 3f;
-
-    private static string Show(Vector3 colour) => $"({colour.X:F0}, {colour.Y:F0}, {colour.Z:F0})";
+    private static Vector3 Corner(byte[] pixels) => Mean(pixels, Size, SampleRadius + 4, SampleRadius + 4, SampleRadius);
 }

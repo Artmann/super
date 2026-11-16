@@ -917,7 +917,10 @@ public struct UnderwaterSettings
     /// <summary>Brightness of the hazy shafts of light.</summary>
     public float ShaftStrength;
 
-    /// <summary>How far from the camera shafts are drawn, in metres.</summary>
+    /// <summary>
+    /// How far from the camera, in metres, the water is drawn in the volumetric fog with its shafts and any fog
+    /// volumes. Past it the water's colour fills in. Shafts need <c>Graphics.VolumetricFog</c>.
+    /// </summary>
     public float ShaftDistance;
 }
 
