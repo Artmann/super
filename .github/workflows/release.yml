@@ -56,18 +56,16 @@ jobs:
             echo "tag_name=" >> "$GITHUB_OUTPUT"
           fi
 
-  # Signs in with NuGet trusted publishing (OIDC), so there's no API key secret. The Super package's
-  # trusted publishing policy on nuget.org has to name this repository and this file, release.yml.
-  nuget-publish:
-    name: Publish NuGet package
+  # Packs on Windows, where the release has always been packed. The package works on Windows and Apple silicon Macs:
+  # the cook tool inside is framework-dependent and carries both systems' native libraries.
+  nuget-pack:
+    name: Pack NuGet package
     needs: resolve-release
     if: always() && needs.resolve-release.outputs.should_publish == 'true'
-    # Super is Windows-only for now, and the package holds a cook tool built for Windows.
     runs-on: windows-latest
     timeout-minutes: 30
     permissions:
-      contents: write
-      id-token: write
+      contents: read
     defaults:
       run:
         shell: bash
@@ -102,6 +100,68 @@ jobs:
       - name: Check the package
         shell: pwsh
         run: ./.github/scripts/test-package.ps1 -Packages packages -Version $env:TAG.Substring($env:TAG.IndexOf('v') + 1)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package
+          path: packages/Super.*.nupkg
+          if-no-files-found: error
+
+  # The same check on a Mac, with the package packed on Windows, so one that can't cook or find MoltenVK there is
+  # never published.
+  nuget-check-mac:
+    name: Check NuGet package on a Mac
+    needs: [resolve-release, nuget-pack]
+    if: always() && needs.nuget-pack.result == 'success'
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ needs.resolve-release.outputs.tag_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve-release.outputs.tag_name }}
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install glslc
+        run: brew install shaderc
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: package
+          path: packages
+
+      - name: Check the package
+        shell: pwsh
+        run: ./.github/scripts/test-package.ps1 -Packages packages -Version $env:TAG.Substring($env:TAG.IndexOf('v') + 1)
+
+  # Signs in with NuGet trusted publishing (OIDC), so there's no API key secret. The Super package's
+  # trusted publishing policy on nuget.org has to name this repository and this file, release.yml.
+  nuget-publish:
+    name: Publish NuGet package
+    needs: [resolve-release, nuget-pack, nuget-check-mac]
+    if: always() && needs.nuget-pack.result == 'success' && needs.nuget-check-mac.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      TAG: ${{ needs.resolve-release.outputs.tag_name }}
+    steps:
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: package
+          path: packages
 
       - name: Authenticate with NuGet
         id: nuget-login
