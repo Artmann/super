@@ -1275,6 +1275,11 @@ cover it, so mist in a closed room or a shaded corner stays dark instead of glow
 the sky. Where no probe reaches, as outside the probes' volume or with light probes off,
 the fog is lit by the sky as the plain fog is.
 
+![The Forest at sunrise without and with the volumetric fog: on the right, the trees across the clearing cut the low sun into shafts through the mist](media/forest-shafts.webp)
+
+The Forest example lies under low morning mist with the sun just over the trees, and its V
+key switches the volumetric fog, so you can see the shafts come and go.
+
 The fog near the camera is kept in a grid of cells, one for every 8 by 8 pixels of the
 scene and 64 deep unless [`Graphics.VolumetricFogCellSize` and `VolumetricFogSlices`](#the-grids-cost)
 say otherwise: one cell for the first metre, then thin cells that get deeper further out. Each frame lights
@@ -1294,6 +1299,11 @@ for a frame; [Fog volumes in views.md](views.md#fog-volumes) has the shapes, the
 and an example. Volumes are drawn into the volumetric fog's grid, so they are lit the
 same way: the sun falls through them in shafts, a torch glows in them, and the scene's
 fog and any volumes that overlap add up.
+
+![The Crypt without and with its floor mist: on the right, a box-shaped fog volume lies over the floor, lit by the torches](media/crypt-mist.webp)
+
+The Crypt example lays a cold mist over its floor with one box volume, 0.8 m deep with a
+soft edge and drifting noise, and its V key switches the mist off.
 
 They need no scene fog. A scene with a density of 0, or with `Graphics.Fog` off, still
 makes the grid for its volumes. That also means they share the grid's limits:
@@ -1325,6 +1335,11 @@ is three volumes of 8 bytes a cell. At 1600 by 900, with `RenderScale` 1:
 
 The far slices are deep, so `FogSettings.VolumetricDistance` is the other lever: a shorter
 reach puts the same slices into less depth, sharpening the fog near the camera for nothing.
+
+With the defaults, the fog takes about 0.16 ms of GPU time a frame in the Courtyard at 1600
+by 900, and about 1.3 ms in the Crypt at 1920 by 1080, with its many torches, its floor mist
+and its light probes. `--profile` from [the command line](command-line.md) lists it as
+"Volumetric fog".
 
 ## Water
 

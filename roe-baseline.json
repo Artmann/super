@@ -1335,12 +1335,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Crypt.CryptGame.Draw",
-      "file": "examples/Crypt/CryptGame.cs",
-      "metric": 41
-    },
-    {
-      "kind": "long-method",
       "name": "Crypt.CryptGame.Load",
       "file": "examples/Crypt/CryptGame.cs",
       "metric": 44
@@ -3503,7 +3497,7 @@
       "kind": "large-type",
       "name": "Crypt.CryptGame",
       "file": "examples/Crypt/CryptGame.cs",
-      "metric": 40
+      "metric": 41
     },
     {
       "kind": "large-type",
