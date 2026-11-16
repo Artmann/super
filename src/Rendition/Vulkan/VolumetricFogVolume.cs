@@ -10,7 +10,8 @@ namespace Rendition.Vulkan;
 /// glass and particle passes look up. All three volumes stay in the general layout. They are
 /// made the first time a frame draws the fog, at the scene's size, so a game without it spends
 /// no memory on them, and freed by <see cref="Release"/> when the fog is switched off. Without
-/// them <see cref="Result"/> is a single texel that lets everything through. See "Volumetric fog" in docs/design.md.
+/// them <see cref="Result"/> is a single texel that lets everything through. The inject pass also reads the frame's
+/// fog volumes from a small buffer per descriptor set. See "Volumetric fog" in docs/design.md.
 /// </summary>
 internal sealed unsafe class VolumetricFogVolume : IDisposable
 {
@@ -28,6 +29,7 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
     private readonly DescriptorSetLayout _setLayout;
     private readonly DescriptorPool _pool;
     private readonly DescriptorSet[] _sets = new DescriptorSet[2];
+    private readonly FogVolumeBuffers _volumes;
     private readonly PipelineLayout _pipelineLayout;
     private readonly LivePipeline _inject;
     private readonly LivePipeline _integrate;
@@ -64,12 +66,15 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
             new(2, DescriptorType.CombinedImageSampler, 1, ShaderStageFlags.ComputeBit),
             new(3, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
             new(4, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
+            new(FogVolumeBuffers.Binding, DescriptorType.StorageBuffer, 1, ShaderStageFlags.ComputeBit),
         ]);
         _pool = context.CreateDescriptorPool(
             2,
             new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 6),
-            new DescriptorPoolSize(DescriptorType.StorageImage, 4));
+            new DescriptorPoolSize(DescriptorType.StorageImage, 4),
+            new DescriptorPoolSize(DescriptorType.StorageBuffer, 2));
         context.AllocateSets(_pool, _setLayout, _sets);
+        _volumes = new FogVolumeBuffers(context, _sets);
 
         _pipelineLayout = context.CreatePipelineLayout([frameSetLayout, _setLayout]);
         _inject = PipelineFactory.CreateCompute(context, "volumetric_inject.comp", _pipelineLayout);
@@ -134,6 +139,12 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
         _context.Api.UpdateDescriptorSets(_context.Device, 6, writes, 0, null);
     }
 
+    /// <summary>
+    /// Writes the fog volumes the next <see cref="Record"/> draws, at most <see cref="FogVolumeBatch.MaxVolumes"/>.
+    /// The shaders read as many as the frame block's volumetricGrid.z says.
+    /// </summary>
+    public void WriteFogVolumes(ReadOnlySpan<FogVolumeDraw> fogVolumes) => _volumes.Write(_current, fogVolumes);
+
     /// <summary>A frame that doesn't draw the fog leaves nothing for the next to reproject.</summary>
     public void Skip() => HistoryReady = false;
 
@@ -196,6 +207,7 @@ internal sealed unsafe class VolumetricFogVolume : IDisposable
         var api = _context.Api;
         DestroyTargets();
         Destroy(_empty);
+        _volumes.Dispose();
         _inject.Destroy();
         _integrate.Destroy();
         api.DestroyPipelineLayout(_context.Device, _pipelineLayout, null);

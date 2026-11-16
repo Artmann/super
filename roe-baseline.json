@@ -269,7 +269,7 @@
       "kind": "high-complexity",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 44
+      "metric": 39
     },
     {
       "kind": "high-complexity",
@@ -953,7 +953,7 @@
       "kind": "high-cognitive-complexity",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 48
+      "metric": 43
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1967,7 +1967,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 175
+      "metric": 161
     },
     {
       "kind": "long-method",
@@ -3443,7 +3443,7 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5827
+      "metric": 5863
     },
     {
       "kind": "large-file",
@@ -3635,7 +3635,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 388
+      "metric": 390
     },
     {
       "kind": "large-type",
@@ -3695,7 +3695,7 @@
       "kind": "large-type",
       "name": "Rendition.Vulkan.VolumetricFogVolume",
       "file": "src/Rendition/Vulkan/VolumetricFogVolume.cs",
-      "metric": 29
+      "metric": 31
     },
     {
       "kind": "large-type",
@@ -4009,6 +4009,7 @@
         "Rendition.DrawSelection",
         "Rendition.FadeRules",
         "Rendition.FilterRun",
+        "Rendition.FogVolumeBatch",
         "Rendition.FrameView",
         "Rendition.IBakeStore",
         "Rendition.LightBakeFile",
@@ -4024,6 +4025,7 @@
         "Rendition.Passes.DepthOfFieldPass",
         "Rendition.Passes.Exposure",
         "Rendition.Passes.Fog",
+        "Rendition.Passes.FogVolumePack",
         "Rendition.Passes.FrameUniforms",
         "Rendition.Passes.FsrPass",
         "Rendition.Passes.FullscreenPass",
@@ -4062,6 +4064,7 @@
         "Rendition.Vulkan.CubeLevel",
         "Rendition.Vulkan.EnvironmentMap",
         "Rendition.Vulkan.ExposureMeter",
+        "Rendition.Vulkan.FogVolumeBuffers",
         "Rendition.Vulkan.Fsr",
         "Rendition.Vulkan.FsrInputs",
         "Rendition.Vulkan.GpuLightmapRect",

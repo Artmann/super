@@ -5102,23 +5102,9 @@ public sealed unsafe class Renderer : IDisposable
         uniforms->Occlusion = Occlusion.Pack(view.Occlusion);
         (uniforms->Outline, uniforms->OutlineFade) = Outlines.Pack(view.Outlines, _gBuffer.Extent.Width / (float)Math.Max(view.Width, 1), capturingProbe);
         uniforms->Fog = Fog.Pack(view.Fog, _off, capturingProbe, underwater: Underwater(view));
-        var volumetric = VolumetricFog.Pack(view.Fog, _off, capturingProbe, underwater: Underwater(view));
-        if (!_volumetricFog.HasTargets)
-        {
-            volumetric = Vector4.Zero;
-        }
-
-        volumetric.W = historyValid && _volumetricFog.HistoryReady ? 1f : 0f;
-        uniforms->Volumetric = volumetric;
-        uniforms->VolumetricGrid = new Vector4(VolumetricFogSlices, VolumetricFogCellSize, 0f, 0f);
+        WriteVolumetric(uniforms, view, capturingProbe, historyValid);
         uniforms->Puddles = Puddles.Pack(view.Puddles, _off);
         uniforms->Wind = Wind.Pack(view.Wind, _off);
-        _volumetricDrawn = volumetric.X > 0f;
-        if (!capturingProbe && !_volumetricDrawn)
-        {
-            // A frame without the fog leaves nothing for the next to carry on from.
-            _volumetricFog.Skip();
-        }
 
         uniforms->ProbeCount = 0;
         if (!capturingProbe)
@@ -5267,18 +5253,68 @@ public sealed unsafe class Renderer : IDisposable
     /// Makes the volumetric fog's volumes the first time a frame draws it, frees them while it's switched off, and
     /// remakes them when the cell size or slice count changes. Each waits for the GPU, which is rare.
     /// </summary>
+    /// <summary>
+    /// Fills the volumetric fog's part of the frame block and writes the fog volumes it draws, and decides whether
+    /// this frame draws the fog at all.
+    /// </summary>
+    private void WriteVolumetric(FrameUniforms* uniforms, in FrameView view, bool capturingProbe, bool historyValid)
+    {
+        var fogVolumes = FogVolumesOf(view);
+        var volumetric = VolumetricFog.Pack(view.Fog, fogVolumes.Length, _off, capturingProbe, underwater: Underwater(view));
+        if (!_volumetricFog.HasTargets)
+        {
+            volumetric = Vector4.Zero;
+        }
+
+        volumetric.W = historyValid && _volumetricFog.HistoryReady ? 1f : 0f;
+        uniforms->Volumetric = volumetric;
+        _volumetricDrawn = volumetric.X > 0f;
+        uniforms->VolumetricGrid = new Vector4(VolumetricFogSlices, VolumetricFogCellSize, _volumetricDrawn ? fogVolumes.Length : 0, 0f);
+        if (_volumetricDrawn)
+        {
+            _volumetricFog.WriteFogVolumes(fogVolumes);
+        }
+        else if (!capturingProbe)
+        {
+            // A frame without the fog leaves nothing for the next to carry on from.
+            _volumetricFog.Skip();
+        }
+    }
+
+    /// <summary>
+    /// The view's fog volumes, or none when they're switched off. Throws for too many, or for one that can't be
+    /// drawn, as <see cref="FogVolumeBatch.Check"/> says.
+    /// </summary>
+    private ReadOnlySpan<FogVolumeDraw> FogVolumesOf(in FrameView view)
+    {
+        var volumes = _off.HasFlag(RenderEffects.FogVolumes) ? [] : view.FogVolumes;
+        if (volumes.Length > FogVolumeBatch.MaxVolumes)
+        {
+            throw new ArgumentException(string.Create(CultureInfo.InvariantCulture,
+                $"A frame can draw at most {FogVolumeBatch.MaxVolumes} fog volumes, but it was given {volumes.Length}."), nameof(view));
+        }
+
+        foreach (ref readonly var volume in volumes)
+        {
+            FogVolumeBatch.Check(volume.Shape, volume.Transform, volume.Settings);
+        }
+
+        return volumes;
+    }
+
     private void KeepVolumetricTargets(in FrameView view)
     {
         int width = (int)_gBuffer.Extent.Width;
         int height = (int)_gBuffer.Extent.Height;
-        if (!_volumetricFog.HasTargets && VolumetricFog.Pack(view.Fog, _off, false, Underwater(view)).X > 0f)
+        if (!_volumetricFog.HasTargets && VolumetricFog.Pack(view.Fog, FogVolumesOf(view).Length, _off, false, Underwater(view)).X > 0f)
         {
             // The fog's volumes are made the first time it's drawn. Frames in flight bind the stand-in.
             _api.DeviceWaitIdle(_context.Device).Check();
             _volumetricFog.SetSize(width, height, VolumetricFogCellSize, VolumetricFogSlices);
             WriteTargetDescriptors();
         }
-        else if (_volumetricFog.HasTargets && (_off & (RenderEffects.Fog | RenderEffects.VolumetricFog)) != 0)
+        else if (_volumetricFog.HasTargets && (_off.HasFlag(RenderEffects.VolumetricFog)
+            || _off.HasFlag(RenderEffects.Fog | RenderEffects.FogVolumes)))
         {
             // Switched off, the volumes are freed, and made again with no history if it's switched back on.
             // Frames in flight still read them. Flipping the switch is rare.

@@ -1555,16 +1555,18 @@ other cell from its boundary to the next. So the first cell is one deep block, 0
 about 6 cm just past 1 m and about 2.8 m at 48 m. Fog within a metre of the eye is too thin
 to show any detail, and the first cell's light is faded in linearly from the camera (see
 `fogInFront()` below), so it is one cell rather than several. The frame uniforms carry `volumetric` (reach, n, anisotropy, and 1 when last frame's
-volume can be used), right after `curve`, and then `volumetricGrid` (S, c). The shaders
-read S from there; the cell size reaches them only through the images' size. `VolumetricFog.Pack` zeroes it, which makes every
-shader take the plain path untouched, with `RenderEffects.Fog` or `RenderEffects.VolumetricFog`
-off, a density or distance of 0, under water and while a probe is captured.
+volume can be used), right after `curve`, and then `volumetricGrid` (S, c, the number of
+fog volumes). The shaders read S from there; the cell size reaches them only through the images' size. `VolumetricFog.Pack` zeroes it, which makes every
+shader take the plain path untouched, with `RenderEffects.VolumetricFog` off, a distance of 0,
+under water, while a probe is captured, and when there is nothing to draw: neither a scene
+fog with density (and `RenderEffects.Fog` on) nor a fog volume (and `RenderEffects.FogVolumes` on).
 
 Three rgba16f 3D images, about 35 MB at 1600×900, stay in the general layout for good. They
 are made the first time a frame draws the fog, at the scene's size, and remade with it, or,
 after a device wait, when the cell size or slice count changes, which drops the history.
-Turning `RenderEffects.Fog` or `RenderEffects.VolumetricFog` off frees them after a device
-wait, and turning it on again makes them anew with no history. Without them binding 8 of
+Turning `RenderEffects.VolumetricFog` off, or both `RenderEffects.Fog` and
+`RenderEffects.FogVolumes`, frees them after a device wait, and turning one on again makes
+them anew with no history. Without them binding 8 of
 the frame set holds a 1×1×1 texel of (0, 0, 0, 1), which lets everything through. Two passes run after the shadow maps and the cluster lists, before
 the lighting pass, and the shadow maps' barriers list the compute stage among their readers.
 `GpuTimer` reports the two together as "Volumetric fog", and the light lists before them as
@@ -1576,7 +1578,11 @@ history. For each cell it finds the view ray through the cell's centre from
 `inverseViewProjection` (two points unprojected, so a parallel view works too) and picks
 a depth inside the cell from a 3-bit reversed counter of `frameNumber`, the base-2 van der
 Corput sequence of 8, so a fixed frame number gives the same points. It stores the
-density `fogDensity()` in alpha and, in rgb, the light scattered towards the camera:
+extinction σ in alpha, per metre, and in rgb the light scattered towards the camera per
+metre, σ_s·L. σ is the height fog's `fogDensity()` plus each fog volume's density there
+(see "Fog volumes" below), and σ_s is the same sum with each volume's density times its
+colour, so height fog scatters what it stops and a coloured volume stops every colour but
+scatters only its own. When σ is 0 the cell skips the lights. L is
 the sky light `fogSkyLight()` (the plain fog's colour without its sun glow), plus each sun's
 radiance times one tap of its shadow cascade times the Henyey-Greenstein phase of the angle
 between the view ray and the sun, plus each point and spot light from the cell's cluster
@@ -1589,9 +1595,31 @@ first frame after the fog was skipped, the new value stands alone.
 
 `volumetric_integrate.comp` walks each column front to back. A cell's length in metres
 is its depth span times the length of the ray's per-unit-depth step, its transmittance
-`exp(-σ·L)`, and it adds `kept·(1 - T)·rgb`, the plain fog's rule of colour times what is
-hidden. Texel i of the result holds the light in front of, and the transmittance to, the
-far side of cell i.
+`exp(-σ·L)`, and it adds `kept·rgb·(1 - T)/σ`, the cell's scattered light summed through
+its own depth, or `kept·rgb·L` when σ is below 1e-6. For height fog, where rgb is σ times
+the light, that is the plain fog's rule of colour times what is hidden. Texel i of the
+result holds the light in front of, and the transmittance to, the far side of cell i.
+
+#### Fog volumes
+
+`view.FogVolume` keeps up to 64 `FogVolumeDraw`s a frame in `FrameView.FogVolumes`, and
+`FogVolumePack` packs them into 128-byte std430 `GpuFogVolume`s: the inverse transform, the
+colour and density, the shape, edge fade, noise and 1/noise size, the wind with the radius
+of a sphere round the centre that holds the shape (√3/2 times the longest axis), and the
+centre. Set 1 of the fog passes holds them at binding 5, in one host-visible buffer per
+descriptor set. The set a frame binds alternates with each frame that draws the fog, so the
+frame that last read a buffer is at least two fog frames back and its fence has been waited
+on before the renderer writes it again. `volumetricGrid.z` is the count.
+
+`fog_volumes.glsl`'s `fogVolumeDensity()` skips a volume whose bounding sphere doesn't hold
+the point, moves the point into the unit shape and finds how far in it is, 0 on the surface
+and 1 at the middle: `1 - 2·max|p|` for the box, `1 - 2·|p|` for the ellipsoid, the smaller
+of `1 - 2·|p.xz|` and `1 - 2·|p.y|` for the cylinder, and for the cone the radius
+`0.5·(0.5 - y)` in place of 0.5. Outside is below 0. The density rises linearly over the
+edge fade, and with noise it is multiplied by `mix(1, n, noise)`, where n is three octaves of
+gradient noise at `(p - centre - wind·time)/noiseSize`, in world metres, pushed apart with
+`smoothstep(0.25, 0.75)`. `FogVolumePack.Density()` is the same in C# without the noise, for
+the tests.
 
 `fog.glsl`'s `fogInFront()` replaces the old transmittance and fog light in
 `lighting.frag`, `transparent.frag` and `particle.frag`. With no volume it is the plain fog

@@ -6,8 +6,8 @@
 
 // Sums each column of the volumetric fog front to back, so a surface at any depth finds the
 // fog's light in front of it, and the share of its own light that gets through, in one
-// lookup. A cell that hides a share of what's behind it shows that share of its own light,
-// as the plain fog does. Must match VolumetricFog.Integrate in Passes/VolumetricFog.cs.
+// lookup. Each cell holds the light its air scatters towards the camera per metre in rgb and
+// how much of the light it stops per metre in a, from volumetric_inject.comp.
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -31,8 +31,12 @@ void main() {
     for (int slice = 0; slice < size.z; slice++) {
         vec4 cell = imageLoad(injected, ivec3(column, slice));
         float metres = (volumetricCellStart(slice + 1) - volumetricCellStart(slice)) * metresPerDepth;
+        // The cell sends cell.rgb per metre and stops cell.a of what's behind it per metre, so
+        // its own light is dimmed on the way out of it too: over L metres it adds
+        // cell.rgb * (1 - e^(-cell.a L)) / cell.a, which is cell.rgb * L in clear air.
         float through = exp(-cell.a * metres);
-        light += kept * (1.0 - through) * cell.rgb;
+        float reach = cell.a > 1e-6 ? (1.0 - through) / cell.a : metres;
+        light += kept * cell.rgb * reach;
         kept *= through;
         imageStore(integrated, ivec3(column, slice), vec4(light, kept));
     }

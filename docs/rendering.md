@@ -1236,7 +1236,7 @@ again and costs nothing but its pixels. `Graphics.Fog` turns it off.
 Near the camera the fog is lit by the light that really reaches it. Sunlight falls
 through it in shafts beside the shadows of walls and leaves, and point and spot lights
 glow in it with soft halos. It is on by default and needs nothing but a fog with some
-density; two more settings tune it:
+density, or a [fog volume](#fog-volumes); two more settings tune it:
 
 ```csharp
 Fog = new FogSettings(Density: 0.004f, Height: 0f, Falloff: 0.15f, SunScatter: 0.6f)
@@ -1279,6 +1279,29 @@ Screenshots and recordings that fix the frame come out the same every time. The 
 follows [`RenderScale`](#graphics-settings), not the window. Like the plain fog, it is
 drawn for the camera only and is left out under water. `Graphics.VolumetricFog` turns it
 off, which gives the plain fog exactly, and `Graphics.Fastest()` turns it off.
+
+#### Fog volumes
+
+A fog volume is fog in a shape a game places, a box, an ellipsoid, a cylinder or a cone,
+with its own density, colour, soft edge and drifting noise. `view.FogVolume` places one
+for a frame; [Fog volumes in views.md](views.md#fog-volumes) has the shapes, the settings
+and an example. Volumes are drawn into the volumetric fog's grid, so they are lit the
+same way: the sun falls through them in shafts, a torch glows in them, and the scene's
+fog and any volumes that overlap add up.
+
+They need no scene fog. A scene with a density of 0, or with `Graphics.Fog` off, still
+makes the grid for its volumes. That also means they share the grid's limits:
+
+- They show only out to `FogSettings.VolumetricDistance`; past it a volume is cut off.
+- Their edges are as sharp as the grid's cells. A volume much thinner than a cell, or than
+  a slice at its distance, blurs into the air round it and thins out, so give mist some depth.
+- They are left out under water and in light probes, as the volumetric fog is.
+- A frame holds at most 64.
+
+`Graphics.FogVolumes` turns them off on their own, and `Graphics.VolumetricFog` turns
+them off with the rest of the volumetric fog. Each volume costs the grid's every cell a
+distance check against a sphere round it, and the cells inside it the shape test and,
+with `Noise`, three octaves of noise.
 
 ### The grid's cost
 

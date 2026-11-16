@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Numerics;
 using Rendition;
+using Rendition.Passes;
 
 namespace Super.Tests;
 
@@ -168,6 +169,116 @@ public class FogVolumeTests
         view.FogVolume(1, FogShape.Box, Matrix4x4.Identity, Mist);
 
         Assert.Equal(1, view.DrawnFogVolumes.Length);
+    }
+
+    [Fact]
+    public void A_box_is_full_inside_and_empty_outside()
+    {
+        var box = new FogVolumeDraw(FogShape.Box, Matrix4x4.CreateScale(4f) * Matrix4x4.CreateTranslation(10f, 0f, 0f), Mist);
+
+        Assert.Equal(0.3f, FogVolumePack.Density(box, new Vector3(10f, 0f, 0f), 0f), 5);
+        Assert.Equal(0.3f, FogVolumePack.Density(box, new Vector3(10.5f, -0.5f, 0.5f), 0f), 5);
+        Assert.Equal(0f, FogVolumePack.Density(box, new Vector3(12.1f, 0f, 0f), 0f));
+        Assert.Equal(0f, FogVolumePack.Density(box, new Vector3(10f, 0f, 0f) + new Vector3(0f, 2.5f, 0f), 0f));
+    }
+
+    [Fact]
+    public void Edge_fade_rises_from_nothing_at_the_surface()
+    {
+        // The box's surface is at x 0.5 and its centre at 0, so a quarter of the way in is x 0.375. With a fade over half
+        // the way in, that point is halfway up the fade: half the density.
+        var box = new FogVolumeDraw(FogShape.Box, Matrix4x4.Identity, new FogVolumeSettings(0.8f) { EdgeFade = 0.5f });
+
+        Assert.Equal(0.4f, FogVolumePack.Density(box, new Vector3(0.375f, 0f, 0f), 0f), 4);
+        Assert.Equal(0f, FogVolumePack.Density(box, new Vector3(0.5f, 0f, 0f), 0f), 4);
+        Assert.Equal(0.8f, FogVolumePack.Density(box, new Vector3(0.25f, 0f, 0f), 0f), 4);
+    }
+
+    [Fact]
+    public void A_hard_edge_is_full_right_up_to_the_surface()
+    {
+        var ball = new FogVolumeDraw(FogShape.Ellipsoid, Matrix4x4.Identity, new FogVolumeSettings(0.8f) { EdgeFade = 0f });
+
+        Assert.Equal(0.8f, FogVolumePack.Density(ball, new Vector3(0.49f, 0f, 0f), 0f));
+        Assert.Equal(0f, FogVolumePack.Density(ball, new Vector3(0.36f, 0.36f, 0f), 0f));
+    }
+
+    [Fact]
+    public void A_cylinder_is_round_across_and_flat_at_its_ends()
+    {
+        var cylinder = new FogVolumeDraw(FogShape.Cylinder, Matrix4x4.Identity, new FogVolumeSettings(1f) { EdgeFade = 0f });
+
+        Assert.Equal(1f, FogVolumePack.Density(cylinder, new Vector3(0f, 0.49f, 0f), 0f));
+        Assert.Equal(1f, FogVolumePack.Density(cylinder, new Vector3(0.3f, 0f, 0.3f), 0f));
+        Assert.Equal(0f, FogVolumePack.Density(cylinder, new Vector3(0.4f, 0f, 0.4f), 0f));
+        Assert.Equal(0f, FogVolumePack.Density(cylinder, new Vector3(0f, 0.51f, 0f), 0f));
+    }
+
+    [Fact]
+    public void A_cone_is_empty_beside_its_apex()
+    {
+        // At y 0.45 the cone is 0.025 across from its axis, so 0.3 out is well outside, while its middle is full.
+        var cone = new FogVolumeDraw(FogShape.Cone, Matrix4x4.Identity, new FogVolumeSettings(1f) { EdgeFade = 0f });
+
+        Assert.Equal(0f, FogVolumePack.Density(cone, new Vector3(0.3f, 0.45f, 0f), 0f));
+        Assert.Equal(1f, FogVolumePack.Density(cone, new Vector3(0f, 0.45f, 0f), 0f));
+        Assert.Equal(1f, FogVolumePack.Density(cone, new Vector3(0.4f, -0.45f, 0f), 0f));
+    }
+
+    [Fact]
+    public void A_volume_packs_its_inverse_and_a_sphere_that_holds_it()
+    {
+        var transform = Matrix4x4.CreateScale(2f, 6f, 4f) * Matrix4x4.CreateTranslation(1f, 2f, 3f);
+        var draw = new FogVolumeDraw(FogShape.Cylinder, transform,
+            new FogVolumeSettings(0.5f) { Color = new Vector3(0.2f, 0.4f, 0.6f), EdgeFade = 0.1f, Noise = 0.3f, NoiseSize = 4f, Wind = new Vector3(1f, 0f, -1f) });
+        var packed = new GpuFogVolume[1];
+
+        FogVolumePack.Pack([draw], packed);
+
+        var gpu = packed[0];
+        Assert.Equal(new Vector3(0f, 0f, 0f), Vector3.Transform(new Vector3(1f, 2f, 3f), gpu.WorldToLocal), new Vector3Comparer(1e-5f));
+        Assert.Equal(new Vector4(0.2f, 0.4f, 0.6f, 0.5f), gpu.ColorDensity);
+        Assert.Equal(new Vector4((float)FogShape.Cylinder, 0.1f, 0.3f, 0.25f), gpu.ShapeFadeNoise);
+        Assert.Equal(new Vector3(1f, 0f, -1f), new Vector3(gpu.WindBounds.X, gpu.WindBounds.Y, gpu.WindBounds.Z));
+
+        // The unit shapes fit in a sphere of radius √3 / 2, stretched by the longest axis, here 6.
+        Assert.Equal(6f * MathF.Sqrt(3f) / 2f, gpu.WindBounds.W, 4);
+        Assert.Equal(new Vector4(1f, 2f, 3f, 0f), gpu.Centre);
+    }
+
+    [Fact]
+    public void Fog_volumes_need_no_global_fog()
+    {
+        var clear = new FogSettings(0f);
+
+        Assert.Equal(Vector4.Zero, VolumetricFog.Pack(clear, 0, RenderEffects.None, false, false));
+        Assert.Equal(new Vector4(48f, 1f, 0.6f, 0f), VolumetricFog.Pack(clear, 1, RenderEffects.None, false, false));
+
+        // The scene's fog switched off leaves the volumes.
+        Assert.Equal(new Vector4(48f, 1f, 0.6f, 0f), VolumetricFog.Pack(new FogSettings(0.01f), 1, RenderEffects.Fog, false, false));
+    }
+
+    [Theory]
+    [InlineData(RenderEffects.FogVolumes)]
+    [InlineData(RenderEffects.VolumetricFog)]
+    public void Fog_volumes_off_leaves_clear_air_clear(RenderEffects off)
+    {
+        Assert.Equal(Vector4.Zero, VolumetricFog.Pack(new FogSettings(0f), 3, off, false, false));
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void Fog_volumes_are_not_drawn_into_probes_or_under_water(bool capturingProbe, bool underwater)
+    {
+        Assert.Equal(Vector4.Zero, VolumetricFog.Pack(new FogSettings(0f), 3, RenderEffects.None, capturingProbe, underwater));
+    }
+
+    private sealed class Vector3Comparer(float tolerance) : IEqualityComparer<Vector3>
+    {
+        public bool Equals(Vector3 a, Vector3 b) => Vector3.Distance(a, b) <= tolerance;
+
+        public int GetHashCode(Vector3 value) => 0;
     }
 
     /// <summary>Places a volume with these settings under a Swedish culture, which writes decimals with a comma, and returns the error.</summary>

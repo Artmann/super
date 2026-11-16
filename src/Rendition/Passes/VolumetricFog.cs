@@ -48,13 +48,14 @@ internal static class VolumetricFog
     /// <summary>
     /// What the frame block gets: x the distance the volume reaches, y where its first slice ends,
     /// z the anisotropy, w left for the renderer to say whether last frame's volume can be used.
-    /// All zero, which draws the plain fog, with either fog switch off, no fog, a volumetric
-    /// distance of 0, while a probe is captured or under water.
+    /// All zero, which draws the plain fog, with the volumetric switch off, a volumetric distance
+    /// of 0, while a probe is captured or under water, and when there's nothing to draw: no
+    /// scene fog (or its switch off) and no fog volumes (or their switch off).
     /// </summary>
-    public static Vector4 Pack(in FogSettings settings, RenderEffects off, bool capturingProbe, bool underwater)
+    public static Vector4 Pack(in FogSettings settings, int fogVolumes, RenderEffects off, bool capturingProbe, bool underwater)
     {
-        if (capturingProbe || underwater || (off & (RenderEffects.Fog | RenderEffects.VolumetricFog)) != 0
-            || !(settings.Density > 0f) || !(settings.VolumetricDistance > 0f))
+        if (capturingProbe || underwater || (off & RenderEffects.VolumetricFog) != 0
+            || !(settings.VolumetricDistance > 0f) || !HasFog(settings, fogVolumes, off))
         {
             return Vector4.Zero;
         }
@@ -62,4 +63,9 @@ internal static class VolumetricFog
         float distance = settings.VolumetricDistance;
         return new Vector4(distance, MathF.Min(FirstSlice, distance * 0.5f), settings.Anisotropy, 0f);
     }
+
+    /// <summary>Whether the grid has any fog to draw: the scene's own, or fog volumes.</summary>
+    public static bool HasFog(in FogSettings settings, int fogVolumes, RenderEffects off) =>
+        ((off & RenderEffects.Fog) == 0 && settings.Density > 0f)
+        || ((off & RenderEffects.FogVolumes) == 0 && fogVolumes > 0);
 }
