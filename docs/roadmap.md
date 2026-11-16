@@ -50,7 +50,7 @@ Super is early. These are the known gaps, so you can plan around them.
   narrower than at 1, and at 0.5 wider.
 - [Upscaling](rendering.md#upscaling) is AMD FSR 3.1 or the engine's TAA. NVIDIA's DLSS
   and Intel's XeSS are not supported, and FSR isn't used above a render scale of 1 or for
-  frame generation. It needs `amd_fidelityfx_vk.dll`, so it is Windows only, like the rest.
+  frame generation. It needs `amd_fidelityfx_vk.dll`, so it is Windows only, and a Mac uses TAA.
 - **Large numbers of objects.** Rendition's efficiency with many thousands of objects
   still has to be measured and improved.
 - **More from physics.** [`Super.Physics`](physics.md) has bodies that fall and collide,
@@ -103,8 +103,9 @@ Super is early. These are the known gaps, so you can plan around them.
   but models and other content stay loaded unless you call `content.Unload`.
 - **Smaller packages.** Super is one NuGet package, so every game also depends on xUnit and
   the C# compiler, which only the test helpers and material graphs use. The cook tool in it
-  runs on Windows only.
-- **Other platforms.** Windows only for now, with Linux kept possible.
+  runs on Windows and Apple silicon Macs.
+- **Other platforms.** Windows and Apple silicon Macs for now, with Linux kept possible. A Mac
+  runs the Vulkan renderer through MoltenVK, which has no ray queries, so it can't trace or bake.
 
 An editor is not planned. Super is a library, and your code and JSON files are the source
 of truth.

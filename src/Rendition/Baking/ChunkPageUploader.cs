@@ -89,7 +89,7 @@ internal sealed unsafe class ChunkPageUploader(VulkanContext context, ResourceTa
             if (last && !resources.HasTextureRoom)
             {
                 refused.Add((band.Entry, $"the material table has no room for its {RoleName(page.Role)} page, " +
-                    $"since the renderer holds at most {ResourceTable.MaxTextures} textures."));
+                    $"since the renderer holds at most {resources.MaxTextures} textures."));
                 continue;
             }
 

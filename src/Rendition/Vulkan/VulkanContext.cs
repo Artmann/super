@@ -11,7 +11,7 @@ internal sealed unsafe class VulkanContext : IDisposable
 {
     private const string ValidationLayer = "VK_LAYER_KHRONOS_validation";
 
-    public readonly Vk Api = Vk.GetApi();
+    public readonly Vk Api = VulkanLibrary.CreateApi();
     public readonly Instance Instance;
     public readonly PhysicalDevice PhysicalDevice;
     public readonly Device Device;
@@ -70,7 +70,9 @@ internal sealed unsafe class VulkanContext : IDisposable
         if (options.EnableValidation && !validation)
         {
             throw new InvalidOperationException(
-                $"{ValidationLayer} was requested but is not installed. Install the Vulkan SDK.");
+                VulkanLibrary.NoLayersReason is { } reason
+                    ? $"{ValidationLayer} was requested, but {reason}"
+                    : $"{ValidationLayer} was requested but is not installed. Install the Vulkan SDK.");
         }
 
         Instance = CreateInstance(options, validation);
@@ -332,6 +334,19 @@ internal sealed unsafe class VulkanContext : IDisposable
         }
     }
 
+    /// <summary>
+    /// The same for Vulkan 1.2's features. The texture table is far bigger than a GPU must allow in one ordinary set,
+    /// and MoltenVK allows only 16 samplers there, so it's made update-after-bind, which has limits of its own.
+    /// </summary>
+    internal static void RequireFeatures(in PhysicalDeviceVulkan12Features supported)
+    {
+        if (!supported.DescriptorBindingSampledImageUpdateAfterBind)
+        {
+            throw new InvalidOperationException(
+                "This GPU can't hold the renderer's table of every texture (Vulkan's descriptorBindingSampledImageUpdateAfterBind).");
+        }
+    }
+
     private Device CreateDevice(bool disableRayTracing)
     {
         float priority = 1f;
@@ -370,6 +385,7 @@ internal sealed unsafe class VulkanContext : IDisposable
         var supported11 = new PhysicalDeviceVulkan11Features { SType = StructureType.PhysicalDeviceVulkan11Features, PNext = &supported12 };
         var supportedAll = new PhysicalDeviceFeatures2 { SType = StructureType.PhysicalDeviceFeatures2, PNext = &supported11 };
         Api.GetPhysicalDeviceFeatures2(PhysicalDevice, &supportedAll);
+        RequireFeatures(supported12);
 
         var multiviewProperties = new PhysicalDeviceMultiviewProperties { SType = StructureType.PhysicalDeviceMultiviewProperties };
         var properties2 = new PhysicalDeviceProperties2 { SType = StructureType.PhysicalDeviceProperties2, PNext = &multiviewProperties };
@@ -403,6 +419,7 @@ internal sealed unsafe class VulkanContext : IDisposable
             DescriptorBindingPartiallyBound = true,
             ShaderSampledImageArrayNonUniformIndexing = true,
             DescriptorBindingUpdateUnusedWhilePending = true,
+            DescriptorBindingSampledImageUpdateAfterBind = true,
             ShaderFloat16 = supported12.ShaderFloat16,
             ShaderStorageBufferArrayNonUniformIndexing = supported12.ShaderStorageBufferArrayNonUniformIndexing,
         };

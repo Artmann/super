@@ -286,6 +286,18 @@ public sealed class ScrollAndDragTests
     }
 
     [Fact]
+    public void Cmd_at_the_press_counts_as_control_on_a_mac_only()
+    {
+        using var run = Run(game => Grabbing(game, start => new Item(start.Control ? "one" : "all")));
+
+        run.Input.Hold(Key.LeftSuper);
+        DragWith(run, MouseButton.Left, new Vector2(50f, 50f), new Vector2(150f, 50f));
+        run.Input.Release(Key.LeftSuper);
+
+        Assert.Equal([OperatingSystem.IsMacOS() ? "one" : "all"], run.Game.Log);
+    }
+
+    [Fact]
     public void A_grab_that_returns_null_does_not_drag()
     {
         using var run = Run(game => Grabbing(game, start => start.Button == MouseButton.Left ? new Item("gem") : null));

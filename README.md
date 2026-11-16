@@ -3,7 +3,7 @@
 [![CI](https://github.com/Artmann/super/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Artmann/super/actions/workflows/ci.yml)
 [![NuGet](https://img.shields.io/nuget/v/Super?logo=nuget)](https://www.nuget.org/packages/Super)
 [![.NET 10](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet)](https://dotnet.microsoft.com/download/dotnet/10.0)
-[![Windows](https://img.shields.io/badge/platform-Windows-0078D4)](#try-it)
+[![Windows | macOS](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-0078D4)](#try-it)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 [![The Reef example: schools of fish over a coral reef](docs/media/reef.webp)](docs/media/reef.mp4)
@@ -84,8 +84,8 @@ and the same seed always plays the same way.
 
 ## Try it
 
-You need Windows, a GPU with Vulkan 1.3 and the .NET 10 SDK. Super is one
-[NuGet package](https://www.nuget.org/packages/Super):
+You need Windows and a GPU with Vulkan 1.3, or a Mac with Apple silicon, and the .NET 10
+SDK. Super is one [NuGet package](https://www.nuget.org/packages/Super):
 
 ```
 dotnet new console -n MyGame
@@ -96,7 +96,8 @@ dotnet add package Super
 [Getting started](docs/getting-started.md) has a first game to put in `Program.cs`.
 
 To run the examples or work on the engine, clone this repository. That also needs the
-Vulkan SDK (`winget install KhronosGroup.VulkanSDK`):
+Vulkan SDK (`winget install KhronosGroup.VulkanSDK`), or on a Mac the shader compiler
+(`brew install shaderc`):
 
 ```
 dotnet build Super.slnx -c Release

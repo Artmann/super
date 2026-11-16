@@ -12,7 +12,8 @@ namespace Rendition.Vulkan;
 /// </summary>
 internal sealed unsafe class ResourceTable : IDisposable
 {
-    public const uint MaxTextures = 1024;
+    /// <summary>How many textures the table holds where the GPU allows it. See <see cref="MaxTextures"/>.</summary>
+    public const uint WantedTextures = 1024;
     public const uint MaxTextureArrays = 256;
     public const int MaxMaterials = 1024;
 
@@ -114,7 +115,7 @@ internal sealed unsafe class ResourceTable : IDisposable
     private readonly Stack<int> _freeTextures = [];
     private readonly Stack<int> _freeTextureArrays = [];
     private readonly Stack<int> _freeMaterials = [];
-    private readonly bool[] _textureDying = new bool[MaxTextures];
+    private readonly bool[] _textureDying;
     private readonly bool[] _textureArrayDying = new bool[MaxTextureArrays];
     private readonly bool[] _materialLive = new bool[MaxMaterials];
     private readonly TextureHandle _white;
@@ -135,6 +136,25 @@ internal sealed unsafe class ResourceTable : IDisposable
     public readonly DescriptorSetLayout Layout;
     public readonly DescriptorSet Set;
 
+    /// <summary>
+    /// How many textures the table holds: <see cref="WantedTextures"/>, or fewer on a GPU that allows fewer descriptors
+    /// in one set. MoltenVK allows 1212, so the table holds 955 textures there.
+    /// </summary>
+    public uint MaxTextures { get; }
+
+    /// <summary>The textures a table holds on a GPU that allows <paramref name="perSetDescriptors"/> descriptors in one set.</summary>
+    internal static uint TexturesFor(uint perSetDescriptors)
+    {
+        // The texture arrays and the materials' buffer share the set.
+        const uint others = MaxTextureArrays + 1;
+        const uint fewest = 256;
+        uint room = perSetDescriptors > others ? perSetDescriptors - others : 0;
+        return room >= fewest
+            ? Math.Min(WantedTextures, room)
+            : throw new InvalidOperationException(
+                $"This GPU allows {perSetDescriptors} descriptors in one set, too few for the renderer's table of every texture.");
+    }
+
     public ResourceTable(VulkanContext context)
     {
         _context = context;
@@ -142,7 +162,12 @@ internal sealed unsafe class ResourceTable : IDisposable
         FadeOf = material => _materialFade[material.Index];
         var api = context.Api;
 
-        api.GetPhysicalDeviceProperties(context.PhysicalDevice, out var properties);
+        var properties11 = new PhysicalDeviceVulkan11Properties { SType = StructureType.PhysicalDeviceVulkan11Properties };
+        var properties2 = new PhysicalDeviceProperties2 { SType = StructureType.PhysicalDeviceProperties2, PNext = &properties11 };
+        api.GetPhysicalDeviceProperties2(context.PhysicalDevice, &properties2);
+        var properties = properties2.Properties;
+        MaxTextures = TexturesFor(properties11.MaxPerSetDescriptors);
+        _textureDying = new bool[MaxTextures];
         var samplerInfo = new SamplerCreateInfo
         {
             SType = StructureType.SamplerCreateInfo,
@@ -170,9 +195,12 @@ internal sealed unsafe class ResourceTable : IDisposable
         };
 
         // Most of the texture arrays stay empty, which Vulkan only allows when told so, and
-        // slots no frame in flight uses may be written while the set is bound.
+        // slots no frame in flight uses may be written while the set is bound. Update-after-bind
+        // lets the table count against the limits for such sets, which every GPU sets far higher:
+        // MoltenVK allows 16 samplers in an ordinary set, and half a million in one of these.
         const DescriptorBindingFlags sparse =
-            DescriptorBindingFlags.PartiallyBoundBit | DescriptorBindingFlags.UpdateUnusedWhilePendingBit;
+            DescriptorBindingFlags.PartiallyBoundBit | DescriptorBindingFlags.UpdateUnusedWhilePendingBit
+            | DescriptorBindingFlags.UpdateAfterBindBit;
         var bindingFlags = stackalloc DescriptorBindingFlags[] { sparse, 0, sparse };
         var flagsInfo = new DescriptorSetLayoutBindingFlagsCreateInfo
         {
@@ -184,12 +212,14 @@ internal sealed unsafe class ResourceTable : IDisposable
         {
             SType = StructureType.DescriptorSetLayoutCreateInfo,
             PNext = &flagsInfo,
+            Flags = DescriptorSetLayoutCreateFlags.UpdateAfterBindPoolBit,
             BindingCount = 3,
             PBindings = bindings,
         };
         api.CreateDescriptorSetLayout(context.Device, &layoutInfo, null, out Layout).Check();
 
         _pool = context.CreateDescriptorPool(
+            DescriptorPoolCreateFlags.UpdateAfterBindBit,
             1,
             new DescriptorPoolSize(DescriptorType.CombinedImageSampler, MaxTextures + MaxTextureArrays),
             new DescriptorPoolSize(DescriptorType.StorageBuffer, 1));

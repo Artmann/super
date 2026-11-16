@@ -2,10 +2,11 @@
 
 ## Requirements
 
-- Windows and a GPU with Vulkan 1.3 support
+- Windows and a GPU with Vulkan 1.3 support, or a Mac with Apple silicon (see [On a Mac](#on-a-mac))
 - .NET 10 SDK
-- Vulkan SDK, to compile shaders: `winget install KhronosGroup.VulkanSDK`. A game that
-  has no shaders of its own doesn't need it. Building this repository does.
+- Vulkan SDK, to compile shaders: `winget install KhronosGroup.VulkanSDK`, or on a Mac
+  `brew install shaderc`. A game that has no shaders of its own doesn't need it. Building
+  this repository does.
 
 ## Start a game
 
@@ -24,8 +25,31 @@ folder beside the project is [cooked by `dotnet build`](command-line.md#in-the-b
 shaders in a `Shaders` folder are [compiled](rendering.md#custom-shaders). A test project
 that references the game gets the engine, the cooked content and the shaders through it.
 
-The package runs on Windows only, and it brings xUnit and the C# compiler with it, for the
-test helpers and for material graphs.
+The package runs on Windows and on Macs with Apple silicon, and it brings xUnit and the C#
+compiler with it, for the test helpers and for material graphs.
+
+### On a Mac
+
+A Mac has no Vulkan of its own, so the package brings [MoltenVK](https://github.com/KhronosGroup/MoltenVK),
+which runs Vulkan on top of Metal, and a game runs with nothing else installed. Only a few
+things differ from Windows:
+
+- **Validation.** [Screenshots](command-line.md#screenshots) and videos check every frame with
+  Vulkan's validation layer, which needs a Vulkan loader. Install them with
+  `brew install vulkan-loader molten-vk vulkan-validationlayers`. The engine finds the loader in
+  Homebrew's folder, or in the LunarG SDK's when `VULKAN_SDK` is set, and then uses it instead of
+  its own MoltenVK. No environment variables are needed.
+- **No ray tracing.** MoltenVK has no ray queries, so light probes are drawn instead of traced,
+  as with `--no-trace`, [`--bake`](command-line.md#baking-lighting) and `--debug-view trace`
+  can't run, and a game draws with the bakes made on a GPU that can trace.
+- **TAA, not FSR.** AMD's FSR library is built for Windows only, so `--upscaler fsr` falls back
+  to TAA.
+- **955 textures.** MoltenVK allows fewer descriptors in one set, so the renderer's table holds
+  955 textures there instead of 1024.
+- **Retina screens.** A window has twice the pixels on a Retina screen, so the
+  [interface](interfaces.md#scale) is drawn twice as big to look the same. Pictures and videos
+  have exactly the pixels asked for with `--size`.
+- **Cmd for Ctrl.** A drag sees Cmd as Control, since Ctrl with a click means a right-click on a Mac.
 
 ## Work on the engine
 
@@ -37,29 +61,27 @@ dotnet test Super.slnx -c Release
 ```
 
 The tests need no window or GPU. GitHub Actions runs the same build and tests on every pull
-request and on each push to `main`, on Windows (`.github/workflows/ci.yml`). The recording tests
+request and on each push to `main`, on Windows and on an Apple silicon Mac (`.github/workflows/ci.yml`). The recording tests
 there need `ffmpeg`, as they do locally. CI keeps the cook cache between runs, so it only cooks
 content that changed, and only saves the cache when the cook added to it. Cooking the Courtyard
 from scratch takes about six minutes there, which happens when the cook's code or the .NET SDK
 changes, and once a month.
 
-### On a Mac
+### Working on the engine on a Mac
 
-The engine also starts on a Mac through MoltenVK, which is enough to work on it, run the
-tests and take [screenshots](command-line.md#screenshots). Install the shader compiler, the
-Vulkan loader, MoltenVK and the validation layer with Homebrew, and tell .NET where they are:
+Install the shader compiler, and the Vulkan loader and validation layer that screenshots and
+the GPU tests need, with Homebrew:
 
 ```
-brew install shaderc vulkan-loader molten-vk vulkan-validationlayers
-export DYLD_LIBRARY_PATH=/opt/homebrew/lib
-export VK_LAYER_PATH=/opt/homebrew/opt/vulkan-validationlayers/share/vulkan/explicit_layer.d
+brew install shaderc vulkan-loader molten-vk vulkan-validationlayers ffmpeg
 ```
 
-The picture matches Windows closely, but MoltenVK has no ray queries, so light probes are
-drawn instead of traced, as with `--no-trace`. `--validate` also reports about 50 messages
-that don't come up on Windows, because the renderer's table of every texture is bigger than
-MoltenVK allows in a descriptor set. Compare shots from the same machine. The
-package itself still supports Windows only.
+The GPU tests (`dotnet test tests/Rendition.Gpu.Tests -c Release`) run there too, on a surface
+with no window, since macOS only lets the main thread open windows. The ones that need ray
+tracing, or a GPU that counts the shaders each pass runs, fail there, as they do on any GPU
+without those, saying which they need. The picture matches
+Windows closely, apart from the [differences above](#on-a-mac), so compare shots made on the
+same machine.
 
 To see games running, try the examples:
 

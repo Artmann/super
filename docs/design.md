@@ -972,7 +972,7 @@ It only does rendering and owns nothing beyond the window it draws into.
 
 ## Non-goals (for now)
 
-Editor, physics, audio, game logic and non-Windows platforms. Rendition keeps to
+Editor, physics, audio, game logic and platforms other than Windows and macOS. Rendition keeps to
 rendering. Game-facing features belong in Super, which has the audio (see
 [Audio](audio.md)).
 
@@ -3526,6 +3526,38 @@ Courtyard screenshot reports no hazards. The last two it found were the decals l
 normals before their change of layout had landed, and presenting before the swapchain image's
 change to the present layout, since the frame signalled it was done after colour output only.
 
+On a Mac the GPU tests make no window: macOS only lets the main thread open one, and xunit makes
+fixtures on a pool thread, where GLFW waits forever. `ITestSurface` gives them a surface from
+`VK_EXT_headless_surface` instead, whose swapchain takes the size asked for and shows nothing.
+
+## macOS
+
+A Mac has no Vulkan driver, so the renderer runs on MoltenVK, which turns Vulkan into Metal.
+`Portability` asks for `VK_KHR_portability_enumeration` on the instance, since the loader only
+lists a driver that isn't fully conformant to an instance that asks, and turns on
+`VK_KHR_portability_subset` and its features on the device.
+
+`VulkanLibrary` picks what to load, once. Elsewhere it's the system's loader, found by name. On a
+Mac it's `libvulkan.1.dylib` from `$VULKAN_SDK/lib`, `/opt/homebrew/lib` or `/usr/local/lib`, since
+only a loader brings the validation layer, and otherwise the `libMoltenVK.dylib` that
+`Rendition.csproj` copies beside the game from `Silk.NET.MoltenVK.Native` (the package's iOS and
+tvOS libraries, about 70 MB, are left out). None of those folders is one macOS searches, so the
+library is loaded by its full path, and GLFW is pointed at it with `glfwInitVulkanLoader` before
+`glfwInit`. A loader installed that way doesn't look for layers beside itself, and Homebrew's layer
+manifest names its library with no folder, which macOS only finds with `DYLD_LIBRARY_PATH`. So
+`LayerManifests` writes copies with full paths to a temp folder and adds it to `VK_ADD_LAYER_PATH`
+with libc's `setenv`, since .NET's own doesn't reach native code on Unix.
+
+MoltenVK's ordinary descriptor limits are low: 16 samplers a stage and 1212 descriptors a set. The
+texture table and the lighting set, which with the frame set's three samples 19 textures, are made
+update-after-bind (`Descriptors.CreateSetLayout` with `updateAfterBind`), which counts them against
+the far higher update-after-bind limits, so the device needs
+`descriptorBindingSampledImageUpdateAfterBind`. The table sizes itself from `maxPerSetDescriptors`
+(`ResourceTable.TexturesFor`): 1024 textures where it fits, 955 on MoltenVK.
+
+A hidden window asks GLFW for no Retina framebuffer, so a picture has the pixels asked for, and in
+a shown one `Game` multiplies the interface scale by `GameWindow.PixelsPerPoint`.
+
 ## Resource lifetime
 
 Meshes and textures are made during play, so neither creating nor destroying one
@@ -4007,7 +4039,7 @@ still be writing it, so the band isn't recorded. The bake is refused instead: at
 `Record` it is let go the deferred way, pages already in the table included, removed, and
 reported through `ChunkUnreadable` ("The bake … can't go on the GPU, so its area is lit live: the
 material table has no room for its sun transfer page, since the renderer holds at most 1024
-textures."). The chunk is then lit live until a reload,
+textures.", or 955 on MoltenVK). The chunk is then lit live until a reload,
 and nothing escapes `Render`.
 
 The pool counts frames by calls to `Record`, and lets a bake go when `Record` runs with no `Use`
@@ -4749,8 +4781,8 @@ from the repository. `.github/scripts/test-package.ps1` copies it outside the re
 where no `Directory.Build.props` reaches it, builds it against a `.nupkg` and runs its tests.
 The game loads a JSON file and a model and uses its own shader, so a package that can't cook,
 import a model with the tool's Assimp, or compile fails there. The script also checks that
-every Windows native library the tool's `super-cook.deps.json` names is at that path in the
-package. It first deletes that version from NuGet's global packages folder, since NuGet
+every native library for the machine it runs on, Windows or a Mac, that the tool's
+`super-cook.deps.json` names is at that path in the package. It first deletes that version from NuGet's global packages folder, since NuGet
 never unpacks a version twice. CI runs it on every pull request, and the release runs it
 before publishing.
 
@@ -4758,7 +4790,7 @@ Releases are made by Release Please (`.github/workflows/release.yml`, the same s
 Roe's). On each push to `main` it keeps a pull request open that raises `version.txt` and
 writes `CHANGELOG.md` from the conventional commits since the last release. Merging that pull
 request makes the tag, such as `v1.0.0`, and a GitHub release, and then the workflow packs
-that tag with `-p:Version`, checks the package, and pushes it to nuget.org. It signs in with
+that tag with `-p:Version` on Windows, checks the package there and on a Mac, and pushes it to nuget.org. It signs in with
 trusted publishing: `NuGet/login` trades the run's OIDC token for a key that lasts an hour, so
 the repository holds no API key. The policy on nuget.org names this repository and
 `release.yml`. Running the workflow by hand with a tag publishes that tag again, for a release
@@ -4769,7 +4801,7 @@ change does too.
 
 - Only cooked models' textures are block-compressed. Textures loaded on their own, graph
   textures cooked by themselves and generated shapes' textures stay RGBA8.
-- The table holds at most 1024 textures, 1024 materials and 256 texture arrays.
+- The table holds at most 1024 textures (955 on MoltenVK), 1024 materials and 256 texture arrays.
 - Only the occlusion texture can pick its UV set; the detail mask, in the surface texture's
   blue, is read through the first set. An occlusion texture on a second set the cook makes
   again is left out, where it could be baked across onto the new set. glTF's occlusion

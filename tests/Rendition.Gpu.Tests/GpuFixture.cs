@@ -1,25 +1,17 @@
 using System.Numerics;
-using System.Runtime.InteropServices;
 using Rendition.Vulkan;
-using Silk.NET.Core.Native;
-using Silk.NET.GLFW;
 
 namespace Rendition.Gpu.Tests;
 
 /// <summary>
-/// A hidden 256 by 256 window and a <see cref="Rendition.Renderer"/> on it with validation turned on, made the way
-/// the game's window makes them. One is shared by every GPU test, which run one at a time.
+/// A hidden 256 by 256 surface (see <see cref="ITestSurface"/>) and a <see cref="Rendition.Renderer"/> on it with
+/// validation turned on. One is shared by every GPU test, which run one at a time.
 /// </summary>
-public sealed unsafe class GpuFixture : IDisposable
+public sealed class GpuFixture : IDisposable
 {
     private const int Size = 256;
 
-    // GLFW is process-wide, and terminating it closes every window, so it ends with the last fixture.
-    private static readonly Lock GlfwLock = new();
-    private static int _glfwUsers;
-
-    private readonly Glfw _glfw;
-    private readonly WindowHandle* _window;
+    private readonly ITestSurface _surface;
     private readonly int _width;
     private readonly int _height;
 
@@ -44,33 +36,15 @@ public sealed unsafe class GpuFixture : IDisposable
     /// </summary>
     internal GpuFixture(bool disableRayTracing, bool liveShaders = false)
     {
-        _glfw = Glfw.GetApi();
-        lock (GlfwLock)
-        {
-            if (!_glfw.Init())
-            {
-                throw new InvalidOperationException("Could not initialize GLFW.");
-            }
-
-            _glfwUsers++;
-        }
-
-        _glfw.WindowHint(WindowHintClientApi.ClientApi, ClientApi.NoApi);
-        _glfw.WindowHint(WindowHintBool.Visible, false);
-        _window = _glfw.CreateWindow(Size, Size, "Rendition GPU tests", null, null);
-        if (_window is null)
-        {
-            ReleaseGlfw();
-            throw new InvalidOperationException("Could not create a window.");
-        }
-
+        _surface = ITestSurface.Create(Size);
+        _width = _surface.Width;
+        _height = _surface.Height;
         try
         {
-            _glfw.GetFramebufferSize(_window, out _width, out _height);
             Renderer = new Renderer(new RendererOptions
             {
-                InstanceExtensions = InstanceExtensions(),
-                CreateSurface = CreateSurface,
+                InstanceExtensions = _surface.InstanceExtensions,
+                CreateSurface = _surface.CreateSurface,
                 Width = _width,
                 Height = _height,
                 EnableValidation = true,
@@ -84,8 +58,7 @@ public sealed unsafe class GpuFixture : IDisposable
         }
         catch
         {
-            _glfw.DestroyWindow(_window);
-            ReleaseGlfw();
+            _surface.Dispose();
             throw;
         }
     }
@@ -140,41 +113,7 @@ public sealed unsafe class GpuFixture : IDisposable
     public void Dispose()
     {
         Renderer.Dispose();
-        _glfw.DestroyWindow(_window);
-        ReleaseGlfw();
-    }
-
-    private void ReleaseGlfw()
-    {
-        lock (GlfwLock)
-        {
-            _glfwUsers--;
-            if (_glfwUsers == 0)
-            {
-                _glfw.Terminate();
-            }
-        }
-    }
-
-    private ulong CreateSurface(nint instance)
-    {
-        VkNonDispatchableHandle surface;
-        int result = _glfw.CreateWindowSurface(new VkHandle(instance), _window, null, &surface);
-        return result == 0
-            ? surface.Handle
-            : throw new InvalidOperationException($"Could not create a window surface: {result}");
-    }
-
-    private string[] InstanceExtensions()
-    {
-        byte** names = _glfw.GetRequiredInstanceExtensions(out uint count);
-        var extensions = new string[count];
-        for (int i = 0; i < count; i++)
-        {
-            extensions[i] = Marshal.PtrToStringUTF8((nint)names[i])!;
-        }
-
-        return extensions;
+        _surface.Dispose();
     }
 }
 

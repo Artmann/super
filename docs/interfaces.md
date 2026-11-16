@@ -84,7 +84,7 @@ Modifiers wrap a view, so their order usually matters.
 | `.OnClick(action)` | Runs on a left click |
 | `.Tooltip(view)` | Shows a view near the cursor after a short hover |
 | `.Draggable(payload, preview)`, `.DropTarget<T>(onDrop, canDrop)` | Lets the mouse carry a value from one view to another |
-| `.Draggable(start => payload, payload => preview)` | Chooses what to carry at the press, from the button and the Shift, Control and Alt keys held (`DragStart`), or null not to drag |
+| `.Draggable(start => payload, payload => preview)` | Chooses what to carry at the press, from the button and the Shift, Control and Alt keys held (`DragStart`), or null not to drag. On a Mac, Cmd counts as Control, since Ctrl with a click means a right-click there |
 | `.IgnoresPointer()` | Lets the mouse through, like CSS's `pointer-events: none` |
 
 ### The box
@@ -267,6 +267,10 @@ stays sharp. `FrameOf`, `ShownText` and everything else the interface reports ar
 units. The mouse is turned into units for you, and an `InputScript` or a test that clicks
 a view by its id aims at where it's drawn. `InputScript.MoveMouse(position)` and
 `Input.MousePosition` stay in pixels. A headless test sets the scale with `run.UiScale`.
+
+On a Mac's Retina screen a window has two pixels for each point of its size, so a game in a
+window multiplies the scale by that, and the interface looks the same size as on any other
+screen. Screenshots and videos have the pixels `--size` asks for, so they keep the scale.
 
 A scale that isn't a number above zero is refused. The characters all share one 1024 by
 1024 image, so very large text at a large scale can run out of room, and characters that

@@ -416,15 +416,30 @@ public sealed class CookPipeline(IReadOnlyList<ICooker> cookers, CookOptions opt
     /// <see cref="Cook"/> and the caller can try again.
     /// </summary>
     /// <remarks>
-    /// Windows only: it knows Windows' sharing and lock violations. Other systems don't lock files against reading.
-    /// A manifest that can't be replaced because the game has it open comes as access denied; <see cref="FolderStore"/>
-    /// turns that into a <see cref="FileInUseException"/>, which carries a sharing violation.
+    /// On Windows it's a sharing or lock violation. A manifest that can't be replaced because the game has it open comes
+    /// as access denied; <see cref="FolderStore"/> turns that into a <see cref="FileInUseException"/>, which carries a
+    /// sharing violation. Other systems only lock a file a .NET program opened with <see cref="FileShare.None"/>: .NET
+    /// holds an flock on it then, and another .NET open fails with EWOULDBLOCK, which comes as the HResult itself. There
+    /// the HResult is the system's error number, so only the whole Windows HResult counts, not its low bits.
     /// </remarks>
     internal static bool InUse(Exception exception)
     {
         const int SharingViolation = 32;
         const int LockViolation = 33;
-        return exception is IOException && (exception.HResult & 0xFFFF) is SharingViolation or LockViolation;
+        const int MacWouldBlock = 35;
+        const int LinuxWouldBlock = 11;
+        if (exception is not IOException)
+        {
+            return false;
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            return (exception.HResult & 0xFFFF) is SharingViolation or LockViolation;
+        }
+
+        return exception.HResult is unchecked((int)0x80070020) or unchecked((int)0x80070021)
+            || exception.HResult == (OperatingSystem.IsMacOS() ? MacWouldBlock : LinuxWouldBlock);
     }
 
     private ICooker? FindCooker(string name)
