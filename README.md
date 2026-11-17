@@ -35,30 +35,35 @@ class Spinner : IGame
 }
 ```
 
-## Get it started
+## Quick Start
 
-Open your coding agent in an empty folder, or in an existing C# project, and paste this:
+Open your coding agent in an empty folder or an existing C# project, then copy this
+prompt into it:
 
 ```text
-Set up this folder as a game built on Super, the C# game engine at
-https://github.com/Artmann/super. Read its README, docs/getting-started.md,
-docs/agents.md and docs/testing.md first, and follow them over anything you
-remember.
+Set up a game in this folder with Super, a C# game engine used as a library.
+It needs the .NET 10 SDK. The docs are at https://github.com/Artmann/super/tree/main/docs.
 
 1. If there's no project yet, create a solution with a console project for the
-   game and add a .gitignore (`dotnet new gitignore`). If there is one, use it.
-2. Add the Super NuGet package to the game project.
-3. Write a small first game in Program.cs: an IGame with a camera, a sun and a
-   spinning cube, started with Game.StartWindowsGameLoop.
+   game, and run `dotnet new gitignore`.
+2. Add the Super package from NuGet (https://www.nuget.org/packages/Super) with
+   `dotnet add package Super`. Don't reference the Super repository itself.
+3. Replace Program.cs with the spinning cube from docs/getting-started.md.
 4. Add an xUnit test project that references the game, with one headless test
-   that uses HeadlessGame and [Seeds].
+   from docs/testing.md that uses HeadlessGame and [Seeds].
 5. Add AGENTS.md from "A starting AGENTS.md" in docs/agents.md, with the real
-   project names, and a CLAUDE.md that only says "@AGENTS.md".
-6. Check it all works: build, run the tests, then take a screenshot with
-   --seed 7 --ticks 60 --screenshot shots/first.png and look at it.
+   project names, and a CLAUDE.md that only says "@AGENTS.md". Add a note that
+   says to read the Super docs before using a part of the engine.
+6. Build, run the tests, then take a screenshot with
+   `--seed 7 --ticks 60 --screenshot shots/first.png` and look at it.
+```
 
-Tell me what you set up and what the screenshot shows, then ask me what game
-I want to make.
+Then ask your agent to build something:
+
+```text
+Make a small game with Super: a ball you roll around a flat arena with the arrow
+keys, collecting coins that appear at random spots. Show the score in the top
+corner. Add a headless test that collects a coin, and show me a screenshot.
 ```
 
 ## Why Super
