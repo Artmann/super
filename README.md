@@ -51,10 +51,7 @@ It needs the .NET 10 SDK. The docs are at https://github.com/Artmann/super/tree/
 3. Replace Program.cs with the spinning cube from docs/getting-started.md.
 4. Add an xUnit test project that references the game, with one headless test
    from docs/testing.md that uses HeadlessGame and [Seeds].
-5. Add AGENTS.md from "A starting AGENTS.md" in docs/agents.md, with the real
-   project names, and a CLAUDE.md that only says "@AGENTS.md". Add a note that
-   says to read the Super docs before using a part of the engine.
-6. Build, run the tests, then take a screenshot with
+5. Build, run the tests, then take a screenshot with
    `--seed 7 --ticks 60 --screenshot shots/first.png` and look at it.
 ```
 
