@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.4.0](https://github.com/Artmann/super/compare/v1.3.1...v1.4.0) (2026-11-17)
+
+
+### Features
+
+* change the sky every frame without waiting for the GPU ([#124](https://github.com/Artmann/super/issues/124)) ([63645b0](https://github.com/Artmann/super/commit/63645b0b3726583870588bbf47a585ff59c4f2f6))
+* moon and stars in the night sky; Hamlet on the physical sky ([#131](https://github.com/Artmann/super/issues/131)) ([73ebade](https://github.com/Artmann/super/commit/73ebadec0fd351550c689a4f493c3fb2816555cc))
+* photographed HDRI skies with rotation and exposure ([#132](https://github.com/Artmann/super/issues/132)) ([f5d7ad2](https://github.com/Artmann/super/commit/f5d7ad29f013aa543dfc63c0b98db148b7f74611))
+* physical sky that follows the sun ([#129](https://github.com/Artmann/super/issues/129)) ([3ea2014](https://github.com/Artmann/super/commit/3ea20145253a785f16b15003fc3decef5e88efc0))
+* steadier, crisper ambient occlusion with a history over frames ([#134](https://github.com/Artmann/super/issues/134)) ([15df740](https://github.com/Artmann/super/commit/15df74028dd48ae02b426b5ec513acf1937f51ec))
+
+
+### Bug Fixes
+
+* don't count zero skin weights as a vertex's joints ([#128](https://github.com/Artmann/super/issues/128)) ([381338d](https://github.com/Artmann/super/commit/381338d87539770d78d1271880b5a3de6fab4b13))
+
 ## [1.3.1](https://github.com/Artmann/super/compare/v1.3.0...v1.3.1) (2026-11-17)
 
 
