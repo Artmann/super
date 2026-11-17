@@ -70,6 +70,9 @@ public readonly record struct TextureHandle(int Index);
 /// <summary>A stack of same-sized images that shaders index by layer.</summary>
 public readonly record struct TextureArrayHandle(int Index);
 
+/// <summary>A photographed sky made by <see cref="Renderer.CreateSkyImage"/>.</summary>
+public readonly record struct SkyImageHandle(int Index);
+
 public readonly record struct MaterialHandle(int Index);
 
 public readonly record struct SurfaceShaderHandle(int Index);
@@ -669,6 +672,20 @@ public struct AnalyticSky
 
     /// <summary>How far the stars have turned about the zenith, in radians, for a night sky that turns with time.</summary>
     public float StarRotation;
+
+    /// <summary>
+    /// A photographed sky, from <see cref="Renderer.CreateSkyImage"/>, in place of the bands and the physical sky. It
+    /// shows behind the scene, lights it and shows in reflections, with the sun the cooker took out of it drawn back
+    /// as a disc. It wins over <see cref="Turbidity"/>, <see cref="Moon"/> and the stars, which it leaves out. Its sun
+    /// is not a light: aim the game's own at it. See "A photographed sky" in docs/rendering.md.
+    /// </summary>
+    public SkyImageHandle? Image;
+
+    /// <summary>How far <see cref="Image"/> is turned about the up axis, in radians, counterclockwise seen from above.</summary>
+    public float Rotation;
+
+    /// <summary>How much brighter <see cref="Image"/> is drawn, in stops: 1 doubles it, -1 halves it.</summary>
+    public float Exposure;
 }
 
 /// <summary>

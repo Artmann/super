@@ -35,13 +35,27 @@ internal sealed unsafe class GpuTexture : IDisposable
         Upload(layers);
     }
 
+    /// <summary>A cube of six same-sized square faces in Vulkan's order, filled right away. Waits for the GPU.</summary>
+    public static GpuTexture Cube(VulkanContext context, ReadOnlySpan<TextureData> faces)
+    {
+        if (faces.Length != 6)
+        {
+            throw new ArgumentException($"A cube has 6 faces, but {faces.Length} were given.", nameof(faces));
+        }
+
+        var texture = new GpuTexture(context, faces[0].Width, faces[0].Height, faces[0].Kind, (uint)faces[0].Mips.Length, 6,
+            format: faces[0].Format, cube: true);
+        texture.Upload(faces);
+        return texture;
+    }
+
     /// <summary>
     /// An empty texture. Fill it with <see cref="RecordUpload"/>. An array is sampled as
-    /// one even with a single layer, which the view type has to say.
+    /// one even with a single layer, which the view type has to say. A cube has six layers.
     /// </summary>
     public GpuTexture(
         VulkanContext context, int width, int height, TextureKind kind, uint mipCount, uint layers, bool array = false,
-        TextureFormat format = TextureFormat.Rgba8)
+        TextureFormat format = TextureFormat.Rgba8, bool cube = false)
     {
         _context = context;
         Width = width;
@@ -55,6 +69,7 @@ internal sealed unsafe class GpuTexture : IDisposable
         var imageInfo = new ImageCreateInfo
         {
             SType = StructureType.ImageCreateInfo,
+            Flags = cube ? ImageCreateFlags.CreateCubeCompatibleBit : ImageCreateFlags.None,
             ImageType = ImageType.Type2D,
             Format = vulkanFormat,
             Extent = new Extent3D((uint)width, (uint)height, 1),
@@ -76,7 +91,7 @@ internal sealed unsafe class GpuTexture : IDisposable
         {
             SType = StructureType.ImageViewCreateInfo,
             Image = _image,
-            ViewType = array || layers > 1 ? ImageViewType.Type2DArray : ImageViewType.Type2D,
+            ViewType = cube ? ImageViewType.TypeCube : array || layers > 1 ? ImageViewType.Type2DArray : ImageViewType.Type2D,
             Format = vulkanFormat,
             SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, mipCount, 0, layers),
         };
@@ -139,14 +154,15 @@ internal sealed unsafe class GpuTexture : IDisposable
 
     /// <summary>
     /// Records the copy from a staging buffer made by <see cref="CreateStaging"/>, leaving
-    /// the image ready for fragment shaders to sample, and tracing shaders where the device can trace. Allocates nothing.
+    /// the image ready for fragment and compute shaders to sample, and tracing shaders where the device can trace.
+    /// Allocates nothing.
     /// </summary>
     public void RecordUpload(CommandBuffer cmd, GpuBuffer staging)
     {
         var api = _context.Api;
         var readers = _context.CanTrace
-            ? PipelineStageFlags2.FragmentShaderBit | RayTracing.TraceStages
-            : PipelineStageFlags2.FragmentShaderBit;
+            ? PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit | RayTracing.TraceStages
+            : PipelineStageFlags2.FragmentShaderBit | PipelineStageFlags2.ComputeShaderBit;
         api.Transition(cmd, _image, ImageAspectFlags.ColorBit,
             ImageLayout.Undefined, ImageLayout.TransferDstOptimal,
             PipelineStageFlags2.None, AccessFlags2.None,

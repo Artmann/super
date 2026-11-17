@@ -23,16 +23,16 @@ internal sealed unsafe class EnvironmentMap : IDisposable
     private const int ReflectionMips = 6;
 
     private readonly VulkanContext _context;
-    private readonly EnvironmentCube _reflections;
-    private readonly EnvironmentCube _irradiance;
-    private readonly EnvironmentCube _sky;
+
+    /// <summary>The three cubes the prefilter draws: the reflections, the soft light and the sky.</summary>
+    private readonly (EnvironmentCube Reflections, EnvironmentCube Irradiance, EnvironmentCube Sky) _cubes;
     private readonly EnvironmentUniforms _uniforms;
     private readonly EnvironmentFlat _flat;
     private readonly EnvironmentPrefilter _prefilter;
 
     public readonly Sampler Sampler;
-    public ImageView Reflections => _reflections.Sampled;
-    public ImageView Irradiance => _irradiance.Sampled;
+    public ImageView Reflections => _cubes.Reflections.Sampled;
+    public ImageView Irradiance => _cubes.Irradiance.Sampled;
 
     /// <summary>
     /// What the light probes see past the scene: the sky's sharpest level alone, as every reader outside this class
@@ -60,11 +60,12 @@ internal sealed unsafe class EnvironmentMap : IDisposable
     public EnvironmentMap(VulkanContext context)
     {
         _context = context;
-        _reflections = new EnvironmentCube(context, ReflectionSize, ReflectionMips);
-        _irradiance = new EnvironmentCube(context, IrradianceSize, 1);
-        _sky = new EnvironmentCube(context, SkySize, SkyMips);
-        Sky = _sky.CreateView(1);
-        _flat = new EnvironmentFlat(context, _irradiance.Level(0), _reflections.Level(ReflectionMips - 1));
+        _cubes = (
+            new EnvironmentCube(context, ReflectionSize, ReflectionMips),
+            new EnvironmentCube(context, IrradianceSize, 1),
+            new EnvironmentCube(context, SkySize, SkyMips));
+        Sky = _cubes.Sky.CreateView(1);
+        _flat = new EnvironmentFlat(context, _cubes.Irradiance.Level(0), _cubes.Reflections.Level(ReflectionMips - 1));
 
         var samplerInfo = new SamplerCreateInfo
         {
@@ -79,11 +80,17 @@ internal sealed unsafe class EnvironmentMap : IDisposable
         };
         context.Api.CreateSampler(context.Device, &samplerInfo, null, out Sampler).Check();
         _uniforms = new EnvironmentUniforms(context, Sampler);
-        _prefilter = new EnvironmentPrefilter(context, _uniforms, Sampler, (_reflections, _irradiance, _sky));
+        _prefilter = new EnvironmentPrefilter(context, _uniforms, Sampler, _cubes);
     }
 
     /// <summary>The cube level a test reads back.</summary>
-    internal CubeLevel ReflectionLevel(int mip) => _reflections.Level(mip);
+    internal CubeLevel ReflectionLevel(int mip) => _cubes.Reflections.Level(mip);
+
+    /// <summary>
+    /// Draws the sky from a photographed sky's cube from the next record on, or from none. The GPU must have finished
+    /// every redraw recorded before.
+    /// </summary>
+    public void SetImage(GpuTexture? image) => _prefilter.SetImage(image);
 
     /// <summary>Keeps the bands and panels for the next record. Nothing is drawn yet.</summary>
     public void SetDescription(in EnvironmentDescription description) => _uniforms.Set(description);
@@ -131,8 +138,8 @@ internal sealed unsafe class EnvironmentMap : IDisposable
         _context.Api.DestroySampler(_context.Device, Sampler, null);
         _flat.Dispose();
         _context.Api.DestroyImageView(_context.Device, Sky, null);
-        _sky.Dispose();
-        _irradiance.Dispose();
-        _reflections.Dispose();
+        _cubes.Sky.Dispose();
+        _cubes.Irradiance.Dispose();
+        _cubes.Reflections.Dispose();
     }
 }

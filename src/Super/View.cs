@@ -533,10 +533,13 @@ public sealed class View
         effect.Emit(key, age, transform, _particles, length);
     }
 
+    // How far a sky image's exposure goes either way, in stops; past it the image's half floats overflow or vanish.
+    private const float MaxSkyExposure = 20f;
+
     /// <summary>
     /// Sets the sky: a gradient from the ground up through the horizon to straight up, and
-    /// haze and fog that set distant things back in it. Without one the world sits in a plain grey
-    /// studio. Water, when set, takes over the sky.
+    /// haze and fog that set distant things back in it, or a physical or photographed sky in its place. Without one
+    /// the world sits in a plain grey studio. Water, when set, takes over the sky.
     /// </summary>
     public void Sky(in SkySettings settings)
     {
@@ -570,6 +573,15 @@ public sealed class View
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"The moon's direction and the stars' rotation must be numbers, but they are {settings.Moon} and {settings.StarRotation}."));
+        }
+
+        if (!float.IsFinite(settings.Rotation) || !(settings.Exposure is >= -MaxSkyExposure and <= MaxSkyExposure))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(settings),
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"The sky image's rotation must be a number and its exposure from {-MaxSkyExposure} to {MaxSkyExposure} stops, but they are {settings.Rotation} and {settings.Exposure}."));
         }
 
         RefuseBadFog(settings.Fog, nameof(settings));

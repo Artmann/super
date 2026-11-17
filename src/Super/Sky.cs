@@ -84,6 +84,20 @@ public struct SkySettings
     /// </summary>
     public float StarRotation;
 
+    /// <summary>
+    /// A photographed sky from <see cref="Content.Sky"/>, shown behind the scene and lighting and reflecting in it in
+    /// place of Zenith, Horizon, Ground and <see cref="Turbidity"/>; the moon and stars are left out too. Its sun shows
+    /// as a disc, but its light is yours to add with <c>View.Sun</c>, aimed at <see cref="SkyImage.SunDirectionAt"/>.
+    /// See "A photographed sky" in docs/rendering.md.
+    /// </summary>
+    public SkyImage? Image;
+
+    /// <summary>How far <see cref="Image"/> is turned about the up axis, in radians, counterclockwise seen from above.</summary>
+    public float Rotation;
+
+    /// <summary>Brightens <see cref="Image"/> by this many stops, or dims it below zero. Zero is the image as stored.</summary>
+    public float Exposure;
+
     /// <summary>The clearest and the haziest a clear sky can be.</summary>
     public const float MinTurbidity = 1.7f;
 

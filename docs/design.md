@@ -1607,6 +1607,34 @@ wide whose peak drops as it widens, so its total light, and so its look, holds a
 view zooms or moves. The pixel's width comes from the direction one pixel over, since
 `fwidth` is undefined in a branch only some pixels take.
 
+### Photographed skies
+
+`Super.Cook/Cookers/SkyCooker.cs` turns an equirectangular `.hdr` into `SkyImageData`, a
+data part: six rgba16f faces 256 texels across with every mip, laid out like
+`cubeDirection` in `environment.comp` (`SkyImageData.FaceDirection`), with the picture's
+middle towards −Z. Each face texel averages a 4 × 4 grid of bilinear reads of the picture.
+Before that it finds the sun: the brightest texel, kept only if it is over 20 times the
+picture's mean, and every texel within 5° of it that is over 10 times the mean. The
+patch's light above the mean of the ring out to 7° becomes a disc as wide as the patch,
+spread evenly over it (clamped to 65504 for half floats); its direction is the centre of
+that light, and the patch is cut down to the ring's level. `SkyImageData.ReadSunDirection` reads only the
+header, so `content.Sky` knows the sun's direction without loading the faces.
+
+The renderer keeps each `CreateSkyImage` cube in `_skyImages` with its sun and an XxHash64
+of its texels, and frees them only when it is disposed. `SkyModel.Photographed` gives a
+`SkySun` with turbidity 0, the sun turned by the rotation, its disc scaled by 2^exposure and
+clamped to 30000, and the image, rotation and scale; `EnvironmentUniforms` writes these to
+the Environment block's `image` (1, cos, sin, scale). The cube sits in binding 3 of every
+cube shader's layout; while no image is set, `EnvironmentPrefilter` binds `_noImage`, a
+one-texel black cube, so the layout never changes. Swapping the image rewrites that
+binding, so `BakeSky` waits for the device to go idle first; turning or brightening it is an
+ordinary sky change. `photographed()` turns the direction, reads the mip whose texels are
+about as wide as the target's, and adds the disc only where `draw.disc` is 1, so the sun
+shows in the sharp level and, through `lighting.frag`'s nothing-drawn branch, behind the
+scene, but the direct light gives everything else. `EnvironmentHash`,
+`ReflectionLightingHash` and `ProbeLightingKey` include the content hash or handle, the
+rotation and the exposure, so the bakes and probes see a new picture.
+
 ### Height fog
 
 `fog.glsl` holds the fog that `lighting.frag`, `transparent.frag` and `particle.frag`
