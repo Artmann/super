@@ -1221,6 +1221,12 @@ can store. `Zenith` and `Horizon` are not used; `Ground` still colours what is b
 horizon, lit by the sun and the sky, so it darkens at dusk, and `Brightness` still
 scales the whole sky, disc included.
 
+A scene that already set a turbidity gets the physical sky with no change. The
+[Forest example](../examples/Forest)'s sunrise mist now takes the warm glow round the
+low sun, and the hard white glare the old sky put on the grass is softer:
+
+![Forest just after sunrise: before with the Preetham sky, after with the physical sky](media/physical-sky-forest.webp)
+
 The sun's light comes through the air too. Set its colour as it looks with the sun 60°
 up: higher, it is a little brighter; lower, it is warmer and dimmer, orange near the
 horizon, and once it has set it gives no light at all. Only the sun the sky follows is
