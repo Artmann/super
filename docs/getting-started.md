@@ -65,7 +65,8 @@ request and on each push to `main`, on Windows and on an Apple silicon Mac (`.gi
 there need `ffmpeg`, as they do locally. CI keeps the cook cache between runs, so it only cooks
 content that changed, and only saves the cache when the cook added to it. Cooking the Courtyard
 from scratch takes about six minutes there, which happens when the cook's code or the .NET SDK
-changes, and once a month.
+changes, and once a month. A test that runs for more than 5 minutes there is taken to have hung:
+it's stopped, and the run fails with the test's name.
 
 ### Working on the engine on a Mac
 
