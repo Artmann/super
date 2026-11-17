@@ -1427,7 +1427,7 @@
       "kind": "long-method",
       "name": "Hamlet.DayCycle.Light",
       "file": "examples/Hamlet/DayCycle.cs",
-      "metric": 46
+      "metric": 44
     },
     {
       "kind": "long-method",
@@ -3425,7 +3425,7 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5912
+      "metric": 5911
     },
     {
       "kind": "large-file",
@@ -4041,6 +4041,7 @@
         "Rendition.Vulkan.CubeLevel",
         "Rendition.Vulkan.CubeShader<TConstants>",
         "Rendition.Vulkan.EnvironmentCube",
+        "Rendition.Vulkan.EnvironmentFlat",
         "Rendition.Vulkan.EnvironmentMap",
         "Rendition.Vulkan.EnvironmentPrefilter",
         "Rendition.Vulkan.ExposureMeter",

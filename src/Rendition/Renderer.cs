@@ -1254,24 +1254,23 @@ public sealed unsafe class Renderer : IDisposable
         _environmentContent = HashEnvironment(environment);
     }
 
-    /// <summary>Records the environment's redraw when the sky or its description changed since the last one.</summary>
+    /// <summary>
+    /// Records the frame's share of the environment's redraw: after a change of sky or description, its sharp levels
+    /// and a slice of the rough reflections, and after that, while the sky holds still, the slices left.
+    /// </summary>
     private void RecordEnvironment(CommandBuffer cmd)
     {
-        if (!_environmentPending)
-        {
-            return;
-        }
-
-        _environment.Record(cmd, _bakedSky);
+        _environment.RecordFrame(cmd, _bakedSky, _environmentPending);
         _environmentPending = false;
     }
 
-    /// <summary>Redraws a changed environment now and waits, for the paths that draw outside a frame.</summary>
+    /// <summary>Redraws the whole of a changed environment now and waits, for the paths that draw outside a frame.</summary>
     private void FlushEnvironment()
     {
-        if (_environmentPending)
+        if (_environmentPending || _environment.Unfinished)
         {
-            _context.SubmitAndWait(RecordEnvironment);
+            _context.SubmitAndWait(cmd => _environment.Record(cmd, _bakedSky));
+            _environmentPending = false;
         }
     }
 
@@ -3010,8 +3009,8 @@ public sealed unsafe class Renderer : IDisposable
     /// <summary>The sun's disc the last frame drawn from the camera wrote, leaving out probe faces, for tests.</summary>
     internal Vector4 LastSunDisc { get; private set; }
 
-    /// <summary>The flat soft light the last frame's uniforms gave, for tests.</summary>
-    internal Vector3 LastFlatIrradiance { get; private set; }
+    /// <summary>The flat soft light and reflection the last frame's uniforms gave, for tests.</summary>
+    internal (Vector3 Irradiance, Vector3 Reflection) LastFlat { get; private set; }
 
     /// <summary>
     /// Hands a texture's bytes to the next frame's command buffer rather than waiting for
@@ -5216,7 +5215,7 @@ public sealed unsafe class Renderer : IDisposable
         var flat = _environment.Flat;
         uniforms->FlatIrradiance = new Vector4(flat.Irradiance, 0f);
         uniforms->FlatReflection = new Vector4(flat.Reflection, 0f);
-        LastFlatIrradiance = flat.Irradiance;
+        LastFlat = flat;
 
         // Probes leave the sun's disc out: their rough levels would scatter it into specks, and
         // the sun's own light already gives surfaces its highlight. The sky is the one BakeSky worked out from the

@@ -1,4 +1,5 @@
 using System.Numerics;
+using Rendition.Vulkan;
 
 namespace Rendition.Gpu.Tests;
 
@@ -109,7 +110,34 @@ public sealed class SkyUpdateGpuTests(GpuFixture gpu)
                 gpu.RenderOneFrame();
             }
 
-            AssertClose(colour, gpu.Renderer.LastFlatIrradiance, 2e-3f);
+            AssertClose(colour, gpu.Renderer.LastFlat.Irradiance, 2e-3f);
+        }
+        finally
+        {
+            gpu.Renderer.SetEnvironment(DefaultEnvironment());
+        }
+
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    [Fact]
+    public void A_sky_that_stops_changing_finishes_its_rough_reflections_in_the_frames_after()
+    {
+        int errors = gpu.ValidationErrors;
+        var colour = new Vector3(0.25f, 0.75f, 0.5f);
+        try
+        {
+            gpu.Renderer.SetEnvironment(Even(new Vector3(1f, 0.125f, 0.25f)));
+            gpu.RenderOneFrame();
+
+            // One frame takes the change and a slice; the frames after it, with nothing new, take the rest.
+            gpu.Renderer.SetEnvironment(Even(colour));
+            for (int i = 0; i < RoughSlices.Count + FramesInFlight; i++)
+            {
+                gpu.RenderOneFrame();
+            }
+
+            AssertClose(colour, gpu.Renderer.LastFlat.Reflection, 2e-3f);
         }
         finally
         {

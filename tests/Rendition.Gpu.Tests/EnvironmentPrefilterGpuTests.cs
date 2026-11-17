@@ -117,6 +117,42 @@ public sealed class EnvironmentPrefilterGpuTests(GpuFixture gpu)
         Assert.Equal(errors, gpu.ValidationErrors);
     }
 
+    [Fact]
+    public void A_change_redraws_the_sharp_levels_at_once_and_the_rough_ones_a_slice_a_frame()
+    {
+        int errors = gpu.ValidationErrors;
+        var before = new Vector3(0.9f, 0.2f, 0.1f);
+        var after = new Vector3(0.1f, 0.4f, 0.8f);
+        using var environment = new EnvironmentMap(gpu.Context);
+        environment.Bake(Even(before), default);
+
+        environment.SetDescription(Even(after));
+        gpu.Context.SubmitAndWait(cmd => environment.RecordFrame(cmd, default, changed: true));
+
+        AssertNear(after, Centre(ReadFace(environment.ReflectionLevel(0), PositiveX), ReflectionSize), "the sharpest level");
+        AssertNear(after, environment.Flat.Irradiance, "the soft light");
+        AssertNear(before, Centre(ReadFace(environment.ReflectionLevel(ReflectionMips - 1), PositiveX),
+            ReflectionSize >> (ReflectionMips - 1)), "the roughest level, a slice later");
+        Assert.True(environment.Unfinished);
+
+        for (int frame = 1; frame < RoughSlices.Count; frame++)
+        {
+            gpu.Context.SubmitAndWait(cmd => environment.RecordFrame(cmd, default, changed: false));
+        }
+
+        Assert.False(environment.Unfinished);
+        for (int mip = 1; mip < ReflectionMips; mip++)
+        {
+            AssertNear(after, Centre(ReadFace(environment.ReflectionLevel(mip), PositiveX), ReflectionSize >> mip), $"mip {mip}");
+        }
+
+        AssertNear(after, environment.Flat.Reflection, "the flat reflection");
+        Assert.Equal(errors, gpu.ValidationErrors);
+    }
+
+    private static EnvironmentDescription Even(Vector3 radiance) =>
+        new() { Ceiling = radiance, Horizon = radiance, Floor = radiance };
+
     private static Vector3 Bands(Vector3 direction) => direction.Y >= 0f
         ? Vector3.Lerp(Horizon, Ceiling, MathF.Sqrt(direction.Y))
         : Vector3.Lerp(Horizon, Floor, MathF.Sqrt(-direction.Y));

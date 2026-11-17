@@ -1473,17 +1473,30 @@ rough mips past a 4096-sample reference and pulled the floor up into the lobe, s
 is 0. Reflection mips 1 to 5 use GGX with V = N at roughness `mip / 5`, `pdf = D / 4`, from
 32 samples at mip 1 doubling each level to 512 at mip 5, since the rougher lobes cover more
 of the sphere and the smaller mips cost the same in all. The irradiance cube takes 256
-cosine-weighted samples of the sky cube, `pdf = cos θ / π`. On an RTX 4060 Ti the whole
-update takes about 0.5 ms of GPU time.
+cosine-weighted samples of the sky cube, `pdf = cos θ / π`. In Hamlet's frame on High, on an RTX
+4060 Ti, the whole update takes about 1 ms of GPU time: the source, sharp and sky cubes with the
+irradiance about 0.25 ms, mip 1 0.31 ms, mips 2 to 4 0.26 ms together and mip 5 0.21 ms.
 
-`Bake` is `SetDescription` plus `Record` in a submit that waits, for tests. The renderer
-keeps the description and the clear sky, marks the environment pending when either
-changes, and records the update in the next frame's command buffer, right after the GPU
-timer starts, as the "Sky" pass. The bake slice and chunk copies recorded before it in that
-frame still read the previous sky, a frame behind. The paths that draw outside a frame (a
-blocking bake, a reflection probe capture, the constructor) call `FlushEnvironment`, which
-records a pending update in its own submit and waits. `Flat` follows a frame or two behind,
-since it reads what the GPU last finished. `Sky` is a view of the sky cube's first mip only, so captures and `SkySh` see
+That is twice the half millisecond a frame can spare, so a frame doesn't redraw it all.
+`RecordFrame` after a change draws the sharp part, everything but the rough reflections, and
+the first of three slices of them, mip 1, then mips 2 to 4, then mip 5, which even out the
+cost (`RoughSlices` keeps the turn); each later `RecordFrame` draws the next slice from the
+source cube the change drew. A sky that
+changes every frame keeps the slices turning, so each rough mip is at most three frames
+old, and a frame costs about 0.5 ms. In Hamlet's sunset the lag doesn't show: the scene below
+the sky changes by under one level of brightness from one frame to the next.
+
+`Bake` is `SetDescription` plus `Record`, every level at once, in a submit that waits, for
+tests. The renderer keeps the description and the clear sky, marks the environment pending
+when either changes, and records `RecordFrame` in the next frame's command buffer, right
+after the GPU timer starts, as the "Sky" pass. While the sky then holds still, each frame
+records the next slice until all three are done. The bake slice and chunk copies recorded
+before it in that frame still read the previous sky, a frame behind. The paths that draw
+outside a frame (a blocking bake, a reflection probe capture, the constructor) call
+`FlushEnvironment`, which records the whole update in its own submit and waits when
+anything is pending or slices are left. `Flat` follows a frame or two behind, since it
+reads what the GPU last finished, and its reflection half reads mip 5, so it can trail the
+last slice. `Sky` is a view of the sky cube's first mip only, so captures and `SkySh` see
 one level as before.
 
 Panels appear only in reflections. The direct lights already provide their diffuse

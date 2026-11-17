@@ -1226,7 +1226,15 @@ own light already gives those their highlight and their warmth. Moving the sun o
 changing the turbidity rebuilds the sky's lighting, the same as changing its colours.
 
 The sky's lighting is rebuilt on the GPU within the frame, in about half a millisecond, so the
-colours, the turbidity and the sun can change every frame, for a sunset or a turning day. [Water](#water), when set, takes over the
+colours, the turbidity and the sun can change every frame, for a sunset or a turning day.
+Nothing waits for it. The roughest reflections catch up over the next two frames, too blurred
+for the lag to show. Hamlet's day used to change its sky every half second; now it follows the
+sun every frame. The plot shows the brightness of the top of the screen over eight seconds
+of its sunset:
+
+![Hamlet's sky brightness over a sunset: before, a sawtooth that jumps every half second; after, a smooth curve](media/sky-fast-updates.webp)
+
+[Water](#water), when set, takes over the
 sky. The [Archer example](../examples/Archer) uses a golden-hour sky, and the
 [Courtyard example](../examples/Courtyard) a clear one.
 
