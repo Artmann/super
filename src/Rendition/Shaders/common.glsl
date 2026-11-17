@@ -34,7 +34,7 @@ layout(std140, set = 0, binding = 0) uniform Frame {
     vec4 shadowDepthScales;  // depth units per unit across each cascade's map, below 1 when it reaches further sunward
     vec4 clusters;           // x, y: nearest and furthest depth a local light reaches; z: 1 for even slices
     vec4 screen;             // xy: the render targets' size in pixels
-    vec4 occlusion;          // x: how far ambient occlusion looks, in metres; y: its strength, 0 to 1
+    vec4 occlusion;          // x: how far ambient occlusion looks, in metres; y: its strength, 0 to 1; z: the screen bounce's strength, 0 when off; w: how far it looks, in metres
     vec4 lightProbeMin;      // xyz: the first light probe; w: the probes' spacing in metres
     vec4 lightProbeCounts;   // xyz: probes along each axis; w: 1 when the soft light comes from them
     vec4 probeCascadeOrigin[4]; // Per cascade, finest first. xyz: the cell of its minimum corner; w: its spacing in metres

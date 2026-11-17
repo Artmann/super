@@ -114,6 +114,7 @@ public sealed class View
     internal float SunSize { get; private set; }
     internal float ShadowContact { get; private set; } = ShadowSettings.DefaultContactLength;
     internal OcclusionSettings Occlusion { get; private set; } = new();
+    internal BounceSettings Bounce { get; private set; } = new();
     internal OutlineSettings OutlineSettings { get; private set; } = new();
     internal ProbeVolumeSettings? LightProbeVolume { get; private set; }
     internal BakedSpace? BakedSpace { get; private set; }
@@ -753,6 +754,27 @@ public sealed class View
     }
 
     /// <summary>
+    /// Sets the light bounced from the surfaces on screen, which lets a sunlit floor tint the wall beside it and a
+    /// glowing sign light the bricks round it. <paramref name="strength"/>, from 0 to 2, scales it, where 1 is the
+    /// true amount and 0 turns it off for this view; <paramref name="radius"/>, from more than 0 up to 8, is how far,
+    /// in metres, a point looks for surfaces that light it. Without a call it is 1 and 2 metres.
+    /// </summary>
+    public void ScreenBounce(float strength = BounceSettings.DefaultStrength, float radius = BounceSettings.DefaultRadius)
+    {
+        if (!(strength is >= 0f and <= BounceSettings.MostStrength))
+        {
+            throw new ArgumentOutOfRangeException(nameof(strength), strength, "The screen bounce strength must be from 0 to 2.");
+        }
+
+        if (!(radius is > 0f and <= BounceSettings.MostRadius))
+        {
+            throw new ArgumentOutOfRangeException(nameof(radius), radius, "The screen bounce radius must be more than 0 and at most 8 metres.");
+        }
+
+        Bounce = new BounceSettings(strength, radius);
+    }
+
+    /// <summary>
     /// Sets the ink lines drawn round surfaces with <see cref="Surface.Outline"/>: their linear colour, black when null,
     /// how many pixels of the picture wide they are, from 0 for none to <see cref="OutlineSettings.MostThickness"/>, and
     /// the distances in metres over which they fade out. Without a call they're black, 1.5 pixels wide and fade from
@@ -1137,6 +1159,7 @@ public sealed class View
         SunSize = DefaultSunSize;
         ShadowContact = ShadowSettings.DefaultContactLength;
         Occlusion = new OcclusionSettings();
+        Bounce = new BounceSettings();
         OutlineSettings = new OutlineSettings();
         LightProbeVolume = null;
         BakedSpace = null;

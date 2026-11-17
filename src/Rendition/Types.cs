@@ -975,6 +975,23 @@ public readonly record struct OcclusionSettings(float Radius = OcclusionSettings
 }
 
 /// <summary>
+/// Light bounced from the surfaces on screen near a point. <see cref="Strength"/>, from 0 to 2, scales it, and 1 is
+/// the true amount; <see cref="Radius"/> is how far, in metres, a point looks for surfaces that light it.
+/// </summary>
+public readonly record struct BounceSettings(float Strength = BounceSettings.DefaultStrength, float Radius = BounceSettings.DefaultRadius)
+{
+    public const float DefaultStrength = 1f;
+    public const float DefaultRadius = 2f;
+    public const float MostStrength = 2f;
+    public const float MostRadius = 8f;
+
+    /// <summary>The defaults: the true amount, from surfaces up to two metres away.</summary>
+    public BounceSettings() : this(DefaultStrength, DefaultRadius)
+    {
+    }
+}
+
+/// <summary>
 /// The ink lines drawn round materials with <see cref="MaterialFlags.Outline"/>: their linear colour, how many pixels of
 /// the picture wide they are, and the distances in metres over which they fade out, so far-off things don't turn into
 /// smudges of ink.
@@ -1130,6 +1147,9 @@ public ref struct FrameView
 
     /// <summary>How nearby surfaces darken the soft light. See docs/rendering.md.</summary>
     public OcclusionSettings Occlusion = new();
+
+    /// <summary>Light bounced from the surfaces on screen. See docs/rendering.md.</summary>
+    public BounceSettings Bounce = new();
 
     /// <summary>The ink lines round materials with <see cref="MaterialFlags.Outline"/>. A thickness of 0 draws none.</summary>
     public OutlineSettings Outlines = new();
@@ -1443,10 +1463,18 @@ public enum RenderEffects : long
     /// </summary>
     FogVolumes = 1L << 37,
 
+    /// <summary>
+    /// Light bounced from what's on screen, from <see cref="FrameView.Bounce"/>: a sunlit floor tints the wall beside
+    /// it and a glowing sign lights the bricks round it. Without it the soft light comes from the light probes and the
+    /// sky alone. It's found with the ambient occlusion, so it needs <see cref="AmbientOcclusion"/>.
+    /// </summary>
+    ScreenBounce = 1L << 38,
+
     All =SunShadows | LightShadows | AmbientOcclusion | Reflections | AntiAliasing | Bloom | Materials | ContactShadows | LightProbes
         | MultiscatterSpecular | WearAndDirt | Fog | AutoExposure | DepthOfField | Decals | VolumetricFog | Puddles | Wind
         | BakedLighting | HeightMaps | Specular | EnvironmentLight | Emissive | Vignette | Grain | Sharpening | ColorGrading
-        | Culling | SimplerModels | DepthFirst | Subsurface | Particles | LocalLights | Haze | Underwater | Fades | FogVolumes,
+        | Culling | SimplerModels | DepthFirst | Subsurface | Particles | LocalLights | Haze | Underwater | Fades | FogVolumes
+        | ScreenBounce,
 }
 
 /// <summary>

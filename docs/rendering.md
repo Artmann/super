@@ -75,7 +75,8 @@ next frame follows, so it can back an options menu.
 | `ContactShadows` | No thin dark line where things meet the ground in sunlight, only what the shadow maps show. `view.Shadows`' `contact` only changes [how far they look](#shadows) |
 | `LightShadows` | Point and spot lights shine through walls |
 | `LocalLights` | Point and spot lights give no light: none is clustered, shadowed or lit onto the [light probes](#bounced-light), so the sun and the sky light the scene alone. Light a bake already holds stays, and no bake is redone. `BakedLighting` drops it too |
-| `AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. A material's [occlusion map](#occlusion-maps) still darkens its own cracks. `view.AmbientOcclusion` only changes [how far and how dark](#ambient-occlusion) |
+| `AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. A material's [occlusion map](#occlusion-maps) still darkens its own cracks. `view.AmbientOcclusion` only changes [how far and how dark](#ambient-occlusion). The [screen bounce](#light-bounced-across-the-screen) goes with it |
+| `ScreenBounce` | Surfaces on screen no longer [light their neighbours](#light-bounced-across-the-screen): the floor under a red ball stays its own colour, and a glowing panel lights nothing round it unless the light probes see it. The light probes still bounce light. It saves about 0.6 ms of GPU time a frame at 1920 by 1080 on an RTX 4060 Ti. `view.ScreenBounce` only changes how far and how much. `GraphicsQuality.Low` and `Graphics.Fastest()` turn it off |
 | `MultiscatterSpecular` | Rough surfaces lose the light that bounces between their tiny facets, so rough metals such as worn iron come out darker than they should, by up to half at full roughness. It costs almost nothing, so leave it on unless you're comparing |
 | `LightProbes` | No [bounced light](#bounced-light): shade takes its soft light from the sky alone, even inside a `view.LightProbes` box. No probes are drawn, and their memory, about 170 MB at `ProbeQuality.High`, is freed until it is switched back on, when every probe starts again. `Graphics.Fastest()` turns it off |
 | `ProbeQuality` | How many [light probes](#bounced-light) follow the camera and how many are redrawn a frame. `High`, the default and the best look, keeps 32 × 16 × 32 probes in each of the four boxes and redraws 32 a frame, for about 170 MB. `Medium` keeps 24 × 12 × 24 and redraws 16, for about 73 MB. `Low` keeps 16 × 8 × 16 and redraws 8, for about 43 MB, so the boxes reach half as far, the bounce fills in more slowly at the start and is slower to follow lights that move. Anything else is refused. A change starts every probe again on the next frame, which waits for the GPU once. `Graphics.Fastest()` sets `Low`, so turning the probes back on stays cheap |
@@ -145,7 +146,7 @@ itself, or offers it in an options menu.
 
 | Quality | What changes from `High` |
 |---|---|
-| `Low` | Render scale 0.75, 1024 shadow maps, 2 cascades, `MeshDetail` 0.5, `ProbeQuality.Low` and a 1 ms bake budget. Off: contact shadows, light shadows, light probes, ambient occlusion, reflections, auto exposure, depth of field, decals, volumetric fog and height maps. Puddles and wind stay on, as they cost next to nothing |
+| `Low` | Render scale 0.75, 1024 shadow maps, 2 cascades, `MeshDetail` 0.5, `ProbeQuality.Low` and a 1 ms bake budget. Off: contact shadows, light shadows, light probes, ambient occlusion, the screen bounce, reflections, auto exposure, depth of field, decals, volumetric fog and height maps. Puddles and wind stay on, as they cost next to nothing |
 | `Medium` | Render scale 0.85, 3 cascades, `MeshDetail` 0.75, `ProbeQuality.Medium` and a 2 ms bake budget. Off: depth of field and volumetric fog |
 | `Ultra` | 4096 shadow maps, `MeshDetail` 1.5, `ReflectionResolution.Full`, `OcclusionResolution.Full` and 128 volumetric fog slices |
 
@@ -473,6 +474,40 @@ A point in a corner also sees the sky only through the opening, so the soft ligh
 comes from that way rather than straight off the surface. Reflections of the sky fade in
 the same corners, most on rough surfaces, so a gap behind a barrel doesn't shine.
 It only knows what the camera sees, plus what stands over a point in the sun's shadow map.
+
+## Light bounced across the screen
+
+```csharp
+view.ScreenBounce(strength: 1.5f, radius: 3f);
+```
+
+Light that lands on a surface the camera sees also lights the surfaces next to it: a red
+ball tints the floor under it red, a sunlit floor lights the underside of a table, and a
+glowing panel or a candle lights the wall beside it. The same pass as the
+[ambient occlusion](#ambient-occlusion) finds the surfaces round each point and takes the
+light they had in the last frame, so it follows lights, glows and moving things at once,
+with nothing to bake. `radius` is how far, in metres, a point looks for surfaces that
+light it, more than 0 and at most 8. `strength`, from 0 to 2, scales the light they give:
+1, the default, is what they really pass on, and 0 turns it off. The default radius of 2
+suits rooms and furniture. A wider one carries light across a hall, but finds fewer of the
+small surfaces near a point.
+
+It adds to the [light probes](#bounced-light), which carry light round corners and from
+off screen, while this finds the close, coloured light the probes are too coarse for.
+It only knows what the camera sees, so a wall that turns out of view stops lighting its
+neighbours. Surfaces whose light is [baked](#baked-lighting) keep the bounce the bake
+gave them, toon surfaces keep their flat shading, and with `AmbientOcclusion` off there
+is no screen bounce either, since the two are found together.
+
+The light probes already give most of the bounce, so the difference is gentle. In the
+Shapes example the floor lights the shapes' lower sides, and the ground round each shape
+takes a little of its colour:
+
+![The Shapes example with the screen bounce off, and on](media/screen-bounce-shapes.webp)
+
+In the Crypt, the lit floor and the candles brighten the front of the chest:
+
+![The Crypt's chest and candles with the screen bounce off, and on](media/screen-bounce-crypt.webp)
 
 ## Bounced light
 

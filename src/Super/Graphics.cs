@@ -179,6 +179,14 @@ public sealed class Graphics
     public bool AmbientOcclusion { get; set; } = true;
 
     /// <summary>
+    /// Light bounced from the surfaces on screen near each point, so a sunlit floor tints the wall beside it and a
+    /// glowing sign lights the bricks round it. Off, the soft light comes from the light probes and the sky alone. It
+    /// is found with the ambient occlusion, so it needs <see cref="AmbientOcclusion"/>. <c>View.ScreenBounce</c> sets
+    /// its strength and reach.
+    /// </summary>
+    public bool ScreenBounce { get; set; } = true;
+
+    /// <summary>
     /// Rough surfaces keeping the light that bounces between their tiny facets before it leaves. Off,
     /// rough metals such as worn iron and brushed steel come out darker than they should. It costs
     /// almost nothing.
@@ -481,6 +489,7 @@ public sealed class Graphics
         LightProbes = false,
         ProbeQuality = ProbeQuality.Low,
         AmbientOcclusion = false,
+        ScreenBounce = false,
         Reflections = false,
         AutoExposure = false,
         DepthOfField = false,
@@ -546,6 +555,7 @@ public sealed class Graphics
         LightShadows = profile.LightShadows;
         LocalLights = profile.LocalLights;
         AmbientOcclusion = profile.AmbientOcclusion;
+        ScreenBounce = profile.ScreenBounce;
         MultiscatterSpecular = profile.MultiscatterSpecular;
         Reflections = profile.Reflections;
         AntiAliasing = profile.AntiAliasing;
@@ -622,6 +632,7 @@ public sealed class Graphics
         ProbeQuality = ProbeQuality.Low,
         LightShadows = false,
         AmbientOcclusion = false,
+        ScreenBounce = false,
         MultiscatterSpecular = false,
         Reflections = false,
         AntiAliasing = false,
@@ -668,6 +679,7 @@ public sealed class Graphics
         (graphics => graphics.LightProbes, RenderEffects.LightProbes),
         (graphics => graphics.LightShadows, RenderEffects.LightShadows),
         (graphics => graphics.AmbientOcclusion, RenderEffects.AmbientOcclusion),
+        (graphics => graphics.ScreenBounce, RenderEffects.ScreenBounce),
         (graphics => graphics.MultiscatterSpecular, RenderEffects.MultiscatterSpecular),
         (graphics => graphics.Reflections, RenderEffects.Reflections),
         (graphics => graphics.AntiAliasing, RenderEffects.AntiAliasing),

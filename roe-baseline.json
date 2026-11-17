@@ -227,7 +227,7 @@
       "kind": "high-complexity",
       "name": "Rendition.Renderer.RecordFrame",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 15
+      "metric": 16
     },
     {
       "kind": "high-complexity",
@@ -269,7 +269,7 @@
       "kind": "high-complexity",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 39
+      "metric": 40
     },
     {
       "kind": "high-complexity",
@@ -917,7 +917,7 @@
       "kind": "high-cognitive-complexity",
       "name": "Rendition.Renderer.RecordFrame",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 17
+      "metric": 18
     },
     {
       "kind": "high-cognitive-complexity",
@@ -953,7 +953,7 @@
       "kind": "high-cognitive-complexity",
       "name": "Rendition.Renderer.WriteUniforms",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 43
+      "metric": 44
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1901,7 +1901,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.RecordFrame",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 106
+      "metric": 107
     },
     {
       "kind": "long-method",
@@ -1919,7 +1919,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 157
+      "metric": 158
     },
     {
       "kind": "long-method",
@@ -1955,7 +1955,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteTargetDescriptors",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 95
+      "metric": 98
     },
     {
       "kind": "long-method",
@@ -2699,7 +2699,7 @@
       "kind": "long-method",
       "name": "Super.SceneRenderer.CreateFrame",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 57
+      "metric": 58
     },
     {
       "kind": "long-method",
@@ -3437,13 +3437,13 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 5857
+      "metric": 5871
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
-      "metric": 1785
+      "metric": 1813
     },
     {
       "kind": "large-file",
@@ -3479,13 +3479,13 @@
       "kind": "large-file",
       "name": "src/Super/Rendering/SceneRenderer.cs",
       "file": "src/Super/Rendering/SceneRenderer.cs",
-      "metric": 1222
+      "metric": 1223
     },
     {
       "kind": "large-file",
       "name": "src/Super/View.cs",
       "file": "src/Super/View.cs",
-      "metric": 1155
+      "metric": 1178
     },
     {
       "kind": "large-type",
@@ -3557,7 +3557,7 @@
       "kind": "large-type",
       "name": "Rendition.FrameView",
       "file": "src/Rendition/Types.cs",
-      "metric": 36
+      "metric": 37
     },
     {
       "kind": "large-type",
@@ -3599,7 +3599,7 @@
       "kind": "large-type",
       "name": "Rendition.Passes.GBuffer",
       "file": "src/Rendition/Passes/GBuffer.cs",
-      "metric": 33
+      "metric": 36
     },
     {
       "kind": "large-type",
@@ -3827,7 +3827,7 @@
       "kind": "large-type",
       "name": "Super.Graphics",
       "file": "src/Super/Graphics.cs",
-      "metric": 64
+      "metric": 65
     },
     {
       "kind": "large-type",
@@ -3953,7 +3953,7 @@
       "kind": "large-type",
       "name": "Super.View",
       "file": "src/Super/View.cs",
-      "metric": 78
+      "metric": 80
     },
     {
       "kind": "large-type",
@@ -4028,6 +4028,7 @@
         "Rendition.Passes.GpuLightArray",
         "Rendition.Passes.GpuReflectionProbeArray",
         "Rendition.Passes.Motion",
+        "Rendition.Passes.Occlusion",
         "Rendition.Passes.OverlayPass",
         "Rendition.Passes.ParticlePass",
         "Rendition.Passes.PostGrade",

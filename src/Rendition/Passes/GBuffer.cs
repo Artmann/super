@@ -12,6 +12,7 @@ internal sealed class GBuffer : IDisposable
     public const Format DepthFormat = Format.D32Sfloat;
     public const Format HdrFormat = Format.R16G16B16A16Sfloat;
     public const Format AoFormat = Format.R8G8B8A8Unorm;
+    public const Format BounceFormat = Format.B10G11R11UfloatPack32;
     public const Format LdrFormat = Format.R8G8B8A8Srgb;
     public const Format MotionFormat = Format.R16G16Sfloat;
     public const Format BakedFormat = Format.R16G16B16A16Sfloat;
@@ -72,6 +73,15 @@ internal sealed class GBuffer : IDisposable
     public readonly RenderTarget Ao;
     public readonly RenderTarget AoAcross;
     public readonly RenderTarget AoBlurred;
+
+    /// <summary>
+    /// The light bounced from the surfaces on screen, found with the ambient occlusion and blurred with it: rgb is the
+    /// average light arriving from them, weighed by the cosine to the normal, in the lit picture's units. At
+    /// <see cref="AoExtent"/>.
+    /// </summary>
+    public readonly RenderTarget Bounce;
+    public readonly RenderTarget BounceAcross;
+    public readonly RenderTarget BounceBlurred;
 
     /// <summary>The size of the occlusion targets: the scene's, or half of it each way, rounded up.</summary>
     public readonly Extent2D AoExtent;
@@ -142,6 +152,9 @@ internal sealed class GBuffer : IDisposable
         Ao = new RenderTarget(context, AoFormat, AoExtent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         AoAcross = new RenderTarget(context, AoFormat, AoExtent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         AoBlurred = new RenderTarget(context, AoFormat, AoExtent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
+        Bounce = new RenderTarget(context, BounceFormat, AoExtent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
+        BounceAcross = new RenderTarget(context, BounceFormat, AoExtent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
+        BounceBlurred = new RenderTarget(context, BounceFormat, AoExtent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         Traced = new RenderTarget(context, HdrFormat, TracedExtent, ImageUsageFlags.ColorAttachmentBit, ImageAspectFlags.ColorBit);
         Ldr = new RenderTarget(context, LdrFormat, Display, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, ImageAspectFlags.ColorBit);
         Held = new RenderTarget(context, LdrFormat, Display, ImageUsageFlags.TransferDstBit, ImageAspectFlags.ColorBit);
@@ -179,6 +192,9 @@ internal sealed class GBuffer : IDisposable
         Ao.Dispose();
         AoAcross.Dispose();
         AoBlurred.Dispose();
+        Bounce.Dispose();
+        BounceAcross.Dispose();
+        BounceBlurred.Dispose();
         Ldr.Dispose();
         Held.Dispose();
         SceneColor.Dispose();
