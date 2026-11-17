@@ -232,7 +232,8 @@ public sealed class Skeleton
 /// </summary>
 public sealed class AnimationClip
 {
-    public AnimationClip(string name, float frameRate, int jointCount, JointPose[] frames)
+    /// <param name="events">Moments and windows in the clip, such as a footstep or a hitbox, that an animator reports as it plays past them.</param>
+    public AnimationClip(string name, float frameRate, int jointCount, JointPose[] frames, IReadOnlyList<ClipEvent>? events = null)
     {
         if (!(frameRate > 0f))
         {
@@ -248,9 +249,22 @@ public sealed class AnimationClip
         FrameRate = frameRate;
         JointCount = jointCount;
         Frames = frames;
+        Events = events ?? [];
+        foreach (var clipEvent in Events)
+        {
+            if (!(clipEvent.From >= 0f) || !(clipEvent.To <= Duration) || !(clipEvent.From <= clipEvent.To))
+            {
+                throw new ArgumentException(
+                    $"Event {clipEvent.Name} in clip {name} runs from {clipEvent.From} to {clipEvent.To} seconds, but the clip lasts {Duration}.",
+                    nameof(events));
+            }
+        }
     }
 
     public string Name { get; }
+
+    /// <summary>Moments and windows in the clip, as they were cooked or made.</summary>
+    public IReadOnlyList<ClipEvent> Events { get; }
 
     public float FrameRate { get; }
 
@@ -288,6 +302,62 @@ public sealed class AnimationClip
             pose[i] = JointPose.Lerp(in a[i], in b[i], amount);
         }
     }
+
+    /// <summary>Writes the clip as a cooked model holds it: its name, rate, frames and events, with an empty joint for none.</summary>
+    internal void Write(BinaryWriter writer)
+    {
+        writer.Write(Name);
+        writer.Write(FrameRate);
+        writer.Write(JointCount);
+        writer.Write(Frames.Length);
+        writer.Write(MemoryMarshal.AsBytes(Frames.AsSpan()));
+        writer.Write(Events.Count);
+        foreach (var clipEvent in Events)
+        {
+            writer.Write(clipEvent.Name);
+            writer.Write(clipEvent.From);
+            writer.Write(clipEvent.To);
+            writer.Write(clipEvent.Joint ?? "");
+        }
+    }
+
+    /// <summary>Reads a clip <see cref="Write"/> wrote.</summary>
+    internal static AnimationClip Read(BinaryReader reader)
+    {
+        string name = reader.ReadString();
+        float frameRate = reader.ReadSingle();
+        int jointCount = reader.ReadInt32();
+        var frames = new JointPose[reader.ReadInt32()];
+        reader.BaseStream.ReadExactly(MemoryMarshal.AsBytes(frames.AsSpan()));
+        var events = new ClipEvent[reader.ReadInt32()];
+        for (int i = 0; i < events.Length; i++)
+        {
+            string eventName = reader.ReadString();
+            float from = reader.ReadSingle();
+            float to = reader.ReadSingle();
+            string joint = reader.ReadString();
+            events[i] = new ClipEvent(eventName, from, to, joint.Length > 0 ? joint : null);
+        }
+
+        return new AnimationClip(name, frameRate, jointCount, frames, events);
+    }
+}
+
+/// <summary>
+/// A named moment in a clip, such as a foot landing, or a window, such as a sword's hitbox,
+/// in seconds of the clip. A moment has <see cref="To"/> equal to <see cref="From"/>.
+/// <see cref="Joint"/> names a joint the game wants to know the place of when it happens.
+/// </summary>
+public sealed record ClipEvent(string Name, float From, float To, string? Joint = null)
+{
+    /// <summary>A moment at one time in the clip.</summary>
+    public ClipEvent(string name, float at, string? joint = null)
+        : this(name, at, at, joint)
+    {
+    }
+
+    /// <summary>Whether it's a window with a start and an end, rather than a moment.</summary>
+    public bool IsWindow => To > From;
 }
 
 /// <summary>Mixes poses joint by joint.</summary>

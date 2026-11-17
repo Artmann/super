@@ -5,8 +5,9 @@ describe its **states** (idling, walking, running, sitting) and its **actions** 
 shooting, looking), and an `Animator` blends between them. The GPU skins the model, and
 its shadow bends with it.
 
-`examples/Fox` is a working character: a walk-to-run blend driven by speed, an idle
-when it stops, and a head turn played over either. Put the Khronos
+`examples/Fox` is a working character: a walk-to-run blend driven by speed, dust kicked up
+by each paw from the clips' events, an idle when it stops, and a head turn played over
+either. Put the Khronos
 [Fox.glb](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Fox) in
 the shared assets folder as `assets/fox/fox.glb` (see [assets/README.md](../assets/README.md)),
 and the build cooks it.
@@ -108,6 +109,7 @@ var controller = new AnimationController<FoxState, FoxAction>(rig) { CrossFadeSe
 | `State(state, motion, speed)` | A base state that loops a blend, picked by `Parameter` |
 | `Action(action, clip, mask, fadeSeconds, speed)` | A one-shot clip played over the state. Without a mask it covers the whole body |
 | `CrossFadeSeconds` | How long a change of state blends, 0.2 by default |
+| `EventThreshold` | The share a fading state needs for its clip events to count, a half by default. See [Events](#events) |
 | `Start(state)` | An `Animator` for one character, in this state |
 
 Share one controller between every character of a kind, and give each its own animator.
@@ -148,6 +150,8 @@ state. With the ECS, even that goes away; see below.
 | `IsPlaying(action)` | Whether an action is still playing. It ends when its clip does |
 | `Crossed(action, seconds)` | True on the one tick an action passed that moment of its clip |
 | `TimeOf(action)` | How far into its clip an action is, in seconds, as of the last tick, or null when it isn't playing |
+| `Events` | The clip events the last tick passed, in order. See [Events](#events) |
+| `IsActive(name)` | Whether a window event with that name is open now |
 | `Speed` | How fast everything plays, 1 by default. 0 holds the character still, such as while the game is paused |
 | `Pose` | What to draw, for `view.Model(key, model, transform, pose)` when you pick the model yourself |
 
@@ -171,7 +175,9 @@ if (_animator.Crossed(SoldierAction.Shoot, 0.25f))
 ```
 
 `Crossed(action, 0)` is true on the tick the action starts, right after `Play`. Later
-moments come true in a later `Update`, once the engine has moved the clip past them.
+moments come true in a later `Update`, once the engine has moved the clip past them. For moments
+that belong to the clip wherever it plays, such as footsteps in a walk, mark them as
+[events](#events) instead.
 
 **Who runs it.** Every animator started from a rig that came from `content.Rig` is run
 by the game loop, until nothing in the game holds it any more. Drop a character, or
@@ -185,6 +191,85 @@ ticks when drawn, so animation is as smooth as the frame rate.
 **Slow motion.** Animators from content move by `GameTime.DeltaSeconds`, so they slow
 down with [`GameTime.Scale`](getting-started.md#a-first-game), as in a
 [cutscene](cutscenes.md#slow-motion).
+
+## Events
+
+An event marks a moment in a clip, such as a paw landing or a sword connecting, or a
+window, such as the half second a hitbox is live. The animator reports the events it passed
+on each tick, from whatever clip passed them: the state's, a blended state's, or an action's.
+That's how a game learns when an attack hits without timing it by hand.
+
+Mark them in the model's sidecar, next to the clips. A `time` is a moment and a `from` and
+`to` is a window, both in seconds into the clip. Name a `joint` to be told where it was:
+
+```json
+// fox/fox.glb.cook.json
+{
+  "events": [
+    { "clip": "Walk", "time": 0.05, "name": "step", "joint": "b_RightFoot02_022" },
+    { "clip": "Walk", "time": 0.6, "name": "step", "joint": "b_LeftFoot02_018" }
+  ]
+}
+```
+
+```json
+// characters/hero.fbx.cook.json
+{ "clip": "Slash", "from": 0.3, "to": 0.45, "name": "hit", "joint": "RightHand" }
+```
+
+The cook fails on an event that names a clip or joint the model doesn't have, that runs
+past its clip, or that gives both a `time` and a window. Or mark them from code, before the
+animators that play them start ticking:
+
+```csharp
+var rig = content.Rig("characters/hero.fbx");
+rig.Event(rig.Clip("Slash"), "hit", from: 0.3f, to: 0.45f, joint: "RightHand");
+rig.Event(rig.Clip("Slash"), "whoosh", at: 0.2f);
+```
+
+Then read them in `Update`. `Events` holds what the last tick passed, in the order it
+happened, and reading it doesn't allocate:
+
+```csharp
+foreach (var e in _animator.Events)
+{
+    if (e is { Name: "step", Kind: AnimationEventKind.Moment, Joint: { } paw })
+    {
+        KickUpDust((paw * foxTransform).Translation);
+    }
+}
+
+if (_animator.IsActive("hit"))
+{
+    DamageWhatTheSwordTouches();
+}
+```
+
+Each event has its `Name`, its `Kind` (a `Moment`, or the `Begin` or `End` of a window), the
+`Clip` it came from, the `Weight` that clip had, from 0 to 1, and `Joint`, where the named
+joint was at the end of the tick in the model's space, or null when the event names none.
+Multiply it by the character's transform to put it in the world, as the Fox does to put dust
+under each paw. `IsActive(name)` says whether a window with that name is open now, which
+suits damage that lasts as long as the swing.
+
+A looping clip reports its events every time round, and a long tick, such as after a hitch,
+reports every event it skipped, in order. A window begins and ends once each, even if a
+tick passes all of it, and an action stopped or restarted mid-window ends it, so every
+`Begin` gets its `End`.
+
+A blended state reports the events of its heavier clip only, so a walk mixed with a run
+doesn't land twice as many feet. A clip fading in or out of a change of state reports while
+its share is at or above the controller's `EventThreshold`, a half by default, so the
+outgoing walk and the incoming run don't both step during a cross-fade. Set it to 0 to hear
+from every clip with any weight. Actions report in full while they play, however far they
+have faded.
+
+Events come from the tick after `Update`, like `Crossed`, so an `Update` sees the events of
+the tick before it. An action's event at time 0 shows up in the `Update` after `Play`.
+
+The Fox kicks up a puff of dust from each landing paw, from the `step` events in its sidecar.
+
+![The Fox trotting, before and after step events: on the right, dust settles where each paw landed](media/fox-step-dust.webp)
 
 ## Root motion
 
@@ -322,3 +407,5 @@ a tint, or to draw a different model with the same rig.
   [Drawing with views](views.md#planned). A sword that is a mesh in the character's own
   file already follows its hand, and a [mesh mask](views.md#showing-some-meshes) picks
   which of several to show.
+- Events don't sync clips. Blends keep their clips in step by phase, not by markers such
+  as a left foot down, and events don't play sounds by themselves.

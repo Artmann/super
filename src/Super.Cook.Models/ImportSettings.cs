@@ -58,6 +58,30 @@ public class ImportSettings
     /// matched to the model's joints by name.
     /// </summary>
     public List<AnimationSource> Animations { get; set; } = [];
+
+    /// <summary>Moments and windows in the clips, such as footsteps and hitboxes, that animators report as they play past them.</summary>
+    public List<AnimationEventSource> Events { get; set; } = [];
+}
+
+/// <summary>
+/// A moment in a clip, with <see cref="Time"/>, or a window, with <see cref="From"/> and <see cref="To"/>, in
+/// seconds of the clip.
+/// </summary>
+public sealed class AnimationEventSource
+{
+    /// <summary>The clip's name, as the file or <see cref="AnimationSource.Name"/> gives it.</summary>
+    public string Clip { get; set; } = "";
+
+    public string Name { get; set; } = "";
+
+    public float? Time { get; set; }
+
+    public float? From { get; set; }
+
+    public float? To { get; set; }
+
+    /// <summary>A joint whose place in the model the game is told when the event happens, such as the foot that lands.</summary>
+    public string? Joint { get; set; }
 }
 
 /// <summary>A file next to the model to take clips from.</summary>
