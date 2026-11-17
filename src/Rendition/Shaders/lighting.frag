@@ -35,6 +35,8 @@ layout(set = 1, binding = 14) uniform sampler2D shadowMaskTexture;
 // What reflections.frag traced on screen, at the screen's size or half of it. rgb is the colour a ray found and a how
 // far to trust it, or -1 where the surface isn't one that is traced.
 layout(set = 1, binding = 15) uniform sampler2D tracedTexture;
+// The light ao.frag found nearby surfaces bounce onto a point, at the occlusion's size. Black when the bounce is off.
+layout(set = 1, binding = 16) uniform sampler2D bounceTexture;
 
 // How much of the screen's occlusion a lightmapped pixel's soft light still takes. The bake already saw the creases it
 // could resolve, so taking all of it would darken them twice; the screen still adds the contact it is too coarse for.
@@ -507,12 +509,14 @@ const float OCCLUSION_DEPTH_FALLOFF = 40.0;
 // The ambient occlusion for a pixel: xyz the bent normal in view space and w how much of the sky the point sees. At
 // full resolution it is the pixel's own. At half resolution only one pixel of each block of four was worked out this
 // frame, so the pixel blends the four round it, each weighed by how near it is and how close its depth is, which
-// keeps one object's occlusion from spilling over its edge onto what lies behind.
-vec4 screenOcclusionAt(ivec2 pixel, float depth) {
+// keeps one object's occlusion from spilling over its edge onto what lies behind. The bounce found with it is read the
+// same way.
+vec4 screenOcclusionAt(ivec2 pixel, float depth, out vec3 bounce) {
     ivec2 size = textureSize(depthTexture, 0);
     ivec2 cells = textureSize(ambientOcclusionTexture, 0);
     if (cells == size) {
         vec4 own = texelFetch(ambientOcclusionTexture, pixel, 0);
+        bounce = texelFetch(bounceTexture, pixel, 0).rgb;
         return vec4(octahedralDecode(own.xy * 2.0 - 1.0), own.z);
     }
 
@@ -523,6 +527,7 @@ vec4 screenOcclusionAt(ivec2 pixel, float depth) {
     vec3 bent = vec3(0.0);
     float visibility = 0.0;
     float total = 0.0;
+    bounce = vec3(0.0);
     for (int i = 0; i < 4; i++) {
         ivec2 corner = ivec2(i & 1, i >> 1);
         ivec2 cell = clamp(first + corner, ivec2(0), cells - 1);
@@ -534,8 +539,10 @@ vec4 screenOcclusionAt(ivec2 pixel, float depth) {
             * (exp(-abs(fromDepth / depth - 1.0) * OCCLUSION_DEPTH_FALLOFF) + 1e-4);
         bent += octahedralDecode(tap.xy * 2.0 - 1.0) * weight;
         visibility += tap.z * weight;
+        bounce += texelFetch(bounceTexture, cell, 0).rgb * weight;
         total += weight;
     }
+    bounce /= total;
 
     // Directions that cancel leave no bent normal. A zero one tells the caller to keep the surface's own.
     return vec4(dot(bent, bent) > 1e-12 ? normalize(bent) : vec3(0.0), visibility / total);
@@ -586,7 +593,8 @@ void main() {
     float roughness = clamp(normalRoughnessAo.z, 0.045, 1.0);
     // Left out, the occlusion pass never ran, so its target holds nothing to read.
     bool occlusionOff = isOff(OFF_AMBIENT_OCCLUSION);
-    vec4 screenOcclusion = occlusionOff ? vec4(0.0, 0.0, 0.0, 1.0) : screenOcclusionAt(ivec2(gl_FragCoord.xy), depth);
+    vec3 bounce = vec3(0.0);
+    vec4 screenOcclusion = occlusionOff ? vec4(0.0, 0.0, 0.0, 1.0) : screenOcclusionAt(ivec2(gl_FragCoord.xy), depth, bounce);
     float screenAo = screenOcclusion.w;
     // Puddle water lies open under the sky. The occlusion pass only saw the hollow beneath it.
     bool water = normalRoughnessAo.w > 0.5 * (1.0 + WATER_SIDE);
@@ -713,6 +721,11 @@ void main() {
 
     vec3 diffuseColor = baseColor * (1.0 - metallic) * multiBounceOcclusion(diffuseAo, baseColor);
     vec3 environmentDiffuse = softDiffuse * diffuseColor;
+    // Light bounced off nearby surfaces on screen, which the occlusion took away from the soft light. A lightmap baked
+    // its own bounce, and a toon surface keeps its flat soft light, so neither takes it. Puddle water lies open.
+    if (!toon && !water && frame.occlusion.z > 0.0) {
+        environmentDiffuse += bounce * baseColor * (1.0 - metallic) * (1.0 - bakedWeight);
+    }
     if (translucency > 0.0) {
         environmentDiffuse += softLight(position, -n, v) * diffuseColor * translucency * transmissionTint;
     }

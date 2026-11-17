@@ -59,6 +59,7 @@ public class GraphicsProfileTests
         Haze = false,
         Underwater = false,
         FogVolumes = false,
+        ScreenBounce = false,
         BakedLighting = false,
         BakeOnArrival = false,
         BakeBudget = 3f,

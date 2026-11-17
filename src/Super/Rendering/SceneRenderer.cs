@@ -1164,6 +1164,7 @@ internal sealed class SceneRenderer : IDisposable
             Bones = _bones.AsSpan(0, _boneCount),
             Shadows = FrameShadows(view, aspect),
             Occlusion = view.Occlusion,
+            Bounce = view.Bounce,
             Outlines = view.OutlineSettings,
             LightProbes = view.LightProbeVolume,
             BakedSpace = view.BakedSpace,

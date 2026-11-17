@@ -1004,8 +1004,9 @@ volumetric_integrate.comp compute -> the same summed front to back along each co
 GBufferPass   scene geometry   -> albedo+metallic, normal+roughness+AO, emissive+clearcoat, motion, baked light, shadow mask, depth
 DecalPass     decal boxes      -> colour, normal and roughness laid over the G-buffer, reading a copy of its normals
 GBufferPass   no-decal draws   -> the same targets, loaded: skinned draws and NoDecals materials, only when decals and they are both in the frame
-AoPass        fullscreen       -> GTAO from depth and normals: bent normal (view space, octahedral) and visibility, RGBA8
-AoBlurPass    fullscreen x 2   -> the same with the grain averaged away, across and then down
+AoPass        fullscreen       -> GTAO from depth and normals: bent normal (view space, octahedral) and visibility, RGBA8;
+                                  and the screen bounce from last frame's history, B10G11R11
+AoBlurPass    fullscreen x 2   -> both with the grain averaged away, across and then down
 LightingPass  fullscreen       -> HDR colour (Cook-Torrance GGX PBR, traced reflections, probes), subsurface diffuse apart
 SssBlurPass   fullscreen x 2   -> subsurface diffuse spread across, then down and added to HDR colour
 TransparentPass  glass and particles -> blended over HDR colour together, back to front;
@@ -3372,6 +3373,52 @@ multi-bounce fit from their GTAO paper (2016). It uses the surface's base colour
 white crease darkens less and a red one takes on a red tint, while a dark crease keeps
 the plain result. It applies to environment light only; the direct lights that use
 occlusion in place of a shadow map keep the plain value.
+
+The fit only guesses at the walls' light from the point's own colour. The screen bounce
+reads it. It is screen-space indirect lighting with visibility bitmasks (Therrien et al.,
+"Screen Space Indirect Lighting with Visibility Bitmask", 2023), found by `gatherBounce`
+in `ao.frag` from the same slices as the occlusion. Each slice's half circle above the
+point is cut into 32 sectors of a `uint`, spaced by `sin(angle) * 0.5 + 0.5` so each holds
+the same share of the cosine. A surface the walk finds covers the sectors from its front
+to a back guessed 0.4 m behind it (`BOUNCE_THICKNESS`), since the depth buffer holds only
+fronts. The sectors it covers that nothing nearer covered already are the ones it lights
+the point through: its light is the history texel it reprojects to with
+`previousViewProjection`, clamped to 16 so one glint can't flash, times the share of
+sectors, times how much it faces the point. The walk goes near to far, so a near surface
+hides the one behind it, which the horizon search can't tell. Slices are weighted by
+their projected length as the occlusion's are.
+
+The occlusion's 8 steps cover its own radius; when the bounce's radius looks wider on
+screen, 4 more steps go on from one to the other, and they only gather light. Surfaces
+fade out over the last 40% of the bounce's radius. The pass writes the light, already
+times the strength, to a second target, `GBuffer.Bounce`, B10G11R11 at `AoExtent`. The
+blur takes it through the same two steps with the same depth weights, into
+`BounceAcross` and `BounceBlurred`, and `screenOcclusionAt` blends it with the
+occlusion's weights. Lighting adds `bounce * baseColor * (1 - metallic)` to the soft
+light, scaled down by the bake weight, since a lightmap holds its own bounce, and not on
+toon or water pixels.
+
+`frame.occlusion` packs the occlusion's radius and strength in x and y and the bounce's
+strength and radius in z and w. `Occlusion.Pack` sets z to 0 when `ScreenBounce` or
+`AmbientOcclusion` is off, when there is no last frame to read and when a probe is being
+photographed, and both shaders skip the bounce on 0. The frame flags had no bit left, so
+the switch travels this way. History is the lit picture: the anti-aliased frame when
+anti-aliasing is on, otherwise a copy of the HDR target, which is kept while reflections
+or the bounce want it. The bounce reads the frame before glass and particles were
+blended, except where anti-aliasing has blended them in, and it reads specular light as
+if it were diffuse, which can carry a bright reflection onto a neighbour.
+
+Its limits are those of the screen. A surface off screen or behind another gives
+nothing, so the bounce changes at the screen's edges and behind a thin pole that moves
+across. The thickness is a guess: a thin pole is taken as 0.4 m deep and hides more
+than it should. Light travels one hop a frame, so two facing walls build up the bounce
+between them over a few frames rather than at once, and nothing stops it growing
+past what one bounce would give, apart from the walls' colour, which is below 1.
+At 1920 by 1080 on an RTX 4060 Ti, with `OcclusionResolution.Half`, the bounce took the
+occlusion pass in the Courtyard from 0.60 to 1.05 ms and the lighting from 2.38 to
+2.54 ms, and the occlusion pass in the Shapes example from 0.72 to 1.22 ms. The blur
+stayed at 0.04 ms. The extra reads of the history and the sample normals, and the four
+steps past the occlusion's radius, are most of it.
 
 Bloom has no brightness threshold. Every pixel gives away a small share of its
 light, so only really bright things show a visible glow. That's physically closer
