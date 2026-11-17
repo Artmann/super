@@ -160,8 +160,10 @@ jobs:
           dotnet roe dupes | Select-Object -Last 1
           exit 0
 
+      # The whole step takes about 2 minutes, and the slowest test about 12 seconds. A test that hangs, as one in
+      # Super.Physics.Tests once did on the Mac for 17 minutes, is stopped after 5, and the run fails naming it.
       - name: Test
-        run: dotnet test Super.slnx -c Release --no-build --filter "Needs!=GPU&Needs!=Assets" --logger trx --results-directory TestResults
+        run: dotnet test Super.slnx -c Release --no-build --filter "Needs!=GPU&Needs!=Assets" --blame-hang-timeout 5m --blame-hang-dump-type none --logger trx --results-directory TestResults
 
       # Packs Super as a release does, then builds a small game against the package and runs its tests, so a
       # change that breaks the package fails here and not at the next release. On a Mac too, which checks that the
