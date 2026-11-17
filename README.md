@@ -35,6 +35,32 @@ class Spinner : IGame
 }
 ```
 
+## Get it started
+
+Open your coding agent in an empty folder, or in an existing C# project, and paste this:
+
+```text
+Set up this folder as a game built on Super, the C# game engine at
+https://github.com/Artmann/super. Read its README, docs/getting-started.md,
+docs/agents.md and docs/testing.md first, and follow them over anything you
+remember.
+
+1. If there's no project yet, create a solution with a console project for the
+   game and add a .gitignore (`dotnet new gitignore`). If there is one, use it.
+2. Add the Super NuGet package to the game project.
+3. Write a small first game in Program.cs: an IGame with a camera, a sun and a
+   spinning cube, started with Game.StartWindowsGameLoop.
+4. Add an xUnit test project that references the game, with one headless test
+   that uses HeadlessGame and [Seeds].
+5. Add AGENTS.md from "A starting AGENTS.md" in docs/agents.md, with the real
+   project names, and a CLAUDE.md that only says "@AGENTS.md".
+6. Check it all works: build, run the tests, then take a screenshot with
+   --seed 7 --ticks 60 --screenshot shots/first.png and look at it.
+
+Tell me what you set up and what the screenshot shows, then ask me what game
+I want to make.
+```
+
 ## Why Super
 
 **AI-first and friendly to agents.** Everything is code and plain text. There's no
