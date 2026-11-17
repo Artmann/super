@@ -239,7 +239,7 @@
       "kind": "high-complexity",
       "name": "Rendition.Renderer.RenderTinted",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 40
+      "metric": 41
     },
     {
       "kind": "high-complexity",
@@ -510,12 +510,6 @@
       "name": "Super.Cook.Models.RigImporter.RigImporter",
       "file": "src/Super.Cook.Models/RigImporter.cs",
       "metric": 19
-    },
-    {
-      "kind": "high-complexity",
-      "name": "Super.Cook.Models.RigImporter.Skin",
-      "file": "src/Super.Cook.Models/RigImporter.cs",
-      "metric": 11
     },
     {
       "kind": "high-complexity",
@@ -941,7 +935,7 @@
       "kind": "high-cognitive-complexity",
       "name": "Rendition.Renderer.RenderTinted",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 38
+      "metric": 39
     },
     {
       "kind": "high-cognitive-complexity",
@@ -1871,7 +1865,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.Dispose",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 91
+      "metric": 92
     },
     {
       "kind": "long-method",
@@ -1919,13 +1913,13 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.RenderTinted",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 289
+      "metric": 291
     },
     {
       "kind": "long-method",
       "name": "Rendition.Renderer.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 159
+      "metric": 163
     },
     {
       "kind": "long-method",
@@ -1961,7 +1955,7 @@
       "kind": "long-method",
       "name": "Rendition.Renderer.WriteTargetDescriptors",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 100
+      "metric": 118
     },
     {
       "kind": "long-method",
@@ -2429,7 +2423,7 @@
       "kind": "long-method",
       "name": "Super.Cook.Models.RigImporter.Skin",
       "file": "src/Super.Cook.Models/RigImporter.cs",
-      "metric": 66
+      "metric": 55
     },
     {
       "kind": "long-method",
@@ -3443,13 +3437,13 @@
       "kind": "large-file",
       "name": "src/Rendition/Renderer.cs",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 6005
+      "metric": 6085
     },
     {
       "kind": "large-file",
       "name": "src/Rendition/Types.cs",
       "file": "src/Rendition/Types.cs",
-      "metric": 1860
+      "metric": 1867
     },
     {
       "kind": "large-file",
@@ -3605,7 +3599,7 @@
       "kind": "large-type",
       "name": "Rendition.Passes.GBuffer",
       "file": "src/Rendition/Passes/GBuffer.cs",
-      "metric": 36
+      "metric": 41
     },
     {
       "kind": "large-type",
@@ -3635,7 +3629,7 @@
       "kind": "large-type",
       "name": "Rendition.Renderer",
       "file": "src/Rendition/Renderer.cs",
-      "metric": 399
+      "metric": 404
     },
     {
       "kind": "large-type",
@@ -3833,7 +3827,7 @@
       "kind": "large-type",
       "name": "Super.Graphics",
       "file": "src/Super/Graphics.cs",
-      "metric": 69
+      "metric": 70
     },
     {
       "kind": "large-type",

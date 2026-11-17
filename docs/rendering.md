@@ -77,6 +77,7 @@ next frame follows, so it can back an options menu.
 | `LocalLights` | Point and spot lights give no light: none is clustered, shadowed or lit onto the [light probes](#bounced-light), so the sun and the sky light the scene alone. Light a bake already holds stays, and no bake is redone. `BakedLighting` drops it too |
 | `AmbientOcclusion` | Corners and creases are as bright as open ground, and shiny things in them reflect the sky as brightly. A material's [occlusion map](#occlusion-maps) still darkens its own cracks. `view.AmbientOcclusion` only changes [how far and how dark](#ambient-occlusion). The [screen bounce](#light-bounced-across-the-screen) goes with it |
 | `ScreenBounce` | Surfaces on screen no longer [light their neighbours](#light-bounced-across-the-screen): the floor under a red ball stays its own colour, and a glowing panel lights nothing round it unless the light probes see it. The light probes still bounce light. It saves about 0.6 ms of GPU time a frame at 1920 by 1080 on an RTX 4060 Ti. `view.ScreenBounce` only changes how far and how much. `GraphicsQuality.Low` and `Graphics.Fastest()` turn it off |
+| `OcclusionHistory` | The [ambient occlusion](#ambient-occlusion) and the [screen bounce](#light-bounced-across-the-screen) are no longer averaged over the last frames. Each frame's grain is blurred away over a wider patch instead, so creases and the shade under things turn softer and small detail, such as the gap round a chest's lid, washes out. It saves about 0.1 ms of GPU time a frame at `OcclusionResolution.Half` and about 0.9 ms at `Full`, at 1600 by 900 on an RTX 4060 Ti, and four small images. `Graphics.Fastest()` turns it off |
 | `MultiscatterSpecular` | Rough surfaces lose the light that bounces between their tiny facets, so rough metals such as worn iron come out darker than they should, by up to half at full roughness. It costs almost nothing, so leave it on unless you're comparing |
 | `LightProbes` | No [bounced light](#bounced-light): shade takes its soft light from the sky alone, even inside a `view.LightProbes` box. No probes are drawn, and their memory, about 170 MB at `ProbeQuality.High`, is freed until it is switched back on, when every probe starts again. `Graphics.Fastest()` turns it off |
 | `ProbeQuality` | How many [light probes](#bounced-light) follow the camera and how many are redrawn a frame. `High`, the default and the best look, keeps 32 × 16 × 32 probes in each of the four boxes and redraws 32 a frame, for about 170 MB. `Medium` keeps 24 × 12 × 24 and redraws 16, for about 73 MB. `Low` keeps 16 × 8 × 16 and redraws 8, for about 43 MB, so the boxes reach half as far, the bounce fills in more slowly at the start and is slower to follow lights that move. Anything else is refused. A change starts every probe again on the next frame, which waits for the GPU once. `Graphics.Fastest()` sets `Low`, so turning the probes back on stays cheap |
@@ -476,6 +477,22 @@ A point in a corner also sees the sky only through the opening, so the soft ligh
 comes from that way rather than straight off the surface. Reflections of the sky fade in
 the same corners, most on rough surfaces, so a gap behind a barrel doesn't shine.
 It only knows what the camera sees, plus what stands over a point in the sun's shadow map.
+
+Each frame looks in only a few directions from every point, which leaves grain. The grain
+is averaged away over the last eight frames, following each surface as it and the camera
+move, and only a narrow blur that stays on the surface it started on comes after. That
+keeps the shade crisp: it stops at the edge of a step instead of spreading onto the next
+one, and a small model keeps its creases. It works the same with anti-aliasing off. The
+cost is that the shade takes about eight frames to catch up when something moves, so the
+floor a figure just left stays dark for a moment, and a surface that has just come into
+view is softer for its first few frames. Turn `Graphics.OcclusionHistory` off to blur each
+frame by itself instead, which is softer everywhere.
+
+![The Crypt's statue in plain clay three times: before the change, with OcclusionHistory off, and with it on](media/occlusion-history.webp)
+
+The statue in the Crypt, in plain clay with anti-aliasing off and enlarged. On the left is
+the older blur, which followed depth alone and washed the folds of the robe out. The other
+two keep them, with and without the average over frames.
 
 ## Light bounced across the screen
 

@@ -15,6 +15,8 @@ const float TRACE_MAX_ROUGHNESS = 0.45;
 // same everywhere and reversed-Z stores clip z / w, so dividing recovers the distance of
 // the stored surface. Under orthographic, w is always 1 and depth is even, so the
 // difference only needs scaling by how much depth one world unit is worth.
+float gapBehind(mat4 m, vec4 clip, float stored);
+
 float depthGap(sampler2D depthTexture, vec4 clip, out vec2 uv) {
     uv = clip.xy / clip.w * 0.5 + 0.5;
     float stored = texture(depthTexture, uv).r;
@@ -22,7 +24,12 @@ float depthGap(sampler2D depthTexture, vec4 clip, out vec2 uv) {
         return -1.0;
     }
 
-    mat4 m = frame.viewProjection;
+    return gapBehind(frame.viewProjection, clip, stored);
+}
+
+// The same for a depth already read, above 0, and any camera: m is the camera's view and projection, which clip
+// was made with.
+float gapBehind(mat4 m, vec4 clip, float stored) {
     bool parallel = m[0][3] == 0.0 && m[1][3] == 0.0 && m[2][3] == 0.0;
     if (parallel) {
         return (stored - clip.z) / length(vec3(m[0][2], m[1][2], m[2][2]));

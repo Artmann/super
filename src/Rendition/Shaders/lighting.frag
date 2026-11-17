@@ -523,9 +523,14 @@ vec4 screenOcclusionAt(ivec2 pixel, float depth, out vec3 bounce) {
         return vec4(octahedralDecode(own.xy * 2.0 - 1.0), own.z);
     }
 
-    ivec2 fromFirst = pixel - tracedCorner();
-    ivec2 first = fromFirst >> 1;
-    vec2 between = vec2(fromFirst & 1) * 0.5;
+    // One frame's occlusion belongs to the pixel traced that frame. Averaged over the last frames by ao_temporal.frag
+    // it belongs to all four pixels of its block alike, so to the block's middle: read as if it sat on this frame's
+    // traced pixel, the shading of a crease would shift by a pixel from frame to frame. The texture's alpha counts
+    // the frames averaged, as a share of eight, and four of them have been round the block once.
+    float averaged = clamp((texelFetch(ambientOcclusionTexture, min(pixel >> 1, cells - 1), 0).a * 8.0 - 1.0) / 3.0, 0.0, 1.0);
+    vec2 fromFirst = vec2(pixel) - mix(vec2(tracedCorner()), vec2(0.5), averaged);
+    ivec2 first = ivec2(floor(fromFirst * 0.5));
+    vec2 between = fromFirst * 0.5 - vec2(first);
 
     vec3 bent = vec3(0.0);
     float visibility = 0.0;
@@ -535,7 +540,11 @@ vec4 screenOcclusionAt(ivec2 pixel, float depth, out vec3 bounce) {
         ivec2 corner = ivec2(i & 1, i >> 1);
         ivec2 cell = clamp(first + corner, ivec2(0), cells - 1);
         vec4 tap = texelFetch(ambientOcclusionTexture, cell, 0);
-        float fromDepth = texelFetch(depthTexture, tracedPixel(cell, size), 0).r;
+        // An averaged cell is compared by the pixel that sits in its block where this pixel sits in its own, which is
+        // the same every frame. A block across the edge of something in front never gets that far: its history starts
+        // over each time the traced pixel changes surface.
+        ivec2 from = averaged > 0.5 ? min(cell * 2 + (pixel & 1), size - 1) : tracedPixel(cell, size);
+        float fromDepth = texelFetch(depthTexture, from, 0).r;
         vec2 nearness = mix(1.0 - between, between, vec2(corner));
         // A little weight even at no nearness and across an edge, so the pixel always has something to read.
         float weight = (nearness.x * nearness.y + 0.02)
