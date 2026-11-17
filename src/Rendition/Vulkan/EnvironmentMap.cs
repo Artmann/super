@@ -10,19 +10,19 @@ namespace Rendition.Vulkan;
 /// Cube maps of the surrounding studio. Reflections holds one mip per roughness step,
 /// Irradiance holds the soft light that reaches a matte surface, and Sky is the sharp
 /// studio without its panels, or the clear sky without its sun disc, the same light the
-/// irradiance is made from.
+/// irradiance is made from. <see cref="Record"/> redraws all three in any command buffer
+/// without waiting, so the sky can change every frame.
 /// </summary>
 internal sealed unsafe class EnvironmentMap : IDisposable
 {
     private const uint ReflectionSize = 512;
     private const uint IrradianceSize = 32;
     private const uint SkySize = 64;
+    private const uint SkyMips = 7;
     private const int MaxPanels = 8;
 
     /// <summary>One roughness step per mip. REFLECTION_LODS in Shaders/lighting.frag must be one less.</summary>
     private const int ReflectionMips = 6;
-
-    private const Format CubeFormat = Format.R16G16B16A16Sfloat;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct GpuPanel
@@ -60,34 +60,18 @@ internal sealed unsafe class EnvironmentMap : IDisposable
         public GpuPanelArray Panels;
     }
 
-    /// <summary>Must match the Bake block in Shaders/environment.comp.</summary>
-    [StructLayout(LayoutKind.Sequential)]
-    private struct BakeConstants
-    {
-        public int Irradiance;
-        public float Roughness;
-        public int Sky;
-    }
-
-    /// <summary>A cube image, a view for sampling it and one writable view per mip.</summary>
-    private readonly struct Cube(Image image, GpuAllocation memory, ImageView sampled, ImageView[] mips)
-    {
-        public readonly Image Image = image;
-        public readonly GpuAllocation Memory = memory;
-        public readonly ImageView Sampled = sampled;
-        public readonly ImageView[] Mips = mips;
-    }
-
     private readonly VulkanContext _context;
-    private readonly Cube _reflections;
-    private readonly Cube _irradiance;
-    private readonly Cube _sky;
+    private readonly EnvironmentCube _reflections;
+    private readonly EnvironmentCube _irradiance;
+    private readonly EnvironmentCube _sky;
+
+    /// <summary>The sky's sharpest level alone, as every reader outside this class has always seen it.</summary>
+    private readonly ImageView _skyTop;
+
     private readonly GpuBuffer _uniforms;
-    private readonly DescriptorSetLayout _setLayout;
-    private readonly DescriptorPool _pool;
-    private readonly DescriptorSet[] _sets = new DescriptorSet[ReflectionMips + 2];
-    private readonly PipelineLayout _pipelineLayout;
-    private readonly LivePipeline _pipeline;
+    private readonly GpuBuffer _readback;
+    private readonly EnvironmentPrefilter _prefilter;
+    private GpuEnvironment _description;
 
     public readonly Sampler Sampler;
     public ImageView Reflections => _reflections.Sampled;
@@ -97,25 +81,35 @@ internal sealed unsafe class EnvironmentMap : IDisposable
     /// What the light probes see past the scene. Direct lights already give the panels'
     /// diffuse light, so a probe that saw them would count it twice. The sun's disc stays out for the same reason.
     /// </summary>
-    public ImageView Sky => _sky.Sampled;
+    public ImageView Sky => _skyTop;
 
     /// <summary>
     /// What Graphics.EnvironmentLight off gives every side: the irradiance cube's average, the sky's average soft light,
     /// since each face's middle already gathers the half of the sky it faces; and the reflections' average at their
-    /// roughest level. Worked out once per bake by <see cref="CubeCentres"/>, so the shaders read one colour instead of
-    /// six lookups a pixel.
+    /// roughest level. Each <see cref="Record"/> copies the face middles into a buffer the CPU reads, so the shaders
+    /// read one colour instead of six lookups a pixel. After <see cref="Bake"/> it is exact; after a recorded update
+    /// it is the last one the GPU has finished.
     /// </summary>
-    public (Vector3 Irradiance, Vector3 Reflection) Flat { get; private set; }
+    public (Vector3 Irradiance, Vector3 Reflection) Flat
+    {
+        get
+        {
+            var halves = new ReadOnlySpan<Half>(_readback.Mapped, 2 * CubeCentres.Halves);
+            return (CubeCentres.Mean(halves[..CubeCentres.Halves]), CubeCentres.Mean(halves[CubeCentres.Halves..]));
+        }
+    }
 
     public EnvironmentMap(VulkanContext context)
     {
         _context = context;
-        var api = context.Api;
-
-        _reflections = CreateCube(ReflectionSize, ReflectionMips);
-        _irradiance = CreateCube(IrradianceSize, 1);
-        _sky = CreateCube(SkySize, 1);
-        _uniforms = GpuBuffer.CreateHostVisible(context, (ulong)sizeof(GpuEnvironment), BufferUsageFlags.UniformBufferBit);
+        _reflections = new EnvironmentCube(context, ReflectionSize, ReflectionMips);
+        _irradiance = new EnvironmentCube(context, IrradianceSize, 1);
+        _sky = new EnvironmentCube(context, SkySize, SkyMips);
+        _skyTop = _sky.CreateView(1);
+        _uniforms = new GpuBuffer(context, (ulong)sizeof(GpuEnvironment),
+            BufferUsageFlags.UniformBufferBit | BufferUsageFlags.TransferDstBit, MemoryPropertyFlags.DeviceLocalBit);
+        _readback = GpuBuffer.CreateHostVisible(context, 2 * CubeCentres.Bytes, BufferUsageFlags.TransferDstBit);
+        new Span<byte>(_readback.Mapped, (int)_readback.Size).Clear();
 
         var samplerInfo = new SamplerCreateInfo
         {
@@ -128,96 +122,43 @@ internal sealed unsafe class EnvironmentMap : IDisposable
             AddressModeW = SamplerAddressMode.ClampToEdge,
             MaxLod = Vk.LodClampNone,
         };
-        api.CreateSampler(context.Device, &samplerInfo, null, out Sampler).Check();
-
-        _setLayout = context.CreateSetLayout(
-        [
-            new(0, DescriptorType.UniformBuffer, 1, ShaderStageFlags.ComputeBit),
-            new(1, DescriptorType.StorageImage, 1, ShaderStageFlags.ComputeBit),
-        ]);
-
-        uint setCount = (uint)_sets.Length;
-        _pool = context.CreateDescriptorPool(
-            setCount,
-            new DescriptorPoolSize(DescriptorType.UniformBuffer, setCount),
-            new DescriptorPoolSize(DescriptorType.StorageImage, setCount));
-
-        for (int i = 0; i < _sets.Length; i++)
-        {
-            _sets[i] = CreateBakeSet(i < ReflectionMips ? _reflections.Mips[i] : i == ReflectionMips ? _irradiance.Mips[0] : _sky.Mips[0]);
-        }
-
-        _pipelineLayout = context.CreatePipelineLayout(
-            [_setLayout],
-            new PushConstantRange(ShaderStageFlags.ComputeBit, 0, (uint)sizeof(BakeConstants)));
-        _pipeline = PipelineFactory.CreateCompute(context, "environment.comp", _pipelineLayout);
+        context.Api.CreateSampler(context.Device, &samplerInfo, null, out Sampler).Check();
+        _prefilter = new EnvironmentPrefilter(context, _uniforms, Sampler, (_reflections, _irradiance, _sky));
     }
 
-    /// <summary>
-    /// Renders the studio, or a clear sky over its floor, into the cube maps. Each level runs
-    /// separately to keep GPU work short.
-    /// </summary>
+    /// <summary>The cube level a test reads back.</summary>
+    internal CubeLevel ReflectionLevel(int mip) => _reflections.Level(mip);
+
+    /// <summary>Renders the studio, or a clear sky over its floor, into the cube maps, and waits for it.</summary>
     public void Bake(in EnvironmentDescription description, in SkySun sky)
     {
-        WriteUniforms(description);
+        SetDescription(description);
         Rebake(sky);
     }
 
-    /// <summary>
-    /// Renders the cube maps again from the last <see cref="Bake"/>'s bands and panels with another
-    /// clear sky. Only the reflections' sharpest level shows the sun's disc: the direct light
-    /// already gives a surface the sun's diffuse light and its highlight, so the soft light and the
-    /// rougher levels would count it twice. Their sky still brightens round the sun.
-    /// </summary>
+    /// <summary>Renders the cube maps again from the last description with another clear sky, and waits for it.</summary>
     public void Rebake(in SkySun sky)
     {
-        var uniforms = (GpuEnvironment*)_uniforms.Mapped;
-        uniforms->SkySun = new Vector4(sky.Direction, sky.Turbidity);
-        uniforms->SunDisc = new Vector4(sky.DiscRadiance, sky.DiscCosine);
-
-        for (int mip = 0; mip < ReflectionMips; mip++)
-        {
-            var constants = new BakeConstants { Roughness = mip / (float)(ReflectionMips - 1) };
-            BakeLevel(_reflections.Image, mip, _sets[mip], ReflectionSize >> mip, constants);
-        }
-
-        BakeLevel(_irradiance.Image, 0, _sets[ReflectionMips], IrradianceSize, new BakeConstants { Irradiance = 1 });
-        BakeLevel(_sky.Image, 0, _sets[ReflectionMips + 1], SkySize, new BakeConstants { Sky = 1 });
-        Flat = CubeCentres.Average(_context,
-            new CubeLevel(_irradiance.Image, 0, IrradianceSize),
-            new CubeLevel(_reflections.Image, ReflectionMips - 1, ReflectionSize >> (ReflectionMips - 1)));
+        var copy = sky;
+        _context.SubmitAndWait(cmd => Record(cmd, copy));
     }
 
-    public void Dispose()
+    /// <summary>Keeps the bands and panels for the next <see cref="Record"/>. Nothing is drawn yet.</summary>
+    public void SetDescription(in EnvironmentDescription description)
     {
-        var api = _context.Api;
-        _pipeline.Destroy();
-        api.DestroyPipelineLayout(_context.Device, _pipelineLayout, null);
-        api.DestroyDescriptorPool(_context.Device, _pool, null);
-        api.DestroyDescriptorSetLayout(_context.Device, _setLayout, null);
-        api.DestroySampler(_context.Device, Sampler, null);
-        _uniforms.Dispose();
-        DestroyCube(_sky);
-        DestroyCube(_irradiance);
-        DestroyCube(_reflections);
-    }
-
-    private void WriteUniforms(in EnvironmentDescription description)
-    {
-        var uniforms = (GpuEnvironment*)_uniforms.Mapped;
-        uniforms->Ceiling = new Vector4(description.Ceiling, 0f);
-        uniforms->Horizon = new Vector4(description.Horizon, 0f);
-        uniforms->Floor = new Vector4(description.Floor, 0f);
+        _description.Ceiling = new Vector4(description.Ceiling, 0f);
+        _description.Horizon = new Vector4(description.Horizon, 0f);
+        _description.Floor = new Vector4(description.Floor, 0f);
 
         int count = Math.Min(description.Panels.Length, MaxPanels);
-        uniforms->PanelCount = count;
+        _description.PanelCount = count;
         for (int i = 0; i < count; i++)
         {
             ref readonly var panel = ref description.Panels[i];
             var direction = Vector3.Normalize(panel.Direction);
             var worldUp = MathF.Abs(direction.Y) > 0.99f ? Vector3.UnitZ : Vector3.UnitY;
             var right = Vector3.Normalize(Vector3.Cross(worldUp, direction));
-            uniforms->Panels[i] = new GpuPanel
+            _description.Panels[i] = new GpuPanel
             {
                 Direction = new Vector4(direction, 0f),
                 Right = new Vector4(right, panel.HalfWidth),
@@ -227,121 +168,44 @@ internal sealed unsafe class EnvironmentMap : IDisposable
         }
     }
 
-    private void BakeLevel(Image image, int mip, DescriptorSet set, uint size, BakeConstants constants)
+    /// <summary>
+    /// Records a redraw of all three cubes from the last description and this clear sky. It waits on the GPU for
+    /// earlier work that reads the cubes and makes later work wait for it, so it can go anywhere in a frame before the
+    /// cubes are read. Only the reflections' sharpest level shows the sun's disc: the direct light already gives a
+    /// surface the sun's diffuse light and its highlight, so the soft light and the rougher levels would count it
+    /// twice. Their sky still brightens round the sun.
+    /// </summary>
+    public void Record(CommandBuffer cmd, in SkySun sky)
     {
         var api = _context.Api;
-        var pipeline = _pipeline;
-        var layout = _pipelineLayout;
+        _description.SkySun = new Vector4(sky.Direction, sky.Turbidity);
+        _description.SunDisc = new Vector4(sky.DiscRadiance, sky.DiscCosine);
 
-        _context.SubmitAndWait(cmd =>
-        {
-            api.Transition(cmd, image, ImageAspectFlags.ColorBit, ImageLayout.Undefined, ImageLayout.General,
-                PipelineStageFlags2.None, AccessFlags2.None,
-                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-                baseMip: (uint)mip, layerCount: 6);
+        // Earlier frames may still read the uniforms and cubes and copy into the readback buffer.
+        api.MemoryBarrier(cmd, (PipelineStageFlags2.AllCommandsBit, AccessFlags2.TransferWriteBit),
+            (PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit));
+        var description = _description;
+        api.CmdUpdateBuffer(cmd, _uniforms.Handle, 0, (ulong)sizeof(GpuEnvironment), &description);
+        api.MemoryBarrier(cmd, (PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit),
+            (PipelineStageFlags2.ComputeShaderBit, AccessFlags2.UniformReadBit));
 
-            var boundSet = set;
-            var push = constants;
-            api.CmdBindPipeline(cmd, PipelineBindPoint.Compute, pipeline);
-            api.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, layout, 0, 1, &boundSet, 0, null);
-            api.CmdPushConstants(cmd, layout, ShaderStageFlags.ComputeBit, 0, (uint)sizeof(BakeConstants), &push);
-            uint groups = (size + 7) / 8;
-            api.CmdDispatch(cmd, groups, groups, 6);
+        _prefilter.Record(cmd);
 
-            api.Transition(cmd, image, ImageAspectFlags.ColorBit, ImageLayout.General, ImageLayout.ShaderReadOnlyOptimal,
-                PipelineStageFlags2.ComputeShaderBit, AccessFlags2.ShaderStorageWriteBit,
-                PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit,
-                baseMip: (uint)mip, layerCount: 6);
-        });
+        CubeCentres.Record(api, cmd, _irradiance.Level(0), _readback.Handle, 0);
+        CubeCentres.Record(api, cmd, _reflections.Level(ReflectionMips - 1), _readback.Handle, CubeCentres.Bytes);
+        api.MemoryBarrier(cmd, (PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit),
+            (PipelineStageFlags2.HostBit, AccessFlags2.HostReadBit));
     }
 
-    private DescriptorSet CreateBakeSet(ImageView target)
+    public void Dispose()
     {
-        var api = _context.Api;
-        var set = _context.AllocateSet(_pool, _setLayout);
-
-        var bufferInfo = new DescriptorBufferInfo(_uniforms.Handle, 0, (ulong)sizeof(GpuEnvironment));
-        var imageInfo = new DescriptorImageInfo(default, target, ImageLayout.General);
-        var writes = stackalloc WriteDescriptorSet[]
-        {
-            new()
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = set,
-                DstBinding = 0,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.UniformBuffer,
-                PBufferInfo = &bufferInfo,
-            },
-            new()
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = set,
-                DstBinding = 1,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.StorageImage,
-                PImageInfo = &imageInfo,
-            },
-        };
-        api.UpdateDescriptorSets(_context.Device, 2, writes, 0, null);
-        return set;
-    }
-
-    private Cube CreateCube(uint size, uint mipCount)
-    {
-        var api = _context.Api;
-        var imageInfo = new ImageCreateInfo
-        {
-            SType = StructureType.ImageCreateInfo,
-            Flags = ImageCreateFlags.CreateCubeCompatibleBit,
-            ImageType = ImageType.Type2D,
-            Format = CubeFormat,
-            Extent = new Extent3D(size, size, 1),
-            MipLevels = mipCount,
-            ArrayLayers = 6,
-            Samples = SampleCountFlags.Count1Bit,
-            Tiling = ImageTiling.Optimal,
-            Usage = ImageUsageFlags.StorageBit | ImageUsageFlags.SampledBit | ImageUsageFlags.TransferSrcBit,
-            SharingMode = SharingMode.Exclusive,
-            InitialLayout = ImageLayout.Undefined,
-        };
-        api.CreateImage(_context.Device, &imageInfo, null, out var image).Check();
-
-        api.GetImageMemoryRequirements(_context.Device, image, out var requirements);
-        var memory = _context.Memory.AllocateImage(requirements, MemoryPropertyFlags.DeviceLocalBit);
-        api.BindImageMemory(_context.Device, image, memory.Memory, memory.Offset).Check();
-
-        var viewInfo = new ImageViewCreateInfo
-        {
-            SType = StructureType.ImageViewCreateInfo,
-            Image = image,
-            ViewType = ImageViewType.TypeCube,
-            Format = CubeFormat,
-            SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, mipCount, 0, 6),
-        };
-        api.CreateImageView(_context.Device, &viewInfo, null, out var sampled).Check();
-
-        var mips = new ImageView[mipCount];
-        for (uint mip = 0; mip < mipCount; mip++)
-        {
-            viewInfo.ViewType = ImageViewType.Type2DArray;
-            viewInfo.SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, mip, 1, 0, 6);
-            api.CreateImageView(_context.Device, &viewInfo, null, out mips[mip]).Check();
-        }
-
-        return new Cube(image, memory, sampled, mips);
-    }
-
-    private void DestroyCube(in Cube cube)
-    {
-        var api = _context.Api;
-        foreach (var view in cube.Mips)
-        {
-            api.DestroyImageView(_context.Device, view, null);
-        }
-
-        api.DestroyImageView(_context.Device, cube.Sampled, null);
-        api.DestroyImage(_context.Device, cube.Image, null);
-        _context.Memory.Free(cube.Memory);
+        _prefilter.Dispose();
+        _context.Api.DestroySampler(_context.Device, Sampler, null);
+        _readback.Dispose();
+        _uniforms.Dispose();
+        _context.Api.DestroyImageView(_context.Device, _skyTop, null);
+        _sky.Dispose();
+        _irradiance.Dispose();
+        _reflections.Dispose();
     }
 }

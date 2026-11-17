@@ -9,31 +9,21 @@ internal readonly record struct CubeLevel(Image Image, int Mip, uint Size);
 
 /// <summary>
 /// A cube level's average, from the middles of its six faces: the 2 x 2 texels round each middle, which is what a
-/// linear lookup straight at it blends. Read back to the CPU, so call it while loading or baking, not every frame.
+/// linear lookup straight at it blends. <see cref="Record"/> copies them into a buffer the CPU can read, in the same
+/// command buffer as the work that drew the level, and <see cref="Mean"/> averages what it copied.
 /// </summary>
 internal static unsafe class CubeCentres
 {
-    private const int Texels = 6 * 2 * 2;
-    private const int Floats = Texels * 4;
-    private const ulong Bytes = Floats * sizeof(ushort);
+    /// <summary>The halves one level's copy takes: 6 faces of 2 x 2 texels of 4 channels.</summary>
+    public const int Halves = 6 * 2 * 2 * 4;
 
-    /// <summary>Averages two levels in one trip to the GPU.</summary>
-    public static (Vector3 First, Vector3 Second) Average(VulkanContext context, CubeLevel first, CubeLevel second)
-    {
-        using var buffer = GpuBuffer.CreateHostVisible(context, 2 * Bytes, BufferUsageFlags.TransferDstBit);
-        var api = context.Api;
-        var handle = buffer.Handle;
-        context.SubmitAndWait(cmd =>
-        {
-            Copy(api, cmd, first, handle, 0);
-            Copy(api, cmd, second, handle, Bytes);
-        });
+    public const ulong Bytes = Halves * sizeof(ushort);
 
-        var halves = new ReadOnlySpan<Half>(buffer.Mapped, 2 * Floats);
-        return (Mean(halves[..Floats]), Mean(halves[Floats..]));
-    }
-
-    private static void Copy(Vk api, CommandBuffer cmd, CubeLevel level, Buffer buffer, ulong offset)
+    /// <summary>
+    /// Copies the level's face middles to <paramref name="buffer"/> at <paramref name="offset"/>, after the compute
+    /// work that drew it, and leaves it ready for any shader to sample.
+    /// </summary>
+    public static void Record(Vk api, CommandBuffer cmd, CubeLevel level, Buffer buffer, ulong offset)
     {
         api.Transition(cmd, level.Image, ImageAspectFlags.ColorBit,
             ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferSrcOptimal,
@@ -54,11 +44,12 @@ internal static unsafe class CubeCentres
         api.Transition(cmd, level.Image, ImageAspectFlags.ColorBit,
             ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal,
             PipelineStageFlags2.CopyBit, AccessFlags2.None,
-            PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderSampledReadBit,
+            PipelineStageFlags2.AllCommandsBit, AccessFlags2.ShaderSampledReadBit,
             baseMip: (uint)level.Mip, layerCount: 6);
     }
 
-    private static Vector3 Mean(ReadOnlySpan<Half> rgba)
+    /// <summary>The mean colour of one level's copied texels.</summary>
+    public static Vector3 Mean(ReadOnlySpan<Half> rgba)
     {
         var sum = Vector3.Zero;
         for (int i = 0; i < rgba.Length; i += 4)

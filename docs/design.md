@@ -1392,8 +1392,10 @@ Bits 19 to 28 skip no pass either; each is read where its effect is made:
 - `EnvironmentLight` (bit 21, `OFF_ENVIRONMENT_LIGHT`): every read of the sky's irradiance and
   reflection cubes outside the probes goes through `skyIrradiance` and `skyReflection` in
   `common.glsl`, which return `frame.flatIrradiance` and `frame.flatReflection`. Those are the
-  mean of each cube's six face centres at its coarsest mip, which `CubeCentres` reads back
-  once per bake, so the switch costs no lookups at all. Working it out per pixel took six and
+  mean of each cube's six face centres at its coarsest mip, which `CubeCentres` copies into a
+  host-visible buffer at the end of each update, in the same command buffer, so reading them
+  waits for nothing and the switch costs no lookups at all. After an update recorded in a
+  frame, they are the last finished update's. Working it out per pixel took six and
   made the lighting pass slower with the switch off than on. `probe_trace.comp` and
   `probe_fold.comp` still see the real sky, so the bounce keeps its colour.
 - `Emissive` (bit 22, `OFF_EMISSIVE`): `writeSurface()` zeroes `surface.emissive` after the surface
@@ -1450,11 +1452,33 @@ Super's `Graphics.MultiscatterSpecular`.
 ## Environment lighting
 
 `Renderer.SetEnvironment` describes the surroundings as colour bands plus up to
-eight glowing panels, and a compute shader bakes that into two cube maps. One holds
+eight glowing panels, and `EnvironmentMap` turns that into two cube maps. One holds
 a blurred reflection per roughness step and the other the soft light on matte
 surfaces. Lighting then needs a single lookup per pixel. It's generated rather than
 loaded from a photo, so a game can describe its own space and the softboxes can
-line up with the lights. Baking waits for the GPU, so it belongs in loading.
+line up with the lights.
+
+`EnvironmentMap.Record` writes the whole update into a command buffer, with barriers on
+both sides, so it can go in a frame without waiting for the GPU. `EnvironmentPrefilter`
+records the draws and filters, each through a `CubeShader`. `environment.comp` draws
+three levels analytically: a private 256² source cube (bands or clear sky, with panels,
+without the sun's disc), mip 0 of the reflection cube (with the disc), and the 64² `Sky`
+cube (no panels, no disc). The source and sky cubes get their mips by linear blits.
+`environment_filter.comp` then filters the rest from those mip chains by filtered
+importance sampling (Colbert and Křivánek): each sample reads its source at
+`lod = max(0.5 · log2(Ωs / Ωp), 0)`, where `Ωs = 1 / (N · pdf)` is the sample's share of the
+sphere and `Ωp = 4π / (6 · size²)` a source texel's, so a few samples read pre-blurred
+texels instead of many reading sharp ones. The paper adds 1 to the lod; here that blurred the
+rough mips past a 4096-sample reference and pulled the floor up into the lobe, so the bias
+is 0. Reflection mips 1 to 5 use GGX with V = N at roughness `mip / 5`, `pdf = D / 4`, from
+32 samples at mip 1 doubling each level to 512 at mip 5, since the rougher lobes cover more
+of the sphere and the smaller mips cost the same in all. The irradiance cube takes 256
+cosine-weighted samples of the sky cube, `pdf = cos θ / π`. On an RTX 4060 Ti the whole
+update takes about 0.5 ms of GPU time.
+
+`Bake` and `Rebake` are `SetDescription` plus `Record` in a submit that waits, for loading
+and tests. `Sky` is a view of the sky cube's first mip only, so captures and `SkySh` see
+one level as before.
 
 Panels appear only in reflections. The direct lights already provide their diffuse
 light, and baking it too would count that light twice and overexpose the scene. A third,

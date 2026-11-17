@@ -1995,18 +1995,6 @@
     },
     {
       "kind": "long-method",
-      "name": "Rendition.Vulkan.EnvironmentMap.CreateCube",
-      "file": "src/Rendition/Vulkan/EnvironmentMap.cs",
-      "metric": 43
-    },
-    {
-      "kind": "long-method",
-      "name": "Rendition.Vulkan.EnvironmentMap.EnvironmentMap",
-      "file": "src/Rendition/Vulkan/EnvironmentMap.cs",
-      "metric": 44
-    },
-    {
-      "kind": "long-method",
       "name": "Rendition.Vulkan.ExposureMeter.ExposureMeter",
       "file": "src/Rendition/Vulkan/ExposureMeter.cs",
       "metric": 48
@@ -3641,7 +3629,7 @@
       "kind": "large-type",
       "name": "Rendition.Vulkan.EnvironmentMap",
       "file": "src/Rendition/Vulkan/EnvironmentMap.cs",
-      "metric": 24
+      "metric": 21
     },
     {
       "kind": "large-type",
@@ -4057,7 +4045,10 @@
         "Rendition.Vulkan.CaptureCube",
         "Rendition.Vulkan.CubeCentres",
         "Rendition.Vulkan.CubeLevel",
+        "Rendition.Vulkan.CubeShader<TConstants>",
+        "Rendition.Vulkan.EnvironmentCube",
         "Rendition.Vulkan.EnvironmentMap",
+        "Rendition.Vulkan.EnvironmentPrefilter",
         "Rendition.Vulkan.ExposureMeter",
         "Rendition.Vulkan.FogVolumeBuffers",
         "Rendition.Vulkan.Fsr",
