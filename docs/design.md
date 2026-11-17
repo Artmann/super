@@ -1476,8 +1476,14 @@ of the sphere and the smaller mips cost the same in all. The irradiance cube tak
 cosine-weighted samples of the sky cube, `pdf = cos θ / π`. On an RTX 4060 Ti the whole
 update takes about 0.5 ms of GPU time.
 
-`Bake` and `Rebake` are `SetDescription` plus `Record` in a submit that waits, for loading
-and tests. `Sky` is a view of the sky cube's first mip only, so captures and `SkySh` see
+`Bake` is `SetDescription` plus `Record` in a submit that waits, for tests. The renderer
+keeps the description and the clear sky, marks the environment pending when either
+changes, and records the update in the next frame's command buffer, right after the GPU
+timer starts, as the "Sky" pass. The bake slice and chunk copies recorded before it in that
+frame still read the previous sky, a frame behind. The paths that draw outside a frame (a
+blocking bake, a reflection probe capture, the constructor) call `FlushEnvironment`, which
+records a pending update in its own submit and waits. `Flat` follows a frame or two behind,
+since it reads what the GPU last finished. `Sky` is a view of the sky cube's first mip only, so captures and `SkySh` see
 one level as before.
 
 Panels appear only in reflections. The direct lights already provide their diffuse
@@ -1495,8 +1501,8 @@ from the camera, so a tall tree fades no sooner than the ground it stands on.
 The direction used to look up the cube is still taken from the camera.
 
 Super keeps one set of bands, from water first, then the sky, then the plain studio, and
-bakes them again only when they change, so a steady sky costs nothing per frame but a
-sky animated every frame would rebake every frame.
+sets them again only when they change, so a steady sky costs nothing per frame and a sky
+animated every frame costs the update's half millisecond each frame, with no wait.
 
 ### The clear sky
 
@@ -1529,9 +1535,9 @@ overflows at the horizon, and a sun straight below the horizon takes a level dir
 
 The frame uniforms carry `skySun` (towards the sun, and the turbidity) and `sunDisc`
 (its radiance, and the cosine of its radius). The renderer compares `SkyModel.Sun` with
-what it last baked each frame and, on a change, waits for the GPU and runs
-`EnvironmentMap.Rebake` with the same bands, so moving the sun under a clear sky rebakes
-every frame. That doesn't bump the environment version: the lighting hashes that decide
+what it last baked each frame and, on a change, marks the environment pending so the
+frame records the update with the same bands, so moving the sun under a clear sky
+updates it every frame without waiting. That doesn't bump the environment version: the lighting hashes that decide
 when probes recapture already cover the turbidity, the lights and `LightAngle`. The uniforms
 take `skySun` and `sunDisc` from that baked `SkySun`, not from the view being drawn, so a
 frame drawn again without a baked sun keeps the sky's sun (see "Each frame's bakes").
@@ -3721,8 +3727,9 @@ Uploads ride the next frame. `CreateMesh`, `CreateDrawItem`, `CreateTexture` and
 `UploadQueue`. The next `Render` records every queued copy, with its layout
 transitions, at the start of its command buffer, so a resource made before a
 `Render` is drawable in that same frame. The staging buffer is retired through the
-destroy queue below. `CreateSurfaceShader`, `SetEnvironment`, `SetOverlayAtlas` and
-probe capture still wait, and say so: they're for loading screens.
+destroy queue below. `SetEnvironment` rides the next frame too (see "Environment
+lighting"). `CreateSurfaceShader`, `SetOverlayAtlas` and probe capture still wait, and say
+so: they're for loading screens.
 
 Destroying returns at once. The resource is added to the destroy slot of the frame
 most recently submitted, and released when a later `Render` has waited on that

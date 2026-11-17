@@ -133,12 +133,6 @@ internal sealed unsafe class EnvironmentMap : IDisposable
     public void Bake(in EnvironmentDescription description, in SkySun sky)
     {
         SetDescription(description);
-        Rebake(sky);
-    }
-
-    /// <summary>Renders the cube maps again from the last description with another clear sky, and waits for it.</summary>
-    public void Rebake(in SkySun sky)
-    {
         var copy = sky;
         _context.SubmitAndWait(cmd => Record(cmd, copy));
     }

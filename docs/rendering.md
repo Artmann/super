@@ -1225,8 +1225,8 @@ soft light, in rough reflections or in what [probes](#bounced-light) capture: th
 own light already gives those their highlight and their warmth. Moving the sun or
 changing the turbidity rebuilds the sky's lighting, the same as changing its colours.
 
-Changing the colours rebuilds the sky's lighting, which takes a moment, so keep them
-steady rather than animating them every frame. [Water](#water), when set, takes over the
+The sky's lighting is rebuilt on the GPU within the frame, in about half a millisecond, so the
+colours, the turbidity and the sun can change every frame, for a sunset or a turning day. [Water](#water), when set, takes over the
 sky. The [Archer example](../examples/Archer) uses a golden-hour sky, and the
 [Courtyard example](../examples/Courtyard) a clear one.
 
